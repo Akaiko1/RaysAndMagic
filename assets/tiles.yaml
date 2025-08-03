@@ -1,0 +1,202 @@
+tiles:
+  # Basic terrain types
+  empty:
+    name: "Empty Space"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [60, 180, 60]  # Green grass
+    letter: "."
+    
+  wall:
+    name: "Stone Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [64, 64, 64]  # Gray stone wall
+    letter: "#"
+    
+  water:
+    name: "Water"
+    solid: false
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [100, 150, 255]  # Blue water
+    letter: "W"
+    
+  door:
+    name: "Door"
+    solid: true
+    transparent: false
+    walkable: false  # Can be changed to true when opened
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [139, 69, 19]  # Brown wooden door
+    letter: "D"
+    
+  stairs:
+    name: "Stairs"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [160, 160, 160]  # Light gray stone stairs
+    letter: "^"
+
+  # Natural features - Trees
+  tree:
+    name: "Forest Tree"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 2.0
+    sprite: "tree"
+    render_type: "tree_sprite"
+    wall_color: [101, 67, 33]  # Brown tree bark
+    floor_near_color: [20, 90, 20]  # Dark green near trees
+    letter: "T"
+    
+  ancient_tree:
+    name: "Ancient Tree"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 2.0
+    sprite: "ancient_tree"
+    render_type: "tree_sprite"
+    wall_color: [69, 39, 19]  # Darker brown ancient bark
+    floor_near_color: [20, 90, 20]  # Dark green near trees
+    letter: "A"
+    
+  thicket:
+    name: "Dense Undergrowth"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 0.8
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [34, 80, 34]  # Dark green thicket
+    letter: "%"
+    
+  moss_rock:
+    name: "Moss-covered Stone"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "moss_rock"
+    render_type: "environment_sprite"
+    wall_color: [105, 105, 105]  # Gray rock
+    letter: "R"
+
+  # Environmental features - Walkable but visible
+  mushroom_ring:
+    name: "Magical Fairy Ring"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "mushroom_ring"
+    render_type: "environment_sprite"
+    letter: "M"
+    
+  forest_stream:
+    name: "Flowing Water"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "forest_stream"
+    render_type: "flooring_object"
+    letter: "S"
+    
+  fern_patch:
+    name: "Dense Ferns"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "fern_patch"
+    render_type: "environment_sprite"
+    letter: "P"
+    
+  firefly_swarm:
+    name: "Magical Lights"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "firefly_swarm"
+    render_type: "environment_sprite"
+    letter: "F"
+    
+  clearing:
+    name: "Open Grass Area"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "grass"
+    render_type: "flooring_object"
+    floor_color: [80, 200, 80]  # Brighter green for clearings
+    letter: "C"
+
+  # Special tiles
+  spawn:
+    name: "Starting Position"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [255, 0, 0]  # Bright red for spawn point
+    letter: "+"
+
+  # Variable height walls
+  low_wall:
+    name: "Short Defensive Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 0.5
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [120, 120, 120]  # Light gray low wall
+    letter: "-"
+    
+  high_wall:
+    name: "Tall Fortification"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.5
+    sprite: ""
+    render_type: "textured_wall"
+    wall_color: [40, 40, 40]  # Dark gray high wall
+    letter: "="
+
+  # Test dynamic tile - this will get a dynamically assigned TileType3D
+  crystal:
+    name: "Magic Crystal"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.2
+    sprite: "crystal"
+    render_type: "environment_sprite"
+    floor_color: [150, 100, 255]  # Purple glow
+    letter: "X"
