@@ -1,0 +1,90 @@
+special_tiles:
+  # Violet Teleporter - randomly teleports to other violet teleporters across maps
+  vteleporter:
+    name: "Violet Teleporter"
+    type: "teleporter"
+    description: "A magical violet portal that randomly teleports you to another violet teleporter"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [138, 43, 226]  # Violet/Purple RGB
+    properties:
+      cooldown_seconds: 5
+      teleporter_group: "violet"    # Only teleports to same group
+      cross_map: true               # Can teleport between maps
+      auto_activate: true           # Activates when stepped on
+      random_destination: true      # Picks random teleporter from group
+      exclude_self: true           # Won't teleport to same teleporter
+    effects:
+      activation_sound: "teleport_activate"
+      arrival_sound: "teleport_arrive"  
+      particle_effect: "violet_swirl"
+    
+  # Red Teleporter - different group for variety, also cross-map
+  rteleporter:
+    name: "Red Teleporter"
+    type: "teleporter"
+    description: "A fiery red portal that randomly teleports you to another red teleporter"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [220, 20, 60]  # Crimson RGB
+    properties:
+      cooldown_seconds: 5
+      teleporter_group: "red"       # Only teleports to same group
+      cross_map: true               # Can teleport between maps
+      auto_activate: true           # Activates when stepped on
+      random_destination: true      # Picks random teleporter from group
+      exclude_self: true           # Won't teleport to same teleporter
+    effects:
+      activation_sound: "teleport_activate"
+      arrival_sound: "teleport_arrive"
+      particle_effect: "red_flames"
+
+  # Example of other special tile types for future expansion
+  spike_trap:
+    name: "Spike Trap"
+    type: "trap"
+    description: "Hidden spikes that damage unwary adventurers"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [139, 69, 19]  # Saddle brown RGB
+    properties:
+      damage: 10
+      damage_type: "physical"
+      trigger_chance: 0.8   # 80% chance to trigger when stepped on
+      rearm_time: 30        # Rearms after 30 seconds
+      visible_when_triggered: true
+    effects:
+      trigger_sound: "spike_trap"
+      damage_sound: "player_hurt"
+      
+  magic_circle:
+    name: "Magic Circle"
+    type: "trigger"
+    description: "An ancient magic circle that activates when stepped upon"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [65, 105, 225]  # Royal blue RGB
+    properties:
+      trigger_type: "event"
+      event_id: "ancient_magic"
+      single_use: false
+      requires_item: null   # Optional item requirement
+    effects:
+      activation_sound: "magic_activate"
+      particle_effect: "blue_sparkles"

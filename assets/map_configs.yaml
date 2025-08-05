@@ -1,0 +1,24 @@
+maps:
+  forest:
+    name: "Elvish Forest"
+    file: "forest.map"
+    biome: "forest"
+    sky_color: [135, 206, 235]        # Light blue sky
+    default_floor_color: [60, 180, 60]  # Green grass
+    ambient_light: 1.0
+    
+  desert:
+    name: "Scorching Desert" 
+    file: "desert.map"
+    biome: "desert"
+    sky_color: [255, 218, 185]        # Sandy beige sky
+    default_floor_color: [238, 203, 173]  # Desert sand
+    ambient_light: 1.2                # Brighter desert sun
+    
+  water:
+    name: "Ocean Depths"
+    file: "water.map"
+    biome: "water" 
+    sky_color: [72, 61, 139]          # Dark slate blue underwater
+    default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+    ambient_light: 0.7                # Darker underwater lighting
