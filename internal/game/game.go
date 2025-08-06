@@ -1,0 +1,707 @@
+package game
+
+import (
+	"fmt"
+	"image/color"
+	"math"
+	"sync"
+
+	"ugataima/internal/character"
+	"ugataima/internal/collision"
+	"ugataima/internal/config"
+	"ugataima/internal/graphics"
+	"ugataima/internal/monster"
+	"ugataima/internal/threading"
+	"ugataima/internal/world"
+
+	"github.com/hajimehoshi/ebiten/v2"
+)
+
+// Constants are now loaded from config.yaml
+// Access via config.GlobalConfig or pass config instance
+
+type MagicProjectile struct {
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int // Frames remaining
+	Active     bool
+	SpellType  string // Type of spell for visual differentiation
+	Size       int    // Projectile size
+}
+
+type MeleeAttack struct {
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int // Frames remaining
+	Active     bool
+	WeaponName string // Name of weapon used for combat messages
+}
+
+// SlashEffect represents a visual slash animation for melee weapons
+type SlashEffect struct {
+	ID              string    // Unique identifier
+	X, Y            float64   // Center position
+	Angle           float64   // Direction of slash
+	Width, Length   int       // Dimensions of slash
+	Color           [3]int    // RGB color
+	AnimationFrame  int       // Current animation frame
+	MaxFrames       int       // Total animation frames
+	Active          bool
+}
+
+type Arrow struct {
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int    // Frames remaining
+	Active     bool
+	BowKey     string // YAML key of the bow used to fire this arrow
+	DamageType string // Damage element type ("physical", "dark", etc.)
+}
+
+type MMGame struct {
+	world     *world.World3D
+	camera    *FirstPersonCamera
+	party     *character.Party
+	sprites   *graphics.SpriteManager
+	gameState GameState
+	config    *config.Config
+
+	// UI state
+	showPartyStats     bool
+	showFPS            bool
+	showCollisionBoxes bool // Toggle for collision box rendering
+
+	// Unique ID generation
+	nextProjectileID int64
+	selectedChar     int
+
+	// Tabbed menu system
+	menuOpen     bool
+	currentTab   MenuTab
+	mousePressed bool // Track mouse state for click detection
+
+	// Double-click support for spellbook
+	lastSpellClickTime int64 // Time of last spell click in milliseconds
+	lastClickedSpell   int   // Index of last clicked spell
+	lastClickedSchool  int   // Index of last clicked school
+
+	// Double-click support for dialog spells
+	lastDialogSpellClickTime int64 // Time of last dialog spell click in milliseconds
+	lastClickedDialogSpell   int   // Index of last clicked dialog spell
+
+	// Cached images for performance
+	skyImg    *ebiten.Image
+	groundImg *ebiten.Image
+
+	// Combat effects
+	magicProjectiles []MagicProjectile
+	meleeAttacks     []MeleeAttack
+	arrows           []Arrow
+	slashEffects     []SlashEffect
+
+	// Lighting effects
+	torchLightActive   bool    // Whether torch light is currently active
+	torchLightDuration int     // Remaining duration in frames
+	torchLightRadius   float64 // Radius of the light effect
+
+	// Wizard Eye effect
+	wizardEyeActive   bool // Whether wizard eye is currently active
+	wizardEyeDuration int  // Remaining duration in frames
+
+	// Walk on Water effect
+	walkOnWaterActive   bool // Whether walk on water is currently active
+	walkOnWaterDuration int  // Remaining duration in frames
+
+	// Bless effect
+	blessActive   bool // Whether bless is currently active
+	blessDuration int  // Remaining duration in frames
+
+	// Generic stat bonus system (for Bless, Day of Gods, Hour of Power, etc.)
+	statBonus int // Total stat bonus from all active effects
+
+	// Dialog system
+	dialogActive        bool           // Whether a dialog is currently open
+	dialogNPC           *character.NPC // Current NPC being talked to
+	dialogSelectedChar  int            // Currently selected character in dialog
+	dialogSelectedSpell int            // Currently selected spell in dialog
+	selectedCharIdx     int            // Selected character index for spell learning
+	selectedSpellKey    string         // Selected spell key for learning
+
+	// Spellbook UI
+	selectedSchool     int
+	selectedSpell      int
+	spellInputCooldown int
+
+	// Combat messages
+	combatMessages []string
+	maxMessages    int
+
+	// Damage blink effects
+	damageBlinkTimers [4]int // One timer per party member (0-3)
+
+	// Multi-threading components
+	threading *threading.ThreadingComponents
+
+	// Thread safety
+	projectileMutex sync.RWMutex
+
+	// Rendering helper
+	renderHelper *RenderingHelper
+
+	// Depth buffer for proper 3D rendering (distance per screen column)
+	depthBuffer []float64
+
+	// Systems
+	gameLoop        *GameLoop
+	combat          *CombatSystem
+	collisionSystem *collision.CollisionSystem
+	// Stat distribution popup UI state
+	statPopupOpen    bool // Is the stat distribution popup open?
+	statPopupCharIdx int  // Which character is being edited in the popup?
+
+	// Turn-based mode state
+	turnBasedMode        bool // Whether game is in turn-based mode
+	currentTurn          int  // 0 = party turn, 1 = monster turn
+	partyActionsUsed     int  // Actions used this turn (0-2)
+	turnBasedMoveCooldown int  // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
+}
+
+type GameState int
+
+const (
+	GameStateExploration GameState = iota
+	GameStateTurnBased
+)
+
+// MenuTab represents the different tabs in the main menu
+type MenuTab int
+
+const (
+	TabInventory MenuTab = iota
+	TabCharacters
+	TabSpellbook
+)
+
+type FirstPersonCamera struct {
+	X, Y     float64 // Position in world
+	Angle    float64 // Viewing angle in radians
+	FOV      float64 // Field of view
+	ViewDist float64 // Maximum view distance
+}
+
+func NewMMGame(cfg *config.Config) *MMGame {
+	sprites := graphics.NewSpriteManager()
+
+	// Get world from WorldManager instead of creating new one
+	currentWorld := world.GlobalWorldManager.GetCurrentWorld()
+	if currentWorld == nil {
+		panic("No world available from WorldManager")
+	}
+
+	// Create a 4-character party
+	party := character.NewParty(cfg)
+
+	// Start in current map - get starting position from loaded map
+	startX, startY := currentWorld.GetStartingPosition()
+
+	camera := &FirstPersonCamera{
+		X:        startX,
+		Y:        startY,
+		Angle:    0,
+		FOV:      cfg.GetCameraFOV(),
+		ViewDist: cfg.GetViewDistance(),
+	}
+
+	// Initialize sky and ground images (will be updated dynamically based on current map)
+	skyImg := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()/2)
+	groundImg := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()/2)
+
+	// Initialize threading components
+	threadingComponents := threading.NewThreadingComponents(cfg)
+
+	game := &MMGame{
+		world:            currentWorld,
+		camera:           camera,
+		party:            party,
+		sprites:          sprites,
+		gameState:        GameStateExploration,
+		config:           cfg,
+		showPartyStats:   true,
+		showFPS:          false, // FPS counter starts hidden
+		selectedChar:     0,
+		skyImg:           skyImg,
+		groundImg:        groundImg,
+		magicProjectiles: make([]MagicProjectile, 0),
+		meleeAttacks:     make([]MeleeAttack, 0),
+		arrows:           make([]Arrow, 0),
+		slashEffects:     make([]SlashEffect, 0),
+
+		// Tabbed menu system
+		menuOpen:     false,
+		currentTab:   TabInventory,
+		mousePressed: false,
+
+		// Double-click support for spellbook
+		lastSpellClickTime: 0,
+		lastClickedSpell:   -1,
+		lastClickedSchool:  -1,
+
+		// Double-click support for dialog spells
+		lastDialogSpellClickTime: 0,
+		lastClickedDialogSpell:   -1,
+
+		selectedSchool: 0,
+		selectedSpell:  0,
+		combatMessages: make([]string, 0),
+		maxMessages:    3, // Show last 3 messages
+
+		// Dialog system initialization
+		dialogSelectedChar:  0,
+		dialogSelectedSpell: 0,
+
+		// Threading components
+		threading: threadingComponents,
+
+		// Initialize depth buffer for proper 3D rendering
+		depthBuffer: make([]float64, cfg.GetScreenWidth()),
+	}
+
+	// Initialize rendering helper
+	game.renderHelper = NewRenderingHelper(game)
+
+	// Initialize collision system
+	game.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(cfg.World.TileSize))
+
+	// Register player entity in collision system (small collision box for good movement freedom)
+	playerEntity := collision.NewEntity("player", startX, startY, 16, 16, collision.CollisionTypePlayer, false)
+	game.collisionSystem.RegisterEntity(playerEntity)
+
+	// Register all monsters with collision system
+	currentWorld.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	// Initialize systems
+	game.combat = NewCombatSystem(game)
+	game.gameLoop = NewGameLoop(game)
+
+	// Update sky and ground colors for initial map
+	game.UpdateSkyAndGroundColors()
+
+	return game
+}
+
+// GetCurrentWorld returns the current world from WorldManager
+func (g *MMGame) GetCurrentWorld() *world.World3D {
+	if world.GlobalWorldManager != nil {
+		return world.GlobalWorldManager.GetCurrentWorld()
+	}
+	// Fallback to the original world reference
+	return g.world
+}
+
+// UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
+func (g *MMGame) UpdateSkyAndGroundColors() {
+	// Get current map configuration
+	var skyColor, groundColor [3]int
+
+	if world.GlobalWorldManager != nil {
+		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
+		if mapConfig != nil {
+			skyColor = mapConfig.SkyColor
+			groundColor = mapConfig.DefaultFloorColor
+		} else {
+			// Fallback to config defaults
+			skyColor = g.config.Graphics.Colors.Sky
+			groundColor = g.config.Graphics.Colors.Ground
+		}
+	} else {
+		// Fallback to config defaults
+		skyColor = g.config.Graphics.Colors.Sky
+		groundColor = g.config.Graphics.Colors.Ground
+	}
+
+	// Update sky image
+	g.skyImg.Fill(color.RGBA{uint8(skyColor[0]), uint8(skyColor[1]), uint8(skyColor[2]), 255})
+
+	// Update ground image
+	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
+}
+
+func (g *MMGame) Update() error {
+	return g.gameLoop.Update()
+}
+
+func (g *MMGame) Draw(screen *ebiten.Image) {
+	g.gameLoop.Draw(screen)
+}
+
+// GenerateProjectileID generates a unique ID for projectiles
+func (g *MMGame) GenerateProjectileID(projectileType string) string {
+	g.nextProjectileID++
+	return fmt.Sprintf("%s_%d", projectileType, g.nextProjectileID)
+}
+
+func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	return g.gameLoop.Layout(outsideWidth, outsideHeight)
+}
+
+// AddCombatMessage adds a combat message to the message queue
+func (g *MMGame) AddCombatMessage(message string) {
+	g.combatMessages = append(g.combatMessages, message)
+
+	// Keep only the last maxMessages
+	if len(g.combatMessages) > g.maxMessages {
+		g.combatMessages = g.combatMessages[len(g.combatMessages)-g.maxMessages:]
+	}
+}
+
+// GetCombatMessages returns the current combat messages
+func (g *MMGame) GetCombatMessages() []string {
+	return g.combatMessages
+}
+
+// TriggerDamageBlink triggers the red blink effect for a specific character
+func (g *MMGame) TriggerDamageBlink(characterIndex int) {
+	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
+		g.damageBlinkTimers[characterIndex] = g.config.UI.DamageBlinkFrames
+	}
+}
+
+// UpdateDamageBlinkTimers decrements damage blink timers each frame
+func (g *MMGame) UpdateDamageBlinkTimers() {
+	for i := range g.damageBlinkTimers {
+		if g.damageBlinkTimers[i] > 0 {
+			g.damageBlinkTimers[i]--
+		}
+	}
+}
+
+// IsCharacterBlinking returns true if a character should be rendered with red tint
+func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
+	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
+		return g.damageBlinkTimers[characterIndex] > 0
+	}
+	return false
+}
+
+// Getter methods for turn-based mode testing
+func (g *MMGame) IsTurnBasedMode() bool {
+	return g.turnBasedMode
+}
+
+func (g *MMGame) GetCurrentTurn() int {
+	return g.currentTurn
+}
+
+func (g *MMGame) GetPartyActionsUsed() int {
+	return g.partyActionsUsed
+}
+
+func (g *MMGame) ToggleTurnBasedMode() {
+	g.turnBasedMode = !g.turnBasedMode
+	
+	if g.turnBasedMode {
+		// Snap to tile center immediately
+		g.snapToTileCenter()
+		
+		// Snap all monsters to tile centers
+		g.snapMonstersToTileCenters()
+		
+		// Initialize turn-based state
+		g.currentTurn = 0 // Start with party turn
+		g.partyActionsUsed = 0
+		g.turnBasedMoveCooldown = 0
+		g.turnBasedRotCooldown = 0
+		g.AddCombatMessage("Turn-based mode activated!")
+	} else {
+		g.AddCombatMessage("Real-time mode activated!")
+	}
+}
+
+// snapToTileCenter moves the player to the center of their current tile and snaps direction to nearest cardinal
+func (g *MMGame) snapToTileCenter() {
+	tileSize := float64(g.config.GetTileSize())
+	
+	// Get current tile coordinates
+	currentTileX := int(g.camera.X / tileSize)
+	currentTileY := int(g.camera.Y / tileSize)
+	
+	// Calculate exact center of current tile
+	centerX := float64(currentTileX)*tileSize + tileSize/2
+	centerY := float64(currentTileY)*tileSize + tileSize/2
+	
+	// Snap to center
+	g.camera.X = centerX
+	g.camera.Y = centerY
+	g.collisionSystem.UpdateEntity("player", centerX, centerY)
+	
+	// Snap direction to nearest cardinal direction (N, E, S, W)
+	g.snapToCardinalDirection()
+}
+
+// snapToCardinalDirection snaps the camera angle to the nearest cardinal direction
+func (g *MMGame) snapToCardinalDirection() {
+	// Normalize current angle to 0-2π range
+	angle := g.camera.Angle
+	for angle < 0 {
+		angle += 2 * math.Pi
+	}
+	for angle >= 2*math.Pi {
+		angle -= 2 * math.Pi
+	}
+	
+	// Cardinal directions in radians:
+	// East (right): 0
+	// North (up): 3π/2 (or -π/2)
+	// West (left): π
+	// South (down): π/2
+	
+	cardinalDirections := []float64{
+		0,           // East
+		math.Pi / 2, // South
+		math.Pi,     // West
+		3 * math.Pi / 2, // North
+	}
+	
+	// Find the closest cardinal direction
+	minDiff := math.Pi // Maximum possible difference
+	closestDirection := 0.0
+	
+	for _, cardinal := range cardinalDirections {
+		// Calculate angular difference (handle wrap-around)
+		diff := math.Abs(angle - cardinal)
+		if diff > math.Pi {
+			diff = 2*math.Pi - diff
+		}
+		
+		if diff < minDiff {
+			minDiff = diff
+			closestDirection = cardinal
+		}
+	}
+	
+	g.camera.Angle = closestDirection
+}
+
+// snapMonstersToTileCenters moves all monsters to the center of their current tiles
+func (g *MMGame) snapMonstersToTileCenters() {
+	tileSize := float64(g.config.GetTileSize())
+	
+	for _, monster := range g.world.Monsters {
+		if !monster.IsAlive() {
+			continue
+		}
+		
+		// Get current tile coordinates for this monster
+		currentTileX := int(monster.X / tileSize)
+		currentTileY := int(monster.Y / tileSize)
+		
+		// Calculate exact center of current tile
+		centerX := float64(currentTileX)*tileSize + tileSize/2
+		centerY := float64(currentTileY)*tileSize + tileSize/2
+		
+		// Snap monster to center
+		monster.X = centerX
+		monster.Y = centerY
+		
+		// Update collision system
+		g.collisionSystem.UpdateEntity(monster.ID, centerX, centerY)
+	}
+}
+
+// Wrapper types for threading system integration
+
+// MonsterWrapper implements entities.MonsterUpdateInterface
+type MonsterWrapper struct {
+	Monster         *monster.Monster3D
+	collisionSystem *collision.CollisionSystem
+	monsterID       string
+	game            *MMGame // Added to access camera position for tethering system
+}
+
+func (mw *MonsterWrapper) Update() {
+	oldX, oldY := mw.Monster.X, mw.Monster.Y
+
+	// Get player position from camera for tethering system
+	playerX := mw.game.camera.X
+	playerY := mw.game.camera.Y
+
+	// Use collision-aware update with player position for tethering
+	mw.Monster.Update(mw.collisionSystem, mw.monsterID, playerX, playerY)
+
+	newX, newY := mw.Monster.X, mw.Monster.Y
+
+	// Update collision system if position changed
+	if oldX != newX || oldY != newY {
+		if mw.collisionSystem != nil {
+			mw.collisionSystem.UpdateEntity(mw.monsterID, newX, newY)
+		}
+	}
+}
+
+func (mw *MonsterWrapper) IsAlive() bool {
+	return mw.Monster.IsAlive()
+}
+
+func (mw *MonsterWrapper) GetPosition() (float64, float64) {
+	return mw.Monster.X, mw.Monster.Y
+}
+
+func (mw *MonsterWrapper) SetPosition(x, y float64) {
+	mw.Monster.X = x
+	mw.Monster.Y = y
+	// Update collision system position
+	if mw.collisionSystem != nil {
+		mw.collisionSystem.UpdateEntity(mw.monsterID, x, y)
+	}
+}
+
+// MagicProjectileWrapper implements entities.ProjectileUpdateInterface
+type MagicProjectileWrapper struct {
+	MagicProjectile *MagicProjectile
+	collisionSystem *collision.CollisionSystem
+	projectileID    string
+}
+
+func (mpw *MagicProjectileWrapper) Update() {
+	mpw.MagicProjectile.LifeTime--
+	if mpw.MagicProjectile.LifeTime <= 0 {
+		mpw.MagicProjectile.Active = false
+	}
+}
+
+func (mpw *MagicProjectileWrapper) IsActive() bool {
+	return mpw.MagicProjectile.Active && mpw.MagicProjectile.LifeTime > 0
+}
+
+func (mpw *MagicProjectileWrapper) GetPosition() (float64, float64) {
+	return mpw.MagicProjectile.X, mpw.MagicProjectile.Y
+}
+
+func (mpw *MagicProjectileWrapper) SetPosition(x, y float64) {
+	mpw.MagicProjectile.X = x
+	mpw.MagicProjectile.Y = y
+	// Update collision system position
+	if mpw.collisionSystem != nil {
+		mpw.collisionSystem.UpdateEntity(mpw.projectileID, x, y)
+	}
+}
+
+func (mpw *MagicProjectileWrapper) GetVelocity() (float64, float64) {
+	return mpw.MagicProjectile.VelX, mpw.MagicProjectile.VelY
+}
+
+func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
+	mpw.MagicProjectile.VelX = vx
+	mpw.MagicProjectile.VelY = vy
+}
+
+// ArrowWrapper implements entities.ProjectileUpdateInterface
+type ArrowWrapper struct {
+	Arrow           *Arrow
+	collisionSystem *collision.CollisionSystem
+	projectileID    string
+}
+
+func (aw *ArrowWrapper) Update() {
+	aw.Arrow.LifeTime--
+	if aw.Arrow.LifeTime <= 0 {
+		aw.Arrow.Active = false
+	}
+}
+
+func (aw *ArrowWrapper) IsActive() bool {
+	return aw.Arrow.Active && aw.Arrow.LifeTime > 0
+}
+
+func (aw *ArrowWrapper) GetPosition() (float64, float64) {
+	return aw.Arrow.X, aw.Arrow.Y
+}
+
+func (aw *ArrowWrapper) SetPosition(x, y float64) {
+	aw.Arrow.X = x
+	aw.Arrow.Y = y
+	// Update collision system position
+	if aw.collisionSystem != nil {
+		aw.collisionSystem.UpdateEntity(aw.projectileID, x, y)
+	}
+}
+
+func (aw *ArrowWrapper) GetVelocity() (float64, float64) {
+	return aw.Arrow.VelX, aw.Arrow.VelY
+}
+
+func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
+	aw.Arrow.VelX = vx
+	aw.Arrow.VelY = vy
+}
+
+func (aw *ArrowWrapper) GetLifetime() int {
+	return aw.Arrow.LifeTime
+}
+
+func (aw *ArrowWrapper) SetLifetime(lifetime int) {
+	aw.Arrow.LifeTime = lifetime
+}
+
+func (mpw *MagicProjectileWrapper) GetLifetime() int {
+	return mpw.MagicProjectile.LifeTime
+}
+
+func (mpw *MagicProjectileWrapper) SetLifetime(lifetime int) {
+	mpw.MagicProjectile.LifeTime = lifetime
+}
+
+// MeleeAttackWrapper implements entities.ProjectileUpdateInterface
+type MeleeAttackWrapper struct {
+	MeleeAttack     *MeleeAttack
+	collisionSystem *collision.CollisionSystem
+	projectileID    string
+}
+
+func (mw *MeleeAttackWrapper) Update() {
+	mw.MeleeAttack.LifeTime--
+	if mw.MeleeAttack.LifeTime <= 0 {
+		mw.MeleeAttack.Active = false
+	}
+}
+
+func (mw *MeleeAttackWrapper) IsActive() bool {
+	return mw.MeleeAttack.Active && mw.MeleeAttack.LifeTime > 0
+}
+
+func (mw *MeleeAttackWrapper) GetPosition() (float64, float64) {
+	return mw.MeleeAttack.X, mw.MeleeAttack.Y
+}
+
+func (mw *MeleeAttackWrapper) SetPosition(x, y float64) {
+	mw.MeleeAttack.X = x
+	mw.MeleeAttack.Y = y
+	// Update collision system position
+	if mw.collisionSystem != nil {
+		mw.collisionSystem.UpdateEntity(mw.projectileID, x, y)
+	}
+}
+
+func (mw *MeleeAttackWrapper) GetVelocity() (float64, float64) {
+	return mw.MeleeAttack.VelX, mw.MeleeAttack.VelY
+}
+
+func (mw *MeleeAttackWrapper) SetVelocity(vx, vy float64) {
+	mw.MeleeAttack.VelX = vx
+	mw.MeleeAttack.VelY = vy
+}
+
+func (mw *MeleeAttackWrapper) GetLifetime() int {
+	return mw.MeleeAttack.LifeTime
+}
+
+func (mw *MeleeAttackWrapper) SetLifetime(lifetime int) {
+	mw.MeleeAttack.LifeTime = lifetime
+}

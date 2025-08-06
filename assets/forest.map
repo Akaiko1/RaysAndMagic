@@ -1,0 +1,95 @@
+# UgaTaima Forest Map
+# 
+# TILE MAPPINGS:
+# All tile symbols and their properties are defined in assets/tiles.yaml
+# Terrain tiles used in this map:
+# . = Empty Space (walkable)
+# # = Stone Wall (blocking)
+# W = Water (blocking)
+# D = Door (blocking, can be opened)
+# ^ = Stairs (walkable)
+# T = Forest Tree (blocking)
+# A = Ancient Tree (blocking)
+# % = Dense Undergrowth/Thicket (blocking)
+# R = Moss-covered Stone (blocking)
+# M = Magical Fairy Ring (walkable, magical)
+# S = Flowing Water/Forest Stream (walkable)
+# P = Dense Ferns/Fern Patch (walkable)
+# F = Magical Lights/Firefly Swarm (walkable, magical)
+# C = Open Grass Area/Clearing (walkable)
+# + = Starting Position (walkable)
+# - = Short Defensive Wall/Low Wall (blocking)
+# = = Tall Fortification/High Wall (blocking)
+# X = Magic Crystal (walkable, magical)
+# 
+# MONSTER SPAWNS:
+# All monster letters and their properties are defined in assets/monsters.yaml
+# Monster spawns (will be processed after map loading):
+# g = Goblin spawn
+# o = Orc spawn  
+# w = Wolf spawn
+# b = Bear spawn
+# s = Spider spawn
+# k = Skeleton spawn
+# l = Troll spawn
+# d = Dragon spawn
+# f = Forest Orc spawn
+# u = Dire Wolf spawn
+# i = Forest Spider spawn
+# t = Treant spawn
+# p = Pixie spawn
+# n = Bandit spawn
+#
+# Map size: 50x50
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%.@..T...T....T...R.....T........T....T...WWWWWWW%  >[npc:mtrader0]
+%.....P....T......................T........WWWWWW%
+%..T.T.......CCCCCC..T.....A.......T.........WWWW%
+%g.T.......T.CCCCCC..@....T.....T.............WWW%  >[stile:rteleporter]
+%..........T.CCCCCC...T.....w...T.....T........WW%
+%.T.....T...CCCCCC....T.......T.....T............%
+%....T.......CCCCCC.....T.........T.....T........%
+%..........T.......T.....T.......T...............%
+%.T.....T.......T.....T..w....T.....T............%
+%....T...P.....T.....T.........T.....T...........%
+%SSSSSSSTSSSSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSS...%
+%....T.......T.....T.......T.....T.......P.......=
+%.T.....T.......T.....T.......T.....T............=
+%....T.........T..M..T.........T.....T....F...M..-
+%..........T.......T.....T.......T...............-
+%.T.....T.......T.....T.......T...T.......+.....@D  >[stile:rteleporter]
+%....T....R....T.....T.....p...T.....T...........-
+%......g...T.......T.....T.......T.........C..S..-
+%.T.....T.......T...T.TT......T.....T............=
+%....T.........T..TT.TT.T......T.....T.......i...=
+%..........T......TAWWWAT...T.......T............%
+%.T.....T.......T.TWWWWWT.......T.....T....u.....%
+%....T.........TTTTWWWWWT.........T.....T........%
+%......t...T....T..WW@WW....T.....t.T............%  >[npc:spell_trader_mage]
+%.T.....T.......TTTWWWWWT.......T.....T..........%
+%....T.........T..TWWWWWT.........T.....T........%
+%..........T......TAWWWAT...T.......T............%
+%.T.....T.......T.T.T.T.T.....T.....T............%
+%....T.........T...T.T.T.......T.....T...........%
+%..........T.......T.....T.......T...............%
+%.T.....T.......T.....T.......T.....T............%
+%....T....F....T.....T.....p...T.....T...........%
+%......u...T.......T.....T.......T...............%
+%.T.....T.......T..M..T.......T.....T............%
+%....T.........T.....T.........T.....T.......d...%
+%SSSSSSSSSSSSTSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSS...%
+%.T.....T.......T.....T.......T.....T............%
+%....T.........T.....T.........T.....T...........%
+%..........T.......T.....T.......T.......P.......%
+%.T.....T.......T.....T.......T.....T............%
+%....T..ggg....T.....T.........T.....T...........%
+%.....ggg..T.......CCCCCC.....T.......T..........%
+%.T.....T.......T..CCCCCC.T.......T.....T........%
+%....T.........T...CCCCCC.T.........T.....T......%
+%..........T.......CCCCCC.....T.......T..........%
+%.T.....T.......T..CCCCCC.T.......T.....T........%
+%..F.T.........T...CCCCCC.T.........T.....T..i...%
+%..F...b...T.......T.....T.......T...............%
+%.T...T.........T...T...........T...T............%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

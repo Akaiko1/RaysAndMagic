@@ -1,0 +1,348 @@
+# UgaTaima Game Configuration
+
+# Display settings
+display:
+  screen_width: 1024
+  screen_height: 768
+  window_title: "Trees and Magic"
+  resizable: true
+
+# Game world settings
+world:
+  tile_size: 64
+  map_width: 50
+  map_height: 50
+
+# Movement settings
+movement:
+  move_speed: 2.0
+  rotation_speed: 0.05
+
+# Combat settings
+combat:
+    
+  # Melee weapon settings
+  sword:
+    speed: 10.0    # Attack speed (currently unused)
+    lifetime: 15   # Attack duration (frames)
+    hit_radius: 300 # Hit detection radius (currently unused)
+    collision_size: 24 # Collision detection size (pixels)
+    
+  dagger:
+    speed: 15.0    # Fast attack speed
+    lifetime: 10   # Short attack duration for quick strikes
+    hit_radius: 200 # Smaller reach for light weapon
+    collision_size: 16 # Smaller collision size
+    
+  axe:
+    speed: 8.0     # Slow but powerful
+    lifetime: 20   # Longer duration for heavy weapon
+    hit_radius: 350 # Large reach for two-handed weapon
+    collision_size: 32 # Large collision size
+    
+  mace:
+    speed: 9.0     # Medium speed
+    lifetime: 18   # Medium duration
+    hit_radius: 280 # Medium reach
+    collision_size: 26 # Medium collision size
+    
+  spear:
+    speed: 12.0    # Fast thrusting attacks
+    lifetime: 12   # Quick attack duration
+    hit_radius: 400 # Longest reach (polearm)
+    collision_size: 20 # Medium collision size
+    
+  staff:
+    speed: 11.0    # Medium-fast for casters
+    lifetime: 14   # Medium duration
+    hit_radius: 320 # Good reach for two-handed weapon
+    collision_size: 22 # Medium collision size
+    
+  # Ranged weapon settings (bows)
+  bow:
+    speed: 9.6     # Arrow projectile speed (pixels/frame)
+    lifetime: 54   # Arrow lifetime (frames) - 8 tiles range
+    hit_radius: 300 # Hit detection radius
+    collision_size: 12 # Arrow collision size
+
+# Camera/3D rendering settings
+camera:
+  field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
+  view_distance: 640          # 10 * tile_size
+
+# UI settings
+ui:
+  spell_input_cooldown: 10
+  party_portrait_height: 100
+  compass_radius: 20
+  damage_blink_frames: 3    # Number of frames to blink red when taking damage
+
+# World generation settings
+world_generation:
+  # Forest generation
+  forest:
+    tree_clusters: 15
+    cluster_size_min: 4
+    cluster_size_max: 8
+    cluster_spread: 6
+    
+  # Ancient trees
+  ancient_trees:
+    count_min: 3
+    count_max: 5
+    placement_attempts: 50
+    clear_radius: 1
+    
+  # Magical features
+  magical_features:
+    mushroom_rings:
+      count_min: 2
+      count_max: 3
+    firefly_swarms:
+      count_min: 1
+      count_max: 2
+      
+  # Natural formations
+  natural_formations:
+    moss_rocks:
+      count_min: 8
+      count_max: 12
+      
+  # Clearings
+  clearings:
+    count_min: 2
+    count_max: 3
+    radius_min: 3
+    radius_max: 5
+    
+  # Water features
+  water:
+    stream_start_y_fraction: 0.33  # Start at 1/3 height
+    stream_wander_range: 3
+    pond_size: 3
+    pond_x_fraction: 0.25  # At 1/4 width
+    pond_y_fraction: 0.75  # At 3/4 height
+    
+  # Undergrowth
+  undergrowth:
+    fern_patches:
+      count_min: 20
+      count_max: 30
+      tree_search_radius: 2
+      random_spawn_chance: 0.25  # 1 in 4 chance
+
+# Monster spawning settings
+monsters:
+  # Common monsters
+  common:
+    count_min: 8
+    count_max: 12
+    placement_attempts: 100
+    
+  # Rare monsters  
+  rare:
+    count_min: 1
+    count_max: 2
+    
+  # Special placement
+  special:
+    pixie_mushroom_ring_chance: 0.3  # 30% chance per ring
+
+# Character stats and progression
+characters:
+  # Starting party gold and food
+  starting_gold: 1000
+  starting_food: 50
+  
+  # Stat calculation multipliers
+  hit_points:
+    endurance_multiplier: 2
+    level_multiplier: 3
+    
+  spell_points:
+    level_multiplier: 2
+    
+  # Class base attributes
+  classes:
+    knight:
+      might: 15
+      intellect: 10
+      personality: 10
+      endurance: 15
+      accuracy: 12
+      speed: 10
+      luck: 10
+      
+    sorcerer:
+      might: 8
+      intellect: 15
+      personality: 12
+      endurance: 8
+      accuracy: 10
+      speed: 10
+      luck: 12
+      
+    cleric:
+      might: 10
+      intellect: 12
+      personality: 15
+      endurance: 12
+      accuracy: 8
+      speed: 10
+      luck: 10
+      
+    archer:
+      might: 12
+      intellect: 10
+      personality: 10
+      endurance: 10
+      accuracy: 15
+      speed: 12
+      luck: 10
+      
+    paladin:
+      might: 13
+      intellect: 10
+      personality: 13
+      endurance: 13
+      accuracy: 10
+      speed: 10
+      luck: 11
+      
+    druid:
+      might: 10
+      intellect: 13
+      personality: 13
+      endurance: 10
+      accuracy: 10
+      speed: 11
+      luck: 11
+
+
+# Monster stats and AI
+monster_ai:
+  # State timers (in frames, 60fps)
+  idle_patrol_timer: 300        # Time before starting patrol from idle (5 seconds)
+  patrol_direction_timer: 120   # Time before changing direction (2 seconds) 
+  patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
+  alert_timeout: 180            # Time before returning to idle from alert (3 seconds)
+  attack_cooldown: 60           # Attack delay duration (1 second)
+  flee_duration: 420            # How long to flee (7 seconds)
+  
+  # Behavior chances (0.0 to 1.0)
+  idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling
+  patrol_direction_chance: 0.2  # 20% chance per frame to change direction
+  
+  # Movement parameters
+  normal_speed_multiplier: 0.5  # Normal movement speed multiplier
+  flee_speed_multiplier: 1.5    # Speed multiplier when fleeing
+  
+  # Vision and pathfinding
+  patrol_vision_distance: 80.0  # How far monsters can "see" while patrolling
+  flee_vision_distance: 60.0    # Vision distance when fleeing (shorter, panicking)
+  direction_vision_distance: 50.0 # Vision distance for choosing new directions
+  
+  # AI frequency checks (in frames)
+  path_check_frequency: 30      # Check for blocked paths every N frames
+  flee_check_frequency: 20      # Check paths when fleeing every N frames
+  max_direction_attempts: 6     # Maximum attempts to find clear path
+  
+  # Legacy values (kept for backward compatibility)
+  idle_time_min: 60
+  idle_time_max: 180
+  patrol_time_min: 100
+  patrol_time_max: 300
+  alert_time_min: 30
+  alert_time_max: 60
+  flee_time_min: 100
+  flee_time_max: 300
+  pushback_distance: 20
+  
+  # Troll regeneration
+  troll_regen_chance: 0.1  # 10% chance per update
+
+# Skill teaching costs
+skill_teaching:
+  expert_cost: 500
+  master_cost: 2000
+  grandmaster_cost: 10000
+  novice_cost: 100
+
+# Graphics and rendering
+graphics:
+  # Raycasting optimization - reduced for 60 FPS performance
+  rays_per_screen_width: 4  # ScreenWidth / 4 rays (256 rays instead of 512)
+  
+  # Colors (RGB values)
+  colors:
+    sky: [135, 206, 235]      # Light blue
+    ground: [34, 139, 34]     # Green
+    forest_bg: [34, 139, 34]  # Forest background
+    
+  # Sprite sizes
+  sprite:
+    placeholder_size: 16
+    tree_height_multiplier: 1.5
+    tree_width_multiplier: 0.8
+    
+  # Distance effects
+  brightness_min: 0.3
+  
+  # Monster rendering
+  monster:
+    max_sprite_size: 64
+    min_sprite_size: 8
+    size_distance_multiplier: 100
+    
+  # NPC rendering (larger than monsters for better visibility)
+  npc:
+    max_sprite_size: 120
+    min_sprite_size: 16
+    size_distance_multiplier: 150
+    
+  # Projectile rendering - individual configs for each weapon/spell type
+  projectiles:
+    
+    # Melee weapons
+    sword:
+      max_size: 48
+      min_size: 3
+      base_size: 24  # Matches collision size
+      color: [200, 200, 220]  # Silver/white
+      
+    dagger:
+      max_size: 32
+      min_size: 2
+      base_size: 16  # Matches collision size
+      color: [150, 150, 180]  # Lighter silver
+      
+    axe:
+      max_size: 64
+      min_size: 4
+      base_size: 32  # Matches collision size
+      color: [180, 120, 80]  # Brown/bronze
+      
+    mace:
+      max_size: 52
+      min_size: 3
+      base_size: 26  # Matches collision size
+      color: [160, 160, 100]  # Dark gold
+      
+    spear:
+      max_size: 56
+      min_size: 3
+      base_size: 20  # Matches collision size
+      color: [140, 100, 60]  # Wood brown
+      
+    staff:
+      max_size: 44
+      min_size: 3
+      base_size: 22  # Matches collision size
+      color: [100, 80, 150]  # Purple (magical)
+      
+    # Ranged weapons
+    bow:
+      max_size: 36
+      min_size: 2
+      base_size: 12  # Matches collision size
+      color: [180, 140, 100]  # Wood brown (arrow)
