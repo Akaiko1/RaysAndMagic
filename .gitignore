@@ -1,0 +1,5 @@
+
+*.exe
+ugataima
+save*.json
+.claude/
