@@ -32,11 +32,24 @@ type InputHandler struct {
 
 // NewInputHandler creates a new input handler
 func NewInputHandler(game *MMGame) *InputHandler {
-	return &InputHandler{game: game}
+    return &InputHandler{game: game}
 }
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
+    // When game over, only allow New Game or Load
+    if ih.game.gameOver {
+        if ebiten.IsKeyPressed(ebiten.KeyN) {
+            ih.restartNewGame()
+            return
+        }
+        if ebiten.IsKeyPressed(ebiten.KeyL) {
+            ih.game.mainMenuOpen = true
+            ih.game.mainMenuMode = MenuLoadSelect
+            return
+        }
+        return
+    }
 	// ESC handling: close current overlay before opening menu
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		// If main menu is open, back out of submenus or close it
@@ -101,6 +114,24 @@ func (ih *InputHandler) HandleInput() {
 	ih.handleCharacterSelectionInput()
 	ih.handleUIInput()
 	ih.handleMouseInput()
+}
+
+// restartNewGame resets party and state for a fresh start
+func (ih *InputHandler) restartNewGame() {
+    // Recreate party
+    ih.game.party = character.NewParty(ih.game.config)
+    // Reset game over state
+    ih.game.gameOver = false
+    // Reset dialog/menu states
+    ih.game.dialogActive = false
+    ih.game.menuOpen = false
+    // Move player to start position
+    if ih.game.GetCurrentWorld() != nil {
+        startX, startY := ih.game.GetCurrentWorld().GetStartingPosition()
+        ih.game.camera.X = startX
+        ih.game.camera.Y = startY
+        ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+    }
 }
 
 // handleMainMenuInput processes input for the main menu (opened with ESC)
@@ -1208,20 +1239,25 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	// Handle attacks (any 2 attacks from any party members)
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.partyActionsUsed++
-		ih.game.spellInputCooldown = 15
+    // Only allow actions if selected character is conscious
+    selected := ih.game.party.Members[ih.game.selectedChar]
+    canAct := !(selected.HitPoints <= 0)
+    for _, cond := range selected.Conditions { if cond == character.ConditionUnconscious { canAct = false; break } }
+
+    if canAct && ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+        ih.game.combat.EquipmentMeleeAttack()
+        ih.game.partyActionsUsed++
+        ih.game.spellInputCooldown = 15
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()
 		}
 	}
 
-	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.partyActionsUsed++
-		ih.game.spellInputCooldown = 15
+    if canAct && ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
+        ih.game.combat.CastEquippedSpell()
+        ih.game.partyActionsUsed++
+        ih.game.spellInputCooldown = 15
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()

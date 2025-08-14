@@ -34,6 +34,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
                 ch.HitPoints = ch.MaxHitPoints
             }
             actual := ch.HitPoints - before
+            // Direct heal (spell) is required to remove Unconscious; potions do not revive
             g.party.RemoveItem(itemIndex)
             g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, actual))
             return true
