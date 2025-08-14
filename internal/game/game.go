@@ -92,9 +92,9 @@ type MMGame struct {
 	lastClickedSpell   int   // Index of last clicked spell
 	lastClickedSchool  int   // Index of last clicked school
 
-	// Double-click support for dialog spells
-	lastDialogSpellClickTime int64 // Time of last dialog spell click in milliseconds
-	lastClickedDialogSpell   int   // Index of last clicked dialog spell
+    // Double-click support for dialogs (neutral)
+    dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
+    dialogLastClickedIdx int   // Index of last clicked dialog list entry
 
 	// Double-click support for utility spell icons (dispelling)
 	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
@@ -282,9 +282,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		lastClickedSpell:   -1,
 		lastClickedSchool:  -1,
 
-		// Double-click support for dialog spells
-		lastDialogSpellClickTime: 0,
-		lastClickedDialogSpell:   -1,
+        // Double-click support for dialogs (neutral)
+        dialogLastClickTime: 0,
+        dialogLastClickedIdx: -1,
 
 		selectedSchool: 0,
 		selectedSpell:  0,

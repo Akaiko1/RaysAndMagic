@@ -1775,6 +1775,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case "spell_trader":
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case "merchant":
+		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	}
@@ -1904,6 +1906,46 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	ebitenutil.DebugPrintAt(screen, "Enter or Double-Click: Purchase Spell", dialogX+20, instructionsY+15)
 	ebitenutil.DebugPrintAt(screen, "Escape: Close Dialog", dialogX+20, instructionsY+30)
 	ebitenutil.DebugPrintAt(screen, "Green: Can Learn  |  Red: Cannot Learn  |  Gray: Knows Spell", dialogX+20, instructionsY+45)
+}
+
+// drawMerchantDialog draws a simple seller UI to sell party items
+func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+    // Title and greeting
+    titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
+    ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+    greeting := "Bring your wares. I pay fair coin."
+    ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
+
+    // Gold
+    goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
+    ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
+
+    // Header
+    listY := dialogY + 90
+    ebitenutil.DebugPrintAt(screen, "Click an item to sell it: (shows first 15)", dialogX+20, listY)
+
+    // List inventory with values
+    startY := listY + 20
+    maxItems := 15
+    for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
+        item := ui.game.party.Inventory[i]
+        y := startY + i*UIRowSpacing
+        // Price from attributes
+        price := item.Attributes["value"]
+        line := fmt.Sprintf("%2d. %-24s  %4d gold", i+1, item.Name, price)
+
+        // Hover effect
+        mouseX, mouseY := ebiten.CursorPosition()
+        isHover := mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+UIRowHeight
+        if isHover {
+            ui.drawUIBackground(screen, dialogX+15, y-2, dialogWidth-30, UIRowHeight, color.RGBA{40, 80, 40, 120})
+        }
+        ebitenutil.DebugPrintAt(screen, line, dialogX+20, y)
+    }
+
+    // Instructions
+    instructionsY := dialogY + dialogHeight - 60
+    ebitenutil.DebugPrintAt(screen, "Double-click item: Sell  |  ESC: Close", dialogX+20, instructionsY)
 }
 
 // drawGenericDialog draws basic dialog for other NPC types

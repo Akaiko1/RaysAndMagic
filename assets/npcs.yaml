@@ -90,6 +90,14 @@ npcs:
         cost: 200
         quantity: 3
 
+  desert_merchant:
+    name: "Sahim the Wayfarer"
+    type: "merchant"
+    description: "A desert trader with a keen eye for useful gear"
+    sprite: "merchant"
+    dialogue:
+      greeting: "Spare tools and trinkets? I pay fair coin."
+
   quest_elder:
     name: "Village Elder Aldwin"
     type: "quest_giver"

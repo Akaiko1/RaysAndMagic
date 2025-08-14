@@ -1006,8 +1006,8 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dialogX := (screenWidth - dialogWidth) / 2
 	dialogY := (screenHeight - dialogHeight) / 2
 
-	// Check if clicking on spells (if NPC is spell trader)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "spell_trader" {
+    // Check if clicking on spells (if NPC is spell trader)
+    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "spell_trader" {
 
 		// Check if clicking on character list
 		for i := range ih.game.party.Members {
@@ -1032,29 +1032,70 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if mouseX >= dialogX+20 && mouseX <= dialogX+370 &&
 				mouseY >= spellY-2 && mouseY <= spellY+22 {
 
-				// Check for double-click to purchase spell directly
-				currentTime := time.Now().UnixMilli()
-				if ih.game.lastClickedDialogSpell == spellIndex &&
-					currentTime-ih.game.lastDialogSpellClickTime < 500 {
-					// Double-click detected - purchase the spell
-					ih.purchaseSelectedSpell()
-				} else {
-					// Single click - just select the spell
-					ih.game.dialogSelectedSpell = spellIndex
-					ih.game.selectedSpellKey = spellKey
-				}
+        // Check for double-click to purchase spell directly (neutral dialog tracking)
+        currentTime := time.Now().UnixMilli()
+        if ih.game.dialogLastClickedIdx == spellIndex &&
+            currentTime-ih.game.dialogLastClickTime < 500 {
+            // Double-click detected - purchase the spell
+            ih.purchaseSelectedSpell()
+        } else {
+            // Single click - just select the spell
+            ih.game.dialogSelectedSpell = spellIndex
+            ih.game.selectedSpellKey = spellKey
+        }
 
-				// Update click tracking for dialog spells
-				ih.game.lastDialogSpellClickTime = currentTime
-				ih.game.lastClickedDialogSpell = spellIndex
-				ih.game.mousePressed = true
-				return
-			}
-		}
-	}
+        // Update click tracking for dialog spells
+        ih.game.dialogLastClickTime = currentTime
+        ih.game.dialogLastClickedIdx = spellIndex
+        ih.game.mousePressed = true
+        return
+        }
+        }
+    }
 
-	// Check if clicking on encounter choices (if NPC is encounter type)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "encounter" {
+    // Check if clicking to sell items (if NPC is merchant)
+    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "merchant" {
+        dialogWidth := 600
+        dialogHeight := 400
+        dialogX := (screenWidth - dialogWidth) / 2
+        dialogY := (screenHeight - dialogHeight) / 2
+
+        // Inventory list region mirrors drawMerchantDialog
+        listY := dialogY + 90 + 20
+        maxItems := 15
+        for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
+            y := listY + i*25
+            if mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+20 {
+                if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
+                    currentTime := time.Now().UnixMilli()
+                    // Use neutral dialog click tracking to detect double-click per index
+                    if ih.game.dialogLastClickedIdx == i && currentTime-ih.game.dialogLastClickTime < 500 {
+                        ih.game.mousePressed = true
+                        // Double-click detected - sell the item for its value
+                        item := ih.game.party.Inventory[i]
+                        price := item.Attributes["value"]
+                        if price <= 0 {
+                            ih.game.AddCombatMessage("This item has no value.")
+                            return
+                        }
+                        ih.game.party.Gold += price
+                        ih.game.party.RemoveItem(i)
+                        ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+                        return
+                    }
+                    // Single click - select (no-op visual for now), store click tracking
+                    ih.game.dialogLastClickTime = currentTime
+                    ih.game.dialogLastClickedIdx = i
+                    ih.game.mousePressed = true
+                    return
+                }
+            }
+        }
+        return
+    }
+
+    // Check if clicking on encounter choices (if NPC is encounter type)
+    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "encounter" {
 		npc := ih.game.dialogNPC
 		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
 			// Skip if already visited and encounter is first-visit-only
@@ -1076,24 +1117,24 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					if mouseX >= dialogX-20 && mouseX <= dialogX+dialogWidth &&
 						mouseY >= choiceY-2 && mouseY <= choiceY+22 {
 
-						// Check for double-click to execute choice immediately
-						currentTime := time.Now().UnixMilli()
-						if ih.game.selectedChoice == i &&
-							currentTime-ih.game.lastDialogSpellClickTime < 500 {
-							// Double-click detected - execute the choice
-							ih.executeEncounterChoice()
-						} else {
-							// Single click - just select the choice
-							ih.game.selectedChoice = i
-						}
+                    // Check for double-click to execute choice immediately (neutral tracking)
+                    currentTime := time.Now().UnixMilli()
+                    if ih.game.selectedChoice == i &&
+                        currentTime-ih.game.dialogLastClickTime < 500 {
+                        // Double-click detected - execute the choice
+                        ih.executeEncounterChoice()
+                    } else {
+                        // Single click - just select the choice
+                        ih.game.selectedChoice = i
+                    }
 
-						// Update click tracking
-						ih.game.lastDialogSpellClickTime = currentTime
-						ih.game.mousePressed = true
-						return
-					}
-				}
-			}
+                    // Update click tracking
+                    ih.game.dialogLastClickTime = currentTime
+                    ih.game.mousePressed = true
+                    return
+                }
+            }
+            }
 		}
 	}
 }

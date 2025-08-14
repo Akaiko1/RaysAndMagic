@@ -132,18 +132,22 @@ func CreateWeaponFromYAML(weaponKey string) Item {
 		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
 	}
 
-	return Item{
-		Name:               weaponDef.Name,
-		Type:               ItemWeapon,
-		Damage:             weaponDef.Damage,
-		Range:              weaponDef.Range,
-		BonusStat:          weaponDef.BonusStat,
-		BonusStatSecondary: weaponDef.BonusStatSecondary,
-		DamageType:         weaponDef.DamageType,
-		MaxProjectiles:     weaponDef.MaxProjectiles,
-		Description:        weaponDef.Description,
-		Attributes:         make(map[string]int),
-	}
+    it := Item{
+        Name:               weaponDef.Name,
+        Type:               ItemWeapon,
+        Damage:             weaponDef.Damage,
+        Range:              weaponDef.Range,
+        BonusStat:          weaponDef.BonusStat,
+        BonusStatSecondary: weaponDef.BonusStatSecondary,
+        DamageType:         weaponDef.DamageType,
+        MaxProjectiles:     weaponDef.MaxProjectiles,
+        Description:        weaponDef.Description,
+        Attributes:         make(map[string]int),
+    }
+    if weaponDef.Value > 0 {
+        it.Attributes["value"] = weaponDef.Value
+    }
+    return it
 }
 
 // getWeaponDefinitionFromGlobal accesses weapon definition from global config
@@ -155,18 +159,19 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*WeaponDefinitionFromYAML,
 
 // WeaponDefinitionFromYAML represents weapon data without circular import
 type WeaponDefinitionFromYAML struct {
-	Name               string
-	Description        string
-	Category           string
-	Damage             int
-	Range              int
-	BonusStat          string
-	BonusStatSecondary string // Secondary scaling stat
-	DamageType         string // Damage element type
-	MaxProjectiles     int    // Max projectiles at once
-	HitBonus           int
-	CritChance         int
-	Rarity             string
+    Name               string
+    Description        string
+    Category           string
+    Damage             int
+    Range              int
+    BonusStat          string
+    BonusStatSecondary string // Secondary scaling stat
+    DamageType         string // Damage element type
+    MaxProjectiles     int    // Max projectiles at once
+    HitBonus           int
+    CritChance         int
+    Rarity             string
+    Value              int
 }
 
 // getGlobalWeaponDef accesses the global weapon configuration
@@ -205,6 +210,7 @@ type ItemDefinitionFromYAML struct {
     SummonDistanceTiles       int
     EquipSlot                 string
     BonusMight                int
+    Value                     int
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -265,6 +271,9 @@ func CreateItemFromYAML(itemKey string) Item {
     }
     if def.BonusMight != 0 {
         attrs["bonus_might"] = def.BonusMight
+    }
+    if def.Value != 0 {
+        attrs["value"] = def.Value
     }
 
     // Prefer flavor text if provided, else use description

@@ -30,12 +30,18 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
         if armorLine != "" {
             tooltip = append(tooltip, armorLine)
         }
+        if val, ok := item.Attributes["value"]; ok && val > 0 {
+            tooltip = append(tooltip, fmt.Sprintf("Value: %d gold", val))
+        }
 
     case items.ItemAccessory:
         tooltip = append(tooltip, "")
         accLine := getAccessorySummary(item, char)
         if accLine != "" {
             tooltip = append(tooltip, accLine)
+        }
+        if val, ok := item.Attributes["value"]; ok && val > 0 {
+            tooltip = append(tooltip, fmt.Sprintf("Value: %d gold", val))
         }
 
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
@@ -47,6 +53,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
         consLine := getConsumableSummary(item, char)
         if consLine != "" {
             tooltip = append(tooltip, consLine)
+        }
+        if val, ok := item.Attributes["value"]; ok && val > 0 {
+            tooltip = append(tooltip, fmt.Sprintf("Value: %d gold", val))
         }
 
 	case items.ItemQuest:
@@ -89,7 +98,7 @@ func getItemTypeString(itemType items.ItemType) string {
 
 // getWeaponTooltip returns weapon-specific tooltip information using real combat formulas
 func getWeaponTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	var lines []string
+    var lines []string
 
 	// Use the centralized weapon damage calculation
 	base, bonus, total := combatSystem.CalculateWeaponDamage(item, char)
@@ -136,10 +145,15 @@ func getWeaponTooltip(item items.Item, char *character.MMCharacter, combatSystem
 		lines = append(lines, fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus))
 	}
 
-	// Add weapon category and rarity
-	lines = append(lines, fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity))
+    // Add weapon category and rarity
+    lines = append(lines, fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity))
 
-	return lines
+    // Show value if available
+    if val, ok := item.Attributes["value"]; ok && val > 0 {
+        lines = append(lines, fmt.Sprintf("Value: %d gold", val))
+    }
+
+    return lines
 }
 
     // getArmorTooltip returns armor-specific tooltip information (YAML-driven)

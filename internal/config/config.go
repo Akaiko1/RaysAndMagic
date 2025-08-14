@@ -422,7 +422,8 @@ type WeaponDefinitionConfig struct {
 	MaxProjectiles     int    `yaml:"max_projectiles"`
 	HitBonus           int    `yaml:"hit_bonus"`
 	CritChance         int    `yaml:"crit_chance"`
-	Rarity             string `yaml:"rarity"`
+    Rarity             string `yaml:"rarity"`
+    Value              int    `yaml:"value,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows)
 	Physics *MeleeWeaponConfig `yaml:"physics"`
@@ -545,6 +546,7 @@ type ItemDefinitionConfig struct {
     Description string `yaml:"description"` // Gameplay-neutral summary (optional)
     Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
     EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+    Value       int    `yaml:"value,omitempty"` // Gold value
     // Optional numeric stats to un-hardcode item effects
     ArmorClassBase           int `yaml:"armor_class_base,omitempty"`
     EnduranceScalingDivisor  int `yaml:"endurance_scaling_divisor,omitempty"`
