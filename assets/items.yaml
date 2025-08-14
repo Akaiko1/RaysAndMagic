@@ -83,3 +83,12 @@ items:
     equip_slot: "belt"
     bonus_might: 5
     value: 300
+
+  lucky_paw:
+    name: "Lucky Paw"
+    type: "accessory"
+    description: "An amulet said to turn fate's gaze"
+    flavor: "Warm to the touch; chance purrs in your pocket."
+    equip_slot: "amulet"
+    bonus_luck: 40
+    value: 800

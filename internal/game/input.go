@@ -35,6 +35,25 @@ func NewInputHandler(game *MMGame) *InputHandler {
     return &InputHandler{game: game}
 }
 
+// actionCooldown returns the number of frames to wait before the next action,
+// using Speed-based anchors: Speed 5 => ~60 frames (1 sec), Speed 50 => ~30 frames (0.5 sec).
+// Scales linearly between/around anchors and clamps to [15, 90] frames. The `base` arg is ignored.
+func (ih *InputHandler) actionCooldown(_ int) int {
+    selected := ih.game.party.Members[ih.game.selectedChar]
+    // Use effective stats to include buffs/items
+    _, _, _, _, _, speed, _ := selected.GetEffectiveStats(ih.game.statBonus)
+    // Linear fit through points: (5,60) and (50,30)
+    frames := 63.333333 - (2.0/3.0)*float64(speed)
+    cd := int(math.Round(frames))
+    if cd < 15 {
+        cd = 15
+    }
+    if cd > 90 {
+        cd = 90
+    }
+    return cd
+}
+
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
     // When game over, only allow New Game or Load
@@ -307,17 +326,17 @@ func (ih *InputHandler) handleMovementInput() {
 
 // handleCombatInput processes combat-related input
 func (ih *InputHandler) handleCombatInput() {
-	// Magic attack (F key) - single press with cooldown to prevent spam
-	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-	}
+    // Magic attack (F key) - single press with cooldown to prevent spam
+    if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
+        ih.game.combat.CastEquippedSpell()
+        ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+    }
 
-	// Melee attack (Space key) - with cooldown to prevent spam
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.spellInputCooldown = 15 // 0.25 second cooldown at 60 FPS
-	}
+    // Melee attack (Space key) - with cooldown to prevent spam
+    if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+        ih.game.combat.EquipmentMeleeAttack()
+        ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
+    }
 
 	// Note: H key healing is handled in handleMouseInput for proper targeting
 }
@@ -386,10 +405,10 @@ func (ih *InputHandler) handleUIInput() {
 	}
 
 	// Handle NPC interaction with T key
-	if ebiten.IsKeyPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
-		ih.handleNPCInteraction()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-	}
+    if ebiten.IsKeyPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
+        ih.handleNPCInteraction()
+        ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+    }
 
 	// Toggle turn-based mode with Enter key
 	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
@@ -641,7 +660,7 @@ func (ih *InputHandler) handleMouseInput() {
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	// Handle heal targeting when H key is pressed (only when menu is not open and cooldown is ready)
-	if !ih.game.menuOpen && ebiten.IsKeyPressed(ebiten.KeyH) && ih.game.spellInputCooldown == 0 {
+    if !ih.game.menuOpen && ebiten.IsKeyPressed(ebiten.KeyH) && ih.game.spellInputCooldown == 0 {
 		caster := ih.game.party.Members[ih.game.selectedChar]
 
 		// Check if character has a heal spell equipped
@@ -651,21 +670,21 @@ func (ih *InputHandler) handleMouseInput() {
 
 			if targetCharIndex >= 0 {
 				// Check if the spell can target others or if targeting self
-				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-					ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-				} else {
+                if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
+                    ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+                    ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+                } else {
 					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
-					ih.game.combat.EquipmentHeal()
-					ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-				}
-			} else {
-				// No target under mouse, heal self (original behavior)
-				ih.game.combat.EquipmentHeal()
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			}
-		}
-	}
+                    ih.game.combat.EquipmentHeal()
+                    ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+                }
+            } else {
+                // No target under mouse, heal self (original behavior)
+                ih.game.combat.EquipmentHeal()
+                ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+            }
+        }
+    }
 
 	// Handle party character selection clicks (works both in and out of menu)
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
@@ -1247,7 +1266,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
     if canAct && ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
         ih.game.combat.EquipmentMeleeAttack()
         ih.game.partyActionsUsed++
-        ih.game.spellInputCooldown = 15
+        ih.game.spellInputCooldown = ih.actionCooldown(15)
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()
@@ -1257,7 +1276,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
     if canAct && ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
         ih.game.combat.CastEquippedSpell()
         ih.game.partyActionsUsed++
-        ih.game.spellInputCooldown = 15
+        ih.game.spellInputCooldown = ih.actionCooldown(15)
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()

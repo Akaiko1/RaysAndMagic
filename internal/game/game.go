@@ -22,24 +22,26 @@ import (
 // Access via config.GlobalConfig or pass config instance
 
 type MagicProjectile struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	SpellType  string // Type of spell for visual differentiation
-	Size       int    // Projectile size
+    ID         string  // Unique identifier
+    X, Y       float64 // Current position
+    VelX, VelY float64 // Velocity
+    Damage     int
+    LifeTime   int // Frames remaining
+    Active     bool
+    SpellType  string // Type of spell for visual differentiation
+    Size       int    // Projectile size
+    Crit       bool   // Critical hit flag
 }
 
 type MeleeAttack struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	WeaponName string // Name of weapon used for combat messages
+    ID         string  // Unique identifier
+    X, Y       float64 // Current position
+    VelX, VelY float64 // Velocity
+    Damage     int
+    LifeTime   int // Frames remaining
+    Active     bool
+    WeaponName string // Name of weapon used for combat messages
+    Crit       bool   // Critical hit flag
 }
 
 // SlashEffect represents a visual slash animation for melee weapons
@@ -55,14 +57,15 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	BowKey     string // YAML key of the bow used to fire this arrow
-	DamageType string // Damage element type ("physical", "dark", etc.)
+    ID         string  // Unique identifier
+    X, Y       float64 // Current position
+    VelX, VelY float64 // Velocity
+    Damage     int
+    LifeTime   int // Frames remaining
+    Active     bool
+    BowKey     string // YAML key of the bow used to fire this arrow
+    DamageType string // Damage element type ("physical", "dark", etc.)
+    Crit       bool   // Critical hit flag
 }
 
 type MMGame struct {
