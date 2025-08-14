@@ -1,11 +1,12 @@
 package game
 
 import (
-	"fmt"
-	"math"
-	"math/rand"
-	"ugataima/internal/monster"
-	"ugataima/internal/world"
+    "fmt"
+    "math"
+    "math/rand"
+    "ugataima/internal/character"
+    "ugataima/internal/monster"
+    "ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -407,11 +408,14 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	damage := monster.GetAttackDamage()
 
 	// Apply armor damage reduction
-	finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
-	target.HitPoints -= finalDamage
-	if target.HitPoints < 0 {
-		target.HitPoints = 0
-	}
+    finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
+    target.HitPoints -= finalDamage
+    if target.HitPoints < 0 {
+        target.HitPoints = 0
+    }
+    if target.HitPoints == 0 {
+        target.AddCondition(character.ConditionUnconscious)
+    }
 
 	// Trigger damage blink effect
 	gl.game.TriggerDamageBlink(targetIndex)

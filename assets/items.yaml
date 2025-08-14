@@ -3,17 +3,83 @@ items:
     name: "Leather Armor"
     type: "armor"
     description: "Simple leather protection"
+    flavor: "Worn smooth by a hundred roads; it smells of rain and smoke."
+    equip_slot: "armor"
     armor_class_base: 2
     endurance_scaling_divisor: 5
+    value: 25
+
+  leather_helmet:
+    name: "Leather Helmet"
+    type: "armor"
+    description: "Simple leather cap offering light protection"
+    flavor: "A scuffed browband that keeps splinters—and doubts—at bay."
+    equip_slot: "helmet"
+    armor_class_base: 1
+    endurance_scaling_divisor: 6
+    value: 15
+
+  leather_pants:
+    name: "Leather Pants"
+    type: "armor"
+    description: "Reinforced leather pants with minimal protection"
+    flavor: "Stitched at dusk; they creak like an old saddle."
+    equip_slot: "boots"
+    armor_class_base: 1
+    endurance_scaling_divisor: 6
+    value: 18
 
   health_potion:
     name: "Health Potion"
     type: "consumable"
     description: "Restores health"
+    flavor: "Sunset caught in glass; warm as a hearth."
+    heal_base: 25
+    heal_endurance_divisor: 4
+    value: 50
+
+  revival_potion:
+    name: "Revival Potion"
+    type: "consumable"
+    description: "A potent draught that restores breath and vigor"
+    flavor: "A spark in a bottle; dawn for the fallen."
+    revive: true
+    full_heal: true
+    value: 500
 
   magic_ring:
     name: "Magic Ring"
     type: "accessory"
     description: "A magical ring that enhances spell power and mana"
+    flavor: "A thin whisper of power circling a finger."
+    equip_slot: "ring"
     intellect_scaling_divisor: 6
     personality_scaling_divisor: 8
+    value: 200
+
+  iron_armor:
+    name: "Iron Armor"
+    type: "armor"
+    description: "Sturdy iron plate providing solid protection"
+    flavor: "Iron plates that sing quietly with every step."
+    equip_slot: "armor"
+    armor_class_base: 4
+    endurance_scaling_divisor: 4
+    value: 120
+
+  dead_branch:
+    name: "Dead Branch"
+    type: "consumable"
+    description: "A brittle branch humming with chaotic energy"
+    flavor: "Brittle with whispers; it remembers storms."
+    summon_distance_tiles: 2
+    value: 80
+
+  belt_of_strength:
+    name: "Belt of Strength"
+    type: "accessory"
+    description: "A stout belt that steadies the core"
+    flavor: "Cinched tight, it lends the courage of oaks."
+    equip_slot: "belt"
+    bonus_might: 5
+    value: 300

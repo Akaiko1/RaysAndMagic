@@ -422,7 +422,8 @@ type WeaponDefinitionConfig struct {
 	MaxProjectiles     int    `yaml:"max_projectiles"`
 	HitBonus           int    `yaml:"hit_bonus"`
 	CritChance         int    `yaml:"crit_chance"`
-	Rarity             string `yaml:"rarity"`
+    Rarity             string `yaml:"rarity"`
+    Value              int    `yaml:"value,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows)
 	Physics *MeleeWeaponConfig `yaml:"physics"`
@@ -542,12 +543,22 @@ type ItemSystemConfig struct {
 type ItemDefinitionConfig struct {
     Name        string `yaml:"name"`
     Type        string `yaml:"type"` // armor|accessory|consumable|quest
-    Description string `yaml:"description"`
+    Description string `yaml:"description"` // Gameplay-neutral summary (optional)
+    Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+    EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+    Value       int    `yaml:"value,omitempty"` // Gold value
     // Optional numeric stats to un-hardcode item effects
     ArmorClassBase           int `yaml:"armor_class_base,omitempty"`
     EnduranceScalingDivisor  int `yaml:"endurance_scaling_divisor,omitempty"`
     IntellectScalingDivisor  int `yaml:"intellect_scaling_divisor,omitempty"`
     PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
+    BonusMight                int `yaml:"bonus_might,omitempty"`
+    // Optional consumable attributes
+    HealBase                 int `yaml:"heal_base,omitempty"`
+    HealEnduranceDivisor     int `yaml:"heal_endurance_divisor,omitempty"`
+    SummonDistanceTiles      int `yaml:"summon_distance_tiles,omitempty"`
+    Revive                   bool `yaml:"revive,omitempty"`
+    FullHeal                 bool `yaml:"full_heal,omitempty"`
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -556,19 +567,44 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 		return nil, err
 	}
 	var itemCfg ItemSystemConfig
-	if err := yaml.Unmarshal(data, &itemCfg); err != nil {
-		return nil, err
-	}
-	GlobalItems = &itemCfg
-	return &itemCfg, nil
+    if err := yaml.Unmarshal(data, &itemCfg); err != nil {
+        return nil, err
+    }
+    // Validate per-type required attributes for single source of truth
+    if err := validateItemConfig(&itemCfg); err != nil {
+        return nil, err
+    }
+    GlobalItems = &itemCfg
+    return &itemCfg, nil
 }
 
 func MustLoadItemConfig(filename string) *ItemSystemConfig {
-	cfg, err := LoadItemConfig(filename)
-	if err != nil {
-		panic("Failed to load item config: " + err.Error())
-	}
-	return cfg
+    cfg, err := LoadItemConfig(filename)
+    if err != nil {
+        panic("Failed to load item config: " + err.Error())
+    }
+    return cfg
+}
+
+// validateItemConfig enforces per-type required attributes for consumables
+func validateItemConfig(cfg *ItemSystemConfig) error {
+    for key, def := range cfg.Items {
+        switch def.Type {
+        case "consumable":
+            // If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)
+            if def.HealBase > 0 && def.HealEnduranceDivisor <= 0 && !def.Revive {
+                return fmt.Errorf("consumable '%s' missing heal_endurance_divisor", key)
+            }
+            if def.HealEnduranceDivisor > 0 && def.HealBase <= 0 && !def.Revive {
+                return fmt.Errorf("consumable '%s' missing heal_base", key)
+            }
+            // If no known consumable attributes are present, warn but allow
+            if def.HealBase == 0 && def.SummonDistanceTiles == 0 && !def.Revive {
+                // Allow “vanilla” consumables for future behaviors; no hard error
+            }
+        }
+    }
+    return nil
 }
 
 func GetItemDefinition(itemKey string) (*ItemDefinitionConfig, bool) {

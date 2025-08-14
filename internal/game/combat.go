@@ -26,7 +26,12 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 
 // CastEquippedSpell performs a magic attack using equipped spell (unified F key casting)
 func (cs *CombatSystem) CastEquippedSpell() {
-	caster := cs.game.party.Members[cs.game.selectedChar]
+    caster := cs.game.party.Members[cs.game.selectedChar]
+
+    // Unconscious characters cannot cast
+    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+        return
+    }
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -75,22 +80,28 @@ func (cs *CombatSystem) CastEquippedSpell() {
 			cs.game.AddCombatMessage(result.Message)
 
 			// Apply healing effects for heal spells
-			if result.HealAmount > 0 {
-				if result.TargetSelf || string(spellID) == "heal" {
-					// Heal self
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-				} else if string(spellID) == "heal_other" {
-					// For F key heal other, just heal self since there's no target selection
-					// Use H key with mouse for proper targeting
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-				}
-			}
+            if result.HealAmount > 0 {
+                if result.TargetSelf || string(spellID) == "heal" {
+                    // Heal self
+                    caster.HitPoints += result.HealAmount
+                    if caster.HitPoints > caster.MaxHitPoints {
+                        caster.HitPoints = caster.MaxHitPoints
+                    }
+                    if caster.HitPoints > 0 {
+                        caster.RemoveCondition(character.ConditionUnconscious)
+                    }
+                } else if string(spellID) == "heal_other" {
+                    // For F key heal other, just heal self since there's no target selection
+                    // Use H key with mouse for proper targeting
+                    caster.HitPoints += result.HealAmount
+                    if caster.HitPoints > caster.MaxHitPoints {
+                        caster.HitPoints = caster.MaxHitPoints
+                    }
+                    if caster.HitPoints > 0 {
+                        caster.RemoveCondition(character.ConditionUnconscious)
+                    }
+                }
+            }
 
 			// Apply utility spell effects dynamically based on spell ID
 			switch string(spellID) {
@@ -161,7 +172,12 @@ func (cs *CombatSystem) CastEquippedSpell() {
 
 // EquipmentHeal casts heal using equipped spell (special targeting for heal spells)
 func (cs *CombatSystem) EquipmentHeal() {
-	caster := cs.game.party.Members[cs.game.selectedChar]
+    caster := cs.game.party.Members[cs.game.selectedChar]
+
+    // Unconscious characters cannot cast heals
+    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+        return
+    }
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -230,7 +246,12 @@ func (cs *CombatSystem) EquipmentHeal() {
 
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
 func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
-	caster := cs.game.party.Members[cs.game.selectedChar]
+    caster := cs.game.party.Members[cs.game.selectedChar]
+
+    // Unconscious characters cannot cast heals
+    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+        return
+    }
 
 	// Check if character has a heal spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -265,10 +286,13 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	caster.SpellPoints -= spellCost
 	// Calculate heal amount using centralized function
 	_, _, healAmount := cs.CalculateEquippedHealAmount(spellCost, caster)
-	target.HitPoints += healAmount
-	if target.HitPoints > target.MaxHitPoints {
-		target.HitPoints = target.MaxHitPoints
-	}
+    target.HitPoints += healAmount
+    if target.HitPoints > target.MaxHitPoints {
+        target.HitPoints = target.MaxHitPoints
+    }
+    if target.HitPoints > 0 {
+        target.RemoveCondition(character.ConditionUnconscious)
+    }
 
 	// Print feedback message
 	if targetIndex == cs.game.selectedChar {
@@ -282,7 +306,12 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
 func (cs *CombatSystem) EquipmentMeleeAttack() {
-	attacker := cs.game.party.Members[cs.game.selectedChar]
+    attacker := cs.game.party.Members[cs.game.selectedChar]
+
+    // Unconscious characters cannot attack
+    if attacker.HasCondition(character.ConditionUnconscious) || attacker.HitPoints <= 0 {
+        return
+    }
 
 	// Check if character has a weapon equipped
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
@@ -669,10 +698,13 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 				// Apply armor damage reduction
 				finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
-				currentChar.HitPoints -= finalDamage
-				if currentChar.HitPoints < 0 {
-					currentChar.HitPoints = 0
-				}
+                currentChar.HitPoints -= finalDamage
+                if currentChar.HitPoints < 0 {
+                    currentChar.HitPoints = 0
+                }
+                if currentChar.HitPoints == 0 {
+                    currentChar.AddCondition(character.ConditionUnconscious)
+                }
 
 				// Trigger damage blink effect for the character that was hit
 				targetIndex := cs.findCharacterIndex(currentChar)
@@ -1159,23 +1191,31 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
         // Get effective endurance (includes equipment bonuses)
         _, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
 
-        // Calculate armor class using equipped armor attributes
+        // Calculate armor class from all armor slots
         baseArmor := 0
-        enduranceDiv := 0
-        if armor, hasArmor := character.Equipment[items.SlotArmor]; hasArmor {
-            if v, ok := armor.Attributes["armor_class_base"]; ok {
-                baseArmor = v
-            }
-            if v, ok := armor.Attributes["endurance_scaling_divisor"]; ok {
-                enduranceDiv = v
+        totalEnduranceBonus := 0
+        
+        armorSlots := []items.EquipSlot{
+            items.SlotArmor,
+            items.SlotHelmet,
+            items.SlotBoots,
+            items.SlotCloak,
+            items.SlotGauntlets,
+            items.SlotBelt,
+        }
+        
+        for _, slot := range armorSlots {
+            if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
+                if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
+                    baseArmor += v
+                }
+                if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
+                    totalEnduranceBonus += effectiveEndurance / enduranceDiv
+                }
             }
         }
-
-        enduranceBonus := 0
-        if enduranceDiv > 0 {
-            enduranceBonus = effectiveEndurance / enduranceDiv
-        }
-        totalArmorClass := baseArmor + enduranceBonus
+        
+        totalArmorClass := baseArmor + totalEnduranceBonus
 
         // Damage reduction (same formula as tooltip)
         damageReduction := totalArmorClass / 2

@@ -19,11 +19,20 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
     adapted := &items.ItemDefinitionFromYAML{
         Name:        def.Name,
         Description: def.Description,
+        Flavor:      def.Flavor,
         Type:        def.Type,
         ArmorClassBase:            def.ArmorClassBase,
         EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
         IntellectScalingDivisor:   def.IntellectScalingDivisor,
         PersonalityScalingDivisor: def.PersonalityScalingDivisor,
+        BonusMight:                def.BonusMight,
+        HealBase:                  def.HealBase,
+        HealEnduranceDivisor:      def.HealEnduranceDivisor,
+        SummonDistanceTiles:       def.SummonDistanceTiles,
+        EquipSlot:                 def.EquipSlot,
+        Value:                     def.Value,
+        Revive:                    def.Revive,
+        FullHeal:                  def.FullHeal,
     }
     return adapted, true
 }
