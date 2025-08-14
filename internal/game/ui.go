@@ -57,17 +57,22 @@ func NewUISystem(game *MMGame) *UISystem {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
-	// Reset mouse state at the start of each frame
-	ui.resetMouseState()
+    // Reset mouse state at the start of each frame
+    ui.resetMouseState()
 
-	// Draw base game UI elements
-	ui.drawGameplayUI(screen)
+    // Draw base game UI elements
+    ui.drawGameplayUI(screen)
 
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
 
-	// Draw overlay interfaces (menus and dialogs)
-	ui.drawOverlayInterfaces(screen)
+    // Draw overlay interfaces (menus and dialogs)
+    ui.drawOverlayInterfaces(screen)
+
+    // Draw Game Over overlay if active
+    if ui.game.gameOver {
+        ui.drawGameOverOverlay(screen)
+    }
 
 	// Draw stat distribution popup if open
 	if ui.game.statPopupOpen {
@@ -390,9 +395,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		}
 
-		// Draw background panel using DrawImage
-		panelImg := ebiten.NewImage(portraitWidth-2, portraitHeight)
-		panelImg.Fill(bgColor)
+        // Draw background panel using DrawImage
+        panelImg := ebiten.NewImage(portraitWidth-2, portraitHeight)
+        panelImg.Fill(bgColor)
 
 		opts := &ebiten.DrawImageOptions{}
 		opts.GeoM.Translate(float64(x), float64(startY))
@@ -422,7 +427,23 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			portraitOpts.ColorScale.Scale(1.5, 0.5, 0.5, 1.0) // Red tint: more red, less green/blue
 		}
 
-		screen.DrawImage(portrait, portraitOpts)
+        screen.DrawImage(portrait, portraitOpts)
+
+        // Darken overlay if unconscious
+        isUnconscious := false
+        for _, cond := range member.Conditions {
+            if cond == character.ConditionUnconscious {
+                isUnconscious = true
+                break
+            }
+        }
+        if isUnconscious {
+            dark := ebiten.NewImage(portraitWidth-2, portraitHeight)
+            dark.Fill(color.RGBA{0, 0, 0, 140})
+            darkOpts := &ebiten.DrawImageOptions{}
+            darkOpts.GeoM.Translate(float64(x), float64(startY))
+            screen.DrawImage(dark, darkOpts)
+        }
 
 		// Status Column (Column 2) - basic character info
 		statusColX := x + portraitColWidth + 5
@@ -433,10 +454,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+35)
 
 		// Add character condition status
-		statusText := "OK"
-		if len(member.Conditions) > 0 {
-			statusText = ui.getConditionName(member.Conditions[0])
-		}
+        statusText := "OK"
+        if len(member.Conditions) > 0 {
+            statusText = ui.getConditionName(member.Conditions[0])
+        }
 		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+50)
 
 		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
@@ -1684,18 +1705,19 @@ func (ui *UISystem) getClassName(class character.CharacterClass) string {
 
 // getConditionName returns the condition name for a character condition
 func (ui *UISystem) getConditionName(condition character.Condition) string {
-	names := map[character.Condition]string{
-		character.ConditionNormal:     "Normal",
-		character.ConditionPoisoned:   "Poisoned",
-		character.ConditionDiseased:   "Diseased",
-		character.ConditionCursed:     "Cursed",
-		character.ConditionAsleep:     "Asleep",
-		character.ConditionFear:       "Fear",
-		character.ConditionParalyzed:  "Paralyzed",
-		character.ConditionDead:       "Dead",
-		character.ConditionStone:      "Stone",
-		character.ConditionEradicated: "Eradicated",
-	}
+    names := map[character.Condition]string{
+        character.ConditionNormal:     "Normal",
+        character.ConditionPoisoned:   "Poisoned",
+        character.ConditionDiseased:   "Diseased",
+        character.ConditionCursed:     "Cursed",
+        character.ConditionAsleep:     "Asleep",
+        character.ConditionFear:       "Fear",
+        character.ConditionParalyzed:  "Paralyzed",
+        character.ConditionUnconscious:"Unconscious",
+        character.ConditionDead:       "Dead",
+        character.ConditionStone:      "Stone",
+        character.ConditionEradicated: "Eradicated",
+    }
 	if name, exists := names[condition]; exists {
 		return name
 	}
@@ -1965,6 +1987,23 @@ func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, di
 	}
 
 	ebitenutil.DebugPrintAt(screen, "Press ESC to close", dialogX+20, dialogY+200)
+}
+
+// drawGameOverOverlay draws a simple game over screen with options
+func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
+    w := ui.game.config.GetScreenWidth()
+    h := ui.game.config.GetScreenHeight()
+    // Darken background
+    overlay := ebiten.NewImage(w, h)
+    overlay.Fill(color.RGBA{0, 0, 0, 180})
+    screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+
+    // Text
+    centerX := w/2 - 160
+    centerY := h/2 - 30
+    ebitenutil.DebugPrintAt(screen, "GAME OVER", centerX+80, centerY-30)
+    ebitenutil.DebugPrintAt(screen, "Press N: New Game", centerX, centerY)
+    ebitenutil.DebugPrintAt(screen, "Press L: Load Game", centerX, centerY+20)
 }
 
 // wrapText wraps text to fit within specified width

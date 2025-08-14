@@ -302,9 +302,13 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 }
 
 func (c *MMCharacter) Update() {
-	// Regenerate spell points slowly - only every 3 seconds (90 frames at 30 FPS)
-	const spellRegenFrames = 90
-	c.spellRegenTimer++
+    // If unconscious, skip regeneration and updates
+    if c.HasCondition(ConditionUnconscious) {
+        return
+    }
+    // Regenerate spell points slowly - only every 3 seconds (90 frames at 30 FPS)
+    const spellRegenFrames = 90
+    c.spellRegenTimer++
 
 	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
 		c.SpellPoints++
@@ -436,16 +440,43 @@ func (c *MMCharacter) GetMagicSchoolName(school MagicSchool) string {
 }
 
 func (c *MMCharacter) getConditionName(condition Condition) string {
-	names := map[Condition]string{
-		ConditionNormal: "OK", ConditionPoisoned: "Poisoned", ConditionDiseased: "Diseased",
-		ConditionCursed: "Cursed", ConditionAsleep: "Asleep", ConditionFear: "Fear",
-		ConditionParalyzed: "Paralyzed", ConditionDead: "Dead", ConditionStone: "Stone",
-		ConditionEradicated: "Eradicated",
-	}
-	if name, exists := names[condition]; exists {
-		return name
-	}
-	return "Unknown"
+    names := map[Condition]string{
+        ConditionNormal: "OK", ConditionPoisoned: "Poisoned", ConditionDiseased: "Diseased",
+        ConditionCursed: "Cursed", ConditionAsleep: "Asleep", ConditionFear: "Fear",
+        ConditionParalyzed: "Paralyzed", ConditionUnconscious: "Unconscious", ConditionDead: "Dead", ConditionStone: "Stone",
+        ConditionEradicated: "Eradicated",
+    }
+    if name, exists := names[condition]; exists {
+        return name
+    }
+    return "Unknown"
+}
+
+// HasCondition checks if the character has a specific condition
+func (c *MMCharacter) HasCondition(cond Condition) bool {
+    for _, existing := range c.Conditions {
+        if existing == cond {
+            return true
+        }
+    }
+    return false
+}
+
+// AddCondition adds a condition if not already present
+func (c *MMCharacter) AddCondition(cond Condition) {
+    if !c.HasCondition(cond) {
+        c.Conditions = append(c.Conditions, cond)
+    }
+}
+
+// RemoveCondition removes a condition if present
+func (c *MMCharacter) RemoveCondition(cond Condition) {
+    for i, existing := range c.Conditions {
+        if existing == cond {
+            c.Conditions = append(c.Conditions[:i], c.Conditions[i+1:]...)
+            return
+        }
+    }
 }
 
 // GetAvailableSchools returns the magic schools available to this character in a consistent order

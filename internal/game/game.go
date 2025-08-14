@@ -190,7 +190,10 @@ type MMGame struct {
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
 	slotSelection     int
-	exitRequested     bool
+    exitRequested     bool
+
+    // Game over state
+    gameOver bool
 }
 
 type GameState int
@@ -485,11 +488,15 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 }
 
 func (g *MMGame) Update() error {
-	return g.gameLoop.Update()
+    if err := g.gameLoop.Update(); err != nil {
+        return err
+    }
+    g.checkGameOver()
+    return nil
 }
 
 func (g *MMGame) Draw(screen *ebiten.Image) {
-	g.gameLoop.Draw(screen)
+    g.gameLoop.Draw(screen)
 }
 
 // GenerateProjectileID generates a unique ID for projectiles
@@ -499,7 +506,24 @@ func (g *MMGame) GenerateProjectileID(projectileType string) string {
 }
 
 func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return g.gameLoop.Layout(outsideWidth, outsideHeight)
+    return g.gameLoop.Layout(outsideWidth, outsideHeight)
+}
+
+// checkGameOver sets gameOver when all party members are unconscious (HP <= 0)
+func (g *MMGame) checkGameOver() {
+    if g.gameOver {
+        return
+    }
+    allDown := true
+    for _, m := range g.party.Members {
+        if m.HitPoints > 0 {
+            allDown = false
+            break
+        }
+    }
+    if allDown {
+        g.gameOver = true
+    }
 }
 
 // AddCombatMessage adds a combat message to the message queue

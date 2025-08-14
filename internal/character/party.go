@@ -74,15 +74,20 @@ func (p *Party) GetTotalItems() int {
 
 // EquipItemFromInventory attempts to equip an item from inventory to a character
 func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
-	if itemIndex < 0 || itemIndex >= len(p.Inventory) {
-		return false
-	}
-	if characterIndex < 0 || characterIndex >= len(p.Members) {
-		return false
-	}
+    if itemIndex < 0 || itemIndex >= len(p.Inventory) {
+        return false
+    }
+    if characterIndex < 0 || characterIndex >= len(p.Members) {
+        return false
+    }
 
-	item := p.Inventory[itemIndex]
-	character := p.Members[characterIndex]
+    item := p.Inventory[itemIndex]
+    character := p.Members[characterIndex]
+
+    // Disallow equipping if character is unconscious
+    if character.HasCondition(ConditionUnconscious) {
+        return false
+    }
 
 	// Try to equip the item
 	previousItem, hadPreviousItem, success := character.EquipItem(item)
