@@ -25,8 +25,15 @@ func main() {
 	// Load weapon configuration
 	config.MustLoadWeaponConfig("weapons.yaml")
 
-	// Setup weapon bridge to avoid circular imports
+	// Load non-weapon item configuration
+	config.MustLoadItemConfig("assets/items.yaml")
+
+	// Load loot tables
+	config.MustLoadLootTables("assets/loots.yaml")
+
+	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
+	bridge.SetupItemBridge()
 
 	// Initialize dynamic spell system with configuration
 	spells.SetGlobalConfig(cfg)
