@@ -160,14 +160,28 @@ func getArmorSummary(item items.Item, char *character.MMCharacter) string {
 func getAccessorySummary(item items.Item, char *character.MMCharacter) string {
     intDiv := item.Attributes["intellect_scaling_divisor"]
     perDiv := item.Attributes["personality_scaling_divisor"]
+    mightFlat := item.Attributes["bonus_might"]
     if intDiv == 0 && perDiv == 0 {
+        if mightFlat > 0 {
+            return fmt.Sprintf("Might +%d", mightFlat)
+        }
         return "An accessory with minor benefits"
     }
     if intDiv > 0 && perDiv > 0 {
+        if mightFlat > 0 {
+            return fmt.Sprintf("Might +%d, Spell Power +Intellect/%d, SP +Personality/%d", mightFlat, intDiv, perDiv)
+        }
         return fmt.Sprintf("Spell Power +Intellect/%d, Spell Points +Personality/%d", intDiv, perDiv)
     }
     if intDiv > 0 {
+        if mightFlat > 0 {
+            return fmt.Sprintf("Might +%d, Spell Power +Intellect/%d", mightFlat, intDiv)
+        }
         return fmt.Sprintf("Spell Power +Intellect/%d", intDiv)
+    }
+    // perDiv > 0 only
+    if mightFlat > 0 {
+        return fmt.Sprintf("Might +%d, Spell Points +Personality/%d", mightFlat, perDiv)
     }
     return fmt.Sprintf("Spell Points +Personality/%d", perDiv)
 }
@@ -198,20 +212,21 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string 
 
 // getConsumableTooltip returns consumable-specific tooltip information
 func getConsumableSummary(item items.Item, char *character.MMCharacter) string {
-    switch item.Name {
-    case "Health Potion":
-        base := item.Attributes["heal_base"]
-        if base <= 0 { base = 25 }
+    // Attribute-driven summary: single source of truth with gameplay
+    if base, ok := item.Attributes["heal_base"]; ok {
         div := item.Attributes["heal_endurance_divisor"]
-        if div <= 0 { div = 4 }
-        return fmt.Sprintf("Restores %d + Endurance/%d HP on use", base, div)
-    case "Dead Branch":
-        dist := item.Attributes["summon_distance_tiles"]
-        if dist <= 0 { dist = 2 }
-        return fmt.Sprintf("Summons a random monster ~%d tiles away", dist)
-    default:
-        return "Single-use consumable"
+        if base > 0 && div > 0 {
+            return fmt.Sprintf("Restores %d + Endurance/%d HP on use", base, div)
+        }
+        return "Heals (misconfigured)"
     }
+    if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
+        if dist > 0 {
+            return fmt.Sprintf("Summons a random monster ~%d tiles away", dist)
+        }
+        return "Summons (misconfigured)"
+    }
+    return "Single-use consumable"
 }
 
 // getSpellEffectDescription returns a description for spell effects
