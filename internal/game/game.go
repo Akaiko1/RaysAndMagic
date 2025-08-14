@@ -1,18 +1,19 @@
 package game
 
 import (
-	"fmt"
-	"image/color"
-	"math"
-	"sync"
+    "fmt"
+    "image/color"
+    "math"
+    "math/rand"
+    "sync"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
-	"ugataima/internal/monster"
-	"ugataima/internal/threading"
-	"ugataima/internal/world"
+    "ugataima/internal/monster"
+    "ugataima/internal/threading"
+    "ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -509,6 +510,44 @@ func (g *MMGame) AddCombatMessage(message string) {
 	if len(g.combatMessages) > g.maxMessages {
 		g.combatMessages = g.combatMessages[len(g.combatMessages)-g.maxMessages:]
 	}
+}
+
+// SummonRandomMonsterNearPlayer spawns a random monster roughly distanceTiles away if possible
+func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
+    if world.GlobalWorldManager == nil || monster.MonsterConfig == nil {
+        return false
+    }
+    px, py := g.camera.X, g.camera.Y
+    tileSize := float64(g.config.GetTileSize())
+    // Choose a random angle and target exactly distanceTiles away, then find nearest walkable
+    angle := rand.Float64() * 2 * math.Pi
+    targetX := px + math.Cos(angle)*distanceTiles*tileSize
+    targetY := py + math.Sin(angle)*distanceTiles*tileSize
+    sx, sy := g.FindNearestWalkableTile(targetX, targetY)
+    if sx == -1 && sy == -1 {
+        return false
+    }
+
+    // Pick a random monster key from config
+    keys := monster.MonsterConfig.GetAllMonsterKeys()
+    if len(keys) == 0 {
+        return false
+    }
+    key := keys[rand.Intn(len(keys))]
+
+    // Create and register the monster
+    m := monster.NewMonster3DFromConfig(sx, sy, key, g.config)
+    if m == nil {
+        return false
+    }
+    g.world.Monsters = append(g.world.Monsters, m)
+    // Register with collision system
+    width, height := m.GetSize()
+    entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
+    g.collisionSystem.RegisterEntity(entity)
+
+    g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
+    return true
 }
 
 // GetCombatMessages returns the current combat messages

@@ -1495,52 +1495,52 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 
 // findEncounterSpawnLocation finds a suitable spawn location near the encounter using DRY helper
 func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64, float64) {
-	tileSize := float64(ih.game.config.GetTileSize())
+    tileSize := float64(ih.game.config.GetTileSize())
 
-	// Try to spawn within 3-5 tiles of the NPC
-	maxAttempts := 15
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Random offset 3-5 tiles away
-		offsetRange := 3.0 + rand.Float64()*2.0 // 3-5 tiles
-		angle := rand.Float64() * 2 * 3.14159   // Random angle
+    // Try to spawn within 3-5 tiles of the NPC
+    maxAttempts := 15
+    for attempt := 0; attempt < maxAttempts; attempt++ {
+        // Random offset 3-5 tiles away
+        offsetRange := 3.0 + rand.Float64()*2.0 // 3-5 tiles
+        angle := rand.Float64() * 2 * 3.14159   // Random angle
 
-		offsetX := math.Cos(angle) * offsetRange * tileSize
-		offsetY := math.Sin(angle) * offsetRange * tileSize
+        offsetX := math.Cos(angle) * offsetRange * tileSize
+        offsetY := math.Sin(angle) * offsetRange * tileSize
 
-		candidateX := npcX + offsetX
-		candidateY := npcY + offsetY
+        candidateX := npcX + offsetX
+        candidateY := npcY + offsetY
 
-		// Only return if the exact candidate position is walkable
-		if ih.isPositionWalkable(candidateX, candidateY) {
-			return candidateX, candidateY
-		}
-	}
+        // Only return if the exact candidate position is walkable
+        if ih.isPositionWalkable(candidateX, candidateY) {
+            return candidateX, candidateY
+        }
+    }
 
-	// No fallback - if we can't find a good spot, don't spawn the monster
-	fmt.Printf("Warning: Could not find walkable spawn location near NPC at (%.1f, %.1f)\n", npcX, npcY)
-	return 0, 0 // Return invalid coordinates
+    // No fallback - if we can't find a good spot, don't spawn the monster
+    fmt.Printf("Warning: Could not find walkable spawn location near NPC at (%.1f, %.1f)\n", npcX, npcY)
+    return 0, 0 // Return invalid coordinates
 }
 
 // isPositionWalkable checks if a specific position is walkable (DRY helper)
 func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
-	worldInst := ih.game.GetCurrentWorld()
-	if worldInst == nil {
-		return false
-	}
+    worldInst := ih.game.GetCurrentWorld()
+    if worldInst == nil {
+        return false
+    }
 
-	tileSize := float64(ih.game.config.GetTileSize())
-	// Treat negative positions as out of bounds
-	if x < 0 || y < 0 {
-		return false
-	}
-	tileX := int(x / tileSize)
-	tileY := int(y / tileSize)
+    tileSize := float64(ih.game.config.GetTileSize())
+    // Treat negative positions as out of bounds
+    if x < 0 || y < 0 {
+        return false
+    }
+    tileX := int(x / tileSize)
+    tileY := int(y / tileSize)
 
-	if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
-		tile := worldInst.Tiles[tileY][tileX]
-		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)
-	}
-	return false
+    if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
+        tile := worldInst.Tiles[tileY][tileX]
+        return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)
+    }
+    return false
 }
 
 // wrapTextForDialog wraps text to fit within specified width (same as UI wrapText)

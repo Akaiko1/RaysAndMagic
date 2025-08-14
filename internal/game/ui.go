@@ -1974,18 +1974,26 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int) {
 		currentTime := time.Now()
 
 		// Check for double-click (same item clicked within 500ms)
-		if itemIndex == ui.lastClickedItem && currentTime.Sub(ui.lastClickTime) < 500*time.Millisecond {
-			// Double-click detected - try to equip the item
-			if itemIndex < len(ui.game.party.Inventory) {
-				itemName := ui.game.party.Inventory[itemIndex].Name
-				if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-						ui.game.party.Members[ui.game.selectedChar].Name, itemName))
-				} else {
-					ui.game.AddCombatMessage("Cannot equip this item!")
-				}
-			}
-		}
+        if itemIndex == ui.lastClickedItem && currentTime.Sub(ui.lastClickTime) < 500*time.Millisecond {
+            // Double-click detected - use or equip the item
+            if itemIndex < len(ui.game.party.Inventory) {
+                item := ui.game.party.Inventory[itemIndex]
+                switch item.Type {
+                case items.ItemConsumable:
+                    // Delegate to game logic (consumable effects, inventory removal, messages)
+                    _ = ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
+                default:
+                    // Try to equip non-consumables
+                    itemName := item.Name
+                    if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+                        ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
+                            ui.game.party.Members[ui.game.selectedChar].Name, itemName))
+                    } else {
+                        ui.game.AddCombatMessage("Cannot equip this item!")
+                    }
+                }
+            }
+        }
 
 		ui.lastClickedItem = itemIndex
 		ui.lastClickTime = currentTime

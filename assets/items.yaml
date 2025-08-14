@@ -6,6 +6,20 @@ items:
     armor_class_base: 2
     endurance_scaling_divisor: 5
 
+  leather_helmet:
+    name: "Leather Helmet"
+    type: "armor"
+    description: "Simple leather cap offering light protection"
+    armor_class_base: 1
+    endurance_scaling_divisor: 6
+
+  leather_pants:
+    name: "Leather Pants"
+    type: "armor"
+    description: "Reinforced leather pants with minimal protection"
+    armor_class_base: 1
+    endurance_scaling_divisor: 6
+
   health_potion:
     name: "Health Potion"
     type: "consumable"
@@ -17,3 +31,15 @@ items:
     description: "A magical ring that enhances spell power and mana"
     intellect_scaling_divisor: 6
     personality_scaling_divisor: 8
+
+  iron_armor:
+    name: "Iron Armor"
+    type: "armor"
+    description: "Sturdy iron plate providing solid protection"
+    armor_class_base: 4
+    endurance_scaling_divisor: 4
+
+  dead_branch:
+    name: "Dead Branch"
+    type: "consumable"
+    description: "A brittle branch humming with chaotic energy"
