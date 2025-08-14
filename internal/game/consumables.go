@@ -26,7 +26,14 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
     switch item.Name {
     case "Health Potion":
         ch := g.party.Members[selectedChar]
-        healAmount := 25 + (ch.Endurance / 4)
+        // Derive strictly from attributes – single source of truth
+        base, okBase := item.Attributes["heal_base"]
+        div, okDiv := item.Attributes["heal_endurance_divisor"]
+        if !okBase || !okDiv || base <= 0 || div <= 0 {
+            g.AddCombatMessage("Health Potion is misconfigured (missing heal attributes)")
+            return false
+        }
+        healAmount := base + (ch.Endurance / div)
         before := ch.HitPoints
         ch.HitPoints += healAmount
         if ch.HitPoints > ch.MaxHitPoints {
@@ -39,8 +46,13 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
         return true
 
     case "Dead Branch":
-        // Summon a random monster ~2 tiles away from player
-        if g.SummonRandomMonsterNearPlayer(2.0) {
+        // Summon a random monster near the player; distance from attributes
+        dist, ok := item.Attributes["summon_distance_tiles"]
+        if !ok || dist <= 0 {
+            g.AddCombatMessage("Dead Branch is misconfigured (missing summon distance)")
+            return false
+        }
+        if g.SummonRandomMonsterNearPlayer(float64(dist)) {
             g.party.RemoveItem(itemIndex)
             g.AddCombatMessage("The Dead Branch crackles and a monster appears!")
             return true
@@ -53,4 +65,3 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
         return false
     }
 }
-

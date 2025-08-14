@@ -538,10 +538,19 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
-		slot = items.SlotArmor
+		// Use equip_slot attribute if defined, otherwise default to armor slot
+		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
+			slot = items.EquipSlot(equipSlotCode)
+		} else {
+			slot = items.SlotArmor
+		}
 	case items.ItemAccessory:
-		// For now, put accessories in ring slot 1
-		slot = items.SlotRing1
+		// Use equip_slot attribute if defined, otherwise default to ring slot 1
+		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
+			slot = items.EquipSlot(equipSlotCode)
+		} else {
+			slot = items.SlotRing1
+		}
 	default:
 		return items.Item{}, false, false
 	}
@@ -609,10 +618,31 @@ func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, person
             }
         }
 
-        // Armor: endurance scaling divisor if present
-        if armor, hasArmor := c.Equipment[items.SlotArmor]; hasArmor {
-            if div := armor.Attributes["endurance_scaling_divisor"]; div > 0 {
-                enduranceBonus += c.Endurance / div
+        // All armor slots: check for endurance scaling divisor
+        armorSlots := []items.EquipSlot{
+            items.SlotArmor,
+            items.SlotHelmet,
+            items.SlotBoots,
+            items.SlotCloak,
+            items.SlotGauntlets,
+            items.SlotBelt,
+        }
+        
+        for _, slot := range armorSlots {
+            if armorPiece, hasArmor := c.Equipment[slot]; hasArmor {
+                if div := armorPiece.Attributes["endurance_scaling_divisor"]; div > 0 {
+                    enduranceBonus += c.Endurance / div
+                }
+            }
+        }
+        
+        // Amulets can also provide bonuses
+        if amulet, hasAmulet := c.Equipment[items.SlotAmulet]; hasAmulet {
+            if div := amulet.Attributes["intellect_scaling_divisor"]; div > 0 {
+                intellectBonus += c.Intellect / div
+            }
+            if div := amulet.Attributes["personality_scaling_divisor"]; div > 0 {
+                personalityBonus += c.Personality / div
             }
         }
 

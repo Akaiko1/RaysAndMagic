@@ -193,12 +193,17 @@ func GetWeaponKeyByName(name string) string {
 type ItemDefinitionFromYAML struct {
     Name        string
     Description string
+    Flavor      string
     Type        string // "armor", "accessory", "consumable", "quest"
     // Optional numeric stats
     ArmorClassBase            int
     EnduranceScalingDivisor   int
     IntellectScalingDivisor   int
     PersonalityScalingDivisor int
+    HealBase                  int
+    HealEnduranceDivisor      int
+    SummonDistanceTiles       int
+    EquipSlot                 string
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -243,11 +248,57 @@ func CreateItemFromYAML(itemKey string) Item {
     if def.PersonalityScalingDivisor != 0 {
         attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
     }
+    if def.HealBase != 0 {
+        attrs["heal_base"] = def.HealBase
+    }
+    if def.HealEnduranceDivisor != 0 {
+        attrs["heal_endurance_divisor"] = def.HealEnduranceDivisor
+    }
+    if def.SummonDistanceTiles != 0 {
+        attrs["summon_distance_tiles"] = def.SummonDistanceTiles
+    }
+    // Map equip_slot string to EquipSlot constant and store in attributes
+    if def.EquipSlot != "" {
+        slotCode := mapEquipSlotStringToCode(def.EquipSlot)
+        attrs["equip_slot"] = int(slotCode)
+    }
+
+    // Prefer flavor text if provided, else use description
+    desc := def.Description
+    if def.Flavor != "" {
+        desc = def.Flavor
+    }
 
     return Item{
         Name:        def.Name,
         Type:        t,
-        Description: def.Description,
+        Description: desc,
         Attributes:  attrs,
+    }
+}
+
+// mapEquipSlotStringToCode converts equip_slot string to EquipSlot constant
+func mapEquipSlotStringToCode(slotStr string) EquipSlot {
+    switch slotStr {
+    case "armor":
+        return SlotArmor
+    case "helmet":
+        return SlotHelmet
+    case "boots":
+        return SlotBoots
+    case "cloak":
+        return SlotCloak
+    case "gauntlets":
+        return SlotGauntlets
+    case "belt":
+        return SlotBelt
+    case "amulet":
+        return SlotAmulet
+    case "ring":
+        return SlotRing1 // Default to first ring slot
+    case "offhand":
+        return SlotOffHand
+    default:
+        return SlotArmor // Default fallback for armor-type items
     }
 }
