@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 )
@@ -58,21 +59,34 @@ func (cs *MockCombatSystem) checkMonsterLootDrop(monster *monster.Monster3D) {
 
 // ApplyArmorDamageReduction replicates the exact damage reduction logic from combat.go
 func ApplyArmorDamageReduction(damage int, character *MMCharacter, statBonus int) int {
-	// Get effective endurance (includes equipment bonuses like Leather Armor)
+	// Get effective endurance (includes equipment bonuses)
 	_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(statBonus)
 
-	// Calculate armor class (same formula as tooltip)
+	// Calculate armor class from all armor slots (matches updated combat.go)
 	baseArmor := 0
-	// Check if wearing armor
-	if armor, hasArmor := character.Equipment[items.SlotArmor]; hasArmor {
-		if armor.Name == "Leather Armor" {
-			baseArmor = 2
-		}
-		// Future: Add more armor types
+	totalEnduranceBonus := 0
+	
+	armorSlots := []items.EquipSlot{
+		items.SlotArmor,
+		items.SlotHelmet,
+		items.SlotBoots,
+		items.SlotCloak,
+		items.SlotGauntlets,
+		items.SlotBelt,
 	}
-
-	enduranceBonus := effectiveEndurance / 5
-	totalArmorClass := baseArmor + enduranceBonus
+	
+	for _, slot := range armorSlots {
+		if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
+			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
+				baseArmor += v
+			}
+			if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
+				totalEnduranceBonus += effectiveEndurance / enduranceDiv
+			}
+		}
+	}
+	
+	totalArmorClass := baseArmor + totalEnduranceBonus
 
 	// Damage reduction (same formula as tooltip)
 	damageReduction := totalArmorClass / 2
@@ -217,12 +231,8 @@ func TestArmorDamageReduction(t *testing.T) {
 		for _, damage := range testDamages {
 			finalDamage := ApplyArmorDamageReduction(damage, character, 0)
 
-			// Expected: Endurance 20 → enduranceBonus = 4 → damageReduction = 2
-			expectedReduction := (20 / 5) / 2 // (endurance / 5) / 2 = 2
-			expectedDamage := damage - expectedReduction
-			if expectedDamage < 1 {
-				expectedDamage = 1
-			}
+			// Expected: No armor equipped = no damage reduction, all damage goes through
+			expectedDamage := damage
 
 			fmt.Printf("Damage %d → %d (reduction: %d)\n", damage, finalDamage, damage-finalDamage)
 
@@ -231,7 +241,7 @@ func TestArmorDamageReduction(t *testing.T) {
 					damage, finalDamage, expectedDamage)
 			}
 		}
-		fmt.Printf("✅ Base endurance damage reduction working correctly!\n")
+		fmt.Printf("✅ Base endurance (no armor) working correctly!\n")
 	})
 
 	t.Run("With Leather Armor", func(t *testing.T) {
@@ -348,16 +358,16 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-		// Test with stat bonus
+		// Test with stat bonus but no armor
 		damage := 20
 		statBonus := 10 // Simulating a Bless spell
 		finalDamage := ApplyArmorDamageReduction(damage, character, statBonus)
 
-		// Expected: effective endurance = 40, enduranceBonus = 8, reduction = 4
-		expectedDamage := damage - (40/5)/2 // 20 - 4 = 16
+		// Expected: No armor = no damage reduction regardless of endurance
+		expectedDamage := damage
 
-		fmt.Printf("Damage %d with stat bonus +%d → %d (effective endurance: %d)\n",
-			damage, statBonus, finalDamage, 30+statBonus)
+		fmt.Printf("Damage %d with stat bonus +%d → %d (no armor equipped)\n",
+			damage, statBonus, finalDamage)
 
 		if finalDamage != expectedDamage {
 			t.Errorf("Stat bonus damage reduction incorrect. Input: %d, Got: %d, Expected: %d",
@@ -366,4 +376,299 @@ func TestArmorDamageReduction(t *testing.T) {
 
 		fmt.Printf("✅ Stat bonus effects working correctly!\n")
 	})
+}
+
+// TestEquipmentSlots tests the new YAML-driven equipment slot system
+func TestEquipmentSlots(t *testing.T) {
+	fmt.Println("\n=== Equipment Slot System Testing - YAML-Driven Slots ===")
+
+	// Setup test environment with required accessors
+	setupTestAccessors()
+
+	t.Run("Equipment Slot Assignment", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Equipment Slot Assignment ---")
+
+		character := &MMCharacter{
+			Name:      "TestKnight",
+			Endurance: 20,
+			Equipment: make(map[items.EquipSlot]items.Item),
+		}
+
+		// Test different item types go to correct slots
+		testCases := []struct {
+			itemKey      string
+			expectedSlot items.EquipSlot
+			description  string
+		}{
+			{"leather_armor", items.SlotArmor, "Leather Armor → Armor Slot"},
+			{"leather_helmet", items.SlotHelmet, "Leather Helmet → Helmet Slot"},
+			{"leather_pants", items.SlotBoots, "Leather Pants → Boots Slot"},
+			{"magic_ring", items.SlotRing1, "Magic Ring → Ring Slot"},
+			{"iron_armor", items.SlotArmor, "Iron Armor → Armor Slot"},
+		}
+
+		for _, tc := range testCases {
+			// Create item from YAML
+			item := items.CreateItemFromYAML(tc.itemKey)
+			
+			// Equip the item
+			_, _, success := character.EquipItem(item)
+			
+			if !success {
+				t.Errorf("Failed to equip %s", item.Name)
+				continue
+			}
+
+			// Verify it went to the correct slot
+			equippedItem, exists := character.Equipment[tc.expectedSlot]
+			if !exists {
+				t.Errorf("%s: Item not found in expected slot %d", tc.description, tc.expectedSlot)
+				continue
+			}
+
+			if equippedItem.Name != item.Name {
+				t.Errorf("%s: Wrong item in slot. Expected: %s, Got: %s", 
+					tc.description, item.Name, equippedItem.Name)
+				continue
+			}
+
+			fmt.Printf("✅ %s\n", tc.description)
+
+			// Clean up for next test
+			character.UnequipItem(tc.expectedSlot)
+		}
+	})
+
+	t.Run("Multiple Armor Pieces - Cumulative Armor Class", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Multiple Armor Pieces ---")
+
+		character := &MMCharacter{
+			Name:      "TestKnight",
+			Endurance: 20,
+			Equipment: make(map[items.EquipSlot]items.Item),
+		}
+
+		// Equip multiple armor pieces
+		leatherArmor := items.CreateItemFromYAML("leather_armor")    // AC: 2
+		leatherHelmet := items.CreateItemFromYAML("leather_helmet")  // AC: 1
+		leatherPants := items.CreateItemFromYAML("leather_pants")    // AC: 1
+
+		character.EquipItem(leatherArmor)
+		character.EquipItem(leatherHelmet)
+		character.EquipItem(leatherPants)
+
+		// Test damage reduction with multiple armor pieces
+		damage := 50
+		finalDamage := ApplyArmorDamageReduction(damage, character, 0)
+
+		// Calculate expected values step by step
+		// Get the character's effective endurance after equipment bonuses
+		_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(0)
+		
+		// Calculate expected armor values
+		expectedBaseArmor := 2 + 1 + 1 // leather_armor + leather_helmet + leather_pants
+		expectedEnduranceBonus := (effectiveEndurance/5) + (effectiveEndurance/6) + (effectiveEndurance/6)
+		expectedTotalAC := expectedBaseArmor + expectedEnduranceBonus
+		expectedReduction := expectedTotalAC / 2
+		expectedDamage := damage - expectedReduction
+		
+		fmt.Printf("Effective endurance: %d\n", effectiveEndurance)
+		fmt.Printf("Expected base armor: %d\n", expectedBaseArmor)
+		fmt.Printf("Expected endurance bonus: %d\n", expectedEnduranceBonus)
+
+		fmt.Printf("Equipped: Leather Armor (AC:2), Helmet (AC:1), Pants (AC:1)\n")
+		fmt.Printf("Expected total AC: %d, Expected reduction: %d\n", expectedTotalAC, expectedReduction)
+		fmt.Printf("Damage %d → %d (reduction: %d)\n", damage, finalDamage, damage-finalDamage)
+
+		if finalDamage != expectedDamage {
+			t.Errorf("Multiple armor pieces damage reduction incorrect. Expected: %d, Got: %d", 
+				expectedDamage, finalDamage)
+		} else {
+			fmt.Printf("✅ Multiple armor pieces working correctly!\n")
+		}
+	})
+
+	t.Run("Equipment Stat Bonuses", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Equipment Stat Bonuses ---")
+
+		character := &MMCharacter{
+			Name:        "TestMage",
+			Intellect:   30,
+			Personality: 25,
+			Endurance:   20,
+			Equipment:   make(map[items.EquipSlot]items.Item),
+		}
+
+		// Equip magic ring for stat bonuses
+		magicRing := items.CreateItemFromYAML("magic_ring")
+		character.EquipItem(magicRing)
+
+		// Test effective stats calculation
+		_, intellect, personality, endurance, _, _, _ := character.GetEffectiveStats(0)
+
+		// Expected bonuses from magic ring:
+		// - Intellect: 30/6 = 5
+		// - Personality: 25/8 = 3
+		expectedIntellect := 30 + (30 / 6)   // 35
+		expectedPersonality := 25 + (25 / 8) // 28
+		expectedEndurance := 20              // No endurance bonus from ring
+
+		fmt.Printf("Base stats: INT:%d, PER:%d, END:%d\n", 30, 25, 20)
+		fmt.Printf("With Magic Ring: INT:%d, PER:%d, END:%d\n", intellect, personality, endurance)
+		fmt.Printf("Expected: INT:%d, PER:%d, END:%d\n", expectedIntellect, expectedPersonality, expectedEndurance)
+
+		if intellect != expectedIntellect {
+			t.Errorf("Intellect bonus incorrect. Expected: %d, Got: %d", expectedIntellect, intellect)
+		}
+		if personality != expectedPersonality {
+			t.Errorf("Personality bonus incorrect. Expected: %d, Got: %d", expectedPersonality, personality)
+		}
+		if endurance != expectedEndurance {
+			t.Errorf("Endurance should be unchanged. Expected: %d, Got: %d", expectedEndurance, endurance)
+		}
+
+		if intellect == expectedIntellect && personality == expectedPersonality && endurance == expectedEndurance {
+			fmt.Printf("✅ Equipment stat bonuses working correctly!\n")
+		}
+	})
+
+	t.Run("Slot Conflicts and Replacement", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Slot Conflicts and Replacement ---")
+
+		character := &MMCharacter{
+			Name:      "TestKnight",
+			Equipment: make(map[items.EquipSlot]items.Item),
+		}
+
+		// Equip leather armor first
+		leatherArmor := items.CreateItemFromYAML("leather_armor")
+		previousItem, hadPrevious, success := character.EquipItem(leatherArmor)
+
+		if !success || hadPrevious {
+			t.Errorf("Initial armor equip failed or detected false previous item")
+		}
+
+		// Now equip iron armor (should replace leather armor)
+		ironArmor := items.CreateItemFromYAML("iron_armor")
+		previousItem, hadPrevious, success = character.EquipItem(ironArmor)
+
+		if !success {
+			t.Errorf("Failed to equip iron armor")
+		}
+		if !hadPrevious {
+			t.Errorf("Should have detected previous armor")
+		}
+		if previousItem.Name != "Leather Armor" {
+			t.Errorf("Wrong previous item returned. Expected: Leather Armor, Got: %s", previousItem.Name)
+		}
+
+		// Verify iron armor is now equipped
+		equippedArmor, exists := character.Equipment[items.SlotArmor]
+		if !exists || equippedArmor.Name != "Iron Armor" {
+			t.Errorf("Iron armor not properly equipped")
+		}
+
+		fmt.Printf("✅ Equipment replacement working correctly!\n")
+	})
+
+	t.Run("Unequip Items", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Unequip Items ---")
+
+		character := &MMCharacter{
+			Name:      "TestKnight",
+			Equipment: make(map[items.EquipSlot]items.Item),
+		}
+
+		// Equip some items
+		helmet := items.CreateItemFromYAML("leather_helmet")
+		ring := items.CreateItemFromYAML("magic_ring")
+
+		character.EquipItem(helmet)
+		character.EquipItem(ring)
+
+		// Verify items are equipped
+		if len(character.Equipment) != 2 {
+			t.Errorf("Expected 2 equipped items, got %d", len(character.Equipment))
+		}
+
+		// Unequip helmet
+		unequippedItem, success := character.UnequipItem(items.SlotHelmet)
+		if !success {
+			t.Errorf("Failed to unequip helmet")
+		}
+		if unequippedItem.Name != "Leather Helmet" {
+			t.Errorf("Wrong item unequipped. Expected: Leather Helmet, Got: %s", unequippedItem.Name)
+		}
+
+		// Verify helmet slot is empty
+		if _, exists := character.Equipment[items.SlotHelmet]; exists {
+			t.Errorf("Helmet slot should be empty after unequip")
+		}
+
+		// Ring should still be equipped
+		if _, exists := character.Equipment[items.SlotRing1]; !exists {
+			t.Errorf("Ring should still be equipped")
+		}
+
+		fmt.Printf("✅ Unequip functionality working correctly!\n")
+	})
+
+	t.Run("Invalid Equipment Attempts", func(t *testing.T) {
+		fmt.Println("\n--- Testing: Invalid Equipment Attempts ---")
+
+		character := &MMCharacter{
+			Name:      "TestKnight",
+			Equipment: make(map[items.EquipSlot]items.Item),
+		}
+
+		// Try to equip a consumable (should fail)
+		healthPotion := items.CreateItemFromYAML("health_potion")
+		_, _, success := character.EquipItem(healthPotion)
+
+		if success {
+			t.Errorf("Should not be able to equip consumable items")
+		} else {
+			fmt.Printf("✅ Correctly rejected consumable item!\n")
+		}
+
+		// Try to unequip from empty slot
+		_, success = character.UnequipItem(items.SlotHelmet)
+		if success {
+			t.Errorf("Should not be able to unequip from empty slot")
+		} else {
+			fmt.Printf("✅ Correctly rejected unequip from empty slot!\n")
+		}
+	})
+}
+
+// setupTestAccessors configures the required global accessors for testing
+func setupTestAccessors() {
+	// Setup item accessor for YAML items
+	if items.GlobalItemAccessor == nil {
+		// Load item config for tests
+		config.MustLoadItemConfig("../../assets/items.yaml")
+		
+		// Setup bridge
+		items.GlobalItemAccessor = func(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
+			def, exists := config.GetItemDefinition(itemKey)
+			if !exists || def == nil {
+				return nil, false
+			}
+			adapted := &items.ItemDefinitionFromYAML{
+				Name:                      def.Name,
+				Description:               def.Description,
+				Flavor:                    def.Flavor,
+				Type:                      def.Type,
+				ArmorClassBase:            def.ArmorClassBase,
+				EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
+				IntellectScalingDivisor:   def.IntellectScalingDivisor,
+				PersonalityScalingDivisor: def.PersonalityScalingDivisor,
+				HealBase:                  def.HealBase,
+				HealEnduranceDivisor:      def.HealEnduranceDivisor,
+				SummonDistanceTiles:       def.SummonDistanceTiles,
+				EquipSlot:                 def.EquipSlot,
+			}
+			return adapted, true
+		}
+	}
 }

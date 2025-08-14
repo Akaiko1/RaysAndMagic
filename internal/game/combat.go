@@ -1159,23 +1159,31 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
         // Get effective endurance (includes equipment bonuses)
         _, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
 
-        // Calculate armor class using equipped armor attributes
+        // Calculate armor class from all armor slots
         baseArmor := 0
-        enduranceDiv := 0
-        if armor, hasArmor := character.Equipment[items.SlotArmor]; hasArmor {
-            if v, ok := armor.Attributes["armor_class_base"]; ok {
-                baseArmor = v
-            }
-            if v, ok := armor.Attributes["endurance_scaling_divisor"]; ok {
-                enduranceDiv = v
+        totalEnduranceBonus := 0
+        
+        armorSlots := []items.EquipSlot{
+            items.SlotArmor,
+            items.SlotHelmet,
+            items.SlotBoots,
+            items.SlotCloak,
+            items.SlotGauntlets,
+            items.SlotBelt,
+        }
+        
+        for _, slot := range armorSlots {
+            if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
+                if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
+                    baseArmor += v
+                }
+                if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
+                    totalEnduranceBonus += effectiveEndurance / enduranceDiv
+                }
             }
         }
-
-        enduranceBonus := 0
-        if enduranceDiv > 0 {
-            enduranceBonus = effectiveEndurance / enduranceDiv
-        }
-        totalArmorClass := baseArmor + enduranceBonus
+        
+        totalArmorClass := baseArmor + totalEnduranceBonus
 
         // Damage reduction (same formula as tooltip)
         damageReduction := totalArmorClass / 2

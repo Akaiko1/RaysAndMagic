@@ -542,12 +542,18 @@ type ItemSystemConfig struct {
 type ItemDefinitionConfig struct {
     Name        string `yaml:"name"`
     Type        string `yaml:"type"` // armor|accessory|consumable|quest
-    Description string `yaml:"description"`
+    Description string `yaml:"description"` // Gameplay-neutral summary (optional)
+    Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+    EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
     // Optional numeric stats to un-hardcode item effects
     ArmorClassBase           int `yaml:"armor_class_base,omitempty"`
     EnduranceScalingDivisor  int `yaml:"endurance_scaling_divisor,omitempty"`
     IntellectScalingDivisor  int `yaml:"intellect_scaling_divisor,omitempty"`
     PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
+    // Optional consumable attributes
+    HealBase                 int `yaml:"heal_base,omitempty"`
+    HealEnduranceDivisor     int `yaml:"heal_endurance_divisor,omitempty"`
+    SummonDistanceTiles      int `yaml:"summon_distance_tiles,omitempty"`
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
