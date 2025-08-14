@@ -30,6 +30,7 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
         HealEnduranceDivisor:      def.HealEnduranceDivisor,
         SummonDistanceTiles:       def.SummonDistanceTiles,
         EquipSlot:                 def.EquipSlot,
+        Value:                     def.Value,
     }
     return adapted, true
 }

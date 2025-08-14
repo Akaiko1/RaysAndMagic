@@ -13,6 +13,7 @@ weapons:
     hit_bonus: 5
     crit_chance: 10
     rarity: "common"
+    value: 100
     
     # Melee-specific configuration
     melee:
@@ -36,6 +37,7 @@ weapons:
     hit_bonus: 10
     crit_chance: 15
     rarity: "uncommon"
+    value: 120
     
     # Melee-specific configuration
     melee:
@@ -59,6 +61,7 @@ weapons:
     hit_bonus: 5
     crit_chance: 8
     rarity: "uncommon"
+    value: 150
     
     # Melee-specific configuration
     melee:
@@ -82,6 +85,7 @@ weapons:
     hit_bonus: 15
     crit_chance: 12
     rarity: "common"
+    value: 140
     
     physics:
       speed: 9.6
@@ -105,6 +109,7 @@ weapons:
     hit_bonus: 8
     crit_chance: 5
     rarity: "common"
+    value: 90
     
     physics:
       speed: 11.0
@@ -128,6 +133,7 @@ weapons:
     hit_bonus: 8
     crit_chance: 12
     rarity: "rare"
+    value: 250
     
     # Melee-specific configuration
     melee:
@@ -151,6 +157,7 @@ weapons:
     hit_bonus: 6
     crit_chance: 9
     rarity: "common"
+    value: 110
     
     # Melee-specific configuration
     melee:
@@ -174,6 +181,7 @@ weapons:
     hit_bonus: 10
     crit_chance: 15
     rarity: "rare"
+    value: 400
     
     # Melee-specific configuration
     melee:
@@ -197,6 +205,7 @@ weapons:
     hit_bonus: 3
     crit_chance: 18
     rarity: "uncommon"
+    value: 180
     
     # Melee-specific configuration
     melee:
@@ -220,6 +229,7 @@ weapons:
     hit_bonus: 20
     crit_chance: 14
     rarity: "rare"
+    value: 220
     
     physics:
       speed: 9.6
@@ -243,6 +253,7 @@ weapons:
     hit_bonus: 10
     crit_chance: 8
     rarity: "uncommon"
+    value: 160
     
     physics:
       speed: 11.0
@@ -267,6 +278,7 @@ weapons:
     hit_bonus: 25
     crit_chance: 20
     rarity: "legendary"
+    value: 1000
     damage_type: "dark"       # Dark element damage
     max_projectiles: 2        # No more than 2 arrows at once
     

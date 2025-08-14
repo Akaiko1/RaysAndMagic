@@ -7,6 +7,7 @@ items:
     equip_slot: "armor"
     armor_class_base: 2
     endurance_scaling_divisor: 5
+    value: 25
 
   leather_helmet:
     name: "Leather Helmet"
@@ -16,6 +17,7 @@ items:
     equip_slot: "helmet"
     armor_class_base: 1
     endurance_scaling_divisor: 6
+    value: 15
 
   leather_pants:
     name: "Leather Pants"
@@ -25,6 +27,7 @@ items:
     equip_slot: "boots"
     armor_class_base: 1
     endurance_scaling_divisor: 6
+    value: 18
 
   health_potion:
     name: "Health Potion"
@@ -33,6 +36,7 @@ items:
     flavor: "Sunset caught in glass; warm as a hearth."
     heal_base: 25
     heal_endurance_divisor: 4
+    value: 50
 
   magic_ring:
     name: "Magic Ring"
@@ -42,6 +46,7 @@ items:
     equip_slot: "ring"
     intellect_scaling_divisor: 6
     personality_scaling_divisor: 8
+    value: 200
 
   iron_armor:
     name: "Iron Armor"
@@ -51,6 +56,7 @@ items:
     equip_slot: "armor"
     armor_class_base: 4
     endurance_scaling_divisor: 4
+    value: 120
 
   dead_branch:
     name: "Dead Branch"
@@ -58,6 +64,7 @@ items:
     description: "A brittle branch humming with chaotic energy"
     flavor: "Brittle with whispers; it remembers storms."
     summon_distance_tiles: 2
+    value: 80
 
   belt_of_strength:
     name: "Belt of Strength"
@@ -66,3 +73,4 @@ items:
     flavor: "Cinched tight, it lends the courage of oaks."
     equip_slot: "belt"
     bonus_might: 5
+    value: 300
