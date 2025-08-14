@@ -227,6 +227,12 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string 
 // getConsumableTooltip returns consumable-specific tooltip information
 func getConsumableSummary(item items.Item, char *character.MMCharacter) string {
     // Attribute-driven summary: single source of truth with gameplay
+    if item.Attributes["revive"] > 0 {
+        if item.Attributes["full_heal"] > 0 {
+            return "Revives from Dead/Unconscious and fully restores HP"
+        }
+        return "Revives from Dead/Unconscious"
+    }
     if base, ok := item.Attributes["heal_base"]; ok {
         div := item.Attributes["heal_endurance_divisor"]
         if base > 0 && div > 0 {

@@ -31,6 +31,8 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
         SummonDistanceTiles:       def.SummonDistanceTiles,
         EquipSlot:                 def.EquipSlot,
         Value:                     def.Value,
+        Revive:                    def.Revive,
+        FullHeal:                  def.FullHeal,
     }
     return adapted, true
 }

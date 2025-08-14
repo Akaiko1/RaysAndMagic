@@ -26,12 +26,12 @@ func NewParty(cfg *config.Config) *Party {
 	party.AddMember(CreateCharacter("Celestine", ClassCleric, cfg))
 	party.AddMember(CreateCharacter("Silvelyn", ClassArcher, cfg))
 
-	// Add some starting items using YAML definitions
-	party.AddItem(items.CreateWeaponFromYAML("iron_spear"))      // Alternative weapon
-	party.AddItem(items.CreateWeaponFromYAML("bow_of_hellfire")) // Legendary bow for debugging
-	party.AddItem(items.CreateItemFromYAML("leather_armor"))
-	party.AddItem(items.CreateItemFromYAML("health_potion"))
-	party.AddItem(items.CreateItemFromYAML("magic_ring"))
+    // Add some starting items using YAML definitions
+    party.AddItem(items.CreateWeaponFromYAML("iron_spear"))
+    party.AddItem(items.CreateItemFromYAML("leather_armor"))
+    party.AddItem(items.CreateItemFromYAML("health_potion"))
+    party.AddItem(items.CreateItemFromYAML("revival_potion"))
+    party.AddItem(items.CreateItemFromYAML("magic_ring"))
 
 	return party
 }

@@ -557,6 +557,8 @@ type ItemDefinitionConfig struct {
     HealBase                 int `yaml:"heal_base,omitempty"`
     HealEnduranceDivisor     int `yaml:"heal_endurance_divisor,omitempty"`
     SummonDistanceTiles      int `yaml:"summon_distance_tiles,omitempty"`
+    Revive                   bool `yaml:"revive,omitempty"`
+    FullHeal                 bool `yaml:"full_heal,omitempty"`
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -589,15 +591,15 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
     for key, def := range cfg.Items {
         switch def.Type {
         case "consumable":
-            // If heal_base is set, heal_endurance_divisor must be set and positive
-            if def.HealBase > 0 && def.HealEnduranceDivisor <= 0 {
+            // If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)
+            if def.HealBase > 0 && def.HealEnduranceDivisor <= 0 && !def.Revive {
                 return fmt.Errorf("consumable '%s' missing heal_endurance_divisor", key)
             }
-            if def.HealEnduranceDivisor > 0 && def.HealBase <= 0 {
+            if def.HealEnduranceDivisor > 0 && def.HealBase <= 0 && !def.Revive {
                 return fmt.Errorf("consumable '%s' missing heal_base", key)
             }
             // If no known consumable attributes are present, warn but allow
-            if def.HealBase == 0 && def.SummonDistanceTiles == 0 {
+            if def.HealBase == 0 && def.SummonDistanceTiles == 0 && !def.Revive {
                 // Allow “vanilla” consumables for future behaviors; no hard error
             }
         }
