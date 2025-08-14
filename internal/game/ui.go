@@ -34,15 +34,20 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                     *MMGame
-	justOpenedStatPopup      bool
-	lastClickTime            time.Time
-	lastClickedItem          int
-	inventoryMousePressed    bool
-	lastEquipClickTime       time.Time
-	lastClickedSlot          items.EquipSlot
-	equipMousePressed        bool
-	utilitySpellMousePressed bool
+    game                     *MMGame
+    justOpenedStatPopup      bool
+    lastClickTime            time.Time
+    lastClickedItem          int
+    inventoryMousePressed    bool
+    inventoryRightMousePressed bool
+    inventoryContextOpen     bool
+    inventoryContextX        int
+    inventoryContextY        int
+    inventoryContextIndex    int
+    lastEquipClickTime       time.Time
+    lastClickedSlot          items.EquipSlot
+    equipMousePressed        bool
+    utilitySpellMousePressed bool
 }
 
 // NewUISystem creates a new UI system
@@ -1240,7 +1245,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		mouseX, mouseY := ebiten.CursorPosition()
 		var tooltip string
 		var tooltipX, tooltipY int
-		for i, item := range ui.game.party.Inventory {
+        for i, item := range ui.game.party.Inventory {
 			if i >= 15 {
 				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("... and %d more items",
 					len(ui.game.party.Inventory)-15), invX, itemsY+(i*15))
@@ -1289,28 +1294,85 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			ebitenutil.DebugPrintAt(screen, itemInfo, invX, y)
 
 			// Handle mouse interactions
-			if isHovering {
-				// Show tooltip for this item
-				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
-				tooltipX = mouseX + 16
-				tooltipY = mouseY + 8
+            if isHovering {
+                // Show tooltip for this item
+                tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+                tooltipX = mouseX + 16
+                tooltipY = mouseY + 8
 
-				// Handle double-click to equip
-				ui.handleInventoryItemClick(i)
-			}
-		}
-		// Draw tooltip if needed
-		if tooltip != "" {
-			lines := strings.Split(tooltip, "\n")
-			drawTooltip(screen, lines, tooltipX, tooltipY)
-		}
-	}
+                // Handle double-click to equip
+                if !ui.inventoryContextOpen {
+                    ui.handleInventoryItemClick(i)
+                }
+
+                // Handle right-click to open context menu
+                if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !ui.inventoryRightMousePressed {
+                    ui.inventoryRightMousePressed = true
+                    ui.inventoryContextOpen = true
+                    ui.inventoryContextX = mouseX
+                    ui.inventoryContextY = mouseY
+                    ui.inventoryContextIndex = i
+                }
+            }
+        }
+        // Draw tooltip if needed
+        if tooltip != "" {
+            lines := strings.Split(tooltip, "\n")
+            drawTooltip(screen, lines, tooltipX, tooltipY)
+        }
+
+        // Draw inventory context menu if open
+        if ui.inventoryContextOpen {
+            menuW := 140
+            menuH := 24
+            x := ui.inventoryContextX
+            y := ui.inventoryContextY
+            // Background
+            menuBg := ebiten.NewImage(menuW, menuH)
+            menuBg.Fill(color.RGBA{40, 40, 60, 230})
+            opts := &ebiten.DrawImageOptions{}
+            opts.GeoM.Translate(float64(x), float64(y))
+            screen.DrawImage(menuBg, opts)
+            // Border
+            drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
+            // Entry text
+            ebitenutil.DebugPrintAt(screen, "Discard", x+8, y+5)
+
+            // Handle clicks on context menu
+            mouseX, mouseY := ebiten.CursorPosition()
+            inside := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuW, y+menuH)
+            if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+                if inside {
+                    // Discard clicked
+                    idx := ui.inventoryContextIndex
+                    if idx >= 0 && idx < len(ui.game.party.Inventory) {
+                        name := ui.game.party.Inventory[idx].Name
+                        ui.game.party.RemoveItem(idx)
+                        ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
+                    }
+                }
+                // Close the context menu on any left click
+                ui.inventoryContextOpen = false
+            }
+
+            // Close menu if right button released
+            if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+                ui.inventoryRightMousePressed = false
+            }
+        } else {
+            // Reset right-click pressed when not open and not pressed
+            if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+                ui.inventoryRightMousePressed = false
+            }
+        }
+    }
 
 	// Instructions
 	instructionY := contentY + contentHeight - 55
 	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to select different characters and view their equipment", panelX+20, instructionY)
-	ebitenutil.DebugPrintAt(screen, "Double-click items in inventory to equip them (red items can't be equipped)", panelX+20, instructionY+15)
-	ebitenutil.DebugPrintAt(screen, "Double-click equipped items to unequip them back to inventory", panelX+20, instructionY+30)
+    ebitenutil.DebugPrintAt(screen, "Double-click items in inventory to equip them (red items can't be equipped)", panelX+20, instructionY+15)
+    ebitenutil.DebugPrintAt(screen, "Double-click equipped items to unequip them back to inventory", panelX+20, instructionY+30)
+    ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it", panelX+20, instructionY+45)
 }
 
 // drawCharactersContent draws the characters tab content
