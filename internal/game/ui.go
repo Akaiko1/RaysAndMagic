@@ -1805,7 +1805,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 }
 
 // drawEncounterDialog draws dialog for encounter NPCs
-func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, _ int) {
 	npc := ui.game.dialogNPC
 
 	// Draw title
@@ -1971,7 +1971,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 }
 
 // drawGenericDialog draws basic dialog for other NPC types
-func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, _ int) {
 	npc := ui.game.dialogNPC
 
 	// Draw title

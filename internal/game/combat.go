@@ -146,19 +146,26 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		return
 	}
 
-	// Create magic projectile with proper type information
-	magicProjectile := MagicProjectile{
-		ID:        cs.game.GenerateProjectileID(string(spellID)),
-		X:         projectile.X,
-		Y:         projectile.Y,
-		VelX:      projectile.VelX,
-		VelY:      projectile.VelY,
-		Damage:    projectile.Damage,
-		LifeTime:  projectile.LifeTime,
-		Active:    projectile.Active,
-		SpellType: string(spellID),
-		Size:      projectile.Size,
-	}
+    // Determine critical hit for spells based on Luck only (no base crit for spells)
+    isCrit, _ := cs.RollCriticalChance(0, caster)
+    if isCrit {
+        projectile.Damage *= 2
+    }
+
+    // Create magic projectile with proper type information
+    magicProjectile := MagicProjectile{
+        ID:        cs.game.GenerateProjectileID(string(spellID)),
+        X:         projectile.X,
+        Y:         projectile.Y,
+        VelX:      projectile.VelX,
+        VelY:      projectile.VelY,
+        Damage:    projectile.Damage,
+        LifeTime:  projectile.LifeTime,
+        Active:    projectile.Active,
+        SpellType: string(spellID),
+        Size:      projectile.Size,
+        Crit:      isCrit,
+    }
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
 	// Register with collision system
@@ -319,17 +326,32 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 		return // No weapon equipped
 	}
 
-	// Calculate damage using centralized function
-	_, _, totalDamage := cs.CalculateWeaponDamage(weapon, attacker)
+    // Calculate damage using centralized function
+    _, _, totalDamage := cs.CalculateWeaponDamage(weapon, attacker)
+
+    // Determine critical hit based on weapon base crit chance + Luck bonus
+    weaponKey := items.GetWeaponKeyByName(weapon.Name)
+    weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+    if !exists {
+        panic("weapon '" + weapon.Name + "' not found in weapons.yaml - system misconfigured")
+    }
+    baseCrit := 0
+    if weaponDef.CritChance > 0 {
+        baseCrit = weaponDef.CritChance
+    }
+    isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+    if isCrit {
+        totalDamage *= 2
+    }
 
 	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
-	if weapon.Range > 3 {
-		// Create projectile arrow for ranged weapons
-		cs.createArrowAttack(totalDamage)
-	} else {
-		// Create instant melee attack for close-range weapons
-		cs.createMeleeAttack(weapon, totalDamage)
-	}
+    if weapon.Range > 3 {
+        // Create projectile arrow for ranged weapons
+        cs.createArrowAttack(totalDamage)
+    } else {
+        // Create instant melee attack for close-range weapons
+        cs.createMeleeAttack(weapon, totalDamage, isCrit)
+    }
 }
 
 // createArrowAttack creates a projectile arrow attack
@@ -364,12 +386,12 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	var arrowLifetime int
 	var collisionSize float64
 
-	if exists && weaponDef.Physics != nil {
-		// Use weapon-specific physics properties
-		arrowSpeed = weaponDef.Physics.Speed
-		arrowLifetime = weaponDef.Physics.Lifetime
-		collisionSize = float64(weaponDef.Physics.CollisionSize)
-	} else {
+    if exists && weaponDef.Physics != nil {
+        // Use weapon-specific physics properties
+        arrowSpeed = weaponDef.Physics.Speed
+        arrowLifetime = weaponDef.Physics.Lifetime
+        collisionSize = float64(weaponDef.Physics.CollisionSize)
+    } else {
 		// Fallback to default config values
 		arrowSpeed = cs.game.config.GetArrowSpeed()
 		arrowLifetime = cs.game.config.GetArrowLifetime()
@@ -382,18 +404,29 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		damageType = weapon.DamageType
 	}
 
-	arrow := Arrow{
-		ID:         cs.game.GenerateProjectileID("arrow"),
-		X:          cs.game.camera.X,
-		Y:          cs.game.camera.Y,
-		VelX:       math.Cos(cs.game.camera.Angle) * arrowSpeed,
-		VelY:       math.Sin(cs.game.camera.Angle) * arrowSpeed,
-		Damage:     damage,
-		LifeTime:   arrowLifetime,
-		Active:     true,
-		BowKey:     bowKey,
-		DamageType: damageType,
-	}
+    // Roll for critical hit: base weapon crit + Luck bonus
+    baseCrit := 0
+    if exists {
+        baseCrit = weaponDef.CritChance
+    }
+    isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+    if isCrit {
+        damage *= 2
+    }
+
+    arrow := Arrow{
+        ID:         cs.game.GenerateProjectileID("arrow"),
+        X:          cs.game.camera.X,
+        Y:          cs.game.camera.Y,
+        VelX:       math.Cos(cs.game.camera.Angle) * arrowSpeed,
+        VelY:       math.Sin(cs.game.camera.Angle) * arrowSpeed,
+        Damage:     damage,
+        LifeTime:   arrowLifetime,
+        Active:     true,
+        BowKey:     bowKey,
+        DamageType: damageType,
+        Crit:       isCrit,
+    }
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
 
@@ -403,7 +436,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 }
 
 // createMeleeAttack creates an instant melee attack with proper arc-based hit detection
-func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int) {
+func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
 	// Get weapon key and definition from YAML
 	weaponKey := items.GetWeaponKeyByName(weapon.Name)
 	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
@@ -436,12 +469,12 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int) {
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)
 	}
 
-	// Perform instant hit detection in arc
-	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig)
+    // Perform instant hit detection in arc
+    cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
 }
 
 // performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
-func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig) {
+func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) {
 	playerX := cs.game.camera.X
 	playerY := cs.game.camera.Y
 	playerAngle := cs.game.camera.Angle
@@ -492,21 +525,30 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 
 		// Check if monster is within swing arc
 		if math.Abs(angleDiff) <= halfArc {
-			// Hit! Apply damage immediately
-			cs.ApplyDamageToMonster(monster, damage, weapon.Name)
-		}
-	}
+            // Hit! Apply damage immediately
+            cs.ApplyDamageToMonster(monster, damage, weapon.Name, isCrit)
+        }
+    }
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
-func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string) {
-	// Apply damage with resistances and distance-aware AI response
-	finalDamage := monster.TakeDamage(damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+    // Double damage on critical hit
+    if isCrit {
+        damage *= 2
+    }
+    // Apply damage with resistances and distance-aware AI response
+    finalDamage := monster.TakeDamage(damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 
 	// Add combat message
-	if monster.IsAlive() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage!",
-			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+    if monster.IsAlive() {
+        if isCrit {
+            cs.game.AddCombatMessage(fmt.Sprintf("Critical! %s hits %s for %d damage!",
+                cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+        } else {
+            cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage!",
+                cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+        }
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
 			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
@@ -563,17 +605,24 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			return
 		}
 
-		// Create magic projectile using unified system
-		magicProjectile := MagicProjectile{
-			ID:       cs.game.GenerateProjectileID(string(selectedSpellID)),
-			X:        projectile.X,
-			Y:        projectile.Y,
-			VelX:     projectile.VelX,
-			VelY:     projectile.VelY,
-			Damage:   projectile.Damage,
-			LifeTime: projectile.LifeTime,
-			Active:   projectile.Active,
-		}
+        // Determine critical hit for spells based on Luck only (no base crit for spells)
+        isCrit, _ := cs.RollCriticalChance(0, currentChar)
+        if isCrit {
+            projectile.Damage *= 2
+        }
+
+        // Create magic projectile using unified system
+        magicProjectile := MagicProjectile{
+            ID:       cs.game.GenerateProjectileID(string(selectedSpellID)),
+            X:        projectile.X,
+            Y:        projectile.Y,
+            VelX:     projectile.VelX,
+            VelY:     projectile.VelY,
+            Damage:   projectile.Damage,
+            LifeTime: projectile.LifeTime,
+            Active:   projectile.Active,
+            Crit:     isCrit,
+        }
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
 		// Register projectile with collision system using dynamic config
@@ -974,18 +1023,22 @@ func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monst
 		// Unregister the magic projectile from collision system
 		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
 
-		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
-				spellName, monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			// Use correct damage type in message
-			message := fmt.Sprintf("%s hit %s for %d %s damage! (HP: %d/%d)",
-				spellName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
+        // Check if monster died and give rewards
+        if !monster.IsAlive() {
+            cs.awardExperienceAndGold(monster)
+            message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
+                spellName, monster.Name, monster.Experience, monster.Gold)
+            cs.game.AddCombatMessage(message)
+        } else {
+            // Use correct damage type in message
+            prefix := ""
+            if magicProjectile.Crit {
+                prefix = "Critical! "
+            }
+            message := fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
+                prefix, spellName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints)
+            cs.game.AddCombatMessage(message)
+        }
 
 	case "melee":
 		attack := projectile.(*MeleeAttack)
@@ -1001,16 +1054,20 @@ func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monst
 		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
 
 		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
-				attack.WeaponName, monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			message := fmt.Sprintf("%s hit %s for %d physical damage! (HP: %d/%d)",
-				attack.WeaponName, monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
+        if !monster.IsAlive() {
+            cs.awardExperienceAndGold(monster)
+            message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
+                attack.WeaponName, monster.Name, monster.Experience, monster.Gold)
+            cs.game.AddCombatMessage(message)
+        } else {
+            prefix := ""
+            if attack.Crit {
+                prefix = "Critical! "
+            }
+            message := fmt.Sprintf("%s%s hit %s for %d physical damage! (HP: %d/%d)",
+                prefix, attack.WeaponName, monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
+            cs.game.AddCombatMessage(message)
+        }
 
 	case "arrow":
 		arrow := projectile.(*Arrow)
@@ -1034,16 +1091,20 @@ func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monst
 		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
 
 		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("Arrow killed %s! Awarded %d experience and %d gold.",
-				monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			message := fmt.Sprintf("Arrow hit %s for %d physical damage! (HP: %d/%d)",
-				monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
+        if !monster.IsAlive() {
+            cs.awardExperienceAndGold(monster)
+            message := fmt.Sprintf("Arrow killed %s! Awarded %d experience and %d gold.",
+                monster.Name, monster.Experience, monster.Gold)
+            cs.game.AddCombatMessage(message)
+        } else {
+            prefix := ""
+            if arrow.Crit {
+                prefix = "Critical! "
+            }
+            message := fmt.Sprintf("%sArrow hit %s for %d physical damage! (HP: %d/%d)",
+                prefix, monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
+            cs.game.AddCombatMessage(message)
+        }
 	}
 }
 
@@ -1175,8 +1236,24 @@ func (cs *CombatSystem) CalculateAccuracyBonus(character *character.MMCharacter)
 
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(character *character.MMCharacter) int {
-	// Critical chance bonus based on Luck stat
-	return character.Luck / 4
+    // Use effective Luck so Bless/stat bonuses influence crit chance
+    _, _, _, _, _, _, luck := character.GetEffectiveStats(cs.game.statBonus)
+    return luck / 4
+}
+
+// RollCriticalChance returns whether an attack critically hits and the total crit chance used.
+// totalCrit = baseCrit + Luck-derived bonus, clamped to [0,100].
+func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharacter) (bool, int) {
+    bonus := cs.CalculateCriticalChance(chr)
+    total := baseCrit + bonus
+    if total < 0 {
+        total = 0
+    }
+    if total > 100 {
+        total = 100
+    }
+    roll := rand.Intn(100)
+    return roll < total, total
 }
 
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods

@@ -205,6 +205,7 @@ type ItemDefinitionFromYAML struct {
     EnduranceScalingDivisor   int
     IntellectScalingDivisor   int
     PersonalityScalingDivisor int
+    BonusLuck                 int
     HealBase                  int
     HealEnduranceDivisor      int
     SummonDistanceTiles       int
@@ -256,6 +257,9 @@ func CreateItemFromYAML(itemKey string) Item {
     }
     if def.PersonalityScalingDivisor != 0 {
         attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
+    }
+    if def.BonusLuck != 0 {
+        attrs["bonus_luck"] = def.BonusLuck
     }
     if def.HealBase != 0 {
         attrs["heal_base"] = def.HealBase
