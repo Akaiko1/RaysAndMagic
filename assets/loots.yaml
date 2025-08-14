@@ -9,3 +9,25 @@ loots:
       key: "bow_of_hellfire"
       chance: 0.05
 
+  bandit:
+    - type: "item"
+      key: "leather_helmet"
+      chance: 0.10
+    - type: "item"
+      key: "leather_pants"
+      chance: 0.10
+
+  orc:
+    - type: "item"
+      key: "iron_armor"
+      chance: 0.05
+
+  forest_orc:
+    - type: "item"
+      key: "iron_armor"
+      chance: 0.05
+
+  treant:
+    - type: "item"
+      key: "dead_branch"
+      chance: 0.10
