@@ -158,6 +158,16 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 	return keys
 }
 
+// GetMonsterKeyByName returns the YAML key for a monster display name
+func (c *MonsterYAMLConfig) GetMonsterKeyByName(name string) (string, bool) {
+	for key, m := range c.Monsters {
+		if m.Name == name {
+			return key, true
+		}
+	}
+	return "", false
+}
+
 // ConvertDamageType converts string damage type to DamageType enum
 func (c *MonsterYAMLConfig) ConvertDamageType(damageTypeStr string) (DamageType, error) {
 	if typeInt, exists := c.DamageTypes[damageTypeStr]; exists {

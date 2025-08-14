@@ -142,18 +142,30 @@ func getWeaponTooltip(item items.Item, char *character.MMCharacter, combatSystem
 	return lines
 }
 
-// getArmorTooltip returns armor-specific tooltip information
-func getArmorTooltip(item items.Item, char *character.MMCharacter) []string {
-	var lines []string
+    // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
+    func getArmorTooltip(item items.Item, char *character.MMCharacter) []string {
+        var lines []string
 
-	// Calculate actual armor bonuses based on character stats
-	// Use item name to determine base armor value
-	baseArmor := 2 // Default armor value
-	if item.Name == "Leather Armor" {
-		baseArmor = 2
-	} // Could be expanded with more armor types
-	enduranceBonus := char.Endurance / 5
-	totalArmor := baseArmor + enduranceBonus
+        // Calculate armor bonuses based on item attributes
+        baseArmor := 0
+        if v, ok := item.Attributes["armor_class_base"]; ok {
+            baseArmor = v
+        } else if item.Name == "Leather Armor" { // fallback for legacy
+            baseArmor = 2
+        }
+        enduranceDiv := 0
+        if v, ok := item.Attributes["endurance_scaling_divisor"]; ok {
+            enduranceDiv = v
+        } else if item.Name == "Leather Armor" {
+            enduranceDiv = 5
+        }
+        enduranceBonus := 0
+        if enduranceDiv > 0 {
+            // Use effective endurance for consistency with combat
+            _, _, _, effectiveEndurance, _, _, _ := char.GetEffectiveStats(0)
+            enduranceBonus = effectiveEndurance / enduranceDiv
+        }
+        totalArmor := baseArmor + enduranceBonus
 
 	lines = append(lines, fmt.Sprintf("Armor Class: %d (Base: %d, Endurance: +%d)", totalArmor, baseArmor, enduranceBonus))
 	lines = append(lines, "Provides protection against physical attacks")
@@ -167,34 +179,32 @@ func getArmorTooltip(item items.Item, char *character.MMCharacter) []string {
 	return lines
 }
 
-// getAccessoryTooltip returns accessory-specific tooltip information
-func getAccessoryTooltip(item items.Item, char *character.MMCharacter) []string {
-	var lines []string
+    // getAccessoryTooltip returns accessory-specific tooltip information (YAML-driven)
+    func getAccessoryTooltip(item items.Item, char *character.MMCharacter) []string {
+        var lines []string
 
-	// Calculate bonuses based on accessory type and character stats
-	switch item.Name {
-	case "Magic Ring":
-		// Calculate actual spell power bonus
-		spellBonus := char.Intellect / 6 // More balanced formula
-		lines = append(lines, fmt.Sprintf("Spell Power: +%d", spellBonus))
+        // Calculate bonuses from scaling divisors if present
+        if div := item.Attributes["intellect_scaling_divisor"]; div > 0 {
+            spellBonus := char.Intellect / div
+            lines = append(lines, fmt.Sprintf("Spell Power: +%d", spellBonus))
+        }
+        if div := item.Attributes["personality_scaling_divisor"]; div > 0 {
+            manaBonus := char.Personality / div
+            if manaBonus > 0 {
+                lines = append(lines, fmt.Sprintf("Spell Points: +%d", manaBonus))
+            }
+        }
+        if len(lines) == 0 {
+            // Fallback messaging
+            if char.Intellect > char.Might {
+                lines = append(lines, "Enhances magical abilities")
+            } else {
+                lines = append(lines, "Enhances physical prowess")
+            }
+        }
 
-		// Add mana bonus
-		manaBonus := char.Personality / 8
-		if manaBonus > 0 {
-			lines = append(lines, fmt.Sprintf("Spell Points: +%d", manaBonus))
-		}
-
-	default:
-		// Generic accessory - show potential stat bonuses based on character focus
-		if char.Intellect > char.Might {
-			lines = append(lines, "Enhances magical abilities")
-		} else {
-			lines = append(lines, "Enhances physical prowess")
-		}
-	}
-
-	return lines
-}
+        return lines
+    }
 
 // getSpellItemTooltip returns spell item-specific tooltip information
 func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string {

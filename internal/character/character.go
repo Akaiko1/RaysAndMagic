@@ -588,31 +588,36 @@ func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, person
 		c.Luck + statBonus
 }
 
-// calculateEquipmentBonuses returns stat bonuses from equipped items
-func (c *MMCharacter) calculateEquipmentBonuses() (intellectBonus, personalityBonus, enduranceBonus int) {
-	// Check ring slots for Magic Ring
-	if ring, hasRing := c.Equipment[items.SlotRing1]; hasRing && ring.Name == "Magic Ring" {
-		// Magic Ring bonuses (same formula as tooltip)
-		intellectBonus += c.Intellect / 6     // Spell power bonus
-		personalityBonus += c.Personality / 8 // Mana bonus
-	}
+    // calculateEquipmentBonuses returns stat bonuses from equipped items (YAML-driven)
+    func (c *MMCharacter) calculateEquipmentBonuses() (intellectBonus, personalityBonus, enduranceBonus int) {
+        // Rings/accessories: apply scaling divisors if present
+        if ring, hasRing := c.Equipment[items.SlotRing1]; hasRing {
+            if div := ring.Attributes["intellect_scaling_divisor"]; div > 0 {
+                intellectBonus += c.Intellect / div
+            }
+            if div := ring.Attributes["personality_scaling_divisor"]; div > 0 {
+                personalityBonus += c.Personality / div
+            }
+        }
 
-	if ring, hasRing := c.Equipment[items.SlotRing2]; hasRing && ring.Name == "Magic Ring" {
-		// If they have two Magic Rings, bonuses stack
-		intellectBonus += c.Intellect / 6
-		personalityBonus += c.Personality / 8
-	}
+        if ring, hasRing := c.Equipment[items.SlotRing2]; hasRing {
+            if div := ring.Attributes["intellect_scaling_divisor"]; div > 0 {
+                intellectBonus += c.Intellect / div
+            }
+            if div := ring.Attributes["personality_scaling_divisor"]; div > 0 {
+                personalityBonus += c.Personality / div
+            }
+        }
 
-	// Check armor slot for Leather Armor
-	if armor, hasArmor := c.Equipment[items.SlotArmor]; hasArmor && armor.Name == "Leather Armor" {
-		// Leather Armor bonuses (same formula as tooltip)
-		enduranceBonus += c.Endurance / 5 // Armor class bonus based on endurance
-	}
+        // Armor: endurance scaling divisor if present
+        if armor, hasArmor := c.Equipment[items.SlotArmor]; hasArmor {
+            if div := armor.Attributes["endurance_scaling_divisor"]; div > 0 {
+                enduranceBonus += c.Endurance / div
+            }
+        }
 
-	// Future: Add other accessories, amulets, etc.
-
-	return intellectBonus, personalityBonus, enduranceBonus
-}
+        return intellectBonus, personalityBonus, enduranceBonus
+    }
 
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
 func (c *MMCharacter) updateDerivedStatsForEquipment() {

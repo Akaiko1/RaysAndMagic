@@ -244,12 +244,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-		// Equip leather armor
-		leatherArmor := items.Item{
-			Name: "Leather Armor",
-			Type: items.ItemArmor,
-		}
-		character.Equipment[items.SlotArmor] = leatherArmor
+        // Equip leather armor from YAML to include its attributes
+        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test various damage amounts
 		testDamages := []int{10, 20, 50, 100}
@@ -284,12 +280,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-		// Equip leather armor
-		leatherArmor := items.Item{
-			Name: "Leather Armor",
-			Type: items.ItemArmor,
-		}
-		character.Equipment[items.SlotArmor] = leatherArmor
+        // Equip leather armor from YAML to include its attributes
+        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test various damage amounts
 		testDamages := []int{10, 20, 50, 100}
@@ -326,12 +318,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-		// Equip leather armor
-		leatherArmor := items.Item{
-			Name: "Leather Armor",
-			Type: items.ItemArmor,
-		}
-		character.Equipment[items.SlotArmor] = leatherArmor
+        // Equip leather armor from YAML to include its attributes
+        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test very low damage that should be reduced to 1
 		lowDamages := []int{1, 2, 5, 10, 15}

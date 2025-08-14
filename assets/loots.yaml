@@ -1,0 +1,11 @@
+loots:
+  pixie:
+    - type: "item"
+      key: "magic_ring"
+      chance: 0.05
+
+  dragon:
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.05
+

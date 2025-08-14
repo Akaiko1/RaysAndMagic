@@ -1154,70 +1154,68 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 	cs.game.statBonus += statBonus // ADD to total stat bonus
 }
 
-// ApplyArmorDamageReduction calculates final damage after armor reduction
-func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *character.MMCharacter) int {
-	// Get effective endurance (includes equipment bonuses like Leather Armor)
-	_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
+    // ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
+    func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *character.MMCharacter) int {
+        // Get effective endurance (includes equipment bonuses)
+        _, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
 
-	// Calculate armor class (same formula as tooltip)
-	baseArmor := 0
-	// Check if wearing armor
-	if armor, hasArmor := character.Equipment[items.SlotArmor]; hasArmor {
-		if armor.Name == "Leather Armor" {
-			baseArmor = 2
-		}
-		// Future: Add more armor types
-	}
+        // Calculate armor class using equipped armor attributes
+        baseArmor := 0
+        enduranceDiv := 0
+        if armor, hasArmor := character.Equipment[items.SlotArmor]; hasArmor {
+            if v, ok := armor.Attributes["armor_class_base"]; ok {
+                baseArmor = v
+            }
+            if v, ok := armor.Attributes["endurance_scaling_divisor"]; ok {
+                enduranceDiv = v
+            }
+        }
 
-	enduranceBonus := effectiveEndurance / 5
-	totalArmorClass := baseArmor + enduranceBonus
+        enduranceBonus := 0
+        if enduranceDiv > 0 {
+            enduranceBonus = effectiveEndurance / enduranceDiv
+        }
+        totalArmorClass := baseArmor + enduranceBonus
 
-	// Damage reduction (same formula as tooltip)
-	damageReduction := totalArmorClass / 2
+        // Damage reduction (same formula as tooltip)
+        damageReduction := totalArmorClass / 2
 
-	// Apply damage reduction
-	finalDamage := damage - damageReduction
-	if finalDamage < 1 {
-		finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
-	}
+        // Apply damage reduction
+        finalDamage := damage - damageReduction
+        if finalDamage < 1 {
+            finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
+        }
 
-	return finalDamage
-}
+        return finalDamage
+    }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed
 func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) {
-	// Check if this is a Pixie (referred to as "Sprite" by user)
-	if monster.Name == "Pixie" {
-		// 5% chance to drop Magic Ring
-		if rand.Float64() < 0.05 {
-			// Create Magic Ring item
-			magicRing := items.Item{
-				Name:        "Magic Ring",
-				Type:        items.ItemAccessory,
-				Description: "A magical ring that enhances spell power and mana",
-				Attributes:  make(map[string]int),
-			}
-
-			// Add to party inventory
-			cs.game.party.AddItem(magicRing)
-
-			// Add combat message about the loot drop
-			cs.game.AddCombatMessage("Pixie dropped a Magic Ring! It has been added to your inventory.")
-		}
+	// Use YAML-configured loot tables keyed by monster
+	if monsterPkg.MonsterConfig == nil {
+		return
 	}
-
-	// Check if this is a Dragon
-	if monster.Name == "Dragon" {
-		// 5% chance to drop Bow of Hellfire
-		if rand.Float64() < 0.05 {
-			// Create Bow of Hellfire using YAML definition
-			bowOfHellfire := items.CreateWeaponFromYAML("bow_of_hellfire")
-
-			// Add to party inventory
-			cs.game.party.AddItem(bowOfHellfire)
-
-			// Add combat message about the legendary loot drop
-			cs.game.AddCombatMessage("Dragon dropped a Bow of Hellfire! A legendary weapon has been added to your inventory.")
+	monsterKey, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name)
+	if !ok {
+		return
+	}
+	entries := config.GetLootTable(monsterKey)
+	if len(entries) == 0 {
+		return
+	}
+	for _, e := range entries {
+		if rand.Float64() < e.Chance {
+			var drop items.Item
+			switch e.Type {
+			case "weapon":
+				drop = items.CreateWeaponFromYAML(e.Key)
+			case "item":
+				drop = items.CreateItemFromYAML(e.Key)
+			default:
+				continue
+			}
+			cs.game.party.AddItem(drop)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s dropped a %s! It has been added to your inventory.", monster.Name, drop.Name))
 		}
 	}
 }

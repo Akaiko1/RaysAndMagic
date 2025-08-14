@@ -1,0 +1,19 @@
+items:
+  leather_armor:
+    name: "Leather Armor"
+    type: "armor"
+    description: "Simple leather protection"
+    armor_class_base: 2
+    endurance_scaling_divisor: 5
+
+  health_potion:
+    name: "Health Potion"
+    type: "consumable"
+    description: "Restores health"
+
+  magic_ring:
+    name: "Magic Ring"
+    type: "accessory"
+    description: "A magical ring that enhances spell power and mana"
+    intellect_scaling_divisor: 6
+    personality_scaling_divisor: 8
