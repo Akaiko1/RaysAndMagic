@@ -11,6 +11,9 @@ import (
 func TestMain(m *testing.M) {
 	// Load weapon config and set up bridge for items
 	_ = config.MustLoadWeaponConfig("../../weapons.yaml")
+	_ = config.MustLoadItemConfig("../../assets/items.yaml")
+	_ = config.MustLoadLootTables("../../assets/loots.yaml")
 	bridge.SetupWeaponBridge()
+	bridge.SetupItemBridge()
 	os.Exit(m.Run())
 }

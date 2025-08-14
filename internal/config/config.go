@@ -437,6 +437,8 @@ type WeaponDefinitionConfig struct {
 var GlobalConfig *Config
 var GlobalSpells *SpellSystemConfig
 var GlobalWeapons *WeaponSystemConfig
+var GlobalItems *ItemSystemConfig
+var GlobalLoots *LootTablesConfig
 
 // LoadConfig loads the configuration from config.yaml
 func LoadConfig(filename string) (*Config, error) {
@@ -529,6 +531,104 @@ func MustLoadWeaponConfig(filename string) *WeaponSystemConfig {
 		panic("Failed to load weapon config: " + err.Error())
 	}
 	return weaponConfig
+}
+
+// ---------------- Items (non-weapon, non-spell) ----------------
+
+type ItemSystemConfig struct {
+	Items map[string]*ItemDefinitionConfig `yaml:"items"`
+}
+
+type ItemDefinitionConfig struct {
+    Name        string `yaml:"name"`
+    Type        string `yaml:"type"` // armor|accessory|consumable|quest
+    Description string `yaml:"description"`
+    // Optional numeric stats to un-hardcode item effects
+    ArmorClassBase           int `yaml:"armor_class_base,omitempty"`
+    EnduranceScalingDivisor  int `yaml:"endurance_scaling_divisor,omitempty"`
+    IntellectScalingDivisor  int `yaml:"intellect_scaling_divisor,omitempty"`
+    PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
+}
+
+func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	var itemCfg ItemSystemConfig
+	if err := yaml.Unmarshal(data, &itemCfg); err != nil {
+		return nil, err
+	}
+	GlobalItems = &itemCfg
+	return &itemCfg, nil
+}
+
+func MustLoadItemConfig(filename string) *ItemSystemConfig {
+	cfg, err := LoadItemConfig(filename)
+	if err != nil {
+		panic("Failed to load item config: " + err.Error())
+	}
+	return cfg
+}
+
+func GetItemDefinition(itemKey string) (*ItemDefinitionConfig, bool) {
+	if GlobalItems == nil {
+		return nil, false
+	}
+	def, ok := GlobalItems.Items[itemKey]
+	return def, ok
+}
+
+func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) {
+	if GlobalItems == nil {
+		return nil, "", false
+	}
+	for key, def := range GlobalItems.Items {
+		if def.Name == name {
+			return def, key, true
+		}
+	}
+	return nil, "", false
+}
+
+// ---------------- Loot Tables ----------------
+
+type LootTablesConfig struct {
+	Loots map[string][]LootEntry `yaml:"loots"`
+}
+
+type LootEntry struct {
+	Type   string  `yaml:"type"` // weapon|item
+	Key    string  `yaml:"key"`
+	Chance float64 `yaml:"chance"`
+}
+
+func LoadLootTables(filename string) (*LootTablesConfig, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	var loots LootTablesConfig
+	if err := yaml.Unmarshal(data, &loots); err != nil {
+		return nil, err
+	}
+	GlobalLoots = &loots
+	return &loots, nil
+}
+
+func MustLoadLootTables(filename string) *LootTablesConfig {
+	lt, err := LoadLootTables(filename)
+	if err != nil {
+		panic("Failed to load loot tables: " + err.Error())
+	}
+	return lt
+}
+
+func GetLootTable(monsterKey string) []LootEntry {
+	if GlobalLoots == nil {
+		return nil
+	}
+	return GlobalLoots.Loots[monsterKey]
 }
 
 // Helper functions for easy access to commonly used values

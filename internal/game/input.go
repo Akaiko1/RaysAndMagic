@@ -37,40 +37,40 @@ func NewInputHandler(game *MMGame) *InputHandler {
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
-    // ESC handling: close current overlay before opening menu
-    if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-        // If main menu is open, back out of submenus or close it
-        if ih.game.mainMenuOpen {
-            if ih.game.mainMenuMode != MenuMain {
-                ih.game.mainMenuMode = MenuMain
-            } else {
-                ih.game.mainMenuOpen = false
-            }
-            return
-        }
-        // Close stat popup if open
-        if ih.game.statPopupOpen {
-            ih.game.statPopupOpen = false
-            return
-        }
-        // Close dialog if open
-        if ih.game.dialogActive {
-            ih.game.dialogActive = false
-            ih.game.dialogNPC = nil
-            return
-        }
-        // Close tabbed menu if open
-        if ih.game.menuOpen {
-            ih.game.menuOpen = false
-            return
-        }
-        // Otherwise open main menu
-        ih.game.mainMenuOpen = true
-        ih.game.mainMenuSelection = 0
-        ih.game.slotSelection = 0
-        ih.game.mainMenuMode = MenuMain
-        return
-    }
+	// ESC handling: close current overlay before opening menu
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		// If main menu is open, back out of submenus or close it
+		if ih.game.mainMenuOpen {
+			if ih.game.mainMenuMode != MenuMain {
+				ih.game.mainMenuMode = MenuMain
+			} else {
+				ih.game.mainMenuOpen = false
+			}
+			return
+		}
+		// Close stat popup if open
+		if ih.game.statPopupOpen {
+			ih.game.statPopupOpen = false
+			return
+		}
+		// Close dialog if open
+		if ih.game.dialogActive {
+			ih.game.dialogActive = false
+			ih.game.dialogNPC = nil
+			return
+		}
+		// Close tabbed menu if open
+		if ih.game.menuOpen {
+			ih.game.menuOpen = false
+			return
+		}
+		// Otherwise open main menu
+		ih.game.mainMenuOpen = true
+		ih.game.mainMenuSelection = 0
+		ih.game.slotSelection = 0
+		ih.game.mainMenuMode = MenuMain
+		return
+	}
 
 	// When main menu is open, handle only its input
 	if ih.game.mainMenuOpen {
@@ -510,17 +510,17 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 		ih.game.world.RegisterMonstersWithCollisionSystem(ih.game.collisionSystem)
 	}
 
-    // Update visual systems
-    ih.game.UpdateSkyAndGroundColors()
-    if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-        mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-        if mapConfig != nil {
-            fmt.Printf("Switched to %s map with %s colors: %v\n", targetMapKey, mapConfig.Biome, mapConfig.DefaultFloorColor)
-        }
-        // Refresh renderer caches that depend on world tiles
-        ih.game.gameLoop.renderer.precomputeFloorColorCache()
-        ih.game.gameLoop.renderer.buildTransparentSpriteCache()
-    }
+	// Update visual systems
+	ih.game.UpdateSkyAndGroundColors()
+	if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
+		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
+		if mapConfig != nil {
+			fmt.Printf("Switched to %s map with %s colors: %v\n", targetMapKey, mapConfig.Biome, mapConfig.DefaultFloorColor)
+		}
+		// Refresh renderer caches that depend on world tiles
+		ih.game.gameLoop.renderer.precomputeFloorColorCache()
+		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
+	}
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
@@ -1529,6 +1529,10 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	}
 
 	tileSize := float64(ih.game.config.GetTileSize())
+	// Treat negative positions as out of bounds
+	if x < 0 || y < 0 {
+		return false
+	}
 	tileX := int(x / tileSize)
 	tileY := int(y / tileSize)
 

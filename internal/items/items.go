@@ -186,3 +186,68 @@ func GetWeaponKeyByName(name string) string {
 	key := strings.ToLower(strings.ReplaceAll(name, " ", "_"))
 	return key
 }
+
+// ------- Non-weapon items from YAML -------
+
+// ItemDefinitionFromYAML represents simple item data from YAML
+type ItemDefinitionFromYAML struct {
+    Name        string
+    Description string
+    Type        string // "armor", "accessory", "consumable", "quest"
+    // Optional numeric stats
+    ArmorClassBase            int
+    EnduranceScalingDivisor   int
+    IntellectScalingDivisor   int
+    PersonalityScalingDivisor int
+}
+
+// GlobalItemAccessor is set by a bridge to provide item access without circular imports
+var GlobalItemAccessor func(string) (*ItemDefinitionFromYAML, bool)
+
+// CreateItemFromYAML creates a non-weapon, non-spell item from YAML item definition
+func CreateItemFromYAML(itemKey string) Item {
+	if GlobalItemAccessor == nil {
+		panic("item accessor not configured - call bridge.SetupItemBridge()")
+	}
+	def, ok := GlobalItemAccessor(itemKey)
+	if !ok || def == nil {
+		panic("item '" + itemKey + "' not found in items.yaml - system misconfigured")
+	}
+
+	// Map type string to ItemType
+	var t ItemType
+	switch def.Type {
+	case "armor":
+		t = ItemArmor
+	case "accessory":
+		t = ItemAccessory
+	case "consumable":
+		t = ItemConsumable
+	case "quest":
+		t = ItemQuest
+	default:
+		panic("unknown item type for '" + itemKey + "': " + def.Type)
+	}
+
+    // Populate attributes from definition
+    attrs := make(map[string]int)
+    if def.ArmorClassBase != 0 {
+        attrs["armor_class_base"] = def.ArmorClassBase
+    }
+    if def.EnduranceScalingDivisor != 0 {
+        attrs["endurance_scaling_divisor"] = def.EnduranceScalingDivisor
+    }
+    if def.IntellectScalingDivisor != 0 {
+        attrs["intellect_scaling_divisor"] = def.IntellectScalingDivisor
+    }
+    if def.PersonalityScalingDivisor != 0 {
+        attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
+    }
+
+    return Item{
+        Name:        def.Name,
+        Type:        t,
+        Description: def.Description,
+        Attributes:  attrs,
+    }
+}

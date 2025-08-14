@@ -29,9 +29,9 @@ func NewParty(cfg *config.Config) *Party {
 	// Add some starting items using YAML definitions
 	party.AddItem(items.CreateWeaponFromYAML("iron_spear"))      // Alternative weapon
 	party.AddItem(items.CreateWeaponFromYAML("bow_of_hellfire")) // Legendary bow for debugging
-	party.AddItem(items.Item{Name: "Leather Armor", Type: items.ItemArmor, Description: "Simple leather protection"})
-	party.AddItem(items.Item{Name: "Health Potion", Type: items.ItemConsumable, Description: "Restores health"})
-	party.AddItem(items.Item{Name: "Magic Ring", Type: items.ItemAccessory, Description: "Increases mana"})
+	party.AddItem(items.CreateItemFromYAML("leather_armor"))
+	party.AddItem(items.CreateItemFromYAML("health_potion"))
+	party.AddItem(items.CreateItemFromYAML("magic_ring"))
 
 	return party
 }
