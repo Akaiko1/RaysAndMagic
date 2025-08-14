@@ -58,3 +58,11 @@ items:
     description: "A brittle branch humming with chaotic energy"
     flavor: "Brittle with whispers; it remembers storms."
     summon_distance_tiles: 2
+
+  belt_of_strength:
+    name: "Belt of Strength"
+    type: "accessory"
+    description: "A stout belt that steadies the core"
+    flavor: "Cinched tight, it lends the courage of oaks."
+    equip_slot: "belt"
+    bonus_might: 5

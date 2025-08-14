@@ -25,6 +25,7 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
         EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
         IntellectScalingDivisor:   def.IntellectScalingDivisor,
         PersonalityScalingDivisor: def.PersonalityScalingDivisor,
+        BonusMight:                def.BonusMight,
         HealBase:                  def.HealBase,
         HealEnduranceDivisor:      def.HealEnduranceDivisor,
         SummonDistanceTiles:       def.SummonDistanceTiles,

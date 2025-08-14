@@ -204,6 +204,7 @@ type ItemDefinitionFromYAML struct {
     HealEnduranceDivisor      int
     SummonDistanceTiles       int
     EquipSlot                 string
+    BonusMight                int
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -261,6 +262,9 @@ func CreateItemFromYAML(itemKey string) Item {
     if def.EquipSlot != "" {
         slotCode := mapEquipSlotStringToCode(def.EquipSlot)
         attrs["equip_slot"] = int(slotCode)
+    }
+    if def.BonusMight != 0 {
+        attrs["bonus_might"] = def.BonusMight
     }
 
     // Prefer flavor text if provided, else use description

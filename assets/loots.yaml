@@ -31,3 +31,8 @@ loots:
     - type: "item"
       key: "dead_branch"
       chance: 0.10
+
+  bear:
+    - type: "item"
+      key: "belt_of_strength"
+      chance: 0.07

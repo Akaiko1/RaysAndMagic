@@ -295,8 +295,8 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
 	c.HitPoints = c.MaxHitPoints
 
-	// Calculate spell points (Intellect + Personality based + equipment bonuses)
-	_, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
+    // Calculate spell points (Intellect + Personality based + equipment bonuses)
+    _, _, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 	c.SpellPoints = c.MaxSpellPoints
 }
@@ -585,69 +585,36 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
 func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, personality, endurance, accuracy, speed, luck int) {
-	// Calculate equipment bonuses
-	equipmentIntellectBonus, equipmentPersonalityBonus, equipmentEnduranceBonus := c.calculateEquipmentBonuses()
+    // Calculate equipment bonuses (YAML-driven)
+    equipmentMightBonus, equipmentIntellectBonus, equipmentPersonalityBonus, equipmentEnduranceBonus := c.calculateEquipmentBonuses()
 
-	return c.Might + statBonus,
-		c.Intellect + statBonus + equipmentIntellectBonus,
-		c.Personality + statBonus + equipmentPersonalityBonus,
-		c.Endurance + statBonus + equipmentEnduranceBonus,
-		c.Accuracy + statBonus,
-		c.Speed + statBonus,
-		c.Luck + statBonus
+    return c.Might + statBonus + equipmentMightBonus,
+        c.Intellect + statBonus + equipmentIntellectBonus,
+        c.Personality + statBonus + equipmentPersonalityBonus,
+        c.Endurance + statBonus + equipmentEnduranceBonus,
+        c.Accuracy + statBonus,
+        c.Speed + statBonus,
+        c.Luck + statBonus
 }
 
-    // calculateEquipmentBonuses returns stat bonuses from equipped items (YAML-driven)
-    func (c *MMCharacter) calculateEquipmentBonuses() (intellectBonus, personalityBonus, enduranceBonus int) {
-        // Rings/accessories: apply scaling divisors if present
-        if ring, hasRing := c.Equipment[items.SlotRing1]; hasRing {
-            if div := ring.Attributes["intellect_scaling_divisor"]; div > 0 {
-                intellectBonus += c.Intellect / div
-            }
-            if div := ring.Attributes["personality_scaling_divisor"]; div > 0 {
-                personalityBonus += c.Personality / div
-            }
+// calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
+func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus int) {
+    for _, it := range c.Equipment {
+        if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
+            intellectBonus += c.Intellect / div
         }
-
-        if ring, hasRing := c.Equipment[items.SlotRing2]; hasRing {
-            if div := ring.Attributes["intellect_scaling_divisor"]; div > 0 {
-                intellectBonus += c.Intellect / div
-            }
-            if div := ring.Attributes["personality_scaling_divisor"]; div > 0 {
-                personalityBonus += c.Personality / div
-            }
+        if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
+            personalityBonus += c.Personality / div
         }
-
-        // All armor slots: check for endurance scaling divisor
-        armorSlots := []items.EquipSlot{
-            items.SlotArmor,
-            items.SlotHelmet,
-            items.SlotBoots,
-            items.SlotCloak,
-            items.SlotGauntlets,
-            items.SlotBelt,
+        if div := it.Attributes["endurance_scaling_divisor"]; div > 0 {
+            enduranceBonus += c.Endurance / div
         }
-        
-        for _, slot := range armorSlots {
-            if armorPiece, hasArmor := c.Equipment[slot]; hasArmor {
-                if div := armorPiece.Attributes["endurance_scaling_divisor"]; div > 0 {
-                    enduranceBonus += c.Endurance / div
-                }
-            }
+        if bonus := it.Attributes["bonus_might"]; bonus > 0 {
+            mightBonus += bonus
         }
-        
-        // Amulets can also provide bonuses
-        if amulet, hasAmulet := c.Equipment[items.SlotAmulet]; hasAmulet {
-            if div := amulet.Attributes["intellect_scaling_divisor"]; div > 0 {
-                intellectBonus += c.Intellect / div
-            }
-            if div := amulet.Attributes["personality_scaling_divisor"]; div > 0 {
-                personalityBonus += c.Personality / div
-            }
-        }
-
-        return intellectBonus, personalityBonus, enduranceBonus
     }
+    return mightBonus, intellectBonus, personalityBonus, enduranceBonus
+}
 
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
 func (c *MMCharacter) updateDerivedStatsForEquipment() {
@@ -655,8 +622,8 @@ func (c *MMCharacter) updateDerivedStatsForEquipment() {
 	oldMaxSP := c.MaxSpellPoints
 	currentSP := c.SpellPoints
 
-	// Recalculate max SP with equipment bonuses
-	_, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
+    // Recalculate max SP with equipment bonuses
+    _, _, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
 	newMaxSP := c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*2 // Level multiplier from config
 	c.MaxSpellPoints = newMaxSP
 
