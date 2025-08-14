@@ -2,6 +2,7 @@ package game
 
 import (
     "fmt"
+    "ugataima/internal/character"
     "ugataima/internal/items"
 )
 
@@ -23,6 +24,23 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
         return false
     }
     // Attribute-driven behaviors (single source of truth)
+    // Revive consumable
+    if item.Attributes["revive"] > 0 {
+        ch := g.party.Members[selectedChar]
+        // Cure Dead and Unconscious
+        ch.RemoveCondition(character.ConditionUnconscious)
+        ch.RemoveCondition(character.ConditionDead)
+        // Restore HP fully if requested, otherwise set at least 1 HP
+        if item.Attributes["full_heal"] > 0 {
+            ch.HitPoints = ch.MaxHitPoints
+        } else if ch.HitPoints <= 0 {
+            ch.HitPoints = 1
+        }
+        g.party.RemoveItem(itemIndex)
+        g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
+        return true
+    }
+
     // Healing consumable
     if base, okBase := item.Attributes["heal_base"]; okBase {
         if div, okDiv := item.Attributes["heal_endurance_divisor"]; okDiv && base > 0 && div > 0 {
@@ -34,7 +52,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
                 ch.HitPoints = ch.MaxHitPoints
             }
             actual := ch.HitPoints - before
-            // Direct heal (spell) is required to remove Unconscious; potions do not revive
+            // Potions do not remove Unconscious by themselves
             g.party.RemoveItem(itemIndex)
             g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, actual))
             return true

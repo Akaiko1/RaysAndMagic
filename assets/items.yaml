@@ -38,6 +38,15 @@ items:
     heal_endurance_divisor: 4
     value: 50
 
+  revival_potion:
+    name: "Revival Potion"
+    type: "consumable"
+    description: "A potent draught that restores breath and vigor"
+    flavor: "A spark in a bottle; dawn for the fallen."
+    revive: true
+    full_heal: true
+    value: 500
+
   magic_ring:
     name: "Magic Ring"
     type: "accessory"

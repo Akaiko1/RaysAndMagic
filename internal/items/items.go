@@ -211,6 +211,8 @@ type ItemDefinitionFromYAML struct {
     EquipSlot                 string
     BonusMight                int
     Value                     int
+    Revive                    bool
+    FullHeal                  bool
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -274,6 +276,12 @@ func CreateItemFromYAML(itemKey string) Item {
     }
     if def.Value != 0 {
         attrs["value"] = def.Value
+    }
+    if def.Revive {
+        attrs["revive"] = 1
+    }
+    if def.FullHeal {
+        attrs["full_heal"] = 1
     }
 
     // Prefer flavor text if provided, else use description
