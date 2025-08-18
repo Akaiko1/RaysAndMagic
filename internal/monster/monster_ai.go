@@ -13,15 +13,15 @@ type CollisionChecker interface {
 
 // Update runs the monster AI with collision checking and player position for engagement detection
 func (m *Monster3D) Update(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
-    m.StateTimer++
+	m.StateTimer++
 
-    // Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
-    // attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
-    if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-        if !collisionChecker.CanMoveTo(monsterID, m.X, m.Y) {
-            m.unstuckFromObstacles(collisionChecker, monsterID)
-        }
-    }
+	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
+	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
+	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
+		if !collisionChecker.CanMoveTo(monsterID, m.X, m.Y) {
+			m.unstuckFromObstacles(collisionChecker, monsterID)
+		}
+	}
 
 	// Check for player detection and engagement
 	m.updatePlayerEngagement(playerX, playerY)
@@ -450,39 +450,39 @@ func (m *Monster3D) chooseNewDirectionTowardsTarget(collisionChecker CollisionCh
 		}
 	}
 
-    // If no clear path found towards target, use fallback random direction
-    m.chooseNewDirection(collisionChecker)
+	// If no clear path found towards target, use fallback random direction
+	m.chooseNewDirection(collisionChecker)
 }
 
 // unstuckFromObstacles tries to move the monster to the nearest non-blocked position
 // Useful when a monster ends up overlapping a solid tile (e.g., trees) due to edge cases
 func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker, monsterID string) {
-    if collisionChecker == nil {
-        return
-    }
+	if collisionChecker == nil {
+		return
+	}
 
-    // Search outwards in rings for a free spot
-    // Use small steps to avoid teleporting too far
-    radii := []float64{8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 128}
-    const samples = 16
+	// Search outwards in rings for a free spot
+	// Use small steps to avoid teleporting too far
+	radii := []float64{8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 128}
+	const samples = 16
 
-    for _, r := range radii {
-        for i := 0; i < samples; i++ {
-            angle := (2 * math.Pi * float64(i)) / samples
-            nx := m.X + math.Cos(angle)*r
-            ny := m.Y + math.Sin(angle)*r
-            if collisionChecker.CanMoveTo(monsterID, nx, ny) {
-                m.X = nx
-                m.Y = ny
-                m.Direction = angle
-                return
-            }
-        }
-    }
-    // As a last resort, try the spawn position if within reasonable distance
-    if collisionChecker.CanMoveTo(monsterID, m.SpawnX, m.SpawnY) {
-        m.X = m.SpawnX
-        m.Y = m.SpawnY
-        m.Direction = m.GetDirectionToSpawn()
-    }
+	for _, r := range radii {
+		for i := 0; i < samples; i++ {
+			angle := (2 * math.Pi * float64(i)) / samples
+			nx := m.X + math.Cos(angle)*r
+			ny := m.Y + math.Sin(angle)*r
+			if collisionChecker.CanMoveTo(monsterID, nx, ny) {
+				m.X = nx
+				m.Y = ny
+				m.Direction = angle
+				return
+			}
+		}
+	}
+	// As a last resort, try the spawn position if within reasonable distance
+	if collisionChecker.CanMoveTo(monsterID, m.SpawnX, m.SpawnY) {
+		m.X = m.SpawnX
+		m.Y = m.SpawnY
+		m.Direction = m.GetDirectionToSpawn()
+	}
 }

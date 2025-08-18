@@ -272,12 +272,12 @@ func (r *Renderer) precomputeFloorColorCache() {
 				}
 			}
 
-                clr := baseColor
-                // Apply nearby tile effect ONLY to empty '.' tiles
-                if nearSpecialTile && currentTile == world.TileEmpty {
-                    clr = nearTileColor
-                }
-                cache[[2]int{tileX, tileY}] = clr
+			clr := baseColor
+			// Apply nearby tile effect ONLY to empty '.' tiles
+			if nearSpecialTile && currentTile == world.TileEmpty {
+				clr = nearTileColor
+			}
+			cache[[2]int{tileX, tileY}] = clr
 		}
 	}
 
@@ -368,14 +368,14 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Render the results and update depth buffer
 	r.renderRaycastResults(screen, results)
 
-	// Draw monsters as sprites using parallel processing with depth testing
-	r.drawMonstersParallel(screen)
-
 	// Draw NPCs as sprites using depth testing
 	r.drawNPCs(screen)
 
 	// Draw transparent environment sprites with depth testing
 	r.drawTransparentEnvironmentSprites(screen)
+
+	// Draw monsters as sprites using parallel processing with depth testing
+	r.drawMonstersParallel(screen)
 
 	// Draw fireballs and sword attacks
 	r.drawProjectiles(screen)
@@ -871,21 +871,21 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-    // Update depth buffer for the sprite only if this tile is opaque
-    // Transparent floor objects like clearings should not occlude monsters/NPCs
-    spriteLeft := x - spriteWidth/2
-    spriteRight := x + spriteWidth/2
-    isOpaque := true
-    if world.GlobalTileManager != nil {
-        isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
-    }
-    if isOpaque {
-        for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
-            if distance < r.game.depthBuffer[px] {
-                r.game.depthBuffer[px] = distance
-            }
-        }
-    }
+	// Update depth buffer for the sprite only if this tile is opaque
+	// Transparent floor objects like clearings should not occlude monsters/NPCs
+	spriteLeft := x - spriteWidth/2
+	spriteRight := x + spriteWidth/2
+	isOpaque := true
+	if world.GlobalTileManager != nil {
+		isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
+	}
+	if isOpaque {
+		for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
+			if distance < r.game.depthBuffer[px] {
+				r.game.depthBuffer[px] = distance
+			}
+		}
+	}
 
 	// Get appropriate sprite based on tile type using tile manager
 	var spriteName string

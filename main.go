@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"log"
+	"math/rand"
+	"time"
 
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
@@ -16,6 +18,8 @@ import (
 )
 
 func main() {
+	// Seed RNG for combat rolls (crit, loot, etc.)
+	rand.Seed(time.Now().UnixNano())
 	// Load configuration
 	cfg := config.MustLoadConfig("config.yaml")
 

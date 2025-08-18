@@ -65,7 +65,7 @@ func ApplyArmorDamageReduction(damage int, character *MMCharacter, statBonus int
 	// Calculate armor class from all armor slots (matches updated combat.go)
 	baseArmor := 0
 	totalEnduranceBonus := 0
-	
+
 	armorSlots := []items.EquipSlot{
 		items.SlotArmor,
 		items.SlotHelmet,
@@ -74,7 +74,7 @@ func ApplyArmorDamageReduction(damage int, character *MMCharacter, statBonus int
 		items.SlotGauntlets,
 		items.SlotBelt,
 	}
-	
+
 	for _, slot := range armorSlots {
 		if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
 			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
@@ -85,7 +85,7 @@ func ApplyArmorDamageReduction(damage int, character *MMCharacter, statBonus int
 			}
 		}
 	}
-	
+
 	totalArmorClass := baseArmor + totalEnduranceBonus
 
 	// Damage reduction (same formula as tooltip)
@@ -254,8 +254,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-        // Equip leather armor from YAML to include its attributes
-        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
+		// Equip leather armor from YAML to include its attributes
+		character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test various damage amounts
 		testDamages := []int{10, 20, 50, 100}
@@ -290,8 +290,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-        // Equip leather armor from YAML to include its attributes
-        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
+		// Equip leather armor from YAML to include its attributes
+		character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test various damage amounts
 		testDamages := []int{10, 20, 50, 100}
@@ -328,8 +328,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
-        // Equip leather armor from YAML to include its attributes
-        character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
+		// Equip leather armor from YAML to include its attributes
+		character.Equipment[items.SlotArmor] = items.CreateItemFromYAML("leather_armor")
 
 		// Test very low damage that should be reduced to 1
 		lowDamages := []int{1, 2, 5, 10, 15}
@@ -410,10 +410,10 @@ func TestEquipmentSlots(t *testing.T) {
 		for _, tc := range testCases {
 			// Create item from YAML
 			item := items.CreateItemFromYAML(tc.itemKey)
-			
+
 			// Equip the item
 			_, _, success := character.EquipItem(item)
-			
+
 			if !success {
 				t.Errorf("Failed to equip %s", item.Name)
 				continue
@@ -427,7 +427,7 @@ func TestEquipmentSlots(t *testing.T) {
 			}
 
 			if equippedItem.Name != item.Name {
-				t.Errorf("%s: Wrong item in slot. Expected: %s, Got: %s", 
+				t.Errorf("%s: Wrong item in slot. Expected: %s, Got: %s",
 					tc.description, item.Name, equippedItem.Name)
 				continue
 			}
@@ -449,9 +449,9 @@ func TestEquipmentSlots(t *testing.T) {
 		}
 
 		// Equip multiple armor pieces
-		leatherArmor := items.CreateItemFromYAML("leather_armor")    // AC: 2
-		leatherHelmet := items.CreateItemFromYAML("leather_helmet")  // AC: 1
-		leatherPants := items.CreateItemFromYAML("leather_pants")    // AC: 1
+		leatherArmor := items.CreateItemFromYAML("leather_armor")   // AC: 2
+		leatherHelmet := items.CreateItemFromYAML("leather_helmet") // AC: 1
+		leatherPants := items.CreateItemFromYAML("leather_pants")   // AC: 1
 
 		character.EquipItem(leatherArmor)
 		character.EquipItem(leatherHelmet)
@@ -464,14 +464,14 @@ func TestEquipmentSlots(t *testing.T) {
 		// Calculate expected values step by step
 		// Get the character's effective endurance after equipment bonuses
 		_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(0)
-		
+
 		// Calculate expected armor values
 		expectedBaseArmor := 2 + 1 + 1 // leather_armor + leather_helmet + leather_pants
-		expectedEnduranceBonus := (effectiveEndurance/5) + (effectiveEndurance/6) + (effectiveEndurance/6)
+		expectedEnduranceBonus := (effectiveEndurance / 5) + (effectiveEndurance / 6) + (effectiveEndurance / 6)
 		expectedTotalAC := expectedBaseArmor + expectedEnduranceBonus
 		expectedReduction := expectedTotalAC / 2
 		expectedDamage := damage - expectedReduction
-		
+
 		fmt.Printf("Effective endurance: %d\n", effectiveEndurance)
 		fmt.Printf("Expected base armor: %d\n", expectedBaseArmor)
 		fmt.Printf("Expected endurance bonus: %d\n", expectedEnduranceBonus)
@@ -481,7 +481,7 @@ func TestEquipmentSlots(t *testing.T) {
 		fmt.Printf("Damage %d → %d (reduction: %d)\n", damage, finalDamage, damage-finalDamage)
 
 		if finalDamage != expectedDamage {
-			t.Errorf("Multiple armor pieces damage reduction incorrect. Expected: %d, Got: %d", 
+			t.Errorf("Multiple armor pieces damage reduction incorrect. Expected: %d, Got: %d",
 				expectedDamage, finalDamage)
 		} else {
 			fmt.Printf("✅ Multiple armor pieces working correctly!\n")
@@ -647,7 +647,7 @@ func setupTestAccessors() {
 	if items.GlobalItemAccessor == nil {
 		// Load item config for tests
 		config.MustLoadItemConfig("../../assets/items.yaml")
-		
+
 		// Setup bridge
 		items.GlobalItemAccessor = func(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 			def, exists := config.GetItemDefinition(itemKey)

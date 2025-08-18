@@ -1,12 +1,12 @@
 package game
 
 import (
-    "fmt"
-    "math"
-    "math/rand"
-    "ugataima/internal/character"
-    "ugataima/internal/monster"
-    "ugataima/internal/world"
+	"fmt"
+	"math"
+	"math/rand"
+	"ugataima/internal/character"
+	"ugataima/internal/monster"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -346,9 +346,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
-    // Only monsters within 6-tile vision range participate in turn-based combat
-    tileSize := float64(gl.game.config.GetTileSize())
-    visionRange := tileSize * 6.0 // 6 tiles
+	// Only monsters within 6-tile vision range participate in turn-based combat
+	tileSize := float64(gl.game.config.GetTileSize())
+	visionRange := tileSize * 6.0 // 6 tiles
 
 	// Process each monster's turn (only those in vision range)
 	monstersActed := 0
@@ -367,26 +367,26 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 
-        // Monster can either move 1 tile OR attack if within reach
-        // Use collision radii and monster-specific attack radius for robust range checks
-        playerRadius := 8.0 // default if entity not found
-        if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
-            playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-        }
-        monsterRadius := 16.0 // default if entity not found
-        if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
-            monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-        }
-        freeSpace := distance - (playerRadius + monsterRadius)
-        reach := monster.AttackRadius
-        if reach <= 0 {
-            reach = tileSize * 0.25 // conservative fallback reach
-        }
+		// Monster can either move 1 tile OR attack if within reach
+		// Use collision radii and monster-specific attack radius for robust range checks
+		playerRadius := 8.0 // default if entity not found
+		if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
+			playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+		}
+		monsterRadius := 16.0 // default if entity not found
+		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
+			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+		}
+		freeSpace := distance - (playerRadius + monsterRadius)
+		reach := monster.AttackRadius
+		if reach <= 0 {
+			reach = tileSize * 0.25 // conservative fallback reach
+		}
 
-        if freeSpace <= reach {
-            // Attack the current character
-            gl.monsterAttackTurnBased(monster)
-        } else {
+		if freeSpace <= reach {
+			// Attack the current character
+			gl.monsterAttackTurnBased(monster)
+		} else {
 			// Move 1 tile towards player (or preferred direction)
 			gl.monsterMoveTurnBased(monster)
 		}
@@ -408,14 +408,14 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	damage := monster.GetAttackDamage()
 
 	// Apply armor damage reduction
-    finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
-    target.HitPoints -= finalDamage
-    if target.HitPoints < 0 {
-        target.HitPoints = 0
-    }
-    if target.HitPoints == 0 {
-        target.AddCondition(character.ConditionUnconscious)
-    }
+	finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
+	target.HitPoints -= finalDamage
+	if target.HitPoints < 0 {
+		target.HitPoints = 0
+	}
+	if target.HitPoints == 0 {
+		target.AddCondition(character.ConditionUnconscious)
+	}
 
 	// Trigger damage blink effect
 	gl.game.TriggerDamageBlink(targetIndex)

@@ -1,121 +1,121 @@
 package game
 
 import (
-    "fmt"
-    "strings"
-    "ugataima/internal/character"
-    "ugataima/internal/config"
-    "ugataima/internal/items"
-    "ugataima/internal/spells"
+	"fmt"
+	"strings"
+	"ugataima/internal/character"
+	"ugataima/internal/config"
+	"ugataima/internal/items"
+	"ugataima/internal/spells"
 )
 
 // GetItemTooltip returns a comprehensive tooltip string for any item type.
 // It collects fields in a simple map and glues them together in a stable order
 // to keep the function compact and easy to extend.
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
-    fields := map[string]string{}
-    order := []string{}
+	fields := map[string]string{}
+	order := []string{}
 
-    // Header
-    fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
-    fields["type"] = getItemTypeString(item.Type)
-    order = append(order, "header", "type", "__sep__")
+	// Header
+	fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
+	fields["type"] = getItemTypeString(item.Type)
+	order = append(order, "header", "type", "__sep__")
 
-    switch item.Type {
-    case items.ItemWeapon:
-        // Core weapon mechanics
-        base, bonus, total := combatSystem.CalculateWeaponDamage(item, char)
-        fields["w_base"] = fmt.Sprintf("Base Damage: %d", base)
-        fields["w_scaling"] = weaponScalingLine(item)
-        fields["w_bonus"] = fmt.Sprintf("Stat Bonus: +%d", bonus)
-        fields["w_total"] = fmt.Sprintf("Total Damage: %d", total)
-        if item.Range > 0 {
-            fields["w_range"] = fmt.Sprintf("Range: %d tiles", item.Range)
-        }
-        // From YAML weapon definition
-        weaponKey := items.GetWeaponKeyByName(item.Name)
-        if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
-            baseHit := weaponDef.HitBonus
-            acc := combatSystem.CalculateAccuracyBonus(char)
-            fields["w_hit"] = fmt.Sprintf("Hit Chance: +%d%% (Base: +%d, Accuracy: +%d)", baseHit+acc, baseHit, acc)
-            if weaponDef.CritChance > 0 {
-                critBonus := combatSystem.CalculateCriticalChance(char)
-                fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", weaponDef.CritChance+critBonus, weaponDef.CritChance, critBonus)
-            }
-            fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
-        }
-        order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_hit", "w_crit", "w_type", "__sep__")
+	switch item.Type {
+	case items.ItemWeapon:
+		// Core weapon mechanics
+		base, bonus, total := combatSystem.CalculateWeaponDamage(item, char)
+		fields["w_base"] = fmt.Sprintf("Base Damage: %d", base)
+		fields["w_scaling"] = weaponScalingLine(item)
+		fields["w_bonus"] = fmt.Sprintf("Stat Bonus: +%d", bonus)
+		fields["w_total"] = fmt.Sprintf("Total Damage: %d", total)
+		if item.Range > 0 {
+			fields["w_range"] = fmt.Sprintf("Range: %d tiles", item.Range)
+		}
+		// From YAML weapon definition
+		weaponKey := items.GetWeaponKeyByName(item.Name)
+		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
+			baseHit := weaponDef.HitBonus
+			acc := combatSystem.CalculateAccuracyBonus(char)
+			fields["w_hit"] = fmt.Sprintf("Hit Chance: +%d%% (Base: +%d, Accuracy: +%d)", baseHit+acc, baseHit, acc)
+			if weaponDef.CritChance > 0 {
+				critBonus := combatSystem.CalculateCriticalChance(char)
+				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", weaponDef.CritChance+critBonus, weaponDef.CritChance, critBonus)
+			}
+			fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
+		}
+		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_hit", "w_crit", "w_type", "__sep__")
 
-    case items.ItemArmor:
-        if line := getArmorSummary(item); line != "" {
-            fields["a_line"] = line
-        }
-        order = append(order, "a_line", "__sep__")
+	case items.ItemArmor:
+		if line := getArmorSummary(item); line != "" {
+			fields["a_line"] = line
+		}
+		order = append(order, "a_line", "__sep__")
 
-    case items.ItemAccessory:
-        if line := getAccessorySummary(item); line != "" {
-            fields["acc_line"] = line
-        }
-        order = append(order, "acc_line", "__sep__")
+	case items.ItemAccessory:
+		if line := getAccessorySummary(item); line != "" {
+			fields["acc_line"] = line
+		}
+		order = append(order, "acc_line", "__sep__")
 
-    case items.ItemConsumable:
-        if line := getConsumableSummary(item); line != "" {
-            fields["c_line"] = line
-        }
-        order = append(order, "c_line", "__sep__")
+	case items.ItemConsumable:
+		if line := getConsumableSummary(item); line != "" {
+			fields["c_line"] = line
+		}
+		order = append(order, "c_line", "__sep__")
 
-    case items.ItemBattleSpell, items.ItemUtilitySpell:
-        lines := getSpellItemTooltip(item, char)
-        if len(lines) > 0 {
-            fields["s_block"] = strings.Join(lines, "\n")
-            order = append(order, "s_block", "__sep__")
-        }
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		lines := getSpellItemTooltip(item, char)
+		if len(lines) > 0 {
+			fields["s_block"] = strings.Join(lines, "\n")
+			order = append(order, "s_block", "__sep__")
+		}
 
-    case items.ItemQuest:
-        fields["q_line"] = "Quest Item - Cannot be sold or dropped"
-        order = append(order, "q_line", "__sep__")
-    }
+	case items.ItemQuest:
+		fields["q_line"] = "Quest Item - Cannot be sold or dropped"
+		order = append(order, "q_line", "__sep__")
+	}
 
-    // Value
-    if val, ok := item.Attributes["value"]; ok && val > 0 {
-        fields["value"] = fmt.Sprintf("Value: %d gold", val)
-        order = append(order, "value")
-    }
+	// Value
+	if val, ok := item.Attributes["value"]; ok && val > 0 {
+		fields["value"] = fmt.Sprintf("Value: %d gold", val)
+		order = append(order, "value")
+	}
 
-    // Flavor/description
-    if item.Description != "" {
-        order = append(order, "__sep__")
-        fields["flavor"] = fmt.Sprintf("\"%s\"", item.Description)
-        order = append(order, "flavor")
-    }
+	// Flavor/description
+	if item.Description != "" {
+		order = append(order, "__sep__")
+		fields["flavor"] = fmt.Sprintf("\"%s\"", item.Description)
+		order = append(order, "flavor")
+	}
 
-    // Glue everything together following the order list
-    var out []string
-    for _, k := range order {
-        if k == "__sep__" {
-            // Add a blank line only if last emitted wasn't blank and we have content ahead
-            if len(out) > 0 && out[len(out)-1] != "" {
-                out = append(out, "")
-            }
-            continue
-        }
-        if v := fields[k]; v != "" {
-            out = append(out, v)
-        }
-    }
-    return joinTooltipLines(out)
+	// Glue everything together following the order list
+	var out []string
+	for _, k := range order {
+		if k == "__sep__" {
+			// Add a blank line only if last emitted wasn't blank and we have content ahead
+			if len(out) > 0 && out[len(out)-1] != "" {
+				out = append(out, "")
+			}
+			continue
+		}
+		if v := fields[k]; v != "" {
+			out = append(out, v)
+		}
+	}
+	return joinTooltipLines(out)
 }
 
 // weaponScalingLine builds the human-friendly scaling text for a weapon
 func weaponScalingLine(item items.Item) string {
-    primary := item.BonusStat
-    if primary == "" {
-        primary = "Might"
-    }
-    if sec := item.BonusStatSecondary; sec != "" {
-        return fmt.Sprintf("Scales with %s + %s", primary, sec)
-    }
-    return fmt.Sprintf("Scales with %s", primary)
+	primary := item.BonusStat
+	if primary == "" {
+		primary = "Might"
+	}
+	if sec := item.BonusStatSecondary; sec != "" {
+		return fmt.Sprintf("Scales with %s + %s", primary, sec)
+	}
+	return fmt.Sprintf("Scales with %s", primary)
 }
 
 // getItemTypeString returns a readable string for the item type
@@ -140,45 +140,44 @@ func getItemTypeString(itemType items.ItemType) string {
 	}
 }
 
-
-    // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
+// getArmorTooltip returns armor-specific tooltip information (YAML-driven)
 func getArmorSummary(item items.Item) string {
-    // Calculate armor bonuses based on item attributes
-    baseArmor := item.Attributes["armor_class_base"]
-    enduranceDiv := item.Attributes["endurance_scaling_divisor"]
-    if baseArmor == 0 && enduranceDiv == 0 {
-        return "Provides basic protection"
-    }
-    if enduranceDiv > 0 {
-        return fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
-    }
-    return fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+	// Calculate armor bonuses based on item attributes
+	baseArmor := item.Attributes["armor_class_base"]
+	enduranceDiv := item.Attributes["endurance_scaling_divisor"]
+	if baseArmor == 0 && enduranceDiv == 0 {
+		return "Provides basic protection"
+	}
+	if enduranceDiv > 0 {
+		return fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
+	}
+	return fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
 }
 
-    // getAccessoryTooltip returns accessory-specific tooltip information (YAML-driven)
+// getAccessoryTooltip returns accessory-specific tooltip information (YAML-driven)
 func getAccessorySummary(item items.Item) string {
-    intDiv := item.Attributes["intellect_scaling_divisor"]
-    perDiv := item.Attributes["personality_scaling_divisor"]
-    mightFlat := item.Attributes["bonus_might"]
-    luckFlat := item.Attributes["bonus_luck"]
+	intDiv := item.Attributes["intellect_scaling_divisor"]
+	perDiv := item.Attributes["personality_scaling_divisor"]
+	mightFlat := item.Attributes["bonus_might"]
+	luckFlat := item.Attributes["bonus_luck"]
 
-    var parts []string
-    if mightFlat > 0 {
-        parts = append(parts, fmt.Sprintf("Might +%d", mightFlat))
-    }
-    if luckFlat > 0 {
-        parts = append(parts, fmt.Sprintf("Luck +%d", luckFlat))
-    }
-    if intDiv > 0 {
-        parts = append(parts, fmt.Sprintf("Spell Power +Intellect/%d", intDiv))
-    }
-    if perDiv > 0 {
-        parts = append(parts, fmt.Sprintf("Spell Points +Personality/%d", perDiv))
-    }
-    if len(parts) == 0 {
-        return "An accessory with minor benefits"
-    }
-    return strings.Join(parts, ", ")
+	var parts []string
+	if mightFlat > 0 {
+		parts = append(parts, fmt.Sprintf("Might +%d", mightFlat))
+	}
+	if luckFlat > 0 {
+		parts = append(parts, fmt.Sprintf("Luck +%d", luckFlat))
+	}
+	if intDiv > 0 {
+		parts = append(parts, fmt.Sprintf("Spell Power +Intellect/%d", intDiv))
+	}
+	if perDiv > 0 {
+		parts = append(parts, fmt.Sprintf("Spell Points +Personality/%d", perDiv))
+	}
+	if len(parts) == 0 {
+		return "An accessory with minor benefits"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // getSpellItemTooltip returns spell item-specific tooltip information
@@ -207,27 +206,27 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string 
 
 // getConsumableTooltip returns consumable-specific tooltip information
 func getConsumableSummary(item items.Item) string {
-    // Attribute-driven summary: single source of truth with gameplay
-    if item.Attributes["revive"] > 0 {
-        if item.Attributes["full_heal"] > 0 {
-            return "Revives from Dead/Unconscious and fully restores HP"
-        }
-        return "Revives from Dead/Unconscious"
-    }
-    if base, ok := item.Attributes["heal_base"]; ok {
-        div := item.Attributes["heal_endurance_divisor"]
-        if base > 0 && div > 0 {
-            return fmt.Sprintf("Restores %d + Endurance/%d HP on use", base, div)
-        }
-        return "Heals (misconfigured)"
-    }
-    if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
-        if dist > 0 {
-            return fmt.Sprintf("Summons a random monster ~%d tiles away", dist)
-        }
-        return "Summons (misconfigured)"
-    }
-    return "Single-use consumable"
+	// Attribute-driven summary: single source of truth with gameplay
+	if item.Attributes["revive"] > 0 {
+		if item.Attributes["full_heal"] > 0 {
+			return "Revives from Dead/Unconscious and fully restores HP"
+		}
+		return "Revives from Dead/Unconscious"
+	}
+	if base, ok := item.Attributes["heal_base"]; ok {
+		div := item.Attributes["heal_endurance_divisor"]
+		if base > 0 && div > 0 {
+			return fmt.Sprintf("Restores %d + Endurance/%d HP on use", base, div)
+		}
+		return "Heals (misconfigured)"
+	}
+	if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
+		if dist > 0 {
+			return fmt.Sprintf("Summons a random monster ~%d tiles away", dist)
+		}
+		return "Summons (misconfigured)"
+	}
+	return "Single-use consumable"
 }
 
 // getSpellEffectDescription returns a description for spell effects
