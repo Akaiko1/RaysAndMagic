@@ -744,12 +744,20 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 				// Apply armor damage reduction
 				finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
-				currentChar.HitPoints -= finalDamage
-				if currentChar.HitPoints < 0 {
-					currentChar.HitPoints = 0
-				}
-				if currentChar.HitPoints == 0 {
-					currentChar.AddCondition(character.ConditionUnconscious)
+
+				// Perfect Dodge: luck/5% to avoid all damage
+				if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
+					currentChar.HitPoints -= finalDamage
+					if currentChar.HitPoints < 0 {
+						currentChar.HitPoints = 0
+					}
+					if currentChar.HitPoints == 0 {
+						currentChar.AddCondition(character.ConditionUnconscious)
+					}
+				} else {
+					// Announce dodge and skip damage blink below
+					cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
+					return
 				}
 
 				// Trigger damage blink effect for the character that was hit
@@ -1258,6 +1266,22 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 	cs.game.blessActive = true
 	cs.game.blessDuration = duration
 	cs.game.statBonus += statBonus // ADD to total stat bonus
+}
+
+// RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
+// chance = effective Luck / 5, clamped to [0,100].
+func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
+	// Use effective stats so Bless and equipment affect dodge
+	_, _, _, _, _, _, luck := chr.GetEffectiveStats(cs.game.statBonus)
+	chance := luck / 5
+	if chance < 0 {
+		chance = 0
+	}
+	if chance > 100 {
+		chance = 100
+	}
+	roll := rand.Intn(100)
+	return roll < chance, chance
 }
 
 // ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
