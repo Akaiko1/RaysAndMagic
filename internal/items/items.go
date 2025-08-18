@@ -132,22 +132,22 @@ func CreateWeaponFromYAML(weaponKey string) Item {
 		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
 	}
 
-    it := Item{
-        Name:               weaponDef.Name,
-        Type:               ItemWeapon,
-        Damage:             weaponDef.Damage,
-        Range:              weaponDef.Range,
-        BonusStat:          weaponDef.BonusStat,
-        BonusStatSecondary: weaponDef.BonusStatSecondary,
-        DamageType:         weaponDef.DamageType,
-        MaxProjectiles:     weaponDef.MaxProjectiles,
-        Description:        weaponDef.Description,
-        Attributes:         make(map[string]int),
-    }
-    if weaponDef.Value > 0 {
-        it.Attributes["value"] = weaponDef.Value
-    }
-    return it
+	it := Item{
+		Name:               weaponDef.Name,
+		Type:               ItemWeapon,
+		Damage:             weaponDef.Damage,
+		Range:              weaponDef.Range,
+		BonusStat:          weaponDef.BonusStat,
+		BonusStatSecondary: weaponDef.BonusStatSecondary,
+		DamageType:         weaponDef.DamageType,
+		MaxProjectiles:     weaponDef.MaxProjectiles,
+		Description:        weaponDef.Description,
+		Attributes:         make(map[string]int),
+	}
+	if weaponDef.Value > 0 {
+		it.Attributes["value"] = weaponDef.Value
+	}
+	return it
 }
 
 // getWeaponDefinitionFromGlobal accesses weapon definition from global config
@@ -159,19 +159,19 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*WeaponDefinitionFromYAML,
 
 // WeaponDefinitionFromYAML represents weapon data without circular import
 type WeaponDefinitionFromYAML struct {
-    Name               string
-    Description        string
-    Category           string
-    Damage             int
-    Range              int
-    BonusStat          string
-    BonusStatSecondary string // Secondary scaling stat
-    DamageType         string // Damage element type
-    MaxProjectiles     int    // Max projectiles at once
-    HitBonus           int
-    CritChance         int
-    Rarity             string
-    Value              int
+	Name               string
+	Description        string
+	Category           string
+	Damage             int
+	Range              int
+	BonusStat          string
+	BonusStatSecondary string // Secondary scaling stat
+	DamageType         string // Damage element type
+	MaxProjectiles     int    // Max projectiles at once
+	HitBonus           int
+	CritChance         int
+	Rarity             string
+	Value              int
 }
 
 // getGlobalWeaponDef accesses the global weapon configuration
@@ -196,24 +196,24 @@ func GetWeaponKeyByName(name string) string {
 
 // ItemDefinitionFromYAML represents simple item data from YAML
 type ItemDefinitionFromYAML struct {
-    Name        string
-    Description string
-    Flavor      string
-    Type        string // "armor", "accessory", "consumable", "quest"
-    // Optional numeric stats
-    ArmorClassBase            int
-    EnduranceScalingDivisor   int
-    IntellectScalingDivisor   int
-    PersonalityScalingDivisor int
-    BonusLuck                 int
-    HealBase                  int
-    HealEnduranceDivisor      int
-    SummonDistanceTiles       int
-    EquipSlot                 string
-    BonusMight                int
-    Value                     int
-    Revive                    bool
-    FullHeal                  bool
+	Name        string
+	Description string
+	Flavor      string
+	Type        string // "armor", "accessory", "consumable", "quest"
+	// Optional numeric stats
+	ArmorClassBase            int
+	EnduranceScalingDivisor   int
+	IntellectScalingDivisor   int
+	PersonalityScalingDivisor int
+	BonusLuck                 int
+	HealBase                  int
+	HealEnduranceDivisor      int
+	SummonDistanceTiles       int
+	EquipSlot                 string
+	BonusMight                int
+	Value                     int
+	Revive                    bool
+	FullHeal                  bool
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -244,86 +244,86 @@ func CreateItemFromYAML(itemKey string) Item {
 		panic("unknown item type for '" + itemKey + "': " + def.Type)
 	}
 
-    // Populate attributes from definition
-    attrs := make(map[string]int)
-    if def.ArmorClassBase != 0 {
-        attrs["armor_class_base"] = def.ArmorClassBase
-    }
-    if def.EnduranceScalingDivisor != 0 {
-        attrs["endurance_scaling_divisor"] = def.EnduranceScalingDivisor
-    }
-    if def.IntellectScalingDivisor != 0 {
-        attrs["intellect_scaling_divisor"] = def.IntellectScalingDivisor
-    }
-    if def.PersonalityScalingDivisor != 0 {
-        attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
-    }
-    if def.BonusLuck != 0 {
-        attrs["bonus_luck"] = def.BonusLuck
-    }
-    if def.HealBase != 0 {
-        attrs["heal_base"] = def.HealBase
-    }
-    if def.HealEnduranceDivisor != 0 {
-        attrs["heal_endurance_divisor"] = def.HealEnduranceDivisor
-    }
-    if def.SummonDistanceTiles != 0 {
-        attrs["summon_distance_tiles"] = def.SummonDistanceTiles
-    }
-    // Map equip_slot string to EquipSlot constant and store in attributes
-    if def.EquipSlot != "" {
-        slotCode := mapEquipSlotStringToCode(def.EquipSlot)
-        attrs["equip_slot"] = int(slotCode)
-    }
-    if def.BonusMight != 0 {
-        attrs["bonus_might"] = def.BonusMight
-    }
-    if def.Value != 0 {
-        attrs["value"] = def.Value
-    }
-    if def.Revive {
-        attrs["revive"] = 1
-    }
-    if def.FullHeal {
-        attrs["full_heal"] = 1
-    }
+	// Populate attributes from definition
+	attrs := make(map[string]int)
+	if def.ArmorClassBase != 0 {
+		attrs["armor_class_base"] = def.ArmorClassBase
+	}
+	if def.EnduranceScalingDivisor != 0 {
+		attrs["endurance_scaling_divisor"] = def.EnduranceScalingDivisor
+	}
+	if def.IntellectScalingDivisor != 0 {
+		attrs["intellect_scaling_divisor"] = def.IntellectScalingDivisor
+	}
+	if def.PersonalityScalingDivisor != 0 {
+		attrs["personality_scaling_divisor"] = def.PersonalityScalingDivisor
+	}
+	if def.BonusLuck != 0 {
+		attrs["bonus_luck"] = def.BonusLuck
+	}
+	if def.HealBase != 0 {
+		attrs["heal_base"] = def.HealBase
+	}
+	if def.HealEnduranceDivisor != 0 {
+		attrs["heal_endurance_divisor"] = def.HealEnduranceDivisor
+	}
+	if def.SummonDistanceTiles != 0 {
+		attrs["summon_distance_tiles"] = def.SummonDistanceTiles
+	}
+	// Map equip_slot string to EquipSlot constant and store in attributes
+	if def.EquipSlot != "" {
+		slotCode := mapEquipSlotStringToCode(def.EquipSlot)
+		attrs["equip_slot"] = int(slotCode)
+	}
+	if def.BonusMight != 0 {
+		attrs["bonus_might"] = def.BonusMight
+	}
+	if def.Value != 0 {
+		attrs["value"] = def.Value
+	}
+	if def.Revive {
+		attrs["revive"] = 1
+	}
+	if def.FullHeal {
+		attrs["full_heal"] = 1
+	}
 
-    // Prefer flavor text if provided, else use description
-    desc := def.Description
-    if def.Flavor != "" {
-        desc = def.Flavor
-    }
+	// Prefer flavor text if provided, else use description
+	desc := def.Description
+	if def.Flavor != "" {
+		desc = def.Flavor
+	}
 
-    return Item{
-        Name:        def.Name,
-        Type:        t,
-        Description: desc,
-        Attributes:  attrs,
-    }
+	return Item{
+		Name:        def.Name,
+		Type:        t,
+		Description: desc,
+		Attributes:  attrs,
+	}
 }
 
 // mapEquipSlotStringToCode converts equip_slot string to EquipSlot constant
 func mapEquipSlotStringToCode(slotStr string) EquipSlot {
-    switch slotStr {
-    case "armor":
-        return SlotArmor
-    case "helmet":
-        return SlotHelmet
-    case "boots":
-        return SlotBoots
-    case "cloak":
-        return SlotCloak
-    case "gauntlets":
-        return SlotGauntlets
-    case "belt":
-        return SlotBelt
-    case "amulet":
-        return SlotAmulet
-    case "ring":
-        return SlotRing1 // Default to first ring slot
-    case "offhand":
-        return SlotOffHand
-    default:
-        return SlotArmor // Default fallback for armor-type items
-    }
+	switch slotStr {
+	case "armor":
+		return SlotArmor
+	case "helmet":
+		return SlotHelmet
+	case "boots":
+		return SlotBoots
+	case "cloak":
+		return SlotCloak
+	case "gauntlets":
+		return SlotGauntlets
+	case "belt":
+		return SlotBelt
+	case "amulet":
+		return SlotAmulet
+	case "ring":
+		return SlotRing1 // Default to first ring slot
+	case "offhand":
+		return SlotOffHand
+	default:
+		return SlotArmor // Default fallback for armor-type items
+	}
 }

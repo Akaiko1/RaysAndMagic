@@ -98,7 +98,7 @@ func (wm *WorldManager) LoadAllMaps() error {
 
 // loadSingleMap loads a single map file
 func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig) (*World3D, error) {
-    world := NewWorld3D(wm.config)
+	world := NewWorld3D(wm.config)
 
 	// Create map loader with biome information
 	mapLoader := NewMapLoaderWithBiome(wm.config, mapConfig.Biome)
@@ -122,11 +122,11 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	// Register teleporters globally for cross-map teleportation (scan all tiles)
 	RegisterTeleportersFromMapData(mapData.SpecialTileSpawns, mapKey, wm.GlobalTeleporterRegistry, mapData.Tiles)
 
-    // Load fixed monsters from map data (converts MonsterSpawn entries to Monster3D objects)
-    world.loadMonstersFromMapData(mapData.MonsterSpawns)
+	// Load fixed monsters from map data (converts MonsterSpawn entries to Monster3D objects)
+	world.loadMonstersFromMapData(mapData.MonsterSpawns)
 
-    // Do NOT add random/procedural monsters on premade (.map) worlds.
-    // Only monsters explicitly placed in the map should be present.
+	// Do NOT add random/procedural monsters on premade (.map) worlds.
+	// Only monsters explicitly placed in the map should be present.
 
 	return world, nil
 }

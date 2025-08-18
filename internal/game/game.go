@@ -1,19 +1,19 @@
 package game
 
 import (
-    "fmt"
-    "image/color"
-    "math"
-    "math/rand"
-    "sync"
+	"fmt"
+	"image/color"
+	"math"
+	"math/rand"
+	"sync"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
-    "ugataima/internal/monster"
-    "ugataima/internal/threading"
-    "ugataima/internal/world"
+	"ugataima/internal/monster"
+	"ugataima/internal/threading"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -22,26 +22,26 @@ import (
 // Access via config.GlobalConfig or pass config instance
 
 type MagicProjectile struct {
-    ID         string  // Unique identifier
-    X, Y       float64 // Current position
-    VelX, VelY float64 // Velocity
-    Damage     int
-    LifeTime   int // Frames remaining
-    Active     bool
-    SpellType  string // Type of spell for visual differentiation
-    Size       int    // Projectile size
-    Crit       bool   // Critical hit flag
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int // Frames remaining
+	Active     bool
+	SpellType  string // Type of spell for visual differentiation
+	Size       int    // Projectile size
+	Crit       bool   // Critical hit flag
 }
 
 type MeleeAttack struct {
-    ID         string  // Unique identifier
-    X, Y       float64 // Current position
-    VelX, VelY float64 // Velocity
-    Damage     int
-    LifeTime   int // Frames remaining
-    Active     bool
-    WeaponName string // Name of weapon used for combat messages
-    Crit       bool   // Critical hit flag
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int // Frames remaining
+	Active     bool
+	WeaponName string // Name of weapon used for combat messages
+	Crit       bool   // Critical hit flag
 }
 
 // SlashEffect represents a visual slash animation for melee weapons
@@ -57,15 +57,15 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-    ID         string  // Unique identifier
-    X, Y       float64 // Current position
-    VelX, VelY float64 // Velocity
-    Damage     int
-    LifeTime   int // Frames remaining
-    Active     bool
-    BowKey     string // YAML key of the bow used to fire this arrow
-    DamageType string // Damage element type ("physical", "dark", etc.)
-    Crit       bool   // Critical hit flag
+	ID         string  // Unique identifier
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity
+	Damage     int
+	LifeTime   int // Frames remaining
+	Active     bool
+	BowKey     string // YAML key of the bow used to fire this arrow
+	DamageType string // Damage element type ("physical", "dark", etc.)
+	Crit       bool   // Critical hit flag
 }
 
 type MMGame struct {
@@ -95,9 +95,9 @@ type MMGame struct {
 	lastClickedSpell   int   // Index of last clicked spell
 	lastClickedSchool  int   // Index of last clicked school
 
-    // Double-click support for dialogs (neutral)
-    dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
-    dialogLastClickedIdx int   // Index of last clicked dialog list entry
+	// Double-click support for dialogs (neutral)
+	dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
+	dialogLastClickedIdx int   // Index of last clicked dialog list entry
 
 	// Double-click support for utility spell icons (dispelling)
 	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
@@ -193,10 +193,10 @@ type MMGame struct {
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
 	slotSelection     int
-    exitRequested     bool
+	exitRequested     bool
 
-    // Game over state
-    gameOver bool
+	// Game over state
+	gameOver bool
 }
 
 type GameState int
@@ -288,9 +288,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		lastClickedSpell:   -1,
 		lastClickedSchool:  -1,
 
-        // Double-click support for dialogs (neutral)
-        dialogLastClickTime: 0,
-        dialogLastClickedIdx: -1,
+		// Double-click support for dialogs (neutral)
+		dialogLastClickTime:  0,
+		dialogLastClickedIdx: -1,
 
 		selectedSchool: 0,
 		selectedSpell:  0,
@@ -491,15 +491,15 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 }
 
 func (g *MMGame) Update() error {
-    if err := g.gameLoop.Update(); err != nil {
-        return err
-    }
-    g.checkGameOver()
-    return nil
+	if err := g.gameLoop.Update(); err != nil {
+		return err
+	}
+	g.checkGameOver()
+	return nil
 }
 
 func (g *MMGame) Draw(screen *ebiten.Image) {
-    g.gameLoop.Draw(screen)
+	g.gameLoop.Draw(screen)
 }
 
 // GenerateProjectileID generates a unique ID for projectiles
@@ -509,24 +509,24 @@ func (g *MMGame) GenerateProjectileID(projectileType string) string {
 }
 
 func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-    return g.gameLoop.Layout(outsideWidth, outsideHeight)
+	return g.gameLoop.Layout(outsideWidth, outsideHeight)
 }
 
 // checkGameOver sets gameOver when all party members are unconscious (HP <= 0)
 func (g *MMGame) checkGameOver() {
-    if g.gameOver {
-        return
-    }
-    allDown := true
-    for _, m := range g.party.Members {
-        if m.HitPoints > 0 {
-            allDown = false
-            break
-        }
-    }
-    if allDown {
-        g.gameOver = true
-    }
+	if g.gameOver {
+		return
+	}
+	allDown := true
+	for _, m := range g.party.Members {
+		if m.HitPoints > 0 {
+			allDown = false
+			break
+		}
+	}
+	if allDown {
+		g.gameOver = true
+	}
 }
 
 // AddCombatMessage adds a combat message to the message queue
@@ -541,40 +541,40 @@ func (g *MMGame) AddCombatMessage(message string) {
 
 // SummonRandomMonsterNearPlayer spawns a random monster roughly distanceTiles away if possible
 func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
-    if world.GlobalWorldManager == nil || monster.MonsterConfig == nil {
-        return false
-    }
-    px, py := g.camera.X, g.camera.Y
-    tileSize := float64(g.config.GetTileSize())
-    // Choose a random angle and target exactly distanceTiles away, then find nearest walkable
-    angle := rand.Float64() * 2 * math.Pi
-    targetX := px + math.Cos(angle)*distanceTiles*tileSize
-    targetY := py + math.Sin(angle)*distanceTiles*tileSize
-    sx, sy := g.FindNearestWalkableTile(targetX, targetY)
-    if sx == -1 && sy == -1 {
-        return false
-    }
+	if world.GlobalWorldManager == nil || monster.MonsterConfig == nil {
+		return false
+	}
+	px, py := g.camera.X, g.camera.Y
+	tileSize := float64(g.config.GetTileSize())
+	// Choose a random angle and target exactly distanceTiles away, then find nearest walkable
+	angle := rand.Float64() * 2 * math.Pi
+	targetX := px + math.Cos(angle)*distanceTiles*tileSize
+	targetY := py + math.Sin(angle)*distanceTiles*tileSize
+	sx, sy := g.FindNearestWalkableTile(targetX, targetY)
+	if sx == -1 && sy == -1 {
+		return false
+	}
 
-    // Pick a random monster key from config
-    keys := monster.MonsterConfig.GetAllMonsterKeys()
-    if len(keys) == 0 {
-        return false
-    }
-    key := keys[rand.Intn(len(keys))]
+	// Pick a random monster key from config
+	keys := monster.MonsterConfig.GetAllMonsterKeys()
+	if len(keys) == 0 {
+		return false
+	}
+	key := keys[rand.Intn(len(keys))]
 
-    // Create and register the monster
-    m := monster.NewMonster3DFromConfig(sx, sy, key, g.config)
-    if m == nil {
-        return false
-    }
-    g.world.Monsters = append(g.world.Monsters, m)
-    // Register with collision system
-    width, height := m.GetSize()
-    entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
-    g.collisionSystem.RegisterEntity(entity)
+	// Create and register the monster
+	m := monster.NewMonster3DFromConfig(sx, sy, key, g.config)
+	if m == nil {
+		return false
+	}
+	g.world.Monsters = append(g.world.Monsters, m)
+	// Register with collision system
+	width, height := m.GetSize()
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
+	g.collisionSystem.RegisterEntity(entity)
 
-    g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
-    return true
+	g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
+	return true
 }
 
 // GetCombatMessages returns the current combat messages
