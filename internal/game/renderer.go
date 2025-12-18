@@ -817,10 +817,14 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-	// Update depth buffer for the full width of the tree sprite to properly block monsters
+	// Update depth buffer for central 60% of tree sprite width
+	// This prevents transparent edges from occluding objects behind them
 	spriteLeft := x - spriteWidth/2
 	spriteRight := x + spriteWidth/2
-	for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
+	depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+	depthLeft := spriteLeft + depthMargin
+	depthRight := spriteRight - depthMargin
+	for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
 		if distance < r.game.depthBuffer[px] {
 			r.game.depthBuffer[px] = distance
 		}
@@ -871,8 +875,9 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-	// Update depth buffer for the sprite only if this tile is opaque
-	// Transparent floor objects like clearings should not occlude monsters/NPCs
+	// Update depth buffer for central 60% of sprite width only if this tile is opaque
+	// This prevents transparent edges from occluding objects behind them
+	// Transparent floor objects like clearings should not occlude monsters/NPCs at all
 	spriteLeft := x - spriteWidth/2
 	spriteRight := x + spriteWidth/2
 	isOpaque := true
@@ -880,7 +885,10 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
 	}
 	if isOpaque {
-		for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
+		depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+		depthLeft := spriteLeft + depthMargin
+		depthRight := spriteRight - depthMargin
+		for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
 			if distance < r.game.depthBuffer[px] {
 				r.game.depthBuffer[px] = distance
 			}
@@ -1509,6 +1517,18 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
 
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if projectile is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Projectile is behind a wall
+			}
+		}
+
 		// Get spell-specific graphics config based on spell type
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball")
 		spellConfigName := magicProjectile.SpellType
@@ -1612,6 +1632,18 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
 
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if melee attack is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Melee attack is behind a wall
+			}
+		}
+
 		// Get weapon-specific graphics config from YAML
 		weaponKey := items.GetWeaponKeyByName(attack.WeaponName)
 		weaponDef, exists := config.GetWeaponDefinition(weaponKey)
@@ -1713,6 +1745,18 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
+
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if arrow is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Arrow is behind a wall
+			}
+		}
 
 		// Calculate arrow size based on distance using bow-specific config from YAML
 		bowDef, exists := config.GetWeaponDefinition(arrow.BowKey)
