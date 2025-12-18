@@ -3,3 +3,15 @@
 ugataima
 save*.json
 .claude/
+
+.DS_Store
+
+.gomodcache/
+
+go.mod
+
+go.sum
+
+AGENTS.md
+
+CLAUDE.md
