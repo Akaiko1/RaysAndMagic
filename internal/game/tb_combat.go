@@ -121,7 +121,47 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
         monster.X = newX
         monster.Y = newY
         gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
+        return
     }
+
+    // Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
+    // This prevents monsters wasting turns stuck behind obstacles
+    gl.teleportMonsterTowardsPlayer(monster, tileSize)
+}
+
+// teleportMonsterTowardsPlayer finds the closest valid position towards the player and teleports there
+func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
+    playerX := gl.game.camera.X
+    playerY := gl.game.camera.Y
+
+    // Check 8 adjacent tiles, pick the one closest to player
+    bestX, bestY := m.X, m.Y
+    bestDist := math.MaxFloat64
+
+    for dy := -1; dy <= 1; dy++ {
+        for dx := -1; dx <= 1; dx++ {
+            if dx == 0 && dy == 0 {
+                continue
+            }
+            testX := m.X + float64(dx)*tileSize
+            testY := m.Y + float64(dy)*tileSize
+
+            if gl.game.collisionSystem.CanMoveTo(m.ID, testX, testY) {
+                dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
+                if dist < bestDist {
+                    bestDist = dist
+                    bestX, bestY = testX, testY
+                }
+            }
+        }
+    }
+
+    if bestDist < math.MaxFloat64 {
+        m.X = bestX
+        m.Y = bestY
+        gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+    }
+    // If no valid position found, monster stays put (loses turn)
 }
 
 // endMonsterTurn ends the monster turn and starts party turn
