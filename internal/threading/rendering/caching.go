@@ -48,6 +48,13 @@ func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func() *ebit
 	// Texture coordinate is quantized to 1/16 increments for smooth texture mapping
 	key.WallX = float64(int(key.WallX*16)) / 16
 
+	// Quantize height to nearest 8 pixels for better cache hit rates
+	// This prevents cache thrashing when close to walls where each ray has slightly different distance
+	key.Height = ((key.Height + 4) / 8) * 8
+	if key.Height < 1 {
+		key.Height = 8
+	}
+
 	// First attempt: try to get cached image with read lock (allows concurrent reads)
 	wsc.mutex.RLock()
 	if cachedImage, exists := wsc.cache[key]; exists {
