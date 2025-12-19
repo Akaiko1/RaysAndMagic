@@ -84,15 +84,6 @@ func (wm *WorldManager) LoadAllMaps() error {
 		return fmt.Errorf("failed to load default map: %s", wm.CurrentMapKey)
 	}
 
-	fmt.Printf("World manager initialized with %d maps\n", len(wm.LoadedMaps))
-
-	// Debug: Print all registered teleporters
-	if wm.GlobalTeleporterRegistry != nil {
-		fmt.Printf("[DEBUG] Registered teleporters in global registry (%d):\n", len(wm.GlobalTeleporterRegistry.Teleporters))
-		for _, tel := range wm.GlobalTeleporterRegistry.Teleporters {
-			fmt.Printf("  - Label: %s, Type: %s, Map: %s, X: %d, Y: %d\n", tel.Label, tel.Type, tel.MapKey, tel.X, tel.Y)
-		}
-	}
 	return nil
 }
 

@@ -4,18 +4,18 @@ This guide shows how to add new spells to UgaTaima using the **pure YAML-based s
 
 ## Overview
 
-The spell system is completely YAML-driven with **zero hardcoded fallbacks**. All spell-related configuration is in the dedicated `spells.yaml` file, including spell definitions, projectile physics, and visual appearance. However, **complex utility spells still require game logic changes** for effects like vision, buffs, and movement.
+The spell system is completely YAML-driven with **zero hardcoded fallbacks**. All spell-related configuration is in the dedicated `assets/spells.yaml` file, including spell definitions, projectile physics, and visual appearance. However, **complex utility spells still require game logic changes** for effects like vision, buffs, and movement.
 
 ## Architecture
 
 ```
 YAML-Driven Spell System:
-SpellID (string) → spells.yaml → SpellDefinition + Physics + Graphics → Dynamic Effects
+SpellID (string) → assets/spells.yaml → SpellDefinition + Physics + Graphics → Dynamic Effects
 
 ✅ NO hardcoded constants
 ✅ NO fallback functions  
 ✅ NO enum types
-✅ Single spells.yaml file for ALL spell configuration
+✅ Single assets/spells.yaml file for ALL spell configuration
 ✅ Projectile spells: NO code changes needed
 ⚠️ Utility spells: Game logic changes required
 ```
@@ -28,9 +28,9 @@ SpellID (string) → spells.yaml → SpellDefinition + Physics + Graphics → Dy
 | **Healing Spells** | ❌ None (Pure YAML) | Heal, Greater Heal |
 | **Complex Utility** | ✅ Game Logic Needed | Torch Light, Bless, Wizard Eye |
 
-## Step 1: Add Your Spell to spells.yaml
+## Step 1: Add Your Spell to assets/spells.yaml
 
-All spell configuration is now in a single `spells.yaml` file. Add your spell under the `spells:` section:
+All spell configuration is now in a single `assets/spells.yaml` file. Add your spell under the `spells:` section:
 
 ### For Projectile Spells (Complete Example)
 
@@ -125,7 +125,7 @@ For spells with game state effects like vision, buffs, or movement, you need to 
 
 #### Example 1: Torch Light (Vision Enhancement)
 
-**1. YAML Configuration in spells.yaml:**
+**1. YAML Configuration in assets/spells.yaml:**
 ```yaml
 spells:
   torch_light:
@@ -200,7 +200,7 @@ if ui.game.torchLightActive && ui.game.torchLightDuration > 0 {
 
 #### Example 2: Bless (Stat Buff)
 
-**1. YAML Configuration in spells.yaml:**
+**1. YAML Configuration in assets/spells.yaml:**
 ```yaml
 spells:
   bless:
@@ -314,7 +314,7 @@ c.MagicSchools[MagicWater] = &MagicSkill{
 
 ### 1. Combat Projectile Spell
 
-**Example**: Frost Bolt (Complete in spells.yaml)
+**Example**: Frost Bolt (Complete in assets/spells.yaml)
 
 ```yaml
 spells:
@@ -352,7 +352,7 @@ spells:
 
 ### 2. Healing Spell
 
-**Example**: Greater Heal (in spells.yaml)
+**Example**: Greater Heal (in assets/spells.yaml)
 
 ```yaml
 spells:
@@ -376,7 +376,7 @@ spells:
 
 ### 3. Buff Spell
 
-**Example**: Divine Protection (in spells.yaml)
+**Example**: Divine Protection (in assets/spells.yaml)
 
 ```yaml
 spells:
@@ -399,7 +399,7 @@ spells:
 
 ### 4. Vision Spell
 
-**Example**: Eagle Eye (in spells.yaml)
+**Example**: Eagle Eye (in assets/spells.yaml)
 
 ```yaml
 spells:
@@ -444,7 +444,7 @@ Available schools and their typical uses:
 
 ## Advanced: Complete Example
 
-Here's a complete water walking spell in the new spells.yaml format:
+Here's a complete water walking spell in the new assets/spells.yaml format:
 
 ```yaml
 spells:
@@ -471,7 +471,7 @@ spells:
 
 The system provides clear error messages for common issues:
 
-- **Missing spell**: `spell 'unknown_spell' not found in spells.yaml`
+- **Missing spell**: `spell 'unknown_spell' not found in assets/spells.yaml`
 - **Uninitialized system**: `spell system not initialized - call SetGlobalConfig first`
 - **Invalid configuration**: YAML parsing errors are reported at startup
 
@@ -479,7 +479,7 @@ The system provides clear error messages for common issues:
 
 ### ✅ What's New and Better
 
-- **Single spells.yaml file** - all spell configuration in one place
+- **Single assets/spells.yaml file** - all spell configuration in one place
 - **Pure YAML configuration** - no hardcoded constants
 - **Dynamic spell loading** - add spells without code changes
 - **Unified configuration** - definitions, physics, and graphics together
@@ -513,4 +513,4 @@ The system provides clear error messages for common issues:
 | Build errors | Check YAML syntax - invalid YAML breaks builds |
 | Effects not working | Verify effect properties are set correctly |
 
-The spell system is now completely data-driven with everything in `spells.yaml` - enjoy creating new spells without touching Go code!
+The spell system is now completely data-driven with everything in `assets/spells.yaml` - enjoy creating new spells without touching Go code!

@@ -30,6 +30,13 @@ The NPC system consists of:
 - Mouse click support for selections
 - Enter key confirmation for purchases
 
+### **⚔️ Encounter System** ✅ **FULLY IMPLEMENTED**
+- NPCs with `type: "encounter"` trigger combat encounters
+- Custom dialogue with choice prompts (leave/attack)
+- Monster spawning from encounter definitions
+- First-visit-only tracking for one-time encounters
+- Rewards (gold, experience) on completion
+
 ### **📊 Data Structures** ✅ **FULLY IMPLEMENTED**
 - Complete NPC struct with all core properties
 - YAML configuration loading and parsing
@@ -156,6 +163,7 @@ npcs:
 | Type | Status | Features | Limitations |
 |------|--------|----------|-------------|
 | `spell_trader` | ✅ **Working** | Spell teaching, gold costs | Custom dialogue ignored, requirements ignored |
+| `encounter` | ✅ **Working** | Combat encounters, dialogue choices, rewards | First-visit tracking only |
 | `merchant` | ❌ **Placeholder** | YAML inventory defined | No trading interface |
 | `quest_giver` | ❌ **Placeholder** | YAML quest defined | No quest system |
 | `skill_trainer` | ✅ **Working** | Hardcoded in game logic | Not YAML configurable |
@@ -188,6 +196,7 @@ npcs:
 - **Gold-based spell purchasing**
 - **Visual rendering and interaction**
 - **Spellbook integration**
+- **Encounter NPCs with combat and rewards**
 
 ### **❌ What Doesn't Work (Despite YAML Support)**
 - **Custom dialogue messages** (all hardcoded)

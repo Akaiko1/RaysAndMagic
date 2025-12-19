@@ -4,7 +4,6 @@ import (
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/threading/monitoring"
 	"ugataima/internal/threading/rendering"
-	"ugataima/internal/world"
 )
 
 // ThreadingComponents holds all threading-related components
@@ -16,7 +15,6 @@ type ThreadingComponents struct {
 	WallSliceCache     *rendering.WallSliceCache
 	ColorCalculator    *rendering.ColorCalculator
 	PerformanceMonitor *monitoring.PerformanceMonitor
-	WorldGenerator     *world.ParallelWorldGenerator
 }
 
 // NewThreadingComponents creates and initializes all threading components
@@ -30,7 +28,6 @@ func NewThreadingComponents(config interface{}) *ThreadingComponents {
 		WallSliceCache:     rendering.NewWallSliceCache(),
 		ColorCalculator:    rendering.NewColorCalculator(),
 		PerformanceMonitor: monitoring.NewPerformanceMonitor(),
-		WorldGenerator:     world.NewParallelWorldGenerator(config),
 	}
 }
 
@@ -47,9 +44,6 @@ func (tc *ThreadingComponents) Shutdown() {
 	}
 	if tc.CollisionDetector != nil {
 		tc.CollisionDetector.Stop()
-	}
-	if tc.WorldGenerator != nil {
-		tc.WorldGenerator.Stop()
 	}
 	if tc.PerformanceMonitor != nil {
 		tc.PerformanceMonitor.Reset()

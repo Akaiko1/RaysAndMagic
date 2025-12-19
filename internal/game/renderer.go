@@ -41,6 +41,25 @@ type Renderer struct {
 	rayDirectionsY []float64 // Cached sin values for rays
 }
 
+// getWeaponConfig safely retrieves weapon definition without panicking.
+func (r *Renderer) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
+	weaponKey := items.GetWeaponKeyByName(weaponName)
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		return nil
+	}
+	return weaponDef
+}
+
+// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
+func (r *Renderer) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		return nil
+	}
+	return weaponDef
+}
+
 // NewRenderer creates a new renderer
 func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
@@ -1645,13 +1664,9 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		}
 
 		// Get weapon-specific graphics config from YAML
-		weaponKey := items.GetWeaponKeyByName(attack.WeaponName)
-		weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-		if !exists {
-			panic("weapon '" + attack.WeaponName + "' not found in weapons.yaml - system misconfigured")
-		}
-		if weaponDef.Graphics == nil {
-			panic("weapon '" + attack.WeaponName + "' has no graphics configuration in weapons.yaml")
+		weaponDef := r.getWeaponConfig(attack.WeaponName)
+		if weaponDef == nil || weaponDef.Graphics == nil {
+			continue // Skip rendering if weapon config missing
 		}
 
 		// Calculate attack size based on distance using weapon-specific config
@@ -1759,12 +1774,9 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		}
 
 		// Calculate arrow size based on distance using bow-specific config from YAML
-		bowDef, exists := config.GetWeaponDefinition(arrow.BowKey)
-		if !exists {
-			panic("bow '" + arrow.BowKey + "' not found in weapons.yaml - system misconfigured")
-		}
-		if bowDef.Graphics == nil {
-			panic("bow '" + arrow.BowKey + "' has no graphics configuration in weapons.yaml")
+		bowDef := r.getWeaponConfigByKey(arrow.BowKey)
+		if bowDef == nil || bowDef.Graphics == nil {
+			continue // Skip rendering if weapon config missing
 		}
 		baseSize := float64(bowDef.Graphics.BaseSize)
 		arrowSize := int(baseSize / distance * r.game.config.GetTileSize())

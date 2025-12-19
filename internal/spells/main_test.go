@@ -7,6 +7,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	_, _ = config.LoadSpellConfig("../../spells.yaml")
+	_, _ = config.LoadSpellConfig("../../assets/spells.yaml")
 	os.Exit(m.Run())
 }
