@@ -13,7 +13,11 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
+
+const doubleClickWindowMs = 700
+const doubleClickWindow = doubleClickWindowMs * time.Millisecond
 
 // UI Color constants for DRY code
 var (
@@ -34,20 +38,16 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                       *MMGame
-	justOpenedStatPopup        bool
-	lastClickTime              time.Time
-	lastClickedItem            int
-	inventoryMousePressed      bool
-	inventoryRightMousePressed bool
-	inventoryContextOpen       bool
-	inventoryContextX          int
-	inventoryContextY          int
-	inventoryContextIndex      int
-	lastEquipClickTime         time.Time
-	lastClickedSlot            items.EquipSlot
-	equipMousePressed          bool
-	utilitySpellMousePressed   bool
+	game                  *MMGame
+	justOpenedStatPopup   bool
+	lastClickTime         time.Time
+	lastClickedItem       int
+	inventoryContextOpen  bool
+	inventoryContextX     int
+	inventoryContextY     int
+	inventoryContextIndex int
+	lastEquipClickTime    time.Time
+	lastClickedSlot       items.EquipSlot
 }
 
 // NewUISystem creates a new UI system
@@ -83,7 +83,7 @@ type statMeta struct {
 }
 
 // drawStatPointRow draws a single stat row with name, value, and + button
-func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover, mousePressed *bool) bool {
+func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
 	plusImg := ebiten.NewImage(btnW, btnH)
 	if *canAdd && *isHover {
@@ -96,10 +96,9 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 	screen.DrawImage(plusImg, plusOpts)
 	ebitenutil.DebugPrintAt(screen, "+", plusX+8, plusY+4)
 	// Handle click
-	if *canAdd && *isHover && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !*mousePressed {
+	if *canAdd && *isHover && clickIn {
 		(*valuePtr)++
 		*canAdd = false // Only allow one per click
-		*mousePressed = true
 		return true
 	}
 	return false
@@ -172,7 +171,8 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		plusY := y - 4
 		canAdd := member.FreeStatPoints > 0
 		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
-		if drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, &ui.game.mousePressed) {
+		clickIn := ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
+		if drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, clickIn) {
 			member.FreeStatPoints--
 			// Recalculate derived stats (HP, SP) when any stat is increased
 			member.CalculateDerivedStats(ui.game.config)
@@ -195,9 +195,8 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "X", closeX+7, closeY+4)
 	// Handle close click
 	// Only allow closing if the mouse was released after opening the popup
-	if isCloseHover && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ui.game.mousePressed && !ui.justOpenedStatPopup {
+	if isCloseHover && ui.game.consumeLeftClickIn(closeX, closeY, closeX+28, closeY+28) && !ui.justOpenedStatPopup {
 		ui.game.statPopupOpen = false
-		ui.game.mousePressed = true
 	}
 
 	// Handle ESC key to close popup
@@ -491,10 +490,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			mouseX, mouseY := ebiten.CursorPosition()
 			isHover := mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW && mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH
 			drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
-			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && isHover && !ui.game.mousePressed {
+			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
 				ui.game.statPopupOpen = true
 				ui.game.statPopupCharIdx = i
-				ui.game.mousePressed = true
 				ui.justOpenedStatPopup = true
 			}
 		}
@@ -659,33 +657,24 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon str
 
 // handleSpellIconClick handles mouse clicks on spell status icons for dispelling
 func (ui *UISystem) handleSpellIconClick(x, y, width, height int, icon string) {
-	mouseX, mouseY := ebiten.CursorPosition()
+	// Check for mouse click (only process on first press, not while held)
+	if ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
+		currentTime := time.Now().UnixMilli()
 
-	// Check if click is within icon bounds
-	if mouseX >= x && mouseX <= x+width && mouseY >= y && mouseY <= y+height {
-		// Check for mouse click (only process on first press, not while held)
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ui.utilitySpellMousePressed {
-			ui.utilitySpellMousePressed = true
-			currentTime := time.Now().UnixMilli()
-
-			// Check for double-click (within 500ms and same icon)
-			if currentTime-ui.game.lastUtilitySpellClickTime < 500 && ui.game.lastClickedUtilitySpell == icon {
-				// Double-click detected - dispel the spell
-				ui.dispelUtilitySpell(icon)
-				// Reset click tracking
-				ui.game.lastUtilitySpellClickTime = 0
-				ui.game.lastClickedUtilitySpell = ""
-			} else {
-				// Single click - record for potential double-click
-				ui.game.lastUtilitySpellClickTime = currentTime
-				ui.game.lastClickedUtilitySpell = icon
-			}
+		// Check for double-click (within 500ms and same icon)
+		delta := currentTime - ui.game.lastUtilitySpellClickTime
+		doubleClick := delta < doubleClickWindowMs && ui.game.lastClickedUtilitySpell == icon
+		if doubleClick {
+			// Double-click detected - dispel the spell
+			ui.dispelUtilitySpell(icon)
+			// Reset click tracking
+			ui.game.lastUtilitySpellClickTime = 0
+			ui.game.lastClickedUtilitySpell = ""
+		} else {
+			// Single click - record for potential double-click
+			ui.game.lastUtilitySpellClickTime = currentTime
+			ui.game.lastClickedUtilitySpell = icon
 		}
-	}
-
-	// Reset mouse pressed state when button is released
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ui.utilitySpellMousePressed = false
 	}
 }
 
@@ -1044,99 +1033,79 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
 func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if !ui.game.mousePressed { // Only trigger on initial press
-			mouseX, mouseY := ebiten.CursorPosition()
-			if mouseX >= tabX && mouseX < tabX+tabWidth &&
-				mouseY >= tabY && mouseY < tabY+tabHeight {
-				ui.game.currentTab = tab
-				ui.game.mousePressed = true
-			}
-		}
+	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
+		ui.game.currentTab = tab
 	}
 }
 
 // handleCharacterCardClick checks if mouse clicked on a character card and selects that character
 func (ui *UISystem) handleCharacterCardClick(cardX, cardY, cardWidth, cardHeight, characterIndex int) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if !ui.game.mousePressed { // Only trigger on initial press
-			mouseX, mouseY := ebiten.CursorPosition()
-			if mouseX >= cardX && mouseX < cardX+cardWidth &&
-				mouseY >= cardY && mouseY < cardY+cardHeight {
-				ui.game.selectedChar = characterIndex
-				ui.game.mousePressed = true
-			}
-		}
+	if ui.game.consumeLeftClickIn(cardX, cardY, cardX+cardWidth, cardY+cardHeight) {
+		ui.game.selectedChar = characterIndex
 	}
 }
 
 // handleCloseButtonClick checks if mouse clicked on the close button and closes the menu
 func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight int) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if !ui.game.mousePressed { // Only trigger on initial press
-			mouseX, mouseY := ebiten.CursorPosition()
-			if mouseX >= buttonX && mouseX < buttonX+buttonWidth &&
-				mouseY >= buttonY && mouseY < buttonY+buttonHeight {
-				ui.game.menuOpen = false
-				ui.game.mousePressed = true
-			}
-		}
+	if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
+		ui.game.menuOpen = false
 	}
 }
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
 func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight, schoolIndex int) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if !ui.game.mousePressed { // Only trigger on initial press
-			mouseX, mouseY := ebiten.CursorPosition()
-			if mouseX >= schoolX && mouseX < schoolX+schoolWidth &&
-				mouseY >= schoolY && mouseY < schoolY+schoolHeight {
-				ui.game.selectedSchool = schoolIndex
-				ui.game.selectedSpell = 0 // Reset spell selection when changing school
-				ui.game.mousePressed = true
-			}
-		}
+	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
+		ui.game.selectedSchool = schoolIndex
+		ui.game.selectedSpell = 0 // Reset spell selection when changing school
 	}
 }
 
 // handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
 func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, spellIndex int) {
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if !ui.game.mousePressed { // Only trigger on initial press
-			mouseX, mouseY := ebiten.CursorPosition()
-			if mouseX >= spellX && mouseX < spellX+spellWidth &&
-				mouseY >= spellY && mouseY < spellY+spellHeight {
+	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
+		currentTime := time.Now().UnixMilli()
 
-				currentTime := time.Now().UnixMilli()
-
-				// Check for double-click (within 500ms of last click on same spell)
-				if ui.game.lastClickedSpell == spellIndex &&
-					ui.game.lastClickedSchool == ui.game.selectedSchool &&
-					currentTime-ui.game.lastSpellClickTime < 500 {
-					// Double-click detected - equip the spell directly
-					ui.game.combat.EquipSelectedSpell()
-					if ui.game.menuOpen {
-						ui.game.menuOpen = false
-					}
-				} else {
-					// Single click - just select the spell
-					ui.game.selectedSpell = spellIndex
-				}
-
-				// Update click tracking
-				ui.game.lastSpellClickTime = currentTime
-				ui.game.lastClickedSpell = spellIndex
-				ui.game.lastClickedSchool = ui.game.selectedSchool
-				ui.game.mousePressed = true
+		// Check for double-click (within 500ms of last click on same spell)
+		delta := currentTime - ui.game.lastSpellClickTime
+		doubleClick := ui.game.lastClickedSpell == spellIndex &&
+			ui.game.lastClickedSchool == ui.game.selectedSchool &&
+			delta < doubleClickWindowMs
+		if doubleClick {
+			// Double-click detected - equip the spell directly
+			ui.game.combat.EquipSelectedSpell()
+			if ui.game.menuOpen {
+				ui.game.menuOpen = false
 			}
+		} else {
+			// Single click - just select the spell
+			ui.game.selectedSpell = spellIndex
 		}
+
+		// Update click tracking
+		ui.game.lastSpellClickTime = currentTime
+		ui.game.lastClickedSpell = spellIndex
+		ui.game.lastClickedSchool = ui.game.selectedSchool
 	}
 }
 
-// resetMouseState should be called once per frame to reset mouse state
-func (ui *UISystem) resetMouseState() {
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ui.game.mousePressed = false
+// updateMouseState should be called once per frame before input handling.
+func (ui *UISystem) updateMouseState() {
+	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
+
+	// Reset per-frame click state.
+	ui.game.mousePressed = false
+	ui.game.mouseRightPressed = false
+	ui.game.mouseLeftClickQueued = false
+	ui.game.mouseRightClickQueued = false
+
+	if leftJustPressed {
+		ui.game.mouseLeftClickQueued = true
+		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = ebiten.CursorPosition()
+	}
+	if rightJustPressed {
+		ui.game.mouseRightClickQueued = true
+		ui.game.mouseRightClickX, ui.game.mouseRightClickY = ebiten.CursorPosition()
 	}
 }
 
@@ -1228,14 +1197,14 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%-8s: %s", slotInfo.name, item.Name), equipX, y)
 
-			// Handle mouse interactions
+			// Handle double-click to unequip
+			ui.handleEquippedItemClick(slotInfo.slot, equipX, y, equipX+220, y+15)
+
+			// Handle hover tooltip
 			if isHovering {
 				equipTooltip = GetItemTooltip(item, currentChar, ui.game.combat)
 				equipTooltipX = mouseX + 16
 				equipTooltipY = mouseY + 8
-
-				// Handle double-click to unequip
-				ui.handleEquippedItemClick(slotInfo.slot)
 			}
 		} else {
 			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%-8s: (empty)", slotInfo.name), equipX, y)
@@ -1308,26 +1277,25 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			}
 			ebitenutil.DebugPrintAt(screen, itemInfo, invX, y)
 
-			// Handle mouse interactions
+			// Handle double-click to equip
+			if !ui.inventoryContextOpen {
+				ui.handleInventoryItemClick(i, invX, y, invX+200, y+15)
+			}
+
+			// Handle right-click to open context menu
+			if !ui.inventoryContextOpen && ui.game.consumeRightClickIn(invX, y, invX+200, y+15) {
+				ui.inventoryContextOpen = true
+				ui.inventoryContextX = ui.game.mouseRightClickX
+				ui.inventoryContextY = ui.game.mouseRightClickY
+				ui.inventoryContextIndex = i
+			}
+
+			// Handle hover tooltip
 			if isHovering {
 				// Show tooltip for this item
 				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
-
-				// Handle double-click to equip
-				if !ui.inventoryContextOpen {
-					ui.handleInventoryItemClick(i)
-				}
-
-				// Handle right-click to open context menu
-				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !ui.inventoryRightMousePressed {
-					ui.inventoryRightMousePressed = true
-					ui.inventoryContextOpen = true
-					ui.inventoryContextX = mouseX
-					ui.inventoryContextY = mouseY
-					ui.inventoryContextIndex = i
-				}
 			}
 		}
 		// Draw tooltip if needed
@@ -1354,31 +1322,21 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			ebitenutil.DebugPrintAt(screen, "Discard", x+8, y+5)
 
 			// Handle clicks on context menu
-			mouseX, mouseY := ebiten.CursorPosition()
-			inside := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuW, y+menuH)
-			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-				if inside {
-					// Discard clicked
-					idx := ui.inventoryContextIndex
-					if idx >= 0 && idx < len(ui.game.party.Inventory) {
-						name := ui.game.party.Inventory[idx].Name
-						ui.game.party.RemoveItem(idx)
-						ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
-					}
+			if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
+				// Discard clicked
+				idx := ui.inventoryContextIndex
+				if idx >= 0 && idx < len(ui.game.party.Inventory) {
+					name := ui.game.party.Inventory[idx].Name
+					ui.game.party.RemoveItem(idx)
+					ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
 				}
+				ui.inventoryContextOpen = false
+			} else if ui.game.consumeLeftClick() {
 				// Close the context menu on any left click
 				ui.inventoryContextOpen = false
 			}
 
-			// Close menu if right button released
-			if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-				ui.inventoryRightMousePressed = false
-			}
-		} else {
-			// Reset right-click pressed when not open and not pressed
-			if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-				ui.inventoryRightMousePressed = false
-			}
+			// Mouse state is updated once per frame in updateMouseState().
 		}
 	}
 
@@ -2104,53 +2062,50 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 }
 
 // handleInventoryItemClick handles double-click to equip items from inventory
-func (ui *UISystem) handleInventoryItemClick(itemIndex int) {
-	// Check for mouse click
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ui.inventoryMousePressed {
-		ui.inventoryMousePressed = true
-		currentTime := time.Now()
+func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) {
+	if !ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
+		return
+	}
+	currentTime := time.Now()
 
-		// Check for double-click (same item clicked within 500ms)
-		if itemIndex == ui.lastClickedItem && currentTime.Sub(ui.lastClickTime) < 500*time.Millisecond {
-			// Double-click detected - use or equip the item
-			if itemIndex < len(ui.game.party.Inventory) {
-				item := ui.game.party.Inventory[itemIndex]
-				switch item.Type {
-				case items.ItemConsumable:
-					// Delegate to game logic (consumable effects, inventory removal, messages)
-					_ = ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
-				default:
-					// Try to equip non-consumables
-					itemName := item.Name
-					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
-						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-							ui.game.party.Members[ui.game.selectedChar].Name, itemName))
-					} else {
-						ui.game.AddCombatMessage("Cannot equip this item!")
-					}
+	// Check for double-click (same item clicked within 500ms)
+	delta := currentTime.Sub(ui.lastClickTime)
+	doubleClick := itemIndex == ui.lastClickedItem && delta < doubleClickWindow
+	if doubleClick {
+		// Double-click detected - use or equip the item
+		if itemIndex < len(ui.game.party.Inventory) {
+			item := ui.game.party.Inventory[itemIndex]
+			switch item.Type {
+			case items.ItemConsumable:
+				// Delegate to game logic (consumable effects, inventory removal, messages)
+				_ = ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
+			default:
+				// Try to equip non-consumables
+				itemName := item.Name
+				if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
+						ui.game.party.Members[ui.game.selectedChar].Name, itemName))
+				} else {
+					ui.game.AddCombatMessage("Cannot equip this item!")
 				}
 			}
 		}
-
-		ui.lastClickedItem = itemIndex
-		ui.lastClickTime = currentTime
 	}
 
-	// Reset mouse state when button is released
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ui.inventoryMousePressed = false
-	}
+	ui.lastClickedItem = itemIndex
+	ui.lastClickTime = currentTime
 }
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots
-func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot) {
+func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
 	// Check for mouse click
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ui.equipMousePressed {
-		ui.equipMousePressed = true
+	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		currentTime := time.Now()
 
 		// Check for double-click (same slot clicked within 500ms)
-		if slot == ui.lastClickedSlot && currentTime.Sub(ui.lastEquipClickTime) < 500*time.Millisecond {
+		delta := currentTime.Sub(ui.lastEquipClickTime)
+		doubleClick := slot == ui.lastClickedSlot && delta < doubleClickWindow
+		if doubleClick {
 			// Double-click detected - try to unequip the item
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
 			if item, exists := currentChar.Equipment[slot]; exists {
@@ -2168,10 +2123,7 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot) {
 		ui.lastEquipClickTime = currentTime
 	}
 
-	// Reset mouse state when button is released
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ui.equipMousePressed = false
-	}
+	// Mouse state is updated once per frame in updateMouseState().
 }
 
 // drawTurnBasedStatus displays the current game mode and turn state

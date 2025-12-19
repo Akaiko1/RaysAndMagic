@@ -88,9 +88,16 @@ type MMGame struct {
 	selectedChar     int
 
 	// Tabbed menu system
-	menuOpen     bool
-	currentTab   MenuTab
-	mousePressed bool // Track mouse state for click detection
+	menuOpen              bool
+	currentTab            MenuTab
+	mousePressed          bool // Left click consumed for the current frame
+	mouseRightPressed     bool // Right click consumed for the current frame
+	mouseLeftClickQueued  bool
+	mouseRightClickQueued bool
+	mouseLeftClickX       int
+	mouseLeftClickY       int
+	mouseRightClickX      int
+	mouseRightClickY      int
 
 	// Double-click support for spellbook
 	lastSpellClickTime int64 // Time of last spell click in milliseconds
