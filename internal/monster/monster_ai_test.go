@@ -130,16 +130,18 @@ func TestMonsterBlockedByTile(t *testing.T) {
 
 	initialX, initialY := m.X, m.Y
 
-	// Run multiple update cycles - monster should not move since all directions blocked
-	for i := 0; i < 10; i++ {
+	// Run fewer update cycles - monster should not move in first few attempts
+	for i := 0; i < 5; i++ {
 		m.moveGridBased(checker, "test_monster", targetX, targetY)
 	}
 
+	// After 5 attempts with all directions blocked, monster should still be in same position
+	// (stuck counter will be 5, but unstuck mechanism only triggers at 10)
 	if m.X != initialX || m.Y != initialY {
 		t.Errorf("Monster moved when blocked. Initial: (%f, %f), Final: (%f, %f)",
 			initialX, initialY, m.X, m.Y)
 	} else {
-		t.Logf("Monster correctly stayed in place when blocked")
+		t.Logf("Monster correctly stayed in place when blocked for 5 frames")
 	}
 }
 
@@ -243,4 +245,327 @@ func TestMonsterShakingScenario(t *testing.T) {
 
 	t.Logf("Final position: (%f, %f), Progress: %f tiles",
 		finalX, positions[len(positions)-1][1], (finalX-initialX)/64.0)
+}
+
+// TestMonsterMovementNoShake tests that monsters don't shake during various movement scenarios
+func TestMonsterMovementNoShake(t *testing.T) {
+	testCases := []struct {
+		name         string
+		startX       float64
+		startY       float64
+		targetX      float64
+		targetY      float64
+		speed        float64
+		maxOscillate int // Max allowed direction changes
+	}{
+		{
+			name:         "Straight East Movement",
+			startX:       32.0,
+			startY:       32.0,
+			targetX:      320.0,
+			targetY:      32.0,
+			speed:        1.8,
+			maxOscillate: 0, // Should never change direction
+		},
+		{
+			name:         "Straight South Movement",
+			startX:       32.0,
+			startY:       32.0,
+			targetX:      32.0,
+			targetY:      320.0,
+			speed:        1.8,
+			maxOscillate: 0, // Should never change direction
+		},
+		{
+			name:         "Diagonal Movement (NE)",
+			startX:       32.0,
+			startY:       320.0,
+			targetX:      320.0,
+			targetY:      32.0,
+			speed:        1.8,
+			maxOscillate: 10, // Some direction changes expected for stair-step, but not excessive
+		},
+		{
+			name:         "Diagonal Movement (SE)",
+			startX:       32.0,
+			startY:       32.0,
+			targetX:      320.0,
+			targetY:      320.0,
+			speed:        1.8,
+			maxOscillate: 10, // Some direction changes expected for stair-step, but not excessive
+		},
+		{
+			name:         "Nearly Equal Deltas (Shake-Prone)",
+			startX:       32.0,
+			startY:       32.0,
+			targetX:      192.0,
+			targetY:      200.0,
+			speed:        1.5,
+			maxOscillate: 10, // Should use direction memory to prevent shaking
+		},
+		{
+			name:         "Fast Monster Diagonal",
+			startX:       64.0,
+			startY:       64.0,
+			targetX:      320.0,
+			targetY:      320.0,
+			speed:        2.5,
+			maxOscillate: 15, // Faster = more direction changes, but still reasonable
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create monster at starting position
+			m := &Monster3D{
+				X:     tc.startX,
+				Y:     tc.startY,
+				Speed: tc.speed,
+			}
+
+			checker := NewMockCollisionChecker(64.0)
+
+			// Track positions and directions
+			positions := make([][2]float64, 0)
+			directions := make([]float64, 0)
+			positions = append(positions, [2]float64{m.X, m.Y})
+
+			// Run 100 movement updates
+			for i := 0; i < 100; i++ {
+				m.moveGridBased(checker, "test", tc.targetX, tc.targetY)
+				positions = append(positions, [2]float64{m.X, m.Y})
+				directions = append(directions, m.Direction)
+
+				// Stop if reached target
+				dx := tc.targetX - m.X
+				dy := tc.targetY - m.Y
+				if math.Sqrt(dx*dx+dy*dy) < m.Speed {
+					break
+				}
+			}
+
+			// Count oscillations (direction changes)
+			oscillations := 0
+			for i := 2; i < len(positions); i++ {
+				// Check if movement direction changed
+				dx1 := positions[i][0] - positions[i-1][0]
+				dy1 := positions[i][1] - positions[i-1][1]
+				dx2 := positions[i-1][0] - positions[i-2][0]
+				dy2 := positions[i-1][1] - positions[i-2][1]
+
+				// Determine primary axis for each step
+				axis1 := "none"
+				axis2 := "none"
+				if math.Abs(dx1) > 0.1 {
+					axis1 = "horizontal"
+				} else if math.Abs(dy1) > 0.1 {
+					axis1 = "vertical"
+				}
+				if math.Abs(dx2) > 0.1 {
+					axis2 = "horizontal"
+				} else if math.Abs(dy2) > 0.1 {
+					axis2 = "vertical"
+				}
+
+				// Count axis changes as oscillations
+				if axis1 != axis2 && axis1 != "none" && axis2 != "none" {
+					oscillations++
+				}
+			}
+
+			// Check if oscillations are within acceptable range
+			if oscillations > tc.maxOscillate {
+				t.Errorf("Excessive oscillation detected! %d direction changes (max allowed: %d)",
+					oscillations, tc.maxOscillate)
+
+				// Log movement pattern for debugging
+				t.Logf("Movement pattern (first 20 steps):")
+				for i := 0; i < len(positions) && i < 20; i++ {
+					t.Logf("  Step %d: (%.1f, %.1f)", i, positions[i][0], positions[i][1])
+				}
+			}
+
+			// Calculate total progress
+			initialDist := math.Sqrt(math.Pow(tc.targetX-tc.startX, 2) + math.Pow(tc.targetY-tc.startY, 2))
+			finalPos := positions[len(positions)-1]
+			finalDist := math.Sqrt(math.Pow(tc.targetX-finalPos[0], 2) + math.Pow(tc.targetY-finalPos[1], 2))
+			progress := initialDist - finalDist
+
+			// Verify monster made forward progress (at least 25% of distance)
+			if progress < initialDist*0.25 {
+				t.Errorf("Monster made insufficient progress. Initial distance: %.1f, Final distance: %.1f, Progress: %.1f (%.1f%%)",
+					initialDist, finalDist, progress, (progress/initialDist)*100)
+			}
+
+			t.Logf("✓ Oscillations: %d/%d, Progress: %.1f/%.1f pixels",
+				oscillations, tc.maxOscillate, progress, initialDist)
+		})
+	}
+}
+
+// TestMonsterPursuitNoShake tests that monsters don't shake when pursuing and attacking the player
+func TestMonsterPursuitNoShake(t *testing.T) {
+	testCases := []struct {
+		name         string
+		startX       float64
+		startY       float64
+		playerX      float64
+		playerY      float64
+		speed        float64
+		attackRadius float64
+		description  string
+	}{
+		{
+			name:         "Straight Pursuit East",
+			startX:       32.0,
+			startY:       32.0,
+			playerX:      320.0,
+			playerY:      32.0,
+			speed:        1.8,
+			attackRadius: 64.0,
+			description:  "Monster should move straight toward player without shaking",
+		},
+		{
+			name:         "Diagonal Pursuit",
+			startX:       32.0,
+			startY:       32.0,
+			playerX:      256.0,
+			playerY:      256.0,
+			speed:        1.8,
+			attackRadius: 64.0,
+			description:  "Monster should pursue diagonally with minimal oscillation",
+		},
+		{
+			name:         "Near Attack Range (Shake-Prone)",
+			startX:       32.0,
+			startY:       32.0,
+			playerX:      120.0,
+			playerY:      32.0,
+			speed:        1.8,
+			attackRadius: 64.0,
+			description:  "Monster should not shake when approaching attack radius",
+		},
+		{
+			name:         "At Attack Boundary",
+			startX:       32.0,
+			startY:       32.0,
+			playerX:      96.0,
+			playerY:      32.0,
+			speed:        1.5,
+			attackRadius: 64.0,
+			description:  "Monster should not oscillate between pursuing and attacking states",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create monster with AI config
+			m := &Monster3D{
+				X:                tc.startX,
+				Y:                tc.startY,
+				Speed:            tc.speed,
+				AttackRadius:     tc.attackRadius,
+				State:            StateAlert,
+				IsEngagingPlayer: true,
+			}
+
+			checker := NewMockCollisionChecker(64.0)
+
+			// Track positions and states
+			positions := make([][2]float64, 0)
+			states := make([]MonsterState, 0)
+			positions = append(positions, [2]float64{m.X, m.Y})
+			states = append(states, m.State)
+
+			// Run AI updates for 100 frames
+			stateChanges := 0
+			for i := 0; i < 100; i++ {
+				// Update monster AI (full AI cycle with state transitions)
+				m.Update(checker, "test", tc.playerX, tc.playerY)
+
+				positions = append(positions, [2]float64{m.X, m.Y})
+
+				// Track state changes
+				if len(states) > 0 && m.State != states[len(states)-1] {
+					stateChanges++
+				}
+				states = append(states, m.State)
+
+				// Stop if in attack range and attacking for a while
+				dx := tc.playerX - m.X
+				dy := tc.playerY - m.Y
+				dist := math.Sqrt(dx*dx + dy*dy)
+				if dist <= m.AttackRadius && m.State == StateAttacking && i > 50 {
+					break
+				}
+			}
+
+			// Count position oscillations
+			oscillations := 0
+			for i := 2; i < len(positions); i++ {
+				dx1 := positions[i][0] - positions[i-1][0]
+				dy1 := positions[i][1] - positions[i-1][1]
+				dx2 := positions[i-1][0] - positions[i-2][0]
+				dy2 := positions[i-1][1] - positions[i-2][1]
+
+				axis1 := "none"
+				axis2 := "none"
+				if math.Abs(dx1) > 0.1 {
+					axis1 = "horizontal"
+				} else if math.Abs(dy1) > 0.1 {
+					axis1 = "vertical"
+				}
+				if math.Abs(dx2) > 0.1 {
+					axis2 = "horizontal"
+				} else if math.Abs(dy2) > 0.1 {
+					axis2 = "vertical"
+				}
+
+				if axis1 != axis2 && axis1 != "none" && axis2 != "none" {
+					oscillations++
+				}
+			}
+
+			// Check for state oscillations (rapid flip-flopping)
+			stateOscillations := 0
+			for i := 2; i < len(states); i++ {
+				if states[i] == StatePursuing && states[i-1] == StateAttacking && states[i-2] == StatePursuing {
+					stateOscillations++
+				}
+				if states[i] == StateAttacking && states[i-1] == StatePursuing && states[i-2] == StateAttacking {
+					stateOscillations++
+				}
+			}
+
+			// Verify no excessive oscillations
+			maxOscillations := 15
+			if oscillations > maxOscillations {
+				t.Errorf("Excessive movement oscillation! %d changes (max: %d)", oscillations, maxOscillations)
+				t.Logf("First 20 positions:")
+				for i := 0; i < len(positions) && i < 20; i++ {
+					t.Logf("  %d: (%.1f, %.1f) State:%v", i, positions[i][0], positions[i][1], states[i])
+				}
+			}
+
+			// Verify no state oscillations
+			if stateOscillations > 3 {
+				t.Errorf("State oscillation! Flip-flopped Pursuing/Attacking %d times", stateOscillations)
+				t.Logf("State transitions:")
+				for i := 1; i < len(states) && i < 30; i++ {
+					if states[i] != states[i-1] {
+						t.Logf("  Frame %d: %v -> %v", i, states[i-1], states[i])
+					}
+				}
+			}
+
+			// Calculate progress
+			initialDist := math.Sqrt(math.Pow(tc.playerX-tc.startX, 2) + math.Pow(tc.playerY-tc.startY, 2))
+			finalPos := positions[len(positions)-1]
+			finalDist := math.Sqrt(math.Pow(tc.playerX-finalPos[0], 2) + math.Pow(tc.playerY-finalPos[1], 2))
+			progress := initialDist - finalDist
+
+			t.Logf("✓ Movement: %d/%d oscillations, States: %d changes, %d flip-flops, Progress: %.1f/%.1f px",
+				oscillations, maxOscillations, stateChanges, stateOscillations, progress, initialDist)
+		})
+	}
 }

@@ -281,225 +281,103 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID 
 }
 
 // moveGridBased moves the monster in cardinal directions (N/S/E/W) towards target
-// Monsters move between tile centers to avoid getting stuck in gaps
+// Uses the same simple movement logic as patrolling for consistency
 func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID string, targetX, targetY float64) {
-	myTileX := int(math.Floor(m.X / tileSize))
-	myTileY := int(math.Floor(m.Y / tileSize))
-	targetTileX := int(math.Floor(targetX / tileSize))
-	targetTileY := int(math.Floor(targetY / tileSize))
+	// Calculate direction to target
+	dx := targetX - m.X
+	dy := targetY - m.Y
 
-	// Already at target tile
-	if myTileX == targetTileX && myTileY == targetTileY {
-		return
-	}
+	// Determine primary cardinal direction with hysteresis to prevent shaking
+	// Require the other direction to be significantly larger (20% threshold) to switch
+	var primaryDirX, primaryDirY int
+	absDx := math.Abs(dx)
+	absDy := math.Abs(dy)
 
-	// Determine the next tile we should move to
-	nextTileX, nextTileY := m.calculateNextTileStep(myTileX, myTileY, targetTileX, targetTileY)
-
-	// Determine intended cardinal step
-	stepX, stepY := m.calculateStepDirection(myTileX, myTileY, nextTileX, nextTileY)
-
-	// Align to lane center before moving to next tile
-	if m.alignToLane(collisionChecker, monsterID, stepX, stepY, myTileX, myTileY) {
-		return
-	}
-
-	// Calculate target centers
-	nextCenterX := float64(nextTileX)*tileSize + tileSize/2
-	nextCenterY := float64(nextTileY)*tileSize + tileSize/2
-
-	// Try to move to the valid next tile
-	if collisionChecker.CanMoveTo(monsterID, nextCenterX, nextCenterY) {
-		if m.moveToNextTile(collisionChecker, monsterID, nextCenterX, nextCenterY, stepX, stepY, myTileX, myTileY) {
-			return
-		}
-	}
-
-	// Primary direction failed, try secondary direction
-	if m.trySecondaryDirection(collisionChecker, monsterID, myTileX, myTileY, targetTileX, targetTileY) {
-		return
-	}
-
-	// Everything failed, handle stuck condition
-	m.handleStuckCondition(collisionChecker, monsterID, myTileX, myTileY, targetX, targetY)
-}
-
-// calculateNextTileStep determines the next tile coordinates based on primary direction
-func (m *Monster3D) calculateNextTileStep(myTileX, myTileY, targetTileX, targetTileY int) (int, int) {
-	nextTileX := myTileX
-	nextTileY := myTileY
-	dxTiles := targetTileX - myTileX
-	dyTiles := targetTileY - myTileY
-
-	if abs(dxTiles) >= abs(dyTiles) && dxTiles != 0 {
-		nextTileX += sign(dxTiles)
-	} else if dyTiles != 0 {
-		nextTileY += sign(dyTiles)
-	}
-	return nextTileX, nextTileY
-}
-
-// calculateStepDirection returns the step direction (-1, 0, 1) for X and Y
-func (m *Monster3D) calculateStepDirection(myTileX, myTileY, nextTileX, nextTileY int) (float64, float64) {
-	stepX := 0.0
-	stepY := 0.0
-	if nextTileX != myTileX {
-		stepX = float64(sign(nextTileX - myTileX))
-	} else if nextTileY != myTileY {
-		stepY = float64(sign(nextTileY - myTileY))
-	}
-	return stepX, stepY
-}
-
-// alignToLane tries to align the monster to the center of the current lane perpendicular to movement
-func (m *Monster3D) alignToLane(collisionChecker CollisionChecker, monsterID string, stepX, stepY float64, myTileX, myTileY int) bool {
-	currentCenterX := float64(myTileX)*tileSize + tileSize/2
-	currentCenterY := float64(myTileY)*tileSize + tileSize/2
-
-	if stepX != 0 {
-		delta := currentCenterY - m.Y
-		if math.Abs(delta) > m.Speed {
-			alignY := m.Y + math.Copysign(m.Speed, delta)
-			if collisionChecker.CanMoveTo(monsterID, m.X, alignY) {
-				m.Y = alignY
-				m.Direction = math.Atan2(math.Copysign(1, delta), 0)
-				m.StuckCounter = 0
-				return true
-			}
-		}
-	} else if stepY != 0 {
-		delta := currentCenterX - m.X
-		if math.Abs(delta) > m.Speed {
-			alignX := m.X + math.Copysign(m.Speed, delta)
-			if collisionChecker.CanMoveTo(monsterID, alignX, m.Y) {
-				m.X = alignX
-				m.Direction = math.Atan2(0, math.Copysign(1, delta))
-				m.StuckCounter = 0
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// moveToNextTile attempts to move towards the next tile center
-func (m *Monster3D) moveToNextTile(collisionChecker CollisionChecker, monsterID string, nextCenterX, nextCenterY, stepX, stepY float64, myTileX, myTileY int) bool {
-	// Check if we are close enough to snap
-	dxToNext := nextCenterX - m.X
-	dyToNext := nextCenterY - m.Y
-	distToNext := math.Sqrt(dxToNext*dxToNext + dyToNext*dyToNext)
-
-	if distToNext < m.Speed*0.5 {
-		m.X = nextCenterX
-		m.Y = nextCenterY
-		m.StuckCounter = 0
-		return true
-	}
-
-	currentCenterX := float64(myTileX)*tileSize + tileSize/2
-	currentCenterY := float64(myTileY)*tileSize + tileSize/2
-
-	newX := m.X + stepX*m.Speed
-	newY := m.Y + stepY*m.Speed
-
-	// Keep lane aligned
-	if stepX != 0 {
-		newY = currentCenterY
-		if (stepX > 0 && newX > nextCenterX) || (stepX < 0 && newX < nextCenterX) {
-			newX = nextCenterX
-		}
-	} else if stepY != 0 {
-		newX = currentCenterX
-		if (stepY > 0 && newY > nextCenterY) || (stepY < 0 && newY < nextCenterY) {
-			newY = nextCenterY
-		}
-	}
-
-	if collisionChecker.CanMoveTo(monsterID, newX, newY) {
-		m.X = newX
-		m.Y = newY
-		m.Direction = math.Atan2(stepY, stepX)
-		m.StuckCounter = 0
-		return true
-	}
-	return false
-}
-
-// trySecondaryDirection attempts to move in the secondary preferred direction
-func (m *Monster3D) trySecondaryDirection(collisionChecker CollisionChecker, monsterID string, myTileX, myTileY, targetTileX, targetTileY int) bool {
-	dxTiles := targetTileX - myTileX
-	dyTiles := targetTileY - myTileY
-
-	secondNextTileX := myTileX
-	secondNextTileY := myTileY
-
-	if abs(dxTiles) >= abs(dyTiles) && dyTiles != 0 {
-		secondNextTileY += sign(dyTiles)
-	} else if dxTiles != 0 {
-		secondNextTileX += sign(dxTiles)
-	}
-
-	if secondNextTileX != myTileX || secondNextTileY != myTileY {
-		secondCenterX := float64(secondNextTileX)*tileSize + tileSize/2
-		secondCenterY := float64(secondNextTileY)*tileSize + tileSize/2
-
-		if collisionChecker.CanMoveTo(monsterID, secondCenterX, secondCenterY) {
-			stepX, stepY := m.calculateStepDirection(myTileX, myTileY, secondNextTileX, secondNextTileY)
-			return m.moveToNextTile(collisionChecker, monsterID, secondCenterX, secondCenterY, stepX, stepY, myTileX, myTileY)
-		}
-	}
-	return false
-}
-
-// handleStuckCondition tries to move around obstacles when primary and secondary paths are blocked
-func (m *Monster3D) handleStuckCondition(collisionChecker CollisionChecker, monsterID string, myTileX, myTileY int, targetX, targetY float64) {
-	m.StuckCounter++
-	if m.StuckCounter <= 5 {
-		return
-	}
-
-	dxToTarget := targetX - m.X
-	dyToTarget := targetY - m.Y
-
-	var perpDirs [][2]int
-	if math.Abs(dxToTarget) >= math.Abs(dyToTarget) {
-		perpDirs = [][2]int{{0, 1}, {0, -1}} // Try vertical if stuck horizontally
+	// Use 1.2x threshold to prevent oscillation when deltas are nearly equal
+	if absDx > absDy*1.2 {
+		// Clearly favor horizontal
+		primaryDirX = sign(int(dx))
+		primaryDirY = 0
+	} else if absDy > absDx*1.2 {
+		// Clearly favor vertical
+		primaryDirX = 0
+		primaryDirY = sign(int(dy))
 	} else {
-		perpDirs = [][2]int{{1, 0}, {-1, 0}} // Try horizontal if stuck vertically
+		// Deltas are similar - use last successful direction to prevent shaking
+		// Fall back to larger delta if no last direction
+		if m.LastChosenDir == 1 || m.LastChosenDir == -1 {
+			// Last moved vertically, prefer vertical
+			primaryDirX = 0
+			primaryDirY = sign(int(dy))
+		} else {
+			// Default or last moved horizontally, prefer horizontal
+			primaryDirX = sign(int(dx))
+			primaryDirY = 0
+		}
 	}
 
-	startIdx := 0
-	if m.LastChosenDir < 0 {
-		startIdx = 1
+	// Try primary direction first (full speed for chasing)
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, primaryDirX, primaryDirY, m.Speed) {
+		m.StuckCounter = 0
+		// Remember which direction we moved
+		if primaryDirY != 0 {
+			m.LastChosenDir = 1 // Vertical
+		} else {
+			m.LastChosenDir = 0 // Horizontal
+		}
+		return
 	}
 
-	for i := 0; i < 2; i++ {
-		idx := (startIdx + i) % 2
-		perpTileX := myTileX + perpDirs[idx][0]
-		perpTileY := myTileY + perpDirs[idx][1]
-		perpCenterX := float64(perpTileX)*tileSize + tileSize/2
-		perpCenterY := float64(perpTileY)*tileSize + tileSize/2
+	// Primary direction blocked, try secondary direction
+	var secondaryDirX, secondaryDirY int
+	if primaryDirX != 0 {
+		// Primary was horizontal, try vertical
+		secondaryDirX = 0
+		secondaryDirY = sign(int(dy))
+	} else {
+		// Primary was vertical, try horizontal
+		secondaryDirX = sign(int(dx))
+		secondaryDirY = 0
+	}
 
-		if !collisionChecker.CanMoveTo(monsterID, perpCenterX, perpCenterY) {
-			continue
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, secondaryDirX, secondaryDirY, m.Speed) {
+		m.StuckCounter = 0
+		// Remember which direction we moved
+		if secondaryDirY != 0 {
+			m.LastChosenDir = 1 // Vertical
+		} else {
+			m.LastChosenDir = 0 // Horizontal
+		}
+		return
+	}
+
+	// Both primary and secondary directions blocked - increment stuck counter
+	m.StuckCounter++
+
+	// If stuck for several frames, try perpendicular escape
+	// Only try directions perpendicular to the primary direction (not backward)
+	if m.StuckCounter >= 5 {
+		var perpDirs [][2]int
+		if math.Abs(dx) >= math.Abs(dy) {
+			// Primary was horizontal, try vertical perpendiculars
+			perpDirs = [][2]int{{0, 1}, {0, -1}}
+		} else {
+			// Primary was vertical, try horizontal perpendiculars
+			perpDirs = [][2]int{{1, 0}, {-1, 0}}
 		}
 
-		stepX := 0.0
-		stepY := 0.0
-		if perpTileX != myTileX {
-			stepX = float64(sign(perpTileX - myTileX))
-		} else if perpTileY != myTileY {
-			stepY = float64(sign(perpTileY - myTileY))
-		}
-
-		if m.moveToNextTile(collisionChecker, monsterID, perpCenterX, perpCenterY, stepX, stepY, myTileX, myTileY) {
-			if idx == 0 {
-				m.LastChosenDir = 1
-			} else {
-				m.LastChosenDir = -1
+		for _, dir := range perpDirs {
+			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dir[0], dir[1], m.Speed) {
+				m.StuckCounter = 0
+				return
 			}
-			return
 		}
+	}
+
+	// Still stuck after trying perpendicular directions - try unstuck mechanism
+	if m.StuckCounter >= 10 {
+		m.unstuckFromObstacles(collisionChecker, monsterID)
+		m.StuckCounter = 0
 	}
 }
 
@@ -563,7 +441,8 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 		distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
 
 		// If close enough to attack, switch to attacking
-		if distanceToPlayer <= m.AttackRadius {
+		// Use a slightly tighter radius to prevent shaking at the boundary
+		if distanceToPlayer <= m.AttackRadius*0.9 {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
