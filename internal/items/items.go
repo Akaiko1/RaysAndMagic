@@ -1,6 +1,7 @@
 package items
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -124,12 +125,23 @@ func CreateUtilitySpell(name string, effect SpellEffect, school string, cost int
 	}
 }
 
-// CreateWeaponFromYAML creates a weapon item from YAML weapon configuration
+// CreateWeaponFromYAML creates a weapon item from YAML weapon configuration.
+// Returns an error if the weapon is not found in weapons.yaml.
 func CreateWeaponFromYAML(weaponKey string) Item {
-	// Import here to avoid circular dependency - access global config
+	item, err := TryCreateWeaponFromYAML(weaponKey)
+	if err != nil {
+		// Panic for backwards compatibility with initialization code that expects this to succeed
+		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
+	}
+	return item
+}
+
+// TryCreateWeaponFromYAML creates a weapon item from YAML weapon configuration.
+// Returns an error if the weapon is not found.
+func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 	weaponDef, exists := getWeaponDefinitionFromGlobal(weaponKey)
 	if !exists {
-		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
+		return Item{}, fmt.Errorf("weapon '%s' not found in weapons.yaml", weaponKey)
 	}
 
 	it := Item{
@@ -147,7 +159,7 @@ func CreateWeaponFromYAML(weaponKey string) Item {
 	if weaponDef.Value > 0 {
 		it.Attributes["value"] = weaponDef.Value
 	}
-	return it
+	return it, nil
 }
 
 // getWeaponDefinitionFromGlobal accesses weapon definition from global config
@@ -219,14 +231,25 @@ type ItemDefinitionFromYAML struct {
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
 var GlobalItemAccessor func(string) (*ItemDefinitionFromYAML, bool)
 
-// CreateItemFromYAML creates a non-weapon, non-spell item from YAML item definition
+// CreateItemFromYAML creates a non-weapon, non-spell item from YAML item definition.
+// Panics if item is not found - use TryCreateItemFromYAML for error handling.
 func CreateItemFromYAML(itemKey string) Item {
+	item, err := TryCreateItemFromYAML(itemKey)
+	if err != nil {
+		panic(err.Error())
+	}
+	return item
+}
+
+// TryCreateItemFromYAML creates a non-weapon, non-spell item from YAML item definition.
+// Returns an error if the item is not found or has an unknown type.
+func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	if GlobalItemAccessor == nil {
-		panic("item accessor not configured - call bridge.SetupItemBridge()")
+		return Item{}, fmt.Errorf("item accessor not configured - call bridge.SetupItemBridge()")
 	}
 	def, ok := GlobalItemAccessor(itemKey)
 	if !ok || def == nil {
-		panic("item '" + itemKey + "' not found in items.yaml - system misconfigured")
+		return Item{}, fmt.Errorf("item '%s' not found in items.yaml", itemKey)
 	}
 
 	// Map type string to ItemType
@@ -241,7 +264,7 @@ func CreateItemFromYAML(itemKey string) Item {
 	case "quest":
 		t = ItemQuest
 	default:
-		panic("unknown item type for '" + itemKey + "': " + def.Type)
+		return Item{}, fmt.Errorf("unknown item type for '%s': %s", itemKey, def.Type)
 	}
 
 	// Populate attributes from definition
@@ -299,7 +322,7 @@ func CreateItemFromYAML(itemKey string) Item {
 		Type:        t,
 		Description: desc,
 		Attributes:  attrs,
-	}
+	}, nil
 }
 
 // mapEquipSlotStringToCode converts equip_slot string to EquipSlot constant

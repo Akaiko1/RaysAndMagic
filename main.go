@@ -24,10 +24,10 @@ func main() {
 	cfg := config.MustLoadConfig("config.yaml")
 
 	// Load unified spell configuration
-	config.MustLoadSpellConfig("spells.yaml")
+	config.MustLoadSpellConfig("assets/spells.yaml")
 
 	// Load weapon configuration
-	config.MustLoadWeaponConfig("weapons.yaml")
+	config.MustLoadWeaponConfig("assets/weapons.yaml")
 
 	// Load non-weapon item configuration
 	config.MustLoadItemConfig("assets/items.yaml")

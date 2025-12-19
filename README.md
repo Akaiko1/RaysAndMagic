@@ -81,8 +81,8 @@ go test -race -cover ./...
 ## Content and Configuration
 
 - Items: `assets/items.yaml` (non‑weapons). Fields include `equip_slot`, `value`, and attributes described above.
-- Weapons: `weapons.yaml`. Includes damage, range, scaling, graphics/physics, and `value` for selling.
-- Spells: `spells.yaml`. Defines spell damage/heal costs and render/physics.
+- Weapons: `assets/weapons.yaml`. Includes damage, range, scaling, graphics/physics, and `value` for selling.
+- Spells: `assets/spells.yaml`. Defines spell damage/heal costs and render/physics.
 - Monsters: `assets/monsters.yaml` with stats and spawn letters.
 - Tiles & Special Tiles: `assets/tiles.yaml`, `assets/special_tiles.yaml`.
 - Maps: `assets/*.map` (ASCII); per‑map config in `assets/map_configs.yaml`.
