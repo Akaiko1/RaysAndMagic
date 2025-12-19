@@ -1,11 +1,11 @@
 package game
 
 import (
-    "fmt"
-    "ugataima/internal/monster"
-    "ugataima/internal/world"
+	"fmt"
+	"ugataima/internal/monster"
+	"ugataima/internal/world"
 
-    "github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // GameLoop manages the main game update and render cycle
@@ -38,15 +38,16 @@ func (gl *GameLoop) Update() error {
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
 
-	// Reset mouse state at the start of each frame
-	gl.ui.resetMouseState()
-
 	// Handle exit request from main menu
 	if gl.game.exitRequested {
 		return ErrExit
 	}
 
+	// Update per-frame mouse state before input handling and Draw
+	gl.ui.updateMouseState()
+
 	gl.updateExploration()
+
 	return nil
 }
 

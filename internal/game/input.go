@@ -157,6 +157,11 @@ func (ih *InputHandler) restartNewGame() {
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := ebiten.CursorPosition()
+	panelW, panelH := 300, 220
+	w := ih.game.config.GetScreenWidth()
+	h := ih.game.config.GetScreenHeight()
+	px := (w - panelW) / 2
+	py := (h - panelH) / 2
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
@@ -192,8 +197,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		}
 
 		// Mouse click activation
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-			ih.game.mousePressed = true
+		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
 			switch ih.game.mainMenuSelection {
 			case 0:
 				ih.game.mainMenuOpen = false
@@ -230,8 +234,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 			}
 		}
 		// Mouse click activation
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-			ih.game.mousePressed = true
+		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
 			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
 				ih.game.AddCombatMessage("Save failed")
 			} else {
@@ -260,8 +263,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.mainMenuMode = MenuMain
 			}
 		}
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-			ih.game.mousePressed = true
+		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
 			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
 				ih.game.AddCombatMessage("Load failed")
 			} else {
@@ -687,18 +689,14 @@ func (ih *InputHandler) handleMouseInput() {
 	}
 
 	// Handle party character selection clicks (works both in and out of menu)
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-		targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-		if targetCharIndex >= 0 {
+	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
+		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
+		if targetCharIndex >= 0 && ih.game.consumeLeftClick() {
 			ih.game.selectedChar = targetCharIndex
-			ih.game.mousePressed = true // Prevent multiple clicks
 		}
 	}
 
-	// Reset mouse state when button is released
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ih.game.mousePressed = false
-	}
+	// Mouse state is updated once per frame in updateMouseState().
 }
 
 // getPartyMemberUnderMouse returns the index of the party member under the mouse cursor
@@ -883,10 +881,7 @@ func (ih *InputHandler) handleDialogInput() {
 		}
 	}
 
-	// Reset mouse state when button is released
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		ih.game.mousePressed = false
-	}
+	// Mouse state is updated once per frame in updateMouseState().
 }
 
 // getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
@@ -1041,12 +1036,9 @@ func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellDa
 
 // handleDialogMouseInput handles mouse input in dialog mode
 func (ih *InputHandler) handleDialogMouseInput() {
-	if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) || ih.game.mousePressed {
+	if _, _, ok := ih.game.leftClickPosition(); !ok {
 		return
 	}
-
-	// Get mouse position
-	mouseX, mouseY := ebiten.CursorPosition()
 
 	// Calculate dialog coordinates (same as in UI)
 	screenWidth := ih.game.config.GetScreenWidth()
@@ -1064,10 +1056,8 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			charY := dialogY + 100 + (i * 25)
 
 			// Check if mouse is over this character entry
-			if mouseX >= dialogX+20 && mouseX <= dialogX+320 &&
-				mouseY >= charY-2 && mouseY <= charY+22 {
+			if ih.game.consumeLeftClickIn(dialogX+20, charY-2, dialogX+320+1, charY+22+1) {
 				ih.game.selectedCharIdx = i
-				ih.game.mousePressed = true
 				return
 			}
 		}
@@ -1079,13 +1069,14 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			spellY := spellsY + 20 + (spellIndex * 25)
 
 			// Check if mouse is over this spell entry
-			if mouseX >= dialogX+20 && mouseX <= dialogX+370 &&
-				mouseY >= spellY-2 && mouseY <= spellY+22 {
+			if ih.game.consumeLeftClickIn(dialogX+20, spellY-2, dialogX+370+1, spellY+22+1) {
 
 				// Check for double-click to purchase spell directly (neutral dialog tracking)
 				currentTime := time.Now().UnixMilli()
-				if ih.game.dialogLastClickedIdx == spellIndex &&
-					currentTime-ih.game.dialogLastClickTime < 500 {
+				delta := currentTime - ih.game.dialogLastClickTime
+				doubleClick := ih.game.dialogLastClickedIdx == spellIndex &&
+					delta < doubleClickWindowMs
+				if doubleClick {
 					// Double-click detected - purchase the spell
 					ih.purchaseSelectedSpell()
 				} else {
@@ -1097,7 +1088,6 @@ func (ih *InputHandler) handleDialogMouseInput() {
 				// Update click tracking for dialog spells
 				ih.game.dialogLastClickTime = currentTime
 				ih.game.dialogLastClickedIdx = spellIndex
-				ih.game.mousePressed = true
 				return
 			}
 		}
@@ -1115,30 +1105,28 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		maxItems := 15
 		for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
 			y := listY + i*25
-			if mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+20 {
-				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-					currentTime := time.Now().UnixMilli()
-					// Use neutral dialog click tracking to detect double-click per index
-					if ih.game.dialogLastClickedIdx == i && currentTime-ih.game.dialogLastClickTime < 500 {
-						ih.game.mousePressed = true
-						// Double-click detected - sell the item for its value
-						item := ih.game.party.Inventory[i]
-						price := item.Attributes["value"]
-						if price <= 0 {
-							ih.game.AddCombatMessage("This item has no value.")
-							return
-						}
-						ih.game.party.Gold += price
-						ih.game.party.RemoveItem(i)
-						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+			if ih.game.consumeLeftClickIn(dialogX+18, y-2, dialogX+dialogWidth-18+1, y-2+20+1) {
+				currentTime := time.Now().UnixMilli()
+				delta := currentTime - ih.game.dialogLastClickTime
+				// Use neutral dialog click tracking to detect double-click per index
+				doubleClick := ih.game.dialogLastClickedIdx == i && delta < doubleClickWindowMs
+				if doubleClick {
+					// Double-click detected - sell the item for its value
+					item := ih.game.party.Inventory[i]
+					price := item.Attributes["value"]
+					if price <= 0 {
+						ih.game.AddCombatMessage("This item has no value.")
 						return
 					}
-					// Single click - select (no-op visual for now), store click tracking
-					ih.game.dialogLastClickTime = currentTime
-					ih.game.dialogLastClickedIdx = i
-					ih.game.mousePressed = true
+					ih.game.party.Gold += price
+					ih.game.party.RemoveItem(i)
+					ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 					return
 				}
+				// Single click - select (no-op visual for now), store click tracking
+				ih.game.dialogLastClickTime = currentTime
+				ih.game.dialogLastClickedIdx = i
+				return
 			}
 		}
 		return
@@ -1164,13 +1152,14 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					choiceY := choicesY + i*25
 
 					// Check if mouse is over this choice entry (clickable from text start)
-					if mouseX >= dialogX-20 && mouseX <= dialogX+dialogWidth &&
-						mouseY >= choiceY-2 && mouseY <= choiceY+22 {
+					if ih.game.consumeLeftClickIn(dialogX-20, choiceY-2, dialogX+dialogWidth+1, choiceY+22+1) {
 
 						// Check for double-click to execute choice immediately (neutral tracking)
 						currentTime := time.Now().UnixMilli()
-						if ih.game.selectedChoice == i &&
-							currentTime-ih.game.dialogLastClickTime < 500 {
+						delta := currentTime - ih.game.dialogLastClickTime
+						doubleClick := ih.game.selectedChoice == i &&
+							delta < doubleClickWindowMs
+						if doubleClick {
 							// Double-click detected - execute the choice
 							ih.executeEncounterChoice()
 						} else {
@@ -1180,7 +1169,6 @@ func (ih *InputHandler) handleDialogMouseInput() {
 
 						// Update click tracking
 						ih.game.dialogLastClickTime = currentTime
-						ih.game.mousePressed = true
 						return
 					}
 				}
