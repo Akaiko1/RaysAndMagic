@@ -194,8 +194,9 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AttackBonus = def.AttackBonus
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
-	m.AlertRadius = def.AlertRadius
-	m.AttackRadius = def.AttackRadius
+	// Convert tile-based radii to pixels (1 tile = 64 pixels)
+	m.AlertRadius = def.AlertRadius * 64.0
+	m.AttackRadius = def.AttackRadius * 64.0
 	m.Speed = def.Speed
 
 	// Set random gold within range

@@ -1,4 +1,8 @@
 monsters:
+  # All radius values are in TILES (1 tile = 64 pixels)
+  # alert_radius: detection/aggro range in tiles
+  # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
+
   # Basic Monsters
   goblin:
     name: "Goblin"
@@ -9,8 +13,8 @@ monsters:
     attack_bonus: 0
     damage_min: 1
     damage_max: 4
-    alert_radius: 128
-    attack_radius: 48
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
     gold_min: 1
     gold_max: 10
@@ -33,8 +37,8 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 8
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 5
     gold_max: 25
@@ -61,8 +65,8 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 6
-    alert_radius: 160
-    attack_radius: 52
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 0
     gold_max: 5
@@ -85,8 +89,8 @@ monsters:
     attack_bonus: 3
     damage_min: 2
     damage_max: 12
-    alert_radius: 144
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 5
     gold_max: 20
@@ -108,8 +112,8 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 3
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 0
     gold_max: 5
@@ -131,8 +135,8 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 6
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 2
     gold_max: 10
@@ -156,8 +160,8 @@ monsters:
     attack_bonus: 4
     damage_min: 3
     damage_max: 18
-    alert_radius: 192
-    attack_radius: 72
+    alert_radius: 3  # 3 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
     gold_min: 20
     gold_max: 70
@@ -181,8 +185,8 @@ monsters:
     attack_bonus: 10
     damage_min: 10
     damage_max: 40
-    alert_radius: 300
-    attack_radius: 120
+    alert_radius: 5  # 5 tiles (wide awareness)
+    attack_radius: 2  # 2 tiles (breath weapon/bite)
     speed: 2.5
     gold_min: 500
     gold_max: 1500
@@ -208,8 +212,8 @@ monsters:
     attack_bonus: 3
     damage_min: 2
     damage_max: 10
-    alert_radius: 144
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.4
     gold_min: 8
     gold_max: 33
@@ -237,8 +241,8 @@ monsters:
     attack_bonus: 4
     damage_min: 2
     damage_max: 12
-    alert_radius: 192
-    attack_radius: 64
+    alert_radius: 3  # 3 tiles (keen senses)
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
     gold_min: 2
     gold_max: 10
@@ -261,8 +265,8 @@ monsters:
     attack_bonus: 2
     damage_min: 1
     damage_max: 6
-    alert_radius: 128
-    attack_radius: 52
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 1
     gold_max: 9
@@ -289,8 +293,8 @@ monsters:
     attack_bonus: 6
     damage_min: 4
     damage_max: 24
-    alert_radius: 224
-    attack_radius: 80
+    alert_radius: 3  # 3 tiles
+    attack_radius: 1  # 1 tile (melee range, but large creature)
     speed: 0.8
     gold_min: 15
     gold_max: 45
@@ -319,8 +323,8 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 2
-    alert_radius: 64
-    attack_radius: 40
+    alert_radius: 1  # 1 tile (timid, small detection range)
+    attack_radius: 1  # 1 tile (melee range)
     speed: 3.0         # Very fast
     gold_min: 5
     gold_max: 25
@@ -350,8 +354,8 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 7
-    alert_radius: 128
-    attack_radius: 54
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.6
     gold_min: 8
     gold_max: 25
