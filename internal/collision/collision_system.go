@@ -1,8 +1,58 @@
 package collision
 
 import (
+	"fmt"
 	"math"
 )
+
+// DebugCanMoveTo runs the same checks as CanMoveTo but returns a human-readable reason
+// when movement is blocked. Intended for temporary runtime debugging.
+func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (bool, string) {
+	entity, exists := cs.entities[entityID]
+	if !exists {
+		return false, "entity missing"
+	}
+	if cs.tileChecker == nil {
+		return false, "tileChecker nil"
+	}
+
+	// Create a temporary bounding box at the new position
+	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+
+	// World tiles
+	width, height := cs.tileChecker.GetWorldBounds()
+	minX, minY, maxX, maxY := tempBox.GetBounds()
+	startTileX := int(minX / cs.tileSize)
+	startTileY := int(minY / cs.tileSize)
+	endTileX := int(maxX / cs.tileSize)
+	endTileY := int(maxY / cs.tileSize)
+
+	for tileY := startTileY; tileY <= endTileY; tileY++ {
+		for tileX := startTileX; tileX <= endTileX; tileX++ {
+			if tileX < 0 || tileX >= width || tileY < 0 || tileY >= height {
+				return false, fmt.Sprintf("out of bounds tile=(%d,%d) world=(%d,%d)", tileX, tileY, width, height)
+			}
+			if cs.tileChecker.IsTileBlocking(tileX, tileY) {
+				return false, fmt.Sprintf("blocked tile=(%d,%d)", tileX, tileY)
+			}
+		}
+	}
+
+	// Other entities
+	for id, other := range cs.entities {
+		if id == entityID {
+			continue
+		}
+		if !other.Solid {
+			continue
+		}
+		if tempBox.Intersects(other.BoundingBox) {
+			return false, fmt.Sprintf("collides with entity=%s", id)
+		}
+	}
+
+	return true, "ok"
+}
 
 // GetAllEntities returns a slice of all entities in the collision system
 func (cs *CollisionSystem) GetAllEntities() []*Entity {

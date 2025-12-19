@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"os"
+	"strings"
 	"sync"
 
 	"ugataima/internal/character"
@@ -777,6 +779,78 @@ func (mw *MonsterWrapper) Update() {
 	mw.Monster.Update(mw.collisionSystem, mw.monsterID, playerX, playerY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
+
+	// Temporary movement debug (opt-in via env var).
+	// Example: DEBUG_MONSTER=bandit
+	if filter := strings.TrimSpace(os.Getenv("DEBUG_MONSTER")); filter != "" {
+		name := strings.ToLower(mw.Monster.Name)
+		needle := strings.ToLower(filter)
+		if strings.Contains(name, needle) {
+			// Throttle logs to avoid spamming.
+			if mw.Monster.StateTimer%60 == 0 {
+				withinTether := mw.Monster.IsWithinTetherRadius()
+				fmt.Printf(
+					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
+					mw.Monster.Name,
+					mw.monsterID,
+					mw.Monster.State,
+					mw.Monster.StateTimer,
+					mw.Monster.IsEngagingPlayer,
+					withinTether,
+					newX,
+					newY,
+					oldX,
+					oldY,
+					mw.Monster.SpawnX,
+					mw.Monster.SpawnY,
+					mw.Monster.TetherRadius,
+					playerX,
+					playerY,
+				)
+
+				// If not moving while supposed to wander, probe cardinal target tile centers.
+				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
+					if oldX == newX && oldY == newY {
+						const tileSize = 64.0
+						centerX := math.Floor(newX/tileSize)*tileSize + tileSize/2
+						centerY := math.Floor(newY/tileSize)*tileSize + tileSize/2
+
+						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
+							centerX, centerY,
+							mw.Monster.LastX, mw.Monster.LastY,
+							mw.Monster.StuckCounter,
+							mw.Monster.LastChosenDir,
+						)
+
+						targets := []struct {
+							label string
+							dx    float64
+							dy    float64
+						}{
+							{label: "E", dx: tileSize, dy: 0},
+							{label: "S", dx: 0, dy: tileSize},
+							{label: "W", dx: -tileSize, dy: 0},
+							{label: "N", dx: 0, dy: -tileSize},
+						}
+
+						for _, t := range targets {
+							x := centerX + t.dx
+							y := centerY + t.dy
+							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.monsterID, x, y)
+							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
+								t.label,
+								x,
+								y,
+								ok,
+								reason,
+								mw.Monster.CanMoveWithinTether(x, y),
+							)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Update collision system if position changed
 	if oldX != newX || oldY != newY {

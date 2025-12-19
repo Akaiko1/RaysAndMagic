@@ -40,8 +40,8 @@ monsters:
     gold_max: 25
     sprite: "orc"
     letter: "o"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.5
     resistances: {}
     habitat_preferences:
@@ -68,8 +68,8 @@ monsters:
     gold_max: 5
     sprite: "dire_wolf"
     letter: "w"
-    box_w: 56
-    box_h: 56
+    box_w: 48
+    box_h: 48
     size_game: 2.0
     resistances: {}
     habitat_preferences:
@@ -92,8 +92,8 @@ monsters:
     gold_max: 20
     sprite: "bear"
     letter: "b"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 3.0
     resistances: {}
     habitat_preferences:
@@ -115,8 +115,8 @@ monsters:
     gold_max: 5
     sprite: "forest_spider"
     letter: "s"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 1.5
     resistances: {}
     habitat_preferences:
@@ -136,10 +136,10 @@ monsters:
     speed: 1.2
     gold_min: 2
     gold_max: 10
-    sprite: "skeleton" 
+    sprite: "skeleton"
     letter: "k"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.0
     resistances:
       mind: 100    # Immune to mind effects
@@ -163,8 +163,8 @@ monsters:
     gold_max: 70
     sprite: "troll"
     letter: "l"
-    box_w: 80
-    box_h: 80
+    box_w: 48
+    box_h: 48
     size_game: 4.0
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
@@ -188,8 +188,8 @@ monsters:
     gold_max: 1500
     sprite: "dragon"
     letter: "d"
-    box_w: 192
-    box_h: 192
+    box_w: 48
+    box_h: 48
     size_game: 8.0
     resistances:
       fire: 90
@@ -215,8 +215,8 @@ monsters:
     gold_max: 33
     sprite: "forest_orc"
     letter: "f"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.5
     resistances:
       earth: 25    # Forest adaptation
@@ -244,8 +244,8 @@ monsters:
     gold_max: 10
     sprite: "dire_wolf"
     letter: "u"
-    box_w: 72
-    box_h: 72
+    box_w: 48
+    box_h: 48
     size_game: 3.0
     resistances: {}
     habitat_preferences:
@@ -268,8 +268,8 @@ monsters:
     gold_max: 9
     sprite: "forest_spider"
     letter: "i"
-    box_w: 56
-    box_h: 56
+    box_w: 48
+    box_h: 48
     size_game: 1.2
     resistances: {}
     habitat_preferences:
@@ -296,8 +296,8 @@ monsters:
     gold_max: 45
     sprite: "treant"
     letter: "t"
-    box_w: 80
-    box_h: 80
+    box_w: 48
+    box_h: 48
     size_game: 4.5
     resistances:
       earth: 75
@@ -357,8 +357,8 @@ monsters:
     gold_max: 25
     sprite: "bandit"
     letter: "n"       # Bandit
-    box_w: 60
-    box_h: 60
+    box_w: 48
+    box_h: 48
     size_game: 2.2
     resistances: {}
     habitat_preferences:

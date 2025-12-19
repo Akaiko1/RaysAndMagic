@@ -48,6 +48,11 @@ type Monster3D struct {
 	StateTimer   int
 	AttackCount  int // Number of attacks made in current engagement
 
+	// Pathfinding state - prevents oscillation when stuck between obstacles
+	LastChosenDir    float64 // Last direction chosen by pathfinding
+	StuckCounter     int     // Counts consecutive frames where monster couldn't move
+	LastX, LastY     float64 // Position last frame to detect stuck state
+
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
 	SpawnX, SpawnY   float64 // Original spawn position
 	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
@@ -82,7 +87,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	monster := &Monster3D{
 		X:           x,
 		Y:           y,
-		State:       StateIdle,
+		State:       StatePatrolling, // Start patrolling immediately to avoid "vibing" at spawn
 		Speed:       1.0,
 		Direction:   rand.Float64() * 2 * math.Pi,
 		StateTimer:  0,
