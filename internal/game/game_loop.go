@@ -38,6 +38,9 @@ func (gl *GameLoop) Update() error {
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
 
+	// Reset mouse state at the start of each frame
+	gl.ui.resetMouseState()
+
 	// Handle exit request from main menu
 	if gl.game.exitRequested {
 		return ErrExit

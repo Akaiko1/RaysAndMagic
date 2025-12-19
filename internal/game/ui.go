@@ -57,9 +57,6 @@ func NewUISystem(game *MMGame) *UISystem {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
-	// Reset mouse state at the start of each frame
-	ui.resetMouseState()
-
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
 
@@ -1043,9 +1040,6 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	case TabSpellbook:
 		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
 	}
-
-	// Reset mouse state at the end of the frame
-	ui.resetMouseState()
 }
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
