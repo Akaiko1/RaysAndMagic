@@ -229,7 +229,7 @@ spells:
   awaken:
     # Basic spell properties
     name: "Awaken"
-    description: "Awakens unconscious party members"
+    description: "Awakening spell (no current gameplay effect)"
     school: "mind"
     level: 2
     spell_points_cost: 4
