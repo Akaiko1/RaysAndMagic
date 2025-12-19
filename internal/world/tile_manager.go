@@ -38,6 +38,10 @@ func (tm *TileManager) validateTileConfiguration() error {
 
 	for key, data := range tm.tileData {
 		letter := data.Letter
+		if letter == "" {
+			// Tiles without a letter aren't placed directly in map text, so skip validation.
+			continue
+		}
 
 		// Initialize letter entry if needed
 		if _, exists := letterMap[letter]; !exists {

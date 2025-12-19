@@ -26,7 +26,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		// Core weapon mechanics
 		base, bonus, total := combatSystem.CalculateWeaponDamage(item, char)
 		fields["w_base"] = fmt.Sprintf("Base Damage: %d", base)
-		fields["w_scaling"] = weaponScalingLine(item)
+		fields["w_scaling"] = weaponScalingLine(item, char, combatSystem)
 		fields["w_bonus"] = fmt.Sprintf("Stat Bonus: +%d", bonus)
 		fields["w_total"] = fmt.Sprintf("Total Damage: %d", total)
 		if item.Range > 0 {
@@ -35,16 +35,19 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		// From YAML weapon definition
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
-			baseHit := weaponDef.HitBonus
-			acc := combatSystem.CalculateAccuracyBonus(char)
-			fields["w_hit"] = fmt.Sprintf("Hit Chance: +%d%% (Base: +%d, Accuracy: +%d)", baseHit+acc, baseHit, acc)
 			if weaponDef.CritChance > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
-				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", weaponDef.CritChance+critBonus, weaponDef.CritChance, critBonus)
+				totalCrit := weaponDef.CritChance + critBonus
+				if totalCrit > 100 {
+					totalCrit = 100
+				} else if totalCrit < 0 {
+					totalCrit = 0
+				}
+				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus)
 			}
 			fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
 		}
-		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_hit", "w_crit", "w_type", "__sep__")
+		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_crit", "w_type", "__sep__")
 
 	case items.ItemArmor:
 		if line := getArmorSummary(item); line != "" {
@@ -65,7 +68,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		order = append(order, "c_line", "__sep__")
 
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		lines := getSpellItemTooltip(item, char)
+		lines := getSpellItemTooltip(item, char, combatSystem)
 		if len(lines) > 0 {
 			fields["s_block"] = strings.Join(lines, "\n")
 			order = append(order, "s_block", "__sep__")
@@ -107,15 +110,39 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 }
 
 // weaponScalingLine builds the human-friendly scaling text for a weapon
-func weaponScalingLine(item items.Item) string {
+func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
 	primary := item.BonusStat
 	if primary == "" {
 		primary = "Might"
 	}
+	primaryValue := getEffectiveStatValue(primary, char, combatSystem)
 	if sec := item.BonusStatSecondary; sec != "" {
-		return fmt.Sprintf("Scales with %s + %s", primary, sec)
+		secondaryValue := getEffectiveStatValue(sec, char, combatSystem)
+		return fmt.Sprintf("Scales with %s (Effective: %d) + %s (Effective: %d)", primary, primaryValue, sec, secondaryValue)
 	}
-	return fmt.Sprintf("Scales with %s", primary)
+	return fmt.Sprintf("Scales with %s (Effective: %d)", primary, primaryValue)
+}
+
+func getEffectiveStatValue(statName string, char *character.MMCharacter, combatSystem *CombatSystem) int {
+	might, intellect, personality, endurance, accuracy, speed, luck := char.GetEffectiveStats(combatSystem.game.statBonus)
+	switch statName {
+	case "Might":
+		return might
+	case "Intellect":
+		return intellect
+	case "Personality":
+		return personality
+	case "Endurance":
+		return endurance
+	case "Accuracy":
+		return accuracy
+	case "Speed":
+		return speed
+	case "Luck":
+		return luck
+	default:
+		return might
+	}
 }
 
 // getItemTypeString returns a readable string for the item type
@@ -181,7 +208,7 @@ func getAccessorySummary(item items.Item) string {
 }
 
 // getSpellItemTooltip returns spell item-specific tooltip information
-func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string {
+func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var lines []string
 
 	lines = append(lines, fmt.Sprintf("School: %s", item.SpellSchool))
@@ -199,6 +226,29 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter) []string 
 	if effectDesc != "" {
 		lines = append(lines, "")
 		lines = append(lines, effectDesc)
+	}
+
+	// Add damage scaling details for battle/projectile spells
+	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		if def.IsProjectile || def.School == "fire" || def.School == "air" || def.School == "water" || def.School == "earth" {
+			_, effectiveIntellect, _, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+			baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("Scales with Intellect (Effective: %d)", effectiveIntellect))
+			lines = append(lines, fmt.Sprintf("Base Damage: %d", baseDamage))
+			lines = append(lines, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
+			lines = append(lines, fmt.Sprintf("Total Damage: %d", totalDamage))
+		}
+		if def.HealAmount > 0 || def.School == "body" {
+			_, _, effectivePersonality, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+			baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("Scales with Personality (Effective: %d)", effectivePersonality))
+			lines = append(lines, fmt.Sprintf("Base Healing: %d", baseHeal))
+			lines = append(lines, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
+			lines = append(lines, fmt.Sprintf("Total Healing: %d", totalHeal))
+		}
 	}
 
 	return lines
@@ -233,31 +283,35 @@ func getConsumableSummary(item items.Item) string {
 func getSpellEffectDescription(effect items.SpellEffect) string {
 	switch effect {
 	case items.SpellEffectFireball:
-		return "Launches a powerful fireball at enemies"
+		return "Projectile fire spell (damage scales with Intellect)"
 	case items.SpellEffectFireBolt:
-		return "Quick fire attack with moderate damage"
+		return "Fast fire projectile (damage scales with Intellect)"
+	case items.SpellEffectIceBolt:
+		return "Chilling projectile (damage scales with Intellect)"
 	case items.SpellEffectTorchLight:
-		return "Creates magical light to illuminate dark areas"
+		return "Creates light around the party (radius 4 tiles)"
 	case items.SpellEffectLightning:
-		return "Strikes enemies with electrical damage"
+		return "Lightning projectile (damage scales with Intellect)"
 	case items.SpellEffectIceShard:
-		return "Hurls ice projectiles that may slow enemies"
+		return "No current gameplay effect"
 	case items.SpellEffectHealSelf:
 		return "Restores your own health"
 	case items.SpellEffectHealOther:
-		return "Heals a selected party member"
+		return "Restores a party member's health"
 	case items.SpellEffectPartyBuff:
-		return "Provides beneficial effects to the entire party"
+		return "No current gameplay effect"
 	case items.SpellEffectShield:
-		return "Creates magical protection against attacks"
+		return "No current gameplay effect"
 	case items.SpellEffectBless:
-		return "Blesses party with improved combat abilities"
+		return "Grants a stat bonus to the party for a duration"
 	case items.SpellEffectWizardEye:
-		return "Reveals hidden enemies and secrets"
+		return "Reveals monsters on the compass within 10 tiles"
 	case items.SpellEffectAwaken:
-		return "Cures sleep and paralysis effects"
+		return "No current gameplay effect"
 	case items.SpellEffectWalkOnWater:
 		return "Allows party to walk on water surfaces"
+	case items.SpellEffect("water_breathing"):
+		return "Allows underwater travel via deep water"
 	default:
 		return ""
 	}
@@ -307,12 +361,6 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		tooltip = append(tooltip, "")
 		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", def.School))
 		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level, getMasteryString(magicSkill.Mastery)))
-
-		// Calculate effectiveness based on skill level
-		effectiveness := calculateSpellEffectivenessFromID(spellID, magicSkill)
-		if effectiveness != 100 {
-			tooltip = append(tooltip, fmt.Sprintf("Effectiveness: %d%%", effectiveness))
-		}
 	}
 
 	// Description
@@ -439,16 +487,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 
 	// Check if this is a utility spell with duration
 	if def.Duration > 0 {
-		// Get character's skill level for this school
-		school := getSchoolFromString(def.School)
-		magicSkill, exists := char.MagicSchools[school]
-
-		// Calculate actual duration with skill bonuses
 		duration := def.Duration
-		if exists {
-			skillMultiplier := 1.0 + (float64(magicSkill.Level) * 0.1)
-			duration = int(float64(def.Duration) * skillMultiplier)
-		}
 
 		// Display duration appropriately (seconds vs minutes)
 		if duration >= 60 {
@@ -460,20 +499,20 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		// Add spell-specific descriptions
 		switch def.Name {
 		case "Torch Light":
-			details = append(details, "Illuminates dark areas")
+			details = append(details, "Light Radius: 4 tiles")
 		case "Wizard Eye":
-			details = append(details, "Reveals monster locations on radar")
+			details = append(details, "Reveals monsters on compass within 10 tiles")
 		case "Walk on Water":
 			details = append(details, "Allows party to walk on water")
+		case "Water Breathing":
+			details = append(details, "Allows underwater travel via deep water")
 		case "Bless":
-			// Calculate bless bonuses
-			if exists {
-				accuracyBonus := 5 + magicSkill.Level
-				damageBonus := 2 + (magicSkill.Level / 2)
-				details = append(details, fmt.Sprintf("Accuracy Bonus: +%d", accuracyBonus))
-				details = append(details, fmt.Sprintf("Damage Bonus: +%d", damageBonus))
+			if def.StatBonus > 0 {
+				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", def.StatBonus))
 			}
 			details = append(details, "Affects entire party")
+		case "Awaken":
+			details = append(details, "No current gameplay effect")
 		}
 	}
 

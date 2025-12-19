@@ -1,173 +1,227 @@
 package game
 
 import (
-    "fmt"
-    "math"
-    "math/rand"
-    "ugataima/internal/character"
-    "ugataima/internal/monster"
+	"fmt"
+	"math"
+	"math/rand"
+	"ugataima/internal/character"
+	"ugataima/internal/monster"
 )
 
 // updateMonstersTurnBased handles monster updates in turn-based mode
 func (gl *GameLoop) updateMonstersTurnBased() {
-    if gl.game.currentTurn != 1 { // Not monster turn
-        return
-    }
+	if gl.game.currentTurn != 1 { // Not monster turn
+		return
+	}
 
-    // Only monsters within 6-tile vision range participate in turn-based combat
-    tileSize := float64(gl.game.config.GetTileSize())
-    visionRange := tileSize * 6.0 // 6 tiles
+	// Only monsters within 6-tile vision range participate in turn-based combat
+	tileSize := float64(gl.game.config.GetTileSize())
+	visionRange := tileSize * 6.0 // 6 tiles
 
-    // Process each monster's turn (only those in vision range)
-    monstersActed := 0
-    for _, monster := range gl.game.world.Monsters {
-        if !monster.IsAlive() {
-            continue
-        }
+	// Process each monster's turn (only those in vision range)
+	monstersActed := 0
+	for _, monster := range gl.game.world.Monsters {
+		if !monster.IsAlive() {
+			continue
+		}
 
-        // Calculate distance to player
-        dx := monster.X - gl.game.camera.X
-        dy := monster.Y - gl.game.camera.Y
-        distance := math.Sqrt(dx*dx + dy*dy)
+		// Calculate distance to player
+		dx := monster.X - gl.game.camera.X
+		dy := monster.Y - gl.game.camera.Y
+		distance := math.Sqrt(dx*dx + dy*dy)
 
-        // Skip monsters outside vision range - they don't participate in turn-based combat
-        if distance > visionRange {
-            continue
-        }
+		// Skip monsters outside vision range - they don't participate in turn-based combat
+		if distance > visionRange {
+			continue
+		}
 
-        // Monster can either move 1 tile OR attack if within reach
-        // Use collision radii and monster-specific attack radius for robust range checks
-        playerRadius := 8.0 // default if entity not found
-        if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
-            playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-        }
-        monsterRadius := 16.0 // default if entity not found
-        if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
-            monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-        }
-        freeSpace := distance - (playerRadius + monsterRadius)
-        reach := monster.AttackRadius
-        if reach <= 0 {
-            reach = tileSize * 0.25 // conservative fallback reach
-        }
+		// Monster can either move 1 tile OR attack if within reach
+		// Use collision radii and monster-specific attack radius for robust range checks
+		playerRadius := 8.0 // default if entity not found
+		if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
+			playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+		}
+		monsterRadius := 16.0 // default if entity not found
+		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
+			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+		}
+		freeSpace := distance - (playerRadius + monsterRadius)
+		reach := monster.AttackRadius
+		if reach <= 0 {
+			reach = tileSize * 0.25 // conservative fallback reach
+		}
 
-        if freeSpace <= reach {
-            // Attack the current character
-            gl.monsterAttackTurnBased(monster)
-        } else {
-            // Move 1 tile towards player (or preferred direction)
-            gl.monsterMoveTurnBased(monster)
-        }
+		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(monster, tileSize)
+		if freeSpace <= reach && inPerpendicularPosition {
+			// Attack only from perpendicular positions (N/E/S/W)
+			gl.monsterAttackTurnBased(monster)
+		} else {
+			// Move 1 tile towards player using perpendicular steps
+			gl.monsterMoveTurnBased(monster)
+		}
 
-        monstersActed++
-    }
+		monstersActed++
+	}
 
-    // Always end monster turn and start party turn
-    // Even if no monsters acted, we need to return control to the party
-    gl.endMonsterTurn()
+	// Always end monster turn and start party turn
+	// Even if no monsters acted, we need to return control to the party
+	gl.endMonsterTurn()
 }
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
-    // Attack a random party character
-    targetIndex := rand.Intn(len(gl.game.party.Members))
-    target := gl.game.party.Members[targetIndex]
+	// Attack a random party character
+	targetIndex := rand.Intn(len(gl.game.party.Members))
+	target := gl.game.party.Members[targetIndex]
 
-    damage := monster.GetAttackDamage()
+	damage := monster.GetAttackDamage()
 
-    // Apply armor damage reduction
-    finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
+	// Apply armor damage reduction
+	finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
 
-    // Perfect Dodge: luck/5% roll to avoid all damage
-    if dodged, _ := gl.combat.RollPerfectDodge(target); !dodged {
-        target.HitPoints -= finalDamage
-        if target.HitPoints < 0 {
-            target.HitPoints = 0
-        }
-        if target.HitPoints == 0 {
-            target.AddCondition(character.ConditionUnconscious)
-        }
-        // Trigger damage blink effect
-        gl.game.TriggerDamageBlink(targetIndex)
+	// Perfect Dodge: luck/5% roll to avoid all damage
+	if dodged, _ := gl.combat.RollPerfectDodge(target); !dodged {
+		target.HitPoints -= finalDamage
+		if target.HitPoints < 0 {
+			target.HitPoints = 0
+		}
+		if target.HitPoints == 0 {
+			target.AddCondition(character.ConditionUnconscious)
+		}
+		// Trigger damage blink effect
+		gl.game.TriggerDamageBlink(targetIndex)
 
-        gl.game.AddCombatMessage(fmt.Sprintf("%s attacks %s for %d damage!", monster.Name, target.Name, finalDamage))
-    } else {
-        gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
-    }
+		gl.game.AddCombatMessage(fmt.Sprintf("%s attacks %s for %d damage!", monster.Name, target.Name, finalDamage))
+	} else {
+		gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
+	}
 }
 
 // monsterMoveTurnBased handles a monster move in turn-based mode
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
-    tileSize := float64(gl.game.config.GetTileSize())
+	tileSize := float64(gl.game.config.GetTileSize())
 
-    // Calculate direction to player
-    dx := gl.game.camera.X - monster.X
-    dy := gl.game.camera.Y - monster.Y
-    distance := math.Sqrt(dx*dx + dy*dy)
+	// Calculate grid deltas to player (tile-based)
+	monsterTileX := int(monster.X / tileSize)
+	monsterTileY := int(monster.Y / tileSize)
+	playerTileX := int(gl.game.camera.X / tileSize)
+	playerTileY := int(gl.game.camera.Y / tileSize)
 
-    if distance == 0 {
-        return // Already at player position
-    }
+	dxTiles := playerTileX - monsterTileX
+	dyTiles := playerTileY - monsterTileY
 
-    // Normalize direction and move 1 tile
-    dirX := dx / distance
-    dirY := dy / distance
+	if dxTiles == 0 && dyTiles == 0 {
+		return // Already at player position
+	}
 
-    newX := monster.X + dirX*tileSize
-    newY := monster.Y + dirY*tileSize
+	// Move 1 tile in a perpendicular (cardinal) direction towards the player
+	stepX, stepY := 0, 0
+	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
+		stepX = sign(dxTiles)
+	} else {
+		stepY = sign(dyTiles)
+	}
 
-    // Check if the monster can move to the new position
-    if gl.game.collisionSystem.CanMoveTo(monster.ID, newX, newY) {
-        monster.X = newX
-        monster.Y = newY
-        gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
-        return
-    }
+	newX := monster.X + float64(stepX)*tileSize
+	newY := monster.Y + float64(stepY)*tileSize
 
-    // Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
-    // This prevents monsters wasting turns stuck behind obstacles
-    gl.teleportMonsterTowardsPlayer(monster, tileSize)
+	// Check if the monster can move to the new position
+	if gl.game.collisionSystem.CanMoveTo(monster.ID, newX, newY) {
+		monster.X = newX
+		monster.Y = newY
+		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
+		return
+	}
+
+	// Try the other perpendicular direction if the preferred one is blocked
+	if stepX != 0 && dyTiles != 0 {
+		altX := monster.X
+		altY := monster.Y + float64(sign(dyTiles))*tileSize
+		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+			monster.X = altX
+			monster.Y = altY
+			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			return
+		}
+	} else if stepY != 0 && dxTiles != 0 {
+		altX := monster.X + float64(sign(dxTiles))*tileSize
+		altY := monster.Y
+		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+			monster.X = altX
+			monster.Y = altY
+			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			return
+		}
+	}
+
+	// Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
+	// This prevents monsters wasting turns stuck behind obstacles
+	gl.teleportMonsterTowardsPlayer(monster, tileSize)
 }
 
 // teleportMonsterTowardsPlayer finds the closest valid position towards the player and teleports there
 func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
-    playerX := gl.game.camera.X
-    playerY := gl.game.camera.Y
+	playerX := gl.game.camera.X
+	playerY := gl.game.camera.Y
 
-    // Check 8 adjacent tiles, pick the one closest to player
-    bestX, bestY := m.X, m.Y
-    bestDist := math.MaxFloat64
+	// Check perpendicular adjacent tiles first, then diagonals as fallback
+	bestX, bestY := m.X, m.Y
+	bestDist := math.MaxFloat64
 
-    for dy := -1; dy <= 1; dy++ {
-        for dx := -1; dx <= 1; dx++ {
-            if dx == 0 && dy == 0 {
-                continue
-            }
-            testX := m.X + float64(dx)*tileSize
-            testY := m.Y + float64(dy)*tileSize
+	cardinalOffsets := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	diagOffsets := [][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
 
-            if gl.game.collisionSystem.CanMoveTo(m.ID, testX, testY) {
-                dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
-                if dist < bestDist {
-                    bestDist = dist
-                    bestX, bestY = testX, testY
-                }
-            }
-        }
-    }
+	bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, cardinalOffsets, bestDist)
+	if bestDist == math.MaxFloat64 {
+		bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, diagOffsets, bestDist)
+	}
 
-    if bestDist < math.MaxFloat64 {
-        m.X = bestX
-        m.Y = bestY
-        gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
-    }
-    // If no valid position found, monster stays put (loses turn)
+	if bestDist < math.MaxFloat64 {
+		m.X = bestX
+		m.Y = bestY
+		gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+	}
+	// If no valid position found, monster stays put (loses turn)
+}
+
+func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playerX, playerY float64, offsets [][2]int, bestDist float64) (float64, float64, float64) {
+	bestX, bestY := m.X, m.Y
+	for _, offset := range offsets {
+		testX := m.X + float64(offset[0])*tileSize
+		testY := m.Y + float64(offset[1])*tileSize
+		if gl.game.collisionSystem.CanMoveTo(m.ID, testX, testY) {
+			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
+			if dist < bestDist {
+				bestDist = dist
+				bestX, bestY = testX, testY
+			}
+		}
+	}
+	return bestX, bestY, bestDist
+}
+
+func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, tileSize float64) bool {
+	monsterTileX := int(monster.X / tileSize)
+	monsterTileY := int(monster.Y / tileSize)
+	playerTileX := int(gl.game.camera.X / tileSize)
+	playerTileY := int(gl.game.camera.Y / tileSize)
+	return monsterTileX == playerTileX || monsterTileY == playerTileY
+}
+
+func sign(val int) int {
+	switch {
+	case val > 0:
+		return 1
+	case val < 0:
+		return -1
+	default:
+		return 0
+	}
 }
 
 // endMonsterTurn ends the monster turn and starts party turn
 func (gl *GameLoop) endMonsterTurn() {
-    gl.game.currentTurn = 0 // Party turn
-    gl.game.partyActionsUsed = 0
-    // Don't spam combat log with turn messages
+	gl.game.currentTurn = 0 // Party turn
+	gl.game.partyActionsUsed = 0
+	// Don't spam combat log with turn messages
 }
-
