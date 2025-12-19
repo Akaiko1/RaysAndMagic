@@ -18,7 +18,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_game: 2.0
+    size_game: 1.5
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -42,7 +42,7 @@ monsters:
     letter: "o"
     box_w: 64
     box_h: 64
-    size_game: 2.0
+    size_game: 2.5
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -94,7 +94,7 @@ monsters:
     letter: "b"
     box_w: 64
     box_h: 64
-    size_game: 2.0
+    size_game: 3.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -117,7 +117,7 @@ monsters:
     letter: "s"
     box_w: 64
     box_h: 64
-    size_game: 2.0
+    size_game: 1.5
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -165,7 +165,7 @@ monsters:
     letter: "l"
     box_w: 80
     box_h: 80
-    size_game: 2.0
+    size_game: 4.0
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
@@ -217,7 +217,7 @@ monsters:
     letter: "f"
     box_w: 64
     box_h: 64
-    size_game: 2.0
+    size_game: 2.5
     resistances:
       earth: 25    # Forest adaptation
     habitat_preferences:
@@ -246,7 +246,7 @@ monsters:
     letter: "u"
     box_w: 72
     box_h: 72
-    size_game: 2.0
+    size_game: 3.0
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -270,7 +270,7 @@ monsters:
     letter: "i"
     box_w: 56
     box_h: 56
-    size_game: 2.0
+    size_game: 1.2
     resistances: {}
     habitat_preferences:
       - "fern_patch"
@@ -298,7 +298,7 @@ monsters:
     letter: "t"
     box_w: 80
     box_h: 80
-    size_game: 2.0
+    size_game: 4.5
     resistances:
       earth: 75
       water: 50
@@ -328,7 +328,7 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_game: 2.0
+    size_game: 0.8
     resistances:
       spirit: 50
       mind: 75
@@ -359,7 +359,7 @@ monsters:
     letter: "n"       # Bandit
     box_w: 60
     box_h: 60
-    size_game: 2.0
+    size_game: 2.2
     resistances: {}
     habitat_preferences:
       - "empty"

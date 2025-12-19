@@ -36,3 +36,13 @@ loots:
     - type: "item"
       key: "belt_of_strength"
       chance: 0.07
+
+  wolf:
+    - type: "item"
+      key: "lucky_paw"
+      chance: 0.01
+
+  dire_wolf:
+    - type: "item"
+      key: "lucky_paw"
+      chance: 0.01

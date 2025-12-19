@@ -1,0 +1,323 @@
+# UgaTaima Spell Configuration
+# This file contains ALL spell-related configuration including:
+# - Spell definitions (damage, cost, schools, etc.)
+# - Projectile physics (speed, lifetime, collision)
+# - Visual appearance (colors, sizes, effects)
+
+# Add new spells here without needing any code changes!
+
+# =============================================================================
+# SPELL DEFINITIONS
+# =============================================================================
+spells:
+  fireball:
+    # Basic spell properties
+    name: "Fireball"
+    description: "Hurls a powerful ball of fire that explodes on impact"
+    school: "fire"
+    level: 1
+    spell_points_cost: 4
+    duration: 0                # 0 for instant spells
+    damage: 12
+    range: 12                  # Range in tiles
+    projectile_speed: 1.0      # Speed multiplier for physics speed
+    projectile_size: 16
+    lifetime: 96               # Projectile lifetime in frames
+    is_projectile: true
+    is_utility: false
+    visual_effect: "fireball"
+    
+    # Projectile physics
+    physics:
+      speed: 8.0               # Base projectile speed (pixels/frame)
+      lifetime: 96             # Projectile lifetime (frames) - 12 tiles range
+      hit_radius: 300          # Hit detection radius (pixels)
+      collision_size: 64       # Size for collision detection (pixels)
+    
+    # Visual appearance
+    graphics:
+      max_size: 64
+      min_size: 4
+      base_size: 16            # Matches collision size
+      color: [255, 50, 0]      # Deep red
+  
+  firebolt:
+    # Basic spell properties
+    name: "Fire Bolt"
+    description: "Launches a small, fast bolt of fire"
+    school: "fire"
+    level: 1
+    spell_points_cost: 1
+    duration: 0
+    damage: 3
+    range: 8
+    projectile_speed: 1.5
+    projectile_size: 10
+    lifetime: 64
+    is_projectile: true
+    is_utility: false
+    visual_effect: "fire_bolt"
+    
+    # Projectile physics
+    physics:
+      speed: 12.0              # Faster than fireball (8.0 * 1.5 from spell definition)
+      lifetime: 64             # Shorter lifetime (frames) - 8 tiles range  
+      hit_radius: 250          # Smaller hit radius for lighter spell
+      collision_size: 12       # Smaller collision size
+    
+    # Visual appearance
+    graphics:
+      max_size: 48
+      min_size: 3
+      base_size: 12            # Matches collision size
+      color: [255, 255, 100]   # Bright yellow-orange
+  
+  ice_bolt:
+    # Basic spell properties
+    name: "Ice Bolt"
+    description: "Launches a chilling bolt of ice"
+    school: "water"
+    level: 1
+    spell_points_cost: 2
+    duration: 0
+    damage: 4
+    range: 8
+    projectile_speed: 1.0
+    projectile_size: 12
+    lifetime: 64
+    is_projectile: true
+    is_utility: false
+    visual_effect: "ice_bolt"
+    
+    # Projectile physics
+    physics:
+      speed: 8.0               # Slower than firebolt (12.0)
+      lifetime: 64             # Same lifetime as firebolt
+      hit_radius: 275          # Slightly larger hit radius  
+      collision_size: 24       # Larger collision size as requested
+    
+    # Visual appearance
+    graphics:
+      max_size: 50
+      min_size: 3
+      base_size: 12            # Matches projectile size
+      color: [150, 200, 255]   # Light blue/cyan
+  
+  lightning:
+    # Basic spell properties
+    name: "Lightning Bolt"
+    description: "Strikes the target with a bolt of lightning"
+    school: "air"
+    level: 2
+    spell_points_cost: 8
+    duration: 0
+    damage: 18
+    range: 6
+    projectile_speed: 2.0
+    projectile_size: 8
+    lifetime: 48
+    is_projectile: true
+    is_utility: false
+    visual_effect: "lightning"
+    
+    # Projectile physics
+    physics:
+      speed: 16.0              # Fastest spell (8.0 * 2.0 from spell definition)
+      lifetime: 48             # Very short lifetime (frames) - 6 tiles range
+      hit_radius: 200          # Small hit radius for precise spell
+      collision_size: 10       # Smallest collision size
+    
+    # Visual appearance
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 10            # Matches collision size
+      color: [100, 150, 255]   # Bright blue
+  
+  heal:
+    # Basic spell properties
+    name: "First Aid"
+    description: "Restores health to the caster"
+    school: "body"
+    level: 1
+    spell_points_cost: 2
+    duration: 0
+    damage: 0
+    range: 0
+    heal_amount: 15
+    is_projectile: false
+    is_utility: true
+    visual_effect: "heal"
+    target_self: true
+    message: "You feel renewed!"
+    
+    # No physics or graphics needed - utility spell
+  
+  heal_other:
+    # Basic spell properties
+    name: "Heal"
+    description: "Restores health to another party member"
+    school: "body"
+    level: 2
+    spell_points_cost: 4
+    duration: 0
+    damage: 0
+    range: 1
+    heal_amount: 20
+    is_projectile: false
+    is_utility: true
+    visual_effect: "heal"
+    target_self: false
+    message: "Healing energy flows to your ally!"
+    
+    # No physics or graphics needed - utility spell
+  
+  torch_light:
+    # Basic spell properties
+    name: "Torch Light"
+    description: "Creates a magical light that illuminates the surroundings"
+    school: "fire"
+    level: 1
+    spell_points_cost: 1
+    duration: 300              # 5 minutes
+    damage: 0
+    range: 0
+    is_projectile: false
+    is_utility: true
+    visual_effect: "light"
+    vision_bonus: 50.0
+    message: "A magical light illuminates the area!"
+    
+    # No physics or graphics needed - utility spell
+  
+  bless:
+    # Basic spell properties
+    name: "Bless"
+    description: "Blesses the party with divine protection (+20 to all stats)"
+    school: "spirit"           # Keep as spirit magic
+    level: 2
+    spell_points_cost: 6
+    duration: 300              # 5 minutes
+    damage: 0
+    range: 0
+    stat_bonus: 20             # +20 to all stats
+    is_projectile: false
+    is_utility: true
+    visual_effect: "bless"
+    message: "The party feels blessed! (+20 to all stats)"
+    
+    # No physics or graphics needed - utility spell
+  
+  wizard_eye:
+    # Basic spell properties
+    name: "Wizard Eye"
+    description: "Extends your vision beyond normal limits"
+    school: "air"
+    level: 4
+    spell_points_cost: 8
+    duration: 300              # 5 minutes
+    damage: 0
+    range: 0
+    vision_bonus: 100.0
+    is_projectile: false
+    is_utility: true
+    visual_effect: "wizard_eye"
+    message: "Your vision extends beyond normal limits!"
+    
+    # No physics or graphics needed - utility spell
+  
+  awaken:
+    # Basic spell properties
+    name: "Awaken"
+    description: "Awakening spell (no current gameplay effect)"
+    school: "mind"
+    level: 2
+    spell_points_cost: 4
+    duration: 0
+    damage: 0
+    range: 0
+    is_projectile: false
+    is_utility: true
+    visual_effect: "awaken"
+    awaken: true
+    message: "Awakening energy spreads through the party!"
+    
+    # No physics or graphics needed - utility spell
+  
+  walk_on_water:
+    # Basic spell properties
+    name: "Walk on Water"
+    description: "Allows the party to walk on water surfaces"
+    school: "water"
+    level: 3
+    spell_points_cost: 6
+    duration: 180              # 3 minutes
+    damage: 0
+    range: 0
+    is_projectile: false
+    is_utility: true
+    visual_effect: "water_walk"
+    water_walk: true
+    message: "The party gains the ability to walk on water!"
+    
+    # No physics or graphics needed - utility spell
+  
+  water_breathing:
+    # Basic spell properties
+    name: "Water Breathing"
+    description: "Allows underwater exploration by enabling breathing underwater"
+    school: "water"
+    level: 3
+    spell_points_cost: 10
+    duration: 600              # 10 minutes
+    damage: 0
+    range: 0
+    is_projectile: false
+    is_utility: true
+    visual_effect: "water_breathing"
+    water_breathing: true
+    message: "You can now breathe underwater!"
+    
+    # No physics or graphics needed - utility spell
+
+# =============================================================================
+# SPELL ADDING INSTRUCTIONS
+# =============================================================================
+# To add a new spell:
+# 1. Add a new entry under 'spells:' with a unique key (spell ID)
+# 2. Fill in all the basic spell properties
+# 3. For projectile spells (is_projectile: true):
+#    - Add 'physics:' section with speed, lifetime, hit_radius, collision_size
+#    - Add 'graphics:' section with max_size, min_size, base_size, color
+# 4. For utility spells (is_utility: true):
+#    - Add effect properties like heal_amount, vision_bonus, stat_bonus, etc.
+#    - Add custom message
+#    - No physics or graphics sections needed
+# 5. Build and test: go run .
+#
+# Example new projectile spell:
+# ice_shard:
+#   name: "Ice Shard"
+#   description: "Launches a sharp shard of ice"
+#   school: "water"
+#   level: 2
+#   spell_points_cost: 6
+#   duration: 0
+#   damage: 15
+#   range: 10
+#   projectile_speed: 1.2
+#   projectile_size: 12
+#   lifetime: 80
+#   is_projectile: true
+#   is_utility: false
+#   visual_effect: "ice_shard"
+#   physics:
+#     speed: 10.0
+#     lifetime: 80
+#     hit_radius: 200
+#     collision_size: 12
+#   graphics:
+#     max_size: 50
+#     min_size: 3
+#     base_size: 12
+#     color: [100, 200, 255]  # Light blue

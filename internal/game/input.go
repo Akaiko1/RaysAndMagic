@@ -32,24 +32,43 @@ type InputHandler struct {
 
 // NewInputHandler creates a new input handler
 func NewInputHandler(game *MMGame) *InputHandler {
-    return &InputHandler{game: game}
+	return &InputHandler{game: game}
+}
+
+// actionCooldown returns the number of frames to wait before the next action,
+// using Speed-based anchors: Speed 5 => ~60 frames (1 sec), Speed 50 => ~30 frames (0.5 sec).
+// Scales linearly between/around anchors and clamps to [15, 90] frames. The `base` arg is ignored.
+func (ih *InputHandler) actionCooldown(_ int) int {
+	selected := ih.game.party.Members[ih.game.selectedChar]
+	// Use effective stats to include buffs/items
+	_, _, _, _, _, speed, _ := selected.GetEffectiveStats(ih.game.statBonus)
+	// Linear fit through points: (5,60) and (50,30)
+	frames := 63.333333 - (2.0/3.0)*float64(speed)
+	cd := int(math.Round(frames))
+	if cd < 15 {
+		cd = 15
+	}
+	if cd > 90 {
+		cd = 90
+	}
+	return cd
 }
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
-    // When game over, only allow New Game or Load
-    if ih.game.gameOver {
-        if ebiten.IsKeyPressed(ebiten.KeyN) {
-            ih.restartNewGame()
-            return
-        }
-        if ebiten.IsKeyPressed(ebiten.KeyL) {
-            ih.game.mainMenuOpen = true
-            ih.game.mainMenuMode = MenuLoadSelect
-            return
-        }
-        return
-    }
+	// When game over, only allow New Game or Load
+	if ih.game.gameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyN) {
+			ih.restartNewGame()
+			return
+		}
+		if ebiten.IsKeyPressed(ebiten.KeyL) {
+			ih.game.mainMenuOpen = true
+			ih.game.mainMenuMode = MenuLoadSelect
+			return
+		}
+		return
+	}
 	// ESC handling: close current overlay before opening menu
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		// If main menu is open, back out of submenus or close it
@@ -118,20 +137,20 @@ func (ih *InputHandler) HandleInput() {
 
 // restartNewGame resets party and state for a fresh start
 func (ih *InputHandler) restartNewGame() {
-    // Recreate party
-    ih.game.party = character.NewParty(ih.game.config)
-    // Reset game over state
-    ih.game.gameOver = false
-    // Reset dialog/menu states
-    ih.game.dialogActive = false
-    ih.game.menuOpen = false
-    // Move player to start position
-    if ih.game.GetCurrentWorld() != nil {
-        startX, startY := ih.game.GetCurrentWorld().GetStartingPosition()
-        ih.game.camera.X = startX
-        ih.game.camera.Y = startY
-        ih.game.collisionSystem.UpdateEntity("player", startX, startY)
-    }
+	// Recreate party
+	ih.game.party = character.NewParty(ih.game.config)
+	// Reset game over state
+	ih.game.gameOver = false
+	// Reset dialog/menu states
+	ih.game.dialogActive = false
+	ih.game.menuOpen = false
+	// Move player to start position
+	if ih.game.GetCurrentWorld() != nil {
+		startX, startY := ih.game.GetCurrentWorld().GetStartingPosition()
+		ih.game.camera.X = startX
+		ih.game.camera.Y = startY
+		ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+	}
 }
 
 // handleMainMenuInput processes input for the main menu (opened with ESC)
@@ -310,13 +329,13 @@ func (ih *InputHandler) handleCombatInput() {
 	// Magic attack (F key) - single press with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
 		ih.game.combat.CastEquippedSpell()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 	}
 
 	// Melee attack (Space key) - with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
 		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.spellInputCooldown = 15 // 0.25 second cooldown at 60 FPS
+		ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
 	}
 
 	// Note: H key healing is handled in handleMouseInput for proper targeting
@@ -653,16 +672,16 @@ func (ih *InputHandler) handleMouseInput() {
 				// Check if the spell can target others or if targeting self
 				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
 					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-					ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 				} else {
 					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
 					ih.game.combat.EquipmentHeal()
-					ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 				}
 			} else {
 				// No target under mouse, heal self (original behavior)
 				ih.game.combat.EquipmentHeal()
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 			}
 		}
 	}
@@ -1037,8 +1056,8 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dialogX := (screenWidth - dialogWidth) / 2
 	dialogY := (screenHeight - dialogHeight) / 2
 
-    // Check if clicking on spells (if NPC is spell trader)
-    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "spell_trader" {
+	// Check if clicking on spells (if NPC is spell trader)
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "spell_trader" {
 
 		// Check if clicking on character list
 		for i := range ih.game.party.Members {
@@ -1063,70 +1082,70 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if mouseX >= dialogX+20 && mouseX <= dialogX+370 &&
 				mouseY >= spellY-2 && mouseY <= spellY+22 {
 
-        // Check for double-click to purchase spell directly (neutral dialog tracking)
-        currentTime := time.Now().UnixMilli()
-        if ih.game.dialogLastClickedIdx == spellIndex &&
-            currentTime-ih.game.dialogLastClickTime < 500 {
-            // Double-click detected - purchase the spell
-            ih.purchaseSelectedSpell()
-        } else {
-            // Single click - just select the spell
-            ih.game.dialogSelectedSpell = spellIndex
-            ih.game.selectedSpellKey = spellKey
-        }
+				// Check for double-click to purchase spell directly (neutral dialog tracking)
+				currentTime := time.Now().UnixMilli()
+				if ih.game.dialogLastClickedIdx == spellIndex &&
+					currentTime-ih.game.dialogLastClickTime < 500 {
+					// Double-click detected - purchase the spell
+					ih.purchaseSelectedSpell()
+				} else {
+					// Single click - just select the spell
+					ih.game.dialogSelectedSpell = spellIndex
+					ih.game.selectedSpellKey = spellKey
+				}
 
-        // Update click tracking for dialog spells
-        ih.game.dialogLastClickTime = currentTime
-        ih.game.dialogLastClickedIdx = spellIndex
-        ih.game.mousePressed = true
-        return
-        }
-        }
-    }
+				// Update click tracking for dialog spells
+				ih.game.dialogLastClickTime = currentTime
+				ih.game.dialogLastClickedIdx = spellIndex
+				ih.game.mousePressed = true
+				return
+			}
+		}
+	}
 
-    // Check if clicking to sell items (if NPC is merchant)
-    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "merchant" {
-        dialogWidth := 600
-        dialogHeight := 400
-        dialogX := (screenWidth - dialogWidth) / 2
-        dialogY := (screenHeight - dialogHeight) / 2
+	// Check if clicking to sell items (if NPC is merchant)
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "merchant" {
+		dialogWidth := 600
+		dialogHeight := 400
+		dialogX := (screenWidth - dialogWidth) / 2
+		dialogY := (screenHeight - dialogHeight) / 2
 
-        // Inventory list region mirrors drawMerchantDialog
-        listY := dialogY + 90 + 20
-        maxItems := 15
-        for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
-            y := listY + i*25
-            if mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+20 {
-                if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
-                    currentTime := time.Now().UnixMilli()
-                    // Use neutral dialog click tracking to detect double-click per index
-                    if ih.game.dialogLastClickedIdx == i && currentTime-ih.game.dialogLastClickTime < 500 {
-                        ih.game.mousePressed = true
-                        // Double-click detected - sell the item for its value
-                        item := ih.game.party.Inventory[i]
-                        price := item.Attributes["value"]
-                        if price <= 0 {
-                            ih.game.AddCombatMessage("This item has no value.")
-                            return
-                        }
-                        ih.game.party.Gold += price
-                        ih.game.party.RemoveItem(i)
-                        ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
-                        return
-                    }
-                    // Single click - select (no-op visual for now), store click tracking
-                    ih.game.dialogLastClickTime = currentTime
-                    ih.game.dialogLastClickedIdx = i
-                    ih.game.mousePressed = true
-                    return
-                }
-            }
-        }
-        return
-    }
+		// Inventory list region mirrors drawMerchantDialog
+		listY := dialogY + 90 + 20
+		maxItems := 15
+		for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
+			y := listY + i*25
+			if mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+20 {
+				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !ih.game.mousePressed {
+					currentTime := time.Now().UnixMilli()
+					// Use neutral dialog click tracking to detect double-click per index
+					if ih.game.dialogLastClickedIdx == i && currentTime-ih.game.dialogLastClickTime < 500 {
+						ih.game.mousePressed = true
+						// Double-click detected - sell the item for its value
+						item := ih.game.party.Inventory[i]
+						price := item.Attributes["value"]
+						if price <= 0 {
+							ih.game.AddCombatMessage("This item has no value.")
+							return
+						}
+						ih.game.party.Gold += price
+						ih.game.party.RemoveItem(i)
+						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+						return
+					}
+					// Single click - select (no-op visual for now), store click tracking
+					ih.game.dialogLastClickTime = currentTime
+					ih.game.dialogLastClickedIdx = i
+					ih.game.mousePressed = true
+					return
+				}
+			}
+		}
+		return
+	}
 
-    // Check if clicking on encounter choices (if NPC is encounter type)
-    if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "encounter" {
+	// Check if clicking on encounter choices (if NPC is encounter type)
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "encounter" {
 		npc := ih.game.dialogNPC
 		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
 			// Skip if already visited and encounter is first-visit-only
@@ -1148,24 +1167,24 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					if mouseX >= dialogX-20 && mouseX <= dialogX+dialogWidth &&
 						mouseY >= choiceY-2 && mouseY <= choiceY+22 {
 
-                    // Check for double-click to execute choice immediately (neutral tracking)
-                    currentTime := time.Now().UnixMilli()
-                    if ih.game.selectedChoice == i &&
-                        currentTime-ih.game.dialogLastClickTime < 500 {
-                        // Double-click detected - execute the choice
-                        ih.executeEncounterChoice()
-                    } else {
-                        // Single click - just select the choice
-                        ih.game.selectedChoice = i
-                    }
+						// Check for double-click to execute choice immediately (neutral tracking)
+						currentTime := time.Now().UnixMilli()
+						if ih.game.selectedChoice == i &&
+							currentTime-ih.game.dialogLastClickTime < 500 {
+							// Double-click detected - execute the choice
+							ih.executeEncounterChoice()
+						} else {
+							// Single click - just select the choice
+							ih.game.selectedChoice = i
+						}
 
-                    // Update click tracking
-                    ih.game.dialogLastClickTime = currentTime
-                    ih.game.mousePressed = true
-                    return
-                }
-            }
-            }
+						// Update click tracking
+						ih.game.dialogLastClickTime = currentTime
+						ih.game.mousePressed = true
+						return
+					}
+				}
+			}
 		}
 	}
 }
@@ -1239,25 +1258,30 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	// Handle attacks (any 2 attacks from any party members)
-    // Only allow actions if selected character is conscious
-    selected := ih.game.party.Members[ih.game.selectedChar]
-    canAct := !(selected.HitPoints <= 0)
-    for _, cond := range selected.Conditions { if cond == character.ConditionUnconscious { canAct = false; break } }
+	// Only allow actions if selected character is conscious
+	selected := ih.game.party.Members[ih.game.selectedChar]
+	canAct := !(selected.HitPoints <= 0)
+	for _, cond := range selected.Conditions {
+		if cond == character.ConditionUnconscious {
+			canAct = false
+			break
+		}
+	}
 
-    if canAct && ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-        ih.game.combat.EquipmentMeleeAttack()
-        ih.game.partyActionsUsed++
-        ih.game.spellInputCooldown = 15
+	if canAct && ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+		ih.game.combat.EquipmentMeleeAttack()
+		ih.game.partyActionsUsed++
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()
 		}
 	}
 
-    if canAct && ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-        ih.game.combat.CastEquippedSpell()
-        ih.game.partyActionsUsed++
-        ih.game.spellInputCooldown = 15
+	if canAct && ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
+		ih.game.combat.CastEquippedSpell()
+		ih.game.partyActionsUsed++
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()
@@ -1572,52 +1596,52 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 
 // findEncounterSpawnLocation finds a suitable spawn location near the encounter using DRY helper
 func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64, float64) {
-    tileSize := float64(ih.game.config.GetTileSize())
+	tileSize := float64(ih.game.config.GetTileSize())
 
-    // Try to spawn within 3-5 tiles of the NPC
-    maxAttempts := 15
-    for attempt := 0; attempt < maxAttempts; attempt++ {
-        // Random offset 3-5 tiles away
-        offsetRange := 3.0 + rand.Float64()*2.0 // 3-5 tiles
-        angle := rand.Float64() * 2 * 3.14159   // Random angle
+	// Try to spawn within 3-5 tiles of the NPC
+	maxAttempts := 15
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Random offset 3-5 tiles away
+		offsetRange := 3.0 + rand.Float64()*2.0 // 3-5 tiles
+		angle := rand.Float64() * 2 * 3.14159   // Random angle
 
-        offsetX := math.Cos(angle) * offsetRange * tileSize
-        offsetY := math.Sin(angle) * offsetRange * tileSize
+		offsetX := math.Cos(angle) * offsetRange * tileSize
+		offsetY := math.Sin(angle) * offsetRange * tileSize
 
-        candidateX := npcX + offsetX
-        candidateY := npcY + offsetY
+		candidateX := npcX + offsetX
+		candidateY := npcY + offsetY
 
-        // Only return if the exact candidate position is walkable
-        if ih.isPositionWalkable(candidateX, candidateY) {
-            return candidateX, candidateY
-        }
-    }
+		// Only return if the exact candidate position is walkable
+		if ih.isPositionWalkable(candidateX, candidateY) {
+			return candidateX, candidateY
+		}
+	}
 
-    // No fallback - if we can't find a good spot, don't spawn the monster
-    fmt.Printf("Warning: Could not find walkable spawn location near NPC at (%.1f, %.1f)\n", npcX, npcY)
-    return 0, 0 // Return invalid coordinates
+	// No fallback - if we can't find a good spot, don't spawn the monster
+	fmt.Printf("Warning: Could not find walkable spawn location near NPC at (%.1f, %.1f)\n", npcX, npcY)
+	return 0, 0 // Return invalid coordinates
 }
 
 // isPositionWalkable checks if a specific position is walkable (DRY helper)
 func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
-    worldInst := ih.game.GetCurrentWorld()
-    if worldInst == nil {
-        return false
-    }
+	worldInst := ih.game.GetCurrentWorld()
+	if worldInst == nil {
+		return false
+	}
 
-    tileSize := float64(ih.game.config.GetTileSize())
-    // Treat negative positions as out of bounds
-    if x < 0 || y < 0 {
-        return false
-    }
-    tileX := int(x / tileSize)
-    tileY := int(y / tileSize)
+	tileSize := float64(ih.game.config.GetTileSize())
+	// Treat negative positions as out of bounds
+	if x < 0 || y < 0 {
+		return false
+	}
+	tileX := int(x / tileSize)
+	tileY := int(y / tileSize)
 
-    if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
-        tile := worldInst.Tiles[tileY][tileX]
-        return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)
-    }
-    return false
+	if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
+		tile := worldInst.Tiles[tileY][tileX]
+		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)
+	}
+	return false
 }
 
 // wrapTextForDialog wraps text to fit within specified width (same as UI wrapText)

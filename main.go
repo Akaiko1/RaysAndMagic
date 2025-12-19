@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"log"
+	"math/rand"
+	"time"
 
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
@@ -16,14 +18,16 @@ import (
 )
 
 func main() {
+	// Seed RNG for combat rolls (crit, loot, etc.)
+	rand.Seed(time.Now().UnixNano())
 	// Load configuration
 	cfg := config.MustLoadConfig("config.yaml")
 
 	// Load unified spell configuration
-	config.MustLoadSpellConfig("spells.yaml")
+	config.MustLoadSpellConfig("assets/spells.yaml")
 
 	// Load weapon configuration
-	config.MustLoadWeaponConfig("weapons.yaml")
+	config.MustLoadWeaponConfig("assets/weapons.yaml")
 
 	// Load non-weapon item configuration
 	config.MustLoadItemConfig("assets/items.yaml")

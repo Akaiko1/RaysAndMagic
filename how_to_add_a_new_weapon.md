@@ -1,296 +1,290 @@
 # How to Add a New Weapon to UgaTaima
 
-This manual provides a step-by-step guide for adding new weapons to the UgaTaima RPG game.
+This guide shows how to add new weapons using the **pure YAML-based weapon system**. No Go code changes are required!
 
-## System Overview
+## Overview
 
-The weapon system consists of:
-- **Weapon Definitions**: Core weapon properties (damage, range, category)
-- **Class Restrictions**: Which classes can equip which weapon categories
-- **Combat Configuration**: Category-based attack behavior (speed, lifetime, collision)
-- **Graphics Configuration**: Category-based visual rendering (size, color)
+The weapon system is completely YAML-driven. All weapon configuration is in `assets/weapons.yaml`, including definitions, physics, graphics, and melee configurations.
+
+## Architecture
+
+```
+YAML-Driven Weapon System:
+weapon_key (string) → assets/weapons.yaml → WeaponDefinition + Physics + Graphics + Melee → Combat
+
+✅ NO Go code changes needed
+✅ Single assets/weapons.yaml file for ALL weapon configuration
+✅ Per-weapon physics and graphics (not shared by category)
+```
 
 ## Quick Reference: Weapon Categories
 
 | Category | Classes | Examples | Behavior |
 |----------|---------|----------|----------|
-| `sword` | Knight, Paladin | Iron Sword, Silver Sword | Medium speed, balanced |
-| `dagger` | Archer, Sorcerer, Druid | Magic Dagger | Fast, small collision |
-| `axe` | Knight | Steel Axe | Slow, large collision |
-| `mace` | Knight, Paladin, Cleric | Holy Mace | Medium speed, medium collision |
-| `spear` | Knight, Paladin, Druid | Iron Spear | Fast, long reach |
-| `staff` | Cleric, Sorcerer, Druid | Oak Staff, Battle Staff | Medium speed, magical |
-| `bow` | Archer | Hunting Bow, Elven Bow | Ranged projectiles |
+| `sword` | Knight, Paladin | Iron Sword, Silver Sword | Melee, medium arc |
+| `dagger` | Archer, Sorcerer, Druid | Magic Dagger | Melee, fast, narrow arc |
+| `axe` | Knight | Steel Axe | Melee, slow, wide arc |
+| `mace` | Knight, Paladin, Cleric | Holy Mace | Melee, medium |
+| `spear` | Knight, Paladin, Druid | Iron Spear | Melee, thrust attack |
+| `staff` | Cleric, Sorcerer, Druid | Oak Staff, Battle Staff | Ranged projectile |
+| `bow` | Archer | Hunting Bow, Elven Bow | Ranged arrows |
 
-## Step-by-Step Implementation
+## Step 1: Add Your Weapon to assets/weapons.yaml
 
-### 1. Define the Weapon Type
+All weapon configuration is in `assets/weapons.yaml`. Add your weapon under the `weapons:` section.
 
-**File**: `internal/items/items.go` (around line 50)
-
-```go
-const (
-    WeaponTypeIronSword WeaponType = iota
-    WeaponTypeMagicDagger
-    // ... existing weapons ...
-    WeaponTypeMithrilSword  // Add your new weapon here
-)
-```
-
-### 2. Create the Weapon Definition
-
-**File**: `internal/items/items.go` (around line 137)
-
-```go
-WeaponTypeMithrilSword: {
-    Type:        WeaponTypeMithrilSword,
-    Name:        "Mithril Sword",
-    Description: "A legendary sword forged from pure mithril",
-    Category:    "sword",        // Determines combat/graphics config used
-    Damage:      15,             // Base damage
-    Range:       2,              // Range in tiles (>3 = ranged weapon)
-    BonusStat:   "Might",        // Stat for damage bonus (Might/3)
-    HitBonus:    12,             // Currently unused
-    CritChance:  20,             // Currently unused
-    Rarity:      "legendary",    // Currently unused
-},
-```
-
-**Key Field**: `Category` determines which config section is used:
-- **Combat**: `combat.sword` for attack behavior
-- **Graphics**: `graphics.projectiles.sword` for visual rendering
-
-### 3. Add Name Mapping
-
-**File**: `internal/items/items.go` (around line 291)
-
-```go
-nameMap := map[string]WeaponType{
-    "Iron Sword":    WeaponTypeIronSword,
-    // ... existing weapons ...
-    "Mithril Sword": WeaponTypeMithrilSword,  // Add this line
-}
-```
-
-### 4. Configure Class Restrictions (if needed)
-
-**File**: `internal/character/character.go` (around line 470)
-
-Only needed if creating a new category. For existing categories, class restrictions already exist:
-
-```go
-switch c.Class {
-case ClassKnight:
-    return category == "sword" || category == "axe" || category == "mace" || category == "spear"
-case ClassPaladin:
-    return category == "sword" || category == "mace" || category == "spear"
-case ClassArcher:
-    return category == "bow" || category == "dagger"
-case ClassCleric:
-    return category == "mace" || category == "staff"
-case ClassSorcerer:
-    return category == "staff" || category == "dagger"
-case ClassDruid:
-    return category == "staff" || category == "spear" || category == "dagger"
-}
-```
-
-## Configuration System
-
-All weapons in the same category share the same combat and visual behavior.
-
-### Combat Configuration
-
-**File**: `config.yaml`
+### Melee Weapon Example (Sword/Axe/Mace/Dagger/Spear)
 
 ```yaml
-combat:
-  sword:     { speed: 10.0, lifetime: 15, collision_size: 24 }
-  dagger:    { speed: 15.0, lifetime: 10, collision_size: 16 }
-  axe:       { speed: 8.0,  lifetime: 20, collision_size: 32 }
-  mace:      { speed: 9.0,  lifetime: 18, collision_size: 26 }
-  spear:     { speed: 12.0, lifetime: 12, collision_size: 20 }
-  staff:     { speed: 11.0, lifetime: 14, collision_size: 22 }
-  bow:       { speed: 9.6,  lifetime: 54, collision_size: 12 }
+weapons:
+  mithril_sword:
+    # Basic weapon properties
+    name: "Mithril Sword"
+    description: "A legendary sword forged from pure mithril"
+    category: "sword"
+    damage: 15
+    range: 1                    # 1-2 for melee weapons
+    bonus_stat: "Might"         # Stat for damage bonus
+    hit_bonus: 12
+    crit_chance: 20
+    rarity: "legendary"
+    value: 800
+
+    # Melee-specific configuration
+    melee:
+      arc_angle: 75             # Swing arc in degrees
+      animation_frames: 10      # Attack duration in frames
+      hit_delay: 3              # Frames before damage applies
+
+    # Visual effects for slash animation
+    graphics:
+      slash_color: [200, 255, 255]  # Light blue mithril flash
+      slash_width: 38
+      slash_length: 54
 ```
 
-- **speed**: Currently unused
-- **lifetime**: Attack duration in frames ✅ USED
-- **collision_size**: Hit detection size in pixels ✅ USED
+### Ranged Weapon Example (Bow)
+
+```yaml
+weapons:
+  longbow:
+    # Basic weapon properties
+    name: "Longbow"
+    description: "A powerful longbow with extended range"
+    category: "bow"
+    damage: 9
+    range: 12                   # >3 = ranged weapon (arrows)
+    bonus_stat: "Accuracy"
+    hit_bonus: 18
+    crit_chance: 15
+    rarity: "rare"
+    value: 300
+
+    # Projectile physics (required for ranged weapons)
+    physics:
+      speed: 10.0               # Arrow speed (pixels/frame)
+      lifetime: 72              # Arrow lifetime in frames
+      hit_radius: 320           # Hit detection radius
+      collision_size: 14        # Arrow collision box
+
+    # Visual appearance for arrows
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 14
+      color: [160, 120, 80]     # Brown wood color
+```
+
+### Staff Weapon Example (Ranged Magic)
+
+```yaml
+weapons:
+  crystal_staff:
+    # Basic weapon properties
+    name: "Crystal Staff"
+    description: "A staff that channels arcane energy"
+    category: "staff"
+    damage: 8
+    range: 3                    # Staff range
+    bonus_stat: "Intellect"
+    hit_bonus: 12
+    crit_chance: 10
+    rarity: "rare"
+    value: 250
+
+    # Projectile physics
+    physics:
+      speed: 12.0
+      lifetime: 18
+      hit_radius: 340
+      collision_size: 24
+
+    # Visual appearance
+    graphics:
+      max_size: 48
+      min_size: 3
+      base_size: 24
+      color: [150, 100, 200]    # Purple crystal
+```
+
+## Step 2: Add Name Mapping (Required)
+
+Add your weapon to the name-to-key mapping in `internal/items/items.go`:
+
+```go
+// Around line 291 in GetWeaponKeyByName function
+var nameToKeyMap = map[string]string{
+    "Iron Sword":    "iron_sword",
+    "Silver Sword":  "silver_sword",
+    // ... existing weapons ...
+    "Mithril Sword": "mithril_sword",  // Add this line
+}
+```
+
+**This is the only Go code change needed!**
+
+## Property Reference
+
+### Basic Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | string | ✅ | Display name (must match name mapping) |
+| `description` | string | ✅ | Item description |
+| `category` | string | ✅ | Weapon category (sword/dagger/axe/mace/spear/staff/bow) |
+| `damage` | int | ✅ | Base damage |
+| `range` | int | ✅ | Attack range (1-2 = melee, >3 = ranged) |
+| `bonus_stat` | string | ✅ | Stat for damage bonus (Might/Accuracy/Intellect) |
+| `hit_bonus` | int | Optional | Bonus to hit chance |
+| `crit_chance` | int | Optional | Critical hit percentage |
+| `rarity` | string | Optional | common/uncommon/rare/legendary |
+| `value` | int | Optional | Gold value |
+
+### Melee Configuration (for melee weapons)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `melee.arc_angle` | int | Swing arc in degrees (30-100) |
+| `melee.animation_frames` | int | Attack duration in frames |
+| `melee.hit_delay` | int | Frames before damage applies |
+
+### Physics Configuration (for ranged weapons)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `physics.speed` | float | Projectile speed (pixels/frame) |
+| `physics.lifetime` | int | Projectile lifetime in frames |
+| `physics.hit_radius` | int | Hit detection radius |
+| `physics.collision_size` | int | Collision box size |
 
 ### Graphics Configuration
 
-**File**: `config.yaml`
+**For Melee Weapons:**
 
-```yaml
-graphics:
-  projectiles:
-    sword:     { max_size: 48, min_size: 3, base_size: 24, color: [200,200,220] }
-    dagger:    { max_size: 32, min_size: 2, base_size: 16, color: [150,150,180] }
-    axe:       { max_size: 64, min_size: 4, base_size: 32, color: [180,120,80] }
-    mace:      { max_size: 52, min_size: 3, base_size: 26, color: [160,160,100] }
-    spear:     { max_size: 56, min_size: 3, base_size: 20, color: [140,100,60] }
-    staff:     { max_size: 44, min_size: 3, base_size: 22, color: [100,80,150] }
-    bow:       { max_size: 36, min_size: 2, base_size: 12, color: [180,140,100] }
+| Property | Type | Description |
+|----------|------|-------------|
+| `graphics.slash_color` | [R,G,B] | Slash effect color |
+| `graphics.slash_width` | int | Slash visual width |
+| `graphics.slash_length` | int | Slash visual length |
+
+**For Ranged Weapons:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `graphics.max_size` | int | Maximum projectile size |
+| `graphics.min_size` | int | Minimum projectile size |
+| `graphics.base_size` | int | Base size for distance scaling |
+| `graphics.color` | [R,G,B] | Projectile color |
+
+## Class Restrictions
+
+Weapons are restricted by category. Current class permissions:
+
+| Class | Allowed Categories |
+|-------|-------------------|
+| Knight | sword, axe, mace, spear |
+| Paladin | sword, mace, spear |
+| Archer | bow, dagger |
+| Cleric | mace, staff |
+| Sorcerer | staff, dagger |
+| Druid | staff, spear, dagger |
+
+To add a new category, edit `internal/character/character.go` (CanEquipWeapon function).
+
+## Damage Calculation
+
+```
+Total Damage = Base Damage + (BonusStat ÷ 3) + CritBonus
 ```
 
-- **max_size/min_size**: Size limits for distance scaling ✅ USED
-- **base_size**: Base size for distance calculation ✅ USED  
-- **color**: RGB color values ✅ USED
+Where:
+- **Base Damage**: From weapon definition
+- **BonusStat**: Character's Might/Accuracy/Intellect divided by 3
+- **CritBonus**: Extra damage on critical hits based on crit_chance
 
-## Advanced: Custom Weapon with Unique Projectile
+## Range Behavior
 
-To create a weapon with completely custom behavior (not shared with other weapons), you need to create a **new category**.
-
-### Example: Magic Wand with Custom Projectile
-
-**1. Create New Category in Weapon Definition:**
-
-```go
-WeaponTypeMagicWand: {
-    Type:        WeaponTypeMagicWand,
-    Name:        "Magic Wand",
-    Description: "A wand that shoots magic missiles",
-    Category:    "wand",           // NEW custom category
-    Damage:      8,
-    Range:       6,                // >3 = ranged weapon
-    BonusStat:   "Intellect",
-    // ... other fields
-},
-```
-
-**2. Add Class Restrictions for New Category:**
-
-**File**: `internal/character/character.go` (around line 470)
-
-```go
-case ClassSorcerer:
-    return category == "staff" || category == "dagger" || category == "wand"  // Add wand
-case ClassCleric:
-    return category == "mace" || category == "staff" || category == "wand"     // Add wand
-```
-
-**3. Add Custom Combat Configuration:**
-
-**File**: `config.yaml`
-
-```yaml
-combat:
-  # ... existing categories ...
-  wand:       { speed: 14.0, lifetime: 72, collision_size: 14 }  # Custom behavior
-```
-
-**4. Add Custom Graphics Configuration:**
-
-**File**: `config.yaml`
-
-```yaml
-graphics:
-  projectiles:
-    # ... existing categories ...
-    wand:       { max_size: 40, min_size: 2, base_size: 14, color: [255,0,255] }  # Pink projectiles
-```
-
-**5. Update Configuration Code (if needed):**
-
-The system already supports new categories automatically through the `GetWeaponConfig()` and `GetWeaponGraphicsConfig()` methods. However, if the new category isn't found, it will default to "sword". To add explicit support:
-
-**File**: `internal/config/config.go` (around line 452)
-
-```go
-func (c *Config) GetWeaponConfig(weaponCategory string) *MeleeWeaponConfig {
-    switch weaponCategory {
-    case "sword":
-        return &c.Combat.Sword
-    case "dagger":
-        return &c.Combat.Dagger
-    // ... existing cases ...
-    case "wand":
-        return &c.Combat.Wand    // Add new case
-    default:
-        return &c.Combat.Sword   // Default fallback
-    }
-}
-```
-
-And add the `Wand` field to both config structs:
-
-```go
-type CombatConfig struct {
-    // ... existing fields ...
-    Wand    MeleeWeaponConfig `yaml:"wand"`
-}
-
-type ProjectilesConfig struct {
-    // ... existing fields ...
-    Wand    ProjectileRenderConfig `yaml:"wand"`
-}
-```
-
-And update the graphics getter method:
-
-```go
-func (c *Config) GetWeaponGraphicsConfig(weaponCategory string) *ProjectileRenderConfig {
-    switch weaponCategory {
-    // ... existing cases ...
-    case "wand":
-        return &c.Graphics.Projectiles.Wand
-    default:
-        return &c.Graphics.Projectiles.Sword
-    }
-}
-```
-
-**Important**: No changes needed to `renderer.go` - it automatically uses your new category's config!
-
-**Result**: Your Magic Wand will have completely unique projectile behavior, speed, lifetime, collision size, color, and visual appearance - totally separate from all other weapons!
-
-## Optional: Add to Starting Equipment
-
-**File**: `internal/character/character.go` (around line 170)
-
-```go
-func (c *MMCharacter) setupKnight(cfg *config.Config) {
-    // ... stat setup ...
-    c.Equipment[items.SlotMainHand] = items.CreateWeaponFromDefinition(items.WeaponTypeMithrilSword)
-}
-```
+- **Range 1-2**: Melee weapon (instant arc attack)
+- **Range 3+**: Ranged weapon (creates projectile)
 
 ## Testing Checklist
 
-- [ ] Weapon appears in `WeaponType` enum
-- [ ] Weapon definition exists in `GetWeaponDefinition` map
-- [ ] Name mapping exists in `GetWeaponTypeByName` map
-- [ ] Appropriate classes can equip the weapon
-- [ ] Weapon uses correct category-based combat behavior
-- [ ] Weapon uses correct category-based visual appearance
+- [ ] Weapon definition exists in `assets/weapons.yaml`
+- [ ] Name mapping exists in `GetWeaponKeyByName`
+- [ ] For melee: `melee` section with arc_angle, animation_frames, hit_delay
+- [ ] For ranged: `physics` section with speed, lifetime, hit_radius, collision_size
+- [ ] `graphics` section present (slash_* for melee, projectile settings for ranged)
+- [ ] Category matches one of: sword, dagger, axe, mace, spear, staff, bow
+- [ ] Build succeeds: `go build .`
+- [ ] Weapon can be equipped by appropriate class
+- [ ] Attack animation/projectile works correctly
 
-## Important Notes
+## Advanced: Special Weapon Properties
 
-### Category-Based System
-- **All weapons in the same category behave identically** (except base damage)
-- Iron Sword, Silver Sword, Gold Sword all use "sword" config
-- Only base damage differs between individual weapons
+Some weapons support additional properties:
 
-### Damage Calculation
+```yaml
+bow_of_hellfire:
+    name: "Bow of Hellfire"
+    description: "A cursed bow wreathed in dark flames"
+    category: "bow"
+    damage: 7
+    range: 12
+    bonus_stat: "Accuracy"
+    bonus_stat_secondary: "Intellect"  # Secondary scaling stat
+    damage_type: "dark"                # Element type
+    max_projectiles: 2                 # Limit active arrows
+
+    physics:
+      speed: 4.0                       # Very slow projectiles
+      lifetime: 180
+      collision_size: 64               # Large collision
+
+    graphics:
+      color: [139, 0, 139]             # Dark magenta
 ```
-Total Damage = Base Damage + (BonusStat ÷ 3)
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Weapon not found | Check name mapping in items.go matches exactly |
+| No melee config panic | Add `melee:` section for melee weapons |
+| No graphics config panic | Add `graphics:` section |
+| Wrong projectile behavior | Check `physics:` values |
+| Class can't equip | Verify category matches class restrictions |
+
+## Architecture Flow
+
+```
+Weapon Creation:
+weapon_key → assets/weapons.yaml → WeaponDefinition → Item
+
+Combat Flow:
+Weapon Item → GetWeaponDefinition(key) → Physics/Graphics/Melee Config → Attack
+
+Rendering:
+Attack → weaponDef.Graphics → Visual Effects
 ```
 
-### Range Behavior
-- **Range ≤ 3**: Melee weapon (instant hit at target location)  
-- **Range > 3**: Ranged weapon (creates arrow projectile)
-
-### Fallback Safety
-- Unknown weapon names default to `WeaponTypeIronSword`
-- Unknown categories default to "sword" config
-
-## Architecture
-
-```
-Weapon Attack Flow:
-WeaponName → WeaponType → WeaponDefinition → Category → Combat Config
-                                                    → Graphics Config
-```
-
-The system is fully data-driven through config.yaml with zero hardcoded combat values.
+The weapon system is fully data-driven - add new weapons by editing `assets/weapons.yaml` and adding one name mapping line!

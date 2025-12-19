@@ -55,10 +55,10 @@ The monster system consists of:
 - No special animations beyond basic sprite rendering
 - No glowing or magical effects
 
-### **🏆 Advanced Loot System** ❌ **PARTIALLY IMPLEMENTED**
-- Gold drops work, but item drops are not implemented
-- No equipment drops from monsters
-- No rare/special loot tables
+### **🏆 Loot System** ✅ **FULLY IMPLEMENTED**
+- Gold drops work (configured per monster)
+- Item/weapon drops via `assets/loots.yaml`
+- Per-monster loot tables with configurable drop chances
 
 ## 📋 Property Usage Analysis
 
@@ -79,7 +79,8 @@ The monster system consists of:
 | `gold_min` / `gold_max` | Loot range | `5` / `25` | Random gold drop |
 | `sprite` | Visual sprite | `"orc"` | PNG file in assets/sprites/mobs/ |
 | `letter` | Map symbol | `"o"` | Single character for map placement |
-| `width` / `height` | Collision size | `32` / `32` | Bounding box dimensions |
+| `box_w` / `box_h` | Collision size | `48` / `48` | Bounding box dimensions |
+| `size_game` | Visual scale | `2.0` | Sprite render size multiplier |
 | `resistances` | Damage modifiers | `fire: 50` | Percentage resistance/vulnerability |
 | `habitat_preferences` | Preferred tiles | `["empty", "clearing"]` | Where monster can spawn |
 | `habitat_near` | Proximity rules | `type: "clearing", radius: 2` | Spawn near specific tiles |
@@ -112,8 +113,9 @@ monsters:
     gold_max: 80                  # ✅ Maximum gold drop
     sprite: "goblin"              # ✅ Sprite file (placeholder)
     letter: "i"                   # ✅ Map symbol (must be unique)
-    width: 40                     # ✅ Collision width
-    height: 40                    # ✅ Collision height
+    box_w: 40                     # ✅ Collision width
+    box_h: 40                     # ✅ Collision height
+    size_game: 2.0                # ✅ Visual scale multiplier
     resistances: {}               # ✅ No special resistances
     habitat_preferences:          # ✅ Spawn locations
       - "empty"
@@ -138,8 +140,9 @@ monsters:
     gold_max: 2000
     sprite: "dragon"
     letter: "F"
-    width: 56
-    height: 56
+    box_w: 56                     # ✅ Collision width
+    box_h: 56                     # ✅ Collision height
+    size_game: 8.0                # ✅ Visual scale (large boss)
     resistances:
       fire: -75                   # ✅ Vulnerable to fire (takes 175% damage)
       water: 90                   # ✅ Resistant to water (takes 10% damage)
@@ -376,11 +379,11 @@ AI State Machine → Collision Checking → Position Update → Rendering → Co
 - **Comprehensive combat and resistance system**
 - **Professional sprite rendering with depth testing**
 - **Map-based and random placement**
+- **Item and weapon drops** via `assets/loots.yaml`
 
 ### **❌ What Doesn't Work**
 - **Audio effects** (no monster sounds)
 - **Advanced visual effects** (no particles or special animations)
-- **Item drops** (only gold drops work)
 - **Advanced AI behaviors** (no pathfinding to specific targets)
 
 ### **💡 Summary**

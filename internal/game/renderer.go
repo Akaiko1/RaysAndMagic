@@ -41,6 +41,25 @@ type Renderer struct {
 	rayDirectionsY []float64 // Cached sin values for rays
 }
 
+// getWeaponConfig safely retrieves weapon definition without panicking.
+func (r *Renderer) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
+	weaponKey := items.GetWeaponKeyByName(weaponName)
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		return nil
+	}
+	return weaponDef
+}
+
+// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
+func (r *Renderer) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		return nil
+	}
+	return weaponDef
+}
+
 // NewRenderer creates a new renderer
 func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
@@ -272,12 +291,12 @@ func (r *Renderer) precomputeFloorColorCache() {
 				}
 			}
 
-                clr := baseColor
-                // Apply nearby tile effect ONLY to empty '.' tiles
-                if nearSpecialTile && currentTile == world.TileEmpty {
-                    clr = nearTileColor
-                }
-                cache[[2]int{tileX, tileY}] = clr
+			clr := baseColor
+			// Apply nearby tile effect ONLY to empty '.' tiles
+			if nearSpecialTile && currentTile == world.TileEmpty {
+				clr = nearTileColor
+			}
+			cache[[2]int{tileX, tileY}] = clr
 		}
 	}
 
@@ -368,14 +387,14 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Render the results and update depth buffer
 	r.renderRaycastResults(screen, results)
 
-	// Draw monsters as sprites using parallel processing with depth testing
-	r.drawMonstersParallel(screen)
-
 	// Draw NPCs as sprites using depth testing
 	r.drawNPCs(screen)
 
 	// Draw transparent environment sprites with depth testing
 	r.drawTransparentEnvironmentSprites(screen)
+
+	// Draw monsters as sprites using parallel processing with depth testing
+	r.drawMonstersParallel(screen)
 
 	// Draw fireballs and sword attacks
 	r.drawProjectiles(screen)
@@ -817,10 +836,14 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-	// Update depth buffer for the full width of the tree sprite to properly block monsters
+	// Update depth buffer for central 60% of tree sprite width
+	// This prevents transparent edges from occluding objects behind them
 	spriteLeft := x - spriteWidth/2
 	spriteRight := x + spriteWidth/2
-	for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
+	depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+	depthLeft := spriteLeft + depthMargin
+	depthRight := spriteRight - depthMargin
+	for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
 		if distance < r.game.depthBuffer[px] {
 			r.game.depthBuffer[px] = distance
 		}
@@ -871,21 +894,25 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-    // Update depth buffer for the sprite only if this tile is opaque
-    // Transparent floor objects like clearings should not occlude monsters/NPCs
-    spriteLeft := x - spriteWidth/2
-    spriteRight := x + spriteWidth/2
-    isOpaque := true
-    if world.GlobalTileManager != nil {
-        isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
-    }
-    if isOpaque {
-        for px := spriteLeft; px <= spriteRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
-            if distance < r.game.depthBuffer[px] {
-                r.game.depthBuffer[px] = distance
-            }
-        }
-    }
+	// Update depth buffer for central 60% of sprite width only if this tile is opaque
+	// This prevents transparent edges from occluding objects behind them
+	// Transparent floor objects like clearings should not occlude monsters/NPCs at all
+	spriteLeft := x - spriteWidth/2
+	spriteRight := x + spriteWidth/2
+	isOpaque := true
+	if world.GlobalTileManager != nil {
+		isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
+	}
+	if isOpaque {
+		depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+		depthLeft := spriteLeft + depthMargin
+		depthRight := spriteRight - depthMargin
+		for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
+			if distance < r.game.depthBuffer[px] {
+				r.game.depthBuffer[px] = distance
+			}
+		}
+	}
 
 	// Get appropriate sprite based on tile type using tile manager
 	var spriteName string
@@ -1509,6 +1536,18 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
 
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if projectile is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Projectile is behind a wall
+			}
+		}
+
 		// Get spell-specific graphics config based on spell type
 		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball")
 		spellConfigName := magicProjectile.SpellType
@@ -1612,14 +1651,22 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
 
-		// Get weapon-specific graphics config from YAML
-		weaponKey := items.GetWeaponKeyByName(attack.WeaponName)
-		weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-		if !exists {
-			panic("weapon '" + attack.WeaponName + "' not found in weapons.yaml - system misconfigured")
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if melee attack is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Melee attack is behind a wall
+			}
 		}
-		if weaponDef.Graphics == nil {
-			panic("weapon '" + attack.WeaponName + "' has no graphics configuration in weapons.yaml")
+
+		// Get weapon-specific graphics config from YAML
+		weaponDef := r.getWeaponConfig(attack.WeaponName)
+		if weaponDef == nil || weaponDef.Graphics == nil {
+			continue // Skip rendering if weapon config missing
 		}
 
 		// Calculate attack size based on distance using weapon-specific config
@@ -1714,13 +1761,22 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		// Calculate screen position
 		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
 
-		// Calculate arrow size based on distance using bow-specific config from YAML
-		bowDef, exists := config.GetWeaponDefinition(arrow.BowKey)
-		if !exists {
-			panic("bow '" + arrow.BowKey + "' not found in weapons.yaml - system misconfigured")
+		// Calculate camera-space perpendicular depth for depth buffer comparison
+		camDirX := math.Cos(r.game.camera.Angle)
+		camDirY := math.Sin(r.game.camera.Angle)
+		depthPerp := dx*camDirX + dy*camDirY
+
+		// Depth test: check if arrow is behind walls
+		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+			if depthPerp >= r.game.depthBuffer[screenX] {
+				continue // Arrow is behind a wall
+			}
 		}
-		if bowDef.Graphics == nil {
-			panic("bow '" + arrow.BowKey + "' has no graphics configuration in weapons.yaml")
+
+		// Calculate arrow size based on distance using bow-specific config from YAML
+		bowDef := r.getWeaponConfigByKey(arrow.BowKey)
+		if bowDef == nil || bowDef.Graphics == nil {
+			continue // Skip rendering if weapon config missing
 		}
 		baseSize := float64(bowDef.Graphics.BaseSize)
 		arrowSize := int(baseSize / distance * r.game.config.GetTileSize())

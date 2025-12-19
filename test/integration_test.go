@@ -19,9 +19,9 @@ func TestGameIntegration(t *testing.T) {
 	}
 
 	// Load spell configuration
-	_, err = config.LoadSpellConfig("../spells.yaml")
+	_, err = config.LoadSpellConfig("../assets/spells.yaml")
 	if err != nil {
-		t.Logf("Warning: Could not load spells.yaml: %v", err)
+		t.Logf("Warning: Could not load assets/spells.yaml: %v", err)
 	}
 
 	// Initialize spell system (legacy compatibility)

@@ -24,14 +24,36 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
 }
 
+// getWeaponConfig safely retrieves weapon definition and reports missing configs without panicking.
+// Returns nil if weapon not found or missing required config section.
+func (cs *CombatSystem) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
+	weaponKey := items.GetWeaponKeyByName(weaponName)
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		fmt.Printf("[WARN] weapon '%s' (key: %s) not found in weapons.yaml\n", weaponName, weaponKey)
+		return nil
+	}
+	return weaponDef
+}
+
+// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
+func (cs *CombatSystem) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	if !exists {
+		fmt.Printf("[WARN] weapon key '%s' not found in weapons.yaml\n", weaponKey)
+		return nil
+	}
+	return weaponDef
+}
+
 // CastEquippedSpell performs a magic attack using equipped spell (unified F key casting)
 func (cs *CombatSystem) CastEquippedSpell() {
-    caster := cs.game.party.Members[cs.game.selectedChar]
+	caster := cs.game.party.Members[cs.game.selectedChar]
 
-    // Unconscious characters cannot cast
-    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
-        return
-    }
+	// Unconscious characters cannot cast
+	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+		return
+	}
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -80,28 +102,28 @@ func (cs *CombatSystem) CastEquippedSpell() {
 			cs.game.AddCombatMessage(result.Message)
 
 			// Apply healing effects for heal spells
-            if result.HealAmount > 0 {
-                if result.TargetSelf || string(spellID) == "heal" {
-                    // Heal self
-                    caster.HitPoints += result.HealAmount
-                    if caster.HitPoints > caster.MaxHitPoints {
-                        caster.HitPoints = caster.MaxHitPoints
-                    }
-                    if caster.HitPoints > 0 {
-                        caster.RemoveCondition(character.ConditionUnconscious)
-                    }
-                } else if string(spellID) == "heal_other" {
-                    // For F key heal other, just heal self since there's no target selection
-                    // Use H key with mouse for proper targeting
-                    caster.HitPoints += result.HealAmount
-                    if caster.HitPoints > caster.MaxHitPoints {
-                        caster.HitPoints = caster.MaxHitPoints
-                    }
-                    if caster.HitPoints > 0 {
-                        caster.RemoveCondition(character.ConditionUnconscious)
-                    }
-                }
-            }
+			if result.HealAmount > 0 {
+				if result.TargetSelf || string(spellID) == "heal" {
+					// Heal self
+					caster.HitPoints += result.HealAmount
+					if caster.HitPoints > caster.MaxHitPoints {
+						caster.HitPoints = caster.MaxHitPoints
+					}
+					if caster.HitPoints > 0 {
+						caster.RemoveCondition(character.ConditionUnconscious)
+					}
+				} else if string(spellID) == "heal_other" {
+					// For F key heal other, just heal self since there's no target selection
+					// Use H key with mouse for proper targeting
+					caster.HitPoints += result.HealAmount
+					if caster.HitPoints > caster.MaxHitPoints {
+						caster.HitPoints = caster.MaxHitPoints
+					}
+					if caster.HitPoints > 0 {
+						caster.RemoveCondition(character.ConditionUnconscious)
+					}
+				}
+			}
 
 			// Apply utility spell effects dynamically based on spell ID
 			switch string(spellID) {
@@ -146,6 +168,12 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		return
 	}
 
+	// Determine critical hit for spells based on Luck only (no base crit for spells)
+	isCrit, _ := cs.RollCriticalChance(0, caster)
+	if isCrit {
+		projectile.Damage *= 2
+	}
+
 	// Create magic projectile with proper type information
 	magicProjectile := MagicProjectile{
 		ID:        cs.game.GenerateProjectileID(string(spellID)),
@@ -158,6 +186,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		Active:    projectile.Active,
 		SpellType: string(spellID),
 		Size:      projectile.Size,
+		Crit:      isCrit,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -172,12 +201,12 @@ func (cs *CombatSystem) CastEquippedSpell() {
 
 // EquipmentHeal casts heal using equipped spell (special targeting for heal spells)
 func (cs *CombatSystem) EquipmentHeal() {
-    caster := cs.game.party.Members[cs.game.selectedChar]
+	caster := cs.game.party.Members[cs.game.selectedChar]
 
-    // Unconscious characters cannot cast heals
-    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
-        return
-    }
+	// Unconscious characters cannot cast heals
+	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+		return
+	}
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -246,12 +275,12 @@ func (cs *CombatSystem) EquipmentHeal() {
 
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
 func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
-    caster := cs.game.party.Members[cs.game.selectedChar]
+	caster := cs.game.party.Members[cs.game.selectedChar]
 
-    // Unconscious characters cannot cast heals
-    if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
-        return
-    }
+	// Unconscious characters cannot cast heals
+	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+		return
+	}
 
 	// Check if character has a heal spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
@@ -286,13 +315,13 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	caster.SpellPoints -= spellCost
 	// Calculate heal amount using centralized function
 	_, _, healAmount := cs.CalculateEquippedHealAmount(spellCost, caster)
-    target.HitPoints += healAmount
-    if target.HitPoints > target.MaxHitPoints {
-        target.HitPoints = target.MaxHitPoints
-    }
-    if target.HitPoints > 0 {
-        target.RemoveCondition(character.ConditionUnconscious)
-    }
+	target.HitPoints += healAmount
+	if target.HitPoints > target.MaxHitPoints {
+		target.HitPoints = target.MaxHitPoints
+	}
+	if target.HitPoints > 0 {
+		target.RemoveCondition(character.ConditionUnconscious)
+	}
 
 	// Print feedback message
 	if targetIndex == cs.game.selectedChar {
@@ -306,12 +335,12 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
 func (cs *CombatSystem) EquipmentMeleeAttack() {
-    attacker := cs.game.party.Members[cs.game.selectedChar]
+	attacker := cs.game.party.Members[cs.game.selectedChar]
 
-    // Unconscious characters cannot attack
-    if attacker.HasCondition(character.ConditionUnconscious) || attacker.HitPoints <= 0 {
-        return
-    }
+	// Unconscious characters cannot attack
+	if attacker.HasCondition(character.ConditionUnconscious) || attacker.HitPoints <= 0 {
+		return
+	}
 
 	// Check if character has a weapon equipped
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
@@ -323,13 +352,28 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	_, _, totalDamage := cs.CalculateWeaponDamage(weapon, attacker)
 
 	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
+	// For ranged: roll crit and apply doubling inside createArrowAttack only.
 	if weapon.Range > 3 {
-		// Create projectile arrow for ranged weapons
 		cs.createArrowAttack(totalDamage)
-	} else {
-		// Create instant melee attack for close-range weapons
-		cs.createMeleeAttack(weapon, totalDamage)
+		return
 	}
+
+	// Melee: determine critical hit based on weapon base crit chance + Luck bonus
+	weaponDef := cs.getWeaponConfig(weapon.Name)
+	if weaponDef == nil {
+		return // Weapon not found, skip attack
+	}
+	baseCrit := 0
+	if weaponDef.CritChance > 0 {
+		baseCrit = weaponDef.CritChance
+	}
+	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	if isCrit {
+		totalDamage *= 2
+	}
+
+	// Create instant melee attack for close-range weapons
+	cs.createMeleeAttack(weapon, totalDamage, isCrit)
 }
 
 // createArrowAttack creates a projectile arrow attack
@@ -382,6 +426,16 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		damageType = weapon.DamageType
 	}
 
+	// Roll for critical hit: base weapon crit + Luck bonus
+	baseCrit := 0
+	if exists {
+		baseCrit = weaponDef.CritChance
+	}
+	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	if isCrit {
+		damage *= 2
+	}
+
 	arrow := Arrow{
 		ID:         cs.game.GenerateProjectileID("arrow"),
 		X:          cs.game.camera.X,
@@ -393,6 +447,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		Active:     true,
 		BowKey:     bowKey,
 		DamageType: damageType,
+		Crit:       isCrit,
 	}
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
@@ -403,17 +458,17 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 }
 
 // createMeleeAttack creates an instant melee attack with proper arc-based hit detection
-func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int) {
-	// Get weapon key and definition from YAML
-	weaponKey := items.GetWeaponKeyByName(weapon.Name)
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		panic("weapon '" + weapon.Name + "' not found in weapons.yaml - system misconfigured")
+func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
+	// Get weapon definition from YAML
+	weaponDef := cs.getWeaponConfig(weapon.Name)
+	if weaponDef == nil {
+		return // Weapon not found, skip attack
 	}
 
 	// Check if weapon has melee configuration
 	if weaponDef.Melee == nil {
-		panic("weapon '" + weapon.Name + "' has no melee configuration in weapons.yaml")
+		fmt.Printf("[WARN] weapon '%s' has no melee configuration in weapons.yaml\n", weapon.Name)
+		return
 	}
 
 	meleeConfig := weaponDef.Melee
@@ -437,11 +492,11 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int) {
 	}
 
 	// Perform instant hit detection in arc
-	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig)
+	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
 }
 
 // performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
-func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig) {
+func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) {
 	playerX := cs.game.camera.X
 	playerY := cs.game.camera.Y
 	playerAngle := cs.game.camera.Angle
@@ -493,20 +548,25 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		// Check if monster is within swing arc
 		if math.Abs(angleDiff) <= halfArc {
 			// Hit! Apply damage immediately
-			cs.ApplyDamageToMonster(monster, damage, weapon.Name)
+			cs.ApplyDamageToMonster(monster, damage, weapon.Name, isCrit)
 		}
 	}
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
-func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string) {
+func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 
 	// Add combat message
 	if monster.IsAlive() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage!",
-			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+		if isCrit {
+			cs.game.AddCombatMessage(fmt.Sprintf("Critical! %s hits %s for %d damage!",
+				cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage!",
+				cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+		}
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
 			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
@@ -563,6 +623,12 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			return
 		}
 
+		// Determine critical hit for spells based on Luck only (no base crit for spells)
+		isCrit, _ := cs.RollCriticalChance(0, currentChar)
+		if isCrit {
+			projectile.Damage *= 2
+		}
+
 		// Create magic projectile using unified system
 		magicProjectile := MagicProjectile{
 			ID:       cs.game.GenerateProjectileID(string(selectedSpellID)),
@@ -573,6 +639,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			Damage:   projectile.Damage,
 			LifeTime: projectile.LifeTime,
 			Active:   projectile.Active,
+			Crit:     isCrit,
 		}
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -698,13 +765,21 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 				// Apply armor damage reduction
 				finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
-                currentChar.HitPoints -= finalDamage
-                if currentChar.HitPoints < 0 {
-                    currentChar.HitPoints = 0
-                }
-                if currentChar.HitPoints == 0 {
-                    currentChar.AddCondition(character.ConditionUnconscious)
-                }
+
+				// Perfect Dodge: luck/5% to avoid all damage
+				if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
+					currentChar.HitPoints -= finalDamage
+					if currentChar.HitPoints < 0 {
+						currentChar.HitPoints = 0
+					}
+					if currentChar.HitPoints == 0 {
+						currentChar.AddCondition(character.ConditionUnconscious)
+					}
+				} else {
+					// Announce dodge and skip damage blink below
+					cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
+					return
+				}
 
 				// Trigger damage blink effect for the character that was hit
 				targetIndex := cs.findCharacterIndex(currentChar)
@@ -743,308 +818,225 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	}
 }
 
-// handleProjectileMonsterCollision handles collision between a specific projectile and monster
-func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monsterEntity *collision.Entity) {
-	// Find the actual projectile and monster objects
-	var projectile interface{}
-	var projectileType string
-
-	// Determine projectile type and find projectile by unique ID
-	if strings.HasPrefix(projectileEntity.ID, "arrow_") {
-		// Find arrow by unique ID
+// findProjectile finds a projectile by entity ID and returns its info, or nil if not found
+func (cs *CombatSystem) findProjectile(entityID string) (interface{}, string) {
+	if strings.HasPrefix(entityID, "arrow_") {
 		for i := range cs.game.arrows {
-			if cs.game.arrows[i].ID == projectileEntity.ID && cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 {
-				projectile = &cs.game.arrows[i]
-				projectileType = "arrow"
-				break
+			if cs.game.arrows[i].ID == entityID && cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 {
+				return &cs.game.arrows[i], "arrow"
 			}
 		}
-	} else if strings.HasPrefix(projectileEntity.ID, "melee_") {
-		// Find melee attack by unique ID
+	} else if strings.HasPrefix(entityID, "melee_") {
 		for i := range cs.game.meleeAttacks {
-			if cs.game.meleeAttacks[i].ID == projectileEntity.ID && cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
-				projectile = &cs.game.meleeAttacks[i]
-				projectileType = "melee"
-				break
+			if cs.game.meleeAttacks[i].ID == entityID && cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
+				return &cs.game.meleeAttacks[i], "melee"
 			}
 		}
 	} else {
-		// Find magic projectile by unique ID (any spell type)
 		for i := range cs.game.magicProjectiles {
-			if cs.game.magicProjectiles[i].ID == projectileEntity.ID && cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 {
-				projectile = &cs.game.magicProjectiles[i]
-				projectileType = "magic_projectile"
-				break
+			if cs.game.magicProjectiles[i].ID == entityID && cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 {
+				return &cs.game.magicProjectiles[i], "magic_projectile"
 			}
 		}
 	}
+	return nil, ""
+}
 
+// findMonsterByEntityID finds a monster by its collision entity ID
+func (cs *CombatSystem) findMonsterByEntityID(entityID string) *monsterPkg.Monster3D {
+	if len(entityID) <= 8 || entityID[:8] != "monster_" {
+		return nil
+	}
+	for _, m := range cs.game.world.Monsters {
+		if m.ID == entityID {
+			return m
+		}
+	}
+	return nil
+}
+
+// getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
+func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projectileType string) (baseSize float64, minSize, maxSize int, ok bool) {
+	switch projectileType {
+	case "magic_projectile":
+		magicProj := projectile.(*MagicProjectile)
+		cfg, err := cs.game.config.GetSpellGraphicsConfig(magicProj.SpellType)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
+	case "melee":
+		meleeAttack := projectile.(*MeleeAttack)
+		weaponDef := cs.getWeaponConfig(meleeAttack.WeaponName)
+		if weaponDef == nil || weaponDef.Graphics == nil {
+			return 0, 0, 0, false
+		}
+		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
+	case "arrow":
+		arrow := projectile.(*Arrow)
+		weaponDef := cs.getWeaponConfigByKey(arrow.BowKey)
+		if weaponDef == nil || weaponDef.Graphics == nil {
+			return 0, 0, 0, false
+		}
+		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
+	}
+	return 0, 0, 0, false
+}
+
+// getProjectilePosition returns the X, Y position of a projectile
+func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectileType string) (float64, float64) {
+	switch projectileType {
+	case "magic_projectile":
+		p := projectile.(*MagicProjectile)
+		return p.X, p.Y
+	case "melee":
+		p := projectile.(*MeleeAttack)
+		return p.X, p.Y
+	case "arrow":
+		p := projectile.(*Arrow)
+		return p.X, p.Y
+	}
+	return 0, 0
+}
+
+// calculatePerspectiveScale calculates the scale factor for perspective-based collision
+func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSize, maxSize int) float64 {
+	dx := x - cs.game.camera.X
+	dy := y - cs.game.camera.Y
+	distance := math.Sqrt(dx*dx + dy*dy)
+	if distance == 0 {
+		distance = 0.001 // Avoid division by zero
+	}
+
+	visualSize := baseSize / distance * float64(cs.game.config.GetTileSize())
+	if visualSize > float64(maxSize) {
+		visualSize = float64(maxSize)
+	}
+	if visualSize < float64(minSize) {
+		visualSize = float64(minSize)
+	}
+	return visualSize / baseSize
+}
+
+// applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
+func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
+	var damage int
+	var isCrit bool
+	var weaponName string
+	var damageType monsterPkg.DamageType
+	var damageTypeStr string
+
+	switch projectileType {
+	case "magic_projectile":
+		mp := projectile.(*MagicProjectile)
+		if !mp.Active || mp.LifeTime <= 0 {
+			return
+		}
+		damage, isCrit = mp.Damage, mp.Crit
+		spellID := spells.SpellID(mp.SpellType)
+		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
+		weaponName = spellDef.Name
+		damageTypeStr = spellDef.School
+		damageType = monsterPkg.DamageFire // Default
+		if monsterPkg.MonsterConfig != nil {
+			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
+				damageType = ct
+			}
+		}
+		mp.Active = false
+
+	case "melee":
+		ma := projectile.(*MeleeAttack)
+		if !ma.Active || ma.LifeTime <= 0 {
+			return
+		}
+		damage, isCrit = ma.Damage, ma.Crit
+		weaponName = ma.WeaponName
+		damageType = monsterPkg.DamagePhysical
+		damageTypeStr = "physical"
+		ma.Active = false
+
+	case "arrow":
+		ar := projectile.(*Arrow)
+		if !ar.Active || ar.LifeTime <= 0 {
+			return
+		}
+		damage, isCrit = ar.Damage, ar.Crit
+		weaponName = "Arrow"
+		damageTypeStr = ar.DamageType
+		damageType = monsterPkg.DamagePhysical // Default
+		if monsterPkg.MonsterConfig != nil {
+			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(ar.DamageType); err == nil {
+				damageType = ct
+			}
+		}
+		ar.Active = false
+	}
+
+	actualDamage := monster.TakeDamage(damage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	cs.game.collisionSystem.UnregisterEntity(entityID)
+
+	if !monster.IsAlive() {
+		cs.awardExperienceAndGold(monster)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
+			weaponName, monster.Name, monster.Experience, monster.Gold))
+	} else {
+		prefix := ""
+		if isCrit {
+			prefix = "Critical! "
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
+			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
+	}
+}
+
+// handleProjectileMonsterCollision handles collision between a specific projectile and monster
+func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monsterEntity *collision.Entity) {
+	// Find projectile and monster
+	projectile, projectileType := cs.findProjectile(projectileEntity.ID)
 	if projectile == nil {
 		return
 	}
-
-	// Find the monster by ID from entity ID
-	if len(monsterEntity.ID) <= 8 || monsterEntity.ID[:8] != "monster_" {
-		return
-	}
-
-	// Find the monster with the matching ID
-	var monster *monsterPkg.Monster3D
-	for _, m := range cs.game.world.Monsters {
-		if m.ID == monsterEntity.ID {
-			monster = m
-			break
-		}
-	}
-
+	monster := cs.findMonsterByEntityID(monsterEntity.ID)
 	if monster == nil || !monster.IsAlive() {
 		return
 	}
 
-	// Apply perspective-scaled collision detection (same logic as visual collision boxes)
-	// Get projectile and monster positions
-	var projectileX, projectileY float64
-	switch projectileType {
-	case "magic_projectile":
-		magicProj := projectile.(*MagicProjectile)
-		projectileX, projectileY = magicProj.X, magicProj.Y
-	case "melee":
-		meleeAttack := projectile.(*MeleeAttack)
-		projectileX, projectileY = meleeAttack.X, meleeAttack.Y
-	case "arrow":
-		arrow := projectile.(*Arrow)
-		projectileX, projectileY = arrow.X, arrow.Y
-	}
-
-	// Calculate distances from camera for perspective scaling
-	projDx := projectileX - cs.game.camera.X
-	projDy := projectileY - cs.game.camera.Y
-	projectileDistance := math.Sqrt(projDx*projDx + projDy*projDy)
-
-	monsterDx := monster.X - cs.game.camera.X
-	monsterDy := monster.Y - cs.game.camera.Y
-	monsterDistance := math.Sqrt(monsterDx*monsterDx + monsterDy*monsterDy)
-
-	// Get original collision box sizes
-	projEntity := cs.game.collisionSystem.GetEntityByID(projectileEntity.ID)
-	monsterEntityCollision := cs.game.collisionSystem.GetEntityByID(monsterEntity.ID)
-	if projEntity == nil || monsterEntityCollision == nil {
+	// Get projectile graphics info for scaling
+	baseSize, minSize, maxSize, ok := cs.getProjectileGraphicsInfo(projectile, projectileType)
+	if !ok {
 		return
 	}
 
-	// Apply the EXACT same perspective scaling used in visual rendering
-
-	// For projectiles: use the same formula as renderer (baseSize / distance * tileSize)
-	var baseSize float64
-	switch projectileType {
-	case "magic_projectile":
-		magicProj := projectile.(*MagicProjectile)
-		spellGraphicsConfig, err := cs.game.config.GetSpellGraphicsConfig(magicProj.SpellType)
-		if err != nil {
-			return // Skip if no graphics config
-		}
-		baseSize = float64(spellGraphicsConfig.BaseSize)
-	case "melee":
-		meleeAttack := projectile.(*MeleeAttack)
-		// Get weapon config for base size from YAML - NO FALLBACKS
-		weaponKey := items.GetWeaponKeyByName(meleeAttack.WeaponName)
-		weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-		if !exists {
-			panic("weapon '" + meleeAttack.WeaponName + "' not found in weapons.yaml - system misconfigured")
-		}
-		if weaponDef.Graphics == nil {
-			panic("weapon '" + meleeAttack.WeaponName + "' has no graphics configuration in weapons.yaml")
-		}
-		baseSize = float64(weaponDef.Graphics.BaseSize)
-	case "arrow":
-		// Use the bow that fired this arrow
-		arrow := projectile.(*Arrow)
-		weaponDef, exists := config.GetWeaponDefinition(arrow.BowKey)
-		if !exists {
-			panic("bow '" + arrow.BowKey + "' not found in weapons.yaml - system misconfigured")
-		}
-		if weaponDef.Graphics == nil {
-			panic("bow '" + arrow.BowKey + "' has no graphics configuration in weapons.yaml")
-		}
-		baseSize = float64(weaponDef.Graphics.BaseSize)
+	// Get collision entities
+	projEntity := cs.game.collisionSystem.GetEntityByID(projectileEntity.ID)
+	monsterCollisionEntity := cs.game.collisionSystem.GetEntityByID(monsterEntity.ID)
+	if projEntity == nil || monsterCollisionEntity == nil {
+		return
 	}
 
-	// Calculate projectile visual size (same as renderer) with size limits
-	projVisualSize := baseSize / projectileDistance * float64(cs.game.config.GetTileSize())
-
-	// Apply the same size limits as the renderer
-	var maxSize, minSize int
-	switch projectileType {
-	case "magic_projectile":
-		magicProj := projectile.(*MagicProjectile)
-		spellGraphicsConfig, err := cs.game.config.GetSpellGraphicsConfig(magicProj.SpellType)
-		if err != nil {
-			return // Skip if no graphics config
-		}
-		maxSize, minSize = spellGraphicsConfig.MaxSize, spellGraphicsConfig.MinSize
-	case "melee":
-		meleeAttack := projectile.(*MeleeAttack)
-		// Get weapon graphics config from YAML - NO FALLBACKS
-		weaponKey := items.GetWeaponKeyByName(meleeAttack.WeaponName)
-		weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-		if !exists {
-			panic("weapon '" + meleeAttack.WeaponName + "' not found in weapons.yaml - system misconfigured")
-		}
-		if weaponDef.Graphics == nil {
-			panic("weapon '" + meleeAttack.WeaponName + "' has no graphics configuration in weapons.yaml")
-		}
-		maxSize, minSize = weaponDef.Graphics.MaxSize, weaponDef.Graphics.MinSize
-	case "arrow":
-		// Use the bow that fired this arrow
-		arrow := projectile.(*Arrow)
-		weaponDef, exists := config.GetWeaponDefinition(arrow.BowKey)
-		if !exists {
-			panic("bow '" + arrow.BowKey + "' not found in weapons.yaml - system misconfigured")
-		}
-		if weaponDef.Graphics == nil {
-			panic("bow '" + arrow.BowKey + "' has no graphics configuration in weapons.yaml")
-		}
-		maxSize, minSize = weaponDef.Graphics.MaxSize, weaponDef.Graphics.MinSize
-	}
-
-	if projVisualSize > float64(maxSize) {
-		projVisualSize = float64(maxSize)
-	}
-	if projVisualSize < float64(minSize) {
-		projVisualSize = float64(minSize)
-	}
-
-	projScale := projVisualSize / baseSize // Scale factor relative to base size
-
+	// Calculate perspective-scaled collision boxes
+	projX, projY := cs.getProjectilePosition(projectile, projectileType)
+	projScale := cs.calculatePerspectiveScale(projX, projY, baseSize, minSize, maxSize)
 	scaledProjW := projEntity.BoundingBox.Width * projScale
 	scaledProjH := projEntity.BoundingBox.Height * projScale
 
-	// For monsters: calculate sprite size the EXACT same way renderer does
+	// Monster scaling
 	monsterMultiplier := float64(cs.game.config.Graphics.Monster.SizeDistanceMultiplier)
-	monsterVisualSize := float64(cs.game.config.GetTileSize()) / monsterDistance * monsterMultiplier
+	monsterScale := cs.calculatePerspectiveScale(monster.X, monster.Y, monsterMultiplier,
+		cs.game.config.Graphics.Monster.MinSpriteSize, cs.game.config.Graphics.Monster.MaxSpriteSize)
+	scaledMonsterW := monsterCollisionEntity.BoundingBox.Width * monsterScale
+	scaledMonsterH := monsterCollisionEntity.BoundingBox.Height * monsterScale
 
-	// Apply the same size limits as renderer
-	maxMonsterSize := float64(cs.game.config.Graphics.Monster.MaxSpriteSize)
-	minMonsterSize := float64(cs.game.config.Graphics.Monster.MinSpriteSize)
-	if monsterVisualSize > maxMonsterSize {
-		monsterVisualSize = maxMonsterSize
-	}
-	if monsterVisualSize < minMonsterSize {
-		monsterVisualSize = minMonsterSize
-	}
-
-	// Calculate scale factor using the configurable base size (multiplier, not hardcoded 64)
-	monsterScale := monsterVisualSize / monsterMultiplier
-
-	scaledMonsterW := monsterEntityCollision.BoundingBox.Width * monsterScale
-	scaledMonsterH := monsterEntityCollision.BoundingBox.Height * monsterScale
-
-	// Create temporary scaled bounding boxes for perspective collision check
-	scaledProjBox := collision.NewBoundingBox(projectileX, projectileY, scaledProjW, scaledProjH)
+	// Check collision
+	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
 	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
-
-	// Check collision using perspective-scaled boxes (same as visual collision boxes)
 	if !scaledProjBox.Intersects(scaledMonsterBox) {
-		return // No collision with perspective-scaled boxes
+		return
 	}
 
-	// Handle the collision based on projectile type
-	switch projectileType {
-	case "magic_projectile":
-		magicProjectile := projectile.(*MagicProjectile)
-		if !magicProjectile.Active || magicProjectile.LifeTime <= 0 {
-			return
-		}
-
-		// Determine correct damage type from spell school using the original spell ID
-		spellID := spells.SpellID(magicProjectile.SpellType)
-		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
-		damageTypeStr := spellDef.School
-		spellName := spellDef.Name
-		// fmt.Println("Spell damage type:", damageTypeStr)
-		damageType := monsterPkg.DamageFire // Default fallback, TODO: Add debug fallback damage type
-		if monsterPkg.MonsterConfig != nil {
-			if convertedType, err := monsterPkg.MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
-				damageType = convertedType
-			}
-		}
-		actualDamage := monster.TakeDamage(magicProjectile.Damage, damageType, cs.game.camera.X, cs.game.camera.Y)
-		magicProjectile.Active = false
-
-		// Unregister the magic projectile from collision system
-		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
-
-		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
-				spellName, monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			// Use correct damage type in message
-			message := fmt.Sprintf("%s hit %s for %d %s damage! (HP: %d/%d)",
-				spellName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
-
-	case "melee":
-		attack := projectile.(*MeleeAttack)
-		if !attack.Active || attack.LifeTime <= 0 {
-			return
-		}
-
-		// Monster takes physical damage with distance-aware AI response
-		actualDamage := monster.TakeDamage(attack.Damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
-		attack.Active = false
-
-		// Unregister the sword attack from collision system
-		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
-
-		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
-				attack.WeaponName, monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			message := fmt.Sprintf("%s hit %s for %d physical damage! (HP: %d/%d)",
-				attack.WeaponName, monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
-
-	case "arrow":
-		arrow := projectile.(*Arrow)
-		if !arrow.Active || arrow.LifeTime <= 0 {
-			return
-		}
-
-		// Convert string damage type to monster damage type enum
-		damageType := monsterPkg.DamagePhysical // Default fallback
-		if monsterPkg.MonsterConfig != nil {
-			if convertedType, err := monsterPkg.MonsterConfig.ConvertDamageType(arrow.DamageType); err == nil {
-				damageType = convertedType
-			}
-		}
-
-		// Monster takes damage with appropriate damage type and distance-aware AI response
-		actualDamage := monster.TakeDamage(arrow.Damage, damageType, cs.game.camera.X, cs.game.camera.Y)
-		arrow.Active = false
-
-		// Unregister the arrow from collision system
-		cs.game.collisionSystem.UnregisterEntity(projectileEntity.ID)
-
-		// Check if monster died and give rewards
-		if !monster.IsAlive() {
-			cs.awardExperienceAndGold(monster)
-			message := fmt.Sprintf("Arrow killed %s! Awarded %d experience and %d gold.",
-				monster.Name, monster.Experience, monster.Gold)
-			cs.game.AddCombatMessage(message)
-		} else {
-			message := fmt.Sprintf("Arrow hit %s for %d physical damage! (HP: %d/%d)",
-				monster.Name, actualDamage, monster.HitPoints, monster.MaxHitPoints)
-			cs.game.AddCombatMessage(message)
-		}
-	}
+	// Apply damage
+	cs.applyProjectileDamage(projectile, projectileType, monster, projectileEntity.ID)
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed
@@ -1175,8 +1167,24 @@ func (cs *CombatSystem) CalculateAccuracyBonus(character *character.MMCharacter)
 
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(character *character.MMCharacter) int {
-	// Critical chance bonus based on Luck stat
-	return character.Luck / 4
+	// Use effective Luck so Bless/stat bonuses influence crit chance
+	_, _, _, _, _, _, luck := character.GetEffectiveStats(cs.game.statBonus)
+	return luck / 4
+}
+
+// RollCriticalChance returns whether an attack critically hits and the total crit chance used.
+// totalCrit = baseCrit + Luck-derived bonus, clamped to [0,100].
+func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharacter) (bool, int) {
+	bonus := cs.CalculateCriticalChance(chr)
+	total := baseCrit + bonus
+	if total < 0 {
+		total = 0
+	}
+	if total > 100 {
+		total = 100
+	}
+	roll := rand.Intn(100)
+	return roll < total, total
 }
 
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods
@@ -1186,48 +1194,64 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 	cs.game.statBonus += statBonus // ADD to total stat bonus
 }
 
-    // ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
-    func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *character.MMCharacter) int {
-        // Get effective endurance (includes equipment bonuses)
-        _, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
+// RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
+// chance = effective Luck / 5, clamped to [0,100].
+func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
+	// Use effective stats so Bless and equipment affect dodge
+	_, _, _, _, _, _, luck := chr.GetEffectiveStats(cs.game.statBonus)
+	chance := luck / 5
+	if chance < 0 {
+		chance = 0
+	}
+	if chance > 100 {
+		chance = 100
+	}
+	roll := rand.Intn(100)
+	return roll < chance, chance
+}
 
-        // Calculate armor class from all armor slots
-        baseArmor := 0
-        totalEnduranceBonus := 0
-        
-        armorSlots := []items.EquipSlot{
-            items.SlotArmor,
-            items.SlotHelmet,
-            items.SlotBoots,
-            items.SlotCloak,
-            items.SlotGauntlets,
-            items.SlotBelt,
-        }
-        
-        for _, slot := range armorSlots {
-            if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
-                if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
-                    baseArmor += v
-                }
-                if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
-                    totalEnduranceBonus += effectiveEndurance / enduranceDiv
-                }
-            }
-        }
-        
-        totalArmorClass := baseArmor + totalEnduranceBonus
+// ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
+func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *character.MMCharacter) int {
+	// Get effective endurance (includes equipment bonuses)
+	_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
 
-        // Damage reduction (same formula as tooltip)
-        damageReduction := totalArmorClass / 2
+	// Calculate armor class from all armor slots
+	baseArmor := 0
+	totalEnduranceBonus := 0
 
-        // Apply damage reduction
-        finalDamage := damage - damageReduction
-        if finalDamage < 1 {
-            finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
-        }
+	armorSlots := []items.EquipSlot{
+		items.SlotArmor,
+		items.SlotHelmet,
+		items.SlotBoots,
+		items.SlotCloak,
+		items.SlotGauntlets,
+		items.SlotBelt,
+	}
 
-        return finalDamage
-    }
+	for _, slot := range armorSlots {
+		if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
+			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
+				baseArmor += v
+			}
+			if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
+				totalEnduranceBonus += effectiveEndurance / enduranceDiv
+			}
+		}
+	}
+
+	totalArmorClass := baseArmor + totalEnduranceBonus
+
+	// Damage reduction (same formula as tooltip)
+	damageReduction := totalArmorClass / 2
+
+	// Apply damage reduction
+	finalDamage := damage - damageReduction
+	if finalDamage < 1 {
+		finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
+	}
+
+	return finalDamage
+}
 
 // checkMonsterLootDrop handles loot drops when monsters are killed
 func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) {
@@ -1246,12 +1270,17 @@ func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) {
 	for _, e := range entries {
 		if rand.Float64() < e.Chance {
 			var drop items.Item
+			var err error
 			switch e.Type {
 			case "weapon":
-				drop = items.CreateWeaponFromYAML(e.Key)
+				drop, err = items.TryCreateWeaponFromYAML(e.Key)
 			case "item":
-				drop = items.CreateItemFromYAML(e.Key)
+				drop, err = items.TryCreateItemFromYAML(e.Key)
 			default:
+				continue
+			}
+			if err != nil {
+				fmt.Printf("[WARN] loot drop failed: %v\n", err)
 				continue
 			}
 			cs.game.party.AddItem(drop)

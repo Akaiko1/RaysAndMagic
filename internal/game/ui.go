@@ -34,20 +34,20 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-    game                     *MMGame
-    justOpenedStatPopup      bool
-    lastClickTime            time.Time
-    lastClickedItem          int
-    inventoryMousePressed    bool
-    inventoryRightMousePressed bool
-    inventoryContextOpen     bool
-    inventoryContextX        int
-    inventoryContextY        int
-    inventoryContextIndex    int
-    lastEquipClickTime       time.Time
-    lastClickedSlot          items.EquipSlot
-    equipMousePressed        bool
-    utilitySpellMousePressed bool
+	game                       *MMGame
+	justOpenedStatPopup        bool
+	lastClickTime              time.Time
+	lastClickedItem            int
+	inventoryMousePressed      bool
+	inventoryRightMousePressed bool
+	inventoryContextOpen       bool
+	inventoryContextX          int
+	inventoryContextY          int
+	inventoryContextIndex      int
+	lastEquipClickTime         time.Time
+	lastClickedSlot            items.EquipSlot
+	equipMousePressed          bool
+	utilitySpellMousePressed   bool
 }
 
 // NewUISystem creates a new UI system
@@ -57,22 +57,22 @@ func NewUISystem(game *MMGame) *UISystem {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
-    // Reset mouse state at the start of each frame
-    ui.resetMouseState()
+	// Reset mouse state at the start of each frame
+	ui.resetMouseState()
 
-    // Draw base game UI elements
-    ui.drawGameplayUI(screen)
+	// Draw base game UI elements
+	ui.drawGameplayUI(screen)
 
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
 
-    // Draw overlay interfaces (menus and dialogs)
-    ui.drawOverlayInterfaces(screen)
+	// Draw overlay interfaces (menus and dialogs)
+	ui.drawOverlayInterfaces(screen)
 
-    // Draw Game Over overlay if active
-    if ui.game.gameOver {
-        ui.drawGameOverOverlay(screen)
-    }
+	// Draw Game Over overlay if active
+	if ui.game.gameOver {
+		ui.drawGameOverOverlay(screen)
+	}
 
 	// Draw stat distribution popup if open
 	if ui.game.statPopupOpen {
@@ -395,9 +395,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		}
 
-        // Draw background panel using DrawImage
-        panelImg := ebiten.NewImage(portraitWidth-2, portraitHeight)
-        panelImg.Fill(bgColor)
+		// Draw background panel using DrawImage
+		panelImg := ebiten.NewImage(portraitWidth-2, portraitHeight)
+		panelImg.Fill(bgColor)
 
 		opts := &ebiten.DrawImageOptions{}
 		opts.GeoM.Translate(float64(x), float64(startY))
@@ -427,23 +427,23 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			portraitOpts.ColorScale.Scale(1.5, 0.5, 0.5, 1.0) // Red tint: more red, less green/blue
 		}
 
-        screen.DrawImage(portrait, portraitOpts)
+		screen.DrawImage(portrait, portraitOpts)
 
-        // Darken overlay if unconscious
-        isUnconscious := false
-        for _, cond := range member.Conditions {
-            if cond == character.ConditionUnconscious {
-                isUnconscious = true
-                break
-            }
-        }
-        if isUnconscious {
-            dark := ebiten.NewImage(portraitWidth-2, portraitHeight)
-            dark.Fill(color.RGBA{0, 0, 0, 140})
-            darkOpts := &ebiten.DrawImageOptions{}
-            darkOpts.GeoM.Translate(float64(x), float64(startY))
-            screen.DrawImage(dark, darkOpts)
-        }
+		// Darken overlay if unconscious
+		isUnconscious := false
+		for _, cond := range member.Conditions {
+			if cond == character.ConditionUnconscious {
+				isUnconscious = true
+				break
+			}
+		}
+		if isUnconscious {
+			dark := ebiten.NewImage(portraitWidth-2, portraitHeight)
+			dark.Fill(color.RGBA{0, 0, 0, 140})
+			darkOpts := &ebiten.DrawImageOptions{}
+			darkOpts.GeoM.Translate(float64(x), float64(startY))
+			screen.DrawImage(dark, darkOpts)
+		}
 
 		// Status Column (Column 2) - basic character info
 		statusColX := x + portraitColWidth + 5
@@ -454,10 +454,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+35)
 
 		// Add character condition status
-        statusText := "OK"
-        if len(member.Conditions) > 0 {
-            statusText = ui.getConditionName(member.Conditions[0])
-        }
+		statusText := "OK"
+		if len(member.Conditions) > 0 {
+			statusText = ui.getConditionName(member.Conditions[0])
+		}
 		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+50)
 
 		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
@@ -1266,7 +1266,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		mouseX, mouseY := ebiten.CursorPosition()
 		var tooltip string
 		var tooltipX, tooltipY int
-        for i, item := range ui.game.party.Inventory {
+		for i, item := range ui.game.party.Inventory {
 			if i >= 15 {
 				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("... and %d more items",
 					len(ui.game.party.Inventory)-15), invX, itemsY+(i*15))
@@ -1315,85 +1315,85 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			ebitenutil.DebugPrintAt(screen, itemInfo, invX, y)
 
 			// Handle mouse interactions
-            if isHovering {
-                // Show tooltip for this item
-                tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
-                tooltipX = mouseX + 16
-                tooltipY = mouseY + 8
+			if isHovering {
+				// Show tooltip for this item
+				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+				tooltipX = mouseX + 16
+				tooltipY = mouseY + 8
 
-                // Handle double-click to equip
-                if !ui.inventoryContextOpen {
-                    ui.handleInventoryItemClick(i)
-                }
+				// Handle double-click to equip
+				if !ui.inventoryContextOpen {
+					ui.handleInventoryItemClick(i)
+				}
 
-                // Handle right-click to open context menu
-                if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !ui.inventoryRightMousePressed {
-                    ui.inventoryRightMousePressed = true
-                    ui.inventoryContextOpen = true
-                    ui.inventoryContextX = mouseX
-                    ui.inventoryContextY = mouseY
-                    ui.inventoryContextIndex = i
-                }
-            }
-        }
-        // Draw tooltip if needed
-        if tooltip != "" {
-            lines := strings.Split(tooltip, "\n")
-            drawTooltip(screen, lines, tooltipX, tooltipY)
-        }
+				// Handle right-click to open context menu
+				if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && !ui.inventoryRightMousePressed {
+					ui.inventoryRightMousePressed = true
+					ui.inventoryContextOpen = true
+					ui.inventoryContextX = mouseX
+					ui.inventoryContextY = mouseY
+					ui.inventoryContextIndex = i
+				}
+			}
+		}
+		// Draw tooltip if needed
+		if tooltip != "" {
+			lines := strings.Split(tooltip, "\n")
+			drawTooltip(screen, lines, tooltipX, tooltipY)
+		}
 
-        // Draw inventory context menu if open
-        if ui.inventoryContextOpen {
-            menuW := 140
-            menuH := 24
-            x := ui.inventoryContextX
-            y := ui.inventoryContextY
-            // Background
-            menuBg := ebiten.NewImage(menuW, menuH)
-            menuBg.Fill(color.RGBA{40, 40, 60, 230})
-            opts := &ebiten.DrawImageOptions{}
-            opts.GeoM.Translate(float64(x), float64(y))
-            screen.DrawImage(menuBg, opts)
-            // Border
-            drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
-            // Entry text
-            ebitenutil.DebugPrintAt(screen, "Discard", x+8, y+5)
+		// Draw inventory context menu if open
+		if ui.inventoryContextOpen {
+			menuW := 140
+			menuH := 24
+			x := ui.inventoryContextX
+			y := ui.inventoryContextY
+			// Background
+			menuBg := ebiten.NewImage(menuW, menuH)
+			menuBg.Fill(color.RGBA{40, 40, 60, 230})
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Translate(float64(x), float64(y))
+			screen.DrawImage(menuBg, opts)
+			// Border
+			drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
+			// Entry text
+			ebitenutil.DebugPrintAt(screen, "Discard", x+8, y+5)
 
-            // Handle clicks on context menu
-            mouseX, mouseY := ebiten.CursorPosition()
-            inside := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuW, y+menuH)
-            if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-                if inside {
-                    // Discard clicked
-                    idx := ui.inventoryContextIndex
-                    if idx >= 0 && idx < len(ui.game.party.Inventory) {
-                        name := ui.game.party.Inventory[idx].Name
-                        ui.game.party.RemoveItem(idx)
-                        ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
-                    }
-                }
-                // Close the context menu on any left click
-                ui.inventoryContextOpen = false
-            }
+			// Handle clicks on context menu
+			mouseX, mouseY := ebiten.CursorPosition()
+			inside := isMouseHoveringBox(mouseX, mouseY, x, y, x+menuW, y+menuH)
+			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+				if inside {
+					// Discard clicked
+					idx := ui.inventoryContextIndex
+					if idx >= 0 && idx < len(ui.game.party.Inventory) {
+						name := ui.game.party.Inventory[idx].Name
+						ui.game.party.RemoveItem(idx)
+						ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
+					}
+				}
+				// Close the context menu on any left click
+				ui.inventoryContextOpen = false
+			}
 
-            // Close menu if right button released
-            if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-                ui.inventoryRightMousePressed = false
-            }
-        } else {
-            // Reset right-click pressed when not open and not pressed
-            if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
-                ui.inventoryRightMousePressed = false
-            }
-        }
-    }
+			// Close menu if right button released
+			if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+				ui.inventoryRightMousePressed = false
+			}
+		} else {
+			// Reset right-click pressed when not open and not pressed
+			if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) {
+				ui.inventoryRightMousePressed = false
+			}
+		}
+	}
 
 	// Instructions
 	instructionY := contentY + contentHeight - 55
 	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to select different characters and view their equipment", panelX+20, instructionY)
-    ebitenutil.DebugPrintAt(screen, "Double-click items in inventory to equip them (red items can't be equipped)", panelX+20, instructionY+15)
-    ebitenutil.DebugPrintAt(screen, "Double-click equipped items to unequip them back to inventory", panelX+20, instructionY+30)
-    ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it", panelX+20, instructionY+45)
+	ebitenutil.DebugPrintAt(screen, "Double-click items in inventory to equip them (red items can't be equipped)", panelX+20, instructionY+15)
+	ebitenutil.DebugPrintAt(screen, "Double-click equipped items to unequip them back to inventory", panelX+20, instructionY+30)
+	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it", panelX+20, instructionY+45)
 }
 
 // drawCharactersContent draws the characters tab content
@@ -1705,19 +1705,19 @@ func (ui *UISystem) getClassName(class character.CharacterClass) string {
 
 // getConditionName returns the condition name for a character condition
 func (ui *UISystem) getConditionName(condition character.Condition) string {
-    names := map[character.Condition]string{
-        character.ConditionNormal:     "Normal",
-        character.ConditionPoisoned:   "Poisoned",
-        character.ConditionDiseased:   "Diseased",
-        character.ConditionCursed:     "Cursed",
-        character.ConditionAsleep:     "Asleep",
-        character.ConditionFear:       "Fear",
-        character.ConditionParalyzed:  "Paralyzed",
-        character.ConditionUnconscious:"Unconscious",
-        character.ConditionDead:       "Dead",
-        character.ConditionStone:      "Stone",
-        character.ConditionEradicated: "Eradicated",
-    }
+	names := map[character.Condition]string{
+		character.ConditionNormal:      "Normal",
+		character.ConditionPoisoned:    "Poisoned",
+		character.ConditionDiseased:    "Diseased",
+		character.ConditionCursed:      "Cursed",
+		character.ConditionAsleep:      "Asleep",
+		character.ConditionFear:        "Fear",
+		character.ConditionParalyzed:   "Paralyzed",
+		character.ConditionUnconscious: "Unconscious",
+		character.ConditionDead:        "Dead",
+		character.ConditionStone:       "Stone",
+		character.ConditionEradicated:  "Eradicated",
+	}
 	if name, exists := names[condition]; exists {
 		return name
 	}
@@ -1796,16 +1796,16 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	case "encounter":
 		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case "spell_trader":
-		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogHeight)
 	case "merchant":
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
-		ui.drawGenericDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
 	}
 }
 
 // drawEncounterDialog draws dialog for encounter NPCs
-func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, _ int) {
 	npc := ui.game.dialogNPC
 
 	// Draw title
@@ -1854,7 +1854,7 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 }
 
 // drawSpellTraderDialog draws dialog for spell trader NPCs
-func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	// Draw title
 	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
@@ -1932,46 +1932,46 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 // drawMerchantDialog draws a simple seller UI to sell party items
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
-    // Title and greeting
-    titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
-    ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
-    greeting := "Bring your wares. I pay fair coin."
-    ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
+	// Title and greeting
+	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
+	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	greeting := "Bring your wares. I pay fair coin."
+	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
 
-    // Gold
-    goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-    ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
+	// Gold
+	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
+	ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
 
-    // Header
-    listY := dialogY + 90
-    ebitenutil.DebugPrintAt(screen, "Click an item to sell it: (shows first 15)", dialogX+20, listY)
+	// Header
+	listY := dialogY + 90
+	ebitenutil.DebugPrintAt(screen, "Click an item to sell it: (shows first 15)", dialogX+20, listY)
 
-    // List inventory with values
-    startY := listY + 20
-    maxItems := 15
-    for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
-        item := ui.game.party.Inventory[i]
-        y := startY + i*UIRowSpacing
-        // Price from attributes
-        price := item.Attributes["value"]
-        line := fmt.Sprintf("%2d. %-24s  %4d gold", i+1, item.Name, price)
+	// List inventory with values
+	startY := listY + 20
+	maxItems := 15
+	for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
+		item := ui.game.party.Inventory[i]
+		y := startY + i*UIRowSpacing
+		// Price from attributes
+		price := item.Attributes["value"]
+		line := fmt.Sprintf("%2d. %-24s  %4d gold", i+1, item.Name, price)
 
-        // Hover effect
-        mouseX, mouseY := ebiten.CursorPosition()
-        isHover := mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+UIRowHeight
-        if isHover {
-            ui.drawUIBackground(screen, dialogX+15, y-2, dialogWidth-30, UIRowHeight, color.RGBA{40, 80, 40, 120})
-        }
-        ebitenutil.DebugPrintAt(screen, line, dialogX+20, y)
-    }
+		// Hover effect
+		mouseX, mouseY := ebiten.CursorPosition()
+		isHover := mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+UIRowHeight
+		if isHover {
+			ui.drawUIBackground(screen, dialogX+15, y-2, dialogWidth-30, UIRowHeight, color.RGBA{40, 80, 40, 120})
+		}
+		ebitenutil.DebugPrintAt(screen, line, dialogX+20, y)
+	}
 
-    // Instructions
-    instructionsY := dialogY + dialogHeight - 60
-    ebitenutil.DebugPrintAt(screen, "Double-click item: Sell  |  ESC: Close", dialogX+20, instructionsY)
+	// Instructions
+	instructionsY := dialogY + dialogHeight - 60
+	ebitenutil.DebugPrintAt(screen, "Double-click item: Sell  |  ESC: Close", dialogX+20, instructionsY)
 }
 
 // drawGenericDialog draws basic dialog for other NPC types
-func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, _ int) {
 	npc := ui.game.dialogNPC
 
 	// Draw title
@@ -1991,19 +1991,19 @@ func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, di
 
 // drawGameOverOverlay draws a simple game over screen with options
 func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
-    w := ui.game.config.GetScreenWidth()
-    h := ui.game.config.GetScreenHeight()
-    // Darken background
-    overlay := ebiten.NewImage(w, h)
-    overlay.Fill(color.RGBA{0, 0, 0, 180})
-    screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+	w := ui.game.config.GetScreenWidth()
+	h := ui.game.config.GetScreenHeight()
+	// Darken background
+	overlay := ebiten.NewImage(w, h)
+	overlay.Fill(color.RGBA{0, 0, 0, 180})
+	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
 
-    // Text
-    centerX := w/2 - 160
-    centerY := h/2 - 30
-    ebitenutil.DebugPrintAt(screen, "GAME OVER", centerX+80, centerY-30)
-    ebitenutil.DebugPrintAt(screen, "Press N: New Game", centerX, centerY)
-    ebitenutil.DebugPrintAt(screen, "Press L: Load Game", centerX, centerY+20)
+	// Text
+	centerX := w/2 - 160
+	centerY := h/2 - 30
+	ebitenutil.DebugPrintAt(screen, "GAME OVER", centerX+80, centerY-30)
+	ebitenutil.DebugPrintAt(screen, "Press N: New Game", centerX, centerY)
+	ebitenutil.DebugPrintAt(screen, "Press L: Load Game", centerX, centerY+20)
 }
 
 // wrapText wraps text to fit within specified width
@@ -2117,26 +2117,26 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int) {
 		currentTime := time.Now()
 
 		// Check for double-click (same item clicked within 500ms)
-        if itemIndex == ui.lastClickedItem && currentTime.Sub(ui.lastClickTime) < 500*time.Millisecond {
-            // Double-click detected - use or equip the item
-            if itemIndex < len(ui.game.party.Inventory) {
-                item := ui.game.party.Inventory[itemIndex]
-                switch item.Type {
-                case items.ItemConsumable:
-                    // Delegate to game logic (consumable effects, inventory removal, messages)
-                    _ = ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
-                default:
-                    // Try to equip non-consumables
-                    itemName := item.Name
-                    if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
-                        ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-                            ui.game.party.Members[ui.game.selectedChar].Name, itemName))
-                    } else {
-                        ui.game.AddCombatMessage("Cannot equip this item!")
-                    }
-                }
-            }
-        }
+		if itemIndex == ui.lastClickedItem && currentTime.Sub(ui.lastClickTime) < 500*time.Millisecond {
+			// Double-click detected - use or equip the item
+			if itemIndex < len(ui.game.party.Inventory) {
+				item := ui.game.party.Inventory[itemIndex]
+				switch item.Type {
+				case items.ItemConsumable:
+					// Delegate to game logic (consumable effects, inventory removal, messages)
+					_ = ui.game.UseConsumableFromInventory(itemIndex, ui.game.selectedChar)
+				default:
+					// Try to equip non-consumables
+					itemName := item.Name
+					if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
+						ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
+							ui.game.party.Members[ui.game.selectedChar].Name, itemName))
+					} else {
+						ui.game.AddCombatMessage("Cannot equip this item!")
+					}
+				}
+			}
+		}
 
 		ui.lastClickedItem = itemIndex
 		ui.lastClickTime = currentTime

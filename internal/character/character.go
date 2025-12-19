@@ -295,20 +295,20 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
 	c.HitPoints = c.MaxHitPoints
 
-    // Calculate spell points (Intellect + Personality based + equipment bonuses)
-    _, _, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
+	// Calculate spell points (Intellect + Personality based + equipment bonuses)
+	_, _, equipmentPersonalityBonus, _, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 	c.SpellPoints = c.MaxSpellPoints
 }
 
 func (c *MMCharacter) Update() {
-    // If unconscious, skip regeneration and updates
-    if c.HasCondition(ConditionUnconscious) {
-        return
-    }
-    // Regenerate spell points slowly - only every 3 seconds (90 frames at 30 FPS)
-    const spellRegenFrames = 90
-    c.spellRegenTimer++
+	// If unconscious, skip regeneration and updates
+	if c.HasCondition(ConditionUnconscious) {
+		return
+	}
+	// Regenerate spell points slowly - only every 3 seconds (90 frames at 30 FPS)
+	const spellRegenFrames = 90
+	c.spellRegenTimer++
 
 	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
 		c.SpellPoints++
@@ -440,43 +440,43 @@ func (c *MMCharacter) GetMagicSchoolName(school MagicSchool) string {
 }
 
 func (c *MMCharacter) getConditionName(condition Condition) string {
-    names := map[Condition]string{
-        ConditionNormal: "OK", ConditionPoisoned: "Poisoned", ConditionDiseased: "Diseased",
-        ConditionCursed: "Cursed", ConditionAsleep: "Asleep", ConditionFear: "Fear",
-        ConditionParalyzed: "Paralyzed", ConditionUnconscious: "Unconscious", ConditionDead: "Dead", ConditionStone: "Stone",
-        ConditionEradicated: "Eradicated",
-    }
-    if name, exists := names[condition]; exists {
-        return name
-    }
-    return "Unknown"
+	names := map[Condition]string{
+		ConditionNormal: "OK", ConditionPoisoned: "Poisoned", ConditionDiseased: "Diseased",
+		ConditionCursed: "Cursed", ConditionAsleep: "Asleep", ConditionFear: "Fear",
+		ConditionParalyzed: "Paralyzed", ConditionUnconscious: "Unconscious", ConditionDead: "Dead", ConditionStone: "Stone",
+		ConditionEradicated: "Eradicated",
+	}
+	if name, exists := names[condition]; exists {
+		return name
+	}
+	return "Unknown"
 }
 
 // HasCondition checks if the character has a specific condition
 func (c *MMCharacter) HasCondition(cond Condition) bool {
-    for _, existing := range c.Conditions {
-        if existing == cond {
-            return true
-        }
-    }
-    return false
+	for _, existing := range c.Conditions {
+		if existing == cond {
+			return true
+		}
+	}
+	return false
 }
 
 // AddCondition adds a condition if not already present
 func (c *MMCharacter) AddCondition(cond Condition) {
-    if !c.HasCondition(cond) {
-        c.Conditions = append(c.Conditions, cond)
-    }
+	if !c.HasCondition(cond) {
+		c.Conditions = append(c.Conditions, cond)
+	}
 }
 
 // RemoveCondition removes a condition if present
 func (c *MMCharacter) RemoveCondition(cond Condition) {
-    for i, existing := range c.Conditions {
-        if existing == cond {
-            c.Conditions = append(c.Conditions[:i], c.Conditions[i+1:]...)
-            return
-        }
-    }
+	for i, existing := range c.Conditions {
+		if existing == cond {
+			c.Conditions = append(c.Conditions[:i], c.Conditions[i+1:]...)
+			return
+		}
+	}
 }
 
 // GetAvailableSchools returns the magic schools available to this character in a consistent order
@@ -616,35 +616,38 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
 func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, personality, endurance, accuracy, speed, luck int) {
-    // Calculate equipment bonuses (YAML-driven)
-    equipmentMightBonus, equipmentIntellectBonus, equipmentPersonalityBonus, equipmentEnduranceBonus := c.calculateEquipmentBonuses()
+	// Calculate equipment bonuses (YAML-driven)
+	equipmentMightBonus, equipmentIntellectBonus, equipmentPersonalityBonus, equipmentEnduranceBonus, equipmentLuckBonus := c.calculateEquipmentBonuses()
 
-    return c.Might + statBonus + equipmentMightBonus,
-        c.Intellect + statBonus + equipmentIntellectBonus,
-        c.Personality + statBonus + equipmentPersonalityBonus,
-        c.Endurance + statBonus + equipmentEnduranceBonus,
-        c.Accuracy + statBonus,
-        c.Speed + statBonus,
-        c.Luck + statBonus
+	return c.Might + statBonus + equipmentMightBonus,
+		c.Intellect + statBonus + equipmentIntellectBonus,
+		c.Personality + statBonus + equipmentPersonalityBonus,
+		c.Endurance + statBonus + equipmentEnduranceBonus,
+		c.Accuracy + statBonus,
+		c.Speed + statBonus,
+		c.Luck + statBonus + equipmentLuckBonus
 }
 
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
-func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus int) {
-    for _, it := range c.Equipment {
-        if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
-            intellectBonus += c.Intellect / div
-        }
-        if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
-            personalityBonus += c.Personality / div
-        }
-        if div := it.Attributes["endurance_scaling_divisor"]; div > 0 {
-            enduranceBonus += c.Endurance / div
-        }
-        if bonus := it.Attributes["bonus_might"]; bonus > 0 {
-            mightBonus += bonus
-        }
-    }
-    return mightBonus, intellectBonus, personalityBonus, enduranceBonus
+func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, luckBonus int) {
+	for _, it := range c.Equipment {
+		if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
+			intellectBonus += c.Intellect / div
+		}
+		if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
+			personalityBonus += c.Personality / div
+		}
+		if div := it.Attributes["endurance_scaling_divisor"]; div > 0 {
+			enduranceBonus += c.Endurance / div
+		}
+		if bonus := it.Attributes["bonus_might"]; bonus > 0 {
+			mightBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_luck"]; bonus > 0 {
+			luckBonus += bonus
+		}
+	}
+	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, luckBonus
 }
 
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
@@ -653,8 +656,8 @@ func (c *MMCharacter) updateDerivedStatsForEquipment() {
 	oldMaxSP := c.MaxSpellPoints
 	currentSP := c.SpellPoints
 
-    // Recalculate max SP with equipment bonuses
-    _, _, equipmentPersonalityBonus, _ := c.calculateEquipmentBonuses()
+	// Recalculate max SP with equipment bonuses
+	_, _, equipmentPersonalityBonus, _, _ := c.calculateEquipmentBonuses()
 	newMaxSP := c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*2 // Level multiplier from config
 	c.MaxSpellPoints = newMaxSP
 
