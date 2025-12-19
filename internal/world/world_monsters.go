@@ -44,7 +44,10 @@ func (w *World3D) placeMonsterFromConfig(monsterKey string) {
 		y := float64(rand.Intn(w.Height-2) + 1)
 
 		if w.isSuitableLocationFromConfig(x, y, monsterKey) {
-			monster := monster.NewMonster3DFromConfig(x*64, y*64, monsterKey, w.config)
+			// Spawn at tile center (x*64 + 32) to avoid getting stuck
+			spawnX := x*64 + 32
+			spawnY := y*64 + 32
+			monster := monster.NewMonster3DFromConfig(spawnX, spawnY, monsterKey, w.config)
 			w.Monsters = append(w.Monsters, monster)
 			return
 		}
@@ -168,8 +171,10 @@ func (w *World3D) PlaceMonsterByLetter(x, y float64, letter string) error {
 		return fmt.Errorf("tile at %f, %f is not walkable", x, y)
 	}
 
-	// Create monster at specified location
-	monster := monster.NewMonster3DFromConfig(x*64, y*64, monsterKey, w.config)
+	// Create monster at tile center to avoid getting stuck
+	spawnX := x*64 + 32
+	spawnY := y*64 + 32
+	monster := monster.NewMonster3DFromConfig(spawnX, spawnY, monsterKey, w.config)
 	w.Monsters = append(w.Monsters, monster)
 
 	return nil

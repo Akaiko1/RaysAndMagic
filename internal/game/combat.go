@@ -311,6 +311,12 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 
 	target := cs.game.party.Members[targetIndex]
 
+	// Heal must not revive characters at 0 HP / Dead.
+	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
+		return
+	}
+
 	// Cast heal on target
 	caster.SpellPoints -= spellCost
 	// Calculate heal amount using centralized function
@@ -583,6 +589,11 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 // CastSelectedSpell casts the currently selected spell from the spellbook
 func (cs *CombatSystem) CastSelectedSpell() {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
+
+	// Prevent casting while down; also avoids utility healing from acting as a revive.
+	if currentChar.HasCondition(character.ConditionUnconscious) || currentChar.HitPoints <= 0 {
+		return
+	}
 	schools := currentChar.GetAvailableSchools()
 
 	if cs.game.selectedSchool >= len(schools) {
