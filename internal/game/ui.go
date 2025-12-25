@@ -15,6 +15,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const doubleClickWindowMs = 700
@@ -2180,7 +2181,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 
 			drawX := originX + x*tileSize
 			drawY := originY + y*tileSize
-			ebitenutil.DrawRect(screen, float64(drawX), float64(drawY), float64(tileSize), float64(tileSize), cellColor)
+			vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
 
@@ -2198,7 +2199,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 		if size < 3 {
 			size = 3
 		}
-		ebitenutil.DrawRect(screen, float64(drawX), float64(drawY), float64(size), float64(size), npcColor)
+		vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
 	}
 }
 
@@ -2370,10 +2371,16 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 
 	// Draw border for better visibility
 	borderColor := color.RGBA{255, 255, 255, 200} // Semi-transparent white
-	for i := 0; i < 2; i++ {
-		ebitenutil.DrawRect(screen, float64(notificationX-i), float64(notificationY-i),
-			float64(notificationWidth+2*i), float64(notificationHeight+2*i), borderColor)
-	}
+	vector.StrokeRect(
+		screen,
+		float32(notificationX-1),
+		float32(notificationY-1),
+		float32(notificationWidth+2),
+		float32(notificationHeight+2),
+		2,
+		borderColor,
+		false,
+	)
 
 	// Draw the interaction message
 	textX := notificationX + padding
