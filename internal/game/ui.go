@@ -1524,25 +1524,37 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	tps := ebiten.ActualTPS()
 
 	// Format FPS text
-	fpsText := fmt.Sprintf("FPS: %.1f\nTPS: %.1f", fps, tps)
+	lines := []string{
+		fmt.Sprintf("FPS: %.1f", fps),
+		fmt.Sprintf("TPS: %.1f", tps),
+	}
 
 	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
-	textX := compassX - compassRadius - 12
-	textY := compassY + compassRadius + 8
+	_ = compassX
+	lineHeight := 16
+	padding := 6
+	maxLen := 0
+	for _, line := range lines {
+		if len(line) > maxLen {
+			maxLen = len(line)
+		}
+	}
+	barWidth := maxLen*7 + padding*2
+	barHeight := len(lines)*lineHeight + padding*2
+	screenWidth := ui.game.config.GetScreenWidth()
+	barX := screenWidth - barWidth - 10
+	barY := compassY + compassRadius + 10
 
-	// Draw semi-transparent background
-	bgWidth := 80
-	bgHeight := 35 // Taller for two lines
-	bgImg := ebiten.NewImage(bgWidth, bgHeight)
-	bgImg.Fill(color.RGBA{0, 0, 0, 100}) // Semi-transparent black background
-
+	bgImg := ebiten.NewImage(barWidth, barHeight)
+	bgImg.Fill(color.RGBA{0, 0, 0, 120})
 	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(textX-5), float64(textY-5))
+	bgOpts.GeoM.Translate(float64(barX), float64(barY))
 	screen.DrawImage(bgImg, bgOpts)
 
-	// Draw FPS text
-	ebitenutil.DebugPrintAt(screen, fpsText, textX, textY)
+	for i, line := range lines {
+		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+	}
 }
 
 // Helper methods
