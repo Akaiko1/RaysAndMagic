@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"time"
 
 	"ugataima/internal/bridge"
@@ -18,6 +20,7 @@ import (
 )
 
 func main() {
+	ensureRuntimeCWD()
 	// Seed RNG for combat rolls (crit, loot, etc.)
 	rand.Seed(time.Now().UnixNano())
 	// Load configuration
@@ -81,5 +84,19 @@ func main() {
 			return
 		}
 		log.Fatal(err)
+	}
+}
+
+func ensureRuntimeCWD() {
+	if _, err := os.Stat("config.yaml"); err == nil {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	execDir := filepath.Dir(exe)
+	if _, err := os.Stat(filepath.Join(execDir, "config.yaml")); err == nil {
+		_ = os.Chdir(execDir)
 	}
 }

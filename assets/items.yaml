@@ -92,3 +92,10 @@ items:
     equip_slot: "amulet"
     bonus_luck: 40
     value: 800
+
+  world_map:
+    name: "World Map"
+    type: "quest"
+    description: "A hand-drawn map showing the surrounding lands"
+    flavor: "Ink and charcoal sketch the known roads and rumors."
+    opens_map: true

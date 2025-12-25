@@ -95,6 +95,14 @@ func (ih *InputHandler) HandleInput() {
 		}
 		return
 	}
+	// Close map overlay with ESC before other UI handling
+	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.game.mapOverlayOpen = false
+		return
+	}
+	if ih.game.mapOverlayOpen {
+		return
+	}
 	// ESC handling: close current overlay before opening menu
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		// If main menu is open, back out of submenus or close it

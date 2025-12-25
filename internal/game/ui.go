@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -243,6 +244,10 @@ func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
 	// Draw dialog if active
 	if ui.game.dialogActive {
 		ui.drawNPCDialog(screen)
+	}
+
+	if ui.game.mapOverlayOpen {
+		ui.drawMapOverlay(screen)
 	}
 }
 
@@ -1274,9 +1279,13 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 				// Discard clicked
 				idx := ui.inventoryContextIndex
 				if idx >= 0 && idx < len(ui.game.party.Inventory) {
-					name := ui.game.party.Inventory[idx].Name
-					ui.game.party.RemoveItem(idx)
-					ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", name))
+					item := ui.game.party.Inventory[idx]
+					if item.Type == items.ItemQuest {
+						ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+					} else {
+						ui.game.party.RemoveItem(idx)
+						ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+					}
 				}
 				ui.inventoryContextOpen = false
 			} else if ui.game.consumeLeftClick() {
@@ -2037,6 +2046,12 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 		// Double-click detected - use or equip the item
 		if itemIndex < len(ui.game.party.Inventory) {
 			item := ui.game.party.Inventory[itemIndex]
+			if item.Attributes != nil && item.Attributes["opens_map"] == 1 {
+				ui.game.mapOverlayOpen = true
+				ui.lastClickedItem = itemIndex
+				ui.lastClickTime = currentTime
+				return
+			}
 			switch item.Type {
 			case items.ItemConsumable:
 				// Delegate to game logic (consumable effects, inventory removal, messages)
@@ -2056,6 +2071,135 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 
 	ui.lastClickedItem = itemIndex
 	ui.lastClickTime = currentTime
+}
+
+// drawMapOverlay renders the current map with NPCs and teleporters.
+func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
+	if ui.game.world == nil {
+		ui.game.mapOverlayOpen = false
+		return
+	}
+
+	screenW := ui.game.config.GetScreenWidth()
+	screenH := ui.game.config.GetScreenHeight()
+
+	dim := ebiten.NewImage(screenW, screenH)
+	dim.Fill(color.RGBA{0, 0, 0, 140})
+	screen.DrawImage(dim, &ebiten.DrawImageOptions{})
+
+	panelW := int(float64(screenW) * 0.75)
+	panelH := int(float64(screenH) * 0.75)
+	if panelW > 720 {
+		panelW = 720
+	}
+	if panelH > 560 {
+		panelH = 560
+	}
+	if panelW < 320 {
+		panelW = 320
+	}
+	if panelH < 240 {
+		panelH = 240
+	}
+	panelX := (screenW - panelW) / 2
+	panelY := (screenH - panelH) / 2
+
+	bg := ebiten.NewImage(panelW, panelH)
+	bg.Fill(color.RGBA{20, 20, 40, 230})
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(panelX), float64(panelY))
+	screen.DrawImage(bg, opts)
+	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
+
+	title := "World Map"
+	if world.GlobalWorldManager != nil {
+		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil && mapCfg.Name != "" {
+			title = fmt.Sprintf("World Map - %s", mapCfg.Name)
+		}
+	}
+	ebitenutil.DebugPrintAt(screen, title, panelX+16, panelY+12)
+
+	closeX := panelX + panelW - 26
+	closeY := panelY + 10
+	closeImg := ebiten.NewImage(16, 16)
+	closeImg.Fill(color.RGBA{200, 60, 60, 220})
+	closeOpts := &ebiten.DrawImageOptions{}
+	closeOpts.GeoM.Translate(float64(closeX), float64(closeY))
+	screen.DrawImage(closeImg, closeOpts)
+	ebitenutil.DebugPrintAt(screen, "X", closeX+4, closeY+2)
+	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+16, closeY+16) {
+		ui.game.mapOverlayOpen = false
+	}
+
+	mapPadding := 18
+	mapX := panelX + mapPadding
+	mapY := panelY + 36
+	mapW := panelW - mapPadding*2
+	mapH := panelH - 54
+
+	worldW := ui.game.world.Width
+	worldH := ui.game.world.Height
+	if worldW <= 0 || worldH <= 0 {
+		return
+	}
+
+	tileSize := mapW / worldW
+	if alt := mapH / worldH; alt < tileSize {
+		tileSize = alt
+	}
+	if tileSize < 2 {
+		tileSize = 2
+	}
+
+	originX := mapX + (mapW-worldW*tileSize)/2
+	originY := mapY + (mapH-worldH*tileSize)/2
+
+	floorColor := color.RGBA{60, 110, 60, 255}
+	if world.GlobalWorldManager != nil {
+		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil {
+			floorColor = color.RGBA{uint8(mapCfg.DefaultFloorColor[0]), uint8(mapCfg.DefaultFloorColor[1]), uint8(mapCfg.DefaultFloorColor[2]), 255}
+		}
+	}
+
+	for y := 0; y < worldH; y++ {
+		for x := 0; x < worldW; x++ {
+			tile := ui.game.world.Tiles[y][x]
+			cellColor := floorColor
+			switch tile {
+			case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
+				cellColor = color.RGBA{40, 40, 50, 255}
+			case world.TileWater:
+				cellColor = color.RGBA{40, 90, 160, 255}
+			case world.TileDeepWater:
+				cellColor = color.RGBA{25, 60, 120, 255}
+			case world.TileVioletTeleporter:
+				cellColor = color.RGBA{170, 80, 200, 255}
+			case world.TileRedTeleporter:
+				cellColor = color.RGBA{200, 70, 70, 255}
+			}
+
+			drawX := originX + x*tileSize
+			drawY := originY + y*tileSize
+			ebitenutil.DrawRect(screen, float64(drawX), float64(drawY), float64(tileSize), float64(tileSize), cellColor)
+		}
+	}
+
+	// NPCs overlay
+	npcColor := color.RGBA{255, 220, 0, 255}
+	for _, npc := range ui.game.world.NPCs {
+		nx := int(npc.X / float64(ui.game.config.GetTileSize()))
+		ny := int(npc.Y / float64(ui.game.config.GetTileSize()))
+		if nx < 0 || nx >= worldW || ny < 0 || ny >= worldH {
+			continue
+		}
+		drawX := originX + nx*tileSize
+		drawY := originY + ny*tileSize
+		size := tileSize
+		if size < 3 {
+			size = 3
+		}
+		ebitenutil.DrawRect(screen, float64(drawX), float64(drawY), float64(size), float64(size), npcColor)
+	}
 }
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots

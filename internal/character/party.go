@@ -32,6 +32,7 @@ func NewParty(cfg *config.Config) *Party {
 	party.AddItem(items.CreateItemFromYAML("health_potion"))
 	party.AddItem(items.CreateItemFromYAML("revival_potion"))
 	party.AddItem(items.CreateItemFromYAML("magic_ring"))
+	party.AddItem(items.CreateItemFromYAML("world_map"))
 
 	return party
 }

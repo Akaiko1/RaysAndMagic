@@ -143,6 +143,9 @@ type MMGame struct {
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
 
+	// Map overlay UI state
+	mapOverlayOpen bool
+
 	// Lighting effects
 	torchLightActive   bool    // Whether torch light is currently active
 	torchLightDuration int     // Remaining duration in frames
