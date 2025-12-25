@@ -262,6 +262,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.world = wm.GetCurrentWorld()
 	g.UpdateSkyAndGroundColors()
 	g.collisionSystem.UpdateTileChecker(g.world)
+	if g.gameLoop != nil && g.gameLoop.renderer != nil {
+		g.gameLoop.renderer.precomputeFloorColorCache()
+		g.gameLoop.renderer.buildTransparentSpriteCache()
+	}
 
 	// Restore player
 	g.camera.X = save.PlayerX

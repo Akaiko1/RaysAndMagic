@@ -37,6 +37,8 @@ type InputHandler struct {
 	qKeyTracker          inpututil.KeyStateTracker
 	eKeyTracker          inpututil.KeyStateTracker
 	spaceKeyTracker      inpututil.KeyStateTracker
+	fKeyTracker          inpututil.KeyStateTracker
+	hKeyTracker          inpututil.KeyStateTracker
 	menuKeyTracker       inpututil.KeyStateTracker
 	inventoryKeyTracker  inpututil.KeyStateTracker
 	charactersKeyTracker inpututil.KeyStateTracker
@@ -704,7 +706,11 @@ func (ih *InputHandler) handleMouseInput() {
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	// Handle heal targeting when H key is pressed (only when menu is not open and cooldown is ready)
-	if !ih.game.menuOpen && ebiten.IsKeyPressed(ebiten.KeyH) && ih.game.spellInputCooldown == 0 {
+	healPressed := ebiten.IsKeyPressed(ebiten.KeyH)
+	if ih.game.turnBasedMode {
+		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
+	}
+	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
 		caster := ih.game.party.Members[ih.game.selectedChar]
 
 		// Check if character has a heal spell equipped
@@ -1313,7 +1319,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 	}
 
-	if canAct && ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
+	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
 		ih.game.combat.CastEquippedSpell()
 		ih.game.partyActionsUsed++
 		ih.game.spellInputCooldown = ih.actionCooldown(15)

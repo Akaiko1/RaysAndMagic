@@ -1137,7 +1137,26 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		return // Monster is completely behind walls
 	}
 
-	// Draw collision box if enabled (draw first, so it's behind the sprite)
+	// Draw the monster sprite
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
+	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(spriteLeft), float64(monsterData.screenY))
+
+	// Apply distance shading
+	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+
+	// Use opaque blending to prevent transparency issues
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(monsterData.sprite, opts)
+
+	// Draw collision box if enabled (draw after sprite so it's clearly visible)
 	if r.game.showCollisionBoxes {
 		// Get collision box from collision system using monster ID
 		var worldColW, worldColH float64
@@ -1174,25 +1193,6 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		boxOpts.ColorM.Scale(1, 1, 1, 0.5)
 		screen.DrawImage(boxImg, boxOpts)
 	}
-
-	// Draw the monster sprite
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
-	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(monsterData.screenY))
-
-	// Apply distance shading
-	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-
-	// Use opaque blending to prevent transparency issues
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(monsterData.sprite, opts)
 }
 
 // NPCRenderData contains data needed to render an NPC
