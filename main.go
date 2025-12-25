@@ -98,5 +98,11 @@ func ensureRuntimeCWD() {
 	execDir := filepath.Dir(exe)
 	if _, err := os.Stat(filepath.Join(execDir, "config.yaml")); err == nil {
 		_ = os.Chdir(execDir)
+		return
+	}
+	// macOS .app bundle: Resources is sibling of MacOS
+	resourcesDir := filepath.Join(execDir, "..", "Resources")
+	if _, err := os.Stat(filepath.Join(resourcesDir, "config.yaml")); err == nil {
+		_ = os.Chdir(resourcesDir)
 	}
 }
