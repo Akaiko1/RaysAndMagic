@@ -35,10 +35,19 @@ func NewInputHandler(game *MMGame) *InputHandler {
 	return &InputHandler{game: game}
 }
 
-// actionCooldown returns the number of frames to wait before the next action,
-// using Speed-based anchors: Speed 5 => ~60 frames (1 sec), Speed 50 => ~30 frames (0.5 sec).
-// Scales linearly between/around anchors and clamps to [15, 90] frames. The `base` arg is ignored.
+// inputDebounceCooldown is a minimal cooldown to prevent key repeat issues
+const inputDebounceCooldown = 10
+
+// actionCooldown returns the number of frames to wait before the next action.
+// In turn-based mode, returns a minimal debounce value since actions are limited by turns.
+// In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
 func (ih *InputHandler) actionCooldown(_ int) int {
+	// In turn-based mode, only need minimal debounce - turn system limits actions
+	if ih.game.turnBasedMode {
+		return inputDebounceCooldown
+	}
+
+	// Real-time mode: Speed-based cooldown
 	selected := ih.game.party.Members[ih.game.selectedChar]
 	// Use effective stats to include buffs/items
 	_, _, _, _, _, speed, _ := selected.GetEffectiveStats(ih.game.statBonus)

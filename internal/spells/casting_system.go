@@ -82,13 +82,18 @@ func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, ang
 	// Use centralized damage calculation
 	_, _, damage := CalculateSpellDamageByID(spellID, casterIntellect)
 
-	// Calculate velocity using dynamic spell config
-	spellConfig, err := cs.config.GetSpellConfig(string(spellID))
+	// Get physics config (tile-based)
+	physics, err := cs.config.GetSpellConfig(string(spellID))
 	if err != nil {
 		return ProjectileData{}, err
 	}
-	baseSpeed := spellConfig.Speed
-	velocity := baseSpeed * def.ProjectileSpeed
+
+	// Convert tile-based speed to pixels per frame
+	tileSize := cs.config.GetTileSize()
+	velocity := physics.GetSpeedPixels(tileSize)
+
+	// Get lifetime from physics (calculated from range/speed)
+	lifetime := physics.GetLifetimeFrames()
 
 	return ProjectileData{
 		X:        casterX,
@@ -96,7 +101,7 @@ func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, ang
 		VelX:     math.Cos(angle) * velocity,
 		VelY:     math.Sin(angle) * velocity,
 		Damage:   damage,
-		LifeTime: def.LifeTime,
+		LifeTime: lifetime,
 		Active:   true,
 		SpellID:  spellID,
 		Size:     def.ProjectileSize,

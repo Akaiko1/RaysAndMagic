@@ -349,6 +349,12 @@ func (g *MMGame) GetCurrentWorld() *world.World3D {
 	return g.world
 }
 
+// GetPlayerTilePosition returns the tile coordinates the player is currently in
+func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
+	tileSize := float64(g.config.GetTileSize())
+	return int(g.camera.X / tileSize), int(g.camera.Y / tileSize)
+}
+
 // GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
 func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	const interactionDistance = 128.0 // 2 tiles, same as input handler

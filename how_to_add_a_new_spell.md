@@ -45,21 +45,17 @@ spells:
     spell_points_cost: 6
     duration: 0                # 0 for instant spells
     damage: 15
-    range: 10                  # Range in tiles
-    projectile_speed: 1.2      # Speed multiplier
     projectile_size: 12
-    lifetime: 80               # Projectile lifetime in frames
     is_projectile: true
     is_utility: false
     visual_effect: "ice_shard"
-    
-    # Projectile physics (required for projectile spells)
+
+    # Projectile physics (tile-based units - required for projectile spells)
     physics:
-      speed: 10.0              # Base projectile speed (pixels/frame)
-      lifetime: 80             # Lifetime in frames
-      hit_radius: 200          # Hit detection radius (pixels)
+      speed_tiles: 10.0        # Speed in tiles per second
+      range_tiles: 10.0        # Maximum range in tiles
       collision_size: 12       # Collision box size (pixels)
-    
+
     # Visual appearance (required for projectile spells)
     graphics:
       max_size: 50
@@ -327,21 +323,17 @@ spells:
     spell_points_cost: 5
     duration: 0
     damage: 10
-    range: 8
-    projectile_speed: 1.3
     projectile_size: 10
-    lifetime: 70
     is_projectile: true
     is_utility: false
     visual_effect: "frost_bolt"
-    
-    # Projectile physics
+
+    # Projectile physics (tile-based units)
     physics:
-      speed: 9.0
-      lifetime: 70
-      hit_radius: 180
+      speed_tiles: 9.0         # 9 tiles per second
+      range_tiles: 8.0         # 8 tile range
       collision_size: 10
-    
+
     # Visual appearance
     graphics:
       max_size: 42

@@ -73,19 +73,18 @@ weapons:
     description: "A powerful longbow with extended range"
     category: "bow"
     damage: 9
-    range: 12                   # >3 = ranged weapon (arrows)
+    range: 12                   # Display range in tiles
     bonus_stat: "Accuracy"
     hit_bonus: 18
     crit_chance: 15
     rarity: "rare"
     value: 300
 
-    # Projectile physics (required for ranged weapons)
+    # Projectile physics (tile-based units - required for ranged weapons)
     physics:
-      speed: 10.0               # Arrow speed (pixels/frame)
-      lifetime: 72              # Arrow lifetime in frames
-      hit_radius: 320           # Hit detection radius
-      collision_size: 14        # Arrow collision box
+      speed_tiles: 12.0         # Speed in tiles per second
+      range_tiles: 12.0         # Maximum range in tiles
+      collision_size: 14        # Arrow collision box (pixels)
 
     # Visual appearance for arrows
     graphics:
@@ -105,19 +104,18 @@ weapons:
     description: "A staff that channels arcane energy"
     category: "staff"
     damage: 8
-    range: 3                    # Staff range
+    range: 3                    # Display range in tiles
     bonus_stat: "Intellect"
     hit_bonus: 12
     crit_chance: 10
     rarity: "rare"
     value: 250
 
-    # Projectile physics
+    # Projectile physics (tile-based units)
     physics:
-      speed: 12.0
-      lifetime: 18
-      hit_radius: 340
-      collision_size: 24
+      speed_tiles: 14.0         # Speed in tiles per second
+      range_tiles: 3.0          # Maximum range in tiles
+      collision_size: 24        # Collision box size (pixels)
 
     # Visual appearance
     graphics:
@@ -172,10 +170,9 @@ var nameToKeyMap = map[string]string{
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `physics.speed` | float | Projectile speed (pixels/frame) |
-| `physics.lifetime` | int | Projectile lifetime in frames |
-| `physics.hit_radius` | int | Hit detection radius |
-| `physics.collision_size` | int | Collision box size |
+| `physics.speed_tiles` | float | Speed in tiles per second |
+| `physics.range_tiles` | float | Maximum range in tiles |
+| `physics.collision_size` | int | Collision box size (pixels) |
 
 ### Graphics Configuration
 
@@ -232,7 +229,7 @@ Where:
 - [ ] Weapon definition exists in `assets/weapons.yaml`
 - [ ] Name mapping exists in `GetWeaponKeyByName`
 - [ ] For melee: `melee` section with arc_angle, animation_frames, hit_delay
-- [ ] For ranged: `physics` section with speed, lifetime, hit_radius, collision_size
+- [ ] For ranged: `physics` section with speed_tiles, range_tiles, collision_size
 - [ ] `graphics` section present (slash_* for melee, projectile settings for ranged)
 - [ ] Category matches one of: sword, dagger, axe, mace, spear, staff, bow
 - [ ] Build succeeds: `go build .`
@@ -256,8 +253,8 @@ bow_of_hellfire:
     max_projectiles: 2                 # Limit active arrows
 
     physics:
-      speed: 4.0                       # Very slow projectiles
-      lifetime: 180
+      speed_tiles: 4.0                 # Very slow (4 tiles per second)
+      range_tiles: 12.0                # Long range (12 tiles)
       collision_size: 64               # Large collision
 
     graphics:

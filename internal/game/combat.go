@@ -415,9 +415,10 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	var collisionSize float64
 
 	if exists && weaponDef.Physics != nil {
-		// Use weapon-specific physics properties
-		arrowSpeed = weaponDef.Physics.Speed
-		arrowLifetime = weaponDef.Physics.Lifetime
+		// Use weapon-specific physics properties (tile-based)
+		tileSize := cs.game.config.GetTileSize()
+		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
+		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
 		collisionSize = float64(weaponDef.Physics.CollisionSize)
 	} else {
 		// Fallback to default config values

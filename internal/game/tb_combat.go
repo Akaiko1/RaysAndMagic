@@ -104,8 +104,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Calculate grid deltas to player (tile-based)
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	playerTileX := int(gl.game.camera.X / tileSize)
-	playerTileY := int(gl.game.camera.Y / tileSize)
+	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
 
 	dxTiles := playerTileX - monsterTileX
 	dyTiles := playerTileY - monsterTileY
@@ -203,8 +202,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, tileSize float64) bool {
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	playerTileX := int(gl.game.camera.X / tileSize)
-	playerTileY := int(gl.game.camera.Y / tileSize)
+	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
 	return monsterTileX == playerTileX || monsterTileY == playerTileY
 }
 

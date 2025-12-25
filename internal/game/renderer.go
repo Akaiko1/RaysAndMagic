@@ -702,8 +702,9 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
 		case "environment_sprite":
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
-			if world.GlobalTileManager != nil && world.GlobalTileManager.IsTransparent(tileType) {
-				return // Skip transparent environment sprites
+			// Use both hit.IsTransparent flag and tile manager check for safety
+			if hit.IsTransparent {
+				return // Skip transparent environment sprites - rendered via drawTransparentEnvironmentSprites
 			}
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
 		case "flooring_object":
@@ -1370,12 +1371,30 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	halfFOV := fov / 2
 	fovMargin := halfFOV + 0.1 // Small margin for edge sprites
 
+	// Get player's current tile for sprite culling
+	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
+
+	// Minimum distance squared to render sprites (avoid rendering when too close)
+	tileSize := float64(r.game.config.GetTileSize())
+	minDistSq := tileSize * tileSize // Don't render sprites within 1 tile distance
+
 	// Use cached transparent sprites instead of scanning entire world
 	for _, spriteData := range r.transparentSpritesCache {
+		// Skip sprites in the player's current tile to avoid visual artifacts
+		// (sprite would appear at ray-exit edge and "follow" player movement)
+		if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
+			continue
+		}
+
 		// Check distance from camera (early culling)
 		dx := spriteData.worldX - camX
 		dy := spriteData.worldY - camY
 		distanceSq := dx*dx + dy*dy
+
+		// Skip sprites that are too close (within ~1 tile) to avoid edge artifacts
+		if distanceSq < minDistSq {
+			continue
+		}
 
 		if distanceSq > viewDistSq {
 			continue // Too far away

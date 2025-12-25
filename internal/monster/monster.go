@@ -57,6 +57,7 @@ type Monster3D struct {
 	SpawnX, SpawnY   float64 // Original spawn position
 	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
 	IsEngagingPlayer bool    // True when actively pursuing/fighting player
+	WasAttacked      bool    // True when monster was hit - prevents disengagement
 
 	// Loot
 	Gold  int
@@ -124,30 +125,18 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playe
 		m.HitPoints = 0
 	}
 
+	// Mark as attacked - prevents AI from disengaging due to distance
+	m.WasAttacked = true
+
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
 		return damage
 	}
 
-	// Calculate distance to player who attacked
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
-
-	// React based on distance to attacker (only if not already engaged)
-	if distanceToPlayer <= 512.0 { // 8 tiles (8 * 64 pixels)
-		// Player is within 8 tiles - engage and pursue
-		m.IsEngagingPlayer = true
-		m.State = StateAlert
-		m.StateTimer = 0
-	} else {
-		// Player is 9+ tiles away - flee
-		m.IsEngagingPlayer = false
-		m.State = StateFleeing
-		m.StateTimer = 0
-		// Flee in opposite direction from attacker
-		m.Direction = math.Atan2(-dy, -dx) // Opposite direction
-	}
+	// Being attacked always triggers engagement - chase the attacker
+	m.IsEngagingPlayer = true
+	m.State = StateAlert
+	m.StateTimer = 0
 
 	return damage
 }
