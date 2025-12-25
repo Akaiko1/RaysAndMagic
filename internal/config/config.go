@@ -11,6 +11,7 @@ import (
 // Config holds all game configuration values
 type Config struct {
 	Display         DisplayConfig         `yaml:"display"`
+	Engine          EngineConfig          `yaml:"engine"`
 	World           WorldConfig           `yaml:"world"`
 	Movement        MovementConfig        `yaml:"movement"`
 	Combat          CombatConfig          `yaml:"combat"`
@@ -30,6 +31,10 @@ type DisplayConfig struct {
 	ScreenHeight int    `yaml:"screen_height"`
 	WindowTitle  string `yaml:"window_title"`
 	Resizable    bool   `yaml:"resizable"`
+}
+
+type EngineConfig struct {
+	TPS int `yaml:"tps"`
 }
 
 type WorldConfig struct {
@@ -60,14 +65,14 @@ type CombatConfig struct {
 type MeleeWeaponConfig struct {
 	Speed         float64 `yaml:"speed"`
 	Lifetime      int     `yaml:"lifetime"`
-	HitRadius     int     `yaml:"hit_radius"`     // Legacy, unused
+	HitRadius     int     `yaml:"hit_radius"` // Legacy, unused
 	CollisionSize int     `yaml:"collision_size"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
 // Uses tile-based units for designer-friendly configuration.
 // Speed is in tiles per second, range is in tiles, collision is in tiles.
-// Lifetime is calculated automatically: lifetime_frames = (range / speed) * 60
+// Lifetime is calculated automatically: lifetime_frames = (range / speed) * tps
 type ProjectilePhysicsConfig struct {
 	SpeedTiles         float64 `yaml:"speed_tiles"`          // Speed in tiles per second
 	RangeTiles         float64 `yaml:"range_tiles"`          // Maximum range in tiles
@@ -76,17 +81,18 @@ type ProjectilePhysicsConfig struct {
 
 // GetSpeedPixels returns speed in pixels per frame for the game engine
 func (p *ProjectilePhysicsConfig) GetSpeedPixels(tileSize float64) float64 {
-	// Convert tiles/second to pixels/frame (assuming 60 FPS)
-	return (p.SpeedTiles * tileSize) / 60.0
+	// Convert tiles/second to pixels/frame based on target TPS.
+	tps := float64(GetTargetTPS())
+	return (p.SpeedTiles * tileSize) / tps
 }
 
 // GetLifetimeFrames returns lifetime in frames based on range and speed
 func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	if p.SpeedTiles <= 0 {
-		return 60 // Default 1 second if speed is invalid
+		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
-	// lifetime = range / speed * 60 (frames per second)
-	return int((p.RangeTiles / p.SpeedTiles) * 60.0)
+	// lifetime = range / speed * tps (frames per second)
+	return int((p.RangeTiles / p.SpeedTiles) * float64(GetTargetTPS()))
 }
 
 // GetCollisionSizePixels returns collision size in pixels for the game engine
@@ -264,6 +270,7 @@ type SpellDefinitionConfig struct {
 	IsProjectile    bool   `yaml:"is_projectile"`
 	IsUtility       bool   `yaml:"is_utility"`
 	VisualEffect    string `yaml:"visual_effect"`
+	StatusIcon      string `yaml:"status_icon,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -461,6 +468,22 @@ type WeaponDefinitionConfig struct {
 
 	// Embedded graphics configuration
 	Graphics *WeaponGraphicsConfig `yaml:"graphics"`
+}
+
+const defaultTPS = 60
+
+func (c *Config) GetTPS() int {
+	if c != nil && c.Engine.TPS > 0 {
+		return c.Engine.TPS
+	}
+	return defaultTPS
+}
+
+func GetTargetTPS() int {
+	if GlobalConfig != nil {
+		return GlobalConfig.GetTPS()
+	}
+	return defaultTPS
 }
 
 var GlobalConfig *Config

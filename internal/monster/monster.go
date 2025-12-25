@@ -49,9 +49,9 @@ type Monster3D struct {
 	AttackCount  int // Number of attacks made in current engagement
 
 	// Pathfinding state - prevents oscillation when stuck between obstacles
-	LastChosenDir    float64 // Last direction chosen by pathfinding
-	StuckCounter     int     // Counts consecutive frames where monster couldn't move
-	LastX, LastY     float64 // Position last frame to detect stuck state
+	LastChosenDir float64 // Last direction chosen by pathfinding
+	StuckCounter  int     // Counts consecutive frames where monster couldn't move
+	LastX, LastY  float64 // Position last frame to detect stuck state
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
 	SpawnX, SpawnY   float64 // Original spawn position
@@ -65,6 +65,13 @@ type Monster3D struct {
 
 	// Resistances and immunities
 	Resistances map[DamageType]int
+
+	// Habitat preferences - tiles this monster can walk on even if normally blocked
+	HabitatPrefs []string
+
+	// Ranged attack configuration
+	ProjectileSpell  string
+	ProjectileWeapon string
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -150,6 +157,10 @@ func (m *Monster3D) GetAttackDamage() int {
 		return m.DamageMin
 	}
 	return m.DamageMin + rand.Intn(m.DamageMax-m.DamageMin+1)
+}
+
+func (m *Monster3D) HasRangedAttack() bool {
+	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
 }
 
 func (m *Monster3D) GetSpriteType() string {

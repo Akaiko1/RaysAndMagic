@@ -11,7 +11,7 @@ import (
 type MockCollisionChecker struct {
 	blockedTiles map[[2]int]bool // Map of blocked tile coordinates
 	tileSize     float64
-	checkCount   int    // Count how many times CanMoveTo was called
+	checkCount   int     // Count how many times CanMoveTo was called
 	lastX, lastY float64 // Last position checked
 }
 
@@ -48,6 +48,10 @@ func (m *MockCollisionChecker) CanMoveTo(entityID string, x, y float64) bool {
 		}
 	}
 	return true
+}
+
+func (m *MockCollisionChecker) CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool {
+	return m.CanMoveTo(entityID, x, y)
 }
 
 func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
@@ -150,8 +154,8 @@ func TestMonsterBlockedByTile(t *testing.T) {
 // TestTileCenterCalculation verifies tile center calculation
 func TestTileCenterCalculation(t *testing.T) {
 	testCases := []struct {
-		name           string
-		posX, posY     float64
+		name                             string
+		posX, posY                       float64
 		expectedCenterX, expectedCenterY float64
 	}{
 		{"At center (0,0)", 32.0, 32.0, 32.0, 32.0},

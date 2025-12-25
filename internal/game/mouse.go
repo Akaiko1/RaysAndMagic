@@ -1,69 +1,101 @@
 package game
 
-// leftClickPosition returns the queued left-click position for this frame.
-// It returns ok=false if there is no click queued or the click was already consumed.
+type queuedClick struct {
+	x, y int
+	at   int64
+}
+
+const clickBufferMs = doubleClickWindowMs
+
+// leftClickPosition returns the oldest queued left-click position.
+// It returns ok=false if there is no click queued.
 func (g *MMGame) leftClickPosition() (x, y int, ok bool) {
-	if !g.mouseLeftClickQueued || g.mousePressed {
+	if len(g.mouseLeftClicks) == 0 {
 		return 0, 0, false
 	}
-	return g.mouseLeftClickX, g.mouseLeftClickY, true
+	click := g.mouseLeftClicks[0]
+	return click.x, click.y, true
 }
 
-// rightClickPosition returns the queued right-click position for this frame.
-// It returns ok=false if there is no click queued or the click was already consumed.
+// rightClickPosition returns the oldest queued right-click position.
+// It returns ok=false if there is no click queued.
 func (g *MMGame) rightClickPosition() (x, y int, ok bool) {
-	if !g.mouseRightClickQueued || g.mouseRightPressed {
+	if len(g.mouseRightClicks) == 0 {
 		return 0, 0, false
 	}
-	return g.mouseRightClickX, g.mouseRightClickY, true
+	click := g.mouseRightClicks[0]
+	return click.x, click.y, true
 }
 
-// consumeLeftClick consumes the queued left-click for this frame (no bounds check).
+// consumeLeftClick consumes the oldest queued left-click (no bounds check).
 func (g *MMGame) consumeLeftClick() bool {
-	if !g.mouseLeftClickQueued || g.mousePressed {
+	if len(g.mouseLeftClicks) == 0 {
 		return false
 	}
-	g.mousePressed = true
-	g.mouseLeftClickQueued = false
+	click := g.mouseLeftClicks[0]
+	g.mouseLeftClicks = g.mouseLeftClicks[1:]
+	g.mouseLeftClickX, g.mouseLeftClickY = click.x, click.y
+	g.mouseLeftClickAt = click.at
 	return true
 }
 
-// consumeRightClick consumes the queued right-click for this frame (no bounds check).
+// consumeRightClick consumes the oldest queued right-click (no bounds check).
 func (g *MMGame) consumeRightClick() bool {
-	if !g.mouseRightClickQueued || g.mouseRightPressed {
+	if len(g.mouseRightClicks) == 0 {
 		return false
 	}
-	g.mouseRightPressed = true
-	g.mouseRightClickQueued = false
+	click := g.mouseRightClicks[0]
+	g.mouseRightClicks = g.mouseRightClicks[1:]
+	g.mouseRightClickX, g.mouseRightClickY = click.x, click.y
+	g.mouseRightClickAt = click.at
 	return true
 }
 
-// consumeLeftClickIn consumes the queued left-click for this frame if it is inside the bounds.
+// consumeLeftClickIn consumes the oldest queued left-click inside the bounds.
 // Bounds are inclusive-exclusive: [x1,x2) and [y1,y2).
 func (g *MMGame) consumeLeftClickIn(x1, y1, x2, y2 int) bool {
-	if !g.mouseLeftClickQueued || g.mousePressed {
-		return false
-	}
-	x, y := g.mouseLeftClickX, g.mouseLeftClickY
-	if x >= x1 && x < x2 && y >= y1 && y < y2 {
-		g.mousePressed = true
-		g.mouseLeftClickQueued = false
-		return true
+	for i, click := range g.mouseLeftClicks {
+		if click.x >= x1 && click.x < x2 && click.y >= y1 && click.y < y2 {
+			g.mouseLeftClicks = append(g.mouseLeftClicks[:i], g.mouseLeftClicks[i+1:]...)
+			g.mouseLeftClickX, g.mouseLeftClickY = click.x, click.y
+			g.mouseLeftClickAt = click.at
+			return true
+		}
 	}
 	return false
 }
 
-// consumeRightClickIn consumes the queued right-click for this frame if it is inside the bounds.
+// consumeRightClickIn consumes the oldest queued right-click inside the bounds.
 // Bounds are inclusive-exclusive: [x1,x2) and [y1,y2).
 func (g *MMGame) consumeRightClickIn(x1, y1, x2, y2 int) bool {
-	if !g.mouseRightClickQueued || g.mouseRightPressed {
-		return false
-	}
-	x, y := g.mouseRightClickX, g.mouseRightClickY
-	if x >= x1 && x < x2 && y >= y1 && y < y2 {
-		g.mouseRightPressed = true
-		g.mouseRightClickQueued = false
-		return true
+	for i, click := range g.mouseRightClicks {
+		if click.x >= x1 && click.x < x2 && click.y >= y1 && click.y < y2 {
+			g.mouseRightClicks = append(g.mouseRightClicks[:i], g.mouseRightClicks[i+1:]...)
+			g.mouseRightClickX, g.mouseRightClickY = click.x, click.y
+			g.mouseRightClickAt = click.at
+			return true
+		}
 	}
 	return false
+}
+
+func (g *MMGame) pruneClickQueues(now int64) {
+	if len(g.mouseLeftClicks) > 0 {
+		keep := g.mouseLeftClicks[:0]
+		for _, click := range g.mouseLeftClicks {
+			if now-click.at <= clickBufferMs {
+				keep = append(keep, click)
+			}
+		}
+		g.mouseLeftClicks = keep
+	}
+	if len(g.mouseRightClicks) > 0 {
+		keep := g.mouseRightClicks[:0]
+		for _, click := range g.mouseRightClicks {
+			if now-click.at <= clickBufferMs {
+				keep = append(keep, click)
+			}
+		}
+		g.mouseRightClicks = keep
+	}
 }

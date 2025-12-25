@@ -258,6 +258,10 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 
 	// Panel
 	panelW, panelH := 300, 220
+	if ui.game.mainMenuMode == MenuMain {
+		panelW = 360
+		panelH = 300
+	}
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	bg := ebiten.NewImage(panelW, panelH)
@@ -284,7 +288,18 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
-		ebitenutil.DebugPrintAt(screen, "Enter: Select  Esc: Close", px+16, py+panelH-24)
+		tips := []string{
+			"Controls:",
+			"WASD: Move  QE: Strafe",
+			"Space: Attack  F: Cast  H: Heal",
+			"I: Inventory  C: Characters  M: Spellbook",
+			"1-4: Select",
+			"Enter: Toggle Mode (TB/RT)",
+		}
+		tipsY := startY + len(mainMenuOptions)*32 + 10
+		for i, tip := range tips {
+			ebitenutil.DebugPrintAt(screen, tip, px+16, tipsY+i*14)
+		}
 	case MenuSaveSelect:
 		ebitenutil.DebugPrintAt(screen, "Save Game - Select Slot", px+16, py+14)
 		startY := py + 56
@@ -313,7 +328,6 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
-		ebitenutil.DebugPrintAt(screen, "Enter: Save  Esc: Close", px+16, py+panelH-24)
 	case MenuLoadSelect:
 		ebitenutil.DebugPrintAt(screen, "Load Game - Select Slot", px+16, py+14)
 		startY := py + 56
@@ -341,7 +355,6 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
-		ebitenutil.DebugPrintAt(screen, "Enter: Load  Esc: Close", px+16, py+panelH-24)
 	}
 }
 
@@ -518,30 +531,21 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	// Check for active spell effects using data-driven approach
 	hasActiveSpells := false
 
-	// Define spell effects with their state accessors
-	// Each entry: active flag, duration, max duration (frames), icon
-	type spellEffect struct {
-		active      bool
-		duration    int
-		maxDuration int
-		icon        string
-	}
-
-	effects := []spellEffect{
-		{ui.game.torchLightActive, ui.game.torchLightDuration, 18000, "💡"},      // Torch Light: 300s
-		{ui.game.wizardEyeActive, ui.game.wizardEyeDuration, 18000, "👁"},        // Wizard Eye: 300s
-		{ui.game.walkOnWaterActive, ui.game.walkOnWaterDuration, 10800, "🌊"},    // Walk on Water: 180s
-		{ui.game.waterBreathingActive, ui.game.waterBreathingDuration, 36000, "🫧"}, // Water Breathing: 600s
-		{ui.game.blessActive, ui.game.blessDuration, 18000, "✨"},                // Bless: 300s
-	}
-
-	for _, effect := range effects {
-		if effect.active && effect.duration > 0 {
-			iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, effect.icon, effect.duration, effect.maxDuration)
-			ui.handleSpellIconClick(iconX, iconY, iconW, iconH, effect.icon)
-			currentX += iconSpacing
-			hasActiveSpells = true
+	statuses := make([]*UtilitySpellStatus, 0, len(ui.game.utilitySpellStatuses))
+	for _, status := range ui.game.utilitySpellStatuses {
+		if status != nil && status.Duration > 0 {
+			statuses = append(statuses, status)
 		}
+	}
+	sort.Slice(statuses, func(i, j int) bool {
+		return statuses[i].SpellID < statuses[j].SpellID
+	})
+
+	for _, status := range statuses {
+		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
+		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, status.SpellID)
+		currentX += iconSpacing
+		hasActiveSpells = true
 	}
 
 	// Draw background bar if there are active spells
@@ -560,7 +564,7 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 }
 
 // drawSpellIcon draws a single spell status icon with duration bar and returns clickable bounds
-func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon string, currentDuration, maxDuration int) (int, int, int, int) {
+func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fallback string, currentDuration, maxDuration int) (int, int, int, int) {
 	// Draw icon background (more transparent, with border)
 	iconBg := ebiten.NewImage(size, size)
 	iconBg.Fill(color.RGBA{20, 20, 20, 120}) // Less opaque background
@@ -582,16 +586,9 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon str
 	// Draw icon - try emoji first, then fallback to ASCII
 	ebitenutil.DebugPrintAt(screen, icon, x+6, y+8)
 
-	// Draw larger ASCII fallback in the center for better visibility
-	asciiIcon := ui.getASCIIIcon(icon)
-	if asciiIcon != "" {
-		ebitenutil.DebugPrintAt(screen, asciiIcon, x+size/2-4, y+size/2-4)
-	}
-
-	// Add spell name below (small text)
-	spellName := ui.getSpellNameFromIcon(icon)
-	if spellName != "" {
-		ebitenutil.DebugPrintAt(screen, spellName, x, y+size+2)
+	// Draw ASCII fallback in the center for better visibility
+	if fallback != "" {
+		ebitenutil.DebugPrintAt(screen, fallback, x+size/2-4, y+size/2-4)
 	}
 
 	// Draw duration bar at bottom of icon
@@ -637,52 +634,52 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon str
 }
 
 // handleSpellIconClick handles mouse clicks on spell status icons for dispelling
-func (ui *UISystem) handleSpellIconClick(x, y, width, height int, icon string) {
+func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells.SpellID) {
 	// Check for mouse click (only process on first press, not while held)
 	if ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
-		currentTime := time.Now().UnixMilli()
+		currentTime := ui.game.mouseLeftClickAt
 
 		// Check for double-click (within 500ms and same icon)
 		delta := currentTime - ui.game.lastUtilitySpellClickTime
-		doubleClick := delta < doubleClickWindowMs && ui.game.lastClickedUtilitySpell == icon
+		doubleClick := delta < doubleClickWindowMs && ui.game.lastClickedUtilitySpell == string(spellID)
 		if doubleClick {
 			// Double-click detected - dispel the spell
-			ui.dispelUtilitySpell(icon)
+			ui.dispelUtilitySpell(spellID)
 			// Reset click tracking
 			ui.game.lastUtilitySpellClickTime = 0
 			ui.game.lastClickedUtilitySpell = ""
 		} else {
 			// Single click - record for potential double-click
 			ui.game.lastUtilitySpellClickTime = currentTime
-			ui.game.lastClickedUtilitySpell = icon
+			ui.game.lastClickedUtilitySpell = string(spellID)
 		}
 	}
 }
 
 // dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
-func (ui *UISystem) dispelUtilitySpell(icon string) {
-	switch icon {
-	case "💡": // Torch Light
+func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
+	switch string(spellID) {
+	case "torch_light":
 		if ui.game.torchLightActive {
 			ui.game.torchLightDuration = 0 // Let updateTorchLightEffect handle cleanup
 			ui.game.AddCombatMessage("Torch Light dispelled!")
 		}
-	case "👁": // Wizard Eye
+	case "wizard_eye":
 		if ui.game.wizardEyeActive {
 			ui.game.wizardEyeDuration = 0 // Let updateWizardEyeEffect handle cleanup
 			ui.game.AddCombatMessage("Wizard Eye dispelled!")
 		}
-	case "🌊": // Walk on Water
+	case "walk_on_water":
 		if ui.game.walkOnWaterActive {
 			ui.game.walkOnWaterDuration = 0 // Let updateWalkOnWaterEffect handle cleanup
 			ui.game.AddCombatMessage("Walk on Water dispelled!")
 		}
-	case "🫧": // Water Breathing
+	case "water_breathing":
 		if ui.game.waterBreathingActive {
 			ui.game.waterBreathingDuration = 0 // Let updateWaterBreathingEffect handle cleanup (including underwater return)
 			ui.game.AddCombatMessage("Water Breathing dispelled!")
 		}
-	case "✨": // Bless
+	case "bless":
 		if ui.game.blessActive {
 			ui.game.blessDuration = 0 // Let updateBlessEffect handle cleanup
 			ui.game.AddCombatMessage("Bless dispelled!")
@@ -690,46 +687,9 @@ func (ui *UISystem) dispelUtilitySpell(icon string) {
 	}
 }
 
-// getSpellNameFromIcon returns the spell name for debugging based on the icon
-func (ui *UISystem) getSpellNameFromIcon(icon string) string {
-	switch icon {
-	case "💡":
-		return "Light"
-	case "👁":
-		return "Eye"
-	case "🌊":
-		return "Water"
-	case "🫧":
-		return "Breathing"
-	case "✨":
-		return "Bless"
-	default:
-		return ""
-	}
-}
-
-// getASCIIIcon returns Egyptian/mystical symbols for thematic spell icons
-func (ui *UISystem) getASCIIIcon(icon string) string {
-	switch icon {
-	case "💡":
-		return "☀" // Sun symbol for Light
-	case "👁":
-		return "𓂀" // Eye of Horus (if this doesn't work, fallback to ◉)
-	case "🌊":
-		return "≋" // Water waves
-	case "🫧":
-		return "○" // Circle for bubbles/breathing
-	case "✨":
-		return "☩" // Cross/blessing symbol
-	default:
-		return ""
-	}
-}
-
 // drawCompass draws the compass/direction indicator
 func (ui *UISystem) drawCompass(screen *ebiten.Image) {
-	compassX := ui.game.config.GetScreenWidth() - 100
-	compassY := 50
+	compassX, compassY := ui.getCompassCenter()
 
 	// Draw compass circle using image
 	compassRadius := ui.game.config.UI.CompassRadius
@@ -758,8 +718,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 		return
 	}
 
-	compassX := ui.game.config.GetScreenWidth() - 100
-	compassY := 50
+	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
 
 	// Convert tile distance to pixel distance
@@ -809,7 +768,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 // drawInstructions draws the control instructions
 func (ui *UISystem) drawInstructions(screen *ebiten.Image) {
-	ebitenutil.DebugPrintAt(screen, "WASD:Move, QE:Strafe, Space:Sword, F:Fireball, H:Heal, I:Inventory, C:Characters, M:Spellbook, 1-4:Select", 10, 10)
+	ebitenutil.DebugPrintAt(screen, "ESC: Main menu", 10, 10)
 }
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
@@ -1034,38 +993,48 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 }
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
-func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight, schoolIndex int) {
+func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchool) {
 	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
+		currentTime := ui.game.mouseLeftClickAt
+		delta := currentTime - ui.game.lastSchoolClickTime
+		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex && delta < doubleClickWindowMs
+
 		ui.game.selectedSchool = schoolIndex
 		ui.game.selectedSpell = 0 // Reset spell selection when changing school
+
+		if doubleClick {
+			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
+		}
+
+		ui.game.lastSchoolClickTime = currentTime
+		ui.game.lastSchoolClickedIdx = schoolIndex
 	}
 }
 
 // handleSpellbookSpellClick checks if mouse clicked on a spell and selects it
-func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, spellIndex int) {
+func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellHeight, schoolIndex, spellIndex int) {
 	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
-		currentTime := time.Now().UnixMilli()
+		currentTime := ui.game.mouseLeftClickAt
 
 		// Check for double-click (within 500ms of last click on same spell)
 		delta := currentTime - ui.game.lastSpellClickTime
 		doubleClick := ui.game.lastClickedSpell == spellIndex &&
-			ui.game.lastClickedSchool == ui.game.selectedSchool &&
+			ui.game.lastClickedSchool == schoolIndex &&
 			delta < doubleClickWindowMs
+
+		// Update selection for highlight and keyboard navigation
+		ui.game.selectedSchool = schoolIndex
+		ui.game.selectedSpell = spellIndex
+
 		if doubleClick {
-			// Double-click detected - equip the spell directly
-			ui.game.combat.EquipSelectedSpell()
-			if ui.game.menuOpen {
-				ui.game.menuOpen = false
-			}
-		} else {
-			// Single click - just select the spell
-			ui.game.selectedSpell = spellIndex
+			// Double-click detected - cast the spell directly
+			ui.game.combat.CastSelectedSpell()
 		}
 
 		// Update click tracking
 		ui.game.lastSpellClickTime = currentTime
 		ui.game.lastClickedSpell = spellIndex
-		ui.game.lastClickedSchool = ui.game.selectedSchool
+		ui.game.lastClickedSchool = schoolIndex
 	}
 }
 
@@ -1073,20 +1042,18 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 func (ui *UISystem) updateMouseState() {
 	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
-
-	// Reset per-frame click state.
-	ui.game.mousePressed = false
-	ui.game.mouseRightPressed = false
-	ui.game.mouseLeftClickQueued = false
-	ui.game.mouseRightClickQueued = false
+	now := time.Now().UnixMilli()
+	ui.game.pruneClickQueues(now)
 
 	if leftJustPressed {
-		ui.game.mouseLeftClickQueued = true
-		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = ebiten.CursorPosition()
+		x, y := ebiten.CursorPosition()
+		ui.game.mouseLeftClicks = append(ui.game.mouseLeftClicks, queuedClick{x: x, y: y, at: now})
+		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = x, y
 	}
 	if rightJustPressed {
-		ui.game.mouseRightClickQueued = true
-		ui.game.mouseRightClickX, ui.game.mouseRightClickY = ebiten.CursorPosition()
+		x, y := ebiten.CursorPosition()
+		ui.game.mouseRightClicks = append(ui.game.mouseRightClicks, queuedClick{x: x, y: y, at: now})
+		ui.game.mouseRightClickX, ui.game.mouseRightClickY = x, y
 	}
 }
 
@@ -1473,7 +1440,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		schoolSpells := currentChar.GetSpellsForSchool(school)
 
 		// Handle mouse clicks on school names
-		ui.handleSpellbookSchoolClick(panelX+30, y, 300, 20, schoolIndex)
+		ui.handleSpellbookSchoolClick(panelX+30, y, 300, 20, schoolIndex, school)
 
 		// Draw school name
 		if schoolIndex == ui.game.selectedSchool {
@@ -1483,58 +1450,60 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		}
 		y += 20
 
-		// Draw spells in current school
-		if schoolIndex == ui.game.selectedSchool {
-			// Validate and fix selected spell index if it's out of bounds
-			if ui.game.selectedSpell >= len(schoolSpells) {
-				ui.game.selectedSpell = 0
+		// Validate and fix selected spell index if it's out of bounds
+		if schoolIndex == ui.game.selectedSchool && ui.game.selectedSpell >= len(schoolSpells) {
+			ui.game.selectedSpell = 0
+		}
+
+		// Draw spells for this school (unless collapsed)
+		if ui.game.collapsedSpellSchools[school] {
+			continue
+		}
+
+		for spellIndex, spellID := range schoolSpells {
+			// Get spell definition from centralized system
+			def, err := spells.GetSpellDefinitionByID(spellID)
+			if err != nil {
+				continue // Skip invalid spells
 			}
 
-			for spellIndex, spellID := range schoolSpells {
-				// Get spell definition from centralized system
-				def, err := spells.GetSpellDefinitionByID(spellID)
-				if err != nil {
-					continue // Skip invalid spells
-				}
-
-				canCast := "✓"
-				if currentChar.SpellPoints < def.SpellPointsCost {
-					canCast = "✗"
-				}
-
-				// Handle mouse interactions for spells
-				spellY := y
-				spellHeight := 15
-				mouseX, mouseY := ebiten.CursorPosition()
-				isHovering := mouseX >= panelX+50 && mouseX < panelX+350 && mouseY >= spellY && mouseY < spellY+spellHeight
-
-				// Handle mouse clicks on spells
-				ui.handleSpellbookSpellClick(panelX+50, spellY, 300, spellHeight, spellIndex)
-
-				// Generate tooltip for hovering spell
-				if isHovering {
-					// Draw hover background
-					hoverBg := ebiten.NewImage(300, spellHeight)
-					hoverBg.Fill(color.RGBA{100, 100, 150, 100})
-					hoverOpts := &ebiten.DrawImageOptions{}
-					hoverOpts.GeoM.Translate(float64(panelX+50), float64(spellY))
-					screen.DrawImage(hoverBg, hoverOpts)
-
-					// Generate spell tooltip using SpellID
-					spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
-					tooltipX = mouseX + 16
-					tooltipY = mouseY + 8
-				}
-
-				if spellIndex == ui.game.selectedSpell {
-					ebitenutil.DebugPrintAt(screen, fmt.Sprintf("  > %s %s (SP:%d)",
-						canCast, def.Name, def.SpellPointsCost), panelX+50, y)
-				} else {
-					ebitenutil.DebugPrintAt(screen, fmt.Sprintf("    %s %s (SP:%d)",
-						canCast, def.Name, def.SpellPointsCost), panelX+50, y)
-				}
-				y += 15
+			canCast := "✓"
+			if currentChar.SpellPoints < def.SpellPointsCost {
+				canCast = "✗"
 			}
+
+			// Handle mouse interactions for spells
+			spellY := y
+			spellHeight := 15
+			mouseX, mouseY := ebiten.CursorPosition()
+			isHovering := mouseX >= panelX+50 && mouseX < panelX+350 && mouseY >= spellY && mouseY < spellY+spellHeight
+
+			// Handle mouse clicks on spells
+			ui.handleSpellbookSpellClick(panelX+50, spellY, 300, spellHeight, schoolIndex, spellIndex)
+
+			// Generate tooltip for hovering spell
+			if isHovering {
+				// Draw hover background
+				hoverBg := ebiten.NewImage(300, spellHeight)
+				hoverBg.Fill(color.RGBA{100, 100, 150, 100})
+				hoverOpts := &ebiten.DrawImageOptions{}
+				hoverOpts.GeoM.Translate(float64(panelX+50), float64(spellY))
+				screen.DrawImage(hoverBg, hoverOpts)
+
+				// Generate spell tooltip using SpellID
+				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
+				tooltipX = mouseX + 16
+				tooltipY = mouseY + 8
+			}
+
+			if schoolIndex == ui.game.selectedSchool && spellIndex == ui.game.selectedSpell {
+				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("  > %s %s (SP:%d)",
+					canCast, def.Name, def.SpellPointsCost), panelX+50, y)
+			} else {
+				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("    %s %s (SP:%d)",
+					canCast, def.Name, def.SpellPointsCost), panelX+50, y)
+			}
+			y += 15
 		}
 	}
 
@@ -1545,7 +1514,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	// Draw spellbook controls
-	ebitenutil.DebugPrintAt(screen, "Up/Down: Navigate, Enter: Equip, Click: Select, Double-click: Equip", panelX+30, contentY+contentHeight-30)
+	ebitenutil.DebugPrintAt(screen, "Up/Down: Navigate, Enter: Equip, Click: Select, Double-click: Cast", panelX+30, contentY+contentHeight-30)
 }
 
 // drawFPSCounter draws the FPS counter in the top-right corner
@@ -1557,10 +1526,10 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	// Format FPS text
 	fpsText := fmt.Sprintf("FPS: %.1f\nTPS: %.1f", fps, tps)
 
-	// Position in top-right corner
-	screenWidth := ui.game.config.GetScreenWidth()
-	textX := screenWidth - 90 // 90px from right edge (wider for TPS)
-	textY := 30               // 30px from top
+	compassX, compassY := ui.getCompassCenter()
+	compassRadius := ui.game.config.UI.CompassRadius
+	textX := compassX - compassRadius - 12
+	textY := compassY + compassRadius + 8
 
 	// Draw semi-transparent background
 	bgWidth := 80
@@ -2047,7 +2016,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 	if !ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		return
 	}
-	currentTime := time.Now()
+	currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
 
 	// Check for double-click (same item clicked within 500ms)
 	delta := currentTime.Sub(ui.lastClickTime)
@@ -2081,7 +2050,7 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
 	// Check for mouse click
 	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
-		currentTime := time.Now()
+		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
 
 		// Check for double-click (same slot clicked within 500ms)
 		delta := currentTime.Sub(ui.lastEquipClickTime)
@@ -2109,35 +2078,61 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 
 // drawTurnBasedStatus displays the current game mode and turn state
 func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
-	x := ui.game.config.GetScreenWidth() - 200
-	y := 10
+	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
+	lineHeight := 16
+	padding := 6
 
-	// Display current mode
+	bgImg := ebiten.NewImage(barWidth, barHeight)
+	bgImg.Fill(color.RGBA{0, 0, 0, 120})
+	bgOpts := &ebiten.DrawImageOptions{}
+	bgOpts.GeoM.Translate(float64(barX), float64(barY))
+	screen.DrawImage(bgImg, bgOpts)
+
+	for i, line := range lines {
+		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+	}
+}
+
+func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
 	mode := "Real-time"
 	if ui.game.turnBasedMode {
 		mode = "Turn-based"
 	}
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Mode: %s", mode), x, y)
-
-	// Display turn information if in turn-based mode
+	lines := []string{fmt.Sprintf("Mode: %s", mode)}
 	if ui.game.turnBasedMode {
-		y += 20
 		turnText := "Party Turn"
 		if ui.game.currentTurn == 1 {
 			turnText = "Monster Turn"
 		}
-		ebitenutil.DebugPrintAt(screen, turnText, x, y)
-
-		// Show party actions used
+		lines = append(lines, turnText)
 		if ui.game.currentTurn == 0 {
-			y += 20
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Actions: %d/2", ui.game.partyActionsUsed), x, y)
+			lines = append(lines, fmt.Sprintf("Actions: %d/2", ui.game.partyActionsUsed))
 		}
 	}
 
-	// Display controls
-	y += 20
-	ebitenutil.DebugPrintAt(screen, "Enter: Toggle Mode", x, y)
+	lineHeight := 16
+	padding := 6
+	maxLen := 0
+	for _, line := range lines {
+		if len(line) > maxLen {
+			maxLen = len(line)
+		}
+	}
+	barWidth := maxLen*7 + padding*2
+	barHeight := len(lines)*lineHeight + padding*2
+	barX := ui.game.config.GetScreenWidth() - barWidth - 10
+	barY := 10
+
+	return lines, barX, barY, barWidth, barHeight
+}
+
+func (ui *UISystem) getCompassCenter() (int, int) {
+	_, _, barY, _, barHeight := ui.turnBasedStatusLayout()
+	compassRadius := ui.game.config.UI.CompassRadius
+	spacing := 10
+	compassX := ui.game.config.GetScreenWidth() - 10 - compassRadius
+	compassY := barY + barHeight + spacing + compassRadius
+	return compassX, compassY
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)
@@ -2186,7 +2181,6 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 
 	// Calculate screen dimensions for positioning
 	screenWidth := ui.game.config.GetScreenWidth()
-	screenHeight := ui.game.config.GetScreenHeight()
 
 	// Create interaction message based on NPC type
 	var message string
@@ -2204,11 +2198,11 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	textHeight := 20
 	padding := 15
 
-	// Position at bottom center of screen
+	// Position at top center of screen
 	notificationWidth := textWidth + (padding * 2)
 	notificationHeight := textHeight + (padding * 2)
 	notificationX := (screenWidth - notificationWidth) / 2
-	notificationY := screenHeight - 100
+	notificationY := 10
 
 	// Draw semi-transparent background
 	bgImage := ebiten.NewImage(notificationWidth, notificationHeight)

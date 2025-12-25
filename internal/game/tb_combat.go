@@ -50,7 +50,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 
 		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(monster, tileSize)
-		if freeSpace <= reach && inPerpendicularPosition {
+		canAttack := freeSpace <= reach
+		if canAttack && inPerpendicularPosition {
 			// Attack only from perpendicular positions (N/E/S/W)
 			gl.monsterAttackTurnBased(monster)
 		} else {
@@ -68,6 +69,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
+	if monster.HasRangedAttack() {
+		gl.game.combat.spawnMonsterRangedAttack(monster)
+		return
+	}
+
 	// Attack a random party character
 	targetIndex := rand.Intn(len(gl.game.party.Members))
 	target := gl.game.party.Members[targetIndex]
@@ -123,7 +129,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	newY := monster.Y + float64(stepY)*tileSize
 
 	// Check if the monster can move to the new position
-	if gl.game.collisionSystem.CanMoveTo(monster.ID, newX, newY) {
+	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs) {
 		monster.X = newX
 		monster.Y = newY
 		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
@@ -134,7 +140,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	if stepX != 0 && dyTiles != 0 {
 		altX := monster.X
 		altY := monster.Y + float64(sign(dyTiles))*tileSize
-		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -143,7 +149,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	} else if stepY != 0 && dxTiles != 0 {
 		altX := monster.X + float64(sign(dxTiles))*tileSize
 		altY := monster.Y
-		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -186,7 +192,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
-		if gl.game.collisionSystem.CanMoveTo(m.ID, testX, testY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs) {
 			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
 			if dist < bestDist {
 				bestDist = dist

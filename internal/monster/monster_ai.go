@@ -3,11 +3,13 @@ package monster
 import (
 	"math"
 	"math/rand"
+	"ugataima/internal/config"
 )
 
 // CollisionChecker interface for checking movement validity
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
+	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -18,7 +20,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, monsterID string, 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
 	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-		if !collisionChecker.CanMoveTo(monsterID, m.X, m.Y) {
+		if !collisionChecker.CanMoveToWithHabitat(monsterID, m.X, m.Y, m.HabitatPrefs) {
 			m.unstuckFromObstacles(collisionChecker, monsterID)
 		}
 	}
@@ -150,7 +152,7 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterI
 		return
 	}
 
-	speed := m.Speed * normalSpeedMult
+	speed := m.speedPerTick() * normalSpeedMult
 
 	// Check if outside tether - return to spawn using grid movement
 	if !m.IsWithinTetherRadius() {
@@ -234,7 +236,7 @@ func (m *Monster3D) tryMoveCardinalWithSpeed(collisionChecker CollisionChecker, 
 	targetX := currentTileX + float64(dirX)*tileSize
 	targetY := currentTileY + float64(dirY)*tileSize
 
-	if !collisionChecker.CanMoveTo(monsterID, targetX, targetY) {
+	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
 		return false
 	}
 
@@ -242,7 +244,7 @@ func (m *Monster3D) tryMoveCardinalWithSpeed(collisionChecker CollisionChecker, 
 	newX := m.X + math.Cos(dirAngle)*speed
 	newY := m.Y + math.Sin(dirAngle)*speed
 
-	if collisionChecker.CanMoveTo(monsterID, newX, newY) {
+	if collisionChecker.CanMoveToWithHabitat(monsterID, newX, newY, m.HabitatPrefs) {
 		m.X = newX
 		m.Y = newY
 		m.Direction = dirAngle
@@ -313,7 +315,7 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 	}
 
 	// Try primary direction first (full speed for chasing)
-	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, primaryDirX, primaryDirY, m.Speed) {
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, primaryDirX, primaryDirY, m.speedPerTick()) {
 		m.StuckCounter = 0
 		// Remember which direction we moved
 		if primaryDirY != 0 {
@@ -336,7 +338,7 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 		secondaryDirY = 0
 	}
 
-	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, secondaryDirX, secondaryDirY, m.Speed) {
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, secondaryDirX, secondaryDirY, m.speedPerTick()) {
 		m.StuckCounter = 0
 		// Remember which direction we moved
 		if secondaryDirY != 0 {
@@ -363,7 +365,7 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 		}
 
 		for _, dir := range perpDirs {
-			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dir[0], dir[1], m.Speed) {
+			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dir[0], dir[1], m.speedPerTick()) {
 				m.StuckCounter = 0
 				return
 			}
@@ -391,16 +393,16 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, monsterID
 	targetY := currentTileY + float64(dirY)*tileSize
 
 	// Check if target tile is walkable
-	if !collisionChecker.CanMoveTo(monsterID, targetX, targetY) {
+	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
 		return false
 	}
 
 	// Move towards target tile center
 	dirAngle := math.Atan2(float64(dirY), float64(dirX))
-	newX := m.X + math.Cos(dirAngle)*m.Speed
-	newY := m.Y + math.Sin(dirAngle)*m.Speed
+	newX := m.X + math.Cos(dirAngle)*m.speedPerTick()
+	newY := m.Y + math.Sin(dirAngle)*m.speedPerTick()
 
-	if collisionChecker.CanMoveTo(monsterID, newX, newY) {
+	if collisionChecker.CanMoveToWithHabitat(monsterID, newX, newY, m.HabitatPrefs) {
 		m.X = newX
 		m.Y = newY
 		m.Direction = dirAngle
@@ -409,6 +411,19 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, monsterID
 	}
 
 	return false
+}
+
+func (m *Monster3D) speedPerTick() float64 {
+	tps := 60
+	if m.config != nil {
+		tps = m.config.GetTPS()
+	} else {
+		tps = config.GetTargetTPS()
+	}
+	if tps <= 0 {
+		return m.Speed
+	}
+	return m.Speed * (60.0 / float64(tps))
 }
 
 // abs returns absolute value of an int
@@ -501,7 +516,7 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, monsterID s
 		return
 	}
 
-	speed := m.Speed * fleeSpeedMult
+	speed := m.speedPerTick() * fleeSpeedMult
 
 	// Calculate direction away from player
 	dx := m.X - playerX
@@ -565,7 +580,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker, mons
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveTo(monsterID, nx, ny) {
+			if collisionChecker.CanMoveToWithHabitat(monsterID, nx, ny, m.HabitatPrefs) {
 				m.X = nx
 				m.Y = ny
 				m.Direction = angle
@@ -574,7 +589,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker, mons
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveTo(monsterID, m.SpawnX, m.SpawnY) {
+	if collisionChecker.CanMoveToWithHabitat(monsterID, m.SpawnX, m.SpawnY, m.HabitatPrefs) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
 		m.Direction = m.GetDirectionToSpawn()

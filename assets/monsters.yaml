@@ -187,6 +187,7 @@ monsters:
     damage_max: 40
     alert_radius: 5  # 5 tiles (wide awareness)
     attack_radius: 2  # 2 tiles (breath weapon/bite)
+    projectile_spell: "firebolt"
     speed: 2.5
     gold_min: 500
     gold_max: 1500
@@ -201,6 +202,8 @@ monsters:
       air: 75
     habitat_preferences:
       - "empty"
+      - "desert_dune"
+      - "large_dune"
 
   # Forest-specific monsters
   forest_orc:
@@ -354,8 +357,9 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 7
-    alert_radius: 2  # 2 tiles
-    attack_radius: 1  # 1 tile (melee range)
+    alert_radius: 3  # 3 tiles
+    attack_radius: 2  # 2 tiles (ranged knives)
+    projectile_weapon: "throwing_knife"
     speed: 1.6
     gold_min: 8
     gold_max: 25
