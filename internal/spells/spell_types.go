@@ -31,6 +31,7 @@ type SpellDefinition struct {
 	IsProjectile    bool
 	IsUtility       bool
 	VisualEffect    string
+	StatusIcon      string
 	StatBonus       int // Stat bonus for buff spells like Bless
 	// Effect configuration
 	HealAmount     int     // For healing spells
@@ -70,6 +71,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		IsProjectile:    configDef.IsProjectile,
 		IsUtility:       configDef.IsUtility,
 		VisualEffect:    configDef.VisualEffect,
+		StatusIcon:      configDef.StatusIcon,
 		StatBonus:       configDef.StatBonus,
 		// Effect configuration from YAML
 		HealAmount:     configDef.HealAmount,

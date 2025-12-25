@@ -166,6 +166,7 @@ spells:
     is_projectile: false
     is_utility: true
     visual_effect: "light"
+    status_icon: "torch"
     vision_bonus: 50.0
     message: "A magical light illuminates the area!"
 
@@ -184,6 +185,7 @@ spells:
     is_projectile: false
     is_utility: true
     visual_effect: "bless"
+    status_icon: "bless"
     message: "The party feels blessed! (+20 to all stats)"
 
     # No physics or graphics needed - utility spell
@@ -201,6 +203,7 @@ spells:
     is_projectile: false
     is_utility: true
     visual_effect: "wizard_eye"
+    status_icon: "eye"
     message: "Your vision extends beyond normal limits!"
 
     # No physics or graphics needed - utility spell
@@ -234,6 +237,7 @@ spells:
     is_projectile: false
     is_utility: true
     visual_effect: "water_walk"
+    status_icon: "water_walk"
     water_walk: true
     message: "The party gains the ability to walk on water!"
 
@@ -251,6 +255,7 @@ spells:
     is_projectile: false
     is_utility: true
     visual_effect: "water_breathing"
+    status_icon: "water_breathing"
     water_breathing: true
     message: "You can now breathe underwater!"
 

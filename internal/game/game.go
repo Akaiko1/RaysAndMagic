@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
 
@@ -22,6 +23,13 @@ import (
 
 // Constants are now loaded from config.yaml
 // Access via config.GlobalConfig or pass config instance
+
+type ProjectileOwner int
+
+const (
+	ProjectileOwnerPlayer ProjectileOwner = iota
+	ProjectileOwnerMonster
+)
 
 type MagicProjectile struct {
 	ID         string  // Unique identifier
@@ -33,6 +41,8 @@ type MagicProjectile struct {
 	SpellType  string // Type of spell for visual differentiation
 	Size       int    // Projectile size
 	Crit       bool   // Critical hit flag
+	Owner      ProjectileOwner
+	SourceName string
 }
 
 type MeleeAttack struct {
@@ -68,6 +78,8 @@ type Arrow struct {
 	BowKey     string // YAML key of the bow used to fire this arrow
 	DamageType string // Damage element type ("physical", "dark", etc.)
 	Crit       bool   // Critical hit flag
+	Owner      ProjectileOwner
+	SourceName string
 }
 
 type MMGame struct {
@@ -88,21 +100,24 @@ type MMGame struct {
 	selectedChar     int
 
 	// Tabbed menu system
-	menuOpen              bool
-	currentTab            MenuTab
-	mousePressed          bool // Left click consumed for the current frame
-	mouseRightPressed     bool // Right click consumed for the current frame
-	mouseLeftClickQueued  bool
-	mouseRightClickQueued bool
-	mouseLeftClickX       int
-	mouseLeftClickY       int
-	mouseRightClickX      int
-	mouseRightClickY      int
+	menuOpen          bool
+	currentTab        MenuTab
+	mouseLeftClickX   int
+	mouseLeftClickY   int
+	mouseRightClickX  int
+	mouseRightClickY  int
+	mouseLeftClickAt  int64
+	mouseRightClickAt int64
+	mouseLeftClicks   []queuedClick
+	mouseRightClicks  []queuedClick
 
 	// Double-click support for spellbook
 	lastSpellClickTime int64 // Time of last spell click in milliseconds
 	lastClickedSpell   int   // Index of last clicked spell
 	lastClickedSchool  int   // Index of last clicked school
+	// Double-click support for spellbook school collapse
+	lastSchoolClickTime  int64 // Time of last school click in milliseconds
+	lastSchoolClickedIdx int   // Index of last clicked school header
 
 	// Double-click support for dialogs (neutral)
 	dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
@@ -120,7 +135,13 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
-	slashEffects     []SlashEffect
+
+	// Spellbook UI state
+	collapsedSpellSchools map[character.MagicSchool]bool
+
+	// Utility spell status icons (data-driven)
+	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
+	slashEffects         []SlashEffect
 
 	// Lighting effects
 	torchLightActive   bool    // Whether torch light is currently active
@@ -288,23 +309,26 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		slashEffects:     make([]SlashEffect, 0),
 
 		// Tabbed menu system
-		menuOpen:     false,
-		currentTab:   TabInventory,
-		mousePressed: false,
+		menuOpen:   false,
+		currentTab: TabInventory,
 
 		// Double-click support for spellbook
-		lastSpellClickTime: 0,
-		lastClickedSpell:   -1,
-		lastClickedSchool:  -1,
+		lastSpellClickTime:   0,
+		lastClickedSpell:     -1,
+		lastClickedSchool:    -1,
+		lastSchoolClickTime:  0,
+		lastSchoolClickedIdx: -1,
 
 		// Double-click support for dialogs (neutral)
 		dialogLastClickTime:  0,
 		dialogLastClickedIdx: -1,
 
-		selectedSchool: 0,
-		selectedSpell:  0,
-		combatMessages: make([]string, 0),
-		maxMessages:    3, // Show last 3 messages
+		selectedSchool:        0,
+		selectedSpell:         0,
+		collapsedSpellSchools: make(map[character.MagicSchool]bool),
+		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
+		combatMessages:        make([]string, 0),
+		maxMessages:           3, // Show last 3 messages
 
 		// Dialog system initialization
 		dialogSelectedChar:  0,

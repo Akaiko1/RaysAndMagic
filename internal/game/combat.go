@@ -148,6 +148,8 @@ func (cs *CombatSystem) CastEquippedSpell() {
 			case "bless":
 				cs.applyBlessEffect(result.Duration, result.StatBonus)
 			}
+
+			cs.game.setUtilityStatus(spellID, result.Duration)
 		}
 		return
 	}
@@ -186,6 +188,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		SpellType: string(spellID),
 		Size:      projectile.Size,
 		Crit:      isCrit,
+		Owner:     ProjectileOwnerPlayer,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -455,6 +458,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		BowKey:     bowKey,
 		DamageType: damageType,
 		Crit:       isCrit,
+		Owner:      ProjectileOwnerPlayer,
 	}
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
@@ -652,6 +656,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			LifeTime: projectile.LifeTime,
 			Active:   projectile.Active,
 			Crit:     isCrit,
+			Owner:    ProjectileOwnerPlayer,
 		}
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -714,6 +719,16 @@ func (cs *CombatSystem) CastSelectedSpell() {
 				cs.game.walkOnWaterActive = true
 				cs.game.walkOnWaterDuration = duration
 			}
+			if result.WaterBreathing {
+				cs.game.waterBreathingActive = true
+				cs.game.waterBreathingDuration = duration
+				// Store current position and map for return teleportation when effect expires
+				cs.game.underwaterReturnX = cs.game.camera.X
+				cs.game.underwaterReturnY = cs.game.camera.Y
+				if world.GlobalWorldManager != nil {
+					cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
+				}
+			}
 
 			// Apply stat bonus effects
 			if result.StatBonus > 0 {
@@ -724,6 +739,8 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			if result.Awaken {
 				// TODO: Remove sleep/paralysis conditions from party
 			}
+
+			cs.game.setUtilityStatus(selectedSpellID, duration)
 		}
 	}
 }
@@ -767,43 +784,141 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
-		// If monster is in attacking state and within attack radius, deal damage
+		// If monster is in attacking state and within attack radius, perform attack
 		if monster.State == monsterPkg.StateAttacking && dist < monster.AttackRadius {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
-				// Monster attacks character with highest endurance (and HP > 0)
-				currentChar := cs.findHighestEnduranceTarget()
-				damage := monster.GetAttackDamage()
-
-				// Apply armor damage reduction
-				finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
-
-				// Perfect Dodge: luck/5% to avoid all damage
-				if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
-					currentChar.HitPoints -= finalDamage
-					if currentChar.HitPoints < 0 {
-						currentChar.HitPoints = 0
-					}
-					if currentChar.HitPoints == 0 {
-						currentChar.AddCondition(character.ConditionUnconscious)
-					}
+				if monster.HasRangedAttack() {
+					cs.spawnMonsterRangedAttack(monster)
 				} else {
-					// Announce dodge and skip damage blink below
-					cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
-					return
+					cs.applyMonsterMeleeDamage(monster, dist)
 				}
-
-				// Trigger damage blink effect for the character that was hit
-				targetIndex := cs.findCharacterIndex(currentChar)
-				cs.game.TriggerDamageBlink(targetIndex)
-
-				// Push monster back slightly to prevent spam
-				pushBack := cs.game.config.MonsterAI.PushbackDistance
-				monster.X += (monster.X - cs.game.camera.X) / dist * pushBack
-				monster.Y += (monster.Y - cs.game.camera.Y) / dist * pushBack
 			}
 		}
 	}
+}
+
+func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
+	// Monster attacks character with highest endurance (and HP > 0)
+	currentChar := cs.findHighestEnduranceTarget()
+	damage := monster.GetAttackDamage()
+
+	// Apply armor damage reduction
+	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
+
+	// Perfect Dodge: luck/5% to avoid all damage
+	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
+		currentChar.HitPoints -= finalDamage
+		if currentChar.HitPoints < 0 {
+			currentChar.HitPoints = 0
+		}
+		if currentChar.HitPoints == 0 {
+			currentChar.AddCondition(character.ConditionUnconscious)
+		}
+	} else {
+		// Announce dodge and skip damage blink below
+		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
+		return
+	}
+
+	// Trigger damage blink effect for the character that was hit
+	targetIndex := cs.findCharacterIndex(currentChar)
+	cs.game.TriggerDamageBlink(targetIndex)
+
+	// Push monster back slightly to prevent spam
+	pushBack := cs.game.config.MonsterAI.PushbackDistance
+	if dist == 0 {
+		dist = 0.001
+	}
+	monster.X += (monster.X - cs.game.camera.X) / dist * pushBack
+	monster.Y += (monster.Y - cs.game.camera.Y) / dist * pushBack
+}
+
+func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
+	if monster.ProjectileSpell != "" {
+		cs.spawnMonsterSpellProjectile(monster, spells.SpellID(monster.ProjectileSpell))
+		return
+	}
+	if monster.ProjectileWeapon != "" {
+		cs.spawnMonsterWeaponProjectile(monster, monster.ProjectileWeapon)
+	}
+}
+
+func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3D, spellID spells.SpellID) {
+	castingSystem := spells.NewCastingSystem(cs.game.config)
+	angle := math.Atan2(cs.game.camera.Y-monster.Y, cs.game.camera.X-monster.X)
+	projectile, err := castingSystem.CreateProjectile(spellID, monster.X, monster.Y, angle, 0)
+	if err != nil {
+		return
+	}
+
+	spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
+	if err != nil {
+		return
+	}
+
+	magicProjectile := MagicProjectile{
+		ID:         cs.game.GenerateProjectileID("monster_" + string(spellID)),
+		X:          monster.X,
+		Y:          monster.Y,
+		VelX:       projectile.VelX,
+		VelY:       projectile.VelY,
+		Damage:     monster.GetAttackDamage(),
+		LifeTime:   projectile.LifeTime,
+		Active:     projectile.Active,
+		SpellType:  string(spellID),
+		Size:       projectile.Size,
+		Crit:       false,
+		Owner:      ProjectileOwnerMonster,
+		SourceName: monster.Name,
+	}
+	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
+
+	tileSize := cs.game.config.GetTileSize()
+	collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
+	projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
+	cs.game.collisionSystem.RegisterEntity(projectileEntity)
+}
+
+func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string) {
+	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+
+	tileSize := cs.game.config.GetTileSize()
+	arrowSpeed := cs.game.config.GetArrowSpeed()
+	arrowLifetime := cs.game.config.GetArrowLifetime()
+	collisionSize := float64(cs.game.config.GetArrowCollisionSize())
+	if exists && weaponDef.Physics != nil {
+		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
+		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
+		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
+	}
+
+	damageType := "physical"
+	if exists && weaponDef.DamageType != "" {
+		damageType = weaponDef.DamageType
+	}
+
+	angle := math.Atan2(cs.game.camera.Y-monster.Y, cs.game.camera.X-monster.X)
+	arrow := Arrow{
+		ID:         cs.game.GenerateProjectileID("monster_arrow"),
+		X:          monster.X,
+		Y:          monster.Y,
+		VelX:       math.Cos(angle) * arrowSpeed,
+		VelY:       math.Sin(angle) * arrowSpeed,
+		Damage:     monster.GetAttackDamage(),
+		LifeTime:   arrowLifetime,
+		Active:     true,
+		BowKey:     weaponKey,
+		DamageType: damageType,
+		Crit:       false,
+		Owner:      ProjectileOwnerMonster,
+		SourceName: monster.Name,
+	}
+
+	cs.game.arrows = append(cs.game.arrows, arrow)
+
+	arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
+	cs.game.collisionSystem.RegisterEntity(arrowEntity)
 }
 
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
@@ -818,12 +933,12 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 	var projectiles []projectileInfo
 
 	for i := range cs.game.arrows {
-		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 {
+		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 && cs.game.arrows[i].Owner != ProjectileOwnerMonster {
 			projectiles = append(projectiles, projectileInfo{cs.game.arrows[i].ID, &cs.game.arrows[i], "arrow"})
 		}
 	}
 	for i := range cs.game.magicProjectiles {
-		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 {
+		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 && cs.game.magicProjectiles[i].Owner != ProjectileOwnerMonster {
 			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile"})
 		}
 	}
@@ -845,6 +960,70 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 		}
 	}
+}
+
+// CheckProjectilePlayerCollisions checks for collisions between monster projectiles and the player.
+func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
+	playerEntity := cs.game.collisionSystem.GetEntityByID("player")
+	if playerEntity == nil || playerEntity.BoundingBox == nil {
+		return
+	}
+
+	for i := range cs.game.magicProjectiles {
+		mp := &cs.game.magicProjectiles[i]
+		if !mp.Active || mp.LifeTime <= 0 || mp.Owner != ProjectileOwnerMonster {
+			continue
+		}
+		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
+			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage)
+			mp.Active = false
+			cs.game.collisionSystem.UnregisterEntity(mp.ID)
+		}
+	}
+
+	for i := range cs.game.arrows {
+		ar := &cs.game.arrows[i]
+		if !ar.Active || ar.LifeTime <= 0 || ar.Owner != ProjectileOwnerMonster {
+			continue
+		}
+		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
+			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage)
+			ar.Active = false
+			cs.game.collisionSystem.UnregisterEntity(ar.ID)
+		}
+	}
+}
+
+func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *collision.Entity) bool {
+	projEntity := cs.game.collisionSystem.GetEntityByID(projectileID)
+	if projEntity == nil || projEntity.BoundingBox == nil {
+		return false
+	}
+	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
+}
+
+func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int) {
+	currentChar := cs.findHighestEnduranceTarget()
+	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
+
+	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
+		currentChar.HitPoints -= finalDamage
+		if currentChar.HitPoints < 0 {
+			currentChar.HitPoints = 0
+		}
+		if currentChar.HitPoints == 0 {
+			currentChar.AddCondition(character.ConditionUnconscious)
+		}
+	} else {
+		if sourceName == "" {
+			sourceName = "Monster"
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, sourceName))
+		return
+	}
+
+	targetIndex := cs.findCharacterIndex(currentChar)
+	cs.game.TriggerDamageBlink(targetIndex)
 }
 
 // getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile

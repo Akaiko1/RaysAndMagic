@@ -72,6 +72,7 @@ func main() {
 	if cfg.Display.Resizable {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
+	ebiten.SetTPS(cfg.GetTPS())
 
 	g := game.NewMMGame(cfg)
 	if err := ebiten.RunGame(g); err != nil {

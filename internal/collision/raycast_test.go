@@ -28,6 +28,10 @@ func (m *mockTileChecker) IsTileBlocking(tileX, tileY int) bool {
 	return false
 }
 
+func (m *mockTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool {
+	return m.IsTileBlocking(tileX, tileY)
+}
+
 func (m *mockTileChecker) IsTileOpaque(tileX, tileY int) bool {
 	if row, ok := m.opaqueTiles[tileY]; ok {
 		return row[tileX]

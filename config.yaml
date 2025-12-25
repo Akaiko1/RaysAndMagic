@@ -7,6 +7,10 @@ display:
   window_title: "Rays and Magic"
   resizable: true
 
+# Engine settings
+engine:
+  tps: 120
+
 # Game world settings
 world:
   tile_size: 64

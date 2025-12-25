@@ -56,6 +56,31 @@ weapons:
       slash_width: 24
       slash_length: 32
 
+  throwing_knife:
+    name: "Throwing Knife"
+    description: "A balanced knife meant for quick throws"
+    category: "throwing"
+    damage: 4
+    range: 2  # Display range in tiles
+    bonus_stat: "Accuracy"
+    hit_bonus: 5
+    crit_chance: 5
+    rarity: "common"
+    value: 20
+    damage_type: "physical"
+
+    # Projectile physics (tile-based)
+    physics:
+      speed_tiles: 12.0          # Fast throw
+      range_tiles: 2.0           # 2 tile range
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+
+    graphics:
+      max_size: 20
+      min_size: 2
+      base_size: 8
+      color: [160, 160, 160]  # Gray knives
+
   holy_mace:
     name: "Holy Mace"
     description: "A blessed mace that channels divine power"

@@ -28,6 +28,21 @@ type InputHandler struct {
 	escapeKeyTracker     inpututil.KeyStateTracker
 	upKeyTracker         inpututil.KeyStateTracker
 	downKeyTracker       inpututil.KeyStateTracker
+	leftKeyTracker       inpututil.KeyStateTracker
+	rightKeyTracker      inpututil.KeyStateTracker
+	wKeyTracker          inpututil.KeyStateTracker
+	aKeyTracker          inpututil.KeyStateTracker
+	sKeyTracker          inpututil.KeyStateTracker
+	dKeyTracker          inpututil.KeyStateTracker
+	qKeyTracker          inpututil.KeyStateTracker
+	eKeyTracker          inpututil.KeyStateTracker
+	spaceKeyTracker      inpututil.KeyStateTracker
+	menuKeyTracker       inpututil.KeyStateTracker
+	inventoryKeyTracker  inpututil.KeyStateTracker
+	charactersKeyTracker inpututil.KeyStateTracker
+	interactKeyTracker   inpututil.KeyStateTracker
+	newGameKeyTracker    inpututil.KeyStateTracker
+	loadKeyTracker       inpututil.KeyStateTracker
 }
 
 // NewInputHandler creates a new input handler
@@ -67,11 +82,11 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 func (ih *InputHandler) HandleInput() {
 	// When game over, only allow New Game or Load
 	if ih.game.gameOver {
-		if ebiten.IsKeyPressed(ebiten.KeyN) {
+		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
 			ih.restartNewGame()
 			return
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyL) {
+		if ih.loadKeyTracker.IsKeyJustPressed(ebiten.KeyL) {
 			ih.game.mainMenuOpen = true
 			ih.game.mainMenuMode = MenuLoadSelect
 			return
@@ -169,11 +184,12 @@ func (ih *InputHandler) handleMainMenuInput() {
 	panelW, panelH := 300, 220
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
-	px := (w - panelW) / 2
-	py := (h - panelH) / 2
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
+		panelW, panelH = 360, 300
+		px := (w - panelW) / 2
+		py := (h - panelH) / 2
 		// Navigate options (debounced)
 		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 			if ih.game.mainMenuSelection > 0 {
@@ -187,7 +203,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		}
 
 		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), 300, 220, 56)
+		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, 56)
 
 		// Activate selection with Enter
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
@@ -221,6 +237,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 			}
 		}
 	case MenuSaveSelect:
+		px := (w - panelW) / 2
+		py := (h - panelH) / 2
 		// Navigate slots 0..4
 		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 			if ih.game.slotSelection > 0 {
@@ -233,7 +251,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 			}
 		}
 		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, 300, 220, 56)
+		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
 			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
 				ih.game.AddCombatMessage("Save failed")
@@ -252,6 +270,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 			}
 		}
 	case MenuLoadSelect:
+		px := (w - panelW) / 2
+		py := (h - panelH) / 2
 		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 			if ih.game.slotSelection > 0 {
 				ih.game.slotSelection--
@@ -262,7 +282,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.slotSelection++
 			}
 		}
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, 300, 220, 56)
+		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
 			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
 				ih.game.AddCombatMessage("Load failed")
@@ -310,12 +330,13 @@ func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panel
 
 // handleMovementInput processes movement and camera controls
 func (ih *InputHandler) handleMovementInput() {
+	moveScale := ih.movementScale()
 	// Rotation
 	if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
-		ih.game.camera.Angle -= ih.game.config.GetRotSpeed()
+		ih.game.camera.Angle -= ih.game.config.GetRotSpeed() * moveScale
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
-		ih.game.camera.Angle += ih.game.config.GetRotSpeed()
+		ih.game.camera.Angle += ih.game.config.GetRotSpeed() * moveScale
 	}
 
 	// Forward/backward movement
@@ -378,7 +399,7 @@ func (ih *InputHandler) handleUIInput() {
 	if ih.apostropheKeyTracker.IsKeyJustPressed(ebiten.KeyApostrophe) {
 		ih.game.showCollisionBoxes = !ih.game.showCollisionBoxes
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
+	if ih.menuKeyTracker.IsKeyJustPressed(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
 		if ih.game.menuOpen {
 			if ih.game.currentTab == TabSpellbook {
 				ih.game.menuOpen = false // Close menu if already on Spellbook tab
@@ -390,7 +411,7 @@ func (ih *InputHandler) handleUIInput() {
 			ih.openTabbedMenu(TabSpellbook)
 		}
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
+	if ih.inventoryKeyTracker.IsKeyJustPressed(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
 		if ih.game.menuOpen {
 			if ih.game.currentTab == TabInventory {
 				ih.game.menuOpen = false // Close menu if already on Inventory tab
@@ -402,7 +423,7 @@ func (ih *InputHandler) handleUIInput() {
 			ih.openTabbedMenu(TabInventory)
 		}
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyC) && ih.game.spellInputCooldown == 0 {
+	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyC) && ih.game.spellInputCooldown == 0 {
 		if ih.game.menuOpen {
 			if ih.game.currentTab == TabCharacters {
 				ih.game.menuOpen = false // Close menu if already on Characters tab
@@ -416,7 +437,7 @@ func (ih *InputHandler) handleUIInput() {
 	}
 
 	// Handle NPC interaction with T key
-	if ebiten.IsKeyPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
+	if ih.interactKeyTracker.IsKeyJustPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
 		ih.handleNPCInteraction()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
@@ -430,8 +451,9 @@ func (ih *InputHandler) handleUIInput() {
 // handleSpellbookInput processes spellbook navigation and casting
 // Movement helper methods
 func (ih *InputHandler) moveForward() {
-	newX := ih.game.camera.X + ih.game.camera.GetForwardX()*ih.game.config.GetMoveSpeed()
-	newY := ih.game.camera.Y + ih.game.camera.GetForwardY()*ih.game.config.GetMoveSpeed()
+	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	newX := ih.game.camera.X + ih.game.camera.GetForwardX()*speed
+	newY := ih.game.camera.Y + ih.game.camera.GetForwardY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
 		ih.game.camera.X = newX
 		ih.game.camera.Y = newY
@@ -442,8 +464,9 @@ func (ih *InputHandler) moveForward() {
 }
 
 func (ih *InputHandler) moveBackward() {
-	newX := ih.game.camera.X - ih.game.camera.GetForwardX()*ih.game.config.GetMoveSpeed()
-	newY := ih.game.camera.Y - ih.game.camera.GetForwardY()*ih.game.config.GetMoveSpeed()
+	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	newX := ih.game.camera.X - ih.game.camera.GetForwardX()*speed
+	newY := ih.game.camera.Y - ih.game.camera.GetForwardY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
 		ih.game.camera.X = newX
 		ih.game.camera.Y = newY
@@ -454,8 +477,9 @@ func (ih *InputHandler) moveBackward() {
 }
 
 func (ih *InputHandler) strafeLeft() {
-	newX := ih.game.camera.X + ih.game.camera.GetRightX()*-ih.game.config.GetMoveSpeed()
-	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*-ih.game.config.GetMoveSpeed()
+	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	newX := ih.game.camera.X + ih.game.camera.GetRightX()*-speed
+	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*-speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
 		ih.game.camera.X = newX
 		ih.game.camera.Y = newY
@@ -466,8 +490,9 @@ func (ih *InputHandler) strafeLeft() {
 }
 
 func (ih *InputHandler) strafeRight() {
-	newX := ih.game.camera.X + ih.game.camera.GetRightX()*ih.game.config.GetMoveSpeed()
-	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*ih.game.config.GetMoveSpeed()
+	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	newX := ih.game.camera.X + ih.game.camera.GetRightX()*speed
+	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
 		ih.game.camera.X = newX
 		ih.game.camera.Y = newY
@@ -475,6 +500,14 @@ func (ih *InputHandler) strafeRight() {
 		ih.checkTeleporter()
 		ih.checkDeepWater()
 	}
+}
+
+func (ih *InputHandler) movementScale() float64 {
+	tps := ih.game.config.GetTPS()
+	if tps <= 0 {
+		return 1.0
+	}
+	return 60.0 / float64(tps)
 }
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
@@ -1216,13 +1249,18 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// Handle movement (counts as using the turn) - only if cooldown is ready
 	moved := false
 	if ih.game.turnBasedMoveCooldown == 0 {
-		if ebiten.IsKeyPressed(ebiten.KeyUp) || ebiten.IsKeyPressed(ebiten.KeyW) {
+		moveForward := ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) || ih.wKeyTracker.IsKeyJustPressed(ebiten.KeyW)
+		moveBackward := ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) || ih.sKeyTracker.IsKeyJustPressed(ebiten.KeyS)
+		strafeLeft := ih.qKeyTracker.IsKeyJustPressed(ebiten.KeyQ)
+		strafeRight := ih.eKeyTracker.IsKeyJustPressed(ebiten.KeyE)
+
+		if moveForward {
 			moved = ih.moveTurnBasedForward()
-		} else if ebiten.IsKeyPressed(ebiten.KeyDown) || ebiten.IsKeyPressed(ebiten.KeyS) {
+		} else if moveBackward {
 			moved = ih.moveTurnBasedBackward()
-		} else if ebiten.IsKeyPressed(ebiten.KeyQ) {
+		} else if strafeLeft {
 			moved = ih.moveTurnBasedStrafeLeft()
-		} else if ebiten.IsKeyPressed(ebiten.KeyE) {
+		} else if strafeRight {
 			moved = ih.moveTurnBasedStrafeRight()
 		}
 
@@ -1234,10 +1272,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// 90-degree rotation with cooldown (doesn't use turn)
 	if ih.game.turnBasedRotCooldown == 0 {
 		rotated := false
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
+		rotateLeft := ih.leftKeyTracker.IsKeyJustPressed(ebiten.KeyLeft) || ih.aKeyTracker.IsKeyJustPressed(ebiten.KeyA)
+		rotateRight := ih.rightKeyTracker.IsKeyJustPressed(ebiten.KeyRight) || ih.dKeyTracker.IsKeyJustPressed(ebiten.KeyD)
+		if rotateLeft {
 			ih.rotateTurnBased(-1) // Counter-clockwise
 			rotated = true
-		} else if ebiten.IsKeyPressed(ebiten.KeyRight) || ebiten.IsKeyPressed(ebiten.KeyD) {
+		} else if rotateRight {
 			ih.rotateTurnBased(1) // Clockwise
 			rotated = true
 		}
@@ -1263,7 +1303,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 	}
 
-	if canAct && ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
 		ih.game.combat.EquipmentMeleeAttack()
 		ih.game.partyActionsUsed++
 		ih.game.spellInputCooldown = ih.actionCooldown(15)

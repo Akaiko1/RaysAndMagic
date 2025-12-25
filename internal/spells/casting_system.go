@@ -121,7 +121,13 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID, casterPersonality in
 		Message: def.Message, // Use message from YAML
 	}
 
+	tps := config.GetTargetTPS()
+
 	// Apply effects directly from YAML configuration - no hardcoded logic!
+	if def.Duration > 0 {
+		result.Duration = def.Duration * tps // Convert to frames
+	}
+
 	if def.HealAmount > 0 {
 		// Calculate actual healing based on caster stats
 		_, _, healAmount := CalculateHealingAmountByID(spellID, casterPersonality)
@@ -131,12 +137,10 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID, casterPersonality in
 
 	if def.VisionBonus > 0 {
 		result.VisionBonus = def.VisionBonus
-		result.Duration = def.Duration * 60 // Convert to frames
 	}
 
 	if def.StatBonus > 0 {
 		result.StatBonus = def.StatBonus
-		result.Duration = def.Duration * 60 // Convert to frames
 	}
 
 	if def.Awaken {
@@ -145,12 +149,12 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID, casterPersonality in
 
 	if def.WaterWalk {
 		result.WaterWalk = true
-		result.Duration = def.Duration * 60 // Convert to frames
+		result.Duration = def.Duration * tps // Convert to frames
 	}
 
 	if def.WaterBreathing {
 		result.WaterBreathing = true
-		result.Duration = def.Duration * 60 // Convert to frames
+		result.Duration = def.Duration * tps // Convert to frames
 	}
 
 	return result, nil
