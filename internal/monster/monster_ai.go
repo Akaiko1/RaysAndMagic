@@ -83,8 +83,8 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 			m.AttackCount = 0 // Reset attack counter for new engagement
 		}
 	} else if distanceToPlayer > detectionRadius*2 { // Hysteresis - lose engagement at double distance
-		if m.IsEngagingPlayer {
-			// Stop engaging player - return to idle
+		if m.IsEngagingPlayer && !m.WasAttacked {
+			// Stop engaging player - return to idle (only if not recently attacked)
 			m.IsEngagingPlayer = false
 			m.State = StateIdle
 			m.StateTimer = 0

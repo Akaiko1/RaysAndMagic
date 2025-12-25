@@ -3,6 +3,8 @@ package monster
 import (
 	"math"
 	"testing"
+
+	"ugataima/internal/config"
 )
 
 // MockCollisionChecker implements CollisionChecker for testing
@@ -568,4 +570,257 @@ func TestMonsterPursuitNoShake(t *testing.T) {
 				oscillations, maxOscillations, stateChanges, stateOscillations, progress, initialDist)
 		})
 	}
+}
+
+// =============================================================================
+// Combat Engagement Behavior Tests
+// =============================================================================
+
+// createTestMonster creates a monster with basic test configuration
+func createTestMonster(x, y float64) *Monster3D {
+	return &Monster3D{
+		X:                x,
+		Y:                y,
+		HitPoints:        100,
+		MaxHitPoints:     100,
+		Speed:            1.5,
+		AlertRadius:      128.0, // 2 tiles
+		AttackRadius:     64.0,  // 1 tile
+		State:            StateIdle,
+		IsEngagingPlayer: false,
+		WasAttacked:      false,
+		SpawnX:           x,
+		SpawnY:           y,
+		TetherRadius:     192.0, // 3 tiles
+		Resistances:      make(map[DamageType]int),
+		config:           &config.Config{},
+	}
+}
+
+// TestMonsterEngagesWhenHitFromCloseRange tests monster engagement when hit from close range
+func TestMonsterEngagesWhenHitFromCloseRange(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+
+	// Player at close range (2 tiles away)
+	playerX, playerY := 228.0, 100.0
+
+	// Initial state should be idle
+	if m.State != StateIdle {
+		t.Fatalf("Expected initial state Idle, got %v", m.State)
+	}
+	if m.IsEngagingPlayer {
+		t.Fatalf("Expected IsEngagingPlayer to be false initially")
+	}
+
+	// Monster takes damage from close range
+	damage := m.TakeDamage(10, DamagePhysical, playerX, playerY)
+
+	// Verify damage was applied
+	if damage != 10 {
+		t.Errorf("Expected 10 damage, got %d", damage)
+	}
+	if m.HitPoints != 90 {
+		t.Errorf("Expected 90 HP after damage, got %d", m.HitPoints)
+	}
+
+	// Monster should now be engaging and alert
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should be engaging player after being hit")
+	}
+	if m.State != StateAlert {
+		t.Errorf("Expected state Alert after being hit, got %v", m.State)
+	}
+	if !m.WasAttacked {
+		t.Errorf("WasAttacked flag should be true after taking damage")
+	}
+}
+
+// TestMonsterEngagesWhenHitFromLongRange tests monster engagement when hit from long range
+func TestMonsterEngagesWhenHitFromLongRange(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+
+	// Player at long range (10 tiles away = 640 pixels)
+	playerX, playerY := 740.0, 100.0
+
+	// Initial state
+	if m.IsEngagingPlayer {
+		t.Fatalf("Expected IsEngagingPlayer to be false initially")
+	}
+
+	// Monster takes damage from long range
+	m.TakeDamage(15, DamageFire, playerX, playerY)
+
+	// Monster should engage regardless of distance when hit
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should engage player when hit from long range")
+	}
+	if m.State != StateAlert {
+		t.Errorf("Expected state Alert after being hit from long range, got %v", m.State)
+	}
+	if !m.WasAttacked {
+		t.Errorf("WasAttacked flag should be true after taking damage from long range")
+	}
+}
+
+// TestMonsterStaysEngagedAfterBeingHit tests that monster doesn't disengage after being hit
+func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+	checker := NewMockCollisionChecker(64.0)
+
+	// Player at very long range (15 tiles away = 960 pixels)
+	playerX, playerY := 1060.0, 100.0
+
+	// Hit the monster from long range
+	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+
+	// Verify initial engagement
+	if !m.IsEngagingPlayer {
+		t.Fatalf("Monster should engage after being hit")
+	}
+
+	// Run several AI update cycles - monster should stay engaged
+	for i := 0; i < 60; i++ {
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+	}
+
+	// Monster should still be engaging because WasAttacked is true
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should stay engaged after being hit (WasAttacked = %v)", m.WasAttacked)
+	}
+	if m.State == StateIdle {
+		t.Errorf("Monster should not return to Idle after being hit, got %v", m.State)
+	}
+}
+
+// TestMonsterDisengagesNormallyWithoutBeingHit tests normal disengagement when not attacked
+func TestMonsterDisengagesNormallyWithoutBeingHit(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+	checker := NewMockCollisionChecker(64.0)
+
+	// Manually set engaged state (simulating player walked close then walked away)
+	m.IsEngagingPlayer = true
+	m.State = StateAlert
+	m.WasAttacked = false // Not hit, just detected player
+
+	// Player at very long range (beyond 2x detection radius)
+	// AlertRadius is 128, so 2x = 256. Player at 400 pixels away should trigger disengage.
+	playerX, playerY := 500.0, 100.0
+
+	// Run AI update - monster should disengage since WasAttacked is false
+	m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+
+	// Monster should disengage when player is far and WasAttacked is false
+	if m.IsEngagingPlayer {
+		t.Errorf("Monster should disengage when player is far and wasn't hit")
+	}
+	if m.State != StateIdle {
+		t.Errorf("Expected state Idle after disengaging, got %v", m.State)
+	}
+}
+
+// TestMonsterResistanceReducesDamage tests that resistances properly reduce damage
+func TestMonsterResistanceReducesDamage(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+	m.Resistances[DamageFire] = 50 // 50% fire resistance
+
+	// Hit with fire damage
+	damage := m.TakeDamage(20, DamageFire, 200.0, 100.0)
+
+	// Should receive only 50% of damage
+	if damage != 10 {
+		t.Errorf("Expected 10 damage after 50%% resistance, got %d", damage)
+	}
+	if m.HitPoints != 90 {
+		t.Errorf("Expected 90 HP, got %d", m.HitPoints)
+	}
+
+	// Should still engage
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should engage even when damage is reduced by resistance")
+	}
+}
+
+// TestMonsterDoesNotReengageWhenAlreadyEngaged tests that AI state doesn't change when already engaged
+func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+
+	// Already engaged and pursuing
+	m.IsEngagingPlayer = true
+	m.State = StatePursuing
+	m.StateTimer = 50
+
+	// Take more damage
+	m.TakeDamage(10, DamagePhysical, 200.0, 100.0)
+
+	// State should not change (still pursuing, not reset to alert)
+	if m.State != StatePursuing {
+		t.Errorf("State should remain Pursuing when already engaged, got %v", m.State)
+	}
+	if m.StateTimer != 50 {
+		t.Errorf("StateTimer should not reset when already engaged, got %d", m.StateTimer)
+	}
+}
+
+// TestMultipleHitsKeepMonsterEngaged tests that multiple hits maintain engagement
+func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+	checker := NewMockCollisionChecker(64.0)
+
+	// Player at long range
+	playerX, playerY := 800.0, 100.0
+
+	// First hit
+	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+
+	// Run some AI updates
+	for i := 0; i < 30; i++ {
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+	}
+
+	// Second hit
+	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+
+	// Run more AI updates
+	for i := 0; i < 30; i++ {
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+	}
+
+	// Should still be engaged
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should remain engaged after multiple hits")
+	}
+	if !m.WasAttacked {
+		t.Errorf("WasAttacked should remain true")
+	}
+}
+
+// TestMonsterChasesPlayerAfterRangedHit tests the full pursuit behavior after being hit
+func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
+	m := createTestMonster(100.0, 100.0)
+	checker := NewMockCollisionChecker(64.0)
+
+	// Player 8 tiles away
+	playerX, playerY := 612.0, 100.0
+
+	// Hit the monster
+	m.TakeDamage(10, DamageFire, playerX, playerY)
+
+	initialX := m.X
+
+	// Run full AI update cycles (not just engagement check)
+	for i := 0; i < 100; i++ {
+		m.Update(checker, "test_monster", playerX, playerY)
+	}
+
+	// Monster should have moved toward player
+	if m.X <= initialX {
+		t.Errorf("Monster should move toward player after being hit. Initial X: %.1f, Final X: %.1f", initialX, m.X)
+	}
+
+	// Should still be engaged
+	if !m.IsEngagingPlayer {
+		t.Errorf("Monster should remain engaged while chasing player")
+	}
+
+	t.Logf("Monster moved from %.1f to %.1f (%.1f tiles)", initialX, m.X, (m.X-initialX)/64.0)
 }

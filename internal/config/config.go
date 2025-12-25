@@ -44,10 +44,7 @@ type MovementConfig struct {
 }
 
 type CombatConfig struct {
-	// Dynamic spell configurations (replaces hardcoded Fireball, FireBolt, Lightning!)
-	Spells map[string]*ProjectileSpellConfig `yaml:"spells"`
-
-	// Melee weapons
+	// Melee weapons (legacy config from config.yaml)
 	Sword  MeleeWeaponConfig `yaml:"sword"`
 	Dagger MeleeWeaponConfig `yaml:"dagger"`
 	Axe    MeleeWeaponConfig `yaml:"axe"`
@@ -59,18 +56,37 @@ type CombatConfig struct {
 	Bow ArrowConfig `yaml:"bow"`
 }
 
-type ProjectileSpellConfig struct {
-	Speed         float64 `yaml:"speed"`
-	Lifetime      int     `yaml:"lifetime"`
-	HitRadius     int     `yaml:"hit_radius"`
-	CollisionSize int     `yaml:"collision_size"` // Size for collision detection
-}
-
+// MeleeWeaponConfig for legacy config.yaml melee weapons
 type MeleeWeaponConfig struct {
 	Speed         float64 `yaml:"speed"`
 	Lifetime      int     `yaml:"lifetime"`
-	HitRadius     int     `yaml:"hit_radius"`
-	CollisionSize int     `yaml:"collision_size"` // Size for collision detection
+	HitRadius     int     `yaml:"hit_radius"`     // Legacy, unused
+	CollisionSize int     `yaml:"collision_size"`
+}
+
+// ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
+// Uses tile-based units for designer-friendly configuration.
+// Speed is in tiles per second, range is in tiles.
+// Lifetime is calculated automatically: lifetime_frames = (range / speed) * 60
+type ProjectilePhysicsConfig struct {
+	SpeedTiles    float64 `yaml:"speed_tiles"`    // Speed in tiles per second
+	RangeTiles    float64 `yaml:"range_tiles"`    // Maximum range in tiles
+	CollisionSize int     `yaml:"collision_size"` // Collision box size in pixels
+}
+
+// GetSpeedPixels returns speed in pixels per frame for the game engine
+func (p *ProjectilePhysicsConfig) GetSpeedPixels(tileSize float64) float64 {
+	// Convert tiles/second to pixels/frame (assuming 60 FPS)
+	return (p.SpeedTiles * tileSize) / 60.0
+}
+
+// GetLifetimeFrames returns lifetime in frames based on range and speed
+func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
+	if p.SpeedTiles <= 0 {
+		return 60 // Default 1 second if speed is invalid
+	}
+	// lifetime = range / speed * 60 (frames per second)
+	return int((p.RangeTiles / p.SpeedTiles) * 60.0)
 }
 
 // MeleeAttackConfig for instant melee weapons
@@ -227,20 +243,17 @@ type SpellSystemConfig struct {
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	// Basic spell properties
-	Name            string  `yaml:"name"`
-	Description     string  `yaml:"description"`
-	School          string  `yaml:"school"`
-	Level           int     `yaml:"level"`
-	SpellPointsCost int     `yaml:"spell_points_cost"`
-	Duration        int     `yaml:"duration"` // Duration in seconds
-	Damage          int     `yaml:"damage"`
-	Range           int     `yaml:"range"`            // Range in tiles
-	ProjectileSpeed float64 `yaml:"projectile_speed"` // Speed multiplier
-	ProjectileSize  int     `yaml:"projectile_size"`
-	Lifetime        int     `yaml:"lifetime"` // Projectile lifetime in frames
-	IsProjectile    bool    `yaml:"is_projectile"`
-	IsUtility       bool    `yaml:"is_utility"`
-	VisualEffect    string  `yaml:"visual_effect"`
+	Name            string `yaml:"name"`
+	Description     string `yaml:"description"`
+	School          string `yaml:"school"`
+	Level           int    `yaml:"level"`
+	SpellPointsCost int    `yaml:"spell_points_cost"`
+	Duration        int    `yaml:"duration"` // Duration in seconds (for buff spells)
+	Damage          int    `yaml:"damage"`
+	ProjectileSize  int    `yaml:"projectile_size"`
+	IsProjectile    bool   `yaml:"is_projectile"`
+	IsUtility       bool   `yaml:"is_utility"`
+	VisualEffect    string `yaml:"visual_effect"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -254,11 +267,16 @@ type SpellDefinitionConfig struct {
 	WaterBreathing bool   `yaml:"water_breathing,omitempty"`
 	Message        string `yaml:"message,omitempty"`
 
-	// Embedded physics configuration (for projectile spells)
-	Physics *ProjectileSpellConfig `yaml:"physics,omitempty"`
+	// Embedded physics configuration (for projectile spells) - uses tile-based units
+	Physics *ProjectilePhysicsConfig `yaml:"physics,omitempty"`
 
 	// Embedded graphics configuration (for projectile spells)
 	Graphics *ProjectileRenderConfig `yaml:"graphics,omitempty"`
+
+	// Legacy fields for backward compatibility - will be removed
+	Range           int     `yaml:"range,omitempty"`            // Deprecated: use physics.range_tiles
+	ProjectileSpeed float64 `yaml:"projectile_speed,omitempty"` // Deprecated: use physics.speed_tiles
+	Lifetime        int     `yaml:"lifetime,omitempty"`         // Deprecated: calculated from physics
 }
 
 type MonsterAIConfig struct {
@@ -415,7 +433,7 @@ type WeaponDefinitionConfig struct {
 	Description        string `yaml:"description"`
 	Category           string `yaml:"category"`
 	Damage             int    `yaml:"damage"`
-	Range              int    `yaml:"range"`
+	Range              int    `yaml:"range"` // Range in tiles (for melee reach)
 	BonusStat          string `yaml:"bonus_stat"`
 	BonusStatSecondary string `yaml:"bonus_stat_secondary"`
 	DamageType         string `yaml:"damage_type"`
@@ -425,8 +443,8 @@ type WeaponDefinitionConfig struct {
 	Rarity             string `yaml:"rarity"`
 	Value              int    `yaml:"value,omitempty"`
 
-	// Embedded physics configuration (for projectile weapons like bows)
-	Physics *MeleeWeaponConfig `yaml:"physics"`
+	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
+	Physics *ProjectilePhysicsConfig `yaml:"physics"`
 
 	// Embedded melee configuration (for instant melee weapons)
 	Melee *MeleeAttackConfig `yaml:"melee"`
@@ -732,7 +750,7 @@ func (c *Config) GetArrowCollisionSize() float64 {
 // Legacy weapon config methods removed - use YAML embedded configs
 
 // GetSpellConfig retrieves spell combat configuration from embedded physics
-func (c *Config) GetSpellConfig(spellType string) (*ProjectileSpellConfig, error) {
+func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, error) {
 	if GlobalSpells == nil {
 		return nil, fmt.Errorf("spell system not initialized")
 	}
