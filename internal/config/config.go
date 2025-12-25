@@ -598,6 +598,7 @@ type ItemDefinitionConfig struct {
 	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
 	Value       int    `yaml:"value,omitempty"`      // Gold value
+	OpensMap    bool   `yaml:"opens_map,omitempty"`  // Quest items that open the map overlay
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`

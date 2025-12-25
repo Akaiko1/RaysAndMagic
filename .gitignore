@@ -17,3 +17,9 @@ AGENTS.md
 CLAUDE.md
 
 bin/
+
+dist/windows_amd64/
+
+dist/mac_arm64/
+
+dist/mac_amd64/
