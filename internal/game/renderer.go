@@ -180,9 +180,7 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	// Apply torch light effect if active
 	if r.game.torchLightActive {
 		// Calculate distance from camera (torch light source) to the point
-		dx := worldX - r.game.camera.X
-		dy := worldY - r.game.camera.Y
-		distanceFromTorch := math.Sqrt(dx*dx + dy*dy)
+		distanceFromTorch := Distance(r.game.camera.X, r.game.camera.Y, worldX, worldY)
 
 		// Check if within torch light radius
 		if distanceFromTorch <= r.game.torchLightRadius {
@@ -702,8 +700,9 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
 		case "environment_sprite":
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
-			if world.GlobalTileManager != nil && world.GlobalTileManager.IsTransparent(tileType) {
-				return // Skip transparent environment sprites
+			// Use both hit.IsTransparent flag and tile manager check for safety
+			if hit.IsTransparent {
+				return // Skip transparent environment sprites - rendered via drawTransparentEnvironmentSprites
 			}
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
 		case "flooring_object":
@@ -1138,7 +1137,26 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		return // Monster is completely behind walls
 	}
 
-	// Draw collision box if enabled (draw first, so it's behind the sprite)
+	// Draw the monster sprite
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
+	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(spriteLeft), float64(monsterData.screenY))
+
+	// Apply distance shading
+	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+
+	// Use opaque blending to prevent transparency issues
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(monsterData.sprite, opts)
+
+	// Draw collision box if enabled (draw after sprite so it's clearly visible)
 	if r.game.showCollisionBoxes {
 		// Get collision box from collision system using monster ID
 		var worldColW, worldColH float64
@@ -1175,25 +1193,6 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		boxOpts.ColorM.Scale(1, 1, 1, 0.5)
 		screen.DrawImage(boxImg, boxOpts)
 	}
-
-	// Draw the monster sprite
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
-	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(monsterData.screenY))
-
-	// Apply distance shading
-	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-
-	// Use opaque blending to prevent transparency issues
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(monsterData.sprite, opts)
 }
 
 // NPCRenderData contains data needed to render an NPC
@@ -1370,12 +1369,30 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	halfFOV := fov / 2
 	fovMargin := halfFOV + 0.1 // Small margin for edge sprites
 
+	// Get player's current tile for sprite culling
+	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
+
+	// Minimum distance squared to render sprites (avoid rendering when too close)
+	tileSize := float64(r.game.config.GetTileSize())
+	minDistSq := tileSize * tileSize // Don't render sprites within 1 tile distance
+
 	// Use cached transparent sprites instead of scanning entire world
 	for _, spriteData := range r.transparentSpritesCache {
+		// Skip sprites in the player's current tile to avoid visual artifacts
+		// (sprite would appear at ray-exit edge and "follow" player movement)
+		if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
+			continue
+		}
+
 		// Check distance from camera (early culling)
 		dx := spriteData.worldX - camX
 		dy := spriteData.worldY - camY
 		distanceSq := dx*dx + dy*dy
+
+		// Skip sprites that are too close (within ~1 tile) to avoid edge artifacts
+		if distanceSq < minDistSq {
+			continue
+		}
 
 		if distanceSq > viewDistSq {
 			continue // Too far away
@@ -1510,9 +1527,9 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Calculate magic projectile position relative to camera
 		dx := magicProjectile.X - r.game.camera.X
 		dy := magicProjectile.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, magicProjectile.X, magicProjectile.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1558,7 +1575,7 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 
 		// Calculate projectile size based on distance using spell-specific config
 		baseSize := float64(spellGraphicsConfig.BaseSize)
-		projectileSize := int(baseSize / distance * r.game.config.GetTileSize())
+		projectileSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if projectileSize > spellGraphicsConfig.MaxSize {
 			projectileSize = spellGraphicsConfig.MaxSize
 		}
@@ -1625,9 +1642,9 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		// Calculate attack position relative to camera
 		dx := attack.X - r.game.camera.X
 		dy := attack.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, attack.X, attack.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1671,7 +1688,7 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 
 		// Calculate attack size based on distance using weapon-specific config
 		baseSize := float64(weaponDef.Graphics.BaseSize)
-		attackSize := int(baseSize / distance * r.game.config.GetTileSize())
+		attackSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if attackSize > weaponDef.Graphics.MaxSize {
 			attackSize = weaponDef.Graphics.MaxSize
 		}
@@ -1735,9 +1752,9 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		// Calculate arrow position relative to camera
 		dx := arrow.X - r.game.camera.X
 		dy := arrow.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, arrow.X, arrow.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1779,7 +1796,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue // Skip rendering if weapon config missing
 		}
 		baseSize := float64(bowDef.Graphics.BaseSize)
-		arrowSize := int(baseSize / distance * r.game.config.GetTileSize())
+		arrowSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if arrowSize > bowDef.Graphics.MaxSize {
 			arrowSize = bowDef.Graphics.MaxSize
 		}

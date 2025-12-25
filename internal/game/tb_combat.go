@@ -26,12 +26,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 
 		// Calculate distance to player
-		dx := monster.X - gl.game.camera.X
-		dy := monster.Y - gl.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(gl.game.camera.X, gl.game.camera.Y, monster.X, monster.Y)
 
 		// Skip monsters outside vision range - they don't participate in turn-based combat
-		if distance > visionRange {
+		if dist > visionRange {
 			continue
 		}
 
@@ -45,14 +43,15 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
 			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
 		}
-		freeSpace := distance - (playerRadius + monsterRadius)
+		freeSpace := dist - (playerRadius + monsterRadius)
 		reach := monster.AttackRadius
 		if reach <= 0 {
 			reach = tileSize * 0.25 // conservative fallback reach
 		}
 
 		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(monster, tileSize)
-		if freeSpace <= reach && inPerpendicularPosition {
+		canAttack := freeSpace <= reach
+		if canAttack && inPerpendicularPosition {
 			// Attack only from perpendicular positions (N/E/S/W)
 			gl.monsterAttackTurnBased(monster)
 		} else {
@@ -70,6 +69,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
+	if monster.HasRangedAttack() {
+		gl.game.combat.spawnMonsterRangedAttack(monster)
+		return
+	}
+
 	// Attack a random party character
 	targetIndex := rand.Intn(len(gl.game.party.Members))
 	target := gl.game.party.Members[targetIndex]
@@ -104,8 +108,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Calculate grid deltas to player (tile-based)
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	playerTileX := int(gl.game.camera.X / tileSize)
-	playerTileY := int(gl.game.camera.Y / tileSize)
+	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
 
 	dxTiles := playerTileX - monsterTileX
 	dyTiles := playerTileY - monsterTileY
@@ -126,7 +129,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	newY := monster.Y + float64(stepY)*tileSize
 
 	// Check if the monster can move to the new position
-	if gl.game.collisionSystem.CanMoveTo(monster.ID, newX, newY) {
+	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs) {
 		monster.X = newX
 		monster.Y = newY
 		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
@@ -137,7 +140,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	if stepX != 0 && dyTiles != 0 {
 		altX := monster.X
 		altY := monster.Y + float64(sign(dyTiles))*tileSize
-		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -146,7 +149,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	} else if stepY != 0 && dxTiles != 0 {
 		altX := monster.X + float64(sign(dxTiles))*tileSize
 		altY := monster.Y
-		if gl.game.collisionSystem.CanMoveTo(monster.ID, altX, altY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -189,7 +192,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
-		if gl.game.collisionSystem.CanMoveTo(m.ID, testX, testY) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs) {
 			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
 			if dist < bestDist {
 				bestDist = dist
@@ -203,8 +206,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, tileSize float64) bool {
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	playerTileX := int(gl.game.camera.X / tileSize)
-	playerTileY := int(gl.game.camera.Y / tileSize)
+	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
 	return monsterTileX == playerTileX || monsterTileY == playerTileY
 }
 

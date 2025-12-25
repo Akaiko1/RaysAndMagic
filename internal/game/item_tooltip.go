@@ -211,7 +211,7 @@ func getAccessorySummary(item items.Item) string {
 func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var lines []string
 
-	lines = append(lines, fmt.Sprintf("School: %s", item.SpellSchool))
+	lines = append(lines, fmt.Sprintf("School: %s", formatSchoolName(item.SpellSchool)))
 	lines = append(lines, fmt.Sprintf("Spell Points: %d", item.SpellCost))
 
 	// Check if character can cast this spell
@@ -231,8 +231,8 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSys
 	// Add damage scaling details for battle/projectile spells
 	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
-		if def.IsProjectile || def.School == "fire" || def.School == "air" || def.School == "water" || def.School == "earth" {
-			_, effectiveIntellect, _, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		if def.IsProjectile {
+			effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 			baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Scales with Intellect (Effective: %d)", effectiveIntellect))
@@ -240,8 +240,8 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSys
 			lines = append(lines, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
 			lines = append(lines, fmt.Sprintf("Total Damage: %d", totalDamage))
 		}
-		if def.HealAmount > 0 || def.School == "body" {
-			_, _, effectivePersonality, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		if def.HealAmount > 0 {
+			effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 			baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Scales with Personality (Effective: %d)", effectivePersonality))
@@ -342,7 +342,7 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 
 	// Spell name and school
 	tooltip = append(tooltip, fmt.Sprintf("=== %s ===", def.Name))
-	tooltip = append(tooltip, fmt.Sprintf("%s Magic (Level %d)", def.School, def.Level))
+	tooltip = append(tooltip, fmt.Sprintf("%s Magic (Level %d)", formatSchoolName(def.School), def.Level))
 
 	// Spell cost and availability
 	tooltip = append(tooltip, "")
@@ -359,7 +359,7 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	school := getSchoolFromString(def.School)
 	if magicSkill, exists := char.MagicSchools[school]; exists {
 		tooltip = append(tooltip, "")
-		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", def.School))
+		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", formatSchoolName(def.School)))
 		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level, getMasteryString(magicSkill.Mastery)))
 	}
 
@@ -394,6 +394,13 @@ func getMasteryString(mastery character.SkillMastery) string {
 	default:
 		return "Unknown"
 	}
+}
+
+func formatSchoolName(school string) string {
+	if school == "" {
+		return ""
+	}
+	return strings.ToUpper(school[:1]) + school[1:]
 }
 
 // getSchoolFromString converts school string to MagicSchool enum
@@ -458,9 +465,9 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	var details []string
 
 	// Check if this is a damage spell
-	if def.School == "fire" || def.School == "air" || def.School == "water" || def.School == "earth" {
+	if def.IsProjectile {
 		// Use centralized damage calculation with effective stats (same as actual projectile system)
-		_, effectiveIntellect, _, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 		baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
 
 		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
@@ -469,9 +476,9 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	}
 
 	// Check if this is a healing spell
-	if def.School == "body" || (def.Name == "First Aid" || def.Name == "Heal") {
+	if def.HealAmount > 0 {
 		// Use the same centralized healing calculation as actual combat with effective stats
-		_, _, effectivePersonality, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 		baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
 		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
 		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
@@ -485,15 +492,17 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		}
 	}
 
-	// Check if this is a utility spell with duration
-	if def.Duration > 0 {
-		duration := def.Duration
+	// Check if this is a utility spell
+	if def.IsUtility {
+		if def.Duration > 0 {
+			duration := def.Duration
 
-		// Display duration appropriately (seconds vs minutes)
-		if duration >= 60 {
-			details = append(details, fmt.Sprintf("Duration: %d minutes", duration/60))
-		} else {
-			details = append(details, fmt.Sprintf("Duration: %d seconds", duration))
+			// Display duration appropriately (seconds vs minutes)
+			if duration >= 60 {
+				details = append(details, fmt.Sprintf("Duration: %d minutes", duration/60))
+			} else {
+				details = append(details, fmt.Sprintf("Duration: %d seconds", duration))
+			}
 		}
 
 		// Add spell-specific descriptions
@@ -517,7 +526,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	}
 
 	// Generic information for unknown spells
-	if len(details) == 0 {
+	if len(details) == 0 && !def.IsUtility {
 		switch def.School {
 		case "fire", "air", "water", "earth":
 			details = append(details, "Offensive elemental spell")

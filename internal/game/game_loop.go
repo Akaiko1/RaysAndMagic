@@ -1,11 +1,12 @@
 package game
 
 import (
-    "fmt"
-    "ugataima/internal/monster"
-    "ugataima/internal/world"
+	"fmt"
+	"ugataima/internal/monster"
+	"ugataima/internal/spells"
+	"ugataima/internal/world"
 
-    "github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // GameLoop manages the main game update and render cycle
@@ -43,7 +44,11 @@ func (gl *GameLoop) Update() error {
 		return ErrExit
 	}
 
+	// Update per-frame mouse state before input handling and Draw
+	gl.ui.updateMouseState()
+
 	gl.updateExploration()
+
 	return nil
 }
 
@@ -119,6 +124,7 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	defer gl.game.projectileMutex.Unlock()
 
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
+	gl.combat.CheckProjectilePlayerCollisions()
 	gl.combat.CheckProjectileMonsterCollisions()
 
 	// Convert all projectiles to wrappers and update in parallel
@@ -252,6 +258,7 @@ func (gl *GameLoop) updateTorchLightEffect() {
 			gl.game.torchLightDuration = 0
 		}
 	}
+	gl.game.updateUtilityStatus(spells.SpellID("torch_light"), gl.game.torchLightDuration, gl.game.torchLightActive)
 }
 
 // updateWizardEyeEffect updates the wizard eye enemy detection effect
@@ -263,6 +270,7 @@ func (gl *GameLoop) updateWizardEyeEffect() {
 			gl.game.wizardEyeDuration = 0
 		}
 	}
+	gl.game.updateUtilityStatus(spells.SpellID("wizard_eye"), gl.game.wizardEyeDuration, gl.game.wizardEyeActive)
 }
 
 // updateWalkOnWaterEffect updates the walk on water effect
@@ -274,6 +282,8 @@ func (gl *GameLoop) updateWalkOnWaterEffect() {
 			gl.game.walkOnWaterDuration = 0
 		}
 	}
+
+	gl.game.updateUtilityStatus(spells.SpellID("walk_on_water"), gl.game.walkOnWaterDuration, gl.game.walkOnWaterActive)
 
 	// Sync the walk on water state with the world
 	gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
@@ -292,6 +302,7 @@ func (gl *GameLoop) updateBlessEffect() {
 			gl.game.statBonus -= 20 // Subtract the +20 Bless bonus from total stat bonus
 		}
 	}
+	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)
 }
 
 // updateWaterBreathingEffect updates the water breathing effect
@@ -308,6 +319,7 @@ func (gl *GameLoop) updateWaterBreathingEffect() {
 			}
 		}
 	}
+	gl.game.updateUtilityStatus(spells.SpellID("water_breathing"), gl.game.waterBreathingDuration, gl.game.waterBreathingActive)
 }
 
 // returnFromUnderwater teleports the player back to the surface when Water Breathing expires

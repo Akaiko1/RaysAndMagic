@@ -246,6 +246,41 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 	}
 }
 
+// IsTileBlockingForHabitat checks if a tile blocks movement for a monster with given habitat preferences
+// Monsters can walk on tiles that are in their habitat preferences even if normally blocked
+func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool {
+	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
+		return true // Treat out-of-bounds as blocking
+	}
+
+	tile := w.Tiles[tileY][tileX]
+
+	// Use tile manager to check if tile blocks movement
+	if GlobalTileManager != nil {
+		isWalkable := GlobalTileManager.IsWalkable(tile)
+
+		// If already walkable, return false (not blocking)
+		if isWalkable {
+			return false
+		}
+
+		// Check if this tile type is in the monster's habitat preferences
+		if len(habitatPrefs) > 0 {
+			tileKey := GlobalTileManager.GetTileKey(tile)
+			for _, habitat := range habitatPrefs {
+				if tileKey == habitat {
+					return false // Monster can walk on its habitat tiles
+				}
+			}
+		}
+
+		return true // Tile is not walkable and not in habitat preferences
+	}
+
+	// Fallback to standard blocking check if tile manager not available
+	return w.IsTileBlocking(tileX, tileY)
+}
+
 // IsTileOpaque implements the collision.TileChecker interface
 func (w *World3D) IsTileOpaque(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
@@ -307,9 +342,9 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 // loadMonstersFromMapData loads monsters from map spawn data
 func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 	for _, spawn := range monsterSpawns {
-		// Convert tile coordinates to world coordinates
-		worldX := float64(spawn.X * 64) // 64 is tile size
-		worldY := float64(spawn.Y * 64)
+		// Convert tile coordinates to world coordinates (spawn at tile center)
+		worldX := float64(spawn.X*64) + 32 // 64 is tile size, +32 for center
+		worldY := float64(spawn.Y*64) + 32
 
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)

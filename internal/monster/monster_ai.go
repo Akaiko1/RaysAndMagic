@@ -3,11 +3,13 @@ package monster
 import (
 	"math"
 	"math/rand"
+	"ugataima/internal/config"
 )
 
 // CollisionChecker interface for checking movement validity
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
+	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -18,13 +20,13 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, monsterID string, 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
 	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-		if !collisionChecker.CanMoveTo(monsterID, m.X, m.Y) {
+		if !collisionChecker.CanMoveToWithHabitat(monsterID, m.X, m.Y, m.HabitatPrefs) {
 			m.unstuckFromObstacles(collisionChecker, monsterID)
 		}
 	}
 
-	// Check for player detection and engagement
-	m.updatePlayerEngagement(playerX, playerY)
+	// Check for player detection and engagement with line-of-sight (trees reduce detection)
+	m.updatePlayerEngagementWithVision(collisionChecker, playerX, playerY)
 
 	switch m.State {
 	case StateIdle:
@@ -42,22 +44,33 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, monsterID string, 
 	}
 }
 
-// updatePlayerEngagement handles player detection and engagement logic
-func (m *Monster3D) updatePlayerEngagement(playerX, playerY float64) {
+// updatePlayerEngagementWithVision handles player detection with line-of-sight checks
+// Trees and other opaque obstacles reduce detection radius
+func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Don't process engagement while fleeing - flee state takes priority
 	if m.State == StateFleeing {
 		return
 	}
 
 	// Calculate distance to player
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
+	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 	// Get detection radius (use AlertRadius or default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
 		detectionRadius = 256.0 // 4 tiles default detection radius (4 * 64 pixels)
+	}
+
+	// If outside tether, monster is more alert (was lured or is lost)
+	// This prevents them from immediately returning to spawn when switching from TB to RT mode
+	if !m.IsWithinTetherRadius() {
+		detectionRadius *= 2.0 // Double range when far from home
+	}
+
+	// Check line of sight - if obstructed (trees, walls), halve detection radius
+	// Only apply penalty if we are inside our territory. If outside, we stay alert.
+	if m.IsWithinTetherRadius() && collisionChecker != nil && !collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
+		detectionRadius *= 0.5 // Trees block vision, reduce detection range
 	}
 
 	// Check if player is within detection range
@@ -70,8 +83,8 @@ func (m *Monster3D) updatePlayerEngagement(playerX, playerY float64) {
 			m.AttackCount = 0 // Reset attack counter for new engagement
 		}
 	} else if distanceToPlayer > detectionRadius*2 { // Hysteresis - lose engagement at double distance
-		if m.IsEngagingPlayer {
-			// Stop engaging player - return to idle
+		if m.IsEngagingPlayer && !m.WasAttacked {
+			// Stop engaging player - return to idle (only if not recently attacked)
 			m.IsEngagingPlayer = false
 			m.State = StateIdle
 			m.StateTimer = 0
@@ -82,11 +95,16 @@ func (m *Monster3D) updatePlayerEngagement(playerX, playerY float64) {
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {
 	// Get AI config values
-	var idlePatrolTimer int = 300        // Default value
+	var idlePatrolTimer int = 60         // Default value (1 second)
 	var idleToPatrolChance float64 = 0.1 // Default value
 
 	if m.config != nil {
 		idlePatrolTimer = m.config.MonsterAI.IdlePatrolTimer
+		// If config value is the old default (300), override it to 60 for better responsiveness
+		// unless explicitly set in config (we assume 300 is the "unset" default here for safety)
+		if idlePatrolTimer == 300 {
+			idlePatrolTimer = 60
+		}
 		idleToPatrolChance = m.config.MonsterAI.IdleToPatrolChance
 	}
 
@@ -114,7 +132,7 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 	}
 }
 
-// updatePatrolling moves monster randomly for normal wandering behavior
+// updatePatrolling moves monster randomly for normal wandering behavior using grid-based movement
 func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
 	// Get AI config values
 	var normalSpeedMult float64 = 0.5 // Default value
@@ -131,55 +149,57 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterI
 
 	// Safety check for collision system
 	if collisionChecker == nil {
-		// Fallback to simple movement if no collision system
-		newX := m.X + math.Cos(m.Direction)*m.Speed*normalSpeedMult
-		newY := m.Y + math.Sin(m.Direction)*m.Speed*normalSpeedMult
-
-		// Simple bounds checking
-		if newX >= 0 && newX < 50*64 && newY >= 0 && newY < 50*64 {
-			m.X = newX
-			m.Y = newY
-		} else {
-			m.Direction += math.Pi
-		}
 		return
 	}
 
-	// Calculate next position
-	newX := m.X + math.Cos(m.Direction)*m.Speed*normalSpeedMult
-	newY := m.Y + math.Sin(m.Direction)*m.Speed*normalSpeedMult
+	speed := m.speedPerTick() * normalSpeedMult
 
-	// Tether checking - only move if within tether
-	canMoveWithinTether := m.CanMoveWithinTether(newX, newY)
+	// Check if outside tether - return to spawn using grid movement
+	if !m.IsWithinTetherRadius() {
+		m.moveGridBased(collisionChecker, monsterID, m.SpawnX, m.SpawnY)
+		return
+	}
 
-	if canMoveWithinTether {
-		// Check collision before moving
-		if collisionChecker.CanMoveTo(monsterID, newX, newY) {
-			m.X = newX
-			m.Y = newY
-		} else {
-			// Obstacle - choose new random direction
-			m.chooseNewDirection(collisionChecker)
-		}
-	} else {
-		// Outside tether - return to spawn area
-		returnX := m.X + math.Cos(m.GetDirectionToSpawn())*m.Speed*normalSpeedMult
-		returnY := m.Y + math.Sin(m.GetDirectionToSpawn())*m.Speed*normalSpeedMult
+	// Convert current direction to cardinal (0=E, 1=S, 2=W, 3=N)
+	cardinalDir := m.getCardinalDirection()
 
-		if collisionChecker.CanMoveTo(monsterID, returnX, returnY) {
-			m.Direction = m.GetDirectionToSpawn()
-			m.X = returnX
-			m.Y = returnY
-		} else {
-			// Find alternate path back to spawn
-			m.chooseNewDirectionTowardsTarget(collisionChecker, m.SpawnX, m.SpawnY)
+	// Change direction occasionally
+	if m.StateTimer > directionTimer && rand.Float64() < directionChance {
+		// Pick a new random cardinal direction
+		cardinalDir = rand.Intn(4)
+		m.StateTimer = 0
+	}
+
+	// Try to move in current cardinal direction
+	dirs := [][2]int{{1, 0}, {0, 1}, {-1, 0}, {0, -1}} // E, S, W, N
+	dirX, dirY := dirs[cardinalDir][0], dirs[cardinalDir][1]
+
+	// Check if target would be within tether
+	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
+	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
+	targetX := currentTileX + float64(dirX)*tileSize
+	targetY := currentTileY + float64(dirY)*tileSize
+
+	if m.CanMoveWithinTether(targetX, targetY) {
+		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dirX, dirY, speed) {
+			return
 		}
 	}
 
-	// Change direction occasionally for natural movement
-	if m.StateTimer > directionTimer && rand.Float64() < directionChance {
-		m.chooseNewDirection(collisionChecker)
-		m.StateTimer = 0
+	// Current direction blocked or outside tether - try other directions
+	for i := 1; i < 4; i++ {
+		newDir := (cardinalDir + i) % 4
+		dirX, dirY = dirs[newDir][0], dirs[newDir][1]
+		targetX = currentTileX + float64(dirX)*tileSize
+		targetY = currentTileY + float64(dirY)*tileSize
+
+		if m.CanMoveWithinTether(targetX, targetY) {
+			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dirX, dirY, speed) {
+				// Update stored direction
+				m.Direction = math.Atan2(float64(dirY), float64(dirX))
+				return
+			}
+		}
 	}
 
 	// Return to idle after a while
@@ -189,81 +209,255 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterI
 	}
 }
 
-// updatePursuing moves monster directly towards player at full speed with occasional strafing
-func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
-	// Calculate distance and direction to player
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
-	directionToPlayer := math.Atan2(dy, dx)
-
-	// Determine movement direction (with occasional strafing)
-	movementDirection := directionToPlayer
-
-	// Random strafing: 15% chance every 45 frames to strafe perpendicular for short bursts
-	if m.StateTimer%45 == 0 && rand.Float64() < 0.15 {
-		// Strafe perpendicular to player direction
-		if rand.Float64() < 0.5 {
-			movementDirection = directionToPlayer + math.Pi/2 // Strafe left
-		} else {
-			movementDirection = directionToPlayer - math.Pi/2 // Strafe right
-		}
-	} else if m.StateTimer%45 < 15 && m.StateTimer%45 != 0 {
-		// Continue strafing for 15 frames (~0.25 seconds)
-		// Use the stored direction from previous frame
-		movementDirection = m.Direction
+// getCardinalDirection converts the monster's current direction to a cardinal index (0=E, 1=S, 2=W, 3=N)
+func (m *Monster3D) getCardinalDirection() int {
+	// Normalize direction to 0-2π
+	dir := m.Direction
+	for dir < 0 {
+		dir += 2 * math.Pi
+	}
+	for dir >= 2*math.Pi {
+		dir -= 2 * math.Pi
 	}
 
-	// Safety check for collision system
-	if collisionChecker == nil {
-		// Fallback to simple movement if no collision system
-		newX := m.X + math.Cos(movementDirection)*m.Speed
-		newY := m.Y + math.Sin(movementDirection)*m.Speed
+	// Convert to cardinal (each quadrant is π/2)
+	quadrant := int((dir + math.Pi/4) / (math.Pi / 2))
+	return quadrant % 4
+}
 
-		// Simple bounds checking
-		if newX >= 0 && newX < 50*64 && newY >= 0 && newY < 50*64 {
-			m.X = newX
-			m.Y = newY
-		} else {
-			m.Direction += math.Pi
-		}
-		return
+// tryMoveCardinalWithSpeed attempts to move in a cardinal direction with custom speed
+func (m *Monster3D) tryMoveCardinalWithSpeed(collisionChecker CollisionChecker, monsterID string, dirX, dirY int, speed float64) bool {
+	if dirX == 0 && dirY == 0 {
+		return false
 	}
 
-	// Calculate next position at full speed
-	newX := m.X + math.Cos(movementDirection)*m.Speed
-	newY := m.Y + math.Sin(movementDirection)*m.Speed
+	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
+	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
+	targetX := currentTileX + float64(dirX)*tileSize
+	targetY := currentTileY + float64(dirY)*tileSize
 
-	// Check collision before moving
-	if collisionChecker.CanMoveTo(monsterID, newX, newY) {
+	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
+		return false
+	}
+
+	dirAngle := math.Atan2(float64(dirY), float64(dirX))
+	newX := m.X + math.Cos(dirAngle)*speed
+	newY := m.Y + math.Sin(dirAngle)*speed
+
+	if collisionChecker.CanMoveToWithHabitat(monsterID, newX, newY, m.HabitatPrefs) {
 		m.X = newX
 		m.Y = newY
-		m.Direction = movementDirection // Update stored direction
-	} else {
-		// Obstacle - find path around it towards player
-		m.chooseNewDirectionTowardsTarget(collisionChecker, playerX, playerY)
+		m.Direction = dirAngle
+		return true
 	}
+
+	return false
+}
+
+// Tile size constant for grid-based movement
+const tileSize = 64.0
+
+// updatePursuing moves monster towards player using grid-based cardinal movement
+func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
+	// Calculate distance to player
+	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 	// Check if close enough to attack
 	if distanceToPlayer <= m.AttackRadius {
 		m.State = StateAttacking
 		m.StateTimer = 0
+		return
 	}
+
+	// Safety check for collision system
+	if collisionChecker == nil {
+		return
+	}
+
+	// Use grid-based movement
+	m.moveGridBased(collisionChecker, monsterID, playerX, playerY)
+}
+
+// moveGridBased moves the monster in cardinal directions (N/S/E/W) towards target
+// Uses the same simple movement logic as patrolling for consistency
+func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID string, targetX, targetY float64) {
+	// Calculate direction to target
+	dx := targetX - m.X
+	dy := targetY - m.Y
+
+	// Determine primary cardinal direction with hysteresis to prevent shaking
+	// Require the other direction to be significantly larger (20% threshold) to switch
+	var primaryDirX, primaryDirY int
+	absDx := math.Abs(dx)
+	absDy := math.Abs(dy)
+
+	// Use 1.2x threshold to prevent oscillation when deltas are nearly equal
+	if absDx > absDy*1.2 {
+		// Clearly favor horizontal
+		primaryDirX = sign(int(dx))
+		primaryDirY = 0
+	} else if absDy > absDx*1.2 {
+		// Clearly favor vertical
+		primaryDirX = 0
+		primaryDirY = sign(int(dy))
+	} else {
+		// Deltas are similar - use last successful direction to prevent shaking
+		// Fall back to larger delta if no last direction
+		if m.LastChosenDir == 1 || m.LastChosenDir == -1 {
+			// Last moved vertically, prefer vertical
+			primaryDirX = 0
+			primaryDirY = sign(int(dy))
+		} else {
+			// Default or last moved horizontally, prefer horizontal
+			primaryDirX = sign(int(dx))
+			primaryDirY = 0
+		}
+	}
+
+	// Try primary direction first (full speed for chasing)
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, primaryDirX, primaryDirY, m.speedPerTick()) {
+		m.StuckCounter = 0
+		// Remember which direction we moved
+		if primaryDirY != 0 {
+			m.LastChosenDir = 1 // Vertical
+		} else {
+			m.LastChosenDir = 0 // Horizontal
+		}
+		return
+	}
+
+	// Primary direction blocked, try secondary direction
+	var secondaryDirX, secondaryDirY int
+	if primaryDirX != 0 {
+		// Primary was horizontal, try vertical
+		secondaryDirX = 0
+		secondaryDirY = sign(int(dy))
+	} else {
+		// Primary was vertical, try horizontal
+		secondaryDirX = sign(int(dx))
+		secondaryDirY = 0
+	}
+
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, secondaryDirX, secondaryDirY, m.speedPerTick()) {
+		m.StuckCounter = 0
+		// Remember which direction we moved
+		if secondaryDirY != 0 {
+			m.LastChosenDir = 1 // Vertical
+		} else {
+			m.LastChosenDir = 0 // Horizontal
+		}
+		return
+	}
+
+	// Both primary and secondary directions blocked - increment stuck counter
+	m.StuckCounter++
+
+	// If stuck for several frames, try perpendicular escape
+	// Only try directions perpendicular to the primary direction (not backward)
+	if m.StuckCounter >= 5 {
+		var perpDirs [][2]int
+		if math.Abs(dx) >= math.Abs(dy) {
+			// Primary was horizontal, try vertical perpendiculars
+			perpDirs = [][2]int{{0, 1}, {0, -1}}
+		} else {
+			// Primary was vertical, try horizontal perpendiculars
+			perpDirs = [][2]int{{1, 0}, {-1, 0}}
+		}
+
+		for _, dir := range perpDirs {
+			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dir[0], dir[1], m.speedPerTick()) {
+				m.StuckCounter = 0
+				return
+			}
+		}
+	}
+
+	// Still stuck after trying perpendicular directions - try unstuck mechanism
+	if m.StuckCounter >= 10 {
+		m.unstuckFromObstacles(collisionChecker, monsterID)
+		m.StuckCounter = 0
+	}
+}
+
+// tryMoveCardinal attempts to move one step in a cardinal direction
+// Returns true if movement was successful
+func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, monsterID string, dirX, dirY int) bool {
+	if dirX == 0 && dirY == 0 {
+		return false
+	}
+
+	// Calculate target position (next tile center in this direction)
+	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
+	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
+	targetX := currentTileX + float64(dirX)*tileSize
+	targetY := currentTileY + float64(dirY)*tileSize
+
+	// Check if target tile is walkable
+	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
+		return false
+	}
+
+	// Move towards target tile center
+	dirAngle := math.Atan2(float64(dirY), float64(dirX))
+	newX := m.X + math.Cos(dirAngle)*m.speedPerTick()
+	newY := m.Y + math.Sin(dirAngle)*m.speedPerTick()
+
+	if collisionChecker.CanMoveToWithHabitat(monsterID, newX, newY, m.HabitatPrefs) {
+		m.X = newX
+		m.Y = newY
+		m.Direction = dirAngle
+		m.StuckCounter = 0
+		return true
+	}
+
+	return false
+}
+
+func (m *Monster3D) speedPerTick() float64 {
+	tps := 60
+	if m.config != nil {
+		tps = m.config.GetTPS()
+	} else {
+		tps = config.GetTargetTPS()
+	}
+	if tps <= 0 {
+		return m.Speed
+	}
+	return m.Speed * (60.0 / float64(tps))
+}
+
+// abs returns absolute value of an int
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// sign returns -1, 0, or 1 based on the sign of x
+func sign(x int) int {
+	if x > 0 {
+		return 1
+	} else if x < 0 {
+		return -1
+	}
+	return 0
 }
 
 func (m *Monster3D) updateAlert(playerX, playerY float64) {
 	if m.IsEngagingPlayer {
 		// Calculate distance to player
-		dx := playerX - m.X
-		dy := playerY - m.Y
-		distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
+		distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 		// If close enough to attack, switch to attacking
-		if distanceToPlayer <= m.AttackRadius {
+		// Use a slightly tighter radius to prevent shaking at the boundary
+		if distanceToPlayer <= m.AttackRadius*0.9 {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
 			// Move towards player
+			dx := playerX - m.X
+			dy := playerY - m.Y
 			m.Direction = math.Atan2(dy, dx)
 			m.State = StatePursuing
 			m.StateTimer = 0
@@ -306,55 +500,60 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 	}
 }
 
-// updateFleeing moves monster with proper collision detection and vision when fleeing
+// updateFleeing moves monster away from player using grid-based movement
 func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
 	// Get AI config values
-	var fleeSpeedMult float64 = 1.5   // Default value
-	var fleeVisionDist float64 = 60.0 // Default value
-	var fleeCheckFreq int = 20        // Default value
-	var fleeDuration int = 300        // Default value
+	var fleeSpeedMult float64 = 1.5 // Default value
+	var fleeDuration int = 300      // Default value
 
 	if m.config != nil {
 		fleeSpeedMult = m.config.MonsterAI.FleeSpeedMultiplier
-		fleeVisionDist = m.config.MonsterAI.FleeVisionDistance
-		fleeCheckFreq = m.config.MonsterAI.FleeCheckFrequency
 		fleeDuration = m.config.MonsterAI.FleeDuration
 	}
 
 	// Safety check for collision system
 	if collisionChecker == nil {
-		// Fallback to simple movement if no collision system
-		newX := m.X + math.Cos(m.Direction)*m.Speed*fleeSpeedMult
-		newY := m.Y + math.Sin(m.Direction)*m.Speed*fleeSpeedMult
-
-		// Simple bounds checking
-		if newX >= 0 && newX < 50*64 && newY >= 0 && newY < 50*64 {
-			m.X = newX
-			m.Y = newY
-		}
 		return
 	}
 
-	// Check if current direction is clear before moving
-	lookAheadX := m.X + math.Cos(m.Direction)*fleeVisionDist
-	lookAheadY := m.Y + math.Sin(m.Direction)*fleeVisionDist
+	speed := m.speedPerTick() * fleeSpeedMult
 
-	// If path ahead is blocked, find a new escape route (but not too frequently)
-	if !collisionChecker.CheckLineOfSight(m.X, m.Y, lookAheadX, lookAheadY) && m.StateTimer%fleeCheckFreq == 0 {
-		m.chooseNewDirection(collisionChecker)
+	// Calculate direction away from player
+	dx := m.X - playerX
+	dy := m.Y - playerY
+
+	// Determine best cardinal direction to flee (opposite of player direction)
+	var fleeDirX, fleeDirY int
+	if math.Abs(dx) >= math.Abs(dy) {
+		fleeDirX = sign(int(dx))
+		fleeDirY = 0
+	} else {
+		fleeDirX = 0
+		fleeDirY = sign(int(dy))
 	}
 
-	// Move away from threat
-	newX := m.X + math.Cos(m.Direction)*m.Speed*fleeSpeedMult
-	newY := m.Y + math.Sin(m.Direction)*m.Speed*fleeSpeedMult
+	// Try primary flee direction
+	if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, fleeDirX, fleeDirY, speed) {
+		return
+	}
 
-	// Check collision before moving
-	if collisionChecker.CanMoveTo(monsterID, newX, newY) {
-		m.X = newX
-		m.Y = newY
+	// Try perpendicular directions
+	if fleeDirX != 0 {
+		// Was fleeing horizontally, try vertical
+		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, 0, 1, speed) {
+			return
+		}
+		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, 0, -1, speed) {
+			return
+		}
 	} else {
-		// Immediate obstacle - emergency direction change
-		m.chooseNewDirection(collisionChecker)
+		// Was fleeing vertically, try horizontal
+		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, 1, 0, speed) {
+			return
+		}
+		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, -1, 0, speed) {
+			return
+		}
 	}
 
 	// Stop fleeing after a while
@@ -362,96 +561,6 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, monsterID s
 		m.State = StateIdle
 		m.StateTimer = 0
 	}
-}
-
-// chooseNewDirection intelligently picks a direction with clear path ahead
-func (m *Monster3D) chooseNewDirection(collisionChecker CollisionChecker) {
-	// Get AI config values
-	var directionVisionDist float64 = 50.0 // Default value
-	var maxAttempts int = 6                // Default value
-
-	if m.config != nil {
-		directionVisionDist = m.config.MonsterAI.DirectionVisionDistance
-		maxAttempts = m.config.MonsterAI.MaxDirectionAttempts
-	}
-
-	// Safety check
-	if collisionChecker == nil {
-		m.Direction = rand.Float64() * 2 * math.Pi
-		return
-	}
-
-	// Try different directions to find a clear path
-	for i := 0; i < maxAttempts; i++ {
-		testDirection := rand.Float64() * 2 * math.Pi
-		lookAheadX := m.X + math.Cos(testDirection)*directionVisionDist
-		lookAheadY := m.Y + math.Sin(testDirection)*directionVisionDist
-
-		// If this direction has a clear path, use it
-		if collisionChecker.CheckLineOfSight(m.X, m.Y, lookAheadX, lookAheadY) {
-			m.Direction = testDirection
-			return
-		}
-	}
-
-	// If no clear path found, just turn 90 degrees with some randomness
-	m.Direction += math.Pi/2 + (rand.Float64()-0.5)*0.3
-	if m.Direction > 2*math.Pi {
-		m.Direction -= 2 * math.Pi
-	}
-}
-
-// chooseNewDirectionTowardsTarget intelligently picks a direction towards a target (player or spawn)
-func (m *Monster3D) chooseNewDirectionTowardsTarget(collisionChecker CollisionChecker, targetX, targetY float64) {
-	// Get AI config values
-	var directionVisionDist float64 = 50.0 // Default value
-	var maxAttempts int = 6                // Default value
-
-	if m.config != nil {
-		directionVisionDist = m.config.MonsterAI.DirectionVisionDistance
-		maxAttempts = m.config.MonsterAI.MaxDirectionAttempts
-	}
-
-	// Safety check
-	if collisionChecker == nil {
-		dx := targetX - m.X
-		dy := targetY - m.Y
-		m.Direction = math.Atan2(dy, dx)
-		return
-	}
-
-	// First try direct path to target
-	dx := targetX - m.X
-	dy := targetY - m.Y
-	directDirection := math.Atan2(dy, dx)
-
-	lookAheadX := m.X + math.Cos(directDirection)*directionVisionDist
-	lookAheadY := m.Y + math.Sin(directDirection)*directionVisionDist
-
-	if collisionChecker.CheckLineOfSight(m.X, m.Y, lookAheadX, lookAheadY) {
-		m.Direction = directDirection
-		return
-	}
-
-	// If direct path blocked, try angles around the target direction
-	angleStep := math.Pi / 4 // 45 degree steps
-	for i := 1; i <= maxAttempts/2; i++ {
-		// Try both sides alternating
-		for _, sign := range []float64{1, -1} {
-			testDirection := directDirection + sign*angleStep*float64(i)
-			lookAheadX := m.X + math.Cos(testDirection)*directionVisionDist
-			lookAheadY := m.Y + math.Sin(testDirection)*directionVisionDist
-
-			// If this direction has a clear path, use it
-			if collisionChecker.CheckLineOfSight(m.X, m.Y, lookAheadX, lookAheadY) {
-				m.Direction = testDirection
-				return
-			}
-		}
-	}
-
-	// If no clear path found towards target, use fallback random direction
-	m.chooseNewDirection(collisionChecker)
 }
 
 // unstuckFromObstacles tries to move the monster to the nearest non-blocked position
@@ -471,7 +580,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker, mons
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveTo(monsterID, nx, ny) {
+			if collisionChecker.CanMoveToWithHabitat(monsterID, nx, ny, m.HabitatPrefs) {
 				m.X = nx
 				m.Y = ny
 				m.Direction = angle
@@ -480,7 +589,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker, mons
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveTo(monsterID, m.SpawnX, m.SpawnY) {
+	if collisionChecker.CanMoveToWithHabitat(monsterID, m.SpawnX, m.SpawnY, m.HabitatPrefs) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
 		m.Direction = m.GetDirectionToSpawn()

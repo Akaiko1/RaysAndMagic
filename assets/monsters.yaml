@@ -1,4 +1,8 @@
 monsters:
+  # All radius values are in TILES (1 tile = 64 pixels)
+  # alert_radius: detection/aggro range in tiles
+  # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
+
   # Basic Monsters
   goblin:
     name: "Goblin"
@@ -9,8 +13,8 @@ monsters:
     attack_bonus: 0
     damage_min: 1
     damage_max: 4
-    alert_radius: 128
-    attack_radius: 48
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
     gold_min: 1
     gold_max: 10
@@ -33,15 +37,15 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 8
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 5
     gold_max: 25
     sprite: "orc"
     letter: "o"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.5
     resistances: {}
     habitat_preferences:
@@ -61,15 +65,15 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 6
-    alert_radius: 160
-    attack_radius: 52
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 0
     gold_max: 5
     sprite: "dire_wolf"
     letter: "w"
-    box_w: 56
-    box_h: 56
+    box_w: 48
+    box_h: 48
     size_game: 2.0
     resistances: {}
     habitat_preferences:
@@ -85,15 +89,15 @@ monsters:
     attack_bonus: 3
     damage_min: 2
     damage_max: 12
-    alert_radius: 144
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 5
     gold_max: 20
     sprite: "bear"
     letter: "b"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 3.0
     resistances: {}
     habitat_preferences:
@@ -108,15 +112,15 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 3
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 0
     gold_max: 5
     sprite: "forest_spider"
     letter: "s"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 1.5
     resistances: {}
     habitat_preferences:
@@ -131,15 +135,15 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 6
-    alert_radius: 128
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 2
     gold_max: 10
-    sprite: "skeleton" 
+    sprite: "skeleton"
     letter: "k"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.0
     resistances:
       mind: 100    # Immune to mind effects
@@ -156,15 +160,15 @@ monsters:
     attack_bonus: 4
     damage_min: 3
     damage_max: 18
-    alert_radius: 192
-    attack_radius: 72
+    alert_radius: 3  # 3 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
     gold_min: 20
     gold_max: 70
     sprite: "troll"
     letter: "l"
-    box_w: 80
-    box_h: 80
+    box_w: 48
+    box_h: 48
     size_game: 4.0
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
@@ -181,15 +185,16 @@ monsters:
     attack_bonus: 10
     damage_min: 10
     damage_max: 40
-    alert_radius: 300
-    attack_radius: 120
+    alert_radius: 5  # 5 tiles (wide awareness)
+    attack_radius: 2  # 2 tiles (breath weapon/bite)
+    projectile_spell: "firebolt"
     speed: 2.5
     gold_min: 500
     gold_max: 1500
     sprite: "dragon"
     letter: "d"
-    box_w: 192
-    box_h: 192
+    box_w: 48
+    box_h: 48
     size_game: 8.0
     resistances:
       fire: 90
@@ -197,6 +202,8 @@ monsters:
       air: 75
     habitat_preferences:
       - "empty"
+      - "desert_dune"
+      - "large_dune"
 
   # Forest-specific monsters
   forest_orc:
@@ -208,15 +215,15 @@ monsters:
     attack_bonus: 3
     damage_min: 2
     damage_max: 10
-    alert_radius: 144
-    attack_radius: 56
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 1.4
     gold_min: 8
     gold_max: 33
     sprite: "forest_orc"
     letter: "f"
-    box_w: 64
-    box_h: 64
+    box_w: 48
+    box_h: 48
     size_game: 2.5
     resistances:
       earth: 25    # Forest adaptation
@@ -237,15 +244,15 @@ monsters:
     attack_bonus: 4
     damage_min: 2
     damage_max: 12
-    alert_radius: 192
-    attack_radius: 64
+    alert_radius: 3  # 3 tiles (keen senses)
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
     gold_min: 2
     gold_max: 10
     sprite: "dire_wolf"
     letter: "u"
-    box_w: 72
-    box_h: 72
+    box_w: 48
+    box_h: 48
     size_game: 3.0
     resistances: {}
     habitat_preferences:
@@ -261,15 +268,15 @@ monsters:
     attack_bonus: 2
     damage_min: 1
     damage_max: 6
-    alert_radius: 128
-    attack_radius: 52
+    alert_radius: 2  # 2 tiles
+    attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 1
     gold_max: 9
     sprite: "forest_spider"
     letter: "i"
-    box_w: 56
-    box_h: 56
+    box_w: 48
+    box_h: 48
     size_game: 1.2
     resistances: {}
     habitat_preferences:
@@ -289,15 +296,15 @@ monsters:
     attack_bonus: 6
     damage_min: 4
     damage_max: 24
-    alert_radius: 224
-    attack_radius: 80
+    alert_radius: 3  # 3 tiles
+    attack_radius: 1  # 1 tile (melee range, but large creature)
     speed: 0.8
     gold_min: 15
     gold_max: 45
     sprite: "treant"
     letter: "t"
-    box_w: 80
-    box_h: 80
+    box_w: 48
+    box_h: 48
     size_game: 4.5
     resistances:
       earth: 75
@@ -319,8 +326,8 @@ monsters:
     attack_bonus: 1
     damage_min: 1
     damage_max: 2
-    alert_radius: 64
-    attack_radius: 40
+    alert_radius: 1  # 1 tile (timid, small detection range)
+    attack_radius: 1  # 1 tile (melee range)
     speed: 3.0         # Very fast
     gold_min: 5
     gold_max: 25
@@ -350,15 +357,16 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 7
-    alert_radius: 128
-    attack_radius: 54
+    alert_radius: 3  # 3 tiles
+    attack_radius: 2  # 2 tiles (ranged knives)
+    projectile_weapon: "throwing_knife"
     speed: 1.6
     gold_min: 8
     gold_max: 25
     sprite: "bandit"
     letter: "n"       # Bandit
-    box_w: 60
-    box_h: 60
+    box_w: 48
+    box_h: 48
     size_game: 2.2
     resistances: {}
     habitat_preferences:

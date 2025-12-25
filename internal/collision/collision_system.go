@@ -1,8 +1,58 @@
 package collision
 
 import (
+	"fmt"
 	"math"
 )
+
+// DebugCanMoveTo runs the same checks as CanMoveTo but returns a human-readable reason
+// when movement is blocked. Intended for temporary runtime debugging.
+func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (bool, string) {
+	entity, exists := cs.entities[entityID]
+	if !exists {
+		return false, "entity missing"
+	}
+	if cs.tileChecker == nil {
+		return false, "tileChecker nil"
+	}
+
+	// Create a temporary bounding box at the new position
+	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+
+	// World tiles
+	width, height := cs.tileChecker.GetWorldBounds()
+	minX, minY, maxX, maxY := tempBox.GetBounds()
+	startTileX := int(minX / cs.tileSize)
+	startTileY := int(minY / cs.tileSize)
+	endTileX := int(maxX / cs.tileSize)
+	endTileY := int(maxY / cs.tileSize)
+
+	for tileY := startTileY; tileY <= endTileY; tileY++ {
+		for tileX := startTileX; tileX <= endTileX; tileX++ {
+			if tileX < 0 || tileX >= width || tileY < 0 || tileY >= height {
+				return false, fmt.Sprintf("out of bounds tile=(%d,%d) world=(%d,%d)", tileX, tileY, width, height)
+			}
+			if cs.tileChecker.IsTileBlocking(tileX, tileY) {
+				return false, fmt.Sprintf("blocked tile=(%d,%d)", tileX, tileY)
+			}
+		}
+	}
+
+	// Other entities
+	for id, other := range cs.entities {
+		if id == entityID {
+			continue
+		}
+		if !other.Solid {
+			continue
+		}
+		if tempBox.Intersects(other.BoundingBox) {
+			return false, fmt.Sprintf("collides with entity=%s", id)
+		}
+	}
+
+	return true, "ok"
+}
 
 // GetAllEntities returns a slice of all entities in the collision system
 func (cs *CollisionSystem) GetAllEntities() []*Entity {
@@ -16,6 +66,7 @@ func (cs *CollisionSystem) GetAllEntities() []*Entity {
 // TileChecker interface for checking if tiles block movement and sight
 type TileChecker interface {
 	IsTileBlocking(tileX, tileY int) bool
+	IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool
 	IsTileOpaque(tileX, tileY int) bool
 	GetWorldBounds() (width, height int)
 }
@@ -81,6 +132,29 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 	return true
 }
 
+// CanMoveToWithHabitat checks if an entity can move to a position, allowing habitat tiles for monsters.
+func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string) bool {
+	entity, exists := cs.entities[entityID]
+	if !exists {
+		return false
+	}
+
+	// Create a temporary bounding box at the new position
+	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
+
+	// Check collision with world tiles (habitat-aware)
+	if !cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs) {
+		return false
+	}
+
+	// Check collision with other entities
+	if !cs.canMoveToEntityPosition(entityID, tempBox) {
+		return false
+	}
+
+	return true
+}
+
 // canMoveToWorldPosition checks collision with world tiles
 func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool {
 	width, height := cs.tileChecker.GetWorldBounds()
@@ -104,6 +178,37 @@ func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool
 
 			// Check if any overlapping tile blocks movement
 			if cs.tileChecker.IsTileBlocking(tileX, tileY) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// canMoveToWorldPositionWithHabitat checks collision with world tiles using habitat preferences.
+func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string) bool {
+	width, height := cs.tileChecker.GetWorldBounds()
+
+	// Get the tile range that the bounding box covers
+	minX, minY, maxX, maxY := boundingBox.GetBounds()
+
+	// Convert to tile coordinates
+	startTileX := int(minX / cs.tileSize)
+	startTileY := int(minY / cs.tileSize)
+	endTileX := int(maxX / cs.tileSize)
+	endTileY := int(maxY / cs.tileSize)
+
+	// Check all tiles that the bounding box overlaps
+	for tileY := startTileY; tileY <= endTileY; tileY++ {
+		for tileX := startTileX; tileX <= endTileX; tileX++ {
+			// Check bounds
+			if tileX < 0 || tileX >= width || tileY < 0 || tileY >= height {
+				return false
+			}
+
+			// Check if any overlapping tile blocks movement (habitat-aware)
+			if cs.tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs) {
 				return false
 			}
 		}

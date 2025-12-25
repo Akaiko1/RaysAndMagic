@@ -210,6 +210,53 @@ func TestWorldMonsters(t *testing.T) {
 	})
 }
 
+func TestIsTileBlockingForHabitat(t *testing.T) {
+	prevTileManager := GlobalTileManager
+	t.Cleanup(func() {
+		GlobalTileManager = prevTileManager
+	})
+
+	GlobalTileManager = NewTileManager()
+	if err := GlobalTileManager.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
+		t.Fatalf("Failed to load tile config: %v", err)
+	}
+
+	var blockedKey string
+	var blockedType TileType3D
+	for key, data := range GlobalTileManager.ListTiles() {
+		if data == nil || data.Walkable {
+			continue
+		}
+		if tileType, ok := GlobalTileManager.GetTileTypeFromKey(key); ok {
+			blockedKey = key
+			blockedType = tileType
+			break
+		}
+	}
+
+	if blockedKey == "" {
+		t.Skip("No non-walkable tile key found in tiles config")
+	}
+
+	world := &World3D{
+		Width:  1,
+		Height: 1,
+		Tiles:  [][]TileType3D{{blockedType}},
+	}
+
+	if !world.IsTileBlockingForHabitat(0, 0, nil) {
+		t.Fatalf("Expected tile %q to block without habitat prefs", blockedKey)
+	}
+
+	if !world.IsTileBlockingForHabitat(0, 0, []string{"__non_habitat__"}) {
+		t.Fatalf("Expected tile %q to block for non-habitat prefs", blockedKey)
+	}
+
+	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}) {
+		t.Fatalf("Expected tile %q to be walkable for matching habitat prefs", blockedKey)
+	}
+}
+
 // Helper function to create minimal test configuration
 func createTestWorldConfig() *config.Config {
 	// Use the actual config loading if available, otherwise minimal config

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"time"
 
 	"ugataima/internal/bridge"
@@ -18,6 +20,7 @@ import (
 )
 
 func main() {
+	ensureRuntimeCWD()
 	// Seed RNG for combat rolls (crit, loot, etc.)
 	rand.Seed(time.Now().UnixNano())
 	// Load configuration
@@ -72,6 +75,7 @@ func main() {
 	if cfg.Display.Resizable {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
+	ebiten.SetTPS(cfg.GetTPS())
 
 	g := game.NewMMGame(cfg)
 	if err := ebiten.RunGame(g); err != nil {
@@ -80,5 +84,25 @@ func main() {
 			return
 		}
 		log.Fatal(err)
+	}
+}
+
+func ensureRuntimeCWD() {
+	if _, err := os.Stat("config.yaml"); err == nil {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	execDir := filepath.Dir(exe)
+	if _, err := os.Stat(filepath.Join(execDir, "config.yaml")); err == nil {
+		_ = os.Chdir(execDir)
+		return
+	}
+	// macOS .app bundle: Resources is sibling of MacOS
+	resourcesDir := filepath.Join(execDir, "..", "Resources")
+	if _, err := os.Stat(filepath.Join(resourcesDir, "config.yaml")); err == nil {
+		_ = os.Chdir(resourcesDir)
 	}
 }

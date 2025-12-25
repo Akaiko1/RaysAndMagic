@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"os"
+	"strings"
 	"sync"
 
 	"ugataima/internal/character"
@@ -12,6 +14,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/threading"
 	"ugataima/internal/world"
 
@@ -20,6 +23,13 @@ import (
 
 // Constants are now loaded from config.yaml
 // Access via config.GlobalConfig or pass config instance
+
+type ProjectileOwner int
+
+const (
+	ProjectileOwnerPlayer ProjectileOwner = iota
+	ProjectileOwnerMonster
+)
 
 type MagicProjectile struct {
 	ID         string  // Unique identifier
@@ -31,6 +41,8 @@ type MagicProjectile struct {
 	SpellType  string // Type of spell for visual differentiation
 	Size       int    // Projectile size
 	Crit       bool   // Critical hit flag
+	Owner      ProjectileOwner
+	SourceName string
 }
 
 type MeleeAttack struct {
@@ -66,6 +78,8 @@ type Arrow struct {
 	BowKey     string // YAML key of the bow used to fire this arrow
 	DamageType string // Damage element type ("physical", "dark", etc.)
 	Crit       bool   // Critical hit flag
+	Owner      ProjectileOwner
+	SourceName string
 }
 
 type MMGame struct {
@@ -86,14 +100,24 @@ type MMGame struct {
 	selectedChar     int
 
 	// Tabbed menu system
-	menuOpen     bool
-	currentTab   MenuTab
-	mousePressed bool // Track mouse state for click detection
+	menuOpen          bool
+	currentTab        MenuTab
+	mouseLeftClickX   int
+	mouseLeftClickY   int
+	mouseRightClickX  int
+	mouseRightClickY  int
+	mouseLeftClickAt  int64
+	mouseRightClickAt int64
+	mouseLeftClicks   []queuedClick
+	mouseRightClicks  []queuedClick
 
 	// Double-click support for spellbook
 	lastSpellClickTime int64 // Time of last spell click in milliseconds
 	lastClickedSpell   int   // Index of last clicked spell
 	lastClickedSchool  int   // Index of last clicked school
+	// Double-click support for spellbook school collapse
+	lastSchoolClickTime  int64 // Time of last school click in milliseconds
+	lastSchoolClickedIdx int   // Index of last clicked school header
 
 	// Double-click support for dialogs (neutral)
 	dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
@@ -111,7 +135,16 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
-	slashEffects     []SlashEffect
+
+	// Spellbook UI state
+	collapsedSpellSchools map[character.MagicSchool]bool
+
+	// Utility spell status icons (data-driven)
+	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
+	slashEffects         []SlashEffect
+
+	// Map overlay UI state
+	mapOverlayOpen bool
 
 	// Lighting effects
 	torchLightActive   bool    // Whether torch light is currently active
@@ -279,23 +312,26 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		slashEffects:     make([]SlashEffect, 0),
 
 		// Tabbed menu system
-		menuOpen:     false,
-		currentTab:   TabInventory,
-		mousePressed: false,
+		menuOpen:   false,
+		currentTab: TabInventory,
 
 		// Double-click support for spellbook
-		lastSpellClickTime: 0,
-		lastClickedSpell:   -1,
-		lastClickedSchool:  -1,
+		lastSpellClickTime:   0,
+		lastClickedSpell:     -1,
+		lastClickedSchool:    -1,
+		lastSchoolClickTime:  0,
+		lastSchoolClickedIdx: -1,
 
 		// Double-click support for dialogs (neutral)
 		dialogLastClickTime:  0,
 		dialogLastClickedIdx: -1,
 
-		selectedSchool: 0,
-		selectedSpell:  0,
-		combatMessages: make([]string, 0),
-		maxMessages:    3, // Show last 3 messages
+		selectedSchool:        0,
+		selectedSpell:         0,
+		collapsedSpellSchools: make(map[character.MagicSchool]bool),
+		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
+		combatMessages:        make([]string, 0),
+		maxMessages:           3, // Show last 3 messages
 
 		// Dialog system initialization
 		dialogSelectedChar:  0,
@@ -340,6 +376,12 @@ func (g *MMGame) GetCurrentWorld() *world.World3D {
 	return g.world
 }
 
+// GetPlayerTilePosition returns the tile coordinates the player is currently in
+func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
+	tileSize := float64(g.config.GetTileSize())
+	return int(g.camera.X / tileSize), int(g.camera.Y / tileSize)
+}
+
 // GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
 func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	const interactionDistance = 128.0 // 2 tiles, same as input handler
@@ -353,13 +395,11 @@ func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	nearestDistance := interactionDistance
 
 	for _, npc := range currentWorld.NPCs {
-		dx := npc.X - g.camera.X
-		dy := npc.Y - g.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)
 
-		if distance <= nearestDistance {
+		if dist <= nearestDistance {
 			nearestNPC = npc
-			nearestDistance = distance
+			nearestDistance = dist
 		}
 	}
 
@@ -777,6 +817,78 @@ func (mw *MonsterWrapper) Update() {
 	mw.Monster.Update(mw.collisionSystem, mw.monsterID, playerX, playerY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
+
+	// Temporary movement debug (opt-in via env var).
+	// Example: DEBUG_MONSTER=bandit
+	if filter := strings.TrimSpace(os.Getenv("DEBUG_MONSTER")); filter != "" {
+		name := strings.ToLower(mw.Monster.Name)
+		needle := strings.ToLower(filter)
+		if strings.Contains(name, needle) {
+			// Throttle logs to avoid spamming.
+			if mw.Monster.StateTimer%60 == 0 {
+				withinTether := mw.Monster.IsWithinTetherRadius()
+				fmt.Printf(
+					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
+					mw.Monster.Name,
+					mw.monsterID,
+					mw.Monster.State,
+					mw.Monster.StateTimer,
+					mw.Monster.IsEngagingPlayer,
+					withinTether,
+					newX,
+					newY,
+					oldX,
+					oldY,
+					mw.Monster.SpawnX,
+					mw.Monster.SpawnY,
+					mw.Monster.TetherRadius,
+					playerX,
+					playerY,
+				)
+
+				// If not moving while supposed to wander, probe cardinal target tile centers.
+				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
+					if oldX == newX && oldY == newY {
+						const tileSize = 64.0
+						centerX := math.Floor(newX/tileSize)*tileSize + tileSize/2
+						centerY := math.Floor(newY/tileSize)*tileSize + tileSize/2
+
+						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
+							centerX, centerY,
+							mw.Monster.LastX, mw.Monster.LastY,
+							mw.Monster.StuckCounter,
+							mw.Monster.LastChosenDir,
+						)
+
+						targets := []struct {
+							label string
+							dx    float64
+							dy    float64
+						}{
+							{label: "E", dx: tileSize, dy: 0},
+							{label: "S", dx: 0, dy: tileSize},
+							{label: "W", dx: -tileSize, dy: 0},
+							{label: "N", dx: 0, dy: -tileSize},
+						}
+
+						for _, t := range targets {
+							x := centerX + t.dx
+							y := centerY + t.dy
+							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.monsterID, x, y)
+							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
+								t.label,
+								x,
+								y,
+								ok,
+								reason,
+								mw.Monster.CanMoveWithinTether(x, y),
+							)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Update collision system if position changed
 	if oldX != newX || oldY != newY {

@@ -48,10 +48,16 @@ type Monster3D struct {
 	StateTimer   int
 	AttackCount  int // Number of attacks made in current engagement
 
+	// Pathfinding state - prevents oscillation when stuck between obstacles
+	LastChosenDir float64 // Last direction chosen by pathfinding
+	StuckCounter  int     // Counts consecutive frames where monster couldn't move
+	LastX, LastY  float64 // Position last frame to detect stuck state
+
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
 	SpawnX, SpawnY   float64 // Original spawn position
 	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
 	IsEngagingPlayer bool    // True when actively pursuing/fighting player
+	WasAttacked      bool    // True when monster was hit - prevents disengagement
 
 	// Loot
 	Gold  int
@@ -59,6 +65,13 @@ type Monster3D struct {
 
 	// Resistances and immunities
 	Resistances map[DamageType]int
+
+	// Habitat preferences - tiles this monster can walk on even if normally blocked
+	HabitatPrefs []string
+
+	// Ranged attack configuration
+	ProjectileSpell  string
+	ProjectileWeapon string
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -82,7 +95,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	monster := &Monster3D{
 		X:           x,
 		Y:           y,
-		State:       StateIdle,
+		State:       StatePatrolling, // Start patrolling immediately to avoid "vibing" at spawn
 		Speed:       1.0,
 		Direction:   rand.Float64() * 2 * math.Pi,
 		StateTimer:  0,
@@ -119,30 +132,18 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playe
 		m.HitPoints = 0
 	}
 
+	// Mark as attacked - prevents AI from disengaging due to distance
+	m.WasAttacked = true
+
 	// If already engaging player, just return damage (don't change AI state)
 	if m.IsEngagingPlayer {
 		return damage
 	}
 
-	// Calculate distance to player who attacked
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
-
-	// React based on distance to attacker (only if not already engaged)
-	if distanceToPlayer <= 512.0 { // 8 tiles (8 * 64 pixels)
-		// Player is within 8 tiles - engage and pursue
-		m.IsEngagingPlayer = true
-		m.State = StateAlert
-		m.StateTimer = 0
-	} else {
-		// Player is 9+ tiles away - flee
-		m.IsEngagingPlayer = false
-		m.State = StateFleeing
-		m.StateTimer = 0
-		// Flee in opposite direction from attacker
-		m.Direction = math.Atan2(-dy, -dx) // Opposite direction
-	}
+	// Being attacked always triggers engagement - chase the attacker
+	m.IsEngagingPlayer = true
+	m.State = StateAlert
+	m.StateTimer = 0
 
 	return damage
 }
@@ -156,6 +157,10 @@ func (m *Monster3D) GetAttackDamage() int {
 		return m.DamageMin
 	}
 	return m.DamageMin + rand.Intn(m.DamageMax-m.DamageMin+1)
+}
+
+func (m *Monster3D) HasRangedAttack() bool {
+	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
 }
 
 func (m *Monster3D) GetSpriteType() string {
@@ -201,11 +206,16 @@ func (m *Monster3D) GetSizeGameMultiplier() float64 {
 	return 1.0
 }
 
+// distance calculates the Euclidean distance between two 2D points.
+func distance(x1, y1, x2, y2 float64) float64 {
+	dx := x2 - x1
+	dy := y2 - y1
+	return math.Sqrt(dx*dx + dy*dy)
+}
+
 // GetDistanceFromSpawn calculates the distance from the monster's spawn point
 func (m *Monster3D) GetDistanceFromSpawn() float64 {
-	dx := m.X - m.SpawnX
-	dy := m.Y - m.SpawnY
-	return math.Sqrt(dx*dx + dy*dy)
+	return distance(m.X, m.Y, m.SpawnX, m.SpawnY)
 }
 
 // IsWithinTetherRadius checks if the monster is within its tether radius from spawn
@@ -222,8 +232,5 @@ func (m *Monster3D) GetDirectionToSpawn() float64 {
 
 // CanMoveWithinTether checks if moving in a direction would keep monster within tether
 func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
-	dx := newX - m.SpawnX
-	dy := newY - m.SpawnY
-	distance := math.Sqrt(dx*dx + dy*dy)
-	return distance <= m.TetherRadius
+	return distance(newX, newY, m.SpawnX, m.SpawnY) <= m.TetherRadius
 }
