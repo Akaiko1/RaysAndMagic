@@ -368,13 +368,11 @@ func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	nearestDistance := interactionDistance
 
 	for _, npc := range currentWorld.NPCs {
-		dx := npc.X - g.camera.X
-		dy := npc.Y - g.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)
 
-		if distance <= nearestDistance {
+		if dist <= nearestDistance {
 			nearestNPC = npc
-			nearestDistance = distance
+			nearestDistance = dist
 		}
 	}
 

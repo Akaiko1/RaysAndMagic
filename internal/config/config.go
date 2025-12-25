@@ -66,12 +66,12 @@ type MeleeWeaponConfig struct {
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
 // Uses tile-based units for designer-friendly configuration.
-// Speed is in tiles per second, range is in tiles.
+// Speed is in tiles per second, range is in tiles, collision is in tiles.
 // Lifetime is calculated automatically: lifetime_frames = (range / speed) * 60
 type ProjectilePhysicsConfig struct {
-	SpeedTiles    float64 `yaml:"speed_tiles"`    // Speed in tiles per second
-	RangeTiles    float64 `yaml:"range_tiles"`    // Maximum range in tiles
-	CollisionSize int     `yaml:"collision_size"` // Collision box size in pixels
+	SpeedTiles         float64 `yaml:"speed_tiles"`          // Speed in tiles per second
+	RangeTiles         float64 `yaml:"range_tiles"`          // Maximum range in tiles
+	CollisionSizeTiles float64 `yaml:"collision_size_tiles"` // Collision box size in tiles (min 0.5)
 }
 
 // GetSpeedPixels returns speed in pixels per frame for the game engine
@@ -87,6 +87,16 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	}
 	// lifetime = range / speed * 60 (frames per second)
 	return int((p.RangeTiles / p.SpeedTiles) * 60.0)
+}
+
+// GetCollisionSizePixels returns collision size in pixels for the game engine
+// Enforces minimum of 0.5 tiles
+func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float64 {
+	collisionTiles := p.CollisionSizeTiles
+	if collisionTiles < 0.5 {
+		collisionTiles = 0.5 // Minimum 0.5 tiles
+	}
+	return collisionTiles * tileSize
 }
 
 // MeleeAttackConfig for instant melee weapons

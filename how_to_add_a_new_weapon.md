@@ -82,9 +82,9 @@ weapons:
 
     # Projectile physics (tile-based units - required for ranged weapons)
     physics:
-      speed_tiles: 12.0         # Speed in tiles per second
-      range_tiles: 12.0         # Maximum range in tiles
-      collision_size: 14        # Arrow collision box (pixels)
+      speed_tiles: 12.0          # Speed in tiles per second
+      range_tiles: 12.0          # Maximum range in tiles
+      collision_size_tiles: 0.5  # Arrow collision size in tiles (min 0.5)
 
     # Visual appearance for arrows
     graphics:
@@ -113,9 +113,9 @@ weapons:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 14.0         # Speed in tiles per second
-      range_tiles: 3.0          # Maximum range in tiles
-      collision_size: 24        # Collision box size (pixels)
+      speed_tiles: 14.0          # Speed in tiles per second
+      range_tiles: 3.0           # Maximum range in tiles
+      collision_size_tiles: 0.5  # Collision size in tiles (min 0.5)
 
     # Visual appearance
     graphics:
@@ -172,7 +172,7 @@ var nameToKeyMap = map[string]string{
 |----------|------|-------------|
 | `physics.speed_tiles` | float | Speed in tiles per second |
 | `physics.range_tiles` | float | Maximum range in tiles |
-| `physics.collision_size` | int | Collision box size (pixels) |
+| `physics.collision_size_tiles` | float | Collision size in tiles (min 0.5) |
 
 ### Graphics Configuration
 
@@ -255,7 +255,7 @@ bow_of_hellfire:
     physics:
       speed_tiles: 4.0                 # Very slow (4 tiles per second)
       range_tiles: 12.0                # Long range (12 tiles)
-      collision_size: 64               # Large collision
+      collision_size_tiles: 1.0        # Large collision (1 tile)
 
     graphics:
       color: [139, 0, 139]             # Dark magenta

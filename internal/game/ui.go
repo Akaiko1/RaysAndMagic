@@ -515,52 +515,33 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	iconSpacing := 30
 	currentX := statusBarX
 
-	// Check for active spell effects
+	// Check for active spell effects using data-driven approach
 	hasActiveSpells := false
 
-	// Torch Light effect
-	if ui.game.torchLightActive && ui.game.torchLightDuration > 0 {
-		// Torch Light: 300 seconds * 60 frames = 18000 frames max
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, "💡", ui.game.torchLightDuration, 18000)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, "💡")
-		currentX += iconSpacing
-		hasActiveSpells = true
+	// Define spell effects with their state accessors
+	// Each entry: active flag, duration, max duration (frames), icon
+	type spellEffect struct {
+		active      bool
+		duration    int
+		maxDuration int
+		icon        string
 	}
 
-	// Wizard Eye effect
-	if ui.game.wizardEyeActive && ui.game.wizardEyeDuration > 0 {
-		// Wizard Eye: 300 seconds * 60 frames = 18000 frames max
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, "👁", ui.game.wizardEyeDuration, 18000)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, "👁")
-		currentX += iconSpacing
-		hasActiveSpells = true
+	effects := []spellEffect{
+		{ui.game.torchLightActive, ui.game.torchLightDuration, 18000, "💡"},      // Torch Light: 300s
+		{ui.game.wizardEyeActive, ui.game.wizardEyeDuration, 18000, "👁"},        // Wizard Eye: 300s
+		{ui.game.walkOnWaterActive, ui.game.walkOnWaterDuration, 10800, "🌊"},    // Walk on Water: 180s
+		{ui.game.waterBreathingActive, ui.game.waterBreathingDuration, 36000, "🫧"}, // Water Breathing: 600s
+		{ui.game.blessActive, ui.game.blessDuration, 18000, "✨"},                // Bless: 300s
 	}
 
-	// Walk on Water effect
-	if ui.game.walkOnWaterActive && ui.game.walkOnWaterDuration > 0 {
-		// Walk on Water: 180 seconds * 60 frames = 10800 frames max
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, "🌊", ui.game.walkOnWaterDuration, 10800)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, "🌊")
-		currentX += iconSpacing
-		hasActiveSpells = true
-	}
-
-	// Water Breathing effect
-	if ui.game.waterBreathingActive && ui.game.waterBreathingDuration > 0 {
-		// Water Breathing: 600 seconds * 60 frames = 36000 frames max
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, "🫧", ui.game.waterBreathingDuration, 36000)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, "🫧")
-		currentX += iconSpacing
-		hasActiveSpells = true
-	}
-
-	// Bless effect
-	if ui.game.blessActive && ui.game.blessDuration > 0 {
-		// Bless: 300 seconds * 60 frames = 18000 frames max
-		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, "✨", ui.game.blessDuration, 18000)
-		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, "✨")
-		currentX += iconSpacing
-		hasActiveSpells = true
+	for _, effect := range effects {
+		if effect.active && effect.duration > 0 {
+			iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, effect.icon, effect.duration, effect.maxDuration)
+			ui.handleSpellIconClick(iconX, iconY, iconW, iconH, effect.icon)
+			currentX += iconSpacing
+			hasActiveSpells = true
+		}
 	}
 
 	// Draw background bar if there are active spells
@@ -794,10 +775,10 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 		// Calculate distance from player
 		dx := monster.X - ui.game.camera.X
 		dy := monster.Y - ui.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(ui.game.camera.X, ui.game.camera.Y, monster.X, monster.Y)
 
 		// Only show enemies within 10 tiles
-		if distance <= maxRadarRange {
+		if dist <= maxRadarRange {
 			// Calculate angle from player to monster
 			angle := math.Atan2(dy, dx)
 
@@ -811,9 +792,9 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 			dotImg := ebiten.NewImage(dotSize, dotSize)
 
 			// Color based on distance for threat assessment
-			if distance < tileSize*3 { // Close enemies in red
+			if dist < tileSize*3 { // Close enemies in red
 				dotImg.Fill(color.RGBA{255, 50, 50, 255}) // Bright red
-			} else if distance < tileSize*6 { // Medium distance in orange
+			} else if dist < tileSize*6 { // Medium distance in orange
 				dotImg.Fill(color.RGBA{255, 150, 50, 255}) // Orange
 			} else { // Far enemies in yellow
 				dotImg.Fill(color.RGBA{255, 255, 50, 255}) // Yellow

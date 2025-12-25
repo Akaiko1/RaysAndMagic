@@ -50,7 +50,7 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 	// Real-time mode: Speed-based cooldown
 	selected := ih.game.party.Members[ih.game.selectedChar]
 	// Use effective stats to include buffs/items
-	_, _, _, _, _, speed, _ := selected.GetEffectiveStats(ih.game.statBonus)
+	speed := selected.GetEffectiveSpeed(ih.game.statBonus)
 	// Linear fit through points: (5,60) and (50,30)
 	frames := 63.333333 - (2.0/3.0)*float64(speed)
 	cd := int(math.Round(frames))
@@ -827,11 +827,9 @@ func (ih *InputHandler) handleNPCInteraction() {
 	const interactionDistance = 128.0 // 2 tiles
 
 	for _, npc := range ih.game.GetCurrentWorld().NPCs {
-		dx := npc.X - ih.game.camera.X
-		dy := npc.Y - ih.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(ih.game.camera.X, ih.game.camera.Y, npc.X, npc.Y)
 
-		if distance <= interactionDistance {
+		if dist <= interactionDistance {
 			// Start dialog with this NPC
 			ih.game.dialogActive = true
 			ih.game.dialogNPC = npc

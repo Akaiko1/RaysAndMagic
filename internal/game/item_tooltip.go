@@ -232,7 +232,7 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSys
 	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
 		if def.IsProjectile || def.School == "fire" || def.School == "air" || def.School == "water" || def.School == "earth" {
-			_, effectiveIntellect, _, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+			effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 			baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Scales with Intellect (Effective: %d)", effectiveIntellect))
@@ -241,7 +241,7 @@ func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSys
 			lines = append(lines, fmt.Sprintf("Total Damage: %d", totalDamage))
 		}
 		if def.HealAmount > 0 || def.School == "body" {
-			_, _, effectivePersonality, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+			effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 			baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Scales with Personality (Effective: %d)", effectivePersonality))
@@ -460,7 +460,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	// Check if this is a damage spell
 	if def.School == "fire" || def.School == "air" || def.School == "water" || def.School == "earth" {
 		// Use centralized damage calculation with effective stats (same as actual projectile system)
-		_, effectiveIntellect, _, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 		baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
 
 		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
@@ -471,7 +471,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	// Check if this is a healing spell
 	if def.School == "body" || (def.Name == "First Aid" || def.Name == "Heal") {
 		// Use the same centralized healing calculation as actual combat with effective stats
-		_, _, effectivePersonality, _, _, _, _ := char.GetEffectiveStats(combatSystem.game.statBonus)
+		effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 		baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
 		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
 		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))

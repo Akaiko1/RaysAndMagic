@@ -52,15 +52,15 @@ spells:
 
     # Projectile physics (tile-based units - required for projectile spells)
     physics:
-      speed_tiles: 10.0        # Speed in tiles per second
-      range_tiles: 10.0        # Maximum range in tiles
-      collision_size: 12       # Collision box size (pixels)
+      speed_tiles: 10.0          # Speed in tiles per second
+      range_tiles: 10.0          # Maximum range in tiles
+      collision_size_tiles: 0.5  # Collision box size in tiles (min 0.5)
 
     # Visual appearance (required for projectile spells)
     graphics:
       max_size: 50
       min_size: 3
-      base_size: 12            # Should match collision_size
+      base_size: 12
       color: [100, 200, 255]   # Light blue RGB
 ```
 
@@ -330,9 +330,9 @@ spells:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 9.0         # 9 tiles per second
-      range_tiles: 8.0         # 8 tile range
-      collision_size: 10
+      speed_tiles: 9.0           # 9 tiles per second
+      range_tiles: 8.0           # 8 tile range
+      collision_size_tiles: 0.5  # Collision in tiles (min 0.5)
 
     # Visual appearance
     graphics:

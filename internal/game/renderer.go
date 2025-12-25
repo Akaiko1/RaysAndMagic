@@ -180,9 +180,7 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	// Apply torch light effect if active
 	if r.game.torchLightActive {
 		// Calculate distance from camera (torch light source) to the point
-		dx := worldX - r.game.camera.X
-		dy := worldY - r.game.camera.Y
-		distanceFromTorch := math.Sqrt(dx*dx + dy*dy)
+		distanceFromTorch := Distance(r.game.camera.X, r.game.camera.Y, worldX, worldY)
 
 		// Check if within torch light radius
 		if distanceFromTorch <= r.game.torchLightRadius {
@@ -1529,9 +1527,9 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		// Calculate magic projectile position relative to camera
 		dx := magicProjectile.X - r.game.camera.X
 		dy := magicProjectile.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, magicProjectile.X, magicProjectile.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1577,7 +1575,7 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 
 		// Calculate projectile size based on distance using spell-specific config
 		baseSize := float64(spellGraphicsConfig.BaseSize)
-		projectileSize := int(baseSize / distance * r.game.config.GetTileSize())
+		projectileSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if projectileSize > spellGraphicsConfig.MaxSize {
 			projectileSize = spellGraphicsConfig.MaxSize
 		}
@@ -1644,9 +1642,9 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		// Calculate attack position relative to camera
 		dx := attack.X - r.game.camera.X
 		dy := attack.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, attack.X, attack.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1690,7 +1688,7 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 
 		// Calculate attack size based on distance using weapon-specific config
 		baseSize := float64(weaponDef.Graphics.BaseSize)
-		attackSize := int(baseSize / distance * r.game.config.GetTileSize())
+		attackSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if attackSize > weaponDef.Graphics.MaxSize {
 			attackSize = weaponDef.Graphics.MaxSize
 		}
@@ -1754,9 +1752,9 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		// Calculate arrow position relative to camera
 		dx := arrow.X - r.game.camera.X
 		dy := arrow.Y - r.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(r.game.camera.X, r.game.camera.Y, arrow.X, arrow.Y)
 
-		if distance > r.game.camera.ViewDist || distance < 10 {
+		if dist > r.game.camera.ViewDist || dist < 10 {
 			continue
 		}
 
@@ -1798,7 +1796,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue // Skip rendering if weapon config missing
 		}
 		baseSize := float64(bowDef.Graphics.BaseSize)
-		arrowSize := int(baseSize / distance * r.game.config.GetTileSize())
+		arrowSize := int(baseSize / dist * r.game.config.GetTileSize())
 		if arrowSize > bowDef.Graphics.MaxSize {
 			arrowSize = bowDef.Graphics.MaxSize
 		}

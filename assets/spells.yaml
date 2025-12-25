@@ -26,9 +26,9 @@ spells:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 8.0         # Speed in tiles per second
-      range_tiles: 12.0        # Maximum range in tiles
-      collision_size: 64       # Size for collision detection (pixels)
+      speed_tiles: 8.0           # Speed in tiles per second
+      range_tiles: 12.0          # Maximum range in tiles
+      collision_size_tiles: 2.0  # Size for collision detection in tiles (min 0.5)
 
     # Visual appearance
     graphics:
@@ -53,9 +53,9 @@ spells:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 12.0        # Faster than fireball
-      range_tiles: 8.0         # Shorter range
-      collision_size: 12
+      speed_tiles: 12.0          # Faster than fireball
+      range_tiles: 8.0           # Shorter range
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     # Visual appearance
     graphics:
@@ -80,9 +80,9 @@ spells:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 8.0         # Same speed as fireball
-      range_tiles: 8.0         # Medium range
-      collision_size: 24
+      speed_tiles: 8.0           # Same speed as fireball
+      range_tiles: 8.0           # Medium range
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     # Visual appearance
     graphics:
@@ -107,9 +107,9 @@ spells:
 
     # Projectile physics (tile-based units)
     physics:
-      speed_tiles: 20.0        # Very fast
-      range_tiles: 6.0         # Short range but high damage
-      collision_size: 10
+      speed_tiles: 20.0          # Very fast
+      range_tiles: 6.0           # Short range but high damage
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     # Visual appearance
     graphics:
@@ -266,7 +266,7 @@ spells:
 #    - Add 'physics:' section with:
 #      - speed_tiles: Speed in tiles per second
 #      - range_tiles: Maximum range in tiles
-#      - collision_size: Collision box size in pixels
+#      - collision_size_tiles: Collision size in tiles (min 0.5)
 #    - Add 'graphics:' section with max_size, min_size, base_size, color
 # 4. For utility spells (is_utility: true):
 #    - Add effect properties like heal_amount, vision_bonus, stat_bonus, etc.
@@ -288,9 +288,9 @@ spells:
 #   is_utility: false
 #   visual_effect: "ice_shard"
 #   physics:
-#     speed_tiles: 10.0      # 10 tiles per second
-#     range_tiles: 10.0      # 10 tile range
-#     collision_size: 12
+#     speed_tiles: 10.0          # 10 tiles per second
+#     range_tiles: 10.0          # 10 tile range
+#     collision_size_tiles: 0.5  # 0.5 tiles (minimum)
 #   graphics:
 #     max_size: 50
 #     min_size: 3

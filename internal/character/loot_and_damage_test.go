@@ -60,7 +60,7 @@ func (cs *MockCombatSystem) checkMonsterLootDrop(monster *monster.Monster3D) {
 // ApplyArmorDamageReduction replicates the exact damage reduction logic from combat.go
 func ApplyArmorDamageReduction(damage int, character *MMCharacter, statBonus int) int {
 	// Get effective endurance (includes equipment bonuses)
-	_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(statBonus)
+	effectiveEndurance := character.GetEffectiveEndurance(statBonus)
 
 	// Calculate armor class from all armor slots (matches updated combat.go)
 	baseArmor := 0
@@ -463,7 +463,7 @@ func TestEquipmentSlots(t *testing.T) {
 
 		// Calculate expected values step by step
 		// Get the character's effective endurance after equipment bonuses
-		_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(0)
+		effectiveEndurance := character.GetEffectiveEndurance(0)
 
 		// Calculate expected armor values
 		expectedBaseArmor := 2 + 1 + 1 // leather_armor + leather_helmet + leather_pants

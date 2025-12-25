@@ -51,9 +51,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	}
 
 	// Calculate distance to player
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
+	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 	// Get detection radius (use AlertRadius or default)
 	detectionRadius := m.AlertRadius
@@ -260,9 +258,7 @@ const tileSize = 64.0
 // updatePursuing moves monster towards player using grid-based cardinal movement
 func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
 	// Calculate distance to player
-	dx := playerX - m.X
-	dy := playerY - m.Y
-	distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
+	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 	// Check if close enough to attack
 	if distanceToPlayer <= m.AttackRadius {
@@ -436,9 +432,7 @@ func sign(x int) int {
 func (m *Monster3D) updateAlert(playerX, playerY float64) {
 	if m.IsEngagingPlayer {
 		// Calculate distance to player
-		dx := playerX - m.X
-		dy := playerY - m.Y
-		distanceToPlayer := math.Sqrt(dx*dx + dy*dy)
+		distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
 		// If close enough to attack, switch to attacking
 		// Use a slightly tighter radius to prevent shaking at the boundary
@@ -447,6 +441,8 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 			m.StateTimer = 0
 		} else {
 			// Move towards player
+			dx := playerX - m.X
+			dy := playerY - m.Y
 			m.Direction = math.Atan2(dy, dx)
 			m.State = StatePursuing
 			m.StateTimer = 0
