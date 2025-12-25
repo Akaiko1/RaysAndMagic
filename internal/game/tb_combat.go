@@ -26,12 +26,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 
 		// Calculate distance to player
-		dx := monster.X - gl.game.camera.X
-		dy := monster.Y - gl.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(gl.game.camera.X, gl.game.camera.Y, monster.X, monster.Y)
 
 		// Skip monsters outside vision range - they don't participate in turn-based combat
-		if distance > visionRange {
+		if dist > visionRange {
 			continue
 		}
 
@@ -45,7 +43,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
 			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
 		}
-		freeSpace := distance - (playerRadius + monsterRadius)
+		freeSpace := dist - (playerRadius + monsterRadius)
 		reach := monster.AttackRadius
 		if reach <= 0 {
 			reach = tileSize * 0.25 // conservative fallback reach

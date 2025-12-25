@@ -296,7 +296,7 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.HitPoints = c.MaxHitPoints
 
 	// Calculate spell points (Intellect + Personality based + equipment bonuses)
-	_, _, equipmentPersonalityBonus, _, _ := c.calculateEquipmentBonuses()
+	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 	c.SpellPoints = c.MaxSpellPoints
 }
@@ -462,6 +462,12 @@ func (c *MMCharacter) HasCondition(cond Condition) bool {
 	return false
 }
 
+// IsIncapacitated returns true if the character is unconscious or has 0 HP.
+// Use this instead of checking HasCondition(ConditionUnconscious) || HitPoints <= 0.
+func (c *MMCharacter) IsIncapacitated() bool {
+	return c.HasCondition(ConditionUnconscious) || c.HitPoints <= 0
+}
+
 // AddCondition adds a condition if not already present
 func (c *MMCharacter) AddCondition(cond Condition) {
 	if !c.HasCondition(cond) {
@@ -617,20 +623,63 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
 func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, personality, endurance, accuracy, speed, luck int) {
 	// Calculate equipment bonuses (YAML-driven)
-	equipmentMightBonus, equipmentIntellectBonus, equipmentPersonalityBonus, equipmentEnduranceBonus, equipmentLuckBonus := c.calculateEquipmentBonuses()
+	eqMight, eqIntellect, eqPersonality, eqEndurance, eqAccuracy, eqSpeed, eqLuck := c.calculateEquipmentBonuses()
 
-	return c.Might + statBonus + equipmentMightBonus,
-		c.Intellect + statBonus + equipmentIntellectBonus,
-		c.Personality + statBonus + equipmentPersonalityBonus,
-		c.Endurance + statBonus + equipmentEnduranceBonus,
-		c.Accuracy + statBonus,
-		c.Speed + statBonus,
-		c.Luck + statBonus + equipmentLuckBonus
+	return c.Might + statBonus + eqMight,
+		c.Intellect + statBonus + eqIntellect,
+		c.Personality + statBonus + eqPersonality,
+		c.Endurance + statBonus + eqEndurance,
+		c.Accuracy + statBonus + eqAccuracy,
+		c.Speed + statBonus + eqSpeed,
+		c.Luck + statBonus + eqLuck
+}
+
+// GetEffectiveMight returns effective Might with bonuses applied
+func (c *MMCharacter) GetEffectiveMight(statBonus int) int {
+	eqBonus, _, _, _, _, _, _ := c.calculateEquipmentBonuses()
+	return c.Might + statBonus + eqBonus
+}
+
+// GetEffectiveIntellect returns effective Intellect with bonuses applied
+func (c *MMCharacter) GetEffectiveIntellect(statBonus int) int {
+	_, eqBonus, _, _, _, _, _ := c.calculateEquipmentBonuses()
+	return c.Intellect + statBonus + eqBonus
+}
+
+// GetEffectivePersonality returns effective Personality with bonuses applied
+func (c *MMCharacter) GetEffectivePersonality(statBonus int) int {
+	_, _, eqBonus, _, _, _, _ := c.calculateEquipmentBonuses()
+	return c.Personality + statBonus + eqBonus
+}
+
+// GetEffectiveEndurance returns effective Endurance with bonuses applied
+func (c *MMCharacter) GetEffectiveEndurance(statBonus int) int {
+	_, _, _, eqBonus, _, _, _ := c.calculateEquipmentBonuses()
+	return c.Endurance + statBonus + eqBonus
+}
+
+// GetEffectiveAccuracy returns effective Accuracy with bonuses applied
+func (c *MMCharacter) GetEffectiveAccuracy(statBonus int) int {
+	_, _, _, _, eqBonus, _, _ := c.calculateEquipmentBonuses()
+	return c.Accuracy + statBonus + eqBonus
+}
+
+// GetEffectiveSpeed returns effective Speed with bonuses applied
+func (c *MMCharacter) GetEffectiveSpeed(statBonus int) int {
+	_, _, _, _, _, eqBonus, _ := c.calculateEquipmentBonuses()
+	return c.Speed + statBonus + eqBonus
+}
+
+// GetEffectiveLuck returns effective Luck with bonuses applied
+func (c *MMCharacter) GetEffectiveLuck(statBonus int) int {
+	_, _, _, _, _, _, eqBonus := c.calculateEquipmentBonuses()
+	return c.Luck + statBonus + eqBonus
 }
 
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
-func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, luckBonus int) {
+func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus int) {
 	for _, it := range c.Equipment {
+		// Scaling divisor bonuses (stat / divisor)
 		if div := it.Attributes["intellect_scaling_divisor"]; div > 0 {
 			intellectBonus += c.Intellect / div
 		}
@@ -640,14 +689,30 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 		if div := it.Attributes["endurance_scaling_divisor"]; div > 0 {
 			enduranceBonus += c.Endurance / div
 		}
+		// Flat bonuses
 		if bonus := it.Attributes["bonus_might"]; bonus > 0 {
 			mightBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_intellect"]; bonus > 0 {
+			intellectBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_personality"]; bonus > 0 {
+			personalityBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_endurance"]; bonus > 0 {
+			enduranceBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_accuracy"]; bonus > 0 {
+			accuracyBonus += bonus
+		}
+		if bonus := it.Attributes["bonus_speed"]; bonus > 0 {
+			speedBonus += bonus
 		}
 		if bonus := it.Attributes["bonus_luck"]; bonus > 0 {
 			luckBonus += bonus
 		}
 	}
-	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, luckBonus
+	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
 }
 
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
@@ -657,7 +722,7 @@ func (c *MMCharacter) updateDerivedStatsForEquipment() {
 	currentSP := c.SpellPoints
 
 	// Recalculate max SP with equipment bonuses
-	_, _, equipmentPersonalityBonus, _, _ := c.calculateEquipmentBonuses()
+	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
 	newMaxSP := c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*2 // Level multiplier from config
 	c.MaxSpellPoints = newMaxSP
 

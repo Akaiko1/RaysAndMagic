@@ -195,11 +195,16 @@ func (m *Monster3D) GetSizeGameMultiplier() float64 {
 	return 1.0
 }
 
+// distance calculates the Euclidean distance between two 2D points.
+func distance(x1, y1, x2, y2 float64) float64 {
+	dx := x2 - x1
+	dy := y2 - y1
+	return math.Sqrt(dx*dx + dy*dy)
+}
+
 // GetDistanceFromSpawn calculates the distance from the monster's spawn point
 func (m *Monster3D) GetDistanceFromSpawn() float64 {
-	dx := m.X - m.SpawnX
-	dy := m.Y - m.SpawnY
-	return math.Sqrt(dx*dx + dy*dy)
+	return distance(m.X, m.Y, m.SpawnX, m.SpawnY)
 }
 
 // IsWithinTetherRadius checks if the monster is within its tether radius from spawn
@@ -216,8 +221,5 @@ func (m *Monster3D) GetDirectionToSpawn() float64 {
 
 // CanMoveWithinTether checks if moving in a direction would keep monster within tether
 func (m *Monster3D) CanMoveWithinTether(newX, newY float64) bool {
-	dx := newX - m.SpawnX
-	dy := newY - m.SpawnY
-	distance := math.Sqrt(dx*dx + dy*dy)
-	return distance <= m.TetherRadius
+	return distance(newX, newY, m.SpawnX, m.SpawnY) <= m.TetherRadius
 }

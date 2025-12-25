@@ -4,7 +4,7 @@
 # Physics units (for projectile weapons):
 #   speed_tiles: Speed in tiles per second
 #   range_tiles: Maximum range in tiles
-#   collision_size: Collision box size in pixels
+#   collision_size_tiles: Collision box size in tiles (min 0.5)
 
 weapons:
   iron_sword:
@@ -94,9 +94,9 @@ weapons:
 
     # Projectile physics (tile-based)
     physics:
-      speed_tiles: 10.0    # 10 tiles per second
-      range_tiles: 8.0     # 8 tile range
-      collision_size: 12
+      speed_tiles: 10.0          # 10 tiles per second
+      range_tiles: 8.0           # 8 tile range
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     graphics:
       max_size: 36
@@ -118,9 +118,9 @@ weapons:
 
     # Projectile physics (tile-based)
     physics:
-      speed_tiles: 12.0    # 12 tiles per second
-      range_tiles: 2.0     # 2 tile range (short)
-      collision_size: 22
+      speed_tiles: 12.0          # 12 tiles per second
+      range_tiles: 2.0           # 2 tile range (short)
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     graphics:
       max_size: 44
@@ -238,9 +238,9 @@ weapons:
 
     # Projectile physics (tile-based)
     physics:
-      speed_tiles: 12.0    # 12 tiles per second (faster than hunting bow)
-      range_tiles: 10.0    # 10 tile range
-      collision_size: 12
+      speed_tiles: 12.0          # 12 tiles per second (faster than hunting bow)
+      range_tiles: 10.0          # 10 tile range
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     graphics:
       max_size: 36
@@ -262,9 +262,9 @@ weapons:
 
     # Projectile physics (tile-based)
     physics:
-      speed_tiles: 14.0    # 14 tiles per second
-      range_tiles: 2.0     # 2 tile range (short)
-      collision_size: 22
+      speed_tiles: 14.0          # 14 tiles per second
+      range_tiles: 2.0           # 2 tile range (short)
+      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
 
     graphics:
       max_size: 44
@@ -289,9 +289,9 @@ weapons:
 
     # Projectile physics (tile-based) - slow but long range
     physics:
-      speed_tiles: 4.0     # 4 tiles per second (very slow)
-      range_tiles: 12.0    # 12 tile range
-      collision_size: 64
+      speed_tiles: 4.0           # 4 tiles per second (very slow)
+      range_tiles: 12.0          # 12 tile range
+      collision_size_tiles: 1.0  # 1 tile collision for large projectile
 
     graphics:
       max_size: 24

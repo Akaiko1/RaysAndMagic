@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -51,7 +50,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast
-	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+	if caster.IsIncapacitated() {
 		return
 	}
 
@@ -154,7 +153,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	}
 
 	// For projectile spells, create a projectile using effective intellect (includes Bless bonus)
-	_, effectiveIntellect, _, _, _, _, _ := caster.GetEffectiveStats(cs.game.statBonus)
+	effectiveIntellect := caster.GetEffectiveIntellect(cs.game.statBonus)
 	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
@@ -191,7 +190,8 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
 	// Register with collision system
-	collisionSize := float64(spellConfig.CollisionSize) // Use spell-specific collision size
+	tileSize := cs.game.config.GetTileSize()
+	collisionSize := spellConfig.GetCollisionSizePixels(tileSize) // Use spell-specific collision size in tiles
 	projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 	cs.game.collisionSystem.RegisterEntity(projectileEntity)
 
@@ -204,7 +204,7 @@ func (cs *CombatSystem) EquipmentHeal() {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast heals
-	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+	if caster.IsIncapacitated() {
 		return
 	}
 
@@ -278,7 +278,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast heals
-	if caster.HasCondition(character.ConditionUnconscious) || caster.HitPoints <= 0 {
+	if caster.IsIncapacitated() {
 		return
 	}
 
@@ -344,7 +344,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot attack
-	if attacker.HasCondition(character.ConditionUnconscious) || attacker.HitPoints <= 0 {
+	if attacker.IsIncapacitated() {
 		return
 	}
 
@@ -414,12 +414,12 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	var arrowLifetime int
 	var collisionSize float64
 
+	tileSize := cs.game.config.GetTileSize()
 	if exists && weaponDef.Physics != nil {
 		// Use weapon-specific physics properties (tile-based)
-		tileSize := cs.game.config.GetTileSize()
 		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
 		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
-		collisionSize = float64(weaponDef.Physics.CollisionSize)
+		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
 	} else {
 		// Fallback to default config values
 		arrowSpeed = cs.game.config.GetArrowSpeed()
@@ -525,7 +525,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		// Calculate distance and angle to monster center
 		dx := monster.X - playerX
 		dy := monster.Y - playerY
-		distanceToCenter := math.Sqrt(dx*dx + dy*dy)
+		distanceToCenter := Distance(playerX, playerY, monster.X, monster.Y)
 
 		// Get monster collision box size
 		monsterWidth, monsterHeight := monster.GetSize()
@@ -567,13 +567,13 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Add combat message
 	if monster.IsAlive() {
+		prefix := ""
 		if isCrit {
-			cs.game.AddCombatMessage(fmt.Sprintf("Critical! %s hits %s for %d damage!",
-				cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
-		} else {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage!",
-				cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+			prefix = "Critical! "
 		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage! (HP: %d/%d)",
+			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage,
+			monster.HitPoints, monster.MaxHitPoints))
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
 			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
@@ -592,7 +592,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
 
 	// Prevent casting while down; also avoids utility healing from acting as a revive.
-	if currentChar.HasCondition(character.ConditionUnconscious) || currentChar.HitPoints <= 0 {
+	if currentChar.IsIncapacitated() {
 		return
 	}
 	schools := currentChar.GetAvailableSchools()
@@ -628,7 +628,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 	if selectedSpellDef.IsProjectile {
 		// Handle projectile spells dynamically using effective intellect (includes Bless bonus)
-		_, effectiveIntellect, _, _, _, _, _ := currentChar.GetEffectiveStats(cs.game.statBonus)
+		effectiveIntellect := currentChar.GetEffectiveIntellect(cs.game.statBonus)
 		projectile, err := castingSystem.CreateProjectile(selectedSpellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
@@ -661,7 +661,9 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			cs.game.AddCombatMessage("Spell config error: " + err.Error())
 			return
 		}
-		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, float64(spellConfig.CollisionSize), float64(spellConfig.CollisionSize), collision.CollisionTypeProjectile, false)
+		tileSize := cs.game.config.GetTileSize()
+		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
+		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(projectileEntity)
 
 		// Add message based on spell definition
@@ -763,12 +765,10 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
-		dx := monster.X - cs.game.camera.X
-		dy := monster.Y - cs.game.camera.Y
-		distance := math.Sqrt(dx*dx + dy*dy)
+		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
 		// If monster is in attacking state and within attack radius, deal damage
-		if monster.State == monsterPkg.StateAttacking && distance < monster.AttackRadius {
+		if monster.State == monsterPkg.StateAttacking && dist < monster.AttackRadius {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
 				// Monster attacks character with highest endurance (and HP > 0)
@@ -799,72 +799,52 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 				// Push monster back slightly to prevent spam
 				pushBack := cs.game.config.MonsterAI.PushbackDistance
-				monster.X += (monster.X - cs.game.camera.X) / distance * pushBack
-				monster.Y += (monster.Y - cs.game.camera.Y) / distance * pushBack
+				monster.X += (monster.X - cs.game.camera.X) / dist * pushBack
+				monster.Y += (monster.Y - cs.game.camera.Y) / dist * pushBack
 			}
 		}
 	}
 }
 
-// CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters using bounding boxes
+// CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
+// using perspective-scaled bounding boxes for accurate visual collision detection
 func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
-	// Get all collisions from the collision system
-	collisions := cs.game.collisionSystem.GetCollisions()
-
-	for _, collisionPair := range collisions {
-		// Check if this is a projectile-monster collision
-		var projectileEntity, monsterEntity *collision.Entity
-
-		if collisionPair.Entity1.CollisionType == collision.CollisionTypeProjectile && collisionPair.Entity2.CollisionType == collision.CollisionTypeMonster {
-			projectileEntity = collisionPair.Entity1
-			monsterEntity = collisionPair.Entity2
-		} else if collisionPair.Entity2.CollisionType == collision.CollisionTypeProjectile && collisionPair.Entity1.CollisionType == collision.CollisionTypeMonster {
-			projectileEntity = collisionPair.Entity2
-			monsterEntity = collisionPair.Entity1
-		} else {
-			continue // Not a projectile-monster collision
-		}
-
-		// Handle the collision based on projectile type
-		cs.handleProjectileMonsterCollision(projectileEntity, monsterEntity)
+	// Collect all active projectiles
+	type projectileInfo struct {
+		entityID string
+		data     interface{}
+		pType    string
 	}
-}
+	var projectiles []projectileInfo
 
-// findProjectile finds a projectile by entity ID and returns its info, or nil if not found
-func (cs *CombatSystem) findProjectile(entityID string) (interface{}, string) {
-	if strings.HasPrefix(entityID, "arrow_") {
-		for i := range cs.game.arrows {
-			if cs.game.arrows[i].ID == entityID && cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 {
-				return &cs.game.arrows[i], "arrow"
-			}
+	for i := range cs.game.arrows {
+		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 {
+			projectiles = append(projectiles, projectileInfo{cs.game.arrows[i].ID, &cs.game.arrows[i], "arrow"})
 		}
-	} else if strings.HasPrefix(entityID, "melee_") {
-		for i := range cs.game.meleeAttacks {
-			if cs.game.meleeAttacks[i].ID == entityID && cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
-				return &cs.game.meleeAttacks[i], "melee"
-			}
+	}
+	for i := range cs.game.magicProjectiles {
+		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 {
+			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile"})
 		}
-	} else {
-		for i := range cs.game.magicProjectiles {
-			if cs.game.magicProjectiles[i].ID == entityID && cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 {
-				return &cs.game.magicProjectiles[i], "magic_projectile"
+	}
+	for i := range cs.game.meleeAttacks {
+		if cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
+			projectiles = append(projectiles, projectileInfo{cs.game.meleeAttacks[i].ID, &cs.game.meleeAttacks[i], "melee"})
+		}
+	}
+
+	// Check each projectile against each monster using perspective-scaled collision
+	for _, proj := range projectiles {
+		for _, monster := range cs.game.world.Monsters {
+			if !monster.IsAlive() {
+				continue
+			}
+			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
+				cs.applyProjectileDamage(proj.data, proj.pType, monster, proj.entityID)
+				break // Projectile hit, move to next projectile
 			}
 		}
 	}
-	return nil, ""
-}
-
-// findMonsterByEntityID finds a monster by its collision entity ID
-func (cs *CombatSystem) findMonsterByEntityID(entityID string) *monsterPkg.Monster3D {
-	if len(entityID) <= 8 || entityID[:8] != "monster_" {
-		return nil
-	}
-	for _, m := range cs.game.world.Monsters {
-		if m.ID == entityID {
-			return m
-		}
-	}
-	return nil
 }
 
 // getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
@@ -913,14 +893,12 @@ func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectile
 
 // calculatePerspectiveScale calculates the scale factor for perspective-based collision
 func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSize, maxSize int) float64 {
-	dx := x - cs.game.camera.X
-	dy := y - cs.game.camera.Y
-	distance := math.Sqrt(dx*dx + dy*dy)
-	if distance == 0 {
-		distance = 0.001 // Avoid division by zero
+	dist := Distance(cs.game.camera.X, cs.game.camera.Y, x, y)
+	if dist == 0 {
+		dist = 0.001 // Avoid division by zero
 	}
 
-	visualSize := baseSize / distance * float64(cs.game.config.GetTileSize())
+	visualSize := baseSize / dist * float64(cs.game.config.GetTileSize())
 	if visualSize > float64(maxSize) {
 		visualSize = float64(maxSize)
 	}
@@ -1002,29 +980,19 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 }
 
-// handleProjectileMonsterCollision handles collision between a specific projectile and monster
-func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monsterEntity *collision.Entity) {
-	// Find projectile and monster
-	projectile, projectileType := cs.findProjectile(projectileEntity.ID)
-	if projectile == nil {
-		return
-	}
-	monster := cs.findMonsterByEntityID(monsterEntity.ID)
-	if monster == nil || !monster.IsAlive() {
-		return
-	}
-
+// checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
+func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, projectile interface{}, projectileType string, monster *monsterPkg.Monster3D) bool {
 	// Get projectile graphics info for scaling
 	baseSize, minSize, maxSize, ok := cs.getProjectileGraphicsInfo(projectile, projectileType)
 	if !ok {
-		return
+		return false
 	}
 
 	// Get collision entities
-	projEntity := cs.game.collisionSystem.GetEntityByID(projectileEntity.ID)
-	monsterCollisionEntity := cs.game.collisionSystem.GetEntityByID(monsterEntity.ID)
+	projEntity := cs.game.collisionSystem.GetEntityByID(entityID)
+	monsterCollisionEntity := cs.game.collisionSystem.GetEntityByID(monster.ID)
 	if projEntity == nil || monsterCollisionEntity == nil {
-		return
+		return false
 	}
 
 	// Calculate perspective-scaled collision boxes
@@ -1040,15 +1008,10 @@ func (cs *CombatSystem) handleProjectileMonsterCollision(projectileEntity, monst
 	scaledMonsterW := monsterCollisionEntity.BoundingBox.Width * monsterScale
 	scaledMonsterH := monsterCollisionEntity.BoundingBox.Height * monsterScale
 
-	// Check collision
+	// Check collision with perspective-scaled boxes
 	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
 	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
-	if !scaledProjBox.Intersects(scaledMonsterBox) {
-		return
-	}
-
-	// Apply damage
-	cs.applyProjectileDamage(projectile, projectileType, monster, projectileEntity.ID)
+	return scaledProjBox.Intersects(scaledMonsterBox)
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed
@@ -1142,31 +1105,25 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
-func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, character *character.MMCharacter) (int, int, int) {
+func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
 	baseDamage := spellPoints * 3
-	// Get effective intellect including any stat bonuses
-	_, intellect, _, _, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
-	intellectBonus := intellect / 2
+	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / 2
 	totalDamage := baseDamage + intellectBonus
 	return baseDamage, intellectBonus, totalDamage
 }
 
 // CalculateHealingSpellAmount calculates healing for body magic spells from spellbook
-func (cs *CombatSystem) CalculateHealingSpellAmount(spellPoints int, character *character.MMCharacter) (int, int, int) {
+func (cs *CombatSystem) CalculateHealingSpellAmount(spellPoints int, char *character.MMCharacter) (int, int, int) {
 	baseHealing := spellPoints * 5
-	// Get effective personality including any stat bonuses
-	_, _, personality, _, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
-	personalityBonus := personality / 2
+	personalityBonus := char.GetEffectivePersonality(cs.game.statBonus) / 2
 	totalHealing := baseHealing + personalityBonus
 	return baseHealing, personalityBonus, totalHealing
 }
 
 // CalculateEquippedHealAmount calculates healing for equipped heal spells (targeted healing)
-func (cs *CombatSystem) CalculateEquippedHealAmount(spellCost int, character *character.MMCharacter) (int, int, int) {
+func (cs *CombatSystem) CalculateEquippedHealAmount(spellCost int, char *character.MMCharacter) (int, int, int) {
 	baseHealing := spellCost * 3
-	// Get effective personality including any stat bonuses
-	_, _, personality, _, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
-	personalityBonus := personality / 2
+	personalityBonus := char.GetEffectivePersonality(cs.game.statBonus) / 2
 	totalHealing := baseHealing + personalityBonus
 	return baseHealing, personalityBonus, totalHealing
 }
@@ -1178,10 +1135,9 @@ func (cs *CombatSystem) CalculateAccuracyBonus(character *character.MMCharacter)
 }
 
 // CalculateCriticalChance calculates critical hit bonus from character stats
-func (cs *CombatSystem) CalculateCriticalChance(character *character.MMCharacter) int {
+func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
-	_, _, _, _, _, _, luck := character.GetEffectiveStats(cs.game.statBonus)
-	return luck / 4
+	return char.GetEffectiveLuck(cs.game.statBonus) / 4
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
@@ -1210,8 +1166,7 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 // chance = effective Luck / 5, clamped to [0,100].
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	_, _, _, _, _, _, luck := chr.GetEffectiveStats(cs.game.statBonus)
-	chance := luck / 5
+	chance := chr.GetEffectiveLuck(cs.game.statBonus) / 5
 	if chance < 0 {
 		chance = 0
 	}
@@ -1223,9 +1178,9 @@ func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int)
 }
 
 // ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
-func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *character.MMCharacter) int {
+func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MMCharacter) int {
 	// Get effective endurance (includes equipment bonuses)
-	_, _, _, effectiveEndurance, _, _, _ := character.GetEffectiveStats(cs.game.statBonus)
+	effectiveEndurance := char.GetEffectiveEndurance(cs.game.statBonus)
 
 	// Calculate armor class from all armor slots
 	baseArmor := 0
@@ -1241,7 +1196,7 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, character *charact
 	}
 
 	for _, slot := range armorSlots {
-		if armorPiece, hasArmor := character.Equipment[slot]; hasArmor {
+		if armorPiece, hasArmor := char.Equipment[slot]; hasArmor {
 			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
 				baseArmor += v
 			}
@@ -1313,7 +1268,7 @@ func (cs *CombatSystem) findHighestEnduranceTarget() *character.MMCharacter {
 		}
 
 		// Get effective endurance (includes equipment bonuses)
-		_, _, _, effectiveEndurance, _, _, _ := member.GetEffectiveStats(cs.game.statBonus)
+		effectiveEndurance := member.GetEffectiveEndurance(cs.game.statBonus)
 
 		// Check if this member has higher endurance than current best
 		if effectiveEndurance > highestEndurance {
