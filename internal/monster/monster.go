@@ -54,14 +54,22 @@ type Monster3D struct {
 	LastX, LastY  float64 // Position last frame to detect stuck state
 
 	// Pursuit pathfinding state (tile-based A*)
-	PathTiles       []TileCoord
-	PathIndex       int
-	PathTargetTileX int
-	PathTargetTileY int
+	PathTiles        []TileCoord
+	PathIndex        int
+	PathTargetTileX  int
+	PathTargetTileY  int
+	LastPathCalcTick int
+	pathScratch      pathScratch
+
+	// RT movement target selection for non-pursuit movement (patrol/flee)
+	MoveTargetTileX int
+	MoveTargetTileY int
+	MoveTargetState MonsterState
+	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
 	SpawnX, SpawnY   float64 // Original spawn position
-	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
+	TetherRadius     float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
 	IsEngagingPlayer bool    // True when actively pursuing/fighting player
 	WasAttacked      bool    // True when monster was hit - prevents disengagement
 
@@ -112,7 +120,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 		// Initialize tethering system
 		SpawnX:           x,
 		SpawnY:           y,
-		TetherRadius:     192.0, // 3 tiles * 64 pixels per tile
+		TetherRadius:     256.0, // 4 tiles * 64 pixels per tile
 		IsEngagingPlayer: false,
 	}
 

@@ -17,6 +17,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
+	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -211,6 +212,14 @@ type MMGame struct {
 	gameLoop        *GameLoop
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
+
+	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
+	reusableMonsterWrappers     []entities.MonsterUpdateInterface
+	reusableProjectileWrappers  []entities.ProjectileUpdateInterface
+	reusableEncounterRewardsMap map[*monster.EncounterRewards]int
+
+	// Dead monster IDs to remove - populated when monster dies, processed once per frame
+	deadMonsterIDs []string
 	// Stat distribution popup UI state
 	statPopupOpen    bool // Is the stat distribution popup open?
 	statPopupCharIdx int  // Which character is being edited in the popup?
@@ -221,6 +230,7 @@ type MMGame struct {
 	partyActionsUsed      int  // Actions used this turn (0-2)
 	turnBasedMoveCooldown int  // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
+	monsterTurnResolved   bool // Whether monster turn already processed this round
 
 	// Main menu (ESC)
 	mainMenuOpen      bool
@@ -343,6 +353,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		// Initialize depth buffer for proper 3D rendering
 		depthBuffer: make([]float64, cfg.GetScreenWidth()),
+
+		// Pre-allocate reusable slices to reduce GC pressure
+		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
+		reusableProjectileWrappers:  make([]entities.ProjectileUpdateInterface, 0, 64),
+		reusableEncounterRewardsMap: make(map[*monster.EncounterRewards]int),
+		deadMonsterIDs:              make([]string, 0, 16),
 	}
 
 	// Initialize rendering helper
@@ -668,6 +684,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.partyActionsUsed = 0
 		g.turnBasedMoveCooldown = 0
 		g.turnBasedRotCooldown = 0
+		g.monsterTurnResolved = false
 		g.AddCombatMessage("Turn-based mode activated!")
 	} else {
 		g.AddCombatMessage("Real-time mode activated!")
@@ -791,7 +808,6 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 type MonsterWrapper struct {
 	Monster         *monster.Monster3D
 	collisionSystem *collision.CollisionSystem
-	monsterID       string
 	game            *MMGame // Added to access camera position for tethering system
 }
 
@@ -803,7 +819,7 @@ func (mw *MonsterWrapper) Update() {
 	playerY := mw.game.camera.Y
 
 	// Use collision-aware update with player position for tethering
-	mw.Monster.Update(mw.collisionSystem, mw.monsterID, playerX, playerY)
+	mw.Monster.Update(mw.collisionSystem, playerX, playerY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
@@ -819,7 +835,7 @@ func (mw *MonsterWrapper) Update() {
 				fmt.Printf(
 					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
 					mw.Monster.Name,
-					mw.monsterID,
+					mw.Monster.ID,
 					mw.Monster.State,
 					mw.Monster.StateTimer,
 					mw.Monster.IsEngagingPlayer,
@@ -863,7 +879,7 @@ func (mw *MonsterWrapper) Update() {
 						for _, t := range targets {
 							x := centerX + t.dx
 							y := centerY + t.dy
-							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.monsterID, x, y)
+							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.Monster.ID, x, y)
 							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
 								t.label,
 								x,
@@ -882,7 +898,7 @@ func (mw *MonsterWrapper) Update() {
 	// Update collision system if position changed
 	if oldX != newX || oldY != newY {
 		if mw.collisionSystem != nil {
-			mw.collisionSystem.UpdateEntity(mw.monsterID, newX, newY)
+			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
 		}
 	}
 }
@@ -900,7 +916,7 @@ func (mw *MonsterWrapper) SetPosition(x, y float64) {
 	mw.Monster.Y = y
 	// Update collision system position
 	if mw.collisionSystem != nil {
-		mw.collisionSystem.UpdateEntity(mw.monsterID, x, y)
+		mw.collisionSystem.UpdateEntity(mw.Monster.ID, x, y)
 	}
 }
 
