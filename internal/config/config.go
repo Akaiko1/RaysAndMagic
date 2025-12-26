@@ -65,7 +65,6 @@ type CombatConfig struct {
 type MeleeWeaponConfig struct {
 	Speed         float64 `yaml:"speed"`
 	Lifetime      int     `yaml:"lifetime"`
-	HitRadius     int     `yaml:"hit_radius"` // Legacy, unused
 	CollisionSize int     `yaml:"collision_size"`
 }
 
@@ -128,7 +127,6 @@ type WeaponGraphicsConfig struct {
 type ArrowConfig struct {
 	Speed         float64 `yaml:"speed"`
 	Lifetime      int     `yaml:"lifetime"`
-	HitRadius     int     `yaml:"hit_radius"`
 	CollisionSize int     `yaml:"collision_size"` // Size for collision detection
 }
 
@@ -323,17 +321,7 @@ type MonsterAIConfig struct {
 	FleeCheckFrequency   int `yaml:"flee_check_frequency"`
 	MaxDirectionAttempts int `yaml:"max_direction_attempts"`
 
-	// Legacy fields (kept for backward compatibility)
-	IdleTimeMin      int     `yaml:"idle_time_min"`
-	IdleTimeMax      int     `yaml:"idle_time_max"`
-	PatrolTimeMin    int     `yaml:"patrol_time_min"`
-	PatrolTimeMax    int     `yaml:"patrol_time_max"`
-	AlertTimeMin     int     `yaml:"alert_time_min"`
-	AlertTimeMax     int     `yaml:"alert_time_max"`
-	FleeTimeMin      int     `yaml:"flee_time_min"`
-	FleeTimeMax      int     `yaml:"flee_time_max"`
 	PushbackDistance float64 `yaml:"pushback_distance"`
-	TrollRegenChance float64 `yaml:"troll_regen_chance"`
 }
 
 type SkillTeachingConfig struct {
@@ -749,32 +737,12 @@ func (c *Config) GetRotSpeed() float64 {
 	return c.Movement.RotationSpeed
 }
 
-func (c *Config) GetSwordAttackSpeed() float64 {
-	return c.Combat.Sword.Speed
-}
-
-func (c *Config) GetSwordAttackLifetime() int {
-	return c.Combat.Sword.Lifetime
-}
-
-func (c *Config) GetSwordHitRadius() float64 {
-	return float64(c.Combat.Sword.HitRadius)
-}
-
-func (c *Config) GetSwordAttackCollisionSize() float64 {
-	return float64(c.Combat.Sword.CollisionSize)
-}
-
 func (c *Config) GetArrowSpeed() float64 {
 	return c.Combat.Bow.Speed
 }
 
 func (c *Config) GetArrowLifetime() int {
 	return c.Combat.Bow.Lifetime
-}
-
-func (c *Config) GetArrowHitRadius() float64 {
-	return float64(c.Combat.Bow.HitRadius)
 }
 
 func (c *Config) GetArrowCollisionSize() float64 {

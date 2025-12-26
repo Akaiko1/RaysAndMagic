@@ -180,8 +180,8 @@ func TestTileCenterCalculation(t *testing.T) {
 	}
 }
 
-// TestTryMoveCardinal tests the tryMoveCardinal function directly
-func TestTryMoveCardinal(t *testing.T) {
+// TestTryMoveCardinalWithSpeed tests cardinal movement with a custom speed.
+func TestTryMoveCardinalWithSpeed(t *testing.T) {
 	m := &Monster3D{
 		X:     32.0, // Tile (0,0) center
 		Y:     32.0,
@@ -191,15 +191,15 @@ func TestTryMoveCardinal(t *testing.T) {
 	checker := NewMockCollisionChecker(64.0)
 
 	// Try to move East (1, 0)
-	success := m.tryMoveCardinal(checker, "test", 1, 0)
+	success := m.tryMoveCardinalWithSpeed(checker, "test", 1, 0, 1.5)
 
 	if !success {
-		t.Errorf("tryMoveCardinal failed when it should succeed")
+		t.Errorf("tryMoveCardinalWithSpeed failed when it should succeed")
 		t.Logf("Collision checks: %d, Last check at: (%f, %f)",
 			checker.checkCount, checker.lastX, checker.lastY)
 	}
 
-	t.Logf("After tryMoveCardinal East: Position = (%f, %f)", m.X, m.Y)
+	t.Logf("After tryMoveCardinalWithSpeed East: Position = (%f, %f)", m.X, m.Y)
 	t.Logf("Expected intermediate: X should be > 32, Y should be 32")
 }
 

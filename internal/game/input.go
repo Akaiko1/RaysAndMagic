@@ -370,8 +370,9 @@ func (ih *InputHandler) handleMovementInput() {
 func (ih *InputHandler) handleCombatInput() {
 	// Magic attack (F key) - single press with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+		if ih.game.combat.CastEquippedSpell() {
+			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+		}
 	}
 
 	// Melee attack (Space key) - with cooldown to prevent spam
@@ -586,8 +587,7 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	}
 	d := dests[rand.Intn(len(dests))]
 	reg.LastUsedTime = time.Now()
-	nx := float64(d.X)*tileSize + tileSize/2
-	ny := float64(d.Y)*tileSize + tileSize/2
+	nx, ny := TileCenterFromTile(d.X, d.Y, tileSize)
 	return d.MapKey, nx, ny, true
 }
 
@@ -667,8 +667,7 @@ func (ih *InputHandler) checkDeepWater() {
 		ih.switchToMap("water")
 
 		// Teleport to center of water map
-		centerX := float64(25)*tileSize + tileSize/2
-		centerY := float64(25)*tileSize + tileSize/2
+		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
 		ih.game.camera.X = centerX
 		ih.game.camera.Y = centerY
 		ih.game.collisionSystem.UpdateEntity("player", centerX, centerY)
@@ -1328,12 +1327,13 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.partyActionsUsed++
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		if ih.game.combat.CastEquippedSpell() {
+			ih.game.partyActionsUsed++
+			ih.game.spellInputCooldown = ih.actionCooldown(15)
 
-		if ih.game.partyActionsUsed >= 2 {
-			ih.endPartyTurn()
+			if ih.game.partyActionsUsed >= 2 {
+				ih.endPartyTurn()
+			}
 		}
 	}
 }
@@ -1410,8 +1410,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	}
 
 	// Calculate exact center of target tile
-	targetX := float64(targetTileX)*tileSize + tileSize/2
-	targetY := float64(targetTileY)*tileSize + tileSize/2
+	targetX, targetY := TileCenterFromTile(targetTileX, targetTileY, tileSize)
 
 	// In turn-based mode, if the tile is passable, we should always be able to move there
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
@@ -1428,8 +1427,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 func (ih *InputHandler) canMoveToTile(tileX, tileY int) bool {
 	// Convert tile coordinates to world coordinates (center of tile)
 	tileSize := float64(ih.game.config.World.TileSize)
-	worldX := float64(tileX)*tileSize + tileSize/2
-	worldY := float64(tileY)*tileSize + tileSize/2
+	worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
 
 	// Use collision system which handles bounds checking and centralized tile logic
 	return ih.game.collisionSystem.CanMoveTo("player", worldX, worldY)

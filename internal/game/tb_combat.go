@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"ugataima/internal/character"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 )
 
@@ -120,9 +121,9 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Move 1 tile in a perpendicular (cardinal) direction towards the player
 	stepX, stepY := 0, 0
 	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
-		stepX = sign(dxTiles)
+		stepX = mathutil.IntSign(dxTiles)
 	} else {
-		stepY = sign(dyTiles)
+		stepY = mathutil.IntSign(dyTiles)
 	}
 
 	newX := monster.X + float64(stepX)*tileSize
@@ -139,7 +140,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Try the other perpendicular direction if the preferred one is blocked
 	if stepX != 0 && dyTiles != 0 {
 		altX := monster.X
-		altY := monster.Y + float64(sign(dyTiles))*tileSize
+		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
 		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
 			monster.Y = altY
@@ -147,7 +148,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 			return
 		}
 	} else if stepY != 0 && dxTiles != 0 {
-		altX := monster.X + float64(sign(dxTiles))*tileSize
+		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
 		altY := monster.Y
 		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
 			monster.X = altX
@@ -208,17 +209,6 @@ func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, t
 	monsterTileY := int(monster.Y / tileSize)
 	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
 	return monsterTileX == playerTileX || monsterTileY == playerTileY
-}
-
-func sign(val int) int {
-	switch {
-	case val > 0:
-		return 1
-	case val < 0:
-		return -1
-	default:
-		return 0
-	}
 }
 
 // endMonsterTurn ends the monster turn and starts party turn

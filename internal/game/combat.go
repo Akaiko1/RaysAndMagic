@@ -45,19 +45,20 @@ func (cs *CombatSystem) getWeaponConfigByKey(weaponKey string) *config.WeaponDef
 	return weaponDef
 }
 
-// CastEquippedSpell performs a magic attack using equipped spell (unified F key casting)
-func (cs *CombatSystem) CastEquippedSpell() {
+// CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
+// Returns true if the spell was successfully cast.
+func (cs *CombatSystem) CastEquippedSpell() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast
 	if caster.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return // No spell equipped
+		return false // No spell equipped
 	}
 
 	// Check spell points (use spell cost for spells)
@@ -66,11 +67,11 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		spellCost = spell.SpellCost
 	} else {
 		// This shouldn't happen - SlotSpell should only contain spells
-		return
+		return false
 	}
 
 	if caster.SpellPoints < spellCost {
-		return
+		return false
 	}
 
 	// Cast the equipped spell
@@ -84,7 +85,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	spellDef, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	if spellDef.IsUtility {
@@ -92,7 +93,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Intellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 
 		// Apply the utility spell effects to the game
@@ -150,8 +151,9 @@ func (cs *CombatSystem) CastEquippedSpell() {
 			}
 
 			cs.game.setUtilityStatus(spellID, result.Duration)
+			return true
 		}
-		return
+		return false
 	}
 
 	// For projectile spells, create a projectile using effective intellect (includes Bless bonus)
@@ -159,14 +161,14 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	// Get spell-specific config dynamically
 	spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
 	if err != nil {
 		cs.game.AddCombatMessage("Spell config error: " + err.Error())
-		return
+		return false
 	}
 
 	// Determine critical hit for spells based on Luck only (no base crit for spells)
@@ -200,6 +202,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 
 	// Note: Combat message for spell casting is now only generated when projectile hits a target
 	// This prevents spam of "X casts Y!" messages for attacks that miss
+	return true
 }
 
 // EquipmentHeal casts heal using equipped spell (special targeting for heal spells)

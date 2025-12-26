@@ -402,12 +402,3 @@ func (wm *WorldManager) TeleportParty(source TeleporterLocation) bool {
 
 // --- Teleporter System Refactored Functions ---
 // Place these at the end of the file after all type and method definitions
-
-// Helper function for absolute value
-// Helper function for absolute value
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}

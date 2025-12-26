@@ -1,9 +1,11 @@
 package monster
 
 import (
+	"container/heap"
 	"math"
 	"math/rand"
 	"ugataima/internal/config"
+	"ugataima/internal/mathutil"
 )
 
 // CollisionChecker interface for checking movement validity
@@ -11,6 +13,49 @@ type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
 	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
+}
+
+// TileCoord represents a tile coordinate on the grid.
+type TileCoord struct {
+	X int
+	Y int
+}
+
+type pathNode struct {
+	coord TileCoord
+	g     float64
+	f     float64
+	index int
+}
+
+type priorityQueue []*pathNode
+
+func (pq priorityQueue) Len() int { return len(pq) }
+
+func (pq priorityQueue) Less(i, j int) bool {
+	return pq[i].f < pq[j].f
+}
+
+func (pq priorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *priorityQueue) Push(x interface{}) {
+	node := x.(*pathNode)
+	node.index = len(*pq)
+	*pq = append(*pq, node)
+}
+
+func (pq *priorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	node := old[n-1]
+	old[n-1] = nil
+	node.index = -1
+	*pq = old[:n-1]
+	return node
 }
 
 // Update runs the monster AI with collision checking and player position for engagement detection
@@ -175,10 +220,9 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterI
 	dirX, dirY := dirs[cardinalDir][0], dirs[cardinalDir][1]
 
 	// Check if target would be within tether
-	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
-	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
-	targetX := currentTileX + float64(dirX)*tileSize
-	targetY := currentTileY + float64(dirY)*tileSize
+	currentCenterX, currentCenterY := worldToTileCenter(m.X, m.Y)
+	targetX := currentCenterX + float64(dirX)*tileSize
+	targetY := currentCenterY + float64(dirY)*tileSize
 
 	if m.CanMoveWithinTether(targetX, targetY) {
 		if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dirX, dirY, speed) {
@@ -190,8 +234,8 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, monsterI
 	for i := 1; i < 4; i++ {
 		newDir := (cardinalDir + i) % 4
 		dirX, dirY = dirs[newDir][0], dirs[newDir][1]
-		targetX = currentTileX + float64(dirX)*tileSize
-		targetY = currentTileY + float64(dirY)*tileSize
+		targetX = currentCenterX + float64(dirX)*tileSize
+		targetY = currentCenterY + float64(dirY)*tileSize
 
 		if m.CanMoveWithinTether(targetX, targetY) {
 			if m.tryMoveCardinalWithSpeed(collisionChecker, monsterID, dirX, dirY, speed) {
@@ -231,10 +275,9 @@ func (m *Monster3D) tryMoveCardinalWithSpeed(collisionChecker CollisionChecker, 
 		return false
 	}
 
-	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
-	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
-	targetX := currentTileX + float64(dirX)*tileSize
-	targetY := currentTileY + float64(dirY)*tileSize
+	currentCenterX, currentCenterY := worldToTileCenter(m.X, m.Y)
+	targetX := currentCenterX + float64(dirX)*tileSize
+	targetY := currentCenterY + float64(dirY)*tileSize
 
 	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
 		return false
@@ -254,9 +297,6 @@ func (m *Monster3D) tryMoveCardinalWithSpeed(collisionChecker CollisionChecker, 
 	return false
 }
 
-// Tile size constant for grid-based movement
-const tileSize = 64.0
-
 // updatePursuing moves monster towards player using grid-based cardinal movement
 func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID string, playerX, playerY float64) {
 	// Calculate distance to player
@@ -274,7 +314,10 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, monsterID 
 		return
 	}
 
-	// Use grid-based movement
+	// Use A* pathfinding toward the player; fall back to grid-based movement if no path
+	if m.followPathToTarget(collisionChecker, monsterID, playerX, playerY) {
+		return
+	}
 	m.moveGridBased(collisionChecker, monsterID, playerX, playerY)
 }
 
@@ -294,22 +337,22 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 	// Use 1.2x threshold to prevent oscillation when deltas are nearly equal
 	if absDx > absDy*1.2 {
 		// Clearly favor horizontal
-		primaryDirX = sign(int(dx))
+		primaryDirX = mathutil.IntSign(int(dx))
 		primaryDirY = 0
 	} else if absDy > absDx*1.2 {
 		// Clearly favor vertical
 		primaryDirX = 0
-		primaryDirY = sign(int(dy))
+		primaryDirY = mathutil.IntSign(int(dy))
 	} else {
 		// Deltas are similar - use last successful direction to prevent shaking
 		// Fall back to larger delta if no last direction
 		if m.LastChosenDir == 1 || m.LastChosenDir == -1 {
 			// Last moved vertically, prefer vertical
 			primaryDirX = 0
-			primaryDirY = sign(int(dy))
+			primaryDirY = mathutil.IntSign(int(dy))
 		} else {
 			// Default or last moved horizontally, prefer horizontal
-			primaryDirX = sign(int(dx))
+			primaryDirX = mathutil.IntSign(int(dx))
 			primaryDirY = 0
 		}
 	}
@@ -331,10 +374,10 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 	if primaryDirX != 0 {
 		// Primary was horizontal, try vertical
 		secondaryDirX = 0
-		secondaryDirY = sign(int(dy))
+		secondaryDirY = mathutil.IntSign(int(dy))
 	} else {
 		// Primary was vertical, try horizontal
-		secondaryDirX = sign(int(dx))
+		secondaryDirX = mathutil.IntSign(int(dx))
 		secondaryDirY = 0
 	}
 
@@ -379,38 +422,228 @@ func (m *Monster3D) moveGridBased(collisionChecker CollisionChecker, monsterID s
 	}
 }
 
-// tryMoveCardinal attempts to move one step in a cardinal direction
-// Returns true if movement was successful
-func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, monsterID string, dirX, dirY int) bool {
-	if dirX == 0 && dirY == 0 {
+// followPathToTarget computes (or reuses) an A* path and moves toward the next tile.
+func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, monsterID string, targetX, targetY float64) bool {
+	if collisionChecker == nil {
 		return false
 	}
 
-	// Calculate target position (next tile center in this direction)
-	currentTileX := math.Floor(m.X/tileSize)*tileSize + tileSize/2
-	currentTileY := math.Floor(m.Y/tileSize)*tileSize + tileSize/2
-	targetX := currentTileX + float64(dirX)*tileSize
-	targetY := currentTileY + float64(dirY)*tileSize
+	targetTileX := worldToTile(targetX)
+	targetTileY := worldToTile(targetY)
 
-	// Check if target tile is walkable
-	if !collisionChecker.CanMoveToWithHabitat(monsterID, targetX, targetY, m.HabitatPrefs) {
+	pathCheckFrequency := 30
+	if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
+		pathCheckFrequency = m.config.MonsterAI.PathCheckFrequency
+	}
+
+	shouldRepath := len(m.PathTiles) == 0 || m.PathIndex >= len(m.PathTiles)
+	shouldRepath = shouldRepath || m.PathTargetTileX != targetTileX || m.PathTargetTileY != targetTileY
+	if pathCheckFrequency > 0 && m.StateTimer%pathCheckFrequency == 0 {
+		shouldRepath = true
+	}
+
+	if shouldRepath {
+		m.PathTiles = m.findPathToTarget(collisionChecker, monsterID, targetX, targetY)
+		m.PathIndex = 0
+		m.PathTargetTileX = targetTileX
+		m.PathTargetTileY = targetTileY
+	}
+
+	if len(m.PathTiles) == 0 {
 		return false
 	}
 
-	// Move towards target tile center
-	dirAngle := math.Atan2(float64(dirY), float64(dirX))
-	newX := m.X + math.Cos(dirAngle)*m.speedPerTick()
-	newY := m.Y + math.Sin(dirAngle)*m.speedPerTick()
+	currentTileX := worldToTile(m.X)
+	currentTileY := worldToTile(m.Y)
+
+	if m.PathIndex == 0 {
+		if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
+			m.PathIndex = 1
+		} else {
+			for i := range m.PathTiles {
+				if m.PathTiles[i].X == currentTileX && m.PathTiles[i].Y == currentTileY {
+					m.PathIndex = i + 1
+					break
+				}
+			}
+			if m.PathIndex == 0 {
+				m.PathTiles = nil
+				return false
+			}
+		}
+	}
+
+	if m.PathIndex >= len(m.PathTiles) {
+		return false
+	}
+
+	next := m.PathTiles[m.PathIndex]
+	targetCenterX, targetCenterY := tileToWorldCenter(next.X, next.Y)
+
+	dx := targetCenterX - m.X
+	dy := targetCenterY - m.Y
+	dist := math.Hypot(dx, dy)
+	speed := m.speedPerTick()
+	step := speed
+	if dist < step {
+		step = dist
+	}
+
+	if dist <= step {
+		if collisionChecker.CanMoveToWithHabitat(monsterID, targetCenterX, targetCenterY, m.HabitatPrefs) {
+			m.X = targetCenterX
+			m.Y = targetCenterY
+			m.PathIndex++
+			return true
+		}
+		m.PathTiles = nil
+		return false
+	}
+
+	newX := m.X + dx/dist*step
+	newY := m.Y + dy/dist*step
 
 	if collisionChecker.CanMoveToWithHabitat(monsterID, newX, newY, m.HabitatPrefs) {
 		m.X = newX
 		m.Y = newY
-		m.Direction = dirAngle
-		m.StuckCounter = 0
+		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 
+	// Path blocked - drop it and fall back to grid movement
+	m.PathTiles = nil
 	return false
+}
+
+func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, monsterID string, targetX, targetY float64) []TileCoord {
+	start := TileCoord{X: worldToTile(m.X), Y: worldToTile(m.Y)}
+	targetTileX := worldToTile(targetX)
+	targetTileY := worldToTile(targetY)
+
+	goals := m.collectGoalTiles(collisionChecker, monsterID, targetX, targetY)
+	if len(goals) == 0 {
+		return nil
+	}
+
+	goalSet := make(map[TileCoord]bool, len(goals))
+	for _, g := range goals {
+		goalSet[g] = true
+	}
+
+	rangeTiles := int(math.Ceil(m.AlertRadius / tileSize))
+	if rangeTiles < 4 {
+		rangeTiles = 4
+	}
+	rangeTiles *= 2
+
+	minX := mathutil.IntMin(start.X, targetTileX) - rangeTiles
+	maxX := mathutil.IntMax(start.X, targetTileX) + rangeTiles
+	minY := mathutil.IntMin(start.Y, targetTileY) - rangeTiles
+	maxY := mathutil.IntMax(start.Y, targetTileY) + rangeTiles
+
+	heuristic := func(c TileCoord) float64 {
+		best := math.MaxFloat64
+		for _, g := range goals {
+			d := math.Abs(float64(g.X-c.X)) + math.Abs(float64(g.Y-c.Y))
+			if d < best {
+				best = d
+			}
+		}
+		if best == math.MaxFloat64 {
+			return 0
+		}
+		return best
+	}
+
+	open := &priorityQueue{}
+	heap.Init(open)
+
+	gScore := map[TileCoord]float64{start: 0}
+	heap.Push(open, &pathNode{coord: start, g: 0, f: heuristic(start)})
+	cameFrom := make(map[TileCoord]TileCoord)
+
+	nodesSearched := 0
+	maxNodes := 2000
+
+	for open.Len() > 0 && nodesSearched < maxNodes {
+		current := heap.Pop(open).(*pathNode)
+		currentG, ok := gScore[current.coord]
+		if !ok || current.g > currentG {
+			continue
+		}
+
+		if goalSet[current.coord] {
+			return reconstructPath(cameFrom, current.coord)
+		}
+
+		nodesSearched++
+
+		for _, dir := range [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			neighbor := TileCoord{X: current.coord.X + dir[0], Y: current.coord.Y + dir[1]}
+			if neighbor.X < minX || neighbor.X > maxX || neighbor.Y < minY || neighbor.Y > maxY {
+				continue
+			}
+			if neighbor != start && !m.isPassableTile(collisionChecker, monsterID, neighbor) {
+				continue
+			}
+			tentativeG := currentG + 1
+			if prevG, ok := gScore[neighbor]; !ok || tentativeG < prevG {
+				cameFrom[neighbor] = current.coord
+				gScore[neighbor] = tentativeG
+				f := tentativeG + heuristic(neighbor)
+				heap.Push(open, &pathNode{coord: neighbor, g: tentativeG, f: f})
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, monsterID string, targetX, targetY float64) []TileCoord {
+	targetTileX := int(targetX / tileSize)
+	targetTileY := int(targetY / tileSize)
+	radiusTiles := int(math.Ceil(m.AttackRadius / tileSize))
+	if radiusTiles < 1 {
+		radiusTiles = 1
+	}
+
+	var goals []TileCoord
+	for dy := -radiusTiles; dy <= radiusTiles; dy++ {
+		for dx := -radiusTiles; dx <= radiusTiles; dx++ {
+			tileX := targetTileX + dx
+			tileY := targetTileY + dy
+			centerX, centerY := tileToWorldCenter(tileX, tileY)
+			if distance(targetX, targetY, centerX, centerY) > m.AttackRadius+0.1 {
+				continue
+			}
+			if collisionChecker.CanMoveToWithHabitat(monsterID, centerX, centerY, m.HabitatPrefs) {
+				goals = append(goals, TileCoord{X: tileX, Y: tileY})
+			}
+		}
+	}
+
+	return goals
+}
+
+func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, monsterID string, tile TileCoord) bool {
+	centerX, centerY := tileToWorldCenter(tile.X, tile.Y)
+	return collisionChecker.CanMoveToWithHabitat(monsterID, centerX, centerY, m.HabitatPrefs)
+}
+
+func reconstructPath(cameFrom map[TileCoord]TileCoord, current TileCoord) []TileCoord {
+	path := []TileCoord{current}
+	for {
+		prev, ok := cameFrom[current]
+		if !ok {
+			break
+		}
+		current = prev
+		path = append(path, current)
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	return path
 }
 
 func (m *Monster3D) speedPerTick() float64 {
@@ -424,24 +657,6 @@ func (m *Monster3D) speedPerTick() float64 {
 		return m.Speed
 	}
 	return m.Speed * (60.0 / float64(tps))
-}
-
-// abs returns absolute value of an int
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-// sign returns -1, 0, or 1 based on the sign of x
-func sign(x int) int {
-	if x > 0 {
-		return 1
-	} else if x < 0 {
-		return -1
-	}
-	return 0
 }
 
 func (m *Monster3D) updateAlert(playerX, playerY float64) {
@@ -525,11 +740,11 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, monsterID s
 	// Determine best cardinal direction to flee (opposite of player direction)
 	var fleeDirX, fleeDirY int
 	if math.Abs(dx) >= math.Abs(dy) {
-		fleeDirX = sign(int(dx))
+		fleeDirX = mathutil.IntSign(int(dx))
 		fleeDirY = 0
 	} else {
 		fleeDirX = 0
-		fleeDirY = sign(int(dy))
+		fleeDirY = mathutil.IntSign(int(dy))
 	}
 
 	// Try primary flee direction

@@ -53,6 +53,12 @@ type Monster3D struct {
 	StuckCounter  int     // Counts consecutive frames where monster couldn't move
 	LastX, LastY  float64 // Position last frame to detect stuck state
 
+	// Pursuit pathfinding state (tile-based A*)
+	PathTiles       []TileCoord
+	PathIndex       int
+	PathTargetTileX int
+	PathTargetTileY int
+
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
 	SpawnX, SpawnY   float64 // Original spawn position
 	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
