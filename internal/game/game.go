@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
@@ -436,8 +437,7 @@ func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (f
 		for x := 0; x < worldInst.Width; x++ {
 			tile := worldInst.Tiles[y][x]
 			if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
-				safeX := float64(x)*tileSize + tileSize/2
-				safeY := float64(y)*tileSize + tileSize/2
+				safeX, safeY := TileCenterFromTile(x, y, tileSize)
 				fmt.Printf("Emergency fallback: Found walkable tile at (%.1f, %.1f)\n", safeX, safeY)
 				return safeX, safeY
 			}
@@ -465,7 +465,7 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 		for dx := -radius; dx <= radius; dx++ {
 			for dy := -radius; dy <= radius; dy++ {
 				// Only check perimeter of current radius
-				if abs(dx) != radius && abs(dy) != radius {
+				if mathutil.IntAbs(dx) != radius && mathutil.IntAbs(dy) != radius {
 					continue
 				}
 
@@ -482,8 +482,7 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 				// Check if tile is walkable using the global tile manager
 				if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
 					// Convert back to world coordinates
-					safeX := float64(checkX)*tileSize + tileSize/2
-					safeY := float64(checkY)*tileSize + tileSize/2
+					safeX, safeY := TileCenterFromTile(checkX, checkY, tileSize)
 					return safeX, safeY
 				}
 			}
@@ -492,14 +491,6 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 
 	// No walkable tile found within radius
 	return -1, -1
-}
-
-// abs returns absolute value of an integer (DRY helper)
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
@@ -692,8 +683,7 @@ func (g *MMGame) snapToTileCenter() {
 	currentTileY := int(g.camera.Y / tileSize)
 
 	// Calculate exact center of current tile
-	centerX := float64(currentTileX)*tileSize + tileSize/2
-	centerY := float64(currentTileY)*tileSize + tileSize/2
+	centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 
 	// Snap to center
 	g.camera.X = centerX
@@ -762,8 +752,7 @@ func (g *MMGame) snapMonstersToTileCenters() {
 		currentTileY := int(monster.Y / tileSize)
 
 		// Calculate exact center of current tile
-		centerX := float64(currentTileX)*tileSize + tileSize/2
-		centerY := float64(currentTileY)*tileSize + tileSize/2
+		centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 
 		// Snap monster to center
 		monster.X = centerX
@@ -850,8 +839,8 @@ func (mw *MonsterWrapper) Update() {
 				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
 					if oldX == newX && oldY == newY {
 						const tileSize = 64.0
-						centerX := math.Floor(newX/tileSize)*tileSize + tileSize/2
-						centerY := math.Floor(newY/tileSize)*tileSize + tileSize/2
+						centerX := TileCenter(newX, tileSize)
+						centerY := TileCenter(newY, tileSize)
 
 						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
 							centerX, centerY,

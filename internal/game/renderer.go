@@ -106,8 +106,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	for tileY := 0; tileY < worldHeight; tileY++ {
 		for tileX := 0; tileX < worldWidth; tileX++ {
 			// Calculate tile center world coordinates
-			worldX := float64(tileX)*tileSize + tileSize/2
-			worldY := float64(tileY)*tileSize + tileSize/2
+			worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
 
 			// Get tile type at this position
 			tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
@@ -551,8 +550,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		}
 
 		// Check what tile we've stepped into
-		worldX := float64(currentTileX)*tileSize + tileSize/2
-		worldY := float64(currentTileY)*tileSize + tileSize/2
+		worldX, worldY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 		tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
 
 		// If we hit an empty tile, we can just continue
@@ -835,11 +833,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-	// Update depth buffer for central 60% of tree sprite width
-	// This prevents transparent edges from occluding objects behind them
+	// Update depth buffer for central 85% of tree sprite width.
+	// This still avoids hard edges while reducing distant "see-through" artifacts.
 	spriteLeft := x - spriteWidth/2
 	spriteRight := x + spriteWidth/2
-	depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+	depthMargin := spriteWidth * 7 / 100 // 7% margin on each side
 	depthLeft := spriteLeft + depthMargin
 	depthRight := spriteRight - depthMargin
 	for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
@@ -893,7 +891,7 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
 	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
 
-	// Update depth buffer for central 60% of sprite width only if this tile is opaque
+	// Update depth buffer for central 85% of sprite width only if this tile is opaque
 	// This prevents transparent edges from occluding objects behind them
 	// Transparent floor objects like clearings should not occlude monsters/NPCs at all
 	spriteLeft := x - spriteWidth/2
@@ -903,7 +901,7 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		isOpaque = !world.GlobalTileManager.IsTransparent(tileType)
 	}
 	if isOpaque {
-		depthMargin := spriteWidth * 20 / 100 // 20% margin on each side
+		depthMargin := spriteWidth * 7 / 100 // 7% margin on each side
 		depthLeft := spriteLeft + depthMargin
 		depthRight := spriteRight - depthMargin
 		for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
@@ -1499,8 +1497,7 @@ func (r *Renderer) drawTransparentEnvironmentSpriteWithDepthTest(screen *ebiten.
 	// Apply distance shading with torch light effects
 	// Calculate tile center world coordinates for torch light
 	tileSize := float64(r.game.config.GetTileSize())
-	worldX := float64(spriteData.tileX)*tileSize + tileSize/2
-	worldY := float64(spriteData.tileY)*tileSize + tileSize/2
+	worldX, worldY := TileCenterFromTile(spriteData.tileX, spriteData.tileY, tileSize)
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, spriteData.distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
