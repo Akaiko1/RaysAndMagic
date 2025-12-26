@@ -585,6 +585,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
 			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
 
+		// Add to dead monsters list for cleanup (O(1) instead of iterating all monsters)
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
+
 		// Award experience and gold using centralized function
 		cs.awardExperienceAndGold(monster)
 
@@ -1149,6 +1152,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 		cs.awardExperienceAndGold(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
 			weaponName, monster.Name, monster.Experience, monster.Gold))

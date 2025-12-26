@@ -58,8 +58,8 @@ func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
 }
 
-// TestMonsterGridMovementBasic tests that a monster can move in open terrain
-func TestMonsterGridMovementBasic(t *testing.T) {
+// TestMonsterPathMovementBasic tests that a monster can move in open terrain using pathfinding
+func TestMonsterPathMovementBasic(t *testing.T) {
 	// Create a monster at tile center (32, 32) - center of tile (0, 0)
 	m := &Monster3D{
 		X:     32.0,
@@ -75,7 +75,9 @@ func TestMonsterGridMovementBasic(t *testing.T) {
 	initialX, initialY := m.X, m.Y
 
 	// Run one update cycle
-	m.moveGridBased(checker, "test_monster", targetX, targetY)
+	targetTileX := worldToTile(targetX)
+	targetTileY := worldToTile(targetY)
+	m.followPathToTile(checker, targetTileX, targetTileY)
 
 	// Monster should have moved East (positive X)
 	if m.X <= initialX {
@@ -89,7 +91,7 @@ func TestMonsterGridMovementBasic(t *testing.T) {
 	t.Logf("Collision checks made: %d", checker.checkCount)
 }
 
-// TestMonsterAtTileCenter tests monster at exact tile center can move
+// TestMonsterAtTileCenter tests monster at exact tile center can move using pathfinding
 func TestMonsterAtTileCenter(t *testing.T) {
 	// Monster exactly at tile center of tile (1, 1) = (96, 96)
 	m := &Monster3D{
@@ -106,7 +108,9 @@ func TestMonsterAtTileCenter(t *testing.T) {
 	initialX := m.X
 
 	// Run one update cycle
-	m.moveGridBased(checker, "test_monster", targetX, targetY)
+	targetTileX := worldToTile(targetX)
+	targetTileY := worldToTile(targetY)
+	m.followPathToTile(checker, targetTileX, targetTileY)
 
 	if m.X <= initialX {
 		t.Errorf("Monster at tile center didn't move. Initial X: %f, Final X: %f", initialX, m.X)
@@ -115,7 +119,7 @@ func TestMonsterAtTileCenter(t *testing.T) {
 	t.Logf("Monster moved from %f to %f (delta: %f)", initialX, m.X, m.X-initialX)
 }
 
-// TestMonsterBlockedByTile tests that monster can't move into blocked tile
+// TestMonsterBlockedByTile tests that monster can't move when blocked
 func TestMonsterBlockedByTile(t *testing.T) {
 	// Monster at tile (1, 1) center = (96, 96)
 	m := &Monster3D{
@@ -138,7 +142,9 @@ func TestMonsterBlockedByTile(t *testing.T) {
 
 	// Run fewer update cycles - monster should not move in first few attempts
 	for i := 0; i < 5; i++ {
-		m.moveGridBased(checker, "test_monster", targetX, targetY)
+		targetTileX := worldToTile(targetX)
+		targetTileY := worldToTile(targetY)
+		m.followPathToTile(checker, targetTileX, targetTileY)
 	}
 
 	// After 5 attempts with all directions blocked, monster should still be in same position
@@ -168,8 +174,7 @@ func TestTileCenterCalculation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			currentTileX := math.Floor(tc.posX/tileSize)*tileSize + tileSize/2
-			currentTileY := math.Floor(tc.posY/tileSize)*tileSize + tileSize/2
+			currentTileX, currentTileY := worldToTileCenter(tc.posX, tc.posY)
 
 			if currentTileX != tc.expectedCenterX || currentTileY != tc.expectedCenterY {
 				t.Errorf("Position (%f, %f) -> Center (%f, %f), expected (%f, %f)",
@@ -180,8 +185,8 @@ func TestTileCenterCalculation(t *testing.T) {
 	}
 }
 
-// TestTryMoveCardinalWithSpeed tests cardinal movement with a custom speed.
-func TestTryMoveCardinalWithSpeed(t *testing.T) {
+// TestTryMoveCardinal tests cardinal movement using the state speed.
+func TestTryMoveCardinal(t *testing.T) {
 	m := &Monster3D{
 		X:     32.0, // Tile (0,0) center
 		Y:     32.0,
@@ -191,19 +196,19 @@ func TestTryMoveCardinalWithSpeed(t *testing.T) {
 	checker := NewMockCollisionChecker(64.0)
 
 	// Try to move East (1, 0)
-	success := m.tryMoveCardinalWithSpeed(checker, "test", 1, 0, 1.5)
+	success := m.tryMoveCardinal(checker, 1, 0)
 
 	if !success {
-		t.Errorf("tryMoveCardinalWithSpeed failed when it should succeed")
+		t.Errorf("tryMoveCardinal failed when it should succeed")
 		t.Logf("Collision checks: %d, Last check at: (%f, %f)",
 			checker.checkCount, checker.lastX, checker.lastY)
 	}
 
-	t.Logf("After tryMoveCardinalWithSpeed East: Position = (%f, %f)", m.X, m.Y)
+	t.Logf("After tryMoveCardinal East: Position = (%f, %f)", m.X, m.Y)
 	t.Logf("Expected intermediate: X should be > 32, Y should be 32")
 }
 
-// TestMonsterShakingScenario simulates the actual shaking bug
+// TestMonsterShakingScenario simulates the actual shaking bug using pathfinding
 func TestMonsterShakingScenario(t *testing.T) {
 	// Monster spawned at tile center
 	m := &Monster3D{
@@ -221,8 +226,10 @@ func TestMonsterShakingScenario(t *testing.T) {
 	positions := make([][2]float64, 0)
 	positions = append(positions, [2]float64{m.X, m.Y})
 
+	targetTileX := worldToTile(playerX)
+	targetTileY := worldToTile(playerY)
 	for i := 0; i < 100; i++ {
-		m.moveGridBased(checker, "test", playerX, playerY)
+		m.followPathToTile(checker, targetTileX, targetTileY)
 		positions = append(positions, [2]float64{m.X, m.Y})
 	}
 
@@ -253,7 +260,7 @@ func TestMonsterShakingScenario(t *testing.T) {
 		finalX, positions[len(positions)-1][1], (finalX-initialX)/64.0)
 }
 
-// TestMonsterMovementNoShake tests that monsters don't shake during various movement scenarios
+// TestMonsterMovementNoShake tests that monsters don't shake during various movement scenarios (pathfinding)
 func TestMonsterMovementNoShake(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -336,9 +343,12 @@ func TestMonsterMovementNoShake(t *testing.T) {
 			directions := make([]float64, 0)
 			positions = append(positions, [2]float64{m.X, m.Y})
 
+			targetTileX := worldToTile(tc.targetX)
+			targetTileY := worldToTile(tc.targetY)
+
 			// Run 100 movement updates
 			for i := 0; i < 100; i++ {
-				m.moveGridBased(checker, "test", tc.targetX, tc.targetY)
+				m.followPathToTile(checker, targetTileX, targetTileY)
 				positions = append(positions, [2]float64{m.X, m.Y})
 				directions = append(directions, m.Direction)
 
@@ -397,10 +407,16 @@ func TestMonsterMovementNoShake(t *testing.T) {
 			finalDist := math.Sqrt(math.Pow(tc.targetX-finalPos[0], 2) + math.Pow(tc.targetY-finalPos[1], 2))
 			progress := initialDist - finalDist
 
-			// Verify monster made forward progress (at least 25% of distance)
-			if progress < initialDist*0.25 {
-				t.Errorf("Monster made insufficient progress. Initial distance: %.1f, Final distance: %.1f, Progress: %.1f (%.1f%%)",
-					initialDist, finalDist, progress, (progress/initialDist)*100)
+			// Verify monster made forward progress relative to max possible movement
+			stepsRun := len(positions) - 1
+			maxPossible := m.speedPerTick() * float64(stepsRun)
+			if maxPossible > initialDist {
+				maxPossible = initialDist
+			}
+			minProgress := maxPossible * 0.4
+			if progress < minProgress {
+				t.Errorf("Monster made insufficient progress. Initial distance: %.1f, Final distance: %.1f, Progress: %.1f (min expected: %.1f)",
+					initialDist, finalDist, progress, minProgress)
 			}
 
 			t.Logf("✓ Oscillations: %d/%d, Progress: %.1f/%.1f pixels",
@@ -487,7 +503,7 @@ func TestMonsterPursuitNoShake(t *testing.T) {
 			stateChanges := 0
 			for i := 0; i < 100; i++ {
 				// Update monster AI (full AI cycle with state transitions)
-				m.Update(checker, "test", tc.playerX, tc.playerY)
+				m.Update(checker, tc.playerX, tc.playerY)
 
 				positions = append(positions, [2]float64{m.X, m.Y})
 
@@ -813,7 +829,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 
 	// Run full AI update cycles (not just engagement check)
 	for i := 0; i < 100; i++ {
-		m.Update(checker, "test_monster", playerX, playerY)
+		m.Update(checker, playerX, playerY)
 	}
 
 	// Monster should have moved toward player

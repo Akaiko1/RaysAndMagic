@@ -10,8 +10,12 @@ import (
 )
 
 // updateMonstersTurnBased handles monster updates in turn-based mode
+// This function only executes ONCE per monster turn (when monsterTurnResolved is false)
 func (gl *GameLoop) updateMonstersTurnBased() {
 	if gl.game.currentTurn != 1 { // Not monster turn
+		return
+	}
+	if gl.game.monsterTurnResolved {
 		return
 	}
 
@@ -19,49 +23,54 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	tileSize := float64(gl.game.config.GetTileSize())
 	visionRange := tileSize * 6.0 // 6 tiles
 
+	// Cache player radius ONCE before the loop (was being looked up for each monster)
+	playerRadius := 8.0 // default if entity not found
+	if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
+		playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+	}
+
+	// Cache player position for the loop
+	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
+
 	// Process each monster's turn (only those in vision range)
-	monstersActed := 0
-	for _, monster := range gl.game.world.Monsters {
-		if !monster.IsAlive() {
+	for _, m := range gl.game.world.Monsters {
+		if !m.IsAlive() {
 			continue
 		}
 
 		// Calculate distance to player
-		dist := Distance(gl.game.camera.X, gl.game.camera.Y, monster.X, monster.Y)
+		dist := Distance(playerX, playerY, m.X, m.Y)
 
 		// Skip monsters outside vision range - they don't participate in turn-based combat
 		if dist > visionRange {
 			continue
 		}
 
-		// Monster can either move 1 tile OR attack if within reach
-		// Use collision radii and monster-specific attack radius for robust range checks
-		playerRadius := 8.0 // default if entity not found
-		if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
-			playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-		}
-		monsterRadius := 16.0 // default if entity not found
-		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
+		// Get monster radius for attack range calculation
+		monsterRadius := 16.0 // default
+		if ent := gl.game.collisionSystem.GetEntityByID(m.ID); ent != nil && ent.BoundingBox != nil {
 			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
 		}
+
 		freeSpace := dist - (playerRadius + monsterRadius)
-		reach := monster.AttackRadius
+		reach := m.AttackRadius
 		if reach <= 0 {
 			reach = tileSize * 0.25 // conservative fallback reach
 		}
 
-		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(monster, tileSize)
+		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(m, tileSize)
 		canAttack := freeSpace <= reach
 		if canAttack && inPerpendicularPosition {
 			// Attack only from perpendicular positions (N/E/S/W)
-			gl.monsterAttackTurnBased(monster)
+			gl.monsterAttackTurnBased(m)
 		} else {
 			// Move 1 tile towards player using perpendicular steps
-			gl.monsterMoveTurnBased(monster)
+			gl.monsterMoveTurnBased(m)
 		}
-
-		monstersActed++
 	}
+
+	// Mark monster turn as processed before ending turn
+	gl.game.monsterTurnResolved = true
 
 	// Always end monster turn and start party turn
 	// Even if no monsters acted, we need to return control to the party
@@ -215,5 +224,6 @@ func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, t
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
+	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages
 }

@@ -1462,6 +1462,7 @@ func (ih *InputHandler) endPartyTurn() {
 	}
 
 	ih.game.currentTurn = 1 // Monster turn
+	ih.game.monsterTurnResolved = false
 	// Don't spam combat log with turn messages
 }
 
