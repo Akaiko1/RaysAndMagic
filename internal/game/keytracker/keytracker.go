@@ -1,6 +1,6 @@
-// inpututil.go - minimal input utility for Ebiten v2.8.8
+// keytracker.go - minimal input utility for Ebiten v2.8.8
 // Provides IsKeyJustPressed functionality for a single key.
-package inpututil
+package keytracker
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"

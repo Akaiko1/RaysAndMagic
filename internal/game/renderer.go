@@ -1854,13 +1854,181 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 	centerX := screenWidth / 2
 	centerY := screenHeight / 2
 
+	glowBlend := ebiten.Blend{
+		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
+		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+		BlendOperationRGB:           ebiten.BlendOperationAdd,
+		BlendOperationAlpha:         ebiten.BlendOperationAdd,
+	}
+
+	type strokePass struct {
+		widthMul float64
+		curveMul float64
+		alphaMul float64
+		blend    ebiten.Blend
+	}
+
+	type trailSpec struct {
+		count    int
+		spacing  float64
+		widthMul float64
+		curveMul float64
+		alphaMul float64
+		blend    ebiten.Blend
+	}
+
+	clamp01 := func(t float64) float64 {
+		if t < 0 {
+			return 0
+		}
+		if t > 1 {
+			return 1
+		}
+		return t
+	}
+
+	easeInOut := func(t float64) float64 {
+		t = clamp01(t)
+		if t < 0.5 {
+			return 4 * t * t * t
+		}
+		return 1 - math.Pow(-2*t+2, 3)/2
+	}
+
+	easeOut := func(t float64) float64 {
+		t = clamp01(t)
+		return 1 - math.Pow(1-t, 2)
+	}
+
+	drawSegment := func(x, y, width, height float64, clr color.RGBA, blend ebiten.Blend) {
+		if width <= 0 || height <= 0 {
+			return
+		}
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(width, height)
+		opts.GeoM.Translate(x-width/2, y-height/2)
+		opts.ColorScale.Scale(
+			float32(clr.R)/255,
+			float32(clr.G)/255,
+			float32(clr.B)/255,
+			float32(clr.A)/255,
+		)
+		opts.Blend = blend
+		screen.DrawImage(r.whiteImg, opts)
+	}
+
+	drawCurvedStroke := func(startX, startY, endX, endY, width, curve, alpha float64, rgb [3]int, blend ebiten.Blend) {
+		totalLen := math.Hypot(endX-startX, endY-startY)
+		segments := int(totalLen)
+		if segments < 1 {
+			segments = 1
+		}
+		perpX := 0.0
+		perpY := 0.0
+		if totalLen > 0 {
+			perpX = -(endY - startY) / totalLen
+			perpY = (endX - startX) / totalLen
+		}
+		for i := 0; i < segments; i++ {
+			t := float64(i) / float64(segments)
+			x := startX + t*(endX-startX)
+			y := startY + t*(endY-startY)
+			arcOffset := (t - 0.5) * curve
+			x += perpX * arcOffset
+			y += perpY * arcOffset
+			drawSegment(x, y, width, 2, color.RGBA{
+				uint8(rgb[0]),
+				uint8(rgb[1]),
+				uint8(rgb[2]),
+				uint8(255 * alpha),
+			}, blend)
+		}
+	}
+
+	drawStrokePasses := func(startX, startY, endX, endY, width, curve, alpha float64, rgb [3]int, passes []strokePass) {
+		for _, pass := range passes {
+			drawCurvedStroke(
+				startX,
+				startY,
+				endX,
+				endY,
+				width*pass.widthMul,
+				curve*pass.curveMul,
+				alpha*pass.alphaMul,
+				rgb,
+				pass.blend,
+			)
+		}
+	}
+
+	drawTaperedStroke := func(startX, startY, endX, endY, baseWidth, alpha float64, rgb [3]int) {
+		totalLen := math.Hypot(endX-startX, endY-startY)
+		segments := int(totalLen)
+		if segments < 1 {
+			segments = 1
+		}
+		for i := 0; i < segments; i++ {
+			t := float64(i) / float64(segments)
+			x := startX + t*(endX-startX)
+			y := startY + t*(endY-startY)
+			width := baseWidth * (1.0 - t*0.7)
+			if width < 1 {
+				width = 1
+			}
+			drawSegment(x, y, width*1.6, 4, color.RGBA{
+				uint8(rgb[0]),
+				uint8(rgb[1]),
+				uint8(rgb[2]),
+				uint8(120 * alpha),
+			}, glowBlend)
+			drawSegment(x, y, width, 2, color.RGBA{
+				uint8(rgb[0]),
+				uint8(rgb[1]),
+				uint8(rgb[2]),
+				uint8(255 * alpha),
+			}, ebiten.Blend{})
+		}
+	}
+
+	drawSweepTrails := func(baseAngle, halfLength, width, curve, alpha float64, sweepAngle float64, progress float64, trail trailSpec, rgb [3]int) {
+		for i := 1; i <= trail.count; i++ {
+			ghostProgress := progress - float64(i)*trail.spacing
+			if ghostProgress <= 0 {
+				continue
+			}
+			ghostProgress = easeOut(ghostProgress)
+			ghostAngle := baseAngle
+			if sweepAngle != 0 {
+				windup := sweepAngle * 0.35
+				overshoot := sweepAngle * 0.15
+				start := baseAngle - sweepAngle/2.0 - windup
+				end := baseAngle + sweepAngle/2.0 + overshoot
+				ghostAngle = start + (end-start)*ghostProgress
+			}
+			ghostHalf := halfLength * (0.9 + 0.1*ghostProgress)
+			ghostStartX := float64(centerX) - math.Cos(ghostAngle)*ghostHalf
+			ghostStartY := float64(centerY) - math.Sin(ghostAngle)*ghostHalf
+			ghostEndX := float64(centerX) + math.Cos(ghostAngle)*ghostHalf
+			ghostEndY := float64(centerY) + math.Sin(ghostAngle)*ghostHalf
+			ghostAlpha := alpha * (trail.alphaMul / float64(i+1))
+			drawCurvedStroke(ghostStartX, ghostStartY, ghostEndX, ghostEndY, width*trail.widthMul, curve*trail.curveMul, ghostAlpha, rgb, trail.blend)
+		}
+	}
+
 	for _, slash := range r.game.slashEffects {
 		if !slash.Active {
 			continue
 		}
 
+		if slash.MaxFrames <= 0 {
+			continue
+		}
+
 		// Calculate animation progress (0.0 to 1.0)
 		progress := float64(slash.AnimationFrame) / float64(slash.MaxFrames)
+		progress = clamp01(progress)
 
 		// Fade out the slash effect over time
 		alpha := 1.0 - progress
@@ -1868,35 +2036,115 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 			alpha = 0
 		}
 
-		// Calculate slash line endpoints relative to screen center
-		halfLength := float64(slash.Length) / 2.0
-		startX := float64(centerX) - math.Cos(slash.Angle)*halfLength
-		startY := float64(centerY) - math.Sin(slash.Angle)*halfLength
-		endX := float64(centerX) + math.Cos(slash.Angle)*halfLength
-		endY := float64(centerY) + math.Sin(slash.Angle)*halfLength
-
-		// Draw slash line using multiple thin rectangles for thickness
-		width := float64(slash.Width)
-		segments := int(math.Sqrt((endX-startX)*(endX-startX) + (endY-startY)*(endY-startY)))
-
-		for i := 0; i < segments; i++ {
-			t := float64(i) / float64(segments)
-			x := startX + t*(endX-startX)
-			y := startY + t*(endY-startY)
-
-			// Create a small slash segment
-			segmentImg := ebiten.NewImage(int(width), 2)
-			slashColor := color.RGBA{
-				uint8(slash.Color[0]),
-				uint8(slash.Color[1]),
-				uint8(slash.Color[2]),
-				uint8(255 * alpha),
+		switch slash.Style {
+		case SlashEffectStyleThrust:
+			thrust := 0.5 - 0.5*math.Cos(progress*math.Pi) // Ease in/out
+			if thrust < 0 {
+				thrust = 0
 			}
-			segmentImg.Fill(slashColor)
+			angle := slash.Angle
+			length := float64(slash.Length) * (0.4 + 0.7*thrust)
+			offset := float64(slash.Length) * 0.18 * thrust
 
-			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Translate(x-width/2, y-1)
-			screen.DrawImage(segmentImg, opts)
+			startX := float64(centerX) + math.Cos(angle)*offset
+			startY := float64(centerY) + math.Sin(angle)*offset
+			endX := startX + math.Cos(angle)*length
+			endY := startY + math.Sin(angle)*length
+
+			baseWidth := float64(slash.Width)
+			drawTaperedStroke(startX, startY, endX, endY, baseWidth, alpha, slash.Color)
+
+			// Add a brighter tip for the thrust
+			tipSize := math.Max(3, float64(slash.Width)/2.4)
+			drawSegment(endX, endY, tipSize*1.4, tipSize*1.4, color.RGBA{255, 255, 255, uint8(200 * alpha)}, glowBlend)
+			drawSegment(endX, endY, tipSize, tipSize, color.RGBA{255, 255, 255, uint8(255 * alpha)}, ebiten.Blend{})
+
+			// Quick side streaks for extra punch
+			if progress > 0.45 && progress < 0.9 {
+				streakAlpha := alpha * 0.6
+				sideAngle := angle + math.Pi/2
+				streakLen := float64(slash.Width) * 1.6
+				streakX := endX + math.Cos(sideAngle)*4
+				streakY := endY + math.Sin(sideAngle)*4
+				drawCurvedStroke(
+					streakX-math.Cos(sideAngle)*streakLen/2,
+					streakY-math.Sin(sideAngle)*streakLen/2,
+					streakX+math.Cos(sideAngle)*streakLen/2,
+					streakY+math.Sin(sideAngle)*streakLen/2,
+					float64(slash.Width)*0.35,
+					0,
+					streakAlpha,
+					slash.Color,
+					glowBlend,
+				)
+			}
+		default:
+			// Slash style: sweep angle and slight curvature
+			angle := slash.Angle
+			if slash.SweepAngle != 0 {
+				windup := slash.SweepAngle * 0.35
+				overshoot := slash.SweepAngle * 0.15
+				start := slash.Angle - slash.SweepAngle/2.0 - windup
+				end := slash.Angle + slash.SweepAngle/2.0 + overshoot
+				angle = start + (end-start)*easeInOut(progress)
+			}
+			pulse := math.Sin(progress * math.Pi)
+			halfLength := float64(slash.Length) * (0.75 + 0.35*pulse) / 2.0
+			startX := float64(centerX) - math.Cos(angle)*halfLength
+			startY := float64(centerY) - math.Sin(angle)*halfLength
+			endX := float64(centerX) + math.Cos(angle)*halfLength
+			endY := float64(centerY) + math.Sin(angle)*halfLength
+
+			width := float64(slash.Width) * (0.7 + 0.35*pulse)
+			curve := width * 0.55 * (1.0 - math.Abs(2*progress-1))
+
+			slashPasses := []strokePass{
+				{widthMul: 1.8, curveMul: 1.2, alphaMul: 0.25, blend: glowBlend},
+				{widthMul: 1.25, curveMul: 0.9, alphaMul: 0.5, blend: glowBlend},
+				{widthMul: 1.0, curveMul: 1.0, alphaMul: 1.0, blend: ebiten.Blend{}},
+			}
+			drawStrokePasses(startX, startY, endX, endY, width, curve, alpha, slash.Color, slashPasses)
+
+			// Afterimage trails for follow-through
+			drawSweepTrails(
+				slash.Angle,
+				halfLength,
+				width,
+				curve,
+				alpha,
+				slash.SweepAngle,
+				progress,
+				trailSpec{
+					count:    2,
+					spacing:  0.12,
+					widthMul: 0.9,
+					curveMul: 0.6,
+					alphaMul: 0.35,
+					blend:    glowBlend,
+				},
+				slash.Color,
+			)
+
+			// Small spark near the end of the swing
+			if progress > 0.7 {
+				sparkAlpha := (progress - 0.7) / 0.3
+				sparkAlpha = clamp01(sparkAlpha)
+				sparkAngle := angle + math.Pi/2
+				sparkLen := float64(slash.Width) * 1.4
+				sparkCenterX := endX
+				sparkCenterY := endY
+				drawCurvedStroke(
+					sparkCenterX-math.Cos(sparkAngle)*sparkLen/2,
+					sparkCenterY-math.Sin(sparkAngle)*sparkLen/2,
+					sparkCenterX+math.Cos(sparkAngle)*sparkLen/2,
+					sparkCenterY+math.Sin(sparkAngle)*sparkLen/2,
+					float64(slash.Width)*0.4,
+					0,
+					sparkAlpha*alpha,
+					slash.Color,
+					glowBlend,
+				)
+			}
 		}
 	}
 }

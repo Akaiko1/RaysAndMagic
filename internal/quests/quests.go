@@ -45,6 +45,10 @@ type QuestDefinition struct {
 	TargetCount     int          `yaml:"target_count"`
 	IsStartingQuest bool         `yaml:"is_starting_quest"`
 	Rewards         QuestRewards `yaml:"rewards"`
+	// Optional location marker for quest objectives (tile coordinates)
+	MarkerX int    `yaml:"marker_x,omitempty"` // X tile coordinate for quest marker
+	MarkerY int    `yaml:"marker_y,omitempty"` // Y tile coordinate for quest marker
+	MarkerMap string `yaml:"marker_map,omitempty"` // Map key where marker should appear (empty = current map)
 }
 
 // Quest represents an active quest with progress tracking
@@ -334,4 +338,29 @@ func (qm *QuestManager) RemoveQuest(questID string) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	delete(qm.activeQuests, questID)
+}
+
+// RestoreQuestProgress restores quest state from a save file
+func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus, currentCount int, rewardsClaimed bool) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	quest, exists := qm.activeQuests[questID]
+	if !exists {
+		// Quest might not be activated yet, try to activate it first
+		if def, ok := qm.config.Quests[questID]; ok {
+			quest = &Quest{
+				ID:         questID,
+				Definition: def,
+			}
+			qm.activeQuests[questID] = quest
+		} else {
+			return // Quest definition not found
+		}
+	}
+
+	quest.Status = status
+	quest.CurrentCount = currentCount
+	quest.RewardsClaimed = rewardsClaimed
+	quest.Completed = (status == QuestStatusCompleted)
 }

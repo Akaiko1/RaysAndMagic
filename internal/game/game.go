@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -59,16 +60,25 @@ type MeleeAttack struct {
 	Crit       bool   // Critical hit flag
 }
 
+type SlashEffectStyle int
+
+const (
+	SlashEffectStyleSlash SlashEffectStyle = iota
+	SlashEffectStyleThrust
+)
+
 // SlashEffect represents a visual slash animation for melee weapons
 type SlashEffect struct {
 	ID             string  // Unique identifier
 	X, Y           float64 // Center position
-	Angle          float64 // Direction of slash
+	Angle          float64 // Base direction of the effect
+	SweepAngle     float64 // Total sweep in radians for slashes
 	Width, Length  int     // Dimensions of slash
 	Color          [3]int  // RGB color
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	Active         bool
+	Style          SlashEffectStyle
 }
 
 type Arrow struct {
@@ -245,6 +255,16 @@ type MMGame struct {
 
 	// Game over state
 	gameOver bool
+
+	// Victory state
+	gameVictory      bool
+	victoryTime      time.Time
+	sessionStartTime time.Time
+
+	// High scores state
+	showHighScores    bool
+	victoryNameInput  string
+	victoryScoreSaved bool
 }
 
 type GameState int
@@ -364,6 +384,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		reusableProjectileWrappers:  make([]entities.ProjectileUpdateInterface, 0, 64),
 		reusableEncounterRewardsMap: make(map[*monster.EncounterRewards]int),
 		deadMonsterIDs:              make([]string, 0, 16),
+
+		// Session timer for score calculation
+		sessionStartTime: time.Now(),
 	}
 
 	// Initialize rendering helper
@@ -550,6 +573,7 @@ func (g *MMGame) Update() error {
 		return err
 	}
 	g.checkGameOver()
+	g.checkVictory()
 	return nil
 }
 
@@ -581,6 +605,21 @@ func (g *MMGame) checkGameOver() {
 	}
 	if allDown {
 		g.gameOver = true
+	}
+}
+
+// checkVictory checks if the dragon_slayer quest is completed
+func (g *MMGame) checkVictory() {
+	if g.gameVictory || g.gameOver {
+		return
+	}
+	if g.questManager == nil {
+		return
+	}
+	quest := g.questManager.GetQuest("dragon_slayer")
+	if quest != nil && quest.Status == quests.QuestStatusCompleted {
+		g.gameVictory = true
+		g.victoryTime = time.Now()
 	}
 }
 

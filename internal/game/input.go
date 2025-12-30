@@ -15,38 +15,39 @@ import (
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
-	"ugataima/internal/game/inpututil"
+	"ugataima/internal/game/keytracker"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // InputHandler handles all user input for the game
 type InputHandler struct {
 	game                 *MMGame
-	slashKeyTracker      inpututil.KeyStateTracker
-	apostropheKeyTracker inpututil.KeyStateTracker
-	enterKeyTracker      inpututil.KeyStateTracker
-	escapeKeyTracker     inpututil.KeyStateTracker
-	upKeyTracker         inpututil.KeyStateTracker
-	downKeyTracker       inpututil.KeyStateTracker
-	leftKeyTracker       inpututil.KeyStateTracker
-	rightKeyTracker      inpututil.KeyStateTracker
-	wKeyTracker          inpututil.KeyStateTracker
-	aKeyTracker          inpututil.KeyStateTracker
-	sKeyTracker          inpututil.KeyStateTracker
-	dKeyTracker          inpututil.KeyStateTracker
-	qKeyTracker          inpututil.KeyStateTracker
-	eKeyTracker          inpututil.KeyStateTracker
-	spaceKeyTracker      inpututil.KeyStateTracker
-	fKeyTracker          inpututil.KeyStateTracker
-	hKeyTracker          inpututil.KeyStateTracker
-	menuKeyTracker       inpututil.KeyStateTracker
-	inventoryKeyTracker  inpututil.KeyStateTracker
-	charactersKeyTracker inpututil.KeyStateTracker
-	questsKeyTracker     inpututil.KeyStateTracker
-	interactKeyTracker   inpututil.KeyStateTracker
-	newGameKeyTracker    inpututil.KeyStateTracker
-	loadKeyTracker       inpututil.KeyStateTracker
+	slashKeyTracker      keytracker.KeyStateTracker
+	apostropheKeyTracker keytracker.KeyStateTracker
+	enterKeyTracker      keytracker.KeyStateTracker
+	escapeKeyTracker     keytracker.KeyStateTracker
+	upKeyTracker         keytracker.KeyStateTracker
+	downKeyTracker       keytracker.KeyStateTracker
+	leftKeyTracker       keytracker.KeyStateTracker
+	rightKeyTracker      keytracker.KeyStateTracker
+	wKeyTracker          keytracker.KeyStateTracker
+	aKeyTracker          keytracker.KeyStateTracker
+	sKeyTracker          keytracker.KeyStateTracker
+	dKeyTracker          keytracker.KeyStateTracker
+	qKeyTracker          keytracker.KeyStateTracker
+	eKeyTracker          keytracker.KeyStateTracker
+	spaceKeyTracker      keytracker.KeyStateTracker
+	fKeyTracker          keytracker.KeyStateTracker
+	hKeyTracker          keytracker.KeyStateTracker
+	menuKeyTracker       keytracker.KeyStateTracker
+	inventoryKeyTracker  keytracker.KeyStateTracker
+	charactersKeyTracker keytracker.KeyStateTracker
+	questsKeyTracker     keytracker.KeyStateTracker
+	interactKeyTracker   keytracker.KeyStateTracker
+	newGameKeyTracker    keytracker.KeyStateTracker
+	loadKeyTracker       keytracker.KeyStateTracker
 }
 
 // NewInputHandler creates a new input handler
@@ -97,6 +98,21 @@ func (ih *InputHandler) HandleInput() {
 		}
 		return
 	}
+
+	// Handle victory screen input
+	if ih.game.gameVictory {
+		ih.handleVictoryInput()
+		return
+	}
+
+	// Handle high scores overlay
+	if ih.game.showHighScores {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.showHighScores = false
+		}
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -187,6 +203,102 @@ func (ih *InputHandler) restartNewGame() {
 		ih.game.camera.Y = startY
 		ih.game.collisionSystem.UpdateEntity("player", startX, startY)
 	}
+}
+
+// handleVictoryInput processes input on the victory screen
+func (ih *InputHandler) handleVictoryInput() {
+	// If score already saved, handle post-save options
+	if ih.game.victoryScoreSaved {
+		// H to view high scores
+		if ebiten.IsKeyPressed(ebiten.KeyH) {
+			ih.game.showHighScores = true
+		}
+		// ESC to return to main menu
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.restartNewGame()
+			ih.game.gameVictory = false
+			ih.game.victoryScoreSaved = false
+			ih.game.victoryNameInput = ""
+		}
+		return
+	}
+
+	// Handle text input for name
+	ih.handleVictoryNameInput()
+
+	// Enter to save score
+	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+		ih.saveVictoryScore()
+	}
+
+	// ESC to skip saving and return to main menu
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.restartNewGame()
+		ih.game.gameVictory = false
+		ih.game.victoryNameInput = ""
+	}
+}
+
+// handleVictoryNameInput handles text input for the player name
+func (ih *InputHandler) handleVictoryNameInput() {
+	// Get input characters
+	inputChars := ebiten.AppendInputChars(nil)
+	for _, char := range inputChars {
+		if len(ih.game.victoryNameInput) < 20 {
+			ih.game.victoryNameInput += string(char)
+		}
+	}
+
+	// Handle backspace
+	if repeatingKeyPressed(ebiten.KeyBackspace) {
+		if len(ih.game.victoryNameInput) > 0 {
+			ih.game.victoryNameInput = ih.game.victoryNameInput[:len(ih.game.victoryNameInput)-1]
+		}
+	}
+}
+
+// saveVictoryScore saves the current score to high scores
+func (ih *InputHandler) saveVictoryScore() {
+	name := ih.game.victoryNameInput
+	if name == "" {
+		name = "Anonymous"
+	}
+
+	scoreData := ih.game.GetScoreData()
+	finalScore := CalculateScore(scoreData)
+	playTimeStr := FormatPlayTime(scoreData.PlayTime)
+
+	entry := HighScoreEntry{
+		PlayerName: name,
+		Score:      finalScore,
+		Gold:       scoreData.Gold,
+		Experience: scoreData.TotalExperience,
+		AvgLevel:   scoreData.AverageLevel,
+		PlayTime:   playTimeStr,
+		Date:       ih.game.victoryTime,
+	}
+
+	scores, _ := LoadHighScores()
+	AddHighScore(scores, entry)
+	SaveHighScores(scores)
+
+	ih.game.victoryScoreSaved = true
+}
+
+// repeatingKeyPressed returns true if key is pressed with repeat handling
+func repeatingKeyPressed(key ebiten.Key) bool {
+	const (
+		delay    = 30
+		interval = 3
+	)
+	d := inpututil.KeyPressDuration(key)
+	if d == 1 {
+		return true
+	}
+	if d >= delay && (d-delay)%interval == 0 {
+		return true
+	}
+	return false
 }
 
 // handleMainMenuInput processes input for the main menu (opened with ESC)
