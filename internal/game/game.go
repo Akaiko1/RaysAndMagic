@@ -15,6 +15,7 @@ import (
 	"ugataima/internal/graphics"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
@@ -213,6 +214,7 @@ type MMGame struct {
 	gameLoop        *GameLoop
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
+	questManager    *quests.QuestManager
 
 	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
 	reusableMonsterWrappers     []entities.MonsterUpdateInterface
@@ -268,6 +270,7 @@ const (
 	TabInventory MenuTab = iota
 	TabCharacters
 	TabSpellbook
+	TabQuests
 )
 
 type FirstPersonCamera struct {
@@ -379,6 +382,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
 	game.gameLoop = NewGameLoop(game)
+
+	// Connect global quest manager
+	game.questManager = quests.GlobalQuestManager
 
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()

@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -192,10 +193,44 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 		return
 	}
 
+	// Auto-complete linked encounter quest (rewards are handled by quest system)
+	if rewards.QuestID != "" && quests.GlobalQuestManager != nil {
+		questRewards := quests.GlobalQuestManager.CompleteEncounterQuest(rewards.QuestID)
+		if questRewards != nil {
+			// Show completion message
+			if rewards.CompletionMessage != "" {
+				gl.game.AddCombatMessage(rewards.CompletionMessage)
+			}
+			gl.game.AddCombatMessage(fmt.Sprintf("Quest Completed: Received %d gold and %d experience!", questRewards.Gold, questRewards.Experience))
+
+			// Award gold to party
+			if questRewards.Gold > 0 {
+				gl.game.party.Gold += questRewards.Gold
+			}
+
+			// Award experience to all party members
+			if questRewards.Experience > 0 {
+				for _, member := range gl.game.party.Members {
+					if member.HitPoints > 0 {
+						member.Experience += questRewards.Experience
+						gl.game.combat.checkLevelUp(member)
+					}
+				}
+			}
+			return // Quest handled rewards, don't double-award
+		}
+	}
+
+	// Fallback for encounters without quest integration
+	// Show configurable completion message, or default if not set
+	if rewards.CompletionMessage != "" {
+		gl.game.AddCombatMessage(rewards.CompletionMessage)
+	}
+
 	// Award gold to party
 	if rewards.Gold > 0 {
 		gl.game.party.Gold += rewards.Gold
-		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold in the bandit camp!", rewards.Gold))
+		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
 	}
 
 	// Award experience to all party members

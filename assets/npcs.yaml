@@ -129,6 +129,9 @@ npcs:
           action: "combat"
     encounter:
       type: "bandit_camp"
+      quest_id: "shipwreck_bandits"
+      quest_name: "Clear the Shipwreck"
+      quest_description: "Bandits have made a hideout in an old shipwreck. Defeat them all to claim the bounty."
       monsters:
         - type: "bandit"
           count_min: 2
@@ -136,6 +139,7 @@ npcs:
       rewards:
         gold: 2000
         experience: 500
+        completion_message: "The shipwreck bandits have been defeated!"
       first_visit_only: true
 
 # NPC Placement Rules

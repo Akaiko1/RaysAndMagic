@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -1278,6 +1279,26 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 
 	// Check for loot drops
 	cs.checkMonsterLootDrop(monster)
+
+	// Update quest progress
+	cs.updateQuestProgress(monster)
+}
+
+// updateQuestProgress updates quest progress when a monster is killed
+func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
+	if cs.game.questManager == nil {
+		return
+	}
+
+	// Convert monster name to lowercase key format (e.g., "Goblin" -> "goblin", "Dire Wolf" -> "dire_wolf")
+	monsterType := strings.ToLower(strings.ReplaceAll(monster.Name, " ", "_"))
+
+	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType)
+
+	// Notify player of quest completions
+	for _, quest := range completedQuests {
+		cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", quest.Definition.Name))
+	}
 }
 
 // checkLevelUp checks if a character should level up and applies level up benefits

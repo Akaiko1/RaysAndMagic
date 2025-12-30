@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -42,6 +43,7 @@ type InputHandler struct {
 	menuKeyTracker       inpututil.KeyStateTracker
 	inventoryKeyTracker  inpututil.KeyStateTracker
 	charactersKeyTracker inpututil.KeyStateTracker
+	questsKeyTracker     inpututil.KeyStateTracker
 	interactKeyTracker   inpututil.KeyStateTracker
 	newGameKeyTracker    inpututil.KeyStateTracker
 	loadKeyTracker       inpututil.KeyStateTracker
@@ -471,6 +473,18 @@ func (ih *InputHandler) handleUIInput() {
 			}
 		} else {
 			ih.openTabbedMenu(TabCharacters)
+		}
+	}
+	if ih.questsKeyTracker.IsKeyJustPressed(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
+		if ih.game.menuOpen {
+			if ih.game.currentTab == TabQuests {
+				ih.game.menuOpen = false // Close menu if already on Quests tab
+				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			} else {
+				ih.game.currentTab = TabQuests
+			}
+		} else {
+			ih.openTabbedMenu(TabQuests)
 		}
 	}
 
@@ -1643,6 +1657,26 @@ func (ih *InputHandler) startEncounter() {
 	// Close dialog
 	ih.game.dialogActive = false
 	ih.game.dialogNPC = nil
+
+	// Create encounter quest if quest details are provided
+	if npc.EncounterData.QuestID != "" && quests.GlobalQuestManager != nil {
+		gold := 0
+		exp := 0
+		if npc.EncounterData.Rewards != nil {
+			gold = npc.EncounterData.Rewards.Gold
+			exp = npc.EncounterData.Rewards.Experience
+			// Link quest ID to rewards for auto-completion
+			npc.EncounterData.Rewards.QuestID = npc.EncounterData.QuestID
+		}
+		quests.GlobalQuestManager.CreateEncounterQuest(
+			npc.EncounterData.QuestID,
+			npc.EncounterData.QuestName,
+			npc.EncounterData.QuestDescription,
+			gold,
+			exp,
+		)
+		ih.game.AddCombatMessage(fmt.Sprintf("Quest Started: %s", npc.EncounterData.QuestName))
+	}
 
 	// Spawn monsters near the encounter location
 	ih.spawnEncounterMonsters(npc)

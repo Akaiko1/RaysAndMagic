@@ -53,6 +53,10 @@ type NPCEncounter struct {
 	Monsters       []*EncounterMonster       `yaml:"monsters"`
 	Rewards        *monster.EncounterRewards `yaml:"rewards"`
 	FirstVisitOnly bool                      `yaml:"first_visit_only"`
+	// Quest integration - creates a quest when encounter is triggered
+	QuestID          string `yaml:"quest_id"`          // Unique ID for the encounter quest
+	QuestName        string `yaml:"quest_name"`        // Display name in quest log
+	QuestDescription string `yaml:"quest_description"` // Description shown in quest tab
 }
 
 // EncounterMonster represents a monster in an encounter
