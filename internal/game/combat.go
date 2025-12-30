@@ -605,6 +605,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	cs.engageTurnBasedPackOnHit(monster)
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -632,6 +633,36 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		// Add experience/gold award message
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
 			monster.Experience, monster.Gold))
+	}
+}
+
+// engageTurnBasedPackOnHit ensures a hit in turn-based mode pulls in nearby same-type monsters.
+func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
+	if !cs.game.turnBasedMode || hit == nil {
+		return
+	}
+
+	tileSize := float64(cs.game.config.GetTileSize())
+	radius := tileSize * 8.0
+	hitName := hit.Name
+
+	for _, m := range cs.game.world.Monsters {
+		if !m.IsAlive() {
+			continue
+		}
+		if m.Name != hitName {
+			continue
+		}
+		if Distance(hit.X, hit.Y, m.X, m.Y) > radius {
+			continue
+		}
+		if m.IsEngagingPlayer {
+			continue
+		}
+		m.IsEngagingPlayer = true
+		m.State = monsterPkg.StateAlert
+		m.StateTimer = 0
+		m.AttackCount = 0
 	}
 }
 
@@ -1234,6 +1265,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Spells ignore AC completely - reducedDamage stays as original damage
 
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	cs.engageTurnBasedPackOnHit(monster)
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {

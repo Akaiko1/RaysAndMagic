@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -13,6 +14,10 @@ import (
 // It collects fields in a simple map and glues them together in a stable order
 // to keep the function compact and easy to extend.
 func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
+		return buildSpellItemTooltipFromDefinition(item, char, combatSystem)
+	}
+
 	fields := map[string]string{}
 	order := []string{}
 
@@ -32,6 +37,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if item.Range > 0 {
 			fields["w_range"] = fmt.Sprintf("Range: %d tiles", item.Range)
 		}
+		if cooldown := formatCooldownLine(char, combatSystem); cooldown != "" {
+			fields["w_cd"] = cooldown
+		}
 		// From YAML weapon definition
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
@@ -47,7 +55,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 			}
 			fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
 		}
-		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_crit", "w_type", "__sep__")
+		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_type", "__sep__")
 
 	case items.ItemArmor:
 		if line := getArmorSummary(item); line != "" {
@@ -66,13 +74,6 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 			fields["c_line"] = line
 		}
 		order = append(order, "c_line", "__sep__")
-
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		lines := getSpellItemTooltip(item, char, combatSystem)
-		if len(lines) > 0 {
-			fields["s_block"] = strings.Join(lines, "\n")
-			order = append(order, "s_block", "__sep__")
-		}
 
 	case items.ItemQuest:
 		fields["q_line"] = "Quest Item - Cannot be sold or dropped"
@@ -107,6 +108,44 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		}
 	}
 	return joinTooltipLines(out)
+}
+
+func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	if char == nil || combatSystem == nil {
+		return ""
+	}
+
+	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		lines := []string{
+			fmt.Sprintf("=== %s ===", item.Name),
+			"Unknown Spell",
+		}
+		if item.SpellSchool != "" {
+			lines = append(lines, fmt.Sprintf("%s Magic", formatSchoolName(item.SpellSchool)))
+		}
+		if item.SpellCost > 0 {
+			lines = append(lines, fmt.Sprintf("Spell Points: %d", item.SpellCost))
+		}
+		if item.Description != "" {
+			lines = append(lines, "", fmt.Sprintf("\"%s\"", item.Description))
+		}
+		return joinTooltipLines(lines)
+	}
+
+	tooltip := GetSpellTooltip(spellID, char, combatSystem)
+	lines := strings.Split(tooltip, "\n")
+
+	if val, ok := item.Attributes["value"]; ok && val > 0 {
+		lines = append(lines, "", fmt.Sprintf("Value: %d gold", val))
+	}
+
+	if item.Description != "" && item.Description != def.Description {
+		lines = append(lines, "", fmt.Sprintf("\"%s\"", item.Description))
+	}
+
+	return joinTooltipLines(lines)
 }
 
 // weaponScalingLine builds the human-friendly scaling text for a weapon
@@ -207,53 +246,6 @@ func getAccessorySummary(item items.Item) string {
 	return strings.Join(parts, ", ")
 }
 
-// getSpellItemTooltip returns spell item-specific tooltip information
-func getSpellItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	var lines []string
-
-	lines = append(lines, fmt.Sprintf("School: %s", formatSchoolName(item.SpellSchool)))
-	lines = append(lines, fmt.Sprintf("Spell Points: %d", item.SpellCost))
-
-	// Check if character can cast this spell
-	if char.SpellPoints >= item.SpellCost {
-		lines = append(lines, "✓ Can cast")
-	} else {
-		lines = append(lines, "✗ Insufficient spell points")
-	}
-
-	// Add spell effect description
-	effectDesc := getSpellEffectDescription(item.SpellEffect)
-	if effectDesc != "" {
-		lines = append(lines, "")
-		lines = append(lines, effectDesc)
-	}
-
-	// Add damage scaling details for battle/projectile spells
-	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
-		if def.IsProjectile {
-			effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
-			baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
-			lines = append(lines, "")
-			lines = append(lines, fmt.Sprintf("Scales with Intellect (Effective: %d)", effectiveIntellect))
-			lines = append(lines, fmt.Sprintf("Base Damage: %d", baseDamage))
-			lines = append(lines, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
-			lines = append(lines, fmt.Sprintf("Total Damage: %d", totalDamage))
-		}
-		if def.HealAmount > 0 {
-			effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
-			baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
-			lines = append(lines, "")
-			lines = append(lines, fmt.Sprintf("Scales with Personality (Effective: %d)", effectivePersonality))
-			lines = append(lines, fmt.Sprintf("Base Healing: %d", baseHeal))
-			lines = append(lines, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
-			lines = append(lines, fmt.Sprintf("Total Healing: %d", totalHeal))
-		}
-	}
-
-	return lines
-}
-
 // getConsumableTooltip returns consumable-specific tooltip information
 func getConsumableSummary(item items.Item) string {
 	// Attribute-driven summary: single source of truth with gameplay
@@ -277,44 +269,6 @@ func getConsumableSummary(item items.Item) string {
 		return "Summons (misconfigured)"
 	}
 	return "Single-use consumable"
-}
-
-// getSpellEffectDescription returns a description for spell effects
-func getSpellEffectDescription(effect items.SpellEffect) string {
-	switch effect {
-	case items.SpellEffectFireball:
-		return "Projectile fire spell (damage scales with Intellect)"
-	case items.SpellEffectFireBolt:
-		return "Fast fire projectile (damage scales with Intellect)"
-	case items.SpellEffectIceBolt:
-		return "Chilling projectile (damage scales with Intellect)"
-	case items.SpellEffectTorchLight:
-		return "Creates light around the party (radius 4 tiles)"
-	case items.SpellEffectLightning:
-		return "Lightning projectile (damage scales with Intellect)"
-	case items.SpellEffectIceShard:
-		return "No current gameplay effect"
-	case items.SpellEffectHealSelf:
-		return "Restores your own health"
-	case items.SpellEffectHealOther:
-		return "Restores a party member's health"
-	case items.SpellEffectPartyBuff:
-		return "No current gameplay effect"
-	case items.SpellEffectShield:
-		return "No current gameplay effect"
-	case items.SpellEffectBless:
-		return "Grants a stat bonus to the party for a duration"
-	case items.SpellEffectWizardEye:
-		return "Reveals monsters on the compass within 10 tiles"
-	case items.SpellEffectAwaken:
-		return "No current gameplay effect"
-	case items.SpellEffectWalkOnWater:
-		return "Allows party to walk on water surfaces"
-	case items.SpellEffect("water_breathing"):
-		return "Allows underwater travel via deep water"
-	default:
-		return ""
-	}
 }
 
 // joinTooltipLines joins tooltip lines with newlines
@@ -347,6 +301,14 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	// Spell cost and availability
 	tooltip = append(tooltip, "")
 	tooltip = append(tooltip, fmt.Sprintf("Spell Points: %d", def.SpellPointsCost))
+	if cooldown := formatCooldownLine(char, combatSystem); cooldown != "" {
+		tooltip = append(tooltip, cooldown)
+	}
+	if def.IsProjectile {
+		if rangeLine := spellRangeLine(def.ID); rangeLine != "" {
+			tooltip = append(tooltip, rangeLine)
+		}
+	}
 
 	if char.SpellPoints >= def.SpellPointsCost {
 		tooltip = append(tooltip, "✓ Can cast")
@@ -378,6 +340,49 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	}
 
 	return joinTooltipLines(tooltip)
+}
+
+func formatCooldownLine(char *character.MMCharacter, combatSystem *CombatSystem) string {
+	if combatSystem == nil || combatSystem.game == nil || char == nil {
+		return ""
+	}
+	cooldownFrames := actionCooldownFrames(char, combatSystem)
+	tps := combatSystem.game.config.GetTPS()
+	if tps <= 0 {
+		tps = 60
+	}
+	seconds := float64(cooldownFrames) / float64(tps)
+	return fmt.Sprintf("Cooldown: %d frames (%.1fs)", cooldownFrames, seconds)
+}
+
+func actionCooldownFrames(char *character.MMCharacter, combatSystem *CombatSystem) int {
+	if combatSystem.game.turnBasedMode {
+		return inputDebounceCooldown
+	}
+	speed := char.GetEffectiveSpeed(combatSystem.game.statBonus)
+	frames := 63.333333 - (2.0/3.0)*float64(speed)
+	cd := int(math.Round(frames))
+	if cd < 15 {
+		cd = 15
+	}
+	if cd > 90 {
+		cd = 90
+	}
+	return cd
+}
+
+func spellRangeLine(spellID spells.SpellID) string {
+	def, ok := config.GetSpellDefinition(string(spellID))
+	if !ok {
+		return ""
+	}
+	if def.Physics != nil && def.Physics.RangeTiles > 0 {
+		return fmt.Sprintf("Range: %.1f tiles", def.Physics.RangeTiles)
+	}
+	if def.Range > 0 {
+		return fmt.Sprintf("Range: %d tiles", def.Range)
+	}
+	return ""
 }
 
 // getMasteryString returns a readable string for mastery levels

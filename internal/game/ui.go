@@ -320,7 +320,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			"Space: Attack  F: Cast  H: Heal",
 			"I: Inventory  C: Characters  M: Spellbook",
 			"1-4: Select",
-			"Enter: Toggle Mode (TB/RT)",
+			"Tab: Toggle Mode (TB/RT)",
 		}
 		tipsY := startY + len(mainMenuOptions)*32 + 10
 		for i, tip := range tips {
@@ -2464,9 +2464,9 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 
 	// Quest marker colors: Red, Green, Blue for quests 1, 2, 3
 	questColors := []color.RGBA{
-		{255, 80, 80, 255},  // Red for quest 1
-		{80, 255, 80, 255},  // Green for quest 2
-		{80, 80, 255, 255},  // Blue for quest 3
+		{255, 80, 80, 255}, // Red for quest 1
+		{80, 255, 80, 255}, // Green for quest 2
+		{80, 80, 255, 255}, // Blue for quest 3
 	}
 
 	// Get current map key to filter markers

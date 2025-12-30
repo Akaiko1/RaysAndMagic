@@ -41,8 +41,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Calculate distance to player
 		dist := Distance(playerX, playerY, m.X, m.Y)
 
-		// Skip monsters outside vision range - they don't participate in turn-based combat
-		if dist > visionRange {
+		// Skip monsters outside vision range unless they've been engaged by a hit
+		if dist > visionRange && !m.IsEngagingPlayer {
 			continue
 		}
 

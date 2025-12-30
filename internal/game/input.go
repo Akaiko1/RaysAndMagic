@@ -27,6 +27,7 @@ type InputHandler struct {
 	slashKeyTracker      keytracker.KeyStateTracker
 	apostropheKeyTracker keytracker.KeyStateTracker
 	enterKeyTracker      keytracker.KeyStateTracker
+	tabKeyTracker        keytracker.KeyStateTracker
 	escapeKeyTracker     keytracker.KeyStateTracker
 	upKeyTracker         keytracker.KeyStateTracker
 	downKeyTracker       keytracker.KeyStateTracker
@@ -606,8 +607,8 @@ func (ih *InputHandler) handleUIInput() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Toggle turn-based mode with Enter key
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	// Toggle turn-based mode with Tab key
+	if ih.tabKeyTracker.IsKeyJustPressed(ebiten.KeyTab) {
 		ih.toggleTurnBasedMode()
 	}
 }
