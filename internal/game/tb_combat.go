@@ -143,6 +143,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		monster.X = newX
 		monster.Y = newY
 		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
+		monster.LastMoveTick = gl.game.frameCount
 		return
 	}
 
@@ -154,6 +155,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			monster.LastMoveTick = gl.game.frameCount
 			return
 		}
 	} else if stepY != 0 && dxTiles != 0 {
@@ -163,6 +165,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			monster.LastMoveTick = gl.game.frameCount
 			return
 		}
 	}
@@ -193,6 +196,7 @@ func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize 
 		m.X = bestX
 		m.Y = bestY
 		gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+		m.LastMoveTick = gl.game.frameCount
 	}
 	// If no valid position found, monster stays put (loses turn)
 }

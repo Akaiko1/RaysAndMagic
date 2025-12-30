@@ -111,6 +111,7 @@ type MMGame struct {
 	// Unique ID generation
 	nextProjectileID int64
 	selectedChar     int
+	frameCount       int64
 
 	// Tabbed menu system
 	menuOpen          bool
