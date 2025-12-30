@@ -24,13 +24,20 @@ jobs:
           chmod +x ./build_mac_release.sh
           ./build_mac_release.sh
 
+      - name: Package release archives
+        run: |
+          cd dist
+          zip -r RaysAndMagic-mac-amd64.zip mac_amd64
+          zip -r RaysAndMagic-mac-arm64.zip mac_arm64
+          zip -r RaysAndMagic-windows-amd64.zip windows_amd64
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: RaysAndMagic-release
-          path: dist/**
+          path: dist/*.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**
+          files: dist/*.zip
