@@ -10,8 +10,10 @@ import (
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
-	Gold       int `yaml:"gold"`
-	Experience int `yaml:"experience"`
+	Gold              int    `yaml:"gold"`
+	Experience        int    `yaml:"experience"`
+	CompletionMessage string `yaml:"completion_message"` // Configurable message shown when encounter is completed
+	QuestID           string `yaml:"-"`                  // Quest ID linked to this encounter (set at runtime, not from YAML)
 }
 
 // Global counter for unique monster IDs

@@ -817,6 +817,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		{TabInventory, "Inventory", "(I)"},
 		{TabCharacters, "Characters", "(C)"},
 		{TabSpellbook, "Spellbook", "(M)"},
+		{TabQuests, "Quests", "(J)"},
 	}
 
 	for i, tabInfo := range tabs {
@@ -984,6 +985,8 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		ui.drawCharactersContent(screen, panelX, contentY)
 	case TabSpellbook:
 		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
+	case TabQuests:
+		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
 	}
 }
 
@@ -2396,4 +2399,227 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	textX := notificationX + padding
 	textY := notificationY + padding
 	ebitenutil.DebugPrintAt(screen, message, textX, textY)
+}
+
+// drawQuestsContent draws the quests tab content
+func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+	// Title
+	ebitenutil.DebugPrintAt(screen, "=== ACTIVE QUESTS ===", panelX+20, contentY+10)
+
+	// Check if quest manager is available
+	if ui.game.questManager == nil {
+		ebitenutil.DebugPrintAt(screen, "No quests available.", panelX+20, contentY+40)
+		return
+	}
+
+	allQuests := ui.game.questManager.GetAllQuests()
+	if len(allQuests) == 0 {
+		ebitenutil.DebugPrintAt(screen, "No active quests.", panelX+20, contentY+40)
+		return
+	}
+
+	// Sort quests: active first, then completed
+	sort.Slice(allQuests, func(i, j int) bool {
+		if allQuests[i].Completed != allQuests[j].Completed {
+			return !allQuests[i].Completed // Active quests first
+		}
+		return allQuests[i].Definition.Name < allQuests[j].Definition.Name
+	})
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	questY := contentY + 40
+	questHeight := 95 // Height of each quest entry (increased for wrapped text)
+	questWidth := 520
+
+	for _, quest := range allQuests {
+		// Draw quest background
+		questBg := ebiten.NewImage(questWidth, questHeight)
+
+		// Different colors based on quest status
+		var bgColor color.RGBA
+		if quest.Completed && !quest.RewardsClaimed {
+			bgColor = color.RGBA{40, 80, 40, 200} // Green for completed, reward available
+		} else if quest.Completed {
+			bgColor = color.RGBA{40, 40, 40, 150} // Gray for completed and claimed
+		} else {
+			bgColor = color.RGBA{30, 30, 60, 200} // Blue for active
+		}
+		questBg.Fill(bgColor)
+
+		bgOpts := &ebiten.DrawImageOptions{}
+		bgOpts.GeoM.Translate(float64(panelX+20), float64(questY))
+		screen.DrawImage(questBg, bgOpts)
+
+		// Draw quest border
+		borderColor := color.RGBA{80, 80, 120, 255}
+		if quest.Completed && !quest.RewardsClaimed {
+			borderColor = color.RGBA{100, 200, 100, 255} // Green border for claimable
+		}
+		vector.StrokeRect(screen, float32(panelX+20), float32(questY), float32(questWidth), float32(questHeight), 2, borderColor, false)
+
+		// Quest name
+		namePrefix := ""
+		if quest.Completed {
+			namePrefix = "[DONE] "
+		}
+		ebitenutil.DebugPrintAt(screen, namePrefix+quest.Definition.Name, panelX+30, questY+6)
+
+		// Quest description - wrap to fit within box (max ~70 chars per line)
+		descLines := wrapText(quest.Definition.Description, 70)
+		for i, line := range descLines {
+			if i >= 2 { // Max 2 lines for description
+				break
+			}
+			ebitenutil.DebugPrintAt(screen, line, panelX+30, questY+22+(i*14))
+		}
+
+		// Bottom row: Progress on left, Rewards on right
+		bottomY := questY + 54
+
+		// Progress for kill quests
+		if quest.Definition.Type == "kill" {
+			progressText := quest.GetProgressString()
+			ebitenutil.DebugPrintAt(screen, progressText, panelX+30, bottomY)
+
+			// Draw progress bar below text
+			barX := panelX + 30
+			barY := questY + 72
+			barWidth := 180
+			barHeight := 14
+
+			// Background bar
+			barBg := ebiten.NewImage(barWidth, barHeight)
+			barBg.Fill(color.RGBA{20, 20, 20, 255})
+			barBgOpts := &ebiten.DrawImageOptions{}
+			barBgOpts.GeoM.Translate(float64(barX), float64(barY))
+			screen.DrawImage(barBg, barBgOpts)
+
+			// Progress fill
+			progress := float64(quest.CurrentCount) / float64(quest.Definition.TargetCount)
+			if progress > 1 {
+				progress = 1
+			}
+			fillWidth := int(float64(barWidth) * progress)
+			if fillWidth > 0 {
+				var fillColor color.RGBA
+				if quest.Completed {
+					fillColor = color.RGBA{80, 200, 80, 255} // Green when complete
+				} else {
+					fillColor = color.RGBA{80, 150, 200, 255} // Blue while in progress
+				}
+				barFill := ebiten.NewImage(fillWidth, barHeight)
+				barFill.Fill(fillColor)
+				barFillOpts := &ebiten.DrawImageOptions{}
+				barFillOpts.GeoM.Translate(float64(barX), float64(barY))
+				screen.DrawImage(barFill, barFillOpts)
+			}
+
+			// Progress bar border
+			vector.StrokeRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), 1, color.RGBA{100, 100, 100, 255}, false)
+		} else if quest.Definition.Type == "encounter" {
+			// Encounter quests show objective text instead of progress bar
+			var objectiveText string
+			if quest.Completed {
+				objectiveText = "All enemies defeated!"
+			} else {
+				objectiveText = "Defeat all enemies"
+			}
+			ebitenutil.DebugPrintAt(screen, objectiveText, panelX+30, bottomY)
+		}
+
+		// Rewards section (right side)
+		rewardsX := panelX + 300
+		rewardsText := fmt.Sprintf("Reward: %dg / %dxp", quest.Definition.Rewards.Gold, quest.Definition.Rewards.Experience)
+		ebitenutil.DebugPrintAt(screen, rewardsText, rewardsX, bottomY)
+
+		// Claim button for completed quests with unclaimed rewards
+		if quest.Completed && !quest.RewardsClaimed {
+			buttonX := rewardsX
+			buttonY := questY + 72
+			buttonWidth := 110
+			buttonHeight := 16
+
+			isHovering := isMouseHoveringBox(mouseX, mouseY, buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight)
+
+			buttonBg := ebiten.NewImage(buttonWidth, buttonHeight)
+			if isHovering {
+				buttonBg.Fill(color.RGBA{100, 200, 100, 255}) // Bright green on hover
+			} else {
+				buttonBg.Fill(color.RGBA{60, 150, 60, 255}) // Green
+			}
+			buttonOpts := &ebiten.DrawImageOptions{}
+			buttonOpts.GeoM.Translate(float64(buttonX), float64(buttonY))
+			screen.DrawImage(buttonBg, buttonOpts)
+
+			ebitenutil.DebugPrintAt(screen, "Claim Reward", buttonX+12, buttonY+2)
+
+			// Handle click on claim button
+			if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {
+				ui.claimQuestReward(quest.ID)
+			}
+		}
+
+		questY += questHeight + 8
+	}
+}
+
+// wrapText wraps text to fit within a given character width
+func wrapText(text string, maxChars int) []string {
+	if len(text) <= maxChars {
+		return []string{text}
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	currentLine := ""
+
+	for _, word := range words {
+		if currentLine == "" {
+			currentLine = word
+		} else if len(currentLine)+1+len(word) <= maxChars {
+			currentLine += " " + word
+		} else {
+			lines = append(lines, currentLine)
+			currentLine = word
+		}
+	}
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
+}
+
+// claimQuestReward claims the reward for a completed quest
+func (ui *UISystem) claimQuestReward(questID string) {
+	if ui.game.questManager == nil {
+		return
+	}
+
+	rewards, err := ui.game.questManager.ClaimRewards(questID)
+	if err != nil {
+		ui.game.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+		return
+	}
+
+	// Award gold
+	if rewards.Gold > 0 {
+		ui.game.party.Gold += rewards.Gold
+	}
+
+	// Award experience to all living party members
+	if rewards.Experience > 0 {
+		for _, member := range ui.game.party.Members {
+			if member.HitPoints > 0 {
+				member.Experience += rewards.Experience
+				ui.game.combat.checkLevelUp(member)
+			}
+		}
+	}
+
+	quest := ui.game.questManager.GetQuest(questID)
+	if quest != nil {
+		ui.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
+			quest.Definition.Name, rewards.Gold, rewards.Experience))
+	}
 }

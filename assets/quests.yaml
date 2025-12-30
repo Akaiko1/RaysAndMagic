@@ -1,0 +1,38 @@
+# Quest Configuration
+# This file defines all quests in the game
+
+quests:
+  # Starting quests - given at the beginning of the game
+  goblin_hunt:
+    name: "Goblin Hunt"
+    description: "The local village has been plagued by goblins. Hunt down 5 of them to make the area safer."
+    type: "kill"
+    target_monster: "goblin"
+    target_count: 5
+    is_starting_quest: true
+    rewards:
+      gold: 50
+      experience: 100
+
+  wolf_pack:
+    name: "Wolf Pack"
+    description: "A pack of wolves has been attacking travelers on the road. Eliminate 3 wolves to protect the trade routes."
+    type: "kill"
+    target_monster: "wolf"
+    target_count: 3
+    is_starting_quest: true
+    rewards:
+      gold: 75
+      experience: 150
+
+  # Future quests can be added here
+  # orc_threat:
+  #   name: "Orc Threat"
+  #   description: "Orcs have been spotted near the forest edge. Defeat 5 orcs."
+  #   type: "kill"
+  #   target_monster: "orc"
+  #   target_count: 5
+  #   is_starting_quest: false
+  #   rewards:
+  #     gold: 150
+  #     experience: 300
