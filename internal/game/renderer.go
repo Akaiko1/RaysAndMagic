@@ -1034,6 +1034,46 @@ type MonsterRenderData struct {
 	sprite     *ebiten.Image
 }
 
+func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
+	switch mon.State {
+	case monster.StatePatrolling, monster.StatePursuing, monster.StateFleeing:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
+	spriteName := mon.GetSpriteType()
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+		tps := r.game.config.GetTPS()
+		if tps <= 0 {
+			tps = 60
+		}
+		const animFPS = 8
+		ticksPerFrame := tps / animFPS
+		if ticksPerFrame < 1 {
+			ticksPerFrame = 1
+		}
+		animWindow := int64(ticksPerFrame * len(anim.Frames))
+		if animWindow < 1 {
+			animWindow = 1
+		}
+		if r.shouldAnimateMonster(mon) {
+			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
+			return anim.Frames[frame]
+		}
+		if r.game.turnBasedMode && mon.LastMoveTick > 0 {
+			if r.game.frameCount-mon.LastMoveTick <= animWindow {
+				frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
+				return anim.Frames[frame]
+			}
+		}
+		return anim.Frames[0]
+	}
+	return r.game.sprites.GetSprite(spriteName)
+}
+
 // drawMonstersParallel draws all monsters using parallel sprite processing with depth testing
 func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 	var visibleMonsters []MonsterRenderData
@@ -1082,8 +1122,7 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 		}
 
 		// Get sprite from monster's YAML config
-		spriteName := monster.GetSpriteType()
-		sprite := r.game.sprites.GetSprite(spriteName)
+		sprite := r.getMonsterSprite(monster)
 
 		visibleMonsters = append(visibleMonsters, MonsterRenderData{
 			monster:    monster,
