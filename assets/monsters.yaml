@@ -7,7 +7,7 @@ monsters:
   goblin:
     name: "Goblin"
     level: 1
-    max_hit_points: 8
+    max_hit_points: 20
     armor_class: 6
     experience: 15
     attack_bonus: 0
@@ -31,7 +31,7 @@ monsters:
   orc:
     name: "Orc"
     level: 3
-    max_hit_points: 25
+    max_hit_points: 40
     armor_class: 8
     experience: 65
     attack_bonus: 2
@@ -59,7 +59,7 @@ monsters:
   wolf:
     name: "Wolf"
     level: 2
-    max_hit_points: 18
+    max_hit_points: 30
     armor_class: 7
     experience: 35
     attack_bonus: 1
@@ -83,7 +83,7 @@ monsters:
   bear:
     name: "Bear"
     level: 4
-    max_hit_points: 45
+    max_hit_points: 65
     armor_class: 9
     experience: 120
     attack_bonus: 3
@@ -106,7 +106,7 @@ monsters:
   spider:
     name: "Spider"
     level: 2
-    max_hit_points: 12
+    max_hit_points: 22
     armor_class: 8
     experience: 25
     attack_bonus: 1
@@ -129,7 +129,7 @@ monsters:
   skeleton:
     name: "Skeleton"
     level: 3
-    max_hit_points: 20
+    max_hit_points: 35
     armor_class: 7
     experience: 45
     attack_bonus: 1
@@ -209,7 +209,7 @@ monsters:
   forest_orc:
     name: "Forest Orc"
     level: 4
-    max_hit_points: 32
+    max_hit_points: 50
     armor_class: 9
     experience: 85
     attack_bonus: 3
@@ -238,7 +238,7 @@ monsters:
   dire_wolf:
     name: "Dire Wolf"
     level: 5
-    max_hit_points: 42
+    max_hit_points: 60
     armor_class: 9
     experience: 125
     attack_bonus: 4
@@ -262,7 +262,7 @@ monsters:
   forest_spider:
     name: "Forest Spider"
     level: 3
-    max_hit_points: 18
+    max_hit_points: 28
     armor_class: 10
     experience: 45
     attack_bonus: 2
@@ -320,8 +320,9 @@ monsters:
   pixie:
     name: "Pixie"
     level: 2
-    max_hit_points: 8
-    armor_class: 15    # Hard to hit
+    max_hit_points: 15
+    armor_class: 4     # Light armor, relies on dodge
+    perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 30
     attack_bonus: 1
     damage_min: 1
@@ -351,7 +352,7 @@ monsters:
   bandit:
     name: "Bandit"
     level: 3
-    max_hit_points: 22
+    max_hit_points: 35
     armor_class: 8
     experience: 55
     attack_bonus: 2

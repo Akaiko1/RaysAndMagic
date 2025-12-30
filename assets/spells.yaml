@@ -124,7 +124,7 @@ spells:
     description: "Restores health to the caster"
     school: "body"
     level: 1
-    spell_points_cost: 2
+    spell_points_cost: 4
     duration: 0
     damage: 0
     heal_amount: 15

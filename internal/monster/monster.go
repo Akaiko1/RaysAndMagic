@@ -31,6 +31,7 @@ type Monster3D struct {
 	HitPoints    int
 	MaxHitPoints int
 	ArmorClass   int
+	PerfectDodge int // Chance (0-100) to completely avoid an attack
 	Experience   int
 	ID           string // Unique identifier for collision tracking
 
