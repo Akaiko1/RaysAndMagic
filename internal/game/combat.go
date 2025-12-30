@@ -71,6 +71,8 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	}
 
 	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
 		return false
 	}
 
@@ -217,6 +219,8 @@ func (cs *CombatSystem) EquipmentHeal() {
 	// Check spell points (use spell cost for utility spells)
 	spellCost := spell.SpellCost
 	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
 		return
 	}
 
@@ -291,6 +295,8 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	// Check spell points (use spell cost for utility spells)
 	spellCost := spell.SpellCost
 	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
 		return
 	}
 
@@ -557,9 +563,23 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
+// This is for melee attacks - AC applies as damage reduction
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+	// Check monster perfect dodge first
+	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, cs.game.party.Members[cs.game.selectedChar].Name))
+		return
+	}
+
+	// Apply monster armor class as damage reduction (same formula as player armor)
+	armorReduction := monster.ArmorClass / 2
+	reducedDamage := damage - armorReduction
+	if reducedDamage < 1 {
+		reducedDamage = 1 // Minimum 1 damage
+	}
+
 	// Apply damage with resistances and distance-aware AI response
-	finalDamage := monster.TakeDamage(damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -620,6 +640,8 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			currentChar.Name, currentChar.SpellPoints, selectedSpellDef.SpellPointsCost))
 		return
 	}
 
@@ -1108,6 +1130,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var weaponName string
 	var damageType monsterPkg.DamageType
 	var damageTypeStr string
+	var isSpell bool
+	var isRanged bool
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1127,6 +1151,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 		mp.Active = false
+		isSpell = true
 
 	case "melee":
 		ma := projectile.(*MeleeAttack)
@@ -1154,9 +1179,36 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 		ar.Active = false
+		isRanged = true
 	}
 
-	actualDamage := monster.TakeDamage(damage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	// Check monster perfect dodge (applies to all attack types)
+	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+
+	// Calculate damage reduction based on attack type
+	reducedDamage := damage
+	if !isSpell {
+		// Physical attacks: AC reduces damage, but ranged has 33% chance to pierce
+		applyArmor := true
+		if isRanged && rand.Intn(100) < 33 {
+			applyArmor = false // Armor piercing shot!
+		}
+
+		if applyArmor {
+			armorReduction := monster.ArmorClass / 2
+			reducedDamage = damage - armorReduction
+			if reducedDamage < 1 {
+				reducedDamage = 1 // Minimum 1 damage
+			}
+		}
+	}
+	// Spells ignore AC completely - reducedDamage stays as original damage
+
+	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
