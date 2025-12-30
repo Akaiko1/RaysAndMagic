@@ -199,6 +199,32 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	return brightness
 }
 
+// applyTreeDepthShading adds extra depth contrast for tree-like sprites.
+func (r *Renderer) applyTreeDepthShading(brightness, distance float64) float64 {
+	viewDist := r.game.camera.ViewDist
+	if viewDist <= 0 {
+		return brightness
+	}
+
+	depth := 1.0 - (distance / viewDist)
+	if depth < 0 {
+		depth = 0
+	} else if depth > 1.0 {
+		depth = 1.0
+	}
+
+	// Slightly brighten near trees and darken distant ones for added depth.
+	brightness += (depth - 0.5) * 0.2 // ±0.1
+
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	if brightness > 1.0 {
+		brightness = 1.0
+	}
+	return brightness
+}
+
 // precomputeFloorColorCache precalculates the floor color for every tile in the world
 func (r *Renderer) precomputeFloorColorCache() {
 	// Get map-specific default floor color
@@ -869,6 +895,7 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	// Apply distance shading with torch light effects
 	// For tree sprites, use camera position as approximation
 	brightness := r.calculateBrightnessWithTorchLight(r.game.camera.X, r.game.camera.Y, distance)
+	brightness = r.applyTreeDepthShading(brightness, distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	// Use composite mode to ensure opaque rendering (no blending with background)
@@ -1032,6 +1059,232 @@ type MonsterRenderData struct {
 	distance   float64 // Euclidean distance (for sprite sizing)
 	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
 	sprite     *ebiten.Image
+}
+
+type projectileFxProfile struct {
+	glowColor        [3]int
+	trailColor       [3]int
+	glowScale        float64
+	trailLengthScale float64
+	trailWidthScale  float64
+	pulseSpeed       float64
+	spark            bool
+	sparkColor       [3]int
+}
+
+func mixColor(a, b [3]int, t float64) [3]int {
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	out := [3]int{}
+	for i := 0; i < 3; i++ {
+		out[i] = int(float64(a[i])*(1-t) + float64(b[i])*t)
+		if out[i] < 0 {
+			out[i] = 0
+		}
+		if out[i] > 255 {
+			out[i] = 255
+		}
+	}
+	return out
+}
+
+func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProfile {
+	profile := projectileFxProfile{
+		glowColor:        mixColor(base, [3]int{255, 255, 255}, 0.35),
+		trailColor:       mixColor(base, [3]int{255, 255, 255}, 0.2),
+		glowScale:        1.4,
+		trailLengthScale: 1.2,
+		trailWidthScale:  0.35,
+		pulseSpeed:       1.0,
+		spark:            false,
+		sparkColor:       [3]int{255, 255, 255},
+	}
+
+	if def, ok := config.GetSpellDefinition(spellKey); ok {
+		switch strings.ToLower(def.School) {
+		case "fire":
+			profile.glowColor = [3]int{255, 140, 60}
+			profile.trailColor = [3]int{255, 210, 120}
+			profile.glowScale = 1.8
+			profile.trailLengthScale = 1.6
+			profile.trailWidthScale = 0.4
+			profile.pulseSpeed = 1.4
+			profile.spark = true
+			profile.sparkColor = [3]int{255, 220, 160}
+		case "water":
+			profile.glowColor = [3]int{90, 170, 255}
+			profile.trailColor = [3]int{150, 220, 255}
+			profile.glowScale = 1.5
+			profile.trailLengthScale = 1.2
+			profile.trailWidthScale = 0.4
+			profile.pulseSpeed = 1.0
+		case "air":
+			profile.glowColor = [3]int{210, 240, 255}
+			profile.trailColor = [3]int{230, 255, 255}
+			profile.glowScale = 1.6
+			profile.trailLengthScale = 1.4
+			profile.trailWidthScale = 0.3
+			profile.pulseSpeed = 1.3
+			profile.spark = true
+			profile.sparkColor = [3]int{240, 255, 255}
+		case "earth":
+			profile.glowColor = [3]int{140, 200, 120}
+			profile.trailColor = [3]int{190, 220, 140}
+			profile.glowScale = 1.4
+			profile.trailLengthScale = 1.1
+			profile.trailWidthScale = 0.45
+			profile.pulseSpeed = 0.9
+		case "dark":
+			profile.glowColor = [3]int{170, 90, 220}
+			profile.trailColor = [3]int{210, 140, 255}
+			profile.glowScale = 1.7
+			profile.trailLengthScale = 1.3
+			profile.trailWidthScale = 0.35
+			profile.pulseSpeed = 1.5
+			profile.spark = true
+			profile.sparkColor = [3]int{210, 160, 255}
+		case "light":
+			profile.glowColor = [3]int{255, 240, 150}
+			profile.trailColor = [3]int{255, 255, 210}
+			profile.glowScale = 1.7
+			profile.trailLengthScale = 1.3
+			profile.trailWidthScale = 0.35
+			profile.pulseSpeed = 1.2
+			profile.spark = true
+			profile.sparkColor = [3]int{255, 255, 220}
+		case "body":
+			profile.glowColor = [3]int{160, 255, 180}
+			profile.trailColor = [3]int{210, 255, 220}
+			profile.glowScale = 1.4
+			profile.trailLengthScale = 1.1
+			profile.trailWidthScale = 0.4
+			profile.pulseSpeed = 1.0
+		case "mind":
+			profile.glowColor = [3]int{180, 200, 255}
+			profile.trailColor = [3]int{210, 230, 255}
+			profile.glowScale = 1.5
+			profile.trailLengthScale = 1.2
+			profile.trailWidthScale = 0.35
+			profile.pulseSpeed = 1.1
+		case "spirit":
+			profile.glowColor = [3]int{220, 190, 255}
+			profile.trailColor = [3]int{235, 210, 255}
+			profile.glowScale = 1.6
+			profile.trailLengthScale = 1.2
+			profile.trailWidthScale = 0.35
+			profile.pulseSpeed = 1.2
+			profile.spark = true
+			profile.sparkColor = [3]int{240, 220, 255}
+		}
+	}
+	return profile
+}
+
+func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) projectileFxProfile {
+	base := [3]int{200, 200, 200}
+	if weaponDef != nil && weaponDef.Graphics != nil {
+		base = weaponDef.Graphics.Color
+	}
+	profile := projectileFxProfile{
+		glowColor:        mixColor(base, [3]int{255, 255, 255}, 0.3),
+		trailColor:       mixColor(base, [3]int{255, 255, 255}, 0.15),
+		glowScale:        1.2,
+		trailLengthScale: 1.3,
+		trailWidthScale:  0.3,
+		pulseSpeed:       0.9,
+		spark:            false,
+		sparkColor:       [3]int{255, 255, 255},
+	}
+
+	if weaponDef != nil {
+		switch strings.ToLower(weaponDef.Category) {
+		case "bow":
+			profile.trailLengthScale = 1.8
+			profile.trailWidthScale = 0.25
+			profile.glowScale = 1.1
+		case "throwing", "dagger", "knife":
+			profile.trailLengthScale = 1.0
+			profile.trailWidthScale = 0.4
+			profile.glowScale = 1.3
+			profile.spark = true
+		}
+		switch strings.ToLower(weaponDef.BonusStat) {
+		case "might":
+			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 100, 80}, 0.35)
+			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 150, 120}, 0.25)
+		case "accuracy":
+			profile.glowColor = mixColor(profile.glowColor, [3]int{220, 240, 255}, 0.35)
+			profile.trailColor = mixColor(profile.trailColor, [3]int{230, 245, 255}, 0.25)
+		case "intellect":
+			profile.glowColor = mixColor(profile.glowColor, [3]int{180, 140, 255}, 0.35)
+			profile.trailColor = mixColor(profile.trailColor, [3]int{200, 170, 255}, 0.25)
+		case "personality":
+			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 180, 220}, 0.35)
+			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 200, 230}, 0.25)
+		}
+	}
+	return profile
+}
+
+func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
+	if size <= 0 || alpha <= 0 {
+		return
+	}
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(size, size)
+	opts.GeoM.Translate(x-size/2, y-size/2)
+	opts.ColorScale.Scale(
+		float32(rgb[0])/255,
+		float32(rgb[1])/255,
+		float32(rgb[2])/255,
+		float32(alpha),
+	)
+	opts.Blend = blend
+	screen.DrawImage(r.whiteImg, opts)
+}
+
+func (r *Renderer) drawTrail(screen *ebiten.Image, x, y, dirX, dirY, length, width float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
+	if length <= 0 || width <= 0 || alpha <= 0 {
+		return
+	}
+	dirLen := math.Hypot(dirX, dirY)
+	if dirLen <= 0 {
+		return
+	}
+	dirX /= dirLen
+	dirY /= dirLen
+	segments := int(length / 4)
+	if segments < 4 {
+		segments = 4
+	}
+	for i := 0; i < segments; i++ {
+		t := float64(i) / float64(segments)
+		segX := x - dirX*length*t
+		segY := y - dirY*length*t
+		segW := width * (1.0 - 0.75*t)
+		if segW < 1 {
+			segW = 1
+		}
+		r.drawGlowRect(screen, segX, segY, segW, rgb, alpha*(1.0-t), blend)
+	}
+}
+
+func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
+	if vx == 0 && vy == 0 {
+		return 0, 0, false
+	}
+	camRightX := -math.Sin(r.game.camera.Angle)
+	camRightY := math.Cos(r.game.camera.Angle)
+	right := vx*camRightX + vy*camRightY
+	if math.Abs(right) < 0.01 {
+		return 0, 0, false
+	}
+	dirX := math.Copysign(1, right)
+	return dirX, 0, true
 }
 
 func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
@@ -1555,6 +1808,15 @@ func (r *Renderer) drawProjectiles(screen *ebiten.Image) {
 
 // drawMagicProjectiles draws all active magic projectiles
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
+	glowBlend := ebiten.Blend{
+		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
+		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+		BlendOperationRGB:           ebiten.BlendOperationAdd,
+		BlendOperationAlpha:         ebiten.BlendOperationAdd,
+	}
+
 	for _, magicProjectile := range r.game.magicProjectiles {
 		if !magicProjectile.Active {
 			continue
@@ -1658,6 +1920,29 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 
 		// Use spell-specific color from config (no more hardcoded colors!)
 		projectileColor := spellGraphicsConfig.Color
+
+		centerX := float64(screenX)
+		centerY := float64(screenY) + float64(projectileSize)/2
+		fxProfile := r.spellFxProfile(spellConfigName, projectileColor)
+		pulse := 0.85 + 0.15*math.Sin(float64(r.game.frameCount)*fxProfile.pulseSpeed*0.15)
+		critBoost := 1.0
+		if magicProjectile.Crit {
+			critBoost = 1.2
+		}
+		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
+		r.drawGlowRect(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.7*critBoost, glowBlend)
+		trailLen := float64(projectileSize) * fxProfile.trailLengthScale * critBoost
+		trailWidth := float64(projectileSize) * fxProfile.trailWidthScale
+		if dirX, dirY, ok := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY); ok {
+			r.drawTrail(screen, centerX, centerY, dirX, dirY, trailLen, trailWidth, fxProfile.trailColor, 0.75*critBoost, glowBlend)
+		}
+		if fxProfile.spark {
+			angle := (float64(r.game.frameCount) * fxProfile.pulseSpeed * 0.12)
+			orbital := float64(projectileSize) * 0.55
+			sparkX := centerX + math.Cos(angle)*orbital
+			sparkY := centerY + math.Sin(angle)*orbital*0.4
+			r.drawGlowRect(screen, sparkX, sparkY, math.Max(2, float64(projectileSize)*0.25), fxProfile.sparkColor, 0.8*critBoost, glowBlend)
+		}
 
 		fireballImg := ebiten.NewImage(projectileSize, projectileSize)
 		fireballImg.Fill(color.RGBA{uint8(projectileColor[0]), uint8(projectileColor[1]), uint8(projectileColor[2]), 255})
@@ -1780,6 +2065,15 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 
 // drawArrows draws all active arrows
 func (r *Renderer) drawArrows(screen *ebiten.Image) {
+	glowBlend := ebiten.Blend{
+		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
+		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+		BlendOperationRGB:           ebiten.BlendOperationAdd,
+		BlendOperationAlpha:         ebiten.BlendOperationAdd,
+	}
+
 	for _, arrow := range r.game.arrows {
 		if !arrow.Active {
 			continue
@@ -1879,6 +2173,25 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		arrowImg := ebiten.NewImage(arrowSize, arrowSize)
 		arrowColor := bowDef.Graphics.Color
 		arrowImg.Fill(color.RGBA{uint8(arrowColor[0]), uint8(arrowColor[1]), uint8(arrowColor[2]), 255})
+
+		centerX := float64(screenX)
+		centerY := float64(screenY) + float64(arrowSize)/2
+		fxProfile := r.weaponFxProfile(bowDef)
+		critBoost := 1.0
+		if arrow.Crit {
+			critBoost = 1.2
+		}
+		glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
+		r.drawGlowRect(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
+		if dirX, dirY, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY); ok {
+			trailLen := float64(arrowSize) * fxProfile.trailLengthScale * critBoost
+			trailWidth := float64(arrowSize) * fxProfile.trailWidthScale
+			r.drawTrail(screen, centerX, centerY, dirX, dirY, trailLen, trailWidth, fxProfile.trailColor, 0.7*critBoost, glowBlend)
+
+			tipX := centerX + dirX*float64(arrowSize)*0.35
+			tipY := centerY + dirY*float64(arrowSize)*0.35
+			r.drawGlowRect(screen, tipX, tipY, math.Max(2, float64(arrowSize)*0.25), fxProfile.glowColor, 0.9*critBoost, glowBlend)
+		}
 
 		opts := &ebiten.DrawImageOptions{}
 		opts.GeoM.Translate(float64(screenX-arrowSize/2), float64(screenY))
