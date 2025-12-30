@@ -206,12 +206,12 @@ func TestCharacterUpdate(t *testing.T) {
 	originalSP := char.SpellPoints
 	char.SpellPoints = originalSP - 5
 
-	// Simulate enough frames for spell regeneration (180 frames)
-	for i := 0; i < 180; i++ {
+	// Simulate enough ticks for spell regeneration (1200 ticks = 2 regens at 600 ticks each at 120 TPS)
+	for i := 0; i < 1200; i++ {
 		char.Update()
 	}
 
-	// Check spell point regeneration
+	// Check spell point regeneration (2 regens in 1200 ticks at 600 ticks per regen)
 	if char.SpellPoints != originalSP-3 {
 		t.Errorf("Expected spell points to regenerate by 2, got %d", char.SpellPoints)
 	}

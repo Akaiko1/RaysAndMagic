@@ -322,7 +322,8 @@ func (gl *GameLoop) updateBlessEffect() {
 		if gl.game.blessDuration <= 0 {
 			gl.game.blessActive = false
 			gl.game.blessDuration = 0
-			gl.game.statBonus -= 20 // Subtract the +20 Bless bonus from total stat bonus
+			gl.game.statBonus -= gl.game.blessStatBonus // Subtract the stored Bless bonus
+			gl.game.blessStatBonus = 0
 		}
 	}
 	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)

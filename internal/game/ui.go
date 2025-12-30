@@ -84,12 +84,22 @@ type statMeta struct {
 	Ptr  *int
 }
 
+// MaxStatValue is the maximum base stat value a character can have
+const MaxStatValue = 99
+
 // drawStatPointRow draws a single stat row with name, value, and + button
 func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
+
+	// Check if stat is already at max (99)
+	atMax := *valuePtr >= MaxStatValue
+	canActuallyAdd := *canAdd && !atMax
+
 	plusImg := ebiten.NewImage(btnW, btnH)
-	if *canAdd && *isHover {
+	if canActuallyAdd && *isHover {
 		plusImg.Fill(color.RGBA{80, 200, 80, 220})
+	} else if atMax {
+		plusImg.Fill(color.RGBA{100, 100, 100, 180}) // Gray out if at max
 	} else {
 		plusImg.Fill(color.RGBA{60, 120, 60, 180})
 	}
@@ -98,7 +108,7 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 	screen.DrawImage(plusImg, plusOpts)
 	ebitenutil.DebugPrintAt(screen, "+", plusX+8, plusY+4)
 	// Handle click
-	if *canAdd && *isHover && clickIn {
+	if canActuallyAdd && *isHover && clickIn {
 		(*valuePtr)++
 		*canAdd = false // Only allow one per click
 		return true

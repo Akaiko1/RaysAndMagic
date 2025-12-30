@@ -369,9 +369,36 @@ func (ih *InputHandler) handleMovementInput() {
 // handleCombatInput processes combat-related input
 func (ih *InputHandler) handleCombatInput() {
 	// Magic attack (F key) - single press with cooldown to prevent spam
+	// For heal spells, use mouse targeting like H key
 	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		if ih.game.combat.CastEquippedSpell() {
-			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+		caster := ih.game.party.Members[ih.game.selectedChar]
+		spell, hasSpell := caster.Equipment[items.SlotSpell]
+
+		// Check if this is a heal spell - use mouse targeting
+		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
+			mouseX, mouseY := ebiten.CursorPosition()
+			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+
+			if targetCharIndex >= 0 {
+				// Check if the spell can target others or if targeting self
+				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
+					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+				} else {
+					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
+					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+				}
+			} else {
+				// No target under mouse, heal self
+				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+			}
+		} else {
+			// Not a heal spell, cast normally
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+			}
 		}
 	}
 
@@ -381,7 +408,7 @@ func (ih *InputHandler) handleCombatInput() {
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
 	}
 
-	// Note: H key healing is handled in handleMouseInput for proper targeting
+	// Note: H key healing is also handled in handleMouseInput for proper targeting
 }
 
 // handleCharacterSelectionInput processes party character selection
@@ -1327,13 +1354,34 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		if ih.game.combat.CastEquippedSpell() {
+		spell, hasSpell := selected.Equipment[items.SlotSpell]
+
+		// Check if this is a heal spell - use mouse targeting
+		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
+			mouseX, mouseY := ebiten.CursorPosition()
+			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+
+			if targetCharIndex >= 0 {
+				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
+					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+				} else {
+					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+				}
+			} else {
+				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+			}
 			ih.game.partyActionsUsed++
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
-
-			if ih.game.partyActionsUsed >= 2 {
-				ih.endPartyTurn()
+		} else {
+			// Not a heal spell, cast normally
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.partyActionsUsed++
+				ih.game.spellInputCooldown = ih.actionCooldown(15)
 			}
+		}
+
+		if ih.game.partyActionsUsed >= 2 {
+			ih.endPartyTurn()
 		}
 	}
 }
@@ -1454,10 +1502,14 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 
 // endPartyTurn ends the party's turn and starts monster turn
 func (ih *InputHandler) endPartyTurn() {
-	// Regenerate 1 mana for all party members at end of turn
-	for _, member := range ih.game.party.Members {
-		if member.SpellPoints < member.MaxSpellPoints {
-			member.SpellPoints++
+	// Regenerate 1 mana for all party members every 5 turns
+	ih.game.turnBasedSpRegenCount++
+	if ih.game.turnBasedSpRegenCount >= 5 {
+		ih.game.turnBasedSpRegenCount = 0
+		for _, member := range ih.game.party.Members {
+			if member.SpellPoints < member.MaxSpellPoints {
+				member.SpellPoints++
+			}
 		}
 	}
 

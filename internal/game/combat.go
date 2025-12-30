@@ -103,25 +103,14 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 			// Apply healing effects for heal spells
 			if result.HealAmount > 0 {
-				if result.TargetSelf || string(spellID) == "heal" {
-					// Heal self
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-					if caster.HitPoints > 0 {
-						caster.RemoveCondition(character.ConditionUnconscious)
-					}
-				} else if string(spellID) == "heal_other" {
-					// For F key heal other, just heal self since there's no target selection
-					// Use H key with mouse for proper targeting
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-					if caster.HitPoints > 0 {
-						caster.RemoveCondition(character.ConditionUnconscious)
-					}
+				// Both heal and heal_other now use mouse targeting (handled by CastEquippedSpellWithTarget)
+				// Fallback to self-heal if no target specified
+				caster.HitPoints += result.HealAmount
+				if caster.HitPoints > caster.MaxHitPoints {
+					caster.HitPoints = caster.MaxHitPoints
+				}
+				if caster.HitPoints > 0 {
+					caster.RemoveCondition(character.ConditionUnconscious)
 				}
 			}
 
@@ -1343,9 +1332,14 @@ func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharac
 
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods
 func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
+	// If Bless is already active, remove old bonus before applying new one
+	if cs.game.blessActive {
+		cs.game.statBonus -= cs.game.blessStatBonus
+	}
 	cs.game.blessActive = true
 	cs.game.blessDuration = duration
-	cs.game.statBonus += statBonus // ADD to total stat bonus
+	cs.game.blessStatBonus = statBonus              // Store the bonus for proper removal later
+	cs.game.statBonus += statBonus                  // ADD to total stat bonus
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.

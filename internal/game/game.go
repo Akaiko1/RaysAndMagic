@@ -162,8 +162,9 @@ type MMGame struct {
 	walkOnWaterDuration int  // Remaining duration in frames
 
 	// Bless effect
-	blessActive   bool // Whether bless is currently active
-	blessDuration int  // Remaining duration in frames
+	blessActive    bool // Whether bless is currently active
+	blessDuration  int  // Remaining duration in frames
+	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -231,6 +232,7 @@ type MMGame struct {
 	turnBasedMoveCooldown int  // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnResolved   bool // Whether monster turn already processed this round
+	turnBasedSpRegenCount int  // Counter for turn-based SP regeneration (every 5 turns)
 
 	// Main menu (ESC)
 	mainMenuOpen      bool
