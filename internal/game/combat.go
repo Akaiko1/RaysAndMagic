@@ -571,8 +571,12 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage,
 			monster.HitPoints, monster.MaxHitPoints))
 	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
-			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
+		prefix := ""
+		if isCrit {
+			prefix = "Critical! "
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
+			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
 
 		// Add to dead monsters list for cleanup (O(1) instead of iterating all monsters)
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
@@ -807,8 +811,15 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 		if currentChar.HitPoints < 0 {
 			currentChar.HitPoints = 0
 		}
+
+		// Add combat message for monster attack
+		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
+			monster.Name, currentChar.Name, finalDamage,
+			currentChar.HitPoints, currentChar.MaxHitPoints))
+
 		if currentChar.HitPoints == 0 {
 			currentChar.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
 	} else {
 		// Announce dodge and skip damage blink below
@@ -1001,18 +1012,26 @@ func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage i
 	currentChar := cs.findHighestEnduranceTarget()
 	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
 
+	if sourceName == "" {
+		sourceName = "Monster"
+	}
+
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
 		currentChar.HitPoints -= finalDamage
 		if currentChar.HitPoints < 0 {
 			currentChar.HitPoints = 0
 		}
+
+		// Add combat message for monster projectile attack
+		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
+			sourceName, currentChar.Name, finalDamage,
+			currentChar.HitPoints, currentChar.MaxHitPoints))
+
 		if currentChar.HitPoints == 0 {
 			currentChar.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
 	} else {
-		if sourceName == "" {
-			sourceName = "Monster"
-		}
 		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, sourceName))
 		return
 	}
