@@ -374,17 +374,6 @@ monsters:
       - "empty"
       - "clearing"
 
-# Monster placement configuration
-placement:
-  common:
-    count_min: 15
-    count_max: 30
-  special:
-    treant_chance: 0.3      # 30% chance for treant
-    pixie_count_max: 3      # Up to 3 pixies
-    dragon_chance: 0.05     # 5% chance for dragon
-    troll_chance: 0.1       # 10% chance for troll
-
 # Damage type mappings for resistances
 damage_types:
   physical: 0

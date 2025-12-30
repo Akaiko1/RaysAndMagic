@@ -73,6 +73,16 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawGameOverOverlay(screen)
 	}
 
+	// Draw Victory overlay if active
+	if ui.game.gameVictory && !ui.game.showHighScores {
+		ui.drawVictoryOverlay(screen)
+	}
+
+	// Draw High Scores overlay if active
+	if ui.game.showHighScores {
+		ui.drawHighScoresOverlay(screen)
+	}
+
 	// Draw stat distribution popup if open
 	if ui.game.statPopupOpen {
 		ui.drawStatDistributionPopup(screen)
@@ -703,29 +713,136 @@ func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 	}
 }
 
-// drawCompass draws the compass/direction indicator
+// drawCompass draws the compass/direction indicator with minimap showing nearby tiles
 func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	compassX, compassY := ui.getCompassCenter()
-
-	// Draw compass circle using image
 	compassRadius := ui.game.config.UI.CompassRadius
-	compassImg := ebiten.NewImage(compassRadius*2, compassRadius*2)
-	compassImg.Fill(color.RGBA{255, 255, 255, 100}) // Semi-transparent white circle
 
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(compassX-compassRadius), float64(compassY-compassRadius))
-	screen.DrawImage(compassImg, opts)
+	// Draw compass background circle (dark, semi-transparent)
+	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), color.RGBA{20, 20, 30, 200}, true)
 
-	// Draw direction arrow
-	arrowSize := 4
-	arrowImg := ebiten.NewImage(arrowSize, arrowSize)
-	arrowImg.Fill(color.RGBA{255, 0, 0, 255}) // Red arrow
+	// Draw minimap tiles within the compass
+	ui.drawCompassMinimap(screen, compassX, compassY, compassRadius)
 
+	// Draw compass border
+	vector.StrokeCircle(screen, float32(compassX), float32(compassY), float32(compassRadius), 2, color.RGBA{100, 100, 140, 255}, true)
+
+	// Draw direction arrow pointing in the camera direction
+	arrowLength := float64(compassRadius - 8)
+	arrowX := float64(compassX) + arrowLength*math.Cos(ui.game.camera.Angle)
+	arrowY := float64(compassY) + arrowLength*math.Sin(ui.game.camera.Angle)
+
+	// Draw arrow line from center towards the direction
+	vector.StrokeLine(screen, float32(compassX), float32(compassY), float32(arrowX), float32(arrowY), 2, color.RGBA{255, 80, 80, 255}, true)
+
+	// Draw arrow head
+	arrowHeadSize := 5.0
+	arrowImg := ebiten.NewImage(int(arrowHeadSize), int(arrowHeadSize))
+	arrowImg.Fill(color.RGBA{255, 80, 80, 255})
 	arrowOpts := &ebiten.DrawImageOptions{}
-	arrowX := compassX + int(float64(compassRadius-8)*math.Cos(ui.game.camera.Angle))
-	arrowY := compassY + int(float64(compassRadius-8)*math.Sin(ui.game.camera.Angle))
-	arrowOpts.GeoM.Translate(float64(arrowX-arrowSize/2), float64(arrowY-arrowSize/2))
+	arrowOpts.GeoM.Translate(arrowX-arrowHeadSize/2, arrowY-arrowHeadSize/2)
 	screen.DrawImage(arrowImg, arrowOpts)
+
+	// Draw player position indicator in center
+	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
+}
+
+// drawCompassMinimap renders the nearby tiles on the compass as a minimap
+func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, radius int) {
+	if ui.game.world == nil {
+		return
+	}
+
+	tileSize := ui.game.config.GetTileSize()
+	playerTileX := int(ui.game.camera.X / tileSize)
+	playerTileY := int(ui.game.camera.Y / tileSize)
+
+	// Number of tiles to show in each direction from center
+	viewRange := 5
+	// Size of each minimap tile in pixels
+	miniTileSize := float32(radius) / float32(viewRange+1)
+	if miniTileSize < 3 {
+		miniTileSize = 3
+	}
+	if miniTileSize > 8 {
+		miniTileSize = 8
+	}
+
+	// Get floor color from map config
+	floorColor := color.RGBA{60, 110, 60, 180}
+	if world.GlobalWorldManager != nil {
+		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil {
+			floorColor = color.RGBA{uint8(mapCfg.DefaultFloorColor[0]), uint8(mapCfg.DefaultFloorColor[1]), uint8(mapCfg.DefaultFloorColor[2]), 180}
+		}
+	}
+
+	// Render tiles around the player
+	for dy := -viewRange; dy <= viewRange; dy++ {
+		for dx := -viewRange; dx <= viewRange; dx++ {
+			tileX := playerTileX + dx
+			tileY := playerTileY + dy
+
+			// Skip tiles outside world bounds
+			if tileX < 0 || tileX >= ui.game.world.Width || tileY < 0 || tileY >= ui.game.world.Height {
+				continue
+			}
+
+			// Calculate screen position (offset from compass center)
+			screenX := float32(centerX) + float32(dx)*miniTileSize
+			screenY := float32(centerY) + float32(dy)*miniTileSize
+
+			// Check if this tile is within the circular compass area
+			distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
+			if distFromCenter > float64(viewRange) {
+				continue
+			}
+
+			// Get tile color based on type
+			tile := ui.game.world.Tiles[tileY][tileX]
+			tileColor := ui.getMinimapTileColor(tile, floorColor)
+
+			// Draw the minimap tile
+			halfSize := miniTileSize / 2
+			vector.DrawFilledRect(screen, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
+		}
+	}
+
+	// Draw NPCs on minimap
+	for _, npc := range ui.game.world.NPCs {
+		npcTileX := int(npc.X / tileSize)
+		npcTileY := int(npc.Y / tileSize)
+		dx := npcTileX - playerTileX
+		dy := npcTileY - playerTileY
+
+		// Only show NPCs within view range
+		distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
+		if distFromCenter <= float64(viewRange) {
+			screenX := float32(centerX) + float32(dx)*miniTileSize
+			screenY := float32(centerY) + float32(dy)*miniTileSize
+			// Draw NPC as yellow dot
+			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+		}
+	}
+}
+
+// getMinimapTileColor returns the color for a tile type on the minimap
+func (ui *UISystem) getMinimapTileColor(tile world.TileType3D, floorColor color.RGBA) color.RGBA {
+	switch tile {
+	case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
+		return color.RGBA{50, 50, 60, 200} // Dark for walls/obstacles
+	case world.TileWater:
+		return color.RGBA{40, 90, 160, 200} // Blue for water
+	case world.TileDeepWater:
+		return color.RGBA{25, 60, 120, 200} // Darker blue for deep water
+	case world.TileVioletTeleporter:
+		return color.RGBA{170, 80, 200, 200} // Violet for teleporters
+	case world.TileRedTeleporter:
+		return color.RGBA{200, 70, 70, 200} // Red for teleporters
+	case world.TileClearing:
+		return color.RGBA{80, 140, 80, 180} // Lighter green for clearings
+	default:
+		return floorColor
+	}
 }
 
 // drawWizardEyeRadar draws enemy dots on the compass when wizard eye is active
@@ -1943,6 +2060,98 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "Press L: Load Game", centerX, centerY+20)
 }
 
+// drawVictoryOverlay draws the victory screen with score and options
+func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
+	w := ui.game.config.GetScreenWidth()
+	h := ui.game.config.GetScreenHeight()
+
+	// Darken background with golden tint
+	overlay := ebiten.NewImage(w, h)
+	overlay.Fill(color.RGBA{30, 25, 0, 200})
+	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+
+	// Get score data
+	scoreData := ui.game.GetScoreData()
+	finalScore := CalculateScore(scoreData)
+	playTimeStr := FormatPlayTime(scoreData.PlayTime)
+
+	centerX := w / 2
+	startY := h/2 - 120
+
+	// Victory header
+	ebitenutil.DebugPrintAt(screen, "=== VICTORY! ===", centerX-70, startY)
+	ebitenutil.DebugPrintAt(screen, "You have slain all four dragons!", centerX-120, startY+25)
+	ebitenutil.DebugPrintAt(screen, "The realm is saved!", centerX-70, startY+45)
+
+	// Score details
+	ebitenutil.DebugPrintAt(screen, "--- Final Score ---", centerX-75, startY+80)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
+
+	// Instructions
+	if !ui.game.victoryScoreSaved {
+		ebitenutil.DebugPrintAt(screen, "Enter your name:", centerX-60, startY+220)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
+		ebitenutil.DebugPrintAt(screen, "Press ENTER to save score", centerX-90, startY+270)
+		ebitenutil.DebugPrintAt(screen, "Press ESC for main menu", centerX-85, startY+290)
+	} else {
+		ebitenutil.DebugPrintAt(screen, "Score saved!", centerX-45, startY+220)
+		ebitenutil.DebugPrintAt(screen, "Press H to view High Scores", centerX-100, startY+250)
+		ebitenutil.DebugPrintAt(screen, "Press ESC for main menu", centerX-85, startY+270)
+	}
+}
+
+// drawHighScoresOverlay draws the high scores table
+func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
+	w := ui.game.config.GetScreenWidth()
+	h := ui.game.config.GetScreenHeight()
+
+	// Darken background
+	overlay := ebiten.NewImage(w, h)
+	overlay.Fill(color.RGBA{0, 0, 30, 220})
+	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+
+	scores, err := LoadHighScores()
+	if err != nil {
+		ebitenutil.DebugPrintAt(screen, "Error loading high scores", w/2-90, h/2)
+		return
+	}
+
+	centerX := w / 2
+	startY := 60
+
+	// Header
+	ebitenutil.DebugPrintAt(screen, "=== HIGH SCORES ===", centerX-75, startY)
+
+	// Column headers
+	ebitenutil.DebugPrintAt(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
+	ebitenutil.DebugPrintAt(screen, "----  ----           -----    ----", centerX-140, startY+55)
+
+	// Entries
+	if len(scores.Entries) == 0 {
+		ebitenutil.DebugPrintAt(screen, "No scores yet!", centerX-50, startY+80)
+	} else {
+		for i, entry := range scores.Entries {
+			line := fmt.Sprintf("%2d.   %-14s %6d   %s", i+1, truncateName(entry.PlayerName, 14), entry.Score, entry.PlayTime)
+			ebitenutil.DebugPrintAt(screen, line, centerX-140, startY+80+i*20)
+		}
+	}
+
+	// Instructions
+	ebitenutil.DebugPrintAt(screen, "Press ESC to close", centerX-70, h-50)
+}
+
+// truncateName truncates a name to maxLen characters
+func truncateName(name string, maxLen int) string {
+	if len(name) <= maxLen {
+		return name
+	}
+	return name[:maxLen-2] + ".."
+}
+
 // wrapText wraps text to fit within specified width
 func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 	if len(text) <= maxWidth {
@@ -2213,6 +2422,104 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 			size = 3
 		}
 		vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
+	}
+
+	// Quest markers overlay (top 3 active quests with RGB colors)
+	ui.drawQuestMarkersOnMap(screen, originX, originY, tileSize, worldW, worldH)
+
+	// Player position overlay (cyan dot)
+	playerTileX := int(ui.game.camera.X / float64(ui.game.config.GetTileSize()))
+	playerTileY := int(ui.game.camera.Y / float64(ui.game.config.GetTileSize()))
+	if playerTileX >= 0 && playerTileX < worldW && playerTileY >= 0 && playerTileY < worldH {
+		drawX := originX + playerTileX*tileSize
+		drawY := originY + playerTileY*tileSize
+		markerSize := tileSize + 2
+		if markerSize < 5 {
+			markerSize = 5
+		}
+		// Draw player as a cyan circle with border
+		vector.DrawFilledCircle(screen, float32(drawX)+float32(tileSize)/2, float32(drawY)+float32(tileSize)/2, float32(markerSize)/2, color.RGBA{50, 200, 255, 255}, true)
+		vector.StrokeCircle(screen, float32(drawX)+float32(tileSize)/2, float32(drawY)+float32(tileSize)/2, float32(markerSize)/2, 1, color.RGBA{255, 255, 255, 255}, true)
+	}
+}
+
+// drawQuestMarkersOnMap draws quest objective markers on the map overlay
+// Shows top 3 active quests with RGB color coding (1=Red, 2=Green, 3=Blue)
+func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY, tileSize, worldW, worldH int) {
+	if ui.game.questManager == nil {
+		return
+	}
+
+	// Get active quests (not completed)
+	activeQuests := ui.game.questManager.GetActiveQuests()
+	if len(activeQuests) == 0 {
+		return
+	}
+
+	// Limit to top 3 quests
+	maxQuests := 3
+	if len(activeQuests) < maxQuests {
+		maxQuests = len(activeQuests)
+	}
+
+	// Quest marker colors: Red, Green, Blue for quests 1, 2, 3
+	questColors := []color.RGBA{
+		{255, 80, 80, 255},  // Red for quest 1
+		{80, 255, 80, 255},  // Green for quest 2
+		{80, 80, 255, 255},  // Blue for quest 3
+	}
+
+	// Get current map key to filter markers
+	currentMapKey := ""
+	if world.GlobalWorldManager != nil {
+		currentMapKey = world.GlobalWorldManager.CurrentMapKey
+	}
+
+	for i := 0; i < maxQuests; i++ {
+		quest := activeQuests[i]
+		def := quest.Definition
+
+		// Skip quests without marker coordinates
+		if def.MarkerX == 0 && def.MarkerY == 0 {
+			continue
+		}
+
+		// Skip quests for different maps
+		if def.MarkerMap != "" && def.MarkerMap != currentMapKey {
+			continue
+		}
+
+		markerX := def.MarkerX
+		markerY := def.MarkerY
+
+		// Validate coordinates are within world bounds
+		if markerX < 0 || markerX >= worldW || markerY < 0 || markerY >= worldH {
+			continue
+		}
+
+		// Calculate screen position
+		drawX := originX + markerX*tileSize
+		drawY := originY + markerY*tileSize
+		markerSize := tileSize + 4
+		if markerSize < 8 {
+			markerSize = 8
+		}
+
+		// Draw quest marker as a diamond shape with number
+		centerX := float32(drawX) + float32(tileSize)/2
+		centerY := float32(drawY) + float32(tileSize)/2
+		halfSize := float32(markerSize) / 2
+
+		// Draw diamond shape using lines
+		markerColor := questColors[i]
+		vector.StrokeLine(screen, centerX, centerY-halfSize, centerX+halfSize, centerY, 2, markerColor, true)
+		vector.StrokeLine(screen, centerX+halfSize, centerY, centerX, centerY+halfSize, 2, markerColor, true)
+		vector.StrokeLine(screen, centerX, centerY+halfSize, centerX-halfSize, centerY, 2, markerColor, true)
+		vector.StrokeLine(screen, centerX-halfSize, centerY, centerX, centerY-halfSize, 2, markerColor, true)
+
+		// Draw quest number in center
+		questNum := fmt.Sprintf("%d", i+1)
+		ebitenutil.DebugPrintAt(screen, questNum, int(centerX)-3, int(centerY)-6)
 	}
 }
 

@@ -486,23 +486,47 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 
 	// Create visual slash effect
 	if graphicsConfig != nil {
+		style := meleeEffectStyle(weaponDef, meleeConfig)
+		sweep := 0.0
+		if style == SlashEffectStyleSlash {
+			sweep = float64(meleeConfig.ArcAngle) * math.Pi / 180.0
+		}
 		slashEffect := SlashEffect{
 			ID:             cs.game.GenerateProjectileID("slash"),
 			X:              cs.game.camera.X,
 			Y:              cs.game.camera.Y,
 			Angle:          cs.game.camera.Angle,
+			SweepAngle:     sweep,
 			Width:          graphicsConfig.SlashWidth,
 			Length:         graphicsConfig.SlashLength,
 			Color:          graphicsConfig.SlashColor,
 			AnimationFrame: 0,
 			MaxFrames:      meleeConfig.AnimationFrames,
 			Active:         true,
+			Style:          style,
 		}
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)
 	}
 
 	// Perform instant hit detection in arc
 	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
+}
+
+func meleeEffectStyle(weaponDef *config.WeaponDefinitionConfig, meleeConfig *config.MeleeAttackConfig) SlashEffectStyle {
+	if weaponDef == nil {
+		return SlashEffectStyleSlash
+	}
+	category := strings.ToLower(weaponDef.Category)
+	if strings.Contains(category, "spear") ||
+		strings.Contains(category, "dagger") ||
+		strings.Contains(category, "knife") ||
+		strings.Contains(category, "rapier") {
+		return SlashEffectStyleThrust
+	}
+	if meleeConfig != nil && meleeConfig.ArcAngle > 0 && meleeConfig.ArcAngle <= 40 {
+		return SlashEffectStyleThrust
+	}
+	return SlashEffectStyleSlash
 }
 
 // performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
@@ -1430,8 +1454,8 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 	}
 	cs.game.blessActive = true
 	cs.game.blessDuration = duration
-	cs.game.blessStatBonus = statBonus              // Store the bonus for proper removal later
-	cs.game.statBonus += statBonus                  // ADD to total stat bonus
+	cs.game.blessStatBonus = statBonus // Store the bonus for proper removal later
+	cs.game.statBonus += statBonus     // ADD to total stat bonus
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.

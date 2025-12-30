@@ -43,28 +43,9 @@ type HabitatNearRule struct {
 	Radius int    `yaml:"radius"`
 }
 
-// MonsterPlacementConfig holds monster placement configuration
-type MonsterPlacementConfig struct {
-	Common  PlacementRules `yaml:"common"`
-	Special SpecialRules   `yaml:"special"`
-}
-
-type PlacementRules struct {
-	CountMin int `yaml:"count_min"`
-	CountMax int `yaml:"count_max"`
-}
-
-type SpecialRules struct {
-	TreantChance  float64 `yaml:"treant_chance"`
-	PixieCountMax int     `yaml:"pixie_count_max"`
-	DragonChance  float64 `yaml:"dragon_chance"`
-	TrollChance   float64 `yaml:"troll_chance"`
-}
-
 // MonsterYAMLConfig holds the complete monster configuration from YAML
 type MonsterYAMLConfig struct {
 	Monsters    map[string]MonsterDefinition `yaml:"monsters"`
-	Placement   MonsterPlacementConfig       `yaml:"placement"`
 	DamageTypes map[string]int               `yaml:"damage_types"`
 	TileTypes   map[string]int               `yaml:"tile_types"`
 }
@@ -230,15 +211,6 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 // GetSpriteFromConfig returns sprite type from config
 func (def *MonsterDefinition) GetSpriteFromConfig() string {
 	return def.Sprite
-}
-
-// GetRandomMonsterKey returns a random monster key from the configuration
-func (c *MonsterYAMLConfig) GetRandomMonsterKey() string {
-	keys := c.GetAllMonsterKeys()
-	if len(keys) == 0 {
-		return "goblin" // fallback
-	}
-	return keys[rand.Intn(len(keys))]
 }
 
 // GetSizeFromConfig returns collision box width and height from config

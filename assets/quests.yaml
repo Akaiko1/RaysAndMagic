@@ -25,14 +25,14 @@ quests:
       gold: 75
       experience: 150
 
-  # Future quests can be added here
-  # orc_threat:
-  #   name: "Orc Threat"
-  #   description: "Orcs have been spotted near the forest edge. Defeat 5 orcs."
-  #   type: "kill"
-  #   target_monster: "orc"
-  #   target_count: 5
-  #   is_starting_quest: false
-  #   rewards:
-  #     gold: 150
-  #     experience: 300
+  # Main quest - victory condition
+  dragon_slayer:
+    name: "Dragon Slayer"
+    description: "Legendary dragons terrorize the desert. Slay all 4 dragons to become a true hero and save the realm."
+    type: "kill"
+    target_monster: "dragon"
+    target_count: 4
+    is_starting_quest: true
+    rewards:
+      gold: 5000
+      experience: 10000

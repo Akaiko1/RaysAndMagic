@@ -63,7 +63,7 @@ func NewWorld3D(cfg *config.Config) *World3D {
 	return world
 }
 
-// loadFromMapFile loads the world from the forest.map file
+// loadFromMapFile loads the world from the forest.map file (legacy, used by tests)
 func (w *World3D) loadFromMapFile() {
 	// Create map loader
 	mapLoader := NewMapLoader(w.config)
@@ -71,19 +71,7 @@ func (w *World3D) loadFromMapFile() {
 	// Load the forest map
 	mapData, err := mapLoader.LoadForestMap()
 	if err != nil {
-		// Fallback to procedural generation if map loading fails
-		fmt.Printf("Warning: Failed to load map file, falling back to procedural generation: %v\n", err)
-		w.Width = w.config.GetMapWidth()
-		w.Height = w.config.GetMapHeight()
-		w.StartX = w.Width / 2
-		w.StartY = w.Height / 2
-		w.Tiles = make([][]TileType3D, w.Height)
-		for y := 0; y < w.Height; y++ {
-			w.Tiles[y] = make([]TileType3D, w.Width)
-		}
-		w.generateElvishForest()
-		w.populateWithMonsters()
-		return
+		panic(fmt.Sprintf("Failed to load map file: %v", err))
 	}
 
 	// Use loaded map data
@@ -98,13 +86,8 @@ func (w *World3D) loadFromMapFile() {
 	// Load NPCs from map data
 	w.loadNPCsFromMapData(mapData.NPCSpawns)
 
-	// Register teleporters from map data
-	// NOTE: Teleporter registration is now handled by WorldManager using RegisterTeleportersFromMapData
-	// Example usage (in WorldManager):
-	// RegisterTeleportersFromMapData(mapData.SpecialTileSpawns, mapKey, globalTeleporterRegistry)
-
-	// Populate with monsters
-	w.populateWithMonsters()
+	// Load monsters from map data (fixed placements only)
+	w.loadMonstersFromMapData(mapData.MonsterSpawns)
 }
 
 // CanMoveTo checks if the player can move to the specified position
