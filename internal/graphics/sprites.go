@@ -10,15 +10,29 @@ import (
 )
 
 type SpriteManager struct {
-	sprites         map[string]*ebiten.Image
-	spriteTypeCache map[string]string // Cache sprite types to avoid repeated file checks
+	sprites          map[string]*ebiten.Image
+	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
+	animations       map[string]*SpriteAnimation
+	animationMissing map[string]bool
 }
 
 func NewSpriteManager() *SpriteManager {
 	return &SpriteManager{
-		sprites:         make(map[string]*ebiten.Image),
-		spriteTypeCache: make(map[string]string),
+		sprites:          make(map[string]*ebiten.Image),
+		spriteTypeCache:  make(map[string]string),
+		animations:       make(map[string]*SpriteAnimation),
+		animationMissing: make(map[string]bool),
 	}
+}
+
+type SpriteAnimation struct {
+	Frames      []*ebiten.Image
+	FrameWidth  int
+	FrameHeight int
+}
+
+func animationKey(name, animType string) string {
+	return name + ":" + animType
 }
 
 func (sm *SpriteManager) createPlaceholder(name string) *ebiten.Image {
@@ -97,6 +111,22 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	return sm.createPlaceholder(name)
 }
 
+func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
+	key := animationKey(name, animType)
+	if anim, exists := sm.animations[key]; exists {
+		return anim
+	}
+	if sm.animationMissing[key] {
+		return nil
+	}
+	sm.loadAnimationIfExists(name, animType)
+	if anim, exists := sm.animations[key]; exists {
+		return anim
+	}
+	sm.animationMissing[key] = true
+	return nil
+}
+
 // loadSpriteIfExists attempts to load a sprite from common locations
 func (sm *SpriteManager) loadSpriteIfExists(name string) {
 	// Search paths in order of priority
@@ -127,4 +157,89 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 
 	// If no sprite file found, cache as unknown to avoid future file checks
 	sm.spriteTypeCache[name] = "unknown"
+}
+
+func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
+	searchPaths := []string{
+		"assets/sprites/mobs/" + name + "_" + animType + ".png",       // Monsters
+		"assets/sprites/characters/" + name + "_" + animType + ".png", // NPCs and characters
+	}
+
+	for _, spritePath := range searchPaths {
+		file, err := os.Open(spritePath)
+		if err != nil {
+			continue
+		}
+		defer file.Close()
+
+		img, _, err := image.Decode(file)
+		if err != nil {
+			continue
+		}
+
+		bounds := img.Bounds()
+		frameHeight := bounds.Dy()
+		frameWidth := bounds.Dx()
+		if frameHeight <= 0 || frameWidth <= 0 {
+			return
+		}
+		subImager, ok := img.(interface {
+			SubImage(r image.Rectangle) image.Image
+		})
+		if !ok {
+			return
+		}
+
+		// Horizontal strip (1xN)
+		if frameWidth%frameHeight == 0 {
+			frameCount := frameWidth / frameHeight
+			if frameCount > 1 {
+				frames := make([]*ebiten.Image, 0, frameCount)
+				for i := 0; i < frameCount; i++ {
+					rect := image.Rect(
+						bounds.Min.X+i*frameHeight,
+						bounds.Min.Y,
+						bounds.Min.X+(i+1)*frameHeight,
+						bounds.Min.Y+frameHeight,
+					)
+					frameImg := subImager.SubImage(rect)
+					frames = append(frames, ebiten.NewImageFromImage(frameImg))
+				}
+
+				sm.animations[animationKey(name, animType)] = &SpriteAnimation{
+					Frames:      frames,
+					FrameWidth:  frameHeight,
+					FrameHeight: frameHeight,
+				}
+				return
+			}
+		}
+
+		// Square 2x2 grid (4 frames)
+		if frameWidth == frameHeight && frameWidth%2 == 0 {
+			frameSize := frameWidth / 2
+			frames := make([]*ebiten.Image, 0, 4)
+			for row := 0; row < 2; row++ {
+				for col := 0; col < 2; col++ {
+					rect := image.Rect(
+						bounds.Min.X+col*frameSize,
+						bounds.Min.Y+row*frameSize,
+						bounds.Min.X+(col+1)*frameSize,
+						bounds.Min.Y+(row+1)*frameSize,
+					)
+					frameImg := subImager.SubImage(rect)
+					frames = append(frames, ebiten.NewImageFromImage(frameImg))
+				}
+			}
+
+			sm.animations[animationKey(name, animType)] = &SpriteAnimation{
+				Frames:      frames,
+				FrameWidth:  frameSize,
+				FrameHeight: frameSize,
+			}
+			return
+		}
+
+		return
+	}
 }

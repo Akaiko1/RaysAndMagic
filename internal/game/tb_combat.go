@@ -5,12 +5,17 @@ import (
 	"math"
 	"math/rand"
 	"ugataima/internal/character"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 )
 
 // updateMonstersTurnBased handles monster updates in turn-based mode
+// This function only executes ONCE per monster turn (when monsterTurnResolved is false)
 func (gl *GameLoop) updateMonstersTurnBased() {
 	if gl.game.currentTurn != 1 { // Not monster turn
+		return
+	}
+	if gl.game.monsterTurnResolved {
 		return
 	}
 
@@ -18,49 +23,54 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	tileSize := float64(gl.game.config.GetTileSize())
 	visionRange := tileSize * 6.0 // 6 tiles
 
+	// Cache player radius ONCE before the loop (was being looked up for each monster)
+	playerRadius := 8.0 // default if entity not found
+	if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
+		playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
+	}
+
+	// Cache player position for the loop
+	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
+
 	// Process each monster's turn (only those in vision range)
-	monstersActed := 0
-	for _, monster := range gl.game.world.Monsters {
-		if !monster.IsAlive() {
+	for _, m := range gl.game.world.Monsters {
+		if !m.IsAlive() {
 			continue
 		}
 
 		// Calculate distance to player
-		dist := Distance(gl.game.camera.X, gl.game.camera.Y, monster.X, monster.Y)
+		dist := Distance(playerX, playerY, m.X, m.Y)
 
-		// Skip monsters outside vision range - they don't participate in turn-based combat
-		if dist > visionRange {
+		// Skip monsters outside vision range unless they've been engaged by a hit
+		if dist > visionRange && !m.IsEngagingPlayer {
 			continue
 		}
 
-		// Monster can either move 1 tile OR attack if within reach
-		// Use collision radii and monster-specific attack radius for robust range checks
-		playerRadius := 8.0 // default if entity not found
-		if ent := gl.game.collisionSystem.GetEntityByID("player"); ent != nil && ent.BoundingBox != nil {
-			playerRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
-		}
-		monsterRadius := 16.0 // default if entity not found
-		if ent := gl.game.collisionSystem.GetEntityByID(monster.ID); ent != nil && ent.BoundingBox != nil {
+		// Get monster radius for attack range calculation
+		monsterRadius := 16.0 // default
+		if ent := gl.game.collisionSystem.GetEntityByID(m.ID); ent != nil && ent.BoundingBox != nil {
 			monsterRadius = math.Min(ent.BoundingBox.Width, ent.BoundingBox.Height) / 2
 		}
+
 		freeSpace := dist - (playerRadius + monsterRadius)
-		reach := monster.AttackRadius
+		reach := m.GetAttackRangePixels()
 		if reach <= 0 {
 			reach = tileSize * 0.25 // conservative fallback reach
 		}
 
-		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(monster, tileSize)
+		inPerpendicularPosition := gl.isMonsterPerpendicularToPlayer(m, tileSize)
 		canAttack := freeSpace <= reach
 		if canAttack && inPerpendicularPosition {
 			// Attack only from perpendicular positions (N/E/S/W)
-			gl.monsterAttackTurnBased(monster)
+			gl.monsterAttackTurnBased(m)
 		} else {
 			// Move 1 tile towards player using perpendicular steps
-			gl.monsterMoveTurnBased(monster)
+			gl.monsterMoveTurnBased(m)
 		}
-
-		monstersActed++
 	}
+
+	// Mark monster turn as processed before ending turn
+	gl.game.monsterTurnResolved = true
 
 	// Always end monster turn and start party turn
 	// Even if no monsters acted, we need to return control to the party
@@ -69,6 +79,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
+	const attackAnimFrames = 8
+	monster.AttackAnimFrames = attackAnimFrames
+	monster.LastMoveTick = gl.game.frameCount
+
 	if monster.HasRangedAttack() {
 		gl.game.combat.spawnMonsterRangedAttack(monster)
 		return
@@ -120,39 +134,42 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Move 1 tile in a perpendicular (cardinal) direction towards the player
 	stepX, stepY := 0, 0
 	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
-		stepX = sign(dxTiles)
+		stepX = mathutil.IntSign(dxTiles)
 	} else {
-		stepY = sign(dyTiles)
+		stepY = mathutil.IntSign(dyTiles)
 	}
 
 	newX := monster.X + float64(stepX)*tileSize
 	newY := monster.Y + float64(stepY)*tileSize
 
 	// Check if the monster can move to the new position
-	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs) {
+	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs, monster.Flying) {
 		monster.X = newX
 		monster.Y = newY
 		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
+		monster.LastMoveTick = gl.game.frameCount
 		return
 	}
 
 	// Try the other perpendicular direction if the preferred one is blocked
 	if stepX != 0 && dyTiles != 0 {
 		altX := monster.X
-		altY := monster.Y + float64(sign(dyTiles))*tileSize
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
+		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			monster.LastMoveTick = gl.game.frameCount
 			return
 		}
 	} else if stepY != 0 && dxTiles != 0 {
-		altX := monster.X + float64(sign(dxTiles))*tileSize
+		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
 		altY := monster.Y
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
+			monster.LastMoveTick = gl.game.frameCount
 			return
 		}
 	}
@@ -183,6 +200,7 @@ func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize 
 		m.X = bestX
 		m.Y = bestY
 		gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+		m.LastMoveTick = gl.game.frameCount
 	}
 	// If no valid position found, monster stays put (loses turn)
 }
@@ -192,7 +210,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
-		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {
 			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
 			if dist < bestDist {
 				bestDist = dist
@@ -210,20 +228,10 @@ func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, t
 	return monsterTileX == playerTileX || monsterTileY == playerTileY
 }
 
-func sign(val int) int {
-	switch {
-	case val > 0:
-		return 1
-	case val < 0:
-		return -1
-	default:
-		return 0
-	}
-}
-
 // endMonsterTurn ends the monster turn and starts party turn
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
+	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages
 }

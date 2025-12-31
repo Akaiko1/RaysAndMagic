@@ -10,8 +10,10 @@ import (
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
-	Gold       int `yaml:"gold"`
-	Experience int `yaml:"experience"`
+	Gold              int    `yaml:"gold"`
+	Experience        int    `yaml:"experience"`
+	CompletionMessage string `yaml:"completion_message"` // Configurable message shown when encounter is completed
+	QuestID           string `yaml:"-"`                  // Quest ID linked to this encounter (set at runtime, not from YAML)
 }
 
 // Global counter for unique monster IDs
@@ -31,6 +33,7 @@ type Monster3D struct {
 	HitPoints    int
 	MaxHitPoints int
 	ArmorClass   int
+	PerfectDodge int // Chance (0-100) to completely avoid an attack
 	Experience   int
 	ID           string // Unique identifier for collision tracking
 
@@ -52,12 +55,31 @@ type Monster3D struct {
 	LastChosenDir float64 // Last direction chosen by pathfinding
 	StuckCounter  int     // Counts consecutive frames where monster couldn't move
 	LastX, LastY  float64 // Position last frame to detect stuck state
+	LastMoveTick  int64   // Last game frame when the monster moved (for animations)
+
+	// Pursuit pathfinding state (tile-based A*)
+	PathTiles        []TileCoord
+	PathIndex        int
+	PathTargetTileX  int
+	PathTargetTileY  int
+	LastPathCalcTick int
+	pathScratch      pathScratch
+
+	// RT movement target selection for non-pursuit movement (patrol/flee)
+	MoveTargetTileX int
+	MoveTargetTileY int
+	MoveTargetState MonsterState
+	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY   float64 // Original spawn position
-	TetherRadius     float64 // Maximum distance from spawn point (default 3 tiles = 192 pixels)
-	IsEngagingPlayer bool    // True when actively pursuing/fighting player
-	WasAttacked      bool    // True when monster was hit - prevents disengagement
+	SpawnX, SpawnY    float64 // Original spawn position
+	TetherRadius      float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer  bool    // True when actively pursuing/fighting player
+	WasAttacked       bool    // True when monster was hit - prevents disengagement
+	HitTintFrames     int     // Frames remaining for red hit tint
+	AttackAnimFrames  int     // Frames remaining for attack animation (TB mode)
+	Flying            bool    // Whether the monster should be rendered above ground
+	RangedAttackRange float64 // Optional ranged attack range override (pixels)
 
 	// Loot
 	Gold  int
@@ -106,7 +128,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 		// Initialize tethering system
 		SpawnX:           x,
 		SpawnY:           y,
-		TetherRadius:     192.0, // 3 tiles * 64 pixels per tile
+		TetherRadius:     256.0, // 4 tiles * 64 pixels per tile
 		IsEngagingPlayer: false,
 	}
 
@@ -161,6 +183,45 @@ func (m *Monster3D) GetAttackDamage() int {
 
 func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
+}
+
+// GetAttackRangePixels returns the effective attack range in pixels.
+// For ranged monsters, this uses the projectile range from config when available.
+func (m *Monster3D) GetAttackRangePixels() float64 {
+	attackRange := m.AttackRadius
+	if !m.HasRangedAttack() || m.config == nil {
+		return attackRange
+	}
+
+	if m.RangedAttackRange > 0 {
+		return m.RangedAttackRange
+	}
+
+	tileSize := m.config.GetTileSize()
+
+	if m.ProjectileSpell != "" {
+		if physics, err := m.config.GetSpellConfig(m.ProjectileSpell); err == nil && physics != nil {
+			if physics.RangeTiles > 0 {
+				rangePixels := physics.RangeTiles * tileSize
+				if rangePixels > attackRange {
+					attackRange = rangePixels
+				}
+			}
+		}
+	}
+
+	if m.ProjectileWeapon != "" {
+		if def, exists := config.GetWeaponDefinition(m.ProjectileWeapon); exists && def.Physics != nil {
+			if def.Physics.RangeTiles > 0 {
+				rangePixels := def.Physics.RangeTiles * tileSize
+				if rangePixels > attackRange {
+					attackRange = rangePixels
+				}
+			}
+		}
+	}
+
+	return attackRange
 }
 
 func (m *Monster3D) GetSpriteType() string {

@@ -8,14 +8,18 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/threading"
+	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -56,16 +60,25 @@ type MeleeAttack struct {
 	Crit       bool   // Critical hit flag
 }
 
+type SlashEffectStyle int
+
+const (
+	SlashEffectStyleSlash SlashEffectStyle = iota
+	SlashEffectStyleThrust
+)
+
 // SlashEffect represents a visual slash animation for melee weapons
 type SlashEffect struct {
 	ID             string  // Unique identifier
 	X, Y           float64 // Center position
-	Angle          float64 // Direction of slash
+	Angle          float64 // Base direction of the effect
+	SweepAngle     float64 // Total sweep in radians for slashes
 	Width, Length  int     // Dimensions of slash
 	Color          [3]int  // RGB color
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	Active         bool
+	Style          SlashEffectStyle
 }
 
 type Arrow struct {
@@ -80,6 +93,53 @@ type Arrow struct {
 	Crit       bool   // Critical hit flag
 	Owner      ProjectileOwner
 	SourceName string
+}
+
+// ArrowHitParticle represents a small particle burst for arrow impacts
+type ArrowHitParticle struct {
+	X, Y       float64
+	OffsetX    float64
+	OffsetY    float64
+	VelX, VelY float64
+	LifeTime   int
+	MaxLife    int
+	Size       int
+	Active     bool
+	Color      [3]int
+}
+
+// ArrowHitEffect represents a short particle burst on arrow impact
+type ArrowHitEffect struct {
+	Particles []ArrowHitParticle
+	Active    bool
+}
+
+// SpellHitParticle represents a single particle from a spell impact
+type SpellHitParticle struct {
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity (outward from impact)
+	Color      [3]int  // RGB color based on element
+	LifeTime   int     // Frames remaining
+	MaxLife    int     // Initial lifetime for alpha calculation
+	Size       int     // Particle size (shrinks over time)
+	Active     bool
+}
+
+// SpellHitEffect represents a burst of particles from a spell impact
+type SpellHitEffect struct {
+	Particles []SpellHitParticle
+	Active    bool
+}
+
+// ElementColors maps spell elements to RGB colors
+var ElementColors = map[string][3]int{
+	"fire":     {255, 100, 0},   // Orange-red
+	"water":    {0, 150, 255},   // Blue
+	"air":      {200, 200, 255}, // Light blue-white
+	"earth":    {139, 90, 43},   // Brown
+	"light":    {255, 255, 200}, // Warm white
+	"dark":     {80, 0, 120},    // Purple
+	"physical": {200, 200, 200}, // Gray
 }
 
 type MMGame struct {
@@ -98,6 +158,7 @@ type MMGame struct {
 	// Unique ID generation
 	nextProjectileID int64
 	selectedChar     int
+	frameCount       int64
 
 	// Tabbed menu system
 	menuOpen          bool
@@ -142,6 +203,9 @@ type MMGame struct {
 	// Utility spell status icons (data-driven)
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
+	arrowHitEffects      []ArrowHitEffect
+	spellHitEffects      []SpellHitEffect
+	hitEffectsMu         sync.Mutex
 
 	// Map overlay UI state
 	mapOverlayOpen bool
@@ -160,8 +224,9 @@ type MMGame struct {
 	walkOnWaterDuration int  // Remaining duration in frames
 
 	// Bless effect
-	blessActive   bool // Whether bless is currently active
-	blessDuration int  // Remaining duration in frames
+	blessActive    bool // Whether bless is currently active
+	blessDuration  int  // Remaining duration in frames
+	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -210,6 +275,15 @@ type MMGame struct {
 	gameLoop        *GameLoop
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
+	questManager    *quests.QuestManager
+
+	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
+	reusableMonsterWrappers     []entities.MonsterUpdateInterface
+	reusableProjectileWrappers  []entities.ProjectileUpdateInterface
+	reusableEncounterRewardsMap map[*monster.EncounterRewards]int
+
+	// Dead monster IDs to remove - populated when monster dies, processed once per frame
+	deadMonsterIDs []string
 	// Stat distribution popup UI state
 	statPopupOpen    bool // Is the stat distribution popup open?
 	statPopupCharIdx int  // Which character is being edited in the popup?
@@ -220,6 +294,8 @@ type MMGame struct {
 	partyActionsUsed      int  // Actions used this turn (0-2)
 	turnBasedMoveCooldown int  // Movement cooldown in frames (18 FPS = 0.3 second)
 	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
+	monsterTurnResolved   bool // Whether monster turn already processed this round
+	turnBasedSpRegenCount int  // Counter for turn-based SP regeneration (every 5 turns)
 
 	// Main menu (ESC)
 	mainMenuOpen      bool
@@ -230,6 +306,16 @@ type MMGame struct {
 
 	// Game over state
 	gameOver bool
+
+	// Victory state
+	gameVictory      bool
+	victoryTime      time.Time
+	sessionStartTime time.Time
+
+	// High scores state
+	showHighScores    bool
+	victoryNameInput  string
+	victoryScoreSaved bool
 }
 
 type GameState int
@@ -255,6 +341,7 @@ const (
 	TabInventory MenuTab = iota
 	TabCharacters
 	TabSpellbook
+	TabQuests
 )
 
 type FirstPersonCamera struct {
@@ -310,6 +397,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		meleeAttacks:     make([]MeleeAttack, 0),
 		arrows:           make([]Arrow, 0),
 		slashEffects:     make([]SlashEffect, 0),
+		arrowHitEffects:  make([]ArrowHitEffect, 0),
+		spellHitEffects:  make([]SpellHitEffect, 0),
 
 		// Tabbed menu system
 		menuOpen:   false,
@@ -342,6 +431,15 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		// Initialize depth buffer for proper 3D rendering
 		depthBuffer: make([]float64, cfg.GetScreenWidth()),
+
+		// Pre-allocate reusable slices to reduce GC pressure
+		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
+		reusableProjectileWrappers:  make([]entities.ProjectileUpdateInterface, 0, 64),
+		reusableEncounterRewardsMap: make(map[*monster.EncounterRewards]int),
+		deadMonsterIDs:              make([]string, 0, 16),
+
+		// Session timer for score calculation
+		sessionStartTime: time.Now(),
 	}
 
 	// Initialize rendering helper
@@ -360,6 +458,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
 	game.gameLoop = NewGameLoop(game)
+
+	// Connect global quest manager
+	game.questManager = quests.GlobalQuestManager
 
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
@@ -436,8 +537,7 @@ func (g *MMGame) FindNearestWalkableTileMustSucceed(targetX, targetY float64) (f
 		for x := 0; x < worldInst.Width; x++ {
 			tile := worldInst.Tiles[y][x]
 			if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
-				safeX := float64(x)*tileSize + tileSize/2
-				safeY := float64(y)*tileSize + tileSize/2
+				safeX, safeY := TileCenterFromTile(x, y, tileSize)
 				fmt.Printf("Emergency fallback: Found walkable tile at (%.1f, %.1f)\n", safeX, safeY)
 				return safeX, safeY
 			}
@@ -465,7 +565,7 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 		for dx := -radius; dx <= radius; dx++ {
 			for dy := -radius; dy <= radius; dy++ {
 				// Only check perimeter of current radius
-				if abs(dx) != radius && abs(dy) != radius {
+				if mathutil.IntAbs(dx) != radius && mathutil.IntAbs(dy) != radius {
 					continue
 				}
 
@@ -482,8 +582,7 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 				// Check if tile is walkable using the global tile manager
 				if world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile) {
 					// Convert back to world coordinates
-					safeX := float64(checkX)*tileSize + tileSize/2
-					safeY := float64(checkY)*tileSize + tileSize/2
+					safeX, safeY := TileCenterFromTile(checkX, checkY, tileSize)
 					return safeX, safeY
 				}
 			}
@@ -492,14 +591,6 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 
 	// No walkable tile found within radius
 	return -1, -1
-}
-
-// abs returns absolute value of an integer (DRY helper)
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
@@ -535,6 +626,7 @@ func (g *MMGame) Update() error {
 		return err
 	}
 	g.checkGameOver()
+	g.checkVictory()
 	return nil
 }
 
@@ -566,6 +658,21 @@ func (g *MMGame) checkGameOver() {
 	}
 	if allDown {
 		g.gameOver = true
+	}
+}
+
+// checkVictory checks if the dragon_slayer quest is completed
+func (g *MMGame) checkVictory() {
+	if g.gameVictory || g.gameOver {
+		return
+	}
+	if g.questManager == nil {
+		return
+	}
+	quest := g.questManager.GetQuest("dragon_slayer")
+	if quest != nil && quest.Status == quests.QuestStatusCompleted {
+		g.gameVictory = true
+		g.victoryTime = time.Now()
 	}
 }
 
@@ -638,6 +745,18 @@ func (g *MMGame) UpdateDamageBlinkTimers() {
 	}
 }
 
+// UpdateMonsterHitTintTimers decrements hit tint timers for monsters each frame
+func (g *MMGame) UpdateMonsterHitTintTimers() {
+	for _, m := range g.world.Monsters {
+		if m.HitTintFrames > 0 {
+			m.HitTintFrames--
+		}
+		if m.AttackAnimFrames > 0 {
+			m.AttackAnimFrames--
+		}
+	}
+}
+
 // IsCharacterBlinking returns true if a character should be rendered with red tint
 func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
 	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
@@ -677,6 +796,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.partyActionsUsed = 0
 		g.turnBasedMoveCooldown = 0
 		g.turnBasedRotCooldown = 0
+		g.monsterTurnResolved = false
 		g.AddCombatMessage("Turn-based mode activated!")
 	} else {
 		g.AddCombatMessage("Real-time mode activated!")
@@ -692,8 +812,7 @@ func (g *MMGame) snapToTileCenter() {
 	currentTileY := int(g.camera.Y / tileSize)
 
 	// Calculate exact center of current tile
-	centerX := float64(currentTileX)*tileSize + tileSize/2
-	centerY := float64(currentTileY)*tileSize + tileSize/2
+	centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 
 	// Snap to center
 	g.camera.X = centerX
@@ -762,8 +881,7 @@ func (g *MMGame) snapMonstersToTileCenters() {
 		currentTileY := int(monster.Y / tileSize)
 
 		// Calculate exact center of current tile
-		centerX := float64(currentTileX)*tileSize + tileSize/2
-		centerY := float64(currentTileY)*tileSize + tileSize/2
+		centerX, centerY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
 
 		// Snap monster to center
 		monster.X = centerX
@@ -802,7 +920,6 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 type MonsterWrapper struct {
 	Monster         *monster.Monster3D
 	collisionSystem *collision.CollisionSystem
-	monsterID       string
 	game            *MMGame // Added to access camera position for tethering system
 }
 
@@ -814,7 +931,7 @@ func (mw *MonsterWrapper) Update() {
 	playerY := mw.game.camera.Y
 
 	// Use collision-aware update with player position for tethering
-	mw.Monster.Update(mw.collisionSystem, mw.monsterID, playerX, playerY)
+	mw.Monster.Update(mw.collisionSystem, playerX, playerY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
@@ -830,7 +947,7 @@ func (mw *MonsterWrapper) Update() {
 				fmt.Printf(
 					"[MONDBG] name=%q id=%s state=%d timer=%d engaging=%v withinTether=%v pos=(%.1f,%.1f) old=(%.1f,%.1f) spawn=(%.1f,%.1f) tether=%.1f player=(%.1f,%.1f)\n",
 					mw.Monster.Name,
-					mw.monsterID,
+					mw.Monster.ID,
 					mw.Monster.State,
 					mw.Monster.StateTimer,
 					mw.Monster.IsEngagingPlayer,
@@ -850,8 +967,8 @@ func (mw *MonsterWrapper) Update() {
 				if mw.collisionSystem != nil && (mw.Monster.State == monster.StateIdle || mw.Monster.State == monster.StatePatrolling) {
 					if oldX == newX && oldY == newY {
 						const tileSize = 64.0
-						centerX := math.Floor(newX/tileSize)*tileSize + tileSize/2
-						centerY := math.Floor(newY/tileSize)*tileSize + tileSize/2
+						centerX := TileCenter(newX, tileSize)
+						centerY := TileCenter(newY, tileSize)
 
 						fmt.Printf("[MONDBG] center=(%.1f,%.1f) last=(%.1f,%.1f) stuck=%d lastChosenDir=%.3f\n",
 							centerX, centerY,
@@ -874,7 +991,7 @@ func (mw *MonsterWrapper) Update() {
 						for _, t := range targets {
 							x := centerX + t.dx
 							y := centerY + t.dy
-							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.monsterID, x, y)
+							ok, reason := mw.collisionSystem.DebugCanMoveTo(mw.Monster.ID, x, y)
 							fmt.Printf("[MONDBG] step %s -> (%.1f,%.1f) ok=%v reason=%s withinTether=%v\n",
 								t.label,
 								x,
@@ -893,7 +1010,7 @@ func (mw *MonsterWrapper) Update() {
 	// Update collision system if position changed
 	if oldX != newX || oldY != newY {
 		if mw.collisionSystem != nil {
-			mw.collisionSystem.UpdateEntity(mw.monsterID, newX, newY)
+			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
 		}
 	}
 }
@@ -911,7 +1028,7 @@ func (mw *MonsterWrapper) SetPosition(x, y float64) {
 	mw.Monster.Y = y
 	// Update collision system position
 	if mw.collisionSystem != nil {
-		mw.collisionSystem.UpdateEntity(mw.monsterID, x, y)
+		mw.collisionSystem.UpdateEntity(mw.Monster.ID, x, y)
 	}
 }
 
@@ -920,6 +1037,7 @@ type MagicProjectileWrapper struct {
 	MagicProjectile *MagicProjectile
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (mpw *MagicProjectileWrapper) Update() {
@@ -955,11 +1073,24 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 	mpw.MagicProjectile.VelY = vy
 }
 
+func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
+	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
+		return
+	}
+	mpw.MagicProjectile.Active = false
+	if mpw.game == nil {
+		return
+	}
+
+	mpw.game.CreateSpellHitEffectFromSpell(hitX, hitY, mpw.MagicProjectile.SpellType)
+}
+
 // ArrowWrapper implements entities.ProjectileUpdateInterface
 type ArrowWrapper struct {
 	Arrow           *Arrow
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (aw *ArrowWrapper) Update() {
@@ -995,6 +1126,17 @@ func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
 	aw.Arrow.VelY = vy
 }
 
+func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
+	if aw.Arrow == nil || !aw.Arrow.Active {
+		return
+	}
+	aw.Arrow.Active = false
+	if aw.game == nil {
+		return
+	}
+	aw.game.CreateArrowHitEffect(hitX, hitY, aw.Arrow.VelX, aw.Arrow.VelY)
+}
+
 func (aw *ArrowWrapper) GetLifetime() int {
 	return aw.Arrow.LifeTime
 }
@@ -1016,6 +1158,7 @@ type MeleeAttackWrapper struct {
 	MeleeAttack     *MeleeAttack
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (mw *MeleeAttackWrapper) Update() {
@@ -1049,6 +1192,13 @@ func (mw *MeleeAttackWrapper) GetVelocity() (float64, float64) {
 func (mw *MeleeAttackWrapper) SetVelocity(vx, vy float64) {
 	mw.MeleeAttack.VelX = vx
 	mw.MeleeAttack.VelY = vy
+}
+
+func (mw *MeleeAttackWrapper) OnCollision(hitX, hitY float64) {
+	if mw.MeleeAttack == nil {
+		return
+	}
+	mw.MeleeAttack.Active = false
 }
 
 func (mw *MeleeAttackWrapper) GetLifetime() int {

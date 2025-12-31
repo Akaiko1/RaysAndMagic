@@ -11,29 +11,32 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Name             string            `yaml:"name"`
-	Level            int               `yaml:"level"`
-	MaxHitPoints     int               `yaml:"max_hit_points"`
-	ArmorClass       int               `yaml:"armor_class"`
-	Experience       int               `yaml:"experience"`
-	AttackBonus      int               `yaml:"attack_bonus"`
-	DamageMin        int               `yaml:"damage_min"`
-	DamageMax        int               `yaml:"damage_max"`
-	AlertRadius      float64           `yaml:"alert_radius"`
-	AttackRadius     float64           `yaml:"attack_radius"`
-	Speed            float64           `yaml:"speed"`
-	GoldMin          int               `yaml:"gold_min"`
-	GoldMax          int               `yaml:"gold_max"`
-	Sprite           string            `yaml:"sprite"`
-	Letter           string            `yaml:"letter"`
-	BoxW             float64           `yaml:"box_w"`
-	BoxH             float64           `yaml:"box_h"`
-	SizeGame         float64           `yaml:"size_game"`
-	Resistances      map[string]int    `yaml:"resistances"`
-	HabitatPrefs     []string          `yaml:"habitat_preferences"`
-	HabitatNear      []HabitatNearRule `yaml:"habitat_near"`
-	ProjectileSpell  string            `yaml:"projectile_spell"`
-	ProjectileWeapon string            `yaml:"projectile_weapon"`
+	Name              string            `yaml:"name"`
+	Level             int               `yaml:"level"`
+	MaxHitPoints      int               `yaml:"max_hit_points"`
+	ArmorClass        int               `yaml:"armor_class"`
+	PerfectDodge      int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
+	Experience        int               `yaml:"experience"`
+	AttackBonus       int               `yaml:"attack_bonus"`
+	DamageMin         int               `yaml:"damage_min"`
+	DamageMax         int               `yaml:"damage_max"`
+	AlertRadius       float64           `yaml:"alert_radius"`
+	AttackRadius      float64           `yaml:"attack_radius"`
+	Speed             float64           `yaml:"speed"`
+	GoldMin           int               `yaml:"gold_min"`
+	GoldMax           int               `yaml:"gold_max"`
+	Sprite            string            `yaml:"sprite"`
+	Letter            string            `yaml:"letter"`
+	BoxW              float64           `yaml:"box_w"`
+	BoxH              float64           `yaml:"box_h"`
+	SizeGame          float64           `yaml:"size_game"`
+	Resistances       map[string]int    `yaml:"resistances"`
+	HabitatPrefs      []string          `yaml:"habitat_preferences"`
+	HabitatNear       []HabitatNearRule `yaml:"habitat_near"`
+	ProjectileSpell   string            `yaml:"projectile_spell"`
+	ProjectileWeapon  string            `yaml:"projectile_weapon"`
+	Flying            bool              `yaml:"flying"`
+	RangedAttackRange float64           `yaml:"ranged_attack_range"`
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -42,28 +45,9 @@ type HabitatNearRule struct {
 	Radius int    `yaml:"radius"`
 }
 
-// MonsterPlacementConfig holds monster placement configuration
-type MonsterPlacementConfig struct {
-	Common  PlacementRules `yaml:"common"`
-	Special SpecialRules   `yaml:"special"`
-}
-
-type PlacementRules struct {
-	CountMin int `yaml:"count_min"`
-	CountMax int `yaml:"count_max"`
-}
-
-type SpecialRules struct {
-	TreantChance  float64 `yaml:"treant_chance"`
-	PixieCountMax int     `yaml:"pixie_count_max"`
-	DragonChance  float64 `yaml:"dragon_chance"`
-	TrollChance   float64 `yaml:"troll_chance"`
-}
-
 // MonsterYAMLConfig holds the complete monster configuration from YAML
 type MonsterYAMLConfig struct {
 	Monsters    map[string]MonsterDefinition `yaml:"monsters"`
-	Placement   MonsterPlacementConfig       `yaml:"placement"`
 	DamageTypes map[string]int               `yaml:"damage_types"`
 	TileTypes   map[string]int               `yaml:"tile_types"`
 }
@@ -192,6 +176,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Level = def.Level
 	m.MaxHitPoints = def.MaxHitPoints
 	m.ArmorClass = def.ArmorClass
+	m.PerfectDodge = def.PerfectDodge
 	m.Experience = def.Experience
 	m.AttackBonus = def.AttackBonus
 	m.DamageMin = def.DamageMin
@@ -223,20 +208,15 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	// Set ranged attack configuration
 	m.ProjectileSpell = def.ProjectileSpell
 	m.ProjectileWeapon = def.ProjectileWeapon
+	m.Flying = def.Flying
+	if def.RangedAttackRange > 0 {
+		m.RangedAttackRange = def.RangedAttackRange * 64.0
+	}
 }
 
 // GetSpriteFromConfig returns sprite type from config
 func (def *MonsterDefinition) GetSpriteFromConfig() string {
 	return def.Sprite
-}
-
-// GetRandomMonsterKey returns a random monster key from the configuration
-func (c *MonsterYAMLConfig) GetRandomMonsterKey() string {
-	keys := c.GetAllMonsterKeys()
-	if len(keys) == 0 {
-		return "goblin" // fallback
-	}
-	return keys[rand.Intn(len(keys))]
 }
 
 // GetSizeFromConfig returns collision box width and height from config

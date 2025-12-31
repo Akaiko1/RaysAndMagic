@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -28,15 +29,52 @@ var mainMenuOptions = []string{"Continue", "Save", "Load", "Exit"}
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	MapKey      string        `json:"map_key"`
-	PlayerX     float64       `json:"player_x"`
-	PlayerY     float64       `json:"player_y"`
-	PlayerAngle float64       `json:"player_angle"`
-	TurnBased   bool          `json:"turn_based"`
-	SavedAt     string        `json:"saved_at"`
-	Party       PartySave     `json:"party"`
-	Monsters    []MonsterSave `json:"monsters"`
-	NPCStates   []NPCSave     `json:"npc_states"`
+	MapKey       string                   `json:"map_key"`
+	PlayerX      float64                  `json:"player_x"`
+	PlayerY      float64                  `json:"player_y"`
+	PlayerAngle  float64                  `json:"player_angle"`
+	TurnBased    bool                     `json:"turn_based"`
+	SavedAt      string                   `json:"saved_at"`
+	Party        PartySave                `json:"party"`
+	Monsters     []MonsterSave            `json:"monsters"`
+	MapMonsters  map[string][]MonsterSave `json:"map_monsters,omitempty"`
+	NPCStates    []NPCSave                `json:"npc_states"`
+	Quests       []QuestSave              `json:"quests,omitempty"`
+	PlayedTimeNs int64                    `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+
+	// Turn-based state
+	CurrentTurn           int  `json:"current_turn,omitempty"`
+	PartyActionsUsed      int  `json:"party_actions_used,omitempty"`
+	TurnBasedMoveCooldown int  `json:"turn_based_move_cooldown,omitempty"`
+	TurnBasedRotCooldown  int  `json:"turn_based_rot_cooldown,omitempty"`
+	MonsterTurnResolved   bool `json:"monster_turn_resolved,omitempty"`
+	TurnBasedSpRegenCount int  `json:"turn_based_sp_regen_count,omitempty"`
+
+	// Utility/buff state
+	TorchLightActive       bool    `json:"torch_light_active,omitempty"`
+	TorchLightDuration     int     `json:"torch_light_duration,omitempty"`
+	TorchLightRadius       float64 `json:"torch_light_radius,omitempty"`
+	WizardEyeActive        bool    `json:"wizard_eye_active,omitempty"`
+	WizardEyeDuration      int     `json:"wizard_eye_duration,omitempty"`
+	WalkOnWaterActive      bool    `json:"walk_on_water_active,omitempty"`
+	WalkOnWaterDuration    int     `json:"walk_on_water_duration,omitempty"`
+	BlessActive            bool    `json:"bless_active,omitempty"`
+	BlessDuration          int     `json:"bless_duration,omitempty"`
+	BlessStatBonus         int     `json:"bless_stat_bonus,omitempty"`
+	WaterBreathingActive   bool    `json:"water_breathing_active,omitempty"`
+	WaterBreathingDuration int     `json:"water_breathing_duration,omitempty"`
+	UnderwaterReturnX      float64 `json:"underwater_return_x,omitempty"`
+	UnderwaterReturnY      float64 `json:"underwater_return_y,omitempty"`
+	UnderwaterReturnMap    string  `json:"underwater_return_map,omitempty"`
+	StatBonus              int     `json:"stat_bonus,omitempty"`
+}
+
+// QuestSave captures quest progress for save/load
+type QuestSave struct {
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	CurrentCount   int    `json:"current_count"`
+	RewardsClaimed bool   `json:"rewards_claimed"`
 }
 
 type PartySave struct {
@@ -88,11 +126,21 @@ type EquipmentEntry struct {
 }
 
 type MonsterSave struct {
-	Key       string  `json:"key"`
-	Name      string  `json:"name"`
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
-	HitPoints int     `json:"hit_points"`
+	Key                string               `json:"key"`
+	Name               string               `json:"name"`
+	X                  float64              `json:"x"`
+	Y                  float64              `json:"y"`
+	HitPoints          int                  `json:"hit_points"`
+	IsEncounterMonster bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID        int                  `json:"encounter_id,omitempty"`
+	EncounterRewards   *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+}
+
+type EncounterRewardSave struct {
+	Gold              int    `json:"gold"`
+	Experience        int    `json:"experience"`
+	CompletionMessage string `json:"completion_message,omitempty"`
+	QuestID           string `json:"quest_id,omitempty"`
 }
 
 // NPCSave tracks persistent NPC flags across maps
@@ -218,13 +266,47 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		ps.Members = append(ps.Members, cs)
 	}
 
-	// Monsters
+	// Monsters (all loaded maps + current map fallback for legacy saves)
 	var ms []MonsterSave
-	if g.world != nil {
-		for _, mon := range g.world.Monsters {
+	mapMonsters := make(map[string][]MonsterSave)
+	encounterIDs := make(map[*monster.EncounterRewards]int)
+	nextEncounterID := 1
+	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
+		monsters := make([]MonsterSave, 0, len(w.Monsters))
+		for _, mon := range w.Monsters {
 			key := findMonsterKeyByName(mon.Name)
-			ms = append(ms, MonsterSave{Key: key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints})
+			saveEntry := MonsterSave{Key: key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints}
+			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
+				saveEntry.IsEncounterMonster = true
+				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
+					saveEntry.EncounterID = id
+				} else {
+					encounterIDs[mon.EncounterRewards] = nextEncounterID
+					saveEntry.EncounterID = nextEncounterID
+					nextEncounterID++
+				}
+				rewards := mon.EncounterRewards
+				saveEntry.EncounterRewards = &EncounterRewardSave{
+					Gold:              rewards.Gold,
+					Experience:        rewards.Experience,
+					CompletionMessage: rewards.CompletionMessage,
+					QuestID:           rewards.QuestID,
+				}
+			}
+			monsters = append(monsters, saveEntry)
 		}
+		return monsters
+	}
+	if wm != nil {
+		for mapKey, w := range wm.LoadedMaps {
+			monsters := buildMonsterSaves(w)
+			mapMonsters[mapKey] = monsters
+			if mapKey == wm.CurrentMapKey {
+				ms = monsters
+			}
+		}
+	} else if g.world != nil {
+		ms = buildMonsterSaves(g.world)
 	}
 
 	// NPC states across all loaded maps
@@ -237,16 +319,57 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 	}
 
+	// Quest progress (save all quests, not just active)
+	var questSaves []QuestSave
+	if g.questManager != nil {
+		for _, quest := range g.questManager.GetAllQuests() {
+			questSaves = append(questSaves, QuestSave{
+				ID:             quest.ID,
+				Status:         string(quest.Status),
+				CurrentCount:   quest.CurrentCount,
+				RewardsClaimed: quest.RewardsClaimed,
+			})
+		}
+	}
+
+	// Calculate played time
+	playedTime := time.Since(g.sessionStartTime)
+
 	return GameSave{
-		MapKey:      wm.CurrentMapKey,
-		PlayerX:     g.camera.X,
-		PlayerY:     g.camera.Y,
-		PlayerAngle: g.camera.Angle,
-		TurnBased:   g.turnBasedMode,
-		SavedAt:     time.Now().Format(time.RFC3339),
-		Party:       ps,
-		Monsters:    ms,
-		NPCStates:   nstates,
+		MapKey:                 wm.CurrentMapKey,
+		PlayerX:                g.camera.X,
+		PlayerY:                g.camera.Y,
+		PlayerAngle:            g.camera.Angle,
+		TurnBased:              g.turnBasedMode,
+		SavedAt:                time.Now().Format(time.RFC3339),
+		Party:                  ps,
+		Monsters:               ms,
+		MapMonsters:            mapMonsters,
+		NPCStates:              nstates,
+		Quests:                 questSaves,
+		PlayedTimeNs:           playedTime.Nanoseconds(),
+		CurrentTurn:            g.currentTurn,
+		PartyActionsUsed:       g.partyActionsUsed,
+		TurnBasedMoveCooldown:  g.turnBasedMoveCooldown,
+		TurnBasedRotCooldown:   g.turnBasedRotCooldown,
+		MonsterTurnResolved:    g.monsterTurnResolved,
+		TurnBasedSpRegenCount:  g.turnBasedSpRegenCount,
+		TorchLightActive:       g.torchLightActive,
+		TorchLightDuration:     g.torchLightDuration,
+		TorchLightRadius:       g.torchLightRadius,
+		WizardEyeActive:        g.wizardEyeActive,
+		WizardEyeDuration:      g.wizardEyeDuration,
+		WalkOnWaterActive:      g.walkOnWaterActive,
+		WalkOnWaterDuration:    g.walkOnWaterDuration,
+		BlessActive:            g.blessActive,
+		BlessDuration:          g.blessDuration,
+		BlessStatBonus:         g.blessStatBonus,
+		WaterBreathingActive:   g.waterBreathingActive,
+		WaterBreathingDuration: g.waterBreathingDuration,
+		UnderwaterReturnX:      g.underwaterReturnX,
+		UnderwaterReturnY:      g.underwaterReturnY,
+		UnderwaterReturnMap:    g.underwaterReturnMap,
+		StatBonus:              g.statBonus,
 	}
 }
 
@@ -323,25 +446,67 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.party.Members = append(g.party.Members, m)
 	}
 
-	// Restore monsters
-	if g.world != nil {
-		g.world.Monsters = make([]*monster.Monster3D, 0, len(save.Monsters))
-		for _, ms := range save.Monsters {
-			key := ms.Key
-			if key == "" {
-				key = findMonsterKeyByName(ms.Name)
+	// Restore monsters (all loaded maps)
+	if wm != nil {
+		rewardsCache := make(map[int]*monster.EncounterRewards)
+		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
+			w.Monsters = make([]*monster.Monster3D, 0, len(monsters))
+			for _, ms := range monsters {
+				key := ms.Key
+				if key == "" {
+					key = findMonsterKeyByName(ms.Name)
+				}
+				if key == "" {
+					continue
+				}
+				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
+				m.HitPoints = ms.HitPoints
+				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
+					m.IsEncounterMonster = true
+					if ms.EncounterID > 0 {
+						if rewards, ok := rewardsCache[ms.EncounterID]; ok {
+							m.EncounterRewards = rewards
+						} else {
+							rewards = &monster.EncounterRewards{
+								Gold:              ms.EncounterRewards.Gold,
+								Experience:        ms.EncounterRewards.Experience,
+								CompletionMessage: ms.EncounterRewards.CompletionMessage,
+								QuestID:           ms.EncounterRewards.QuestID,
+							}
+							rewardsCache[ms.EncounterID] = rewards
+							m.EncounterRewards = rewards
+						}
+					} else {
+						m.EncounterRewards = &monster.EncounterRewards{
+							Gold:              ms.EncounterRewards.Gold,
+							Experience:        ms.EncounterRewards.Experience,
+							CompletionMessage: ms.EncounterRewards.CompletionMessage,
+							QuestID:           ms.EncounterRewards.QuestID,
+						}
+					}
+				}
+				w.Monsters = append(w.Monsters, m)
 			}
-			if key == "" {
-				continue
-			}
-			m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
-			m.HitPoints = ms.HitPoints
-			g.world.Monsters = append(g.world.Monsters, m)
 		}
-		// Re-register with collision system
-		g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
-		g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-		g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+
+		if len(save.MapMonsters) > 0 {
+			for mapKey, w := range wm.LoadedMaps {
+				monsters, ok := save.MapMonsters[mapKey]
+				if !ok {
+					continue
+				}
+				restoreMonsters(w, monsters)
+			}
+		} else if g.world != nil {
+			restoreMonsters(g.world, save.Monsters)
+		}
+
+		// Re-register current map monsters with collision system
+		if g.world != nil {
+			g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
+			g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
+			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+		}
 	}
 
 	// Restore NPC visited flags across maps
@@ -359,6 +524,57 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	// Restore mode
 	g.turnBasedMode = save.TurnBased
+	g.currentTurn = save.CurrentTurn
+	g.partyActionsUsed = save.PartyActionsUsed
+	g.turnBasedMoveCooldown = save.TurnBasedMoveCooldown
+	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
+	g.monsterTurnResolved = save.MonsterTurnResolved
+	g.turnBasedSpRegenCount = save.TurnBasedSpRegenCount
+
+	// Restore utility/buff state
+	g.torchLightActive = save.TorchLightActive
+	g.torchLightDuration = save.TorchLightDuration
+	g.torchLightRadius = save.TorchLightRadius
+	if g.torchLightActive && g.torchLightRadius == 0 {
+		g.torchLightRadius = 4.0
+	}
+	g.wizardEyeActive = save.WizardEyeActive
+	g.wizardEyeDuration = save.WizardEyeDuration
+	g.walkOnWaterActive = save.WalkOnWaterActive
+	g.walkOnWaterDuration = save.WalkOnWaterDuration
+	g.blessActive = save.BlessActive
+	g.blessDuration = save.BlessDuration
+	g.blessStatBonus = save.BlessStatBonus
+	g.waterBreathingActive = save.WaterBreathingActive
+	g.waterBreathingDuration = save.WaterBreathingDuration
+	g.underwaterReturnX = save.UnderwaterReturnX
+	g.underwaterReturnY = save.UnderwaterReturnY
+	g.underwaterReturnMap = save.UnderwaterReturnMap
+	g.statBonus = save.StatBonus
+
+	if g.world != nil {
+		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
+		g.world.SetWaterBreathingActive(g.waterBreathingActive)
+	}
+
+	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
+	g.updateUtilityStatus(spells.SpellID("torch_light"), g.torchLightDuration, g.torchLightActive)
+	g.updateUtilityStatus(spells.SpellID("wizard_eye"), g.wizardEyeDuration, g.wizardEyeActive)
+	g.updateUtilityStatus(spells.SpellID("walk_on_water"), g.walkOnWaterDuration, g.walkOnWaterActive)
+	g.updateUtilityStatus(spells.SpellID("bless"), g.blessDuration, g.blessActive)
+	g.updateUtilityStatus(spells.SpellID("water_breathing"), g.waterBreathingDuration, g.waterBreathingActive)
+
+	// Restore quest progress
+	if g.questManager != nil && len(save.Quests) > 0 {
+		for _, qs := range save.Quests {
+			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
+		}
+	}
+
+	// Restore played time by adjusting session start
+	if save.PlayedTimeNs > 0 {
+		g.sessionStartTime = time.Now().Add(-time.Duration(save.PlayedTimeNs))
+	}
 
 	return nil
 }

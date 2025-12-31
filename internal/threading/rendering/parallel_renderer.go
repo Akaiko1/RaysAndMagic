@@ -2,6 +2,7 @@ package rendering
 
 import (
 	"sync"
+	"ugataima/internal/mathutil"
 	"ugataima/internal/threading/core"
 )
 
@@ -34,7 +35,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, flo
 	// For 60 FPS, use direct goroutines for smaller workloads, worker pool for larger
 	if numRays <= 64 {
 		// Small workload: use direct goroutines (faster than worker pool overhead)
-		numWorkers := min(numRays, pr.workerPool.GetNumWorkers())
+		numWorkers := mathutil.IntMin(numRays, pr.workerPool.GetNumWorkers())
 		raysPerWorker := numRays / numWorkers
 		var wg sync.WaitGroup
 
@@ -62,7 +63,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, flo
 	} else {
 		// Large workload: use worker pool with optimal batching
 		numWorkers := pr.workerPool.GetNumWorkers()
-		batchSize := max(8, numRays/numWorkers) // Larger batches for efficiency
+		batchSize := mathutil.IntMax(8, numRays/numWorkers) // Larger batches for efficiency
 		if batchSize > 32 {
 			batchSize = 32 // Cap batch size
 		}
@@ -71,7 +72,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, flo
 
 		for i := 0; i < numRays; i += batchSize {
 			start := i
-			end := min(i+batchSize, numRays)
+			end := mathutil.IntMin(i+batchSize, numRays)
 
 			wg.Add(1)
 			pr.workerPool.Submit(func() {
@@ -95,19 +96,4 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, flo
 // Stop shuts down the parallel renderer
 func (pr *ParallelRenderer) Stop() {
 	pr.workerPool.Stop()
-}
-
-// Helper functions
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

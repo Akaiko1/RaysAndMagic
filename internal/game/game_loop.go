@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -38,6 +39,8 @@ func NewGameLoop(game *MMGame) *GameLoop {
 func (gl *GameLoop) Update() error {
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
+
+	gl.game.frameCount++
 
 	// Handle exit request from main menu
 	if gl.game.exitRequested {
@@ -76,19 +79,33 @@ func (gl *GameLoop) updateExploration() {
 		})
 	}
 
+	// Update monster hit tint timers
+	gl.game.UpdateMonsterHitTintTimers()
+
 	// Handle combat interactions (only in real-time mode)
 	if !gl.game.turnBasedMode {
 		gl.combat.HandleMonsterInteractions()
 	}
 
-	// Update projectiles in parallel
-	gl.updateProjectilesParallel()
+	// Update projectiles - skip if no active projectiles to save CPU
+	if gl.hasActiveProjectiles() {
+		gl.updateProjectilesParallel()
+	}
 
-	// Update slash effects
-	gl.updateSlashEffects()
+	// Update slash effects - skip if none active
+	if len(gl.game.slashEffects) > 0 {
+		gl.updateSlashEffects()
+	}
 
-	// Remove dead monsters from the world
-	gl.removeDeadMonsters()
+	// Update hit effects (arrow sticks, spell particles)
+	if len(gl.game.arrowHitEffects) > 0 || len(gl.game.spellHitEffects) > 0 {
+		gl.game.UpdateHitEffects()
+	}
+
+	// Remove dead monsters - only if there are any to remove
+	if len(gl.game.deadMonsterIDs) > 0 {
+		gl.removeDeadMonstersByID()
+	}
 
 	// Update performance metrics
 	gl.updatePerformanceMetrics()
@@ -135,35 +152,49 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	gl.game.RemoveInactiveEntities()
 }
 
-// removeDeadMonsters removes dead monsters from the world to improve performance
-func (gl *GameLoop) removeDeadMonsters() {
-	aliveMonsters := make([]*monster.Monster3D, 0, len(gl.game.world.Monsters))
-	encounteredRewards := make(map[*monster.EncounterRewards]int) // Track encounter rewards to apply once
-
-	for _, monster := range gl.game.world.Monsters {
-		if monster.IsAlive() {
-			aliveMonsters = append(aliveMonsters, monster)
-		} else {
-			// Check if this was an encounter monster for rewards
-			if gl.isEncounterMonster(monster) {
-				// Count this monster toward the encounter completion
-				encounteredRewards[monster.EncounterRewards]++
-			}
-
-			// Unregister dead monster from collision system
-			gl.game.collisionSystem.UnregisterEntity(monster.ID)
-		}
+// removeDeadMonstersByID removes specific dead monsters by their IDs
+// This is O(n) where n = number of dead monsters, not O(m) where m = all monsters
+func (gl *GameLoop) removeDeadMonstersByID() {
+	// Build a set of dead monster IDs for O(1) lookup
+	deadSet := make(map[string]bool, len(gl.game.deadMonsterIDs))
+	for _, id := range gl.game.deadMonsterIDs {
+		deadSet[id] = true
 	}
 
+	// Clear encounter rewards map for reuse
+	for k := range gl.game.reusableEncounterRewardsMap {
+		delete(gl.game.reusableEncounterRewardsMap, k)
+	}
+
+	// In-place filtering - only check against known dead IDs
+	writeIdx := 0
+	for readIdx := range gl.game.world.Monsters {
+		m := gl.game.world.Monsters[readIdx]
+		if !deadSet[m.ID] {
+			if writeIdx != readIdx {
+				gl.game.world.Monsters[writeIdx] = m
+			}
+			writeIdx++
+		} else {
+			// Check if this was an encounter monster for rewards
+			if gl.isEncounterMonster(m) {
+				gl.game.reusableEncounterRewardsMap[m.EncounterRewards]++
+			}
+			// Unregister dead monster from collision system
+			gl.game.collisionSystem.UnregisterEntity(m.ID)
+		}
+	}
+	gl.game.world.Monsters = gl.game.world.Monsters[:writeIdx]
+
 	// Award encounter rewards once per encounter type
-	for rewards := range encounteredRewards {
-		// If no more monsters of this encounter type remain, award the full reward
-		if gl.countRemainingEncounterMonsters(aliveMonsters, rewards) == 0 {
+	for rewards := range gl.game.reusableEncounterRewardsMap {
+		if gl.countRemainingEncounterMonsters(gl.game.world.Monsters, rewards) == 0 {
 			gl.awardEncounterRewards(rewards)
 		}
 	}
 
-	gl.game.world.Monsters = aliveMonsters
+	// Clear the dead monster IDs list for next frame
+	gl.game.deadMonsterIDs = gl.game.deadMonsterIDs[:0]
 }
 
 // awardEncounterRewards gives the party gold and experience for completing an encounter
@@ -172,10 +203,44 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 		return
 	}
 
+	// Auto-complete linked encounter quest (rewards are handled by quest system)
+	if rewards.QuestID != "" && quests.GlobalQuestManager != nil {
+		questRewards := quests.GlobalQuestManager.CompleteEncounterQuest(rewards.QuestID)
+		if questRewards != nil {
+			// Show completion message
+			if rewards.CompletionMessage != "" {
+				gl.game.AddCombatMessage(rewards.CompletionMessage)
+			}
+			gl.game.AddCombatMessage(fmt.Sprintf("Quest Completed: Received %d gold and %d experience!", questRewards.Gold, questRewards.Experience))
+
+			// Award gold to party
+			if questRewards.Gold > 0 {
+				gl.game.party.Gold += questRewards.Gold
+			}
+
+			// Award experience to all party members
+			if questRewards.Experience > 0 {
+				for _, member := range gl.game.party.Members {
+					if member.HitPoints > 0 {
+						member.Experience += questRewards.Experience
+						gl.game.combat.checkLevelUp(member)
+					}
+				}
+			}
+			return // Quest handled rewards, don't double-award
+		}
+	}
+
+	// Fallback for encounters without quest integration
+	// Show configurable completion message, or default if not set
+	if rewards.CompletionMessage != "" {
+		gl.game.AddCombatMessage(rewards.CompletionMessage)
+	}
+
 	// Award gold to party
 	if rewards.Gold > 0 {
 		gl.game.party.Gold += rewards.Gold
-		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold in the bandit camp!", rewards.Gold))
+		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
 	}
 
 	// Award experience to all party members
@@ -192,12 +257,12 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	}
 }
 
-// updateSlashEffects updates all active slash effects
+// updateSlashEffects updates all active slash effects using in-place filtering
+// This avoids allocating new slices each frame to reduce GC pressure
 func (gl *GameLoop) updateSlashEffects() {
-	activeSlashEffects := make([]SlashEffect, 0, len(gl.game.slashEffects))
-
-	for i := range gl.game.slashEffects {
-		slash := &gl.game.slashEffects[i]
+	writeIdx := 0
+	for readIdx := range gl.game.slashEffects {
+		slash := &gl.game.slashEffects[readIdx]
 		if !slash.Active {
 			continue
 		}
@@ -211,10 +276,13 @@ func (gl *GameLoop) updateSlashEffects() {
 			continue
 		}
 
-		activeSlashEffects = append(activeSlashEffects, *slash)
+		// Keep this effect (in-place move if needed)
+		if writeIdx != readIdx {
+			gl.game.slashEffects[writeIdx] = *slash
+		}
+		writeIdx++
 	}
-
-	gl.game.slashEffects = activeSlashEffects
+	gl.game.slashEffects = gl.game.slashEffects[:writeIdx]
 }
 
 // updatePerformanceMetrics updates game-specific performance metrics
@@ -299,7 +367,8 @@ func (gl *GameLoop) updateBlessEffect() {
 		if gl.game.blessDuration <= 0 {
 			gl.game.blessActive = false
 			gl.game.blessDuration = 0
-			gl.game.statBonus -= 20 // Subtract the +20 Bless bonus from total stat bonus
+			gl.game.statBonus -= gl.game.blessStatBonus // Subtract the stored Bless bonus
+			gl.game.blessStatBonus = 0
 		}
 	}
 	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)
@@ -350,6 +419,11 @@ func (gl *GameLoop) returnFromUnderwater() {
 }
 
 // Turn-based combat helpers moved to tb_combat.go
+
+// hasActiveProjectiles checks if there are any active projectiles to update
+func (gl *GameLoop) hasActiveProjectiles() bool {
+	return len(gl.game.magicProjectiles) > 0 || len(gl.game.meleeAttacks) > 0 || len(gl.game.arrows) > 0
+}
 
 // isEncounterMonster checks if a monster is part of an encounter with rewards
 func (gl *GameLoop) isEncounterMonster(m *monster.Monster3D) bool {

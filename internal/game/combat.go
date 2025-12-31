@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -45,19 +46,20 @@ func (cs *CombatSystem) getWeaponConfigByKey(weaponKey string) *config.WeaponDef
 	return weaponDef
 }
 
-// CastEquippedSpell performs a magic attack using equipped spell (unified F key casting)
-func (cs *CombatSystem) CastEquippedSpell() {
+// CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
+// Returns true if the spell was successfully cast.
+func (cs *CombatSystem) CastEquippedSpell() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast
 	if caster.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return // No spell equipped
+		return false // No spell equipped
 	}
 
 	// Check spell points (use spell cost for spells)
@@ -66,11 +68,13 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		spellCost = spell.SpellCost
 	} else {
 		// This shouldn't happen - SlotSpell should only contain spells
-		return
+		return false
 	}
 
 	if caster.SpellPoints < spellCost {
-		return
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
+		return false
 	}
 
 	// Cast the equipped spell
@@ -84,7 +88,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	spellDef, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	if spellDef.IsUtility {
@@ -92,7 +96,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Intellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 
 		// Apply the utility spell effects to the game
@@ -102,25 +106,14 @@ func (cs *CombatSystem) CastEquippedSpell() {
 
 			// Apply healing effects for heal spells
 			if result.HealAmount > 0 {
-				if result.TargetSelf || string(spellID) == "heal" {
-					// Heal self
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-					if caster.HitPoints > 0 {
-						caster.RemoveCondition(character.ConditionUnconscious)
-					}
-				} else if string(spellID) == "heal_other" {
-					// For F key heal other, just heal self since there's no target selection
-					// Use H key with mouse for proper targeting
-					caster.HitPoints += result.HealAmount
-					if caster.HitPoints > caster.MaxHitPoints {
-						caster.HitPoints = caster.MaxHitPoints
-					}
-					if caster.HitPoints > 0 {
-						caster.RemoveCondition(character.ConditionUnconscious)
-					}
+				// Both heal and heal_other now use mouse targeting (handled by CastEquippedSpellWithTarget)
+				// Fallback to self-heal if no target specified
+				caster.HitPoints += result.HealAmount
+				if caster.HitPoints > caster.MaxHitPoints {
+					caster.HitPoints = caster.MaxHitPoints
+				}
+				if caster.HitPoints > 0 {
+					caster.RemoveCondition(character.ConditionUnconscious)
 				}
 			}
 
@@ -150,8 +143,9 @@ func (cs *CombatSystem) CastEquippedSpell() {
 			}
 
 			cs.game.setUtilityStatus(spellID, result.Duration)
+			return true
 		}
-		return
+		return false
 	}
 
 	// For projectile spells, create a projectile using effective intellect (includes Bless bonus)
@@ -159,14 +153,14 @@ func (cs *CombatSystem) CastEquippedSpell() {
 	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	// Get spell-specific config dynamically
 	spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
 	if err != nil {
 		cs.game.AddCombatMessage("Spell config error: " + err.Error())
-		return
+		return false
 	}
 
 	// Determine critical hit for spells based on Luck only (no base crit for spells)
@@ -200,6 +194,7 @@ func (cs *CombatSystem) CastEquippedSpell() {
 
 	// Note: Combat message for spell casting is now only generated when projectile hits a target
 	// This prevents spam of "X casts Y!" messages for attacks that miss
+	return true
 }
 
 // EquipmentHeal casts heal using equipped spell (special targeting for heal spells)
@@ -225,6 +220,8 @@ func (cs *CombatSystem) EquipmentHeal() {
 	// Check spell points (use spell cost for utility spells)
 	spellCost := spell.SpellCost
 	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
 		return
 	}
 
@@ -299,6 +296,8 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	// Check spell points (use spell cost for utility spells)
 	spellCost := spell.SpellCost
 	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			caster.Name, caster.SpellPoints, spellCost))
 		return
 	}
 
@@ -487,23 +486,47 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 
 	// Create visual slash effect
 	if graphicsConfig != nil {
+		style := meleeEffectStyle(weaponDef, meleeConfig)
+		sweep := 0.0
+		if style == SlashEffectStyleSlash {
+			sweep = float64(meleeConfig.ArcAngle) * math.Pi / 180.0
+		}
 		slashEffect := SlashEffect{
 			ID:             cs.game.GenerateProjectileID("slash"),
 			X:              cs.game.camera.X,
 			Y:              cs.game.camera.Y,
 			Angle:          cs.game.camera.Angle,
+			SweepAngle:     sweep,
 			Width:          graphicsConfig.SlashWidth,
 			Length:         graphicsConfig.SlashLength,
 			Color:          graphicsConfig.SlashColor,
 			AnimationFrame: 0,
 			MaxFrames:      meleeConfig.AnimationFrames,
 			Active:         true,
+			Style:          style,
 		}
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)
 	}
 
 	// Perform instant hit detection in arc
 	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
+}
+
+func meleeEffectStyle(weaponDef *config.WeaponDefinitionConfig, meleeConfig *config.MeleeAttackConfig) SlashEffectStyle {
+	if weaponDef == nil {
+		return SlashEffectStyleSlash
+	}
+	category := strings.ToLower(weaponDef.Category)
+	if strings.Contains(category, "spear") ||
+		strings.Contains(category, "dagger") ||
+		strings.Contains(category, "knife") ||
+		strings.Contains(category, "rapier") {
+		return SlashEffectStyleThrust
+	}
+	if meleeConfig != nil && meleeConfig.ArcAngle > 0 && meleeConfig.ArcAngle <= 40 {
+		return SlashEffectStyleThrust
+	}
+	return SlashEffectStyleSlash
 }
 
 // performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
@@ -565,9 +588,25 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
+// This is for melee attacks - AC applies as damage reduction
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+	// Check monster perfect dodge first
+	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, cs.game.party.Members[cs.game.selectedChar].Name))
+		return
+	}
+
+	// Apply monster armor class as damage reduction (same formula as player armor)
+	armorReduction := monster.ArmorClass / 2
+	reducedDamage := damage - armorReduction
+	if reducedDamage < 1 {
+		reducedDamage = 1 // Minimum 1 damage
+	}
+
 	// Apply damage with resistances and distance-aware AI response
-	finalDamage := monster.TakeDamage(damage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	cs.engageTurnBasedPackOnHit(monster)
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -579,8 +618,15 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage,
 			monster.HitPoints, monster.MaxHitPoints))
 	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s kills %s!",
-			cs.game.party.Members[cs.game.selectedChar].Name, monster.Name))
+		prefix := ""
+		if isCrit {
+			prefix = "Critical! "
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
+			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
+
+		// Add to dead monsters list for cleanup (O(1) instead of iterating all monsters)
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 
 		// Award experience and gold using centralized function
 		cs.awardExperienceAndGold(monster)
@@ -588,6 +634,36 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		// Add experience/gold award message
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
 			monster.Experience, monster.Gold))
+	}
+}
+
+// engageTurnBasedPackOnHit ensures a hit in turn-based mode pulls in nearby same-type monsters.
+func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
+	if !cs.game.turnBasedMode || hit == nil {
+		return
+	}
+
+	tileSize := float64(cs.game.config.GetTileSize())
+	radius := tileSize * 8.0
+	hitName := hit.Name
+
+	for _, m := range cs.game.world.Monsters {
+		if !m.IsAlive() {
+			continue
+		}
+		if m.Name != hitName {
+			continue
+		}
+		if Distance(hit.X, hit.Y, m.X, m.Y) > radius {
+			continue
+		}
+		if m.IsEngagingPlayer {
+			continue
+		}
+		m.IsEngagingPlayer = true
+		m.State = monsterPkg.StateAlert
+		m.StateTimer = 0
+		m.AttackCount = 0
 	}
 }
 
@@ -621,6 +697,8 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
+			currentChar.Name, currentChar.SpellPoints, selectedSpellDef.SpellPointsCost))
 		return
 	}
 
@@ -784,8 +862,9 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
-		// If monster is in attacking state and within attack radius, perform attack
-		if monster.State == monsterPkg.StateAttacking && dist < monster.AttackRadius {
+		// If monster is in attacking state and within attack range, perform attack
+		attackRange := monster.GetAttackRangePixels()
+		if monster.State == monsterPkg.StateAttacking && dist < attackRange {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
 				if monster.HasRangedAttack() {
@@ -812,8 +891,15 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 		if currentChar.HitPoints < 0 {
 			currentChar.HitPoints = 0
 		}
+
+		// Add combat message for monster attack
+		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
+			monster.Name, currentChar.Name, finalDamage,
+			currentChar.HitPoints, currentChar.MaxHitPoints))
+
 		if currentChar.HitPoints == 0 {
 			currentChar.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
 	} else {
 		// Announce dodge and skip damage blink below
@@ -950,14 +1036,45 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 
 	// Check each projectile against each monster using perspective-scaled collision
 	for _, proj := range projectiles {
+		var hitMonster *monsterPkg.Monster3D
+		bestDepth := 0.0
+		bestLateral := 0.0
+
+		camCos := math.Cos(cs.game.camera.Angle)
+		camSin := math.Sin(cs.game.camera.Angle)
+
 		for _, monster := range cs.game.world.Monsters {
 			if !monster.IsAlive() {
 				continue
 			}
 			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
-				cs.applyProjectileDamage(proj.data, proj.pType, monster, proj.entityID)
-				break // Projectile hit, move to next projectile
+				dx := monster.X - cs.game.camera.X
+				dy := monster.Y - cs.game.camera.Y
+				depth := dx*camCos + dy*camSin
+				if depth <= 0 {
+					continue
+				}
+				angle := math.Atan2(dy, dx)
+				angleDiff := angle - cs.game.camera.Angle
+				for angleDiff > math.Pi {
+					angleDiff -= 2 * math.Pi
+				}
+				for angleDiff < -math.Pi {
+					angleDiff += 2 * math.Pi
+				}
+				if math.Abs(angleDiff) > cs.game.camera.FOV/2 {
+					continue
+				}
+				lateral := math.Abs(-dx*camSin + dy*camCos)
+				if hitMonster == nil || depth < bestDepth || (depth == bestDepth && lateral < bestLateral) {
+					bestDepth = depth
+					bestLateral = lateral
+					hitMonster = monster
+				}
 			}
+		}
+		if hitMonster != nil {
+			cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
 		}
 	}
 }
@@ -1006,18 +1123,26 @@ func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage i
 	currentChar := cs.findHighestEnduranceTarget()
 	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
 
+	if sourceName == "" {
+		sourceName = "Monster"
+	}
+
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
 		currentChar.HitPoints -= finalDamage
 		if currentChar.HitPoints < 0 {
 			currentChar.HitPoints = 0
 		}
+
+		// Add combat message for monster projectile attack
+		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
+			sourceName, currentChar.Name, finalDamage,
+			currentChar.HitPoints, currentChar.MaxHitPoints))
+
 		if currentChar.HitPoints == 0 {
 			currentChar.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
 	} else {
-		if sourceName == "" {
-			sourceName = "Monster"
-		}
 		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, sourceName))
 		return
 	}
@@ -1094,6 +1219,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var weaponName string
 	var damageType monsterPkg.DamageType
 	var damageTypeStr string
+	var isSpell bool
+	var isRanged bool
+	var arrowVelX, arrowVelY float64
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1113,6 +1241,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 		mp.Active = false
+		isSpell = true
 
 	case "melee":
 		ma := projectile.(*MeleeAttack)
@@ -1133,6 +1262,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damage, isCrit = ar.Damage, ar.Crit
 		weaponName = "Arrow"
 		damageTypeStr = ar.DamageType
+		arrowVelX, arrowVelY = ar.VelX, ar.VelY
 		damageType = monsterPkg.DamagePhysical // Default
 		if monsterPkg.MonsterConfig != nil {
 			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(ar.DamageType); err == nil {
@@ -1140,12 +1270,53 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 		ar.Active = false
+		isRanged = true
 	}
 
-	actualDamage := monster.TakeDamage(damage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	// Check monster perfect dodge (applies to all attack types)
+	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+
+	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
+	if isSpell {
+		if mp, ok := projectile.(*MagicProjectile); ok {
+			cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+		} else {
+			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		}
+	} else if isRanged {
+		cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
+	}
+
+	// Calculate damage reduction based on attack type
+	reducedDamage := damage
+	if !isSpell {
+		// Physical attacks: AC reduces damage, but ranged has 33% chance to pierce
+		applyArmor := true
+		if isRanged && rand.Intn(100) < 33 {
+			applyArmor = false // Armor piercing shot!
+		}
+
+		if applyArmor {
+			armorReduction := monster.ArmorClass / 2
+			reducedDamage = damage - armorReduction
+			if reducedDamage < 1 {
+				reducedDamage = 1 // Minimum 1 damage
+			}
+		}
+	}
+	// Spells ignore AC completely - reducedDamage stays as original damage
+
+	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	cs.engageTurnBasedPackOnHit(monster)
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 		cs.awardExperienceAndGold(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
 			weaponName, monster.Name, monster.Experience, monster.Gold))
@@ -1211,6 +1382,26 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 
 	// Check for loot drops
 	cs.checkMonsterLootDrop(monster)
+
+	// Update quest progress
+	cs.updateQuestProgress(monster)
+}
+
+// updateQuestProgress updates quest progress when a monster is killed
+func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
+	if cs.game.questManager == nil {
+		return
+	}
+
+	// Convert monster name to lowercase key format (e.g., "Goblin" -> "goblin", "Dire Wolf" -> "dire_wolf")
+	monsterType := strings.ToLower(strings.ReplaceAll(monster.Name, " ", "_"))
+
+	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType)
+
+	// Notify player of quest completions
+	for _, quest := range completedQuests {
+		cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", quest.Definition.Name))
+	}
 }
 
 // checkLevelUp checks if a character should level up and applies level up benefits
@@ -1336,9 +1527,14 @@ func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharac
 
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods
 func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
+	// If Bless is already active, remove old bonus before applying new one
+	if cs.game.blessActive {
+		cs.game.statBonus -= cs.game.blessStatBonus
+	}
 	cs.game.blessActive = true
 	cs.game.blessDuration = duration
-	cs.game.statBonus += statBonus // ADD to total stat bonus
+	cs.game.blessStatBonus = statBonus // Store the bonus for proper removal later
+	cs.game.statBonus += statBonus     // ADD to total stat bonus
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.

@@ -109,8 +109,8 @@ func TestPartyUpdate(t *testing.T) {
 		member.SpellPoints -= 5
 	}
 
-	// Simulate enough frames for spell regeneration (180 frames)
-	for i := 0; i < 180; i++ {
+	// Simulate enough ticks for spell regeneration (1200 ticks = 2 regens at 600 ticks each at 120 TPS)
+	for i := 0; i < 1200; i++ {
 		party.Update()
 	}
 

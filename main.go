@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -59,6 +60,15 @@ func main() {
 
 	// Load NPC configuration (needed before world loading)
 	character.MustLoadNPCConfig("assets/npcs.yaml")
+
+	// Load quest configuration and initialize quest manager
+	questConfig, err := quests.LoadQuestConfig("assets/quests.yaml")
+	if err != nil {
+		log.Printf("Warning: Failed to load quest config: %v", err)
+	} else {
+		quests.GlobalQuestManager = quests.NewQuestManager(questConfig)
+		quests.GlobalQuestManager.InitializeStartingQuests()
+	}
 
 	// Initialize and load world manager
 	world.GlobalWorldManager = world.NewWorldManager(cfg)

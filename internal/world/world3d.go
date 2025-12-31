@@ -63,7 +63,7 @@ func NewWorld3D(cfg *config.Config) *World3D {
 	return world
 }
 
-// loadFromMapFile loads the world from the forest.map file
+// loadFromMapFile loads the world from the forest.map file (legacy, used by tests)
 func (w *World3D) loadFromMapFile() {
 	// Create map loader
 	mapLoader := NewMapLoader(w.config)
@@ -71,19 +71,7 @@ func (w *World3D) loadFromMapFile() {
 	// Load the forest map
 	mapData, err := mapLoader.LoadForestMap()
 	if err != nil {
-		// Fallback to procedural generation if map loading fails
-		fmt.Printf("Warning: Failed to load map file, falling back to procedural generation: %v\n", err)
-		w.Width = w.config.GetMapWidth()
-		w.Height = w.config.GetMapHeight()
-		w.StartX = w.Width / 2
-		w.StartY = w.Height / 2
-		w.Tiles = make([][]TileType3D, w.Height)
-		for y := 0; y < w.Height; y++ {
-			w.Tiles[y] = make([]TileType3D, w.Width)
-		}
-		w.generateElvishForest()
-		w.populateWithMonsters()
-		return
+		panic(fmt.Sprintf("Failed to load map file: %v", err))
 	}
 
 	// Use loaded map data
@@ -98,13 +86,8 @@ func (w *World3D) loadFromMapFile() {
 	// Load NPCs from map data
 	w.loadNPCsFromMapData(mapData.NPCSpawns)
 
-	// Register teleporters from map data
-	// NOTE: Teleporter registration is now handled by WorldManager using RegisterTeleportersFromMapData
-	// Example usage (in WorldManager):
-	// RegisterTeleportersFromMapData(mapData.SpecialTileSpawns, mapKey, globalTeleporterRegistry)
-
-	// Populate with monsters
-	w.populateWithMonsters()
+	// Load monsters from map data (fixed placements only)
+	w.loadMonstersFromMapData(mapData.MonsterSpawns)
 }
 
 // CanMoveTo checks if the player can move to the specified position
@@ -248,7 +231,7 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 
 // IsTileBlockingForHabitat checks if a tile blocks movement for a monster with given habitat preferences
 // Monsters can walk on tiles that are in their habitat preferences even if normally blocked
-func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool {
+func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
@@ -261,6 +244,11 @@ func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []stri
 
 		// If already walkable, return false (not blocking)
 		if isWalkable {
+			return false
+		}
+
+		// Flying monsters can pass over transparent solid tiles (e.g., boulders)
+		if flying && GlobalTileManager.IsSolid(tile) && GlobalTileManager.IsTransparent(tile) {
 			return false
 		}
 
@@ -402,12 +390,3 @@ func (wm *WorldManager) TeleportParty(source TeleporterLocation) bool {
 
 // --- Teleporter System Refactored Functions ---
 // Place these at the end of the file after all type and method definitions
-
-// Helper function for absolute value
-// Helper function for absolute value
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}

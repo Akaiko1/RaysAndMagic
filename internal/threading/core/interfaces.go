@@ -3,6 +3,7 @@ package core
 import (
 	"runtime"
 	"sync"
+	"ugataima/internal/mathutil"
 )
 
 // Common interfaces and utilities for threading operations
@@ -64,13 +65,13 @@ func ParallelForEach[T any](items []T, fn func(T)) {
 		return
 	}
 
-	numWorkers := min(runtime.NumCPU(), len(items))
+	numWorkers := mathutil.IntMin(runtime.NumCPU(), len(items))
 	var wg sync.WaitGroup
 
-	chunkSize := max(1, len(items)/numWorkers)
+	chunkSize := mathutil.IntMax(1, len(items)/numWorkers)
 
 	for i := 0; i < len(items); i += chunkSize {
-		end := min(i+chunkSize, len(items))
+		end := mathutil.IntMin(i+chunkSize, len(items))
 		chunk := items[i:end]
 
 		wg.Add(1)
@@ -83,19 +84,4 @@ func ParallelForEach[T any](items []T, fn func(T)) {
 	}
 
 	wg.Wait()
-}
-
-// Helper functions
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

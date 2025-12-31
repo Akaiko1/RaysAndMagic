@@ -306,8 +306,8 @@ func (c *MMCharacter) Update() {
 	if c.HasCondition(ConditionUnconscious) {
 		return
 	}
-	// Regenerate spell points slowly - only every 3 seconds (90 frames at 30 FPS)
-	const spellRegenFrames = 90
+	// Regenerate spell points slowly - only every 5 seconds (600 ticks at 120 TPS)
+	const spellRegenFrames = 600
 	c.spellRegenTimer++
 
 	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {

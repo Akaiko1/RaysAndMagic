@@ -11,40 +11,44 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
-	"ugataima/internal/game/inpututil"
+	"ugataima/internal/game/keytracker"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // InputHandler handles all user input for the game
 type InputHandler struct {
 	game                 *MMGame
-	slashKeyTracker      inpututil.KeyStateTracker
-	apostropheKeyTracker inpututil.KeyStateTracker
-	enterKeyTracker      inpututil.KeyStateTracker
-	escapeKeyTracker     inpututil.KeyStateTracker
-	upKeyTracker         inpututil.KeyStateTracker
-	downKeyTracker       inpututil.KeyStateTracker
-	leftKeyTracker       inpututil.KeyStateTracker
-	rightKeyTracker      inpututil.KeyStateTracker
-	wKeyTracker          inpututil.KeyStateTracker
-	aKeyTracker          inpututil.KeyStateTracker
-	sKeyTracker          inpututil.KeyStateTracker
-	dKeyTracker          inpututil.KeyStateTracker
-	qKeyTracker          inpututil.KeyStateTracker
-	eKeyTracker          inpututil.KeyStateTracker
-	spaceKeyTracker      inpututil.KeyStateTracker
-	fKeyTracker          inpututil.KeyStateTracker
-	hKeyTracker          inpututil.KeyStateTracker
-	menuKeyTracker       inpututil.KeyStateTracker
-	inventoryKeyTracker  inpututil.KeyStateTracker
-	charactersKeyTracker inpututil.KeyStateTracker
-	interactKeyTracker   inpututil.KeyStateTracker
-	newGameKeyTracker    inpututil.KeyStateTracker
-	loadKeyTracker       inpututil.KeyStateTracker
+	slashKeyTracker      keytracker.KeyStateTracker
+	apostropheKeyTracker keytracker.KeyStateTracker
+	enterKeyTracker      keytracker.KeyStateTracker
+	tabKeyTracker        keytracker.KeyStateTracker
+	escapeKeyTracker     keytracker.KeyStateTracker
+	upKeyTracker         keytracker.KeyStateTracker
+	downKeyTracker       keytracker.KeyStateTracker
+	leftKeyTracker       keytracker.KeyStateTracker
+	rightKeyTracker      keytracker.KeyStateTracker
+	wKeyTracker          keytracker.KeyStateTracker
+	aKeyTracker          keytracker.KeyStateTracker
+	sKeyTracker          keytracker.KeyStateTracker
+	dKeyTracker          keytracker.KeyStateTracker
+	qKeyTracker          keytracker.KeyStateTracker
+	eKeyTracker          keytracker.KeyStateTracker
+	spaceKeyTracker      keytracker.KeyStateTracker
+	fKeyTracker          keytracker.KeyStateTracker
+	hKeyTracker          keytracker.KeyStateTracker
+	menuKeyTracker       keytracker.KeyStateTracker
+	inventoryKeyTracker  keytracker.KeyStateTracker
+	charactersKeyTracker keytracker.KeyStateTracker
+	questsKeyTracker     keytracker.KeyStateTracker
+	interactKeyTracker   keytracker.KeyStateTracker
+	newGameKeyTracker    keytracker.KeyStateTracker
+	loadKeyTracker       keytracker.KeyStateTracker
 }
 
 // NewInputHandler creates a new input handler
@@ -95,6 +99,21 @@ func (ih *InputHandler) HandleInput() {
 		}
 		return
 	}
+
+	// Handle victory screen input
+	if ih.game.gameVictory {
+		ih.handleVictoryInput()
+		return
+	}
+
+	// Handle high scores overlay
+	if ih.game.showHighScores {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.showHighScores = false
+		}
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -185,6 +204,102 @@ func (ih *InputHandler) restartNewGame() {
 		ih.game.camera.Y = startY
 		ih.game.collisionSystem.UpdateEntity("player", startX, startY)
 	}
+}
+
+// handleVictoryInput processes input on the victory screen
+func (ih *InputHandler) handleVictoryInput() {
+	// If score already saved, handle post-save options
+	if ih.game.victoryScoreSaved {
+		// H to view high scores
+		if ebiten.IsKeyPressed(ebiten.KeyH) {
+			ih.game.showHighScores = true
+		}
+		// ESC to return to main menu
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.restartNewGame()
+			ih.game.gameVictory = false
+			ih.game.victoryScoreSaved = false
+			ih.game.victoryNameInput = ""
+		}
+		return
+	}
+
+	// Handle text input for name
+	ih.handleVictoryNameInput()
+
+	// Enter to save score
+	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+		ih.saveVictoryScore()
+	}
+
+	// ESC to skip saving and return to main menu
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.restartNewGame()
+		ih.game.gameVictory = false
+		ih.game.victoryNameInput = ""
+	}
+}
+
+// handleVictoryNameInput handles text input for the player name
+func (ih *InputHandler) handleVictoryNameInput() {
+	// Get input characters
+	inputChars := ebiten.AppendInputChars(nil)
+	for _, char := range inputChars {
+		if len(ih.game.victoryNameInput) < 20 {
+			ih.game.victoryNameInput += string(char)
+		}
+	}
+
+	// Handle backspace
+	if repeatingKeyPressed(ebiten.KeyBackspace) {
+		if len(ih.game.victoryNameInput) > 0 {
+			ih.game.victoryNameInput = ih.game.victoryNameInput[:len(ih.game.victoryNameInput)-1]
+		}
+	}
+}
+
+// saveVictoryScore saves the current score to high scores
+func (ih *InputHandler) saveVictoryScore() {
+	name := ih.game.victoryNameInput
+	if name == "" {
+		name = "Anonymous"
+	}
+
+	scoreData := ih.game.GetScoreData()
+	finalScore := CalculateScore(scoreData)
+	playTimeStr := FormatPlayTime(scoreData.PlayTime)
+
+	entry := HighScoreEntry{
+		PlayerName: name,
+		Score:      finalScore,
+		Gold:       scoreData.Gold,
+		Experience: scoreData.TotalExperience,
+		AvgLevel:   scoreData.AverageLevel,
+		PlayTime:   playTimeStr,
+		Date:       ih.game.victoryTime,
+	}
+
+	scores, _ := LoadHighScores()
+	AddHighScore(scores, entry)
+	SaveHighScores(scores)
+
+	ih.game.victoryScoreSaved = true
+}
+
+// repeatingKeyPressed returns true if key is pressed with repeat handling
+func repeatingKeyPressed(key ebiten.Key) bool {
+	const (
+		delay    = 30
+		interval = 3
+	)
+	d := inpututil.KeyPressDuration(key)
+	if d == 1 {
+		return true
+	}
+	if d >= delay && (d-delay)%interval == 0 {
+		return true
+	}
+	return false
 }
 
 // handleMainMenuInput processes input for the main menu (opened with ESC)
@@ -369,9 +484,37 @@ func (ih *InputHandler) handleMovementInput() {
 // handleCombatInput processes combat-related input
 func (ih *InputHandler) handleCombatInput() {
 	// Magic attack (F key) - single press with cooldown to prevent spam
+	// For heal spells, use mouse targeting like H key
 	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+		caster := ih.game.party.Members[ih.game.selectedChar]
+		spell, hasSpell := caster.Equipment[items.SlotSpell]
+
+		// Check if this is a heal spell - use mouse targeting
+		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
+			mouseX, mouseY := ebiten.CursorPosition()
+			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+
+			if targetCharIndex >= 0 {
+				// Check if the spell can target others or if targeting self
+				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
+					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+				} else {
+					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
+					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+				}
+			} else {
+				// No target under mouse, heal self
+				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+			}
+		} else {
+			// Not a heal spell, cast normally
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+			}
+		}
 	}
 
 	// Melee attack (Space key) - with cooldown to prevent spam
@@ -380,7 +523,7 @@ func (ih *InputHandler) handleCombatInput() {
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
 	}
 
-	// Note: H key healing is handled in handleMouseInput for proper targeting
+	// Note: H key healing is also handled in handleMouseInput for proper targeting
 }
 
 // handleCharacterSelectionInput processes party character selection
@@ -445,6 +588,18 @@ func (ih *InputHandler) handleUIInput() {
 			ih.openTabbedMenu(TabCharacters)
 		}
 	}
+	if ih.questsKeyTracker.IsKeyJustPressed(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
+		if ih.game.menuOpen {
+			if ih.game.currentTab == TabQuests {
+				ih.game.menuOpen = false // Close menu if already on Quests tab
+				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			} else {
+				ih.game.currentTab = TabQuests
+			}
+		} else {
+			ih.openTabbedMenu(TabQuests)
+		}
+	}
 
 	// Handle NPC interaction with T key
 	if ih.interactKeyTracker.IsKeyJustPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
@@ -452,8 +607,8 @@ func (ih *InputHandler) handleUIInput() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Toggle turn-based mode with Enter key
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	// Toggle turn-based mode with Tab key
+	if ih.tabKeyTracker.IsKeyJustPressed(ebiten.KeyTab) {
 		ih.toggleTurnBasedMode()
 	}
 }
@@ -586,8 +741,7 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 	}
 	d := dests[rand.Intn(len(dests))]
 	reg.LastUsedTime = time.Now()
-	nx := float64(d.X)*tileSize + tileSize/2
-	ny := float64(d.Y)*tileSize + tileSize/2
+	nx, ny := TileCenterFromTile(d.X, d.Y, tileSize)
 	return d.MapKey, nx, ny, true
 }
 
@@ -667,8 +821,7 @@ func (ih *InputHandler) checkDeepWater() {
 		ih.switchToMap("water")
 
 		// Teleport to center of water map
-		centerX := float64(25)*tileSize + tileSize/2
-		centerY := float64(25)*tileSize + tileSize/2
+		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
 		ih.game.camera.X = centerX
 		ih.game.camera.Y = centerY
 		ih.game.collisionSystem.UpdateEntity("player", centerX, centerY)
@@ -1328,9 +1481,31 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		ih.game.combat.CastEquippedSpell()
-		ih.game.partyActionsUsed++
-		ih.game.spellInputCooldown = ih.actionCooldown(15)
+		spell, hasSpell := selected.Equipment[items.SlotSpell]
+
+		// Check if this is a heal spell - use mouse targeting
+		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
+			mouseX, mouseY := ebiten.CursorPosition()
+			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+
+			if targetCharIndex >= 0 {
+				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
+					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+				} else {
+					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+				}
+			} else {
+				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+			}
+			ih.game.partyActionsUsed++
+			ih.game.spellInputCooldown = ih.actionCooldown(15)
+		} else {
+			// Not a heal spell, cast normally
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.partyActionsUsed++
+				ih.game.spellInputCooldown = ih.actionCooldown(15)
+			}
+		}
 
 		if ih.game.partyActionsUsed >= 2 {
 			ih.endPartyTurn()
@@ -1410,8 +1585,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	}
 
 	// Calculate exact center of target tile
-	targetX := float64(targetTileX)*tileSize + tileSize/2
-	targetY := float64(targetTileY)*tileSize + tileSize/2
+	targetX, targetY := TileCenterFromTile(targetTileX, targetTileY, tileSize)
 
 	// In turn-based mode, if the tile is passable, we should always be able to move there
 	// This fixes getting stuck issues by prioritizing tile passability over entity collision
@@ -1428,8 +1602,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 func (ih *InputHandler) canMoveToTile(tileX, tileY int) bool {
 	// Convert tile coordinates to world coordinates (center of tile)
 	tileSize := float64(ih.game.config.World.TileSize)
-	worldX := float64(tileX)*tileSize + tileSize/2
-	worldY := float64(tileY)*tileSize + tileSize/2
+	worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
 
 	// Use collision system which handles bounds checking and centralized tile logic
 	return ih.game.collisionSystem.CanMoveTo("player", worldX, worldY)
@@ -1456,14 +1629,19 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 
 // endPartyTurn ends the party's turn and starts monster turn
 func (ih *InputHandler) endPartyTurn() {
-	// Regenerate 1 mana for all party members at end of turn
-	for _, member := range ih.game.party.Members {
-		if member.SpellPoints < member.MaxSpellPoints {
-			member.SpellPoints++
+	// Regenerate 1 mana for all party members every 5 turns
+	ih.game.turnBasedSpRegenCount++
+	if ih.game.turnBasedSpRegenCount >= 5 {
+		ih.game.turnBasedSpRegenCount = 0
+		for _, member := range ih.game.party.Members {
+			if member.SpellPoints < member.MaxSpellPoints {
+				member.SpellPoints++
+			}
 		}
 	}
 
 	ih.game.currentTurn = 1 // Monster turn
+	ih.game.monsterTurnResolved = false
 	// Don't spam combat log with turn messages
 }
 
@@ -1592,6 +1770,26 @@ func (ih *InputHandler) startEncounter() {
 	// Close dialog
 	ih.game.dialogActive = false
 	ih.game.dialogNPC = nil
+
+	// Create encounter quest if quest details are provided
+	if npc.EncounterData.QuestID != "" && quests.GlobalQuestManager != nil {
+		gold := 0
+		exp := 0
+		if npc.EncounterData.Rewards != nil {
+			gold = npc.EncounterData.Rewards.Gold
+			exp = npc.EncounterData.Rewards.Experience
+			// Link quest ID to rewards for auto-completion
+			npc.EncounterData.Rewards.QuestID = npc.EncounterData.QuestID
+		}
+		quests.GlobalQuestManager.CreateEncounterQuest(
+			npc.EncounterData.QuestID,
+			npc.EncounterData.QuestName,
+			npc.EncounterData.QuestDescription,
+			gold,
+			exp,
+		)
+		ih.game.AddCombatMessage(fmt.Sprintf("Quest Started: %s", npc.EncounterData.QuestName))
+	}
 
 	// Spawn monsters near the encounter location
 	ih.spawnEncounterMonsters(npc)

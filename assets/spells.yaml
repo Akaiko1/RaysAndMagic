@@ -124,7 +124,7 @@ spells:
     description: "Restores health to the caster"
     school: "body"
     level: 1
-    spell_points_cost: 2
+    spell_points_cost: 4
     duration: 0
     damage: 0
     heal_amount: 15
@@ -175,18 +175,18 @@ spells:
   bless:
     # Basic spell properties
     name: "Bless"
-    description: "Blesses the party with divine protection (+20 to all stats)"
+    description: "Blesses the party with divine protection (+10 to all stats)"
     school: "spirit"
     level: 2
-    spell_points_cost: 6
+    spell_points_cost: 15
     duration: 300              # 5 minutes
     damage: 0
-    stat_bonus: 20             # +20 to all stats
+    stat_bonus: 10             # +10 to all stats
     is_projectile: false
     is_utility: true
     visual_effect: "bless"
     status_icon: "bless"
-    message: "The party feels blessed! (+20 to all stats)"
+    message: "The party feels blessed! (+10 to all stats)"
 
     # No physics or graphics needed - utility spell
 
