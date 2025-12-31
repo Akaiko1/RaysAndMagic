@@ -20,7 +20,7 @@ func (t *testTileChecker) IsTileBlocking(tileX, tileY int) bool {
 	return false
 }
 
-func (t *testTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool {
+func (t *testTileChecker) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
 	return false
 }
 

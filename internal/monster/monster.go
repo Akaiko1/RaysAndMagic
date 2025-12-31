@@ -72,12 +72,14 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY   float64 // Original spawn position
-	TetherRadius     float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer bool    // True when actively pursuing/fighting player
-	WasAttacked      bool    // True when monster was hit - prevents disengagement
-	HitTintFrames    int     // Frames remaining for red hit tint
-	AttackAnimFrames int     // Frames remaining for attack animation (TB mode)
+	SpawnX, SpawnY    float64 // Original spawn position
+	TetherRadius      float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer  bool    // True when actively pursuing/fighting player
+	WasAttacked       bool    // True when monster was hit - prevents disengagement
+	HitTintFrames     int     // Frames remaining for red hit tint
+	AttackAnimFrames  int     // Frames remaining for attack animation (TB mode)
+	Flying            bool    // Whether the monster should be rendered above ground
+	RangedAttackRange float64 // Optional ranged attack range override (pixels)
 
 	// Loot
 	Gold  int
@@ -181,6 +183,45 @@ func (m *Monster3D) GetAttackDamage() int {
 
 func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
+}
+
+// GetAttackRangePixels returns the effective attack range in pixels.
+// For ranged monsters, this uses the projectile range from config when available.
+func (m *Monster3D) GetAttackRangePixels() float64 {
+	attackRange := m.AttackRadius
+	if !m.HasRangedAttack() || m.config == nil {
+		return attackRange
+	}
+
+	if m.RangedAttackRange > 0 {
+		return m.RangedAttackRange
+	}
+
+	tileSize := m.config.GetTileSize()
+
+	if m.ProjectileSpell != "" {
+		if physics, err := m.config.GetSpellConfig(m.ProjectileSpell); err == nil && physics != nil {
+			if physics.RangeTiles > 0 {
+				rangePixels := physics.RangeTiles * tileSize
+				if rangePixels > attackRange {
+					attackRange = rangePixels
+				}
+			}
+		}
+	}
+
+	if m.ProjectileWeapon != "" {
+		if def, exists := config.GetWeaponDefinition(m.ProjectileWeapon); exists && def.Physics != nil {
+			if def.Physics.RangeTiles > 0 {
+				rangePixels := def.Physics.RangeTiles * tileSize
+				if rangePixels > attackRange {
+					attackRange = rangePixels
+				}
+			}
+		}
+	}
+
+	return attackRange
 }
 
 func (m *Monster3D) GetSpriteType() string {

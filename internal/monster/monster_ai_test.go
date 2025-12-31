@@ -50,7 +50,7 @@ func (m *MockCollisionChecker) CanMoveTo(entityID string, x, y float64) bool {
 	return true
 }
 
-func (m *MockCollisionChecker) CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool {
+func (m *MockCollisionChecker) CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
 	return m.CanMoveTo(entityID, x, y)
 }
 

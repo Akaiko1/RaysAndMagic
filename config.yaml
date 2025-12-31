@@ -223,7 +223,7 @@ monster_ai:
   patrol_direction_timer: 120   # Time before changing direction (2 seconds) 
   patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
   alert_timeout: 180            # Time before returning to idle from alert (3 seconds)
-  attack_cooldown: 60           # Attack delay duration (1 second)
+  attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
   flee_duration: 420            # How long to flee (7 seconds)
   
   # Behavior chances (0.0 to 1.0)

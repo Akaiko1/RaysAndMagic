@@ -10,7 +10,7 @@ import (
 // CollisionChecker interface for checking movement validity
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
-	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string) bool
+	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -139,7 +139,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),
 	// attempt to gently nudge it to a nearby free spot to avoid getting stuck inside walls/trees.
 	if collisionChecker != nil && m.StateTimer%15 == 0 { // throttle checks
-		if !collisionChecker.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs) {
+		if !collisionChecker.CanMoveToWithHabitat(m.ID, m.X, m.Y, m.HabitatPrefs, m.Flying) {
 			m.unstuckFromObstacles(collisionChecker)
 		}
 	}
@@ -338,7 +338,7 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dir
 	targetX := currentCenterX + float64(dirX)*tileSize
 	targetY := currentCenterY + float64(dirY)*tileSize
 
-	if !collisionChecker.CanMoveToWithHabitat(m.ID, targetX, targetY, m.HabitatPrefs) {
+	if !collisionChecker.CanMoveToWithHabitat(m.ID, targetX, targetY, m.HabitatPrefs, m.Flying) {
 		return false
 	}
 
@@ -346,7 +346,7 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dir
 	newX := m.X + math.Cos(dirAngle)*speed
 	newY := m.Y + math.Sin(dirAngle)*speed
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs) {
+	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
 		m.Direction = dirAngle
@@ -360,9 +360,10 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dir
 func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
+	attackRange := m.GetAttackRangePixels()
 
 	// Check if close enough to attack
-	if distanceToPlayer <= m.AttackRadius {
+	if distanceToPlayer <= attackRange {
 		m.State = StateAttacking
 		m.StateTimer = 0
 		return
@@ -428,12 +429,12 @@ func (m *Monster3D) pickPatrolTarget(collisionChecker CollisionChecker) (TileCoo
 		if distance(centerX, centerY, m.SpawnX, m.SpawnY) > m.TetherRadius {
 			continue
 		}
-		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs) {
+		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 			return TileCoord{X: tileX, Y: tileY}, true
 		}
 	}
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs) {
+	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
 		return TileCoord{X: spawnTileX, Y: spawnTileY}, true
 	}
 
@@ -469,7 +470,7 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 		tileX := worldToTile(targetX)
 		tileY := worldToTile(targetY)
 		centerX, centerY := tileToWorldCenter(tileX, tileY)
-		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs) {
+		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 			return TileCoord{X: tileX, Y: tileY}, true
 		}
 	}
@@ -541,7 +542,7 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	}
 
 	if dist <= step {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs) {
+		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs, m.Flying) {
 			m.X = targetCenterX
 			m.Y = targetCenterY
 			m.PathIndex++
@@ -554,7 +555,7 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs) {
+	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
 		m.Direction = math.Atan2(dy, dx)
@@ -637,7 +638,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	}
 
 	if dist <= step {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs) {
+		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs, m.Flying) {
 			m.X = targetCenterX
 			m.Y = targetCenterY
 			m.PathIndex++
@@ -650,7 +651,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs) {
+	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
 		m.Direction = math.Atan2(dy, dx)
@@ -818,7 +819,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			if distance(targetX, targetY, centerX, centerY) > m.AttackRadius+0.1 {
 				continue
 			}
-			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs) {
+			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 				goals = append(goals, TileCoord{X: tileX, Y: tileY})
 			}
 		}
@@ -829,7 +830,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 
 func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
 	centerX, centerY := tileToWorldCenter(tile.X, tile.Y)
-	return collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs)
+	return collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying)
 }
 
 func reconstructPathGrid(ps *pathScratch, endIdx int) []TileCoord {
@@ -907,7 +908,8 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 
 		// If close enough to attack, switch to attacking
 		// Use a slightly tighter radius to prevent shaking at the boundary
-		if distanceToPlayer <= m.AttackRadius*0.9 {
+		attackRange := m.GetAttackRangePixels()
+		if distanceToPlayer <= attackRange*0.9 {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
@@ -1018,7 +1020,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 			angle := (2 * math.Pi * float64(i)) / samples
 			nx := m.X + math.Cos(angle)*r
 			ny := m.Y + math.Sin(angle)*r
-			if collisionChecker.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs) {
+			if collisionChecker.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
 				m.X = nx
 				m.Y = ny
 				m.Direction = angle
@@ -1027,7 +1029,7 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 		}
 	}
 	// As a last resort, try the spawn position if within reasonable distance
-	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs) {
+	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
 		m.Direction = m.GetDirectionToSpawn()

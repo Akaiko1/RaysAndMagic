@@ -179,17 +179,10 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 
 		bounds := img.Bounds()
 		frameHeight := bounds.Dy()
-		if frameHeight <= 0 {
+		frameWidth := bounds.Dx()
+		if frameHeight <= 0 || frameWidth <= 0 {
 			return
 		}
-		if bounds.Dx()%frameHeight != 0 {
-			return
-		}
-		frameCount := bounds.Dx() / frameHeight
-		if frameCount <= 1 {
-			return
-		}
-
 		subImager, ok := img.(interface {
 			SubImage(r image.Rectangle) image.Image
 		})
@@ -197,23 +190,56 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 			return
 		}
 
-		frames := make([]*ebiten.Image, 0, frameCount)
-		for i := 0; i < frameCount; i++ {
-			rect := image.Rect(
-				bounds.Min.X+i*frameHeight,
-				bounds.Min.Y,
-				bounds.Min.X+(i+1)*frameHeight,
-				bounds.Min.Y+frameHeight,
-			)
-			frameImg := subImager.SubImage(rect)
-			frames = append(frames, ebiten.NewImageFromImage(frameImg))
+		// Horizontal strip (1xN)
+		if frameWidth%frameHeight == 0 {
+			frameCount := frameWidth / frameHeight
+			if frameCount > 1 {
+				frames := make([]*ebiten.Image, 0, frameCount)
+				for i := 0; i < frameCount; i++ {
+					rect := image.Rect(
+						bounds.Min.X+i*frameHeight,
+						bounds.Min.Y,
+						bounds.Min.X+(i+1)*frameHeight,
+						bounds.Min.Y+frameHeight,
+					)
+					frameImg := subImager.SubImage(rect)
+					frames = append(frames, ebiten.NewImageFromImage(frameImg))
+				}
+
+				sm.animations[animationKey(name, animType)] = &SpriteAnimation{
+					Frames:      frames,
+					FrameWidth:  frameHeight,
+					FrameHeight: frameHeight,
+				}
+				return
+			}
 		}
 
-		sm.animations[animationKey(name, animType)] = &SpriteAnimation{
-			Frames:      frames,
-			FrameWidth:  frameHeight,
-			FrameHeight: frameHeight,
+		// Square 2x2 grid (4 frames)
+		if frameWidth == frameHeight && frameWidth%2 == 0 {
+			frameSize := frameWidth / 2
+			frames := make([]*ebiten.Image, 0, 4)
+			for row := 0; row < 2; row++ {
+				for col := 0; col < 2; col++ {
+					rect := image.Rect(
+						bounds.Min.X+col*frameSize,
+						bounds.Min.Y+row*frameSize,
+						bounds.Min.X+(col+1)*frameSize,
+						bounds.Min.Y+(row+1)*frameSize,
+					)
+					frameImg := subImager.SubImage(rect)
+					frames = append(frames, ebiten.NewImageFromImage(frameImg))
+				}
+			}
+
+			sm.animations[animationKey(name, animType)] = &SpriteAnimation{
+				Frames:      frames,
+				FrameWidth:  frameSize,
+				FrameHeight: frameSize,
+			}
+			return
 		}
+
 		return
 	}
 }

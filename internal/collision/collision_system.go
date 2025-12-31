@@ -66,7 +66,7 @@ func (cs *CollisionSystem) GetAllEntities() []*Entity {
 // TileChecker interface for checking if tiles block movement and sight
 type TileChecker interface {
 	IsTileBlocking(tileX, tileY int) bool
-	IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool
+	IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool
 	IsTileOpaque(tileX, tileY int) bool
 	GetWorldBounds() (width, height int)
 }
@@ -133,7 +133,7 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 }
 
 // CanMoveToWithHabitat checks if an entity can move to a position, allowing habitat tiles for monsters.
-func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string) bool {
+func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY float64, habitatPrefs []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
 		return false
@@ -143,7 +143,7 @@ func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY floa
 	tempBox := NewBoundingBox(newX, newY, entity.BoundingBox.Width, entity.BoundingBox.Height)
 
 	// Check collision with world tiles (habitat-aware)
-	if !cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs) {
+	if !cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying) {
 		return false
 	}
 
@@ -187,7 +187,7 @@ func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool
 }
 
 // canMoveToWorldPositionWithHabitat checks collision with world tiles using habitat preferences.
-func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string) bool {
+func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
 	width, height := cs.tileChecker.GetWorldBounds()
 
 	// Get the tile range that the bounding box covers
@@ -208,7 +208,7 @@ func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *Boundi
 			}
 
 			// Check if any overlapping tile blocks movement (habitat-aware)
-			if cs.tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs) {
+			if cs.tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs, flying) {
 				return false
 			}
 		}

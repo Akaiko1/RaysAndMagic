@@ -53,7 +53,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 
 		freeSpace := dist - (playerRadius + monsterRadius)
-		reach := m.AttackRadius
+		reach := m.GetAttackRangePixels()
 		if reach <= 0 {
 			reach = tileSize * 0.25 // conservative fallback reach
 		}
@@ -143,7 +143,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	newY := monster.Y + float64(stepY)*tileSize
 
 	// Check if the monster can move to the new position
-	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs) {
+	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs, monster.Flying) {
 		monster.X = newX
 		monster.Y = newY
 		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
@@ -155,7 +155,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	if stepX != 0 && dyTiles != 0 {
 		altX := monster.X
 		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -165,7 +165,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	} else if stepY != 0 && dxTiles != 0 {
 		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
 		altY := monster.Y
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
 			monster.X = altX
 			monster.Y = altY
 			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
@@ -210,7 +210,7 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
-		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs) {
+		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {
 			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
 			if dist < bestDist {
 				bestDist = dist

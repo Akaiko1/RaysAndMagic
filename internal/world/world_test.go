@@ -244,15 +244,15 @@ func TestIsTileBlockingForHabitat(t *testing.T) {
 		Tiles:  [][]TileType3D{{blockedType}},
 	}
 
-	if !world.IsTileBlockingForHabitat(0, 0, nil) {
+	if !world.IsTileBlockingForHabitat(0, 0, nil, false) {
 		t.Fatalf("Expected tile %q to block without habitat prefs", blockedKey)
 	}
 
-	if !world.IsTileBlockingForHabitat(0, 0, []string{"__non_habitat__"}) {
+	if !world.IsTileBlockingForHabitat(0, 0, []string{"__non_habitat__"}, false) {
 		t.Fatalf("Expected tile %q to block for non-habitat prefs", blockedKey)
 	}
 
-	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}) {
+	if world.IsTileBlockingForHabitat(0, 0, []string{blockedKey}, false) {
 		t.Fatalf("Expected tile %q to be walkable for matching habitat prefs", blockedKey)
 	}
 }

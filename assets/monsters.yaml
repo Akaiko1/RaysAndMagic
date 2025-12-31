@@ -188,10 +188,12 @@ monsters:
     alert_radius: 5  # 5 tiles (wide awareness)
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
+    ranged_attack_range: 2
     speed: 2.5
     gold_min: 500
     gold_max: 1500
     sprite: "dragon"
+    flying: true
     letter: "d"
     box_w: 48
     box_h: 48
@@ -333,6 +335,7 @@ monsters:
     gold_min: 5
     gold_max: 25
     sprite: "pixie"
+    flying: true
     letter: "p"
     box_w: 48
     box_h: 48
@@ -361,6 +364,7 @@ monsters:
     alert_radius: 3  # 3 tiles
     attack_radius: 2  # 2 tiles (ranged knives)
     projectile_weapon: "throwing_knife"
+    ranged_attack_range: 2
     speed: 1.6
     gold_min: 8
     gold_max: 25

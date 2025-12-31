@@ -231,7 +231,7 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 
 // IsTileBlockingForHabitat checks if a tile blocks movement for a monster with given habitat preferences
 // Monsters can walk on tiles that are in their habitat preferences even if normally blocked
-func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string) bool {
+func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []string, flying bool) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
@@ -244,6 +244,11 @@ func (w *World3D) IsTileBlockingForHabitat(tileX, tileY int, habitatPrefs []stri
 
 		// If already walkable, return false (not blocking)
 		if isWalkable {
+			return false
+		}
+
+		// Flying monsters can pass over transparent solid tiles (e.g., boulders)
+		if flying && GlobalTileManager.IsSolid(tile) && GlobalTileManager.IsTransparent(tile) {
 			return false
 		}
 
