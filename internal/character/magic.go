@@ -102,6 +102,7 @@ type MagicSkill struct {
 	Level       int
 	Mastery     SkillMastery
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
+	CastCount   int              // Total casts in this school (for mastery progression)
 }
 
 // Legacy GetSchoolName function for backward compatibility

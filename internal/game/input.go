@@ -1635,7 +1635,11 @@ func (ih *InputHandler) endPartyTurn() {
 		ih.game.turnBasedSpRegenCount = 0
 		for _, member := range ih.game.party.Members {
 			if member.SpellPoints < member.MaxSpellPoints {
-				member.SpellPoints++
+				regen := member.CalculateManaRegenAmount(ih.game.statBonus)
+				member.SpellPoints += regen
+				if member.SpellPoints > member.MaxSpellPoints {
+					member.SpellPoints = member.MaxSpellPoints
+				}
 			}
 		}
 	}

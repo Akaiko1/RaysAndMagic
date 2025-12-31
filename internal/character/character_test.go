@@ -212,8 +212,9 @@ func TestCharacterUpdate(t *testing.T) {
 	}
 
 	// Check spell point regeneration (2 regens in 1200 ticks at 600 ticks per regen)
-	if char.SpellPoints != originalSP-3 {
-		t.Errorf("Expected spell points to regenerate by 2, got %d", char.SpellPoints)
+	// Personality 18 => +1 regen per tick, so 2 SP per regen tick.
+	if char.SpellPoints != originalSP-1 {
+		t.Errorf("Expected spell points to regenerate by 4, got %d", char.SpellPoints)
 	}
 
 	// Test that SP doesn't exceed maximum

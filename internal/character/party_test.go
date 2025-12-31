@@ -116,7 +116,7 @@ func TestPartyUpdate(t *testing.T) {
 
 	// Check that all members were updated (spell points should regenerate)
 	for i, member := range party.Members {
-		expectedSP := originalSP[i] - 3 // Should regenerate 2 points
+		expectedSP := originalSP[i] - 1 // Personality >= 10 => 2 SP per regen tick (total +4)
 		if member.SpellPoints != expectedSP {
 			t.Errorf("Member %d: expected SP %d, got %d", i, expectedSP, member.SpellPoints)
 		}

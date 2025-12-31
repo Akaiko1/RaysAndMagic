@@ -465,15 +465,31 @@ func calculateSpellEffectivenessFromID(spellID spells.SpellID, skill *character.
 	return effectiveness
 }
 
+func getSpellMasteryBonus(def spells.SpellDefinition, char *character.MMCharacter) int {
+	if char == nil || def.School == "" {
+		return 0
+	}
+	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	if skill, exists := char.MagicSchools[school]; exists {
+		return int(skill.Mastery) * 5
+	}
+	return 0
+}
+
 // getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions
 func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var details []string
+	masteryBonus := getSpellMasteryBonus(def, char)
 
 	// Check if this is a damage spell
 	if def.IsProjectile {
 		// Use centralized damage calculation with effective stats (same as actual projectile system)
 		effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 		baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
+		if masteryBonus > 0 {
+			baseDamage += masteryBonus
+			totalDamage += masteryBonus
+		}
 
 		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
 		details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
@@ -485,6 +501,10 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		// Use the same centralized healing calculation as actual combat with effective stats
 		effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 		baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
+		if masteryBonus > 0 {
+			baseHeal += masteryBonus
+			totalHeal += masteryBonus
+		}
 		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
 		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
 		details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
@@ -500,7 +520,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	// Check if this is a utility spell
 	if def.IsUtility {
 		if def.Duration > 0 {
-			duration := def.Duration
+			duration := def.Duration + masteryBonus
 
 			// Display duration appropriately (seconds vs minutes)
 			if duration >= 60 {
@@ -522,7 +542,8 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, "Allows underwater travel via deep water")
 		case "Bless":
 			if def.StatBonus > 0 {
-				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", def.StatBonus))
+				statBonus := def.StatBonus + masteryBonus
+				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
 			}
 			details = append(details, "Affects entire party")
 		case "Awaken":

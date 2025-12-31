@@ -58,7 +58,7 @@ func (gl *GameLoop) Update() error {
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
-	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
+	gl.game.party.UpdateWithMode(gl.game.turnBasedMode, gl.game.statBonus)
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()

@@ -39,6 +39,9 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
+	// Poison status timer and tick accumulator (frames)
+	PoisonFramesRemaining int
+	poisonTickTimer       int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -302,6 +305,33 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 }
 
 func (c *MMCharacter) Update() {
+	c.UpdateWithStatBonus(0)
+}
+
+// UpdateWithMode updates the character with knowledge of the current game mode
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, statBonus int) {
+	// Skip timer-based regeneration in turn-based mode
+	if turnBasedMode {
+		tps := config.GetTargetTPS()
+		if tps <= 0 {
+			tps = 60
+		}
+		c.updatePoison(tps)
+		return
+	}
+
+	// Use normal timer-based regeneration in real-time mode
+	c.UpdateWithStatBonus(statBonus)
+}
+
+// UpdateWithStatBonus updates the character and applies stat-based regen using the provided bonus.
+func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
+	tps := config.GetTargetTPS()
+	if tps <= 0 {
+		tps = 60
+	}
+	c.updatePoison(tps)
+
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
 		return
@@ -311,20 +341,62 @@ func (c *MMCharacter) Update() {
 	c.spellRegenTimer++
 
 	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
-		c.SpellPoints++
+		regen := c.CalculateManaRegenAmount(statBonus)
+		c.SpellPoints += regen
+		if c.SpellPoints > c.MaxSpellPoints {
+			c.SpellPoints = c.MaxSpellPoints
+		}
 		c.spellRegenTimer = 0 // Reset timer
 	}
 }
 
-// UpdateWithMode updates the character with knowledge of the current game mode
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
-	// Skip timer-based regeneration in turn-based mode
-	if turnBasedMode {
+// CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
+func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
+	effectivePersonality := c.GetEffectivePersonality(statBonus)
+	regen := 1 + (effectivePersonality / 10)
+	if regen < 1 {
+		return 1
+	}
+	return regen
+}
+
+// ApplyPoison applies or refreshes a poison effect for the given duration in frames.
+func (c *MMCharacter) ApplyPoison(frames int) {
+	if frames <= 0 {
 		return
 	}
+	if frames > c.PoisonFramesRemaining {
+		c.PoisonFramesRemaining = frames
+	}
+	c.AddCondition(ConditionPoisoned)
+}
 
-	// Use normal timer-based regeneration in real-time mode
-	c.Update()
+func (c *MMCharacter) updatePoison(tps int) {
+	if c.PoisonFramesRemaining <= 0 {
+		return
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	c.PoisonFramesRemaining--
+	c.poisonTickTimer++
+
+	if c.poisonTickTimer >= tps {
+		c.poisonTickTimer = 0
+		if c.HitPoints > 0 {
+			c.HitPoints--
+			if c.HitPoints <= 0 {
+				c.HitPoints = 0
+				c.AddCondition(ConditionUnconscious)
+			}
+		}
+	}
+
+	if c.PoisonFramesRemaining <= 0 {
+		c.PoisonFramesRemaining = 0
+		c.poisonTickTimer = 0
+		c.RemoveCondition(ConditionPoisoned)
+	}
 }
 
 func (c *MMCharacter) GetDisplayInfo() string {
