@@ -30,6 +30,7 @@ type Renderer struct {
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
+	circleCache              map[int]*ebiten.Image // Cached circle masks by diameter
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// Floor rendering optimization buffers
 	floorImage  *ebiten.Image // Persistent floor image buffer
@@ -65,6 +66,7 @@ func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
 		game:                     game,
 		renderedSpritesThisFrame: make(map[[2]int]bool),
+		circleCache:              make(map[int]*ebiten.Image),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -1276,6 +1278,31 @@ func (r *Renderer) drawTrail(screen *ebiten.Image, x, y, dirX, dirY, length, wid
 	}
 }
 
+func (r *Renderer) getCircleImage(diameter int) *ebiten.Image {
+	if diameter <= 1 {
+		return r.whiteImg
+	}
+	if img, ok := r.circleCache[diameter]; ok {
+		return img
+	}
+	img := ebiten.NewImage(diameter, diameter)
+	cx := float64(diameter-1) / 2
+	cy := float64(diameter-1) / 2
+	radius := float64(diameter) / 2
+	r2 := radius * radius
+	for y := 0; y < diameter; y++ {
+		dy := float64(y) - cy
+		for x := 0; x < diameter; x++ {
+			dx := float64(x) - cx
+			if dx*dx+dy*dy <= r2 {
+				img.Set(x, y, color.White)
+			}
+		}
+	}
+	r.circleCache[diameter] = img
+	return img
+}
+
 func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
 	if vx == 0 && vy == 0 {
 		return 0, 0, false
@@ -1512,12 +1539,16 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 
 		// Create and draw the scaled collision box
 		boxColor := color.RGBA{255, 0, 0, 120} // Red, semi-transparent
-		boxImg := ebiten.NewImage(screenColW, screenColH)
-		boxImg.Fill(boxColor)
 		boxOpts := &ebiten.DrawImageOptions{}
+		boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 		boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-		boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-		screen.DrawImage(boxImg, boxOpts)
+		boxOpts.ColorScale.Scale(
+			float32(boxColor.R)/255,
+			float32(boxColor.G)/255,
+			float32(boxColor.B)/255,
+			float32(boxColor.A)/255*0.5,
+		)
+		screen.DrawImage(r.whiteImg, boxOpts)
 	}
 }
 
@@ -1945,12 +1976,16 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (projectileSize-screenColH)/2
 				boxColor := color.RGBA{0, 255, 0, 120} // Green, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
@@ -1980,12 +2015,16 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			r.drawGlowRect(screen, sparkX, sparkY, math.Max(2, float64(projectileSize)*0.25), fxProfile.sparkColor, 0.8*critBoost, glowBlend)
 		}
 
-		fireballImg := ebiten.NewImage(projectileSize, projectileSize)
-		fireballImg.Fill(color.RGBA{uint8(projectileColor[0]), uint8(projectileColor[1]), uint8(projectileColor[2]), 255})
-
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(projectileSize), float64(projectileSize))
 		opts.GeoM.Translate(float64(screenX-projectileSize/2), float64(screenY))
-		screen.DrawImage(fireballImg, opts)
+		opts.ColorScale.Scale(
+			float32(projectileColor[0])/255,
+			float32(projectileColor[1])/255,
+			float32(projectileColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2079,23 +2118,32 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (attackSize-screenColH)/2
 				boxColor := color.RGBA{255, 255, 0, 120} // Yellow, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
 		// Draw attack using weapon-specific color from config
-		attackImg := ebiten.NewImage(attackSize, attackSize)
 		attackColor := weaponDef.Graphics.Color
-		attackImg.Fill(color.RGBA{uint8(attackColor[0]), uint8(attackColor[1]), uint8(attackColor[2]), 255})
 
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(attackSize), float64(attackSize))
 		opts.GeoM.Translate(float64(screenX-attackSize/2), float64(screenY))
-		screen.DrawImage(attackImg, opts)
+		opts.ColorScale.Scale(
+			float32(attackColor[0])/255,
+			float32(attackColor[1])/255,
+			float32(attackColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2196,19 +2244,21 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (arrowSize-screenColH)/2
 				boxColor := color.RGBA{0, 255, 255, 120} // Cyan, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
 		// Draw arrow using bow-specific color from config
-		arrowImg := ebiten.NewImage(arrowSize, arrowSize)
 		arrowColor := bowDef.Graphics.Color
-		arrowImg.Fill(color.RGBA{uint8(arrowColor[0]), uint8(arrowColor[1]), uint8(arrowColor[2]), 255})
 
 		centerX := float64(screenX)
 		centerY := float64(screenY) + float64(arrowSize)/2
@@ -2230,8 +2280,15 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		}
 
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(arrowSize), float64(arrowSize))
 		opts.GeoM.Translate(float64(screenX-arrowSize/2), float64(screenY))
-		screen.DrawImage(arrowImg, opts)
+		opts.ColorScale.Scale(
+			float32(arrowColor[0])/255,
+			float32(arrowColor[1])/255,
+			float32(arrowColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2593,16 +2650,16 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				size = 6
 			}
 
-			particleImg := ebiten.NewImage(int(size)+1, int(size)+1)
-			particleImg.Fill(color.RGBA{
-				uint8(particle.Color[0]),
-				uint8(particle.Color[1]),
-				uint8(particle.Color[2]),
-				uint8(255 * alpha),
-			})
 			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Scale(size, size)
 			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
-			screen.DrawImage(particleImg, opts)
+			opts.ColorScale.Scale(
+				float32(particle.Color[0])/255,
+				float32(particle.Color[1])/255,
+				float32(particle.Color[2])/255,
+				float32(alpha),
+			)
+			screen.DrawImage(r.whiteImg, opts)
 		}
 	}
 
@@ -2652,27 +2709,20 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				size = 12
 			}
 
-			// Draw particle as a glowing circle
-			particleImg := ebiten.NewImage(int(size)+2, int(size)+2)
 			clr := color.RGBA{
 				uint8(particle.Color[0]),
 				uint8(particle.Color[1]),
 				uint8(particle.Color[2]),
 				uint8(255 * alpha),
 			}
-			// Simple filled circle approximation
-			cx, cy := (size+2)/2, (size+2)/2
-			for px := 0; px < int(size)+2; px++ {
-				for py := 0; py < int(size)+2; py++ {
-					dist := math.Sqrt(math.Pow(float64(px)-cx, 2) + math.Pow(float64(py)-cy, 2))
-					if dist <= size/2 {
-						particleImg.Set(px, py, clr)
-					}
-				}
+			diameter := int(size) + 2
+			if diameter < 2 {
+				diameter = 2
 			}
+			particleImg := r.getCircleImage(diameter)
 
 			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
+			opts.GeoM.Translate(screenX-float64(diameter)/2, screenY-float64(diameter)/2)
 			// Use additive blending for glow effect
 			opts.Blend = ebiten.Blend{
 				BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
@@ -2682,6 +2732,12 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				BlendOperationRGB:           ebiten.BlendOperationAdd,
 				BlendOperationAlpha:         ebiten.BlendOperationAdd,
 			}
+			opts.ColorScale.Scale(
+				float32(clr.R)/255,
+				float32(clr.G)/255,
+				float32(clr.B)/255,
+				float32(clr.A)/255,
+			)
 			screen.DrawImage(particleImg, opts)
 		}
 	}

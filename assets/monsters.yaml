@@ -11,8 +11,8 @@ monsters:
     armor_class: 6
     experience: 15
     attack_bonus: 0
-    damage_min: 1
-    damage_max: 4
+    damage_min: 4
+    damage_max: 8
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
@@ -63,7 +63,7 @@ monsters:
     armor_class: 7
     experience: 35
     attack_bonus: 1
-    damage_min: 1
+    damage_min: 4
     damage_max: 6
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
@@ -87,8 +87,8 @@ monsters:
     armor_class: 9
     experience: 120
     attack_bonus: 3
-    damage_min: 2
-    damage_max: 12
+    damage_min: 10
+    damage_max: 16
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
@@ -158,8 +158,10 @@ monsters:
     armor_class: 10
     experience: 300
     attack_bonus: 4
-    damage_min: 3
+    damage_min: 10
     damage_max: 18
+    poison_chance: 0.33
+    poison_duration_seconds: 20
     alert_radius: 3  # 3 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
@@ -215,8 +217,8 @@ monsters:
     armor_class: 9
     experience: 85
     attack_bonus: 3
-    damage_min: 2
-    damage_max: 10
+    damage_min: 8
+    damage_max: 12
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.4
@@ -296,8 +298,8 @@ monsters:
     armor_class: 12
     experience: 400
     attack_bonus: 6
-    damage_min: 4
-    damage_max: 24
+    damage_min: 12
+    damage_max: 32
     alert_radius: 3  # 3 tiles
     attack_radius: 1  # 1 tile (melee range, but large creature)
     speed: 0.8
@@ -327,10 +329,15 @@ monsters:
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 30
     attack_bonus: 1
-    damage_min: 1
-    damage_max: 2
+    damage_min: 2
+    damage_max: 12
+    fireburst_chance: 0.33
+    fireburst_damage_min: 6
+    fireburst_damage_max: 18
     alert_radius: 1  # 1 tile (timid, small detection range)
     attack_radius: 1  # 1 tile (melee range)
+    projectile_spell: "firebolt"
+    ranged_attack_range: 3
     speed: 3.0         # Very fast
     gold_min: 5
     gold_max: 25
@@ -359,8 +366,8 @@ monsters:
     armor_class: 8
     experience: 55
     attack_bonus: 2
-    damage_min: 2
-    damage_max: 7
+    damage_min: 5
+    damage_max: 8
     alert_radius: 3  # 3 tiles
     attack_radius: 2  # 2 tiles (ranged knives)
     projectile_weapon: "throwing_knife"

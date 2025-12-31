@@ -105,17 +105,15 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 	atMax := *valuePtr >= MaxStatValue
 	canActuallyAdd := *canAdd && !atMax
 
-	plusImg := ebiten.NewImage(btnW, btnH)
+	var plusColor color.RGBA
 	if canActuallyAdd && *isHover {
-		plusImg.Fill(color.RGBA{80, 200, 80, 220})
+		plusColor = color.RGBA{80, 200, 80, 220}
 	} else if atMax {
-		plusImg.Fill(color.RGBA{100, 100, 100, 180}) // Gray out if at max
+		plusColor = color.RGBA{100, 100, 100, 180} // Gray out if at max
 	} else {
-		plusImg.Fill(color.RGBA{60, 120, 60, 180})
+		plusColor = color.RGBA{60, 120, 60, 180}
 	}
-	plusOpts := &ebiten.DrawImageOptions{}
-	plusOpts.GeoM.Translate(float64(plusX), float64(plusY))
-	screen.DrawImage(plusImg, plusOpts)
+	vector.DrawFilledRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
 	ebitenutil.DebugPrintAt(screen, "+", plusX+8, plusY+4)
 	// Handle click
 	if canActuallyAdd && *isHover && clickIn {
@@ -128,15 +126,13 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 
 // drawStatPointPlusButton draws the + button under the portrait if stat points are available
 func drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHover bool) {
-	plusBtnImg := ebiten.NewImage(w, h)
+	var plusColor color.RGBA
 	if isHover {
-		plusBtnImg.Fill(color.RGBA{80, 200, 80, 220})
+		plusColor = color.RGBA{80, 200, 80, 220}
 	} else {
-		plusBtnImg.Fill(color.RGBA{60, 120, 60, 180})
+		plusColor = color.RGBA{60, 120, 60, 180}
 	}
-	plusBtnOpts := &ebiten.DrawImageOptions{}
-	plusBtnOpts.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(plusBtnImg, plusBtnOpts)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
 	ebitenutil.DebugPrintAt(screen, "+", x+7, y+3)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
 }
@@ -430,13 +426,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 		}
 
-		// Draw background panel using DrawImage
-		panelImg := ebiten.NewImage(portraitWidth-2, portraitHeight)
-		panelImg.Fill(bgColor)
-
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Translate(float64(x), float64(startY))
-		screen.DrawImage(panelImg, opts)
+		// Draw background panel
+		vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), bgColor, false)
 
 		// Draw character portrait (Column 1)
 		portraitName := strings.ToLower(member.Name)
@@ -466,18 +457,21 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 		// Darken overlay if unconscious
 		isUnconscious := false
+		isPoisoned := false
 		for _, cond := range member.Conditions {
 			if cond == character.ConditionUnconscious {
 				isUnconscious = true
-				break
+			}
+			if cond == character.ConditionPoisoned {
+				isPoisoned = true
 			}
 		}
 		if isUnconscious {
-			dark := ebiten.NewImage(portraitWidth-2, portraitHeight)
-			dark.Fill(color.RGBA{0, 0, 0, 140})
-			darkOpts := &ebiten.DrawImageOptions{}
-			darkOpts.GeoM.Translate(float64(x), float64(startY))
-			screen.DrawImage(dark, darkOpts)
+			vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{0, 0, 0, 140}, false)
+		} else if isPoisoned {
+			pulse := 0.6 + 0.4*math.Sin(float64(ui.game.frameCount)*0.15)
+			alpha := uint8(80 + 60*pulse)
+			vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{40, 160, 80, alpha}, false)
 		}
 
 		// Status Column (Column 2) - basic character info
@@ -580,34 +574,15 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		barHeight := iconSize + 8
 
 		// Semi-transparent background
-		bgImg := ebiten.NewImage(barWidth, barHeight)
-		bgImg.Fill(color.RGBA{0, 0, 0, 120})
-
-		bgOpts := &ebiten.DrawImageOptions{}
-		bgOpts.GeoM.Translate(float64(statusBarX-5), float64(statusBarY-4))
-		screen.DrawImage(bgImg, bgOpts)
+		vector.DrawFilledRect(screen, float32(statusBarX-5), float32(statusBarY-4), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 	}
 }
 
 // drawSpellIcon draws a single spell status icon with duration bar and returns clickable bounds
 func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fallback string, currentDuration, maxDuration int) (int, int, int, int) {
 	// Draw icon background (more transparent, with border)
-	iconBg := ebiten.NewImage(size, size)
-	iconBg.Fill(color.RGBA{20, 20, 20, 120}) // Less opaque background
-
-	// Draw border for visibility
-	border := ebiten.NewImage(size, size)
-	border.Fill(color.RGBA{80, 80, 80, 200})
-	borderBg := ebiten.NewImage(size-2, size-2)
-	borderBg.Fill(color.RGBA{20, 20, 20, 120})
-
-	iconOpts := &ebiten.DrawImageOptions{}
-	iconOpts.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(border, iconOpts)
-
-	borderOpts := &ebiten.DrawImageOptions{}
-	borderOpts.GeoM.Translate(float64(x+1), float64(y+1))
-	screen.DrawImage(borderBg, borderOpts)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{80, 80, 80, 200}, false)
+	vector.DrawFilledRect(screen, float32(x+1), float32(y+1), float32(size-2), float32(size-2), color.RGBA{20, 20, 20, 120}, false)
 
 	// Draw icon - try emoji first, then fallback to ASCII
 	ebitenutil.DebugPrintAt(screen, icon, x+6, y+8)
@@ -623,12 +598,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 		barHeight := 3
 
 		// Background bar (gray)
-		barBg := ebiten.NewImage(barWidth, barHeight)
-		barBg.Fill(color.RGBA{60, 60, 60, 200})
-
-		barBgOpts := &ebiten.DrawImageOptions{}
-		barBgOpts.GeoM.Translate(float64(x), float64(y+size-barHeight))
-		screen.DrawImage(barBg, barBgOpts)
+		vector.DrawFilledRect(screen, float32(x), float32(y+size-barHeight), float32(barWidth), float32(barHeight), color.RGBA{60, 60, 60, 200}, false)
 
 		// Duration bar (colored based on remaining time)
 		if currentDuration > 0 {
@@ -645,12 +615,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 					barColor = color.RGBA{200, 100, 0, 255} // Orange-red
 				}
 
-				fillBar := ebiten.NewImage(fillWidth, barHeight)
-				fillBar.Fill(barColor)
-
-				fillOpts := &ebiten.DrawImageOptions{}
-				fillOpts.GeoM.Translate(float64(x), float64(y+size-barHeight))
-				screen.DrawImage(fillBar, fillOpts)
+				vector.DrawFilledRect(screen, float32(x), float32(y+size-barHeight), float32(fillWidth), float32(barHeight), barColor, false)
 			}
 		}
 	}
@@ -737,11 +702,7 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 
 	// Draw arrow head
 	arrowHeadSize := 5.0
-	arrowImg := ebiten.NewImage(int(arrowHeadSize), int(arrowHeadSize))
-	arrowImg.Fill(color.RGBA{255, 80, 80, 255})
-	arrowOpts := &ebiten.DrawImageOptions{}
-	arrowOpts.GeoM.Translate(arrowX-arrowHeadSize/2, arrowY-arrowHeadSize/2)
-	screen.DrawImage(arrowImg, arrowOpts)
+	vector.DrawFilledRect(screen, float32(arrowX-arrowHeadSize/2), float32(arrowY-arrowHeadSize/2), float32(arrowHeadSize), float32(arrowHeadSize), color.RGBA{255, 80, 80, 255}, false)
 
 	// Draw player position indicator in center
 	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
@@ -881,20 +842,14 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 			// Draw enemy dot
 			dotSize := 4 // Slightly larger for better visibility
-			dotImg := ebiten.NewImage(dotSize, dotSize)
-
 			// Color based on distance for threat assessment
+			dotColor := color.RGBA{255, 255, 50, 255}
 			if dist < tileSize*3 { // Close enemies in red
-				dotImg.Fill(color.RGBA{255, 50, 50, 255}) // Bright red
+				dotColor = color.RGBA{255, 50, 50, 255} // Bright red
 			} else if dist < tileSize*6 { // Medium distance in orange
-				dotImg.Fill(color.RGBA{255, 150, 50, 255}) // Orange
-			} else { // Far enemies in yellow
-				dotImg.Fill(color.RGBA{255, 255, 50, 255}) // Yellow
+				dotColor = color.RGBA{255, 150, 50, 255} // Orange
 			}
-
-			dotOpts := &ebiten.DrawImageOptions{}
-			dotOpts.GeoM.Translate(float64(dotX-dotSize/2), float64(dotY-dotSize/2))
-			screen.DrawImage(dotImg, dotOpts)
+			vector.DrawFilledCircle(screen, float32(dotX), float32(dotY), float32(dotSize)/2, dotColor, true)
 		}
 	}
 }
@@ -1686,11 +1641,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	barX := screenWidth - barWidth - 10
 	barY := compassY + compassRadius + 10
 
-	bgImg := ebiten.NewImage(barWidth, barHeight)
-	bgImg.Fill(color.RGBA{0, 0, 0, 120})
-	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(barX), float64(barY))
-	screen.DrawImage(bgImg, bgOpts)
+	vector.DrawFilledRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
 		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
@@ -1798,12 +1749,7 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 
 	// Draw semi-transparent background for the message area
 	bgHeight := len(messages)*messageSpacing + 10
-	bgImg := ebiten.NewImage(messageWidth, bgHeight)
-	bgImg.Fill(color.RGBA{0, 0, 0, 150}) // Semi-transparent black background
-
-	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(startX-5), float64(startY-5))
-	screen.DrawImage(bgImg, bgOpts)
+	vector.DrawFilledRect(screen, float32(startX-5), float32(startY-5), float32(messageWidth), float32(bgHeight), color.RGBA{0, 0, 0, 150}, false)
 
 	// Draw messages from top to bottom (most recent at bottom)
 	for i, message := range messages {
@@ -2559,11 +2505,7 @@ func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	lineHeight := 16
 	padding := 6
 
-	bgImg := ebiten.NewImage(barWidth, barHeight)
-	bgImg.Fill(color.RGBA{0, 0, 0, 120})
-	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(barX), float64(barY))
-	screen.DrawImage(bgImg, bgOpts)
+	vector.DrawFilledRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
 		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
@@ -2682,12 +2624,7 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	notificationY := 10
 
 	// Draw semi-transparent background
-	bgImage := ebiten.NewImage(notificationWidth, notificationHeight)
-	bgImage.Fill(color.RGBA{0, 0, 0, 180}) // Semi-transparent black
-
-	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(notificationX), float64(notificationY))
-	screen.DrawImage(bgImage, bgOpts)
+	vector.DrawFilledRect(screen, float32(notificationX), float32(notificationY), float32(notificationWidth), float32(notificationHeight), color.RGBA{0, 0, 0, 180}, false)
 
 	// Draw border for better visibility
 	borderColor := color.RGBA{255, 255, 255, 200} // Semi-transparent white
