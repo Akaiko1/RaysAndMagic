@@ -605,6 +605,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
 
 	// Add combat message
@@ -1034,14 +1035,45 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 
 	// Check each projectile against each monster using perspective-scaled collision
 	for _, proj := range projectiles {
+		var hitMonster *monsterPkg.Monster3D
+		bestDepth := 0.0
+		bestLateral := 0.0
+
+		camCos := math.Cos(cs.game.camera.Angle)
+		camSin := math.Sin(cs.game.camera.Angle)
+
 		for _, monster := range cs.game.world.Monsters {
 			if !monster.IsAlive() {
 				continue
 			}
 			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
-				cs.applyProjectileDamage(proj.data, proj.pType, monster, proj.entityID)
-				break // Projectile hit, move to next projectile
+				dx := monster.X - cs.game.camera.X
+				dy := monster.Y - cs.game.camera.Y
+				depth := dx*camCos + dy*camSin
+				if depth <= 0 {
+					continue
+				}
+				angle := math.Atan2(dy, dx)
+				angleDiff := angle - cs.game.camera.Angle
+				for angleDiff > math.Pi {
+					angleDiff -= 2 * math.Pi
+				}
+				for angleDiff < -math.Pi {
+					angleDiff += 2 * math.Pi
+				}
+				if math.Abs(angleDiff) > cs.game.camera.FOV/2 {
+					continue
+				}
+				lateral := math.Abs(-dx*camSin + dy*camCos)
+				if hitMonster == nil || depth < bestDepth || (depth == bestDepth && lateral < bestLateral) {
+					bestDepth = depth
+					bestLateral = lateral
+					hitMonster = monster
+				}
 			}
+		}
+		if hitMonster != nil {
+			cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
 		}
 	}
 }
@@ -1188,6 +1220,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var damageTypeStr string
 	var isSpell bool
 	var isRanged bool
+	var arrowVelX, arrowVelY float64
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1228,6 +1261,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damage, isCrit = ar.Damage, ar.Crit
 		weaponName = "Arrow"
 		damageTypeStr = ar.DamageType
+		arrowVelX, arrowVelY = ar.VelX, ar.VelY
 		damageType = monsterPkg.DamagePhysical // Default
 		if monsterPkg.MonsterConfig != nil {
 			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(ar.DamageType); err == nil {
@@ -1243,6 +1277,17 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
+	}
+
+	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
+	if isSpell {
+		if mp, ok := projectile.(*MagicProjectile); ok {
+			cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+		} else {
+			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		}
+	} else if isRanged {
+		cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
 	}
 
 	// Calculate damage reduction based on attack type
@@ -1265,6 +1310,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Spells ignore AC completely - reducedDamage stays as original damage
 
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 

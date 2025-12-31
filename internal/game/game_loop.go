@@ -79,6 +79,9 @@ func (gl *GameLoop) updateExploration() {
 		})
 	}
 
+	// Update monster hit tint timers
+	gl.game.UpdateMonsterHitTintTimers()
+
 	// Handle combat interactions (only in real-time mode)
 	if !gl.game.turnBasedMode {
 		gl.combat.HandleMonsterInteractions()
@@ -92,6 +95,11 @@ func (gl *GameLoop) updateExploration() {
 	// Update slash effects - skip if none active
 	if len(gl.game.slashEffects) > 0 {
 		gl.updateSlashEffects()
+	}
+
+	// Update hit effects (arrow sticks, spell particles)
+	if len(gl.game.arrowHitEffects) > 0 || len(gl.game.spellHitEffects) > 0 {
+		gl.game.UpdateHitEffects()
 	}
 
 	// Remove dead monsters - only if there are any to remove

@@ -79,6 +79,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
+	const attackAnimFrames = 8
+	monster.AttackAnimFrames = attackAnimFrames
+	monster.LastMoveTick = gl.game.frameCount
+
 	if monster.HasRangedAttack() {
 		gl.game.combat.spawnMonsterRangedAttack(monster)
 		return
