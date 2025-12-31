@@ -1387,6 +1387,9 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 		// Calculate sprite metrics using helper with monster-specific size multiplier
 		sizeMultiplier := monster.GetSizeGameMultiplier()
 		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(monster.X, monster.Y, distance, sizeMultiplier)
+		if visible && monster.Flying {
+			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
+		}
 		if !visible {
 			continue
 		}

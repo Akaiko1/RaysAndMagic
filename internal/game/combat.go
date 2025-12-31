@@ -862,8 +862,9 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
-		// If monster is in attacking state and within attack radius, perform attack
-		if monster.State == monsterPkg.StateAttacking && dist < monster.AttackRadius {
+		// If monster is in attacking state and within attack range, perform attack
+		attackRange := monster.GetAttackRangePixels()
+		if monster.State == monsterPkg.StateAttacking && dist < attackRange {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
 				if monster.HasRangedAttack() {
