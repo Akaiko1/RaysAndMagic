@@ -424,6 +424,9 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 	// Draw slash effects
 	r.drawSlashEffects(screen)
+
+	// Draw hit effects (stuck arrows, spell particles)
+	r.drawHitEffects(screen)
 }
 
 // RaycastHit contains the result of a DDA raycast operation.
@@ -1327,6 +1330,20 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
 	return r.game.sprites.GetSprite(spriteName)
 }
 
+func (r *Renderer) monsterHasWalkAnimation(mon *monster.Monster3D) bool {
+	spriteName := mon.GetSpriteType()
+	anim := r.game.sprites.GetAnimation(spriteName, "walking")
+	return anim != nil && len(anim.Frames) > 0
+}
+
+func monsterJitterPhase(id string) float64 {
+	sum := 0
+	for i := 0; i < len(id); i++ {
+		sum += int(id[i])
+	}
+	return float64(sum % 10)
+}
+
 // drawMonstersParallel draws all monsters using parallel sprite processing with depth testing
 func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 	var visibleMonsters []MonsterRenderData
@@ -1432,7 +1449,20 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
 	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
 	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(monsterData.screenY))
+	jitterX, jitterY := 0.0, 0.0
+	if r.game.turnBasedMode && monsterData.monster.AttackAnimFrames > 0 && !r.monsterHasWalkAnimation(monsterData.monster) {
+		jitter := float64(monsterData.spriteSize) * 0.02
+		if jitter < 1 {
+			jitter = 1
+		}
+		if jitter > 3 {
+			jitter = 3
+		}
+		phase := monsterJitterPhase(monsterData.monster.ID)
+		jitterX = math.Sin(float64(r.game.frameCount)*0.7+phase) * jitter
+		jitterY = math.Cos(float64(r.game.frameCount)*0.9+phase) * jitter
+	}
+	opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
 
 	// Apply distance shading
 	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
@@ -1440,6 +1470,9 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		brightness = r.game.config.Graphics.BrightnessMin
 	}
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	if monsterData.monster.HitTintFrames > 0 {
+		opts.ColorScale.Scale(1.0, 0.6, 0.6, 1.0)
+	}
 
 	// Use opaque blending to prevent transparency issues
 	opts.Blend = ebiten.BlendSourceOver
@@ -2497,6 +2530,156 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 					glowBlend,
 				)
 			}
+		}
+	}
+}
+
+// drawHitEffects draws stuck arrows and spell impact particles
+func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
+	screenWidth := r.game.config.GetScreenWidth()
+	screenHeight := r.game.config.GetScreenHeight()
+	centerX := float64(screenWidth) / 2
+	centerY := float64(screenHeight) / 2
+
+	// Draw arrow hit particles
+	for i := range r.game.arrowHitEffects {
+		effect := &r.game.arrowHitEffects[i]
+		if !effect.Active {
+			continue
+		}
+
+		for j := range effect.Particles {
+			particle := &effect.Particles[j]
+			if !particle.Active {
+				continue
+			}
+
+			// Calculate screen position using perspective
+			dx := particle.X - r.game.camera.X
+			dy := particle.Y - r.game.camera.Y
+
+			// Rotate to camera space (relY is forward depth, relX is lateral offset)
+			cosAngle := math.Cos(r.game.camera.Angle)
+			sinAngle := math.Sin(r.game.camera.Angle)
+			relY := dx*cosAngle + dy*sinAngle
+			relX := -dx*sinAngle + dy*cosAngle
+
+			// Skip if behind camera
+			if relY <= 0.1 {
+				continue
+			}
+
+			// Project to screen
+			fov := r.game.camera.FOV
+			scale := float64(screenHeight) / (relY * fov)
+			screenX := centerX + relX*scale + particle.OffsetX*scale
+			screenY := centerY + particle.OffsetY*scale
+
+			// Skip if off screen
+			if screenX < -20 || screenX > float64(screenWidth)+20 {
+				continue
+			}
+
+			lifeRatio := float64(particle.LifeTime) / float64(particle.MaxLife)
+			alpha := lifeRatio
+			size := float64(particle.Size) * scale
+			if size < 1 {
+				size = 1
+			}
+			if size > 6 {
+				size = 6
+			}
+
+			particleImg := ebiten.NewImage(int(size)+1, int(size)+1)
+			particleImg.Fill(color.RGBA{
+				uint8(particle.Color[0]),
+				uint8(particle.Color[1]),
+				uint8(particle.Color[2]),
+				uint8(255 * alpha),
+			})
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
+			screen.DrawImage(particleImg, opts)
+		}
+	}
+
+	// Draw spell hit particles
+	for i := range r.game.spellHitEffects {
+		effect := &r.game.spellHitEffects[i]
+		if !effect.Active {
+			continue
+		}
+
+		for j := range effect.Particles {
+			particle := &effect.Particles[j]
+			if !particle.Active {
+				continue
+			}
+
+			// Calculate screen position
+			dx := particle.X - r.game.camera.X
+			dy := particle.Y - r.game.camera.Y
+
+			cosAngle := math.Cos(r.game.camera.Angle)
+			sinAngle := math.Sin(r.game.camera.Angle)
+			relY := dx*cosAngle + dy*sinAngle
+			relX := -dx*sinAngle + dy*cosAngle
+
+			if relY <= 0.1 {
+				continue
+			}
+
+			fov := r.game.camera.FOV
+			scale := float64(screenHeight) / (relY * fov)
+			screenX := centerX + relX*scale
+			screenY := centerY
+
+			if screenX < -20 || screenX > float64(screenWidth)+20 {
+				continue
+			}
+
+			// Calculate alpha and size based on lifetime
+			lifeRatio := float64(particle.LifeTime) / float64(particle.MaxLife)
+			alpha := lifeRatio
+			size := float64(particle.Size) * lifeRatio * scale
+			if size < 1 {
+				size = 1
+			}
+			if size > 12 {
+				size = 12
+			}
+
+			// Draw particle as a glowing circle
+			particleImg := ebiten.NewImage(int(size)+2, int(size)+2)
+			clr := color.RGBA{
+				uint8(particle.Color[0]),
+				uint8(particle.Color[1]),
+				uint8(particle.Color[2]),
+				uint8(255 * alpha),
+			}
+			// Simple filled circle approximation
+			cx, cy := (size+2)/2, (size+2)/2
+			for px := 0; px < int(size)+2; px++ {
+				for py := 0; py < int(size)+2; py++ {
+					dist := math.Sqrt(math.Pow(float64(px)-cx, 2) + math.Pow(float64(py)-cy, 2))
+					if dist <= size/2 {
+						particleImg.Set(px, py, clr)
+					}
+				}
+			}
+
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
+			// Use additive blending for glow effect
+			opts.Blend = ebiten.Blend{
+				BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+				BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
+				BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+				BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+				BlendOperationRGB:           ebiten.BlendOperationAdd,
+				BlendOperationAlpha:         ebiten.BlendOperationAdd,
+			}
+			screen.DrawImage(particleImg, opts)
 		}
 	}
 }

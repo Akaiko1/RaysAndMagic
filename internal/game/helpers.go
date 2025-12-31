@@ -35,29 +35,32 @@ var (
 // Helper functions to reduce code duplication in wrapper creation and common operations
 
 // CreateMagicProjectileWrapper creates a wrapper for magic projectile entities using pool
-func CreateMagicProjectileWrapper(magicProjectile *MagicProjectile, collisionSystem *collision.CollisionSystem, projectileID string) entities.ProjectileUpdateInterface {
+func CreateMagicProjectileWrapper(magicProjectile *MagicProjectile, collisionSystem *collision.CollisionSystem, projectileID string, game *MMGame) entities.ProjectileUpdateInterface {
 	wrapper := magicProjectileWrapperPool.Get().(*MagicProjectileWrapper)
 	wrapper.MagicProjectile = magicProjectile
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
+	wrapper.game = game
 	return wrapper
 }
 
 // CreateMeleeAttackWrapper creates a wrapper for melee attack entities using pool
-func CreateMeleeAttackWrapper(attack *MeleeAttack, collisionSystem *collision.CollisionSystem, projectileID string) entities.ProjectileUpdateInterface {
+func CreateMeleeAttackWrapper(attack *MeleeAttack, collisionSystem *collision.CollisionSystem, projectileID string, game *MMGame) entities.ProjectileUpdateInterface {
 	wrapper := meleeAttackWrapperPool.Get().(*MeleeAttackWrapper)
 	wrapper.MeleeAttack = attack
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
+	wrapper.game = game
 	return wrapper
 }
 
 // CreateArrowWrapper creates a wrapper for arrow entities using pool
-func CreateArrowWrapper(arrow *Arrow, collisionSystem *collision.CollisionSystem, projectileID string) entities.ProjectileUpdateInterface {
+func CreateArrowWrapper(arrow *Arrow, collisionSystem *collision.CollisionSystem, projectileID string, game *MMGame) entities.ProjectileUpdateInterface {
 	wrapper := arrowWrapperPool.Get().(*ArrowWrapper)
 	wrapper.Arrow = arrow
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
+	wrapper.game = game
 	return wrapper
 }
 
@@ -90,19 +93,19 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 	// Convert magic projectiles
 	for i := range g.magicProjectiles {
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
-			CreateMagicProjectileWrapper(&g.magicProjectiles[i], g.collisionSystem, g.magicProjectiles[i].ID))
+			CreateMagicProjectileWrapper(&g.magicProjectiles[i], g.collisionSystem, g.magicProjectiles[i].ID, g))
 	}
 
 	// Convert melee attacks
 	for i := range g.meleeAttacks {
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
-			CreateMeleeAttackWrapper(&g.meleeAttacks[i], g.collisionSystem, g.meleeAttacks[i].ID))
+			CreateMeleeAttackWrapper(&g.meleeAttacks[i], g.collisionSystem, g.meleeAttacks[i].ID, g))
 	}
 
 	// Convert arrows
 	for i := range g.arrows {
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
-			CreateArrowWrapper(&g.arrows[i], g.collisionSystem, g.arrows[i].ID))
+			CreateArrowWrapper(&g.arrows[i], g.collisionSystem, g.arrows[i].ID, g))
 	}
 
 	return g.reusableProjectileWrappers

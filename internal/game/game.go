@@ -95,6 +95,53 @@ type Arrow struct {
 	SourceName string
 }
 
+// ArrowHitParticle represents a small particle burst for arrow impacts
+type ArrowHitParticle struct {
+	X, Y       float64
+	OffsetX    float64
+	OffsetY    float64
+	VelX, VelY float64
+	LifeTime   int
+	MaxLife    int
+	Size       int
+	Active     bool
+	Color      [3]int
+}
+
+// ArrowHitEffect represents a short particle burst on arrow impact
+type ArrowHitEffect struct {
+	Particles []ArrowHitParticle
+	Active    bool
+}
+
+// SpellHitParticle represents a single particle from a spell impact
+type SpellHitParticle struct {
+	X, Y       float64 // Current position
+	VelX, VelY float64 // Velocity (outward from impact)
+	Color      [3]int  // RGB color based on element
+	LifeTime   int     // Frames remaining
+	MaxLife    int     // Initial lifetime for alpha calculation
+	Size       int     // Particle size (shrinks over time)
+	Active     bool
+}
+
+// SpellHitEffect represents a burst of particles from a spell impact
+type SpellHitEffect struct {
+	Particles []SpellHitParticle
+	Active    bool
+}
+
+// ElementColors maps spell elements to RGB colors
+var ElementColors = map[string][3]int{
+	"fire":     {255, 100, 0},   // Orange-red
+	"water":    {0, 150, 255},   // Blue
+	"air":      {200, 200, 255}, // Light blue-white
+	"earth":    {139, 90, 43},   // Brown
+	"light":    {255, 255, 200}, // Warm white
+	"dark":     {80, 0, 120},    // Purple
+	"physical": {200, 200, 200}, // Gray
+}
+
 type MMGame struct {
 	world     *world.World3D
 	camera    *FirstPersonCamera
@@ -156,6 +203,9 @@ type MMGame struct {
 	// Utility spell status icons (data-driven)
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
+	arrowHitEffects      []ArrowHitEffect
+	spellHitEffects      []SpellHitEffect
+	hitEffectsMu         sync.Mutex
 
 	// Map overlay UI state
 	mapOverlayOpen bool
@@ -347,6 +397,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		meleeAttacks:     make([]MeleeAttack, 0),
 		arrows:           make([]Arrow, 0),
 		slashEffects:     make([]SlashEffect, 0),
+		arrowHitEffects:  make([]ArrowHitEffect, 0),
+		spellHitEffects:  make([]SpellHitEffect, 0),
 
 		// Tabbed menu system
 		menuOpen:   false,
@@ -693,6 +745,18 @@ func (g *MMGame) UpdateDamageBlinkTimers() {
 	}
 }
 
+// UpdateMonsterHitTintTimers decrements hit tint timers for monsters each frame
+func (g *MMGame) UpdateMonsterHitTintTimers() {
+	for _, m := range g.world.Monsters {
+		if m.HitTintFrames > 0 {
+			m.HitTintFrames--
+		}
+		if m.AttackAnimFrames > 0 {
+			m.AttackAnimFrames--
+		}
+	}
+}
+
 // IsCharacterBlinking returns true if a character should be rendered with red tint
 func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
 	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
@@ -973,6 +1037,7 @@ type MagicProjectileWrapper struct {
 	MagicProjectile *MagicProjectile
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (mpw *MagicProjectileWrapper) Update() {
@@ -1008,11 +1073,24 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 	mpw.MagicProjectile.VelY = vy
 }
 
+func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
+	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
+		return
+	}
+	mpw.MagicProjectile.Active = false
+	if mpw.game == nil {
+		return
+	}
+
+	mpw.game.CreateSpellHitEffectFromSpell(hitX, hitY, mpw.MagicProjectile.SpellType)
+}
+
 // ArrowWrapper implements entities.ProjectileUpdateInterface
 type ArrowWrapper struct {
 	Arrow           *Arrow
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (aw *ArrowWrapper) Update() {
@@ -1048,6 +1126,17 @@ func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
 	aw.Arrow.VelY = vy
 }
 
+func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
+	if aw.Arrow == nil || !aw.Arrow.Active {
+		return
+	}
+	aw.Arrow.Active = false
+	if aw.game == nil {
+		return
+	}
+	aw.game.CreateArrowHitEffect(hitX, hitY, aw.Arrow.VelX, aw.Arrow.VelY)
+}
+
 func (aw *ArrowWrapper) GetLifetime() int {
 	return aw.Arrow.LifeTime
 }
@@ -1069,6 +1158,7 @@ type MeleeAttackWrapper struct {
 	MeleeAttack     *MeleeAttack
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
+	game            *MMGame
 }
 
 func (mw *MeleeAttackWrapper) Update() {
@@ -1102,6 +1192,13 @@ func (mw *MeleeAttackWrapper) GetVelocity() (float64, float64) {
 func (mw *MeleeAttackWrapper) SetVelocity(vx, vy float64) {
 	mw.MeleeAttack.VelX = vx
 	mw.MeleeAttack.VelY = vy
+}
+
+func (mw *MeleeAttackWrapper) OnCollision(hitX, hitY float64) {
+	if mw.MeleeAttack == nil {
+		return
+	}
+	mw.MeleeAttack.Active = false
 }
 
 func (mw *MeleeAttackWrapper) GetLifetime() int {

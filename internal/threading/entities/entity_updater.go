@@ -50,6 +50,7 @@ type ProjectileUpdateInterface interface {
 	SetVelocity(vx, vy float64)
 	GetLifetime() int
 	SetLifetime(lifetime int)
+	OnCollision(hitX, hitY float64)
 }
 
 // UpdateProjectilesParallel updates all projectiles in parallel
@@ -75,6 +76,7 @@ func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdat
 			projectile.SetPosition(newX, newY)
 		} else {
 			// Projectile hit something, deactivate it
+			projectile.OnCollision(x, y)
 			projectile.SetLifetime(0)
 		}
 

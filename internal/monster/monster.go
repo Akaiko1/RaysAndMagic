@@ -76,6 +76,8 @@ type Monster3D struct {
 	TetherRadius     float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
 	IsEngagingPlayer bool    // True when actively pursuing/fighting player
 	WasAttacked      bool    // True when monster was hit - prevents disengagement
+	HitTintFrames    int     // Frames remaining for red hit tint
+	AttackAnimFrames int     // Frames remaining for attack animation (TB mode)
 
 	// Loot
 	Gold  int

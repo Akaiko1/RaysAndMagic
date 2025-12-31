@@ -14,6 +14,7 @@ type GenericProjectileWrapper[T any] struct {
 	SetVelFunc   func(*T, float64, float64)
 	GetLifeFunc  func(*T) int
 	SetLifeFunc  func(*T, int)
+	OnCollFunc   func(*T, float64, float64)
 }
 
 func (w *GenericProjectileWrapper[T]) Update() {
@@ -46,6 +47,12 @@ func (w *GenericProjectileWrapper[T]) GetLifetime() int {
 
 func (w *GenericProjectileWrapper[T]) SetLifetime(lifetime int) {
 	w.SetLifeFunc(w.Entity, lifetime)
+}
+
+func (w *GenericProjectileWrapper[T]) OnCollision(hitX, hitY float64) {
+	if w.OnCollFunc != nil {
+		w.OnCollFunc(w.Entity, hitX, hitY)
+	}
 }
 
 // GenericMonsterWrapper provides a generic wrapper for monster-like entities
