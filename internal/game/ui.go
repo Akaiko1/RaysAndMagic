@@ -56,11 +56,47 @@ type UISystem struct {
 	tooltipLines          []string
 	tooltipX              int
 	tooltipY              int
+	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
+	radarDotClose  *ebiten.Image // Red dot for close enemies
+	radarDotMedium *ebiten.Image // Orange dot for medium distance
+	radarDotFar    *ebiten.Image // Yellow dot for far enemies
 }
 
 // NewUISystem creates a new UI system
 func NewUISystem(game *MMGame) *UISystem {
-	return &UISystem{game: game}
+	ui := &UISystem{game: game}
+	ui.initRadarDots()
+	return ui
+}
+
+// initRadarDots creates cached circle images for wizard eye radar dots
+func (ui *UISystem) initRadarDots() {
+	dotSize := 4
+	// Create close enemy dot (red)
+	ui.radarDotClose = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotClose, dotSize, color.RGBA{255, 50, 50, 255})
+	// Create medium distance dot (orange)
+	ui.radarDotMedium = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotMedium, dotSize, color.RGBA{255, 150, 50, 255})
+	// Create far enemy dot (yellow)
+	ui.radarDotFar = ebiten.NewImage(dotSize, dotSize)
+	drawCircleToImage(ui.radarDotFar, dotSize, color.RGBA{255, 255, 50, 255})
+}
+
+// drawCircleToImage draws a filled circle to the given image
+func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
+	cx := float64(size-1) / 2
+	cy := float64(size-1) / 2
+	r2 := (float64(size) / 2) * (float64(size) / 2)
+	for y := 0; y < size; y++ {
+		dy := float64(y) - cy
+		for x := 0; x < size; x++ {
+			dx := float64(x) - cx
+			if dx*dx+dy*dy <= r2 {
+				img.Set(x, y, c)
+			}
+		}
+	}
 }
 
 // Draw renders all UI elements
@@ -920,10 +956,11 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 		// Calculate distance from player
 		dx := monster.X - ui.game.camera.X
 		dy := monster.Y - ui.game.camera.Y
-		dist := Distance(ui.game.camera.X, ui.game.camera.Y, monster.X, monster.Y)
+		dist := dx*dx + dy*dy                  // Use squared distance to avoid sqrt
+		maxRangeSq := maxRadarRange * maxRadarRange
 
 		// Only show enemies within 10 tiles
-		if dist <= maxRadarRange {
+		if dist <= maxRangeSq {
 			// Calculate angle from player to monster
 			angle := math.Atan2(dy, dx)
 
@@ -932,16 +969,24 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 			dotX := compassX + int(math.Cos(angle)*edgeRadius)
 			dotY := compassY + int(math.Sin(angle)*edgeRadius)
 
-			// Draw enemy dot
-			dotSize := 4 // Slightly larger for better visibility
-			// Color based on distance for threat assessment
-			dotColor := color.RGBA{255, 255, 50, 255}
-			if dist < tileSize*3 { // Close enemies in red
-				dotColor = color.RGBA{255, 50, 50, 255} // Bright red
-			} else if dist < tileSize*6 { // Medium distance in orange
-				dotColor = color.RGBA{255, 150, 50, 255} // Orange
+			// Select cached dot image based on distance for threat assessment
+			// Using squared distances to avoid sqrt
+			closeDistSq := (tileSize * 3) * (tileSize * 3)
+			mediumDistSq := (tileSize * 6) * (tileSize * 6)
+
+			var dotImg *ebiten.Image
+			if dist < closeDistSq {
+				dotImg = ui.radarDotClose // Red for close enemies
+			} else if dist < mediumDistSq {
+				dotImg = ui.radarDotMedium // Orange for medium distance
+			} else {
+				dotImg = ui.radarDotFar // Yellow for far enemies
 			}
-			vector.DrawFilledCircle(screen, float32(dotX), float32(dotY), float32(dotSize)/2, dotColor, true)
+
+			// Draw cached dot image (much faster than vector.DrawFilledCircle)
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Translate(float64(dotX-2), float64(dotY-2)) // Center the 4x4 dot
+			screen.DrawImage(dotImg, opts)
 		}
 	}
 }

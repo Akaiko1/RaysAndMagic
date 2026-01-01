@@ -24,6 +24,7 @@ type TransparentSpriteData struct {
 	worldX   float64
 	worldY   float64
 	tileType world.TileType3D
+	sprite   *ebiten.Image // Cached sprite image to avoid lookups every frame
 }
 
 // Renderer handles all 3D rendering functionality
@@ -42,6 +43,10 @@ type Renderer struct {
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
+	// Reusable buffer for visible sprites to avoid allocation per frame
+	visibleSpritesBuffer []EnvironmentSpriteRenderData
+	// Sprite cache by tile type to avoid repeated GetSprite lookups
+	tileTypeSpriteCache map[world.TileType3D]*ebiten.Image
 }
 
 // getWeaponConfig safely retrieves weapon definition without panicking.
@@ -69,6 +74,7 @@ func NewRenderer(game *MMGame) *Renderer {
 		game:                     game,
 		renderedSpritesThisFrame: make(map[[2]int]bool),
 		circleCache:              make(map[int]*ebiten.Image),
+		tileTypeSpriteCache:      make(map[world.TileType3D]*ebiten.Image),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -119,18 +125,34 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
+				// Cache the sprite image to avoid lookups every frame
+				spriteName := world.GlobalTileManager.GetSprite(tileType)
+				if spriteName == "" {
+					continue // Skip tiles without sprites
+				}
+				sprite := r.game.sprites.GetSprite(spriteName)
+
 				cache = append(cache, TransparentSpriteData{
 					tileX:    tileX,
 					tileY:    tileY,
 					worldX:   worldX,
 					worldY:   worldY,
 					tileType: tileType,
+					sprite:   sprite,
 				})
 			}
 		}
 	}
 
 	r.transparentSpritesCache = cache
+
+	// Pre-allocate visible sprites buffer based on expected visible count
+	// Estimate: about 1/4 of cached sprites might be visible at once
+	expectedVisible := len(cache) / 4
+	if expectedVisible < 64 {
+		expectedVisible = 64
+	}
+	r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, expectedVisible)
 }
 
 // precomputeRayDirections calculates ray directions once per frame for performance
@@ -911,6 +933,27 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	screen.DrawImage(sprite, opts)
 }
 
+// getCachedSprite returns a cached sprite for the given tile type, loading it if necessary
+func (r *Renderer) getCachedSprite(tileType world.TileType3D) *ebiten.Image {
+	// Check cache first
+	if sprite, ok := r.tileTypeSpriteCache[tileType]; ok {
+		return sprite
+	}
+
+	// Load and cache the sprite
+	var spriteName string
+	if world.GlobalTileManager != nil {
+		spriteName = world.GlobalTileManager.GetSprite(tileType)
+	}
+	if spriteName == "" {
+		return nil // No sprite defined for this tile type
+	}
+
+	sprite := r.game.sprites.GetSprite(spriteName)
+	r.tileTypeSpriteCache[tileType] = sprite
+	return sprite
+}
+
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
 	// Calculate sprite height and position
@@ -945,18 +988,11 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		}
 	}
 
-	// Get appropriate sprite based on tile type using tile manager
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
+	// Get cached sprite for this tile type
+	sprite := r.getCachedSprite(tileType)
+	if sprite == nil {
+		return // No sprite defined for this tile type
 	}
-
-	// Fallback to default sprite if not configured
-	if spriteName == "" {
-		spriteName = "grass"
-	}
-
-	sprite := r.game.sprites.GetSprite(spriteName)
 
 	// Scale and draw the sprite
 	opts := &ebiten.DrawImageOptions{}
@@ -1027,8 +1063,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	heightMultiplier := world.GetTileHeight(tileType)
 	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
 
-	// Create cache key without distance for better cache hit rates
-	// Distance-based shading will be applied at draw time
+	// Create cache key - pass original height, cache will quantize internally
 	cacheKey := rendering.WallSliceKey{
 		Height:   wallHeight,
 		Width:    width,
@@ -1038,13 +1073,22 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	}
 
 	// Get cached base wall slice or create new one if not in cache
-	// The cached slice contains base colors without distance-based shading
-	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func() *ebiten.Image {
-		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, wallHeight, wallSide, textureCoord)
+	// The cache quantizes height and passes the quantized value to createFunc
+	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func(quantizedHeight int) *ebiten.Image {
+		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide, textureCoord)
 	})
 
 	// Render the wall slice to the screen with distance-based shading applied at draw time
 	drawOptions := &ebiten.DrawImageOptions{}
+
+	// Scale the cached image to exact wall height
+	// The cached image may be quantized to a different height for cache efficiency
+	cachedHeight := wallSliceImage.Bounds().Dy()
+	if cachedHeight > 0 && wallHeight != cachedHeight {
+		scaleY := float64(wallHeight) / float64(cachedHeight)
+		drawOptions.GeoM.Scale(1.0, scaleY)
+	}
+
 	drawOptions.GeoM.Translate(float64(screenX), float64(wallTop))
 
 	// Apply distance-based color scaling at draw time for better cache efficiency
@@ -1439,7 +1483,11 @@ func (r *Renderer) getMonsterWalkAnimation(spriteName string, mon *monster.Monst
 			}
 		}
 	}
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+	// No clear left/right direction: fall back to any available directional animation.
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+		return anim, false
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
 		return anim, false
 	}
 	return nil, false
@@ -1800,7 +1848,8 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 		return
 	}
 
-	var visibleSprites []EnvironmentSpriteRenderData
+	// Reuse pre-allocated buffer to avoid allocation per frame
+	visibleSprites := r.visibleSpritesBuffer[:0]
 
 	// Camera properties for frustum culling
 	camX := r.game.camera.X
@@ -1825,7 +1874,9 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	minDistSq := tileSize * tileSize // Don't render sprites within 1 tile distance
 
 	// Use cached transparent sprites instead of scanning entire world
-	for _, spriteData := range r.transparentSpritesCache {
+	for i := range r.transparentSpritesCache {
+		spriteData := &r.transparentSpritesCache[i] // Use pointer to avoid copy
+
 		// Skip sprites in the player's current tile to avoid visual artifacts
 		// (sprite would appear at ray-exit edge and "follow" player movement)
 		if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
@@ -1879,13 +1930,7 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 			continue
 		}
 
-		// Get sprite from tile manager
-		spriteName := world.GlobalTileManager.GetSprite(spriteData.tileType)
-		if spriteName == "" {
-			spriteName = "grass" // fallback
-		}
-		sprite := r.game.sprites.GetSprite(spriteName)
-
+		// Use cached sprite from TransparentSpriteData (avoids string lookups every frame)
 		visibleSprites = append(visibleSprites, EnvironmentSpriteRenderData{
 			tileX:      spriteData.tileX,
 			tileY:      spriteData.tileY,
@@ -1895,7 +1940,7 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 			spriteSize: spriteSize,
 			distance:   distance,
 			depthPerp:  depthPerp,
-			sprite:     sprite,
+			sprite:     spriteData.sprite,
 		})
 	}
 
@@ -1903,6 +1948,13 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	sort.Slice(visibleSprites, func(i, j int) bool {
 		return visibleSprites[i].depthPerp > visibleSprites[j].depthPerp
 	})
+
+	// Update buffer capacity if needed for next frame
+	if cap(visibleSprites) < len(visibleSprites) {
+		r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, len(visibleSprites)*2)
+	} else {
+		r.visibleSpritesBuffer = visibleSprites
+	}
 
 	// Render sprites in order with depth testing
 	for _, spriteData := range visibleSprites {
