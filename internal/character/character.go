@@ -108,6 +108,7 @@ func (c *MMCharacter) setupKnight(cfg *config.Config) {
 	// Starting skills
 	c.Skills[SkillSword] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillSpear] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillPlate] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
@@ -140,7 +141,6 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("torch_light"),
 			spells.SpellID("firebolt"),
-			spells.SpellID("fireball"),
 		},
 	}
 	c.MagicSchools[MagicWater] = &MagicSkill{
@@ -148,7 +148,6 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("ice_bolt"),
-			spells.SpellID("water_breathing"),
 		},
 	}
 
@@ -180,17 +179,7 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
-			spells.SpellID("heal"),       // First Aid
 			spells.SpellID("heal_other"), // Heal
-		},
-	}
-
-	// Add Spirit magic for divine spells like Bless
-	c.MagicSchools[MagicSpirit] = &MagicSkill{
-		Level:   1,
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("bless"), // Bless
 		},
 	}
 
@@ -248,17 +237,8 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Paladin Bless
-	c.MagicSchools[MagicSpirit] = &MagicSkill{
-		Level:       1,
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("bless")},
-	}
-
-	// Starting equipment - give Paladin Bless
+	// Starting equipment
 	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("silver_sword")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("bless")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
-	}
 }
 
 func (c *MMCharacter) setupDruid(cfg *config.Config) {
@@ -473,6 +453,26 @@ func (c *MMCharacter) GetClassName() string {
 	}
 }
 
+// GetClassKey returns the lowercase class key used in config.
+func (c *MMCharacter) GetClassKey() string {
+	switch c.Class {
+	case ClassKnight:
+		return "knight"
+	case ClassPaladin:
+		return "paladin"
+	case ClassArcher:
+		return "archer"
+	case ClassCleric:
+		return "cleric"
+	case ClassSorcerer:
+		return "sorcerer"
+	case ClassDruid:
+		return "druid"
+	default:
+		return "unknown"
+	}
+}
+
 func (c *MMCharacter) getMasteryName(mastery SkillMastery) string {
 	switch mastery {
 	case MasteryNovice:
@@ -632,6 +632,9 @@ func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
 	category := strings.ToLower(item.ArmorCategory)
 	if category == "" {
 		return false
+	}
+	if category == "cloth" {
+		return true
 	}
 	var requiredSkill SkillType
 	switch category {

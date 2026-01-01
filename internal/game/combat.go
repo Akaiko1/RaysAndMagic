@@ -1543,6 +1543,10 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 			message := fmt.Sprintf("%s reached level %d! (was level %d) [+5 stat points]",
 				character.Name, character.Level, oldLevel)
 			cs.game.AddCombatMessage(message)
+
+			if choices := config.GetLevelUpChoices(character.GetClassKey(), character.Level); len(choices) > 0 {
+				cs.game.queueLevelUpChoices(character, character.Level, choices)
+			}
 		} else {
 			break // No more level-ups possible
 		}
@@ -1552,6 +1556,10 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
 	baseDamage := weapon.Damage
+	masteryBonus := cs.weaponMasteryBonus(weapon, character)
+	if masteryBonus > 0 {
+		baseDamage += masteryBonus
+	}
 
 	// Get effective stats including any stat bonuses (Bless, Day of Gods, etc.)
 	might, intellect, _, _, accuracy, _, _ := character.GetEffectiveStats(cs.game.statBonus)
@@ -1586,6 +1594,47 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	totalStatBonus := primaryStatBonus + secondaryStatBonus
 	totalDamage := baseDamage + totalStatBonus
 	return baseDamage, totalStatBonus, totalDamage
+}
+
+func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, character *character.MMCharacter) int {
+	if character == nil {
+		return 0
+	}
+	weaponDef := cs.getWeaponConfig(weapon.Name)
+	if weaponDef == nil {
+		return 0
+	}
+	skillType, ok := weaponSkillFromCategory(weaponDef.Category)
+	if !ok {
+		return 0
+	}
+	if skill, exists := character.Skills[skillType]; exists {
+		return int(skill.Mastery) * 2
+	}
+	return 0
+}
+
+func weaponSkillFromCategory(category string) (character.SkillType, bool) {
+	switch strings.ToLower(category) {
+	case "sword":
+		return character.SkillSword, true
+	case "dagger":
+		return character.SkillDagger, true
+	case "throwing":
+		return character.SkillDagger, true
+	case "axe":
+		return character.SkillAxe, true
+	case "spear":
+		return character.SkillSpear, true
+	case "bow":
+		return character.SkillBow, true
+	case "mace":
+		return character.SkillMace, true
+	case "staff":
+		return character.SkillStaff, true
+	default:
+		return 0, false
+	}
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
@@ -1721,7 +1770,7 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	for _, slot := range armorSlots {
 		if armorPiece, hasArmor := char.Equipment[slot]; hasArmor {
 			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
-				baseArmor += v
+				baseArmor += v + cs.armorMasteryBonus(char, armorPiece)
 			}
 			if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
 				totalEnduranceBonus += effectiveEndurance / enduranceDiv
@@ -1741,6 +1790,35 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	}
 
 	return finalDamage
+}
+
+func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor items.Item) int {
+	if char == nil {
+		return 0
+	}
+	skillType, ok := armorSkillFromCategory(armor.ArmorCategory)
+	if !ok {
+		return 0
+	}
+	if skill, exists := char.Skills[skillType]; exists {
+		return int(skill.Mastery)
+	}
+	return 0
+}
+
+func armorSkillFromCategory(category string) (character.SkillType, bool) {
+	switch strings.ToLower(category) {
+	case "leather":
+		return character.SkillLeather, true
+	case "chain":
+		return character.SkillChain, true
+	case "plate":
+		return character.SkillPlate, true
+	case "shield":
+		return character.SkillShield, true
+	default:
+		return 0, false
+	}
 }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed

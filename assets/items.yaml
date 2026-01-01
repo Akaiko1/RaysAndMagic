@@ -60,6 +60,18 @@ items:
     personality_scaling_divisor: 8
     value: 200
 
+  wizard_robe:
+    name: "Wizard Robes"
+    type: "armor"
+    armor_category: "cloth"
+    description: "Silken robes embroidered with arcane runes"
+    flavor: "Threads of midnight stitched with quiet power."
+    equip_slot: "armor"
+    armor_class_base: 1
+    bonus_intellect: 10
+    bonus_personality: 10
+    value: 500
+
   iron_armor:
     name: "Iron Armor"
     type: "armor"

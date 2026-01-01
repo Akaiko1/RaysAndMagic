@@ -287,6 +287,10 @@ type MMGame struct {
 	// Stat distribution popup UI state
 	statPopupOpen    bool // Is the stat distribution popup open?
 	statPopupCharIdx int  // Which character is being edited in the popup?
+	// Level-up choice queue
+	levelUpChoiceQueue []levelUpChoiceRequest
+	levelUpChoiceOpen  bool
+	levelUpChoiceIdx   int
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
