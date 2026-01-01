@@ -548,7 +548,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{0, 0, 0, 140}, false)
 		} else if isPoisoned {
 			pulse := 0.6 + 0.4*math.Sin(float64(ui.game.frameCount)*0.15)
-			alpha := uint8(80 + 60*pulse)
+			alpha := uint8((80 + 60*pulse) / 3.0)
 			vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{40, 160, 80, alpha}, false)
 		}
 
