@@ -29,6 +29,8 @@ type Item struct {
 	Type        ItemType
 	Attributes  map[string]int
 	Description string
+	// For armor
+	ArmorCategory string
 	// For weapons
 	Damage    int
 	Range     int    // In tiles
@@ -212,6 +214,7 @@ type ItemDefinitionFromYAML struct {
 	Description string
 	Flavor      string
 	Type        string // "armor", "accessory", "consumable", "quest"
+	ArmorType   string
 	// Optional numeric stats
 	ArmorClassBase            int
 	EnduranceScalingDivisor   int
@@ -322,10 +325,11 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 
 	return Item{
-		Name:        def.Name,
-		Type:        t,
-		Description: desc,
-		Attributes:  attrs,
+		Name:          def.Name,
+		Type:          t,
+		Description:   desc,
+		Attributes:    attrs,
+		ArmorCategory: def.ArmorType,
 	}, nil
 }
 

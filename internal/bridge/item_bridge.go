@@ -21,6 +21,7 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		Description:               def.Description,
 		Flavor:                    def.Flavor,
 		Type:                      def.Type,
+		ArmorType:                 def.ArmorType,
 		ArmorClassBase:            def.ArmorClassBase,
 		EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
 		IntellectScalingDivisor:   def.IntellectScalingDivisor,

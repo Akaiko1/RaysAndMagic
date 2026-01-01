@@ -251,6 +251,10 @@ func TestArmorDamageReduction(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -391,6 +395,10 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -445,6 +453,9 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -536,7 +547,11 @@ func TestEquipmentSlots(t *testing.T) {
 		fmt.Println("\n--- Testing: Slot Conflicts and Replacement ---")
 
 		character := &MMCharacter{
-			Name:      "TestKnight",
+			Name: "TestKnight",
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -575,7 +590,10 @@ func TestEquipmentSlots(t *testing.T) {
 		fmt.Println("\n--- Testing: Unequip Items ---")
 
 		character := &MMCharacter{
-			Name:      "TestKnight",
+			Name: "TestKnight",
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -659,6 +677,7 @@ func setupTestAccessors() {
 				Description:               def.Description,
 				Flavor:                    def.Flavor,
 				Type:                      def.Type,
+				ArmorType:                 def.ArmorType,
 				ArmorClassBase:            def.ArmorClassBase,
 				EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
 				IntellectScalingDivisor:   def.IntellectScalingDivisor,

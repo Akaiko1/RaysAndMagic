@@ -58,10 +58,16 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_type", "__sep__")
 
 	case items.ItemArmor:
+		if line := getArmorCategoryLine(item); line != "" {
+			fields["a_type"] = line
+		}
+		if line := getArmorRequirementLine(item, char); line != "" {
+			fields["a_req"] = line
+		}
 		if line := getArmorSummary(item); line != "" {
 			fields["a_line"] = line
 		}
-		order = append(order, "a_line", "__sep__")
+		order = append(order, "a_type", "a_req", "a_line", "__sep__")
 
 	case items.ItemAccessory:
 		if line := getAccessorySummary(item); line != "" {
@@ -218,6 +224,64 @@ func getArmorSummary(item items.Item) string {
 		return fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
 	}
 	return fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+}
+
+func getArmorCategoryLine(item items.Item) string {
+	category := armorCategoryString(item)
+	if category == "" {
+		return ""
+	}
+	label := strings.ToUpper(category[:1]) + category[1:]
+	return fmt.Sprintf("Armor Type: %s", label)
+}
+
+func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
+	skillName, hasReq := armorRequiredSkillName(item)
+	if !hasReq {
+		return ""
+	}
+	if char == nil {
+		return fmt.Sprintf("Requires: %s Skill", skillName)
+	}
+	hasSkill := false
+	switch strings.ToLower(skillName) {
+	case "leather":
+		_, hasSkill = char.Skills[character.SkillLeather]
+	case "chain":
+		_, hasSkill = char.Skills[character.SkillChain]
+	case "plate":
+		_, hasSkill = char.Skills[character.SkillPlate]
+	case "shield":
+		_, hasSkill = char.Skills[character.SkillShield]
+	}
+	if hasSkill {
+		return fmt.Sprintf("Requires: %s Skill", skillName)
+	}
+	return fmt.Sprintf("Requires: %s Skill (Missing)", skillName)
+}
+
+func armorCategoryString(item items.Item) string {
+	category := strings.ToLower(item.ArmorCategory)
+	switch category {
+	case "leather":
+		return "leather"
+	case "chain":
+		return "chain"
+	case "plate":
+		return "plate"
+	case "shield":
+		return "shield"
+	default:
+		return ""
+	}
+}
+
+func armorRequiredSkillName(item items.Item) (string, bool) {
+	category := armorCategoryString(item)
+	if category == "" {
+		return "", false
+	}
+	return category, true
 }
 
 // getAccessoryTooltip returns accessory-specific tooltip information (YAML-driven)
