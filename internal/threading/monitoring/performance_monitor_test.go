@@ -258,7 +258,7 @@ func TestSafeCounter(t *testing.T) {
 
 	wg.Wait()
 
-	expected := numGoroutines * incrementsPerGoroutine
+	expected := int64(numGoroutines * incrementsPerGoroutine)
 	if counter.Get() != expected {
 		t.Errorf("Expected counter to be %d, got %d", expected, counter.Get())
 	}

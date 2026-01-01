@@ -46,6 +46,9 @@ func (cs *CollisionSystem) DebugCanMoveTo(entityID string, newX, newY float64) (
 		if !other.Solid {
 			continue
 		}
+		if shouldIgnoreEntityCollision(entity, other) {
+			continue
+		}
 		if tempBox.Intersects(other.BoundingBox) {
 			return false, fmt.Sprintf("collides with entity=%s", id)
 		}
@@ -125,7 +128,7 @@ func (cs *CollisionSystem) CanMoveTo(entityID string, newX, newY float64) bool {
 	}
 
 	// Check collision with other entities
-	if !cs.canMoveToEntityPosition(entityID, tempBox) {
+	if !cs.canMoveToEntityPosition(entityID, entity, tempBox) {
 		return false
 	}
 
@@ -148,7 +151,7 @@ func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY floa
 	}
 
 	// Check collision with other entities
-	if !cs.canMoveToEntityPosition(entityID, tempBox) {
+	if !cs.canMoveToEntityPosition(entityID, entity, tempBox) {
 		return false
 	}
 
@@ -218,7 +221,7 @@ func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *Boundi
 }
 
 // canMoveToEntityPosition checks collision with other entities
-func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, boundingBox *BoundingBox) bool {
+func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, movingEntity *Entity, boundingBox *BoundingBox) bool {
 	for id, entity := range cs.entities {
 		// Skip self
 		if id == movingEntityID {
@@ -229,6 +232,9 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, boundi
 		if !entity.Solid {
 			continue
 		}
+		if shouldIgnoreEntityCollision(movingEntity, entity) {
+			continue
+		}
 
 		// Check intersection
 		if boundingBox.Intersects(entity.BoundingBox) {
@@ -237,6 +243,18 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, boundi
 	}
 
 	return true
+}
+
+// shouldIgnoreEntityCollision returns true when collision checks should skip the pair.
+func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
+	if moving == nil || other == nil {
+		return false
+	}
+	// Allow monsters to walk through each other to prevent pathfinding deadlocks.
+	if moving.CollisionType == CollisionTypeMonster && other.CollisionType == CollisionTypeMonster {
+		return true
+	}
+	return false
 }
 
 // GetCollisions returns all current collisions between entities
