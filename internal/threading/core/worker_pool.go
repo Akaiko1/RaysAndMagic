@@ -1,8 +1,10 @@
 package core
 
 import (
+	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 // WorkerPool manages a pool of worker goroutines for parallel processing
@@ -68,8 +70,15 @@ func (wp *WorkerPool) Stop() {
 	close(wp.quit)
 }
 
-// ParallelFor executes a function in parallel for a range of values
+// ParallelFor executes a function in parallel for a range of values.
+// This is a convenience wrapper around ParallelForWithContext using context.Background().
 func (wp *WorkerPool) ParallelFor(start, end int, fn func(int)) {
+	wp.ParallelForWithContext(context.Background(), start, end, fn)
+}
+
+// ParallelForWithContext executes a function in parallel for a range of values
+// with cancellation support via context.
+func (wp *WorkerPool) ParallelForWithContext(ctx context.Context, start, end int, fn func(int)) {
 	if start >= end {
 		return
 	}
@@ -83,11 +92,31 @@ func (wp *WorkerPool) ParallelFor(start, end int, fn func(int)) {
 		chunkEnd := min(i+chunkSize, end)
 		wp.Submit(func() {
 			for j := chunkStart; j < chunkEnd; j++ {
-				fn(j)
+				// Check for cancellation between iterations
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					fn(j)
+				}
 			}
 		})
 	}
 	wp.Wait()
+}
+
+// SubmitWithContext adds a job that respects context cancellation.
+// The job will not execute if the context is already cancelled.
+func (wp *WorkerPool) SubmitWithContext(ctx context.Context, job func()) {
+	wp.wg.Add(1)
+	wp.jobQueue <- func() {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, skip job
+		default:
+			job()
+		}
+	}
 }
 
 // Batch processes items in batches across multiple goroutines
@@ -151,43 +180,45 @@ type ProjectileJob struct {
 	Velocity        struct{ X, Y float64 }
 }
 
-// SafeCounter provides thread-safe counter operations
+// SafeCounter provides thread-safe counter operations using lock-free atomics.
+// This is more efficient than mutex-based counters for simple increment/decrement operations.
 type SafeCounter struct {
-	mu    sync.RWMutex
-	value int
+	value atomic.Int64
 }
 
-// NewSafeCounter creates a new thread-safe counter
+// NewSafeCounter creates a new thread-safe counter initialized to zero
 func NewSafeCounter() *SafeCounter {
 	return &SafeCounter{}
 }
 
-// Increment atomically increments the counter
-func (c *SafeCounter) Increment() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.value++
+// Increment atomically increments the counter and returns the new value
+func (c *SafeCounter) Increment() int64 {
+	return c.value.Add(1)
 }
 
-// Decrement atomically decrements the counter
-func (c *SafeCounter) Decrement() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.value--
+// Decrement atomically decrements the counter and returns the new value
+func (c *SafeCounter) Decrement() int64 {
+	return c.value.Add(-1)
+}
+
+// Add atomically adds delta to the counter and returns the new value
+func (c *SafeCounter) Add(delta int64) int64 {
+	return c.value.Add(delta)
 }
 
 // Get atomically gets the counter value
-func (c *SafeCounter) Get() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.value
+func (c *SafeCounter) Get() int64 {
+	return c.value.Load()
 }
 
 // Set atomically sets the counter value
-func (c *SafeCounter) Set(value int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.value = value
+func (c *SafeCounter) Set(value int64) {
+	c.value.Store(value)
+}
+
+// CompareAndSwap atomically sets to new if current value equals old. Returns true if swapped.
+func (c *SafeCounter) CompareAndSwap(old, new int64) bool {
+	return c.value.CompareAndSwap(old, new)
 }
 
 // GetNumWorkers returns the number of workers in the pool
