@@ -581,7 +581,8 @@ type ItemSystemConfig struct {
 
 type ItemDefinitionConfig struct {
 	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`                 // armor|accessory|consumable|quest
+	Type        string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType   string `yaml:"armor_category,omitempty"`
 	Description string `yaml:"description"`          // Gameplay-neutral summary (optional)
 	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)

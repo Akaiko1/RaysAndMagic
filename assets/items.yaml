@@ -2,6 +2,7 @@ items:
   leather_armor:
     name: "Leather Armor"
     type: "armor"
+    armor_category: "leather"
     description: "Simple leather protection"
     flavor: "Worn smooth by a hundred roads; it smells of rain and smoke."
     equip_slot: "armor"
@@ -12,6 +13,7 @@ items:
   leather_helmet:
     name: "Leather Helmet"
     type: "armor"
+    armor_category: "leather"
     description: "Simple leather cap offering light protection"
     flavor: "A scuffed browband that keeps splinters—and doubts—at bay."
     equip_slot: "helmet"
@@ -22,6 +24,7 @@ items:
   leather_pants:
     name: "Leather Pants"
     type: "armor"
+    armor_category: "leather"
     description: "Reinforced leather pants with minimal protection"
     flavor: "Stitched at dusk; they creak like an old saddle."
     equip_slot: "boots"
@@ -60,6 +63,7 @@ items:
   iron_armor:
     name: "Iron Armor"
     type: "armor"
+    armor_category: "plate"
     description: "Sturdy iron plate providing solid protection"
     flavor: "Iron plates that sing quietly with every step."
     equip_slot: "armor"

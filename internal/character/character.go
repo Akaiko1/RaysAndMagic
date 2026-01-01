@@ -2,6 +2,7 @@ package character
 
 import (
 	"fmt"
+	"strings"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
@@ -106,7 +107,9 @@ func (c *MMCharacter) setupKnight(cfg *config.Config) {
 
 	// Starting skills
 	c.Skills[SkillSword] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillSpear] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillPlate] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillBodybuilding] = &Skill{Level: 1, Mastery: MasteryNovice}
 
@@ -599,28 +602,52 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 	}
 
 	category := weaponDef.Category
-
-	switch c.Class {
-	case ClassKnight:
-		// Knights can use all melee weapons
-		return category == "sword" || category == "axe" || category == "mace" || category == "spear"
-	case ClassPaladin:
-		// Paladins can use swords, maces, and spears
-		return category == "sword" || category == "mace" || category == "spear"
-	case ClassArcher:
-		// Archers use bows and light melee weapons
-		return category == "bow" || category == "dagger"
-	case ClassCleric:
-		// Clerics use maces and staffs
-		return category == "mace" || category == "staff"
-	case ClassSorcerer:
-		// Sorcerers use staffs and light weapons
-		return category == "staff" || category == "dagger"
-	case ClassDruid:
-		// Druids use natural weapons: staffs, spears, daggers
-		return category == "staff" || category == "spear" || category == "dagger"
+	var requiredSkill SkillType
+	switch category {
+	case "sword":
+		requiredSkill = SkillSword
+	case "dagger":
+		requiredSkill = SkillDagger
+	case "throwing":
+		requiredSkill = SkillDagger
+	case "axe":
+		requiredSkill = SkillAxe
+	case "spear":
+		requiredSkill = SkillSpear
+	case "bow":
+		requiredSkill = SkillBow
+	case "mace":
+		requiredSkill = SkillMace
+	case "staff":
+		requiredSkill = SkillStaff
+	default:
+		return false
 	}
-	return false
+
+	_, hasSkill := c.Skills[requiredSkill]
+	return hasSkill
+}
+
+func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
+	category := strings.ToLower(item.ArmorCategory)
+	if category == "" {
+		return false
+	}
+	var requiredSkill SkillType
+	switch category {
+	case "leather":
+		requiredSkill = SkillLeather
+	case "chain":
+		requiredSkill = SkillChain
+	case "plate":
+		requiredSkill = SkillPlate
+	case "shield":
+		requiredSkill = SkillShield
+	default:
+		return false
+	}
+	_, hasSkill := c.Skills[requiredSkill]
+	return hasSkill
 }
 
 // getWeaponDefinitionFromGlobal accesses weapon definition without circular imports
@@ -647,6 +674,9 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
+		if !c.CanEquipArmor(item) {
+			return items.Item{}, false, false
+		}
 		// Use equip_slot attribute if defined, otherwise default to armor slot
 		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
 			slot = items.EquipSlot(equipSlotCode)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading/rendering"
@@ -1064,6 +1065,7 @@ type MonsterRenderData struct {
 	distance   float64 // Euclidean distance (for sprite sizing)
 	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
 	sprite     *ebiten.Image
+	flip       bool
 }
 
 type projectileFxProfile struct {
@@ -1326,9 +1328,10 @@ func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
 	}
 }
 
-func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
+func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
 	spriteName := mon.GetSpriteType()
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+	anim, flip := r.getMonsterWalkAnimation(spriteName, mon)
+	if anim != nil && len(anim.Frames) > 0 {
 		tps := r.game.config.GetTPS()
 		if tps <= 0 {
 			tps = 60
@@ -1344,23 +1347,73 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
 		}
 		if r.shouldAnimateMonster(mon) {
 			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-			return anim.Frames[frame]
+			return anim.Frames[frame], flip
 		}
 		if r.game.turnBasedMode && mon.LastMoveTick > 0 {
 			if r.game.frameCount-mon.LastMoveTick <= animWindow {
 				frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-				return anim.Frames[frame]
+				return anim.Frames[frame], flip
 			}
 		}
-		return anim.Frames[0]
+		return anim.Frames[0], flip
 	}
-	return r.game.sprites.GetSprite(spriteName)
+	return r.game.sprites.GetSprite(spriteName), false
 }
 
 func (r *Renderer) monsterHasWalkAnimation(mon *monster.Monster3D) bool {
 	spriteName := mon.GetSpriteType()
-	anim := r.game.sprites.GetAnimation(spriteName, "walking")
-	return anim != nil && len(anim.Frames) > 0
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	return false
+}
+
+func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
+	moveX := math.Cos(mon.Direction)
+	moveY := math.Sin(mon.Direction)
+	if moveX == 0 && moveY == 0 {
+		return 0, false
+	}
+	camRightX := -math.Sin(r.game.camera.Angle)
+	camRightY := math.Cos(r.game.camera.Angle)
+	right := moveX*camRightX + moveY*camRightY
+	if math.Abs(right) < 0.01 {
+		return 0, false
+	}
+	if right > 0 {
+		return 1, true
+	}
+	return -1, true
+}
+
+func (r *Renderer) getMonsterWalkAnimation(spriteName string, mon *monster.Monster3D) (*graphics.SpriteAnimation, bool) {
+	if dir, ok := r.monsterScreenDir(mon); ok {
+		if dir > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+				return anim, false
+			}
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+				return anim, true
+			}
+		} else {
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+				return anim, false
+			}
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+				return anim, true
+			}
+		}
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+		return anim, false
+	}
+	return nil, false
 }
 
 func monsterJitterPhase(id string) float64 {
@@ -1422,7 +1475,7 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 		}
 
 		// Get sprite from monster's YAML config
-		sprite := r.getMonsterSprite(monster)
+		sprite, flip := r.getMonsterSprite(monster)
 
 		visibleMonsters = append(visibleMonsters, MonsterRenderData{
 			monster:    monster,
@@ -1432,6 +1485,7 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 			distance:   distance,
 			depthPerp:  depthPerp,
 			sprite:     sprite,
+			flip:       flip,
 		})
 	}
 
@@ -1478,7 +1532,11 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 	opts := &ebiten.DrawImageOptions{}
 	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
 	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
+	if monsterData.flip {
+		opts.GeoM.Scale(-scaleX, scaleY)
+	} else {
+		opts.GeoM.Scale(scaleX, scaleY)
+	}
 	jitterX, jitterY := 0.0, 0.0
 	if r.game.turnBasedMode && monsterData.monster.AttackAnimFrames > 0 && !r.monsterHasWalkAnimation(monsterData.monster) {
 		jitter := float64(monsterData.spriteSize) * 0.02
@@ -1492,7 +1550,11 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		jitterX = math.Sin(float64(r.game.frameCount)*0.7+phase) * jitter
 		jitterY = math.Cos(float64(r.game.frameCount)*0.9+phase) * jitter
 	}
-	opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
+	if monsterData.flip {
+		opts.GeoM.Translate(float64(spriteLeft)+float64(monsterData.spriteSize)+jitterX, float64(monsterData.screenY)+jitterY)
+	} else {
+		opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
+	}
 
 	// Apply distance shading
 	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)

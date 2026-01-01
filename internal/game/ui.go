@@ -154,11 +154,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	popupY := (screenH - popupH) / 2
 
 	// Draw background
-	bg := ebiten.NewImage(popupW, popupH)
-	bg.Fill(color.RGBA{30, 30, 60, 240})
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(popupX), float64(popupY))
-	screen.DrawImage(bg, opts)
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
 
 	// Draw border (replace deprecated DrawRect)
 	borderCol := color.RGBA{120, 120, 180, 255}
@@ -200,16 +196,12 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	// Draw close button
 	closeX := popupX + popupW - 40
 	closeY := popupY + 12
-	closeImg := ebiten.NewImage(28, 28)
 	isCloseHover := mouseX >= closeX && mouseX < closeX+28 && mouseY >= closeY && mouseY < closeY+28
 	if isCloseHover {
-		closeImg.Fill(color.RGBA{200, 60, 60, 220})
+		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{200, 60, 60, 220})
 	} else {
-		closeImg.Fill(color.RGBA{120, 60, 60, 180})
+		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{120, 60, 60, 180})
 	}
-	closeOpts := &ebiten.DrawImageOptions{}
-	closeOpts.GeoM.Translate(float64(closeX), float64(closeY))
-	screen.DrawImage(closeImg, closeOpts)
 	ebitenutil.DebugPrintAt(screen, "X", closeX+7, closeY+4)
 	// Handle close click
 	// Only allow closing if the mouse was released after opening the popup
@@ -274,9 +266,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	h := ui.game.config.GetScreenHeight()
 
 	// Dim background
-	dim := ebiten.NewImage(w, h)
-	dim.Fill(color.RGBA{0, 0, 0, 128})
-	screen.DrawImage(dim, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 128})
 
 	// Panel
 	panelW, panelH := 300, 220
@@ -286,11 +276,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	}
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
-	bg := ebiten.NewImage(panelW, panelH)
-	bg.Fill(color.RGBA{20, 20, 40, 230})
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(px), float64(py))
-	screen.DrawImage(bg, opts)
+	drawFilledRect(screen, px, py, panelW, panelH, color.RGBA{20, 20, 40, 230})
 	drawRectBorder(screen, px, py, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
 
 	switch ui.game.mainMenuMode {
@@ -302,11 +288,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		for i, label := range mainMenuOptions {
 			y := startY + i*32
 			if i == ui.game.mainMenuSelection {
-				hi := ebiten.NewImage(panelW-32, 28)
-				hi.Fill(color.RGBA{60, 120, 180, 200})
-				o := &ebiten.DrawImageOptions{}
-				o.GeoM.Translate(float64(px+16), float64(y-4))
-				screen.DrawImage(hi, o)
+				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{60, 120, 180, 200})
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
@@ -342,11 +324,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 				label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
 			}
 			if i == ui.game.slotSelection {
-				hi := ebiten.NewImage(panelW-32, 28)
-				hi.Fill(color.RGBA{80, 180, 80, 200})
-				o := &ebiten.DrawImageOptions{}
-				o.GeoM.Translate(float64(px+16), float64(y-4))
-				screen.DrawImage(hi, o)
+				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{80, 180, 80, 200})
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
@@ -369,11 +347,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 				label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
 			}
 			if i == ui.game.slotSelection {
-				hi := ebiten.NewImage(panelW-32, 28)
-				hi.Fill(color.RGBA{180, 120, 60, 200})
-				o := &ebiten.DrawImageOptions{}
-				o.GeoM.Translate(float64(px+16), float64(y-4))
-				screen.DrawImage(hi, o)
+				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{180, 120, 60, 200})
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
@@ -868,12 +842,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	panelY := (ui.game.config.GetScreenHeight() - panelHeight) / 2
 
 	// Draw main background
-	bgImg := ebiten.NewImage(panelWidth, panelHeight)
-	bgImg.Fill(color.RGBA{0, 0, 30, 230}) // Dark blue background
-
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(panelX), float64(panelY))
-	screen.DrawImage(bgImg, opts)
+	drawFilledRect(screen, panelX, panelY, panelWidth, panelHeight, color.RGBA{0, 0, 30, 230}) // Dark blue background
 
 	// Tab dimensions
 	tabWidth := 120
@@ -910,48 +879,12 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		}
 
 		// Draw tab background
-		tabImg := ebiten.NewImage(tabWidth, tabHeight)
-		tabImg.Fill(tabBgColor)
-
-		// Draw tab borders (top, left, right)
-		borderImg := ebiten.NewImage(tabWidth, 2) // Top border
-		borderImg.Fill(tabBorderColor)
-
-		leftBorderImg := ebiten.NewImage(2, tabHeight) // Left border
-		leftBorderImg.Fill(tabBorderColor)
-
-		rightBorderImg := ebiten.NewImage(2, tabHeight) // Right border
-		rightBorderImg.Fill(tabBorderColor)
-
-		// Draw bottom border only for inactive tabs
-		var bottomBorderImg *ebiten.Image
+		drawFilledRect(screen, tabX, tabY, tabWidth, tabHeight, tabBgColor)
+		drawFilledRect(screen, tabX, tabY, tabWidth, 2, tabBorderColor)
+		drawFilledRect(screen, tabX, tabY, 2, tabHeight, tabBorderColor)
+		drawFilledRect(screen, tabX+tabWidth-2, tabY, 2, tabHeight, tabBorderColor)
 		if !isActive {
-			bottomBorderImg = ebiten.NewImage(tabWidth, 2)
-			bottomBorderImg.Fill(tabBorderColor)
-		}
-
-		// Position and draw tab elements
-		tabOpts := &ebiten.DrawImageOptions{}
-		tabOpts.GeoM.Translate(float64(tabX), float64(tabY))
-		screen.DrawImage(tabImg, tabOpts)
-
-		// Draw borders
-		topBorderOpts := &ebiten.DrawImageOptions{}
-		topBorderOpts.GeoM.Translate(float64(tabX), float64(tabY))
-		screen.DrawImage(borderImg, topBorderOpts)
-
-		leftBorderOpts := &ebiten.DrawImageOptions{}
-		leftBorderOpts.GeoM.Translate(float64(tabX), float64(tabY))
-		screen.DrawImage(leftBorderImg, leftBorderOpts)
-
-		rightBorderOpts := &ebiten.DrawImageOptions{}
-		rightBorderOpts.GeoM.Translate(float64(tabX+tabWidth-2), float64(tabY))
-		screen.DrawImage(rightBorderImg, rightBorderOpts)
-
-		if !isActive && bottomBorderImg != nil {
-			bottomBorderOpts := &ebiten.DrawImageOptions{}
-			bottomBorderOpts.GeoM.Translate(float64(tabX), float64(tabY+tabHeight-2))
-			screen.DrawImage(bottomBorderImg, bottomBorderOpts)
+			drawFilledRect(screen, tabX, tabY+tabHeight-2, tabWidth, 2, tabBorderColor)
 		}
 
 		// Draw tab text (using standard debug print for now)
@@ -982,41 +915,19 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 	// Left part of top border (before active tab)
 	if activeTabX > panelX {
-		leftTopBorder := ebiten.NewImage(activeTabX-panelX, 2)
-		leftTopBorder.Fill(panelBorderColor)
-		leftTopOpts := &ebiten.DrawImageOptions{}
-		leftTopOpts.GeoM.Translate(float64(panelX), float64(panelY))
-		screen.DrawImage(leftTopBorder, leftTopOpts)
+		drawFilledRect(screen, panelX, panelY, activeTabX-panelX, 2, panelBorderColor)
 	}
 
 	// Right part of top border (after active tab)
 	rightStart := activeTabX + tabWidth
 	if rightStart < panelX+panelWidth {
-		rightTopBorder := ebiten.NewImage((panelX+panelWidth)-rightStart, 2)
-		rightTopBorder.Fill(panelBorderColor)
-		rightTopOpts := &ebiten.DrawImageOptions{}
-		rightTopOpts.GeoM.Translate(float64(rightStart), float64(panelY))
-		screen.DrawImage(rightTopBorder, rightTopOpts)
+		drawFilledRect(screen, rightStart, panelY, (panelX+panelWidth)-rightStart, 2, panelBorderColor)
 	}
 
 	// Left, right, and bottom borders of main panel
-	leftPanelBorder := ebiten.NewImage(2, panelHeight)
-	leftPanelBorder.Fill(panelBorderColor)
-	leftPanelOpts := &ebiten.DrawImageOptions{}
-	leftPanelOpts.GeoM.Translate(float64(panelX), float64(panelY))
-	screen.DrawImage(leftPanelBorder, leftPanelOpts)
-
-	rightPanelBorder := ebiten.NewImage(2, panelHeight)
-	rightPanelBorder.Fill(panelBorderColor)
-	rightPanelOpts := &ebiten.DrawImageOptions{}
-	rightPanelOpts.GeoM.Translate(float64(panelX+panelWidth-2), float64(panelY))
-	screen.DrawImage(rightPanelBorder, rightPanelOpts)
-
-	bottomPanelBorder := ebiten.NewImage(panelWidth, 2)
-	bottomPanelBorder.Fill(panelBorderColor)
-	bottomPanelOpts := &ebiten.DrawImageOptions{}
-	bottomPanelOpts.GeoM.Translate(float64(panelX), float64(panelY+panelHeight-2))
-	screen.DrawImage(bottomPanelBorder, bottomPanelOpts)
+	drawFilledRect(screen, panelX, panelY, 2, panelHeight, panelBorderColor)
+	drawFilledRect(screen, panelX+panelWidth-2, panelY, 2, panelHeight, panelBorderColor)
+	drawFilledRect(screen, panelX, panelY+panelHeight-2, panelWidth, 2, panelBorderColor)
 
 	// Draw X close button in top-right corner
 	closeButtonSize := 20
@@ -1027,20 +938,15 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	ui.handleCloseButtonClick(closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
 
 	// Draw close button background
-	closeButtonBg := ebiten.NewImage(closeButtonSize, closeButtonSize)
 	mouseX, mouseY := ebiten.CursorPosition()
 	isCloseHovering := mouseX >= closeButtonX && mouseX < closeButtonX+closeButtonSize &&
 		mouseY >= closeButtonY && mouseY < closeButtonY+closeButtonSize
 
 	if isCloseHovering {
-		closeButtonBg.Fill(color.RGBA{150, 50, 50, 200}) // Red hover
+		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{150, 50, 50, 200}) // Red hover
 	} else {
-		closeButtonBg.Fill(color.RGBA{100, 100, 100, 150}) // Gray normal
+		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{100, 100, 100, 150}) // Gray normal
 	}
-
-	closeButtonOpts := &ebiten.DrawImageOptions{}
-	closeButtonOpts.GeoM.Translate(float64(closeButtonX), float64(closeButtonY))
-	screen.DrawImage(closeButtonBg, closeButtonOpts)
 
 	// Draw X text
 	ebitenutil.DebugPrintAt(screen, "X", closeButtonX+6, closeButtonY+4)
@@ -1157,11 +1063,7 @@ func drawTooltip(screen *ebiten.Image, lines []string, x, y int) {
 		}
 	}
 	bgHeight := len(lines)*16 + 8
-	tooltipBg := ebiten.NewImage(bgWidth, bgHeight)
-	tooltipBg.Fill(color.RGBA{30, 30, 60, 220})
-	bgOpts := &ebiten.DrawImageOptions{}
-	bgOpts.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(tooltipBg, bgOpts)
+	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 220})
 	for i, line := range lines {
 		ebitenutil.DebugPrintAt(screen, line, x+6, y+6+i*16)
 	}
@@ -1219,7 +1121,6 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		y := equipmentY + (i * 15)
 		if item, equipped := currentChar.Equipment[slotInfo.slot]; equipped {
 			// Create colored background for equipped items
-			equipBg := ebiten.NewImage(220, 15)
 			isHovering := isMouseHoveringBox(mouseX, mouseY, equipX, y, equipX+220, y+15)
 
 			var bgColor color.RGBA
@@ -1229,10 +1130,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 				bgColor = color.RGBA{30, 40, 20, 40} // Subtle green background for equipped items
 			}
 
-			equipBg.Fill(bgColor)
-			equipBgOpts := &ebiten.DrawImageOptions{}
-			equipBgOpts.GeoM.Translate(float64(equipX), float64(y))
-			screen.DrawImage(equipBg, equipBgOpts)
+			drawFilledRect(screen, equipX, y, 220, 15, bgColor)
 
 			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%-8s: %s", slotInfo.name, item.Name), equipX, y)
 
@@ -1281,10 +1179,11 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			canEquip := true
 			if item.Type == items.ItemWeapon {
 				canEquip = currentChar.CanEquipWeaponByName(item.Name)
+			} else if item.Type == items.ItemArmor {
+				canEquip = currentChar.CanEquipArmor(item)
 			}
 
 			// Create colored background for the item
-			itemBg := ebiten.NewImage(200, 15)
 			var bgColor color.RGBA
 			isHovering := isMouseHoveringBox(mouseX, mouseY, invX, y, invX+200, y+15)
 
@@ -1304,10 +1203,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 				}
 			}
 
-			itemBg.Fill(bgColor)
-			itemBgOpts := &ebiten.DrawImageOptions{}
-			itemBgOpts.GeoM.Translate(float64(invX), float64(y))
-			screen.DrawImage(itemBg, itemBgOpts)
+			drawFilledRect(screen, invX, y, 200, 15, bgColor)
 
 			// Draw item name
 			itemInfo := fmt.Sprintf("%d. %s", i+1, item.Name)
@@ -1350,11 +1246,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			x := ui.inventoryContextX
 			y := ui.inventoryContextY
 			// Background
-			menuBg := ebiten.NewImage(menuW, menuH)
-			menuBg.Fill(color.RGBA{40, 40, 60, 230})
-			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Translate(float64(x), float64(y))
-			screen.DrawImage(menuBg, opts)
+			drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
 			// Border
 			drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
 			// Entry text
@@ -1394,114 +1286,125 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 // drawCharactersContent draws the characters tab content
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY int) {
 	// Title
-	ebitenutil.DebugPrintAt(screen, "=== PARTY MEMBERS ===", panelX+20, contentY+10)
+	ebitenutil.DebugPrintAt(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
 
-	// Party members (2 per row)
-	memberY := contentY + 40
-	cardWidth := 300
-	cardHeight := 190 // Increased from 147 to fit all text properly
-	for i, member := range ui.game.party.Members {
-		col := i % 2
-		row := i / 2
-		x := panelX + 15 + (col * (cardWidth + 20))
-		y := memberY + (row * (cardHeight + 15))
+	if len(ui.game.party.Members) == 0 {
+		ebitenutil.DebugPrintAt(screen, "No party members.", panelX+20, contentY+40)
+		return
+	}
 
-		// Handle mouse clicks on character cards
-		ui.handleCharacterCardClick(x, y, cardWidth, cardHeight, i)
+	// Only show the selected character
+	charIndex := ui.game.selectedChar
+	if charIndex < 0 || charIndex >= len(ui.game.party.Members) {
+		charIndex = 0
+	}
+	member := ui.game.party.Members[charIndex]
 
-		// Member background (larger card) with hover effect
-		memberBg := ebiten.NewImage(cardWidth, cardHeight)
-		var bgColor color.RGBA
+	// Card background
+	cardX := panelX + 15
+	cardY := contentY + 40
+	cardW := 610
+	cardH := 300
+	drawFilledRect(screen, cardX, cardY, cardW, cardH, color.RGBA{25, 25, 50, 160})
 
-		// Check if mouse is hovering over this card
-		mouseX, mouseY := ebiten.CursorPosition()
-		isHovering := mouseX >= x && mouseX < x+cardWidth && mouseY >= y && mouseY < y+cardHeight
+	// Header
+	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, ui.getClassName(member.Class), member.Level)
+	ebitenutil.DebugPrintAt(screen, header, cardX+10, cardY+10)
 
-		if i == ui.game.selectedChar {
-			bgColor = color.RGBA{40, 40, 80, 180} // Highlight selected character
-		} else if isHovering {
-			bgColor = color.RGBA{30, 30, 50, 140} // Hover effect
-		} else {
-			bgColor = color.RGBA{20, 20, 40, 120} // Normal state
+	// Core info
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), cardX+10, cardY+30)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), cardX+210, cardY+30)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Experience: %d", member.Experience), cardX+10, cardY+45)
+
+	statusText := "Status: Normal"
+	if len(member.Conditions) > 0 {
+		statusText = fmt.Sprintf("Status: %s", ui.getConditionName(member.Conditions[0]))
+		if len(member.Conditions) > 1 {
+			statusText += fmt.Sprintf(" +%d more", len(member.Conditions)-1)
 		}
+	}
+	ebitenutil.DebugPrintAt(screen, statusText, cardX+210, cardY+45)
 
-		memberBg.Fill(bgColor)
+	// Stats
+	ebitenutil.DebugPrintAt(screen, "--- STATS ---", cardX+10, cardY+70)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Might: %d", member.Might), cardX+10, cardY+85)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Intellect: %d", member.Intellect), cardX+10, cardY+100)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Personality: %d", member.Personality), cardX+10, cardY+115)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Endurance: %d", member.Endurance), cardX+10, cardY+130)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Accuracy: %d", member.Accuracy), cardX+10, cardY+145)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Speed: %d", member.Speed), cardX+10, cardY+160)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Luck: %d", member.Luck), cardX+10, cardY+175)
 
-		memberOpts := &ebiten.DrawImageOptions{}
-		memberOpts.GeoM.Translate(float64(x), float64(y))
-		screen.DrawImage(memberBg, memberOpts)
-
-		// Member header info
-		memberInfo := fmt.Sprintf("%d. %s (%s) Level %d",
-			i+1, member.Name, ui.getClassName(member.Class), member.Level)
-		ebitenutil.DebugPrintAt(screen, memberInfo, x+8, y+8)
-
-		// Health and spell points
-		healthInfo := fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints)
-		spellInfo := fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints)
-		ebitenutil.DebugPrintAt(screen, healthInfo, x+8, y+25)
-		ebitenutil.DebugPrintAt(screen, spellInfo, x+8, y+40)
-
-		// Experience
-		expInfo := fmt.Sprintf("Experience: %d", member.Experience)
-		ebitenutil.DebugPrintAt(screen, expInfo, x+8, y+55)
-
-		// Primary stats (split into two columns for better readability)
-		ebitenutil.DebugPrintAt(screen, "--- STATS ---", x+8, y+70)
-
-		// Left column stats
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Might: %d", member.Might), x+8, y+85)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Intellect: %d", member.Intellect), x+8, y+100)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Personality: %d", member.Personality), x+8, y+115)
-
-		// Right column stats
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Endurance: %d", member.Endurance), x+160, y+85)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Speed: %d", member.Speed), x+160, y+100)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Accuracy: %d", member.Accuracy), x+160, y+115)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Luck: %d", member.Luck), x+160, y+130)
-
-		// Equipment section
-		ebitenutil.DebugPrintAt(screen, "--- EQUIPMENT ---", x+8, y+145)
-
-		// Main hand weapon
-		if weapon, hasWeapon := member.Equipment[items.SlotMainHand]; hasWeapon {
-			weaponName := weapon.Name
-			if len(weaponName) > 16 { // Truncate weapon name if too long
-				weaponName = weaponName[:13] + "..."
-			}
-			weaponText := fmt.Sprintf("Weapon: %s", weaponName)
-			ebitenutil.DebugPrintAt(screen, weaponText, x+8, y+160)
-		} else {
-			ebitenutil.DebugPrintAt(screen, "Weapon: None", x+8, y+160)
+	// Skills
+	skillX := cardX + 260
+	skillY := cardY + 70
+	ebitenutil.DebugPrintAt(screen, "--- SKILLS ---", skillX, skillY)
+	skillY += 15
+	skillOrder := []character.SkillType{
+		character.SkillSword,
+		character.SkillDagger,
+		character.SkillAxe,
+		character.SkillSpear,
+		character.SkillBow,
+		character.SkillMace,
+		character.SkillStaff,
+		character.SkillLeather,
+		character.SkillChain,
+		character.SkillPlate,
+		character.SkillShield,
+		character.SkillBodybuilding,
+		character.SkillMeditation,
+		character.SkillMerchant,
+		character.SkillRepair,
+		character.SkillIdentifyItem,
+		character.SkillDisarmTrap,
+		character.SkillLearning,
+		character.SkillArmsMaster,
+	}
+	skillLines := 0
+	for _, st := range skillOrder {
+		if s, ok := member.Skills[st]; ok && s != nil {
+			line := fmt.Sprintf("%s %d (%s)", ui.getSkillName(st), s.Level, ui.getMasteryName(s.Mastery))
+			ebitenutil.DebugPrintAt(screen, line, skillX, skillY+skillLines*14)
+			skillLines++
 		}
+	}
+	if skillLines == 0 {
+		ebitenutil.DebugPrintAt(screen, "None", skillX, skillY)
+		skillLines = 1
+	}
 
-		// Equipped spell (unified slot)
-		if spell, hasSpell := member.Equipment[items.SlotSpell]; hasSpell {
-			spellName := spell.Name
-			if len(spellName) > 16 { // Truncate spell name if too long
-				spellName = spellName[:13] + "..."
-			}
-			spellText := fmt.Sprintf("Spell: %s", spellName)
-			ebitenutil.DebugPrintAt(screen, spellText, x+160, y+160)
-		} else {
-			ebitenutil.DebugPrintAt(screen, "Spell: None", x+160, y+160)
+	// Magic schools
+	magicX := cardX + 260
+	magicY := skillY + skillLines*14 + 15
+	ebitenutil.DebugPrintAt(screen, "--- MAGIC SCHOOLS ---", magicX, magicY)
+	magicY += 15
+	schoolOrder := []character.MagicSchool{
+		character.MagicBody,
+		character.MagicMind,
+		character.MagicSpirit,
+		character.MagicFire,
+		character.MagicWater,
+		character.MagicAir,
+		character.MagicEarth,
+		character.MagicLight,
+		character.MagicDark,
+	}
+	schoolLines := 0
+	for _, school := range schoolOrder {
+		if ms, ok := member.MagicSchools[school]; ok && ms != nil {
+			line := fmt.Sprintf("%s %d (%s) Casts:%d",
+				member.GetMagicSchoolName(school), ms.Level, ui.getMasteryName(ms.Mastery), ms.CastCount)
+			ebitenutil.DebugPrintAt(screen, line, magicX, magicY+schoolLines*14)
+			schoolLines++
 		}
-
-		// Status effects (moved down to make room)
-		statusText := "Status: Normal"
-		if len(member.Conditions) > 0 {
-			statusText = fmt.Sprintf("Status: %s", ui.getConditionName(member.Conditions[0]))
-			// Additional conditions if multiple
-			if len(member.Conditions) > 1 {
-				statusText += fmt.Sprintf(" +%d more", len(member.Conditions)-1)
-			}
-		}
-		ebitenutil.DebugPrintAt(screen, statusText, x+8, y+175)
+	}
+	if schoolLines == 0 {
+		ebitenutil.DebugPrintAt(screen, "None", magicX, magicY)
 	}
 
 	// Instructions
-	// instructionY := contentY + contentHeight - 30
-	// ebitenutil.DebugPrintAt(screen, "Click character cards or use 1-4 keys to select • Equipment updates automatically", panelX+20, instructionY)
+	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", panelX+20, cardY+cardH+10)
 }
 
 // drawSpellbookContent draws the spellbook tab content
@@ -1579,11 +1482,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 			// Generate tooltip for hovering spell
 			if isHovering {
 				// Draw hover background
-				hoverBg := ebiten.NewImage(300, spellHeight)
-				hoverBg.Fill(color.RGBA{100, 100, 150, 100})
-				hoverOpts := &ebiten.DrawImageOptions{}
-				hoverOpts.GeoM.Translate(float64(panelX+50), float64(spellY))
-				screen.DrawImage(hoverBg, hoverOpts)
+				drawFilledRect(screen, panelX+50, spellY, 300, spellHeight, color.RGBA{100, 100, 150, 100})
 
 				// Generate spell tooltip using SpellID
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
@@ -1708,6 +1607,49 @@ func (ui *UISystem) getClassName(class character.CharacterClass) string {
 	return "Unknown"
 }
 
+func (ui *UISystem) getSkillName(skill character.SkillType) string {
+	names := map[character.SkillType]string{
+		character.SkillSword:        "Sword",
+		character.SkillDagger:       "Dagger",
+		character.SkillAxe:          "Axe",
+		character.SkillSpear:        "Spear",
+		character.SkillBow:          "Bow",
+		character.SkillMace:         "Mace",
+		character.SkillStaff:        "Staff",
+		character.SkillLeather:      "Leather",
+		character.SkillChain:        "Chain",
+		character.SkillPlate:        "Plate",
+		character.SkillShield:       "Shield",
+		character.SkillBodybuilding: "Bodybuilding",
+		character.SkillMeditation:   "Meditation",
+		character.SkillMerchant:     "Merchant",
+		character.SkillRepair:       "Repair",
+		character.SkillIdentifyItem: "Identify Item",
+		character.SkillDisarmTrap:   "Disarm Trap",
+		character.SkillLearning:     "Learning",
+		character.SkillArmsMaster:   "Arms Master",
+	}
+	if name, exists := names[skill]; exists {
+		return name
+	}
+	return "Unknown"
+}
+
+func (ui *UISystem) getMasteryName(mastery character.SkillMastery) string {
+	switch mastery {
+	case character.MasteryNovice:
+		return "Novice"
+	case character.MasteryExpert:
+		return "Expert"
+	case character.MasteryMaster:
+		return "Master"
+	case character.MasteryGrandMaster:
+		return "Grandmaster"
+	default:
+		return "Unknown"
+	}
+}
+
 // getConditionName returns the condition name for a character condition
 func (ui *UISystem) getConditionName(condition character.Condition) string {
 	names := map[character.Condition]string{
@@ -1774,17 +1716,10 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	dialogY := (screenHeight - dialogHeight) / 2
 
 	// Draw semi-transparent overlay
-	overlayImg := ebiten.NewImage(screenWidth, screenHeight)
-	overlayImg.Fill(color.RGBA{0, 0, 0, 128})
-	screen.DrawImage(overlayImg, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
 
 	// Draw dialog background
-	dialogImg := ebiten.NewImage(dialogWidth, dialogHeight)
-	dialogImg.Fill(color.RGBA{40, 40, 60, 255})
-
-	dialogOpts := &ebiten.DrawImageOptions{}
-	dialogOpts.GeoM.Translate(float64(dialogX), float64(dialogY))
-	screen.DrawImage(dialogImg, dialogOpts)
+	drawFilledRect(screen, dialogX, dialogY, dialogWidth, dialogHeight, color.RGBA{40, 40, 60, 255})
 
 	// Draw border
 	borderColor := color.RGBA{100, 100, 120, 255}
@@ -1836,11 +1771,7 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 
 				// Highlight selected choice
 				if i == ui.game.selectedChoice {
-					choiceBg := ebiten.NewImage(dialogWidth-40, 20)
-					choiceBg.Fill(color.RGBA{100, 100, 0, 128})
-					choiceBgOpts := &ebiten.DrawImageOptions{}
-					choiceBgOpts.GeoM.Translate(float64(dialogX+20), float64(choiceY-2))
-					screen.DrawImage(choiceBg, choiceBgOpts)
+					drawFilledRect(screen, dialogX+20, choiceY-2, dialogWidth-40, 20, color.RGBA{100, 100, 0, 128})
 				}
 
 				ebitenutil.DebugPrintAt(screen, choiceText, dialogX+25, choiceY)
@@ -1994,9 +1925,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 	w := ui.game.config.GetScreenWidth()
 	h := ui.game.config.GetScreenHeight()
 	// Darken background
-	overlay := ebiten.NewImage(w, h)
-	overlay.Fill(color.RGBA{0, 0, 0, 180})
-	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 180})
 
 	// Text
 	centerX := w/2 - 160
@@ -2012,9 +1941,7 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	h := ui.game.config.GetScreenHeight()
 
 	// Darken background with golden tint
-	overlay := ebiten.NewImage(w, h)
-	overlay.Fill(color.RGBA{30, 25, 0, 200})
-	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{30, 25, 0, 200})
 
 	// Get score data
 	scoreData := ui.game.GetScoreData()
@@ -2056,9 +1983,7 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	h := ui.game.config.GetScreenHeight()
 
 	// Darken background
-	overlay := ebiten.NewImage(w, h)
-	overlay.Fill(color.RGBA{0, 0, 30, 220})
-	screen.DrawImage(overlay, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 30, 220})
 
 	scores, err := LoadHighScores()
 	if err != nil {
@@ -2173,32 +2098,23 @@ func (ui *UISystem) characterCanLearnSpell(char *character.MMCharacter, spellDat
 	}
 }
 
+func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	vector.DrawFilledRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+}
+
 // drawRectBorder draws a rectangle border of given thickness and color
 func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Color) {
 	// Top border
-	top := ebiten.NewImage(w+2*thickness, thickness)
-	top.Fill(clr)
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(x-thickness), float64(y-thickness))
-	dst.DrawImage(top, opts)
+	vector.DrawFilledRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
 	// Bottom border
-	bottom := ebiten.NewImage(w+2*thickness, thickness)
-	bottom.Fill(clr)
-	opts = &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(x-thickness), float64(y+h))
-	dst.DrawImage(bottom, opts)
+	vector.DrawFilledRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
 	// Left border
-	left := ebiten.NewImage(thickness, h)
-	left.Fill(clr)
-	opts = &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(x-thickness), float64(y))
-	dst.DrawImage(left, opts)
+	vector.DrawFilledRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
 	// Right border
-	right := ebiten.NewImage(thickness, h)
-	right.Fill(clr)
-	opts = &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(x+w), float64(y))
-	dst.DrawImage(right, opts)
+	vector.DrawFilledRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
 }
 
 // handleInventoryItemClick handles double-click to equip items from inventory
@@ -2252,9 +2168,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
 
-	dim := ebiten.NewImage(screenW, screenH)
-	dim.Fill(color.RGBA{0, 0, 0, 140})
-	screen.DrawImage(dim, &ebiten.DrawImageOptions{})
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
 
 	panelW := int(float64(screenW) * 0.75)
 	panelH := int(float64(screenH) * 0.75)
@@ -2273,11 +2187,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	panelX := (screenW - panelW) / 2
 	panelY := (screenH - panelH) / 2
 
-	bg := ebiten.NewImage(panelW, panelH)
-	bg.Fill(color.RGBA{20, 20, 40, 230})
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(panelX), float64(panelY))
-	screen.DrawImage(bg, opts)
+	drawFilledRect(screen, panelX, panelY, panelW, panelH, color.RGBA{20, 20, 40, 230})
 	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
 
 	title := "World Map"
@@ -2290,11 +2200,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 
 	closeX := panelX + panelW - 26
 	closeY := panelY + 10
-	closeImg := ebiten.NewImage(16, 16)
-	closeImg.Fill(color.RGBA{200, 60, 60, 220})
-	closeOpts := &ebiten.DrawImageOptions{}
-	closeOpts.GeoM.Translate(float64(closeX), float64(closeY))
-	screen.DrawImage(closeImg, closeOpts)
+	drawFilledRect(screen, closeX, closeY, 16, 16, color.RGBA{200, 60, 60, 220})
 	ebitenutil.DebugPrintAt(screen, "X", closeX+4, closeY+2)
 	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+16, closeY+16) {
 		ui.game.mapOverlayOpen = false
@@ -2557,11 +2463,7 @@ func (ui *UISystem) getCompassCenter() (int, int) {
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)
 func (ui *UISystem) drawUIBackground(screen *ebiten.Image, x, y, width, height int, bgColor color.RGBA) {
 	if bgColor.A > 0 {
-		backgroundImg := ebiten.NewImage(width, height)
-		backgroundImg.Fill(bgColor)
-		backgroundOpts := &ebiten.DrawImageOptions{}
-		backgroundOpts.GeoM.Translate(float64(x), float64(y))
-		screen.DrawImage(backgroundImg, backgroundOpts)
+		drawFilledRect(screen, x, y, width, height, bgColor)
 	}
 }
 
@@ -2677,8 +2579,6 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 
 	for _, quest := range allQuests {
 		// Draw quest background
-		questBg := ebiten.NewImage(questWidth, questHeight)
-
 		// Different colors based on quest status
 		var bgColor color.RGBA
 		if quest.Completed && !quest.RewardsClaimed {
@@ -2688,11 +2588,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		} else {
 			bgColor = color.RGBA{30, 30, 60, 200} // Blue for active
 		}
-		questBg.Fill(bgColor)
-
-		bgOpts := &ebiten.DrawImageOptions{}
-		bgOpts.GeoM.Translate(float64(panelX+20), float64(questY))
-		screen.DrawImage(questBg, bgOpts)
+		drawFilledRect(screen, panelX+20, questY, questWidth, questHeight, bgColor)
 
 		// Draw quest border
 		borderColor := color.RGBA{80, 80, 120, 255}
@@ -2732,11 +2628,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			barHeight := 14
 
 			// Background bar
-			barBg := ebiten.NewImage(barWidth, barHeight)
-			barBg.Fill(color.RGBA{20, 20, 20, 255})
-			barBgOpts := &ebiten.DrawImageOptions{}
-			barBgOpts.GeoM.Translate(float64(barX), float64(barY))
-			screen.DrawImage(barBg, barBgOpts)
+			drawFilledRect(screen, barX, barY, barWidth, barHeight, color.RGBA{20, 20, 20, 255})
 
 			// Progress fill
 			progress := float64(quest.CurrentCount) / float64(quest.Definition.TargetCount)
@@ -2751,11 +2643,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 				} else {
 					fillColor = color.RGBA{80, 150, 200, 255} // Blue while in progress
 				}
-				barFill := ebiten.NewImage(fillWidth, barHeight)
-				barFill.Fill(fillColor)
-				barFillOpts := &ebiten.DrawImageOptions{}
-				barFillOpts.GeoM.Translate(float64(barX), float64(barY))
-				screen.DrawImage(barFill, barFillOpts)
+				drawFilledRect(screen, barX, barY, fillWidth, barHeight, fillColor)
 			}
 
 			// Progress bar border
@@ -2785,15 +2673,11 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 
 			isHovering := isMouseHoveringBox(mouseX, mouseY, buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight)
 
-			buttonBg := ebiten.NewImage(buttonWidth, buttonHeight)
 			if isHovering {
-				buttonBg.Fill(color.RGBA{100, 200, 100, 255}) // Bright green on hover
+				drawFilledRect(screen, buttonX, buttonY, buttonWidth, buttonHeight, color.RGBA{100, 200, 100, 255}) // Bright green on hover
 			} else {
-				buttonBg.Fill(color.RGBA{60, 150, 60, 255}) // Green
+				drawFilledRect(screen, buttonX, buttonY, buttonWidth, buttonHeight, color.RGBA{60, 150, 60, 255}) // Green
 			}
-			buttonOpts := &ebiten.DrawImageOptions{}
-			buttonOpts.GeoM.Translate(float64(buttonX), float64(buttonY))
-			screen.DrawImage(buttonBg, buttonOpts)
 
 			ebitenutil.DebugPrintAt(screen, "Claim Reward", buttonX+12, buttonY+2)
 
