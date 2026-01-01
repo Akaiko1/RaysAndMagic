@@ -3,7 +3,6 @@ package game
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"sort"
 	"time"
 )
@@ -31,14 +30,7 @@ type HighScores struct {
 
 // getHighScoresPath returns the path to the high scores file
 func getHighScoresPath() string {
-	// Store in user's home directory under .raysandmagic
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return highScoresFile
-	}
-	dir := filepath.Join(home, ".raysandmagic")
-	os.MkdirAll(dir, 0755)
-	return filepath.Join(dir, highScoresFile)
+	return getAppSavePath(highScoresFile)
 }
 
 // LoadHighScores reads high scores from the JSON file

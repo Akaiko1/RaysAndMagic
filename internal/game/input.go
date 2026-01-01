@@ -197,12 +197,50 @@ func (ih *InputHandler) restartNewGame() {
 	// Reset dialog/menu states
 	ih.game.dialogActive = false
 	ih.game.menuOpen = false
-	// Move player to start position
-	if ih.game.GetCurrentWorld() != nil {
-		startX, startY := ih.game.GetCurrentWorld().GetStartingPosition()
+
+	// Reset to a valid starting map and refresh world visuals/caches.
+	if wm := world.GlobalWorldManager; wm != nil {
+		startMapKey := wm.CurrentMapKey
+		if wm.IsValidMap("forest") {
+			startMapKey = "forest"
+		} else if !wm.IsValidMap(startMapKey) {
+			if maps := wm.GetAvailableMaps(); len(maps) > 0 {
+				startMapKey = maps[0]
+			}
+		}
+		if startMapKey != "" && wm.IsValidMap(startMapKey) && startMapKey != wm.CurrentMapKey {
+			if err := wm.SwitchToMap(startMapKey); err != nil {
+				fmt.Printf("Warning: Failed to switch to map %s during restart: %v\n", startMapKey, err)
+			}
+		}
+		ih.game.world = wm.GetCurrentWorld()
+		ih.game.UpdateSkyAndGroundColors()
+		if ih.game.collisionSystem != nil {
+			ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
+		}
+		if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
+			ih.game.gameLoop.renderer.precomputeFloorColorCache()
+			ih.game.gameLoop.renderer.buildTransparentSpriteCache()
+		}
+	}
+
+	// Move player to start position (fallback to nearest walkable tile if map has no '+')
+	if currentWorld := ih.game.GetCurrentWorld(); currentWorld != nil {
+		tileSize := float64(ih.game.config.GetTileSize())
+		startX, startY := 0.0, 0.0
+		if currentWorld.StartX >= 0 && currentWorld.StartY >= 0 {
+			startX = float64(currentWorld.StartX) * tileSize
+			startY = float64(currentWorld.StartY) * tileSize
+		} else {
+			centerX := float64(currentWorld.Width) * tileSize * 0.5
+			centerY := float64(currentWorld.Height) * tileSize * 0.5
+			startX, startY = ih.game.FindNearestWalkableTileMustSucceed(centerX, centerY)
+		}
 		ih.game.camera.X = startX
 		ih.game.camera.Y = startY
-		ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+		if ih.game.collisionSystem != nil {
+			ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+		}
 	}
 }
 
@@ -312,7 +350,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		panelW, panelH = 360, 300
+		panelW, panelH = 360, 320
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
 		// Navigate options (debounced)
@@ -341,7 +379,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 2: // Load
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
-			case 3: // Exit
+			case 3: // High Scores
+				ih.game.showHighScores = true
+			case 4: // Exit
 				ih.game.exitRequested = true
 			}
 		}
@@ -358,6 +398,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
 			case 3:
+				ih.game.showHighScores = true
+			case 4:
 				ih.game.exitRequested = true
 			}
 		}

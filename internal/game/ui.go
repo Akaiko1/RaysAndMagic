@@ -272,7 +272,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	panelW, panelH := 300, 220
 	if ui.game.mainMenuMode == MenuMain {
 		panelW = 360
-		panelH = 300
+		panelH = 320
 	}
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
