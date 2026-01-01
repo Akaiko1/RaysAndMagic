@@ -203,6 +203,7 @@ func (ih *InputHandler) restartNewGame() {
 	// Reset dialog/menu states
 	ih.game.dialogActive = false
 	ih.game.menuOpen = false
+	ih.game.showHighScores = false
 	// Clear pending level-up choices
 	ih.game.levelUpChoiceQueue = nil
 
@@ -254,6 +255,14 @@ func (ih *InputHandler) restartNewGame() {
 
 // handleVictoryInput processes input on the victory screen
 func (ih *InputHandler) handleVictoryInput() {
+	// If high scores overlay is open during victory, allow ESC to close it first.
+	if ih.game.showHighScores {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.showHighScores = false
+		}
+		return
+	}
+
 	// If score already saved, handle post-save options
 	if ih.game.victoryScoreSaved {
 		// H to view high scores
