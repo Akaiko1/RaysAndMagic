@@ -50,19 +50,37 @@ func NewWallSliceCache() *WallSliceCache {
 // This method is thread-safe and handles cache quantization, lookup, creation, and eviction.
 // Parameters:
 //   - key: Wall slice configuration parameters
-//   - createFunc: Function to generate the wall slice if not cached
+//   - createFunc: Function to generate the wall slice, receives quantized height
 //
 // Returns the cached or newly created wall slice image.
-func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func() *ebiten.Image) *ebiten.Image {
+func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func(quantizedHeight int) *ebiten.Image) *ebiten.Image {
 	// Quantize texture coordinate for better cache hit rates
-	// Texture coordinate is quantized to 1/16 increments for smooth texture mapping
+	// Use 1/16 increments for smooth texture mapping
 	key.WallX = float64(int(key.WallX*16)) / 16
 
-	// Quantize height to nearest 8 pixels for better cache hit rates
-	// This prevents cache thrashing when close to walls where each ray has slightly different distance
-	key.Height = ((key.Height + 4) / 8) * 8
-	if key.Height < 1 {
-		key.Height = 8
+	// Adaptive height quantization: finer steps for distant walls (small heights),
+	// coarser steps for close walls (large heights) where precision matters less
+	// - Distant walls (<64px): 2px steps - fine detail visible
+	// - Medium walls (64-256px): 4px steps - balanced
+	// - Close walls (256-512px): 8px steps - less noticeable
+	// - Very close walls (>512px): capped and scaled by renderer
+	var quantStep int
+	switch {
+	case key.Height < 64:
+		quantStep = 2
+	case key.Height < 256:
+		quantStep = 4
+	default:
+		quantStep = 8
+	}
+	key.Height = ((key.Height + quantStep/2) / quantStep) * quantStep
+	if key.Height < 2 {
+		key.Height = 2
+	}
+	// Cap maximum cached height to prevent memory bloat for very close walls
+	// Walls taller than this will all use the same cached slice and scale it
+	if key.Height > 512 {
+		key.Height = 512
 	}
 
 	// First attempt: try to get cached image with read lock (allows concurrent reads)
@@ -74,7 +92,8 @@ func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func() *ebit
 	wsc.mutex.RUnlock()
 
 	// Cache miss: generate new wall slice using provided creation function
-	newImage := createFunc()
+	// Pass the quantized height so the created image matches the cache key
+	newImage := createFunc(key.Height)
 
 	// Second phase: store the new image with write lock (exclusive access)
 	wsc.mutex.Lock()
