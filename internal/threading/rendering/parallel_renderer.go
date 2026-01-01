@@ -25,70 +25,58 @@ func NewParallelRenderer() *ParallelRenderer {
 	}
 }
 
-// RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations
+// RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
+// Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
 func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, float64) (float64, interface{}),
 	angleFunc func(int, int) float64) []RaycastResult {
 
 	// Single allocation for results
 	results := make([]RaycastResult, numRays)
 
-	// For 60 FPS, use direct goroutines for smaller workloads, worker pool for larger
-	if numRays <= 64 {
-		// Small workload: use direct goroutines (faster than worker pool overhead)
-		numWorkers := mathutil.IntMin(numRays, pr.workerPool.GetNumWorkers())
-		raysPerWorker := numRays / numWorkers
-		var wg sync.WaitGroup
-
-		for i := 0; i < numWorkers; i++ {
-			start := i * raysPerWorker
-			end := start + raysPerWorker
-			if i == numWorkers-1 {
-				end = numRays // Last worker gets remaining rays
+	// Very small workloads: process inline to avoid synchronization overhead
+	if numRays <= 8 {
+		for rayIndex := 0; rayIndex < numRays; rayIndex++ {
+			angle := angleFunc(rayIndex, numRays)
+			distance, tileType := raycastFunc(rayIndex, angle)
+			results[rayIndex] = RaycastResult{
+				Distance: distance,
+				TileType: tileType,
 			}
-
-			wg.Add(1)
-			go func(s, e int) {
-				defer wg.Done()
-				for rayIndex := s; rayIndex < e; rayIndex++ {
-					angle := angleFunc(rayIndex, numRays)
-					distance, tileType := raycastFunc(rayIndex, angle)
-					results[rayIndex] = RaycastResult{
-						Distance: distance,
-						TileType: tileType,
-					}
-				}
-			}(start, end)
 		}
-		wg.Wait()
-	} else {
-		// Large workload: use worker pool with optimal batching
-		numWorkers := pr.workerPool.GetNumWorkers()
-		batchSize := mathutil.IntMax(8, numRays/numWorkers) // Larger batches for efficiency
-		if batchSize > 32 {
-			batchSize = 32 // Cap batch size
-		}
-
-		var wg sync.WaitGroup
-
-		for i := 0; i < numRays; i += batchSize {
-			start := i
-			end := mathutil.IntMin(i+batchSize, numRays)
-
-			wg.Add(1)
-			pr.workerPool.Submit(func() {
-				defer wg.Done()
-				for rayIndex := start; rayIndex < end; rayIndex++ {
-					angle := angleFunc(rayIndex, numRays)
-					distance, tileType := raycastFunc(rayIndex, angle)
-					results[rayIndex] = RaycastResult{
-						Distance: distance,
-						TileType: tileType,
-					}
-				}
-			})
-		}
-		wg.Wait()
+		return results
 	}
+
+	// Use worker pool for all parallel workloads to avoid goroutine churn
+	// This prevents goroutine creation/destruction overhead every frame
+	numWorkers := pr.workerPool.GetNumWorkers()
+	batchSize := numRays / numWorkers
+	if batchSize < 4 {
+		batchSize = 4 // Minimum batch size for efficiency
+	}
+	if batchSize > 32 {
+		batchSize = 32 // Cap batch size
+	}
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < numRays; i += batchSize {
+		start := i
+		end := mathutil.IntMin(i+batchSize, numRays)
+
+		wg.Add(1)
+		pr.workerPool.Submit(func() {
+			defer wg.Done()
+			for rayIndex := start; rayIndex < end; rayIndex++ {
+				angle := angleFunc(rayIndex, numRays)
+				distance, tileType := raycastFunc(rayIndex, angle)
+				results[rayIndex] = RaycastResult{
+					Distance: distance,
+					TileType: tileType,
+				}
+			}
+		})
+	}
+	wg.Wait()
 
 	return results
 }

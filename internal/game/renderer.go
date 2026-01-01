@@ -32,6 +32,7 @@ type Renderer struct {
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
 	circleCache              map[int]*ebiten.Image // Cached circle masks by diameter
+	circleCacheOrder         []int                 // LRU order tracking for circle cache eviction
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// Floor rendering optimization buffers
 	floorImage  *ebiten.Image // Persistent floor image buffer
@@ -1280,13 +1281,29 @@ func (r *Renderer) drawTrail(screen *ebiten.Image, x, y, dirX, dirY, length, wid
 	}
 }
 
+const circleCacheMaxSize = 64 // Maximum cached circle images to prevent memory bloat
+
 func (r *Renderer) getCircleImage(diameter int) *ebiten.Image {
 	if diameter <= 1 {
 		return r.whiteImg
 	}
 	if img, ok := r.circleCache[diameter]; ok {
+		// Move to end of LRU order (most recently used)
+		r.circleCacheMoveToEnd(diameter)
 		return img
 	}
+
+	// Evict oldest entries if cache is full (before adding new entry)
+	for len(r.circleCache) >= circleCacheMaxSize {
+		if len(r.circleCacheOrder) > 0 {
+			oldest := r.circleCacheOrder[0]
+			delete(r.circleCache, oldest)
+			r.circleCacheOrder = r.circleCacheOrder[1:]
+		} else {
+			break
+		}
+	}
+
 	img := ebiten.NewImage(diameter, diameter)
 	cx := float64(diameter-1) / 2
 	cy := float64(diameter-1) / 2
@@ -1302,7 +1319,19 @@ func (r *Renderer) getCircleImage(diameter int) *ebiten.Image {
 		}
 	}
 	r.circleCache[diameter] = img
+	r.circleCacheOrder = append(r.circleCacheOrder, diameter)
 	return img
+}
+
+// circleCacheMoveToEnd moves a diameter to the end of LRU order
+func (r *Renderer) circleCacheMoveToEnd(diameter int) {
+	for i, d := range r.circleCacheOrder {
+		if d == diameter {
+			r.circleCacheOrder = append(r.circleCacheOrder[:i], r.circleCacheOrder[i+1:]...)
+			r.circleCacheOrder = append(r.circleCacheOrder, diameter)
+			return
+		}
+	}
 }
 
 func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
