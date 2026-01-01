@@ -57,6 +57,14 @@ func (gl *GameLoop) Update() error {
 
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
+	// Handle all input first (menus/panels may pause gameplay)
+	gl.inputHandler.HandleInput()
+
+	// Pause gameplay updates while menus/panels are open
+	if gl.game.mainMenuOpen || gl.game.statPopupOpen || gl.game.currentLevelUpChoice() != nil {
+		return
+	}
+
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode, gl.game.statBonus)
 
@@ -65,9 +73,6 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
-
-	// Handle all input
-	gl.inputHandler.HandleInput()
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {

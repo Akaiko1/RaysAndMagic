@@ -15,7 +15,10 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	ebitext "github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
 )
 
 const doubleClickWindowMs = 700
@@ -50,6 +53,9 @@ type UISystem struct {
 	inventoryContextIndex int
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
+	tooltipLines          []string
+	tooltipX              int
+	tooltipY              int
 }
 
 // NewUISystem creates a new UI system
@@ -59,6 +65,8 @@ func NewUISystem(game *MMGame) *UISystem {
 
 // Draw renders all UI elements
 func (ui *UISystem) Draw(screen *ebiten.Image) {
+	ui.tooltipLines = nil
+
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
 
@@ -86,6 +94,16 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw stat distribution popup if open
 	if ui.game.statPopupOpen {
 		ui.drawStatDistributionPopup(screen)
+	}
+
+	// Draw level-up choice popup if pending
+	if ui.game.currentLevelUpChoice() != nil {
+		ui.drawLevelUpChoicePopup(screen)
+	}
+
+	// Draw tooltip last so it stays above other UI (unless a blocking popup is open)
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen {
+		drawTooltip(screen, ui.tooltipLines, ui.tooltipX, ui.tooltipY)
 	}
 }
 
@@ -135,6 +153,33 @@ func drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHov
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
 	ebitenutil.DebugPrintAt(screen, "+", x+7, y+3)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
+}
+
+// drawSkillPointIndicator draws the ^ button for pending skill/spell choices.
+func drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool) {
+	var caretColor color.RGBA
+	if isHover {
+		caretColor = color.RGBA{200, 180, 80, 220}
+	} else {
+		caretColor = color.RGBA{160, 140, 60, 200}
+	}
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), caretColor, false)
+	ebitenutil.DebugPrintAt(screen, "^", x+7, y+3)
+}
+
+type coloredTextSegment struct {
+	text  string
+	color color.Color
+}
+
+func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredTextSegment) {
+	face := basicfont.Face7x13
+	baseline := y + face.Ascent
+	curX := x
+	for _, seg := range segments {
+		ebitext.Draw(screen, seg.text, face, curX, baseline, seg.color)
+		curX += font.MeasureString(face, seg.text).Round()
+	}
 }
 
 // drawStatDistributionPopup draws the stat allocation popup for the selected character
@@ -218,6 +263,65 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	if ui.justOpenedStatPopup {
 		ui.justOpenedStatPopup = false
 	}
+}
+
+// drawLevelUpChoicePopup draws the level-up choice selection overlay.
+func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
+	req := ui.game.currentLevelUpChoice()
+	if req == nil || req.charIndex < 0 || req.charIndex >= len(ui.game.party.Members) {
+		return
+	}
+
+	member := ui.game.party.Members[req.charIndex]
+	screenW := ui.game.config.GetScreenWidth()
+	screenH := ui.game.config.GetScreenHeight()
+	popupX, popupY, popupW, popupH, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	// Dim background
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+
+	// Panel
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
+	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+
+	ebitenutil.DebugPrintAt(screen, "Level Up Choice", popupX+16, popupY+16)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+
+	for i, option := range req.options {
+		y := startY + i*rowH
+		if i == req.selection {
+			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+		if option.hasMastery && option.masteryCurrent != "" && option.masteryNext != "" {
+			segments := []coloredTextSegment{
+				{text: option.masteryPrefix, color: color.White},
+				{text: option.masteryCurrent, color: color.RGBA{240, 220, 80, 255}},
+				{text: " -> ", color: color.White},
+				{text: option.masteryNext, color: color.RGBA{80, 220, 80, 255}},
+			}
+			drawColoredTextSegments(screen, popupX+28, y, segments)
+		} else {
+			ebitenutil.DebugPrintAt(screen, option.label, popupX+28, y)
+		}
+
+		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			var tooltip string
+			switch strings.ToLower(option.choice.Type) {
+			case "spell":
+				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat)
+			case "weapon_mastery", "armor_mastery":
+				tooltip = masteryTooltipTextForSkill(option.skillType)
+			case "magic_mastery":
+				tooltip = magicMasteryTooltipText()
+			}
+			if tooltip != "" {
+				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+			}
+		}
+	}
+
+	ebitenutil.DebugPrintAt(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
 }
 
 // drawGameplayUI draws core gameplay UI elements
@@ -501,6 +605,20 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.game.statPopupOpen = true
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
+			}
+		}
+
+		// Draw ^ indicator for pending skill/spell choice
+		if ui.game.hasLevelUpChoiceForChar(i) {
+			caretX := x + portraitWidth - 28
+			caretY := startY + portraitHeight - 28
+			caretW := 24
+			caretH := 24
+			mouseX, mouseY := ebiten.CursorPosition()
+			isHover := mouseX >= caretX && mouseX < caretX+caretW && mouseY >= caretY && mouseY < caretY+caretH
+			drawSkillPointIndicator(screen, caretX, caretY, caretW, caretH, isHover)
+			if ui.game.consumeLeftClickIn(caretX, caretY, caretX+caretW, caretY+caretH) {
+				ui.game.openLevelUpChoiceForChar(i)
 			}
 		}
 	}
@@ -1063,15 +1181,61 @@ func drawTooltip(screen *ebiten.Image, lines []string, x, y int) {
 		}
 	}
 	bgHeight := len(lines)*16 + 8
-	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 220})
+	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
 	for i, line := range lines {
 		ebitenutil.DebugPrintAt(screen, line, x+6, y+6+i*16)
 	}
 }
 
+func (ui *UISystem) queueTooltip(lines []string, x, y int) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipLines = lines
+	ui.tooltipX = x
+	ui.tooltipY = y
+}
+
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area
 func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
+}
+
+func statTooltipText(stat string) string {
+	switch strings.ToLower(stat) {
+	case "might":
+		return "Increases melee damage."
+	case "intellect":
+		return "Increases spell damage and spell points."
+	case "personality":
+		return "Increases spell points and mana regen."
+	case "endurance":
+		return "Increases health and armor scaling."
+	case "accuracy":
+		return "Increases hit chance and ranged damage."
+	case "speed":
+		return "Reduces action cooldowns."
+	case "luck":
+		return "Improves critical chance and dodges."
+	default:
+		return ""
+	}
+}
+
+func masteryTooltipTextForSkill(skill character.SkillType) string {
+	switch skill {
+	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
+		character.SkillBow, character.SkillMace, character.SkillStaff:
+		return "Weapon Mastery: +2 base damage per mastery level."
+	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
+		return "Armor Mastery: +1 base AC per mastery level."
+	default:
+		return ""
+	}
+}
+
+func magicMasteryTooltipText() string {
+	return "Magic Mastery: +5 to base spell effects per mastery level."
 }
 
 // drawInventoryContent draws the inventory tab content
@@ -1150,7 +1314,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	// Draw tooltip for equipped item if needed
 	if equipTooltip != "" {
 		lines := strings.Split(equipTooltip, "\n")
-		drawTooltip(screen, lines, equipTooltipX, equipTooltipY)
+		ui.queueTooltip(lines, equipTooltipX, equipTooltipY)
 	}
 
 	// General inventory section (right side)
@@ -1236,7 +1400,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		// Draw tooltip if needed
 		if tooltip != "" {
 			lines := strings.Split(tooltip, "\n")
-			drawTooltip(screen, lines, tooltipX, tooltipY)
+			ui.queueTooltip(lines, tooltipX, tooltipY)
 		}
 
 		// Draw inventory context menu if open
@@ -1299,6 +1463,9 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		charIndex = 0
 	}
 	member := ui.game.party.Members[charIndex]
+	mouseX, mouseY := ebiten.CursorPosition()
+	var tooltip string
+	var tooltipX, tooltipY int
 
 	// Card background
 	cardX := panelX + 15
@@ -1327,13 +1494,29 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	// Stats
 	ebitenutil.DebugPrintAt(screen, "--- STATS ---", cardX+10, cardY+70)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Might: %d", member.Might), cardX+10, cardY+85)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Intellect: %d", member.Intellect), cardX+10, cardY+100)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Personality: %d", member.Personality), cardX+10, cardY+115)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Endurance: %d", member.Endurance), cardX+10, cardY+130)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Accuracy: %d", member.Accuracy), cardX+10, cardY+145)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Speed: %d", member.Speed), cardX+10, cardY+160)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Luck: %d", member.Luck), cardX+10, cardY+175)
+	statX := cardX + 10
+	statY := cardY + 85
+	statLines := []struct {
+		name  string
+		value int
+	}{
+		{"Might", member.Might},
+		{"Intellect", member.Intellect},
+		{"Personality", member.Personality},
+		{"Endurance", member.Endurance},
+		{"Accuracy", member.Accuracy},
+		{"Speed", member.Speed},
+		{"Luck", member.Luck},
+	}
+	for i, stat := range statLines {
+		y := statY + i*15
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", stat.name, stat.value), statX, y)
+		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, statX, y, statX+200, y+14) {
+			tooltip = statTooltipText(stat.name)
+			tooltipX = mouseX + 16
+			tooltipY = mouseY + 8
+		}
+	}
 
 	// Skills
 	skillX := cardX + 260
@@ -1365,7 +1548,13 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	for _, st := range skillOrder {
 		if s, ok := member.Skills[st]; ok && s != nil {
 			line := fmt.Sprintf("%s %d (%s)", ui.getSkillName(st), s.Level, ui.getMasteryName(s.Mastery))
-			ebitenutil.DebugPrintAt(screen, line, skillX, skillY+skillLines*14)
+			lineY := skillY + skillLines*14
+			ebitenutil.DebugPrintAt(screen, line, skillX, lineY)
+			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, skillX, lineY, skillX+240, lineY+14) {
+				tooltip = masteryTooltipTextForSkill(st)
+				tooltipX = mouseX + 16
+				tooltipY = mouseY + 8
+			}
 			skillLines++
 		}
 	}
@@ -1395,7 +1584,13 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		if ms, ok := member.MagicSchools[school]; ok && ms != nil {
 			line := fmt.Sprintf("%s %d (%s) Casts:%d",
 				member.GetMagicSchoolName(school), ms.Level, ui.getMasteryName(ms.Mastery), ms.CastCount)
-			ebitenutil.DebugPrintAt(screen, line, magicX, magicY+schoolLines*14)
+			lineY := magicY + schoolLines*14
+			ebitenutil.DebugPrintAt(screen, line, magicX, lineY)
+			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, magicX, lineY, magicX+260, lineY+14) {
+				tooltip = magicMasteryTooltipText()
+				tooltipX = mouseX + 16
+				tooltipY = mouseY + 8
+			}
 			schoolLines++
 		}
 	}
@@ -1405,6 +1600,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	// Instructions
 	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", panelX+20, cardY+cardH+10)
+
+	if tooltip != "" {
+		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
+	}
 }
 
 // drawSpellbookContent draws the spellbook tab content
@@ -1504,7 +1703,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	// Draw spell tooltip if hovering over a spell
 	if spellTooltip != "" {
 		lines := strings.Split(spellTooltip, "\n")
-		drawTooltip(screen, lines, tooltipX, tooltipY)
+		ui.queueTooltip(lines, tooltipX, tooltipY)
 	}
 
 	// Draw spellbook controls

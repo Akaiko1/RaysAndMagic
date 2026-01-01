@@ -236,6 +236,10 @@ func getArmorCategoryLine(item items.Item) string {
 }
 
 func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
+	category := strings.ToLower(item.ArmorCategory)
+	if category == "cloth" {
+		return "Requires: None"
+	}
 	skillName, hasReq := armorRequiredSkillName(item)
 	if !hasReq {
 		return ""
@@ -271,6 +275,8 @@ func armorCategoryString(item items.Item) string {
 		return "plate"
 	case "shield":
 		return "shield"
+	case "cloth":
+		return "cloth"
 	default:
 		return ""
 	}

@@ -114,6 +114,12 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// Handle level-up choice overlay
+	if ih.game.currentLevelUpChoice() != nil {
+		ih.handleLevelUpChoiceInput()
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -197,6 +203,8 @@ func (ih *InputHandler) restartNewGame() {
 	// Reset dialog/menu states
 	ih.game.dialogActive = false
 	ih.game.menuOpen = false
+	// Clear pending level-up choices
+	ih.game.levelUpChoiceQueue = nil
 
 	// Reset to a valid starting map and refresh world visuals/caches.
 	if wm := world.GlobalWorldManager; wm != nil {
@@ -491,6 +499,63 @@ func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panel
 			} else {
 				ih.game.slotSelection = i
 			}
+		}
+	}
+}
+
+// handleLevelUpChoiceInput processes input for the level-up choice popup.
+func (ih *InputHandler) handleLevelUpChoiceInput() {
+	req := ih.game.currentLevelUpChoice()
+	if req == nil {
+		return
+	}
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.game.closeLevelUpChoice()
+		return
+	}
+	optionCount := len(req.options)
+	if optionCount == 0 {
+		return
+	}
+
+	// Keyboard navigation
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && req.selection > 0 {
+		req.selection--
+	}
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && req.selection < optionCount-1 {
+		req.selection++
+	}
+
+	// Mouse hover selection
+	mouseX, mouseY := ebiten.CursorPosition()
+	screenW := ih.game.config.GetScreenWidth()
+	screenH := ih.game.config.GetScreenHeight()
+	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
+
+	for i := 0; i < optionCount; i++ {
+		y := startY + i*rowH
+		x1 := popupX + 16
+		x2 := popupX + popupW - 16
+		y1 := y - 2
+		y2 := y - 2 + rowH
+		if mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2 {
+			req.selection = i
+			break
+		}
+	}
+
+	// Confirm selection
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		ih.game.consumeLevelUpChoice(req.selection)
+		return
+	}
+	// Click to choose
+	for i := 0; i < optionCount; i++ {
+		y := startY + i*rowH
+		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			req.selection = i
+			ih.game.consumeLevelUpChoice(req.selection)
+			return
 		}
 	}
 }
@@ -982,6 +1047,17 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 			// If clicking on + button area, don't select character
 			if mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW &&
 				mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH {
+				return -1
+			}
+		}
+		if ih.game.hasLevelUpChoiceForChar(charIndex) {
+			x := charIndex * portraitWidth
+			caretX := x + portraitWidth - 28
+			caretY := startY + portraitHeight - 28
+			caretW := 24
+			caretH := 24
+			if mouseX >= caretX && mouseX < caretX+caretW &&
+				mouseY >= caretY && mouseY < caretY+caretH {
 				return -1
 			}
 		}

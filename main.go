@@ -39,6 +39,9 @@ func main() {
 	// Load loot tables
 	config.MustLoadLootTables("assets/loots.yaml")
 
+	// Load level-up choices
+	config.MustLoadLevelUpConfig("assets/level_up.yaml")
+
 	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()

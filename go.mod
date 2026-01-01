@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.8.8
+	golang.org/x/image v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
