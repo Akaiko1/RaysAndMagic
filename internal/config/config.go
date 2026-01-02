@@ -447,6 +447,7 @@ type WeaponDefinitionConfig struct {
 	CritChance         int    `yaml:"crit_chance"`
 	Rarity             string `yaml:"rarity"`
 	Value              int    `yaml:"value,omitempty"`
+	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
@@ -587,6 +588,7 @@ type ItemDefinitionConfig struct {
 	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
 	Value       int    `yaml:"value,omitempty"`      // Gold value
+	Rarity      string `yaml:"rarity,omitempty"`
 	OpensMap    bool   `yaml:"opens_map,omitempty"`  // Quest items that open the map overlay
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`

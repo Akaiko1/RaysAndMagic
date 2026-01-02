@@ -8,6 +8,7 @@ items:
     equip_slot: "armor"
     armor_class_base: 2
     endurance_scaling_divisor: 5
+    rarity: "common"
     value: 25
 
   leather_helmet:
@@ -19,6 +20,7 @@ items:
     equip_slot: "helmet"
     armor_class_base: 1
     endurance_scaling_divisor: 6
+    rarity: "common"
     value: 15
 
   leather_pants:
@@ -30,6 +32,7 @@ items:
     equip_slot: "boots"
     armor_class_base: 1
     endurance_scaling_divisor: 6
+    rarity: "common"
     value: 18
 
   health_potion:
@@ -39,6 +42,7 @@ items:
     flavor: "Sunset caught in glass; warm as a hearth."
     heal_base: 25
     heal_endurance_divisor: 4
+    rarity: "common"
     value: 50
 
   revival_potion:
@@ -48,6 +52,7 @@ items:
     flavor: "A spark in a bottle; dawn for the fallen."
     revive: true
     full_heal: true
+    rarity: "rare"
     value: 500
 
   magic_ring:
@@ -58,6 +63,7 @@ items:
     equip_slot: "ring"
     intellect_scaling_divisor: 6
     personality_scaling_divisor: 8
+    rarity: "rare"
     value: 200
 
   wizard_robe:
@@ -70,6 +76,7 @@ items:
     armor_class_base: 1
     bonus_intellect: 10
     bonus_personality: 10
+    rarity: "rare"
     value: 500
 
   iron_armor:
@@ -81,6 +88,7 @@ items:
     equip_slot: "armor"
     armor_class_base: 4
     endurance_scaling_divisor: 4
+    rarity: "uncommon"
     value: 120
 
   dead_branch:
@@ -89,6 +97,7 @@ items:
     description: "A brittle branch humming with chaotic energy"
     flavor: "Brittle with whispers; it remembers storms."
     summon_distance_tiles: 2
+    rarity: "uncommon"
     value: 80
 
   belt_of_strength:
@@ -98,6 +107,7 @@ items:
     flavor: "Cinched tight, it lends the courage of oaks."
     equip_slot: "belt"
     bonus_might: 5
+    rarity: "rare"
     value: 300
 
   lucky_paw:
@@ -107,6 +117,7 @@ items:
     flavor: "Warm to the touch; chance purrs in your pocket."
     equip_slot: "amulet"
     bonus_luck: 40
+    rarity: "legendary"
     value: 800
 
   world_map:
@@ -115,3 +126,4 @@ items:
     description: "A hand-drawn map showing the surrounding lands"
     flavor: "Ink and charcoal sketch the known roads and rumors."
     opens_map: true
+    rarity: "common"
