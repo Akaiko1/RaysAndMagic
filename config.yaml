@@ -6,6 +6,7 @@ display:
   screen_height: 768
   window_title: "Rays and Magic"
   resizable: true
+  disable_vsync_on_mac: true
 
 # Engine settings
 engine:
