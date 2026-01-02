@@ -195,22 +195,26 @@ func (pm *PerformanceMonitor) GetDetailedStats() map[string]interface{} {
 	uptime := time.Since(pm.startTime)
 
 	return map[string]interface{}{
-		"uptime_seconds":      uptime.Seconds(),
-		"frame_count":         pm.frameCount.Load(),
-		"avg_frame_time_ms":   pm.avgFrameTime / 1000000, // Convert to milliseconds
-		"avg_raycast_time_ms": pm.avgRaycastTime / 1000000,
-		"current_fps":         1000000000.0 / float64(pm.frameTime.Load()),
-		"active_workers":      pm.activeWorkers.Load(),
-		"queued_jobs":         pm.queuedJobs.Load(),
-		"completed_jobs":      pm.completedJobs.Load(),
-		"memory_alloc_mb":     memStats.Alloc / 1024 / 1024,
-		"memory_sys_mb":       memStats.Sys / 1024 / 1024,
-		"gc_cycles":           memStats.NumGC,
-		"monsters_updated":    pm.monstersUpdated.Load(),
-		"projectiles_active":  pm.projectilesActive.Load(),
-		"collisions_detected": pm.collisionsDetected.Load(),
-		"cpu_cores":           runtime.NumCPU(),
-		"goroutines":          runtime.NumGoroutine(),
+		"uptime_seconds":             uptime.Seconds(),
+		"frame_count":                pm.frameCount.Load(),
+		"avg_frame_time_ms":          pm.avgFrameTime / 1000000, // Convert to milliseconds
+		"avg_raycast_time_ms":        pm.avgRaycastTime / 1000000,
+		"last_frame_time_ms":         float64(pm.frameTime.Load()) / 1000000,
+		"last_raycast_time_ms":       float64(pm.raycastTime.Load()) / 1000000,
+		"last_sprite_render_time_ms": float64(pm.spriteRenderTime.Load()) / 1000000,
+		"last_entity_update_time_ms": float64(pm.entityUpdateTime.Load()) / 1000000,
+		"current_fps":                1000000000.0 / float64(pm.frameTime.Load()),
+		"active_workers":             pm.activeWorkers.Load(),
+		"queued_jobs":                pm.queuedJobs.Load(),
+		"completed_jobs":             pm.completedJobs.Load(),
+		"memory_alloc_mb":            memStats.Alloc / 1024 / 1024,
+		"memory_sys_mb":              memStats.Sys / 1024 / 1024,
+		"gc_cycles":                  memStats.NumGC,
+		"monsters_updated":           pm.monstersUpdated.Load(),
+		"projectiles_active":         pm.projectilesActive.Load(),
+		"collisions_detected":        pm.collisionsDetected.Load(),
+		"cpu_cores":                  runtime.NumCPU(),
+		"goroutines":                 runtime.NumGoroutine(),
 	}
 }
 

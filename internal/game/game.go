@@ -154,6 +154,9 @@ type MMGame struct {
 	showPartyStats     bool
 	showFPS            bool
 	showCollisionBoxes bool // Toggle for collision box rendering
+	perfDebugEnabled   bool
+	perfLowFpsSince    time.Time
+	perfLastPerfLog    time.Time
 
 	// Unique ID generation
 	nextProjectileID int64
@@ -394,6 +397,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		config:           cfg,
 		showPartyStats:   true,
 		showFPS:          false, // FPS counter starts hidden
+		perfDebugEnabled: strings.TrimSpace(os.Getenv("DEBUG_PERF")) != "",
 		selectedChar:     0,
 		skyImg:           skyImg,
 		groundImg:        groundImg,

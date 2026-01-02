@@ -431,28 +431,30 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer.EndRaycast()
 
 	// Draw simple floor and ceiling before walls/trees so trees are visible above floor
-	r.drawSimpleFloorCeiling(screen)
+	r.game.threading.PerformanceMonitor.ProfiledFunction("sprite_render", func() {
+		r.drawSimpleFloorCeiling(screen)
 
-	// Render the results and update depth buffer
-	r.renderRaycastResults(screen, results)
+		// Render the results and update depth buffer
+		r.renderRaycastResults(screen, results)
 
-	// Draw NPCs as sprites using depth testing
-	r.drawNPCs(screen)
+		// Draw NPCs as sprites using depth testing
+		r.drawNPCs(screen)
 
-	// Draw transparent environment sprites with depth testing
-	r.drawTransparentEnvironmentSprites(screen)
+		// Draw transparent environment sprites with depth testing
+		r.drawTransparentEnvironmentSprites(screen)
 
-	// Draw monsters as sprites using parallel processing with depth testing
-	r.drawMonstersParallel(screen)
+		// Draw monsters as sprites using parallel processing with depth testing
+		r.drawMonstersParallel(screen)
 
-	// Draw fireballs and sword attacks
-	r.drawProjectiles(screen)
+		// Draw fireballs and sword attacks
+		r.drawProjectiles(screen)
 
-	// Draw slash effects
-	r.drawSlashEffects(screen)
+		// Draw slash effects
+		r.drawSlashEffects(screen)
 
-	// Draw hit effects (stuck arrows, spell particles)
-	r.drawHitEffects(screen)
+		// Draw hit effects (stuck arrows, spell particles)
+		r.drawHitEffects(screen)
+	})
 }
 
 // RaycastHit contains the result of a DDA raycast operation.
