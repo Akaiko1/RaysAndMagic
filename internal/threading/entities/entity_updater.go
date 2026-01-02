@@ -27,17 +27,36 @@ type MonsterUpdateInterface interface {
 	SetPosition(x, y float64)
 }
 
-// UpdateMonstersParallel updates all monsters in parallel
+// UpdateMonstersParallel updates all monsters in parallel using the reusable worker pool.
 func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterface) {
 	if len(monsters) == 0 {
 		return
 	}
 
-	core.ParallelForEach(monsters, func(monster MonsterUpdateInterface) {
-		if monster.IsAlive() {
-			monster.Update()
+	numWorkers := eu.workerPool.GetNumWorkers()
+	chunkSize := (len(monsters) + numWorkers - 1) / numWorkers
+	if chunkSize < 1 {
+		chunkSize = 1
+	}
+
+	for i := 0; i < len(monsters); i += chunkSize {
+		start := i
+		end := start + chunkSize
+		if end > len(monsters) {
+			end = len(monsters)
 		}
-	})
+
+		eu.workerPool.Submit(func() {
+			for j := start; j < end; j++ {
+				monster := monsters[j]
+				if monster.IsAlive() {
+					monster.Update()
+				}
+			}
+		})
+	}
+
+	eu.workerPool.Wait()
 }
 
 // ProjectileUpdateInterface defines the interface for projectiles
@@ -53,37 +72,56 @@ type ProjectileUpdateInterface interface {
 	OnCollision(hitX, hitY float64)
 }
 
-// UpdateProjectilesParallel updates all projectiles in parallel
+// UpdateProjectilesParallel updates all projectiles in parallel using the reusable worker pool.
 func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdateInterface, canMoveTo func(x, y float64) bool) {
 	if len(projectiles) == 0 {
 		return
 	}
 
-	core.ParallelForEach(projectiles, func(projectile ProjectileUpdateInterface) {
-		if !projectile.IsActive() {
-			return
+	numWorkers := eu.workerPool.GetNumWorkers()
+	chunkSize := (len(projectiles) + numWorkers - 1) / numWorkers
+	if chunkSize < 1 {
+		chunkSize = 1
+	}
+
+	for i := 0; i < len(projectiles); i += chunkSize {
+		start := i
+		end := start + chunkSize
+		if end > len(projectiles) {
+			end = len(projectiles)
 		}
 
-		// Update position
-		x, y := projectile.GetPosition()
-		vx, vy := projectile.GetVelocity()
+		eu.workerPool.Submit(func() {
+			for j := start; j < end; j++ {
+				projectile := projectiles[j]
+				if !projectile.IsActive() {
+					continue
+				}
 
-		newX := x + vx
-		newY := y + vy
+				// Update position
+				x, y := projectile.GetPosition()
+				vx, vy := projectile.GetVelocity()
 
-		// Check collision (this needs to be thread-safe)
-		if canMoveTo(newX, newY) {
-			projectile.SetPosition(newX, newY)
-		} else {
-			// Projectile hit something, deactivate it
-			projectile.OnCollision(x, y)
-			projectile.SetLifetime(0)
-		}
+				newX := x + vx
+				newY := y + vy
 
-		// Update lifetime
-		lifetime := projectile.GetLifetime()
-		projectile.SetLifetime(lifetime - 1)
-	})
+				// Check collision (canMoveTo must be thread-safe)
+				if canMoveTo(newX, newY) {
+					projectile.SetPosition(newX, newY)
+				} else {
+					// Projectile hit something, deactivate it
+					projectile.OnCollision(x, y)
+					projectile.SetLifetime(0)
+				}
+
+				// Update lifetime
+				lifetime := projectile.GetLifetime()
+				projectile.SetLifetime(lifetime - 1)
+			}
+		})
+	}
+
+	eu.workerPool.Wait()
 }
 
 // SpatialHash provides thread-safe spatial partitioning for collision detection
@@ -248,40 +286,90 @@ type CollisionPair struct {
 	Distance         float64
 }
 
-// DetectCollisions detects all collisions in parallel
+// DetectCollisions detects all collisions in parallel using per-worker result slices
+// to avoid mutex contention. Results are merged after all workers complete.
 func (pcd *ParallelCollisionDetection) DetectCollisions(entities []*SpatialEntity) []CollisionPair {
+	if len(entities) == 0 {
+		return nil
+	}
+
 	// Update spatial hash
 	for _, entity := range entities {
 		pcd.spatialHash.AddEntity(entity)
 	}
 
-	collisions := make([]CollisionPair, 0)
-	var collisionsMutex sync.Mutex
+	// Use per-worker result slices to avoid mutex contention in hot loop
+	numWorkers := pcd.workerPool.GetNumWorkers()
+	workerResults := make([][]CollisionPair, numWorkers)
 
-	// Process entities in parallel
-	core.ParallelForEach(entities, func(entity *SpatialEntity) {
-		nearby := pcd.spatialHash.GetNearbyEntities(entity.X, entity.Y, entity.Radius*2)
+	// Pre-allocate worker result slices with estimated capacity
+	estimatedPairsPerWorker := len(entities) / numWorkers / 4
+	if estimatedPairsPerWorker < 8 {
+		estimatedPairsPerWorker = 8
+	}
+	for i := range workerResults {
+		workerResults[i] = make([]CollisionPair, 0, estimatedPairsPerWorker)
+	}
 
-		for _, other := range nearby {
-			if entity.ID >= other.ID { // Avoid duplicate pairs
-				continue
-			}
+	// Process entities using worker pool (reuses goroutines instead of spawning new ones)
+	chunkSize := (len(entities) + numWorkers - 1) / numWorkers
+	if chunkSize < 1 {
+		chunkSize = 1
+	}
 
-			dx := entity.X - other.X
-			dy := entity.Y - other.Y
-			distance := math.Sqrt(dx*dx + dy*dy)
-
-			if distance <= entity.Radius+other.Radius {
-				collisionsMutex.Lock()
-				collisions = append(collisions, CollisionPair{
-					Entity1:  entity,
-					Entity2:  other,
-					Distance: distance,
-				})
-				collisionsMutex.Unlock()
-			}
+	for workerIdx := 0; workerIdx < numWorkers; workerIdx++ {
+		start := workerIdx * chunkSize
+		if start >= len(entities) {
+			break
 		}
-	})
+		end := start + chunkSize
+		if end > len(entities) {
+			end = len(entities)
+		}
+
+		idx := workerIdx
+		pcd.workerPool.Submit(func() {
+			localResults := workerResults[idx]
+			for i := start; i < end; i++ {
+				entity := entities[i]
+				nearby := pcd.spatialHash.GetNearbyEntities(entity.X, entity.Y, entity.Radius*2)
+
+				for _, other := range nearby {
+					if entity.ID >= other.ID { // Avoid duplicate pairs
+						continue
+					}
+
+					dx := entity.X - other.X
+					dy := entity.Y - other.Y
+					distSq := dx*dx + dy*dy
+					radiusSum := entity.Radius + other.Radius
+
+					// Compare squared distances to avoid sqrt in non-collision cases
+					if distSq <= radiusSum*radiusSum {
+						localResults = append(localResults, CollisionPair{
+							Entity1:  entity,
+							Entity2:  other,
+							Distance: math.Sqrt(distSq),
+						})
+					}
+				}
+			}
+			workerResults[idx] = localResults
+		})
+	}
+
+	pcd.workerPool.Wait()
+
+	// Merge results from all workers (single allocation)
+	totalLen := 0
+	for _, wr := range workerResults {
+		totalLen += len(wr)
+	}
+
+	collisions := make([]CollisionPair, 0, totalLen)
+	for _, wr := range workerResults {
+		collisions = append(collisions, wr...)
+	}
 
 	return collisions
 }

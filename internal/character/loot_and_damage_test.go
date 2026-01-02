@@ -42,6 +42,22 @@ func (cs *MockCombatSystem) checkMonsterLootDrop(monster *monster.Monster3D) {
 			// Add to party inventory
 			cs.party.AddItem(magicRing)
 		}
+		// 5% chance to drop Wizard Robes
+		if rand.Float64() < 0.05 {
+			wizardRobes := items.Item{
+				Name:          "Wizard Robes",
+				Type:          items.ItemArmor,
+				ArmorCategory: "cloth",
+				Description:   "Silken robes embroidered with arcane runes",
+				Attributes: map[string]int{
+					"armor_class_base":  1,
+					"bonus_intellect":   10,
+					"bonus_personality": 10,
+					"equip_slot":        int(items.SlotArmor),
+				},
+			}
+			cs.party.AddItem(wizardRobes)
+		}
 	}
 
 	// Check if this is a Dragon
@@ -157,10 +173,11 @@ func TestLootDrops(t *testing.T) {
 	})
 
 	t.Run("Pixie Loot Drops - 1000 Kills", func(t *testing.T) {
-		fmt.Println("\n--- Testing: Pixie Loot Drops (Expected: ~50 drops at 5% rate) ---")
+		fmt.Println("\n--- Testing: Pixie Loot Drops (Expected: ~50 drops each at 5% rate) ---")
 
-		pixieDropCount := 0
-		initialInventorySize := len(party.Inventory)
+		magicRingDrops := 0
+		wizardRobeDrops := 0
+		prevInventorySize := len(party.Inventory)
 
 		for i := 0; i < 1000; i++ {
 			// Create a new pixie
@@ -170,27 +187,40 @@ func TestLootDrops(t *testing.T) {
 			// Check loot drop
 			combat.checkMonsterLootDrop(pixie)
 
-			// Count items added to inventory
-			if len(party.Inventory) > initialInventorySize+pixieDropCount {
-				pixieDropCount++
-				// Verify it's the correct item
-				lastItem := party.Inventory[len(party.Inventory)-1]
-				if lastItem.Name != "Magic Ring" {
-					t.Errorf("Pixie dropped wrong item: %s (expected: Magic Ring)", lastItem.Name)
+			// Count items added to inventory (pixie can drop multiple items)
+			if len(party.Inventory) > prevInventorySize {
+				for _, item := range party.Inventory[prevInventorySize:] {
+					switch item.Name {
+					case "Magic Ring":
+						magicRingDrops++
+					case "Wizard Robes":
+						wizardRobeDrops++
+					default:
+						t.Errorf("Pixie dropped wrong item: %s (expected: Magic Ring or Wizard Robes)", item.Name)
+					}
 				}
+				prevInventorySize = len(party.Inventory)
 			}
 		}
 
 		fmt.Printf("Pixie kills: 1000\n")
-		fmt.Printf("Magic Ring drops: %d\n", pixieDropCount)
-		fmt.Printf("Drop rate: %.2f%% (expected: ~5%%)\n", float64(pixieDropCount)/10.0)
+		fmt.Printf("Magic Ring drops: %d\n", magicRingDrops)
+		fmt.Printf("Wizard Robes drops: %d\n", wizardRobeDrops)
+		fmt.Printf("Magic Ring drop rate: %.2f%% (expected: ~5%%)\n", float64(magicRingDrops)/10.0)
+		fmt.Printf("Wizard Robes drop rate: %.2f%% (expected: ~5%%)\n", float64(wizardRobeDrops)/10.0)
 
 		// Check that drop rate is reasonable (2-8% range to account for randomness)
-		if pixieDropCount < 20 || pixieDropCount > 80 {
-			t.Errorf("Pixie drop rate seems wrong: %d/1000 (%.2f%%). Expected around 50 drops (5%%)",
-				pixieDropCount, float64(pixieDropCount)/10.0)
+		if magicRingDrops < 20 || magicRingDrops > 80 {
+			t.Errorf("Magic Ring drop rate seems wrong: %d/1000 (%.2f%%). Expected around 50 drops (5%%)",
+				magicRingDrops, float64(magicRingDrops)/10.0)
 		} else {
-			fmt.Printf("✅ Pixie drop rate is within expected range!\n")
+			fmt.Printf("✅ Magic Ring drop rate is within expected range!\n")
+		}
+		if wizardRobeDrops < 20 || wizardRobeDrops > 80 {
+			t.Errorf("Wizard Robes drop rate seems wrong: %d/1000 (%.2f%%). Expected around 50 drops (5%%)",
+				wizardRobeDrops, float64(wizardRobeDrops)/10.0)
+		} else {
+			fmt.Printf("✅ Wizard Robes drop rate is within expected range!\n")
 		}
 	})
 
@@ -251,6 +281,10 @@ func TestArmorDamageReduction(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -391,6 +425,10 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -445,6 +483,9 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name:      "TestKnight",
 			Endurance: 20,
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -536,7 +577,11 @@ func TestEquipmentSlots(t *testing.T) {
 		fmt.Println("\n--- Testing: Slot Conflicts and Replacement ---")
 
 		character := &MMCharacter{
-			Name:      "TestKnight",
+			Name: "TestKnight",
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -575,7 +620,10 @@ func TestEquipmentSlots(t *testing.T) {
 		fmt.Println("\n--- Testing: Unequip Items ---")
 
 		character := &MMCharacter{
-			Name:      "TestKnight",
+			Name: "TestKnight",
+			Skills: map[SkillType]*Skill{
+				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
 
@@ -659,6 +707,7 @@ func setupTestAccessors() {
 				Description:               def.Description,
 				Flavor:                    def.Flavor,
 				Type:                      def.Type,
+				ArmorType:                 def.ArmorType,
 				ArmorClassBase:            def.ArmorClassBase,
 				EnduranceScalingDivisor:   def.EnduranceScalingDivisor,
 				IntellectScalingDivisor:   def.IntellectScalingDivisor,

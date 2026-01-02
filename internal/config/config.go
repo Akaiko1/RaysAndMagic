@@ -27,10 +27,11 @@ type Config struct {
 }
 
 type DisplayConfig struct {
-	ScreenWidth  int    `yaml:"screen_width"`
-	ScreenHeight int    `yaml:"screen_height"`
-	WindowTitle  string `yaml:"window_title"`
-	Resizable    bool   `yaml:"resizable"`
+	ScreenWidth       int    `yaml:"screen_width"`
+	ScreenHeight      int    `yaml:"screen_height"`
+	WindowTitle       string `yaml:"window_title"`
+	Resizable         bool   `yaml:"resizable"`
+	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
 }
 
 type EngineConfig struct {
@@ -434,19 +435,20 @@ type WeaponSystemConfig struct {
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
 	// Basic weapon properties
-	Name               string `yaml:"name"`
-	Description        string `yaml:"description"`
-	Category           string `yaml:"category"`
-	Damage             int    `yaml:"damage"`
-	Range              int    `yaml:"range"` // Range in tiles (for melee reach)
-	BonusStat          string `yaml:"bonus_stat"`
-	BonusStatSecondary string `yaml:"bonus_stat_secondary"`
-	DamageType         string `yaml:"damage_type"`
-	MaxProjectiles     int    `yaml:"max_projectiles"`
-	HitBonus           int    `yaml:"hit_bonus"`
-	CritChance         int    `yaml:"crit_chance"`
-	Rarity             string `yaml:"rarity"`
-	Value              int    `yaml:"value,omitempty"`
+	Name               string             `yaml:"name"`
+	Description        string             `yaml:"description"`
+	Category           string             `yaml:"category"`
+	Damage             int                `yaml:"damage"`
+	Range              int                `yaml:"range"` // Range in tiles (for melee reach)
+	BonusStat          string             `yaml:"bonus_stat"`
+	BonusStatSecondary string             `yaml:"bonus_stat_secondary"`
+	DamageType         string             `yaml:"damage_type"`
+	MaxProjectiles     int                `yaml:"max_projectiles"`
+	HitBonus           int                `yaml:"hit_bonus"`
+	CritChance         int                `yaml:"crit_chance"`
+	Rarity             string             `yaml:"rarity"`
+	Value              int                `yaml:"value,omitempty"`
+	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
@@ -581,12 +583,14 @@ type ItemSystemConfig struct {
 
 type ItemDefinitionConfig struct {
 	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`                 // armor|accessory|consumable|quest
+	Type        string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType   string `yaml:"armor_category,omitempty"`
 	Description string `yaml:"description"`          // Gameplay-neutral summary (optional)
 	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
 	Value       int    `yaml:"value,omitempty"`      // Gold value
-	OpensMap    bool   `yaml:"opens_map,omitempty"`  // Quest items that open the map overlay
+	Rarity      string `yaml:"rarity,omitempty"`
+	OpensMap    bool   `yaml:"opens_map,omitempty"` // Quest items that open the map overlay
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`

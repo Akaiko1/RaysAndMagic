@@ -90,6 +90,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
 	}
+	masteryBonus := cs.spellMasteryBonus(caster, spellID)
 
 	if spellDef.IsUtility {
 		// Handle utility spells (like Torch Light)
@@ -101,6 +102,17 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 		// Apply the utility spell effects to the game
 		if result.Success {
+			if masteryBonus > 0 {
+				if result.HealAmount > 0 {
+					result.HealAmount += masteryBonus
+				}
+				if result.StatBonus > 0 {
+					result.StatBonus += masteryBonus
+				}
+				if result.Duration > 0 {
+					result.Duration += masteryBonus * cs.game.config.GetTPS()
+				}
+			}
 			// Add combat message
 			cs.game.AddCombatMessage(result.Message)
 
@@ -143,6 +155,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 			}
 
 			cs.game.setUtilityStatus(spellID, result.Duration)
+			cs.recordSpellCast(caster, spellID)
 			return true
 		}
 		return false
@@ -154,6 +167,9 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
+	}
+	if masteryBonus > 0 {
+		projectile.Damage += masteryBonus
 	}
 
 	// Get spell-specific config dynamically
@@ -194,6 +210,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 	// Note: Combat message for spell casting is now only generated when projectile hits a target
 	// This prevents spam of "X casts Y!" messages for attacks that miss
+	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -245,6 +262,10 @@ func (cs *CombatSystem) EquipmentHeal() {
 	}
 
 	if result.Success {
+		masteryBonus := cs.spellMasteryBonus(caster, spellID)
+		if masteryBonus > 0 && result.HealAmount > 0 {
+			result.HealAmount += masteryBonus
+		}
 		// Apply spell effects based on result
 		if result.HealAmount > 0 {
 			if result.TargetSelf {
@@ -268,6 +289,7 @@ func (cs *CombatSystem) EquipmentHeal() {
 		// TODO: Apply other effects like vision bonus, stat bonus, duration effects
 		// For now, just show the message
 		cs.game.AddCombatMessage(result.Message)
+		cs.recordSpellCast(caster, spellID)
 	} else {
 		cs.game.AddCombatMessage(result.Message)
 	}
@@ -292,6 +314,13 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
 		return // Not a heal spell
 	}
+
+	// Map item spell effects to spell IDs dynamically
+	spellIDStr := items.SpellEffectToSpellID(spell.SpellEffect)
+	if spellIDStr == "" {
+		return
+	}
+	spellID := spells.SpellID(spellIDStr)
 
 	// Check spell points (use spell cost for utility spells)
 	spellCost := spell.SpellCost
@@ -323,6 +352,10 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	caster.SpellPoints -= spellCost
 	// Calculate heal amount using centralized function
 	_, _, healAmount := cs.CalculateEquippedHealAmount(spellCost, caster)
+	masteryBonus := cs.spellMasteryBonus(caster, spellID)
+	if masteryBonus > 0 {
+		healAmount += masteryBonus
+	}
 	target.HitPoints += healAmount
 	if target.HitPoints > target.MaxHitPoints {
 		target.HitPoints = target.MaxHitPoints
@@ -339,6 +372,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 		message := fmt.Sprintf("%s healed %s for %d HP with %s!", caster.Name, target.Name, healAmount, spell.Name)
 		cs.game.AddCombatMessage(message)
 	}
+	cs.recordSpellCast(caster, spellID)
 }
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
@@ -603,6 +637,14 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		reducedDamage = 1 // Minimum 1 damage
 	}
 
+	weaponDef := cs.getWeaponConfig(weaponName)
+	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
+		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+		if reducedDamage < 1 {
+			reducedDamage = 1
+		}
+	}
+
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
@@ -694,6 +736,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return
 	}
+	masteryBonus := cs.spellMasteryBonus(currentChar, selectedSpellID)
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
@@ -715,6 +758,9 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return
+		}
+		if masteryBonus > 0 {
+			projectile.Damage += masteryBonus
 		}
 
 		// Determine critical hit for spells based on Luck only (no base crit for spells)
@@ -751,6 +797,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 		// Add message based on spell definition
 		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", selectedSpellDef.Name))
+		cs.recordSpellCast(currentChar, selectedSpellID)
 
 	} else if selectedSpellDef.IsUtility {
 		// Handle utility spells using centralized system
@@ -763,6 +810,9 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		if result.Success {
 			// Apply skill level multiplier to duration effects
 			duration := result.Duration
+			if masteryBonus > 0 && duration > 0 {
+				duration += masteryBonus * cs.game.config.GetTPS()
+			}
 			if magicSkill, exists := currentChar.MagicSchools[selectedSchool]; exists && duration > 0 {
 				skillMultiplier := 1.0 + (float64(magicSkill.Level) * 0.1)
 				duration = int(float64(duration) * skillMultiplier)
@@ -773,7 +823,11 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 			// Apply healing
 			if result.HealAmount > 0 {
-				currentChar.HitPoints += result.HealAmount
+				healAmount := result.HealAmount
+				if masteryBonus > 0 {
+					healAmount += masteryBonus
+				}
+				currentChar.HitPoints += healAmount
 				if currentChar.HitPoints > currentChar.MaxHitPoints {
 					currentChar.HitPoints = currentChar.MaxHitPoints
 				}
@@ -810,7 +864,11 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 			// Apply stat bonus effects
 			if result.StatBonus > 0 {
-				cs.applyBlessEffect(duration, result.StatBonus)
+				statBonus := result.StatBonus
+				if masteryBonus > 0 {
+					statBonus += masteryBonus
+				}
+				cs.applyBlessEffect(duration, statBonus)
 			}
 
 			// Apply awakening effects
@@ -819,6 +877,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			}
 
 			cs.game.setUtilityStatus(selectedSpellID, duration)
+			cs.recordSpellCast(currentChar, selectedSpellID)
 		}
 	}
 }
@@ -878,6 +937,11 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
+	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
+		cs.applyMonsterFireburst(monster)
+		return
+	}
+
 	// Monster attacks character with highest endurance (and HP > 0)
 	currentChar := cs.findHighestEnduranceTarget()
 	damage := monster.GetAttackDamage()
@@ -901,6 +965,16 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 			currentChar.AddCondition(character.ConditionUnconscious)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
+
+		if monster.PoisonChance > 0 && rand.Float64() < monster.PoisonChance {
+			durationSec := monster.PoisonDurationSec
+			if durationSec <= 0 {
+				durationSec = 20
+			}
+			poisonFrames := cs.game.config.GetTPS() * durationSec
+			currentChar.ApplyPoison(poisonFrames)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", currentChar.Name))
+		}
 	} else {
 		// Announce dodge and skip damage blink below
 		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
@@ -920,7 +994,48 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	monster.Y += (monster.Y - cs.game.camera.Y) / dist * pushBack
 }
 
+func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
+	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
+
+	for idx, member := range cs.game.party.Members {
+		if member.HitPoints <= 0 {
+			continue
+		}
+
+		minDamage := monster.FireburstDamageMin
+		maxDamage := monster.FireburstDamageMax
+		if minDamage <= 0 {
+			minDamage = 6
+		}
+		if maxDamage < minDamage {
+			maxDamage = minDamage
+		}
+		damage := minDamage
+		if maxDamage > minDamage {
+			damage = minDamage + rand.Intn(maxDamage-minDamage+1)
+		}
+		member.HitPoints -= damage
+		if member.HitPoints < 0 {
+			member.HitPoints = 0
+		}
+
+		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
+			member.Name, damage, member.HitPoints, member.MaxHitPoints))
+
+		if member.HitPoints == 0 {
+			member.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+		}
+
+		cs.game.TriggerDamageBlink(idx)
+	}
+}
+
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
+	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
+		cs.applyMonsterFireburst(monster)
+		return
+	}
 	if monster.ProjectileSpell != "" {
 		cs.spawnMonsterSpellProjectile(monster, spells.SpellID(monster.ProjectileSpell))
 		return
@@ -1221,6 +1336,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var damageTypeStr string
 	var isSpell bool
 	var isRanged bool
+	var weaponDef *config.WeaponDefinitionConfig
 	var arrowVelX, arrowVelY float64
 
 	switch projectileType {
@@ -1271,6 +1387,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		ar.Active = false
 		isRanged = true
+		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
+			weaponDef = cs.getWeaponConfigByKey(ar.BowKey)
+		}
 	}
 
 	// Check monster perfect dodge (applies to all attack types)
@@ -1309,6 +1428,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 	}
 	// Spells ignore AC completely - reducedDamage stays as original damage
+	if !isSpell {
+		if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
+			reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+			if reducedDamage < 1 {
+				reducedDamage = 1
+			}
+		}
+	}
 
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
@@ -1318,8 +1445,15 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if !monster.IsAlive() {
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 		cs.awardExperienceAndGold(monster)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s killed %s! Awarded %d experience and %d gold.",
-			weaponName, monster.Name, monster.Experience, monster.Gold))
+		prefix := ""
+		if isCrit {
+			prefix = "Critical! "
+		}
+		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
+		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
+			prefix, attackerName, monster.Name, actualDamage))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
+			monster.Experience, monster.Gold))
 	} else {
 		prefix := ""
 		if isCrit {
@@ -1328,6 +1462,32 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
 			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
 	}
+}
+
+func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinitionConfig, monster *monsterPkg.Monster3D) float64 {
+	if weaponDef == nil || monster == nil || len(weaponDef.BonusVs) == 0 {
+		return 1.0
+	}
+
+	candidates := []string{monster.Name}
+	if monsterPkg.MonsterConfig != nil {
+		if key, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name); ok {
+			candidates = append(candidates, key)
+		}
+	}
+
+	for bonusKey, mult := range weaponDef.BonusVs {
+		for _, candidate := range candidates {
+			if strings.EqualFold(bonusKey, candidate) {
+				if mult <= 0 {
+					return 1.0
+				}
+				return mult
+			}
+		}
+	}
+
+	return 1.0
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
@@ -1429,6 +1589,10 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 			message := fmt.Sprintf("%s reached level %d! (was level %d) [+5 stat points]",
 				character.Name, character.Level, oldLevel)
 			cs.game.AddCombatMessage(message)
+
+			if choices := config.GetLevelUpChoices(character.GetClassKey(), character.Level); len(choices) > 0 {
+				cs.game.queueLevelUpChoices(character, character.Level, choices)
+			}
 		} else {
 			break // No more level-ups possible
 		}
@@ -1438,6 +1602,10 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
 	baseDamage := weapon.Damage
+	masteryBonus := cs.weaponMasteryBonus(weapon, character)
+	if masteryBonus > 0 {
+		baseDamage += masteryBonus
+	}
 
 	// Get effective stats including any stat bonuses (Bless, Day of Gods, etc.)
 	might, intellect, _, _, accuracy, _, _ := character.GetEffectiveStats(cs.game.statBonus)
@@ -1474,6 +1642,47 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	return baseDamage, totalStatBonus, totalDamage
 }
 
+func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, character *character.MMCharacter) int {
+	if character == nil {
+		return 0
+	}
+	weaponDef := cs.getWeaponConfig(weapon.Name)
+	if weaponDef == nil {
+		return 0
+	}
+	skillType, ok := weaponSkillFromCategory(weaponDef.Category)
+	if !ok {
+		return 0
+	}
+	if skill, exists := character.Skills[skillType]; exists {
+		return int(skill.Mastery) * 2
+	}
+	return 0
+}
+
+func weaponSkillFromCategory(category string) (character.SkillType, bool) {
+	switch strings.ToLower(category) {
+	case "sword":
+		return character.SkillSword, true
+	case "dagger":
+		return character.SkillDagger, true
+	case "throwing":
+		return character.SkillDagger, true
+	case "axe":
+		return character.SkillAxe, true
+	case "spear":
+		return character.SkillSpear, true
+	case "bow":
+		return character.SkillBow, true
+	case "mace":
+		return character.SkillMace, true
+	case "staff":
+		return character.SkillStaff, true
+	default:
+		return 0, false
+	}
+}
+
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
 func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
 	baseDamage := spellPoints * 3
@@ -1496,6 +1705,40 @@ func (cs *CombatSystem) CalculateEquippedHealAmount(spellCost int, char *charact
 	personalityBonus := char.GetEffectivePersonality(cs.game.statBonus) / 2
 	totalHealing := baseHealing + personalityBonus
 	return baseHealing, personalityBonus, totalHealing
+}
+
+// spellMasteryBonus returns +5 per mastery level for the spell's school.
+func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID spells.SpellID) int {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil || def.School == "" {
+		return 0
+	}
+	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	if skill, exists := char.MagicSchools[school]; exists {
+		return int(skill.Mastery) * 5
+	}
+	return 0
+}
+
+// recordSpellCast increments cast counters and auto-advances mastery every 30 casts per school.
+func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spells.SpellID) {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil || def.School == "" {
+		return
+	}
+	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	skill, exists := char.MagicSchools[school]
+	if !exists {
+		return
+	}
+	skill.CastCount++
+	desired := character.SkillMastery(skill.CastCount / 30)
+	if desired > character.MasteryGrandMaster {
+		desired = character.MasteryGrandMaster
+	}
+	if desired > skill.Mastery {
+		skill.Mastery = desired
+	}
 }
 
 // CalculateAccuracyBonus calculates accuracy bonus from character stats
@@ -1573,7 +1816,7 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	for _, slot := range armorSlots {
 		if armorPiece, hasArmor := char.Equipment[slot]; hasArmor {
 			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
-				baseArmor += v
+				baseArmor += v + cs.armorMasteryBonus(char, armorPiece)
 			}
 			if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
 				totalEnduranceBonus += effectiveEndurance / enduranceDiv
@@ -1593,6 +1836,35 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	}
 
 	return finalDamage
+}
+
+func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor items.Item) int {
+	if char == nil {
+		return 0
+	}
+	skillType, ok := armorSkillFromCategory(armor.ArmorCategory)
+	if !ok {
+		return 0
+	}
+	if skill, exists := char.Skills[skillType]; exists {
+		return int(skill.Mastery)
+	}
+	return 0
+}
+
+func armorSkillFromCategory(category string) (character.SkillType, bool) {
+	switch strings.ToLower(category) {
+	case "leather":
+		return character.SkillLeather, true
+	case "chain":
+		return character.SkillChain, true
+	case "plate":
+		return character.SkillPlate, true
+	case "shield":
+		return character.SkillShield, true
+	default:
+		return 0, false
+	}
 }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed

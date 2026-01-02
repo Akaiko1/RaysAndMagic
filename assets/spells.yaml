@@ -64,6 +64,33 @@ spells:
       base_size: 12
       color: [255, 255, 100]   # Bright yellow-orange
 
+  darkbolt:
+    # Basic spell properties
+    name: "Dark Bolt"
+    description: "Launches a bolt of shadow energy"
+    school: "dark"
+    level: 1
+    spell_points_cost: 3
+    duration: 0
+    damage: 6
+    projectile_size: 12
+    is_projectile: true
+    is_utility: false
+    visual_effect: "dark_bolt"
+
+    # Projectile physics (tile-based units)
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 10.0
+      collision_size_tiles: 0.5
+
+    # Visual appearance
+    graphics:
+      max_size: 48
+      min_size: 3
+      base_size: 12
+      color: [140, 80, 200]   # Violet shadow
+
   ice_bolt:
     # Basic spell properties
     name: "Ice Bolt"

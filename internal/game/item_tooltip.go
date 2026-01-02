@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -20,6 +21,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 	fields := map[string]string{}
 	order := []string{}
+	var weaponBonusSummary string
 
 	// Header
 	fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
@@ -43,6 +45,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		// From YAML weapon definition
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
+			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
 			if weaponDef.CritChance > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
 				totalCrit := weaponDef.CritChance + critBonus
@@ -58,10 +61,16 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_type", "__sep__")
 
 	case items.ItemArmor:
+		if line := getArmorCategoryLine(item); line != "" {
+			fields["a_type"] = line
+		}
+		if line := getArmorRequirementLine(item, char); line != "" {
+			fields["a_req"] = line
+		}
 		if line := getArmorSummary(item); line != "" {
 			fields["a_line"] = line
 		}
-		order = append(order, "a_line", "__sep__")
+		order = append(order, "a_type", "a_req", "a_line", "__sep__")
 
 	case items.ItemAccessory:
 		if line := getAccessorySummary(item); line != "" {
@@ -87,10 +96,12 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	}
 
 	// Flavor/description
+	var flavorLines []string
 	if item.Description != "" {
-		order = append(order, "__sep__")
-		fields["flavor"] = fmt.Sprintf("\"%s\"", item.Description)
-		order = append(order, "flavor")
+		flavorLines = append(flavorLines, fmt.Sprintf("\"%s\"", item.Description))
+	}
+	if weaponBonusSummary != "" {
+		flavorLines = append(flavorLines, weaponBonusSummary)
 	}
 
 	// Glue everything together following the order list
@@ -106,6 +117,12 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if v := fields[k]; v != "" {
 			out = append(out, v)
 		}
+	}
+	if len(flavorLines) > 0 {
+		if len(out) > 0 && out[len(out)-1] != "" {
+			out = append(out, "")
+		}
+		out = append(out, flavorLines...)
 	}
 	return joinTooltipLines(out)
 }
@@ -184,6 +201,48 @@ func getEffectiveStatValue(statName string, char *character.MMCharacter, combatS
 	}
 }
 
+func formatWeaponBonusSummary(bonusVs map[string]float64) string {
+	if len(bonusVs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(bonusVs))
+	for k := range bonusVs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		mult := bonusVs[key]
+		if mult == 0 {
+			continue
+		}
+		pct := (mult - 1.0) * 100.0
+		if math.Abs(pct) < 0.5 {
+			continue
+		}
+		label := titleCase(strings.ReplaceAll(key, "_", " "))
+		parts = append(parts, fmt.Sprintf("Bonus vs %s: %+0.0f%%", label, pct))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
+func titleCase(text string) string {
+	if text == "" {
+		return ""
+	}
+	words := strings.Fields(text)
+	for i, w := range words {
+		if len(w) == 0 {
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	return strings.Join(words, " ")
+}
+
 // getItemTypeString returns a readable string for the item type
 func getItemTypeString(itemType items.ItemType) string {
 	switch itemType {
@@ -218,6 +277,70 @@ func getArmorSummary(item items.Item) string {
 		return fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
 	}
 	return fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+}
+
+func getArmorCategoryLine(item items.Item) string {
+	category := armorCategoryString(item)
+	if category == "" {
+		return ""
+	}
+	label := strings.ToUpper(category[:1]) + category[1:]
+	return fmt.Sprintf("Armor Type: %s", label)
+}
+
+func getArmorRequirementLine(item items.Item, char *character.MMCharacter) string {
+	category := strings.ToLower(item.ArmorCategory)
+	if category == "cloth" {
+		return "Requires: None"
+	}
+	skillName, hasReq := armorRequiredSkillName(item)
+	if !hasReq {
+		return ""
+	}
+	if char == nil {
+		return fmt.Sprintf("Requires: %s Skill", skillName)
+	}
+	hasSkill := false
+	switch strings.ToLower(skillName) {
+	case "leather":
+		_, hasSkill = char.Skills[character.SkillLeather]
+	case "chain":
+		_, hasSkill = char.Skills[character.SkillChain]
+	case "plate":
+		_, hasSkill = char.Skills[character.SkillPlate]
+	case "shield":
+		_, hasSkill = char.Skills[character.SkillShield]
+	}
+	if hasSkill {
+		return fmt.Sprintf("Requires: %s Skill", skillName)
+	}
+	return fmt.Sprintf("Requires: %s Skill (Missing)", skillName)
+}
+
+func armorCategoryString(item items.Item) string {
+	category := strings.ToLower(item.ArmorCategory)
+	switch category {
+	case "leather":
+		return "leather"
+	case "chain":
+		return "chain"
+	case "plate":
+		return "plate"
+	case "shield":
+		return "shield"
+	case "cloth":
+		return "cloth"
+	default:
+		return ""
+	}
+}
+
+func armorRequiredSkillName(item items.Item) (string, bool) {
+	category := armorCategoryString(item)
+	if category == "" {
+		return "", false
+	}
+	return category, true
 }
 
 // getAccessoryTooltip returns accessory-specific tooltip information (YAML-driven)
@@ -465,15 +588,31 @@ func calculateSpellEffectivenessFromID(spellID spells.SpellID, skill *character.
 	return effectiveness
 }
 
+func getSpellMasteryBonus(def spells.SpellDefinition, char *character.MMCharacter) int {
+	if char == nil || def.School == "" {
+		return 0
+	}
+	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	if skill, exists := char.MagicSchools[school]; exists {
+		return int(skill.Mastery) * 5
+	}
+	return 0
+}
+
 // getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions
 func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var details []string
+	masteryBonus := getSpellMasteryBonus(def, char)
 
 	// Check if this is a damage spell
 	if def.IsProjectile {
 		// Use centralized damage calculation with effective stats (same as actual projectile system)
 		effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
 		baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
+		if masteryBonus > 0 {
+			baseDamage += masteryBonus
+			totalDamage += masteryBonus
+		}
 
 		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
 		details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
@@ -485,6 +624,10 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		// Use the same centralized healing calculation as actual combat with effective stats
 		effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
 		baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
+		if masteryBonus > 0 {
+			baseHeal += masteryBonus
+			totalHeal += masteryBonus
+		}
 		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
 		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
 		details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
@@ -500,7 +643,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	// Check if this is a utility spell
 	if def.IsUtility {
 		if def.Duration > 0 {
-			duration := def.Duration
+			duration := def.Duration + masteryBonus
 
 			// Display duration appropriately (seconds vs minutes)
 			if duration >= 60 {
@@ -522,7 +665,8 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, "Allows underwater travel via deep water")
 		case "Bless":
 			if def.StatBonus > 0 {
-				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", def.StatBonus))
+				statBonus := def.StatBonus + masteryBonus
+				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
 			}
 			details = append(details, "Affects entire party")
 		case "Awaken":

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading/rendering"
@@ -23,6 +24,7 @@ type TransparentSpriteData struct {
 	worldX   float64
 	worldY   float64
 	tileType world.TileType3D
+	sprite   *ebiten.Image // Cached sprite image to avoid lookups every frame
 }
 
 // Renderer handles all 3D rendering functionality
@@ -30,6 +32,8 @@ type Renderer struct {
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
 	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
+	circleCache              map[int]*ebiten.Image // Cached circle masks by diameter
+	circleCacheOrder         []int                 // LRU order tracking for circle cache eviction
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// Floor rendering optimization buffers
 	floorImage  *ebiten.Image // Persistent floor image buffer
@@ -39,6 +43,10 @@ type Renderer struct {
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
+	// Reusable buffer for visible sprites to avoid allocation per frame
+	visibleSpritesBuffer []EnvironmentSpriteRenderData
+	// Sprite cache by tile type to avoid repeated GetSprite lookups
+	tileTypeSpriteCache map[world.TileType3D]*ebiten.Image
 }
 
 // getWeaponConfig safely retrieves weapon definition without panicking.
@@ -65,6 +73,8 @@ func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
 		game:                     game,
 		renderedSpritesThisFrame: make(map[[2]int]bool),
+		circleCache:              make(map[int]*ebiten.Image),
+		tileTypeSpriteCache:      make(map[world.TileType3D]*ebiten.Image),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -115,18 +125,34 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
+				// Cache the sprite image to avoid lookups every frame
+				spriteName := world.GlobalTileManager.GetSprite(tileType)
+				if spriteName == "" {
+					continue // Skip tiles without sprites
+				}
+				sprite := r.game.sprites.GetSprite(spriteName)
+
 				cache = append(cache, TransparentSpriteData{
 					tileX:    tileX,
 					tileY:    tileY,
 					worldX:   worldX,
 					worldY:   worldY,
 					tileType: tileType,
+					sprite:   sprite,
 				})
 			}
 		}
 	}
 
 	r.transparentSpritesCache = cache
+
+	// Pre-allocate visible sprites buffer based on expected visible count
+	// Estimate: about 1/4 of cached sprites might be visible at once
+	expectedVisible := len(cache) / 4
+	if expectedVisible < 64 {
+		expectedVisible = 64
+	}
+	r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, expectedVisible)
 }
 
 // precomputeRayDirections calculates ray directions once per frame for performance
@@ -158,13 +184,17 @@ func (r *Renderer) precomputeRayDirections() {
 	camAngle := r.game.camera.Angle
 	fov := r.game.camera.FOV
 
-	for i := 0; i < numRays; i++ {
-		// Calculate angle for this ray
-		angle := camAngle - fov/2 + (float64(i)/float64(numRays))*fov
+	dirX := math.Cos(camAngle)
+	dirY := math.Sin(camAngle)
+	planeScale := math.Tan(fov / 2)
+	planeX := -dirY * planeScale
+	planeY := dirX * planeScale
 
-		// Precompute sin/cos for this ray
-		r.rayDirectionsX[i] = math.Cos(angle)
-		r.rayDirectionsY[i] = math.Sin(angle)
+	for i := 0; i < numRays; i++ {
+		// Use the camera plane for ray directions so walls/floor/sprites align.
+		cameraX := 2*(float64(i)+0.5)/float64(numRays) - 1
+		r.rayDirectionsX[i] = dirX + planeX*cameraX
+		r.rayDirectionsY[i] = dirY + planeY*cameraX
 	}
 }
 
@@ -405,28 +435,30 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer.EndRaycast()
 
 	// Draw simple floor and ceiling before walls/trees so trees are visible above floor
-	r.drawSimpleFloorCeiling(screen)
+	r.game.threading.PerformanceMonitor.ProfiledFunction("sprite_render", func() {
+		r.drawSimpleFloorCeiling(screen)
 
-	// Render the results and update depth buffer
-	r.renderRaycastResults(screen, results)
+		// Render the results and update depth buffer
+		r.renderRaycastResults(screen, results)
 
-	// Draw NPCs as sprites using depth testing
-	r.drawNPCs(screen)
+		// Draw NPCs as sprites using depth testing
+		r.drawNPCs(screen)
 
-	// Draw transparent environment sprites with depth testing
-	r.drawTransparentEnvironmentSprites(screen)
+		// Draw transparent environment sprites with depth testing
+		r.drawTransparentEnvironmentSprites(screen)
 
-	// Draw monsters as sprites using parallel processing with depth testing
-	r.drawMonstersParallel(screen)
+		// Draw monsters as sprites using parallel processing with depth testing
+		r.drawMonstersParallel(screen)
 
-	// Draw fireballs and sword attacks
-	r.drawProjectiles(screen)
+		// Draw fireballs and sword attacks
+		r.drawProjectiles(screen)
 
-	// Draw slash effects
-	r.drawSlashEffects(screen)
+		// Draw slash effects
+		r.drawSlashEffects(screen)
 
-	// Draw hit effects (stuck arrows, spell particles)
-	r.drawHitEffects(screen)
+		// Draw hit effects (stuck arrows, spell particles)
+		r.drawHitEffects(screen)
+	})
 }
 
 // RaycastHit contains the result of a DDA raycast operation.
@@ -625,6 +657,13 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		// Note: If tile manager is not available, default to solid (non-transparent)
 
 		if isTransparent {
+			// Skip transparent tiles that are floor-only (they never render in the ray pass).
+			if world.GlobalTileManager != nil {
+				renderType := world.GlobalTileManager.GetRenderType(tileType)
+				if renderType == "floor_only" {
+					continue
+				}
+			}
 			// Transparent tiles: add as transparent hit but continue ray
 			hits = append(hits, RaycastHit{
 				Distance:      perpendicularDistance * tileSize,
@@ -789,7 +828,8 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	for y := horizon; y < screenHeight; y += rowStep {
 		// Relative position of the floor pixel from the center of the screen
 		// This determines the distance from the camera to the floor point
-		p := float64(y - horizon)
+		sampleY := float64(y) + float64(rowStep)/2
+		p := sampleY - float64(horizon)
 		if p == 0 {
 			p = 1 // Avoid division by zero
 		}
@@ -811,6 +851,10 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		// Calculate the step to increment world coordinates for each pixel in this scanline
 		stepX := (endFloorX - floorX) / float64(screenWidth)
 		stepY := (endFloorY - floorY) / float64(screenWidth)
+
+		// Sample from the center of each block to reduce shimmer at distance.
+		floorX += stepX * (float64(colStep) * 0.5)
+		floorY += stepY * (float64(colStep) * 0.5)
 
 		for x := 0; x < screenWidth; x += colStep {
 			// Get the tile coordinates from world coordinates
@@ -907,6 +951,27 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	screen.DrawImage(sprite, opts)
 }
 
+// getCachedSprite returns a cached sprite for the given tile type, loading it if necessary
+func (r *Renderer) getCachedSprite(tileType world.TileType3D) *ebiten.Image {
+	// Check cache first
+	if sprite, ok := r.tileTypeSpriteCache[tileType]; ok {
+		return sprite
+	}
+
+	// Load and cache the sprite
+	var spriteName string
+	if world.GlobalTileManager != nil {
+		spriteName = world.GlobalTileManager.GetSprite(tileType)
+	}
+	if spriteName == "" {
+		return nil // No sprite defined for this tile type
+	}
+
+	sprite := r.game.sprites.GetSprite(spriteName)
+	r.tileTypeSpriteCache[tileType] = sprite
+	return sprite
+}
+
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
 	// Calculate sprite height and position
@@ -941,18 +1006,11 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		}
 	}
 
-	// Get appropriate sprite based on tile type using tile manager
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
+	// Get cached sprite for this tile type
+	sprite := r.getCachedSprite(tileType)
+	if sprite == nil {
+		return // No sprite defined for this tile type
 	}
-
-	// Fallback to default sprite if not configured
-	if spriteName == "" {
-		spriteName = "grass"
-	}
-
-	sprite := r.game.sprites.GetSprite(spriteName)
 
 	// Scale and draw the sprite
 	opts := &ebiten.DrawImageOptions{}
@@ -1023,8 +1081,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	heightMultiplier := world.GetTileHeight(tileType)
 	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
 
-	// Create cache key without distance for better cache hit rates
-	// Distance-based shading will be applied at draw time
+	// Create cache key - pass original height, cache will quantize internally
 	cacheKey := rendering.WallSliceKey{
 		Height:   wallHeight,
 		Width:    width,
@@ -1034,13 +1091,22 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	}
 
 	// Get cached base wall slice or create new one if not in cache
-	// The cached slice contains base colors without distance-based shading
-	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func() *ebiten.Image {
-		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, wallHeight, wallSide, textureCoord)
+	// The cache quantizes height and passes the quantized value to createFunc
+	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func(quantizedHeight int) *ebiten.Image {
+		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide, textureCoord)
 	})
 
 	// Render the wall slice to the screen with distance-based shading applied at draw time
 	drawOptions := &ebiten.DrawImageOptions{}
+
+	// Scale the cached image to exact wall height
+	// The cached image may be quantized to a different height for cache efficiency
+	cachedHeight := wallSliceImage.Bounds().Dy()
+	if cachedHeight > 0 && wallHeight != cachedHeight {
+		scaleY := float64(wallHeight) / float64(cachedHeight)
+		drawOptions.GeoM.Scale(1.0, scaleY)
+	}
+
 	drawOptions.GeoM.Translate(float64(screenX), float64(wallTop))
 
 	// Apply distance-based color scaling at draw time for better cache efficiency
@@ -1062,6 +1128,7 @@ type MonsterRenderData struct {
 	distance   float64 // Euclidean distance (for sprite sizing)
 	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
 	sprite     *ebiten.Image
+	flip       bool
 }
 
 type projectileFxProfile struct {
@@ -1276,6 +1343,59 @@ func (r *Renderer) drawTrail(screen *ebiten.Image, x, y, dirX, dirY, length, wid
 	}
 }
 
+const circleCacheMaxSize = 64 // Maximum cached circle images to prevent memory bloat
+
+func (r *Renderer) getCircleImage(diameter int) *ebiten.Image {
+	if diameter <= 1 {
+		return r.whiteImg
+	}
+	if img, ok := r.circleCache[diameter]; ok {
+		// Move to end of LRU order (most recently used)
+		r.circleCacheMoveToEnd(diameter)
+		return img
+	}
+
+	// Evict oldest entries if cache is full (before adding new entry)
+	for len(r.circleCache) >= circleCacheMaxSize {
+		if len(r.circleCacheOrder) > 0 {
+			oldest := r.circleCacheOrder[0]
+			delete(r.circleCache, oldest)
+			r.circleCacheOrder = r.circleCacheOrder[1:]
+		} else {
+			break
+		}
+	}
+
+	img := ebiten.NewImage(diameter, diameter)
+	cx := float64(diameter-1) / 2
+	cy := float64(diameter-1) / 2
+	radius := float64(diameter) / 2
+	r2 := radius * radius
+	for y := 0; y < diameter; y++ {
+		dy := float64(y) - cy
+		for x := 0; x < diameter; x++ {
+			dx := float64(x) - cx
+			if dx*dx+dy*dy <= r2 {
+				img.Set(x, y, color.White)
+			}
+		}
+	}
+	r.circleCache[diameter] = img
+	r.circleCacheOrder = append(r.circleCacheOrder, diameter)
+	return img
+}
+
+// circleCacheMoveToEnd moves a diameter to the end of LRU order
+func (r *Renderer) circleCacheMoveToEnd(diameter int) {
+	for i, d := range r.circleCacheOrder {
+		if d == diameter {
+			r.circleCacheOrder = append(r.circleCacheOrder[:i], r.circleCacheOrder[i+1:]...)
+			r.circleCacheOrder = append(r.circleCacheOrder, diameter)
+			return
+		}
+	}
+}
+
 func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
 	if vx == 0 && vy == 0 {
 		return 0, 0, false
@@ -1299,9 +1419,10 @@ func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
 	}
 }
 
-func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
+func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
 	spriteName := mon.GetSpriteType()
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+	anim, flip := r.getMonsterWalkAnimation(spriteName, mon)
+	if anim != nil && len(anim.Frames) > 0 {
 		tps := r.game.config.GetTPS()
 		if tps <= 0 {
 			tps = 60
@@ -1317,23 +1438,77 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) *ebiten.Image {
 		}
 		if r.shouldAnimateMonster(mon) {
 			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-			return anim.Frames[frame]
+			return anim.Frames[frame], flip
 		}
 		if r.game.turnBasedMode && mon.LastMoveTick > 0 {
 			if r.game.frameCount-mon.LastMoveTick <= animWindow {
 				frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-				return anim.Frames[frame]
+				return anim.Frames[frame], flip
 			}
 		}
-		return anim.Frames[0]
+		return anim.Frames[0], flip
 	}
-	return r.game.sprites.GetSprite(spriteName)
+	return r.game.sprites.GetSprite(spriteName), false
 }
 
 func (r *Renderer) monsterHasWalkAnimation(mon *monster.Monster3D) bool {
 	spriteName := mon.GetSpriteType()
-	anim := r.game.sprites.GetAnimation(spriteName, "walking")
-	return anim != nil && len(anim.Frames) > 0
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+		return true
+	}
+	return false
+}
+
+func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
+	moveX := math.Cos(mon.Direction)
+	moveY := math.Sin(mon.Direction)
+	if moveX == 0 && moveY == 0 {
+		return 0, false
+	}
+	camRightX := -math.Sin(r.game.camera.Angle)
+	camRightY := math.Cos(r.game.camera.Angle)
+	right := moveX*camRightX + moveY*camRightY
+	if math.Abs(right) < 0.01 {
+		return 0, false
+	}
+	if right > 0 {
+		return 1, true
+	}
+	return -1, true
+}
+
+func (r *Renderer) getMonsterWalkAnimation(spriteName string, mon *monster.Monster3D) (*graphics.SpriteAnimation, bool) {
+	if dir, ok := r.monsterScreenDir(mon); ok {
+		if dir > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+				return anim, false
+			}
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+				return anim, true
+			}
+		} else {
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+				return anim, false
+			}
+			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+				return anim, true
+			}
+		}
+	}
+	// No clear left/right direction: fall back to any available directional animation.
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+		return anim, false
+	}
+	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+		return anim, false
+	}
+	return nil, false
 }
 
 func monsterJitterPhase(id string) float64 {
@@ -1395,7 +1570,7 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 		}
 
 		// Get sprite from monster's YAML config
-		sprite := r.getMonsterSprite(monster)
+		sprite, flip := r.getMonsterSprite(monster)
 
 		visibleMonsters = append(visibleMonsters, MonsterRenderData{
 			monster:    monster,
@@ -1405,6 +1580,7 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 			distance:   distance,
 			depthPerp:  depthPerp,
 			sprite:     sprite,
+			flip:       flip,
 		})
 	}
 
@@ -1451,7 +1627,11 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 	opts := &ebiten.DrawImageOptions{}
 	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
 	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
+	if monsterData.flip {
+		opts.GeoM.Scale(-scaleX, scaleY)
+	} else {
+		opts.GeoM.Scale(scaleX, scaleY)
+	}
 	jitterX, jitterY := 0.0, 0.0
 	if r.game.turnBasedMode && monsterData.monster.AttackAnimFrames > 0 && !r.monsterHasWalkAnimation(monsterData.monster) {
 		jitter := float64(monsterData.spriteSize) * 0.02
@@ -1465,7 +1645,11 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		jitterX = math.Sin(float64(r.game.frameCount)*0.7+phase) * jitter
 		jitterY = math.Cos(float64(r.game.frameCount)*0.9+phase) * jitter
 	}
-	opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
+	if monsterData.flip {
+		opts.GeoM.Translate(float64(spriteLeft)+float64(monsterData.spriteSize)+jitterX, float64(monsterData.screenY)+jitterY)
+	} else {
+		opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
+	}
 
 	// Apply distance shading
 	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
@@ -1512,12 +1696,16 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 
 		// Create and draw the scaled collision box
 		boxColor := color.RGBA{255, 0, 0, 120} // Red, semi-transparent
-		boxImg := ebiten.NewImage(screenColW, screenColH)
-		boxImg.Fill(boxColor)
 		boxOpts := &ebiten.DrawImageOptions{}
+		boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 		boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-		boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-		screen.DrawImage(boxImg, boxOpts)
+		boxOpts.ColorScale.Scale(
+			float32(boxColor.R)/255,
+			float32(boxColor.G)/255,
+			float32(boxColor.B)/255,
+			float32(boxColor.A)/255*0.5,
+		)
+		screen.DrawImage(r.whiteImg, boxOpts)
 	}
 }
 
@@ -1678,7 +1866,8 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 		return
 	}
 
-	var visibleSprites []EnvironmentSpriteRenderData
+	// Reuse pre-allocated buffer to avoid allocation per frame
+	visibleSprites := r.visibleSpritesBuffer[:0]
 
 	// Camera properties for frustum culling
 	camX := r.game.camera.X
@@ -1703,7 +1892,9 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	minDistSq := tileSize * tileSize // Don't render sprites within 1 tile distance
 
 	// Use cached transparent sprites instead of scanning entire world
-	for _, spriteData := range r.transparentSpritesCache {
+	for i := range r.transparentSpritesCache {
+		spriteData := &r.transparentSpritesCache[i] // Use pointer to avoid copy
+
 		// Skip sprites in the player's current tile to avoid visual artifacts
 		// (sprite would appear at ray-exit edge and "follow" player movement)
 		if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
@@ -1757,13 +1948,7 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 			continue
 		}
 
-		// Get sprite from tile manager
-		spriteName := world.GlobalTileManager.GetSprite(spriteData.tileType)
-		if spriteName == "" {
-			spriteName = "grass" // fallback
-		}
-		sprite := r.game.sprites.GetSprite(spriteName)
-
+		// Use cached sprite from TransparentSpriteData (avoids string lookups every frame)
 		visibleSprites = append(visibleSprites, EnvironmentSpriteRenderData{
 			tileX:      spriteData.tileX,
 			tileY:      spriteData.tileY,
@@ -1773,7 +1958,7 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 			spriteSize: spriteSize,
 			distance:   distance,
 			depthPerp:  depthPerp,
-			sprite:     sprite,
+			sprite:     spriteData.sprite,
 		})
 	}
 
@@ -1781,6 +1966,13 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 	sort.Slice(visibleSprites, func(i, j int) bool {
 		return visibleSprites[i].depthPerp > visibleSprites[j].depthPerp
 	})
+
+	// Update buffer capacity if needed for next frame
+	if cap(visibleSprites) < len(visibleSprites) {
+		r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, len(visibleSprites)*2)
+	} else {
+		r.visibleSpritesBuffer = visibleSprites
+	}
 
 	// Render sprites in order with depth testing
 	for _, spriteData := range visibleSprites {
@@ -1945,12 +2137,16 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (projectileSize-screenColH)/2
 				boxColor := color.RGBA{0, 255, 0, 120} // Green, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
@@ -1980,12 +2176,16 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			r.drawGlowRect(screen, sparkX, sparkY, math.Max(2, float64(projectileSize)*0.25), fxProfile.sparkColor, 0.8*critBoost, glowBlend)
 		}
 
-		fireballImg := ebiten.NewImage(projectileSize, projectileSize)
-		fireballImg.Fill(color.RGBA{uint8(projectileColor[0]), uint8(projectileColor[1]), uint8(projectileColor[2]), 255})
-
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(projectileSize), float64(projectileSize))
 		opts.GeoM.Translate(float64(screenX-projectileSize/2), float64(screenY))
-		screen.DrawImage(fireballImg, opts)
+		opts.ColorScale.Scale(
+			float32(projectileColor[0])/255,
+			float32(projectileColor[1])/255,
+			float32(projectileColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2079,23 +2279,32 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (attackSize-screenColH)/2
 				boxColor := color.RGBA{255, 255, 0, 120} // Yellow, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
 		// Draw attack using weapon-specific color from config
-		attackImg := ebiten.NewImage(attackSize, attackSize)
 		attackColor := weaponDef.Graphics.Color
-		attackImg.Fill(color.RGBA{uint8(attackColor[0]), uint8(attackColor[1]), uint8(attackColor[2]), 255})
 
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(attackSize), float64(attackSize))
 		opts.GeoM.Translate(float64(screenX-attackSize/2), float64(screenY))
-		screen.DrawImage(attackImg, opts)
+		opts.ColorScale.Scale(
+			float32(attackColor[0])/255,
+			float32(attackColor[1])/255,
+			float32(attackColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2196,19 +2405,21 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 				boxX := screenX - screenColW/2
 				boxY := screenY + (arrowSize-screenColH)/2
 				boxColor := color.RGBA{0, 255, 255, 120} // Cyan, semi-transparent
-				boxImg := ebiten.NewImage(screenColW, screenColH)
-				boxImg.Fill(boxColor)
 				boxOpts := &ebiten.DrawImageOptions{}
+				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
 				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorM.Scale(1, 1, 1, 0.5)
-				screen.DrawImage(boxImg, boxOpts)
+				boxOpts.ColorScale.Scale(
+					float32(boxColor.R)/255,
+					float32(boxColor.G)/255,
+					float32(boxColor.B)/255,
+					float32(boxColor.A)/255*0.5,
+				)
+				screen.DrawImage(r.whiteImg, boxOpts)
 			}
 		}
 
 		// Draw arrow using bow-specific color from config
-		arrowImg := ebiten.NewImage(arrowSize, arrowSize)
 		arrowColor := bowDef.Graphics.Color
-		arrowImg.Fill(color.RGBA{uint8(arrowColor[0]), uint8(arrowColor[1]), uint8(arrowColor[2]), 255})
 
 		centerX := float64(screenX)
 		centerY := float64(screenY) + float64(arrowSize)/2
@@ -2230,8 +2441,15 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		}
 
 		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(arrowSize), float64(arrowSize))
 		opts.GeoM.Translate(float64(screenX-arrowSize/2), float64(screenY))
-		screen.DrawImage(arrowImg, opts)
+		opts.ColorScale.Scale(
+			float32(arrowColor[0])/255,
+			float32(arrowColor[1])/255,
+			float32(arrowColor[2])/255,
+			1,
+		)
+		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 
@@ -2593,16 +2811,16 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				size = 6
 			}
 
-			particleImg := ebiten.NewImage(int(size)+1, int(size)+1)
-			particleImg.Fill(color.RGBA{
-				uint8(particle.Color[0]),
-				uint8(particle.Color[1]),
-				uint8(particle.Color[2]),
-				uint8(255 * alpha),
-			})
 			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM.Scale(size, size)
 			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
-			screen.DrawImage(particleImg, opts)
+			opts.ColorScale.Scale(
+				float32(particle.Color[0])/255,
+				float32(particle.Color[1])/255,
+				float32(particle.Color[2])/255,
+				float32(alpha),
+			)
+			screen.DrawImage(r.whiteImg, opts)
 		}
 	}
 
@@ -2652,27 +2870,20 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				size = 12
 			}
 
-			// Draw particle as a glowing circle
-			particleImg := ebiten.NewImage(int(size)+2, int(size)+2)
 			clr := color.RGBA{
 				uint8(particle.Color[0]),
 				uint8(particle.Color[1]),
 				uint8(particle.Color[2]),
 				uint8(255 * alpha),
 			}
-			// Simple filled circle approximation
-			cx, cy := (size+2)/2, (size+2)/2
-			for px := 0; px < int(size)+2; px++ {
-				for py := 0; py < int(size)+2; py++ {
-					dist := math.Sqrt(math.Pow(float64(px)-cx, 2) + math.Pow(float64(py)-cy, 2))
-					if dist <= size/2 {
-						particleImg.Set(px, py, clr)
-					}
-				}
+			diameter := int(size) + 2
+			if diameter < 2 {
+				diameter = 2
 			}
+			particleImg := r.getCircleImage(diameter)
 
 			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
+			opts.GeoM.Translate(screenX-float64(diameter)/2, screenY-float64(diameter)/2)
 			// Use additive blending for glow effect
 			opts.Blend = ebiten.Blend{
 				BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
@@ -2682,6 +2893,12 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				BlendOperationRGB:           ebiten.BlendOperationAdd,
 				BlendOperationAlpha:         ebiten.BlendOperationAdd,
 			}
+			opts.ColorScale.Scale(
+				float32(clr.R)/255,
+				float32(clr.G)/255,
+				float32(clr.B)/255,
+				float32(clr.A)/255,
+			)
 			screen.DrawImage(particleImg, opts)
 		}
 	}

@@ -260,6 +260,8 @@ weapons:
     crit_chance: 14
     rarity: "rare"
     value: 220
+    bonus_vs:
+      dragon: 1.5
 
     # Projectile physics (tile-based)
     physics:

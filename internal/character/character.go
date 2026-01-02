@@ -2,6 +2,7 @@ package character
 
 import (
 	"fmt"
+	"strings"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
@@ -39,6 +40,9 @@ type MMCharacter struct {
 
 	// Status effects
 	Conditions []Condition
+	// Poison status timer and tick accumulator (frames)
+	PoisonFramesRemaining int
+	poisonTickTimer       int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -103,7 +107,10 @@ func (c *MMCharacter) setupKnight(cfg *config.Config) {
 
 	// Starting skills
 	c.Skills[SkillSword] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillSpear] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillPlate] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
 	c.Skills[SkillBodybuilding] = &Skill{Level: 1, Mastery: MasteryNovice}
 
@@ -134,7 +141,6 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("torch_light"),
 			spells.SpellID("firebolt"),
-			spells.SpellID("fireball"),
 		},
 	}
 	c.MagicSchools[MagicWater] = &MagicSkill{
@@ -142,7 +148,6 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("ice_bolt"),
-			spells.SpellID("water_breathing"),
 		},
 	}
 
@@ -174,17 +179,7 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
-			spells.SpellID("heal"),       // First Aid
 			spells.SpellID("heal_other"), // Heal
-		},
-	}
-
-	// Add Spirit magic for divine spells like Bless
-	c.MagicSchools[MagicSpirit] = &MagicSkill{
-		Level:   1,
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("bless"), // Bless
 		},
 	}
 
@@ -242,17 +237,8 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Paladin Bless
-	c.MagicSchools[MagicSpirit] = &MagicSkill{
-		Level:       1,
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("bless")},
-	}
-
-	// Starting equipment - give Paladin Bless
+	// Starting equipment
 	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("silver_sword")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("bless")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
-	}
 }
 
 func (c *MMCharacter) setupDruid(cfg *config.Config) {
@@ -302,6 +288,33 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 }
 
 func (c *MMCharacter) Update() {
+	c.UpdateWithStatBonus(0)
+}
+
+// UpdateWithMode updates the character with knowledge of the current game mode
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, statBonus int) {
+	// Skip timer-based regeneration in turn-based mode
+	if turnBasedMode {
+		tps := config.GetTargetTPS()
+		if tps <= 0 {
+			tps = 60
+		}
+		c.updatePoison(tps)
+		return
+	}
+
+	// Use normal timer-based regeneration in real-time mode
+	c.UpdateWithStatBonus(statBonus)
+}
+
+// UpdateWithStatBonus updates the character and applies stat-based regen using the provided bonus.
+func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
+	tps := config.GetTargetTPS()
+	if tps <= 0 {
+		tps = 60
+	}
+	c.updatePoison(tps)
+
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
 		return
@@ -311,20 +324,62 @@ func (c *MMCharacter) Update() {
 	c.spellRegenTimer++
 
 	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
-		c.SpellPoints++
+		regen := c.CalculateManaRegenAmount(statBonus)
+		c.SpellPoints += regen
+		if c.SpellPoints > c.MaxSpellPoints {
+			c.SpellPoints = c.MaxSpellPoints
+		}
 		c.spellRegenTimer = 0 // Reset timer
 	}
 }
 
-// UpdateWithMode updates the character with knowledge of the current game mode
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
-	// Skip timer-based regeneration in turn-based mode
-	if turnBasedMode {
+// CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
+func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
+	effectivePersonality := c.GetEffectivePersonality(statBonus)
+	regen := 1 + (effectivePersonality / 10)
+	if regen < 1 {
+		return 1
+	}
+	return regen
+}
+
+// ApplyPoison applies or refreshes a poison effect for the given duration in frames.
+func (c *MMCharacter) ApplyPoison(frames int) {
+	if frames <= 0 {
 		return
 	}
+	if frames > c.PoisonFramesRemaining {
+		c.PoisonFramesRemaining = frames
+	}
+	c.AddCondition(ConditionPoisoned)
+}
 
-	// Use normal timer-based regeneration in real-time mode
-	c.Update()
+func (c *MMCharacter) updatePoison(tps int) {
+	if c.PoisonFramesRemaining <= 0 {
+		return
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	c.PoisonFramesRemaining--
+	c.poisonTickTimer++
+
+	if c.poisonTickTimer >= tps {
+		c.poisonTickTimer = 0
+		if c.HitPoints > 0 {
+			c.HitPoints--
+			if c.HitPoints <= 0 {
+				c.HitPoints = 0
+				c.AddCondition(ConditionUnconscious)
+			}
+		}
+	}
+
+	if c.PoisonFramesRemaining <= 0 {
+		c.PoisonFramesRemaining = 0
+		c.poisonTickTimer = 0
+		c.RemoveCondition(ConditionPoisoned)
+	}
 }
 
 func (c *MMCharacter) GetDisplayInfo() string {
@@ -395,6 +450,26 @@ func (c *MMCharacter) GetClassName() string {
 		return "Druid"
 	default:
 		return "Unknown"
+	}
+}
+
+// GetClassKey returns the lowercase class key used in config.
+func (c *MMCharacter) GetClassKey() string {
+	switch c.Class {
+	case ClassKnight:
+		return "knight"
+	case ClassPaladin:
+		return "paladin"
+	case ClassArcher:
+		return "archer"
+	case ClassCleric:
+		return "cleric"
+	case ClassSorcerer:
+		return "sorcerer"
+	case ClassDruid:
+		return "druid"
+	default:
+		return "unknown"
 	}
 }
 
@@ -527,28 +602,55 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 	}
 
 	category := weaponDef.Category
-
-	switch c.Class {
-	case ClassKnight:
-		// Knights can use all melee weapons
-		return category == "sword" || category == "axe" || category == "mace" || category == "spear"
-	case ClassPaladin:
-		// Paladins can use swords, maces, and spears
-		return category == "sword" || category == "mace" || category == "spear"
-	case ClassArcher:
-		// Archers use bows and light melee weapons
-		return category == "bow" || category == "dagger"
-	case ClassCleric:
-		// Clerics use maces and staffs
-		return category == "mace" || category == "staff"
-	case ClassSorcerer:
-		// Sorcerers use staffs and light weapons
-		return category == "staff" || category == "dagger"
-	case ClassDruid:
-		// Druids use natural weapons: staffs, spears, daggers
-		return category == "staff" || category == "spear" || category == "dagger"
+	var requiredSkill SkillType
+	switch category {
+	case "sword":
+		requiredSkill = SkillSword
+	case "dagger":
+		requiredSkill = SkillDagger
+	case "throwing":
+		requiredSkill = SkillDagger
+	case "axe":
+		requiredSkill = SkillAxe
+	case "spear":
+		requiredSkill = SkillSpear
+	case "bow":
+		requiredSkill = SkillBow
+	case "mace":
+		requiredSkill = SkillMace
+	case "staff":
+		requiredSkill = SkillStaff
+	default:
+		return false
 	}
-	return false
+
+	_, hasSkill := c.Skills[requiredSkill]
+	return hasSkill
+}
+
+func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
+	category := strings.ToLower(item.ArmorCategory)
+	if category == "" {
+		return false
+	}
+	if category == "cloth" {
+		return true
+	}
+	var requiredSkill SkillType
+	switch category {
+	case "leather":
+		requiredSkill = SkillLeather
+	case "chain":
+		requiredSkill = SkillChain
+	case "plate":
+		requiredSkill = SkillPlate
+	case "shield":
+		requiredSkill = SkillShield
+	default:
+		return false
+	}
+	_, hasSkill := c.Skills[requiredSkill]
+	return hasSkill
 }
 
 // getWeaponDefinitionFromGlobal accesses weapon definition without circular imports
@@ -575,6 +677,9 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
+		if !c.CanEquipArmor(item) {
+			return items.Item{}, false, false
+		}
 		// Use equip_slot attribute if defined, otherwise default to armor slot
 		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
 			slot = items.EquipSlot(equipSlotCode)

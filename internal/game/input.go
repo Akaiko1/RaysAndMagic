@@ -114,6 +114,12 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// Handle level-up choice overlay
+	if ih.game.currentLevelUpChoice() != nil {
+		ih.handleLevelUpChoiceInput()
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -197,17 +203,66 @@ func (ih *InputHandler) restartNewGame() {
 	// Reset dialog/menu states
 	ih.game.dialogActive = false
 	ih.game.menuOpen = false
-	// Move player to start position
-	if ih.game.GetCurrentWorld() != nil {
-		startX, startY := ih.game.GetCurrentWorld().GetStartingPosition()
+	ih.game.showHighScores = false
+	// Clear pending level-up choices
+	ih.game.levelUpChoiceQueue = nil
+
+	// Reset to a valid starting map and refresh world visuals/caches.
+	if wm := world.GlobalWorldManager; wm != nil {
+		startMapKey := wm.CurrentMapKey
+		if wm.IsValidMap("forest") {
+			startMapKey = "forest"
+		} else if !wm.IsValidMap(startMapKey) {
+			if maps := wm.GetAvailableMaps(); len(maps) > 0 {
+				startMapKey = maps[0]
+			}
+		}
+		if startMapKey != "" && wm.IsValidMap(startMapKey) && startMapKey != wm.CurrentMapKey {
+			if err := wm.SwitchToMap(startMapKey); err != nil {
+				fmt.Printf("Warning: Failed to switch to map %s during restart: %v\n", startMapKey, err)
+			}
+		}
+		ih.game.world = wm.GetCurrentWorld()
+		ih.game.UpdateSkyAndGroundColors()
+		if ih.game.collisionSystem != nil {
+			ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
+		}
+		if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
+			ih.game.gameLoop.renderer.precomputeFloorColorCache()
+			ih.game.gameLoop.renderer.buildTransparentSpriteCache()
+		}
+	}
+
+	// Move player to start position (fallback to nearest walkable tile if map has no '+')
+	if currentWorld := ih.game.GetCurrentWorld(); currentWorld != nil {
+		tileSize := float64(ih.game.config.GetTileSize())
+		startX, startY := 0.0, 0.0
+		if currentWorld.StartX >= 0 && currentWorld.StartY >= 0 {
+			startX = float64(currentWorld.StartX) * tileSize
+			startY = float64(currentWorld.StartY) * tileSize
+		} else {
+			centerX := float64(currentWorld.Width) * tileSize * 0.5
+			centerY := float64(currentWorld.Height) * tileSize * 0.5
+			startX, startY = ih.game.FindNearestWalkableTileMustSucceed(centerX, centerY)
+		}
 		ih.game.camera.X = startX
 		ih.game.camera.Y = startY
-		ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+		if ih.game.collisionSystem != nil {
+			ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+		}
 	}
 }
 
 // handleVictoryInput processes input on the victory screen
 func (ih *InputHandler) handleVictoryInput() {
+	// If high scores overlay is open during victory, allow ESC to close it first.
+	if ih.game.showHighScores {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.showHighScores = false
+		}
+		return
+	}
+
 	// If score already saved, handle post-save options
 	if ih.game.victoryScoreSaved {
 		// H to view high scores
@@ -312,7 +367,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		panelW, panelH = 360, 300
+		panelW, panelH = 360, 320
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
 		// Navigate options (debounced)
@@ -341,7 +396,9 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 2: // Load
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
-			case 3: // Exit
+			case 3: // High Scores
+				ih.game.showHighScores = true
+			case 4: // Exit
 				ih.game.exitRequested = true
 			}
 		}
@@ -358,6 +415,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
 			case 3:
+				ih.game.showHighScores = true
+			case 4:
 				ih.game.exitRequested = true
 			}
 		}
@@ -449,6 +508,63 @@ func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panel
 			} else {
 				ih.game.slotSelection = i
 			}
+		}
+	}
+}
+
+// handleLevelUpChoiceInput processes input for the level-up choice popup.
+func (ih *InputHandler) handleLevelUpChoiceInput() {
+	req := ih.game.currentLevelUpChoice()
+	if req == nil {
+		return
+	}
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.game.closeLevelUpChoice()
+		return
+	}
+	optionCount := len(req.options)
+	if optionCount == 0 {
+		return
+	}
+
+	// Keyboard navigation
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && req.selection > 0 {
+		req.selection--
+	}
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && req.selection < optionCount-1 {
+		req.selection++
+	}
+
+	// Mouse hover selection
+	mouseX, mouseY := ebiten.CursorPosition()
+	screenW := ih.game.config.GetScreenWidth()
+	screenH := ih.game.config.GetScreenHeight()
+	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
+
+	for i := 0; i < optionCount; i++ {
+		y := startY + i*rowH
+		x1 := popupX + 16
+		x2 := popupX + popupW - 16
+		y1 := y - 2
+		y2 := y - 2 + rowH
+		if mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2 {
+			req.selection = i
+			break
+		}
+	}
+
+	// Confirm selection
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		ih.game.consumeLevelUpChoice(req.selection)
+		return
+	}
+	// Click to choose
+	for i := 0; i < optionCount; i++ {
+		y := startY + i*rowH
+		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			req.selection = i
+			ih.game.consumeLevelUpChoice(req.selection)
+			return
 		}
 	}
 }
@@ -940,6 +1056,17 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 			// If clicking on + button area, don't select character
 			if mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW &&
 				mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH {
+				return -1
+			}
+		}
+		if ih.game.hasLevelUpChoiceForChar(charIndex) {
+			x := charIndex * portraitWidth
+			caretX := x + portraitWidth - 28
+			caretY := startY + portraitHeight - 28
+			caretW := 24
+			caretH := 24
+			if mouseX >= caretX && mouseX < caretX+caretW &&
+				mouseY >= caretY && mouseY < caretY+caretH {
 				return -1
 			}
 		}
@@ -1635,7 +1762,11 @@ func (ih *InputHandler) endPartyTurn() {
 		ih.game.turnBasedSpRegenCount = 0
 		for _, member := range ih.game.party.Members {
 			if member.SpellPoints < member.MaxSpellPoints {
-				member.SpellPoints++
+				regen := member.CalculateManaRegenAmount(ih.game.statBonus)
+				member.SpellPoints += regen
+				if member.SpellPoints > member.MaxSpellPoints {
+					member.SpellPoints = member.MaxSpellPoints
+				}
 			}
 		}
 	}

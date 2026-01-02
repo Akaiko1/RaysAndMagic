@@ -3,6 +3,9 @@ loots:
     - type: "item"
       key: "magic_ring"
       chance: 0.05
+    - type: "item"
+      key: "wizard_robe"
+      chance: 0.05
 
   dragon:
     - type: "weapon"
@@ -31,6 +34,9 @@ loots:
     - type: "item"
       key: "dead_branch"
       chance: 0.10
+    - type: "weapon"
+      key: "elven_bow"
+      chance: 0.05
 
   bear:
     - type: "item"

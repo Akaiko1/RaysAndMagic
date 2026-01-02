@@ -1,0 +1,39 @@
+# Level-up choice configuration
+# Add choices per class and level.
+
+level_ups:
+  knight:
+    levels:
+      - level: 3
+        choices:
+          - type: "weapon_mastery"
+            skill: "sword"
+          - type: "weapon_mastery"
+            skill: "spear"
+
+  sorcerer:
+    levels:
+      - level: 3
+        choices:
+          - type: "spell"
+            spell: "fireball"
+          - type: "spell"
+            spell: "darkbolt"
+
+  cleric:
+    levels:
+      - level: 3
+        choices:
+          - type: "spell"
+            spell: "bless"
+          - type: "magic_mastery"
+            school: "any"
+
+  archer:
+    levels:
+      - level: 3
+        choices:
+          - type: "spell"
+            spell: "lightning"
+          - type: "weapon_mastery"
+            skill: "bow"

@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"time"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
@@ -12,11 +13,13 @@ import (
 
 // GameLoop manages the main game update and render cycle
 type GameLoop struct {
-	game         *MMGame
-	inputHandler *InputHandler
-	combat       *CombatSystem
-	ui           *UISystem
-	renderer     *Renderer
+	game               *MMGame
+	inputHandler       *InputHandler
+	combat             *CombatSystem
+	ui                 *UISystem
+	renderer           *Renderer
+	lastUpdateDuration time.Duration
+	lastDrawDuration   time.Duration
 }
 
 // NewGameLoop creates a new game loop manager
@@ -37,6 +40,10 @@ func NewGameLoop(game *MMGame) *GameLoop {
 
 // Update handles all game logic updates for one frame
 func (gl *GameLoop) Update() error {
+	updateStart := time.Now()
+	defer func() {
+		gl.lastUpdateDuration = time.Since(updateStart)
+	}()
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
 
@@ -57,17 +64,22 @@ func (gl *GameLoop) Update() error {
 
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
+	// Handle all input first (menus/panels may pause gameplay)
+	gl.inputHandler.HandleInput()
+
+	// Pause gameplay updates while menus/panels are open
+	if gl.game.mainMenuOpen || gl.game.statPopupOpen || gl.game.currentLevelUpChoice() != nil {
+		return
+	}
+
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
-	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
+	gl.game.party.UpdateWithMode(gl.game.turnBasedMode, gl.game.statBonus)
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
 
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
-
-	// Handle all input
-	gl.inputHandler.HandleInput()
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
@@ -113,6 +125,10 @@ func (gl *GameLoop) updateExploration() {
 
 // Draw handles all rendering for one frame
 func (gl *GameLoop) Draw(screen *ebiten.Image) {
+	drawStart := time.Now()
+	defer func() {
+		gl.lastDrawDuration = time.Since(drawStart)
+	}()
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
@@ -292,6 +308,7 @@ func (gl *GameLoop) updatePerformanceMetrics() {
 	collisionsDetected := uint64(0) // Could be updated by collision detection system
 
 	gl.game.threading.PerformanceMonitor.UpdateGameMetrics(monstersUpdated, projectilesActive, collisionsDetected)
+	gl.maybeLogPerfDrop()
 }
 
 // updateSpecialEffects updates all special effects and input cooldowns

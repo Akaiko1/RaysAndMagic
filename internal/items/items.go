@@ -29,6 +29,9 @@ type Item struct {
 	Type        ItemType
 	Attributes  map[string]int
 	Description string
+	Rarity      string
+	// For armor
+	ArmorCategory string
 	// For weapons
 	Damage    int
 	Range     int    // In tiles
@@ -97,6 +100,7 @@ func CreateWeapon(name string, damage, weaponRange int, bonusStat, description s
 		Range:       weaponRange,
 		BonusStat:   bonusStat,
 		Description: description,
+		Rarity:      "common",
 		Attributes:  make(map[string]int),
 	}
 }
@@ -154,6 +158,7 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		DamageType:         weaponDef.DamageType,
 		MaxProjectiles:     weaponDef.MaxProjectiles,
 		Description:        weaponDef.Description,
+		Rarity:             weaponDef.Rarity,
 		Attributes:         make(map[string]int),
 	}
 	if weaponDef.Value > 0 {
@@ -212,6 +217,8 @@ type ItemDefinitionFromYAML struct {
 	Description string
 	Flavor      string
 	Type        string // "armor", "accessory", "consumable", "quest"
+	ArmorType   string
+	Rarity      string
 	// Optional numeric stats
 	ArmorClassBase            int
 	EnduranceScalingDivisor   int
@@ -322,10 +329,12 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 
 	return Item{
-		Name:        def.Name,
-		Type:        t,
-		Description: desc,
-		Attributes:  attrs,
+		Name:          def.Name,
+		Type:          t,
+		Description:   desc,
+		Rarity:        def.Rarity,
+		Attributes:    attrs,
+		ArmorCategory: def.ArmorType,
 	}, nil
 }
 

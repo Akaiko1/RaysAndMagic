@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"ugataima/internal/bridge"
@@ -38,6 +39,9 @@ func main() {
 
 	// Load loot tables
 	config.MustLoadLootTables("assets/loots.yaml")
+
+	// Load level-up choices
+	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
 	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
@@ -85,7 +89,15 @@ func main() {
 	if cfg.Display.Resizable {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
-	ebiten.SetTPS(cfg.GetTPS())
+	disableVsync := runtime.GOOS == "darwin" && cfg.Display.DisableVsyncOnMac
+	if disableVsync {
+		ebiten.SetVsyncEnabled(false)
+	}
+	tps := cfg.GetTPS()
+	if disableVsync {
+		tps = 120
+	}
+	ebiten.SetTPS(tps)
 
 	g := game.NewMMGame(cfg)
 	if err := ebiten.RunGame(g); err != nil {

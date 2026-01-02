@@ -154,6 +154,9 @@ type MMGame struct {
 	showPartyStats     bool
 	showFPS            bool
 	showCollisionBoxes bool // Toggle for collision box rendering
+	perfDebugEnabled   bool
+	perfLowFpsSince    time.Time
+	perfLastPerfLog    time.Time
 
 	// Unique ID generation
 	nextProjectileID int64
@@ -287,6 +290,10 @@ type MMGame struct {
 	// Stat distribution popup UI state
 	statPopupOpen    bool // Is the stat distribution popup open?
 	statPopupCharIdx int  // Which character is being edited in the popup?
+	// Level-up choice queue
+	levelUpChoiceQueue []levelUpChoiceRequest
+	levelUpChoiceOpen  bool
+	levelUpChoiceIdx   int
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
@@ -390,6 +397,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		config:           cfg,
 		showPartyStats:   true,
 		showFPS:          false, // FPS counter starts hidden
+		perfDebugEnabled: strings.TrimSpace(os.Getenv("DEBUG_PERF")) != "",
 		selectedChar:     0,
 		skyImg:           skyImg,
 		groundImg:        groundImg,
