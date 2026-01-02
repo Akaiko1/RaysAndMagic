@@ -637,6 +637,14 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		reducedDamage = 1 // Minimum 1 damage
 	}
 
+	weaponDef := cs.getWeaponConfig(weaponName)
+	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
+		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+		if reducedDamage < 1 {
+			reducedDamage = 1
+		}
+	}
+
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
@@ -1328,6 +1336,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var damageTypeStr string
 	var isSpell bool
 	var isRanged bool
+	var weaponDef *config.WeaponDefinitionConfig
 	var arrowVelX, arrowVelY float64
 
 	switch projectileType {
@@ -1378,6 +1387,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		ar.Active = false
 		isRanged = true
+		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
+			weaponDef = cs.getWeaponConfigByKey(ar.BowKey)
+		}
 	}
 
 	// Check monster perfect dodge (applies to all attack types)
@@ -1416,6 +1428,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 	}
 	// Spells ignore AC completely - reducedDamage stays as original damage
+	if !isSpell {
+		if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
+			reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+			if reducedDamage < 1 {
+				reducedDamage = 1
+			}
+		}
+	}
 
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
@@ -1442,6 +1462,32 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
 			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
 	}
+}
+
+func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinitionConfig, monster *monsterPkg.Monster3D) float64 {
+	if weaponDef == nil || monster == nil || len(weaponDef.BonusVs) == 0 {
+		return 1.0
+	}
+
+	candidates := []string{monster.Name}
+	if monsterPkg.MonsterConfig != nil {
+		if key, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name); ok {
+			candidates = append(candidates, key)
+		}
+	}
+
+	for bonusKey, mult := range weaponDef.BonusVs {
+		for _, candidate := range candidates {
+			if strings.EqualFold(bonusKey, candidate) {
+				if mult <= 0 {
+					return 1.0
+				}
+				return mult
+			}
+		}
+	}
+
+	return 1.0
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes

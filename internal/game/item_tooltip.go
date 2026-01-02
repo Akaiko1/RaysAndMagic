@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -20,6 +21,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 	fields := map[string]string{}
 	order := []string{}
+	var weaponBonusSummary string
 
 	// Header
 	fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
@@ -43,6 +45,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		// From YAML weapon definition
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
+			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
 			if weaponDef.CritChance > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
 				totalCrit := weaponDef.CritChance + critBonus
@@ -93,10 +96,12 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	}
 
 	// Flavor/description
+	var flavorLines []string
 	if item.Description != "" {
-		order = append(order, "__sep__")
-		fields["flavor"] = fmt.Sprintf("\"%s\"", item.Description)
-		order = append(order, "flavor")
+		flavorLines = append(flavorLines, fmt.Sprintf("\"%s\"", item.Description))
+	}
+	if weaponBonusSummary != "" {
+		flavorLines = append(flavorLines, weaponBonusSummary)
 	}
 
 	// Glue everything together following the order list
@@ -112,6 +117,12 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if v := fields[k]; v != "" {
 			out = append(out, v)
 		}
+	}
+	if len(flavorLines) > 0 {
+		if len(out) > 0 && out[len(out)-1] != "" {
+			out = append(out, "")
+		}
+		out = append(out, flavorLines...)
 	}
 	return joinTooltipLines(out)
 }
@@ -188,6 +199,48 @@ func getEffectiveStatValue(statName string, char *character.MMCharacter, combatS
 	default:
 		return might
 	}
+}
+
+func formatWeaponBonusSummary(bonusVs map[string]float64) string {
+	if len(bonusVs) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(bonusVs))
+	for k := range bonusVs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		mult := bonusVs[key]
+		if mult == 0 {
+			continue
+		}
+		pct := (mult - 1.0) * 100.0
+		if math.Abs(pct) < 0.5 {
+			continue
+		}
+		label := titleCase(strings.ReplaceAll(key, "_", " "))
+		parts = append(parts, fmt.Sprintf("Bonus vs %s: %+0.0f%%", label, pct))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
+func titleCase(text string) string {
+	if text == "" {
+		return ""
+	}
+	words := strings.Fields(text)
+	for i, w := range words {
+		if len(w) == 0 {
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 // getItemTypeString returns a readable string for the item type

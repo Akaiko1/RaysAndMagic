@@ -181,17 +181,20 @@ monsters:
   dragon:
     name: "Dragon"
     level: 15
-    max_hit_points: 400
+    max_hit_points: 550
     armor_class: 18
     experience: 2000
     attack_bonus: 10
-    damage_min: 10
-    damage_max: 40
+    damage_min: 30
+    damage_max: 50
+    fireburst_chance: 0.15
+    fireburst_damage_min: 10
+    fireburst_damage_max: 16
     alert_radius: 5  # 5 tiles (wide awareness)
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
     ranged_attack_range: 2
-    speed: 2.5
+    speed: 3.75
     gold_min: 500
     gold_max: 1500
     sprite: "dragon"
