@@ -207,7 +207,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			// Border
 			drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
 			// Entry text
-			ebitenutil.DebugPrintAt(screen, "Discard", x+8, y+5)
+			drawCenteredDebugText(screen, "Discard", x, y, menuW, menuH)
 
 			// Handle clicks on context menu
 			if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
@@ -516,6 +516,13 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 			// Double-click detected - try to equip or use the item
 			item := ui.game.party.Inventory[itemIndex]
 			currentChar := ui.game.party.Members[ui.game.selectedChar]
+
+			if item.Type == items.ItemQuest {
+				if item.Attributes["opens_map"] > 0 {
+					ui.game.mapOverlayOpen = true
+					return
+				}
+			}
 
 			if item.Type == items.ItemConsumable {
 				// Use consumable item

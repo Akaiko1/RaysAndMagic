@@ -193,6 +193,17 @@ func debugTextWidth(text string) int {
 	return utf8.RuneCountInString(text) * debugTextCharWidth
 }
 
+func drawCenteredDebugText(screen *ebiten.Image, text string, x, y, w, h int) {
+	if text == "" {
+		return
+	}
+	textW := debugTextWidth(text)
+	textH := debugTextCharHeight
+	drawX := x + (w-textW)/2
+	drawY := y + (h-textH)/2
+	ebitenutil.DebugPrintAt(screen, text, drawX, drawY)
+}
+
 func ensureDebugTextScratch(width, height int) {
 	if width < 1 {
 		width = 1

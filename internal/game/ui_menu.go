@@ -243,7 +243,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	}
 
 	// Draw X text
-	ebitenutil.DebugPrintAt(screen, "X", closeButtonX+6, closeButtonY+4)
+	drawCenteredDebugText(screen, "X", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
 
 	// Draw content area
 	contentY := tabY + tabHeight + 10
