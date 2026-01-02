@@ -58,6 +58,35 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 	return wallHeight, wallTop
 }
 
+// projectToScreenX converts a world position into screen X using the camera plane.
+// It returns the screen X and camera-space depth (transformY).
+func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX int, depth float64, ok bool) {
+	cam := rh.game.camera
+	dx := entityX - cam.X
+	dy := entityY - cam.Y
+
+	dirX := math.Cos(cam.Angle)
+	dirY := math.Sin(cam.Angle)
+	planeScale := math.Tan(cam.FOV / 2)
+	planeX := -dirY * planeScale
+	planeY := dirX * planeScale
+
+	det := planeX*dirY - dirX*planeY
+	if math.Abs(det) < 1e-9 {
+		return 0, 0, false
+	}
+	invDet := 1.0 / det
+	transformX := invDet*(dirY*dx - dirX*dy)
+	transformY := invDet*(-planeY*dx + planeX*dy)
+	if transformY <= 0 {
+		return 0, 0, false
+	}
+
+	screenW := rh.game.config.GetScreenWidth()
+	screenX = int(float64(screenW)/2 * (1 + transformX/transformY))
+	return screenX, transformY, true
+}
+
 // CreateWallSlice creates a cached wall slice image with proper shading
 func (rh *RenderingHelper) CreateWallSlice(tileType world.TileType3D, distance float64, width, height int) *ebiten.Image {
 	return rh.CreateWallSliceWithSide(tileType, distance, width, height, 0)
@@ -418,35 +447,20 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 
 	// spriteWidth := int(float64(spriteHeight) * rh.game.config.Graphics.Sprite.TreeWidthMultiplier)
 
-	// Calculate screen position
-	dx := entityX - rh.game.camera.X
-	dy := entityY - rh.game.camera.Y
-
 	// Check if within view distance
 	if distance > rh.game.camera.ViewDist || distance < 5.0 {
 		return 0, 0, 0, false
 	}
 
-	// Calculate angle to entity
-	entityAngle := math.Atan2(dy, dx)
-	angleDiff := entityAngle - rh.game.camera.Angle
-
-	// Normalize angle difference
-	for angleDiff > math.Pi {
-		angleDiff -= 2 * math.Pi
-	}
-	for angleDiff < -math.Pi {
-		angleDiff += 2 * math.Pi
-	}
-
-	// Check if entity is in view (with some margin)
-	fovMargin := rh.game.camera.FOV/2 + 0.1 // Small margin for edge sprites
-	if math.Abs(angleDiff) > fovMargin {
+	screenX, _, ok := rh.projectToScreenX(entityX, entityY)
+	if !ok {
 		return 0, 0, 0, false
 	}
 
-	// Calculate screen X position
-	screenX = int(float64(rh.game.config.GetScreenWidth())/2 + (angleDiff/(rh.game.camera.FOV/2))*float64(rh.game.config.GetScreenWidth()/2))
+	screenW := rh.game.config.GetScreenWidth()
+	if screenX < -spriteHeight || screenX > screenW+spriteHeight {
+		return 0, 0, 0, false
+	}
 
 	// Environment sprites are centered at horizon line (like trees)
 	screenY = (rh.game.config.GetScreenHeight() - spriteHeight) / 2
@@ -466,28 +480,6 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 		return 0, 0, 0, false
 	}
 
-	// Calculate angle to entity
-	dx := entityX - rh.game.camera.X
-	dy := entityY - rh.game.camera.Y
-	entityAngle := math.Atan2(dy, dx)
-	angleDiff := entityAngle - rh.game.camera.Angle
-
-	// Normalize angle difference
-	for angleDiff > math.Pi {
-		angleDiff -= 2 * math.Pi
-	}
-	for angleDiff < -math.Pi {
-		angleDiff += 2 * math.Pi
-	}
-
-	// Check if entity is in view
-	if math.Abs(angleDiff) > rh.game.camera.FOV/2 {
-		return 0, 0, 0, false
-	}
-
-	// Calculate screen position
-	screenX = int(float64(rh.game.config.GetScreenWidth())/2 + (angleDiff/(rh.game.camera.FOV/2))*float64(rh.game.config.GetScreenWidth()/2))
-
 	// Calculate sprite size based on distance
 	spriteSize = int(rh.game.config.GetTileSize() / distance * float64(multiplier))
 	if spriteSize > maxSize {
@@ -495,6 +487,16 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 	}
 	if spriteSize < minSize {
 		spriteSize = minSize
+	}
+
+	screenX, _, ok := rh.projectToScreenX(entityX, entityY)
+	if !ok {
+		return 0, 0, 0, false
+	}
+
+	screenW := rh.game.config.GetScreenWidth()
+	if screenX < -spriteSize || screenX > screenW+spriteSize {
+		return 0, 0, 0, false
 	}
 
 	screenY = rh.game.config.GetScreenHeight()/2 - spriteSize/2

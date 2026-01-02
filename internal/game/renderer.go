@@ -184,13 +184,17 @@ func (r *Renderer) precomputeRayDirections() {
 	camAngle := r.game.camera.Angle
 	fov := r.game.camera.FOV
 
-	for i := 0; i < numRays; i++ {
-		// Calculate angle for this ray
-		angle := camAngle - fov/2 + (float64(i)/float64(numRays))*fov
+	dirX := math.Cos(camAngle)
+	dirY := math.Sin(camAngle)
+	planeScale := math.Tan(fov / 2)
+	planeX := -dirY * planeScale
+	planeY := dirX * planeScale
 
-		// Precompute sin/cos for this ray
-		r.rayDirectionsX[i] = math.Cos(angle)
-		r.rayDirectionsY[i] = math.Sin(angle)
+	for i := 0; i < numRays; i++ {
+		// Use the camera plane for ray directions so walls/floor/sprites align.
+		cameraX := 2*(float64(i)+0.5)/float64(numRays) - 1
+		r.rayDirectionsX[i] = dirX + planeX*cameraX
+		r.rayDirectionsY[i] = dirY + planeY*cameraX
 	}
 }
 
@@ -653,6 +657,13 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		// Note: If tile manager is not available, default to solid (non-transparent)
 
 		if isTransparent {
+			// Skip transparent tiles that are floor-only (they never render in the ray pass).
+			if world.GlobalTileManager != nil {
+				renderType := world.GlobalTileManager.GetRenderType(tileType)
+				if renderType == "floor_only" {
+					continue
+				}
+			}
 			// Transparent tiles: add as transparent hit but continue ray
 			hits = append(hits, RaycastHit{
 				Distance:      perpendicularDistance * tileSize,
@@ -817,7 +828,8 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	for y := horizon; y < screenHeight; y += rowStep {
 		// Relative position of the floor pixel from the center of the screen
 		// This determines the distance from the camera to the floor point
-		p := float64(y - horizon)
+		sampleY := float64(y) + float64(rowStep)/2
+		p := sampleY - float64(horizon)
 		if p == 0 {
 			p = 1 // Avoid division by zero
 		}
@@ -839,6 +851,10 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		// Calculate the step to increment world coordinates for each pixel in this scanline
 		stepX := (endFloorX - floorX) / float64(screenWidth)
 		stepY := (endFloorY - floorY) / float64(screenWidth)
+
+		// Sample from the center of each block to reduce shimmer at distance.
+		floorX += stepX * (float64(colStep) * 0.5)
+		floorY += stepY * (float64(colStep) * 0.5)
 
 		for x := 0; x < screenWidth; x += colStep {
 			// Get the tile coordinates from world coordinates
