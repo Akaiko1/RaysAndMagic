@@ -91,6 +91,34 @@ spells:
       base_size: 12
       color: [140, 80, 200]   # Violet shadow
 
+  alien_dark_bolt:
+    # Basic spell properties
+    name: "Alien Dark Bolt"
+    description: "A concentrated bolt of void energy"
+    school: "dark"
+    level: 2
+    spell_points_cost: 2
+    duration: 0
+    damage: 8
+    disintegrate_chance: 0.01
+    projectile_size: 12
+    is_projectile: true
+    is_utility: false
+    visual_effect: "dark_bolt"
+
+    # Projectile physics (tile-based units)
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 4.0
+      collision_size_tiles: 0.5
+
+    # Visual appearance
+    graphics:
+      max_size: 48
+      min_size: 3
+      base_size: 12
+      color: [120, 60, 160]   # Deep violet
+
   ice_bolt:
     # Basic spell properties
     name: "Ice Bolt"

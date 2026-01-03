@@ -36,17 +36,18 @@ const (
 )
 
 type MagicProjectile struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	SpellType  string // Type of spell for visual differentiation
-	Size       int    // Projectile size
-	Crit       bool   // Critical hit flag
-	Owner      ProjectileOwner
-	SourceName string
+	ID                 string  // Unique identifier
+	X, Y               float64 // Current position
+	VelX, VelY         float64 // Velocity
+	Damage             int
+	LifeTime           int // Frames remaining
+	Active             bool
+	SpellType          string // Type of spell for visual differentiation
+	Size               int    // Projectile size
+	Crit               bool   // Critical hit flag
+	DisintegrateChance float64
+	Owner              ProjectileOwner
+	SourceName         string
 }
 
 type MeleeAttack struct {
@@ -82,17 +83,18 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	BowKey     string // YAML key of the bow used to fire this arrow
-	DamageType string // Damage element type ("physical", "dark", etc.)
-	Crit       bool   // Critical hit flag
-	Owner      ProjectileOwner
-	SourceName string
+	ID                 string  // Unique identifier
+	X, Y               float64 // Current position
+	VelX, VelY         float64 // Velocity
+	Damage             int
+	LifeTime           int // Frames remaining
+	Active             bool
+	BowKey             string // YAML key of the bow used to fire this arrow
+	DamageType         string // Damage element type ("physical", "dark", etc.)
+	Crit               bool   // Critical hit flag
+	DisintegrateChance float64
+	Owner              ProjectileOwner
+	SourceName         string
 }
 
 // ArrowHitParticle represents a small particle burst for arrow impacts
@@ -309,6 +311,9 @@ type MMGame struct {
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
 	slotSelection     int
+	saveRenameOpen    bool
+	saveRenameSlot    int
+	saveRenameInput   string
 	exitRequested     bool
 
 	// Game over state
@@ -448,6 +453,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		// Session timer for score calculation
 		sessionStartTime: time.Now(),
+
+		saveRenameSlot: -1,
 	}
 
 	// Initialize rendering helper

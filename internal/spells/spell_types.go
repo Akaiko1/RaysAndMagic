@@ -16,23 +16,24 @@ func (s SpellID) String() string {
 
 // SpellDefinition represents the complete definition of a spell loaded from YAML
 type SpellDefinition struct {
-	ID              SpellID
-	Name            string
-	Description     string
-	School          string
-	Level           int // Spell level (1-9)
-	SpellPointsCost int
-	Duration        int // Duration in seconds (0 for instant spells)
-	Damage          int
-	Range           int // In tiles
-	ProjectileSpeed float64
-	ProjectileSize  int
-	LifeTime        int // In frames for projectiles
-	IsProjectile    bool
-	IsUtility       bool
-	VisualEffect    string
-	StatusIcon      string
-	StatBonus       int // Stat bonus for buff spells like Bless
+	ID                 SpellID
+	Name               string
+	Description        string
+	School             string
+	Level              int // Spell level (1-9)
+	SpellPointsCost    int
+	Duration           int // Duration in seconds (0 for instant spells)
+	Damage             int
+	DisintegrateChance float64
+	Range              int // In tiles
+	ProjectileSpeed    float64
+	ProjectileSize     int
+	LifeTime           int // In frames for projectiles
+	IsProjectile       bool
+	IsUtility          bool
+	VisualEffect       string
+	StatusIcon         string
+	StatBonus          int // Stat bonus for buff spells like Bless
 	// Effect configuration
 	HealAmount     int     // For healing spells
 	VisionBonus    float64 // For vision enhancement spells
@@ -56,23 +57,24 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
-		ID:              spellID,
-		Name:            configDef.Name,
-		Description:     configDef.Description,
-		School:          configDef.School,
-		Level:           configDef.Level,
-		SpellPointsCost: configDef.SpellPointsCost,
-		Duration:        configDef.Duration,
-		Damage:          configDef.Damage,
-		Range:           configDef.Range,
-		ProjectileSpeed: configDef.ProjectileSpeed,
-		ProjectileSize:  configDef.ProjectileSize,
-		LifeTime:        configDef.Lifetime,
-		IsProjectile:    configDef.IsProjectile,
-		IsUtility:       configDef.IsUtility,
-		VisualEffect:    configDef.VisualEffect,
-		StatusIcon:      configDef.StatusIcon,
-		StatBonus:       configDef.StatBonus,
+		ID:                 spellID,
+		Name:               configDef.Name,
+		Description:        configDef.Description,
+		School:             configDef.School,
+		Level:              configDef.Level,
+		SpellPointsCost:    configDef.SpellPointsCost,
+		Duration:           configDef.Duration,
+		Damage:             configDef.Damage,
+		DisintegrateChance: configDef.DisintegrateChance,
+		Range:              configDef.Range,
+		ProjectileSpeed:    configDef.ProjectileSpeed,
+		ProjectileSize:     configDef.ProjectileSize,
+		LifeTime:           configDef.Lifetime,
+		IsProjectile:       configDef.IsProjectile,
+		IsUtility:          configDef.IsUtility,
+		VisualEffect:       configDef.VisualEffect,
+		StatusIcon:         configDef.StatusIcon,
+		StatBonus:          configDef.StatBonus,
 		// Effect configuration from YAML
 		HealAmount:     configDef.HealAmount,
 		VisionBonus:    configDef.VisionBonus,

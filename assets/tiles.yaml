@@ -188,8 +188,8 @@ tiles:
     transparent: true
     walkable: true
     height_multiplier: 1.0
-    sprite: "forest_stream"
-    render_type: "flooring_object"
+    sprite: ""
+    render_type: "floor_only"
     floor_color: [0, 139, 139]  # Teal water
     floor_near_color: [205, 175, 149]  # Sandy banks near streams
     letter: "S"

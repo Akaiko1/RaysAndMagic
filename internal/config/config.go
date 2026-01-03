@@ -258,18 +258,19 @@ type SpellSystemConfig struct {
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	// Basic spell properties
-	Name            string `yaml:"name"`
-	Description     string `yaml:"description"`
-	School          string `yaml:"school"`
-	Level           int    `yaml:"level"`
-	SpellPointsCost int    `yaml:"spell_points_cost"`
-	Duration        int    `yaml:"duration"` // Duration in seconds (for buff spells)
-	Damage          int    `yaml:"damage"`
-	ProjectileSize  int    `yaml:"projectile_size"`
-	IsProjectile    bool   `yaml:"is_projectile"`
-	IsUtility       bool   `yaml:"is_utility"`
-	VisualEffect    string `yaml:"visual_effect"`
-	StatusIcon      string `yaml:"status_icon,omitempty"`
+	Name               string  `yaml:"name"`
+	Description        string  `yaml:"description"`
+	School             string  `yaml:"school"`
+	Level              int     `yaml:"level"`
+	SpellPointsCost    int     `yaml:"spell_points_cost"`
+	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
+	Damage             int     `yaml:"damage"`
+	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
+	ProjectileSize     int     `yaml:"projectile_size"`
+	IsProjectile       bool    `yaml:"is_projectile"`
+	IsUtility          bool    `yaml:"is_utility"`
+	VisualEffect       string  `yaml:"visual_effect"`
+	StatusIcon         string  `yaml:"status_icon,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -446,6 +447,7 @@ type WeaponDefinitionConfig struct {
 	MaxProjectiles     int                `yaml:"max_projectiles"`
 	HitBonus           int                `yaml:"hit_bonus"`
 	CritChance         int                `yaml:"crit_chance"`
+	DisintegrateChance float64            `yaml:"disintegrate_chance,omitempty"`
 	Rarity             string             `yaml:"rarity"`
 	Value              int                `yaml:"value,omitempty"`
 	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`

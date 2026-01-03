@@ -178,6 +178,10 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		cs.game.AddCombatMessage("Spell config error: " + err.Error())
 		return false
 	}
+	disintegrateChance := 0.0
+	if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
+		disintegrateChance = spellDefConfig.DisintegrateChance
+	}
 
 	// Determine critical hit for spells based on Luck only (no base crit for spells)
 	isCrit, _ := cs.RollCriticalChance(0, caster)
@@ -187,18 +191,19 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 	// Create magic projectile with proper type information
 	magicProjectile := MagicProjectile{
-		ID:        cs.game.GenerateProjectileID(string(spellID)),
-		X:         projectile.X,
-		Y:         projectile.Y,
-		VelX:      projectile.VelX,
-		VelY:      projectile.VelY,
-		Damage:    projectile.Damage,
-		LifeTime:  projectile.LifeTime,
-		Active:    projectile.Active,
-		SpellType: string(spellID),
-		Size:      projectile.Size,
-		Crit:      isCrit,
-		Owner:     ProjectileOwnerPlayer,
+		ID:                 cs.game.GenerateProjectileID(string(spellID)),
+		X:                  projectile.X,
+		Y:                  projectile.Y,
+		VelX:               projectile.VelX,
+		VelY:               projectile.VelY,
+		Damage:             projectile.Damage,
+		LifeTime:           projectile.LifeTime,
+		Active:             projectile.Active,
+		SpellType:          string(spellID),
+		Size:               projectile.Size,
+		Crit:               isCrit,
+		DisintegrateChance: disintegrateChance,
+		Owner:              ProjectileOwnerPlayer,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -343,7 +348,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	target := cs.game.party.Members[targetIndex]
 
 	// Heal must not revive characters at 0 HP / Dead.
-	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) {
+	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
 		return
 	}
@@ -449,6 +454,10 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	var arrowSpeed float64
 	var arrowLifetime int
 	var collisionSize float64
+	disintegrateChance := 0.0
+	if exists {
+		disintegrateChance = weaponDef.DisintegrateChance
+	}
 
 	tileSize := cs.game.config.GetTileSize()
 	if exists && weaponDef.Physics != nil {
@@ -480,18 +489,19 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	}
 
 	arrow := Arrow{
-		ID:         cs.game.GenerateProjectileID("arrow"),
-		X:          cs.game.camera.X,
-		Y:          cs.game.camera.Y,
-		VelX:       math.Cos(cs.game.camera.Angle) * arrowSpeed,
-		VelY:       math.Sin(cs.game.camera.Angle) * arrowSpeed,
-		Damage:     damage,
-		LifeTime:   arrowLifetime,
-		Active:     true,
-		BowKey:     bowKey,
-		DamageType: damageType,
-		Crit:       isCrit,
-		Owner:      ProjectileOwnerPlayer,
+		ID:                 cs.game.GenerateProjectileID("arrow"),
+		X:                  cs.game.camera.X,
+		Y:                  cs.game.camera.Y,
+		VelX:               math.Cos(cs.game.camera.Angle) * arrowSpeed,
+		VelY:               math.Sin(cs.game.camera.Angle) * arrowSpeed,
+		Damage:             damage,
+		LifeTime:           arrowLifetime,
+		Active:             true,
+		BowKey:             bowKey,
+		DamageType:         damageType,
+		Crit:               isCrit,
+		DisintegrateChance: disintegrateChance,
+		Owner:              ProjectileOwnerPlayer,
 	}
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
@@ -768,19 +778,25 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		if isCrit {
 			projectile.Damage *= 2
 		}
+		disintegrateChance := 0.0
+		if spellDefConfig, exists := config.GetSpellDefinition(string(selectedSpellID)); exists && spellDefConfig != nil {
+			disintegrateChance = spellDefConfig.DisintegrateChance
+		}
 
 		// Create magic projectile using unified system
 		magicProjectile := MagicProjectile{
-			ID:       cs.game.GenerateProjectileID(string(selectedSpellID)),
-			X:        projectile.X,
-			Y:        projectile.Y,
-			VelX:     projectile.VelX,
-			VelY:     projectile.VelY,
-			Damage:   projectile.Damage,
-			LifeTime: projectile.LifeTime,
-			Active:   projectile.Active,
-			Crit:     isCrit,
-			Owner:    ProjectileOwnerPlayer,
+			ID:                 cs.game.GenerateProjectileID(string(selectedSpellID)),
+			X:                  projectile.X,
+			Y:                  projectile.Y,
+			VelX:               projectile.VelX,
+			VelY:               projectile.VelY,
+			Damage:             projectile.Damage,
+			LifeTime:           projectile.LifeTime,
+			Active:             projectile.Active,
+			SpellType:          string(selectedSpellID),
+			Crit:               isCrit,
+			DisintegrateChance: disintegrateChance,
+			Owner:              ProjectileOwnerPlayer,
 		}
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -1057,21 +1073,26 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 	if err != nil {
 		return
 	}
+	disintegrateChance := 0.0
+	if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
+		disintegrateChance = spellDefConfig.DisintegrateChance
+	}
 
 	magicProjectile := MagicProjectile{
-		ID:         cs.game.GenerateProjectileID("monster_" + string(spellID)),
-		X:          monster.X,
-		Y:          monster.Y,
-		VelX:       projectile.VelX,
-		VelY:       projectile.VelY,
-		Damage:     monster.GetAttackDamage(),
-		LifeTime:   projectile.LifeTime,
-		Active:     projectile.Active,
-		SpellType:  string(spellID),
-		Size:       projectile.Size,
-		Crit:       false,
-		Owner:      ProjectileOwnerMonster,
-		SourceName: monster.Name,
+		ID:                 cs.game.GenerateProjectileID("monster_" + string(spellID)),
+		X:                  monster.X,
+		Y:                  monster.Y,
+		VelX:               projectile.VelX,
+		VelY:               projectile.VelY,
+		Damage:             monster.GetAttackDamage(),
+		LifeTime:           projectile.LifeTime,
+		Active:             projectile.Active,
+		SpellType:          string(spellID),
+		Size:               projectile.Size,
+		Crit:               false,
+		DisintegrateChance: disintegrateChance,
+		Owner:              ProjectileOwnerMonster,
+		SourceName:         monster.Name,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -1083,6 +1104,10 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 
 func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string) {
 	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
+	disintegrateChance := 0.0
+	if exists {
+		disintegrateChance = weaponDef.DisintegrateChance
+	}
 
 	tileSize := cs.game.config.GetTileSize()
 	arrowSpeed := cs.game.config.GetArrowSpeed()
@@ -1101,19 +1126,20 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 
 	angle := math.Atan2(cs.game.camera.Y-monster.Y, cs.game.camera.X-monster.X)
 	arrow := Arrow{
-		ID:         cs.game.GenerateProjectileID("monster_arrow"),
-		X:          monster.X,
-		Y:          monster.Y,
-		VelX:       math.Cos(angle) * arrowSpeed,
-		VelY:       math.Sin(angle) * arrowSpeed,
-		Damage:     monster.GetAttackDamage(),
-		LifeTime:   arrowLifetime,
-		Active:     true,
-		BowKey:     weaponKey,
-		DamageType: damageType,
-		Crit:       false,
-		Owner:      ProjectileOwnerMonster,
-		SourceName: monster.Name,
+		ID:                 cs.game.GenerateProjectileID("monster_arrow"),
+		X:                  monster.X,
+		Y:                  monster.Y,
+		VelX:               math.Cos(angle) * arrowSpeed,
+		VelY:               math.Sin(angle) * arrowSpeed,
+		Damage:             monster.GetAttackDamage(),
+		LifeTime:           arrowLifetime,
+		Active:             true,
+		BowKey:             weaponKey,
+		DamageType:         damageType,
+		Crit:               false,
+		DisintegrateChance: disintegrateChance,
+		Owner:              ProjectileOwnerMonster,
+		SourceName:         monster.Name,
 	}
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
@@ -1207,7 +1233,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			continue
 		}
 		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
-			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage)
+			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, mp.DisintegrateChance)
 			mp.Active = false
 			cs.game.collisionSystem.UnregisterEntity(mp.ID)
 		}
@@ -1219,7 +1245,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			continue
 		}
 		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
-			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage)
+			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage, ar.DisintegrateChance)
 			ar.Active = false
 			cs.game.collisionSystem.UnregisterEntity(ar.ID)
 		}
@@ -1234,7 +1260,7 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
 }
 
-func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int) {
+func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, disintegrateChance float64) {
 	currentChar := cs.findHighestEnduranceTarget()
 	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
 
@@ -1243,6 +1269,14 @@ func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage i
 	}
 
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
+		if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
+			currentChar.HitPoints = 0
+			currentChar.Conditions = []character.Condition{character.ConditionEradicated}
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", currentChar.Name, sourceName))
+			targetIndex := cs.findCharacterIndex(currentChar)
+			cs.game.TriggerDamageBlink(targetIndex)
+			return
+		}
 		currentChar.HitPoints -= finalDamage
 		if currentChar.HitPoints < 0 {
 			currentChar.HitPoints = 0
@@ -1338,6 +1372,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var isRanged bool
 	var weaponDef *config.WeaponDefinitionConfig
 	var arrowVelX, arrowVelY float64
+	var disintegrateChance float64
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1346,6 +1381,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			return
 		}
 		damage, isCrit = mp.Damage, mp.Crit
+		disintegrateChance = mp.DisintegrateChance
 		spellID := spells.SpellID(mp.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
@@ -1376,6 +1412,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			return
 		}
 		damage, isCrit = ar.Damage, ar.Crit
+		disintegrateChance = ar.DisintegrateChance
 		weaponName = "Arrow"
 		damageTypeStr = ar.DamageType
 		arrowVelX, arrowVelY = ar.VelX, ar.VelY
@@ -1396,6 +1433,32 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
 		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+
+	if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
+		if isSpell {
+			if mp, ok := projectile.(*MagicProjectile); ok {
+				cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+			} else {
+				cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+			}
+		} else if isRanged {
+			cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
+		}
+
+		monster.HitPoints = 0
+		monster.WasAttacked = true
+		monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+		cs.engageTurnBasedPackOnHit(monster)
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
+		cs.awardExperienceAndGold(monster)
+
+		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
+			monster.Experience, monster.Gold))
 		return
 	}
 

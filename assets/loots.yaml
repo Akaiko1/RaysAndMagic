@@ -52,3 +52,8 @@ loots:
     - type: "item"
       key: "lucky_paw"
       chance: 0.01
+
+  alien:
+    - type: "weapon"
+      key: "alien_blaster"
+      chance: 0.06

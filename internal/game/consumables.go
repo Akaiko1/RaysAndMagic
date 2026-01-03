@@ -27,6 +27,10 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	// Revive consumable
 	if item.Attributes["revive"] > 0 {
 		ch := g.party.Members[selectedChar]
+		if ch.HasCondition(character.ConditionEradicated) {
+			g.AddCombatMessage(fmt.Sprintf("%s cannot be revived.", ch.Name))
+			return false
+		}
 		// Cure Dead and Unconscious
 		ch.RemoveCondition(character.ConditionUnconscious)
 		ch.RemoveCondition(character.ConditionDead)

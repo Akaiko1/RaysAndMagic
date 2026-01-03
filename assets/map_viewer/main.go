@@ -153,6 +153,8 @@ func main() {
 	ebiten.SetWindowSize(windowWidth, windowHeight)
 	ebiten.SetWindowTitle("RaysAndMagic Map Viewer")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetVsyncEnabled(false)
+	ebiten.SetMaxTPS(120)
 
 	if err := ebiten.RunGame(v); err != nil {
 		log.Fatal(err)
