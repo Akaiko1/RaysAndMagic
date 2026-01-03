@@ -35,6 +35,42 @@ items:
     rarity: "common"
     value: 18
 
+  chain_armor:
+    name: "Chain Armor"
+    type: "armor"
+    armor_category: "chain"
+    description: "Interlocked rings that offer solid protection"
+    flavor: "Cold links that rattle with every breath."
+    equip_slot: "armor"
+    armor_class_base: 4
+    endurance_scaling_divisor: 5
+    rarity: "uncommon"
+    value: 85
+
+  chain_helmet:
+    name: "Chain Coif"
+    type: "armor"
+    armor_category: "chain"
+    description: "A hood of chainmail for sturdy defense"
+    flavor: "A weave of steel that muffles the world."
+    equip_slot: "helmet"
+    armor_class_base: 3
+    endurance_scaling_divisor: 6
+    rarity: "uncommon"
+    value: 55
+
+  chain_pants:
+    name: "Chain Leggings"
+    type: "armor"
+    armor_category: "chain"
+    description: "Chainmail leggings for reliable protection"
+    flavor: "Weighty rings that drag the dust at your feet."
+    equip_slot: "boots"
+    armor_class_base: 3
+    endurance_scaling_divisor: 6
+    rarity: "uncommon"
+    value: 60
+
   health_potion:
     name: "Health Potion"
     type: "consumable"
@@ -90,6 +126,30 @@ items:
     endurance_scaling_divisor: 4
     rarity: "uncommon"
     value: 120
+
+  iron_helmet:
+    name: "Iron Helmet"
+    type: "armor"
+    armor_category: "plate"
+    description: "A solid iron helm that shrugs off blows"
+    flavor: "A heavy crown of war."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 4
+    rarity: "uncommon"
+    value: 90
+
+  iron_pants:
+    name: "Iron Greaves"
+    type: "armor"
+    armor_category: "plate"
+    description: "Heavy greaves built to take punishment"
+    flavor: "Each step lands with purpose."
+    equip_slot: "boots"
+    armor_class_base: 4
+    endurance_scaling_divisor: 4
+    rarity: "uncommon"
+    value: 95
 
   dead_branch:
     name: "Dead Branch"
