@@ -599,6 +599,11 @@ type ItemDefinitionConfig struct {
 	IntellectScalingDivisor   int `yaml:"intellect_scaling_divisor,omitempty"`
 	PersonalityScalingDivisor int `yaml:"personality_scaling_divisor,omitempty"`
 	BonusMight                int `yaml:"bonus_might,omitempty"`
+	BonusIntellect            int `yaml:"bonus_intellect,omitempty"`
+	BonusPersonality          int `yaml:"bonus_personality,omitempty"`
+	BonusEndurance            int `yaml:"bonus_endurance,omitempty"`
+	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
+	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`

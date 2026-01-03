@@ -270,13 +270,23 @@ func getArmorSummary(item items.Item) string {
 	// Calculate armor bonuses based on item attributes
 	baseArmor := item.Attributes["armor_class_base"]
 	enduranceDiv := item.Attributes["endurance_scaling_divisor"]
+	bonusParts := armorBonusParts(item)
 	if baseArmor == 0 && enduranceDiv == 0 {
+		if len(bonusParts) > 0 {
+			return fmt.Sprintf("Bonuses: %s", strings.Join(bonusParts, ", "))
+		}
 		return "Provides basic protection"
 	}
+	var armorLine string
 	if enduranceDiv > 0 {
-		return fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
+		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
+	} else {
+		armorLine = fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
 	}
-	return fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+	if len(bonusParts) > 0 {
+		return fmt.Sprintf("%s\nBonuses: %s", armorLine, strings.Join(bonusParts, ", "))
+	}
+	return armorLine
 }
 
 func getArmorCategoryLine(item items.Item) string {
@@ -347,16 +357,8 @@ func armorRequiredSkillName(item items.Item) (string, bool) {
 func getAccessorySummary(item items.Item) string {
 	intDiv := item.Attributes["intellect_scaling_divisor"]
 	perDiv := item.Attributes["personality_scaling_divisor"]
-	mightFlat := item.Attributes["bonus_might"]
-	luckFlat := item.Attributes["bonus_luck"]
 
-	var parts []string
-	if mightFlat > 0 {
-		parts = append(parts, fmt.Sprintf("Might +%d", mightFlat))
-	}
-	if luckFlat > 0 {
-		parts = append(parts, fmt.Sprintf("Luck +%d", luckFlat))
-	}
+	parts := armorBonusParts(item)
 	if intDiv > 0 {
 		parts = append(parts, fmt.Sprintf("Spell Power +Intellect/%d", intDiv))
 	}
@@ -367,6 +369,32 @@ func getAccessorySummary(item items.Item) string {
 		return "An accessory with minor benefits"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func armorBonusParts(item items.Item) []string {
+	var parts []string
+	if v := item.Attributes["bonus_might"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Might +%d", v))
+	}
+	if v := item.Attributes["bonus_intellect"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Intellect +%d", v))
+	}
+	if v := item.Attributes["bonus_personality"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Personality +%d", v))
+	}
+	if v := item.Attributes["bonus_endurance"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Endurance +%d", v))
+	}
+	if v := item.Attributes["bonus_accuracy"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Accuracy +%d", v))
+	}
+	if v := item.Attributes["bonus_speed"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Speed +%d", v))
+	}
+	if v := item.Attributes["bonus_luck"]; v > 0 {
+		parts = append(parts, fmt.Sprintf("Luck +%d", v))
+	}
+	return parts
 }
 
 // getConsumableTooltip returns consumable-specific tooltip information
