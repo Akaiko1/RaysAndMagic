@@ -34,6 +34,7 @@ type GameSave struct {
 	PlayerY      float64                  `json:"player_y"`
 	PlayerAngle  float64                  `json:"player_angle"`
 	TurnBased    bool                     `json:"turn_based"`
+	SaveName     string                   `json:"save_name,omitempty"`
 	SavedAt      string                   `json:"saved_at"`
 	Party        PartySave                `json:"party"`
 	Monsters     []MonsterSave            `json:"monsters"`
@@ -157,6 +158,7 @@ type SaveSummary struct {
 	SavedAt   string
 	MapKey    string
 	TurnBased bool
+	Name      string
 }
 
 // GetSaveSlotSummary reads minimal info from a save slot for UI display
@@ -171,7 +173,7 @@ func GetSaveSlotSummary(slot int) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased}
+	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
 }
 
 // SaveGameToFile writes the current game state to a JSON file
@@ -181,12 +183,43 @@ func (g *MMGame) SaveGameToFile(path string) error {
 		return errors.New("world manager not available")
 	}
 	save := g.buildSave(wm)
+	if f, err := os.Open(path); err == nil {
+		var prev GameSave
+		if err := json.NewDecoder(f).Decode(&prev); err == nil && prev.SaveName != "" {
+			save.SaveName = prev.SaveName
+		}
+		_ = f.Close()
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(&save)
+}
+
+// RenameSaveSlot updates the stored save name for an existing slot.
+func RenameSaveSlot(slot int, name string) error {
+	path := slotPath(slot)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	var save GameSave
+	if err := json.NewDecoder(f).Decode(&save); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Close()
+	save.SaveName = name
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(&save)
 }

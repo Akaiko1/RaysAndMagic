@@ -278,10 +278,11 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	statusText := "Status: Normal"
 	if len(member.Conditions) > 0 {
-		statusText = fmt.Sprintf("Status: %s", ui.getConditionName(member.Conditions[0]))
-		if len(member.Conditions) > 1 {
-			statusText += fmt.Sprintf(" +%d more", len(member.Conditions)-1)
+		names := make([]string, 0, len(member.Conditions))
+		for _, cond := range member.Conditions {
+			names = append(names, ui.getConditionName(cond))
 		}
+		statusText = fmt.Sprintf("Status: %s", strings.Join(names, ", "))
 	}
 	ebitenutil.DebugPrintAt(screen, statusText, cardX+210, cardY+45)
 

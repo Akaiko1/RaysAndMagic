@@ -141,7 +141,11 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Add character condition status
 		statusText := "OK"
 		if len(member.Conditions) > 0 {
-			statusText = ui.getConditionName(member.Conditions[0])
+			conds := make([]string, 0, len(member.Conditions))
+			for _, cond := range member.Conditions {
+				conds = append(conds, ui.getConditionName(cond))
+			}
+			statusText = strings.Join(conds, ", ")
 		}
 		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+50)
 

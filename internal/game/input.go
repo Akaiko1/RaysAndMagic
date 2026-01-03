@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
+	"unicode/utf8"
 
 	"ugataima/internal/game/keytracker"
 
@@ -423,6 +424,25 @@ func (ih *InputHandler) handleMainMenuInput() {
 	case MenuSaveSelect:
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
+		if ih.game.saveRenameOpen {
+			ih.handleSaveRenameInput()
+			return
+		}
+		for i := 0; i < 5; i++ {
+			y := py + 56 + i*32
+			if ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
+				sum := GetSaveSlotSummary(i)
+				if !sum.Exists {
+					ih.game.AddCombatMessage("No save in slot to rename")
+				} else {
+					ih.game.slotSelection = i
+					ih.game.saveRenameOpen = true
+					ih.game.saveRenameSlot = i
+					ih.game.saveRenameInput = sum.Name
+				}
+				return
+			}
+		}
 		// Navigate slots 0..4
 		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 			if ih.game.slotSelection > 0 {
@@ -442,6 +462,16 @@ func (ih *InputHandler) handleMainMenuInput() {
 			} else {
 				ih.game.AddCombatMessage("Saved to slot")
 				ih.game.mainMenuMode = MenuMain
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+			sum := GetSaveSlotSummary(ih.game.slotSelection)
+			if !sum.Exists {
+				ih.game.AddCombatMessage("No save in slot to rename")
+			} else {
+				ih.game.saveRenameOpen = true
+				ih.game.saveRenameSlot = ih.game.slotSelection
+				ih.game.saveRenameInput = sum.Name
 			}
 		}
 		// Mouse click activation
@@ -485,6 +515,42 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.mainMenuMode = MenuMain
 			}
 		}
+	}
+}
+
+func (ih *InputHandler) handleSaveRenameInput() {
+	inputChars := ebiten.AppendInputChars(nil)
+	for _, char := range inputChars {
+		if char == '\n' || char == '\r' || char == '\t' {
+			continue
+		}
+		if len([]rune(ih.game.saveRenameInput)) < 24 {
+			ih.game.saveRenameInput += string(char)
+		}
+	}
+	if repeatingKeyPressed(ebiten.KeyBackspace) {
+		if len(ih.game.saveRenameInput) > 0 {
+			_, size := utf8.DecodeLastRuneInString(ih.game.saveRenameInput)
+			if size > 0 && size <= len(ih.game.saveRenameInput) {
+				ih.game.saveRenameInput = ih.game.saveRenameInput[:len(ih.game.saveRenameInput)-size]
+			}
+		}
+	}
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		name := strings.TrimSpace(ih.game.saveRenameInput)
+		if err := RenameSaveSlot(ih.game.saveRenameSlot, name); err != nil {
+			ih.game.AddCombatMessage("Rename failed")
+		} else {
+			ih.game.AddCombatMessage("Save renamed")
+		}
+		ih.game.saveRenameOpen = false
+		ih.game.saveRenameSlot = -1
+		ih.game.saveRenameInput = ""
+	}
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.game.saveRenameOpen = false
+		ih.game.saveRenameSlot = -1
+		ih.game.saveRenameInput = ""
 	}
 }
 

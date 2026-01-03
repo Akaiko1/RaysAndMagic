@@ -266,6 +266,33 @@ monsters:
       - "clearing"
       - "empty"
 
+  alien:
+    name: "Alien"
+    level: 5
+    max_hit_points: 250
+    armor_class: 12
+    experience: 550
+    attack_bonus: 5
+    damage_min: 9
+    damage_max: 15
+    alert_radius: 3  # 3 tiles
+    attack_radius: 1  # 1 tile (melee range)
+    projectile_spell: "alien_dark_bolt"
+    ranged_attack_range: 4
+    speed: 2.0
+    gold_min: 60
+    gold_max: 180
+    sprite: "alien"
+    letter: "x"
+    box_w: 48
+    box_h: 48
+    size_game: 2.6
+    resistances:
+      fire: 25
+      dark: 30
+    habitat_preferences:
+      - "empty"
+
   forest_spider:
     name: "Forest Spider"
     level: 3

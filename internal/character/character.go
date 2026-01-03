@@ -386,7 +386,11 @@ func (c *MMCharacter) GetDisplayInfo() string {
 	className := c.GetClassName()
 	condition := "OK"
 	if len(c.Conditions) > 0 {
-		condition = c.getConditionName(c.Conditions[0])
+		condNames := make([]string, 0, len(c.Conditions))
+		for _, cond := range c.Conditions {
+			condNames = append(condNames, c.getConditionName(cond))
+		}
+		condition = strings.Join(condNames, ", ")
 	}
 
 	// Add equipment info
@@ -620,6 +624,8 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 		requiredSkill = SkillMace
 	case "staff":
 		requiredSkill = SkillStaff
+	case "blaster":
+		return true
 	default:
 		return false
 	}
