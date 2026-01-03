@@ -1764,7 +1764,7 @@ func (r *Renderer) drawNPCs(screen *ebiten.Image) {
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance)
 		} else {
 			// Default to NPC-specific helper (larger than monsters)
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
 		}
 		if !visible {
 			continue

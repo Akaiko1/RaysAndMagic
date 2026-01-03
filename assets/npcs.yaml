@@ -17,6 +17,7 @@ npcs:
     type: "spell_trader"
     description: "A mysterious mage who trades arcane knowledge for gold"
     sprite: "elf_warrior"
+    size_multiplier: 4
     dialogue:
       greeting: "Greetings, traveler! I deal in magical knowledge. Choose a character and spell to learn."
       teaching: "Excellent choice! The spell has been inscribed in %s's spellbook."
@@ -54,6 +55,7 @@ npcs:
     type: "spell_trader"
     description: "A wise old mage who trades in magical knowledge"
     sprite: "human"
+    size_multiplier: 4
     dialogue:
       greeting: "Greetings, traveler! I possess ancient spells for those with coin."
       teaching: "Choose your student and the spell you wish to learn."
@@ -78,6 +80,7 @@ npcs:
     type: "merchant"
     description: "A general goods merchant with basic supplies"
     sprite: "elf"
+    size_multiplier: 4
     dialogue:
       greeting: "Welcome to my shop! What can I get for you today?"
     inventory:
@@ -95,6 +98,7 @@ npcs:
     type: "merchant"
     description: "A desert trader with a keen eye for useful gear"
     sprite: "merchant"
+    size_multiplier: 4
     dialogue:
       greeting: "Spare tools and trinkets? I pay fair coin."
 

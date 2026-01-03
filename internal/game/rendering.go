@@ -76,14 +76,14 @@ func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX i
 		return 0, 0, false
 	}
 	invDet := 1.0 / det
-	transformX := invDet*(dirY*dx - dirX*dy)
-	transformY := invDet*(-planeY*dx + planeX*dy)
+	transformX := invDet * (dirY*dx - dirX*dy)
+	transformY := invDet * (-planeY*dx + planeX*dy)
 	if transformY <= 0 {
 		return 0, 0, false
 	}
 
 	screenW := rh.game.config.GetScreenWidth()
-	screenX = int(float64(screenW)/2 * (1 + transformX/transformY))
+	screenX = int(float64(screenW) / 2 * (1 + transformX/transformY))
 	return screenX, transformY, true
 }
 
@@ -423,8 +423,14 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 }
 
 // CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters)
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance float64) (screenX, screenY, spriteSize int, visible bool) {
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, rh.game.config.Graphics.NPC.MaxSpriteSize, rh.game.config.Graphics.NPC.MinSpriteSize, rh.game.config.Graphics.NPC.SizeDistanceMultiplier)
+func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeMultiplier <= 0 {
+		sizeMultiplier = 1
+	}
+	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
+	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
+	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
+	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
 
 	// Adjust Y position to place NPCs on the ground (bottom edge at horizon line)
 	if visible {

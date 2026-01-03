@@ -3,22 +3,23 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
-	X, Y          float64
-	Name          string
-	Type          string
-	Description   string
-	Sprite        string
-	RenderType    string
-	Transparent   bool
-	Dialogue      []string
-	QuestGiver    bool
-	Merchant      bool
-	Inventory     []items.Item
-	Services      []NPCService
-	SpellData     map[string]*NPCSpell
-	DialogueData  *NPCDialogue
-	EncounterData *NPCEncounter
-	Visited       bool // Track if this encounter has been visited
+	X, Y           float64
+	Name           string
+	Type           string
+	Description    string
+	Sprite         string
+	RenderType     string
+	Transparent    bool
+	SizeMultiplier float64
+	Dialogue       []string
+	QuestGiver     bool
+	Merchant       bool
+	Inventory      []items.Item
+	Services       []NPCService
+	SpellData      map[string]*NPCSpell
+	DialogueData   *NPCDialogue
+	EncounterData  *NPCEncounter
+	Visited        bool // Track if this encounter has been visited
 }
 
 type NPCService int

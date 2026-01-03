@@ -17,17 +17,18 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name        string               `yaml:"name"`
-	Type        string               `yaml:"type"`
-	Description string               `yaml:"description"`
-	Sprite      string               `yaml:"sprite"`
-	RenderType  string               `yaml:"render_type,omitempty"`
-	Transparent bool                 `yaml:"transparent,omitempty"`
-	Dialogue    *NPCDialogue         `yaml:"dialogue"`
-	Spells      map[string]*NPCSpell `yaml:"spells,omitempty"`
-	Inventory   []*NPCItem           `yaml:"inventory,omitempty"`
-	Quests      []*NPCQuest          `yaml:"quests,omitempty"`
-	Encounter   *NPCEncounter        `yaml:"encounter,omitempty"`
+	Name           string               `yaml:"name"`
+	Type           string               `yaml:"type"`
+	Description    string               `yaml:"description"`
+	Sprite         string               `yaml:"sprite"`
+	RenderType     string               `yaml:"render_type,omitempty"`
+	Transparent    bool                 `yaml:"transparent,omitempty"`
+	SizeMultiplier float64              `yaml:"size_multiplier,omitempty"`
+	Dialogue       *NPCDialogue         `yaml:"dialogue"`
+	Spells         map[string]*NPCSpell `yaml:"spells,omitempty"`
+	Inventory      []*NPCItem           `yaml:"inventory,omitempty"`
+	Quests         []*NPCQuest          `yaml:"quests,omitempty"`
+	Encounter      *NPCEncounter        `yaml:"encounter,omitempty"`
 }
 
 // NPCDialogue represents the dialogue options for an NPC
@@ -153,15 +154,18 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	}
 
 	npc := &NPC{
-		X:           x,
-		Y:           y,
-		Name:        data.Name,
-		Type:        data.Type,
-		Description: data.Description,
-		Sprite:      data.Sprite,
-		Dialogue:    make([]string, 0),
-		Inventory:   make([]items.Item, 0),
-		Services:    make([]NPCService, 0),
+		X:              x,
+		Y:              y,
+		Name:           data.Name,
+		Type:           data.Type,
+		Description:    data.Description,
+		Sprite:         data.Sprite,
+		RenderType:     data.RenderType,
+		Transparent:    data.Transparent,
+		SizeMultiplier: data.SizeMultiplier,
+		Dialogue:       make([]string, 0),
+		Inventory:      make([]items.Item, 0),
+		Services:       make([]NPCService, 0),
 	}
 
 	// Set up dialogue
@@ -185,8 +189,6 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		npc.Services = append(npc.Services, ServiceEncounter)
 		npc.DialogueData = data.Dialogue
 		npc.EncounterData = data.Encounter
-		npc.RenderType = data.RenderType
-		npc.Transparent = data.Transparent
 	}
 
 	return npc, nil
