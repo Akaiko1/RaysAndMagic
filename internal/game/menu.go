@@ -8,6 +8,7 @@ import (
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -243,6 +244,42 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 	return g.applySave(wm, &save)
 }
 
+func normalizeItemFromConfig(item *items.Item) {
+	if item == nil {
+		return
+	}
+	switch item.Type {
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest:
+	default:
+		return
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if !ok || key == "" {
+		return
+	}
+	template, err := items.TryCreateItemFromYAML(key)
+	if err != nil {
+		return
+	}
+	if item.Attributes == nil {
+		item.Attributes = make(map[string]int)
+	}
+	for k, v := range template.Attributes {
+		if _, exists := item.Attributes[k]; !exists {
+			item.Attributes[k] = v
+		}
+	}
+	if item.ArmorCategory == "" {
+		item.ArmorCategory = template.ArmorCategory
+	}
+	if item.Description == "" {
+		item.Description = template.Description
+	}
+	if item.Rarity == "" {
+		item.Rarity = template.Rarity
+	}
+}
+
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Party
@@ -432,6 +469,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	// Restore party
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, Inventory: save.Party.Inventory}
+	for i := range g.party.Inventory {
+		normalizeItemFromConfig(&g.party.Inventory[i])
+	}
 	for _, cs := range save.Party.Members {
 		m := &character.MMCharacter{
 			Name:           cs.Name,
@@ -475,7 +515,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			m.MagicSchools[mk] = ms
 		}
 		for _, eq := range cs.Equipment {
-			m.Equipment[items.EquipSlot(eq.Slot)] = eq.Item
+			item := eq.Item
+			normalizeItemFromConfig(&item)
+			m.Equipment[items.EquipSlot(eq.Slot)] = item
 		}
 		g.party.Members = append(g.party.Members, m)
 	}
