@@ -22,7 +22,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_game: 1.5
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -46,7 +46,7 @@ monsters:
     letter: "o"
     box_w: 48
     box_h: 48
-    size_game: 2.5
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -74,7 +74,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_game: 2.0
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -98,7 +98,7 @@ monsters:
     letter: "b"
     box_w: 48
     box_h: 48
-    size_game: 3.0
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -121,7 +121,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_game: 1.5
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -144,7 +144,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_game: 2.0
+    size_game: 4.0
     resistances:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
@@ -171,7 +171,7 @@ monsters:
     letter: "l"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_game: 6.0
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
@@ -231,7 +231,7 @@ monsters:
     letter: "f"
     box_w: 48
     box_h: 48
-    size_game: 2.5
+    size_game: 4.0
     resistances:
       earth: 25    # Forest adaptation
     habitat_preferences:
@@ -260,7 +260,7 @@ monsters:
     letter: "u"
     box_w: 48
     box_h: 48
-    size_game: 3.0
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -286,7 +286,7 @@ monsters:
     letter: "x"
     box_w: 48
     box_h: 48
-    size_game: 2.6
+    size_game: 4.0
     resistances:
       fire: 25
       dark: 30
@@ -311,7 +311,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_game: 1.2
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "fern_patch"
@@ -339,7 +339,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_game: 4.5
+    size_game: 6.0
     resistances:
       earth: 75
       water: 50
@@ -376,7 +376,7 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_game: 0.8
+    size_game: 2.0
     resistances:
       spirit: 50
       mind: 75
@@ -409,7 +409,7 @@ monsters:
     letter: "n"       # Bandit
     box_w: 48
     box_h: 48
-    size_game: 2.2
+    size_game: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
