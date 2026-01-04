@@ -1604,20 +1604,22 @@ func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
 // drawMonsterWithDepthTest draws a monster sprite with depth buffer testing
 func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData MonsterRenderData) {
 	// Check if monster should be visible based on depth buffer
-	spriteLeft := monsterData.screenX - monsterData.spriteSize/2
-	spriteRight := monsterData.screenX + monsterData.spriteSize/2
+	drawLeft := monsterData.screenX - monsterData.spriteSize/2
+	drawRight := monsterData.screenX + monsterData.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
 
 	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
+	if depthLeft < 0 {
+		depthLeft = 0
 	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
 	}
 
 	// Check if any part of the sprite is in front of walls using camera-space depth
 	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
+	for x := depthLeft; x <= depthRight; x++ {
 		if monsterData.depthPerp < r.game.depthBuffer[x] {
 			visible = true
 			break
@@ -1651,9 +1653,9 @@ func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData Mo
 		jitterY = math.Cos(float64(r.game.frameCount)*0.9+phase) * jitter
 	}
 	if monsterData.flip {
-		opts.GeoM.Translate(float64(spriteLeft)+float64(monsterData.spriteSize)+jitterX, float64(monsterData.screenY)+jitterY)
+		opts.GeoM.Translate(float64(drawLeft)+float64(monsterData.spriteSize)+jitterX, float64(monsterData.screenY)+jitterY)
 	} else {
-		opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
+		opts.GeoM.Translate(float64(drawLeft)+jitterX, float64(monsterData.screenY)+jitterY)
 	}
 
 	// Apply distance shading
@@ -1810,20 +1812,22 @@ func (r *Renderer) drawNPCs(screen *ebiten.Image) {
 // drawNPCWithDepthTest draws an NPC sprite with depth buffer testing
 func (r *Renderer) drawNPCWithDepthTest(screen *ebiten.Image, npcData NPCRenderData) {
 	// Check if NPC should be visible based on depth buffer
-	spriteLeft := npcData.screenX - npcData.spriteSize/2
-	spriteRight := npcData.screenX + npcData.spriteSize/2
+	drawLeft := npcData.screenX - npcData.spriteSize/2
+	drawRight := npcData.screenX + npcData.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
 
 	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
+	if depthLeft < 0 {
+		depthLeft = 0
 	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
 	}
 
 	// Check if any part of the sprite is in front of walls using camera-space depth
 	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
+	for x := depthLeft; x <= depthRight; x++ {
 		if npcData.depthPerp < r.game.depthBuffer[x] {
 			visible = true
 			break
@@ -1839,7 +1843,7 @@ func (r *Renderer) drawNPCWithDepthTest(screen *ebiten.Image, npcData NPCRenderD
 	scaleX := float64(npcData.spriteSize) / float64(npcData.sprite.Bounds().Dx())
 	scaleY := float64(npcData.spriteSize) / float64(npcData.sprite.Bounds().Dy())
 	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(npcData.screenY))
+	opts.GeoM.Translate(float64(drawLeft), float64(npcData.screenY))
 
 	// Apply distance shading
 	brightness := 1.0 - (npcData.distance / r.game.camera.ViewDist)
@@ -1991,20 +1995,22 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 // drawTransparentEnvironmentSpriteWithDepthTest draws a transparent environment sprite with depth buffer testing
 func (r *Renderer) drawTransparentEnvironmentSpriteWithDepthTest(screen *ebiten.Image, spriteData EnvironmentSpriteRenderData) {
 	// Check if sprite should be visible based on depth buffer
-	spriteLeft := spriteData.screenX - spriteData.spriteSize/2
-	spriteRight := spriteData.screenX + spriteData.spriteSize/2
+	drawLeft := spriteData.screenX - spriteData.spriteSize/2
+	drawRight := spriteData.screenX + spriteData.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
 
 	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
+	if depthLeft < 0 {
+		depthLeft = 0
 	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
 	}
 
 	// Check if any part of the sprite is in front of walls using camera-space depth
 	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
+	for x := depthLeft; x <= depthRight; x++ {
 		if spriteData.depthPerp < r.game.depthBuffer[x] {
 			visible = true
 			break
@@ -2020,7 +2026,7 @@ func (r *Renderer) drawTransparentEnvironmentSpriteWithDepthTest(screen *ebiten.
 	scaleX := float64(spriteData.spriteSize) / float64(spriteData.sprite.Bounds().Dx())
 	scaleY := float64(spriteData.spriteSize) / float64(spriteData.sprite.Bounds().Dy())
 	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(spriteData.screenY))
+	opts.GeoM.Translate(float64(drawLeft), float64(spriteData.screenY))
 
 	// Apply distance shading with torch light effects
 	// Calculate tile center world coordinates for torch light
