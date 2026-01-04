@@ -895,6 +895,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 // drawTreeSprite draws tree sprites in the 3D world
 func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
 	// Calculate tree height and position
+	// distance is already perpendicular distance from the raycast
 	spriteHeight := int(float64(r.game.config.GetScreenHeight()) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
@@ -904,7 +905,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	}
 
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
-	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
+
+	// Anchor tree's bottom to the floor at its distance
+	// Use the same floor projection formula as other sprites for consistency
+	floorScreenY := r.game.renderHelper.calculateFloorScreenY(distance)
+	spriteTop := floorScreenY - spriteHeight
 
 	// Update depth buffer for central 85% of tree sprite width.
 	// This still avoids hard edges while reducing distant "see-through" artifacts.
@@ -1761,7 +1766,9 @@ func (r *Renderer) drawNPCs(screen *ebiten.Image) {
 		var visible bool
 
 		if npc.RenderType == "environment_sprite" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance)
+			// For NPCs with environment_sprite render type, use TileEmpty as placeholder
+			// (the function will use default TreeHeightMultiplier when tile type has no height defined)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty)
 		} else {
 			// Default to NPC-specific helper (larger than monsters)
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
@@ -1943,7 +1950,8 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 		distance := math.Sqrt(distanceSq)
 
 		// Calculate sprite metrics using helper function
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance)
+		// Pass tile type to get correct height multiplier (trees vs ferns etc.)
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType)
 		if !visible {
 			continue
 		}
