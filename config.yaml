@@ -276,9 +276,9 @@ graphics:
   
   # Monster rendering
   monster:
-    max_sprite_size: 64
+    max_sprite_size: 60
     min_sprite_size: 8
-    size_distance_multiplier: 100
+    size_distance_multiplier: 75
     
   # NPC rendering (larger than monsters for better visibility)
   npc:

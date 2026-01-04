@@ -98,7 +98,7 @@ monsters:
     letter: "b"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_game: 8.0
     resistances: {}
     habitat_preferences:
       - "empty"
