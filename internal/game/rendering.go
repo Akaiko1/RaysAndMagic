@@ -52,8 +52,10 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 		wallHeight = 1
 	}
 
-	// Center the wall vertically (bottom aligned to horizon)
-	wallTop = (rh.game.config.GetScreenHeight() - wallHeight) / 2
+	// Anchor wall bottom to the floor line at this distance for consistency
+	// with floor and sprite projection.
+	floorScreenY := rh.calculateFloorScreenY(distance)
+	wallTop = floorScreenY - wallHeight
 
 	return wallHeight, wallTop
 }
