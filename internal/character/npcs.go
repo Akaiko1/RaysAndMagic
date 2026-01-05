@@ -15,11 +15,19 @@ type NPC struct {
 	QuestGiver     bool
 	Merchant       bool
 	Inventory      []items.Item
+	MerchantStock  []*MerchantStockItem
+	SellAvailable  bool
 	Services       []NPCService
 	SpellData      map[string]*NPCSpell
 	DialogueData   *NPCDialogue
 	EncounterData  *NPCEncounter
 	Visited        bool // Track if this encounter has been visited
+}
+
+type MerchantStockItem struct {
+	Item     items.Item
+	Cost     int
+	Quantity int
 }
 
 type NPCService int
@@ -52,12 +60,13 @@ type SkillTeacher struct {
 
 func NewNPC(x, y float64, name string) *NPC {
 	return &NPC{
-		X:         x,
-		Y:         y,
-		Name:      name,
-		Dialogue:  make([]string, 0),
-		Inventory: make([]items.Item, 0),
-		Services:  make([]NPCService, 0),
+		X:             x,
+		Y:             y,
+		Name:          name,
+		Dialogue:      make([]string, 0),
+		Inventory:     make([]items.Item, 0),
+		MerchantStock: make([]*MerchantStockItem, 0),
+		Services:      make([]NPCService, 0),
 	}
 }
 

@@ -1,10 +1,10 @@
 # How to Add a New Monster
 
-This guide covers adding monsters via YAML and wiring up loot and placement.
+Monsters are defined in YAML and driven by runtime config.
 
 ## Overview
-- Monsters are defined in `assets/monsters.yaml`.
-- Loot tables are defined in `assets/loots.yaml`.
+- Monsters live in `assets/monsters.yaml`.
+- Loot tables are in `assets/loots.yaml`.
 - Map placement uses a single lowercase letter in `.map` files.
 - Radii in `monsters.yaml` are in tiles (1 tile = 64px).
 - `size_game` multiplies render size and stacks with `graphics.monster.size_distance_multiplier`.
@@ -40,7 +40,7 @@ monsters:
 ```
 
 Key requirements:
-- `letter` must be unique and lowercase (map spawns only recognize a-z).
+- `letter` must be unique and lowercase (map spawns recognize a-z).
 - `sprite` must exist in `assets/sprites/mobs/` (without `.png`).
 - `alert_radius` and `attack_radius` are in tiles.
 
@@ -48,7 +48,6 @@ Key requirements:
 Place a PNG in `assets/sprites/mobs/` that matches the `sprite` key.
 
 ## Step 3: Optional ranged attacks
-To make a ranged monster:
 ```yaml
   bandit:
     projectile_weapon: "throwing_knife"   # weapons.yaml key
@@ -60,19 +59,16 @@ Or spell-based:
     projectile_spell: "firebolt"          # spells.yaml key
     ranged_attack_range: 3                # tiles
 ```
-Notes:
-- `projectile_spell` must exist in `assets/spells.yaml`.
-- `projectile_weapon` must exist in `assets/weapons.yaml`.
 
 ## Step 4: Optional special effects
-Supported fields (all from `monsters.yaml`):
-- `perfect_dodge` (0-100)
+Supported fields (from `monsters.yaml`):
+- `perfect_dodge`
 - `fireburst_chance`, `fireburst_damage_min`, `fireburst_damage_max`
 - `poison_chance`, `poison_duration_seconds`
-- `flying` (true/false)
+- `flying`
 
 ## Step 5: Add loot
-Loot is controlled by `assets/loots.yaml` using the monster key (not the display name).
+Loot is controlled by `assets/loots.yaml` using the monster key.
 Loot drops into a bag on the ground and must be picked up by the player.
 
 Example:
@@ -86,9 +82,6 @@ loots:
       key: "iron_armor"
       chance: 0.10
 ```
-Notes:
-- `type: "weapon"` uses `assets/weapons.yaml` keys.
-- `type: "item"` uses `assets/items.yaml` keys.
 
 ## Step 6: Place in a map (optional)
 In any `.map` file, place the monster letter in the ASCII grid:
@@ -100,16 +93,9 @@ Map placement overrides habitat rules for that tile.
 ## Habitat rules
 `habitat_preferences` and `habitat_near` use tile keys defined in the `tile_types` section at the bottom of `assets/monsters.yaml`. If you add new tile keys, update `tile_types` accordingly.
 
-## Resistances
-Use the `damage_types` mapping at the bottom of `assets/monsters.yaml`. Positive values reduce damage; negative values increase damage.
-
 ## Testing checklist
 - YAML loads without errors.
 - `letter` is unique and lowercase.
 - Sprite file exists.
 - Monster spawns and behaves correctly.
 - Loot drops into a bag when killed.
-
-## Known limitations
-- No monster sound effects.
-- No particle/advanced VFX beyond basic sprite rendering.

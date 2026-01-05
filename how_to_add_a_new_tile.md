@@ -36,20 +36,33 @@ Use the `letter` in the map ASCII grid:
 ```
 
 ## Letter rules
-- Letters must be unique **per biome**. TileManager will error on conflicts.
+- Letters must be unique per biome. TileManager errors on conflicts.
 - If `biomes` is omitted, the letter must be unique globally.
 
-## Special tiles (teleporters)
-Special tiles are defined in `assets/special_tiles.yaml` and are placed using the `@[stile:key]` map syntax.
-Currently only these keys are wired by the map loader:
-- `vteleporter`
-- `rteleporter`
+## Special tiles (data-driven placement)
+Special tiles in `assets/special_tiles.yaml` can be placed by key using:
+```
+%...@....%  >[stile:spike_trap]
+```
+This replaces the `@` with the special tile matching `spike_trap`.
 
-Example map line:
+### Teleporters
+Teleporter behavior is driven by `special_tiles.yaml` properties. Example:
+```yaml
+special_tiles:
+  vteleporter:
+    type: "teleporter"
+    properties:
+      cooldown_seconds: 5
+      teleporter_group: "violet"
+      cross_map: true
+      auto_activate: true
+      random_destination: true
+      exclude_self: true
 ```
-%...@....%  >[stile:vteleporter]
-```
-This replaces the `@` with the special tile and keeps the floor underneath walkable.
+
+### Non-teleporter special tiles
+Special tiles like `spike_trap` or `magic_circle` are now placeable by key, but their gameplay effects are still not implemented.
 
 ## Supported fields
 Core fields are fully supported:
@@ -57,21 +70,16 @@ Core fields are fully supported:
 - `height_multiplier`, `sprite`, `render_type`
 - `floor_color`, `floor_near_color`, `wall_color`
 - `letter`, `biomes`
+- `type` (used for teleporter detection)
 
-`properties` and `effects` are parsed but not used (except teleporter types being recognized by name).
-
-## Render type quick notes
-- `textured_wall`: solid walls, blocks vision
-- `tree_sprite`: tall objects
-- `environment_sprite`: 3D decorations
-- `flooring_object`: ground-level decoration
-- `floor_only`: floor color only (teleporters/spawn)
+`effects` are still not used (no audio/VFX system yet).
 
 ## Testing checklist
 - YAML loads without errors.
 - Letter is unique for its biome.
 - Sprite exists if specified.
 - Tile renders and collides as expected.
+- Special tile placement with `>[stile:key]` works.
 
 ## Known limitations
 - Audio and particle effects are not implemented.

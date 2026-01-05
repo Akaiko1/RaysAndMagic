@@ -294,18 +294,14 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 				npcIndex++
 			}
 		} else if strings.HasPrefix(cleanDef, "[stile:") && strings.HasSuffix(cleanDef, "]") {
-			// Handle special tile placement
+			// Handle special tile placement (data-driven)
 			tileKey := strings.TrimSuffix(strings.TrimPrefix(cleanDef, "[stile:"), "]")
-
-			// Map tile key to tile type
-			var tileType TileType3D
-			switch tileKey {
-			case "vteleporter":
-				tileType = TileVioletTeleporter
-			case "rteleporter":
-				tileType = TileRedTeleporter
-			default:
-				continue // Skip unknown special tile types
+			if GlobalTileManager == nil {
+				continue
+			}
+			tileType, ok := GlobalTileManager.GetTileTypeFromKey(tileKey)
+			if !ok {
+				continue // Skip unknown special tile keys
 			}
 
 			// Place special tile at the next available '@' position

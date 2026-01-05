@@ -99,6 +99,7 @@ npcs:
     description: "A desert trader with a keen eye for useful gear"
     sprite: "merchant"
     size_multiplier: 4
+    sell_available: true
     dialogue:
       greeting: "Spare tools and trinkets? I pay fair coin."
 
@@ -125,6 +126,7 @@ npcs:
     transparent: true
     dialogue:
       greeting: "You approach an old shipwreck half-buried in the ground. Through gaps in the rotted hull, you hear voices and see flickering firelight. It seems bandits have made this wreck their hideout."
+      visited_message: "The shipwreck appears empty now."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Leave quietly"
@@ -133,6 +135,7 @@ npcs:
           action: "combat"
     encounter:
       type: "bandit_camp"
+      start_message: "Bandits emerge from the shipwreck to attack!"
       quest_id: "shipwreck_bandits"
       quest_name: "Clear the Shipwreck"
       quest_description: "Bandits have made a hideout in an old shipwreck. Defeat them all to claim the bounty."
@@ -145,29 +148,3 @@ npcs:
         experience: 500
         completion_message: "The shipwreck bandits have been defeated!"
       first_visit_only: true
-
-# NPC Placement Rules
-placement_rules:
-  spell_trader:
-    preferred_tiles: ["clearing", "ancient_tree", "spawn"]
-    avoid_tiles: ["water", "thicket", "wall"]
-    min_distance_from_monsters: 3.0
-    min_distance_from_other_npcs: 5.0
-  
-  merchant:
-    preferred_tiles: ["clearing", "spawn", "empty"]
-    avoid_tiles: ["water", "thicket", "moss_rock"]
-    min_distance_from_monsters: 2.0
-    min_distance_from_other_npcs: 3.0
-  
-  quest_giver:
-    preferred_tiles: ["ancient_tree", "clearing", "spawn"]
-    avoid_tiles: ["water", "thicket", "wall"]
-    min_distance_from_monsters: 4.0
-    min_distance_from_other_npcs: 6.0
-  
-  encounter:
-    preferred_tiles: ["clearing", "fern_patch", "empty"]
-    avoid_tiles: ["water", "deep_water", "wall", "tree", "ancient_tree"]
-    min_distance_from_monsters: 2.0
-    min_distance_from_other_npcs: 8.0

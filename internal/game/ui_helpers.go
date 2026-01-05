@@ -2,7 +2,6 @@ package game
 
 import (
 	"image/color"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -26,23 +25,6 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 		drawDebugTextColored(screen, seg.text, curX, y, seg.color)
 		curX += debugTextWidth(seg.text)
 	}
-}
-
-// getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
-func (ui *UISystem) getAvailableSpellKeys() []string {
-	if ui.game.dialogNPC == nil || ui.game.dialogNPC.SpellData == nil {
-		return []string{}
-	}
-
-	keys := make([]string, 0, len(ui.game.dialogNPC.SpellData))
-	for key := range ui.game.dialogNPC.SpellData {
-		keys = append(keys, key)
-	}
-
-	// Sort keys to ensure deterministic ordering and prevent UI blinking
-	sort.Strings(keys)
-
-	return keys
 }
 
 func (ui *UISystem) getSchoolName(school character.MagicSchool) string {
@@ -116,6 +98,19 @@ func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 	}
 
 	return lines
+}
+
+func merchantDialogLayout(screenW, screenH int) (dialogX, dialogY, dialogW, dialogH, listY, leftX, rightX, colW, rowH int) {
+	dialogW = 600
+	dialogH = 400
+	dialogX = (screenW - dialogW) / 2
+	dialogY = (screenH - dialogH) / 2
+	rowH = UIRowSpacing
+	listY = dialogY + 120
+	colW = dialogW/2 - 40
+	leftX = dialogX + 20
+	rightX = dialogX + dialogW/2 + 10
+	return
 }
 
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {

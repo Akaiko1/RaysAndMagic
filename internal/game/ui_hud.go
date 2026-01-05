@@ -698,13 +698,15 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	// Calculate screen dimensions for positioning
 	screenWidth := ui.game.config.GetScreenWidth()
 
-	// Create interaction message based on NPC type
+	// Create interaction message based on NPC capabilities
 	var message string
-	switch nearestNPC.Type {
-	case "spell_trader":
-		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
-	case "encounter":
+	switch {
+	case npcHasEncounter(nearestNPC):
 		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
+	case npcHasSpellTrading(nearestNPC):
+		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
+	case npcHasMerchant(nearestNPC):
+		message = fmt.Sprintf("Press T to trade with %s", nearestNPC.Name)
 	default:
 		message = fmt.Sprintf("Press T to talk to %s", nearestNPC.Name)
 	}

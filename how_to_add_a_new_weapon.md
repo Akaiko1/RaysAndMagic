@@ -63,9 +63,9 @@ weapons:
 ```
 
 ## Step 2: Make it obtainable
-Common options:
-- Add it to `assets/loots.yaml` under a monster key.
-- Add it to a map or scripted reward (custom logic).
+- Add to `assets/loots.yaml` under a monster key.
+- Add to merchant inventory (`assets/npcs.yaml`).
+- Add as a quest reward (custom logic).
 
 ## Important fields
 - `category`: used for class restrictions and mastery.
@@ -75,16 +75,15 @@ Common options:
 - `graphics`: required for visuals (slash or projectile).
 
 ## Optional fields
-- `bonus_stat_secondary` (dual scaling)
-- `damage_type` (e.g., "fire", "dark")
-- `max_projectiles` (limit active arrows for this weapon)
+- `bonus_stat_secondary`
+- `damage_type`
+- `max_projectiles`
 - `bonus_vs` (map of monster name or key to damage multiplier)
 - `disintegrate_chance`
 - `hit_bonus`, `crit_chance`, `value`, `rarity`
 
 ## Class restrictions
 Weapon categories are restricted by class in `internal/character/character.go`.
-Update that file if you add a new category or want to change permissions.
 
 ## Testing checklist
 - YAML loads without errors.
