@@ -113,6 +113,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	} else {
 		mouseX, mouseY := ebiten.CursorPosition()
 		var tooltip string
+		var compareTooltip string
 		var tooltipItem items.Item
 		var tooltipHasItem bool
 		var tooltipX, tooltipY int
@@ -184,6 +185,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			if isHovering {
 				// Show tooltip for this item
 				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+				compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
@@ -194,6 +196,10 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		if tooltip != "" && tooltipHasItem {
 			lines := strings.Split(tooltip, "\n")
 			ui.queueTooltipColored(lines, ui.itemTooltipColors(tooltipItem, lines), tooltipX, tooltipY)
+			if compareTooltip != "" {
+				compareLines := strings.Split(compareTooltip, "\n")
+				ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
+			}
 		}
 
 		// Draw inventory context menu if open
@@ -424,6 +430,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	// Draw schools and spells
 	y := contentY + 60
 	var spellTooltip string
+	var spellCompareTooltip string
 	var tooltipX, tooltipY int
 
 	for schoolIndex, school := range schools {
@@ -479,6 +486,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 
 				// Generate spell tooltip using SpellID
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
+				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
 			}
@@ -498,6 +506,10 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	if spellTooltip != "" {
 		lines := strings.Split(spellTooltip, "\n")
 		ui.queueTooltip(lines, tooltipX, tooltipY)
+		if spellCompareTooltip != "" {
+			compareLines := strings.Split(spellCompareTooltip, "\n")
+			ui.queueTooltipComparison(compareLines, nil)
+		}
 	}
 
 	// Draw spellbook controls

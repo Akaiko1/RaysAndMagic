@@ -137,8 +137,12 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 	vector.DrawFilledRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
 }
 
-// drawTooltip draws a tooltip with the given text lines at the specified position
-func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, y int) {
+const tooltipCompareGap = 8
+
+func tooltipBoxSize(lines []string) (int, int) {
+	if len(lines) == 0 {
+		return 0, 0
+	}
 	bgWidth := 0
 	for _, line := range lines {
 		if w := debugTextWidth(line) + 12; w > bgWidth {
@@ -146,6 +150,12 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, 
 		}
 	}
 	bgHeight := len(lines)*16 + 8
+	return bgWidth, bgHeight
+}
+
+// drawTooltip draws a tooltip with the given text lines at the specified position
+func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, y int) {
+	bgWidth, bgHeight := tooltipBoxSize(lines)
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
 	if len(colors) == len(lines) && len(colors) > 0 {
 		for i, line := range lines {
@@ -176,6 +186,14 @@ func (ui *UISystem) queueTooltipColored(lines []string, colors []color.Color, x,
 	ui.tooltipColors = colors
 	ui.tooltipX = x
 	ui.tooltipY = y
+}
+
+func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipCompareLines = lines
+	ui.tooltipCompareColors = colors
 }
 
 const (
