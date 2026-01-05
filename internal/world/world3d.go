@@ -3,6 +3,8 @@ package world
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -13,19 +15,33 @@ import (
 // TeleporterRegistry manages teleporter locations and cooldowns
 // TeleporterRegistry manages all teleporters globally, across all worlds
 type TeleporterRegistry struct {
-	Teleporters    []TeleporterLocation // All teleporters, regardless of type or world
-	LastUsedTime   time.Time
-	CooldownPeriod time.Duration
+	Teleporters     []TeleporterLocation // All teleporters, regardless of type or world
+	LastUsedByGroup map[string]time.Time
+}
+
+func (reg *TeleporterRegistry) FindTeleporter(mapKey string, x, y int) (TeleporterLocation, bool) {
+	for _, t := range reg.Teleporters {
+		if t.MapKey == mapKey && t.X == x && t.Y == y {
+			return t, true
+		}
+	}
+	return TeleporterLocation{}, false
 }
 
 // TeleporterLocation represents a teleporter's position and properties
 // TeleporterLocation represents a teleporter's position and properties
 type TeleporterLocation struct {
-	X, Y     int
-	TileType TileType3D
-	Label    string // Unique label for this teleporter
-	MapKey   string // Which map/world this teleporter is in
-	Type     string // e.g., "violet", "red", etc.
+	X, Y              int
+	TileType          TileType3D
+	TileKey           string
+	Label             string // Unique label for this teleporter
+	MapKey            string // Which map/world this teleporter is in
+	Group             string // Teleporter group (e.g., "violet", "red")
+	CooldownSeconds   float64
+	AutoActivate      bool
+	RandomDestination bool
+	ExcludeSelf       bool
+	CrossMap          bool
 }
 
 type World3D struct {
@@ -145,41 +161,117 @@ func (w *World3D) GetStartingPosition() (float64, float64) {
 // This should be called by WorldManager, passing the global registry
 func RegisterTeleportersFromMapData(specialTileSpawns []SpecialTileSpawn, mapKey string, registry *TeleporterRegistry, tiles [][]TileType3D) {
 	count := 0
+	if registry == nil || GlobalTileManager == nil {
+		return
+	}
 	for y, row := range tiles {
 		for x, tile := range row {
-			teleType := ""
-			switch tile {
-			case TileVioletTeleporter:
-				teleType = "violet"
-			case TileRedTeleporter:
-				teleType = "red"
+			tileData := GlobalTileManager.GetTileData(tile)
+			if tileData == nil || strings.ToLower(tileData.Type) != "teleporter" {
+				continue
 			}
-			if teleType != "" {
-				label := fmt.Sprintf("%s_%s_%d_%d", mapKey, teleType, x, y)
-				teleporter := TeleporterLocation{
-					X:        x,
-					Y:        y,
-					TileType: tile,
-					Label:    label,
-					MapKey:   mapKey,
-					Type:     teleType,
+			tileKey := GlobalTileManager.GetTileKey(tile)
+			group := getTeleporterString(tileData.Properties, "teleporter_group", tileKey)
+			cooldownSeconds := getTeleporterFloat(tileData.Properties, "cooldown_seconds", 5)
+			autoActivate := getTeleporterBool(tileData.Properties, "auto_activate", true)
+			randomDestination := getTeleporterBool(tileData.Properties, "random_destination", true)
+			excludeSelf := getTeleporterBool(tileData.Properties, "exclude_self", true)
+			crossMap := getTeleporterBool(tileData.Properties, "cross_map", true)
+
+			label := fmt.Sprintf("%s_%s_%d_%d", mapKey, group, x, y)
+			teleporter := TeleporterLocation{
+				X:                 x,
+				Y:                 y,
+				TileType:          tile,
+				TileKey:           tileKey,
+				Label:             label,
+				MapKey:            mapKey,
+				Group:             group,
+				CooldownSeconds:   cooldownSeconds,
+				AutoActivate:      autoActivate,
+				RandomDestination: randomDestination,
+				ExcludeSelf:       excludeSelf,
+				CrossMap:          crossMap,
+			}
+			// Ensure uniqueness by label
+			found := false
+			for _, t := range registry.Teleporters {
+				if t.Label == teleporter.Label {
+					found = true
+					break
 				}
-				// Ensure uniqueness by label
-				found := false
-				for _, t := range registry.Teleporters {
-					if t.Label == teleporter.Label {
-						found = true
-						break
-					}
-				}
-				if !found {
-					registry.Teleporters = append(registry.Teleporters, teleporter)
-					count++
-				}
+			}
+			if !found {
+				registry.Teleporters = append(registry.Teleporters, teleporter)
+				count++
 			}
 		}
 	}
 	fmt.Printf("Registered %d teleporters in world '%s' (global registry)\n", count, mapKey)
+}
+
+func getTeleporterString(props map[string]interface{}, key, fallback string) string {
+	if props == nil {
+		return fallback
+	}
+	if val, ok := props[key]; ok {
+		if s, ok := val.(string); ok && s != "" {
+			return s
+		}
+	}
+	return fallback
+}
+
+func getTeleporterBool(props map[string]interface{}, key string, fallback bool) bool {
+	if props == nil {
+		return fallback
+	}
+	val, ok := props[key]
+	if !ok {
+		return fallback
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case float64:
+		return v != 0
+	case string:
+		lower := strings.ToLower(v)
+		if lower == "true" || lower == "yes" || lower == "1" {
+			return true
+		}
+		if lower == "false" || lower == "no" || lower == "0" {
+			return false
+		}
+	}
+	return fallback
+}
+
+func getTeleporterFloat(props map[string]interface{}, key string, fallback float64) float64 {
+	if props == nil {
+		return fallback
+	}
+	val, ok := props[key]
+	if !ok {
+		return fallback
+	}
+	switch v := val.(type) {
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case float64:
+		return v
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+			return parsed
+		}
+	}
+	return fallback
 }
 
 // RegisterMonstersWithCollisionSystem registers all monsters with the collision system
@@ -313,8 +405,8 @@ func (w *World3D) SetWaterBreathingActive(active bool) {
 func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 	for _, spawn := range npcSpawns {
 		// Convert tile coordinates to world coordinates (spawn at tile center)
-		worldX := float64(spawn.X*64) + 32 // 64 is tile size, +32 for center
-		worldY := float64(spawn.Y*64) + 32
+		tileSize := float64(w.config.GetTileSize())
+		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, tileSize)
 
 		// Create NPC from configuration
 		npc, err := character.CreateNPCFromConfig(spawn.NPCKey, worldX, worldY)
@@ -325,6 +417,9 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 
 		w.NPCs = append(w.NPCs, npc)
 	}
+}
+func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
+	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }
 
 // loadMonstersFromMapData loads monsters from map spawn data
@@ -346,15 +441,25 @@ func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 func (reg *TeleporterRegistry) GetRandomDestinationTeleporter(source TeleporterLocation) (TeleporterLocation, bool) {
 	var candidates []TeleporterLocation
 	for _, t := range reg.Teleporters {
-		if t.Type == source.Type && !(t.MapKey == source.MapKey && t.X == source.X && t.Y == source.Y) {
-			candidates = append(candidates, t)
+		if t.Group != source.Group {
+			continue
 		}
+		if !source.CrossMap && t.MapKey != source.MapKey {
+			continue
+		}
+		if source.ExcludeSelf && t.MapKey == source.MapKey && t.X == source.X && t.Y == source.Y {
+			continue
+		}
+		candidates = append(candidates, t)
 	}
 	if len(candidates) == 0 {
 		return TeleporterLocation{}, false
 	}
-	idx := rand.Intn(len(candidates))
-	return candidates[idx], true
+	if source.RandomDestination {
+		idx := rand.Intn(len(candidates))
+		return candidates[idx], true
+	}
+	return candidates[0], true
 }
 
 // TeleportParty handles teleportation logic: selects a random destination and moves the party, switching worlds if needed

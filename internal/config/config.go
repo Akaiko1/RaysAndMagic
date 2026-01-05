@@ -396,6 +396,7 @@ type TileConfig struct {
 
 type TileData struct {
 	Name             string                 `yaml:"name"`
+	Type             string                 `yaml:"type,omitempty"`
 	Solid            bool                   `yaml:"solid"`
 	Transparent      bool                   `yaml:"transparent"`
 	Walkable         bool                   `yaml:"walkable"`
