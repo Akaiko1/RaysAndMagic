@@ -11,17 +11,12 @@ type NPC struct {
 	RenderType     string
 	Transparent    bool
 	SizeMultiplier float64
-	Dialogue       []string
-	QuestGiver     bool
-	Merchant       bool
-	Inventory      []items.Item
 	MerchantStock  []*MerchantStockItem
 	SellAvailable  bool
-	Services       []NPCService
 	SpellData      map[string]*NPCSpell
 	DialogueData   *NPCDialogue
 	EncounterData  *NPCEncounter
-	Visited        bool // Track if this encounter has been visited
+	Visited        bool
 }
 
 type MerchantStockItem struct {
@@ -29,19 +24,6 @@ type MerchantStockItem struct {
 	Cost     int
 	Quantity int
 }
-
-type NPCService int
-
-const (
-	ServiceTraining NPCService = iota
-	ServiceHealing
-	ServiceRepair
-	ServiceIdentify
-	ServiceSpellTrading
-	ServiceTrading
-	ServiceQuests
-	ServiceEncounter
-)
 
 type WorldItem struct {
 	X, Y         float64
@@ -63,10 +45,7 @@ func NewNPC(x, y float64, name string) *NPC {
 		X:             x,
 		Y:             y,
 		Name:          name,
-		Dialogue:      make([]string, 0),
-		Inventory:     make([]items.Item, 0),
 		MerchantStock: make([]*MerchantStockItem, 0),
-		Services:      make([]NPCService, 0),
 	}
 }
 

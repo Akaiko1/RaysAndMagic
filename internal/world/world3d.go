@@ -12,7 +12,6 @@ import (
 	"ugataima/internal/monster"
 )
 
-// TeleporterRegistry manages teleporter locations and cooldowns
 // TeleporterRegistry manages all teleporters globally, across all worlds
 type TeleporterRegistry struct {
 	Teleporters     []TeleporterLocation // All teleporters, regardless of type or world
@@ -28,7 +27,6 @@ func (reg *TeleporterRegistry) FindTeleporter(mapKey string, x, y int) (Teleport
 	return TeleporterLocation{}, false
 }
 
-// TeleporterLocation represents a teleporter's position and properties
 // TeleporterLocation represents a teleporter's position and properties
 type TeleporterLocation struct {
 	X, Y              int
@@ -489,9 +487,3 @@ func (wm *WorldManager) TeleportParty(source TeleporterLocation) bool {
 	fmt.Printf("Teleported to %s at (%d, %d) in world '%s'\n", dest.Label, dest.X, dest.Y, dest.MapKey)
 	return true
 }
-
-// --- Teleporter System Refactored Functions ---
-// Place these after all other code, after the last closing brace
-
-// --- Teleporter System Refactored Functions ---
-// Place these at the end of the file after all type and method definitions

@@ -68,36 +68,9 @@ func (ui *UISystem) getClassName(class character.CharacterClass) string {
 	return "Unknown"
 }
 
-// wrapText wraps text to fit within specified width (UISystem method)
+// wrapText delegates to the standalone wrapText function in ui_dialogs.go
 func (ui *UISystem) wrapText(text string, maxWidth int) []string {
-	if len(text) <= maxWidth {
-		return []string{text}
-	}
-
-	var lines []string
-	words := strings.Fields(text)
-	currentLine := ""
-
-	for _, word := range words {
-		if len(currentLine)+len(word)+1 <= maxWidth {
-			if currentLine == "" {
-				currentLine = word
-			} else {
-				currentLine += " " + word
-			}
-		} else {
-			if currentLine != "" {
-				lines = append(lines, currentLine)
-			}
-			currentLine = word
-		}
-	}
-
-	if currentLine != "" {
-		lines = append(lines, currentLine)
-	}
-
-	return lines
+	return wrapText(text, maxWidth)
 }
 
 func merchantDialogLayout(screenW, screenH int) (dialogX, dialogY, dialogW, dialogH, listY, leftX, rightX, colW, rowH int) {

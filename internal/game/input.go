@@ -1641,7 +1641,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if !(npc.Visited && npc.EncounterData != nil && npc.EncounterData.FirstVisitOnly) {
 				// Calculate position of choices (matching drawEncounterDialog exactly)
 				greeting := npc.DialogueData.Greeting
-				lines := ih.wrapTextForDialog(greeting, 70)
+				lines := wrapText(greeting, 70)
 				choicesY := dialogY + 50 + len(lines)*16 + 20
 
 				// Add space for choice prompt if it exists
@@ -2203,27 +2203,3 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	return false
 }
 
-// wrapTextForDialog wraps text to fit within specified width (same as UI wrapText)
-func (ih *InputHandler) wrapTextForDialog(text string, maxWidth int) []string {
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return []string{}
-	}
-
-	var lines []string
-	currentLine := words[0]
-
-	for _, word := range words[1:] {
-		// Check if adding this word would exceed maxWidth
-		if len(currentLine)+1+len(word) <= maxWidth {
-			currentLine += " " + word
-		} else {
-			lines = append(lines, currentLine)
-			currentLine = word
-		}
-	}
-
-	// Add the last line
-	lines = append(lines, currentLine)
-	return lines
-}
