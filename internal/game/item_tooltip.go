@@ -585,37 +585,6 @@ func getSchoolFromString(schoolStr string) character.MagicSchool {
 	}
 }
 
-// calculateSpellEffectivenessFromID calculates spell effectiveness using SpellID
-func calculateSpellEffectivenessFromID(spellID spells.SpellID, skill *character.MagicSkill) int {
-	// Base effectiveness depends on spell complexity
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return 50 // Default effectiveness if spell not found
-	}
-	baseEffectiveness := 70 + (skill.Level * 5) // 75% at level 1, 100% at level 6
-
-	// More complex spells (higher level) are harder to cast effectively
-	complexity_penalty := (def.Level - 1) * 5
-	effectiveness := baseEffectiveness - complexity_penalty
-
-	// Mastery bonuses
-	switch skill.Mastery {
-	case character.MasteryExpert:
-		effectiveness += 10
-	case character.MasteryMaster:
-		effectiveness += 20
-	case character.MasteryGrandMaster:
-		effectiveness += 30
-	}
-
-	// Cap at 100% for display purposes
-	if effectiveness > 100 {
-		effectiveness = 100
-	}
-
-	return effectiveness
-}
-
 func getSpellMasteryBonus(def spells.SpellDefinition, char *character.MMCharacter) int {
 	if char == nil || def.School == "" {
 		return 0

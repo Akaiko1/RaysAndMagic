@@ -169,7 +169,7 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 
 	if gl.renderer != nil {
 		fmt.Printf(
-			"[PERF] caches floor_colors=%d circles=%d transparent=%d rendered_sprites=%d ray_dirs=%d tile_sprites=%d floor_pixels=%d visible_buf=%d/%d\n",
+			"[PERF] caches floor_colors=%d circles=%d transparent=%d rendered_sprites=%d ray_dirs=%d tile_sprites=%d floor_pixels=%d unified_sprites=%d/%d\n",
 			len(gl.renderer.floorColorCache),
 			len(gl.renderer.circleCache),
 			len(gl.renderer.transparentSpritesCache),
@@ -177,8 +177,8 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 			len(gl.renderer.rayDirectionsX),
 			len(gl.renderer.tileTypeSpriteCache),
 			len(gl.renderer.floorPixels),
-			len(gl.renderer.visibleSpritesBuffer),
-			cap(gl.renderer.visibleSpritesBuffer),
+			len(gl.renderer.unifiedSprites),
+			cap(gl.renderer.unifiedSprites),
 		)
 	}
 }
