@@ -688,11 +688,21 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 	return MultiRaycastHit{Hits: hits}
 }
 
+// treeHitData stores tree hit information for sorted rendering
+type treeHitData struct {
+	screenX  int
+	distance float64
+	tileType world.TileType3D
+}
+
 // renderRaycastResults processes and renders the results from parallel raycasting.
 // Each result contains distance and hit information for one vertical screen column.
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
+
+	// Collect tree hits for sorted rendering (back-to-front)
+	var treeHits []treeHitData
 
 	for columnIndex, rayResult := range results {
 		screenX := columnIndex * rayWidth
@@ -729,6 +739,16 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 					}
 				}
 
+				// Collect tree hits for later sorted rendering
+				if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == "tree_sprite" {
+					treeHits = append(treeHits, treeHitData{
+						screenX:  screenX,
+						distance: hit.Distance,
+						tileType: hit.TileType,
+					})
+					continue // Skip immediate rendering
+				}
+
 				// Render this hit
 				r.renderSingleHit(screen, screenX, hit, currentRayWidth)
 			}
@@ -743,9 +763,29 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 				}
 			}
 
+			// Collect tree hits for later sorted rendering
+			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == "tree_sprite" {
+				treeHits = append(treeHits, treeHitData{
+					screenX:  screenX,
+					distance: hitInfo.Distance,
+					tileType: hitInfo.TileType,
+				})
+				continue // Skip immediate rendering
+			}
+
 			// Render this hit
 			r.renderSingleHit(screen, screenX, hitInfo, currentRayWidth)
 		}
+	}
+
+	// Sort tree hits by distance (far to near) for proper transparency
+	sort.Slice(treeHits, func(i, j int) bool {
+		return treeHits[i].distance > treeHits[j].distance
+	})
+
+	// Render trees back-to-front
+	for _, tree := range treeHits {
+		r.drawTreeSprite(screen, tree.screenX, tree.distance, tree.tileType)
 	}
 }
 
@@ -923,19 +963,7 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	// Use the same floor projection formula as other sprites for consistency
 	floorScreenY := r.game.renderHelper.calculateFloorScreenY(distance)
 	spriteTop := floorScreenY - spriteHeight
-
-	// Update depth buffer for central 85% of tree sprite width.
-	// This still avoids hard edges while reducing distant "see-through" artifacts.
 	spriteLeft := x - spriteWidth/2
-	spriteRight := x + spriteWidth/2
-	depthMargin := spriteWidth * 7 / 100 // 7% margin on each side
-	depthLeft := spriteLeft + depthMargin
-	depthRight := spriteRight - depthMargin
-	for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
-		if distance < r.game.depthBuffer[px] {
-			r.game.depthBuffer[px] = distance
-		}
-	}
 
 	// Get appropriate tree sprite using tile manager
 	var spriteName string
