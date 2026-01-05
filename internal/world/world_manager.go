@@ -212,6 +212,3 @@ func (wm *WorldManager) IsValidMap(mapKey string) bool {
 	_, exists := wm.LoadedMaps[mapKey]
 	return exists
 }
-
-// registerTeleportersGlobally registers teleporters from a map into the global registry
-// registerTeleportersGlobally is now obsolete; use RegisterTeleportersFromMapData instead.

@@ -166,32 +166,16 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Transparent:    data.Transparent,
 		SizeMultiplier: data.SizeMultiplier,
 		SellAvailable:  data.SellAvailable,
-		Dialogue:       make([]string, 0),
-		Inventory:      make([]items.Item, 0),
-		Services:       make([]NPCService, 0),
+		DialogueData:   data.Dialogue,
 	}
 
-	// Set up dialogue
-	if data.Dialogue != nil {
-		npc.Dialogue = append(npc.Dialogue, data.Dialogue.Greeting)
-	}
-
-	// Set up services based on NPC type
+	// Set up type-specific data
 	switch data.Type {
 	case "spell_trader":
-		npc.Services = append(npc.Services, ServiceSpellTrading)
 		npc.SpellData = data.Spells
-		npc.DialogueData = data.Dialogue
 	case "merchant":
-		npc.Services = append(npc.Services, ServiceTrading)
-		npc.DialogueData = data.Dialogue
 		npc.MerchantStock = buildMerchantStock(data.Inventory)
-	case "quest_giver":
-		npc.Services = append(npc.Services, ServiceQuests)
-		// Set up quest data
 	case "encounter":
-		npc.Services = append(npc.Services, ServiceEncounter)
-		npc.DialogueData = data.Dialogue
 		npc.EncounterData = data.Encounter
 	}
 
