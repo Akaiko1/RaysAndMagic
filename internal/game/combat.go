@@ -90,8 +90,6 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
 	}
-	masteryBonus := cs.spellMasteryBonus(caster, spellID)
-
 	if spellDef.IsUtility {
 		// Handle utility spells (like Torch Light)
 		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Intellect)
@@ -102,16 +100,16 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 		// Apply the utility spell effects to the game
 		if result.Success {
-			if masteryBonus > 0 {
-				if result.HealAmount > 0 {
-					result.HealAmount += masteryBonus
-				}
-				if result.StatBonus > 0 {
-					result.StatBonus += masteryBonus
-				}
-				if result.Duration > 0 {
-					result.Duration += masteryBonus * cs.game.config.GetTPS()
-				}
+			// Normalize core spell values through centralized calculators.
+			if spellDef.HealAmount > 0 {
+				_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
+				result.HealAmount = totalHeal
+			}
+			if spellDef.StatBonus > 0 {
+				result.StatBonus = cs.CalculateSpellStatBonus(spellID, caster)
+			}
+			if spellDef.Duration > 0 {
+				result.Duration = cs.CalculateSpellDurationFrames(spellID, caster)
 			}
 			// Add combat message
 			cs.game.AddCombatMessage(result.Message)
@@ -168,8 +166,9 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
 	}
-	if masteryBonus > 0 {
-		projectile.Damage += masteryBonus
+	// Override damage with centralized calculation (includes mastery bonus).
+	if _, _, totalDamage := cs.CalculateSpellDamage(spellID, caster); totalDamage > 0 {
+		projectile.Damage = totalDamage
 	}
 
 	// Get spell-specific config dynamically
@@ -267,9 +266,8 @@ func (cs *CombatSystem) EquipmentHeal() {
 	}
 
 	if result.Success {
-		masteryBonus := cs.spellMasteryBonus(caster, spellID)
-		if masteryBonus > 0 && result.HealAmount > 0 {
-			result.HealAmount += masteryBonus
+		if _, _, totalHeal := cs.CalculateSpellHealing(spellID, caster); totalHeal > 0 {
+			result.HealAmount = totalHeal
 		}
 		// Apply spell effects based on result
 		if result.HealAmount > 0 {
@@ -355,12 +353,8 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 
 	// Cast heal on target
 	caster.SpellPoints -= spellCost
-	// Calculate heal amount using centralized function
-	_, _, healAmount := cs.CalculateEquippedHealAmount(spellCost, caster)
-	masteryBonus := cs.spellMasteryBonus(caster, spellID)
-	if masteryBonus > 0 {
-		healAmount += masteryBonus
-	}
+	// Calculate heal amount using centralized spell formula
+	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
 	target.HitPoints += healAmount
 	if target.HitPoints > target.MaxHitPoints {
 		target.HitPoints = target.MaxHitPoints
@@ -746,7 +740,6 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return
 	}
-	masteryBonus := cs.spellMasteryBonus(currentChar, selectedSpellID)
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
@@ -769,8 +762,9 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return
 		}
-		if masteryBonus > 0 {
-			projectile.Damage += masteryBonus
+		// Override damage with centralized calculation (includes mastery bonus).
+		if _, _, totalDamage := cs.CalculateSpellDamage(selectedSpellID, currentChar); totalDamage > 0 {
+			projectile.Damage = totalDamage
 		}
 
 		// Determine critical hit for spells based on Luck only (no base crit for spells)
@@ -824,14 +818,16 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		}
 
 		if result.Success {
-			// Apply skill level multiplier to duration effects
-			duration := result.Duration
-			if masteryBonus > 0 && duration > 0 {
-				duration += masteryBonus * cs.game.config.GetTPS()
+			// Normalize core spell values through centralized calculators.
+			if selectedSpellDef.HealAmount > 0 {
+				_, _, totalHeal := cs.CalculateSpellHealing(selectedSpellID, currentChar)
+				result.HealAmount = totalHeal
 			}
-			if magicSkill, exists := currentChar.MagicSchools[selectedSchool]; exists && duration > 0 {
-				skillMultiplier := 1.0 + (float64(magicSkill.Level) * 0.1)
-				duration = int(float64(duration) * skillMultiplier)
+			if selectedSpellDef.StatBonus > 0 {
+				result.StatBonus = cs.CalculateSpellStatBonus(selectedSpellID, currentChar)
+			}
+			if selectedSpellDef.Duration > 0 {
+				result.Duration = cs.CalculateSpellDurationFrames(selectedSpellID, currentChar)
 			}
 
 			// Apply effects based on spell result
@@ -839,11 +835,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 			// Apply healing
 			if result.HealAmount > 0 {
-				healAmount := result.HealAmount
-				if masteryBonus > 0 {
-					healAmount += masteryBonus
-				}
-				currentChar.HitPoints += healAmount
+				currentChar.HitPoints += result.HealAmount
 				if currentChar.HitPoints > currentChar.MaxHitPoints {
 					currentChar.HitPoints = currentChar.MaxHitPoints
 				}
@@ -854,22 +846,22 @@ func (cs *CombatSystem) CastSelectedSpell() {
 				switch string(selectedSpellID) {
 				case "torch_light":
 					cs.game.torchLightActive = true
-					cs.game.torchLightDuration = duration
+					cs.game.torchLightDuration = result.Duration
 					cs.game.torchLightRadius = 4.0
 				case "wizard_eye":
 					cs.game.wizardEyeActive = true
-					cs.game.wizardEyeDuration = duration
+					cs.game.wizardEyeDuration = result.Duration
 				}
 			}
 
 			// Apply movement effects
 			if result.WaterWalk {
 				cs.game.walkOnWaterActive = true
-				cs.game.walkOnWaterDuration = duration
+				cs.game.walkOnWaterDuration = result.Duration
 			}
 			if result.WaterBreathing {
 				cs.game.waterBreathingActive = true
-				cs.game.waterBreathingDuration = duration
+				cs.game.waterBreathingDuration = result.Duration
 				// Store current position and map for return teleportation when effect expires
 				cs.game.underwaterReturnX = cs.game.camera.X
 				cs.game.underwaterReturnY = cs.game.camera.Y
@@ -880,11 +872,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 
 			// Apply stat bonus effects
 			if result.StatBonus > 0 {
-				statBonus := result.StatBonus
-				if masteryBonus > 0 {
-					statBonus += masteryBonus
-				}
-				cs.applyBlessEffect(duration, statBonus)
+				cs.applyBlessEffect(result.Duration, result.StatBonus)
 			}
 
 			// Apply awakening effects
@@ -892,7 +880,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 				// TODO: Remove sleep/paralysis conditions from party
 			}
 
-			cs.game.setUtilityStatus(selectedSpellID, duration)
+			cs.game.setUtilityStatus(selectedSpellID, result.Duration)
 			cs.recordSpellCast(currentChar, selectedSpellID)
 		}
 	}
@@ -1754,22 +1742,6 @@ func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *cha
 	return baseDamage, intellectBonus, totalDamage
 }
 
-// CalculateHealingSpellAmount calculates healing for body magic spells from spellbook
-func (cs *CombatSystem) CalculateHealingSpellAmount(spellPoints int, char *character.MMCharacter) (int, int, int) {
-	baseHealing := spellPoints * 5
-	personalityBonus := char.GetEffectivePersonality(cs.game.statBonus) / 2
-	totalHealing := baseHealing + personalityBonus
-	return baseHealing, personalityBonus, totalHealing
-}
-
-// CalculateEquippedHealAmount calculates healing for equipped heal spells (targeted healing)
-func (cs *CombatSystem) CalculateEquippedHealAmount(spellCost int, char *character.MMCharacter) (int, int, int) {
-	baseHealing := spellCost * 3
-	personalityBonus := char.GetEffectivePersonality(cs.game.statBonus) / 2
-	totalHealing := baseHealing + personalityBonus
-	return baseHealing, personalityBonus, totalHealing
-}
-
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
 func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID spells.SpellID) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
@@ -1860,34 +1832,7 @@ func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int)
 
 // ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
 func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MMCharacter) int {
-	// Get effective endurance (includes equipment bonuses)
-	effectiveEndurance := char.GetEffectiveEndurance(cs.game.statBonus)
-
-	// Calculate armor class from all armor slots
-	baseArmor := 0
-	totalEnduranceBonus := 0
-
-	armorSlots := []items.EquipSlot{
-		items.SlotArmor,
-		items.SlotHelmet,
-		items.SlotBoots,
-		items.SlotCloak,
-		items.SlotGauntlets,
-		items.SlotBelt,
-	}
-
-	for _, slot := range armorSlots {
-		if armorPiece, hasArmor := char.Equipment[slot]; hasArmor {
-			if v, ok := armorPiece.Attributes["armor_class_base"]; ok {
-				baseArmor += v + cs.armorMasteryBonus(char, armorPiece)
-			}
-			if enduranceDiv, ok := armorPiece.Attributes["endurance_scaling_divisor"]; ok && enduranceDiv > 0 {
-				totalEnduranceBonus += effectiveEndurance / enduranceDiv
-			}
-		}
-	}
-
-	totalArmorClass := baseArmor + totalEnduranceBonus
+	totalArmorClass := cs.CalculateTotalArmorClass(char)
 
 	// Damage reduction (same formula as tooltip)
 	damageReduction := totalArmorClass / 2

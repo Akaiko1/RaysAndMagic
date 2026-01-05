@@ -45,6 +45,8 @@ type UISystem struct {
 	tooltipColors         []color.Color
 	tooltipX              int
 	tooltipY              int
+	tooltipCompareLines   []string
+	tooltipCompareColors  []color.Color
 	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
@@ -92,6 +94,8 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipLines = nil
 	ui.tooltipColors = nil
+	ui.tooltipCompareLines = nil
+	ui.tooltipCompareColors = nil
 
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
@@ -129,6 +133,22 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 
 	// Draw tooltip last so it stays above other UI (unless a blocking popup is open)
 	if ui.tooltipLines != nil && !ui.game.statPopupOpen {
+		mainW, _ := tooltipBoxSize(ui.tooltipLines)
 		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipX, ui.tooltipY)
+		if ui.tooltipCompareLines != nil {
+			compareW, _ := tooltipBoxSize(ui.tooltipCompareLines)
+			compareX := ui.tooltipX - tooltipCompareGap - compareW
+			if compareX < 0 {
+				compareX = ui.tooltipX + mainW + tooltipCompareGap
+			}
+			screenW := screen.Bounds().Dx()
+			if compareX+compareW > screenW {
+				compareX = screenW - compareW
+			}
+			if compareX < 0 {
+				compareX = 0
+			}
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, compareX, ui.tooltipY)
+		}
 	}
 }

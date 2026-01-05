@@ -127,6 +127,88 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	return joinTooltipLines(out)
 }
 
+// GetItemComparisonTooltip returns a comparison block against the currently equipped item
+// for the same slot/type (weapons, spells, armor). Returns empty string if no comparison applies.
+func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	if char == nil || combatSystem == nil || combatSystem.game == nil {
+		return ""
+	}
+
+	slot, ok := getEquipSlotForItem(item)
+	if !ok {
+		return ""
+	}
+	equipped, hasEquipped := char.Equipment[slot]
+	if !hasEquipped {
+		return ""
+	}
+
+	switch item.Type {
+	case items.ItemWeapon:
+		if equipped.Type != items.ItemWeapon {
+			return ""
+		}
+		if item.Name == equipped.Name {
+			return ""
+		}
+		return joinTooltipLines(buildWeaponComparisonLines(item, equipped, char, combatSystem))
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
+			return ""
+		}
+		itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+		equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+		if itemID == "" || equippedID == "" || itemID == equippedID {
+			return ""
+		}
+		if def, err := spells.GetSpellDefinitionByID(itemID); err == nil && def.IsUtility {
+			return ""
+		}
+		if def, err := spells.GetSpellDefinitionByID(equippedID); err == nil && def.IsUtility {
+			return ""
+		}
+		return joinTooltipLines(buildSpellComparisonLines(item, equipped, char, combatSystem))
+	case items.ItemArmor:
+		if equipped.Type != items.ItemArmor {
+			return ""
+		}
+		if item.Name == equipped.Name {
+			return ""
+		}
+		return joinTooltipLines(buildArmorComparisonLines(item, equipped, char, combatSystem))
+	default:
+		return ""
+	}
+}
+
+// GetSpellComparisonTooltip returns a comparison block for a spellbook spell against the equipped spell.
+func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) string {
+	if char == nil || combatSystem == nil || combatSystem.game == nil {
+		return ""
+	}
+	equipped, hasEquipped := char.Equipment[items.SlotSpell]
+	if !hasEquipped {
+		return ""
+	}
+	if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
+		return ""
+	}
+	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	if equippedID == "" {
+		return ""
+	}
+	if spellID == equippedID {
+		return ""
+	}
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.IsUtility {
+		return ""
+	}
+	if def, err := spells.GetSpellDefinitionByID(equippedID); err == nil && def.IsUtility {
+		return ""
+	}
+	return joinTooltipLines(buildSpellComparisonLinesByID(spellID, equippedID, char, combatSystem))
+}
+
 func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
 	if char == nil || combatSystem == nil {
 		return ""
@@ -434,6 +516,175 @@ func joinTooltipLines(lines []string) string {
 	return result
 }
 
+func getEquipSlotForItem(item items.Item) (items.EquipSlot, bool) {
+	switch item.Type {
+	case items.ItemWeapon:
+		return items.SlotMainHand, true
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		return items.SlotSpell, true
+	case items.ItemArmor:
+		if slotCode, ok := item.Attributes["equip_slot"]; ok {
+			return items.EquipSlot(slotCode), true
+		}
+		return items.SlotArmor, true
+	case items.ItemAccessory:
+		if slotCode, ok := item.Attributes["equip_slot"]; ok {
+			return items.EquipSlot(slotCode), true
+		}
+		return items.SlotRing1, true
+	default:
+		return 0, false
+	}
+}
+
+func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
+	lines := []string{
+		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+	}
+
+	_, _, total := combatSystem.CalculateWeaponDamage(item, char)
+	_, _, eqTotal := combatSystem.CalculateWeaponDamage(equipped, char)
+	lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", total, eqTotal, total-eqTotal))
+
+	if item.Range > 0 || equipped.Range > 0 {
+		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", item.Range, equipped.Range, item.Range-equipped.Range))
+	}
+
+	itemCrit := combatSystem.CalculateWeaponCritChance(item, char)
+	eqCrit := combatSystem.CalculateWeaponCritChance(equipped, char)
+	if itemCrit > 0 || eqCrit > 0 {
+		lines = append(lines, fmt.Sprintf("Critical Chance: %d%% vs %d%% (%+d%%)", itemCrit, eqCrit, itemCrit-eqCrit))
+	}
+
+	itemEffects := weaponEffectsSummary(item)
+	eqEffects := weaponEffectsSummary(equipped)
+	if itemEffects != "" || eqEffects != "" {
+		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+	}
+
+	return lines
+}
+
+func buildSpellComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
+	itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	if itemID == "" || equippedID == "" {
+		return nil
+	}
+	return buildSpellComparisonLinesByID(itemID, equippedID, char, combatSystem)
+}
+
+func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) []string {
+	itemDef, err := spells.GetSpellDefinitionByID(itemID)
+	if err != nil {
+		return nil
+	}
+	equippedDef, err := spells.GetSpellDefinitionByID(equippedID)
+	if err != nil {
+		return nil
+	}
+
+	lines := []string{
+		fmt.Sprintf("--- Equipped: %s ---", equippedDef.Name),
+		fmt.Sprintf("Spell Points: %d vs %d (%+d)", itemDef.SpellPointsCost, equippedDef.SpellPointsCost, itemDef.SpellPointsCost-equippedDef.SpellPointsCost),
+	}
+
+	if itemDef.IsProjectile || equippedDef.IsProjectile {
+		if rng, ok := combatSystem.CalculateSpellRangeTiles(itemDef.ID); ok {
+			if eqRng, eqOK := combatSystem.CalculateSpellRangeTiles(equippedDef.ID); eqOK {
+				lines = append(lines, fmt.Sprintf("Range: %.1f vs %.1f (%+.1f) tiles", rng, eqRng, rng-eqRng))
+			}
+		}
+		_, _, itemDmg := combatSystem.CalculateSpellDamage(itemDef.ID, char)
+		_, _, eqDmg := combatSystem.CalculateSpellDamage(equippedDef.ID, char)
+		if itemDmg > 0 || eqDmg > 0 {
+			lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", itemDmg, eqDmg, itemDmg-eqDmg))
+		}
+	}
+
+	if itemDef.HealAmount > 0 || equippedDef.HealAmount > 0 {
+		_, _, itemHeal := combatSystem.CalculateSpellHealing(itemDef.ID, char)
+		_, _, eqHeal := combatSystem.CalculateSpellHealing(equippedDef.ID, char)
+		if itemHeal > 0 || eqHeal > 0 {
+			lines = append(lines, fmt.Sprintf("Total Healing: %d vs %d (%+d)", itemHeal, eqHeal, itemHeal-eqHeal))
+		}
+	}
+
+	if itemDef.IsUtility || equippedDef.IsUtility {
+		if itemDef.Duration > 0 || equippedDef.Duration > 0 {
+			itemDur := combatSystem.CalculateSpellDurationSeconds(itemDef.ID, char)
+			eqDur := combatSystem.CalculateSpellDurationSeconds(equippedDef.ID, char)
+			lines = append(lines, fmt.Sprintf("Duration: %ds vs %ds (%+ds)", itemDur, eqDur, itemDur-eqDur))
+		}
+	}
+
+	itemEffects := spellEffectsSummary(itemDef)
+	eqEffects := spellEffectsSummary(equippedDef)
+	if itemEffects != "" || eqEffects != "" {
+		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+	}
+
+	return lines
+}
+
+func buildArmorComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
+	lines := []string{
+		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+	}
+
+	itemAC := combatSystem.CalculateArmorClassContribution(item, char)
+	eqAC := combatSystem.CalculateArmorClassContribution(equipped, char)
+	lines = append(lines, fmt.Sprintf("Armor Class: %d vs %d (%+d)", itemAC, eqAC, itemAC-eqAC))
+
+	itemEffects := armorEffectsSummary(item)
+	eqEffects := armorEffectsSummary(equipped)
+	if itemEffects != "" || eqEffects != "" {
+		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+	}
+	return lines
+}
+
+func effectOrNone(s string) string {
+	if s == "" {
+		return "None"
+	}
+	return s
+}
+
+func weaponEffectsSummary(item items.Item) string {
+	def, _, ok := config.GetWeaponDefinitionByName(item.Name)
+	if !ok || def == nil {
+		return ""
+	}
+	var parts []string
+	if bonus := formatWeaponBonusSummary(def.BonusVs); bonus != "" {
+		parts = append(parts, bonus)
+	}
+	if def.DamageType != "" && def.DamageType != "physical" {
+		parts = append(parts, fmt.Sprintf("Damage Type: %s", def.DamageType))
+	}
+	if def.DisintegrateChance > 0 {
+		parts = append(parts, fmt.Sprintf("Disintegrate: %.0f%%", def.DisintegrateChance*100))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func armorEffectsSummary(item items.Item) string {
+	parts := armorBonusParts(item)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
+func spellEffectsSummary(def spells.SpellDefinition) string {
+	var parts []string
+	if def.DisintegrateChance > 0 {
+		parts = append(parts, fmt.Sprintf("Disintegrate: %.0f%%", def.DisintegrateChance*100))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // GetSpellTooltip returns a comprehensive tooltip for spells in the spellbook using centralized spell definitions
 func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) string {
 	var tooltip []string
@@ -456,8 +707,19 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		tooltip = append(tooltip, cooldown)
 	}
 	if def.IsProjectile {
-		if rangeLine := spellRangeLine(def.ID); rangeLine != "" {
+		if rangeLine := spellRangeLine(def.ID, combatSystem); rangeLine != "" {
 			tooltip = append(tooltip, rangeLine)
+		}
+		if combatSystem != nil && combatSystem.game != nil && char != nil {
+			critBonus := combatSystem.CalculateCriticalChance(char)
+			totalCrit := critBonus // Spells have no base crit chance
+			if totalCrit < 0 {
+				totalCrit = 0
+			}
+			if totalCrit > 100 {
+				totalCrit = 100
+			}
+			tooltip = append(tooltip, fmt.Sprintf("Critical Chance: %d%% (Luck: +%d)", totalCrit, critBonus))
 		}
 	}
 
@@ -522,16 +784,12 @@ func actionCooldownFrames(char *character.MMCharacter, combatSystem *CombatSyste
 	return cd
 }
 
-func spellRangeLine(spellID spells.SpellID) string {
-	def, ok := config.GetSpellDefinition(string(spellID))
-	if !ok {
+func spellRangeLine(spellID spells.SpellID, combatSystem *CombatSystem) string {
+	if combatSystem == nil {
 		return ""
 	}
-	if def.Physics != nil && def.Physics.RangeTiles > 0 {
-		return fmt.Sprintf("Range: %.1f tiles", def.Physics.RangeTiles)
-	}
-	if def.Range > 0 {
-		return fmt.Sprintf("Range: %d tiles", def.Range)
+	if rng, ok := combatSystem.CalculateSpellRangeTiles(spellID); ok {
+		return fmt.Sprintf("Range: %.1f tiles", rng)
 	}
 	return ""
 }
@@ -585,49 +843,28 @@ func getSchoolFromString(schoolStr string) character.MagicSchool {
 	}
 }
 
-func getSpellMasteryBonus(def spells.SpellDefinition, char *character.MMCharacter) int {
-	if char == nil || def.School == "" {
-		return 0
-	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
-	if skill, exists := char.MagicSchools[school]; exists {
-		return int(skill.Mastery) * 5
-	}
-	return 0
-}
-
 // getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions
 func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var details []string
-	masteryBonus := getSpellMasteryBonus(def, char)
 
 	// Check if this is a damage spell
 	if def.IsProjectile {
-		// Use centralized damage calculation with effective stats (same as actual projectile system)
-		effectiveIntellect := char.GetEffectiveIntellect(combatSystem.game.statBonus)
-		baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(def.ID, effectiveIntellect)
-		if masteryBonus > 0 {
-			baseDamage += masteryBonus
-			totalDamage += masteryBonus
+		if combatSystem != nil {
+			baseDamage, intellectBonus, totalDamage := combatSystem.CalculateSpellDamage(def.ID, char)
+			details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
+			details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
+			details = append(details, fmt.Sprintf("Total Damage: %d", totalDamage))
 		}
-
-		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
-		details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
-		details = append(details, fmt.Sprintf("Total Damage: %d", totalDamage))
 	}
 
 	// Check if this is a healing spell
 	if def.HealAmount > 0 {
-		// Use the same centralized healing calculation as actual combat with effective stats
-		effectivePersonality := char.GetEffectivePersonality(combatSystem.game.statBonus)
-		baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(def.ID, effectivePersonality)
-		if masteryBonus > 0 {
-			baseHeal += masteryBonus
-			totalHeal += masteryBonus
+		if combatSystem != nil {
+			baseHeal, personalityBonus, totalHeal := combatSystem.CalculateSpellHealing(def.ID, char)
+			details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
+			details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
+			details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 		}
-		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
-		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
-		details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 
 		switch def.Name {
 		case "First Aid":
@@ -639,8 +876,8 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 
 	// Check if this is a utility spell
 	if def.IsUtility {
-		if def.Duration > 0 {
-			duration := def.Duration + masteryBonus
+		if combatSystem != nil {
+			duration := combatSystem.CalculateSpellDurationSeconds(def.ID, char)
 
 			// Display duration appropriately (seconds vs minutes)
 			if duration >= 60 {
@@ -661,9 +898,11 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		case "Water Breathing":
 			details = append(details, "Allows underwater travel via deep water")
 		case "Bless":
-			if def.StatBonus > 0 {
-				statBonus := def.StatBonus + masteryBonus
-				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
+			if combatSystem != nil {
+				statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char)
+				if statBonus > 0 {
+					details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
+				}
 			}
 			details = append(details, "Affects entire party")
 		case "Awaken":
