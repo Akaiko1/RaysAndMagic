@@ -894,14 +894,27 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 
 // drawTreeSprite draws tree sprites in the 3D world
 func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
+	screenHeight := r.game.config.GetScreenHeight()
+
+	// Minimum distance to prevent extreme scaling and floor projection going off-screen.
+	// At tileSize/2 distance, the tree fills most of the screen properly.
+	// Below this, the floor projection formula breaks down.
+	minDist := float64(r.game.config.GetTileSize()) / 2
+	if distance < minDist {
+		distance = minDist
+	}
+
 	// Calculate tree height and position
 	// distance is already perpendicular distance from the raycast
-	spriteHeight := int(float64(r.game.config.GetScreenHeight()) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
-	if spriteHeight > r.game.config.GetScreenHeight() {
-		spriteHeight = r.game.config.GetScreenHeight()
-	}
+	spriteHeight := int(float64(screenHeight) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
 	if spriteHeight < 8 {
 		spriteHeight = 8
+	}
+
+	// Cap sprite height to prevent extreme values at very close distances
+	// (4x screen height allows tree to extend well off-screen while staying reasonable)
+	if spriteHeight > screenHeight*4 {
+		spriteHeight = screenHeight * 4
 	}
 
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
