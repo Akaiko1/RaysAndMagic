@@ -307,22 +307,6 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, playerX,
 	}
 }
 
-// getCardinalDirection converts the monster's current direction to a cardinal index (0=E, 1=S, 2=W, 3=N)
-func (m *Monster3D) getCardinalDirection() int {
-	// Normalize direction to 0-2π
-	dir := m.Direction
-	for dir < 0 {
-		dir += 2 * math.Pi
-	}
-	for dir >= 2*math.Pi {
-		dir -= 2 * math.Pi
-	}
-
-	// Convert to cardinal (each quadrant is π/2)
-	quadrant := int((dir + math.Pi/4) / (math.Pi / 2))
-	return quadrant % 4
-}
-
 // tryMoveCardinal attempts to move in a cardinal direction using the current state's speed.
 func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dirY int) bool {
 	if dirX == 0 && dirY == 0 {

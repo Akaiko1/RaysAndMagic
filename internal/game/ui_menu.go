@@ -319,13 +319,6 @@ func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab Menu
 	}
 }
 
-// handleCharacterCardClick checks if mouse clicked on a character card and selects that character
-func (ui *UISystem) handleCharacterCardClick(cardX, cardY, cardWidth, cardHeight, characterIndex int) {
-	if ui.game.consumeLeftClickIn(cardX, cardY, cardX+cardWidth, cardY+cardHeight) {
-		ui.game.selectedChar = characterIndex
-	}
-}
-
 // handleCloseButtonClick checks if mouse clicked on the close button and closes the menu
 func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, buttonHeight int) {
 	if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {

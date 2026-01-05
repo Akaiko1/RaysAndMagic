@@ -6,8 +6,6 @@ import (
 	"math"
 	"ugataima/internal/world"
 
-	"ugataima/internal/threading/rendering"
-
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -64,7 +62,8 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 // at a given perpendicular distance from the camera.
 //
 // This is the inverse of the floor rendering formula used in drawSimpleFloorCeiling:
-//   rowDistance = (0.5 * screenHeight * tileSize) / p
+//
+//	rowDistance = (0.5 * screenHeight * tileSize) / p
 //
 // Where:
 //   - rowDistance is the perpendicular distance from camera to floor point
@@ -72,8 +71,9 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 //   - screenHeight/2 is the horizon line position
 //
 // Solving for screen Y:
-//   p = (0.5 * screenHeight * tileSize) / rowDistance
-//   screenY = horizon + p
+//
+//	p = (0.5 * screenHeight * tileSize) / rowDistance
+//	screenY = horizon + p
 //
 // This ensures sprites are anchored to the floor at their correct distance,
 // preventing the "drift" effect where sprites appeared to slide toward the
@@ -131,7 +131,7 @@ func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX i
 		return 0, 0, false // Degenerate matrix
 	}
 	invDet := 1.0 / det
-	transformX := invDet * (dirY*dx - dirX*dy)   // Horizontal offset in camera space
+	transformX := invDet * (dirY*dx - dirX*dy)      // Horizontal offset in camera space
 	transformY := invDet * (-planeY*dx + planeX*dy) // Perpendicular distance (depth)
 
 	if transformY <= 0 {
@@ -541,18 +541,18 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 // This is the core sprite projection function used by monsters, NPCs, and other entities.
 // It performs three key calculations:
 //
-// 1. Screen X position: Uses projectToScreenX to convert world coords to screen coords
-//    via camera plane projection (same math as raycasting walls).
+//  1. Screen X position: Uses projectToScreenX to convert world coords to screen coords
+//     via camera plane projection (same math as raycasting walls).
 //
-// 2. Sprite size: Uses PERPENDICULAR distance (not Euclidean) for sizing.
-//    This is critical - using Euclidean distance would cause sprites at screen edges
-//    to appear smaller than they should, creating a fisheye effect and causing
-//    sprites to "drift" from their floor tiles when viewed at angles.
+//  2. Sprite size: Uses PERPENDICULAR distance (not Euclidean) for sizing.
+//     This is critical - using Euclidean distance would cause sprites at screen edges
+//     to appear smaller than they should, creating a fisheye effect and causing
+//     sprites to "drift" from their floor tiles when viewed at angles.
 //
-// 3. Screen Y position: Anchors the sprite's BOTTOM edge to the floor at its distance.
-//    The floor at perpendicular distance D appears at screen Y = horizon + p,
-//    where p = (0.5 * screenHeight * tileSize) / D. We position sprites so their
-//    bottom aligns with this floor position, making them appear grounded.
+//  3. Screen Y position: Anchors the sprite's BOTTOM edge to the floor at its distance.
+//     The floor at perpendicular distance D appears at screen Y = horizon + p,
+//     where p = (0.5 * screenHeight * tileSize) / D. We position sprites so their
+//     bottom aligns with this floor position, making them appear grounded.
 //
 // Parameters:
 //   - entityX, entityY: World coordinates of the entity
@@ -647,18 +647,6 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithHeightMultiplier(entityX, e
 // same scaling model as environment sprites (e.g., moss rocks).
 func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
 	return int(float64(rh.game.config.GetScreenHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
-}
-
-// CreateSpriteRenderJob creates a sprite render job for the parallel renderer
-func (rh *RenderingHelper) CreateSpriteRenderJob(sprite *ebiten.Image, screenX, screenY, spriteSize int) *rendering.SpriteRenderJob {
-	return &rendering.SpriteRenderJob{
-		Image:      sprite,
-		X:          screenX - spriteSize/2,
-		Y:          screenY,
-		ScaleX:     float64(spriteSize) / float64(sprite.Bounds().Dx()),
-		ScaleY:     float64(spriteSize) / float64(sprite.Bounds().Dy()),
-		ColorScale: struct{ R, G, B, A float32 }{1.0, 1.0, 1.0, 1.0},
-	}
 }
 
 // RenderBackgroundLayers renders sky and ground layers

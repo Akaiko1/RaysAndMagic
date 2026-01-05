@@ -17,16 +17,6 @@ func (g *MMGame) leftClickPosition() (x, y int, ok bool) {
 	return click.x, click.y, true
 }
 
-// rightClickPosition returns the oldest queued right-click position.
-// It returns ok=false if there is no click queued.
-func (g *MMGame) rightClickPosition() (x, y int, ok bool) {
-	if len(g.mouseRightClicks) == 0 {
-		return 0, 0, false
-	}
-	click := g.mouseRightClicks[0]
-	return click.x, click.y, true
-}
-
 // consumeLeftClick consumes the oldest queued left-click (no bounds check).
 func (g *MMGame) consumeLeftClick() bool {
 	if len(g.mouseLeftClicks) == 0 {
@@ -36,18 +26,6 @@ func (g *MMGame) consumeLeftClick() bool {
 	g.mouseLeftClicks = g.mouseLeftClicks[1:]
 	g.mouseLeftClickX, g.mouseLeftClickY = click.x, click.y
 	g.mouseLeftClickAt = click.at
-	return true
-}
-
-// consumeRightClick consumes the oldest queued right-click (no bounds check).
-func (g *MMGame) consumeRightClick() bool {
-	if len(g.mouseRightClicks) == 0 {
-		return false
-	}
-	click := g.mouseRightClicks[0]
-	g.mouseRightClicks = g.mouseRightClicks[1:]
-	g.mouseRightClickX, g.mouseRightClickY = click.x, click.y
-	g.mouseRightClickAt = click.at
 	return true
 }
 
