@@ -36,17 +36,18 @@ const (
 )
 
 type MagicProjectile struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	SpellType  string // Type of spell for visual differentiation
-	Size       int    // Projectile size
-	Crit       bool   // Critical hit flag
-	Owner      ProjectileOwner
-	SourceName string
+	ID                 string  // Unique identifier
+	X, Y               float64 // Current position
+	VelX, VelY         float64 // Velocity
+	Damage             int
+	LifeTime           int // Frames remaining
+	Active             bool
+	SpellType          string // Type of spell for visual differentiation
+	Size               int    // Projectile size
+	Crit               bool   // Critical hit flag
+	DisintegrateChance float64
+	Owner              ProjectileOwner
+	SourceName         string
 }
 
 type MeleeAttack struct {
@@ -82,17 +83,18 @@ type SlashEffect struct {
 }
 
 type Arrow struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	BowKey     string // YAML key of the bow used to fire this arrow
-	DamageType string // Damage element type ("physical", "dark", etc.)
-	Crit       bool   // Critical hit flag
-	Owner      ProjectileOwner
-	SourceName string
+	ID                 string  // Unique identifier
+	X, Y               float64 // Current position
+	VelX, VelY         float64 // Velocity
+	Damage             int
+	LifeTime           int // Frames remaining
+	Active             bool
+	BowKey             string // YAML key of the bow used to fire this arrow
+	DamageType         string // Damage element type ("physical", "dark", etc.)
+	Crit               bool   // Critical hit flag
+	DisintegrateChance float64
+	Owner              ProjectileOwner
+	SourceName         string
 }
 
 // ArrowHitParticle represents a small particle burst for arrow impacts
@@ -199,6 +201,7 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
+	lootBags         []LootBag
 
 	// Spellbook UI state
 	collapsedSpellSchools map[character.MagicSchool]bool
@@ -309,6 +312,9 @@ type MMGame struct {
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
 	slotSelection     int
+	saveRenameOpen    bool
+	saveRenameSlot    int
+	saveRenameInput   string
 	exitRequested     bool
 
 	// Game over state
@@ -428,7 +434,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		collapsedSpellSchools: make(map[character.MagicSchool]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
 		combatMessages:        make([]string, 0),
-		maxMessages:           3, // Show last 3 messages
+		maxMessages:           4, // Show last 4 messages
 
 		// Dialog system initialization
 		dialogSelectedChar:  0,
@@ -448,6 +454,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		// Session timer for score calculation
 		sessionStartTime: time.Now(),
+
+		saveRenameSlot: -1,
 	}
 
 	// Initialize rendering helper
@@ -943,6 +951,8 @@ func (mw *MonsterWrapper) Update() {
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
+	mw.updateCollisionEngagement(playerX, playerY)
+
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
 	if filter := strings.TrimSpace(os.Getenv("DEBUG_MONSTER")); filter != "" {
@@ -1020,6 +1030,33 @@ func (mw *MonsterWrapper) Update() {
 		if mw.collisionSystem != nil {
 			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
 		}
+	}
+}
+
+func (mw *MonsterWrapper) updateCollisionEngagement(playerX, playerY float64) {
+	if mw.collisionSystem == nil || mw.Monster == nil {
+		return
+	}
+	entity := mw.collisionSystem.GetEntityByID(mw.Monster.ID)
+	if entity == nil {
+		return
+	}
+	engaged := mw.Monster.State == monster.StateAttacking
+	if !engaged {
+		attackRange := mw.Monster.GetAttackRangePixels()
+		if attackRange > 0 {
+			distSq := DistanceSquared(mw.Monster.X, mw.Monster.Y, playerX, playerY)
+			if distSq <= attackRange*attackRange {
+				engaged = true
+			}
+		}
+	}
+	desired := collision.CollisionTypeMonster
+	if engaged {
+		desired = collision.CollisionTypeMonsterEngaged
+	}
+	if entity.CollisionType != desired {
+		entity.CollisionType = desired
 	}
 }
 

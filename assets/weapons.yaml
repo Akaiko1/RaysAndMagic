@@ -129,6 +129,32 @@ weapons:
       base_size: 12
       color: [180, 140, 100]
 
+  alien_blaster:
+    name: "Alien Blaster"
+    description: "A humming alien weapon that fires mysterious energy"
+    category: "blaster"
+    damage: 10
+    range: 6  # Display range in tiles
+    bonus_stat: "Accuracy"
+    hit_bonus: 12
+    crit_chance: 8
+    rarity: "rare"
+    value: 420
+    damage_type: "spirit"
+    disintegrate_chance: 0.02
+
+    # Projectile physics (tile-based)
+    physics:
+      speed_tiles: 12.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
+
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 12
+      color: [120, 200, 255]
+
   oak_staff:
     name: "Oak Staff"
     description: "A staff carved from ancient oak, perfect for magic users"

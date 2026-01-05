@@ -8,6 +8,7 @@ import (
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -34,6 +35,7 @@ type GameSave struct {
 	PlayerY      float64                  `json:"player_y"`
 	PlayerAngle  float64                  `json:"player_angle"`
 	TurnBased    bool                     `json:"turn_based"`
+	SaveName     string                   `json:"save_name,omitempty"`
 	SavedAt      string                   `json:"saved_at"`
 	Party        PartySave                `json:"party"`
 	Monsters     []MonsterSave            `json:"monsters"`
@@ -157,6 +159,7 @@ type SaveSummary struct {
 	SavedAt   string
 	MapKey    string
 	TurnBased bool
+	Name      string
 }
 
 // GetSaveSlotSummary reads minimal info from a save slot for UI display
@@ -171,7 +174,7 @@ func GetSaveSlotSummary(slot int) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased}
+	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
 }
 
 // SaveGameToFile writes the current game state to a JSON file
@@ -181,12 +184,43 @@ func (g *MMGame) SaveGameToFile(path string) error {
 		return errors.New("world manager not available")
 	}
 	save := g.buildSave(wm)
+	if f, err := os.Open(path); err == nil {
+		var prev GameSave
+		if err := json.NewDecoder(f).Decode(&prev); err == nil && prev.SaveName != "" {
+			save.SaveName = prev.SaveName
+		}
+		_ = f.Close()
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(&save)
+}
+
+// RenameSaveSlot updates the stored save name for an existing slot.
+func RenameSaveSlot(slot int, name string) error {
+	path := slotPath(slot)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	var save GameSave
+	if err := json.NewDecoder(f).Decode(&save); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Close()
+	save.SaveName = name
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(&save)
 }
@@ -208,6 +242,42 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 		return errors.New("world manager not available")
 	}
 	return g.applySave(wm, &save)
+}
+
+func normalizeItemFromConfig(item *items.Item) {
+	if item == nil {
+		return
+	}
+	switch item.Type {
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest:
+	default:
+		return
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if !ok || key == "" {
+		return
+	}
+	template, err := items.TryCreateItemFromYAML(key)
+	if err != nil {
+		return
+	}
+	if item.Attributes == nil {
+		item.Attributes = make(map[string]int)
+	}
+	for k, v := range template.Attributes {
+		if _, exists := item.Attributes[k]; !exists {
+			item.Attributes[k] = v
+		}
+	}
+	if item.ArmorCategory == "" {
+		item.ArmorCategory = template.ArmorCategory
+	}
+	if item.Description == "" {
+		item.Description = template.Description
+	}
+	if item.Rarity == "" {
+		item.Rarity = template.Rarity
+	}
 }
 
 // buildSave gathers game state into a serializable struct
@@ -399,6 +469,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	// Restore party
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, Inventory: save.Party.Inventory}
+	for i := range g.party.Inventory {
+		normalizeItemFromConfig(&g.party.Inventory[i])
+	}
 	for _, cs := range save.Party.Members {
 		m := &character.MMCharacter{
 			Name:           cs.Name,
@@ -442,7 +515,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			m.MagicSchools[mk] = ms
 		}
 		for _, eq := range cs.Equipment {
-			m.Equipment[items.EquipSlot(eq.Slot)] = eq.Item
+			item := eq.Item
+			normalizeItemFromConfig(&item)
+			m.Equipment[items.EquipSlot(eq.Slot)] = item
 		}
 		g.party.Members = append(g.party.Members, m)
 	}

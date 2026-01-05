@@ -43,10 +43,12 @@ type Renderer struct {
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
-	// Reusable buffer for visible sprites to avoid allocation per frame
-	visibleSpritesBuffer []EnvironmentSpriteRenderData
 	// Sprite cache by tile type to avoid repeated GetSprite lookups
 	tileTypeSpriteCache map[world.TileType3D]*ebiten.Image
+	// Reusable buffer for tree hits to avoid allocation per frame
+	treeHits []treeHitData
+	// Unified sprite buffer for sorted rendering of all sprite types
+	unifiedSprites []UnifiedSpriteRenderData
 }
 
 // getWeaponConfig safely retrieves weapon definition without panicking.
@@ -121,7 +123,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			// Get tile type at this position
 			tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
 
-			// Check if it's a transparent environment sprite
+			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
@@ -145,14 +147,6 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	}
 
 	r.transparentSpritesCache = cache
-
-	// Pre-allocate visible sprites buffer based on expected visible count
-	// Estimate: about 1/4 of cached sprites might be visible at once
-	expectedVisible := len(cache) / 4
-	if expectedVisible < 64 {
-		expectedVisible = 64
-	}
-	r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, expectedVisible)
 }
 
 // precomputeRayDirections calculates ray directions once per frame for performance
@@ -441,14 +435,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Render the results and update depth buffer
 		r.renderRaycastResults(screen, results)
 
-		// Draw NPCs as sprites using depth testing
-		r.drawNPCs(screen)
-
-		// Draw transparent environment sprites with depth testing
-		r.drawTransparentEnvironmentSprites(screen)
-
-		// Draw monsters as sprites using parallel processing with depth testing
-		r.drawMonstersParallel(screen)
+		// Draw all sprites (trees, ferns, monsters, NPCs) sorted by depth
+		r.drawAllSpritesSorted(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -688,8 +676,16 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 	return MultiRaycastHit{Hits: hits}
 }
 
+// treeHitData stores tree hit information for sorted rendering
+type treeHitData struct {
+	screenX  int
+	distance float64
+	tileType world.TileType3D
+}
+
 // renderRaycastResults processes and renders the results from parallel raycasting.
 // Each result contains distance and hit information for one vertical screen column.
+// Tree sprites are collected and rendered in the unified sprite pass for proper transparency.
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
@@ -713,9 +709,6 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 				continue
 			}
 
-			// If only transparent hits, depth buffer stays at far plane (already initialized)
-			// This ensures consistent occlusion behavior for transparent-only ray chains
-
 			// Render all hits from back to front for proper transparency
 			for i := len(hitData.Hits) - 1; i >= 0; i-- {
 				hit := hitData.Hits[i]
@@ -727,6 +720,16 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 							r.game.depthBuffer[screenX+dx] = hit.Distance
 						}
 					}
+				}
+
+				// Collect tree hits for later sorted rendering
+				if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hit.TileType) == "tree_sprite" {
+					r.treeHits = append(r.treeHits, treeHitData{
+						screenX:  screenX,
+						distance: hit.Distance,
+						tileType: hit.TileType,
+					})
+					continue
 				}
 
 				// Render this hit
@@ -741,6 +744,16 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 				if screenX+dx < len(r.game.depthBuffer) {
 					r.game.depthBuffer[screenX+dx] = rayResult.Distance
 				}
+			}
+
+			// Collect tree hits for later sorted rendering
+			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == "tree_sprite" {
+				r.treeHits = append(r.treeHits, treeHitData{
+					screenX:  screenX,
+					distance: hitInfo.Distance,
+					tileType: hitInfo.TileType,
+				})
+				continue
 			}
 
 			// Render this hit
@@ -768,7 +781,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
 			// Use both hit.IsTransparent flag and tile manager check for safety
 			if hit.IsTransparent {
-				return // Skip transparent environment sprites - rendered via drawTransparentEnvironmentSprites
+				return // Skip transparent environment sprites - rendered in unified sprite pass
 			}
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
 		case "flooring_object":
@@ -894,30 +907,36 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 
 // drawTreeSprite draws tree sprites in the 3D world
 func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	// Calculate tree height and position
-	spriteHeight := int(float64(r.game.config.GetScreenHeight()) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
-	if spriteHeight > r.game.config.GetScreenHeight() {
-		spriteHeight = r.game.config.GetScreenHeight()
+	screenHeight := r.game.config.GetScreenHeight()
+
+	// Minimum distance to prevent extreme scaling and floor projection going off-screen.
+	// At tileSize/2 distance, the tree fills most of the screen properly.
+	// Below this, the floor projection formula breaks down.
+	minDist := float64(r.game.config.GetTileSize()) / 2
+	if distance < minDist {
+		distance = minDist
 	}
+
+	// Calculate tree height and position
+	// distance is already perpendicular distance from the raycast
+	spriteHeight := int(float64(screenHeight) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
 	if spriteHeight < 8 {
 		spriteHeight = 8
 	}
 
-	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
-	spriteTop := (r.game.config.GetScreenHeight() - spriteHeight) / 2
-
-	// Update depth buffer for central 85% of tree sprite width.
-	// This still avoids hard edges while reducing distant "see-through" artifacts.
-	spriteLeft := x - spriteWidth/2
-	spriteRight := x + spriteWidth/2
-	depthMargin := spriteWidth * 7 / 100 // 7% margin on each side
-	depthLeft := spriteLeft + depthMargin
-	depthRight := spriteRight - depthMargin
-	for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
-		if distance < r.game.depthBuffer[px] {
-			r.game.depthBuffer[px] = distance
-		}
+	// Cap sprite height to prevent extreme values at very close distances
+	// (4x screen height allows tree to extend well off-screen while staying reasonable)
+	if spriteHeight > screenHeight*4 {
+		spriteHeight = screenHeight * 4
 	}
+
+	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
+
+	// Anchor tree's bottom to the floor at its distance
+	// Use the same floor projection formula as other sprites for consistency
+	floorScreenY := r.game.renderHelper.calculateFloorScreenY(distance)
+	spriteTop := floorScreenY - spriteHeight
+	spriteLeft := x - spriteWidth/2
 
 	// Get appropriate tree sprite using tile manager
 	var spriteName string
@@ -1117,18 +1136,6 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	drawOptions.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	screen.DrawImage(wallSliceImage, drawOptions)
-}
-
-// MonsterRenderData holds data for rendering a monster sprite
-type MonsterRenderData struct {
-	monster    *monster.Monster3D
-	screenX    int
-	screenY    int
-	spriteSize int
-	distance   float64 // Euclidean distance (for sprite sizing)
-	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
-	sprite     *ebiten.Image
-	flip       bool
 }
 
 type projectileFxProfile struct {
@@ -1451,20 +1458,6 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool
 	return r.game.sprites.GetSprite(spriteName), false
 }
 
-func (r *Renderer) monsterHasWalkAnimation(mon *monster.Monster3D) bool {
-	spriteName := mon.GetSpriteType()
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking"); anim != nil && len(anim.Frames) > 0 {
-		return true
-	}
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
-		return true
-	}
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
-		return true
-	}
-	return false
-}
-
 func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
 	moveX := math.Cos(mon.Direction)
 	moveY := math.Sin(mon.Direction)
@@ -1511,363 +1504,45 @@ func (r *Renderer) getMonsterWalkAnimation(spriteName string, mon *monster.Monst
 	return nil, false
 }
 
-func monsterJitterPhase(id string) float64 {
-	sum := 0
-	for i := 0; i < len(id); i++ {
-		sum += int(id[i])
-	}
-	return float64(sum % 10)
-}
+// SpriteType identifies the type of sprite for unified rendering
+type SpriteType int
 
-// drawMonstersParallel draws all monsters using parallel sprite processing with depth testing
-func (r *Renderer) drawMonstersParallel(screen *ebiten.Image) {
-	var visibleMonsters []MonsterRenderData
+const (
+	SpriteTypeEnvironment SpriteType = iota
+	SpriteTypeTree
+	SpriteTypeMonster
+	SpriteTypeNPC
+	SpriteTypeLootBag
+)
 
-	// Prepare sprite render data
-	camX := r.game.camera.X
-	camY := r.game.camera.Y
-	camAngle := r.game.camera.Angle
-	viewDistSq := r.game.camera.ViewDist * r.game.camera.ViewDist // Pre-compute squared view distance
-
-	// Precompute camera direction for camera-space depth calculations
-	camDirX := math.Cos(camAngle)
-	camDirY := math.Sin(camAngle)
-
-	for _, monster := range r.game.GetCurrentWorld().Monsters {
-		if !monster.IsAlive() {
-			continue
-		}
-
-		// Calculate distance and camera-space depth
-		dx := monster.X - camX
-		dy := monster.Y - camY
-		distanceSq := dx*dx + dy*dy
-
-		// Early cull monsters outside view distance without expensive sqrt
-		if distanceSq > viewDistSq {
-			continue
-		}
-
-		// Calculate camera-space perpendicular depth for z-buffer comparison
-		depthPerp := dx*camDirX + dy*camDirY
-
-		// Skip monsters behind camera
-		if depthPerp <= 0 {
-			continue
-		}
-
-		// Now calculate actual Euclidean distance for sprite sizing
-		distance := math.Sqrt(distanceSq)
-
-		// Calculate sprite metrics using helper with monster-specific size multiplier
-		sizeMultiplier := monster.GetSizeGameMultiplier()
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(monster.X, monster.Y, distance, sizeMultiplier)
-		if visible && monster.Flying {
-			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
-		}
-		if !visible {
-			continue
-		}
-
-		// Get sprite from monster's YAML config
-		sprite, flip := r.getMonsterSprite(monster)
-
-		visibleMonsters = append(visibleMonsters, MonsterRenderData{
-			monster:    monster,
-			screenX:    screenX,
-			screenY:    screenY,
-			spriteSize: spriteSize,
-			distance:   distance,
-			depthPerp:  depthPerp,
-			sprite:     sprite,
-			flip:       flip,
-		})
-	}
-
-	// Sort monsters by camera-space depth (back to front for proper alpha blending)
-	// Use Go's built-in sort for O(n log n) performance instead of O(n²) bubble sort
-	sort.Slice(visibleMonsters, func(i, j int) bool {
-		return visibleMonsters[i].depthPerp > visibleMonsters[j].depthPerp
-	})
-
-	// Render monsters in order, using depth testing
-	for _, monsterData := range visibleMonsters {
-		r.drawMonsterWithDepthTest(screen, monsterData)
-	}
-}
-
-// drawMonsterWithDepthTest draws a monster sprite with depth buffer testing
-func (r *Renderer) drawMonsterWithDepthTest(screen *ebiten.Image, monsterData MonsterRenderData) {
-	// Check if monster should be visible based on depth buffer
-	spriteLeft := monsterData.screenX - monsterData.spriteSize/2
-	spriteRight := monsterData.screenX + monsterData.spriteSize/2
-
-	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
-	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
-	}
-
-	// Check if any part of the sprite is in front of walls using camera-space depth
-	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
-		if monsterData.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
-		}
-	}
-
-	if !visible {
-		return // Monster is completely behind walls
-	}
-
-	// Draw the monster sprite
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dx())
-	scaleY := float64(monsterData.spriteSize) / float64(monsterData.sprite.Bounds().Dy())
-	if monsterData.flip {
-		opts.GeoM.Scale(-scaleX, scaleY)
-	} else {
-		opts.GeoM.Scale(scaleX, scaleY)
-	}
-	jitterX, jitterY := 0.0, 0.0
-	if r.game.turnBasedMode && monsterData.monster.AttackAnimFrames > 0 && !r.monsterHasWalkAnimation(monsterData.monster) {
-		jitter := float64(monsterData.spriteSize) * 0.02
-		if jitter < 1 {
-			jitter = 1
-		}
-		if jitter > 3 {
-			jitter = 3
-		}
-		phase := monsterJitterPhase(monsterData.monster.ID)
-		jitterX = math.Sin(float64(r.game.frameCount)*0.7+phase) * jitter
-		jitterY = math.Cos(float64(r.game.frameCount)*0.9+phase) * jitter
-	}
-	if monsterData.flip {
-		opts.GeoM.Translate(float64(spriteLeft)+float64(monsterData.spriteSize)+jitterX, float64(monsterData.screenY)+jitterY)
-	} else {
-		opts.GeoM.Translate(float64(spriteLeft)+jitterX, float64(monsterData.screenY)+jitterY)
-	}
-
-	// Apply distance shading
-	brightness := 1.0 - (monsterData.distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-	if monsterData.monster.HitTintFrames > 0 {
-		opts.ColorScale.Scale(1.0, 0.6, 0.6, 1.0)
-	}
-
-	// Use opaque blending to prevent transparency issues
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(monsterData.sprite, opts)
-
-	// Draw collision box if enabled (draw after sprite so it's clearly visible)
-	if r.game.showCollisionBoxes {
-		// Get collision box from collision system using monster ID
-		var worldColW, worldColH float64
-		if r.game.collisionSystem != nil {
-			if entity := r.game.collisionSystem.GetEntityByID(monsterData.monster.ID); entity != nil && entity.BoundingBox != nil {
-				worldColW = entity.BoundingBox.Width
-				worldColH = entity.BoundingBox.Height
-			} else {
-				// Fallback to monster's configured size from YAML instead of hardcoded values
-				worldColW, worldColH = monsterData.monster.GetSize()
-			}
-		} else {
-			// Fallback to monster's configured size from YAML instead of hardcoded values
-			worldColW, worldColH = monsterData.monster.GetSize()
-		}
-
-		// Apply the same perspective scaling as the monster sprite
-		// This makes collision boxes appear smaller when monsters are farther away
-		monsterMultiplier := float64(r.game.config.Graphics.Monster.SizeDistanceMultiplier)
-		scaleFactor := float64(monsterData.spriteSize) / monsterMultiplier // Use configurable base size
-		screenColW := int(worldColW * scaleFactor)
-		screenColH := int(worldColH * scaleFactor)
-
-		// Center the collision box on the monster
-		boxX := monsterData.screenX - screenColW/2
-		boxY := monsterData.screenY + (monsterData.spriteSize-screenColH)/2
-
-		// Create and draw the scaled collision box
-		boxColor := color.RGBA{255, 0, 0, 120} // Red, semi-transparent
-		boxOpts := &ebiten.DrawImageOptions{}
-		boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-		boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-		boxOpts.ColorScale.Scale(
-			float32(boxColor.R)/255,
-			float32(boxColor.G)/255,
-			float32(boxColor.B)/255,
-			float32(boxColor.A)/255*0.5,
-		)
-		screen.DrawImage(r.whiteImg, boxOpts)
-	}
-}
-
-// NPCRenderData contains data needed to render an NPC
-type NPCRenderData struct {
-	npc        *character.NPC
+// UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
+type UnifiedSpriteRenderData struct {
+	spriteType SpriteType
 	screenX    int
 	screenY    int
 	spriteSize int
-	distance   float64 // Euclidean distance (for sprite sizing)
 	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
+	distance   float64
 	sprite     *ebiten.Image
+	// Environment/Tree specific
+	tileX    int
+	tileY    int
+	tileType world.TileType3D
+	// Monster specific
+	monster     *monster.Monster3D
+	monsterFlip bool
+	// NPC specific
+	npc *character.NPC
+	// Loot bag specific
+	lootX float64
+	lootY float64
 }
 
-// drawNPCs renders all visible NPCs as sprites with depth testing
-func (r *Renderer) drawNPCs(screen *ebiten.Image) {
-	var visibleNPCs []NPCRenderData
-
-	// Prepare sprite render data
-	camX := r.game.camera.X
-	camY := r.game.camera.Y
-	camAngle := r.game.camera.Angle
-	viewDistSq := r.game.camera.ViewDist * r.game.camera.ViewDist
-
-	// Precompute camera direction for camera-space depth calculations
-	camDirX := math.Cos(camAngle)
-	camDirY := math.Sin(camAngle)
-
-	for _, npc := range r.game.GetCurrentWorld().NPCs {
-		// Calculate distance and camera-space depth
-		dx := npc.X - camX
-		dy := npc.Y - camY
-		distanceSq := dx*dx + dy*dy
-
-		// Early cull NPCs outside view distance without expensive sqrt
-		if distanceSq > viewDistSq {
-			continue
-		}
-
-		// Calculate camera-space perpendicular depth for z-buffer comparison
-		depthPerp := dx*camDirX + dy*camDirY
-
-		// Skip NPCs behind camera
-		if depthPerp <= 0 {
-			continue
-		}
-
-		// Now calculate actual Euclidean distance for sprite sizing
-		distance := math.Sqrt(distanceSq)
-
-		// Calculate sprite metrics based on NPC render type
-		var screenX, screenY, spriteSize int
-		var visible bool
-
-		if npc.RenderType == "environment_sprite" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance)
-		} else {
-			// Default to NPC-specific helper (larger than monsters)
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance)
-		}
-		if !visible {
-			continue
-		}
-
-		// Use configured sprite for NPCs, fallback to "elf" if not specified
-		spriteName := "elf" // default fallback
-		if npc.Sprite != "" {
-			// Remove .png extension if present to get sprite name
-			spriteName = strings.TrimSuffix(npc.Sprite, ".png")
-		}
-		sprite := r.game.sprites.GetSprite(spriteName)
-
-		visibleNPCs = append(visibleNPCs, NPCRenderData{
-			npc:        npc,
-			screenX:    screenX,
-			screenY:    screenY,
-			spriteSize: spriteSize,
-			distance:   distance,
-			depthPerp:  depthPerp,
-			sprite:     sprite,
-		})
-	}
-
-	// Sort NPCs by camera-space depth (back to front for proper alpha blending)
-	sort.Slice(visibleNPCs, func(i, j int) bool {
-		return visibleNPCs[i].depthPerp > visibleNPCs[j].depthPerp
-	})
-
-	// Render NPCs in order, using depth testing
-	for _, npcData := range visibleNPCs {
-		r.drawNPCWithDepthTest(screen, npcData)
-	}
-}
-
-// drawNPCWithDepthTest draws an NPC sprite with depth buffer testing
-func (r *Renderer) drawNPCWithDepthTest(screen *ebiten.Image, npcData NPCRenderData) {
-	// Check if NPC should be visible based on depth buffer
-	spriteLeft := npcData.screenX - npcData.spriteSize/2
-	spriteRight := npcData.screenX + npcData.spriteSize/2
-
-	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
-	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
-	}
-
-	// Check if any part of the sprite is in front of walls using camera-space depth
-	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
-		if npcData.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
-		}
-	}
-
-	if !visible {
-		return // NPC is completely behind walls
-	}
-
-	// Draw the NPC sprite
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(npcData.spriteSize) / float64(npcData.sprite.Bounds().Dx())
-	scaleY := float64(npcData.spriteSize) / float64(npcData.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(npcData.screenY))
-
-	// Apply distance shading
-	brightness := 1.0 - (npcData.distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-
-	// Use opaque blending to prevent transparency issues
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(npcData.sprite, opts)
-}
-
-// EnvironmentSpriteRenderData holds data for rendering an environment sprite
-type EnvironmentSpriteRenderData struct {
-	tileX      int
-	tileY      int
-	tileType   world.TileType3D
-	screenX    int
-	screenY    int
-	spriteSize int
-	distance   float64 // Euclidean distance (for sprite sizing)
-	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
-	sprite     *ebiten.Image
-}
-
-// drawTransparentEnvironmentSprites draws transparent environment sprites with depth testing using cached sprites and frustum culling
-func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
-	if world.GlobalTileManager == nil || len(r.transparentSpritesCache) == 0 {
-		return
-	}
-
-	// Reuse pre-allocated buffer to avoid allocation per frame
-	visibleSprites := r.visibleSpritesBuffer[:0]
+// drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
+// and renders them sorted by depth for proper transparency and occlusion.
+func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
+	// Reuse pre-allocated buffer
+	sprites := r.unifiedSprites[:0]
 
 	// Camera properties for frustum culling
 	camX := r.game.camera.X
@@ -1882,149 +1557,411 @@ func (r *Renderer) drawTransparentEnvironmentSprites(screen *ebiten.Image) {
 
 	// Precompute frustum culling values
 	halfFOV := fov / 2
-	fovMargin := halfFOV + 0.1 // Small margin for edge sprites
+	fovMargin := halfFOV + 0.1
 
 	// Get player's current tile for sprite culling
 	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
-
-	// Minimum distance squared to render sprites (avoid rendering when too close)
 	tileSize := float64(r.game.config.GetTileSize())
-	minDistSq := tileSize * tileSize // Don't render sprites within 1 tile distance
+	minDistSq := tileSize * tileSize
 
-	// Use cached transparent sprites instead of scanning entire world
-	for i := range r.transparentSpritesCache {
-		spriteData := &r.transparentSpritesCache[i] // Use pointer to avoid copy
+	// 1. Collect transparent environment sprites (ferns, mushrooms)
+	if world.GlobalTileManager != nil {
+		for i := range r.transparentSpritesCache {
+			spriteData := &r.transparentSpritesCache[i]
 
-		// Skip sprites in the player's current tile to avoid visual artifacts
-		// (sprite would appear at ray-exit edge and "follow" player movement)
-		if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
+			if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
+				continue
+			}
+
+			dx := spriteData.worldX - camX
+			dy := spriteData.worldY - camY
+			distanceSq := dx*dx + dy*dy
+
+			if distanceSq < minDistSq || distanceSq > viewDistSq {
+				continue
+			}
+
+			depthPerp := dx*camDirX + dy*camDirY
+			if depthPerp <= 0 {
+				continue
+			}
+
+			entityAngle := math.Atan2(dy, dx)
+			angleDiff := entityAngle - camAngle
+			for angleDiff > math.Pi {
+				angleDiff -= 2 * math.Pi
+			}
+			for angleDiff < -math.Pi {
+				angleDiff += 2 * math.Pi
+			}
+			if math.Abs(angleDiff) > fovMargin {
+				continue
+			}
+
+			distance := math.Sqrt(distanceSq)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType)
+			if !visible {
+				continue
+			}
+
+			sprites = append(sprites, UnifiedSpriteRenderData{
+				spriteType: SpriteTypeEnvironment,
+				screenX:    screenX,
+				screenY:    screenY,
+				spriteSize: spriteSize,
+				depthPerp:  depthPerp,
+				sprite:     spriteData.sprite,
+				tileX:      spriteData.tileX,
+				tileY:      spriteData.tileY,
+				tileType:   spriteData.tileType,
+			})
+		}
+	}
+
+	// 2. Add tree hits collected during raycasting
+	for _, tree := range r.treeHits {
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeTree,
+			screenX:    tree.screenX,
+			depthPerp:  tree.distance,
+			tileType:   tree.tileType,
+		})
+	}
+	r.treeHits = r.treeHits[:0]
+
+	// 3. Collect monsters
+	for _, mon := range r.game.GetCurrentWorld().Monsters {
+		if !mon.IsAlive() {
 			continue
 		}
 
-		// Check distance from camera (early culling)
-		dx := spriteData.worldX - camX
-		dy := spriteData.worldY - camY
+		dx := mon.X - camX
+		dy := mon.Y - camY
 		distanceSq := dx*dx + dy*dy
 
-		// Skip sprites that are too close (within ~1 tile) to avoid edge artifacts
-		if distanceSq < minDistSq {
+		if distanceSq > viewDistSq {
 			continue
 		}
 
-		if distanceSq > viewDistSq {
-			continue // Too far away
-		}
-
-		// Calculate camera-space perpendicular depth for z-buffer comparison
 		depthPerp := dx*camDirX + dy*camDirY
-
-		// Skip sprites behind camera
 		if depthPerp <= 0 {
 			continue
 		}
 
-		// Frustum culling: check if sprite is within camera FOV
-		entityAngle := math.Atan2(dy, dx)
-		angleDiff := entityAngle - camAngle
-
-		// Normalize angle difference
-		for angleDiff > math.Pi {
-			angleDiff -= 2 * math.Pi
+		distance := math.Sqrt(distanceSq)
+		sizeMultiplier := mon.GetSizeGameMultiplier()
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(mon.X, mon.Y, distance, sizeMultiplier)
+		if visible && mon.Flying {
+			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
 		}
-		for angleDiff < -math.Pi {
-			angleDiff += 2 * math.Pi
+		if !visible {
+			continue
 		}
 
-		// Skip sprites outside FOV
-		if math.Abs(angleDiff) > fovMargin {
+		sprite, flip := r.getMonsterSprite(mon)
+
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType:  SpriteTypeMonster,
+			screenX:     screenX,
+			screenY:     screenY,
+			spriteSize:  spriteSize,
+			depthPerp:   depthPerp,
+			sprite:      sprite,
+			monster:     mon,
+			monsterFlip: flip,
+		})
+	}
+
+	// 4. Collect NPCs
+	for _, npc := range r.game.GetCurrentWorld().NPCs {
+		dx := npc.X - camX
+		dy := npc.Y - camY
+		distanceSq := dx*dx + dy*dy
+
+		if distanceSq > viewDistSq {
+			continue
+		}
+
+		depthPerp := dx*camDirX + dy*camDirY
+		if depthPerp <= 0 {
 			continue
 		}
 
 		distance := math.Sqrt(distanceSq)
 
-		// Calculate sprite metrics using helper function
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance)
+		var screenX, screenY, spriteSize int
+		var visible bool
+
+		if npc.RenderType == "environment_sprite" {
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty)
+		} else {
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
+		}
 		if !visible {
 			continue
 		}
 
-		// Use cached sprite from TransparentSpriteData (avoids string lookups every frame)
-		visibleSprites = append(visibleSprites, EnvironmentSpriteRenderData{
-			tileX:      spriteData.tileX,
-			tileY:      spriteData.tileY,
-			tileType:   spriteData.tileType,
+		spriteName := "elf"
+		if npc.Sprite != "" {
+			spriteName = strings.TrimSuffix(npc.Sprite, ".png")
+		}
+		sprite := r.game.sprites.GetSprite(spriteName)
+
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeNPC,
 			screenX:    screenX,
 			screenY:    screenY,
 			spriteSize: spriteSize,
-			distance:   distance,
 			depthPerp:  depthPerp,
-			sprite:     spriteData.sprite,
+			sprite:     sprite,
+			npc:        npc,
 		})
 	}
 
-	// Sort sprites by camera-space depth (back to front for proper alpha blending)
-	sort.Slice(visibleSprites, func(i, j int) bool {
-		return visibleSprites[i].depthPerp > visibleSprites[j].depthPerp
-	})
-
-	// Update buffer capacity if needed for next frame
-	if cap(visibleSprites) < len(visibleSprites) {
-		r.visibleSpritesBuffer = make([]EnvironmentSpriteRenderData, 0, len(visibleSprites)*2)
-	} else {
-		r.visibleSpritesBuffer = visibleSprites
+	// 5. Collect loot bags
+	for i := range r.game.lootBags {
+		bag := &r.game.lootBags[i]
+		dx := bag.X - camX
+		dy := bag.Y - camY
+		distanceSq := dx*dx + dy*dy
+		if distanceSq > viewDistSq {
+			continue
+		}
+		depthPerp := dx*camDirX + dy*camDirY
+		if depthPerp <= 0 {
+			continue
+		}
+		distance := math.Sqrt(distanceSq)
+		info := r.game.lootBagRenderInfo(bag, distance)
+		if !info.Visible {
+			continue
+		}
+		sprite := r.game.sprites.GetSprite("bag")
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeLootBag,
+			screenX:    info.ScreenX,
+			screenY:    info.ScreenY,
+			spriteSize: info.SpriteSize,
+			depthPerp:  depthPerp,
+			distance:   info.Distance,
+			sprite:     sprite,
+			lootX:      bag.X,
+			lootY:      bag.Y,
+		})
 	}
 
-	// Render sprites in order with depth testing
-	for _, spriteData := range visibleSprites {
-		r.drawTransparentEnvironmentSpriteWithDepthTest(screen, spriteData)
+	// Sort all sprites by depth (back to front)
+	sort.Slice(sprites, func(i, j int) bool {
+		return sprites[i].depthPerp > sprites[j].depthPerp
+	})
+
+	// Update buffer for next frame
+	r.unifiedSprites = sprites
+
+	// Render all sprites in sorted order
+	for _, s := range sprites {
+		switch s.spriteType {
+		case SpriteTypeEnvironment:
+			r.drawUnifiedEnvironmentSprite(screen, s)
+		case SpriteTypeTree:
+			r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+		case SpriteTypeMonster:
+			r.drawUnifiedMonsterSprite(screen, s)
+		case SpriteTypeNPC:
+			r.drawUnifiedNPCSprite(screen, s)
+		case SpriteTypeLootBag:
+			r.drawUnifiedLootBagSprite(screen, s)
+		}
 	}
 }
 
-// drawTransparentEnvironmentSpriteWithDepthTest draws a transparent environment sprite with depth buffer testing
-func (r *Renderer) drawTransparentEnvironmentSpriteWithDepthTest(screen *ebiten.Image, spriteData EnvironmentSpriteRenderData) {
-	// Check if sprite should be visible based on depth buffer
-	spriteLeft := spriteData.screenX - spriteData.spriteSize/2
-	spriteRight := spriteData.screenX + spriteData.spriteSize/2
+// drawUnifiedLootBagSprite draws a loot bag sprite from unified data
+func (r *Renderer) drawUnifiedLootBagSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	drawLeft := s.screenX - s.spriteSize/2
+	drawRight := s.screenX + s.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
 
-	// Clamp to screen bounds
-	if spriteLeft < 0 {
-		spriteLeft = 0
+	if depthLeft < 0 {
+		depthLeft = 0
 	}
-	if spriteRight >= len(r.game.depthBuffer) {
-		spriteRight = len(r.game.depthBuffer) - 1
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
 	}
 
-	// Check if any part of the sprite is in front of walls using camera-space depth
 	visible := false
-	for x := spriteLeft; x <= spriteRight; x++ {
-		if spriteData.depthPerp < r.game.depthBuffer[x] {
+	for x := depthLeft; x <= depthRight; x++ {
+		if s.depthPerp < r.game.depthBuffer[x] {
 			visible = true
 			break
 		}
 	}
-
 	if !visible {
-		return // Sprite is completely behind walls
+		return
 	}
 
-	// Draw the transparent environment sprite
+	pickupRange := r.game.lootBagPickupRange()
+	hovered := false
+	if s.distance <= pickupRange {
+		mouseX, mouseY := ebiten.CursorPosition()
+		info := LootBagRenderInfo{
+			ScreenX:    s.screenX,
+			ScreenY:    s.screenY,
+			SpriteSize: s.spriteSize,
+			Distance:   s.distance,
+			Visible:    true,
+		}
+		hovered = r.game.lootBagHitTestFromInfo(info, mouseX, mouseY, pickupRange)
+	}
+
 	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(spriteData.spriteSize) / float64(spriteData.sprite.Bounds().Dx())
-	scaleY := float64(spriteData.spriteSize) / float64(spriteData.sprite.Bounds().Dy())
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
 	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(spriteLeft), float64(spriteData.screenY))
+	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
-	// Apply distance shading with torch light effects
-	// Calculate tile center world coordinates for torch light
-	tileSize := float64(r.game.config.GetTileSize())
-	worldX, worldY := TileCenterFromTile(spriteData.tileX, spriteData.tileY, tileSize)
-	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, spriteData.distance)
+	brightness := r.calculateBrightnessWithTorchLight(s.lootX, s.lootY, s.distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-
-	// Use alpha blending for proper transparency
 	opts.Blend = ebiten.BlendSourceOver
 
-	screen.DrawImage(spriteData.sprite, opts)
+	screen.DrawImage(s.sprite, opts)
+
+	if hovered {
+		highlight := &ebiten.DrawImageOptions{}
+		highlight.GeoM.Scale(scaleX, scaleY)
+		highlight.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+		highlight.ColorScale.Scale(1.0, 0.95, 0.6, 0.6)
+		highlight.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, highlight)
+	}
+}
+
+// drawUnifiedEnvironmentSprite draws an environment sprite from unified data
+func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	drawLeft := s.screenX - s.spriteSize/2
+	drawRight := s.screenX + s.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
+
+	if depthLeft < 0 {
+		depthLeft = 0
+	}
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
+	}
+
+	visible := false
+	for x := depthLeft; x <= depthRight; x++ {
+		if s.depthPerp < r.game.depthBuffer[x] {
+			visible = true
+			break
+		}
+	}
+	if !visible {
+		return
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+
+	tileSize := float64(r.game.config.GetTileSize())
+	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
+	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(s.sprite, opts)
+}
+
+// drawUnifiedMonsterSprite draws a monster sprite from unified data
+func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	drawLeft := s.screenX - s.spriteSize/2
+	drawRight := s.screenX + s.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
+
+	if depthLeft < 0 {
+		depthLeft = 0
+	}
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
+	}
+
+	visible := false
+	for x := depthLeft; x <= depthRight; x++ {
+		if s.depthPerp < r.game.depthBuffer[x] {
+			visible = true
+			break
+		}
+	}
+	if !visible {
+		return
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+
+	if s.monsterFlip {
+		opts.GeoM.Scale(-scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(s.screenY))
+	} else {
+		opts.GeoM.Scale(scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+	}
+
+	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
+	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(s.sprite, opts)
+}
+
+// drawUnifiedNPCSprite draws an NPC sprite from unified data
+func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	drawLeft := s.screenX - s.spriteSize/2
+	drawRight := s.screenX + s.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
+
+	if depthLeft < 0 {
+		depthLeft = 0
+	}
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
+	}
+
+	visible := false
+	for x := depthLeft; x <= depthRight; x++ {
+		if s.depthPerp < r.game.depthBuffer[x] {
+			visible = true
+			break
+		}
+	}
+	if !visible {
+		return
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+
+	distance := math.Sqrt(math.Pow(s.npc.X-r.game.camera.X, 2) + math.Pow(s.npc.Y-r.game.camera.Y, 2))
+	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(s.sprite, opts)
 }
 
 // drawProjectiles draws magic projectiles, sword attacks, and arrows

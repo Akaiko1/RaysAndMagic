@@ -87,6 +87,32 @@ func (wm *WorldManager) LoadAllMaps() error {
 	return nil
 }
 
+// Reset reloads all maps and clears global teleporters for a fresh game state.
+func (wm *WorldManager) Reset() error {
+	// Clear loaded maps and teleporter registry
+	wm.LoadedMaps = make(map[string]*World3D)
+	wm.GlobalTeleporterRegistry = &TeleporterRegistry{
+		Teleporters:    make([]TeleporterLocation, 0),
+		CooldownPeriod: 5 * time.Second,
+	}
+
+	// Pick a sane starting map based on configs
+	startKey := "forest"
+	if _, ok := wm.MapConfigs[startKey]; !ok {
+		startKey = ""
+		for key := range wm.MapConfigs {
+			startKey = key
+			break
+		}
+	}
+	if startKey == "" {
+		return fmt.Errorf("no maps configured")
+	}
+	wm.CurrentMapKey = startKey
+
+	return wm.LoadAllMaps()
+}
+
 // loadSingleMap loads a single map file
 func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig) (*World3D, error) {
 	world := NewWorld3D(wm.config)

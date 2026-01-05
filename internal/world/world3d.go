@@ -312,9 +312,9 @@ func (w *World3D) SetWaterBreathingActive(active bool) {
 // loadNPCsFromMapData loads NPCs from map spawn data
 func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 	for _, spawn := range npcSpawns {
-		// Convert tile coordinates to world coordinates
-		worldX := float64(spawn.X * 64) // 64 is tile size
-		worldY := float64(spawn.Y * 64)
+		// Convert tile coordinates to world coordinates (spawn at tile center)
+		worldX := float64(spawn.X*64) + 32 // 64 is tile size, +32 for center
+		worldY := float64(spawn.Y*64) + 32
 
 		// Create NPC from configuration
 		npc, err := character.CreateNPCFromConfig(spawn.NPCKey, worldX, worldY)

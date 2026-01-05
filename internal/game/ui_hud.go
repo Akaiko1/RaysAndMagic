@@ -141,7 +141,11 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Add character condition status
 		statusText := "OK"
 		if len(member.Conditions) > 0 {
-			statusText = ui.getConditionName(member.Conditions[0])
+			conds := make([]string, 0, len(member.Conditions))
+			for _, cond := range member.Conditions {
+				conds = append(conds, ui.getConditionName(cond))
+			}
+			statusText = strings.Join(conds, ", ")
 		}
 		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+50)
 
@@ -211,7 +215,7 @@ func drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHov
 		plusColor = color.RGBA{60, 120, 60, 180}
 	}
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
-	ebitenutil.DebugPrintAt(screen, "+", x+7, y+3)
+	drawCenteredDebugText(screen, "+", x, y, w, h)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
 }
 
@@ -224,7 +228,7 @@ func drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool)
 		caretColor = color.RGBA{160, 140, 60, 200}
 	}
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), caretColor, false)
-	ebitenutil.DebugPrintAt(screen, "^", x+7, y+3)
+	drawCenteredDebugText(screen, "^", x, y, w, h)
 }
 
 // drawSpellStatusBar draws active spell effects in the top-left of the party UI area

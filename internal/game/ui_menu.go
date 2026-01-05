@@ -79,11 +79,16 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		}
 	case MenuSaveSelect:
 		ebitenutil.DebugPrintAt(screen, "Save Game - Select Slot", px+16, py+14)
+		ebitenutil.DebugPrintAt(screen, "Enter: Save  R: Rename", px+16, py+32)
 		startY := py + 56
 		for i := 0; i < 5; i++ {
 			y := startY + i*32
 			sum := GetSaveSlotSummary(i)
 			label := fmt.Sprintf("Slot %d", i+1)
+			if sum.Name != "" {
+				name := truncateSaveName(sum.Name, 18)
+				label = fmt.Sprintf("Slot %d: %s", i+1, name)
+			}
 			if sum.Exists {
 				mode := "RT"
 				if sum.TurnBased {
@@ -101,6 +106,9 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
+		if ui.game.saveRenameOpen {
+			ui.drawSaveRenameDialog(screen)
+		}
 	case MenuLoadSelect:
 		ebitenutil.DebugPrintAt(screen, "Load Game - Select Slot", px+16, py+14)
 		startY := py + 56
@@ -108,6 +116,10 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			y := startY + i*32
 			sum := GetSaveSlotSummary(i)
 			label := fmt.Sprintf("Slot %d", i+1)
+			if sum.Name != "" {
+				name := truncateSaveName(sum.Name, 18)
+				label = fmt.Sprintf("Slot %d: %s", i+1, name)
+			}
 			if sum.Exists {
 				mode := "RT"
 				if sum.TurnBased {
@@ -125,6 +137,47 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			ebitenutil.DebugPrintAt(screen, label, px+28, y)
 		}
 	}
+}
+
+func truncateSaveName(name string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(name) <= max {
+		return name
+	}
+	if max <= 3 {
+		return name[:max]
+	}
+	return name[:max-3] + "..."
+}
+
+func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
+	w := ui.game.config.GetScreenWidth()
+	h := ui.game.config.GetScreenHeight()
+	dialogW, dialogH := 420, 140
+	x := (w - dialogW) / 2
+	y := (h - dialogH) / 2
+	drawFilledRect(screen, x, y, dialogW, dialogH, color.RGBA{15, 15, 35, 235})
+	drawRectBorder(screen, x, y, dialogW, dialogH, 2, color.RGBA{120, 120, 180, 255})
+
+	title := fmt.Sprintf("Rename Slot %d", ui.game.saveRenameSlot+1)
+	drawCenteredDebugText(screen, title, x, y+10, dialogW, 20)
+
+	inputBoxX := x + 24
+	inputBoxY := y + 48
+	inputBoxW := dialogW - 48
+	inputBoxH := 28
+	drawFilledRect(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, color.RGBA{30, 30, 60, 240})
+	drawRectBorder(screen, inputBoxX, inputBoxY, inputBoxW, inputBoxH, 1, color.RGBA{140, 140, 200, 255})
+
+	input := ui.game.saveRenameInput
+	if input == "" {
+		input = "(empty)"
+	}
+	drawCenteredDebugText(screen, input, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
+
+	ebitenutil.DebugPrintAt(screen, "Enter: Confirm  Esc: Cancel", x+60, y+90)
 }
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
@@ -181,13 +234,10 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 			drawFilledRect(screen, tabX, tabY+tabHeight-2, tabWidth, 2, tabBorderColor)
 		}
 
-		// Draw tab text (using standard debug print for now)
-		if isActive {
-			ebitenutil.DebugPrintAt(screen, tabInfo.label, tabX+10, tabY+8)
-		} else {
-			ebitenutil.DebugPrintAt(screen, tabInfo.label, tabX+10, tabY+8)
-		}
-		ebitenutil.DebugPrintAt(screen, tabInfo.key, tabX+10, tabY+20)
+		// Draw tab text centered
+		topHalf := tabHeight / 2
+		drawCenteredDebugText(screen, tabInfo.label, tabX, tabY, tabWidth, topHalf)
+		drawCenteredDebugText(screen, tabInfo.key, tabX, tabY+topHalf, tabWidth, tabHeight-topHalf)
 
 		// Handle mouse clicks on tabs
 		ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tabInfo.tab)
@@ -243,7 +293,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	}
 
 	// Draw X text
-	ebitenutil.DebugPrintAt(screen, "X", closeButtonX+6, closeButtonY+4)
+	drawCenteredDebugText(screen, "X", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
 
 	// Draw content area
 	contentY := tabY + tabHeight + 10
@@ -266,13 +316,6 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
 		ui.game.currentTab = tab
-	}
-}
-
-// handleCharacterCardClick checks if mouse clicked on a character card and selects that character
-func (ui *UISystem) handleCharacterCardClick(cardX, cardY, cardWidth, cardHeight, characterIndex int) {
-	if ui.game.consumeLeftClickIn(cardX, cardY, cardX+cardWidth, cardY+cardHeight) {
-		ui.game.selectedChar = characterIndex
 	}
 }
 

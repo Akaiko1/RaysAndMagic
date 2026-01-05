@@ -40,7 +40,7 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 		plusColor = color.RGBA{60, 120, 60, 180}
 	}
 	vector.DrawFilledRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
-	ebitenutil.DebugPrintAt(screen, "+", plusX+8, plusY+4)
+	drawCenteredDebugText(screen, "+", plusX, plusY, btnW, btnH)
 	// Handle click
 	if canActuallyAdd && *isHover && clickIn {
 		(*valuePtr)++
@@ -114,7 +114,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	} else {
 		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{120, 60, 60, 180})
 	}
-	ebitenutil.DebugPrintAt(screen, "X", closeX+7, closeY+4)
+	drawCenteredDebugText(screen, "X", closeX, closeY, 28, 28)
 	// Handle close click
 	// Only allow closing if the mouse was released after opening the popup
 	if isCloseHover && ui.game.consumeLeftClickIn(closeX, closeY, closeX+28, closeY+28) && !ui.justOpenedStatPopup {
@@ -555,7 +555,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	closeX := panelX + panelW - 26
 	closeY := panelY + 10
 	drawFilledRect(screen, closeX, closeY, 16, 16, color.RGBA{200, 60, 60, 220})
-	ebitenutil.DebugPrintAt(screen, "X", closeX+4, closeY+2)
+	drawCenteredDebugText(screen, "X", closeX, closeY, 16, 16)
 	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+16, closeY+16) {
 		ui.game.mapOverlayOpen = false
 	}
@@ -860,8 +860,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			} else {
 				drawFilledRect(screen, buttonX, buttonY, buttonWidth, buttonHeight, color.RGBA{60, 150, 60, 255}) // Green
 			}
-
-			ebitenutil.DebugPrintAt(screen, "Claim Reward", buttonX+12, buttonY+2)
+			drawCenteredDebugText(screen, "Claim Reward", buttonX, buttonY, buttonWidth, buttonHeight)
 
 			// Handle click on claim button
 			if ui.game.consumeLeftClickIn(buttonX, buttonY, buttonX+buttonWidth, buttonY+buttonHeight) {

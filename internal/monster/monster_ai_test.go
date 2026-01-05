@@ -340,7 +340,6 @@ func TestMonsterMovementNoShake(t *testing.T) {
 
 			// Track positions and directions
 			positions := make([][2]float64, 0)
-			directions := make([]float64, 0)
 			positions = append(positions, [2]float64{m.X, m.Y})
 
 			targetTileX := worldToTile(tc.targetX)
@@ -350,7 +349,6 @@ func TestMonsterMovementNoShake(t *testing.T) {
 			for i := 0; i < 100; i++ {
 				m.followPathToTile(checker, targetTileX, targetTileY)
 				positions = append(positions, [2]float64{m.X, m.Y})
-				directions = append(directions, m.Direction)
 
 				// Stop if reached target
 				dx := tc.targetX - m.X

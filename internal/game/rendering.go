@@ -6,8 +6,6 @@ import (
 	"math"
 	"ugataima/internal/world"
 
-	"ugataima/internal/threading/rendering"
-
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -52,38 +50,96 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 		wallHeight = 1
 	}
 
-	// Center the wall vertically (bottom aligned to horizon)
-	wallTop = (rh.game.config.GetScreenHeight() - wallHeight) / 2
+	// Anchor wall bottom to the floor line at this distance for consistency
+	// with floor and sprite projection.
+	floorScreenY := rh.calculateFloorScreenY(distance)
+	wallTop = floorScreenY - wallHeight
 
 	return wallHeight, wallTop
 }
 
+// calculateFloorScreenY calculates the screen Y position where the floor appears
+// at a given perpendicular distance from the camera.
+//
+// This is the inverse of the floor rendering formula used in drawSimpleFloorCeiling:
+//
+//	rowDistance = (0.5 * screenHeight * tileSize) / p
+//
+// Where:
+//   - rowDistance is the perpendicular distance from camera to floor point
+//   - p is the vertical offset from the horizon line (screen pixels)
+//   - screenHeight/2 is the horizon line position
+//
+// Solving for screen Y:
+//
+//	p = (0.5 * screenHeight * tileSize) / rowDistance
+//	screenY = horizon + p
+//
+// This ensures sprites are anchored to the floor at their correct distance,
+// preventing the "drift" effect where sprites appeared to slide toward the
+// camera when viewed from medium distances (4+ tiles).
+func (rh *RenderingHelper) calculateFloorScreenY(perpDist float64) int {
+	screenHeight := float64(rh.game.config.GetScreenHeight())
+	tileSize := rh.game.config.GetTileSize()
+	horizon := screenHeight / 2
+
+	if perpDist <= 0 {
+		perpDist = 1 // Avoid division by zero
+	}
+	p := (0.5 * screenHeight * tileSize) / perpDist
+	return int(horizon + p)
+}
+
 // projectToScreenX converts a world position into screen X using the camera plane.
-// It returns the screen X and camera-space depth (transformY).
+// It returns the screen X position and the perpendicular distance (depth) to the entity.
+//
+// This uses the standard raycasting sprite projection technique:
+// 1. Transform world-space offset (dx, dy) into camera-space using matrix inversion
+// 2. transformY is the perpendicular distance (depth into screen)
+// 3. transformX is the horizontal offset in camera space
+// 4. Screen X = center + (transformX / transformY) * halfWidth
+//
+// The perpendicular distance (transformY) is critical for:
+// - Sprite sizing: size = tileSize / perpDist (not Euclidean distance)
+// - Floor anchoring: sprites bottom aligned with floor at their perpDist
+// - Depth buffer: comparing depths for occlusion
+//
+// Using perpendicular distance instead of Euclidean distance prevents:
+// - Fisheye distortion at screen edges
+// - Sprite drift when viewed at angles
+//
+// Reference: https://lodev.org/cgtutor/raycasting3.html
 func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX int, depth float64, ok bool) {
 	cam := rh.game.camera
 	dx := entityX - cam.X
 	dy := entityY - cam.Y
 
+	// Camera direction vector
 	dirX := math.Cos(cam.Angle)
 	dirY := math.Sin(cam.Angle)
+
+	// Camera plane vector (perpendicular to direction, scaled by FOV)
 	planeScale := math.Tan(cam.FOV / 2)
 	planeX := -dirY * planeScale
 	planeY := dirX * planeScale
 
+	// Invert the camera matrix to transform world coords to camera space
+	// | planeX  dirX |   | transformX |   | dx |
+	// | planeY  dirY | * | transformY | = | dy |
 	det := planeX*dirY - dirX*planeY
 	if math.Abs(det) < 1e-9 {
-		return 0, 0, false
+		return 0, 0, false // Degenerate matrix
 	}
 	invDet := 1.0 / det
-	transformX := invDet*(dirY*dx - dirX*dy)
-	transformY := invDet*(-planeY*dx + planeX*dy)
+	transformX := invDet * (dirY*dx - dirX*dy)      // Horizontal offset in camera space
+	transformY := invDet * (-planeY*dx + planeX*dy) // Perpendicular distance (depth)
+
 	if transformY <= 0 {
-		return 0, 0, false
+		return 0, 0, false // Behind camera
 	}
 
 	screenW := rh.game.config.GetScreenWidth()
-	screenX = int(float64(screenW)/2 * (1 + transformX/transformY))
+	screenX = int(float64(screenW) / 2 * (1 + transformX/transformY))
 	return screenX, transformY, true
 }
 
@@ -408,36 +464,58 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 
 // CalculateMonsterSpriteMetrics calculates sprite position and size for 3D rendering with monster-specific size multiplier
 func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeGameMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	maxSize := int(float64(rh.game.config.Graphics.Monster.MaxSpriteSize) * sizeGameMultiplier)
-	minSize := int(float64(rh.game.config.Graphics.Monster.MinSpriteSize) * sizeGameMultiplier)
-	// Apply size multiplier to distance calculation as well
-	effectiveMultiplier := int(float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier)
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
+	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
+	// Keep the existing monster size tuning by converting the legacy distance multiplier
+	// into a height multiplier.
+	legacyMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
+	heightMultiplier := legacyMultiplier / float64(rh.game.config.GetScreenHeight())
+	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier)
 
-	// Adjust Y position to place monsters on the ground (bottom edge at horizon line)
-	if visible {
-		screenY = rh.game.config.GetScreenHeight() / 2
-	}
+	// screenY is now correctly calculated by calculateSpriteMetricsWithHeightMultiplier to anchor
+	// the sprite's bottom to the floor at its distance
 
 	return screenX, screenY, spriteSize, visible
 }
 
 // CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters)
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance float64) (screenX, screenY, spriteSize int, visible bool) {
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, rh.game.config.Graphics.NPC.MaxSpriteSize, rh.game.config.Graphics.NPC.MinSpriteSize, rh.game.config.Graphics.NPC.SizeDistanceMultiplier)
-
-	// Adjust Y position to place NPCs on the ground (bottom edge at horizon line)
-	if visible {
-		screenY = rh.game.config.GetScreenHeight() / 2
+func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeMultiplier <= 0 {
+		sizeMultiplier = 1
 	}
+	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
+	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
+	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
+	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
+
+	// screenY is now correctly calculated by calculateSpriteMetricsWithConfig to anchor
+	// the sprite's bottom to the floor at its distance
 
 	return screenX, screenY, spriteSize, visible
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
-func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64) (screenX, screenY, spriteSize int, visible bool) {
-	// Use tree sprite configuration for environment sprites
-	spriteHeight := int(float64(rh.game.config.GetScreenHeight()) / distance * rh.game.config.GetTileSize() * rh.game.config.Graphics.Sprite.TreeHeightMultiplier)
+func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D) (screenX, screenY, spriteSize int, visible bool) {
+	// Check if within view distance using Euclidean distance (for culling)
+	if distance > rh.game.camera.ViewDist || distance < 5.0 {
+		return 0, 0, 0, false
+	}
+
+	// Project to screen and get perpendicular distance (transformY)
+	// Using perpendicular distance instead of Euclidean distance prevents fisheye effect
+	// and ensures sprites align correctly with the floor rendering
+	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
+	if !ok {
+		return 0, 0, 0, false
+	}
+
+	// Get height multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
+	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
+	if world.GlobalTileManager != nil {
+		heightMultiplier = world.GlobalTileManager.GetHeightMultiplier(tileType)
+	}
+
+	// Calculate size using perpendicular distance for consistent floor alignment
+	spriteHeight := rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
 	if spriteHeight > rh.game.config.GetScreenHeight() {
 		spriteHeight = rh.game.config.GetScreenHeight()
 	}
@@ -445,32 +523,44 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 		spriteHeight = 8
 	}
 
-	// spriteWidth := int(float64(spriteHeight) * rh.game.config.Graphics.Sprite.TreeWidthMultiplier)
-
-	// Check if within view distance
-	if distance > rh.game.camera.ViewDist || distance < 5.0 {
-		return 0, 0, 0, false
-	}
-
-	screenX, _, ok := rh.projectToScreenX(entityX, entityY)
-	if !ok {
-		return 0, 0, 0, false
-	}
-
 	screenW := rh.game.config.GetScreenWidth()
 	if screenX < -spriteHeight || screenX > screenW+spriteHeight {
 		return 0, 0, 0, false
 	}
 
-	// Environment sprites are centered at horizon line (like trees)
-	screenY = (rh.game.config.GetScreenHeight() - spriteHeight) / 2
+	// Anchor sprite's bottom to the floor at its perpendicular distance
+	// This ensures environment sprites (trees, ferns, etc.) align with the floor
+	floorScreenY := rh.calculateFloorScreenY(perpDist)
+	screenY = floorScreenY - spriteHeight
 
 	return screenX, screenY, spriteHeight, true
 }
 
-// calculateSpriteMetricsWithConfig is the shared implementation
+// calculateSpriteMetricsWithConfig calculates screen position and size for sprites.
+//
+// This is the core sprite projection function used by monsters, NPCs, and other entities.
+// It performs three key calculations:
+//
+//  1. Screen X position: Uses projectToScreenX to convert world coords to screen coords
+//     via camera plane projection (same math as raycasting walls).
+//
+//  2. Sprite size: Uses PERPENDICULAR distance (not Euclidean) for sizing.
+//     This is critical - using Euclidean distance would cause sprites at screen edges
+//     to appear smaller than they should, creating a fisheye effect and causing
+//     sprites to "drift" from their floor tiles when viewed at angles.
+//
+//  3. Screen Y position: Anchors the sprite's BOTTOM edge to the floor at its distance.
+//     The floor at perpendicular distance D appears at screen Y = horizon + p,
+//     where p = (0.5 * screenHeight * tileSize) / D. We position sprites so their
+//     bottom aligns with this floor position, making them appear grounded.
+//
+// Parameters:
+//   - entityX, entityY: World coordinates of the entity
+//   - distance: Euclidean distance (used only for view culling, NOT for sizing)
+//   - maxSize, minSize: Size bounds for the sprite
+//   - multiplier: Size scaling factor from config
 func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
-	// Check if within view distance
+	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0
 	if rh.game.turnBasedMode {
@@ -480,8 +570,18 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 		return 0, 0, 0, false
 	}
 
-	// Calculate sprite size based on distance
-	spriteSize = int(rh.game.config.GetTileSize() / distance * float64(multiplier))
+	// Project to screen and get perpendicular distance (transformY)
+	// IMPORTANT: We use perpDist for sizing, NOT the Euclidean distance parameter
+	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
+	if !ok {
+		return 0, 0, 0, false
+	}
+
+	// Calculate sprite size using the same scaling model as environment sprites.
+	// Convert the legacy distance multiplier into a height multiplier so the
+	// formula matches CalculateEnvironmentSpriteMetrics.
+	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
+	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
 	if spriteSize > maxSize {
 		spriteSize = maxSize
 	}
@@ -489,9 +589,46 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 		spriteSize = minSize
 	}
 
-	screenX, _, ok := rh.projectToScreenX(entityX, entityY)
+	screenW := rh.game.config.GetScreenWidth()
+	if screenX < -spriteSize || screenX > screenW+spriteSize {
+		return 0, 0, 0, false
+	}
+
+	// Calculate screenY to anchor sprite's bottom to the floor at its distance
+	// The floor at perpendicular distance perpDist appears at a specific screen Y
+	// We position the sprite so its bottom aligns with that floor position
+	floorScreenY := rh.calculateFloorScreenY(perpDist)
+	screenY = floorScreenY - spriteSize
+
+	return screenX, screenY, spriteSize, true
+}
+
+// calculateSpriteMetricsWithHeightMultiplier matches environment sprite scaling
+// (screenHeight / perpDist * tileSize * heightMultiplier) and uses the same caps.
+func (rh *RenderingHelper) calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
+	// Check if within view distance using Euclidean distance (for culling only)
+	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
+	minDistance := 5.0
+	if rh.game.turnBasedMode {
+		minDistance = 1.0
+	}
+	if distance > rh.game.camera.ViewDist || distance < minDistance {
+		return 0, 0, 0, false
+	}
+
+	// Project to screen and get perpendicular distance (transformY)
+	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
 	if !ok {
 		return 0, 0, 0, false
+	}
+
+	// Calculate sprite size using the same model as environment sprites
+	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
+	if spriteSize > rh.game.config.GetScreenHeight() {
+		spriteSize = rh.game.config.GetScreenHeight()
+	}
+	if spriteSize < 8 {
+		spriteSize = 8
 	}
 
 	screenW := rh.game.config.GetScreenWidth()
@@ -499,21 +636,17 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 		return 0, 0, 0, false
 	}
 
-	screenY = rh.game.config.GetScreenHeight()/2 - spriteSize/2
+	// Anchor sprite's bottom to the floor at its perpendicular distance
+	floorScreenY := rh.calculateFloorScreenY(perpDist)
+	screenY = floorScreenY - spriteSize
 
 	return screenX, screenY, spriteSize, true
 }
 
-// CreateSpriteRenderJob creates a sprite render job for the parallel renderer
-func (rh *RenderingHelper) CreateSpriteRenderJob(sprite *ebiten.Image, screenX, screenY, spriteSize int) *rendering.SpriteRenderJob {
-	return &rendering.SpriteRenderJob{
-		Image:      sprite,
-		X:          screenX - spriteSize/2,
-		Y:          screenY,
-		ScaleX:     float64(spriteSize) / float64(sprite.Bounds().Dx()),
-		ScaleY:     float64(spriteSize) / float64(sprite.Bounds().Dy()),
-		ColorScale: struct{ R, G, B, A float32 }{1.0, 1.0, 1.0, 1.0},
-	}
+// calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
+// same scaling model as environment sprites (e.g., moss rocks).
+func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
+	return int(float64(rh.game.config.GetScreenHeight()) / perpDist * float64(rh.game.config.GetTileSize()) * heightMultiplier)
 }
 
 // RenderBackgroundLayers renders sky and ground layers

@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
+	"unicode/utf8"
 
 	"ugataima/internal/game/keytracker"
 
@@ -196,46 +197,116 @@ func (ih *InputHandler) HandleInput() {
 
 // restartNewGame resets party and state for a fresh start
 func (ih *InputHandler) restartNewGame() {
+	g := ih.game
 	// Recreate party
-	ih.game.party = character.NewParty(ih.game.config)
-	// Reset game over state
-	ih.game.gameOver = false
-	// Reset dialog/menu states
-	ih.game.dialogActive = false
-	ih.game.menuOpen = false
-	ih.game.showHighScores = false
-	// Clear pending level-up choices
-	ih.game.levelUpChoiceQueue = nil
+	g.party = character.NewParty(g.config)
+	g.selectedChar = 0
 
-	// Reset to a valid starting map and refresh world visuals/caches.
+	// Reset victory/high score state and session timer
+	g.gameOver = false
+	g.gameVictory = false
+	g.victoryScoreSaved = false
+	g.victoryNameInput = ""
+	g.victoryTime = time.Time{}
+	g.sessionStartTime = time.Now()
+	g.showHighScores = false
+	g.frameCount = 0
+
+	// Clear combat/projectile state
+	g.magicProjectiles = g.magicProjectiles[:0]
+	g.meleeAttacks = g.meleeAttacks[:0]
+	g.arrows = g.arrows[:0]
+	g.lootBags = g.lootBags[:0]
+	g.slashEffects = g.slashEffects[:0]
+	g.arrowHitEffects = g.arrowHitEffects[:0]
+	g.spellHitEffects = g.spellHitEffects[:0]
+	g.deadMonsterIDs = g.deadMonsterIDs[:0]
+	g.combatMessages = g.combatMessages[:0]
+	g.damageBlinkTimers = [4]int{}
+
+	// Reset spell/UI selections and cooldowns
+	g.selectedSchool = 0
+	g.selectedSpell = 0
+	g.spellInputCooldown = 0
+	g.collapsedSpellSchools = make(map[character.MagicSchool]bool)
+	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
+	g.lastSpellClickTime = 0
+	g.lastClickedSpell = -1
+	g.lastClickedSchool = -1
+	g.lastSchoolClickTime = 0
+	g.lastSchoolClickedIdx = -1
+	g.dialogLastClickTime = 0
+	g.dialogLastClickedIdx = -1
+
+	// Reset dialog/menu states
+	g.dialogActive = false
+	g.dialogNPC = nil
+	g.dialogSelectedChar = 0
+	g.dialogSelectedSpell = 0
+	g.selectedCharIdx = 0
+	g.selectedSpellKey = ""
+	g.selectedChoice = 0
+	g.menuOpen = false
+	g.mapOverlayOpen = false
+	g.currentTab = TabInventory
+	g.mainMenuOpen = false
+	g.mainMenuMode = MenuMain
+	g.mainMenuSelection = 0
+	g.slotSelection = 0
+	g.saveRenameOpen = false
+	g.saveRenameSlot = -1
+	g.saveRenameInput = ""
+	g.exitRequested = false
+
+	// Reset utility effects and bonuses
+	g.torchLightActive = false
+	g.torchLightDuration = 0
+	g.torchLightRadius = 0
+	g.wizardEyeActive = false
+	g.wizardEyeDuration = 0
+	g.walkOnWaterActive = false
+	g.walkOnWaterDuration = 0
+	g.blessActive = false
+	g.blessDuration = 0
+	g.blessStatBonus = 0
+	g.waterBreathingActive = false
+	g.waterBreathingDuration = 0
+	g.underwaterReturnX = 0
+	g.underwaterReturnY = 0
+	g.underwaterReturnMap = ""
+	g.statBonus = 0
+
+	// Reset turn-based state
+	g.turnBasedMode = false
+	g.currentTurn = 0
+	g.partyActionsUsed = 0
+	g.turnBasedMoveCooldown = 0
+	g.turnBasedRotCooldown = 0
+	g.monsterTurnResolved = false
+	g.turnBasedSpRegenCount = 0
+
+	// Clear pending level-up choices
+	g.levelUpChoiceQueue = nil
+	g.levelUpChoiceOpen = false
+	g.levelUpChoiceIdx = 0
+
+	// Reset quest progress so victory doesn't immediately re-trigger.
+	if quests.GlobalQuestManager != nil {
+		quests.GlobalQuestManager.Reset()
+	}
+	g.questManager = quests.GlobalQuestManager
+
+	// Reset maps to a fresh state with monsters and NPCs.
 	if wm := world.GlobalWorldManager; wm != nil {
-		startMapKey := wm.CurrentMapKey
-		if wm.IsValidMap("forest") {
-			startMapKey = "forest"
-		} else if !wm.IsValidMap(startMapKey) {
-			if maps := wm.GetAvailableMaps(); len(maps) > 0 {
-				startMapKey = maps[0]
-			}
+		if err := wm.Reset(); err != nil {
+			fmt.Printf("Warning: Failed to reset maps during restart: %v\n", err)
 		}
-		if startMapKey != "" && wm.IsValidMap(startMapKey) && startMapKey != wm.CurrentMapKey {
-			if err := wm.SwitchToMap(startMapKey); err != nil {
-				fmt.Printf("Warning: Failed to switch to map %s during restart: %v\n", startMapKey, err)
-			}
-		}
-		ih.game.world = wm.GetCurrentWorld()
-		ih.game.UpdateSkyAndGroundColors()
-		if ih.game.collisionSystem != nil {
-			ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
-		}
-		if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-			ih.game.gameLoop.renderer.precomputeFloorColorCache()
-			ih.game.gameLoop.renderer.buildTransparentSpriteCache()
-		}
+		g.world = wm.GetCurrentWorld()
 	}
 
 	// Move player to start position (fallback to nearest walkable tile if map has no '+')
-	if currentWorld := ih.game.GetCurrentWorld(); currentWorld != nil {
-		tileSize := float64(ih.game.config.GetTileSize())
+	if currentWorld := g.GetCurrentWorld(); currentWorld != nil {
+		tileSize := float64(g.config.GetTileSize())
 		startX, startY := 0.0, 0.0
 		if currentWorld.StartX >= 0 && currentWorld.StartY >= 0 {
 			startX = float64(currentWorld.StartX) * tileSize
@@ -243,12 +314,27 @@ func (ih *InputHandler) restartNewGame() {
 		} else {
 			centerX := float64(currentWorld.Width) * tileSize * 0.5
 			centerY := float64(currentWorld.Height) * tileSize * 0.5
-			startX, startY = ih.game.FindNearestWalkableTileMustSucceed(centerX, centerY)
+			startX, startY = g.FindNearestWalkableTileMustSucceed(centerX, centerY)
 		}
-		ih.game.camera.X = startX
-		ih.game.camera.Y = startY
-		if ih.game.collisionSystem != nil {
-			ih.game.collisionSystem.UpdateEntity("player", startX, startY)
+		g.camera.X = startX
+		g.camera.Y = startY
+		g.camera.Angle = 0
+		g.camera.FOV = g.config.GetCameraFOV()
+		g.camera.ViewDist = g.config.GetViewDistance()
+
+		// Rebuild collision system and register entities
+		g.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(g.config.World.TileSize))
+		playerEntity := collision.NewEntity("player", startX, startY, 16, 16, collision.CollisionTypePlayer, false)
+		g.collisionSystem.RegisterEntity(playerEntity)
+		currentWorld.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+
+		g.UpdateSkyAndGroundColors()
+		if g.collisionSystem != nil {
+			g.collisionSystem.UpdateTileChecker(currentWorld)
+		}
+		if g.gameLoop != nil && g.gameLoop.renderer != nil {
+			g.gameLoop.renderer.precomputeFloorColorCache()
+			g.gameLoop.renderer.buildTransparentSpriteCache()
 		}
 	}
 }
@@ -266,7 +352,7 @@ func (ih *InputHandler) handleVictoryInput() {
 	// If score already saved, handle post-save options
 	if ih.game.victoryScoreSaved {
 		// H to view high scores
-		if ebiten.IsKeyPressed(ebiten.KeyH) {
+		if ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH) {
 			ih.game.showHighScores = true
 		}
 		// ESC to return to main menu
@@ -423,6 +509,25 @@ func (ih *InputHandler) handleMainMenuInput() {
 	case MenuSaveSelect:
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
+		if ih.game.saveRenameOpen {
+			ih.handleSaveRenameInput()
+			return
+		}
+		for i := 0; i < 5; i++ {
+			y := py + 56 + i*32
+			if ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
+				sum := GetSaveSlotSummary(i)
+				if !sum.Exists {
+					ih.game.AddCombatMessage("No save in slot to rename")
+				} else {
+					ih.game.slotSelection = i
+					ih.game.saveRenameOpen = true
+					ih.game.saveRenameSlot = i
+					ih.game.saveRenameInput = sum.Name
+				}
+				return
+			}
+		}
 		// Navigate slots 0..4
 		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 			if ih.game.slotSelection > 0 {
@@ -442,6 +547,16 @@ func (ih *InputHandler) handleMainMenuInput() {
 			} else {
 				ih.game.AddCombatMessage("Saved to slot")
 				ih.game.mainMenuMode = MenuMain
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+			sum := GetSaveSlotSummary(ih.game.slotSelection)
+			if !sum.Exists {
+				ih.game.AddCombatMessage("No save in slot to rename")
+			} else {
+				ih.game.saveRenameOpen = true
+				ih.game.saveRenameSlot = ih.game.slotSelection
+				ih.game.saveRenameInput = sum.Name
 			}
 		}
 		// Mouse click activation
@@ -485,6 +600,42 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.mainMenuMode = MenuMain
 			}
 		}
+	}
+}
+
+func (ih *InputHandler) handleSaveRenameInput() {
+	inputChars := ebiten.AppendInputChars(nil)
+	for _, char := range inputChars {
+		if char == '\n' || char == '\r' || char == '\t' {
+			continue
+		}
+		if len([]rune(ih.game.saveRenameInput)) < 24 {
+			ih.game.saveRenameInput += string(char)
+		}
+	}
+	if repeatingKeyPressed(ebiten.KeyBackspace) {
+		if len(ih.game.saveRenameInput) > 0 {
+			_, size := utf8.DecodeLastRuneInString(ih.game.saveRenameInput)
+			if size > 0 && size <= len(ih.game.saveRenameInput) {
+				ih.game.saveRenameInput = ih.game.saveRenameInput[:len(ih.game.saveRenameInput)-size]
+			}
+		}
+	}
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		name := strings.TrimSpace(ih.game.saveRenameInput)
+		if err := RenameSaveSlot(ih.game.saveRenameSlot, name); err != nil {
+			ih.game.AddCombatMessage("Rename failed")
+		} else {
+			ih.game.AddCombatMessage("Save renamed")
+		}
+		ih.game.saveRenameOpen = false
+		ih.game.saveRenameSlot = -1
+		ih.game.saveRenameInput = ""
+	}
+	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		ih.game.saveRenameOpen = false
+		ih.game.saveRenameSlot = -1
+		ih.game.saveRenameInput = ""
 	}
 }
 
@@ -635,6 +786,9 @@ func (ih *InputHandler) handleCombatInput() {
 
 	// Melee attack (Space key) - with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+			return
+		}
 		ih.game.combat.EquipmentMeleeAttack()
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
 	}
@@ -1018,6 +1172,18 @@ func (ih *InputHandler) handleMouseInput() {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
 		if targetCharIndex >= 0 && ih.game.consumeLeftClick() {
 			ih.game.selectedChar = targetCharIndex
+		}
+	}
+
+	// Loot bag pickup (only during gameplay, no overlays)
+	if !ih.game.menuOpen && !ih.game.mainMenuOpen && !ih.game.showHighScores && !ih.game.mapOverlayOpen && !ih.game.dialogActive && !ih.game.statPopupOpen && ih.game.currentLevelUpChoice() == nil {
+		pickupRange := ih.game.lootBagPickupRange()
+		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
+			if idx := ih.game.findLootBagIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
+				ih.game.consumeLeftClick()
+				ih.game.pickupLootBagAt(idx)
+				return
+			}
 		}
 	}
 
@@ -1598,6 +1764,9 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+			return
+		}
 		ih.game.combat.EquipmentMeleeAttack()
 		ih.game.partyActionsUsed++
 		ih.game.spellInputCooldown = ih.actionCooldown(15)

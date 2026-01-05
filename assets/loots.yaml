@@ -29,6 +29,12 @@ loots:
     - type: "item"
       key: "iron_armor"
       chance: 0.05
+    - type: "item"
+      key: "iron_helmet"
+      chance: 0.05
+    - type: "item"
+      key: "iron_pants"
+      chance: 0.05
 
   treant:
     - type: "item"
@@ -52,3 +58,19 @@ loots:
     - type: "item"
       key: "lucky_paw"
       chance: 0.01
+
+  alien:
+    - type: "weapon"
+      key: "alien_blaster"
+      chance: 0.06
+
+  skeleton:
+    - type: "item"
+      key: "chain_armor"
+      chance: 0.07
+    - type: "item"
+      key: "chain_helmet"
+      chance: 0.07
+    - type: "item"
+      key: "chain_pants"
+      chance: 0.07
