@@ -201,6 +201,7 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
+	lootBags         []LootBag
 
 	// Spellbook UI state
 	collapsedSpellSchools map[character.MagicSchool]bool
@@ -433,7 +434,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		collapsedSpellSchools: make(map[character.MagicSchool]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
 		combatMessages:        make([]string, 0),
-		maxMessages:           3, // Show last 3 messages
+		maxMessages:           4, // Show last 4 messages
 
 		// Dialog system initialization
 		dialogSelectedChar:  0,
@@ -950,6 +951,8 @@ func (mw *MonsterWrapper) Update() {
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
+	mw.updateCollisionEngagement(playerX, playerY)
+
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
 	if filter := strings.TrimSpace(os.Getenv("DEBUG_MONSTER")); filter != "" {
@@ -1027,6 +1030,33 @@ func (mw *MonsterWrapper) Update() {
 		if mw.collisionSystem != nil {
 			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
 		}
+	}
+}
+
+func (mw *MonsterWrapper) updateCollisionEngagement(playerX, playerY float64) {
+	if mw.collisionSystem == nil || mw.Monster == nil {
+		return
+	}
+	entity := mw.collisionSystem.GetEntityByID(mw.Monster.ID)
+	if entity == nil {
+		return
+	}
+	engaged := mw.Monster.State == monster.StateAttacking
+	if !engaged {
+		attackRange := mw.Monster.GetAttackRangePixels()
+		if attackRange > 0 {
+			distSq := DistanceSquared(mw.Monster.X, mw.Monster.Y, playerX, playerY)
+			if distSq <= attackRange*attackRange {
+				engaged = true
+			}
+		}
+	}
+	desired := collision.CollisionTypeMonster
+	if engaged {
+		desired = collision.CollisionTypeMonsterEngaged
+	}
+	if entity.CollisionType != desired {
+		entity.CollisionType = desired
 	}
 }
 

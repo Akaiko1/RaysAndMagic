@@ -123,6 +123,7 @@ type CollisionType int
 const (
 	CollisionTypePlayer CollisionType = iota
 	CollisionTypeMonster
+	CollisionTypeMonsterEngaged
 	CollisionTypeProjectile
 	CollisionTypeTile
 	CollisionTypeNPC

@@ -1577,9 +1577,6 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed
 func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
-	// Award gold to party
-	cs.game.party.Gold += monster.Gold
-
 	// Distribute experience among all living party members
 	experiencePerMember := monster.Experience / len(cs.game.party.Members)
 	for _, member := range cs.game.party.Members {
@@ -1592,10 +1589,19 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 	}
 
 	// Check for loot drops
-	cs.checkMonsterLootDrop(monster)
+	drops := cs.checkMonsterLootDrop(monster)
 
 	// Update quest progress
 	cs.updateQuestProgress(monster)
+
+	// Drop gold/items into a loot bag on the ground
+	if monster.Gold > 0 || len(drops) > 0 {
+		sizeMultiplier := monster.GetSizeGameMultiplier() / 2.0
+		if sizeMultiplier < 0.1 {
+			sizeMultiplier = 0.1
+		}
+		cs.game.addLootBag(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
+	}
 }
 
 // updateQuestProgress updates quest progress when a monster is killed
@@ -1876,19 +1882,20 @@ func armorSkillFromCategory(category string) (character.SkillType, bool) {
 }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed
-func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) {
+func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []items.Item {
 	// Use YAML-configured loot tables keyed by monster
 	if monsterPkg.MonsterConfig == nil {
-		return
+		return nil
 	}
 	monsterKey, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name)
 	if !ok {
-		return
+		return nil
 	}
 	entries := config.GetLootTable(monsterKey)
 	if len(entries) == 0 {
-		return
+		return nil
 	}
+	drops := make([]items.Item, 0, len(entries))
 	for _, e := range entries {
 		if rand.Float64() < e.Chance {
 			var drop items.Item
@@ -1905,10 +1912,10 @@ func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) {
 				fmt.Printf("[WARN] loot drop failed: %v\n", err)
 				continue
 			}
-			cs.game.party.AddItem(drop)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s dropped a %s! It has been added to your inventory.", monster.Name, drop.Name))
+			drops = append(drops, drop)
 		}
 	}
+	return drops
 }
 
 // findHighestEnduranceTarget finds the party member with the highest endurance who has HP > 0
