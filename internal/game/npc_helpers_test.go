@@ -9,8 +9,13 @@ func TestCanCharacterLearnNPCSpell(t *testing.T) {
 	spell := &character.NPCSpell{
 		School: "water",
 		Requirements: &character.SpellRequirements{
-			MinLevel:      3,
-			MinWaterSkill: 2,
+			MinLevel: 3,
+			Schools: []character.SpellSchoolRequirement{
+				{
+					School:   "water",
+					MinLevel: 2,
+				},
+			},
 		},
 	}
 	char := &character.MMCharacter{

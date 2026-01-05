@@ -84,8 +84,14 @@ type NPCSpell struct {
 
 // SpellRequirements represents requirements to learn a spell
 type SpellRequirements struct {
-	MinLevel      int `yaml:"min_level,omitempty"`
-	MinWaterSkill int `yaml:"min_water_skill,omitempty"`
+	MinLevel int                      `yaml:"min_level,omitempty"`
+	Schools  []SpellSchoolRequirement `yaml:"schools,omitempty"`
+}
+
+// SpellSchoolRequirement represents a required magic school level.
+type SpellSchoolRequirement struct {
+	School   string `yaml:"school"`
+	MinLevel int    `yaml:"min_level,omitempty"`
 }
 
 // NPCItem represents an item that an NPC can sell
