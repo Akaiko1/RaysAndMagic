@@ -678,8 +678,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.awardExperienceAndGold(monster)
 
 		// Add experience/gold award message
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 	}
 }
 
@@ -1445,8 +1444,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 		return
 	}
 
@@ -1503,8 +1501,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
 			prefix, attackerName, monster.Name, actualDamage))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 	} else {
 		prefix := ""
 		if isCrit {
