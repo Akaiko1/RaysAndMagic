@@ -58,8 +58,10 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	if char == nil || spellData == nil {
 		return false
 	}
-	schoolID := character.MagicSchoolID(spellData.School)
-	school := character.MagicSchoolIDToLegacy(schoolID)
+	school, ok := legacySchoolFromString(spellData.School)
+	if !ok {
+		return false
+	}
 	skill := char.MagicSchools[school]
 	if skill == nil {
 		return false
@@ -70,15 +72,43 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 		if req.MinLevel > 0 && char.Level < req.MinLevel {
 			return false
 		}
-		if req.MinWaterSkill > 0 {
-			waterSkill := char.MagicSchools[character.MagicWater]
-			if waterSkill == nil || waterSkill.Level < req.MinWaterSkill {
+		for _, schoolReq := range req.Schools {
+			if strings.TrimSpace(schoolReq.School) == "" {
+				continue
+			}
+			reqSchool, ok := legacySchoolFromString(schoolReq.School)
+			if !ok {
+				return false
+			}
+			reqSkill := char.MagicSchools[reqSchool]
+			if reqSkill == nil {
+				return false
+			}
+			if schoolReq.MinLevel > 0 && reqSkill.Level < schoolReq.MinLevel {
 				return false
 			}
 		}
 	}
 
 	return true
+}
+
+func legacySchoolFromString(raw string) (character.MagicSchool, bool) {
+	school := character.MagicSchoolID(strings.ToLower(strings.TrimSpace(raw)))
+	switch school {
+	case character.MagicSchoolBody,
+		character.MagicSchoolMind,
+		character.MagicSchoolSpirit,
+		character.MagicSchoolFire,
+		character.MagicSchoolWater,
+		character.MagicSchoolAir,
+		character.MagicSchoolEarth,
+		character.MagicSchoolLight,
+		character.MagicSchoolDark:
+		return character.MagicSchoolIDToLegacy(school), true
+	default:
+		return 0, false
+	}
 }
 
 func formatNPCDialogue(template string, vars npcDialogVars) string {

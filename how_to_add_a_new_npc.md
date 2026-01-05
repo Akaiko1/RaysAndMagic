@@ -30,11 +30,14 @@ npcs:
         cost: 500
         requirements:
           min_level: 3
+          schools:
+            - school: "fire"
+              min_level: 1
 ```
 
 Notes:
 - `spells.*.name` must match the display name in `assets/spells.yaml`.
-- `requirements.min_level` and `requirements.min_water_skill` are enforced.
+- `requirements.min_level` and `requirements.schools` are enforced.
 - A character must already have the matching magic school to learn the spell.
 - Dialogue strings are used. You can use `{name}`, `{spell}`, `{cost}` or printf-style placeholders.
 

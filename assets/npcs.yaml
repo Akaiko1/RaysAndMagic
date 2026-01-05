@@ -36,7 +36,9 @@ npcs:
         description: "Allows the party to walk across water surfaces for a limited time"
         requirements:
           min_level: 3
-          min_water_skill: 1
+          schools:
+            - school: "water"
+              min_level: 1
       
       water_breathing:
         name: "Water Breathing"
@@ -47,7 +49,9 @@ npcs:
         description: "Allows underwater exploration for extended periods"
         requirements:
           min_level: 5
-          min_water_skill: 2
+          schools:
+            - school: "water"
+              min_level: 2
 
   # Spell trader for testing
   mtrader0:
@@ -72,7 +76,9 @@ npcs:
         description: "Allows the caster to walk on water surfaces for a limited time."
         requirements:
           min_level: 3
-          min_magic_level: 1
+          schools:
+            - school: "water"
+              min_level: 1
 
   # Example of other NPC types for future expansion
   merchant_general:
