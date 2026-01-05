@@ -185,7 +185,7 @@ func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize 
 	playerY := gl.game.camera.Y
 
 	// Check perpendicular adjacent tiles first, then diagonals as fallback
-	bestX, bestY := m.X, m.Y
+	var bestX, bestY float64
 	bestDist := math.MaxFloat64
 
 	cardinalOffsets := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
