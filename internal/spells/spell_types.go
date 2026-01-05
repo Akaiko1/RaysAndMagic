@@ -93,16 +93,10 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		return items.Item{}, err
 	}
 
-	var itemType items.ItemType
-	var spellEffect items.SpellEffect
-
-	// Dynamic spell effect assignment from YAML
-	spellEffect = items.SpellIDToSpellEffect(string(spellID))
-
+	spellEffect := items.SpellIDToSpellEffect(string(spellID))
+	itemType := items.ItemBattleSpell
 	if def.IsUtility {
 		itemType = items.ItemUtilitySpell
-	} else {
-		itemType = items.ItemBattleSpell
 	}
 
 	return items.Item{
