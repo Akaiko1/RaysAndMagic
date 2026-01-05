@@ -46,18 +46,18 @@ type QuestDefinition struct {
 	IsStartingQuest bool         `yaml:"is_starting_quest"`
 	Rewards         QuestRewards `yaml:"rewards"`
 	// Optional location marker for quest objectives (tile coordinates)
-	MarkerX int    `yaml:"marker_x,omitempty"` // X tile coordinate for quest marker
-	MarkerY int    `yaml:"marker_y,omitempty"` // Y tile coordinate for quest marker
+	MarkerX   int    `yaml:"marker_x,omitempty"`   // X tile coordinate for quest marker
+	MarkerY   int    `yaml:"marker_y,omitempty"`   // Y tile coordinate for quest marker
 	MarkerMap string `yaml:"marker_map,omitempty"` // Map key where marker should appear (empty = current map)
 }
 
 // Quest represents an active quest with progress tracking
 type Quest struct {
-	ID            string
-	Definition    *QuestDefinition
-	Status        QuestStatus
-	CurrentCount  int // Current progress towards target
-	Completed     bool
+	ID             string
+	Definition     *QuestDefinition
+	Status         QuestStatus
+	CurrentCount   int // Current progress towards target
+	Completed      bool
 	RewardsClaimed bool
 }
 
@@ -104,6 +104,25 @@ func (qm *QuestManager) InitializeStartingQuests() {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
+	for id, def := range qm.config.Quests {
+		if def.IsStartingQuest {
+			qm.activeQuests[id] = &Quest{
+				ID:           id,
+				Definition:   def,
+				Status:       QuestStatusActive,
+				CurrentCount: 0,
+				Completed:    false,
+			}
+		}
+	}
+}
+
+// Reset clears all quest progress and re-initializes starting quests.
+func (qm *QuestManager) Reset() {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	qm.activeQuests = make(map[string]*Quest)
 	for id, def := range qm.config.Quests {
 		if def.IsStartingQuest {
 			qm.activeQuests[id] = &Quest{

@@ -1512,6 +1512,7 @@ const (
 	SpriteTypeTree
 	SpriteTypeMonster
 	SpriteTypeNPC
+	SpriteTypeLootBag
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -1521,6 +1522,7 @@ type UnifiedSpriteRenderData struct {
 	screenY    int
 	spriteSize int
 	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
+	distance   float64
 	sprite     *ebiten.Image
 	// Environment/Tree specific
 	tileX    int
@@ -1531,6 +1533,9 @@ type UnifiedSpriteRenderData struct {
 	monsterFlip bool
 	// NPC specific
 	npc *character.NPC
+	// Loot bag specific
+	lootX float64
+	lootY float64
 }
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
@@ -1713,6 +1718,38 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
+	// 5. Collect loot bags
+	for i := range r.game.lootBags {
+		bag := &r.game.lootBags[i]
+		dx := bag.X - camX
+		dy := bag.Y - camY
+		distanceSq := dx*dx + dy*dy
+		if distanceSq > viewDistSq {
+			continue
+		}
+		depthPerp := dx*camDirX + dy*camDirY
+		if depthPerp <= 0 {
+			continue
+		}
+		distance := math.Sqrt(distanceSq)
+		info := r.game.lootBagRenderInfo(bag, distance)
+		if !info.Visible {
+			continue
+		}
+		sprite := r.game.sprites.GetSprite("bag")
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeLootBag,
+			screenX:    info.ScreenX,
+			screenY:    info.ScreenY,
+			spriteSize: info.SpriteSize,
+			depthPerp:  depthPerp,
+			distance:   info.Distance,
+			sprite:     sprite,
+			lootX:      bag.X,
+			lootY:      bag.Y,
+		})
+	}
+
 	// Sort all sprites by depth (back to front)
 	sort.Slice(sprites, func(i, j int) bool {
 		return sprites[i].depthPerp > sprites[j].depthPerp
@@ -1732,7 +1769,70 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawUnifiedMonsterSprite(screen, s)
 		case SpriteTypeNPC:
 			r.drawUnifiedNPCSprite(screen, s)
+		case SpriteTypeLootBag:
+			r.drawUnifiedLootBagSprite(screen, s)
 		}
+	}
+}
+
+// drawUnifiedLootBagSprite draws a loot bag sprite from unified data
+func (r *Renderer) drawUnifiedLootBagSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	drawLeft := s.screenX - s.spriteSize/2
+	drawRight := s.screenX + s.spriteSize/2
+	depthLeft := drawLeft
+	depthRight := drawRight
+
+	if depthLeft < 0 {
+		depthLeft = 0
+	}
+	if depthRight >= len(r.game.depthBuffer) {
+		depthRight = len(r.game.depthBuffer) - 1
+	}
+
+	visible := false
+	for x := depthLeft; x <= depthRight; x++ {
+		if s.depthPerp < r.game.depthBuffer[x] {
+			visible = true
+			break
+		}
+	}
+	if !visible {
+		return
+	}
+
+	pickupRange := r.game.lootBagPickupRange()
+	hovered := false
+	if s.distance <= pickupRange {
+		mouseX, mouseY := ebiten.CursorPosition()
+		info := LootBagRenderInfo{
+			ScreenX:    s.screenX,
+			ScreenY:    s.screenY,
+			SpriteSize: s.spriteSize,
+			Distance:   s.distance,
+			Visible:    true,
+		}
+		hovered = r.game.lootBagHitTestFromInfo(info, mouseX, mouseY, pickupRange)
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+
+	brightness := r.calculateBrightnessWithTorchLight(s.lootX, s.lootY, s.distance)
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	opts.Blend = ebiten.BlendSourceOver
+
+	screen.DrawImage(s.sprite, opts)
+
+	if hovered {
+		highlight := &ebiten.DrawImageOptions{}
+		highlight.GeoM.Scale(scaleX, scaleY)
+		highlight.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+		highlight.ColorScale.Scale(1.0, 0.95, 0.6, 0.6)
+		highlight.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, highlight)
 	}
 }
 
