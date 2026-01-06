@@ -465,7 +465,7 @@ type WeaponDefinitionConfig struct {
 	Graphics *WeaponGraphicsConfig `yaml:"graphics"`
 }
 
-const defaultTPS = 60
+const defaultTPS = 120
 
 func (c *Config) GetTPS() int {
 	if c != nil && c.Engine.TPS > 0 {
