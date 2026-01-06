@@ -37,6 +37,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if !m.IsAlive() {
 			continue
 		}
+		if m.StunTurnsRemaining > 0 {
+			m.StunTurnsRemaining--
+			continue
+		}
 
 		// Calculate distance to player
 		dist := Distance(playerX, playerY, m.X, m.Y)
