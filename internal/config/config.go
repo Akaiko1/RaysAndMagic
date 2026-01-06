@@ -448,6 +448,8 @@ type WeaponDefinitionConfig struct {
 	MaxProjectiles     int                `yaml:"max_projectiles"`
 	HitBonus           int                `yaml:"hit_bonus"`
 	CritChance         int                `yaml:"crit_chance"`
+	StunChance         float64            `yaml:"stun_chance"`
+	StunTurns          int                `yaml:"stun_turns"`
 	DisintegrateChance float64            `yaml:"disintegrate_chance,omitempty"`
 	Rarity             string             `yaml:"rarity"`
 	Value              int                `yaml:"value,omitempty"`

@@ -44,6 +44,14 @@ loots:
       key: "elven_bow"
       chance: 0.05
 
+  troll:
+    - type: "item"
+      key: "revival_potion"
+      chance: 0.10
+    - type: "weapon"
+      key: "steel_mace"
+      chance: 0.10
+
   bear:
     - type: "item"
       key: "belt_of_strength"

@@ -586,6 +586,9 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		if !monster.IsAlive() {
 			continue
 		}
+		if monster.StunFramesRemaining > 0 {
+			continue
+		}
 
 		// Calculate distance and angle to monster center
 		dx := monster.X - playerX
@@ -653,6 +656,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
+	if monster.IsAlive() {
+		cs.tryApplyWeaponStun(monster, weaponDef)
+	}
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -1389,6 +1395,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		damage, isCrit = ma.Damage, ma.Crit
 		weaponName = ma.WeaponName
+		weaponDef = cs.getWeaponConfig(weaponName)
 		damageType = monsterPkg.DamagePhysical
 		damageTypeStr = "physical"
 		ma.Active = false
@@ -1489,6 +1496,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
+	if monster.IsAlive() {
+		cs.tryApplyWeaponStun(monster, weaponDef)
+	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
@@ -1536,6 +1546,45 @@ func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinition
 	}
 
 	return 1.0
+}
+
+func (cs *CombatSystem) tryApplyWeaponStun(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
+	if monster == nil || weaponDef == nil {
+		return
+	}
+	if weaponDef.StunChance <= 0 {
+		return
+	}
+	if rand.Float64() >= weaponDef.StunChance {
+		return
+	}
+
+	turns := weaponDef.StunTurns
+	if turns <= 0 {
+		turns = 1
+	}
+
+	if cs.game.turnBasedMode {
+		if monster.StunTurnsRemaining <= 0 {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
+		}
+		if turns > monster.StunTurnsRemaining {
+			monster.StunTurnsRemaining = turns
+		}
+		return
+	}
+
+	framesPerTurn := cs.game.config.GetTPS()
+	if framesPerTurn <= 0 {
+		framesPerTurn = 60
+	}
+	frames := turns * framesPerTurn
+	if monster.StunFramesRemaining <= 0 {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
+	}
+	if frames > monster.StunFramesRemaining {
+		monster.StunFramesRemaining = frames
+	}
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
