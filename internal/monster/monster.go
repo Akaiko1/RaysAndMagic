@@ -41,6 +41,9 @@ type Monster3D struct {
 	AttackBonus int
 	DamageMin   int
 	DamageMax   int
+	// Light emission (torch-like)
+	LightRadius    float64
+	LightIntensity float64
 
 	// AI behavior
 	State        MonsterState
@@ -72,19 +75,21 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY     float64 // Original spawn position
-	TetherRadius       float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer   bool    // True when actively pursuing/fighting player
-	WasAttacked        bool    // True when monster was hit - prevents disengagement
-	HitTintFrames      int     // Frames remaining for red hit tint
-	AttackAnimFrames   int     // Frames remaining for attack animation (TB mode)
-	Flying             bool    // Whether the monster should be rendered above ground
-	RangedAttackRange  float64 // Optional ranged attack range override (pixels)
-	FireburstChance    float64 // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin int     // Fireburst damage min
-	FireburstDamageMax int     // Fireburst damage max
-	PoisonChance       float64 // Chance to apply poison on hit
-	PoisonDurationSec  int     // Poison duration in seconds
+	SpawnX, SpawnY      float64 // Original spawn position
+	TetherRadius        float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer    bool    // True when actively pursuing/fighting player
+	WasAttacked         bool    // True when monster was hit - prevents disengagement
+	HitTintFrames       int     // Frames remaining for red hit tint
+	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int     // Real-time stun duration in frames
+	Flying              bool    // Whether the monster should be rendered above ground
+	RangedAttackRange   float64 // Optional ranged attack range override (pixels)
+	FireburstChance     float64 // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin  int     // Fireburst damage min
+	FireburstDamageMax  int     // Fireburst damage max
+	PoisonChance        float64 // Chance to apply poison on hit
+	PoisonDurationSec   int     // Poison duration in seconds
 
 	// Loot
 	Gold  int

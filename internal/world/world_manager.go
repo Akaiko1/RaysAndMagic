@@ -33,8 +33,8 @@ func NewWorldManager(cfg *config.Config) *WorldManager {
 		TransitionInProgress: false,
 		config:               cfg,
 		GlobalTeleporterRegistry: &TeleporterRegistry{
-			Teleporters:    make([]TeleporterLocation, 0),
-			CooldownPeriod: 5 * time.Second,
+			Teleporters:     make([]TeleporterLocation, 0),
+			LastUsedByGroup: make(map[string]time.Time),
 		},
 	}
 }
@@ -92,8 +92,8 @@ func (wm *WorldManager) Reset() error {
 	// Clear loaded maps and teleporter registry
 	wm.LoadedMaps = make(map[string]*World3D)
 	wm.GlobalTeleporterRegistry = &TeleporterRegistry{
-		Teleporters:    make([]TeleporterLocation, 0),
-		CooldownPeriod: 5 * time.Second,
+		Teleporters:     make([]TeleporterLocation, 0),
+		LastUsedByGroup: make(map[string]time.Time),
 	}
 
 	// Pick a sane starting map based on configs
@@ -212,6 +212,3 @@ func (wm *WorldManager) IsValidMap(mapKey string) bool {
 	_, exists := wm.LoadedMaps[mapKey]
 	return exists
 }
-
-// registerTeleportersGlobally registers teleporters from a map into the global registry
-// registerTeleportersGlobally is now obsolete; use RegisterTeleportersFromMapData instead.

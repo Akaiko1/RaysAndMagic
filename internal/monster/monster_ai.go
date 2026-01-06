@@ -134,6 +134,11 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 
 // Update runs the monster AI with collision checking and player position for engagement detection
 func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
+	if m.StunFramesRemaining > 0 {
+		m.StunFramesRemaining--
+		return
+	}
+
 	m.StateTimer++
 
 	// Safety: if the monster somehow ended up in a blocked position (e.g., spawn overlap or jitter),

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"strings"
 	"time"
 	"ugataima/internal/character"
@@ -978,41 +977,37 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 		return "", x, y, false
 	}
 	tile := worldInst.Tiles[ty][tx]
-	var ttype string
-	switch tile {
-	case world.TileVioletTeleporter:
-		ttype = "violet"
-	case world.TileRedTeleporter:
-		ttype = "red"
-	default:
+	if world.GlobalTileManager == nil {
+		return "", x, y, false
+	}
+	tileData := world.GlobalTileManager.GetTileData(tile)
+	if tileData == nil || strings.ToLower(tileData.Type) != "teleporter" {
 		return "", x, y, false
 	}
 	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
-	if time.Since(reg.LastUsedTime) < reg.CooldownPeriod {
+	source, ok := reg.FindTeleporter(world.GlobalWorldManager.CurrentMapKey, tx, ty)
+	if !ok || !source.AutoActivate {
 		return "", x, y, false
 	}
-	count := 0
-	for _, tel := range reg.Teleporters {
-		if tel.Type == ttype {
-			count++
+	if reg.LastUsedByGroup == nil {
+		reg.LastUsedByGroup = make(map[string]time.Time)
+	}
+	cooldown := time.Duration(source.CooldownSeconds * float64(time.Second))
+	if cooldown > 0 {
+		if last, exists := reg.LastUsedByGroup[source.Group]; exists {
+			if time.Since(last) < cooldown {
+				return "", x, y, false
+			}
 		}
 	}
-	if count < 2 {
+
+	dest, ok := reg.GetRandomDestinationTeleporter(source)
+	if !ok {
 		return "", x, y, false
 	}
-	var dests []world.TeleporterLocation
-	for _, tel := range reg.Teleporters {
-		if tel.Type == ttype && (tel.MapKey != world.GlobalWorldManager.CurrentMapKey || tel.X != tx || tel.Y != ty) {
-			dests = append(dests, tel)
-		}
-	}
-	if len(dests) == 0 {
-		return "", x, y, false
-	}
-	d := dests[rand.Intn(len(dests))]
-	reg.LastUsedTime = time.Now()
-	nx, ny := TileCenterFromTile(d.X, d.Y, tileSize)
-	return d.MapKey, nx, ny, true
+	reg.LastUsedByGroup[source.Group] = time.Now()
+	nx, ny := TileCenterFromTile(dest.X, dest.Y, tileSize)
+	return dest.MapKey, nx, ny, true
 }
 
 // switchToMap handles common map switching logic for teleporters and spell effects
@@ -1333,8 +1328,8 @@ func (ih *InputHandler) handleNPCInteraction() {
 			ih.game.selectedChoice = 0      // Reset encounter choice selection
 
 			// If NPC has spells, select the first one (deterministic order)
-			if npc.Type == "spell_trader" && len(npc.SpellData) > 0 {
-				spellKeys := ih.getAvailableSpellKeys() // Use deterministic ordering
+			if npcHasSpellTrading(npc) {
+				spellKeys := npcSpellKeys(npc) // Use deterministic ordering
 				if len(spellKeys) > 0 {
 					ih.game.selectedSpellKey = spellKeys[0]
 				}
@@ -1371,12 +1366,12 @@ func (ih *InputHandler) handleDialogInput() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Handle different NPC types
+	// Handle different NPC capabilities
 	if ih.game.dialogNPC != nil {
-		switch ih.game.dialogNPC.Type {
-		case "spell_trader":
+		switch {
+		case npcHasSpellTrading(ih.game.dialogNPC):
 			ih.handleSpellTraderInput()
-		case "encounter":
+		case npcHasEncounter(ih.game.dialogNPC):
 			ih.handleEncounterInput()
 		}
 	}
@@ -1385,22 +1380,6 @@ func (ih *InputHandler) handleDialogInput() {
 }
 
 // getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
-func (ih *InputHandler) getAvailableSpellKeys() []string {
-	if ih.game.dialogNPC == nil || ih.game.dialogNPC.SpellData == nil {
-		return []string{}
-	}
-
-	keys := make([]string, 0, len(ih.game.dialogNPC.SpellData))
-	for key := range ih.game.dialogNPC.SpellData {
-		keys = append(keys, key)
-	}
-
-	// Sort keys to ensure deterministic ordering and prevent UI blinking
-	sort.Strings(keys)
-
-	return keys
-}
-
 // navigateSpellSelectionUp moves spell selection up
 func (ih *InputHandler) navigateSpellSelectionUp(spellKeys []string) {
 	if len(spellKeys) == 0 {
@@ -1461,20 +1440,40 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	}
 
 	// Check if character already knows this spell
-	if ih.characterKnowsSpell(selectedChar, spellData.Name) {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name))
+	if characterKnowsSpellByName(selectedChar, spellData.Name) {
+		msg := "Already known."
+		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.AlreadyKnown != "" {
+			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.AlreadyKnown, npcDialogVars{
+				Name:  selectedChar.Name,
+				Spell: spellData.Name,
+				Cost:  spellData.Cost,
+			})
+		} else {
+			msg = fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)
+		}
+		ih.game.AddCombatMessage(msg)
 		return
 	}
 
 	// Check if character has enough gold
 	if ih.game.party.Gold < spellData.Cost {
-		ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name))
+		msg := "Not enough gold."
+		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.InsufficientGold != "" {
+			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.InsufficientGold, npcDialogVars{
+				Name:  selectedChar.Name,
+				Spell: spellData.Name,
+				Cost:  spellData.Cost,
+			})
+		} else {
+			msg = fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)
+		}
+		ih.game.AddCombatMessage(msg)
 		return
 	}
 
 	// Check if character can learn this spell (class restrictions) - reuse UI logic
-	if !ih.game.gameLoop.ui.characterCanLearnSpell(selectedChar, spellData) {
-		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (wrong class/school)", selectedChar.Name, spellData.Name))
+	if !canCharacterLearnNPCSpell(selectedChar, spellData) {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot learn %s (requirements not met)", selectedChar.Name, spellData.Name))
 		return
 	}
 
@@ -1484,21 +1483,18 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	// Add spell to character's spellbook
 	ih.addSpellToCharacter(selectedChar, spellData)
 
-	ih.game.AddCombatMessage(fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name))
+	msg := fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.Success != "" {
+		msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.Success, npcDialogVars{
+			Name:  selectedChar.Name,
+			Spell: spellData.Name,
+			Cost:  spellData.Cost,
+		})
+	}
+	ih.game.AddCombatMessage(msg)
 }
 
 // characterKnowsSpell checks if a character already knows a spell
-func (ih *InputHandler) characterKnowsSpell(char *character.MMCharacter, spellName string) bool {
-	for _, magicSkill := range char.MagicSchools {
-		for _, spellID := range magicSkill.KnownSpells {
-			if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.Name == spellName {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // addSpellToCharacter adds a spell to a character's spellbook
 func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) {
 	// Find the appropriate magic school for the spell
@@ -1549,7 +1545,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dialogY := (screenHeight - dialogHeight) / 2
 
 	// Check if clicking on spells (if NPC is spell trader)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "spell_trader" {
+	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
 
 		// Check if clicking on character list
 		for i := range ih.game.party.Members {
@@ -1563,20 +1559,15 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 
 		spellsY := dialogY + 100 + (len(ih.game.party.Members) * 25) + 20
-		spellKeys := ih.getAvailableSpellKeys()
+		spellKeys := npcSpellKeys(ih.game.dialogNPC)
 
 		for spellIndex, spellKey := range spellKeys {
 			spellY := spellsY + 20 + (spellIndex * 25)
 
 			// Check if mouse is over this spell entry
 			if ih.game.consumeLeftClickIn(dialogX+20, spellY-2, dialogX+370+1, spellY+22+1) {
-
 				// Check for double-click to purchase spell directly (neutral dialog tracking)
-				currentTime := time.Now().UnixMilli()
-				delta := currentTime - ih.game.dialogLastClickTime
-				doubleClick := ih.game.dialogLastClickedIdx == spellIndex &&
-					delta < doubleClickWindowMs
-				if doubleClick {
+				if ih.dialogDoubleClick(spellIndex) {
 					// Double-click detected - purchase the spell
 					ih.purchaseSelectedSpell()
 				} else {
@@ -1584,63 +1575,73 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					ih.game.dialogSelectedSpell = spellIndex
 					ih.game.selectedSpellKey = spellKey
 				}
-
-				// Update click tracking for dialog spells
-				ih.game.dialogLastClickTime = currentTime
-				ih.game.dialogLastClickedIdx = spellIndex
 				return
 			}
 		}
 	}
 
-	// Check if clicking to sell items (if NPC is merchant)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "merchant" {
-		dialogWidth := 600
-		dialogHeight := 400
-		dialogX := (screenWidth - dialogWidth) / 2
-		dialogY := (screenHeight - dialogHeight) / 2
+	// Check if clicking to buy/sell items (if NPC is merchant)
+	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
+		_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(screenWidth, screenHeight)
+		maxItems := 12
 
-		// Inventory list region mirrors drawMerchantDialog
-		listY := dialogY + 90 + 20
-		maxItems := 15
-		for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
-			y := listY + i*25
-			if ih.game.consumeLeftClickIn(dialogX+18, y-2, dialogX+dialogWidth-18+1, y-2+20+1) {
-				currentTime := time.Now().UnixMilli()
-				delta := currentTime - ih.game.dialogLastClickTime
-				// Use neutral dialog click tracking to detect double-click per index
-				doubleClick := ih.game.dialogLastClickedIdx == i && delta < doubleClickWindowMs
-				if doubleClick {
-					// Double-click detected - sell the item for its value
-					item := ih.game.party.Inventory[i]
-					price := item.Attributes["value"]
-					if price <= 0 {
-						ih.game.AddCombatMessage("This item has no value.")
+		// Buy from merchant (left list)
+		for i := 0; i < len(ih.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
+			y := listY + i*rowH
+			if ih.game.consumeLeftClickIn(leftX-2, y-2, leftX+colW+1, y-2+rowH+1) {
+				if ih.dialogDoubleClick(i) {
+					entry := ih.game.dialogNPC.MerchantStock[i]
+					if entry.Quantity <= 0 {
+						ih.game.AddCombatMessage("That item is sold out.")
 						return
 					}
-					ih.game.party.Gold += price
-					ih.game.party.RemoveItem(i)
-					ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+					if entry.Cost > ih.game.party.Gold {
+						ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", entry.Cost, entry.Item.Name))
+						return
+					}
+					ih.game.party.Gold -= entry.Cost
+					ih.game.party.AddItem(entry.Item)
+					entry.Quantity--
+					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, entry.Cost))
 					return
 				}
-				// Single click - select (no-op visual for now), store click tracking
-				ih.game.dialogLastClickTime = currentTime
-				ih.game.dialogLastClickedIdx = i
 				return
+			}
+		}
+
+		// Sell to merchant (right list)
+		if ih.game.dialogNPC.SellAvailable {
+			for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
+				y := listY + i*rowH
+				if ih.game.consumeLeftClickIn(rightX-2, y-2, rightX+colW+1, y-2+rowH+1) {
+					if ih.dialogDoubleClick(i) {
+						item := ih.game.party.Inventory[i]
+						price := item.Attributes["value"]
+						if price <= 0 {
+							ih.game.AddCombatMessage("This item has no value.")
+							return
+						}
+						ih.game.party.Gold += price
+						ih.game.party.RemoveItem(i)
+						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+						return
+					}
+					return
+				}
 			}
 		}
 		return
 	}
 
 	// Check if clicking on encounter choices (if NPC is encounter type)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.Type == "encounter" {
+	if ih.game.dialogNPC != nil && npcHasEncounter(ih.game.dialogNPC) {
 		npc := ih.game.dialogNPC
 		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
 			// Skip if already visited and encounter is first-visit-only
 			if !(npc.Visited && npc.EncounterData != nil && npc.EncounterData.FirstVisitOnly) {
 				// Calculate position of choices (matching drawEncounterDialog exactly)
 				greeting := npc.DialogueData.Greeting
-				lines := ih.wrapTextForDialog(greeting, 70)
+				lines := wrapText(greeting, 70)
 				choicesY := dialogY + 50 + len(lines)*16 + 20
 
 				// Add space for choice prompt if it exists
@@ -1675,6 +1676,15 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			}
 		}
 	}
+}
+
+func (ih *InputHandler) dialogDoubleClick(index int) bool {
+	currentTime := time.Now().UnixMilli()
+	delta := currentTime - ih.game.dialogLastClickTime
+	doubleClick := ih.game.dialogLastClickedIdx == index && delta < doubleClickWindowMs
+	ih.game.dialogLastClickTime = currentTime
+	ih.game.dialogLastClickedIdx = index
+	return doubleClick
 }
 
 // toggleTurnBasedMode switches between real-time and turn-based modes
@@ -1947,7 +1957,7 @@ func (ih *InputHandler) endPartyTurn() {
 
 // handleSpellTraderInput handles input for spell trader NPCs
 func (ih *InputHandler) handleSpellTraderInput() {
-	spellKeys := ih.getAvailableSpellKeys()
+	spellKeys := npcSpellKeys(ih.game.dialogNPC)
 
 	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
@@ -2094,8 +2104,10 @@ func (ih *InputHandler) startEncounter() {
 	// Spawn monsters near the encounter location
 	ih.spawnEncounterMonsters(npc)
 
-	// Add combat message
-	ih.game.AddCombatMessage("Bandits emerge from the shipwreck to attack!")
+	// Add combat message (optional, data-driven)
+	if npc.EncounterData != nil && npc.EncounterData.StartMessage != "" {
+		ih.game.AddCombatMessage(npc.EncounterData.StartMessage)
+	}
 }
 
 // spawnEncounterMonsters spawns monsters defined in the encounter
@@ -2191,27 +2203,3 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	return false
 }
 
-// wrapTextForDialog wraps text to fit within specified width (same as UI wrapText)
-func (ih *InputHandler) wrapTextForDialog(text string, maxWidth int) []string {
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return []string{}
-	}
-
-	var lines []string
-	currentLine := words[0]
-
-	for _, word := range words[1:] {
-		// Check if adding this word would exceed maxWidth
-		if len(currentLine)+1+len(word) <= maxWidth {
-			currentLine += " " + word
-		} else {
-			lines = append(lines, currentLine)
-			currentLine = word
-		}
-	}
-
-	// Add the last line
-	lines = append(lines, currentLine)
-	return lines
-}

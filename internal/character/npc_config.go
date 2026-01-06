@@ -3,6 +3,8 @@ package character
 import (
 	"fmt"
 	"os"
+	"strings"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 
@@ -11,8 +13,7 @@ import (
 
 // NPCConfig represents the structure of the npcs.yaml file
 type NPCConfig struct {
-	NPCs           map[string]*NPCData       `yaml:"npcs"`
-	PlacementRules map[string]*PlacementRule `yaml:"placement_rules"`
+	NPCs map[string]*NPCData `yaml:"npcs"`
 }
 
 // NPCData represents an NPC definition from the YAML file
@@ -24,6 +25,7 @@ type NPCData struct {
 	RenderType     string               `yaml:"render_type,omitempty"`
 	Transparent    bool                 `yaml:"transparent,omitempty"`
 	SizeMultiplier float64              `yaml:"size_multiplier,omitempty"`
+	SellAvailable  bool                 `yaml:"sell_available,omitempty"`
 	Dialogue       *NPCDialogue         `yaml:"dialogue"`
 	Spells         map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory      []*NPCItem           `yaml:"inventory,omitempty"`
@@ -38,6 +40,7 @@ type NPCDialogue struct {
 	InsufficientGold string               `yaml:"insufficient_gold,omitempty"`
 	AlreadyKnown     string               `yaml:"already_known,omitempty"`
 	Success          string               `yaml:"success,omitempty"`
+	VisitedMessage   string               `yaml:"visited_message,omitempty"`
 	ChoicePrompt     string               `yaml:"choice_prompt,omitempty"`
 	Choices          []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
@@ -54,6 +57,7 @@ type NPCEncounter struct {
 	Monsters       []*EncounterMonster       `yaml:"monsters"`
 	Rewards        *monster.EncounterRewards `yaml:"rewards"`
 	FirstVisitOnly bool                      `yaml:"first_visit_only"`
+	StartMessage   string                    `yaml:"start_message,omitempty"`
 	// Quest integration - creates a quest when encounter is triggered
 	QuestID          string `yaml:"quest_id"`          // Unique ID for the encounter quest
 	QuestName        string `yaml:"quest_name"`        // Display name in quest log
@@ -80,8 +84,14 @@ type NPCSpell struct {
 
 // SpellRequirements represents requirements to learn a spell
 type SpellRequirements struct {
-	MinLevel      int `yaml:"min_level,omitempty"`
-	MinWaterSkill int `yaml:"min_water_skill,omitempty"`
+	MinLevel int                      `yaml:"min_level,omitempty"`
+	Schools  []SpellSchoolRequirement `yaml:"schools,omitempty"`
+}
+
+// SpellSchoolRequirement represents a required magic school level.
+type SpellSchoolRequirement struct {
+	School   string `yaml:"school"`
+	MinLevel int    `yaml:"min_level,omitempty"`
 }
 
 // NPCItem represents an item that an NPC can sell
@@ -99,14 +109,6 @@ type NPCQuest struct {
 	Description      string `yaml:"description"`
 	RewardGold       int    `yaml:"reward_gold"`
 	RewardExperience int    `yaml:"reward_experience"`
-}
-
-// PlacementRule represents rules for placing NPCs in the world
-type PlacementRule struct {
-	PreferredTiles           []string `yaml:"preferred_tiles"`
-	AvoidTiles               []string `yaml:"avoid_tiles"`
-	MinDistanceFromMonsters  float64  `yaml:"min_distance_from_monsters"`
-	MinDistanceFromOtherNPCs float64  `yaml:"min_distance_from_other_npcs"`
 }
 
 // Global NPC configuration
@@ -163,33 +165,72 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		RenderType:     data.RenderType,
 		Transparent:    data.Transparent,
 		SizeMultiplier: data.SizeMultiplier,
-		Dialogue:       make([]string, 0),
-		Inventory:      make([]items.Item, 0),
-		Services:       make([]NPCService, 0),
+		SellAvailable:  data.SellAvailable,
+		DialogueData:   data.Dialogue,
 	}
 
-	// Set up dialogue
-	if data.Dialogue != nil {
-		npc.Dialogue = append(npc.Dialogue, data.Dialogue.Greeting)
-	}
-
-	// Set up services based on NPC type
+	// Set up type-specific data
 	switch data.Type {
 	case "spell_trader":
-		npc.Services = append(npc.Services, ServiceSpellTrading)
 		npc.SpellData = data.Spells
-		npc.DialogueData = data.Dialogue
 	case "merchant":
-		npc.Services = append(npc.Services, ServiceTrading)
-		// Convert NPCItems to Items (would need Item conversion logic)
-	case "quest_giver":
-		npc.Services = append(npc.Services, ServiceQuests)
-		// Set up quest data
+		npc.MerchantStock = buildMerchantStock(data.Inventory)
 	case "encounter":
-		npc.Services = append(npc.Services, ServiceEncounter)
-		npc.DialogueData = data.Dialogue
 		npc.EncounterData = data.Encounter
 	}
 
 	return npc, nil
+}
+
+func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
+	if len(entries) == 0 {
+		return nil
+	}
+	stock := make([]*MerchantStockItem, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil || entry.Name == "" {
+			continue
+		}
+		item, ok := createMerchantItem(entry)
+		if !ok {
+			continue
+		}
+		cost := entry.Cost
+		if cost <= 0 {
+			cost = item.Attributes["value"]
+		}
+		qty := entry.Quantity
+		if qty <= 0 {
+			qty = 1
+		}
+		stock = append(stock, &MerchantStockItem{
+			Item:     item,
+			Cost:     cost,
+			Quantity: qty,
+		})
+	}
+	return stock
+}
+
+func createMerchantItem(entry *NPCItem) (items.Item, bool) {
+	itemType := strings.ToLower(entry.Type)
+	switch itemType {
+	case "weapon":
+		key := items.GetWeaponKeyByName(entry.Name)
+		weapon, err := items.TryCreateWeaponFromYAML(key)
+		if err != nil {
+			return items.Item{}, false
+		}
+		return weapon, true
+	default:
+		_, key, ok := config.GetItemDefinitionByName(entry.Name)
+		if !ok {
+			return items.Item{}, false
+		}
+		item, err := items.TryCreateItemFromYAML(key)
+		if err != nil {
+			return items.Item{}, false
+		}
+		return item, true
+	}
 }

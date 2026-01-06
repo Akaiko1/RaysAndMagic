@@ -56,9 +56,16 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 				}
 				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus)
 			}
+			if weaponDef.StunChance > 0 {
+				turns := weaponDef.StunTurns
+				if turns <= 0 {
+					turns = 1
+				}
+				fields["w_stun"] = fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", weaponDef.StunChance*100, turns)
+			}
 			fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
 		}
-		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_type", "__sep__")
+		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_stun", "w_type", "__sep__")
 
 	case items.ItemArmor:
 		if line := getArmorCategoryLine(item); line != "" {
@@ -361,9 +368,9 @@ func getArmorSummary(item items.Item) string {
 	}
 	var armorLine string
 	if enduranceDiv > 0 {
-		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
+		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces physical damage by AC/2)", baseArmor, enduranceDiv)
 	} else {
-		armorLine = fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+		armorLine = fmt.Sprintf("Armor: %d base (reduces physical damage by AC/2)", baseArmor)
 	}
 	if len(bonusParts) > 0 {
 		return fmt.Sprintf("%s\nBonuses: %s", armorLine, strings.Join(bonusParts, ", "))
@@ -665,6 +672,13 @@ func weaponEffectsSummary(item items.Item) string {
 	}
 	if def.DisintegrateChance > 0 {
 		parts = append(parts, fmt.Sprintf("Disintegrate: %.0f%%", def.DisintegrateChance*100))
+	}
+	if def.StunChance > 0 {
+		turns := def.StunTurns
+		if turns <= 0 {
+			turns = 1
+		}
+		parts = append(parts, fmt.Sprintf("Stun: %.0f%% (%d turns)", def.StunChance*100, turns))
 	}
 	return strings.Join(parts, ", ")
 }

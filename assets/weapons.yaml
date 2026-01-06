@@ -90,6 +90,7 @@ weapons:
     bonus_stat: "Might"
     hit_bonus: 5
     crit_chance: 8
+    damage_type: "light"
     rarity: "uncommon"
     value: 150
 
@@ -102,6 +103,32 @@ weapons:
     # Visual effects for slash animation
     graphics:
       slash_color: [255, 255, 100]  # Holy golden flash
+      slash_width: 40
+      slash_length: 56
+
+  steel_mace:
+    name: "Steel Mace"
+    description: "A heavy steel mace built to crush armor"
+    category: "mace"
+    damage: 9
+    range: 1  # 1 tile reach for mace
+    bonus_stat: "Might"
+    hit_bonus: 6
+    crit_chance: 25
+    stun_chance: 0.05
+    stun_turns: 3
+    rarity: "uncommon"
+    value: 220
+
+    # Melee-specific configuration
+    melee:
+      arc_angle: 90     # Wide arc for mace swing
+      animation_frames: 10  # Slower, heavier swing
+      hit_delay: 4      # Delayed impact for heavy weapon
+
+    # Visual effects for slash animation
+    graphics:
+      slash_color: [200, 200, 200]  # Steel flash
       slash_width: 40
       slash_length: 56
 

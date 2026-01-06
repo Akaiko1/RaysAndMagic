@@ -37,6 +37,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if !m.IsAlive() {
 			continue
 		}
+		if m.StunTurnsRemaining > 0 {
+			m.StunTurnsRemaining--
+			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			continue
+		}
+		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 
 		// Calculate distance to player
 		dist := Distance(playerX, playerY, m.X, m.Y)
@@ -67,6 +73,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			// Move 1 tile towards player using perpendicular steps
 			gl.monsterMoveTurnBased(m)
 		}
+
+		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 	}
 
 	// Mark monster turn as processed before ending turn
@@ -94,8 +102,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 
 	damage := monster.GetAttackDamage()
 
-	// Apply armor damage reduction
-	finalDamage := gl.combat.ApplyArmorDamageReduction(damage, target)
+	finalDamage := gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
 
 	// Perfect Dodge: luck/5% roll to avoid all damage
 	if dodged, _ := gl.combat.RollPerfectDodge(target); !dodged {

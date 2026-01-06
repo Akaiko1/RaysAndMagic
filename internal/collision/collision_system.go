@@ -250,9 +250,10 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 	if moving == nil || other == nil {
 		return false
 	}
-	// Allow non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
-	if moving.CollisionType == CollisionTypeMonster && other.CollisionType == CollisionTypeMonster {
-		return true
+	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
+	if (moving.CollisionType == CollisionTypeMonster || moving.CollisionType == CollisionTypeMonsterEngaged) &&
+		(other.CollisionType == CollisionTypeMonster || other.CollisionType == CollisionTypeMonsterEngaged) {
+		return moving.CollisionType == CollisionTypeMonster && other.CollisionType == CollisionTypeMonster
 	}
 	return false
 }

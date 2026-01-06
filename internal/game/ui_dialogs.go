@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
-	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -217,13 +216,13 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	borderThickness := 3
 	drawRectBorder(screen, dialogX, dialogY, dialogWidth, dialogHeight, borderThickness, borderColor)
 
-	// Handle different NPC types
-	switch ui.game.dialogNPC.Type {
-	case "encounter":
+	// Handle different NPC capabilities (data-driven)
+	switch {
+	case npcHasEncounter(ui.game.dialogNPC):
 		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
-	case "spell_trader":
+	case npcHasSpellTrading(ui.game.dialogNPC):
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogHeight)
-	case "merchant":
+	case npcHasMerchant(ui.game.dialogNPC):
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
@@ -269,8 +268,19 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 			}
 		} else {
 			// Already visited
-			ebitenutil.DebugPrintAt(screen, "The shipwreck appears empty now.", dialogX+20, dialogY+150)
-			ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+180)
+			visitedMessage := ""
+			if npc.DialogueData != nil {
+				visitedMessage = npc.DialogueData.VisitedMessage
+			}
+			if visitedMessage != "" {
+				lines := ui.wrapText(visitedMessage, 70)
+				for i, line := range lines {
+					ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+150+i*16)
+				}
+				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150+len(lines)*16+20)
+			} else {
+				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150)
+			}
 		}
 	}
 }
@@ -283,6 +293,9 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 	// Draw greeting
 	greetingText := "Welcome! I can teach you powerful spells for gold."
+	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+		greetingText = ui.game.dialogNPC.DialogueData.Greeting
+	}
 	ebitenutil.DebugPrintAt(screen, greetingText, dialogX+20, dialogY+50)
 
 	// Draw party gold
@@ -305,7 +318,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 
 		// Check if character can learn the selected spell
 		canLearn := selectedSpell != nil && ui.characterCanLearnSpell(member, selectedSpell)
-		alreadyKnows := selectedSpell != nil && ui.characterKnowsSpell(member, selectedSpell.Name)
+		alreadyKnows := selectedSpell != nil && characterKnowsSpellByName(member, selectedSpell.Name)
 
 		// Color coding and text based on eligibility
 		bgColor, statusText := ui.getCharacterSpellStatus(i, canLearn, alreadyKnows, selectedSpell != nil)
@@ -322,7 +335,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	ebitenutil.DebugPrintAt(screen, "Available Spells:", dialogX+20, spellsY)
 
 	// Draw spell list using deterministic ordering
-	spellKeys := ui.getAvailableSpellKeys()
+	spellKeys := npcSpellKeys(ui.game.dialogNPC)
 	for spellIndex, spellKey := range spellKeys {
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 		y := spellsY + 20 + (spellIndex * UIRowSpacing)
@@ -331,7 +344,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		// Check if character already knows this spell
 		if ui.game.selectedCharIdx >= 0 && ui.game.selectedCharIdx < len(ui.game.party.Members) {
 			selectedChar := ui.game.party.Members[ui.game.selectedCharIdx]
-			if ui.characterKnowsSpell(selectedChar, npcSpell.Name) {
+			if characterKnowsSpellByName(selectedChar, npcSpell.Name) {
 				spellText += " (Already Known)"
 			}
 		}
@@ -352,50 +365,83 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	ebitenutil.DebugPrintAt(screen, "Green: Can Learn  |  Red: Cannot Learn  |  Gray: Knows Spell", dialogX+20, instructionsY+45)
 }
 
-// drawMerchantDialog draws a simple seller UI to sell party items
+// drawMerchantDialog draws a buy/sell UI for merchant NPCs
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	// Title and greeting
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
 	greeting := "Bring your wares. I pay fair coin."
+	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+		greeting = ui.game.dialogNPC.DialogueData.Greeting
+	}
 	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
 
 	// Gold
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
 	ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
 
-	// Header
-	listY := dialogY + 90
-	ebitenutil.DebugPrintAt(screen, "Click an item to sell it: (shows first 15)", dialogX+20, listY)
+	_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
 
-	// List inventory with values
-	startY := listY + 20
-	maxItems := 15
-	for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
-		item := ui.game.party.Inventory[i]
-		y := startY + i*UIRowSpacing
-		// Price from attributes
-		price := item.Attributes["value"]
-		prefix := fmt.Sprintf("%2d. ", i+1)
-		nameField := fmt.Sprintf("%-24s", item.Name)
-		suffix := fmt.Sprintf("  %4d gold", price)
+	// Headers
+	ebitenutil.DebugPrintAt(screen, "For Sale:", leftX, listY-20)
+	ebitenutil.DebugPrintAt(screen, "Your Items:", rightX, listY-20)
 
-		// Hover effect
-		mouseX, mouseY := ebiten.CursorPosition()
-		isHover := mouseX >= dialogX+18 && mouseX <= dialogX+dialogWidth-18 && mouseY >= y-2 && mouseY <= y-2+UIRowHeight
-		if isHover {
-			ui.drawUIBackground(screen, dialogX+15, y-2, dialogWidth-30, UIRowHeight, color.RGBA{40, 80, 40, 120})
+	// Merchant stock list
+	maxItems := 12
+	if len(ui.game.dialogNPC.MerchantStock) == 0 {
+		ebitenutil.DebugPrintAt(screen, "(No stock for sale)", leftX, listY)
+	} else {
+		for i := 0; i < len(ui.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
+			entry := ui.game.dialogNPC.MerchantStock[i]
+			item := entry.Item
+			y := listY + i*rowH
+			stockLabel := fmt.Sprintf("%2d. %s", i+1, item.Name)
+			if entry.Quantity <= 0 {
+				stockLabel += " (Sold Out)"
+			}
+			priceLabel := fmt.Sprintf("  %4d gold", entry.Cost)
+
+			mouseX, mouseY := ebiten.CursorPosition()
+			isHover := mouseX >= leftX-2 && mouseX <= leftX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
+			if isHover {
+				ui.drawUIBackground(screen, leftX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+			}
+			drawColoredTextSegments(screen, leftX, y, []coloredTextSegment{
+				{text: stockLabel, color: ui.itemRarityColor(item)},
+				{text: priceLabel, color: color.White},
+			})
 		}
-		drawColoredTextSegments(screen, dialogX+20, y, []coloredTextSegment{
-			{text: prefix, color: color.White},
-			{text: nameField, color: ui.itemRarityColor(item)},
-			{text: suffix, color: color.White},
-		})
+	}
+
+	// Player inventory list (sell side)
+	if !ui.game.dialogNPC.SellAvailable {
+		ebitenutil.DebugPrintAt(screen, "(Not buying goods)", rightX, listY)
+	} else {
+		for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
+			item := ui.game.party.Inventory[i]
+			y := listY + i*rowH
+			price := item.Attributes["value"]
+			prefix := fmt.Sprintf("%2d. ", i+1)
+			nameField := fmt.Sprintf("%-18s", item.Name)
+			suffix := fmt.Sprintf("  %4d gold", price)
+
+			mouseX, mouseY := ebiten.CursorPosition()
+			isHover := mouseX >= rightX-2 && mouseX <= rightX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
+			if isHover {
+				ui.drawUIBackground(screen, rightX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+			}
+			drawColoredTextSegments(screen, rightX, y, []coloredTextSegment{
+				{text: prefix, color: color.White},
+				{text: nameField, color: ui.itemRarityColor(item)},
+				{text: suffix, color: color.White},
+			})
+		}
 	}
 
 	// Instructions
 	instructionsY := dialogY + dialogHeight - 60
-	ebitenutil.DebugPrintAt(screen, "Double-click item: Sell  |  ESC: Close", dialogX+20, instructionsY)
+	ebitenutil.DebugPrintAt(screen, "Double-click left list: Buy  |  Double-click right list: Sell", dialogX+20, instructionsY)
+	ebitenutil.DebugPrintAt(screen, "ESC: Close", dialogX+20, instructionsY+15)
 }
 
 // drawGenericDialog draws basic dialog for other NPC types
@@ -873,46 +919,9 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 }
 
 // characterKnowsSpell checks if a character already knows a spell
-func (ui *UISystem) characterKnowsSpell(char *character.MMCharacter, spellName string) bool {
-	for _, magicSkill := range char.MagicSchools {
-		for _, spellID := range magicSkill.KnownSpells {
-			if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.Name == spellName {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // characterCanLearnSpell checks if a character can learn a specific spell based on class and magic schools
 func (ui *UISystem) characterCanLearnSpell(char *character.MMCharacter, spellData *character.NPCSpell) bool {
-	if spellData == nil {
-		return false
-	}
-
-	// Check class restrictions for magic schools
-	switch spellData.School {
-	case "water":
-		return char.Class == character.ClassSorcerer || char.Class == character.ClassCleric || char.Class == character.ClassDruid
-	case "fire":
-		return char.Class == character.ClassSorcerer
-	case "air":
-		return char.Class == character.ClassSorcerer || char.Class == character.ClassArcher
-	case "earth":
-		return char.Class == character.ClassSorcerer || char.Class == character.ClassDruid
-	case "body":
-		return char.Class == character.ClassCleric || char.Class == character.ClassDruid
-	case "mind":
-		return char.Class == character.ClassCleric
-	case "spirit":
-		return char.Class == character.ClassCleric || char.Class == character.ClassDruid
-	case "light":
-		return char.Class == character.ClassCleric
-	case "dark":
-		return false // Dark magic typically not learnable from NPCs
-	default:
-		return false
-	}
+	return canCharacterLearnNPCSpell(char, spellData)
 }
 
 // claimQuestReward claims the reward for a completed quest

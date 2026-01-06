@@ -586,6 +586,9 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		if !monster.IsAlive() {
 			continue
 		}
+		if monster.StunFramesRemaining > 0 {
+			continue
+		}
 
 		// Calculate distance and angle to monster center
 		dx := monster.X - playerX
@@ -626,7 +629,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
-// This is for melee attacks - AC applies as damage reduction
+// This is for melee attacks - AC applies only to physical damage as reduction
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
 	// Check monster perfect dodge first
 	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
@@ -634,14 +637,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	// Apply monster armor class as damage reduction (same formula as player armor)
-	armorReduction := monster.ArmorClass / 2
-	reducedDamage := damage - armorReduction
-	if reducedDamage < 1 {
-		reducedDamage = 1 // Minimum 1 damage
-	}
-
 	weaponDef := cs.getWeaponConfig(weaponName)
+	damageTypeStr := weaponDamageTypeStr(weaponDef)
+	damageType := convertToMonsterDamageType(damageTypeStr)
+	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, false)
 	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
 		if reducedDamage < 1 {
@@ -650,9 +649,12 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 
 	// Apply damage with resistances and distance-aware AI response
-	finalDamage := monster.TakeDamage(reducedDamage, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
+	if monster.IsAlive() {
+		cs.tryApplyWeaponStun(monster, weaponDef)
+	}
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -678,8 +680,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.awardExperienceAndGold(monster)
 
 		// Add experience/gold award message
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 	}
 }
 
@@ -950,8 +951,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	currentChar := cs.findHighestEnduranceTarget()
 	damage := monster.GetAttackDamage()
 
-	// Apply armor damage reduction
-	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
+	finalDamage := cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar)
 
 	// Perfect Dodge: luck/5% to avoid all damage
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
@@ -1221,7 +1221,8 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			continue
 		}
 		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
-			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, mp.DisintegrateChance)
+			damageTypeStr := spellDamageTypeStr(mp.SpellType)
+			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
 			mp.Active = false
 			cs.game.collisionSystem.UnregisterEntity(mp.ID)
 		}
@@ -1233,7 +1234,8 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 			continue
 		}
 		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
-			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage, ar.DisintegrateChance)
+			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
+			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
 			ar.Active = false
 			cs.game.collisionSystem.UnregisterEntity(ar.ID)
 		}
@@ -1248,9 +1250,9 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
 }
 
-func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, disintegrateChance float64) {
+func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
 	currentChar := cs.findHighestEnduranceTarget()
-	finalDamage := cs.ApplyArmorDamageReduction(damage, currentChar)
+	finalDamage := cs.applyArmorToCharacterIfPhysical(damage, damageTypeStr, currentChar)
 
 	if sourceName == "" {
 		sourceName = "Monster"
@@ -1373,13 +1375,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		spellID := spells.SpellID(mp.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
-		damageTypeStr = spellDef.School
-		damageType = monsterPkg.DamageFire // Default
-		if monsterPkg.MonsterConfig != nil {
-			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
-				damageType = ct
-			}
-		}
+		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
+		damageType = convertToMonsterDamageType(damageTypeStr)
 		mp.Active = false
 		isSpell = true
 
@@ -1390,8 +1387,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		damage, isCrit = ma.Damage, ma.Crit
 		weaponName = ma.WeaponName
-		damageType = monsterPkg.DamagePhysical
-		damageTypeStr = "physical"
+		weaponDef = cs.getWeaponConfig(weaponName)
+		damageTypeStr = weaponDamageTypeStr(weaponDef)
+		damageType = convertToMonsterDamageType(damageTypeStr)
 		ma.Active = false
 
 	case "arrow":
@@ -1402,14 +1400,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damage, isCrit = ar.Damage, ar.Crit
 		disintegrateChance = ar.DisintegrateChance
 		weaponName = "Arrow"
-		damageTypeStr = ar.DamageType
+		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
 		arrowVelX, arrowVelY = ar.VelX, ar.VelY
-		damageType = monsterPkg.DamagePhysical // Default
-		if monsterPkg.MonsterConfig != nil {
-			if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(ar.DamageType); err == nil {
-				damageType = ct
-			}
-		}
+		damageType = convertToMonsterDamageType(damageTypeStr)
 		ar.Active = false
 		isRanged = true
 		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
@@ -1445,8 +1438,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 		return
 	}
 
@@ -1461,24 +1453,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
 	}
 
-	// Calculate damage reduction based on attack type
-	reducedDamage := damage
-	if !isSpell {
-		// Physical attacks: AC reduces damage, but ranged has 33% chance to pierce
-		applyArmor := true
-		if isRanged && rand.Intn(100) < 33 {
-			applyArmor = false // Armor piercing shot!
-		}
-
-		if applyArmor {
-			armorReduction := monster.ArmorClass / 2
-			reducedDamage = damage - armorReduction
-			if reducedDamage < 1 {
-				reducedDamage = 1 // Minimum 1 damage
-			}
-		}
-	}
-	// Spells ignore AC completely - reducedDamage stays as original damage
+	// Calculate damage reduction based on damage type
+	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, isRanged)
 	if !isSpell {
 		if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 			reducedDamage = int(math.Round(float64(reducedDamage) * mult))
@@ -1491,6 +1467,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
+	if monster.IsAlive() {
+		cs.tryApplyWeaponStun(monster, weaponDef)
+	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
@@ -1503,8 +1482,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
 			prefix, attackerName, monster.Name, actualDamage))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience and %d gold.",
-			monster.Experience, monster.Gold))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 	} else {
 		prefix := ""
 		if isCrit {
@@ -1539,6 +1517,45 @@ func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinition
 	}
 
 	return 1.0
+}
+
+func (cs *CombatSystem) tryApplyWeaponStun(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
+	if monster == nil || weaponDef == nil {
+		return
+	}
+	if weaponDef.StunChance <= 0 {
+		return
+	}
+	if rand.Float64() >= weaponDef.StunChance {
+		return
+	}
+
+	turns := weaponDef.StunTurns
+	if turns <= 0 {
+		turns = 1
+	}
+
+	if cs.game.turnBasedMode {
+		if monster.StunTurnsRemaining <= 0 {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
+		}
+		if turns > monster.StunTurnsRemaining {
+			monster.StunTurnsRemaining = turns
+		}
+		return
+	}
+
+	framesPerTurn := cs.game.config.GetTPS()
+	if framesPerTurn <= 0 {
+		framesPerTurn = 60
+	}
+	frames := turns * framesPerTurn
+	if monster.StunFramesRemaining <= 0 {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
+	}
+	if frames > monster.StunFramesRemaining {
+		monster.StunFramesRemaining = frames
+	}
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
@@ -1850,6 +1867,67 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	}
 
 	return finalDamage
+}
+
+func (cs *CombatSystem) applyArmorToCharacterIfPhysical(damage int, damageTypeStr string, char *character.MMCharacter) int {
+	if isPhysicalDamageType(damageTypeStr) {
+		return cs.ApplyArmorDamageReduction(damage, char)
+	}
+	return damage
+}
+
+func isPhysicalDamageType(damageTypeStr string) bool {
+	return strings.EqualFold(strings.TrimSpace(damageTypeStr), "physical")
+}
+
+func normalizeDamageTypeStr(damageTypeStr string) string {
+	normalized := strings.TrimSpace(damageTypeStr)
+	if normalized == "" {
+		return "physical"
+	}
+	return normalized
+}
+
+func weaponDamageTypeStr(weaponDef *config.WeaponDefinitionConfig) string {
+	if weaponDef != nil && weaponDef.DamageType != "" {
+		return weaponDef.DamageType
+	}
+	return "physical"
+}
+
+func spellDamageTypeStr(spellType string) string {
+	if spellDef, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType)); err == nil {
+		return normalizeDamageTypeStr(spellDef.School)
+	}
+	return "physical"
+}
+
+func convertToMonsterDamageType(damageTypeStr string) monsterPkg.DamageType {
+	damageType := monsterPkg.DamagePhysical
+	if monsterPkg.MonsterConfig != nil {
+		if ct, err := monsterPkg.MonsterConfig.ConvertDamageType(damageTypeStr); err == nil {
+			damageType = ct
+		}
+	}
+	return damageType
+}
+
+func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass int, isRanged bool) int {
+	reducedDamage := damage
+	if isPhysicalDamageType(damageTypeStr) {
+		applyArmor := true
+		if isRanged && rand.Intn(100) < 33 {
+			applyArmor = false // Armor piercing shot!
+		}
+		if applyArmor {
+			armorReduction := armorClass / 2
+			reducedDamage = damage - armorReduction
+			if reducedDamage < 1 {
+				reducedDamage = 1 // Minimum 1 damage
+			}
+		}
+	}
+	return reducedDamage
 }
 
 func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor items.Item) int {
