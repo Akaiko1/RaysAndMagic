@@ -1034,18 +1034,25 @@ func (mw *MonsterWrapper) Update() {
 }
 
 func (mw *MonsterWrapper) updateCollisionEngagement(playerX, playerY float64) {
-	if mw.collisionSystem == nil || mw.Monster == nil {
+	if mw.game == nil || mw.Monster == nil {
 		return
 	}
-	entity := mw.collisionSystem.GetEntityByID(mw.Monster.ID)
+	mw.game.updateMonsterCollisionEngagement(mw.Monster, playerX, playerY)
+}
+
+func (g *MMGame) updateMonsterCollisionEngagement(m *monster.Monster3D, playerX, playerY float64) {
+	if g == nil || g.collisionSystem == nil || m == nil {
+		return
+	}
+	entity := g.collisionSystem.GetEntityByID(m.ID)
 	if entity == nil {
 		return
 	}
-	engaged := mw.Monster.State == monster.StateAttacking
+	engaged := m.IsEngagingPlayer || m.State == monster.StateAttacking
 	if !engaged {
-		attackRange := mw.Monster.GetAttackRangePixels()
+		attackRange := m.GetAttackRangePixels()
 		if attackRange > 0 {
-			distSq := DistanceSquared(mw.Monster.X, mw.Monster.Y, playerX, playerY)
+			distSq := DistanceSquared(m.X, m.Y, playerX, playerY)
 			if distSq <= attackRange*attackRange {
 				engaged = true
 			}

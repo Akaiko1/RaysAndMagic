@@ -90,6 +90,7 @@ weapons:
     bonus_stat: "Might"
     hit_bonus: 5
     crit_chance: 8
+    damage_type: "light"
     rarity: "uncommon"
     value: 150
 

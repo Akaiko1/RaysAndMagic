@@ -212,6 +212,11 @@ tiles:
     height_multiplier: 1.0
     sprite: "firefly_swarm"
     render_type: "environment_sprite"
+    alpha_from_brightness: 0.85
+    light:
+      enabled: true
+      radius_tiles: 3.0
+      intensity: 0.25
     letter: "F"
     
   clearing:
