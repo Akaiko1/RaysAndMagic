@@ -27,6 +27,13 @@ type TransparentSpriteData struct {
 	sprite   *ebiten.Image // Cached sprite image to avoid lookups every frame
 }
 
+type LightSource struct {
+	X         float64
+	Y         float64
+	Radius    float64
+	Intensity float64
+}
+
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
 	game                     *MMGame
@@ -40,11 +47,17 @@ type Renderer struct {
 	floorPixels []byte        // Persistent pixel buffer for floor rendering
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
+	// Cached tile light sources (world-space)
+	tileLightCache []LightSource
+	// Active light sources for current frame (world-space)
+	activeLights []LightSource
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
 	// Sprite cache by tile type to avoid repeated GetSprite lookups
 	tileTypeSpriteCache map[world.TileType3D]*ebiten.Image
+	// Sprite cache for brightness-adjusted alpha variants
+	tileTypeProcessedSpriteCache map[world.TileType3D]*ebiten.Image
 	// Reusable buffer for tree hits to avoid allocation per frame
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
@@ -73,10 +86,11 @@ func (r *Renderer) getWeaponConfigByKey(weaponKey string) *config.WeaponDefiniti
 // NewRenderer creates a new renderer
 func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
-		game:                     game,
-		renderedSpritesThisFrame: make(map[[2]int]bool),
-		circleCache:              make(map[int]*ebiten.Image),
-		tileTypeSpriteCache:      make(map[world.TileType3D]*ebiten.Image),
+		game:                         game,
+		renderedSpritesThisFrame:     make(map[[2]int]bool),
+		circleCache:                  make(map[int]*ebiten.Image),
+		tileTypeSpriteCache:          make(map[world.TileType3D]*ebiten.Image),
+		tileTypeProcessedSpriteCache: make(map[world.TileType3D]*ebiten.Image),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -106,10 +120,12 @@ func NewRenderer(game *MMGame) *Renderer {
 func (r *Renderer) buildTransparentSpriteCache() {
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
+		r.tileLightCache = nil
 		return
 	}
 
 	var cache []TransparentSpriteData
+	var lights []LightSource
 	worldWidth := r.game.GetCurrentWorld().Width
 	worldHeight := r.game.GetCurrentWorld().Height
 	tileSize := float64(r.game.config.GetTileSize())
@@ -123,6 +139,19 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			// Get tile type at this position
 			tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
 
+			if tileData := world.GlobalTileManager.GetTileData(tileType); tileData != nil && tileData.Light != nil && tileData.Light.Enabled {
+				radius := tileData.Light.RadiusTiles * tileSize
+				intensity := tileData.Light.Intensity
+				if radius > 0 && intensity > 0 {
+					lights = append(lights, LightSource{
+						X:         worldX,
+						Y:         worldY,
+						Radius:    radius,
+						Intensity: intensity,
+					})
+				}
+			}
+
 			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
@@ -132,7 +161,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				if spriteName == "" {
 					continue // Skip tiles without sprites
 				}
-				sprite := r.game.sprites.GetSprite(spriteName)
+				sprite := r.getCachedSprite(tileType)
 
 				cache = append(cache, TransparentSpriteData{
 					tileX:    tileX,
@@ -147,6 +176,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	}
 
 	r.transparentSpritesCache = cache
+	r.tileLightCache = lights
 }
 
 // precomputeRayDirections calculates ray directions once per frame for performance
@@ -192,6 +222,74 @@ func (r *Renderer) precomputeRayDirections() {
 	}
 }
 
+func (r *Renderer) updateActiveLights() {
+	r.activeLights = r.activeLights[:0]
+
+	camX := r.game.camera.X
+	camY := r.game.camera.Y
+	viewDist := r.game.camera.ViewDist
+
+	for _, light := range r.tileLightCache {
+		radius := light.Radius
+		if radius <= 0 || light.Intensity <= 0 {
+			continue
+		}
+		maxDist := viewDist + radius
+		dx := light.X - camX
+		dy := light.Y - camY
+		if dx*dx+dy*dy <= maxDist*maxDist {
+			r.activeLights = append(r.activeLights, light)
+		}
+	}
+
+	if world := r.game.GetCurrentWorld(); world != nil {
+		for _, mon := range world.Monsters {
+			if !mon.IsAlive() {
+				continue
+			}
+			if mon.LightRadius <= 0 || mon.LightIntensity <= 0 {
+				continue
+			}
+			maxDist := viewDist + mon.LightRadius
+			dx := mon.X - camX
+			dy := mon.Y - camY
+			if dx*dx+dy*dy <= maxDist*maxDist {
+				r.activeLights = append(r.activeLights, LightSource{
+					X:         mon.X,
+					Y:         mon.Y,
+					Radius:    mon.LightRadius,
+					Intensity: mon.LightIntensity,
+				})
+			}
+		}
+	}
+
+	if r.game.torchLightActive && r.game.torchLightRadius > 0 {
+		r.activeLights = append(r.activeLights, LightSource{
+			X:         camX,
+			Y:         camY,
+			Radius:    r.game.torchLightRadius,
+			Intensity: 0.25,
+		})
+	}
+}
+
+func (r *Renderer) applyLocalLight(brightness float64, sourceX, sourceY, worldX, worldY, radius, intensity float64) float64 {
+	if radius <= 0 || intensity <= 0 {
+		return brightness
+	}
+	distanceFromLight := Distance(sourceX, sourceY, worldX, worldY)
+	if distanceFromLight > radius {
+		return brightness
+	}
+	falloff := 1.0 - (distanceFromLight / radius)
+	brightness += intensity * falloff
+	if brightness > 1.0 {
+		brightness = 1.0
+	}
+	return brightness
+}
+
 // calculateBrightnessWithTorchLight calculates brightness with torch light effects
 func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance float64) float64 {
 	// Base brightness calculation
@@ -200,24 +298,8 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 		brightness = r.game.config.Graphics.BrightnessMin
 	}
 
-	// Apply torch light effect if active
-	if r.game.torchLightActive {
-		// Calculate distance from camera (torch light source) to the point
-		distanceFromTorch := Distance(r.game.camera.X, r.game.camera.Y, worldX, worldY)
-
-		// Check if within torch light radius
-		if distanceFromTorch <= r.game.torchLightRadius {
-			// Apply 25% brightness increase within 4 tile radius
-			torchBrightness := 0.25
-			// Fade the effect toward the edge of the radius
-			falloff := 1.0 - (distanceFromTorch / r.game.torchLightRadius)
-			torchBrightness *= falloff
-
-			brightness += torchBrightness
-			if brightness > 1.0 {
-				brightness = 1.0
-			}
-		}
+	for _, light := range r.activeLights {
+		brightness = r.applyLocalLight(brightness, light.X, light.Y, worldX, worldY, light.Radius, light.Intensity)
 	}
 
 	return brightness
@@ -378,6 +460,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	for k := range r.renderedSpritesThisFrame {
 		delete(r.renderedSpritesThisFrame, k)
 	}
+
+	r.updateActiveLights()
 
 	// Draw background layers using helper
 	r.game.renderHelper.RenderBackgroundLayers(screen)
@@ -989,6 +1073,80 @@ func (r *Renderer) getCachedSprite(tileType world.TileType3D) *ebiten.Image {
 	sprite := r.game.sprites.GetSprite(spriteName)
 	r.tileTypeSpriteCache[tileType] = sprite
 	return sprite
+}
+
+func (r *Renderer) getProcessedSprite(tileType world.TileType3D) *ebiten.Image {
+	if sprite, ok := r.tileTypeProcessedSpriteCache[tileType]; ok {
+		return sprite
+	}
+
+	sprite := r.getCachedSprite(tileType)
+	if sprite == nil {
+		return nil
+	}
+	if world.GlobalTileManager == nil {
+		return sprite
+	}
+	tileData := world.GlobalTileManager.GetTileData(tileType)
+	if tileData == nil || tileData.AlphaFromBrightness <= 0 {
+		return sprite
+	}
+
+	processed := applyBrightnessToAlpha(sprite, tileData.AlphaFromBrightness)
+	r.tileTypeProcessedSpriteCache[tileType] = processed
+	return processed
+}
+
+func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Image {
+	if sprite == nil || strength <= 0 {
+		return sprite
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	w := sprite.Bounds().Dx()
+	h := sprite.Bounds().Dy()
+	if w <= 0 || h <= 0 {
+		return sprite
+	}
+
+	pixels := make([]byte, 4*w*h)
+	sprite.ReadPixels(pixels)
+	for i := 0; i < len(pixels); i += 4 {
+		a := pixels[i+3]
+		if a == 0 {
+			continue
+		}
+		rv := float64(pixels[i])
+		gv := float64(pixels[i+1])
+		bv := float64(pixels[i+2])
+		maxv := math.Max(rv, math.Max(gv, bv))
+		minv := math.Min(rv, math.Min(gv, bv))
+		brightness := (rv + gv + bv) / (3.0 * 255.0)
+		saturation := 0.0
+		if maxv > 0 {
+			saturation = (maxv - minv) / maxv
+		}
+		whiteness := brightness * (1.0 - saturation)
+		whiteness = math.Min(1.0, whiteness*1.15)
+		alphaScale := 0.0
+		if rv >= 230 && gv >= 230 && bv >= 230 {
+			alphaScale = 0
+		} else {
+			alphaScale = 1.0 - whiteness*strength
+		}
+		if alphaScale < 0 {
+			alphaScale = 0
+		}
+		pixels[i] = uint8(rv*alphaScale + 0.5)
+		pixels[i+1] = uint8(gv*alphaScale + 0.5)
+		pixels[i+2] = uint8(bv*alphaScale + 0.5)
+		pixels[i+3] = uint8(float64(a)*alphaScale + 0.5)
+	}
+
+	img := ebiten.NewImage(w, h)
+	img.WritePixels(pixels)
+	return img
 }
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
@@ -1604,13 +1762,18 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
+			sprite := r.getProcessedSprite(spriteData.tileType)
+			if sprite == nil {
+				continue
+			}
+
 			sprites = append(sprites, UnifiedSpriteRenderData{
 				spriteType: SpriteTypeEnvironment,
 				screenX:    screenX,
 				screenY:    screenY,
 				spriteSize: spriteSize,
 				depthPerp:  depthPerp,
-				sprite:     spriteData.sprite,
+				sprite:     sprite,
 				tileX:      spriteData.tileX,
 				tileY:      spriteData.tileY,
 				tileType:   spriteData.tileType,

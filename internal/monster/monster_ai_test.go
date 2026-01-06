@@ -292,7 +292,7 @@ func TestMonsterMovementNoShake(t *testing.T) {
 		{
 			name:         "Diagonal Movement (NE)",
 			startX:       32.0,
-			startY:       320.0,
+			startY:       352.0,
 			targetX:      320.0,
 			targetY:      32.0,
 			speed:        1.8,

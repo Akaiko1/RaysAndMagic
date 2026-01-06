@@ -368,9 +368,9 @@ func getArmorSummary(item items.Item) string {
 	}
 	var armorLine string
 	if enduranceDiv > 0 {
-		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces damage by AC/2)", baseArmor, enduranceDiv)
+		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces physical damage by AC/2)", baseArmor, enduranceDiv)
 	} else {
-		armorLine = fmt.Sprintf("Armor: %d base (reduces damage by AC/2)", baseArmor)
+		armorLine = fmt.Sprintf("Armor: %d base (reduces physical damage by AC/2)", baseArmor)
 	}
 	if len(bonusParts) > 0 {
 		return fmt.Sprintf("%s\nBonuses: %s", armorLine, strings.Join(bonusParts, ", "))

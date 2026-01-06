@@ -13,7 +13,7 @@ monsters:
     attack_bonus: 0
     damage_min: 4
     damage_max: 8
-    alert_radius: 2  # 2 tiles
+    alert_radius: 3
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
     gold_min: 1
@@ -37,7 +37,7 @@ monsters:
     attack_bonus: 2
     damage_min: 2
     damage_max: 8
-    alert_radius: 2  # 2 tiles
+    alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 5
@@ -65,7 +65,7 @@ monsters:
     attack_bonus: 1
     damage_min: 4
     damage_max: 6
-    alert_radius: 2  # 2 tiles
+    alert_radius: 3
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 0
@@ -148,6 +148,7 @@ monsters:
     resistances:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
+      light: -50
     habitat_preferences:
       - "empty"
 
@@ -162,7 +163,7 @@ monsters:
     damage_max: 18
     poison_chance: 0.33
     poison_duration_seconds: 20
-    alert_radius: 3  # 3 tiles
+    alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
     gold_min: 20
@@ -190,10 +191,10 @@ monsters:
     fireburst_chance: 0.15
     fireburst_damage_min: 10
     fireburst_damage_max: 16
-    alert_radius: 5  # 5 tiles (wide awareness)
+    alert_radius: 5
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
-    ranged_attack_range: 2
+    ranged_attack_range: 3
     speed: 3.75
     gold_min: 500
     gold_max: 1500
@@ -222,7 +223,7 @@ monsters:
     attack_bonus: 3
     damage_min: 8
     damage_max: 12
-    alert_radius: 2  # 2 tiles
+    alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.4
     gold_min: 8
@@ -233,7 +234,7 @@ monsters:
     box_h: 48
     size_game: 8.0
     resistances:
-      earth: 25    # Forest adaptation
+      earth: 25
     habitat_preferences:
       - "empty"
     habitat_near:
@@ -275,7 +276,7 @@ monsters:
     attack_bonus: 5
     damage_min: 25
     damage_max: 35
-    alert_radius: 3  # 3 tiles
+    alert_radius: 6
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "alien_dark_bolt"
     ranged_attack_range: 4
@@ -290,6 +291,7 @@ monsters:
     resistances:
       fire: 25
       dark: 30
+      physical: -50
     habitat_preferences:
       - "empty"
 
@@ -376,7 +378,11 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_game: 2.0
+    size_game: 3.0
+    light:
+      enabled: true
+      radius_tiles: 3.0
+      intensity: 0.25
     resistances:
       spirit: 50
       mind: 75

@@ -394,22 +394,30 @@ type TileConfig struct {
 	TileData map[string]TileData `yaml:"tiles"`
 }
 
+type TileLightConfig struct {
+	Enabled     bool    `yaml:"enabled"`
+	RadiusTiles float64 `yaml:"radius_tiles"`
+	Intensity   float64 `yaml:"intensity"`
+}
+
 type TileData struct {
-	Name             string                 `yaml:"name"`
-	Type             string                 `yaml:"type,omitempty"`
-	Solid            bool                   `yaml:"solid"`
-	Transparent      bool                   `yaml:"transparent"`
-	Walkable         bool                   `yaml:"walkable"`
-	HeightMultiplier float64                `yaml:"height_multiplier"`
-	Sprite           string                 `yaml:"sprite"`
-	RenderType       string                 `yaml:"render_type"`
-	FloorColor       [3]int                 `yaml:"floor_color"`
-	FloorNearColor   [3]int                 `yaml:"floor_near_color"`
-	WallColor        [3]int                 `yaml:"wall_color"`
-	Letter           string                 `yaml:"letter"`
-	Biomes           []string               `yaml:"biomes,omitempty"`
-	Properties       map[string]interface{} `yaml:"properties,omitempty"`
-	Effects          map[string]string      `yaml:"effects,omitempty"`
+	Name                string                 `yaml:"name"`
+	Type                string                 `yaml:"type,omitempty"`
+	Solid               bool                   `yaml:"solid"`
+	Transparent         bool                   `yaml:"transparent"`
+	Walkable            bool                   `yaml:"walkable"`
+	HeightMultiplier    float64                `yaml:"height_multiplier"`
+	Sprite              string                 `yaml:"sprite"`
+	RenderType          string                 `yaml:"render_type"`
+	FloorColor          [3]int                 `yaml:"floor_color"`
+	FloorNearColor      [3]int                 `yaml:"floor_near_color"`
+	WallColor           [3]int                 `yaml:"wall_color"`
+	Letter              string                 `yaml:"letter"`
+	Biomes              []string               `yaml:"biomes,omitempty"`
+	Light               *TileLightConfig       `yaml:"light,omitempty"`
+	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
+	Properties          map[string]interface{} `yaml:"properties,omitempty"`
+	Effects             map[string]string      `yaml:"effects,omitempty"`
 }
 
 type SpecialTileConfig struct {

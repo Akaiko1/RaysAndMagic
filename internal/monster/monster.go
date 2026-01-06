@@ -41,6 +41,9 @@ type Monster3D struct {
 	AttackBonus int
 	DamageMin   int
 	DamageMax   int
+	// Light emission (torch-like)
+	LightRadius    float64
+	LightIntensity float64
 
 	// AI behavior
 	State        MonsterState
