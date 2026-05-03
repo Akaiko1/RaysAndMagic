@@ -19,9 +19,7 @@ const (
 	SlotAmulet
 	SlotRing1
 	SlotRing2
-	SlotBattleSpell  // Legacy slot for equipped battle spell
-	SlotUtilitySpell // Legacy slot for equipped utility spell
-	SlotSpell        // New unified spell slot for any spell
+	SlotSpell // Unified spell slot for any spell
 )
 
 type Item struct {
@@ -41,7 +39,7 @@ type Item struct {
 	DamageType         string // "physical", "fire", "dark", etc.
 	MaxProjectiles     int    // Maximum projectiles allowed at once (0 = unlimited)
 	// For spells
-	SpellSchool string // Will use string instead of character.MagicSchool to avoid cycles
+	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
 }
@@ -58,12 +56,10 @@ const (
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 )
 
-// Legacy weapon types removed - use YAML weapon keys instead
-
-// SpellEffect represents dynamic spell effects (replaces hardcoded enum!)
+// SpellEffect stores the spell identifier on spell items.
 type SpellEffect string
 
-// Dynamic spell effect constants (these map to SpellID from config)
+// Spell effect constants mirror spell IDs from config.
 const (
 	SpellEffectFireball    SpellEffect = "fireball"
 	SpellEffectFireBolt    SpellEffect = "firebolt"
@@ -80,16 +76,6 @@ const (
 	SpellEffectAwaken      SpellEffect = "awaken"
 	SpellEffectWalkOnWater SpellEffect = "walk_on_water"
 )
-
-// SpellEffectToSpellID converts SpellEffect to SpellID (dynamic mapping!)
-func SpellEffectToSpellID(effect SpellEffect) string {
-	return string(effect) // Direct conversion since they're the same now!
-}
-
-// SpellIDToSpellEffect converts SpellID to SpellEffect
-func SpellIDToSpellEffect(spellID string) SpellEffect {
-	return SpellEffect(spellID) // Direct conversion since they're the same now!
-}
 
 // Helper functions to create items
 func CreateWeapon(name string, damage, weaponRange int, bonusStat, description string) Item {
@@ -134,7 +120,6 @@ func CreateUtilitySpell(name string, effect SpellEffect, school string, cost int
 func CreateWeaponFromYAML(weaponKey string) Item {
 	item, err := TryCreateWeaponFromYAML(weaponKey)
 	if err != nil {
-		// Panic for backwards compatibility with initialization code that expects this to succeed
 		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
 	}
 	return item
@@ -185,7 +170,6 @@ type WeaponDefinitionFromYAML struct {
 	BonusStatSecondary string // Secondary scaling stat
 	DamageType         string // Damage element type
 	MaxProjectiles     int    // Max projectiles at once
-	HitBonus           int
 	CritChance         int
 	Rarity             string
 	Value              int

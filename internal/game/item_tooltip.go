@@ -46,14 +46,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
 			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
-			if weaponDef.CritChance > 0 {
+			totalCrit := combatSystem.CalculateWeaponCritChance(item, char)
+			if totalCrit > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
-				totalCrit := weaponDef.CritChance + critBonus
-				if totalCrit > 100 {
-					totalCrit = 100
-				} else if totalCrit < 0 {
-					totalCrit = 0
-				}
 				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus)
 			}
 			if weaponDef.StunChance > 0 {
@@ -163,8 +158,8 @@ func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, comb
 		if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
 			return ""
 		}
-		itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
-		equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+		itemID := spells.SpellID(item.SpellEffect)
+		equippedID := spells.SpellID(equipped.SpellEffect)
 		if itemID == "" || equippedID == "" || itemID == equippedID {
 			return ""
 		}
@@ -200,7 +195,7 @@ func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharact
 	if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
 		return ""
 	}
-	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	equippedID := spells.SpellID(equipped.SpellEffect)
 	if equippedID == "" {
 		return ""
 	}
@@ -221,7 +216,7 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 		return ""
 	}
 
-	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+	spellID := spells.SpellID(item.SpellEffect)
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		lines := []string{
@@ -573,8 +568,8 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 }
 
 func buildSpellComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
-	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	itemID := spells.SpellID(item.SpellEffect)
+	equippedID := spells.SpellID(equipped.SpellEffect)
 	if itemID == "" || equippedID == "" {
 		return nil
 	}
@@ -744,8 +739,8 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		tooltip = append(tooltip, fmt.Sprintf("✗ Need %d more SP", needed))
 	}
 
-	// Character's skill level in this school (convert string to MagicSchool)
-	school := getSchoolFromString(def.School)
+	// Character's skill level in this school
+	school := character.MagicSchoolID(def.School)
 	if magicSkill, exists := char.MagicSchools[school]; exists {
 		tooltip = append(tooltip, "")
 		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", formatSchoolName(def.School)))
@@ -773,29 +768,16 @@ func formatCooldownLine(char *character.MMCharacter, combatSystem *CombatSystem)
 	if combatSystem == nil || combatSystem.game == nil || char == nil {
 		return ""
 	}
-	cooldownFrames := actionCooldownFrames(char, combatSystem)
+	cooldownFrames := combatSystem.CalculateActionCooldownFrames(char)
+	if cooldownFrames <= 0 {
+		return ""
+	}
 	tps := combatSystem.game.config.GetTPS()
 	if tps <= 0 {
 		tps = 60
 	}
 	seconds := float64(cooldownFrames) / float64(tps)
 	return fmt.Sprintf("Cooldown: %d frames (%.1fs)", cooldownFrames, seconds)
-}
-
-func actionCooldownFrames(char *character.MMCharacter, combatSystem *CombatSystem) int {
-	if combatSystem.game.turnBasedMode {
-		return inputDebounceCooldown
-	}
-	speed := char.GetEffectiveSpeed(combatSystem.game.statBonus)
-	frames := 63.333333 - (2.0/3.0)*float64(speed)
-	cd := int(math.Round(frames))
-	if cd < 15 {
-		cd = 15
-	}
-	if cd > 90 {
-		cd = 90
-	}
-	return cd
 }
 
 func spellRangeLine(spellID spells.SpellID, combatSystem *CombatSystem) string {
@@ -831,32 +813,6 @@ func formatSchoolName(school string) string {
 	return strings.ToUpper(school[:1]) + school[1:]
 }
 
-// getSchoolFromString converts school string to MagicSchool enum
-func getSchoolFromString(schoolStr string) character.MagicSchool {
-	switch schoolStr {
-	case "body":
-		return character.MagicBody
-	case "mind":
-		return character.MagicMind
-	case "spirit":
-		return character.MagicSpirit
-	case "fire":
-		return character.MagicFire
-	case "water":
-		return character.MagicWater
-	case "air":
-		return character.MagicAir
-	case "earth":
-		return character.MagicEarth
-	case "light":
-		return character.MagicLight
-	case "dark":
-		return character.MagicDark
-	default:
-		return character.MagicBody // Default fallback
-	}
-}
-
 // getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions
 func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var details []string
@@ -880,10 +836,9 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 		}
 
-		switch def.Name {
-		case "First Aid":
+		if def.TargetSelf {
 			details = append(details, "Self-target only")
-		case "Heal":
+		} else {
 			details = append(details, "Can target any party member")
 		}
 	}
@@ -901,25 +856,19 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			}
 		}
 
-		// Add spell-specific descriptions
-		switch def.Name {
-		case "Torch Light":
-			details = append(details, "Light Radius: 4 tiles")
-		case "Wizard Eye":
-			details = append(details, "Reveals monsters on compass within 10 tiles")
-		case "Walk on Water":
-			details = append(details, "Allows party to walk on water")
-		case "Water Breathing":
-			details = append(details, "Allows underwater travel via deep water")
-		case "Bless":
-			if combatSystem != nil {
-				statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char)
-				if statBonus > 0 {
-					details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
-				}
+		if def.StatBonus > 0 && combatSystem != nil {
+			if statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char); statBonus > 0 {
+				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
+				details = append(details, "Affects entire party")
 			}
-			details = append(details, "Affects entire party")
-		case "Awaken":
+		}
+		if def.WaterWalk {
+			details = append(details, "Allows party to walk on water")
+		}
+		if def.WaterBreathing {
+			details = append(details, "Allows underwater travel via deep water")
+		}
+		if def.Awaken {
 			details = append(details, "No current gameplay effect")
 		}
 	}

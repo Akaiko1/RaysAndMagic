@@ -2,28 +2,24 @@ package config
 
 import (
 	"fmt"
-	"math"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config holds all game configuration values
 type Config struct {
-	Display         DisplayConfig         `yaml:"display"`
-	Engine          EngineConfig          `yaml:"engine"`
-	World           WorldConfig           `yaml:"world"`
-	Movement        MovementConfig        `yaml:"movement"`
-	Combat          CombatConfig          `yaml:"combat"`
-	Camera          CameraConfig          `yaml:"camera"`
-	UI              UIConfig              `yaml:"ui"`
-	WorldGeneration WorldGenerationConfig `yaml:"world_generation"`
-	Monsters        MonsterConfig         `yaml:"monsters"`
-	Characters      CharacterConfig       `yaml:"characters"`
-	MonsterAI       MonsterAIConfig       `yaml:"monster_ai"`
-	SkillTeaching   SkillTeachingConfig   `yaml:"skill_teaching"`
-	Graphics        GraphicsConfig        `yaml:"graphics"`
-	Tiles           TileConfig            `yaml:"tiles"`
+	Display    DisplayConfig    `yaml:"display"`
+	Engine     EngineConfig     `yaml:"engine"`
+	World      WorldConfig      `yaml:"world"`
+	Movement   MovementConfig   `yaml:"movement"`
+	Camera     CameraConfig     `yaml:"camera"`
+	UI         UIConfig         `yaml:"ui"`
+	Characters CharacterConfig  `yaml:"characters"`
+	MonsterAI  MonsterAIConfig  `yaml:"monster_ai"`
+	Graphics   GraphicsConfig   `yaml:"graphics"`
+	Tiles      TileConfig       `yaml:"tiles"`
 }
 
 type DisplayConfig struct {
@@ -47,26 +43,6 @@ type WorldConfig struct {
 type MovementConfig struct {
 	MoveSpeed     float64 `yaml:"move_speed"`
 	RotationSpeed float64 `yaml:"rotation_speed"`
-}
-
-type CombatConfig struct {
-	// Melee weapons (legacy config from config.yaml)
-	Sword  MeleeWeaponConfig `yaml:"sword"`
-	Dagger MeleeWeaponConfig `yaml:"dagger"`
-	Axe    MeleeWeaponConfig `yaml:"axe"`
-	Mace   MeleeWeaponConfig `yaml:"mace"`
-	Spear  MeleeWeaponConfig `yaml:"spear"`
-	Staff  MeleeWeaponConfig `yaml:"staff"`
-
-	// Ranged weapons
-	Bow ArrowConfig `yaml:"bow"`
-}
-
-// MeleeWeaponConfig for legacy config.yaml melee weapons
-type MeleeWeaponConfig struct {
-	Speed         float64 `yaml:"speed"`
-	Lifetime      int     `yaml:"lifetime"`
-	CollisionSize int     `yaml:"collision_size"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
@@ -112,23 +88,16 @@ type MeleeAttackConfig struct {
 	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
 
-// WeaponGraphicsConfig for weapon visual effects
+// WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
 	SlashColor  [3]int `yaml:"slash_color"`  // RGB color for slash effect
 	SlashWidth  int    `yaml:"slash_width"`  // Width of slash line
 	SlashLength int    `yaml:"slash_length"` // Length of slash line
 
-	// Legacy fields for compatibility with existing projectile system
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
 	BaseSize int    `yaml:"base_size"`
 	Color    [3]int `yaml:"color"`
-}
-
-type ArrowConfig struct {
-	Speed         float64 `yaml:"speed"`
-	Lifetime      int     `yaml:"lifetime"`
-	CollisionSize int     `yaml:"collision_size"` // Size for collision detection
 }
 
 type CameraConfig struct {
@@ -141,86 +110,6 @@ type UIConfig struct {
 	PartyPortraitHeight int `yaml:"party_portrait_height"`
 	CompassRadius       int `yaml:"compass_radius"`
 	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
-}
-
-type WorldGenerationConfig struct {
-	Forest            ForestConfig            `yaml:"forest"`
-	AncientTrees      AncientTreesConfig      `yaml:"ancient_trees"`
-	MagicalFeatures   MagicalFeaturesConfig   `yaml:"magical_features"`
-	NaturalFormations NaturalFormationsConfig `yaml:"natural_formations"`
-	Clearings         ClearingsConfig         `yaml:"clearings"`
-	Water             WaterConfig             `yaml:"water"`
-	Undergrowth       UndergrowthConfig       `yaml:"undergrowth"`
-}
-
-type ForestConfig struct {
-	TreeClusters   int `yaml:"tree_clusters"`
-	ClusterSizeMin int `yaml:"cluster_size_min"`
-	ClusterSizeMax int `yaml:"cluster_size_max"`
-	ClusterSpread  int `yaml:"cluster_spread"`
-}
-
-type AncientTreesConfig struct {
-	CountMin          int `yaml:"count_min"`
-	CountMax          int `yaml:"count_max"`
-	PlacementAttempts int `yaml:"placement_attempts"`
-	ClearRadius       int `yaml:"clear_radius"`
-}
-
-type MagicalFeaturesConfig struct {
-	MushroomRings FeatureCountConfig `yaml:"mushroom_rings"`
-	FireflySwarms FeatureCountConfig `yaml:"firefly_swarms"`
-}
-
-type FeatureCountConfig struct {
-	CountMin int `yaml:"count_min"`
-	CountMax int `yaml:"count_max"`
-}
-
-type NaturalFormationsConfig struct {
-	MossRocks FeatureCountConfig `yaml:"moss_rocks"`
-}
-
-type ClearingsConfig struct {
-	CountMin  int `yaml:"count_min"`
-	CountMax  int `yaml:"count_max"`
-	RadiusMin int `yaml:"radius_min"`
-	RadiusMax int `yaml:"radius_max"`
-}
-
-type WaterConfig struct {
-	StreamStartYFraction float64 `yaml:"stream_start_y_fraction"`
-	StreamWanderRange    int     `yaml:"stream_wander_range"`
-	PondSize             int     `yaml:"pond_size"`
-	PondXFraction        float64 `yaml:"pond_x_fraction"`
-	PondYFraction        float64 `yaml:"pond_y_fraction"`
-}
-
-type UndergrowthConfig struct {
-	FernPatches FernPatchesConfig `yaml:"fern_patches"`
-}
-
-type FernPatchesConfig struct {
-	CountMin          int     `yaml:"count_min"`
-	CountMax          int     `yaml:"count_max"`
-	TreeSearchRadius  int     `yaml:"tree_search_radius"`
-	RandomSpawnChance float64 `yaml:"random_spawn_chance"`
-}
-
-type MonsterConfig struct {
-	Common  MonsterSpawnConfig   `yaml:"common"`
-	Rare    MonsterSpawnConfig   `yaml:"rare"`
-	Special SpecialMonsterConfig `yaml:"special"`
-}
-
-type MonsterSpawnConfig struct {
-	CountMin          int `yaml:"count_min"`
-	CountMax          int `yaml:"count_max"`
-	PlacementAttempts int `yaml:"placement_attempts"`
-}
-
-type SpecialMonsterConfig struct {
-	PixieMushroomRingChance float64 `yaml:"pixie_mushroom_ring_chance"`
 }
 
 type CharacterConfig struct {
@@ -326,13 +215,6 @@ type MonsterAIConfig struct {
 	PushbackDistance float64 `yaml:"pushback_distance"`
 }
 
-type SkillTeachingConfig struct {
-	ExpertCost      int `yaml:"expert_cost"`
-	MasterCost      int `yaml:"master_cost"`
-	GrandmasterCost int `yaml:"grandmaster_cost"`
-	NoviceCost      int `yaml:"novice_cost"`
-}
-
 type GraphicsConfig struct {
 	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
 	Colors             ColorsConfig        `yaml:"colors"`
@@ -340,7 +222,6 @@ type GraphicsConfig struct {
 	BrightnessMin      float64             `yaml:"brightness_min"`
 	Monster            MonsterRenderConfig `yaml:"monster"`
 	NPC                NPCRenderConfig     `yaml:"npc"`
-	Projectiles        ProjectilesConfig   `yaml:"projectiles"`
 }
 
 type ColorsConfig struct {
@@ -365,22 +246,6 @@ type NPCRenderConfig struct {
 	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
-}
-
-type ProjectilesConfig struct {
-	// Dynamic spell graphics configurations (replaces hardcoded Fireball, FireBolt, Lightning!)
-	Spells map[string]*ProjectileRenderConfig `yaml:"spells"`
-
-	// Melee weapons
-	Sword  ProjectileRenderConfig `yaml:"sword"`
-	Dagger ProjectileRenderConfig `yaml:"dagger"`
-	Axe    ProjectileRenderConfig `yaml:"axe"`
-	Mace   ProjectileRenderConfig `yaml:"mace"`
-	Spear  ProjectileRenderConfig `yaml:"spear"`
-	Staff  ProjectileRenderConfig `yaml:"staff"`
-
-	// Ranged weapons
-	Bow ProjectileRenderConfig `yaml:"bow"`
 }
 
 type ProjectileRenderConfig struct {
@@ -417,7 +282,6 @@ type TileData struct {
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
-	Effects             map[string]string      `yaml:"effects,omitempty"`
 }
 
 type SpecialTileConfig struct {
@@ -425,12 +289,11 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string  `yaml:"name"`
-	File              string  `yaml:"file"`
-	Biome             string  `yaml:"biome"`
-	SkyColor          [3]int  `yaml:"sky_color"`
-	DefaultFloorColor [3]int  `yaml:"default_floor_color"`
-	AmbientLight      float64 `yaml:"ambient_light"`
+	Name              string `yaml:"name"`
+	File              string `yaml:"file"`
+	Biome             string `yaml:"biome"`
+	SkyColor          [3]int `yaml:"sky_color"`
+	DefaultFloorColor [3]int `yaml:"default_floor_color"`
 }
 
 type MapConfigs struct {
@@ -454,7 +317,6 @@ type WeaponDefinitionConfig struct {
 	BonusStatSecondary string             `yaml:"bonus_stat_secondary"`
 	DamageType         string             `yaml:"damage_type"`
 	MaxProjectiles     int                `yaml:"max_projectiles"`
-	HitBonus           int                `yaml:"hit_bonus"`
 	CritChance         int                `yaml:"crit_chance"`
 	StunChance         float64            `yaml:"stun_chance"`
 	StunTurns          int                `yaml:"stun_turns"`
@@ -563,9 +425,20 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateWeaponConfig(&weaponConfig); err != nil {
+		return nil, err
+	}
 
 	// Set global weapon config for easy access
 	GlobalWeapons = &weaponConfig
+
+	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
+	weaponDefByName = make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
+	weaponKeyByName = make(map[string]string, len(weaponConfig.Weapons))
+	for key, def := range weaponConfig.Weapons {
+		weaponDefByName[def.Name] = def
+		weaponKeyByName[def.Name] = key
+	}
 
 	// Set up weapon accessor for items package to avoid circular imports
 	setupWeaponAccessor()
@@ -573,10 +446,51 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	return &weaponConfig, nil
 }
 
+// weapon name → definition / yaml key, populated at config load.
+var (
+	weaponDefByName map[string]*WeaponDefinitionConfig
+	weaponKeyByName map[string]string
+)
+
 // setupWeaponAccessor configures the global weapon accessor for items package
 func setupWeaponAccessor() {
 	// This will be imported by items package
 	// For now we'll define this in a separate function
+}
+
+func validateWeaponConfig(cfg *WeaponSystemConfig) error {
+	for key, def := range cfg.Weapons {
+		if def == nil {
+			return fmt.Errorf("weapon '%s' has empty definition", key)
+		}
+		if isProjectileWeapon(def) {
+			if def.Physics == nil {
+				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
+			}
+			if def.Graphics == nil || def.Graphics.BaseSize <= 0 || def.Graphics.MaxSize <= 0 || def.Graphics.MinSize <= 0 {
+				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)
+			}
+		} else {
+			if def.Physics != nil {
+				return fmt.Errorf("melee weapon '%s' should not define projectile physics", key)
+			}
+			if def.Melee == nil {
+				return fmt.Errorf("melee weapon '%s' missing melee configuration", key)
+			}
+			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
+				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
+			}
+		}
+	}
+	return nil
+}
+
+func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
+	category := strings.ToLower(strings.TrimSpace(def.Category))
+	return def.Range > 3 ||
+		strings.Contains(category, "bow") ||
+		strings.Contains(category, "throwing") ||
+		strings.Contains(category, "blaster")
 }
 
 // MustLoadWeaponConfig loads the weapon configuration and panics on error
@@ -759,20 +673,6 @@ func (c *Config) GetRotSpeed() float64 {
 	return c.Movement.RotationSpeed
 }
 
-func (c *Config) GetArrowSpeed() float64 {
-	return c.Combat.Bow.Speed
-}
-
-func (c *Config) GetArrowLifetime() int {
-	return c.Combat.Bow.Lifetime
-}
-
-func (c *Config) GetArrowCollisionSize() float64 {
-	return float64(c.Combat.Bow.CollisionSize)
-}
-
-// Legacy weapon config methods removed - use YAML embedded configs
-
 // GetSpellConfig retrieves spell combat configuration from embedded physics
 func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, error) {
 	if GlobalSpells == nil {
@@ -787,8 +687,6 @@ func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, err
 	}
 	return spellDef.Physics, nil
 }
-
-// Legacy weapon graphics config methods removed - use YAML embedded graphics
 
 // GetSpellGraphicsConfig retrieves spell graphics configuration from embedded graphics
 func (c *Config) GetSpellGraphicsConfig(spellType string) (*ProjectileRenderConfig, error) {
@@ -861,11 +759,6 @@ func (c *Config) GetViewDistance() float64 {
 	return c.Camera.ViewDistance
 }
 
-// Convenience function for getting PI/3 (60 degrees) FOV
-func (c *Config) GetDefaultFOV() float64 {
-	return math.Pi / 3
-}
-
 // GetWeaponDefinition retrieves weapon definition from global weapon config
 func GetWeaponDefinition(weaponKey string) (*WeaponDefinitionConfig, bool) {
 	if GlobalWeapons == nil {
@@ -875,17 +768,13 @@ func GetWeaponDefinition(weaponKey string) (*WeaponDefinitionConfig, bool) {
 	return def, exists
 }
 
-// GetWeaponDefinitionByName retrieves weapon definition by display name
+// GetWeaponDefinitionByName retrieves weapon definition by display name in O(1).
 func GetWeaponDefinitionByName(name string) (*WeaponDefinitionConfig, string, bool) {
-	if GlobalWeapons == nil {
+	def, ok := weaponDefByName[name]
+	if !ok {
 		return nil, "", false
 	}
-	for key, def := range GlobalWeapons.Weapons {
-		if def.Name == name {
-			return def, key, true
-		}
-	}
-	return nil, "", false
+	return def, weaponKeyByName[name], true
 }
 
 // GetAllWeaponKeys returns all available weapon keys

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 APP_NAME="RaysAndMagic"
+VIEWER_NAME="RaysAndMagicMapViewer"
 OUT_DIR="dist"
 
 rm -rf "${OUT_DIR}"
@@ -14,14 +15,18 @@ build_target() {
   local out_name="$4"
   local ldflags="$5"
   local cgo_enabled="$6"
+  local package_path="${7:-.}"
 
   mkdir -p "${out_dir}"
-  echo "Building ${goos}/${goarch} -> ${out_dir}/${out_name}"
+  echo "Building ${package_path} ${goos}/${goarch} -> ${out_dir}/${out_name}"
   CGO_ENABLED="${cgo_enabled}" GOOS="${goos}" GOARCH="${goarch}" \
-    go build -trimpath -ldflags "${ldflags}" -o "${out_dir}/${out_name}" .
+    go build -trimpath -ldflags "${ldflags}" -o "${out_dir}/${out_name}" "${package_path}"
+}
 
-  # Bundle runtime assets/config next to the binary
+bundle_runtime_files() {
+  local out_dir="$1"
   cp -R assets "${out_dir}/assets"
+  rm -rf "${out_dir}/assets/map_viewer"
   cp config.yaml "${out_dir}/config.yaml"
 }
 
@@ -38,6 +43,7 @@ build_macos_app() {
 
   cp "${bin_path}" "${macos_dir}/${APP_NAME}"
   cp -R assets "${resources_dir}/assets"
+  rm -rf "${resources_dir}/assets/map_viewer"
   cp config.yaml "${resources_dir}/config.yaml"
 
   cat > "${contents_dir}/Info.plist" <<EOF
@@ -64,15 +70,33 @@ build_macos_app() {
 </dict>
 </plist>
 EOF
+
+  # Go's linker auto-signs the bare binary with an ad-hoc signature that
+  # claims sealed resources. Once the binary is dropped into the bundle and
+  # Resources/ is populated, that signature no longer matches and Gatekeeper
+  # silently refuses to launch the .app. Strip and re-sign over the full
+  # bundle so the resource seal is correct.
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --remove-signature "${macos_dir}/${APP_NAME}" 2>/dev/null || true
+    codesign --force --deep --sign - "${app_dir}"
+  fi
 }
 
 # macOS (Intel + Apple Silicon) - Ebiten needs cgo on macOS
-build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 1
-build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 1
+build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 1 .
+build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
+bundle_runtime_files "${OUT_DIR}/mac_amd64"
+
+build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 1 .
+build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
+bundle_runtime_files "${OUT_DIR}/mac_arm64"
+
 build_macos_app "amd64" "${OUT_DIR}/mac_amd64/${APP_NAME}"
 build_macos_app "arm64" "${OUT_DIR}/mac_arm64/${APP_NAME}"
 
 # Windows (no console window)
-build_target windows amd64 "${OUT_DIR}/windows_amd64" "${APP_NAME}.exe" "-H=windowsgui" 0
+build_target windows amd64 "${OUT_DIR}/windows_amd64" "${APP_NAME}.exe" "-H=windowsgui" 0 .
+build_target windows amd64 "${OUT_DIR}/windows_amd64" "${VIEWER_NAME}.exe" "-H=windowsgui" 0 ./assets/map_viewer
+bundle_runtime_files "${OUT_DIR}/windows_amd64"
 
 echo "Done. Bundled builds in ${OUT_DIR}/"

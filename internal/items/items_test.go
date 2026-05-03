@@ -24,15 +24,3 @@ func TestCreateUtilitySpell(t *testing.T) {
 		t.Errorf("CreateUtilitySpell did not set fields correctly: %+v", item)
 	}
 }
-
-func TestSpellEffectToSpellIDAndBack(t *testing.T) {
-	effect := SpellEffect("fire")
-	id := SpellEffectToSpellID(effect)
-	if id != "fire" {
-		t.Errorf("SpellEffectToSpellID failed: got %s", id)
-	}
-	back := SpellIDToSpellEffect(id)
-	if back != effect {
-		t.Errorf("SpellIDToSpellEffect failed: got %s", back)
-	}
-}

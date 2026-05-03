@@ -28,7 +28,6 @@ func getWeaponFromConfig(weaponKey string) (*items.WeaponDefinitionFromYAML, boo
 		BonusStatSecondary: weaponDef.BonusStatSecondary,
 		DamageType:         weaponDef.DamageType,
 		MaxProjectiles:     weaponDef.MaxProjectiles,
-		HitBonus:           weaponDef.HitBonus,
 		CritChance:         weaponDef.CritChance,
 		Rarity:             weaponDef.Rarity,
 		Value:              weaponDef.Value,

@@ -16,7 +16,7 @@ type levelUpChoiceOption struct {
 	masteryNext    string
 	hasMastery     bool
 	skillType      character.SkillType
-	school         character.MagicSchool
+	school         character.MagicSchoolID
 	spellID        spells.SpellID
 }
 
@@ -123,9 +123,9 @@ func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 		}
 	case "magic_mastery":
 		if upgradeMagicMastery(char, option.school) {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery increased!", char.Name, magicSchoolDisplayName(option.school)))
+			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery increased!", char.Name, option.school.DisplayName()))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery is already at maximum.", char.Name, magicSchoolDisplayName(option.school)))
+			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery is already at maximum.", char.Name, option.school.DisplayName()))
 		}
 	}
 
@@ -190,13 +190,13 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 					option := levelUpChoiceOption{
 						choice: config.LevelUpChoice{
 							Type:   choice.Type,
-							School: schoolKey(school),
+							School: string(school),
 						},
 						label:  label,
 						school: school,
 					}
 					if ok {
-						option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", magicSchoolDisplayName(school))
+						option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", school.DisplayName())
 						option.masteryCurrent = current
 						option.masteryNext = next
 						option.hasMastery = true
@@ -204,7 +204,7 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 					options = append(options, option)
 				}
 			} else {
-				school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(choice.School))
+				school := character.MagicSchoolID(choice.School)
 				if _, ok := char.MagicSchools[school]; !ok {
 					continue
 				}
@@ -215,7 +215,7 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 					school: school,
 				}
 				if ok {
-					option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", magicSchoolDisplayName(school))
+					option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", school.DisplayName())
 					option.masteryCurrent = current
 					option.masteryNext = next
 					option.hasMastery = true
@@ -240,8 +240,8 @@ func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillTy
 	return fmt.Sprintf("%s Mastery: %s -> %s", name, masteryName(current), masteryName(next)), masteryName(current), masteryName(next), true
 }
 
-func magicMasteryOptionLabel(char *character.MMCharacter, school character.MagicSchool) (string, string, string, bool) {
-	name := magicSchoolDisplayName(school)
+func magicMasteryOptionLabel(char *character.MMCharacter, school character.MagicSchoolID) (string, string, string, bool) {
+	name := school.DisplayName()
 	if skill, ok := char.MagicSchools[school]; ok {
 		if skill.Mastery >= character.MasteryGrandMaster {
 			return fmt.Sprintf("%s Magic Mastery: %s (Max)", name, masteryName(skill.Mastery)), "", "", false
@@ -310,35 +310,6 @@ func skillDisplayName(skillType character.SkillType) string {
 	}
 }
 
-func magicSchoolDisplayName(school character.MagicSchool) string {
-	switch school {
-	case character.MagicBody:
-		return "Body"
-	case character.MagicMind:
-		return "Mind"
-	case character.MagicSpirit:
-		return "Spirit"
-	case character.MagicFire:
-		return "Fire"
-	case character.MagicWater:
-		return "Water"
-	case character.MagicAir:
-		return "Air"
-	case character.MagicEarth:
-		return "Earth"
-	case character.MagicLight:
-		return "Light"
-	case character.MagicDark:
-		return "Dark"
-	default:
-		return "Unknown"
-	}
-}
-
-func schoolKey(school character.MagicSchool) string {
-	return strings.ToLower(magicSchoolDisplayName(school))
-}
-
 func masteryName(mastery character.SkillMastery) string {
 	switch mastery {
 	case character.MasteryNovice:
@@ -359,7 +330,7 @@ func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
 	if err != nil {
 		return false
 	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	school := character.MagicSchoolID(def.School)
 	if char.MagicSchools[school] == nil {
 		char.MagicSchools[school] = &character.MagicSkill{
 			Level:       1,
@@ -407,7 +378,7 @@ func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillT
 	return true
 }
 
-func upgradeMagicMastery(char *character.MMCharacter, school character.MagicSchool) bool {
+func upgradeMagicMastery(char *character.MMCharacter, school character.MagicSchoolID) bool {
 	skill, ok := char.MagicSchools[school]
 	if !ok {
 		return false

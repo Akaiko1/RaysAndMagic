@@ -15,7 +15,6 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
-	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -46,9 +45,6 @@ func main() {
 	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
-
-	// Initialize dynamic spell system with configuration
-	spells.SetGlobalConfig(cfg)
 
 	// Load and initialize tile manager
 	world.GlobalTileManager = world.NewTileManager()
@@ -118,13 +114,22 @@ func ensureRuntimeCWD() {
 		return
 	}
 	execDir := filepath.Dir(exe)
-	if _, err := os.Stat(filepath.Join(execDir, "config.yaml")); err == nil {
-		_ = os.Chdir(execDir)
-		return
+	if runtimeDir, ok := findRuntimeCWD(execDir, os.Stat); ok {
+		_ = os.Chdir(runtimeDir)
 	}
-	// macOS .app bundle: Resources is sibling of MacOS
-	resourcesDir := filepath.Join(execDir, "..", "Resources")
-	if _, err := os.Stat(filepath.Join(resourcesDir, "config.yaml")); err == nil {
-		_ = os.Chdir(resourcesDir)
+}
+
+func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (string, bool) {
+	candidates := []string{
+		execDir,
+		filepath.Join(execDir, ".."),
+		// macOS .app bundle: Resources is sibling of MacOS.
+		filepath.Join(execDir, "..", "Resources"),
 	}
+	for _, candidate := range candidates {
+		if _, err := stat(filepath.Join(candidate, "config.yaml")); err == nil {
+			return filepath.Clean(candidate), true
+		}
+	}
+	return "", false
 }

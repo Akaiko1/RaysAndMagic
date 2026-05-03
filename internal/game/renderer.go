@@ -9,7 +9,6 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
-	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/threading/rendering"
 	"ugataima/internal/world"
@@ -62,25 +61,6 @@ type Renderer struct {
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
 	unifiedSprites []UnifiedSpriteRenderData
-}
-
-// getWeaponConfig safely retrieves weapon definition without panicking.
-func (r *Renderer) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
-	weaponKey := items.GetWeaponKeyByName(weaponName)
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		return nil
-	}
-	return weaponDef
-}
-
-// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
-func (r *Renderer) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		return nil
-	}
-	return weaponDef
 }
 
 // NewRenderer creates a new renderer
@@ -501,14 +481,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer := r.game.threading.PerformanceMonitor.StartRaycast()
 	results := r.game.threading.ParallelRenderer.RenderRaycast(
 		numRays,
-		func(rayIndex int, angle float64) (float64, interface{}) {
-			// Use precomputed ray directions instead of recomputing sin/cos
-			return r.castRayWithPrecomputedDirection(rayIndex)
-		},
-		func(rayIndex, totalRays int) float64 {
-			// Angle calculation not needed for precomputed directions, but kept for compatibility
-			return r.game.camera.Angle - r.game.camera.FOV/2 + (float64(rayIndex)/float64(totalRays))*r.game.camera.FOV
-		},
+		r.castRayWithPrecomputedDirection,
 	)
 	raycastTimer.EndRaycast()
 
@@ -2338,7 +2311,7 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		}
 
 		// Get weapon-specific graphics config from YAML
-		weaponDef := r.getWeaponConfig(attack.WeaponName)
+		weaponDef := lookupWeaponConfigByName(attack.WeaponName)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing
 		}
@@ -2466,7 +2439,7 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		}
 
 		// Calculate arrow size based on distance using bow-specific config from YAML
-		bowDef := r.getWeaponConfigByKey(arrow.BowKey)
+		bowDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if bowDef == nil || bowDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing
 		}

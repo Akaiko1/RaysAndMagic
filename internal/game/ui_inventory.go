@@ -368,17 +368,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	magicY := skillY + skillLines*14 + 15
 	ebitenutil.DebugPrintAt(screen, "--- MAGIC SCHOOLS ---", magicX, magicY)
 	magicY += 15
-	schoolOrder := []character.MagicSchool{
-		character.MagicBody,
-		character.MagicMind,
-		character.MagicSpirit,
-		character.MagicFire,
-		character.MagicWater,
-		character.MagicAir,
-		character.MagicEarth,
-		character.MagicLight,
-		character.MagicDark,
-	}
+	schoolOrder := character.AllMagicSchools
 	schoolLines := 0
 	for _, school := range schoolOrder {
 		if ms, ok := member.MagicSchools[school]; ok && ms != nil {
@@ -434,7 +424,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	var tooltipX, tooltipY int
 
 	for schoolIndex, school := range schools {
-		schoolName := ui.getSchoolName(school)
+		schoolName := school.DisplayName()
 		schoolSpells := currentChar.GetSpellsForSchool(school)
 
 		// Handle mouse clicks on school names

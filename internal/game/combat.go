@@ -24,28 +24,6 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
 }
 
-// getWeaponConfig safely retrieves weapon definition and reports missing configs without panicking.
-// Returns nil if weapon not found or missing required config section.
-func (cs *CombatSystem) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
-	weaponKey := items.GetWeaponKeyByName(weaponName)
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		fmt.Printf("[WARN] weapon '%s' (key: %s) not found in weapons.yaml\n", weaponName, weaponKey)
-		return nil
-	}
-	return weaponDef
-}
-
-// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
-func (cs *CombatSystem) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		fmt.Printf("[WARN] weapon key '%s' not found in weapons.yaml\n", weaponKey)
-		return nil
-	}
-	return weaponDef
-}
-
 // CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
 // Returns true if the spell was successfully cast.
 func (cs *CombatSystem) CastEquippedSpell() bool {
@@ -80,8 +58,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Cast the equipped spell
 	caster.SpellPoints -= spellCost
 
-	// Dynamic spell effect to spell ID mapping (YAML-based)
-	spellID := spells.SpellID(items.SpellEffectToSpellID(spell.SpellEffect))
+	spellID := spells.SpellID(spell.SpellEffect)
 
 	// Check if this is a utility spell (non-projectile)
 	castingSystem := spells.NewCastingSystem(cs.game.config)
@@ -246,8 +223,7 @@ func (cs *CombatSystem) EquipmentHeal() {
 		return
 	}
 
-	// Map item spell effects to spell IDs dynamically
-	spellIDStr := items.SpellEffectToSpellID(spell.SpellEffect)
+	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
 		// Unknown utility spell, exit
 		return
@@ -318,8 +294,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 		return // Not a heal spell
 	}
 
-	// Map item spell effects to spell IDs dynamically
-	spellIDStr := items.SpellEffectToSpellID(spell.SpellEffect)
+	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
 		return
 	}
@@ -399,16 +374,11 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 		return
 	}
 
-	// Melee: determine critical hit based on weapon base crit chance + Luck bonus
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
-	baseCrit := 0
-	if weaponDef.CritChance > 0 {
-		baseCrit = weaponDef.CritChance
-	}
-	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
 		totalDamage *= 2
 	}
@@ -443,28 +413,16 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		}
 	}
 
-	// Get weapon-specific properties from YAML
 	weaponDef, exists := config.GetWeaponDefinition(bowKey)
-	var arrowSpeed float64
-	var arrowLifetime int
-	var collisionSize float64
-	disintegrateChance := 0.0
-	if exists {
-		disintegrateChance = weaponDef.DisintegrateChance
+	if !exists || weaponDef == nil || weaponDef.Physics == nil {
+		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", bowKey)
+		return
 	}
 
 	tileSize := cs.game.config.GetTileSize()
-	if exists && weaponDef.Physics != nil {
-		// Use weapon-specific physics properties (tile-based)
-		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
-		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
-		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
-	} else {
-		// Fallback to default config values
-		arrowSpeed = cs.game.config.GetArrowSpeed()
-		arrowLifetime = cs.game.config.GetArrowLifetime()
-		collisionSize = float64(cs.game.config.GetArrowCollisionSize())
-	}
+	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
+	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
+	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	// Determine damage type from weapon
 	damageType := "physical" // Default
@@ -472,12 +430,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		damageType = weapon.DamageType
 	}
 
-	// Roll for critical hit: base weapon crit + Luck bonus
-	baseCrit := 0
-	if exists {
-		baseCrit = weaponDef.CritChance
-	}
-	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
 		damage *= 2
 	}
@@ -494,7 +447,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		BowKey:             bowKey,
 		DamageType:         damageType,
 		Crit:               isCrit,
-		DisintegrateChance: disintegrateChance,
+		DisintegrateChance: weaponDef.DisintegrateChance,
 		Owner:              ProjectileOwnerPlayer,
 	}
 
@@ -508,7 +461,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 // createMeleeAttack creates an instant melee attack with proper arc-based hit detection
 func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
 	// Get weapon definition from YAML
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
@@ -637,7 +590,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	weaponDef := cs.getWeaponConfig(weaponName)
+	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
 	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, false)
@@ -1092,23 +1045,18 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 
 func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string) {
 	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	disintegrateChance := 0.0
-	if exists {
-		disintegrateChance = weaponDef.DisintegrateChance
+	if !exists || weaponDef == nil || weaponDef.Physics == nil {
+		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", weaponKey)
+		return
 	}
 
 	tileSize := cs.game.config.GetTileSize()
-	arrowSpeed := cs.game.config.GetArrowSpeed()
-	arrowLifetime := cs.game.config.GetArrowLifetime()
-	collisionSize := float64(cs.game.config.GetArrowCollisionSize())
-	if exists && weaponDef.Physics != nil {
-		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
-		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
-		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
-	}
+	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
+	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
+	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	damageType := "physical"
-	if exists && weaponDef.DamageType != "" {
+	if weaponDef.DamageType != "" {
 		damageType = weaponDef.DamageType
 	}
 
@@ -1125,7 +1073,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		BowKey:             weaponKey,
 		DamageType:         damageType,
 		Crit:               false,
-		DisintegrateChance: disintegrateChance,
+		DisintegrateChance: weaponDef.DisintegrateChance,
 		Owner:              ProjectileOwnerMonster,
 		SourceName:         monster.Name,
 	}
@@ -1302,14 +1250,14 @@ func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projec
 		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
 	case "melee":
 		meleeAttack := projectile.(*MeleeAttack)
-		weaponDef := cs.getWeaponConfig(meleeAttack.WeaponName)
+		weaponDef := lookupWeaponConfigByName(meleeAttack.WeaponName)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			return 0, 0, 0, false
 		}
 		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
 	case "arrow":
 		arrow := projectile.(*Arrow)
-		weaponDef := cs.getWeaponConfigByKey(arrow.BowKey)
+		weaponDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			return 0, 0, 0, false
 		}
@@ -1387,7 +1335,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		damage, isCrit = ma.Damage, ma.Crit
 		weaponName = ma.WeaponName
-		weaponDef = cs.getWeaponConfig(weaponName)
+		weaponDef = lookupWeaponConfigByName(weaponName)
 		damageTypeStr = weaponDamageTypeStr(weaponDef)
 		damageType = convertToMonsterDamageType(damageTypeStr)
 		ma.Active = false
@@ -1406,7 +1354,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		ar.Active = false
 		isRanged = true
 		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
-			weaponDef = cs.getWeaponConfigByKey(ar.BowKey)
+			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
 		}
 	}
 
@@ -1720,7 +1668,7 @@ func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, character *charact
 	if character == nil {
 		return 0
 	}
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return 0
 	}
@@ -1771,7 +1719,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	if err != nil || def.School == "" {
 		return 0
 	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	school := character.MagicSchoolID(def.School)
 	if skill, exists := char.MagicSchools[school]; exists {
 		return int(skill.Mastery) * 5
 	}
@@ -1784,7 +1732,7 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 	if err != nil || def.School == "" {
 		return
 	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	school := character.MagicSchoolID(def.School)
 	skill, exists := char.MagicSchools[school]
 	if !exists {
 		return
@@ -1822,6 +1770,13 @@ func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharac
 	if total > 100 {
 		total = 100
 	}
+	roll := rand.Intn(100)
+	return roll < total, total
+}
+
+// RollWeaponCriticalChance rolls a weapon crit using the same total chance shown in tooltips.
+func (cs *CombatSystem) RollWeaponCriticalChance(weapon items.Item, chr *character.MMCharacter) (bool, int) {
+	total := cs.CalculateWeaponCritChance(weapon, chr)
 	roll := rand.Intn(100)
 	return roll < total, total
 }

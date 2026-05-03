@@ -25,10 +25,7 @@ type SpellDefinition struct {
 	Duration           int // Duration in seconds (0 for instant spells)
 	Damage             int
 	DisintegrateChance float64
-	Range              int // In tiles
-	ProjectileSpeed    float64
 	ProjectileSize     int
-	LifeTime           int // In frames for projectiles
 	IsProjectile       bool
 	IsUtility          bool
 	VisualEffect       string
@@ -42,11 +39,6 @@ type SpellDefinition struct {
 	WaterWalk      bool    // For water walking spell
 	WaterBreathing bool    // For water breathing spell
 	Message        string  // Effect message to display
-}
-
-// SetGlobalConfig initializes the spell system with dynamic configuration (legacy)
-func SetGlobalConfig(cfg *config.Config) {
-	// No longer needed - spells load directly from global config
 }
 
 // GetSpellDefinitionByID retrieves spell definition from YAML config
@@ -66,10 +58,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		Duration:           configDef.Duration,
 		Damage:             configDef.Damage,
 		DisintegrateChance: configDef.DisintegrateChance,
-		Range:              configDef.Range,
-		ProjectileSpeed:    configDef.ProjectileSpeed,
 		ProjectileSize:     configDef.ProjectileSize,
-		LifeTime:           configDef.Lifetime,
 		IsProjectile:       configDef.IsProjectile,
 		IsUtility:          configDef.IsUtility,
 		VisualEffect:       configDef.VisualEffect,
@@ -93,7 +82,6 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		return items.Item{}, err
 	}
 
-	spellEffect := items.SpellIDToSpellEffect(string(spellID))
 	itemType := items.ItemBattleSpell
 	if def.IsUtility {
 		itemType = items.ItemUtilitySpell
@@ -107,7 +95,7 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		Range:       def.SpellPointsCost,
 		SpellSchool: def.School,
 		SpellCost:   def.SpellPointsCost,
-		SpellEffect: spellEffect,
+		SpellEffect: items.SpellEffect(spellID),
 		Attributes:  make(map[string]int),
 	}, nil
 }

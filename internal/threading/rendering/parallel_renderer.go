@@ -27,17 +27,14 @@ func NewParallelRenderer() *ParallelRenderer {
 
 // RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
 // Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
-func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, float64) (float64, interface{}),
-	angleFunc func(int, int) float64) []RaycastResult {
-
+func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (float64, interface{})) []RaycastResult {
 	// Single allocation for results
 	results := make([]RaycastResult, numRays)
 
 	// Very small workloads: process inline to avoid synchronization overhead
 	if numRays <= 8 {
 		for rayIndex := 0; rayIndex < numRays; rayIndex++ {
-			angle := angleFunc(rayIndex, numRays)
-			distance, tileType := raycastFunc(rayIndex, angle)
+			distance, tileType := raycastFunc(rayIndex)
 			results[rayIndex] = RaycastResult{
 				Distance: distance,
 				TileType: tileType,
@@ -67,8 +64,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int, flo
 		pr.workerPool.Submit(func() {
 			defer wg.Done()
 			for rayIndex := start; rayIndex < end; rayIndex++ {
-				angle := angleFunc(rayIndex, numRays)
-				distance, tileType := raycastFunc(rayIndex, angle)
+				distance, tileType := raycastFunc(rayIndex)
 				results[rayIndex] = RaycastResult{
 					Distance: distance,
 					TileType: tileType,

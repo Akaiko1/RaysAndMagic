@@ -33,7 +33,7 @@ type MMCharacter struct {
 	Skills map[SkillType]*Skill
 
 	// Magic schools
-	MagicSchools map[MagicSchool]*MagicSkill
+	MagicSchools map[MagicSchoolID]*MagicSkill
 
 	// Equipment slots
 	Equipment map[items.EquipSlot]items.Item
@@ -69,7 +69,7 @@ func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMC
 		Level:        1,
 		Experience:   0,
 		Skills:       make(map[SkillType]*Skill),
-		MagicSchools: make(map[MagicSchool]*MagicSkill),
+		MagicSchools: make(map[MagicSchoolID]*MagicSkill),
 		Equipment:    make(map[items.EquipSlot]items.Item),
 		Conditions:   make([]Condition, 0),
 	}
@@ -135,7 +135,7 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Sorcerer fire and water spells
-	c.MagicSchools[MagicFire] = &MagicSkill{
+	c.MagicSchools[MagicSchoolFire] = &MagicSkill{
 		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
@@ -143,7 +143,7 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 			spells.SpellID("firebolt"),
 		},
 	}
-	c.MagicSchools[MagicWater] = &MagicSkill{
+	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
 		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
@@ -175,7 +175,7 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Cleric healing spells and spirit magic
-	c.MagicSchools[MagicBody] = &MagicSkill{
+	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
 		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
@@ -207,7 +207,7 @@ func (c *MMCharacter) setupArcher(cfg *config.Config) {
 	c.Skills[SkillDagger] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Archer Wizard's Eye
-	c.MagicSchools[MagicAir] = &MagicSkill{
+	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
 		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("wizard_eye")},
@@ -258,12 +258,12 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
 
 	// Starting magic - give Druid water and mind magic
-	c.MagicSchools[MagicWater] = &MagicSkill{
+	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
 		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("ice_bolt")},
 	}
-	c.MagicSchools[MagicMind] = &MagicSkill{
+	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
 		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("awaken")},
@@ -431,7 +431,7 @@ func (c *MMCharacter) GetDetailedInfo() string {
 	info += "\nMAGIC SCHOOLS:\n"
 	for school, magicSkill := range c.MagicSchools {
 		info += fmt.Sprintf("%s: %d (%s) - %d spells\n",
-			c.GetMagicSchoolName(school), magicSkill.Level,
+			school.DisplayName(), magicSkill.Level,
 			c.getMasteryName(magicSkill.Mastery), len(magicSkill.KnownSpells))
 	}
 
@@ -506,16 +506,10 @@ func (c *MMCharacter) getSkillName(skill SkillType) string {
 	return "Unknown"
 }
 
-func (c *MMCharacter) GetMagicSchoolName(school MagicSchool) string {
-	names := map[MagicSchool]string{
-		MagicBody: "Body", MagicMind: "Mind", MagicSpirit: "Spirit",
-		MagicFire: "Fire", MagicWater: "Water", MagicAir: "Air", MagicEarth: "Earth",
-		MagicLight: "Light", MagicDark: "Dark",
-	}
-	if name, exists := names[school]; exists {
-		return name
-	}
-	return "Unknown"
+// GetMagicSchoolName returns the capitalized display name. Kept as a method to
+// avoid touching every caller, but the work is delegated to MagicSchoolID.
+func (c *MMCharacter) GetMagicSchoolName(school MagicSchoolID) string {
+	return school.DisplayName()
 }
 
 func (c *MMCharacter) getConditionName(condition Condition) string {
@@ -564,32 +558,20 @@ func (c *MMCharacter) RemoveCondition(cond Condition) {
 	}
 }
 
-// GetAvailableSchools returns the magic schools available to this character in a consistent order
-func (c *MMCharacter) GetAvailableSchools() []MagicSchool {
-	// Return schools in a consistent order to prevent UI issues
-	allSchools := []MagicSchool{
-		MagicFire,
-		MagicWater,
-		MagicAir,
-		MagicEarth,
-		MagicBody,
-		MagicMind,
-		MagicSpirit,
-		MagicLight,
-		MagicDark,
-	}
-
-	var availableSchools []MagicSchool
-	for _, school := range allSchools {
+// GetAvailableSchools returns the magic schools available to this character in
+// the canonical order defined by AllMagicSchools.
+func (c *MMCharacter) GetAvailableSchools() []MagicSchoolID {
+	var available []MagicSchoolID
+	for _, school := range AllMagicSchools {
 		if _, exists := c.MagicSchools[school]; exists {
-			availableSchools = append(availableSchools, school)
+			available = append(available, school)
 		}
 	}
-	return availableSchools
+	return available
 }
 
 // GetSpellsForSchool returns the spell IDs for a specific magic school
-func (c *MMCharacter) GetSpellsForSchool(school MagicSchool) []spells.SpellID {
+func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID {
 	if magicSkill, exists := c.MagicSchools[school]; exists {
 		return magicSkill.KnownSpells
 	}

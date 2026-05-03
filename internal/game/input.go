@@ -63,25 +63,11 @@ const inputDebounceCooldown = 10
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
 func (ih *InputHandler) actionCooldown(_ int) int {
-	// In turn-based mode, only need minimal debounce - turn system limits actions
-	if ih.game.turnBasedMode {
+	if ih == nil || ih.game == nil || ih.game.combat == nil {
 		return inputDebounceCooldown
 	}
-
-	// Real-time mode: Speed-based cooldown
 	selected := ih.game.party.Members[ih.game.selectedChar]
-	// Use effective stats to include buffs/items
-	speed := selected.GetEffectiveSpeed(ih.game.statBonus)
-	// Linear fit through points: (5,60) and (50,30)
-	frames := 63.333333 - (2.0/3.0)*float64(speed)
-	cd := int(math.Round(frames))
-	if cd < 15 {
-		cd = 15
-	}
-	if cd > 90 {
-		cd = 90
-	}
-	return cd
+	return ih.game.combat.CalculateActionCooldownFrames(selected)
 }
 
 // HandleInput processes all input for the current frame
@@ -227,7 +213,7 @@ func (ih *InputHandler) restartNewGame() {
 	g.selectedSchool = 0
 	g.selectedSpell = 0
 	g.spellInputCooldown = 0
-	g.collapsedSpellSchools = make(map[character.MagicSchool]bool)
+	g.collapsedSpellSchools = make(map[character.MagicSchoolID]bool)
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
 	g.lastSpellClickTime = 0
 	g.lastClickedSpell = -1
@@ -1101,7 +1087,7 @@ func (ih *InputHandler) checkDeepWater() {
 
 // Spellbook helper methods
 
-func (ih *InputHandler) navigateSpellbookUp(schools []character.MagicSchool) {
+func (ih *InputHandler) navigateSpellbookUp(schools []character.MagicSchoolID) {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 
 	if ih.game.selectedSpell > 0 {
@@ -1113,7 +1099,7 @@ func (ih *InputHandler) navigateSpellbookUp(schools []character.MagicSchool) {
 	}
 }
 
-func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchool) {
+func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchoolID) {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 	currentSpells := currentChar.GetSpellsForSchool(schools[ih.game.selectedSchool])
 
@@ -1311,13 +1297,10 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 
 // handleNPCInteraction handles talking to nearby NPCs
 func (ih *InputHandler) handleNPCInteraction() {
-	// Find nearby NPCs within interaction distance
-	const interactionDistance = 128.0 // 2 tiles
-
 	for _, npc := range ih.game.GetCurrentWorld().NPCs {
 		dist := Distance(ih.game.camera.X, ih.game.camera.Y, npc.X, npc.Y)
 
-		if dist <= interactionDistance {
+		if dist <= InteractionDistance {
 			// Start dialog with this NPC
 			ih.game.dialogActive = true
 			ih.game.dialogNPC = npc
@@ -1497,12 +1480,7 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 // characterKnowsSpell checks if a character already knows a spell
 // addSpellToCharacter adds a spell to a character's spellbook
 func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) {
-	// Find the appropriate magic school for the spell
-	var targetSchool character.MagicSchool
-
-	// Dynamic school string to enum conversion (no more hardcoded switches!)
-	schoolID := character.MagicSchoolID(spellData.School)
-	targetSchool = character.MagicSchoolIDToLegacy(schoolID)
+	targetSchool := character.MagicSchoolID(spellData.School)
 
 	// Ensure the character has the magic school
 	if char.MagicSchools[targetSchool] == nil {
@@ -2202,4 +2180,3 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	}
 	return false
 }
-

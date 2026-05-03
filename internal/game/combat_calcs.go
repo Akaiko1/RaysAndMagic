@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -50,7 +51,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	}
 	seconds := def.Duration + cs.spellMasteryBonus(char, spellID)
 	if char != nil && def.School != "" {
-		school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+		school := character.MagicSchoolID(def.School)
 		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
 			multiplier := 1.0 + (float64(skill.Level) * 0.1)
 			seconds = int(float64(seconds) * multiplier)
@@ -143,14 +144,33 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 // CalculateSpellRangeTiles returns the configured range in tiles for a spell.
 func (cs *CombatSystem) CalculateSpellRangeTiles(spellID spells.SpellID) (float64, bool) {
 	def, ok := config.GetSpellDefinition(string(spellID))
-	if !ok || def == nil {
+	if !ok || def == nil || def.Physics == nil || def.Physics.RangeTiles <= 0 {
 		return 0, false
 	}
-	if def.Physics != nil && def.Physics.RangeTiles > 0 {
-		return def.Physics.RangeTiles, true
+	return def.Physics.RangeTiles, true
+}
+
+// CalculateActionCooldownFrames returns the shared action cooldown used by input handling and tooltips.
+func (cs *CombatSystem) CalculateActionCooldownFrames(char *character.MMCharacter) int {
+	if cs == nil || cs.game == nil || char == nil {
+		return 0
 	}
-	if def.Range > 0 {
-		return float64(def.Range), true
+	if cs.game.turnBasedMode {
+		return inputDebounceCooldown
 	}
-	return 0, false
+	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	return calculateSpeedActionCooldownFrames(speed)
+}
+
+func calculateSpeedActionCooldownFrames(speed int) int {
+	// Linear fit through points: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
+	frames := 63.333333 - (2.0/3.0)*float64(speed)
+	cd := int(math.Round(frames))
+	if cd < 15 {
+		return 15
+	}
+	if cd > 90 {
+		return 90
+	}
+	return cd
 }

@@ -31,7 +31,6 @@ npcs:
         name: "Walk on Water"
         school: "water"
         level: 2
-        spell_points: 3
         cost: 1000
         description: "Allows the party to walk across water surfaces for a limited time"
         requirements:
@@ -44,7 +43,6 @@ npcs:
         name: "Water Breathing"
         school: "water" 
         level: 3
-        spell_points: 4
         cost: 1500
         description: "Allows underwater exploration for extended periods"
         requirements:
@@ -71,7 +69,6 @@ npcs:
         name: "Walk on Water"
         school: "water"
         level: 1
-        spell_points: 5
         cost: 1000
         description: "Allows the caster to walk on water surfaces for a limited time."
         requirements:
@@ -116,12 +113,6 @@ npcs:
     sprite: "elf_warrior"
     dialogue:
       greeting: "Young adventurer, I have a task that requires your skills..."
-    quests:
-      - id: "ancient_artifact"
-        name: "Retrieve the Ancient Artifact"
-        description: "Find the lost artifact hidden deep in the forest"
-        reward_gold: 500
-        reward_experience: 1000
 
   shipwreck_bandit_camp:
     name: "Abandoned Shipwreck"

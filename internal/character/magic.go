@@ -1,101 +1,59 @@
 package character
 
 import (
+	"strings"
 	"ugataima/internal/spells"
 )
 
-// MagicSchoolID represents dynamic magic school identifiers (replaces hardcoded enum!)
+// MagicSchoolID identifies a magic school. Values match the YAML `school` field
+// (e.g. "fire", "body") so they round-trip through config without translation.
 type MagicSchoolID string
 
-// Dynamic magic school ID constants (loaded from config at runtime)
 const (
-	// Self magic (available to clerics, paladins, druids)
+	// Self magic (clerics, paladins, druids).
 	MagicSchoolBody   MagicSchoolID = "body"
 	MagicSchoolMind   MagicSchoolID = "mind"
 	MagicSchoolSpirit MagicSchoolID = "spirit"
 
-	// Elemental magic (available to sorcerers, archers, druids)
+	// Elemental magic (sorcerers, archers, druids).
 	MagicSchoolFire  MagicSchoolID = "fire"
 	MagicSchoolWater MagicSchoolID = "water"
 	MagicSchoolAir   MagicSchoolID = "air"
 	MagicSchoolEarth MagicSchoolID = "earth"
 
-	// Greater magic (restricted classes only)
+	// Greater magic (restricted classes).
 	MagicSchoolLight MagicSchoolID = "light"
 	MagicSchoolDark  MagicSchoolID = "dark"
 )
 
-// Legacy MagicSchool enum for backward compatibility during migration
-type MagicSchool int
-
-const (
-	MagicBody MagicSchool = iota
-	MagicMind
-	MagicSpirit
-	MagicFire
-	MagicWater
-	MagicAir
-	MagicEarth
-	MagicLight
-	MagicDark
-)
-
-// Convert legacy MagicSchool to dynamic MagicSchoolID
-func MagicSchoolToID(school MagicSchool) MagicSchoolID {
-	switch school {
-	case MagicBody:
-		return MagicSchoolBody
-	case MagicMind:
-		return MagicSchoolMind
-	case MagicSpirit:
-		return MagicSchoolSpirit
-	case MagicFire:
-		return MagicSchoolFire
-	case MagicWater:
-		return MagicSchoolWater
-	case MagicAir:
-		return MagicSchoolAir
-	case MagicEarth:
-		return MagicSchoolEarth
-	case MagicLight:
-		return MagicSchoolLight
-	case MagicDark:
-		return MagicSchoolDark
-	default:
-		return MagicSchoolFire // Default fallback
-	}
+// AllMagicSchools is the canonical, ordered list used by UI navigation and
+// iteration to keep school presentation consistent across screens.
+var AllMagicSchools = []MagicSchoolID{
+	MagicSchoolFire,
+	MagicSchoolWater,
+	MagicSchoolAir,
+	MagicSchoolEarth,
+	MagicSchoolBody,
+	MagicSchoolMind,
+	MagicSchoolSpirit,
+	MagicSchoolLight,
+	MagicSchoolDark,
 }
 
-// Convert dynamic MagicSchoolID to legacy MagicSchool (for compatibility)
-// TODO Double mapping, refactor
-func MagicSchoolIDToLegacy(schoolID MagicSchoolID) MagicSchool {
-	switch schoolID {
-	case MagicSchoolBody:
-		return MagicBody
-	case MagicSchoolMind:
-		return MagicMind
-	case MagicSchoolSpirit:
-		return MagicSpirit
-	case MagicSchoolFire:
-		return MagicFire
-	case MagicSchoolWater:
-		return MagicWater
-	case MagicSchoolAir:
-		return MagicAir
-	case MagicSchoolEarth:
-		return MagicEarth
-	case MagicSchoolLight:
-		return MagicLight
-	case MagicSchoolDark:
-		return MagicDark
-	default:
-		return MagicFire // Default fallback
+// String returns the raw YAML key of the school.
+func (ms MagicSchoolID) String() string { return string(ms) }
+
+// DisplayName returns the capitalized name shown in the UI, e.g. "Fire".
+func (ms MagicSchoolID) DisplayName() string {
+	if ms == "" {
+		return "Unknown"
 	}
+	return strings.ToUpper(string(ms[:1])) + string(ms[1:])
 }
 
-// String returns the string representation of a magic school ID
-func (ms MagicSchoolID) String() string {
-	return string(ms)
+// AvailableSpellIDs returns all spells that belong to this school.
+func (ms MagicSchoolID) AvailableSpellIDs() ([]spells.SpellID, error) {
+	return spells.GetSpellIDsBySchool(string(ms))
 }
 
 type MagicSkill struct {
@@ -103,25 +61,4 @@ type MagicSkill struct {
 	Mastery     SkillMastery
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
 	CastCount   int              // Total casts in this school (for mastery progression)
-}
-
-// Legacy GetSchoolName function for backward compatibility
-func (ms MagicSchool) GetSchoolName() string {
-	schoolID := MagicSchoolToID(ms)
-	return string(schoolID)
-}
-
-// GetAvailableSpellsForSchool returns all spell IDs available for this magic school
-func (ms MagicSchool) GetAvailableSpellsForSchool() ([]spells.SpellID, error) {
-	return spells.GetSpellIDsBySchool(ms.GetSchoolName())
-}
-
-// GetAvailableSpellIDsForSchool returns all spell IDs for a given magic school
-func (schoolID MagicSchoolID) GetAvailableSpellIDsForSchool() ([]spells.SpellID, error) {
-	return spells.GetSpellIDsBySchool(string(schoolID))
-}
-
-// GetAvailableSpellsForSchoolID returns spell IDs for school ID
-func GetAvailableSpellsForSchoolID(schoolID MagicSchoolID) ([]spells.SpellID, error) {
-	return spells.GetSpellIDsBySchool(string(schoolID))
 }

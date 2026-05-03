@@ -269,15 +269,10 @@ func TestSafeCounter(t *testing.T) {
 // =============================================================================
 
 // Mock raycast function for testing
-func mockRaycastFunc(rayIndex int, angle float64) (float64, interface{}) {
-	// Simulate raycast calculation
-	distance := float64(rayIndex) + angle*10
+func mockRaycastFunc(rayIndex int) (float64, interface{}) {
+	distance := float64(rayIndex) * 1.5
 	tileType := "wall"
 	return distance, tileType
-}
-
-func mockAngleFunc(rayIndex, numRays int) float64 {
-	return float64(rayIndex) * (360.0 / float64(numRays))
 }
 
 func TestParallelRenderer(t *testing.T) {
@@ -288,7 +283,7 @@ func TestParallelRenderer(t *testing.T) {
 
 	// Test parallel raycast
 	numRays := 100
-	results := renderer.RenderRaycast(numRays, mockRaycastFunc, mockAngleFunc)
+	results := renderer.RenderRaycast(numRays, mockRaycastFunc)
 
 	if len(results) != numRays {
 		t.Errorf("Expected %d results, got %d", numRays, len(results))
@@ -296,8 +291,7 @@ func TestParallelRenderer(t *testing.T) {
 
 	// Verify some results
 	for i := 0; i < min(10, len(results)); i++ {
-		expectedAngle := mockAngleFunc(i, numRays)
-		expectedDistance, _ := mockRaycastFunc(i, expectedAngle)
+		expectedDistance, _ := mockRaycastFunc(i)
 
 		if results[i].Distance != expectedDistance {
 			t.Errorf("Ray %d: expected distance %.2f, got %.2f", i, expectedDistance, results[i].Distance)
@@ -317,7 +311,7 @@ func TestParallelRendererConcurrency(t *testing.T) {
 		go func(renderID int) {
 			defer wg.Done()
 			numRays := 50 + renderID*10 // Different ray counts
-			results := renderer.RenderRaycast(numRays, mockRaycastFunc, mockAngleFunc)
+			results := renderer.RenderRaycast(numRays, mockRaycastFunc)
 
 			if len(results) != numRays {
 				t.Errorf("Render %d: expected %d results, got %d", renderID, numRays, len(results))
@@ -544,7 +538,7 @@ func TestFullParallelPipeline(t *testing.T) {
 	updater.UpdateMonstersParallel(monsters)
 
 	// Parallel rendering
-	results := renderer.RenderRaycast(50, mockRaycastFunc, mockAngleFunc)
+	results := renderer.RenderRaycast(50, mockRaycastFunc)
 
 	// Some parallel work with worker pool
 	var workCounter int64
@@ -686,7 +680,7 @@ func BenchmarkParallelRenderer(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderer.RenderRaycast(100, mockRaycastFunc, mockAngleFunc)
+		renderer.RenderRaycast(100, mockRaycastFunc)
 	}
 }
 

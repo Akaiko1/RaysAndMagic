@@ -77,7 +77,8 @@ func NewWorld3D(cfg *config.Config) *World3D {
 	return world
 }
 
-// loadFromMapFile loads the world from the forest.map file (legacy, used by tests)
+// loadFromMapFile loads the world from the forest.map file. Used by tests
+// that need a deterministic map without going through the world manager.
 func (w *World3D) loadFromMapFile() {
 	// Create map loader
 	mapLoader := NewMapLoader(w.config)

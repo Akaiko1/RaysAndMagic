@@ -27,8 +27,20 @@ go run .
 **Build:**
 
 ```bash
+mkdir -p bin
 go build -o bin/raysandmagic .
+go build -o bin/map_viewer ./assets/map_viewer
 ```
+
+The game and map viewer both locate `config.yaml`/`assets/` next to the binary or one directory above it, so local `bin/` builds can run against the repo-root data files.
+
+**Release bundles:**
+
+```bash
+./build_mac_release.sh
+```
+
+Release archives include both the game executable and `RaysAndMagicMapViewer` for macOS Intel, macOS Apple Silicon, and Windows.
 
 ## Controls
 

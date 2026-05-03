@@ -20,8 +20,8 @@ func TestCanCharacterLearnNPCSpell(t *testing.T) {
 	}
 	char := &character.MMCharacter{
 		Level: 3,
-		MagicSchools: map[character.MagicSchool]*character.MagicSkill{
-			character.MagicWater: {Level: 2},
+		MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{
+			character.MagicSchoolWater: {Level: 2},
 		},
 	}
 
@@ -35,7 +35,7 @@ func TestCanCharacterLearnNPCSpell(t *testing.T) {
 	}
 
 	char.Level = 3
-	char.MagicSchools[character.MagicWater] = &character.MagicSkill{Level: 1}
+	char.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Level: 1}
 	if canCharacterLearnNPCSpell(char, spell) {
 		t.Fatalf("expected water skill requirement to fail")
 	}

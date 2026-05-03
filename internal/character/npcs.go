@@ -34,7 +34,7 @@ type WorldItem struct {
 
 type SkillTeacher struct {
 	Name       string
-	Skill      interface{} // Can be SkillType or MagicSchool
+	Skill      interface{} // Can be SkillType or MagicSchoolID
 	MaxMastery SkillMastery
 	X, Y       float64
 	Cost       int
