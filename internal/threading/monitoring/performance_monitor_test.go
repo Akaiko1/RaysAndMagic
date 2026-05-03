@@ -164,28 +164,6 @@ func TestWorkerPoolJobExecution(t *testing.T) {
 	}
 }
 
-func TestWorkerPoolParallelFor(t *testing.T) {
-	wp := core.NewWorkerPool(3)
-	wp.Start()
-	defer wp.Stop()
-
-	var results [10]int32
-
-	// Execute parallel for loop
-	wp.ParallelFor(0, 10, func(i int) {
-		atomic.StoreInt32(&results[i], int32(i*2))
-		time.Sleep(time.Millisecond) // Simulate work
-	})
-
-	// Verify results
-	for i := 0; i < 10; i++ {
-		expected := int32(i * 2)
-		if atomic.LoadInt32(&results[i]) != expected {
-			t.Errorf("Expected results[%d] = %d, got %d", i, expected, results[i])
-		}
-	}
-}
-
 func TestWorkerPoolConcurrentAccess(t *testing.T) {
 	wp := core.NewWorkerPool(4)
 	wp.Start()
@@ -216,51 +194,6 @@ func TestWorkerPoolConcurrentAccess(t *testing.T) {
 	expected := int64(numGoroutines * jobsPerGoroutine)
 	if atomic.LoadInt64(&counter) != expected {
 		t.Errorf("Expected counter to be %d, got %d", expected, counter)
-	}
-}
-
-func TestSafeCounter(t *testing.T) {
-	counter := core.NewSafeCounter()
-
-	// Test basic operations
-	counter.Increment()
-	counter.Increment()
-	if counter.Get() != 2 {
-		t.Errorf("Expected counter to be 2, got %d", counter.Get())
-	}
-
-	counter.Decrement()
-	if counter.Get() != 1 {
-		t.Errorf("Expected counter to be 1, got %d", counter.Get())
-	}
-
-	counter.Set(10)
-	if counter.Get() != 10 {
-		t.Errorf("Expected counter to be 10, got %d", counter.Get())
-	}
-
-	// Test concurrent access
-	var wg sync.WaitGroup
-	numGoroutines := 20
-	incrementsPerGoroutine := 100
-
-	counter.Set(0)
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < incrementsPerGoroutine; j++ {
-				counter.Increment()
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	expected := int64(numGoroutines * incrementsPerGoroutine)
-	if counter.Get() != expected {
-		t.Errorf("Expected counter to be %d, got %d", expected, counter.Get())
 	}
 }
 
@@ -366,52 +299,6 @@ func (m *MockMonster) IsUpdated() bool {
 	return m.updated
 }
 
-type MockProjectile struct {
-	x, y, vx, vy float64
-	lifetime     int
-	updated      bool
-	mu           sync.Mutex
-}
-
-func (p *MockProjectile) Update() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.x += p.vx
-	p.y += p.vy
-	p.lifetime--
-	p.updated = true
-}
-
-func (p *MockProjectile) IsActive() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.lifetime > 0
-}
-
-func (p *MockProjectile) GetPosition() (float64, float64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.x, p.y
-}
-
-func (p *MockProjectile) SetPosition(x, y float64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.x, p.y = x, y
-}
-
-func (p *MockProjectile) GetVelocity() (float64, float64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.vx, p.vy
-}
-
-func (p *MockProjectile) SetVelocity(vx, vy float64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.vx, p.vy = vx, vy
-}
-
 func TestEntityUpdater(t *testing.T) {
 	updater := entities.NewEntityUpdater()
 	if updater == nil {
@@ -471,42 +358,6 @@ func TestEntityUpdaterWithDeadMonsters(t *testing.T) {
 }
 
 // =============================================================================
-// PARALLEL FOREACH TESTS
-// =============================================================================
-
-func TestParallelForEach(t *testing.T) {
-	// Test with integers
-	items := make([]int, 100)
-	results := make([]int, 100)
-
-	// Initialize items
-	for i := range items {
-		items[i] = i
-	}
-
-	// Process in parallel
-	core.ParallelForEach(items, func(item int) {
-		results[item] = item * 2
-		time.Sleep(time.Microsecond * 10) // Simulate work
-	})
-
-	// Verify results
-	for i := 0; i < 100; i++ {
-		expected := i * 2
-		if results[i] != expected {
-			t.Errorf("Expected results[%d] = %d, got %d", i, expected, results[i])
-		}
-	}
-}
-
-func TestParallelForEachEmpty(t *testing.T) {
-	var items []int
-	core.ParallelForEach(items, func(item int) {
-		t.Error("Function should not be called for empty slice")
-	})
-}
-
-// =============================================================================
 // INTEGRATION TESTS
 // =============================================================================
 
@@ -540,12 +391,15 @@ func TestFullParallelPipeline(t *testing.T) {
 	// Parallel rendering
 	results := renderer.RenderRaycast(50, mockRaycastFunc)
 
-	// Some parallel work with worker pool
+	// Some parallel work via the worker pool
 	var workCounter int64
-	wp.ParallelFor(0, 100, func(i int) {
-		atomic.AddInt64(&workCounter, 1)
-		time.Sleep(time.Microsecond * 50)
-	})
+	for i := 0; i < 100; i++ {
+		wp.Submit(func() {
+			atomic.AddInt64(&workCounter, 1)
+			time.Sleep(time.Microsecond * 50)
+		})
+	}
+	wp.Wait()
 
 	frameTimer.EndFrame()
 
@@ -649,20 +503,6 @@ func BenchmarkWorkerPoolSubmit(b *testing.B) {
 		})
 	}
 	wp.Wait()
-}
-
-func BenchmarkParallelForEach(b *testing.B) {
-	items := make([]int, 1000)
-	for i := range items {
-		items[i] = i
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		core.ParallelForEach(items, func(item int) {
-			_ = item * 2 // Minimal work
-		})
-	}
 }
 
 func BenchmarkPerformanceMonitorFrameTiming(b *testing.B) {

@@ -190,23 +190,6 @@ func (wm *WorldManager) SwitchToMap(mapKey string) error {
 	return nil
 }
 
-// GetAvailableMaps returns list of all available map keys
-func (wm *WorldManager) GetAvailableMaps() []string {
-	var maps []string
-	for mapKey := range wm.LoadedMaps {
-		maps = append(maps, mapKey)
-	}
-	return maps
-}
-
-// GetMapConfig returns configuration for a specific map
-func (wm *WorldManager) GetMapConfig(mapKey string) *config.MapConfig {
-	if config, exists := wm.MapConfigs[mapKey]; exists {
-		return config
-	}
-	return nil
-}
-
 // IsValidMap checks if a map key exists
 func (wm *WorldManager) IsValidMap(mapKey string) bool {
 	_, exists := wm.LoadedMaps[mapKey]

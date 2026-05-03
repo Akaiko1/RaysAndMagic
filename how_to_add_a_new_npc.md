@@ -75,9 +75,10 @@ npcs:
 ```
 
 Notes:
-- If `inventory` is empty, the left list shows “No stock for sale.”
-- If `sell_available: false`, the merchant won’t buy your items.
+- If `inventory` is empty, the left list shows "No stock for sale."
+- If `sell_available: false`, the merchant won't buy your items.
 - Inventory item names are resolved by display name from `items.yaml` or `weapons.yaml`.
+- `type` is only special-cased for `"weapon"` (resolved via `weapons.yaml`); any other value (`"potion"`, `"armor"`, etc.) falls back to a name lookup in `items.yaml`.
 
 ### Encounter example
 ```yaml

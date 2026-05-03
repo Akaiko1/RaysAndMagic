@@ -30,7 +30,7 @@ monsters:
     gold_min: 25
     gold_max: 80
     sprite: "goblin"       # assets/sprites/mobs/goblin.png
-    letter: "t"            # must be lowercase and unique
+    letter: "v"            # must be lowercase and unique (t is taken by treant)
     box_w: 40
     box_h: 40
     size_game: 2.0
@@ -86,7 +86,7 @@ loots:
 ## Step 6: Place in a map (optional)
 In any `.map` file, place the monster letter in the ASCII grid:
 ```
-%..t.....%   # t spawns ice_troll
+%..v.....%   # v spawns ice_troll
 ```
 Map placement overrides habitat rules for that tile.
 

@@ -78,17 +78,27 @@ Release archives include both the game executable and `RaysAndMagicMapViewer` fo
 
 ## Content Files
 
-| File               | Purpose                                |
-| ------------------ | -------------------------------------- |
-| `items.yaml`       | Armor, accessories, consumables        |
-| `weapons.yaml`     | Melee and ranged weapons               |
-| `spells.yaml`      | Magic spells with damage/healing       |
-| `monsters.yaml`    | Monster stats, AI, and map letters     |
-| `quests.yaml`      | Quest definitions and rewards          |
-| `npcs.yaml`        | NPCs (merchants, trainers, encounters) |
-| `loots.yaml`       | Monster drop tables                    |
-| `tiles.yaml`       | Tile types per biome                   |
-| `map_configs.yaml` | Per-map settings (biome, sky color)    |
+| File               | Purpose                                | Guide                                              |
+| ------------------ | -------------------------------------- | -------------------------------------------------- |
+| `items.yaml`       | Armor, accessories, consumables        |                                                    |
+| `weapons.yaml`     | Melee and ranged weapons               | [Adding a weapon](how_to_add_a_new_weapon.md)      |
+| `spells.yaml`      | Magic spells with damage/healing       | [Adding a spell](how_to_add_a_new_spell.md)        |
+| `monsters.yaml`    | Monster stats, AI, and map letters     | [Adding a monster](how_to_add_a_new_monster.md)    |
+| `quests.yaml`      | Quest definitions and rewards          |                                                    |
+| `npcs.yaml`        | NPCs (merchants, trainers, encounters) | [Adding an NPC](how_to_add_a_new_npc.md)           |
+| `loots.yaml`       | Monster drop tables                    |                                                    |
+| `tiles.yaml`       | Tile types per biome                   | [Adding a tile](how_to_add_a_new_tile.md)          |
+| `map_configs.yaml` | Per-map settings (biome, sky color)    |                                                    |
+
+### Adding new content
+
+Step-by-step guides for the most common content additions:
+
+- [How to add a new weapon](how_to_add_a_new_weapon.md)
+- [How to add a new spell](how_to_add_a_new_spell.md)
+- [How to add a new monster](how_to_add_a_new_monster.md)
+- [How to add a new NPC](how_to_add_a_new_npc.md)
+- [How to add a new tile](how_to_add_a_new_tile.md)
 
 ## Map Format
 

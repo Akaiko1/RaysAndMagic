@@ -68,7 +68,10 @@ spells:
 - `status_icon` (HUD icon for active utility spells)
 
 ### Vision bonus note
-`vision_bonus` only affects gameplay for `torch_light` and `wizard_eye`. New vision spells still require code in `internal/game/combat.go`.
+The `vision_bonus` value is read for any utility spell, but the gameplay
+effect (which buff to activate — torch light radius vs wizard eye compass
+range) is dispatched by SpellID in `internal/game/combat.go`. New vision
+spells still require code there.
 
 ### Quick-heal note
 The quick-heal (H key) targets only `heal` and `heal_other`. If you add new heal IDs and want H targeting, update `internal/game/input.go`.
@@ -80,7 +83,17 @@ Choose one (or more):
 - Add to a spell trader in `assets/npcs.yaml`.
 
 ## Spell trader requirements
-NPC spell requirements (`min_level`, `min_water_skill`) are enforced. A character must already have the spell’s magic school to learn from an NPC.
+NPC spell requirements are enforced. The structure is `min_level` plus an
+optional `schools` list. A character must already have the spell's magic
+school (and the school's level must meet `min_level`) to learn from an NPC.
+
+```yaml
+requirements:
+  min_level: 3
+  schools:
+    - school: "water"
+      min_level: 1
+```
 
 ## Testing checklist
 - YAML loads without errors.

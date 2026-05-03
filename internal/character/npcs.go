@@ -40,15 +40,6 @@ type SkillTeacher struct {
 	Cost       int
 }
 
-func NewNPC(x, y float64, name string) *NPC {
-	return &NPC{
-		X:             x,
-		Y:             y,
-		Name:          name,
-		MerchantStock: make([]*MerchantStockItem, 0),
-	}
-}
-
 func NewSkillTeacher(name string, skill interface{}, maxMastery SkillMastery, x, y float64) *SkillTeacher {
 	return &SkillTeacher{
 		Name:       name,

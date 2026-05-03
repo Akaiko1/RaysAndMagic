@@ -8,6 +8,7 @@ import (
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -392,10 +393,10 @@ func (ih *InputHandler) saveVictoryScore() {
 	}
 
 	scoreData := ih.game.GetScoreData()
-	finalScore := CalculateScore(scoreData)
-	playTimeStr := FormatPlayTime(scoreData.PlayTime)
+	finalScore := highscore.Calculate(scoreData)
+	playTimeStr := highscore.FormatPlayTime(scoreData.PlayTime)
 
-	entry := HighScoreEntry{
+	entry := highscore.Entry{
 		PlayerName: name,
 		Score:      finalScore,
 		Gold:       scoreData.Gold,
@@ -405,9 +406,9 @@ func (ih *InputHandler) saveVictoryScore() {
 		Date:       ih.game.victoryTime,
 	}
 
-	scores, _ := LoadHighScores()
-	AddHighScore(scores, entry)
-	SaveHighScores(scores)
+	scores, _ := highscore.Load()
+	highscore.Add(scores, entry)
+	_ = highscore.Save(scores)
 
 	ih.game.victoryScoreSaved = true
 }

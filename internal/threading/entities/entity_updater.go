@@ -4,20 +4,27 @@ import (
 	"ugataima/internal/threading/core"
 )
 
-// EntityUpdater manages parallel updates for game entities
+// EntityUpdater manages parallel updates for game entities.
+//
+// Concurrency model: callers run UpdateMonstersParallel / UpdateProjectilesParallel
+// from the main game tick. Wait() blocks the caller until every chunk finishes,
+// so the main goroutine cannot mutate shared world state (camera, world tiles,
+// projectile slices) while workers are running. This "stop-the-world" tick lets
+// each entity's Update() safely read shared state without locks. The invariant
+// holds only as long as no other goroutine writes during this window — keep it
+// that way.
 type EntityUpdater struct {
 	workerPool *core.WorkerPool
-	// mutex      sync.RWMutex
 }
 
-// NewEntityUpdater creates a new entity updater
+// NewEntityUpdater creates a new entity updater.
 func NewEntityUpdater() *EntityUpdater {
 	return &EntityUpdater{
 		workerPool: core.CreateDefaultWorkerPool(),
 	}
 }
 
-// MonsterUpdateInterface defines the interface for monsters that can be updated
+// MonsterUpdateInterface defines the interface for monsters that can be updated.
 type MonsterUpdateInterface interface {
 	Update()
 	IsAlive() bool
@@ -25,39 +32,7 @@ type MonsterUpdateInterface interface {
 	SetPosition(x, y float64)
 }
 
-// UpdateMonstersParallel updates all monsters in parallel using the reusable worker pool.
-func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterface) {
-	if len(monsters) == 0 {
-		return
-	}
-
-	numWorkers := eu.workerPool.GetNumWorkers()
-	chunkSize := (len(monsters) + numWorkers - 1) / numWorkers
-	if chunkSize < 1 {
-		chunkSize = 1
-	}
-
-	for i := 0; i < len(monsters); i += chunkSize {
-		start := i
-		end := start + chunkSize
-		if end > len(monsters) {
-			end = len(monsters)
-		}
-
-		eu.workerPool.Submit(func() {
-			for j := start; j < end; j++ {
-				monster := monsters[j]
-				if monster.IsAlive() {
-					monster.Update()
-				}
-			}
-		})
-	}
-
-	eu.workerPool.Wait()
-}
-
-// ProjectileUpdateInterface defines the interface for projectiles
+// ProjectileUpdateInterface defines the interface for projectiles.
 type ProjectileUpdateInterface interface {
 	Update()
 	IsActive() bool
@@ -70,59 +45,74 @@ type ProjectileUpdateInterface interface {
 	OnCollision(hitX, hitY float64)
 }
 
-// UpdateProjectilesParallel updates all projectiles in parallel using the reusable worker pool.
-func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdateInterface, canMoveTo func(x, y float64) bool) {
-	if len(projectiles) == 0 {
+// chunkSizeFor returns a ceiling chunk size that distributes total items evenly
+// across numWorkers, with a minimum of 1 to avoid zero-sized chunks.
+func chunkSizeFor(total, numWorkers int) int {
+	if numWorkers <= 0 {
+		return total
+	}
+	chunk := (total + numWorkers - 1) / numWorkers
+	if chunk < 1 {
+		chunk = 1
+	}
+	return chunk
+}
+
+// runChunked submits per-chunk jobs covering [0, total) and waits for them all.
+// fn receives the half-open range [start, end) for its chunk.
+func (eu *EntityUpdater) runChunked(total int, fn func(start, end int)) {
+	if total == 0 {
 		return
 	}
-
-	numWorkers := eu.workerPool.GetNumWorkers()
-	chunkSize := (len(projectiles) + numWorkers - 1) / numWorkers
-	if chunkSize < 1 {
-		chunkSize = 1
-	}
-
-	for i := 0; i < len(projectiles); i += chunkSize {
+	chunk := chunkSizeFor(total, eu.workerPool.GetNumWorkers())
+	for i := 0; i < total; i += chunk {
 		start := i
-		end := start + chunkSize
-		if end > len(projectiles) {
-			end = len(projectiles)
+		end := start + chunk
+		if end > total {
+			end = total
 		}
-
-		eu.workerPool.Submit(func() {
-			for j := start; j < end; j++ {
-				projectile := projectiles[j]
-				if !projectile.IsActive() {
-					continue
-				}
-
-				// Update position
-				x, y := projectile.GetPosition()
-				vx, vy := projectile.GetVelocity()
-
-				newX := x + vx
-				newY := y + vy
-
-				// Check collision (canMoveTo must be thread-safe)
-				if canMoveTo(newX, newY) {
-					projectile.SetPosition(newX, newY)
-				} else {
-					// Projectile hit something, deactivate it
-					projectile.OnCollision(x, y)
-					projectile.SetLifetime(0)
-				}
-
-				// Update lifetime
-				lifetime := projectile.GetLifetime()
-				projectile.SetLifetime(lifetime - 1)
-			}
-		})
+		eu.workerPool.Submit(func() { fn(start, end) })
 	}
-
 	eu.workerPool.Wait()
 }
 
-// Stop shuts down the entity updater
+// UpdateMonstersParallel updates all monsters in parallel using the reusable
+// worker pool. See type doc for the stop-the-world invariant.
+func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterface) {
+	eu.runChunked(len(monsters), func(start, end int) {
+		for j := start; j < end; j++ {
+			m := monsters[j]
+			if m.IsAlive() {
+				m.Update()
+			}
+		}
+	})
+}
+
+// UpdateProjectilesParallel updates all projectiles in parallel. canMoveTo must
+// be safe for concurrent reads. See type doc for the stop-the-world invariant.
+func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdateInterface, canMoveTo func(x, y float64) bool) {
+	eu.runChunked(len(projectiles), func(start, end int) {
+		for j := start; j < end; j++ {
+			p := projectiles[j]
+			if !p.IsActive() {
+				continue
+			}
+			x, y := p.GetPosition()
+			vx, vy := p.GetVelocity()
+			newX, newY := x+vx, y+vy
+			if canMoveTo(newX, newY) {
+				p.SetPosition(newX, newY)
+			} else {
+				p.OnCollision(x, y)
+				p.SetLifetime(0)
+			}
+			p.SetLifetime(p.GetLifetime() - 1)
+		}
+	})
+}
+
+// Stop shuts down the entity updater.
 func (eu *EntityUpdater) Stop() {
 	eu.workerPool.Stop()
 }

@@ -461,30 +461,3 @@ func (reg *TeleporterRegistry) GetRandomDestinationTeleporter(source TeleporterL
 	return candidates[0], true
 }
 
-// TeleportParty handles teleportation logic: selects a random destination and moves the party, switching worlds if needed
-func (wm *WorldManager) TeleportParty(source TeleporterLocation) bool {
-	reg := wm.GlobalTeleporterRegistry
-	dest, ok := reg.GetRandomDestinationTeleporter(source)
-	if !ok {
-		fmt.Println("No valid destination teleporter found.")
-		return false
-	}
-	if dest.MapKey != wm.CurrentMapKey {
-		// Switch world
-		if err := wm.SwitchToMap(dest.MapKey); err != nil {
-			fmt.Printf("Failed to switch world: %v\n", err)
-			return false
-		}
-	}
-	world := wm.GetCurrentWorld()
-	if world == nil {
-		fmt.Println("No current world loaded after teleport.")
-		return false
-	}
-	// Move party to destination teleporter coordinates
-	world.StartX = dest.X
-	world.StartY = dest.Y
-	// Optionally, set player position directly if needed
-	fmt.Printf("Teleported to %s at (%d, %d) in world '%s'\n", dest.Label, dest.X, dest.Y, dest.MapKey)
-	return true
-}

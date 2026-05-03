@@ -120,21 +120,3 @@ func GetSpellIDsBySchool(school string) ([]SpellID, error) {
 	return spellIDs, nil
 }
 
-// ConvertSpellIDToCharacterSpell converts a SpellID to character.Spell format
-func ConvertSpellIDToCharacterSpell(spellID SpellID) (interface{}, error) {
-	def, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return nil, err
-	}
-
-	// This will be used to create character.Spell structs
-	// We return interface{} to avoid circular imports for now
-	return map[string]interface{}{
-		"Name":        def.Name,
-		"School":      def.School,
-		"Level":       def.Level,
-		"SpellPoints": def.SpellPointsCost,
-		"Description": def.Description,
-		"Duration":    def.Duration,
-	}, nil
-}

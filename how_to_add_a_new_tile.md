@@ -72,8 +72,6 @@ Core fields are fully supported:
 - `letter`, `biomes`
 - `type` (used for teleporter detection)
 
-`effects` are still not used (no audio/VFX system yet).
-
 ## Testing checklist
 - YAML loads without errors.
 - Letter is unique for its biome.

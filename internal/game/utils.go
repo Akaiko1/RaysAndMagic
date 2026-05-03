@@ -23,11 +23,6 @@ func TileCenter(pos, tileSize float64) float64 {
 	return math.Floor(pos/tileSize)*tileSize + tileSize/2
 }
 
-// TileCenterXY returns the tile center coordinates for both X and Y.
-func TileCenterXY(x, y, tileSize float64) (float64, float64) {
-	return TileCenter(x, tileSize), TileCenter(y, tileSize)
-}
-
 // TileCenterFromTile returns the world center for a tile coordinate pair (search: tile-center).
 func TileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2

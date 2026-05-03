@@ -96,6 +96,7 @@ func main() {
 	ebiten.SetTPS(tps)
 
 	g := game.NewMMGame(cfg)
+	defer g.Shutdown()
 	if err := ebiten.RunGame(g); err != nil {
 		if errors.Is(err, game.ErrExit) {
 			// Clean exit requested from game
