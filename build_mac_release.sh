@@ -70,6 +70,16 @@ build_macos_app() {
 </dict>
 </plist>
 EOF
+
+  # Go's linker auto-signs the bare binary with an ad-hoc signature that
+  # claims sealed resources. Once the binary is dropped into the bundle and
+  # Resources/ is populated, that signature no longer matches and Gatekeeper
+  # silently refuses to launch the .app. Strip and re-sign over the full
+  # bundle so the resource seal is correct.
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --remove-signature "${macos_dir}/${APP_NAME}" 2>/dev/null || true
+    codesign --force --deep --sign - "${app_dir}"
+  fi
 }
 
 # macOS (Intel + Apple Silicon) - Ebiten needs cgo on macOS
