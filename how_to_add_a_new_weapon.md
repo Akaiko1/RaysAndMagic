@@ -19,7 +19,6 @@ weapons:
     damage: 15
     range: 2
     bonus_stat: "Might"
-    hit_bonus: 12
     crit_chance: 20
     rarity: "legendary"
     value: 800
@@ -45,7 +44,6 @@ weapons:
     damage: 9
     range: 12
     bonus_stat: "Accuracy"
-    hit_bonus: 18
     crit_chance: 15
     rarity: "rare"
     value: 300
@@ -80,7 +78,7 @@ weapons:
 - `max_projectiles`
 - `bonus_vs` (map of monster name or key to damage multiplier)
 - `disintegrate_chance`
-- `hit_bonus`, `crit_chance`, `value`, `rarity`
+- `crit_chance`, `value`, `rarity`
 
 ## Class restrictions
 Weapon categories are restricted by class in `internal/character/character.go`.
