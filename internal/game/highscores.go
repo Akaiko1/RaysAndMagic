@@ -80,20 +80,3 @@ func AddHighScore(scores *HighScores, entry HighScoreEntry) {
 	}
 }
 
-// IsHighScore checks if a score qualifies for the top 10
-func IsHighScore(scores *HighScores, score int) bool {
-	if len(scores.Entries) < maxHighScores {
-		return true
-	}
-	return score > scores.Entries[len(scores.Entries)-1].Score
-}
-
-// GetRank returns the rank (1-based) that this score would achieve
-func GetRank(scores *HighScores, score int) int {
-	for i, entry := range scores.Entries {
-		if score > entry.Score {
-			return i + 1
-		}
-	}
-	return len(scores.Entries) + 1
-}

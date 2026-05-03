@@ -720,18 +720,6 @@ func GetSpellDefinitionByName(name string) (*SpellDefinitionConfig, string, bool
 	return nil, "", false
 }
 
-// GetAllSpellKeys returns all available spell keys
-func GetAllSpellKeys() []string {
-	if GlobalSpells == nil {
-		return nil
-	}
-	keys := make([]string, 0, len(GlobalSpells.Spells))
-	for key := range GlobalSpells.Spells {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
 // GetSpellsBySchool returns all spells for a given magic school
 func GetSpellsBySchool(schoolKey string) []string {
 	if GlobalSpells == nil {
@@ -772,28 +760,3 @@ func GetWeaponDefinitionByName(name string) (*WeaponDefinitionConfig, string, bo
 	return def, weaponKeyByName[name], true
 }
 
-// GetAllWeaponKeys returns all available weapon keys
-func GetAllWeaponKeys() []string {
-	if GlobalWeapons == nil {
-		return nil
-	}
-	keys := make([]string, 0, len(GlobalWeapons.Weapons))
-	for key := range GlobalWeapons.Weapons {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
-// GetWeaponsByCategory returns all weapons for a given category
-func GetWeaponsByCategory(category string) []string {
-	if GlobalWeapons == nil {
-		return nil
-	}
-	var weapons []string
-	for key, def := range GlobalWeapons.Weapons {
-		if def.Category == category {
-			weapons = append(weapons, key)
-		}
-	}
-	return weapons
-}

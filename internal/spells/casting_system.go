@@ -182,21 +182,3 @@ func GetProjectileColor(spellID SpellID) ([3]int, error) {
 	return [3]int{}, fmt.Errorf("no spell configuration available for '%s'", spellID)
 }
 
-// GetProjectileVisualEffect returns visual effect parameters for projectiles
-func GetProjectileVisualEffect(spellID SpellID) (ProjectileVisualEffect, error) {
-	_, err := GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return ProjectileVisualEffect{}, err
-	}
-
-	// Visual effects must be configured in spells.yaml graphics section
-	return ProjectileVisualEffect{}, fmt.Errorf("visual effects must be configured in spells.yaml for spell '%s'", spellID)
-}
-
-// ProjectileVisualEffect defines visual parameters for projectiles
-type ProjectileVisualEffect struct {
-	TrailLength  int
-	TrailOpacity int
-	GlowRadius   int
-	Sparkles     bool
-}
