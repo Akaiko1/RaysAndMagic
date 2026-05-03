@@ -181,31 +181,24 @@ type SpellDefinitionConfig struct {
 }
 
 type MonsterAIConfig struct {
-	// New AI behavior timers (in frames, 60fps)
-	IdlePatrolTimer      int `yaml:"idle_patrol_timer"`
-	PatrolDirectionTimer int `yaml:"patrol_direction_timer"`
-	PatrolIdleTimer      int `yaml:"patrol_idle_timer"`
-	AlertTimeout         int `yaml:"alert_timeout"`
-	AttackCooldown       int `yaml:"attack_cooldown"`
-	FleeDuration         int `yaml:"flee_duration"`
+	// AI behavior timers (in frames, 60fps)
+	IdlePatrolTimer int `yaml:"idle_patrol_timer"`
+	PatrolIdleTimer int `yaml:"patrol_idle_timer"`
+	AttackCooldown  int `yaml:"attack_cooldown"`
+	FleeDuration    int `yaml:"flee_duration"`
 
-	// Behavior chances (0.0 to 1.0)
-	IdleToPatrolChance    float64 `yaml:"idle_to_patrol_chance"`
-	PatrolDirectionChance float64 `yaml:"patrol_direction_chance"`
+	// Behavior chance (0.0 to 1.0)
+	IdleToPatrolChance float64 `yaml:"idle_to_patrol_chance"`
 
 	// Movement parameters
 	NormalSpeedMultiplier float64 `yaml:"normal_speed_multiplier"`
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
 
-	// Vision and pathfinding
-	PatrolVisionDistance    float64 `yaml:"patrol_vision_distance"`
-	FleeVisionDistance      float64 `yaml:"flee_vision_distance"`
-	DirectionVisionDistance float64 `yaml:"direction_vision_distance"`
+	// Vision distance used while fleeing
+	FleeVisionDistance float64 `yaml:"flee_vision_distance"`
 
-	// AI frequency checks (in frames)
-	PathCheckFrequency   int `yaml:"path_check_frequency"`
-	FleeCheckFrequency   int `yaml:"flee_check_frequency"`
-	MaxDirectionAttempts int `yaml:"max_direction_attempts"`
+	// AI frequency check (in frames)
+	PathCheckFrequency int `yaml:"path_check_frequency"`
 
 	PushbackDistance float64 `yaml:"pushback_distance"`
 }
