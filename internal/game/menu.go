@@ -116,7 +116,7 @@ type SkillEntry struct {
 }
 
 type MagicSchoolEntry struct {
-	School      int      `json:"school"`
+	School      string   `json:"school"`
 	Level       int      `json:"level"`
 	Mastery     int      `json:"mastery"`
 	CastCount   int      `json:"cast_count"`
@@ -321,7 +321,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Magic schools
 		for school, ms := range m.MagicSchools {
-			entry := MagicSchoolEntry{School: int(school), Level: ms.Level, Mastery: int(ms.Mastery), CastCount: ms.CastCount}
+			entry := MagicSchoolEntry{School: string(school), Level: ms.Level, Mastery: int(ms.Mastery), CastCount: ms.CastCount}
 			if len(ms.KnownSpells) > 0 {
 				entry.KnownSpells = make([]string, len(ms.KnownSpells))
 				for i, sp := range ms.KnownSpells {
@@ -491,7 +491,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			Luck:           cs.Luck,
 			FreeStatPoints: cs.FreeStatPoints,
 			Skills:         make(map[character.SkillType]*character.Skill),
-			MagicSchools:   make(map[character.MagicSchool]*character.MagicSkill),
+			MagicSchools:   make(map[character.MagicSchoolID]*character.MagicSkill),
 			Equipment:      make(map[items.EquipSlot]items.Item),
 		}
 		if len(cs.Conditions) > 0 {
@@ -504,7 +504,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			m.Skills[character.SkillType(s.Type)] = &character.Skill{Level: s.Level, Mastery: character.SkillMastery(s.Mastery)}
 		}
 		for _, me := range cs.MagicSchools {
-			mk := character.MagicSchool(me.School)
+			mk := character.MagicSchoolID(me.School)
 			ms := &character.MagicSkill{Level: me.Level, Mastery: character.SkillMastery(me.Mastery), CastCount: me.CastCount}
 			if len(me.KnownSpells) > 0 {
 				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))

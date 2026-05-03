@@ -744,8 +744,8 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		tooltip = append(tooltip, fmt.Sprintf("✗ Need %d more SP", needed))
 	}
 
-	// Character's skill level in this school (convert string to MagicSchool)
-	school := getSchoolFromString(def.School)
+	// Character's skill level in this school
+	school := character.MagicSchoolID(def.School)
 	if magicSkill, exists := char.MagicSchools[school]; exists {
 		tooltip = append(tooltip, "")
 		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", formatSchoolName(def.School)))
@@ -829,32 +829,6 @@ func formatSchoolName(school string) string {
 		return ""
 	}
 	return strings.ToUpper(school[:1]) + school[1:]
-}
-
-// getSchoolFromString converts school string to MagicSchool enum
-func getSchoolFromString(schoolStr string) character.MagicSchool {
-	switch schoolStr {
-	case "body":
-		return character.MagicBody
-	case "mind":
-		return character.MagicMind
-	case "spirit":
-		return character.MagicSpirit
-	case "fire":
-		return character.MagicFire
-	case "water":
-		return character.MagicWater
-	case "air":
-		return character.MagicAir
-	case "earth":
-		return character.MagicEarth
-	case "light":
-		return character.MagicLight
-	case "dark":
-		return character.MagicDark
-	default:
-		return character.MagicBody // Default fallback
-	}
 }
 
 // getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions

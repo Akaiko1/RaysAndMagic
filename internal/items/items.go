@@ -41,7 +41,7 @@ type Item struct {
 	DamageType         string // "physical", "fire", "dark", etc.
 	MaxProjectiles     int    // Maximum projectiles allowed at once (0 = unlimited)
 	// For spells
-	SpellSchool string // Will use string instead of character.MagicSchool to avoid cycles
+	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
 }

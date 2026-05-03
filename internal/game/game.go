@@ -35,6 +35,10 @@ const (
 	ProjectileOwnerMonster
 )
 
+// InteractionDistance is the max range (in world units, ~2 tiles) for the
+// player to talk to NPCs and trigger interactables.
+const InteractionDistance = 128.0
+
 type MagicProjectile struct {
 	ID                 string  // Unique identifier
 	X, Y               float64 // Current position
@@ -204,7 +208,7 @@ type MMGame struct {
 	lootBags         []LootBag
 
 	// Spellbook UI state
-	collapsedSpellSchools map[character.MagicSchool]bool
+	collapsedSpellSchools map[character.MagicSchoolID]bool
 
 	// Utility spell status icons (data-driven)
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
@@ -431,7 +435,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 		selectedSchool:        0,
 		selectedSpell:         0,
-		collapsedSpellSchools: make(map[character.MagicSchool]bool),
+		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
 		combatMessages:        make([]string, 0),
 		maxMessages:           4, // Show last 4 messages
@@ -501,15 +505,13 @@ func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 
 // GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
 func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
-	const interactionDistance = 128.0 // 2 tiles, same as input handler
-
 	currentWorld := g.GetCurrentWorld()
 	if currentWorld == nil {
 		return nil
 	}
 
 	var nearestNPC *character.NPC
-	nearestDistance := interactionDistance
+	nearestDistance := float64(InteractionDistance)
 
 	for _, npc := range currentWorld.NPCs {
 		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)

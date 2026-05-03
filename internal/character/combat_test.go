@@ -53,7 +53,7 @@ func (cs *TestCombatSystem) CastFireball() bool {
 	caster := cs.party.Members[cs.selectedChar]
 
 	// Check if caster can cast fire magic
-	fireSkill, canCast := caster.MagicSchools[MagicFire]
+	fireSkill, canCast := caster.MagicSchools[MagicSchoolFire]
 	if !canCast || len(fireSkill.KnownSpells) == 0 {
 		return false
 	}
@@ -86,7 +86,7 @@ func (cs *TestCombatSystem) CastHeal() bool {
 	caster := cs.party.Members[cs.selectedChar]
 
 	// Check if caster can cast body magic
-	bodySkill, canCast := caster.MagicSchools[MagicBody]
+	bodySkill, canCast := caster.MagicSchools[MagicSchoolBody]
 	if !canCast || len(bodySkill.KnownSpells) == 0 {
 		return false
 	}

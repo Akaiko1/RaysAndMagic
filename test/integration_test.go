@@ -279,10 +279,10 @@ func testMagicSystemIntegration(cfg *config.Config) {
 
 					// Simulate spell effects using centralized definitions
 					switch school {
-					case character.MagicFire:
+					case character.MagicSchoolFire:
 						damage := def.SpellPointsCost*3 + member.Intellect/2
 						fmt.Printf("      → Cast! Damage: %d, SP: %d→%d\n", damage, originalSP, member.SpellPoints)
-					case character.MagicBody:
+					case character.MagicSchoolBody:
 						healAmount := def.SpellPointsCost*5 + member.Personality/2
 						fmt.Printf("      → Cast! Heal: %d, SP: %d→%d\n", healAmount, originalSP, member.SpellPoints)
 					default:
@@ -456,11 +456,11 @@ func getClassName(class character.CharacterClass) string {
 	}
 }
 
-func getMagicSchoolName(school character.MagicSchool) string {
-	names := map[character.MagicSchool]string{
-		character.MagicBody: "Body", character.MagicMind: "Mind", character.MagicSpirit: "Spirit",
-		character.MagicFire: "Fire", character.MagicWater: "Water", character.MagicAir: "Air", character.MagicEarth: "Earth",
-		character.MagicLight: "Light", character.MagicDark: "Dark",
+func getMagicSchoolName(school character.MagicSchoolID) string {
+	names := map[character.MagicSchoolID]string{
+		character.MagicSchoolBody: "Body", character.MagicSchoolMind: "Mind", character.MagicSchoolSpirit: "Spirit",
+		character.MagicSchoolFire: "Fire", character.MagicSchoolWater: "Water", character.MagicSchoolAir: "Air", character.MagicSchoolEarth: "Earth",
+		character.MagicSchoolLight: "Light", character.MagicSchoolDark: "Dark",
 	}
 	if name, exists := names[school]; exists {
 		return name
@@ -469,12 +469,12 @@ func getMagicSchoolName(school character.MagicSchool) string {
 }
 
 func hasFireMagic(char *character.MMCharacter) bool {
-	_, exists := char.MagicSchools[character.MagicFire]
+	_, exists := char.MagicSchools[character.MagicSchoolFire]
 	return exists
 }
 
 func hasBodyMagic(char *character.MMCharacter) bool {
-	_, exists := char.MagicSchools[character.MagicBody]
+	_, exists := char.MagicSchools[character.MagicSchoolBody]
 	return exists
 }
 

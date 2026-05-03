@@ -327,7 +327,7 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 }
 
 // handleSpellbookSchoolClick checks if mouse clicked on a magic school and selects it
-func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchool) {
+func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchoolID) {
 	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
 		currentTime := ui.game.mouseLeftClickAt
 		delta := currentTime - ui.game.lastSchoolClickTime

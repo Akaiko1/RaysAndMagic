@@ -1749,7 +1749,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	if err != nil || def.School == "" {
 		return 0
 	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	school := character.MagicSchoolID(def.School)
 	if skill, exists := char.MagicSchools[school]; exists {
 		return int(skill.Mastery) * 5
 	}
@@ -1762,7 +1762,7 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 	if err != nil || def.School == "" {
 		return
 	}
-	school := character.MagicSchoolIDToLegacy(character.MagicSchoolID(def.School))
+	school := character.MagicSchoolID(def.School)
 	skill, exists := char.MagicSchools[school]
 	if !exists {
 		return

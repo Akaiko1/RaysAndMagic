@@ -148,19 +148,19 @@ func TestCharacterSkills(t *testing.T) {
 		name           string
 		class          CharacterClass
 		expectedSkills []SkillType
-		expectedMagic  []MagicSchool
+		expectedMagic  []MagicSchoolID
 	}{
 		{
 			name:           "Knight Skills",
 			class:          ClassKnight,
 			expectedSkills: []SkillType{SkillSword, SkillChain, SkillShield, SkillBodybuilding},
-			expectedMagic:  []MagicSchool{},
+			expectedMagic:  []MagicSchoolID{},
 		},
 		{
 			name:           "Sorcerer Skills",
 			class:          ClassSorcerer,
 			expectedSkills: []SkillType{SkillDagger, SkillLeather, SkillMeditation},
-			expectedMagic:  []MagicSchool{MagicFire},
+			expectedMagic:  []MagicSchoolID{MagicSchoolFire},
 		},
 	}
 
@@ -180,9 +180,9 @@ func TestCharacterSkills(t *testing.T) {
 			// Test magic schools
 			for _, expectedSchool := range tt.expectedMagic {
 				if magicSkill, exists := char.MagicSchools[expectedSchool]; !exists {
-					t.Errorf("Expected magic school %d not found", expectedSchool)
+					t.Errorf("Expected magic school %s not found", expectedSchool)
 				} else if magicSkill.Level != 1 || magicSkill.Mastery != MasteryNovice {
-					t.Errorf("Expected magic school %d at level 1 with Novice mastery", expectedSchool)
+					t.Errorf("Expected magic school %s at level 1 with Novice mastery", expectedSchool)
 				}
 			}
 		})

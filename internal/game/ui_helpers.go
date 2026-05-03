@@ -27,24 +27,6 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-func (ui *UISystem) getSchoolName(school character.MagicSchool) string {
-	names := map[character.MagicSchool]string{
-		character.MagicBody:   "Body",
-		character.MagicMind:   "Mind",
-		character.MagicSpirit: "Spirit",
-		character.MagicFire:   "Fire",
-		character.MagicWater:  "Water",
-		character.MagicAir:    "Air",
-		character.MagicEarth:  "Earth",
-		character.MagicLight:  "Light",
-		character.MagicDark:   "Dark",
-	}
-	if name, exists := names[school]; exists {
-		return name
-	}
-	return "Unknown"
-}
-
 // isMouseOverCharacter checks if the mouse cursor is over a specific character portrait
 func (ui *UISystem) isMouseOverCharacter(mouseX, mouseY, charIndex, portraitWidth, portraitHeight, startY int) bool {
 	charX := charIndex * portraitWidth

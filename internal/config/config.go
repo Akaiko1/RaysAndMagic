@@ -567,11 +567,25 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	// Set global weapon config for easy access
 	GlobalWeapons = &weaponConfig
 
+	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
+	weaponDefByName = make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
+	weaponKeyByName = make(map[string]string, len(weaponConfig.Weapons))
+	for key, def := range weaponConfig.Weapons {
+		weaponDefByName[def.Name] = def
+		weaponKeyByName[def.Name] = key
+	}
+
 	// Set up weapon accessor for items package to avoid circular imports
 	setupWeaponAccessor()
 
 	return &weaponConfig, nil
 }
+
+// weapon name → definition / yaml key, populated at config load.
+var (
+	weaponDefByName map[string]*WeaponDefinitionConfig
+	weaponKeyByName map[string]string
+)
 
 // setupWeaponAccessor configures the global weapon accessor for items package
 func setupWeaponAccessor() {
@@ -875,17 +889,13 @@ func GetWeaponDefinition(weaponKey string) (*WeaponDefinitionConfig, bool) {
 	return def, exists
 }
 
-// GetWeaponDefinitionByName retrieves weapon definition by display name
+// GetWeaponDefinitionByName retrieves weapon definition by display name in O(1).
 func GetWeaponDefinitionByName(name string) (*WeaponDefinitionConfig, string, bool) {
-	if GlobalWeapons == nil {
+	def, ok := weaponDefByName[name]
+	if !ok {
 		return nil, "", false
 	}
-	for key, def := range GlobalWeapons.Weapons {
-		if def.Name == name {
-			return def, key, true
-		}
-	}
-	return nil, "", false
+	return def, weaponKeyByName[name], true
 }
 
 // GetAllWeaponKeys returns all available weapon keys

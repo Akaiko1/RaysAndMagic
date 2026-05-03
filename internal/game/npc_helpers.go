@@ -58,7 +58,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	if char == nil || spellData == nil {
 		return false
 	}
-	school, ok := legacySchoolFromString(spellData.School)
+	school, ok := schoolIDFromString(spellData.School)
 	if !ok {
 		return false
 	}
@@ -76,7 +76,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 			if strings.TrimSpace(schoolReq.School) == "" {
 				continue
 			}
-			reqSchool, ok := legacySchoolFromString(schoolReq.School)
+			reqSchool, ok := schoolIDFromString(schoolReq.School)
 			if !ok {
 				return false
 			}
@@ -93,7 +93,9 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	return true
 }
 
-func legacySchoolFromString(raw string) (character.MagicSchool, bool) {
+// schoolIDFromString returns the typed school ID for a YAML/dialog string. The
+// bool reports whether the value matches a known school.
+func schoolIDFromString(raw string) (character.MagicSchoolID, bool) {
 	school := character.MagicSchoolID(strings.ToLower(strings.TrimSpace(raw)))
 	switch school {
 	case character.MagicSchoolBody,
@@ -105,9 +107,9 @@ func legacySchoolFromString(raw string) (character.MagicSchool, bool) {
 		character.MagicSchoolEarth,
 		character.MagicSchoolLight,
 		character.MagicSchoolDark:
-		return character.MagicSchoolIDToLegacy(school), true
+		return school, true
 	default:
-		return 0, false
+		return "", false
 	}
 }
 

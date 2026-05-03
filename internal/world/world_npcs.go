@@ -18,7 +18,7 @@ func (w *World3D) placeSkillTeachers() {
 	// Magic Teacher near ancient tree
 	magicTeacher := character.NewSkillTeacher(
 		"Archmage Lysander",
-		character.MagicFire,
+		character.MagicSchoolFire,
 		character.MasteryMaster,
 		35.0*64, 25.0*64,
 	)
@@ -27,7 +27,7 @@ func (w *World3D) placeSkillTeachers() {
 	// Body Magic Healer near water
 	healer := character.NewSkillTeacher(
 		"Priestess Celestine",
-		character.MagicBody,
+		character.MagicSchoolBody,
 		character.MasteryExpert,
 		10.0*64, 30.0*64,
 	)
