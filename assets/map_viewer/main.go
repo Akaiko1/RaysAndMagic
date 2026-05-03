@@ -1233,5 +1233,21 @@ func ensureRuntimeCWD() {
 		return
 	}
 	execDir := filepath.Dir(exe)
-	_ = os.Chdir(execDir)
+	if runtimeDir, ok := findRuntimeCWD(execDir, os.Stat); ok {
+		_ = os.Chdir(runtimeDir)
+	}
+}
+
+func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (string, bool) {
+	candidates := []string{
+		execDir,
+		filepath.Join(execDir, ".."),
+		filepath.Join(execDir, "..", "Resources"),
+	}
+	for _, candidate := range candidates {
+		if _, err := stat(filepath.Join(candidate, "config.yaml")); err == nil {
+			return filepath.Clean(candidate), true
+		}
+	}
+	return "", false
 }

@@ -9,6 +9,15 @@ Run from the repo root:
 go run ./assets/map_viewer
 ```
 
+Build a local binary:
+
+```
+mkdir -p bin
+go build -o bin/map_viewer ./assets/map_viewer
+```
+
+Release archives include the viewer next to the game executable as `RaysAndMagicMapViewer` (macOS) or `RaysAndMagicMapViewer.exe` (Windows).
+
 Controls:
 - Left/Right (or A/D) to switch maps
 - Tab or 1/2 to switch Info/Legend panel

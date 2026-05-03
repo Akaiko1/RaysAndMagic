@@ -1,6 +1,11 @@
 *.exe
-ugataima
-raysandmagic
+/ugataima
+/raysandmagic
+/map_viewer
+/RaysAndMagic.exe
+/RaysAndMagic_debug.exe
+/RaysAndMagicMapViewer.exe
+/RaysAndMagicMapViewer_debug.exe
 save*.json
 .claude/
 
@@ -27,5 +32,3 @@ dist/mac_amd64/
 dist/
 
 saves/
-
-map_viewer
