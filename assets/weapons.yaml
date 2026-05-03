@@ -194,17 +194,17 @@ weapons:
     rarity: "common"
     value: 90
 
-    # Projectile physics (tile-based)
-    physics:
-      speed_tiles: 12.0          # 12 tiles per second
-      range_tiles: 2.0           # 2 tile range (short)
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+    # Melee-specific configuration
+    melee:
+      arc_angle: 35
+      animation_frames: 10
+      hit_delay: 4
 
+    # Visual effects for staff swing
     graphics:
-      max_size: 44
-      min_size: 3
-      base_size: 22
-      color: [100, 80, 150]
+      slash_color: [100, 80, 150]  # Purple magical flash
+      slash_width: 28
+      slash_length: 72
 
   silver_sword:
     name: "Silver Sword"
@@ -340,17 +340,17 @@ weapons:
     rarity: "uncommon"
     value: 160
 
-    # Projectile physics (tile-based)
-    physics:
-      speed_tiles: 14.0          # 14 tiles per second
-      range_tiles: 2.0           # 2 tile range (short)
-      collision_size_tiles: 0.5  # Minimum collision size (0.5 tiles)
+    # Melee-specific configuration
+    melee:
+      arc_angle: 35
+      animation_frames: 10
+      hit_delay: 4
 
+    # Visual effects for staff swing
     graphics:
-      max_size: 44
-      min_size: 3
-      base_size: 22
-      color: [100, 80, 150]
+      slash_color: [100, 80, 150]  # Purple magical flash
+      slash_width: 32
+      slash_length: 76
 
   bow_of_hellfire:
     name: "Bow of Hellfire"

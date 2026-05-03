@@ -421,28 +421,16 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		}
 	}
 
-	// Get weapon-specific properties from YAML
 	weaponDef, exists := config.GetWeaponDefinition(bowKey)
-	var arrowSpeed float64
-	var arrowLifetime int
-	var collisionSize float64
-	disintegrateChance := 0.0
-	if exists {
-		disintegrateChance = weaponDef.DisintegrateChance
+	if !exists || weaponDef == nil || weaponDef.Physics == nil {
+		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", bowKey)
+		return
 	}
 
 	tileSize := cs.game.config.GetTileSize()
-	if exists && weaponDef.Physics != nil {
-		// Use weapon-specific physics properties (tile-based)
-		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
-		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
-		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
-	} else {
-		// Fallback to default config values
-		arrowSpeed = cs.game.config.GetArrowSpeed()
-		arrowLifetime = cs.game.config.GetArrowLifetime()
-		collisionSize = float64(cs.game.config.GetArrowCollisionSize())
-	}
+	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
+	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
+	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	// Determine damage type from weapon
 	damageType := "physical" // Default
@@ -452,9 +440,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 	// Roll for critical hit: base weapon crit + Luck bonus
 	baseCrit := 0
-	if exists {
-		baseCrit = weaponDef.CritChance
-	}
+	baseCrit = weaponDef.CritChance
 	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
 	if isCrit {
 		damage *= 2
@@ -472,7 +458,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		BowKey:             bowKey,
 		DamageType:         damageType,
 		Crit:               isCrit,
-		DisintegrateChance: disintegrateChance,
+		DisintegrateChance: weaponDef.DisintegrateChance,
 		Owner:              ProjectileOwnerPlayer,
 	}
 
@@ -1070,23 +1056,18 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 
 func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string) {
 	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	disintegrateChance := 0.0
-	if exists {
-		disintegrateChance = weaponDef.DisintegrateChance
+	if !exists || weaponDef == nil || weaponDef.Physics == nil {
+		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", weaponKey)
+		return
 	}
 
 	tileSize := cs.game.config.GetTileSize()
-	arrowSpeed := cs.game.config.GetArrowSpeed()
-	arrowLifetime := cs.game.config.GetArrowLifetime()
-	collisionSize := float64(cs.game.config.GetArrowCollisionSize())
-	if exists && weaponDef.Physics != nil {
-		arrowSpeed = weaponDef.Physics.GetSpeedPixels(tileSize)
-		arrowLifetime = weaponDef.Physics.GetLifetimeFrames()
-		collisionSize = weaponDef.Physics.GetCollisionSizePixels(tileSize)
-	}
+	arrowSpeed := weaponDef.Physics.GetSpeedPixels(tileSize)
+	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
+	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	damageType := "physical"
-	if exists && weaponDef.DamageType != "" {
+	if weaponDef.DamageType != "" {
 		damageType = weaponDef.DamageType
 	}
 
@@ -1103,7 +1084,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		BowKey:             weaponKey,
 		DamageType:         damageType,
 		Crit:               false,
-		DisintegrateChance: disintegrateChance,
+		DisintegrateChance: weaponDef.DisintegrateChance,
 		Owner:              ProjectileOwnerMonster,
 		SourceName:         monster.Name,
 	}

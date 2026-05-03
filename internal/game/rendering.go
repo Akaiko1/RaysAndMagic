@@ -215,16 +215,7 @@ func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D
 		}
 	}
 
-	// Legacy fallback for specific tile types (when GlobalTileManager is unavailable)
-	switch tileType {
-	case world.TileWall, world.TileLowWall, world.TileHighWall:
-		rh.applyBrickTextureCached(wallImage, finalColor, width, height)
-	case world.TileThicket:
-		rh.applyFoliageTextureCached(wallImage, finalColor, width, height)
-	default:
-		// Solid color fill for tiles without specific textures
-		wallImage.Fill(finalColor)
-	}
+	wallImage.Fill(finalColor)
 
 	return wallImage
 }
@@ -429,46 +420,14 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 		}
 	}
 
-	// Legacy fallback for when GlobalTileManager is unavailable
-	switch tileType {
-	case world.TileTree:
-		return color.RGBA{101, 67, 33, 255} // Brown tree
-	case world.TileAncientTree:
-		return color.RGBA{69, 39, 19, 255} // Darker brown
-	case world.TileWall:
-		return color.RGBA{64, 64, 64, 255} // Gray stone wall
-	case world.TileThicket:
-		return color.RGBA{34, 80, 34, 255} // Dark green thicket
-	case world.TileMossRock:
-		return color.RGBA{105, 105, 105, 255} // Gray rock
-	case world.TileMushroomRing:
-		return color.RGBA{128, 64, 128, 255} // Purple mushrooms
-	case world.TileFernPatch:
-		return color.RGBA{50, 120, 50, 255} // Green ferns
-	case world.TileForestStream:
-		return color.RGBA{64, 128, 255, 255} // Blue water
-	case world.TileFireflySwarm:
-		return color.RGBA{255, 255, 150, 255} // Yellow fireflies
-	case world.TileClearing:
-		return color.RGBA{80, 150, 80, 255} // Light green grass
-	case world.TileWater:
-		return color.RGBA{30, 100, 200, 255} // Deep blue water
-	case world.TileLowWall:
-		return color.RGBA{120, 120, 120, 255} // Light gray low wall
-	case world.TileHighWall:
-		return color.RGBA{40, 40, 40, 255} // Dark gray high wall
-	default:
-		return color.RGBA{101, 67, 33, 255} // Default brown
-	}
+	return color.RGBA{101, 67, 33, 255}
 }
 
 // CalculateMonsterSpriteMetrics calculates sprite position and size for 3D rendering with monster-specific size multiplier
 func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeGameMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
-	// Keep the existing monster size tuning by converting the legacy distance multiplier
-	// into a height multiplier.
-	legacyMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
-	heightMultiplier := legacyMultiplier / float64(rh.game.config.GetScreenHeight())
+	distanceMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
+	heightMultiplier := distanceMultiplier / float64(rh.game.config.GetScreenHeight())
 	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier)
 
 	// screenY is now correctly calculated by calculateSpriteMetricsWithHeightMultiplier to anchor
@@ -578,8 +537,6 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 	}
 
 	// Calculate sprite size using the same scaling model as environment sprites.
-	// Convert the legacy distance multiplier into a height multiplier so the
-	// formula matches CalculateEnvironmentSpriteMetrics.
 	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
 	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
 	if spriteSize > maxSize {

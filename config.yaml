@@ -23,14 +23,6 @@ movement:
   move_speed: 2.0
   rotation_speed: 0.05
 
-# Combat settings
-combat:
-  # Ranged weapon settings (bows)
-  bow:
-    speed: 9.6     # Arrow projectile speed (pixels/frame)
-    lifetime: 54   # Arrow lifetime (frames) - 8 tiles range
-    collision_size: 12 # Arrow collision size
-
 # Camera/3D rendering settings
 camera:
   field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
@@ -188,7 +180,7 @@ characters:
 # Monster stats and AI
 monster_ai:
   # State timers (in frames, 60fps)
-  idle_patrol_timer: 300        # Time before starting patrol from idle (5 seconds)
+  idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
   patrol_direction_timer: 120   # Time before changing direction (2 seconds)
   patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
   alert_timeout: 180            # Time before returning to idle from alert (3 seconds)
@@ -253,50 +245,3 @@ graphics:
     max_sprite_size: 120
     min_sprite_size: 16
     size_distance_multiplier: 150
-
-  # Projectile rendering - individual configs for each weapon/spell type
-  projectiles:
-
-    # Melee weapons
-    sword:
-      max_size: 48
-      min_size: 3
-      base_size: 24  # Matches collision size
-      color: [200, 200, 220]  # Silver/white
-
-    dagger:
-      max_size: 32
-      min_size: 2
-      base_size: 16  # Matches collision size
-      color: [150, 150, 180]  # Lighter silver
-
-    axe:
-      max_size: 64
-      min_size: 4
-      base_size: 32  # Matches collision size
-      color: [180, 120, 80]  # Brown/bronze
-
-    mace:
-      max_size: 52
-      min_size: 3
-      base_size: 26  # Matches collision size
-      color: [160, 160, 100]  # Dark gold
-
-    spear:
-      max_size: 56
-      min_size: 3
-      base_size: 20  # Matches collision size
-      color: [140, 100, 60]  # Wood brown
-
-    staff:
-      max_size: 44
-      min_size: 3
-      base_size: 22  # Matches collision size
-      color: [100, 80, 150]  # Purple (magical)
-
-    # Ranged weapons
-    bow:
-      max_size: 36
-      min_size: 2
-      base_size: 12  # Matches collision size
-      color: [180, 140, 100]  # Wood brown (arrow)

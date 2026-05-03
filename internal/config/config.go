@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"math"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,7 +14,6 @@ type Config struct {
 	Engine          EngineConfig          `yaml:"engine"`
 	World           WorldConfig           `yaml:"world"`
 	Movement        MovementConfig        `yaml:"movement"`
-	Combat          CombatConfig          `yaml:"combat"`
 	Camera          CameraConfig          `yaml:"camera"`
 	UI              UIConfig              `yaml:"ui"`
 	WorldGeneration WorldGenerationConfig `yaml:"world_generation"`
@@ -47,11 +46,6 @@ type WorldConfig struct {
 type MovementConfig struct {
 	MoveSpeed     float64 `yaml:"move_speed"`
 	RotationSpeed float64 `yaml:"rotation_speed"`
-}
-
-type CombatConfig struct {
-	// Ranged weapons
-	Bow ArrowConfig `yaml:"bow"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
@@ -97,23 +91,16 @@ type MeleeAttackConfig struct {
 	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
 
-// WeaponGraphicsConfig for weapon visual effects
+// WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
 	SlashColor  [3]int `yaml:"slash_color"`  // RGB color for slash effect
 	SlashWidth  int    `yaml:"slash_width"`  // Width of slash line
 	SlashLength int    `yaml:"slash_length"` // Length of slash line
 
-	// Legacy fields for compatibility with existing projectile system
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
 	BaseSize int    `yaml:"base_size"`
 	Color    [3]int `yaml:"color"`
-}
-
-type ArrowConfig struct {
-	Speed         float64 `yaml:"speed"`
-	Lifetime      int     `yaml:"lifetime"`
-	CollisionSize int     `yaml:"collision_size"` // Size for collision detection
 }
 
 type CameraConfig struct {
@@ -320,7 +307,6 @@ type GraphicsConfig struct {
 	BrightnessMin      float64             `yaml:"brightness_min"`
 	Monster            MonsterRenderConfig `yaml:"monster"`
 	NPC                NPCRenderConfig     `yaml:"npc"`
-	Projectiles        ProjectilesConfig   `yaml:"projectiles"`
 }
 
 type ColorsConfig struct {
@@ -345,22 +331,6 @@ type NPCRenderConfig struct {
 	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
-}
-
-type ProjectilesConfig struct {
-	// Dynamic spell graphics configurations (replaces hardcoded Fireball, FireBolt, Lightning!)
-	Spells map[string]*ProjectileRenderConfig `yaml:"spells"`
-
-	// Melee weapons
-	Sword  ProjectileRenderConfig `yaml:"sword"`
-	Dagger ProjectileRenderConfig `yaml:"dagger"`
-	Axe    ProjectileRenderConfig `yaml:"axe"`
-	Mace   ProjectileRenderConfig `yaml:"mace"`
-	Spear  ProjectileRenderConfig `yaml:"spear"`
-	Staff  ProjectileRenderConfig `yaml:"staff"`
-
-	// Ranged weapons
-	Bow ProjectileRenderConfig `yaml:"bow"`
 }
 
 type ProjectileRenderConfig struct {
@@ -543,6 +513,9 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateWeaponConfig(&weaponConfig); err != nil {
+		return nil, err
+	}
 
 	// Set global weapon config for easy access
 	GlobalWeapons = &weaponConfig
@@ -571,6 +544,41 @@ var (
 func setupWeaponAccessor() {
 	// This will be imported by items package
 	// For now we'll define this in a separate function
+}
+
+func validateWeaponConfig(cfg *WeaponSystemConfig) error {
+	for key, def := range cfg.Weapons {
+		if def == nil {
+			return fmt.Errorf("weapon '%s' has empty definition", key)
+		}
+		if isProjectileWeapon(def) {
+			if def.Physics == nil {
+				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
+			}
+			if def.Graphics == nil || def.Graphics.BaseSize <= 0 || def.Graphics.MaxSize <= 0 || def.Graphics.MinSize <= 0 {
+				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)
+			}
+		} else {
+			if def.Physics != nil {
+				return fmt.Errorf("melee weapon '%s' should not define projectile physics", key)
+			}
+			if def.Melee == nil {
+				return fmt.Errorf("melee weapon '%s' missing melee configuration", key)
+			}
+			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
+				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
+			}
+		}
+	}
+	return nil
+}
+
+func isProjectileWeapon(def *WeaponDefinitionConfig) bool {
+	category := strings.ToLower(strings.TrimSpace(def.Category))
+	return def.Range > 3 ||
+		strings.Contains(category, "bow") ||
+		strings.Contains(category, "throwing") ||
+		strings.Contains(category, "blaster")
 }
 
 // MustLoadWeaponConfig loads the weapon configuration and panics on error
@@ -753,18 +761,6 @@ func (c *Config) GetRotSpeed() float64 {
 	return c.Movement.RotationSpeed
 }
 
-func (c *Config) GetArrowSpeed() float64 {
-	return c.Combat.Bow.Speed
-}
-
-func (c *Config) GetArrowLifetime() int {
-	return c.Combat.Bow.Lifetime
-}
-
-func (c *Config) GetArrowCollisionSize() float64 {
-	return float64(c.Combat.Bow.CollisionSize)
-}
-
 // GetSpellConfig retrieves spell combat configuration from embedded physics
 func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, error) {
 	if GlobalSpells == nil {
@@ -849,11 +845,6 @@ func (c *Config) GetCameraFOV() float64 {
 
 func (c *Config) GetViewDistance() float64 {
 	return c.Camera.ViewDistance
-}
-
-// Convenience function for getting PI/3 (60 degrees) FOV
-func (c *Config) GetDefaultFOV() float64 {
-	return math.Pi / 3
 }
 
 // GetWeaponDefinition retrieves weapon definition from global weapon config

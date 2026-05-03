@@ -1,12 +1,14 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/world"
 )
@@ -190,5 +192,54 @@ func TestMonsterProjectileHitsPlayer(t *testing.T) {
 	}
 	if game.magicProjectiles[0].Active {
 		t.Fatalf("expected projectile to deactivate after hit")
+	}
+}
+
+func TestPlayerRangedAttackUsesWeaponPhysics(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	game := cs.game
+
+	bow := items.CreateWeaponFromYAML("hunting_bow")
+	game.party.Members[0].Equipment[items.SlotMainHand] = bow
+
+	weaponDef, exists := config.GetWeaponDefinition("hunting_bow")
+	if !exists || weaponDef.Physics == nil {
+		t.Fatalf("hunting_bow must have physics")
+	}
+
+	cs.EquipmentMeleeAttack()
+
+	if len(game.arrows) != 1 {
+		t.Fatalf("expected 1 player arrow, got %d", len(game.arrows))
+	}
+	arrow := game.arrows[0]
+	if arrow.Owner != ProjectileOwnerPlayer {
+		t.Fatalf("expected player-owned arrow, got %v", arrow.Owner)
+	}
+	if arrow.BowKey != "hunting_bow" {
+		t.Fatalf("expected hunting_bow, got %s", arrow.BowKey)
+	}
+
+	expectedSpeed := weaponDef.Physics.GetSpeedPixels(game.config.GetTileSize())
+	if math.Abs(arrow.VelX-expectedSpeed) > 0.0001 {
+		t.Fatalf("expected arrow VelX %.4f from weapon physics, got %.4f", expectedSpeed, arrow.VelX)
+	}
+	if arrow.VelY != 0 {
+		t.Fatalf("expected arrow VelY 0 at angle 0, got %.4f", arrow.VelY)
+	}
+	if arrow.LifeTime != weaponDef.Physics.GetLifetimeFrames() {
+		t.Fatalf("expected lifetime %d from weapon physics, got %d", weaponDef.Physics.GetLifetimeFrames(), arrow.LifeTime)
+	}
+
+	entity := game.collisionSystem.GetEntityByID(arrow.ID)
+	if entity == nil || entity.BoundingBox == nil {
+		t.Fatalf("expected arrow collision entity")
+	}
+	expectedCollisionSize := weaponDef.Physics.GetCollisionSizePixels(game.config.GetTileSize())
+	if math.Abs(entity.BoundingBox.Width-expectedCollisionSize) > 0.0001 {
+		t.Fatalf("expected collision width %.4f from weapon physics, got %.4f", expectedCollisionSize, entity.BoundingBox.Width)
+	}
+	if math.Abs(entity.BoundingBox.Height-expectedCollisionSize) > 0.0001 {
+		t.Fatalf("expected collision height %.4f from weapon physics, got %.4f", expectedCollisionSize, entity.BoundingBox.Height)
 	}
 }
