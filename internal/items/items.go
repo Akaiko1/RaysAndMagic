@@ -56,10 +56,10 @@ const (
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 )
 
-// SpellEffect represents dynamic spell effects sourced from YAML.
+// SpellEffect stores the spell identifier on spell items.
 type SpellEffect string
 
-// Dynamic spell effect constants (these map to SpellID from config)
+// Spell effect constants mirror spell IDs from config.
 const (
 	SpellEffectFireball    SpellEffect = "fireball"
 	SpellEffectFireBolt    SpellEffect = "firebolt"
@@ -76,16 +76,6 @@ const (
 	SpellEffectAwaken      SpellEffect = "awaken"
 	SpellEffectWalkOnWater SpellEffect = "walk_on_water"
 )
-
-// SpellEffectToSpellID converts SpellEffect to SpellID (dynamic mapping!)
-func SpellEffectToSpellID(effect SpellEffect) string {
-	return string(effect) // Direct conversion since they're the same now!
-}
-
-// SpellIDToSpellEffect converts SpellID to SpellEffect
-func SpellIDToSpellEffect(spellID string) SpellEffect {
-	return SpellEffect(spellID) // Direct conversion since they're the same now!
-}
 
 // Helper functions to create items
 func CreateWeapon(name string, damage, weaponRange int, bonusStat, description string) Item {

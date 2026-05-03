@@ -163,8 +163,8 @@ func GetItemComparisonTooltip(item items.Item, char *character.MMCharacter, comb
 		if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
 			return ""
 		}
-		itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
-		equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+		itemID := spells.SpellID(item.SpellEffect)
+		equippedID := spells.SpellID(equipped.SpellEffect)
 		if itemID == "" || equippedID == "" || itemID == equippedID {
 			return ""
 		}
@@ -200,7 +200,7 @@ func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharact
 	if equipped.Type != items.ItemBattleSpell && equipped.Type != items.ItemUtilitySpell {
 		return ""
 	}
-	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	equippedID := spells.SpellID(equipped.SpellEffect)
 	if equippedID == "" {
 		return ""
 	}
@@ -221,7 +221,7 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 		return ""
 	}
 
-	spellID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
+	spellID := spells.SpellID(item.SpellEffect)
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		lines := []string{
@@ -573,8 +573,8 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 }
 
 func buildSpellComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
-	itemID := spells.SpellID(items.SpellEffectToSpellID(item.SpellEffect))
-	equippedID := spells.SpellID(items.SpellEffectToSpellID(equipped.SpellEffect))
+	itemID := spells.SpellID(item.SpellEffect)
+	equippedID := spells.SpellID(equipped.SpellEffect)
 	if itemID == "" || equippedID == "" {
 		return nil
 	}

@@ -82,7 +82,6 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		return items.Item{}, err
 	}
 
-	spellEffect := items.SpellIDToSpellEffect(string(spellID))
 	itemType := items.ItemBattleSpell
 	if def.IsUtility {
 		itemType = items.ItemUtilitySpell
@@ -96,7 +95,7 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		Range:       def.SpellPointsCost,
 		SpellSchool: def.School,
 		SpellCost:   def.SpellPointsCost,
-		SpellEffect: spellEffect,
+		SpellEffect: items.SpellEffect(spellID),
 		Attributes:  make(map[string]int),
 	}, nil
 }

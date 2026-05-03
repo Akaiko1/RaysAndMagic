@@ -58,8 +58,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Cast the equipped spell
 	caster.SpellPoints -= spellCost
 
-	// Dynamic spell effect to spell ID mapping (YAML-based)
-	spellID := spells.SpellID(items.SpellEffectToSpellID(spell.SpellEffect))
+	spellID := spells.SpellID(spell.SpellEffect)
 
 	// Check if this is a utility spell (non-projectile)
 	castingSystem := spells.NewCastingSystem(cs.game.config)
@@ -224,8 +223,7 @@ func (cs *CombatSystem) EquipmentHeal() {
 		return
 	}
 
-	// Map item spell effects to spell IDs dynamically
-	spellIDStr := items.SpellEffectToSpellID(spell.SpellEffect)
+	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
 		// Unknown utility spell, exit
 		return
@@ -296,8 +294,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 		return // Not a heal spell
 	}
 
-	// Map item spell effects to spell IDs dynamically
-	spellIDStr := items.SpellEffectToSpellID(spell.SpellEffect)
+	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
 		return
 	}
