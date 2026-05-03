@@ -15,11 +15,16 @@ const (
 // WallSliceCache provides thread-safe caching of pre-rendered wall slices to improve rendering performance.
 // This cache prevents redundant wall slice generation by storing commonly used combinations of wall parameters.
 // The cache uses quantized distance and texture coordinates to maximize cache hit rates while maintaining
-// visual quality. Memory usage is controlled through automatic cache eviction when size limits are reached.
+// visual quality. Memory usage is controlled through automatic eviction when size limits are reached.
+//
+// Eviction policy is FIFO: cache hits do not promote entries, so the oldest
+// inserted entries are evicted first regardless of recent access. This is
+// cheaper than tracking access order and works well when texture coordinates
+// quantize predictably.
 type WallSliceCache struct {
 	cache      map[WallSliceKey]*ebiten.Image // Map of wall configurations to pre-rendered images
 	mutex      sync.RWMutex                   // Reader-writer mutex for thread-safe access
-	cacheOrder []WallSliceKey                 // LRU order tracking for eviction
+	cacheOrder []WallSliceKey                 // FIFO insertion order for eviction
 }
 
 // WallSliceKey represents a unique wall slice configuration used as a cache key.
@@ -104,7 +109,7 @@ func (wsc *WallSliceCache) GetOrCreate(key WallSliceKey, createFunc func(quantiz
 	// Proactive eviction: evict before we exceed max size to avoid large batch deletions
 	// This prevents GC spikes by doing smaller, more frequent evictions
 	if len(wsc.cache) >= wallSliceCacheMaxSize {
-		// Evict oldest entries (FIFO approximation) until we reach target size
+		// Evict oldest-inserted entries until we reach target size
 		evictCount := len(wsc.cacheOrder) - wallSliceCacheTargetSize
 		if evictCount > 0 && evictCount <= len(wsc.cacheOrder) {
 			for i := 0; i < evictCount; i++ {

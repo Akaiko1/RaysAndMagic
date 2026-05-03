@@ -662,6 +662,14 @@ func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHei
 	return g.gameLoop.Layout(outsideWidth, outsideHeight)
 }
 
+// Shutdown releases threading resources. Safe to call multiple times only via
+// the threading components' own idempotency — call once on game exit.
+func (g *MMGame) Shutdown() {
+	if g.threading != nil {
+		g.threading.Shutdown()
+	}
+}
+
 // checkGameOver sets gameOver when all party members are unconscious (HP <= 0)
 func (g *MMGame) checkGameOver() {
 	if g.gameOver {

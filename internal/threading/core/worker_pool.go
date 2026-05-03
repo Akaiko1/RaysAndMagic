@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
 // WorkerPool manages a pool of worker goroutines for parallel processing.
@@ -14,6 +15,7 @@ type WorkerPool struct {
 	jobQueue   chan func()
 	wg         sync.WaitGroup
 	quit       chan struct{}
+	stopped    atomic.Bool
 }
 
 // NewWorkerPool creates a new worker pool. Pass numWorkers <= 0 to use
@@ -62,8 +64,13 @@ func (wp *WorkerPool) runJob(job func()) {
 	job()
 }
 
-// Submit enqueues a job. Blocks if the queue is full.
+// Submit enqueues a job. Blocks if the queue is full. Jobs submitted after
+// Stop() are dropped — without this guard, Submit would deadlock waiting for
+// a worker that already exited via the quit channel.
 func (wp *WorkerPool) Submit(job func()) {
+	if wp.stopped.Load() {
+		return
+	}
 	wp.wg.Add(1)
 	wp.jobQueue <- job
 }
@@ -73,8 +80,11 @@ func (wp *WorkerPool) Wait() {
 	wp.wg.Wait()
 }
 
-// Stop signals workers to exit. In-flight jobs finish first.
+// Stop signals workers to exit. In-flight jobs finish first. Idempotent.
 func (wp *WorkerPool) Stop() {
+	if !wp.stopped.CompareAndSwap(false, true) {
+		return
+	}
 	close(wp.quit)
 }
 
