@@ -24,28 +24,6 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 	return &CombatSystem{game: game}
 }
 
-// getWeaponConfig safely retrieves weapon definition and reports missing configs without panicking.
-// Returns nil if weapon not found or missing required config section.
-func (cs *CombatSystem) getWeaponConfig(weaponName string) *config.WeaponDefinitionConfig {
-	weaponKey := items.GetWeaponKeyByName(weaponName)
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		fmt.Printf("[WARN] weapon '%s' (key: %s) not found in weapons.yaml\n", weaponName, weaponKey)
-		return nil
-	}
-	return weaponDef
-}
-
-// getWeaponConfigByKey safely retrieves weapon definition by key without panicking.
-func (cs *CombatSystem) getWeaponConfigByKey(weaponKey string) *config.WeaponDefinitionConfig {
-	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
-	if !exists {
-		fmt.Printf("[WARN] weapon key '%s' not found in weapons.yaml\n", weaponKey)
-		return nil
-	}
-	return weaponDef
-}
-
 // CastEquippedSpell performs a magic attack using equipped spell (unified F key casting).
 // Returns true if the spell was successfully cast.
 func (cs *CombatSystem) CastEquippedSpell() bool {
@@ -400,7 +378,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	}
 
 	// Melee: determine critical hit based on weapon base crit chance + Luck bonus
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
@@ -508,7 +486,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 // createMeleeAttack creates an instant melee attack with proper arc-based hit detection
 func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
 	// Get weapon definition from YAML
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
@@ -637,7 +615,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	weaponDef := cs.getWeaponConfig(weaponName)
+	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
 	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, false)
@@ -1302,14 +1280,14 @@ func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projec
 		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
 	case "melee":
 		meleeAttack := projectile.(*MeleeAttack)
-		weaponDef := cs.getWeaponConfig(meleeAttack.WeaponName)
+		weaponDef := lookupWeaponConfigByName(meleeAttack.WeaponName)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			return 0, 0, 0, false
 		}
 		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
 	case "arrow":
 		arrow := projectile.(*Arrow)
-		weaponDef := cs.getWeaponConfigByKey(arrow.BowKey)
+		weaponDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			return 0, 0, 0, false
 		}
@@ -1387,7 +1365,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		damage, isCrit = ma.Damage, ma.Crit
 		weaponName = ma.WeaponName
-		weaponDef = cs.getWeaponConfig(weaponName)
+		weaponDef = lookupWeaponConfigByName(weaponName)
 		damageTypeStr = weaponDamageTypeStr(weaponDef)
 		damageType = convertToMonsterDamageType(damageTypeStr)
 		ma.Active = false
@@ -1406,7 +1384,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		ar.Active = false
 		isRanged = true
 		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
-			weaponDef = cs.getWeaponConfigByKey(ar.BowKey)
+			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
 		}
 	}
 
@@ -1720,7 +1698,7 @@ func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, character *charact
 	if character == nil {
 		return 0
 	}
-	weaponDef := cs.getWeaponConfig(weapon.Name)
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return 0
 	}

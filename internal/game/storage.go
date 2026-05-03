@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,9 @@ func getAppSaveDir() string {
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		dir := filepath.Join(cwd, savesDirName)
-		_ = os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Printf("[WARN] failed to create saves directory %q: %v\n", dir, err)
+		}
 		return dir
 	}
 	return savesDirName

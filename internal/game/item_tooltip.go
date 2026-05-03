@@ -880,10 +880,9 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 		}
 
-		switch def.Name {
-		case "First Aid":
+		if def.TargetSelf {
 			details = append(details, "Self-target only")
-		case "Heal":
+		} else {
 			details = append(details, "Can target any party member")
 		}
 	}
@@ -901,25 +900,19 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			}
 		}
 
-		// Add spell-specific descriptions
-		switch def.Name {
-		case "Torch Light":
-			details = append(details, "Light Radius: 4 tiles")
-		case "Wizard Eye":
-			details = append(details, "Reveals monsters on compass within 10 tiles")
-		case "Walk on Water":
-			details = append(details, "Allows party to walk on water")
-		case "Water Breathing":
-			details = append(details, "Allows underwater travel via deep water")
-		case "Bless":
-			if combatSystem != nil {
-				statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char)
-				if statBonus > 0 {
-					details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
-				}
+		if def.StatBonus > 0 && combatSystem != nil {
+			if statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char); statBonus > 0 {
+				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
+				details = append(details, "Affects entire party")
 			}
-			details = append(details, "Affects entire party")
-		case "Awaken":
+		}
+		if def.WaterWalk {
+			details = append(details, "Allows party to walk on water")
+		}
+		if def.WaterBreathing {
+			details = append(details, "Allows underwater travel via deep water")
+		}
+		if def.Awaken {
 			details = append(details, "No current gameplay effect")
 		}
 	}
