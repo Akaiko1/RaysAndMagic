@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 )
 
@@ -23,7 +24,7 @@ var ErrExit = errors.New("exit game")
 const DefaultSavePath = "savegame.json"
 
 // slotPath returns a filename for a numbered save slot (0-based index)
-func slotPath(slot int) string { return getAppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
+func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
 
 // mainMenuOptions defines the visible options in the ESC menu
 var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Exit"}

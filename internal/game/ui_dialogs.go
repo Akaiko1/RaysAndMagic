@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
+	"ugataima/internal/highscore"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -488,8 +489,8 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 
 	// Get score data
 	scoreData := ui.game.GetScoreData()
-	finalScore := CalculateScore(scoreData)
-	playTimeStr := FormatPlayTime(scoreData.PlayTime)
+	finalScore := highscore.Calculate(scoreData)
+	playTimeStr := highscore.FormatPlayTime(scoreData.PlayTime)
 
 	centerX := w / 2
 	startY := h/2 - 120
@@ -528,7 +529,7 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	// Darken background
 	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 30, 220})
 
-	scores, err := LoadHighScores()
+	scores, err := highscore.Load()
 	if err != nil {
 		ebitenutil.DebugPrintAt(screen, "Error loading high scores", w/2-90, h/2)
 		return
