@@ -15,7 +15,6 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
-	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -46,9 +45,6 @@ func main() {
 	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
-
-	// Initialize dynamic spell system with configuration
-	spells.SetGlobalConfig(cfg)
 
 	// Load and initialize tile manager
 	world.GlobalTileManager = world.NewTileManager()

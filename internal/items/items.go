@@ -19,9 +19,7 @@ const (
 	SlotAmulet
 	SlotRing1
 	SlotRing2
-	SlotBattleSpell  // Legacy slot for equipped battle spell
-	SlotUtilitySpell // Legacy slot for equipped utility spell
-	SlotSpell        // New unified spell slot for any spell
+	SlotSpell // Unified spell slot for any spell
 )
 
 type Item struct {
@@ -58,9 +56,7 @@ const (
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 )
 
-// Legacy weapon types removed - use YAML weapon keys instead
-
-// SpellEffect represents dynamic spell effects (replaces hardcoded enum!)
+// SpellEffect represents dynamic spell effects sourced from YAML.
 type SpellEffect string
 
 // Dynamic spell effect constants (these map to SpellID from config)
@@ -134,7 +130,6 @@ func CreateUtilitySpell(name string, effect SpellEffect, school string, cost int
 func CreateWeaponFromYAML(weaponKey string) Item {
 	item, err := TryCreateWeaponFromYAML(weaponKey)
 	if err != nil {
-		// Panic for backwards compatibility with initialization code that expects this to succeed
 		panic("weapon '" + weaponKey + "' not found in weapons.yaml - system misconfigured")
 	}
 	return item

@@ -50,23 +50,8 @@ type MovementConfig struct {
 }
 
 type CombatConfig struct {
-	// Melee weapons (legacy config from config.yaml)
-	Sword  MeleeWeaponConfig `yaml:"sword"`
-	Dagger MeleeWeaponConfig `yaml:"dagger"`
-	Axe    MeleeWeaponConfig `yaml:"axe"`
-	Mace   MeleeWeaponConfig `yaml:"mace"`
-	Spear  MeleeWeaponConfig `yaml:"spear"`
-	Staff  MeleeWeaponConfig `yaml:"staff"`
-
 	// Ranged weapons
 	Bow ArrowConfig `yaml:"bow"`
-}
-
-// MeleeWeaponConfig for legacy config.yaml melee weapons
-type MeleeWeaponConfig struct {
-	Speed         float64 `yaml:"speed"`
-	Lifetime      int     `yaml:"lifetime"`
-	CollisionSize int     `yaml:"collision_size"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
@@ -289,11 +274,6 @@ type SpellDefinitionConfig struct {
 
 	// Embedded graphics configuration (for projectile spells)
 	Graphics *ProjectileRenderConfig `yaml:"graphics,omitempty"`
-
-	// Legacy fields for backward compatibility - will be removed
-	Range           int     `yaml:"range,omitempty"`            // Deprecated: use physics.range_tiles
-	ProjectileSpeed float64 `yaml:"projectile_speed,omitempty"` // Deprecated: use physics.speed_tiles
-	Lifetime        int     `yaml:"lifetime,omitempty"`         // Deprecated: calculated from physics
 }
 
 type MonsterAIConfig struct {
@@ -785,8 +765,6 @@ func (c *Config) GetArrowCollisionSize() float64 {
 	return float64(c.Combat.Bow.CollisionSize)
 }
 
-// Legacy weapon config methods removed - use YAML embedded configs
-
 // GetSpellConfig retrieves spell combat configuration from embedded physics
 func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, error) {
 	if GlobalSpells == nil {
@@ -801,8 +779,6 @@ func (c *Config) GetSpellConfig(spellType string) (*ProjectilePhysicsConfig, err
 	}
 	return spellDef.Physics, nil
 }
-
-// Legacy weapon graphics config methods removed - use YAML embedded graphics
 
 // GetSpellGraphicsConfig retrieves spell graphics configuration from embedded graphics
 func (c *Config) GetSpellGraphicsConfig(spellType string) (*ProjectileRenderConfig, error) {

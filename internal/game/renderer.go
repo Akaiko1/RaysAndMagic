@@ -481,14 +481,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer := r.game.threading.PerformanceMonitor.StartRaycast()
 	results := r.game.threading.ParallelRenderer.RenderRaycast(
 		numRays,
-		func(rayIndex int, angle float64) (float64, interface{}) {
-			// Use precomputed ray directions instead of recomputing sin/cos
-			return r.castRayWithPrecomputedDirection(rayIndex)
-		},
-		func(rayIndex, totalRays int) float64 {
-			// Angle calculation not needed for precomputed directions, but kept for compatibility
-			return r.game.camera.Angle - r.game.camera.FOV/2 + (float64(rayIndex)/float64(totalRays))*r.game.camera.FOV
-		},
+		r.castRayWithPrecomputedDirection,
 	)
 	raycastTimer.EndRaycast()
 

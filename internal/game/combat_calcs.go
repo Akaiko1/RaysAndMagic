@@ -143,14 +143,8 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 // CalculateSpellRangeTiles returns the configured range in tiles for a spell.
 func (cs *CombatSystem) CalculateSpellRangeTiles(spellID spells.SpellID) (float64, bool) {
 	def, ok := config.GetSpellDefinition(string(spellID))
-	if !ok || def == nil {
+	if !ok || def == nil || def.Physics == nil || def.Physics.RangeTiles <= 0 {
 		return 0, false
 	}
-	if def.Physics != nil && def.Physics.RangeTiles > 0 {
-		return def.Physics.RangeTiles, true
-	}
-	if def.Range > 0 {
-		return float64(def.Range), true
-	}
-	return 0, false
+	return def.Physics.RangeTiles, true
 }

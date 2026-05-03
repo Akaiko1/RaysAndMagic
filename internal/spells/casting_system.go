@@ -47,11 +47,6 @@ func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage,
 	return
 }
 
-// Legacy function - use CalculateHealingAmountByID for new code
-func CalculateHealingAmount(spellID SpellID, casterPersonality int) (baseHealing, personalityBonus, totalHealing int) {
-	return CalculateHealingAmountByID(spellID, casterPersonality)
-}
-
 // CalculateHealingAmountByID calculates healing using SpellID (YAML-based)
 func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHealing, personalityBonus, totalHealing int) {
 	def, err := GetSpellDefinitionByID(spellID)

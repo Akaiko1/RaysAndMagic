@@ -24,9 +24,6 @@ func TestGameIntegration(t *testing.T) {
 		t.Logf("Warning: Could not load assets/spells.yaml: %v", err)
 	}
 
-	// Initialize spell system (legacy compatibility)
-	spells.SetGlobalConfig(cfg)
-
 	t.Run("Complete Game Initialization", func(t *testing.T) {
 		testCompleteGameInitialization(t, cfg)
 	})

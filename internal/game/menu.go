@@ -337,7 +337,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		ps.Members = append(ps.Members, cs)
 	}
 
-	// Monsters (all loaded maps + current map fallback for legacy saves)
+	// Monsters across all loaded maps.
 	var ms []MonsterSave
 	mapMonsters := make(map[string][]MonsterSave)
 	encounterIDs := make(map[*monster.EncounterRewards]int)
