@@ -170,7 +170,6 @@ type WeaponDefinitionFromYAML struct {
 	BonusStatSecondary string // Secondary scaling stat
 	DamageType         string // Damage element type
 	MaxProjectiles     int    // Max projectiles at once
-	HitBonus           int
 	CritChance         int
 	Rarity             string
 	Value              int

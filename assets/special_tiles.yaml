@@ -18,11 +18,7 @@ special_tiles:
       auto_activate: true           # Activates when stepped on
       random_destination: true      # Picks random teleporter from group
       exclude_self: true           # Won't teleport to same teleporter
-    effects:
-      activation_sound: "teleport_activate"
-      arrival_sound: "teleport_arrive"  
-      particle_effect: "violet_swirl"
-    
+
   # Red Teleporter - different group for variety, also cross-map
   rteleporter:
     name: "Red Teleporter"
@@ -42,10 +38,6 @@ special_tiles:
       auto_activate: true           # Activates when stepped on
       random_destination: true      # Picks random teleporter from group
       exclude_self: true           # Won't teleport to same teleporter
-    effects:
-      activation_sound: "teleport_activate"
-      arrival_sound: "teleport_arrive"
-      particle_effect: "red_flames"
 
   # Example of other special tile types for future expansion
   spike_trap:
@@ -65,10 +57,7 @@ special_tiles:
       trigger_chance: 0.8   # 80% chance to trigger when stepped on
       rearm_time: 30        # Rearms after 30 seconds
       visible_when_triggered: true
-    effects:
-      trigger_sound: "spike_trap"
-      damage_sound: "player_hurt"
-      
+
   magic_circle:
     name: "Magic Circle"
     type: "trigger"
@@ -85,6 +74,3 @@ special_tiles:
       event_id: "ancient_magic"
       single_use: false
       requires_item: null   # Optional item requirement
-    effects:
-      activation_sound: "magic_activate"
-      particle_effect: "blue_sparkles"

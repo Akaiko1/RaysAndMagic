@@ -29,7 +29,6 @@ type NPCData struct {
 	Dialogue       *NPCDialogue         `yaml:"dialogue"`
 	Spells         map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory      []*NPCItem           `yaml:"inventory,omitempty"`
-	Quests         []*NPCQuest          `yaml:"quests,omitempty"`
 	Encounter      *NPCEncounter        `yaml:"encounter,omitempty"`
 }
 
@@ -76,7 +75,6 @@ type NPCSpell struct {
 	Name         string             `yaml:"name"`
 	School       string             `yaml:"school"`
 	Level        int                `yaml:"level"`
-	SpellPoints  int                `yaml:"spell_points"`
 	Cost         int                `yaml:"cost"`
 	Description  string             `yaml:"description"`
 	Requirements *SpellRequirements `yaml:"requirements,omitempty"`
@@ -100,15 +98,6 @@ type NPCItem struct {
 	Name     string `yaml:"name"`
 	Cost     int    `yaml:"cost"`
 	Quantity int    `yaml:"quantity"`
-}
-
-// NPCQuest represents a quest that an NPC can give
-type NPCQuest struct {
-	ID               string `yaml:"id"`
-	Name             string `yaml:"name"`
-	Description      string `yaml:"description"`
-	RewardGold       int    `yaml:"reward_gold"`
-	RewardExperience int    `yaml:"reward_experience"`
 }
 
 // Global NPC configuration

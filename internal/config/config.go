@@ -10,19 +10,16 @@ import (
 
 // Config holds all game configuration values
 type Config struct {
-	Display         DisplayConfig         `yaml:"display"`
-	Engine          EngineConfig          `yaml:"engine"`
-	World           WorldConfig           `yaml:"world"`
-	Movement        MovementConfig        `yaml:"movement"`
-	Camera          CameraConfig          `yaml:"camera"`
-	UI              UIConfig              `yaml:"ui"`
-	WorldGeneration WorldGenerationConfig `yaml:"world_generation"`
-	Monsters        MonsterConfig         `yaml:"monsters"`
-	Characters      CharacterConfig       `yaml:"characters"`
-	MonsterAI       MonsterAIConfig       `yaml:"monster_ai"`
-	SkillTeaching   SkillTeachingConfig   `yaml:"skill_teaching"`
-	Graphics        GraphicsConfig        `yaml:"graphics"`
-	Tiles           TileConfig            `yaml:"tiles"`
+	Display    DisplayConfig    `yaml:"display"`
+	Engine     EngineConfig     `yaml:"engine"`
+	World      WorldConfig      `yaml:"world"`
+	Movement   MovementConfig   `yaml:"movement"`
+	Camera     CameraConfig     `yaml:"camera"`
+	UI         UIConfig         `yaml:"ui"`
+	Characters CharacterConfig  `yaml:"characters"`
+	MonsterAI  MonsterAIConfig  `yaml:"monster_ai"`
+	Graphics   GraphicsConfig   `yaml:"graphics"`
+	Tiles      TileConfig       `yaml:"tiles"`
 }
 
 type DisplayConfig struct {
@@ -113,86 +110,6 @@ type UIConfig struct {
 	PartyPortraitHeight int `yaml:"party_portrait_height"`
 	CompassRadius       int `yaml:"compass_radius"`
 	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
-}
-
-type WorldGenerationConfig struct {
-	Forest            ForestConfig            `yaml:"forest"`
-	AncientTrees      AncientTreesConfig      `yaml:"ancient_trees"`
-	MagicalFeatures   MagicalFeaturesConfig   `yaml:"magical_features"`
-	NaturalFormations NaturalFormationsConfig `yaml:"natural_formations"`
-	Clearings         ClearingsConfig         `yaml:"clearings"`
-	Water             WaterConfig             `yaml:"water"`
-	Undergrowth       UndergrowthConfig       `yaml:"undergrowth"`
-}
-
-type ForestConfig struct {
-	TreeClusters   int `yaml:"tree_clusters"`
-	ClusterSizeMin int `yaml:"cluster_size_min"`
-	ClusterSizeMax int `yaml:"cluster_size_max"`
-	ClusterSpread  int `yaml:"cluster_spread"`
-}
-
-type AncientTreesConfig struct {
-	CountMin          int `yaml:"count_min"`
-	CountMax          int `yaml:"count_max"`
-	PlacementAttempts int `yaml:"placement_attempts"`
-	ClearRadius       int `yaml:"clear_radius"`
-}
-
-type MagicalFeaturesConfig struct {
-	MushroomRings FeatureCountConfig `yaml:"mushroom_rings"`
-	FireflySwarms FeatureCountConfig `yaml:"firefly_swarms"`
-}
-
-type FeatureCountConfig struct {
-	CountMin int `yaml:"count_min"`
-	CountMax int `yaml:"count_max"`
-}
-
-type NaturalFormationsConfig struct {
-	MossRocks FeatureCountConfig `yaml:"moss_rocks"`
-}
-
-type ClearingsConfig struct {
-	CountMin  int `yaml:"count_min"`
-	CountMax  int `yaml:"count_max"`
-	RadiusMin int `yaml:"radius_min"`
-	RadiusMax int `yaml:"radius_max"`
-}
-
-type WaterConfig struct {
-	StreamStartYFraction float64 `yaml:"stream_start_y_fraction"`
-	StreamWanderRange    int     `yaml:"stream_wander_range"`
-	PondSize             int     `yaml:"pond_size"`
-	PondXFraction        float64 `yaml:"pond_x_fraction"`
-	PondYFraction        float64 `yaml:"pond_y_fraction"`
-}
-
-type UndergrowthConfig struct {
-	FernPatches FernPatchesConfig `yaml:"fern_patches"`
-}
-
-type FernPatchesConfig struct {
-	CountMin          int     `yaml:"count_min"`
-	CountMax          int     `yaml:"count_max"`
-	TreeSearchRadius  int     `yaml:"tree_search_radius"`
-	RandomSpawnChance float64 `yaml:"random_spawn_chance"`
-}
-
-type MonsterConfig struct {
-	Common  MonsterSpawnConfig   `yaml:"common"`
-	Rare    MonsterSpawnConfig   `yaml:"rare"`
-	Special SpecialMonsterConfig `yaml:"special"`
-}
-
-type MonsterSpawnConfig struct {
-	CountMin          int `yaml:"count_min"`
-	CountMax          int `yaml:"count_max"`
-	PlacementAttempts int `yaml:"placement_attempts"`
-}
-
-type SpecialMonsterConfig struct {
-	PixieMushroomRingChance float64 `yaml:"pixie_mushroom_ring_chance"`
 }
 
 type CharacterConfig struct {
@@ -293,13 +210,6 @@ type MonsterAIConfig struct {
 	PushbackDistance float64 `yaml:"pushback_distance"`
 }
 
-type SkillTeachingConfig struct {
-	ExpertCost      int `yaml:"expert_cost"`
-	MasterCost      int `yaml:"master_cost"`
-	GrandmasterCost int `yaml:"grandmaster_cost"`
-	NoviceCost      int `yaml:"novice_cost"`
-}
-
 type GraphicsConfig struct {
 	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
 	Colors             ColorsConfig        `yaml:"colors"`
@@ -367,7 +277,6 @@ type TileData struct {
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
-	Effects             map[string]string      `yaml:"effects,omitempty"`
 }
 
 type SpecialTileConfig struct {
@@ -375,12 +284,11 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string  `yaml:"name"`
-	File              string  `yaml:"file"`
-	Biome             string  `yaml:"biome"`
-	SkyColor          [3]int  `yaml:"sky_color"`
-	DefaultFloorColor [3]int  `yaml:"default_floor_color"`
-	AmbientLight      float64 `yaml:"ambient_light"`
+	Name              string `yaml:"name"`
+	File              string `yaml:"file"`
+	Biome             string `yaml:"biome"`
+	SkyColor          [3]int `yaml:"sky_color"`
+	DefaultFloorColor [3]int `yaml:"default_floor_color"`
 }
 
 type MapConfigs struct {
@@ -404,7 +312,6 @@ type WeaponDefinitionConfig struct {
 	BonusStatSecondary string             `yaml:"bonus_stat_secondary"`
 	DamageType         string             `yaml:"damage_type"`
 	MaxProjectiles     int                `yaml:"max_projectiles"`
-	HitBonus           int                `yaml:"hit_bonus"`
 	CritChance         int                `yaml:"crit_chance"`
 	StunChance         float64            `yaml:"stun_chance"`
 	StunTurns          int                `yaml:"stun_turns"`
