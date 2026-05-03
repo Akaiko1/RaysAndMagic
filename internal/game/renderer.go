@@ -1235,7 +1235,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	cacheKey := rendering.WallSliceKey{
 		Height:   wallHeight,
 		Width:    width,
-		TileType: tileType,
+		TileType: int(tileType),
 		Side:     wallSide,
 		WallX:    textureCoord,
 	}

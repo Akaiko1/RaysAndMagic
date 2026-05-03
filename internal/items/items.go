@@ -56,6 +56,28 @@ const (
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 )
 
+// String returns the display name of the item type (Stringer interface).
+func (t ItemType) String() string {
+	switch t {
+	case ItemWeapon:
+		return "Weapon"
+	case ItemArmor:
+		return "Armor"
+	case ItemAccessory:
+		return "Accessory"
+	case ItemConsumable:
+		return "Consumable"
+	case ItemQuest:
+		return "Quest Item"
+	case ItemBattleSpell:
+		return "Battle Spell"
+	case ItemUtilitySpell:
+		return "Utility Spell"
+	default:
+		return "Unknown"
+	}
+}
+
 // SpellEffect stores the spell identifier on spell items.
 type SpellEffect string
 

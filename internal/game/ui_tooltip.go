@@ -25,7 +25,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 	// Header
 	fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
-	fields["type"] = getItemTypeString(item.Type)
+	fields["type"] = item.Type.String()
 	order = append(order, "header", "type", "__sep__")
 
 	switch item.Type {
@@ -325,28 +325,6 @@ func titleCase(text string) string {
 		words[i] = strings.ToUpper(w[:1]) + w[1:]
 	}
 	return strings.Join(words, " ")
-}
-
-// getItemTypeString returns a readable string for the item type
-func getItemTypeString(itemType items.ItemType) string {
-	switch itemType {
-	case items.ItemWeapon:
-		return "Weapon"
-	case items.ItemArmor:
-		return "Armor"
-	case items.ItemAccessory:
-		return "Accessory"
-	case items.ItemConsumable:
-		return "Consumable"
-	case items.ItemQuest:
-		return "Quest Item"
-	case items.ItemBattleSpell:
-		return "Battle Spell"
-	case items.ItemUtilitySpell:
-		return "Utility Spell"
-	default:
-		return "Unknown"
-	}
 }
 
 // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
@@ -744,7 +722,7 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	if magicSkill, exists := char.MagicSchools[school]; exists {
 		tooltip = append(tooltip, "")
 		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", formatSchoolName(def.School)))
-		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level, getMasteryString(magicSkill.Mastery)))
+		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level, magicSkill.Mastery))
 	}
 
 	// Description
@@ -788,22 +766,6 @@ func spellRangeLine(spellID spells.SpellID, combatSystem *CombatSystem) string {
 		return fmt.Sprintf("Range: %.1f tiles", rng)
 	}
 	return ""
-}
-
-// getMasteryString returns a readable string for mastery levels
-func getMasteryString(mastery character.SkillMastery) string {
-	switch mastery {
-	case character.MasteryNovice:
-		return "Novice"
-	case character.MasteryExpert:
-		return "Expert"
-	case character.MasteryMaster:
-		return "Master"
-	case character.MasteryGrandMaster:
-		return "Grandmaster"
-	default:
-		return "Unknown"
-	}
 }
 
 func formatSchoolName(school string) string {

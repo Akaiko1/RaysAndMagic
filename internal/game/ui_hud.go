@@ -143,7 +143,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if len(member.Conditions) > 0 {
 			conds := make([]string, 0, len(member.Conditions))
 			for _, cond := range member.Conditions {
-				conds = append(conds, ui.getConditionName(cond))
+				conds = append(conds, cond.String())
 			}
 			statusText = strings.Join(conds, ", ")
 		}
