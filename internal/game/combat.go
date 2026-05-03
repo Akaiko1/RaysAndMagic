@@ -374,16 +374,11 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 		return
 	}
 
-	// Melee: determine critical hit based on weapon base crit chance + Luck bonus
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
-	baseCrit := 0
-	if weaponDef.CritChance > 0 {
-		baseCrit = weaponDef.CritChance
-	}
-	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
 		totalDamage *= 2
 	}
@@ -435,10 +430,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		damageType = weapon.DamageType
 	}
 
-	// Roll for critical hit: base weapon crit + Luck bonus
-	baseCrit := 0
-	baseCrit = weaponDef.CritChance
-	isCrit, _ := cs.RollCriticalChance(baseCrit, attacker)
+	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
 		damage *= 2
 	}
@@ -1778,6 +1770,13 @@ func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharac
 	if total > 100 {
 		total = 100
 	}
+	roll := rand.Intn(100)
+	return roll < total, total
+}
+
+// RollWeaponCriticalChance rolls a weapon crit using the same total chance shown in tooltips.
+func (cs *CombatSystem) RollWeaponCriticalChance(weapon items.Item, chr *character.MMCharacter) (bool, int) {
+	total := cs.CalculateWeaponCritChance(weapon, chr)
 	roll := rand.Intn(100)
 	return roll < total, total
 }

@@ -46,14 +46,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		weaponKey := items.GetWeaponKeyByName(item.Name)
 		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
 			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
-			if weaponDef.CritChance > 0 {
+			totalCrit := combatSystem.CalculateWeaponCritChance(item, char)
+			if totalCrit > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
-				totalCrit := weaponDef.CritChance + critBonus
-				if totalCrit > 100 {
-					totalCrit = 100
-				} else if totalCrit < 0 {
-					totalCrit = 0
-				}
 				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus)
 			}
 			if weaponDef.StunChance > 0 {
@@ -773,29 +768,16 @@ func formatCooldownLine(char *character.MMCharacter, combatSystem *CombatSystem)
 	if combatSystem == nil || combatSystem.game == nil || char == nil {
 		return ""
 	}
-	cooldownFrames := actionCooldownFrames(char, combatSystem)
+	cooldownFrames := combatSystem.CalculateActionCooldownFrames(char)
+	if cooldownFrames <= 0 {
+		return ""
+	}
 	tps := combatSystem.game.config.GetTPS()
 	if tps <= 0 {
 		tps = 60
 	}
 	seconds := float64(cooldownFrames) / float64(tps)
 	return fmt.Sprintf("Cooldown: %d frames (%.1fs)", cooldownFrames, seconds)
-}
-
-func actionCooldownFrames(char *character.MMCharacter, combatSystem *CombatSystem) int {
-	if combatSystem.game.turnBasedMode {
-		return inputDebounceCooldown
-	}
-	speed := char.GetEffectiveSpeed(combatSystem.game.statBonus)
-	frames := 63.333333 - (2.0/3.0)*float64(speed)
-	cd := int(math.Round(frames))
-	if cd < 15 {
-		cd = 15
-	}
-	if cd > 90 {
-		cd = 90
-	}
-	return cd
 }
 
 func spellRangeLine(spellID spells.SpellID, combatSystem *CombatSystem) string {

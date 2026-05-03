@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -147,4 +148,29 @@ func (cs *CombatSystem) CalculateSpellRangeTiles(spellID spells.SpellID) (float6
 		return 0, false
 	}
 	return def.Physics.RangeTiles, true
+}
+
+// CalculateActionCooldownFrames returns the shared action cooldown used by input handling and tooltips.
+func (cs *CombatSystem) CalculateActionCooldownFrames(char *character.MMCharacter) int {
+	if cs == nil || cs.game == nil || char == nil {
+		return 0
+	}
+	if cs.game.turnBasedMode {
+		return inputDebounceCooldown
+	}
+	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	return calculateSpeedActionCooldownFrames(speed)
+}
+
+func calculateSpeedActionCooldownFrames(speed int) int {
+	// Linear fit through points: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
+	frames := 63.333333 - (2.0/3.0)*float64(speed)
+	cd := int(math.Round(frames))
+	if cd < 15 {
+		return 15
+	}
+	if cd > 90 {
+		return 90
+	}
+	return cd
 }

@@ -63,25 +63,11 @@ const inputDebounceCooldown = 10
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
 func (ih *InputHandler) actionCooldown(_ int) int {
-	// In turn-based mode, only need minimal debounce - turn system limits actions
-	if ih.game.turnBasedMode {
+	if ih == nil || ih.game == nil || ih.game.combat == nil {
 		return inputDebounceCooldown
 	}
-
-	// Real-time mode: Speed-based cooldown
 	selected := ih.game.party.Members[ih.game.selectedChar]
-	// Use effective stats to include buffs/items
-	speed := selected.GetEffectiveSpeed(ih.game.statBonus)
-	// Linear fit through points: (5,60) and (50,30)
-	frames := 63.333333 - (2.0/3.0)*float64(speed)
-	cd := int(math.Round(frames))
-	if cd < 15 {
-		cd = 15
-	}
-	if cd > 90 {
-		cd = 90
-	}
-	return cd
+	return ih.game.combat.CalculateActionCooldownFrames(selected)
 }
 
 // HandleInput processes all input for the current frame
@@ -2194,4 +2180,3 @@ func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	}
 	return false
 }
-
