@@ -224,11 +224,6 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 
 	if m.config != nil {
 		idlePatrolTimer = m.config.MonsterAI.IdlePatrolTimer
-		// If config value is the old default (300), override it to 60 for better responsiveness
-		// unless explicitly set in config (we assume 300 is the "unset" default here for safety)
-		if idlePatrolTimer == 300 {
-			idlePatrolTimer = 60
-		}
 		idleToPatrolChance = m.config.MonsterAI.IdleToPatrolChance
 	}
 

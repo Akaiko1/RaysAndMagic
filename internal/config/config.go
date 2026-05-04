@@ -178,11 +178,6 @@ type SpellDefinitionConfig struct {
 
 	// Embedded graphics configuration (for projectile spells)
 	Graphics *ProjectileRenderConfig `yaml:"graphics,omitempty"`
-
-	// Legacy fields for backward compatibility - will be removed
-	Range           int     `yaml:"range,omitempty"`            // Deprecated: use physics.range_tiles
-	ProjectileSpeed float64 `yaml:"projectile_speed,omitempty"` // Deprecated: use physics.speed_tiles
-	Lifetime        int     `yaml:"lifetime,omitempty"`         // Deprecated: calculated from physics
 }
 
 type MonsterAIConfig struct {
