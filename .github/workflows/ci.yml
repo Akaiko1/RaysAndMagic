@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libxcursor-dev libxi-dev \
             libxinerama-dev libxrandr-dev libxxf86vm-dev libasound2-dev \
-            pkg-config
+            pkg-config xvfb
 
       - name: go vet
         run: go vet ./...
@@ -31,4 +31,7 @@ jobs:
         run: go build ./...
 
       - name: Tests with race detector
-        run: go test -race -timeout 5m ./...
+        # Ebiten init opens a GLFW window at package init time, which fails on
+        # headless CI without DISPLAY. xvfb-run provides a virtual framebuffer
+        # so package init succeeds and tests can run.
+        run: xvfb-run --auto-servernum go test -race -timeout 5m ./...
