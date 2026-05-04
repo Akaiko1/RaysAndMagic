@@ -28,15 +28,19 @@ type WallSliceCache struct {
 }
 
 // WallSliceKey represents a unique wall slice configuration used as a cache key.
-// This struct defines all the parameters that affect the base appearance of a rendered wall slice.
-// Distance-based shading is now applied at draw time to improve cache hit rates.
-// Texture coordinates are quantized during caching to improve hit rates.
+// Distance-based shading is applied at draw time so it's not part of the key;
+// texture coordinates are quantized during caching to improve hit rates.
+//
+// TileType is `int` rather than `interface{}` to avoid boxing the caller's
+// world.TileType3D value into an interface header on every cache lookup —
+// that allocation showed up in the hot raycast path. Callers cast
+// `int(tileType)` when building the key.
 type WallSliceKey struct {
-	Height   int         // Rendered wall height in pixels
-	Width    int         // Rendered wall width in pixels
-	TileType interface{} // Type of tile being rendered (affects color and texture)
-	Side     int         // Wall orientation: 0 for north-south walls, 1 for east-west walls (affects base shading)
-	WallX    float64     // Texture coordinate for horizontal position on wall (quantized to 1/16 increments)
+	Height   int     // Rendered wall height in pixels
+	Width    int     // Rendered wall width in pixels
+	TileType int     // Tile type identifier (caller casts world.TileType3D)
+	Side     int     // Wall orientation: 0 for N-S walls, 1 for E-W walls
+	WallX    float64 // Quantized texture x-coordinate (1/16 increments)
 }
 
 // NewWallSliceCache creates a new wall slice cache with an empty cache map.

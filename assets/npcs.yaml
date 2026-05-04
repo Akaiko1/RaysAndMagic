@@ -20,7 +20,6 @@ npcs:
     size_multiplier: 4
     dialogue:
       greeting: "Greetings, traveler! I deal in magical knowledge. Choose a character and spell to learn."
-      teaching: "Excellent choice! The spell has been inscribed in %s's spellbook."
       insufficient_gold: "You need %d gold to learn this spell."
       already_known: "%s already knows this spell."
       success: "The knowledge flows into %s's mind. Use it wisely!"
@@ -30,7 +29,6 @@ npcs:
       walk_on_water:
         name: "Walk on Water"
         school: "water"
-        level: 2
         cost: 1000
         description: "Allows the party to walk across water surfaces for a limited time"
         requirements:
@@ -42,7 +40,6 @@ npcs:
       water_breathing:
         name: "Water Breathing"
         school: "water" 
-        level: 3
         cost: 1500
         description: "Allows underwater exploration for extended periods"
         requirements:
@@ -60,7 +57,6 @@ npcs:
     size_multiplier: 4
     dialogue:
       greeting: "Greetings, traveler! I possess ancient spells for those with coin."
-      teaching: "Choose your student and the spell you wish to learn."
       insufficient_gold: "You lack the gold required for this knowledge."
       already_known: "This character already knows that spell."
       success: "The magical knowledge has been imparted. Use it wisely!"
@@ -68,7 +64,6 @@ npcs:
       walk_on_water:
         name: "Walk on Water"
         school: "water"
-        level: 1
         cost: 1000
         description: "Allows the caster to walk on water surfaces for a limited time."
         requirements:

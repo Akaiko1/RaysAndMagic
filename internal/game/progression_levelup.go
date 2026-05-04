@@ -117,9 +117,9 @@ func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 		}
 	case "weapon_mastery", "armor_mastery":
 		if upgradeSkillMastery(char, option.skillType) {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery increased!", char.Name, skillDisplayName(option.skillType)))
+			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery increased!", char.Name, option.skillType.String()))
 		} else {
-			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery is already at maximum.", char.Name, skillDisplayName(option.skillType)))
+			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery is already at maximum.", char.Name, option.skillType.String()))
 		}
 	case "magic_mastery":
 		if upgradeMagicMastery(char, option.school) {
@@ -177,7 +177,7 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 				skillType: skillType,
 			}
 			if ok {
-				option.masteryPrefix = fmt.Sprintf("%s Mastery: ", skillDisplayName(skillType))
+				option.masteryPrefix = fmt.Sprintf("%s Mastery: ", skillType.String())
 				option.masteryCurrent = current
 				option.masteryNext = next
 				option.hasMastery = true
@@ -228,101 +228,40 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 }
 
 func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillType) (string, string, string, bool) {
-	name := skillDisplayName(skillType)
+	name := skillType.String()
 	current := character.MasteryNovice
 	if skill, ok := char.Skills[skillType]; ok {
 		current = skill.Mastery
 	}
 	if current >= character.MasteryGrandMaster {
-		return fmt.Sprintf("%s Mastery: %s (Max)", name, masteryName(current)), "", "", false
+		return fmt.Sprintf("%s Mastery: %s (Max)", name, current.String()), "", "", false
 	}
 	next := current + 1
-	return fmt.Sprintf("%s Mastery: %s -> %s", name, masteryName(current), masteryName(next)), masteryName(current), masteryName(next), true
+	return fmt.Sprintf("%s Mastery: %s -> %s", name, current.String(), next.String()), current.String(), next.String(), true
 }
 
 func magicMasteryOptionLabel(char *character.MMCharacter, school character.MagicSchoolID) (string, string, string, bool) {
 	name := school.DisplayName()
 	if skill, ok := char.MagicSchools[school]; ok {
 		if skill.Mastery >= character.MasteryGrandMaster {
-			return fmt.Sprintf("%s Magic Mastery: %s (Max)", name, masteryName(skill.Mastery)), "", "", false
+			return fmt.Sprintf("%s Magic Mastery: %s (Max)", name, skill.Mastery.String()), "", "", false
 		}
-		return fmt.Sprintf("%s Magic Mastery: %s -> %s", name, masteryName(skill.Mastery), masteryName(skill.Mastery+1)),
-			masteryName(skill.Mastery), masteryName(skill.Mastery + 1), true
+		next := skill.Mastery + 1
+		return fmt.Sprintf("%s Magic Mastery: %s -> %s", name, skill.Mastery, next),
+			skill.Mastery.String(), next.String(), true
 	}
-	return fmt.Sprintf("%s Magic Mastery: Novice -> Expert", name), masteryName(character.MasteryNovice), masteryName(character.MasteryExpert), true
+	return fmt.Sprintf("%s Magic Mastery: Novice -> Expert", name), character.MasteryNovice.String(), character.MasteryExpert.String(), true
 }
 
+// skillTypeFromKey resolves a level-up choice key (weapon or armor category)
+// to its SkillType. "throwing" and "blaster" aren't level-up choices and are
+// intentionally not accepted here.
 func skillTypeFromKey(key string) (character.SkillType, bool) {
-	switch strings.ToLower(key) {
-	case "sword":
-		return character.SkillSword, true
-	case "dagger":
-		return character.SkillDagger, true
-	case "axe":
-		return character.SkillAxe, true
-	case "spear":
-		return character.SkillSpear, true
-	case "bow":
-		return character.SkillBow, true
-	case "mace":
-		return character.SkillMace, true
-	case "staff":
-		return character.SkillStaff, true
-	case "leather":
-		return character.SkillLeather, true
-	case "chain":
-		return character.SkillChain, true
-	case "plate":
-		return character.SkillPlate, true
-	case "shield":
-		return character.SkillShield, true
-	default:
-		return 0, false
+	key = strings.ToLower(key)
+	if skill, ok := character.WeaponSkillForCategory(key); ok && key != "throwing" {
+		return skill, true
 	}
-}
-
-func skillDisplayName(skillType character.SkillType) string {
-	switch skillType {
-	case character.SkillSword:
-		return "Sword"
-	case character.SkillDagger:
-		return "Dagger"
-	case character.SkillAxe:
-		return "Axe"
-	case character.SkillSpear:
-		return "Spear"
-	case character.SkillBow:
-		return "Bow"
-	case character.SkillMace:
-		return "Mace"
-	case character.SkillStaff:
-		return "Staff"
-	case character.SkillLeather:
-		return "Leather"
-	case character.SkillChain:
-		return "Chain"
-	case character.SkillPlate:
-		return "Plate"
-	case character.SkillShield:
-		return "Shield"
-	default:
-		return "Unknown"
-	}
-}
-
-func masteryName(mastery character.SkillMastery) string {
-	switch mastery {
-	case character.MasteryNovice:
-		return "Novice"
-	case character.MasteryExpert:
-		return "Expert"
-	case character.MasteryMaster:
-		return "Master"
-	case character.MasteryGrandMaster:
-		return "Grandmaster"
-	default:
-		return "Unknown"
-	}
+	return character.ArmorSkillForCategory(key)
 }
 
 func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {

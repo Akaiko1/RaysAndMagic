@@ -34,22 +34,6 @@ func (ui *UISystem) isMouseOverCharacter(mouseX, mouseY, charIndex, portraitWidt
 		mouseY >= startY && mouseY < startY+portraitHeight
 }
 
-// getClassName returns the class name for a character class
-func (ui *UISystem) getClassName(class character.CharacterClass) string {
-	names := map[character.CharacterClass]string{
-		character.ClassKnight:   "Knight",
-		character.ClassPaladin:  "Paladin",
-		character.ClassArcher:   "Archer",
-		character.ClassCleric:   "Cleric",
-		character.ClassSorcerer: "Sorcerer",
-		character.ClassDruid:    "Druid",
-	}
-	if name, exists := names[class]; exists {
-		return name
-	}
-	return "Unknown"
-}
-
 // wrapText delegates to the standalone wrapText function in ui_dialogs.go
 func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 	return wrapText(text, maxWidth)
@@ -290,70 +274,6 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 
 func magicMasteryTooltipText() string {
 	return "Magic Mastery: +5 to base spell effects per mastery level."
-}
-
-func (ui *UISystem) getSkillName(skill character.SkillType) string {
-	names := map[character.SkillType]string{
-		character.SkillSword:        "Sword",
-		character.SkillDagger:       "Dagger",
-		character.SkillAxe:          "Axe",
-		character.SkillSpear:        "Spear",
-		character.SkillBow:          "Bow",
-		character.SkillMace:         "Mace",
-		character.SkillStaff:        "Staff",
-		character.SkillLeather:      "Leather",
-		character.SkillChain:        "Chain",
-		character.SkillPlate:        "Plate",
-		character.SkillShield:       "Shield",
-		character.SkillBodybuilding: "Bodybuilding",
-		character.SkillMeditation:   "Meditation",
-		character.SkillMerchant:     "Merchant",
-		character.SkillRepair:       "Repair",
-		character.SkillIdentifyItem: "Identify Item",
-		character.SkillDisarmTrap:   "Disarm Trap",
-		character.SkillLearning:     "Learning",
-		character.SkillArmsMaster:   "Arms Master",
-	}
-	if name, exists := names[skill]; exists {
-		return name
-	}
-	return "Unknown"
-}
-
-func (ui *UISystem) getMasteryName(mastery character.SkillMastery) string {
-	switch mastery {
-	case character.MasteryNovice:
-		return "Novice"
-	case character.MasteryExpert:
-		return "Expert"
-	case character.MasteryMaster:
-		return "Master"
-	case character.MasteryGrandMaster:
-		return "Grandmaster"
-	default:
-		return "Unknown"
-	}
-}
-
-// getConditionName returns the condition name for a character condition
-func (ui *UISystem) getConditionName(condition character.Condition) string {
-	names := map[character.Condition]string{
-		character.ConditionNormal:      "Normal",
-		character.ConditionPoisoned:    "Poisoned",
-		character.ConditionDiseased:    "Diseased",
-		character.ConditionCursed:      "Cursed",
-		character.ConditionAsleep:      "Asleep",
-		character.ConditionFear:        "Fear",
-		character.ConditionParalyzed:   "Paralyzed",
-		character.ConditionUnconscious: "Unconscious",
-		character.ConditionDead:        "Dead",
-		character.ConditionStone:       "Stone",
-		character.ConditionEradicated:  "Eradicated",
-	}
-	if name, exists := names[condition]; exists {
-		return name
-	}
-	return "Unknown"
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

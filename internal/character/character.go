@@ -383,12 +383,12 @@ func (c *MMCharacter) updatePoison(tps int) {
 }
 
 func (c *MMCharacter) GetDisplayInfo() string {
-	className := c.GetClassName()
+	className := c.Class.String()
 	condition := "OK"
 	if len(c.Conditions) > 0 {
 		condNames := make([]string, 0, len(c.Conditions))
 		for _, cond := range c.Conditions {
-			condNames = append(condNames, c.getConditionName(cond))
+			condNames = append(condNames, cond.String())
 		}
 		condition = strings.Join(condNames, ", ")
 	}
@@ -414,7 +414,7 @@ func (c *MMCharacter) GetDisplayInfo() string {
 
 func (c *MMCharacter) GetDetailedInfo() string {
 	info := fmt.Sprintf("=== %s ===\n", c.Name)
-	info += fmt.Sprintf("Class: %s  Level: %d\n", c.GetClassName(), c.Level)
+	info += fmt.Sprintf("Class: %s  Level: %d\n", c.Class, c.Level)
 	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
 
 	info += "ATTRIBUTES:\n"
@@ -424,22 +424,22 @@ func (c *MMCharacter) GetDetailedInfo() string {
 
 	info += "SKILLS:\n"
 	for skillType, skill := range c.Skills {
-		info += fmt.Sprintf("%s: %d (%s)\n",
-			c.getSkillName(skillType), skill.Level, c.getMasteryName(skill.Mastery))
+		info += fmt.Sprintf("%s: %d (%s)\n", skillType, skill.Level, skill.Mastery)
 	}
 
 	info += "\nMAGIC SCHOOLS:\n"
 	for school, magicSkill := range c.MagicSchools {
 		info += fmt.Sprintf("%s: %d (%s) - %d spells\n",
 			school.DisplayName(), magicSkill.Level,
-			c.getMasteryName(magicSkill.Mastery), len(magicSkill.KnownSpells))
+			magicSkill.Mastery, len(magicSkill.KnownSpells))
 	}
 
 	return info
 }
 
-func (c *MMCharacter) GetClassName() string {
-	switch c.Class {
+// String returns the display name of the class (Stringer interface).
+func (c CharacterClass) String() string {
+	switch c {
 	case ClassKnight:
 		return "Knight"
 	case ClassPaladin:
@@ -477,53 +477,6 @@ func (c *MMCharacter) GetClassKey() string {
 	}
 }
 
-func (c *MMCharacter) getMasteryName(mastery SkillMastery) string {
-	switch mastery {
-	case MasteryNovice:
-		return "Novice"
-	case MasteryExpert:
-		return "Expert"
-	case MasteryMaster:
-		return "Master"
-	case MasteryGrandMaster:
-		return "Grandmaster"
-	default:
-		return "Unknown"
-	}
-}
-
-func (c *MMCharacter) getSkillName(skill SkillType) string {
-	names := map[SkillType]string{
-		SkillSword: "Sword", SkillDagger: "Dagger", SkillAxe: "Axe",
-		SkillSpear: "Spear", SkillBow: "Bow", SkillMace: "Mace", SkillStaff: "Staff",
-		SkillLeather: "Leather", SkillChain: "Chain", SkillPlate: "Plate", SkillShield: "Shield",
-		SkillBodybuilding: "Bodybuilding", SkillMeditation: "Meditation",
-		SkillMerchant: "Merchant", SkillRepair: "Repair", SkillIdentifyItem: "Identify Item",
-	}
-	if name, exists := names[skill]; exists {
-		return name
-	}
-	return "Unknown"
-}
-
-// GetMagicSchoolName returns the capitalized display name. Kept as a method to
-// avoid touching every caller, but the work is delegated to MagicSchoolID.
-func (c *MMCharacter) GetMagicSchoolName(school MagicSchoolID) string {
-	return school.DisplayName()
-}
-
-func (c *MMCharacter) getConditionName(condition Condition) string {
-	names := map[Condition]string{
-		ConditionNormal: "OK", ConditionPoisoned: "Poisoned", ConditionDiseased: "Diseased",
-		ConditionCursed: "Cursed", ConditionAsleep: "Asleep", ConditionFear: "Fear",
-		ConditionParalyzed: "Paralyzed", ConditionUnconscious: "Unconscious", ConditionDead: "Dead", ConditionStone: "Stone",
-		ConditionEradicated: "Eradicated",
-	}
-	if name, exists := names[condition]; exists {
-		return name
-	}
-	return "Unknown"
-}
 
 // HasCondition checks if the character has a specific condition
 func (c *MMCharacter) HasCondition(cond Condition) bool {
@@ -587,31 +540,13 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 		return false // Unknown weapon cannot be equipped
 	}
 
-	category := weaponDef.Category
-	var requiredSkill SkillType
-	switch category {
-	case "sword":
-		requiredSkill = SkillSword
-	case "dagger":
-		requiredSkill = SkillDagger
-	case "throwing":
-		requiredSkill = SkillDagger
-	case "axe":
-		requiredSkill = SkillAxe
-	case "spear":
-		requiredSkill = SkillSpear
-	case "bow":
-		requiredSkill = SkillBow
-	case "mace":
-		requiredSkill = SkillMace
-	case "staff":
-		requiredSkill = SkillStaff
-	case "blaster":
-		return true
-	default:
+	if weaponDef.Category == "blaster" {
+		return true // universally usable
+	}
+	requiredSkill, ok := WeaponSkillForCategory(weaponDef.Category)
+	if !ok {
 		return false
 	}
-
 	_, hasSkill := c.Skills[requiredSkill]
 	return hasSkill
 }
@@ -622,19 +557,10 @@ func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
 		return false
 	}
 	if category == "cloth" {
-		return true
+		return true // universally wearable
 	}
-	var requiredSkill SkillType
-	switch category {
-	case "leather":
-		requiredSkill = SkillLeather
-	case "chain":
-		requiredSkill = SkillChain
-	case "plate":
-		requiredSkill = SkillPlate
-	case "shield":
-		requiredSkill = SkillShield
-	default:
+	requiredSkill, ok := ArmorSkillForCategory(category)
+	if !ok {
 		return false
 	}
 	_, hasSkill := c.Skills[requiredSkill]

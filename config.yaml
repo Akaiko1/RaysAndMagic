@@ -110,29 +110,22 @@ characters:
 monster_ai:
   # State timers (in frames, 60fps)
   idle_patrol_timer: 60         # Time before starting patrol from idle (0.5 seconds at 120 TPS)
-  patrol_direction_timer: 120   # Time before changing direction (2 seconds)
   patrol_idle_timer: 600        # Time before returning to idle (10 seconds)
-  alert_timeout: 180            # Time before returning to idle from alert (3 seconds)
   attack_cooldown: 120          # Attack delay duration (1 second at 120 TPS)
   flee_duration: 420            # How long to flee (7 seconds)
 
   # Behavior chances (0.0 to 1.0)
   idle_to_patrol_chance: 0.1    # 10% chance per frame to start patrolling
-  patrol_direction_chance: 0.2  # 20% chance per frame to change direction
 
   # Movement parameters
   normal_speed_multiplier: 0.5  # Normal movement speed multiplier
   flee_speed_multiplier: 1.5    # Speed multiplier when fleeing
 
   # Vision and pathfinding
-  patrol_vision_distance: 80.0  # How far monsters can "see" while patrolling
   flee_vision_distance: 60.0    # Vision distance when fleeing (shorter, panicking)
-  direction_vision_distance: 50.0 # Vision distance for choosing new directions
 
   # AI frequency checks (in frames)
   path_check_frequency: 30      # Check for blocked paths every N frames
-  flee_check_frequency: 20      # Check paths when fleeing every N frames
-  max_direction_attempts: 6     # Maximum attempts to find clear path
 
   pushback_distance: 20
 

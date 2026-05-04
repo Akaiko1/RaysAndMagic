@@ -1664,45 +1664,22 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	return baseDamage, totalStatBonus, totalDamage
 }
 
-func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, character *character.MMCharacter) int {
-	if character == nil {
+func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, char *character.MMCharacter) int {
+	if char == nil {
 		return 0
 	}
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return 0
 	}
-	skillType, ok := weaponSkillFromCategory(weaponDef.Category)
+	skillType, ok := character.WeaponSkillForCategory(strings.ToLower(weaponDef.Category))
 	if !ok {
 		return 0
 	}
-	if skill, exists := character.Skills[skillType]; exists {
+	if skill, exists := char.Skills[skillType]; exists {
 		return int(skill.Mastery) * 2
 	}
 	return 0
-}
-
-func weaponSkillFromCategory(category string) (character.SkillType, bool) {
-	switch strings.ToLower(category) {
-	case "sword":
-		return character.SkillSword, true
-	case "dagger":
-		return character.SkillDagger, true
-	case "throwing":
-		return character.SkillDagger, true
-	case "axe":
-		return character.SkillAxe, true
-	case "spear":
-		return character.SkillSpear, true
-	case "bow":
-		return character.SkillBow, true
-	case "mace":
-		return character.SkillMace, true
-	case "staff":
-		return character.SkillStaff, true
-	default:
-		return 0, false
-	}
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
@@ -1889,7 +1866,7 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 	if char == nil {
 		return 0
 	}
-	skillType, ok := armorSkillFromCategory(armor.ArmorCategory)
+	skillType, ok := character.ArmorSkillForCategory(strings.ToLower(armor.ArmorCategory))
 	if !ok {
 		return 0
 	}
@@ -1897,21 +1874,6 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 		return int(skill.Mastery)
 	}
 	return 0
-}
-
-func armorSkillFromCategory(category string) (character.SkillType, bool) {
-	switch strings.ToLower(category) {
-	case "leather":
-		return character.SkillLeather, true
-	case "chain":
-		return character.SkillChain, true
-	case "plate":
-		return character.SkillPlate, true
-	case "shield":
-		return character.SkillShield, true
-	default:
-		return 0, false
-	}
 }
 
 // checkMonsterLootDrop handles loot drops when monsters are killed

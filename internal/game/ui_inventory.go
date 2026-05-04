@@ -274,7 +274,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	drawFilledRect(screen, cardX, cardY, cardW, cardH, color.RGBA{25, 25, 50, 160})
 
 	// Header
-	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, ui.getClassName(member.Class), member.Level)
+	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.Class.String(), member.Level)
 	ebitenutil.DebugPrintAt(screen, header, cardX+10, cardY+10)
 
 	// Core info
@@ -286,7 +286,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	if len(member.Conditions) > 0 {
 		names := make([]string, 0, len(member.Conditions))
 		for _, cond := range member.Conditions {
-			names = append(names, ui.getConditionName(cond))
+			names = append(names, cond.String())
 		}
 		statusText = fmt.Sprintf("Status: %s", strings.Join(names, ", "))
 	}
@@ -347,7 +347,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	skillLines := 0
 	for _, st := range skillOrder {
 		if s, ok := member.Skills[st]; ok && s != nil {
-			line := fmt.Sprintf("%s %d (%s)", ui.getSkillName(st), s.Level, ui.getMasteryName(s.Mastery))
+			line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level, s.Mastery.String())
 			lineY := skillY + skillLines*14
 			ebitenutil.DebugPrintAt(screen, line, skillX, lineY)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, skillX, lineY, skillX+240, lineY+14) {
@@ -373,7 +373,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	for _, school := range schoolOrder {
 		if ms, ok := member.MagicSchools[school]; ok && ms != nil {
 			line := fmt.Sprintf("%s %d (%s) Casts:%d",
-				member.GetMagicSchoolName(school), ms.Level, ui.getMasteryName(ms.Mastery), ms.CastCount)
+				school.DisplayName(), ms.Level, ms.Mastery, ms.CastCount)
 			lineY := magicY + schoolLines*14
 			ebitenutil.DebugPrintAt(screen, line, magicX, lineY)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, magicX, lineY, magicX+260, lineY+14) {

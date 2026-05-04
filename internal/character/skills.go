@@ -29,6 +29,52 @@ const (
 	SkillArmsMaster
 )
 
+// String returns the display name of the skill (Stringer interface).
+func (s SkillType) String() string {
+	switch s {
+	case SkillSword:
+		return "Sword"
+	case SkillDagger:
+		return "Dagger"
+	case SkillAxe:
+		return "Axe"
+	case SkillSpear:
+		return "Spear"
+	case SkillBow:
+		return "Bow"
+	case SkillMace:
+		return "Mace"
+	case SkillStaff:
+		return "Staff"
+	case SkillLeather:
+		return "Leather"
+	case SkillChain:
+		return "Chain"
+	case SkillPlate:
+		return "Plate"
+	case SkillShield:
+		return "Shield"
+	case SkillBodybuilding:
+		return "Bodybuilding"
+	case SkillMeditation:
+		return "Meditation"
+	case SkillMerchant:
+		return "Merchant"
+	case SkillRepair:
+		return "Repair"
+	case SkillIdentifyItem:
+		return "Identify Item"
+	case SkillDisarmTrap:
+		return "Disarm Trap"
+	case SkillLearning:
+		return "Learning"
+	case SkillArmsMaster:
+		return "Arms Master"
+	default:
+		return "Unknown"
+	}
+}
+
 type SkillMastery int
 
 const (
@@ -38,7 +84,66 @@ const (
 	MasteryGrandMaster
 )
 
+// String returns the display name of the mastery level (Stringer interface).
+func (m SkillMastery) String() string {
+	switch m {
+	case MasteryNovice:
+		return "Novice"
+	case MasteryExpert:
+		return "Expert"
+	case MasteryMaster:
+		return "Master"
+	case MasteryGrandMaster:
+		return "Grandmaster"
+	default:
+		return "Unknown"
+	}
+}
+
 type Skill struct {
 	Level   int
 	Mastery SkillMastery
+}
+
+// WeaponSkillForCategory maps a weapon category string (lowercased) to the
+// SkillType that gates wielding/proficiency bonuses. The "blaster" category
+// returns (0, false) because it's universally usable — callers handle that
+// special case explicitly.
+func WeaponSkillForCategory(category string) (SkillType, bool) {
+	switch category {
+	case "sword":
+		return SkillSword, true
+	case "dagger", "throwing":
+		return SkillDagger, true
+	case "axe":
+		return SkillAxe, true
+	case "spear":
+		return SkillSpear, true
+	case "bow":
+		return SkillBow, true
+	case "mace":
+		return SkillMace, true
+	case "staff":
+		return SkillStaff, true
+	default:
+		return 0, false
+	}
+}
+
+// ArmorSkillForCategory maps an armor category string (lowercased) to the
+// SkillType that gates wearing it. The "cloth" category returns (0, false)
+// because it's universally wearable.
+func ArmorSkillForCategory(category string) (SkillType, bool) {
+	switch category {
+	case "leather":
+		return SkillLeather, true
+	case "chain":
+		return SkillChain, true
+	case "plate":
+		return SkillPlate, true
+	case "shield":
+		return SkillShield, true
+	default:
+		return 0, false
+	}
 }

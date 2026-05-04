@@ -315,7 +315,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	// Draw character list
 	for i, member := range ui.game.party.Members {
 		y := dialogY + 100 + (i * UIRowSpacing)
-		charText := fmt.Sprintf("%d. %s (Level %d %s)", i+1, member.Name, member.Level, member.GetClassName())
+		charText := fmt.Sprintf("%d. %s (Level %d %s)", i+1, member.Name, member.Level, member.Class)
 
 		// Check if character can learn the selected spell
 		canLearn := selectedSpell != nil && ui.characterCanLearnSpell(member, selectedSpell)
