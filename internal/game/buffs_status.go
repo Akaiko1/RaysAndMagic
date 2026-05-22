@@ -63,15 +63,15 @@ func (g *MMGame) updateUtilityStatus(spellID spells.SpellID, duration int, activ
 func resolveStatusIcon(token string) (string, string) {
 	switch token {
 	case "torch":
-		return "💡", "TL"
+		return "status_torch_light", "TL"
 	case "eye":
-		return "👁", "WE"
+		return "status_wizard_eye", "WE"
 	case "water_walk":
-		return "🌊", "WW"
+		return "status_walk_on_water", "WW"
 	case "water_breathing":
-		return "🫧", "WB"
+		return "status_water_breathing", "WB"
 	case "bless":
-		return "✨", "BL"
+		return "status_bless", "BL"
 	default:
 		return token, token
 	}

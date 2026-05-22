@@ -257,9 +257,6 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 	iconSpacing := 30
 	currentX := statusBarX
 
-	// Check for active spell effects using data-driven approach
-	hasActiveSpells := false
-
 	statuses := make([]*UtilitySpellStatus, 0, len(ui.game.utilitySpellStatuses))
 	for _, status := range ui.game.utilitySpellStatuses {
 		if status != nil && status.Duration > 0 {
@@ -270,20 +267,16 @@ func (ui *UISystem) drawSpellStatusBar(screen *ebiten.Image) {
 		return statuses[i].SpellID < statuses[j].SpellID
 	})
 
+	if len(statuses) > 0 {
+		barWidth := len(statuses)*iconSpacing - (iconSpacing - iconSize) + 10
+		barHeight := iconSize + 8
+		vector.DrawFilledRect(screen, float32(statusBarX-5), float32(statusBarY-4), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
+	}
+
 	for _, status := range statuses {
 		iconX, iconY, iconW, iconH := ui.drawSpellIcon(screen, currentX, statusBarY, iconSize, status.Icon, status.Fallback, status.Duration, status.MaxDuration)
 		ui.handleSpellIconClick(iconX, iconY, iconW, iconH, status.SpellID)
 		currentX += iconSpacing
-		hasActiveSpells = true
-	}
-
-	// Draw background bar if there are active spells
-	if hasActiveSpells {
-		barWidth := currentX - statusBarX + 10
-		barHeight := iconSize + 8
-
-		// Semi-transparent background
-		vector.DrawFilledRect(screen, float32(statusBarX-5), float32(statusBarY-4), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 	}
 }
 
@@ -293,11 +286,13 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(size), float32(size), color.RGBA{80, 80, 80, 200}, false)
 	vector.DrawFilledRect(screen, float32(x+1), float32(y+1), float32(size-2), float32(size-2), color.RGBA{20, 20, 20, 120}, false)
 
-	// Draw icon - try emoji first, then fallback to ASCII
-	ebitenutil.DebugPrintAt(screen, icon, x+6, y+8)
-
-	// Draw ASCII fallback in the center for better visibility
-	if fallback != "" {
+	if icon != "" {
+		sprite := ui.game.sprites.GetSprite(icon)
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(float64(size)/float64(sprite.Bounds().Dx()), float64(size)/float64(sprite.Bounds().Dy()))
+		opts.GeoM.Translate(float64(x), float64(y))
+		screen.DrawImage(sprite, opts)
+	} else if fallback != "" {
 		ebitenutil.DebugPrintAt(screen, fallback, x+size/2-4, y+size/2-4)
 	}
 
