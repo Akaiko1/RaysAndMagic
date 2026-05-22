@@ -76,6 +76,11 @@ func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
 	dst.DrawImage(src, opts)
 }
 
+func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w, h int) {
+	icon := ui.game.sprites.GetSprite(name)
+	drawImageScaled(screen, icon, x, y, w, h)
+}
+
 func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
 		return

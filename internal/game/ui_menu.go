@@ -247,8 +247,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{100, 100, 100, 150}) // Gray normal
 	}
 
-	// Draw X text
-	drawCenteredDebugText(screen, "X", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
+	ui.drawInterfaceIcon(screen, "icon_close", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
 
 	// Draw content area
 	contentY := tabY + tabHeight + 10

@@ -192,7 +192,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			plusBtnH := 24
 			mouseX, mouseY := ebiten.CursorPosition()
 			isHover := mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW && mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH
-			drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
+			ui.drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
 			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
 				ui.game.statPopupOpen = true
 				ui.game.statPopupCharIdx = i
@@ -208,7 +208,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			caretH := 24
 			mouseX, mouseY := ebiten.CursorPosition()
 			isHover := mouseX >= caretX && mouseX < caretX+caretW && mouseY >= caretY && mouseY < caretY+caretH
-			drawSkillPointIndicator(screen, caretX, caretY, caretW, caretH, isHover)
+			ui.drawSkillPointIndicator(screen, caretX, caretY, caretW, caretH, isHover)
 			if ui.game.consumeLeftClickIn(caretX, caretY, caretX+caretW, caretY+caretH) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
@@ -217,7 +217,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 }
 
 // drawStatPointPlusButton draws the + button under the portrait if stat points are available
-func drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHover bool) {
+func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHover bool) {
 	var plusColor color.RGBA
 	if isHover {
 		plusColor = color.RGBA{80, 200, 80, 220}
@@ -225,12 +225,12 @@ func drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHov
 		plusColor = color.RGBA{60, 120, 60, 180}
 	}
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
-	drawCenteredDebugText(screen, "+", x, y, w, h)
+	ui.drawInterfaceIcon(screen, "icon_stat_up", x+2, y+2, w-4, h-4)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
 }
 
 // drawSkillPointIndicator draws the ^ button for pending skill/spell choices.
-func drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool) {
+func (ui *UISystem) drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool) {
 	var caretColor color.RGBA
 	if isHover {
 		caretColor = color.RGBA{200, 180, 80, 220}
@@ -238,7 +238,7 @@ func drawSkillPointIndicator(screen *ebiten.Image, x, y, w, h int, isHover bool)
 		caretColor = color.RGBA{160, 140, 60, 200}
 	}
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), caretColor, false)
-	drawCenteredDebugText(screen, "^", x, y, w, h)
+	ui.drawInterfaceIcon(screen, "icon_level_choice", x+2, y+2, w-4, h-4)
 }
 
 // drawSpellStatusBar draws active spell effects in the top-left of the party UI area
