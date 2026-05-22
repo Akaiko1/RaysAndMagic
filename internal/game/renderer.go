@@ -18,12 +18,12 @@ import (
 
 // TransparentSpriteData holds cached data for transparent environment sprites
 type TransparentSpriteData struct {
-	tileX    int
-	tileY    int
-	worldX   float64
-	worldY   float64
-	tileType world.TileType3D
-	sprite   *ebiten.Image // Cached sprite image to avoid lookups every frame
+	tileX      int
+	tileY      int
+	worldX     float64
+	worldY     float64
+	tileType   world.TileType3D
+	spriteName string
 }
 
 type LightSource struct {
@@ -53,10 +53,15 @@ type Renderer struct {
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
-	// Sprite cache by tile type to avoid repeated GetSprite lookups
-	tileTypeSpriteCache map[world.TileType3D]*ebiten.Image
-	// Sprite cache for brightness-adjusted alpha variants
-	tileTypeProcessedSpriteCache map[world.TileType3D]*ebiten.Image
+	// Per-ray RaycastHit buffer, pre-allocated to avoid per-frame slice
+	// allocations during raycasting. Each ray writes into its own index,
+	// so disjoint cells are safe across parallel workers. Capacity grows
+	// once per ray then stabilizes.
+	rayHitBuffers [][]RaycastHit
+	// Sprite cache for brightness-adjusted alpha variants. The composite key
+	// avoids a per-frame fmt.Sprintf allocation that showed up in the hot draw
+	// path (one call per visible transparent sprite per frame).
+	processedSpriteCache map[processedSpriteKey]*ebiten.Image
 	// Reusable buffer for tree hits to avoid allocation per frame
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
@@ -66,11 +71,10 @@ type Renderer struct {
 // NewRenderer creates a new renderer
 func NewRenderer(game *MMGame) *Renderer {
 	r := &Renderer{
-		game:                         game,
-		renderedSpritesThisFrame:     make(map[[2]int]bool),
-		circleCache:                  make(map[int]*ebiten.Image),
-		tileTypeSpriteCache:          make(map[world.TileType3D]*ebiten.Image),
-		tileTypeProcessedSpriteCache: make(map[world.TileType3D]*ebiten.Image),
+		game:                     game,
+		renderedSpritesThisFrame: make(map[[2]int]bool),
+		circleCache:              make(map[int]*ebiten.Image),
+		processedSpriteCache:     make(map[processedSpriteKey]*ebiten.Image),
 	}
 	r.floorColorCache = make(map[[2]int]color.RGBA)
 	r.precomputeFloorColorCache()
@@ -92,8 +96,23 @@ func NewRenderer(game *MMGame) *Renderer {
 	numRays := (screenWidth + rayWidth - 1) / rayWidth // Round up to cover entire screen
 	r.rayDirectionsX = make([]float64, numRays)
 	r.rayDirectionsY = make([]float64, numRays)
+	r.ensureRayHitBuffers(numRays)
 
 	return r
+}
+
+// ensureRayHitBuffers (re)allocates the per-ray hit buffer array so each ray
+// has its own backing slice. Workers write to disjoint indices, so no locks
+// are needed. Initial capacity 8 covers typical hit counts; capacity grows
+// once per ray if needed and is reused on subsequent frames.
+func (r *Renderer) ensureRayHitBuffers(numRays int) {
+	if len(r.rayHitBuffers) == numRays {
+		return
+	}
+	r.rayHitBuffers = make([][]RaycastHit, numRays)
+	for i := range r.rayHitBuffers {
+		r.rayHitBuffers[i] = make([]RaycastHit, 0, 8)
+	}
 }
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
@@ -136,20 +155,19 @@ func (r *Renderer) buildTransparentSpriteCache() {
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
-				// Cache the sprite image to avoid lookups every frame
-				spriteName := world.GlobalTileManager.GetSprite(tileType)
+				// Pick a stable variant now; load/process the image lazily in Draw.
+				spriteName := r.selectEnvironmentSpriteName(tileType, tileX, tileY)
 				if spriteName == "" {
 					continue // Skip tiles without sprites
 				}
-				sprite := r.getCachedSprite(tileType)
 
 				cache = append(cache, TransparentSpriteData{
-					tileX:    tileX,
-					tileY:    tileY,
-					worldX:   worldX,
-					worldY:   worldY,
-					tileType: tileType,
-					sprite:   sprite,
+					tileX:      tileX,
+					tileY:      tileY,
+					worldX:     worldX,
+					worldY:     worldY,
+					tileType:   tileType,
+					spriteName: spriteName,
 				})
 			}
 		}
@@ -157,6 +175,22 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	r.transparentSpritesCache = cache
 	r.tileLightCache = lights
+}
+
+func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX, tileY int) string {
+	if world.GlobalTileManager == nil {
+		return ""
+	}
+	baseName := world.GlobalTileManager.GetSprite(tileType)
+	variants := r.game.sprites.GetSpriteVariants(baseName)
+	if len(variants) == 0 {
+		return baseName
+	}
+	index := tileX + tileY*31 + int(tileType)
+	if index < 0 {
+		index = -index
+	}
+	return variants[index%len(variants)]
 }
 
 // precomputeRayDirections calculates ray directions once per frame for performance
@@ -473,6 +507,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		r.rayDirectionsX = make([]float64, numRays)
 		r.rayDirectionsY = make([]float64, numRays)
 	}
+	r.ensureRayHitBuffers(numRays)
 
 	// Precompute ray directions AFTER ensuring correct array size
 	r.precomputeRayDirections()
@@ -522,9 +557,10 @@ type MultiRaycastHit struct {
 }
 
 // castRayWithType casts a single ray and returns distance and hit information.
-// This is the interface method used by the parallel rendering system.
+// Cold fallback path — passes nil so the raycast allocates its own slice; the
+// per-ray buffer reuse path goes through castRayWithPrecomputedDirection.
 func (r *Renderer) castRayWithType(angle float64) (float64, interface{}) {
-	hits := r.performMultiHitRaycast(angle)
+	hits := r.performMultiHitRaycast(angle, nil)
 	// If there are no hits, it means the ray went into the void.
 	if len(hits.Hits) == 0 {
 		return r.game.camera.ViewDist, hits
@@ -564,7 +600,12 @@ func (r *Renderer) castRayWithPrecomputedDirection(rayIndex int) (float64, inter
 	rayDirectionX := r.rayDirectionsX[rayIndex]
 	rayDirectionY := r.rayDirectionsY[rayIndex]
 
-	hits := r.performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY)
+	// Reuse this ray's pre-allocated hit buffer (different rayIndex per worker
+	// → no race). Capacity is retained across frames; only first few frames
+	// may grow the slice's backing.
+	buf := r.rayHitBuffers[rayIndex][:0]
+	hits := r.performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY, buf)
+	r.rayHitBuffers[rayIndex] = hits.Hits
 	// If there are no hits, it means the ray went into the void.
 	if len(hits.Hits) == 0 {
 		return r.game.camera.ViewDist, hits
@@ -582,16 +623,18 @@ func (r *Renderer) castRayWithPrecomputedDirection(rayIndex int) (float64, inter
 }
 
 // performMultiHitRaycast performs DDA raycasting that can return multiple hits for transparency
-func (r *Renderer) performMultiHitRaycast(angle float64) MultiRaycastHit {
+func (r *Renderer) performMultiHitRaycast(angle float64, hits []RaycastHit) MultiRaycastHit {
 	// Calculate ray direction vector from the given angle
 	rayDirectionX := math.Cos(angle)
 	rayDirectionY := math.Sin(angle)
 
-	return r.performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY)
+	return r.performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY, hits)
 }
 
-// performMultiHitRaycastWithDirection performs DDA raycasting using precomputed ray directions
-func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY float64) MultiRaycastHit {
+// performMultiHitRaycastWithDirection performs DDA raycasting using precomputed
+// ray directions. The hits parameter is a pre-allocated slice to append into;
+// pass nil to allocate fresh (cold path only).
+func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirectionY float64, hits []RaycastHit) MultiRaycastHit {
 	// Get starting position in world coordinates
 	startWorldX := r.game.camera.X
 	startWorldY := r.game.camera.Y
@@ -638,8 +681,8 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		distanceToNextGridLineY = (1.0 - positionInTileY) * deltaDistanceY
 	}
 
-	// Execute the DDA algorithm
-	var hits []RaycastHit
+	// Execute the DDA algorithm. `hits` was passed in (possibly nil for the
+	// cold path or a reused per-ray buffer for hot path).
 	maxSteps := int(r.game.camera.ViewDist/tileSize) + 2 // A little margin
 	wallSide := 0
 
@@ -1027,36 +1070,18 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	screen.DrawImage(sprite, opts)
 }
 
-// getCachedSprite returns a cached sprite for the given tile type, loading it if necessary
-func (r *Renderer) getCachedSprite(tileType world.TileType3D) *ebiten.Image {
-	// Check cache first
-	if sprite, ok := r.tileTypeSpriteCache[tileType]; ok {
-		return sprite
-	}
-
-	// Load and cache the sprite
-	var spriteName string
-	if world.GlobalTileManager != nil {
-		spriteName = world.GlobalTileManager.GetSprite(tileType)
-	}
-	if spriteName == "" {
-		return nil // No sprite defined for this tile type
-	}
-
-	sprite := r.game.sprites.GetSprite(spriteName)
-	r.tileTypeSpriteCache[tileType] = sprite
-	return sprite
+// processedSpriteKey identifies a (tileType, spriteName) pair without the
+// allocation that fmt.Sprintf would impose on every cache lookup.
+type processedSpriteKey struct {
+	tileType   world.TileType3D
+	spriteName string
 }
 
-func (r *Renderer) getProcessedSprite(tileType world.TileType3D) *ebiten.Image {
-	if sprite, ok := r.tileTypeProcessedSpriteCache[tileType]; ok {
-		return sprite
-	}
-
-	sprite := r.getCachedSprite(tileType)
-	if sprite == nil {
+func (r *Renderer) getProcessedSpriteByName(tileType world.TileType3D, spriteName string) *ebiten.Image {
+	if spriteName == "" {
 		return nil
 	}
+	sprite := r.game.sprites.GetSprite(spriteName)
 	if world.GlobalTileManager == nil {
 		return sprite
 	}
@@ -1065,8 +1090,12 @@ func (r *Renderer) getProcessedSprite(tileType world.TileType3D) *ebiten.Image {
 		return sprite
 	}
 
+	cacheKey := processedSpriteKey{tileType: tileType, spriteName: spriteName}
+	if cached, ok := r.processedSpriteCache[cacheKey]; ok {
+		return cached
+	}
 	processed := applyBrightnessToAlpha(sprite, tileData.AlphaFromBrightness)
-	r.tileTypeProcessedSpriteCache[tileType] = processed
+	r.processedSpriteCache[cacheKey] = processed
 	return processed
 }
 
@@ -1156,11 +1185,14 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		}
 	}
 
-	// Get cached sprite for this tile type
-	sprite := r.getCachedSprite(tileType)
-	if sprite == nil {
+	var spriteName string
+	if world.GlobalTileManager != nil {
+		spriteName = world.GlobalTileManager.GetSprite(tileType)
+	}
+	if spriteName == "" {
 		return // No sprite defined for this tile type
 	}
+	sprite := r.game.sprites.GetSprite(spriteName)
 
 	// Scale and draw the sprite
 	opts := &ebiten.DrawImageOptions{}
@@ -1735,7 +1767,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			sprite := r.getProcessedSprite(spriteData.tileType)
+			sprite := r.getProcessedSpriteByName(spriteData.tileType, spriteData.spriteName)
 			if sprite == nil {
 				continue
 			}

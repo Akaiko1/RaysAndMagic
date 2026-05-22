@@ -5,6 +5,7 @@ import (
 	"image/color"
 	_ "image/png"
 	"os"
+	"strconv"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -112,6 +113,38 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 
 	// If still not found, create placeholder
 	return sm.createPlaceholder(name)
+}
+
+func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
+	variants := []string{}
+	if sm.spriteExists(baseName) {
+		variants = append(variants, baseName)
+	}
+	for i := 0; ; i++ {
+		name := baseName + strconv.Itoa(i)
+		if !sm.spriteExists(name) {
+			break
+		}
+		if name != baseName {
+			variants = append(variants, name)
+		}
+	}
+	return variants
+}
+
+func (sm *SpriteManager) spriteExists(name string) bool {
+	searchPaths := []string{
+		"assets/sprites/mobs/" + name + ".png",
+		"assets/sprites/characters/" + name + ".png",
+		"assets/sprites/environment/" + name + ".png",
+		"assets/sprites/interface/" + name + ".png",
+	}
+	for _, spritePath := range searchPaths {
+		if _, err := os.Stat(spritePath); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
