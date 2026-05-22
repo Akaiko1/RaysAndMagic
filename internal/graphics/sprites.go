@@ -76,6 +76,7 @@ func (sm *SpriteManager) determineSpritePaths(name string) string {
 		"assets/sprites/mobs/" + name + ".png",        // Monsters
 		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
 		"assets/sprites/environment/" + name + ".png", // Environment objects
+		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
 	}
 
 	// Check if any path exists (for loaded sprites) or determine most likely type
@@ -86,6 +87,8 @@ func (sm *SpriteManager) determineSpritePaths(name string) string {
 				return "npc_mob"
 			case 2: // environment path
 				return "environment"
+			case 3: // interface path
+				return "interface"
 			}
 		}
 	}
@@ -134,6 +137,7 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 		"assets/sprites/mobs/" + name + ".png",        // Monsters
 		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
 		"assets/sprites/environment/" + name + ".png", // Environment objects
+		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
 	}
 
 	for i, spritePath := range searchPaths {
@@ -149,6 +153,8 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 					sm.spriteTypeCache[name] = "npc_mob"
 				case 2: // environment path
 					sm.spriteTypeCache[name] = "environment"
+				case 3: // interface path
+					sm.spriteTypeCache[name] = "interface"
 				}
 				return
 			}

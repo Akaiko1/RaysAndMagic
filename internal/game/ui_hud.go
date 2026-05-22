@@ -51,9 +51,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		x := i * portraitWidth
 
 		// Highlight selected character and heal target
-		bgColor := color.RGBA{64, 64, 64, 200}
+		highlightColor := color.RGBA{0, 0, 0, 0}
 		if i == ui.game.selectedChar {
-			bgColor = color.RGBA{100, 100, 100, 200}
+			highlightColor = color.RGBA{210, 170, 80, 220}
 		}
 
 		// Highlight heal target when H key is pressed and current player has healing spell equipped
@@ -76,24 +76,34 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 					}
 
 					if canTarget {
-						bgColor = color.RGBA{0, 255, 0, 150} // Green highlight for heal target
+						highlightColor = color.RGBA{80, 220, 100, 220} // Green highlight for heal target
 					}
 				}
 			}
 		}
 
 		// Draw background panel
-		vector.DrawFilledRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), bgColor, false)
+		panel := ui.game.sprites.GetSprite("party_member_panel")
+		panelOpts := &ebiten.DrawImageOptions{}
+		panelOpts.GeoM.Scale(
+			float64(portraitWidth)/float64(panel.Bounds().Dx()),
+			float64(portraitHeight)/float64(panel.Bounds().Dy()),
+		)
+		panelOpts.GeoM.Translate(float64(x), float64(startY))
+		screen.DrawImage(panel, panelOpts)
+		if highlightColor.A > 0 {
+			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
+		}
 
 		// Draw character portrait (Column 1)
 		portraitName := strings.ToLower(member.Name)
 		portrait := ui.game.sprites.GetSprite(portraitName)
 
-		// Portrait dimensions - smaller to leave room for status and equipment
-		portraitSize := portraitHeight - 20 // Leave 20px margin
-		portraitX := x + 5
-		portraitY := startY + 10
-		portraitColWidth := 60 // Fixed width for portrait column
+		// Portrait dimensions aligned to the left recess in party_member_panel.png.
+		portraitSize := 45
+		portraitX := x + 18
+		portraitY := startY + 24
+		portraitColWidth := 82 // Match the left portrait recess in party_member_panel.png
 
 		// Scale and draw portrait
 		portraitOpts := &ebiten.DrawImageOptions{}
@@ -131,12 +141,12 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 
 		// Status Column (Column 2) - basic character info
-		statusColX := x + portraitColWidth + 5
-		statusColWidth := (portraitWidth - portraitColWidth - 15) / 2 // Half remaining space
+		statusColX := x + portraitColWidth + 4
+		statusColWidth := (portraitWidth - portraitColWidth - 12) / 2
 
-		ebitenutil.DebugPrintAt(screen, member.Name, statusColX, startY+5)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+20)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+35)
+		ebitenutil.DebugPrintAt(screen, member.Name, statusColX, startY+15)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
 
 		// Add character condition status
 		statusText := "OK"
@@ -147,10 +157,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 			statusText = strings.Join(conds, ", ")
 		}
-		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+50)
+		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+60)
 
 		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
-		equipColX := statusColX + statusColWidth - 25 // Moved even closer (was -10, now -25)
+		equipColX := statusColX + statusColWidth - 12
 
 		// Show equipped weapon
 		if weapon, hasWeapon := member.Equipment[items.SlotMainHand]; hasWeapon {
@@ -158,9 +168,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(weaponText) > 12 { // Truncate if too long
 				weaponText = weaponText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, weaponText, equipColX, startY+5)
+			ebitenutil.DebugPrintAt(screen, weaponText, equipColX, startY+15)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "W:None", equipColX, startY+5)
+			ebitenutil.DebugPrintAt(screen, "W:None", equipColX, startY+15)
 		}
 
 		// Show equipped spell (unified slot)
@@ -169,9 +179,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(spellText) > 12 { // Truncate if too long
 				spellText = spellText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, spellText, equipColX, startY+20)
+			ebitenutil.DebugPrintAt(screen, spellText, equipColX, startY+30)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "S:None", equipColX, startY+20)
+			ebitenutil.DebugPrintAt(screen, "S:None", equipColX, startY+30)
 		}
 
 		// Draw + button for stat points if available (under portrait)
