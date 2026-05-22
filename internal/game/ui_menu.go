@@ -188,8 +188,9 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	panelX := (ui.game.config.GetScreenWidth() - panelWidth) / 2
 	panelY := (ui.game.config.GetScreenHeight() - panelHeight) / 2
 
-	// Draw main background
-	drawFilledRect(screen, panelX, panelY, panelWidth, panelHeight, color.RGBA{0, 0, 30, 230}) // Dark blue background
+	// Draw main background and frame
+	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
+	drawNineSlice(screen, menuFrame, panelX, panelY, panelWidth, panelHeight, 16)
 
 	// Tab dimensions
 	tabWidth := 120
@@ -211,28 +212,12 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	for i, tabInfo := range tabs {
 		tabX := panelX + 20 + (i * (tabWidth + 5)) // Reduced spacing between tabs
 
-		// Determine tab state and colors
 		isActive := ui.game.currentTab == tabInfo.tab
-		var tabBgColor, tabBorderColor color.RGBA
-
+		tabSpriteName := "menu_tab_inactive"
 		if isActive {
-			// Active tab: lighter background, matches panel, no bottom border
-			tabBgColor = color.RGBA{0, 0, 30, 230}        // Same as panel background
-			tabBorderColor = color.RGBA{80, 80, 120, 255} // Light border
-		} else {
-			// Inactive tab: darker background, full border
-			tabBgColor = color.RGBA{20, 20, 40, 200}     // Darker background
-			tabBorderColor = color.RGBA{60, 60, 90, 255} // Darker border
+			tabSpriteName = "menu_tab_active"
 		}
-
-		// Draw tab background
-		drawFilledRect(screen, tabX, tabY, tabWidth, tabHeight, tabBgColor)
-		drawFilledRect(screen, tabX, tabY, tabWidth, 2, tabBorderColor)
-		drawFilledRect(screen, tabX, tabY, 2, tabHeight, tabBorderColor)
-		drawFilledRect(screen, tabX+tabWidth-2, tabY, 2, tabHeight, tabBorderColor)
-		if !isActive {
-			drawFilledRect(screen, tabX, tabY+tabHeight-2, tabWidth, 2, tabBorderColor)
-		}
+		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabX, tabY, tabWidth, tabHeight)
 
 		// Draw tab text centered
 		topHalf := tabHeight / 2
@@ -242,36 +227,6 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		// Handle mouse clicks on tabs
 		ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tabInfo.tab)
 	}
-
-	// Draw main panel border that connects with active tab
-	panelBorderColor := color.RGBA{80, 80, 120, 255}
-
-	// Top border (with gap for active tab)
-	activeTabIndex := 0
-	for i, tabInfo := range tabs {
-		if ui.game.currentTab == tabInfo.tab {
-			activeTabIndex = i
-			break
-		}
-	}
-
-	activeTabX := panelX + 20 + (activeTabIndex * (tabWidth + 5))
-
-	// Left part of top border (before active tab)
-	if activeTabX > panelX {
-		drawFilledRect(screen, panelX, panelY, activeTabX-panelX, 2, panelBorderColor)
-	}
-
-	// Right part of top border (after active tab)
-	rightStart := activeTabX + tabWidth
-	if rightStart < panelX+panelWidth {
-		drawFilledRect(screen, rightStart, panelY, (panelX+panelWidth)-rightStart, 2, panelBorderColor)
-	}
-
-	// Left, right, and bottom borders of main panel
-	drawFilledRect(screen, panelX, panelY, 2, panelHeight, panelBorderColor)
-	drawFilledRect(screen, panelX+panelWidth-2, panelY, 2, panelHeight, panelBorderColor)
-	drawFilledRect(screen, panelX, panelY+panelHeight-2, panelWidth, 2, panelBorderColor)
 
 	// Draw X close button in top-right corner
 	closeButtonSize := 20

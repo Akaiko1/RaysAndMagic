@@ -1,6 +1,7 @@
 package game
 
 import (
+	"image"
 	"image/color"
 	"strings"
 	"unicode/utf8"
@@ -57,6 +58,60 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 		return
 	}
 	vector.DrawFilledRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+}
+
+func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
+	if src == nil || w <= 0 || h <= 0 {
+		return
+	}
+	bounds := src.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+	if srcW <= 0 || srcH <= 0 {
+		return
+	}
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
+	opts.GeoM.Translate(float64(x), float64(y))
+	dst.DrawImage(src, opts)
+}
+
+func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
+	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
+		return
+	}
+	bounds := src.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+	if srcW <= slice*2 || srcH <= slice*2 || w <= slice*2 || h <= slice*2 {
+		drawImageScaled(dst, src, x, y, w, h)
+		return
+	}
+
+	drawPart := func(srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH int) {
+		if dstW <= 0 || dstH <= 0 {
+			return
+		}
+		part := src.SubImage(image.Rect(srcX, srcY, srcX+srcW, srcY+srcH)).(*ebiten.Image)
+		drawImageScaled(dst, part, dstX, dstY, dstW, dstH)
+	}
+
+	centerSrcW := srcW - slice*2
+	centerSrcH := srcH - slice*2
+	centerDstW := w - slice*2
+	centerDstH := h - slice*2
+
+	drawPart(0, 0, slice, slice, x, y, slice, slice)
+	drawPart(srcW-slice, 0, slice, slice, x+w-slice, y, slice, slice)
+	drawPart(0, srcH-slice, slice, slice, x, y+h-slice, slice, slice)
+	drawPart(srcW-slice, srcH-slice, slice, slice, x+w-slice, y+h-slice, slice, slice)
+
+	drawPart(slice, 0, centerSrcW, slice, x+slice, y, centerDstW, slice)
+	drawPart(slice, srcH-slice, centerSrcW, slice, x+slice, y+h-slice, centerDstW, slice)
+	drawPart(0, slice, slice, centerSrcH, x, y+slice, slice, centerDstH)
+	drawPart(srcW-slice, slice, slice, centerSrcH, x+w-slice, y+slice, slice, centerDstH)
+
+	drawPart(slice, slice, centerSrcW, centerSrcH, x+slice, y+slice, centerDstW, centerDstH)
 }
 
 // drawRectBorder draws a rectangle border of given thickness and color
