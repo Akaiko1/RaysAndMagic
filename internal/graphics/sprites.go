@@ -5,6 +5,7 @@ import (
 	"image/color"
 	_ "image/png"
 	"os"
+	"strconv"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -76,6 +77,7 @@ func (sm *SpriteManager) determineSpritePaths(name string) string {
 		"assets/sprites/mobs/" + name + ".png",        // Monsters
 		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
 		"assets/sprites/environment/" + name + ".png", // Environment objects
+		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
 	}
 
 	// Check if any path exists (for loaded sprites) or determine most likely type
@@ -86,6 +88,8 @@ func (sm *SpriteManager) determineSpritePaths(name string) string {
 				return "npc_mob"
 			case 2: // environment path
 				return "environment"
+			case 3: // interface path
+				return "interface"
 			}
 		}
 	}
@@ -111,6 +115,38 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	return sm.createPlaceholder(name)
 }
 
+func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
+	variants := []string{}
+	if sm.spriteExists(baseName) {
+		variants = append(variants, baseName)
+	}
+	for i := 0; ; i++ {
+		name := baseName + strconv.Itoa(i)
+		if !sm.spriteExists(name) {
+			break
+		}
+		if name != baseName {
+			variants = append(variants, name)
+		}
+	}
+	return variants
+}
+
+func (sm *SpriteManager) spriteExists(name string) bool {
+	searchPaths := []string{
+		"assets/sprites/mobs/" + name + ".png",
+		"assets/sprites/characters/" + name + ".png",
+		"assets/sprites/environment/" + name + ".png",
+		"assets/sprites/interface/" + name + ".png",
+	}
+	for _, spritePath := range searchPaths {
+		if _, err := os.Stat(spritePath); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
 	key := animationKey(name, animType)
 	if anim, exists := sm.animations[key]; exists {
@@ -134,6 +170,7 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 		"assets/sprites/mobs/" + name + ".png",        // Monsters
 		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
 		"assets/sprites/environment/" + name + ".png", // Environment objects
+		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
 	}
 
 	for i, spritePath := range searchPaths {
@@ -149,6 +186,8 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 					sm.spriteTypeCache[name] = "npc_mob"
 				case 2: // environment path
 					sm.spriteTypeCache[name] = "environment"
+				case 3: // interface path
+					sm.spriteTypeCache[name] = "interface"
 				}
 				return
 			}

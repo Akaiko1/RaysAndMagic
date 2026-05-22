@@ -226,9 +226,9 @@ tiles:
     walkable: true
     height_multiplier: 1.0
     sprite: "grass"
-    render_type: "flooring_object"
-    floor_color: [80, 200, 80]  # Brighter green for clearings
-    floor_near_color: [110, 240, 110]  # Even brighter grass around clearings
+    render_type: "environment_sprite"
+    floor_color: [95, 220, 65]  # Bright salad-green clearing floor
+    floor_near_color: [125, 245, 95]  # Lighter grass around clearings
     letter: "C"
 
   # Special tiles
