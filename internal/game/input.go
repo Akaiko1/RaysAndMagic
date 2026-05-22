@@ -75,6 +75,10 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 func (ih *InputHandler) HandleInput() {
 	// When game over, only allow New Game or Load
 	if ih.game.gameOver {
+		if ih.game.mainMenuOpen && ih.game.mainMenuMode == MenuLoadSelect {
+			ih.handleMainMenuInput()
+			return
+		}
 		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
 			ih.restartNewGame()
 			return

@@ -629,6 +629,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
 	g.levelUpChoiceQueue = nil
+	g.gameOver = false
+	g.gameVictory = false
+	g.showHighScores = false
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)

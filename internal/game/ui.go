@@ -103,13 +103,13 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
 
-	// Draw overlay interfaces (menus and dialogs)
-	ui.drawOverlayInterfaces(screen)
-
 	// Draw Game Over overlay if active
 	if ui.game.gameOver {
 		ui.drawGameOverOverlay(screen)
 	}
+
+	// Draw overlay interfaces (menus and dialogs)
+	ui.drawOverlayInterfaces(screen)
 
 	// Draw Victory overlay if active
 	if ui.game.gameVictory && !ui.game.showHighScores {
