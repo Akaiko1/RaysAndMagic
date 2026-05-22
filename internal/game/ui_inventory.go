@@ -266,21 +266,39 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	var tooltip string
 	var tooltipX, tooltipY int
 
-	// Card background
-	cardX := panelX + 15
+	// Character layout
+	cardX := panelX + 20
 	cardY := contentY + 40
-	cardW := 610
-	cardH := 300
-	drawFilledRect(screen, cardX, cardY, cardW, cardH, color.RGBA{25, 25, 50, 160})
+	portraitX := cardX
+	portraitY := cardY + 8
+	portraitSize := 180
+	scrollX := cardX + portraitSize + 24
+	scrollY := cardY
+	scrollW := 420
+	scrollH := 330
+	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), scrollX, scrollY, scrollW, scrollH, 16)
+
+	portraitName := strings.ToLower(member.Name) + "_full"
+	portrait := ui.game.sprites.GetSprite(portraitName)
+	portraitFramePad := 6
+	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, 16)
+	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
+
+	// Text colors tuned for the parchment scroll: near-black body for readable
+	// values, deep maroon for section headers so they stand out from the body.
+	textColor := color.RGBA{16, 8, 4, 255}
+	mutedTextColor := color.RGBA{96, 32, 20, 255}
+	scrollTextX := scrollX + 26
+	scrollTextY := scrollY + 18
 
 	// Header
 	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.Class.String(), member.Level)
-	ebitenutil.DebugPrintAt(screen, header, cardX+10, cardY+10)
+	drawDebugTextColored(screen, header, scrollTextX, scrollTextY, textColor)
 
 	// Core info
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), cardX+10, cardY+30)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), cardX+210, cardY+30)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Experience: %d", member.Experience), cardX+10, cardY+45)
+	drawDebugTextColored(screen, fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), scrollTextX, scrollTextY+22, textColor)
+	drawDebugTextColored(screen, fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), scrollTextX+190, scrollTextY+22, textColor)
+	drawDebugTextColored(screen, fmt.Sprintf("Experience: %d", member.Experience), scrollTextX, scrollTextY+38, textColor)
 
 	statusText := "Status: Normal"
 	if len(member.Conditions) > 0 {
@@ -290,12 +308,23 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		}
 		statusText = fmt.Sprintf("Status: %s", strings.Join(names, ", "))
 	}
-	ebitenutil.DebugPrintAt(screen, statusText, cardX+210, cardY+45)
+	drawDebugTextColored(screen, statusText, scrollTextX+190, scrollTextY+38, textColor)
 
-	// Stats
-	ebitenutil.DebugPrintAt(screen, "--- STATS ---", cardX+10, cardY+70)
-	statX := cardX + 10
-	statY := cardY + 85
+	// Column layout for the scroll body: two columns side-by-side fit within
+	// scrollW=420 (minus padding). All sections below stay within scrollH=300.
+	const (
+		rowH      = 14
+		colGap    = 190
+		statRows  = 4 // 7 stats split 4 + 3 across two columns
+		skillRows = 4 // up to 8 skills shown across two columns
+		magicRows = 3 // up to 6 magic schools shown across two columns
+	)
+	col1X := scrollTextX
+	col2X := scrollTextX + colGap
+
+	// Stats — 2 columns
+	drawDebugTextColored(screen, "STATS", scrollTextX, scrollTextY+60, mutedTextColor)
+	statY := scrollTextY + 76
 	statLines := []struct {
 		name  string
 		value int
@@ -309,87 +338,93 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		{"Luck", member.Luck},
 	}
 	for i, stat := range statLines {
-		y := statY + i*15
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", stat.name, stat.value), statX, y)
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, statX, y, statX+200, y+14) {
+		x := col1X
+		if i >= statRows {
+			x = col2X
+		}
+		y := statY + (i%statRows)*rowH
+		drawDebugTextColored(screen, fmt.Sprintf("%s: %d", stat.name, stat.value), x, y, textColor)
+		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
 			tooltip = statTooltipText(stat.name)
 			tooltipX = mouseX + 16
 			tooltipY = mouseY + 8
 		}
 	}
 
-	// Skills
-	skillX := cardX + 260
-	skillY := cardY + 70
-	ebitenutil.DebugPrintAt(screen, "--- SKILLS ---", skillX, skillY)
-	skillY += 15
+	// Skills — 2 columns
+	skillY := statY + statRows*rowH + 12
+	drawDebugTextColored(screen, "SKILLS", col1X, skillY, mutedTextColor)
+	skillY += rowH + 2
 	skillOrder := []character.SkillType{
-		character.SkillSword,
-		character.SkillDagger,
-		character.SkillAxe,
-		character.SkillSpear,
-		character.SkillBow,
-		character.SkillMace,
-		character.SkillStaff,
-		character.SkillLeather,
-		character.SkillChain,
-		character.SkillPlate,
-		character.SkillShield,
-		character.SkillBodybuilding,
-		character.SkillMeditation,
-		character.SkillMerchant,
-		character.SkillRepair,
-		character.SkillIdentifyItem,
-		character.SkillDisarmTrap,
-		character.SkillLearning,
+		character.SkillSword, character.SkillDagger, character.SkillAxe,
+		character.SkillSpear, character.SkillBow, character.SkillMace,
+		character.SkillStaff, character.SkillLeather, character.SkillChain,
+		character.SkillPlate, character.SkillShield, character.SkillBodybuilding,
+		character.SkillMeditation, character.SkillMerchant, character.SkillRepair,
+		character.SkillIdentifyItem, character.SkillDisarmTrap, character.SkillLearning,
 		character.SkillArmsMaster,
 	}
-	skillLines := 0
+	skillIdx := 0
 	for _, st := range skillOrder {
-		if s, ok := member.Skills[st]; ok && s != nil {
-			line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level, s.Mastery.String())
-			lineY := skillY + skillLines*14
-			ebitenutil.DebugPrintAt(screen, line, skillX, lineY)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, skillX, lineY, skillX+240, lineY+14) {
-				tooltip = masteryTooltipTextForSkill(st)
-				tooltipX = mouseX + 16
-				tooltipY = mouseY + 8
-			}
-			skillLines++
+		if skillIdx >= skillRows*2 {
+			break // ran out of column space; rest is hidden
 		}
+		s, ok := member.Skills[st]
+		if !ok || s == nil {
+			continue
+		}
+		line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level, s.Mastery.String())
+		x := col1X
+		if skillIdx >= skillRows {
+			x = col2X
+		}
+		y := skillY + (skillIdx%skillRows)*rowH
+		drawDebugTextColored(screen, line, x, y, textColor)
+		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
+			tooltip = masteryTooltipTextForSkill(st)
+			tooltipX = mouseX + 16
+			tooltipY = mouseY + 8
+		}
+		skillIdx++
 	}
-	if skillLines == 0 {
-		ebitenutil.DebugPrintAt(screen, "None", skillX, skillY)
-		skillLines = 1
+	if skillIdx == 0 {
+		drawDebugTextColored(screen, "None", col1X, skillY, textColor)
 	}
 
-	// Magic schools
-	magicX := cardX + 260
-	magicY := skillY + skillLines*14 + 15
-	ebitenutil.DebugPrintAt(screen, "--- MAGIC SCHOOLS ---", magicX, magicY)
-	magicY += 15
-	schoolOrder := character.AllMagicSchools
-	schoolLines := 0
-	for _, school := range schoolOrder {
-		if ms, ok := member.MagicSchools[school]; ok && ms != nil {
-			line := fmt.Sprintf("%s %d (%s) Casts:%d",
-				school.DisplayName(), ms.Level, ms.Mastery, ms.CastCount)
-			lineY := magicY + schoolLines*14
-			ebitenutil.DebugPrintAt(screen, line, magicX, lineY)
-			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, magicX, lineY, magicX+260, lineY+14) {
-				tooltip = magicMasteryTooltipText()
-				tooltipX = mouseX + 16
-				tooltipY = mouseY + 8
-			}
-			schoolLines++
+	// Magic schools — 2 columns
+	magicY := skillY + skillRows*rowH + 12
+	drawDebugTextColored(screen, "MAGIC SCHOOLS", col1X, magicY, mutedTextColor)
+	magicY += rowH + 2
+	schoolIdx := 0
+	for _, school := range character.AllMagicSchools {
+		if schoolIdx >= magicRows*2 {
+			break
 		}
+		ms, ok := member.MagicSchools[school]
+		if !ok || ms == nil {
+			continue
+		}
+		line := fmt.Sprintf("%s %d (%s) C:%d",
+			school.DisplayName(), ms.Level, ms.Mastery, ms.CastCount)
+		x := col1X
+		if schoolIdx >= magicRows {
+			x = col2X
+		}
+		y := magicY + (schoolIdx%magicRows)*rowH
+		drawDebugTextColored(screen, line, x, y, textColor)
+		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
+			tooltip = magicMasteryTooltipText()
+			tooltipX = mouseX + 16
+			tooltipY = mouseY + 8
+		}
+		schoolIdx++
 	}
-	if schoolLines == 0 {
-		ebitenutil.DebugPrintAt(screen, "None", magicX, magicY)
+	if schoolIdx == 0 {
+		drawDebugTextColored(screen, "None", col1X, magicY, textColor)
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", panelX+20, cardY+cardH+10)
+	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", panelX+20, scrollY+scrollH+18)
 
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)

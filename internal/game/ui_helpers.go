@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"strings"
@@ -147,8 +148,14 @@ func tooltipBoxSize(lines []string) (int, int) {
 	return bgWidth, bgHeight
 }
 
-// drawTooltip draws a tooltip with the given text lines at the specified position
+// drawTooltip draws a tooltip with the given text lines at the specified
+// position. Lines that don't fit between the tooltip's x position and the
+// right screen edge are word-wrapped onto multiple rows; the colors slice
+// (if provided) is expanded so each wrapped row keeps its original color.
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, y int) {
+	screenW := screen.Bounds().Dx()
+	lines, colors = wrapTooltipLines(lines, colors, x, screenW)
+
 	bgWidth, bgHeight := tooltipBoxSize(lines)
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
 	if len(colors) == len(lines) && len(colors) > 0 {
@@ -160,6 +167,47 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, 
 	for i, line := range lines {
 		ebitenutil.DebugPrintAt(screen, line, x+6, y+6+i*16)
 	}
+}
+
+// wrapTooltipLines wraps lines that overflow the right screen edge given the
+// tooltip's x position. Returns the wrapped lines plus a parallel colors slice
+// (each wrapped fragment inherits the original line's color, or nil if no
+// colors were provided). Minimum wrap width is 16 chars so we don't produce
+// pathological single-char columns when x is very close to the right edge.
+func wrapTooltipLines(lines []string, colors []color.Color, x, screenW int) ([]string, []color.Color) {
+	availablePx := screenW - x - 12 // 6px padding each side
+	maxChars := availablePx / debugTextCharWidth
+	if maxChars < 16 {
+		maxChars = 16
+	}
+
+	needsWrap := false
+	for _, line := range lines {
+		if utf8.RuneCountInString(line) > maxChars {
+			needsWrap = true
+			break
+		}
+	}
+	if !needsWrap {
+		return lines, colors
+	}
+
+	hasColors := len(colors) == len(lines) && len(colors) > 0
+	wrapped := make([]string, 0, len(lines))
+	var wrappedColors []color.Color
+	if hasColors {
+		wrappedColors = make([]color.Color, 0, len(lines))
+	}
+	for i, line := range lines {
+		fragments := wrapText(line, maxChars)
+		wrapped = append(wrapped, fragments...)
+		if hasColors {
+			for range fragments {
+				wrappedColors = append(wrappedColors, colors[i])
+			}
+		}
+	}
+	return wrapped, wrappedColors
 }
 
 func (ui *UISystem) queueTooltip(lines []string, x, y int) {
@@ -299,20 +347,24 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
+// Stat tooltips include the scaling divisors used in combat formulas so the
+// description never drifts from the actual numbers — see balance.go. The
+// "weapons that scale with X" phrasing matches what `bonus_stat` actually
+// gates in weapons.yaml (any weapon can pick any stat).
 func statTooltipText(stat string) string {
 	switch strings.ToLower(stat) {
 	case "might":
-		return "Increases melee damage."
+		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
 	case "intellect":
-		return "Increases spell damage and spell points."
+		return fmt.Sprintf("Adds Intellect/%d to weapons that scale with Intellect; also adds to max spell points.", WeaponPrimaryStatDivisor)
 	case "personality":
-		return "Increases spell points and mana regen."
+		return "Adds to max spell points and increases SP regen rate."
 	case "endurance":
-		return "Increases health and armor scaling."
+		return "Increases max HP and armor-class scaling on equipped armor."
 	case "accuracy":
-		return "Increases hit chance and ranged damage."
+		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
 	case "speed":
-		return "Reduces action cooldowns."
+		return "Reduces real-time action cooldowns (no effect in turn-based mode)."
 	case "luck":
 		return "Improves critical chance and dodges."
 	default:
@@ -324,16 +376,16 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	switch skill {
 	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
 		character.SkillBow, character.SkillMace, character.SkillStaff:
-		return "Weapon Mastery: +2 base damage per mastery level."
+		return fmt.Sprintf("Weapon Mastery: +%d base damage per mastery level.", MasteryWeaponDamagePerLevel)
 	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
-		return "Armor Mastery: +1 base AC per mastery level."
+		return fmt.Sprintf("Armor Mastery: +%d base AC per mastery level.", MasteryArmorACPerLevel)
 	default:
 		return ""
 	}
 }
 
 func magicMasteryTooltipText() string {
-	return "Magic Mastery: +5 to base spell effects per mastery level."
+	return fmt.Sprintf("Magic Mastery: +%d to base spell effects per mastery level.", MasterySpellEffectPerLevel)
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

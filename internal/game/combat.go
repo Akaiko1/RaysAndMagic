@@ -1588,18 +1588,17 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 
 // checkLevelUp checks if a character should level up and applies level up benefits
 func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
-	// Simple level progression: each level requires level * 100 experience
-	// Loop to handle multiple level-ups from single experience gain
+	// Level progression: each level requires currentLevel * XPRequiredPerLevel
+	// experience. Loop handles multiple level-ups from a single XP gain.
 	for {
-		requiredExp := character.Level * 100
+		requiredExp := character.Level * XPRequiredPerLevel
 
 		if character.Experience >= requiredExp {
 			oldLevel := character.Level
 			character.Level++
 			character.Experience -= requiredExp // Subtract used experience
 
-			// Grant 5 free stat points per level
-			character.FreeStatPoints += 5
+			character.FreeStatPoints += StatPointsPerLevel
 
 			// Recalculate derived stats (health and mana increase with level)
 			character.CalculateDerivedStats(cs.game.config)
@@ -1608,8 +1607,8 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 			character.HitPoints = character.MaxHitPoints
 			character.SpellPoints = character.MaxSpellPoints
 
-			message := fmt.Sprintf("%s reached level %d! (was level %d) [+5 stat points]",
-				character.Name, character.Level, oldLevel)
+			message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
+				character.Name, character.Level, oldLevel, StatPointsPerLevel)
 			cs.game.AddCombatMessage(message)
 
 			if choices := config.GetLevelUpChoices(character.GetClassKey(), character.Level); len(choices) > 0 {
@@ -1636,14 +1635,14 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	var primaryStatBonus int
 	switch weapon.BonusStat {
 	case "Might":
-		primaryStatBonus = might / 3
+		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	case "Accuracy":
-		primaryStatBonus = accuracy / 3
+		primaryStatBonus = accuracy / WeaponPrimaryStatDivisor
 	case "Intellect":
-		primaryStatBonus = intellect / 3
+		primaryStatBonus = intellect / WeaponPrimaryStatDivisor
 	default:
 		// Fallback to Might for weapons without bonus stat specified
-		primaryStatBonus = might / 3
+		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	}
 
 	// Add secondary stat bonus if weapon has dual scaling
@@ -1651,11 +1650,11 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	if weapon.BonusStatSecondary != "" {
 		switch weapon.BonusStatSecondary {
 		case "Might":
-			secondaryStatBonus = might / 4 // Secondary stats give less bonus
+			secondaryStatBonus = might / WeaponSecondaryStatDivisor
 		case "Accuracy":
-			secondaryStatBonus = accuracy / 4
+			secondaryStatBonus = accuracy / WeaponSecondaryStatDivisor
 		case "Intellect":
-			secondaryStatBonus = intellect / 4
+			secondaryStatBonus = intellect / WeaponSecondaryStatDivisor
 		}
 	}
 
@@ -1677,15 +1676,15 @@ func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, char *character.MM
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
-		return int(skill.Mastery) * 2
+		return int(skill.Mastery) * MasteryWeaponDamagePerLevel
 	}
 	return 0
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
 func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
-	baseDamage := spellPoints * 3
-	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / 2
+	baseDamage := spellPoints * spells.SpellDamagePerSP
+	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / spells.SpellIntellectDivisor
 	totalDamage := baseDamage + intellectBonus
 	return baseDamage, intellectBonus, totalDamage
 }
@@ -1698,7 +1697,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	}
 	school := character.MagicSchoolID(def.School)
 	if skill, exists := char.MagicSchools[school]; exists {
-		return int(skill.Mastery) * 5
+		return int(skill.Mastery) * MasterySpellEffectPerLevel
 	}
 	return 0
 }
@@ -1715,7 +1714,7 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 		return
 	}
 	skill.CastCount++
-	desired := character.SkillMastery(skill.CastCount / 30)
+	desired := character.SkillMastery(skill.CastCount / AutoMasteryCastsPerLevel)
 	if desired > character.MasteryGrandMaster {
 		desired = character.MasteryGrandMaster
 	}
@@ -1724,16 +1723,10 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 	}
 }
 
-// CalculateAccuracyBonus calculates accuracy bonus from character stats
-func (cs *CombatSystem) CalculateAccuracyBonus(character *character.MMCharacter) int {
-	// Accuracy bonus is half of character's Accuracy stat
-	return character.Accuracy / 2
-}
-
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
-	return char.GetEffectiveLuck(cs.game.statBonus) / 4
+	return char.GetEffectiveLuck(cs.game.statBonus) / LuckToCritDivisor
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
@@ -1771,10 +1764,10 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
-// chance = effective Luck / 5, clamped to [0,100].
+// chance = effective Luck / LuckToDodgeDivisor, clamped to [0,100].
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck(cs.game.statBonus) / 5
+	chance := chr.GetEffectiveLuck(cs.game.statBonus) / LuckToDodgeDivisor
 	if chance < 0 {
 		chance = 0
 	}
@@ -1789,8 +1782,7 @@ func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int)
 func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MMCharacter) int {
 	totalArmorClass := cs.CalculateTotalArmorClass(char)
 
-	// Damage reduction (same formula as tooltip)
-	damageReduction := totalArmorClass / 2
+	damageReduction := totalArmorClass / ArmorPhysicalReductionDivisor
 
 	// Apply damage reduction
 	finalDamage := damage - damageReduction
@@ -1871,7 +1863,7 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
-		return int(skill.Mastery)
+		return int(skill.Mastery) * MasteryArmorACPerLevel
 	}
 	return 0
 }

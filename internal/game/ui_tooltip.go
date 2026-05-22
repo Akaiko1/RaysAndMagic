@@ -249,7 +249,9 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 	return joinTooltipLines(lines)
 }
 
-// weaponScalingLine builds the human-friendly scaling text for a weapon
+// weaponScalingLine builds the human-friendly scaling text for a weapon.
+// The /N divisors come from balance.go so the displayed weights stay in
+// lockstep with the actual damage formula in CalculateMeleeDamage.
 func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
 	primary := item.BonusStat
 	if primary == "" {
@@ -258,9 +260,12 @@ func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSyste
 	primaryValue := getEffectiveStatValue(primary, char, combatSystem)
 	if sec := item.BonusStatSecondary; sec != "" {
 		secondaryValue := getEffectiveStatValue(sec, char, combatSystem)
-		return fmt.Sprintf("Scales with %s (Effective: %d) + %s (Effective: %d)", primary, primaryValue, sec, secondaryValue)
+		return fmt.Sprintf("Scales with %s/%d (Effective: %d) + %s/%d (Effective: %d)",
+			primary, WeaponPrimaryStatDivisor, primaryValue,
+			sec, WeaponSecondaryStatDivisor, secondaryValue)
 	}
-	return fmt.Sprintf("Scales with %s (Effective: %d)", primary, primaryValue)
+	return fmt.Sprintf("Scales with %s/%d (Effective: %d)",
+		primary, WeaponPrimaryStatDivisor, primaryValue)
 }
 
 func getEffectiveStatValue(statName string, char *character.MMCharacter, combatSystem *CombatSystem) int {
@@ -341,9 +346,9 @@ func getArmorSummary(item items.Item) string {
 	}
 	var armorLine string
 	if enduranceDiv > 0 {
-		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces physical damage by AC/2)", baseArmor, enduranceDiv)
+		armorLine = fmt.Sprintf("Armor: %d base, +1 per %d Endurance (reduces physical damage by AC/%d)", baseArmor, enduranceDiv, ArmorPhysicalReductionDivisor)
 	} else {
-		armorLine = fmt.Sprintf("Armor: %d base (reduces physical damage by AC/2)", baseArmor)
+		armorLine = fmt.Sprintf("Armor: %d base (reduces physical damage by AC/%d)", baseArmor, ArmorPhysicalReductionDivisor)
 	}
 	if len(bonusParts) > 0 {
 		return fmt.Sprintf("%s\nBonuses: %s", armorLine, strings.Join(bonusParts, ", "))
