@@ -62,3 +62,35 @@ type MagicSkill struct {
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
 	CastCount   int              // Total casts in this school (for mastery progression)
 }
+
+func (ms *MagicSkill) SyncLevelAndMastery() {
+	if ms == nil {
+		return
+	}
+	level := ClampSkillLevel(ms.Level)
+	masteryLevel := LevelForMastery(ms.Mastery)
+	if masteryLevel > level {
+		level = masteryLevel
+	}
+	ms.SetLevel(level)
+}
+
+func (ms *MagicSkill) SetLevel(level int) {
+	if ms == nil {
+		return
+	}
+	ms.Level = ClampSkillLevel(level)
+	ms.Mastery = MasteryForLevel(ms.Level)
+}
+
+func (ms *MagicSkill) IncreaseLevel() bool {
+	if ms == nil {
+		return false
+	}
+	ms.SyncLevelAndMastery()
+	if ms.Level >= MaxSkillLevel {
+		return false
+	}
+	ms.SetLevel(ms.Level + 1)
+	return true
+}

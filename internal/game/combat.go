@@ -1680,6 +1680,7 @@ func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, char *character.MM
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
+		skill.SyncLevelAndMastery()
 		return int(skill.Mastery) * MasteryWeaponDamagePerLevel
 	}
 	return 0
@@ -1701,6 +1702,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	}
 	school := character.MagicSchoolID(def.School)
 	if skill, exists := char.MagicSchools[school]; exists {
+		skill.SyncLevelAndMastery()
 		return int(skill.Mastery) * MasterySpellEffectPerLevel
 	}
 	return 0
@@ -1718,12 +1720,13 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 		return
 	}
 	skill.CastCount++
-	desired := character.SkillMastery(skill.CastCount / AutoMasteryCastsPerLevel)
-	if desired > character.MasteryGrandMaster {
-		desired = character.MasteryGrandMaster
+	desiredLevel := skill.CastCount/AutoMasteryCastsPerLevel + character.MinSkillLevel
+	if desiredLevel > character.MaxSkillLevel {
+		desiredLevel = character.MaxSkillLevel
 	}
-	if desired > skill.Mastery {
-		skill.Mastery = desired
+	skill.SyncLevelAndMastery()
+	if desiredLevel > skill.Level {
+		skill.SetLevel(desiredLevel)
 	}
 }
 
@@ -1867,6 +1870,7 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
+		skill.SyncLevelAndMastery()
 		return int(skill.Mastery) * MasteryArmorACPerLevel
 	}
 	return 0

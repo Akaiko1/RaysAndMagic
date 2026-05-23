@@ -66,6 +66,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 	if skill == nil {
 		return false
 	}
+	skill.SyncLevelAndMastery()
 
 	if spellData.Requirements != nil {
 		req := spellData.Requirements
@@ -84,6 +85,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 			if reqSkill == nil {
 				return false
 			}
+			reqSkill.SyncLevelAndMastery()
 			if schoolReq.MinLevel > 0 && reqSkill.Level < schoolReq.MinLevel {
 				return false
 			}

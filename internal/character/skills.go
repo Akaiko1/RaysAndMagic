@@ -78,6 +78,11 @@ func (s SkillType) String() string {
 type SkillMastery int
 
 const (
+	MinSkillLevel = 1
+	MaxSkillLevel = 4
+)
+
+const (
 	MasteryNovice SkillMastery = iota
 	MasteryExpert
 	MasteryMaster
@@ -103,6 +108,62 @@ func (m SkillMastery) String() string {
 type Skill struct {
 	Level   int
 	Mastery SkillMastery
+}
+
+func ClampSkillLevel(level int) int {
+	if level < MinSkillLevel {
+		return MinSkillLevel
+	}
+	if level > MaxSkillLevel {
+		return MaxSkillLevel
+	}
+	return level
+}
+
+func MasteryForLevel(level int) SkillMastery {
+	return SkillMastery(ClampSkillLevel(level) - 1)
+}
+
+func LevelForMastery(mastery SkillMastery) int {
+	if mastery < MasteryNovice {
+		return MinSkillLevel
+	}
+	if mastery > MasteryGrandMaster {
+		return MaxSkillLevel
+	}
+	return int(mastery) + 1
+}
+
+func (s *Skill) SyncLevelAndMastery() {
+	if s == nil {
+		return
+	}
+	level := ClampSkillLevel(s.Level)
+	masteryLevel := LevelForMastery(s.Mastery)
+	if masteryLevel > level {
+		level = masteryLevel
+	}
+	s.SetLevel(level)
+}
+
+func (s *Skill) SetLevel(level int) {
+	if s == nil {
+		return
+	}
+	s.Level = ClampSkillLevel(level)
+	s.Mastery = MasteryForLevel(s.Level)
+}
+
+func (s *Skill) IncreaseLevel() bool {
+	if s == nil {
+		return false
+	}
+	s.SyncLevelAndMastery()
+	if s.Level >= MaxSkillLevel {
+		return false
+	}
+	s.SetLevel(s.Level + 1)
+	return true
 }
 
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the

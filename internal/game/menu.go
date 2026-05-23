@@ -318,10 +318,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Skills
 		for t, s := range m.Skills {
+			s.SyncLevelAndMastery()
 			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level, Mastery: int(s.Mastery)})
 		}
 		// Magic schools
 		for school, ms := range m.MagicSchools {
+			ms.SyncLevelAndMastery()
 			entry := MagicSchoolEntry{School: string(school), Level: ms.Level, Mastery: int(ms.Mastery), CastCount: ms.CastCount}
 			if len(ms.KnownSpells) > 0 {
 				entry.KnownSpells = make([]string, len(ms.KnownSpells))
@@ -502,11 +504,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			}
 		}
 		for _, s := range cs.Skills {
-			m.Skills[character.SkillType(s.Type)] = &character.Skill{Level: s.Level, Mastery: character.SkillMastery(s.Mastery)}
+			skill := &character.Skill{Level: s.Level, Mastery: character.SkillMastery(s.Mastery)}
+			skill.SyncLevelAndMastery()
+			m.Skills[character.SkillType(s.Type)] = skill
 		}
 		for _, me := range cs.MagicSchools {
 			mk := character.MagicSchoolID(me.School)
 			ms := &character.MagicSkill{Level: me.Level, Mastery: character.SkillMastery(me.Mastery), CastCount: me.CastCount}
+			ms.SyncLevelAndMastery()
 			if len(me.KnownSpells) > 0 {
 				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
 				for i, s := range me.KnownSpells {

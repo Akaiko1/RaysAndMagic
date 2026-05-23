@@ -231,6 +231,7 @@ func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillTy
 	name := skillType.String()
 	current := character.MasteryNovice
 	if skill, ok := char.Skills[skillType]; ok {
+		skill.SyncLevelAndMastery()
 		current = skill.Mastery
 	}
 	if current >= character.MasteryGrandMaster {
@@ -243,6 +244,7 @@ func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillTy
 func magicMasteryOptionLabel(char *character.MMCharacter, school character.MagicSchoolID) (string, string, string, bool) {
 	name := school.DisplayName()
 	if skill, ok := char.MagicSchools[school]; ok {
+		skill.SyncLevelAndMastery()
 		if skill.Mastery >= character.MasteryGrandMaster {
 			return fmt.Sprintf("%s Magic Mastery: %s (Max)", name, skill.Mastery.String()), "", "", false
 		}
@@ -310,11 +312,7 @@ func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillT
 		skill = &character.Skill{Level: 1, Mastery: character.MasteryNovice}
 		char.Skills[skillType] = skill
 	}
-	if skill.Mastery >= character.MasteryGrandMaster {
-		return false
-	}
-	skill.Mastery++
-	return true
+	return skill.IncreaseLevel()
 }
 
 func upgradeMagicMastery(char *character.MMCharacter, school character.MagicSchoolID) bool {
@@ -322,11 +320,7 @@ func upgradeMagicMastery(char *character.MMCharacter, school character.MagicScho
 	if !ok {
 		return false
 	}
-	if skill.Mastery >= character.MasteryGrandMaster {
-		return false
-	}
-	skill.Mastery++
-	return true
+	return skill.IncreaseLevel()
 }
 
 func levelUpChoiceLayout(req *levelUpChoiceRequest, screenW, screenH int) (popupX, popupY, popupW, popupH, startY, rowH int) {
