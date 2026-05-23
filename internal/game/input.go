@@ -75,6 +75,10 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 func (ih *InputHandler) HandleInput() {
 	// When game over, only allow New Game or Load
 	if ih.game.gameOver {
+		if ih.game.mainMenuOpen && ih.game.mainMenuMode == MenuLoadSelect {
+			ih.handleMainMenuInput()
+			return
+		}
 		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
 			ih.restartNewGame()
 			return
@@ -814,7 +818,9 @@ func (ih *InputHandler) handleUIInput() {
 				ih.game.menuOpen = false // Close menu if already on Spellbook tab
 				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			} else {
+				// Switching into the spellbook: clear highlight until user picks one.
 				ih.game.currentTab = TabSpellbook
+				ih.game.selectedSpell = -1
 			}
 		} else {
 			ih.openTabbedMenu(TabSpellbook)
@@ -1091,6 +1097,14 @@ func (ih *InputHandler) checkDeepWater() {
 func (ih *InputHandler) navigateSpellbookUp(schools []character.MagicSchoolID) {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 
+	// Selection cleared (e.g. after switching schools): keyboard nav starts at the last spell.
+	if ih.game.selectedSpell < 0 {
+		currentSpells := currentChar.GetSpellsForSchool(schools[ih.game.selectedSchool])
+		if len(currentSpells) > 0 {
+			ih.game.selectedSpell = len(currentSpells) - 1
+		}
+		return
+	}
 	if ih.game.selectedSpell > 0 {
 		ih.game.selectedSpell--
 	} else if ih.game.selectedSchool > 0 {
@@ -1104,6 +1118,13 @@ func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchoolID)
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 	currentSpells := currentChar.GetSpellsForSchool(schools[ih.game.selectedSchool])
 
+	// Selection cleared: keyboard nav starts at the first spell.
+	if ih.game.selectedSpell < 0 {
+		if len(currentSpells) > 0 {
+			ih.game.selectedSpell = 0
+		}
+		return
+	}
 	if ih.game.selectedSpell < len(currentSpells)-1 {
 		ih.game.selectedSpell++
 	} else if ih.game.selectedSchool < len(schools)-1 {
@@ -1123,29 +1144,21 @@ func (ih *InputHandler) handleMouseInput() {
 	if ih.game.turnBasedMode {
 		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
 	}
+	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyActionsUsed >= 2) {
+		healPressed = false
+	}
 	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
 		caster := ih.game.party.Members[ih.game.selectedChar]
 
 		// Check if character has a heal spell equipped
 		spell, hasSpell := caster.Equipment[items.SlotSpell]
 		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-
-			if targetCharIndex >= 0 {
-				// Check if the spell can target others or if targeting self
-				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-				} else {
-					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
-					ih.game.combat.EquipmentHeal()
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-				}
-			} else {
-				// No target under mouse, heal self (original behavior)
-				ih.game.combat.EquipmentHeal()
-				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
+			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+			if healed {
+				ih.consumeTurnBasedActionForHeal()
 			}
+			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 		}
 	}
 
@@ -1228,6 +1241,10 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
 	ih.game.menuOpen = true
 	ih.game.currentTab = tab
+	if tab == TabSpellbook {
+		// No spell highlighted until the user clicks or navigates.
+		ih.game.selectedSpell = -1
+	}
 	ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 }
 
@@ -1271,27 +1288,26 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 // handleSpellbookNavigation handles navigation within the spellbook tab
 func (ih *InputHandler) handleSpellbookNavigation() {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
-	schools := currentChar.GetAvailableSchools()
+	schools := spellbookSchoolsWithSpells(currentChar)
 
 	if len(schools) == 0 {
 		return
 	}
 
-	// Navigation
-	if ebiten.IsKeyPressed(ebiten.KeyUp) {
+	// Navigation: step one spell per key press so the user can't overshoot.
+	// No cooldown needed — IsKeyJustPressed already debounces to one step per press.
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 		ih.navigateSpellbookUp(schools)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	if ebiten.IsKeyPressed(ebiten.KeyDown) {
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
 		ih.navigateSpellbookDown(schools)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Cast spell
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+	// Equip spell to the fast spell slot. Keep the spellbook open so the player
+	// can keep browsing after binding the fast slot.
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
 		ih.game.combat.EquipSelectedSpell()
-		ih.game.menuOpen = false
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 }
@@ -1486,7 +1502,6 @@ func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellDa
 	// Ensure the character has the magic school
 	if char.MagicSchools[targetSchool] == nil {
 		char.MagicSchools[targetSchool] = &character.MagicSkill{
-			Level:       1,
 			Mastery:     character.MasteryNovice,
 			KnownSpells: make([]spells.SpellID, 0),
 		}
@@ -1771,19 +1786,13 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		// Check if this is a heal spell - use mouse targeting
 		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
 			mouseX, mouseY := ebiten.CursorPosition()
-			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-
-			if targetCharIndex >= 0 {
-				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-				} else {
-					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
-				}
-			} else {
-				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
+			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+			if healed {
+				ih.consumeTurnBasedActionForHeal()
 			}
-			ih.game.partyActionsUsed++
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
+			return
 		} else {
 			// Not a heal spell, cast normally
 			if ih.game.combat.CastEquippedSpell() {
@@ -1932,6 +1941,27 @@ func (ih *InputHandler) endPartyTurn() {
 	ih.game.currentTurn = 1 // Monster turn
 	ih.game.monsterTurnResolved = false
 	// Don't spam combat log with turn messages
+}
+
+func (ih *InputHandler) consumeTurnBasedActionForHeal() {
+	if !ih.game.turnBasedMode {
+		return
+	}
+	ih.game.partyActionsUsed++
+	if ih.game.partyActionsUsed >= 2 {
+		ih.endPartyTurn()
+	}
+}
+
+func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
+	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+	if targetCharIndex >= 0 && spell.SpellEffect == items.SpellEffectHealOther {
+		return targetCharIndex
+	}
+	if targetCharIndex == ih.game.selectedChar {
+		return targetCharIndex
+	}
+	return ih.game.selectedChar
 }
 
 // handleSpellTraderInput handles input for spell trader NPCs

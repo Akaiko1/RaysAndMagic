@@ -106,13 +106,13 @@ func (c *MMCharacter) setupKnight(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillSword] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillSpear] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillPlate] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillBodybuilding] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillSpear] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillPlate] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
 
 	// Starting equipment - YAML weapons only
 	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
@@ -130,13 +130,12 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillDagger] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Sorcerer fire and water spells
 	c.MagicSchools[MagicSchoolFire] = &MagicSkill{
-		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("torch_light"),
@@ -144,7 +143,6 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 		},
 	}
 	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
-		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("ice_bolt"),
@@ -170,13 +168,12 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillMace] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillMace] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Cleric healing spells and spirit magic
 	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
-		Level:   1,
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("heal_other"), // Heal
@@ -202,13 +199,12 @@ func (c *MMCharacter) setupArcher(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillBow] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillDagger] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillBow] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Archer Wizard's Eye
 	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
-		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("wizard_eye")},
 	}
@@ -232,9 +228,9 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillSword] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillShield] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Paladin Bless
 	// Starting equipment
@@ -253,18 +249,16 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 	c.Luck = stats.Luck
 
 	// Starting skills
-	c.Skills[SkillStaff] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Level: 1, Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Level: 1, Mastery: MasteryNovice}
+	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Druid water and mind magic
 	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
-		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("ice_bolt")},
 	}
 	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
-		Level:       1,
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("awaken")},
 	}
@@ -424,13 +418,13 @@ func (c *MMCharacter) GetDetailedInfo() string {
 
 	info += "SKILLS:\n"
 	for skillType, skill := range c.Skills {
-		info += fmt.Sprintf("%s: %d (%s)\n", skillType, skill.Level, skill.Mastery)
+		info += fmt.Sprintf("%s: %d (%s)\n", skillType, skill.Level(), skill.Mastery)
 	}
 
 	info += "\nMAGIC SCHOOLS:\n"
 	for school, magicSkill := range c.MagicSchools {
 		info += fmt.Sprintf("%s: %d (%s) - %d spells\n",
-			school.DisplayName(), magicSkill.Level,
+			school.DisplayName(), magicSkill.Level(),
 			magicSkill.Mastery, len(magicSkill.KnownSpells))
 	}
 
@@ -476,7 +470,6 @@ func (c *MMCharacter) GetClassKey() string {
 		return "unknown"
 	}
 }
-
 
 // HasCondition checks if the character has a specific condition
 func (c *MMCharacter) HasCondition(cond Condition) bool {

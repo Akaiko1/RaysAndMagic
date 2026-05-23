@@ -53,7 +53,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if char != nil && def.School != "" {
 		school := character.MagicSchoolID(def.School)
 		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
-			multiplier := 1.0 + (float64(skill.Level) * 0.1)
+			multiplier := 1.0 + (float64(skill.Level()) * 0.1)
 			seconds = int(float64(seconds) * multiplier)
 		}
 	}

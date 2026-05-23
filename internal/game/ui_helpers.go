@@ -1,13 +1,18 @@
 package game
 
 import (
+	"fmt"
+	"image"
 	"image/color"
+	"log"
 	"strings"
 	"unicode/utf8"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -18,6 +23,8 @@ type coloredTextSegment struct {
 	text  string
 	color color.Color
 }
+
+var missingTooltipIcons = make(map[string]bool)
 
 func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredTextSegment) {
 	curX := x
@@ -56,50 +63,187 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.DrawFilledRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+	vector.FillRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+}
+
+func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
+	if src == nil || w <= 0 || h <= 0 {
+		return
+	}
+	bounds := src.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+	if srcW <= 0 || srcH <= 0 {
+		return
+	}
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
+	opts.GeoM.Translate(float64(x), float64(y))
+	dst.DrawImage(src, opts)
+}
+
+func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w, h int) {
+	icon := ui.game.sprites.GetSprite(name)
+	drawImageScaled(screen, icon, x, y, w, h)
+}
+
+func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
+	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
+		return
+	}
+	bounds := src.Bounds()
+	srcW := bounds.Dx()
+	srcH := bounds.Dy()
+	if srcW <= slice*2 || srcH <= slice*2 || w <= slice*2 || h <= slice*2 {
+		drawImageScaled(dst, src, x, y, w, h)
+		return
+	}
+
+	drawPart := func(srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH int) {
+		if dstW <= 0 || dstH <= 0 {
+			return
+		}
+		part := src.SubImage(image.Rect(srcX, srcY, srcX+srcW, srcY+srcH)).(*ebiten.Image)
+		drawImageScaled(dst, part, dstX, dstY, dstW, dstH)
+	}
+
+	centerSrcW := srcW - slice*2
+	centerSrcH := srcH - slice*2
+	centerDstW := w - slice*2
+	centerDstH := h - slice*2
+
+	drawPart(0, 0, slice, slice, x, y, slice, slice)
+	drawPart(srcW-slice, 0, slice, slice, x+w-slice, y, slice, slice)
+	drawPart(0, srcH-slice, slice, slice, x, y+h-slice, slice, slice)
+	drawPart(srcW-slice, srcH-slice, slice, slice, x+w-slice, y+h-slice, slice, slice)
+
+	drawPart(slice, 0, centerSrcW, slice, x+slice, y, centerDstW, slice)
+	drawPart(slice, srcH-slice, centerSrcW, slice, x+slice, y+h-slice, centerDstW, slice)
+	drawPart(0, slice, slice, centerSrcH, x, y+slice, slice, centerDstH)
+	drawPart(srcW-slice, slice, slice, centerSrcH, x+w-slice, y+slice, slice, centerDstH)
+
+	drawPart(slice, slice, centerSrcW, centerSrcH, x+slice, y+slice, centerDstW, centerDstH)
 }
 
 // drawRectBorder draws a rectangle border of given thickness and color
 func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Color) {
 	// Top border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
 	// Bottom border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
 	// Left border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
 	// Right border
-	vector.DrawFilledRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
+	vector.FillRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
 }
 
 const tooltipCompareGap = 8
+const tooltipIconSize = 64
+const tooltipIconGap = 8
 
 func tooltipBoxSize(lines []string) (int, int) {
+	return tooltipBoxSizeWithIcon(lines, false)
+}
+
+func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 	if len(lines) == 0 {
 		return 0, 0
 	}
+	iconSpace := 0
+	if hasIcon {
+		iconSpace = tooltipIconSize + tooltipIconGap
+	}
 	bgWidth := 0
 	for _, line := range lines {
-		if w := debugTextWidth(line) + 12; w > bgWidth {
+		if w := debugTextWidth(line) + 12 + iconSpace; w > bgWidth {
 			bgWidth = w
 		}
 	}
 	bgHeight := len(lines)*16 + 8
+	if hasIcon && bgHeight < tooltipIconSize+12 {
+		bgHeight = tooltipIconSize + 12
+	}
 	return bgWidth, bgHeight
 }
 
-// drawTooltip draws a tooltip with the given text lines at the specified position
-func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, y int) {
-	bgWidth, bgHeight := tooltipBoxSize(lines)
+// drawTooltip draws a tooltip with the given text lines at the specified
+// position. Lines that don't fit between the tooltip's x position and the
+// right screen edge are word-wrapped onto multiple rows; the colors slice
+// (if provided) is expanded so each wrapped row keeps its original color.
+func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y int, sprites *graphics.SpriteManager) {
+	screenW := screen.Bounds().Dx()
+
+	hasIcon := iconName != "" && sprites != nil
+	lines, colors = wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
+	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
+	textX := x + 6
+	if hasIcon {
+		drawImageScaled(screen, sprites.GetSprite(iconName), x+6, y+6, tooltipIconSize, tooltipIconSize)
+		textX += tooltipIconSize + tooltipIconGap
+	}
 	if len(colors) == len(lines) && len(colors) > 0 {
 		for i, line := range lines {
-			drawDebugTextColored(screen, line, x+6, y+6+i*16, colors[i])
+			drawDebugTextColored(screen, line, textX, y+6+i*16, colors[i])
 		}
 		return
 	}
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, x+6, y+6+i*16)
+		ebitenutil.DebugPrintAt(screen, line, textX, y+6+i*16)
 	}
+}
+
+// wrapTooltipLines wraps lines that overflow the right screen edge given the
+// tooltip's x position. Returns the wrapped lines plus a parallel colors slice
+// (each wrapped fragment inherits the original line's color, or nil if no
+// colors were provided). Minimum wrap width is 16 chars so we don't produce
+// pathological single-char columns when x is very close to the right edge.
+func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffsetPx int) ([]string, []color.Color) {
+	availablePx := screenW - x - 12 - textOffsetPx // 6px padding each side
+	maxChars := availablePx / debugTextCharWidth
+	if maxChars < 16 {
+		maxChars = 16
+	}
+
+	needsWrap := false
+	for _, line := range lines {
+		if utf8.RuneCountInString(line) > maxChars {
+			needsWrap = true
+			break
+		}
+	}
+	if !needsWrap {
+		return lines, colors
+	}
+
+	hasColors := len(colors) == len(lines) && len(colors) > 0
+	wrapped := make([]string, 0, len(lines))
+	var wrappedColors []color.Color
+	if hasColors {
+		wrappedColors = make([]color.Color, 0, len(lines))
+	}
+	for i, line := range lines {
+		fragments := wrapText(line, maxChars)
+		wrapped = append(wrapped, fragments...)
+		if hasColors {
+			for range fragments {
+				wrappedColors = append(wrappedColors, colors[i])
+			}
+		}
+	}
+	return wrapped, wrappedColors
+}
+
+func tooltipTextOffset(hasIcon bool) int {
+	if hasIcon {
+		return tooltipIconSize + tooltipIconGap
+	}
+	return 0
+}
+
+func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW int) (int, int) {
+	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
+	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
 }
 
 func (ui *UISystem) queueTooltip(lines []string, x, y int) {
@@ -108,6 +252,18 @@ func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
+	ui.tooltipIcon = ""
+	ui.tooltipX = x
+	ui.tooltipY = y
+}
+
+func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipLines = lines
+	ui.tooltipColors = nil
+	ui.tooltipIcon = ui.validTooltipIcon(icon)
 	ui.tooltipX = x
 	ui.tooltipY = y
 }
@@ -118,8 +274,34 @@ func (ui *UISystem) queueTooltipColored(lines []string, colors []color.Color, x,
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = colors
+	ui.tooltipIcon = ""
 	ui.tooltipX = x
 	ui.tooltipY = y
+}
+
+func (ui *UISystem) queueTooltipColoredIcon(lines []string, colors []color.Color, icon string, x, y int) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipLines = lines
+	ui.tooltipColors = colors
+	ui.tooltipIcon = ui.validTooltipIcon(icon)
+	ui.tooltipX = x
+	ui.tooltipY = y
+}
+
+func (ui *UISystem) validTooltipIcon(icon string) string {
+	if icon == "" || ui == nil || ui.game == nil || ui.game.sprites == nil {
+		return ""
+	}
+	if ui.game.sprites.HasSprite(icon) {
+		return icon
+	}
+	if !missingTooltipIcons[icon] {
+		missingTooltipIcons[icon] = true
+		log.Printf("[UI] Missing tooltip icon sprite: %s", icon)
+	}
+	return ""
 }
 
 func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color) {
@@ -128,6 +310,35 @@ func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color)
 	}
 	ui.tooltipCompareLines = lines
 	ui.tooltipCompareColors = colors
+}
+
+func itemTooltipIconName(item items.Item) string {
+	switch item.Type {
+	case items.ItemWeapon:
+		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
+		if !ok {
+			key = items.GetWeaponKeyByName(item.Name)
+		}
+		if key != "" {
+			return "icon_weapon_" + key
+		}
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		if item.SpellEffect != "" {
+			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
+		}
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if ok && key != "" {
+		return "icon_item_" + key
+	}
+	return ""
+}
+
+func spellTooltipIconName(spellID spells.SpellID) string {
+	if spellID == "" {
+		return ""
+	}
+	return "icon_spell_" + string(spellID)
 }
 
 const (
@@ -239,20 +450,24 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
+// Stat tooltips include the scaling divisors used in combat formulas so the
+// description never drifts from the actual numbers — see balance.go. The
+// "weapons that scale with X" phrasing matches what `bonus_stat` actually
+// gates in weapons.yaml (any weapon can pick any stat).
 func statTooltipText(stat string) string {
 	switch strings.ToLower(stat) {
 	case "might":
-		return "Increases melee damage."
+		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
 	case "intellect":
-		return "Increases spell damage and spell points."
+		return fmt.Sprintf("Adds Intellect/%d to weapons that scale with Intellect; also adds to max spell points.", WeaponPrimaryStatDivisor)
 	case "personality":
-		return "Increases spell points and mana regen."
+		return "Adds to max spell points and increases SP regen rate."
 	case "endurance":
-		return "Increases health and armor scaling."
+		return "Increases max HP and armor-class scaling on equipped armor."
 	case "accuracy":
-		return "Increases hit chance and ranged damage."
+		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
 	case "speed":
-		return "Reduces action cooldowns."
+		return "Reduces real-time action cooldowns (no effect in turn-based mode)."
 	case "luck":
 		return "Improves critical chance and dodges."
 	default:
@@ -264,16 +479,16 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	switch skill {
 	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
 		character.SkillBow, character.SkillMace, character.SkillStaff:
-		return "Weapon Mastery: +2 base damage per mastery level."
+		return fmt.Sprintf("Weapon Mastery: +%d base damage per mastery level.", MasteryWeaponDamagePerLevel)
 	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
-		return "Armor Mastery: +1 base AC per mastery level."
+		return fmt.Sprintf("Armor Mastery: +%d base AC per mastery level.", MasteryArmorACPerLevel)
 	default:
 		return ""
 	}
 }
 
 func magicMasteryTooltipText() string {
-	return "Magic Mastery: +5 to base spell effects per mastery level."
+	return fmt.Sprintf("Magic Mastery: +%d to base spell effects per mastery level.", MasterySpellEffectPerLevel)
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

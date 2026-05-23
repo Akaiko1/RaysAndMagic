@@ -84,7 +84,7 @@ func canCharacterLearnNPCSpell(char *character.MMCharacter, spellData *character
 			if reqSkill == nil {
 				return false
 			}
-			if schoolReq.MinLevel > 0 && reqSkill.Level < schoolReq.MinLevel {
+			if schoolReq.MinLevel > 0 && reqSkill.Level() < schoolReq.MinLevel {
 				return false
 			}
 		}

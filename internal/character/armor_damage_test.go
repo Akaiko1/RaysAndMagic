@@ -91,8 +91,8 @@ func TestArmorDamageReduction(t *testing.T) {
 			Name:      "TestKnight",
 			Endurance: 20,
 			Skills: map[SkillType]*Skill{
-				SkillLeather: {Level: 1, Mastery: MasteryNovice},
-				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+				SkillLeather: {Mastery: MasteryNovice},
+				SkillPlate:   {Mastery: MasteryNovice},
 			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
@@ -235,8 +235,8 @@ func TestEquipmentSlots(t *testing.T) {
 			Name:      "TestKnight",
 			Endurance: 20,
 			Skills: map[SkillType]*Skill{
-				SkillLeather: {Level: 1, Mastery: MasteryNovice},
-				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+				SkillLeather: {Mastery: MasteryNovice},
+				SkillPlate:   {Mastery: MasteryNovice},
 			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
@@ -293,7 +293,7 @@ func TestEquipmentSlots(t *testing.T) {
 			Name:      "TestKnight",
 			Endurance: 20,
 			Skills: map[SkillType]*Skill{
-				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillLeather: {Mastery: MasteryNovice},
 			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
@@ -388,8 +388,8 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name: "TestKnight",
 			Skills: map[SkillType]*Skill{
-				SkillLeather: {Level: 1, Mastery: MasteryNovice},
-				SkillPlate:   {Level: 1, Mastery: MasteryNovice},
+				SkillLeather: {Mastery: MasteryNovice},
+				SkillPlate:   {Mastery: MasteryNovice},
 			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}
@@ -431,7 +431,7 @@ func TestEquipmentSlots(t *testing.T) {
 		character := &MMCharacter{
 			Name: "TestKnight",
 			Skills: map[SkillType]*Skill{
-				SkillLeather: {Level: 1, Mastery: MasteryNovice},
+				SkillLeather: {Mastery: MasteryNovice},
 			},
 			Equipment: make(map[items.EquipSlot]items.Item),
 		}

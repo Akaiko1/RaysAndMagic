@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"sort"
@@ -117,6 +118,8 @@ func (r *Renderer) ensureRayHitBuffers(numRays int) {
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
+	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
 		r.tileLightCache = nil
@@ -2115,9 +2118,11 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		return
 	}
 
+	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+
 	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
-	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	scaleX := float64(s.spriteSize) / float64(frameW)
+	scaleY := float64(s.spriteSize) / float64(frameH)
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
@@ -2129,7 +2134,26 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
-	screen.DrawImage(s.sprite, opts)
+	screen.DrawImage(sprite, opts)
+}
+
+// selectAnimatedSpriteFrame picks an animation frame from a horizontal sprite
+// sheet. If the sprite's width equals frameHeight × SpriteSheetFrameCount, the
+// sheet is treated as animated and the frame is selected by frameCount; the
+// returned image is a SubImage and the returned width/height are the per-frame
+// dimensions. Otherwise the sprite is returned unchanged.
+func selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
+	bounds := sprite.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if h <= 0 || w != h*SpriteSheetFrameCount {
+		return sprite, w, h
+	}
+	frame := int((frameCount / SpriteFrameStride) % SpriteSheetFrameCount)
+	rect := image.Rect(
+		bounds.Min.X+frame*h, bounds.Min.Y,
+		bounds.Min.X+(frame+1)*h, bounds.Min.Y+h,
+	)
+	return sprite.SubImage(rect).(*ebiten.Image), h, h
 }
 
 // drawProjectiles draws magic projectiles, sword attacks, and arrows

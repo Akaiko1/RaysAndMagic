@@ -43,6 +43,7 @@ type UISystem struct {
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string
 	tooltipColors         []color.Color
+	tooltipIcon           string
 	tooltipX              int
 	tooltipY              int
 	tooltipCompareLines   []string
@@ -94,6 +95,7 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipLines = nil
 	ui.tooltipColors = nil
+	ui.tooltipIcon = ""
 	ui.tooltipCompareLines = nil
 	ui.tooltipCompareColors = nil
 
@@ -103,13 +105,13 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw debug/info elements
 	ui.drawDebugInfo(screen)
 
-	// Draw overlay interfaces (menus and dialogs)
-	ui.drawOverlayInterfaces(screen)
-
 	// Draw Game Over overlay if active
 	if ui.game.gameOver {
 		ui.drawGameOverOverlay(screen)
 	}
+
+	// Draw overlay interfaces (menus and dialogs)
+	ui.drawOverlayInterfaces(screen)
 
 	// Draw Victory overlay if active
 	if ui.game.gameVictory && !ui.game.showHighScores {
@@ -131,24 +133,25 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawLevelUpChoicePopup(screen)
 	}
 
-	// Draw tooltip last so it stays above other UI (unless a blocking popup is open)
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen {
-		mainW, _ := tooltipBoxSize(ui.tooltipLines)
-		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipX, ui.tooltipY)
+	// Draw tooltip last so it stays above other UI (unless a blocking popup is open
+	// or a fullscreen overlay like the world map / dialog is covering the menu).
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.mapOverlayOpen && !ui.game.dialogActive {
+		screenW := screen.Bounds().Dx()
+		mainW, _ := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
+		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, ui.tooltipY, ui.game.sprites)
 		if ui.tooltipCompareLines != nil {
-			compareW, _ := tooltipBoxSize(ui.tooltipCompareLines)
+			compareW, _ := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
 			compareX := ui.tooltipX - tooltipCompareGap - compareW
 			if compareX < 0 {
 				compareX = ui.tooltipX + mainW + tooltipCompareGap
 			}
-			screenW := screen.Bounds().Dx()
 			if compareX+compareW > screenW {
 				compareX = screenW - compareW
 			}
 			if compareX < 0 {
 				compareX = 0
 			}
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, compareX, ui.tooltipY)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, ui.tooltipY, ui.game.sprites)
 		}
 	}
 }

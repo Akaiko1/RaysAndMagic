@@ -195,108 +195,29 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	return true
 }
 
-// EquipmentHeal casts heal using equipped spell (special targeting for heal spells)
-func (cs *CombatSystem) EquipmentHeal() {
-	caster := cs.game.party.Members[cs.game.selectedChar]
-
-	// Unconscious characters cannot cast heals
-	if caster.IsIncapacitated() {
-		return
-	}
-
-	// Check if character has a spell equipped
-	spell, hasSpell := caster.Equipment[items.SlotSpell]
-	if !hasSpell {
-		return // No spell equipped
-	}
-
-	// Only allow heal-type spells for this function
-	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return // Not a heal spell, use F key for other spells
-	}
-
-	// Check spell points (use spell cost for utility spells)
-	spellCost := spell.SpellCost
-	if caster.SpellPoints < spellCost {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			caster.Name, caster.SpellPoints, spellCost))
-		return
-	}
-
-	spellIDStr := string(spell.SpellEffect)
-	if spellIDStr == "" {
-		// Unknown utility spell, exit
-		return
-	}
-
-	// Cast the utility spell
-	caster.SpellPoints -= spellCost
-
-	// Use the spell casting system
-	castingSystem := spells.NewCastingSystem(cs.game.config)
-	spellID := spells.SpellID(spellIDStr)
-	result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Personality)
-	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
-	}
-
-	if result.Success {
-		if _, _, totalHeal := cs.CalculateSpellHealing(spellID, caster); totalHeal > 0 {
-			result.HealAmount = totalHeal
-		}
-		// Apply spell effects based on result
-		if result.HealAmount > 0 {
-			if result.TargetSelf {
-				// Heal self
-				caster.HitPoints += result.HealAmount
-				if caster.HitPoints > caster.MaxHitPoints {
-					caster.HitPoints = caster.MaxHitPoints
-				}
-			} else {
-				// For heal other, use the currently selected target or self if none
-				targetIndex := cs.game.selectedChar // Default to self
-				// TODO: Add target selection mechanism for heal other
-				target := cs.game.party.Members[targetIndex]
-				target.HitPoints += result.HealAmount
-				if target.HitPoints > target.MaxHitPoints {
-					target.HitPoints = target.MaxHitPoints
-				}
-			}
-		}
-
-		// TODO: Apply other effects like vision bonus, stat bonus, duration effects
-		// For now, just show the message
-		cs.game.AddCombatMessage(result.Message)
-		cs.recordSpellCast(caster, spellID)
-	} else {
-		cs.game.AddCombatMessage(result.Message)
-	}
-}
-
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
-func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
+func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast heals
 	if caster.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a heal spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return // No spell equipped
+		return false // No spell equipped
 	}
 
 	// Allow both heal-type spells for targeting
 	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return // Not a heal spell
+		return false // Not a heal spell
 	}
 
 	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
-		return
+		return false
 	}
 	spellID := spells.SpellID(spellIDStr)
 
@@ -305,17 +226,17 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			caster.Name, caster.SpellPoints, spellCost))
-		return
+		return false
 	}
 
 	// For First Aid (SpellEffectHealSelf), only allow self-targeting
 	if spell.SpellEffect == items.SpellEffectHealSelf && targetIndex != cs.game.selectedChar {
-		return // First Aid can only target self
+		return false // First Aid can only target self
 	}
 
 	// Check if target index is valid
 	if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
-		return
+		return false
 	}
 
 	target := cs.game.party.Members[targetIndex]
@@ -323,7 +244,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	// Heal must not revive characters at 0 HP / Dead.
 	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
-		return
+		return false
 	}
 
 	// Cast heal on target
@@ -347,6 +268,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 		cs.game.AddCombatMessage(message)
 	}
 	cs.recordSpellCast(caster, spellID)
+	return true
 }
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
@@ -684,7 +606,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
-	if cs.game.selectedSpell >= len(availableSpells) {
+	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
 		return
 	}
 
@@ -852,7 +774,7 @@ func (cs *CombatSystem) EquipSelectedSpell() {
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
-	if cs.game.selectedSpell >= len(availableSpells) {
+	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
 		return
 	}
 
@@ -1588,18 +1510,17 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 
 // checkLevelUp checks if a character should level up and applies level up benefits
 func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
-	// Simple level progression: each level requires level * 100 experience
-	// Loop to handle multiple level-ups from single experience gain
+	// Level progression: each level requires currentLevel * XPRequiredPerLevel
+	// experience. Loop handles multiple level-ups from a single XP gain.
 	for {
-		requiredExp := character.Level * 100
+		requiredExp := character.Level * XPRequiredPerLevel
 
 		if character.Experience >= requiredExp {
 			oldLevel := character.Level
 			character.Level++
 			character.Experience -= requiredExp // Subtract used experience
 
-			// Grant 5 free stat points per level
-			character.FreeStatPoints += 5
+			character.FreeStatPoints += StatPointsPerLevel
 
 			// Recalculate derived stats (health and mana increase with level)
 			character.CalculateDerivedStats(cs.game.config)
@@ -1608,8 +1529,8 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 			character.HitPoints = character.MaxHitPoints
 			character.SpellPoints = character.MaxSpellPoints
 
-			message := fmt.Sprintf("%s reached level %d! (was level %d) [+5 stat points]",
-				character.Name, character.Level, oldLevel)
+			message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
+				character.Name, character.Level, oldLevel, StatPointsPerLevel)
 			cs.game.AddCombatMessage(message)
 
 			if choices := config.GetLevelUpChoices(character.GetClassKey(), character.Level); len(choices) > 0 {
@@ -1636,14 +1557,14 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	var primaryStatBonus int
 	switch weapon.BonusStat {
 	case "Might":
-		primaryStatBonus = might / 3
+		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	case "Accuracy":
-		primaryStatBonus = accuracy / 3
+		primaryStatBonus = accuracy / WeaponPrimaryStatDivisor
 	case "Intellect":
-		primaryStatBonus = intellect / 3
+		primaryStatBonus = intellect / WeaponPrimaryStatDivisor
 	default:
 		// Fallback to Might for weapons without bonus stat specified
-		primaryStatBonus = might / 3
+		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	}
 
 	// Add secondary stat bonus if weapon has dual scaling
@@ -1651,11 +1572,11 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	if weapon.BonusStatSecondary != "" {
 		switch weapon.BonusStatSecondary {
 		case "Might":
-			secondaryStatBonus = might / 4 // Secondary stats give less bonus
+			secondaryStatBonus = might / WeaponSecondaryStatDivisor
 		case "Accuracy":
-			secondaryStatBonus = accuracy / 4
+			secondaryStatBonus = accuracy / WeaponSecondaryStatDivisor
 		case "Intellect":
-			secondaryStatBonus = intellect / 4
+			secondaryStatBonus = intellect / WeaponSecondaryStatDivisor
 		}
 	}
 
@@ -1677,15 +1598,15 @@ func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, char *character.MM
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
-		return int(skill.Mastery) * 2
+		return int(skill.Mastery) * MasteryWeaponDamagePerLevel
 	}
 	return 0
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
 func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
-	baseDamage := spellPoints * 3
-	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / 2
+	baseDamage := spellPoints * spells.SpellDamagePerSP
+	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / spells.SpellIntellectDivisor
 	totalDamage := baseDamage + intellectBonus
 	return baseDamage, intellectBonus, totalDamage
 }
@@ -1698,7 +1619,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	}
 	school := character.MagicSchoolID(def.School)
 	if skill, exists := char.MagicSchools[school]; exists {
-		return int(skill.Mastery) * 5
+		return int(skill.Mastery) * MasterySpellEffectPerLevel
 	}
 	return 0
 }
@@ -1715,7 +1636,7 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 		return
 	}
 	skill.CastCount++
-	desired := character.SkillMastery(skill.CastCount / 30)
+	desired := character.SkillMastery(skill.CastCount / AutoMasteryCastsPerLevel)
 	if desired > character.MasteryGrandMaster {
 		desired = character.MasteryGrandMaster
 	}
@@ -1724,16 +1645,10 @@ func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spe
 	}
 }
 
-// CalculateAccuracyBonus calculates accuracy bonus from character stats
-func (cs *CombatSystem) CalculateAccuracyBonus(character *character.MMCharacter) int {
-	// Accuracy bonus is half of character's Accuracy stat
-	return character.Accuracy / 2
-}
-
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
-	return char.GetEffectiveLuck(cs.game.statBonus) / 4
+	return char.GetEffectiveLuck(cs.game.statBonus) / LuckToCritDivisor
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
@@ -1771,10 +1686,10 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
-// chance = effective Luck / 5, clamped to [0,100].
+// chance = effective Luck / LuckToDodgeDivisor, clamped to [0,100].
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck(cs.game.statBonus) / 5
+	chance := chr.GetEffectiveLuck(cs.game.statBonus) / LuckToDodgeDivisor
 	if chance < 0 {
 		chance = 0
 	}
@@ -1789,8 +1704,7 @@ func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int)
 func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MMCharacter) int {
 	totalArmorClass := cs.CalculateTotalArmorClass(char)
 
-	// Damage reduction (same formula as tooltip)
-	damageReduction := totalArmorClass / 2
+	damageReduction := totalArmorClass / ArmorPhysicalReductionDivisor
 
 	// Apply damage reduction
 	finalDamage := damage - damageReduction
@@ -1852,7 +1766,7 @@ func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass 
 			applyArmor = false // Armor piercing shot!
 		}
 		if applyArmor {
-			armorReduction := armorClass / 2
+			armorReduction := armorClass / ArmorPhysicalReductionDivisor
 			reducedDamage = damage - armorReduction
 			if reducedDamage < 1 {
 				reducedDamage = 1 // Minimum 1 damage
@@ -1871,7 +1785,7 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 		return 0
 	}
 	if skill, exists := char.Skills[skillType]; exists {
-		return int(skill.Mastery)
+		return int(skill.Mastery) * MasteryArmorACPerLevel
 	}
 	return 0
 }

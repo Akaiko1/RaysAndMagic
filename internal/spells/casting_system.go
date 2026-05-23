@@ -37,11 +37,8 @@ func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage,
 		return 0, 0, 0
 	}
 
-	// Original formula: baseDamage = spellPoints * 3
-	baseDamage = def.SpellPointsCost * 3
-
-	// Original formula: intellectBonus = character.Intellect / 2
-	intellectBonus = casterIntellect / 2
+	baseDamage = def.SpellPointsCost * SpellDamagePerSP
+	intellectBonus = casterIntellect / SpellIntellectDivisor
 
 	totalDamage = baseDamage + intellectBonus
 	return
@@ -61,8 +58,7 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 		baseHealing = def.Damage
 	}
 
-	// Personality bonus: casterPersonality / 2
-	personalityBonus = casterPersonality / 2
+	personalityBonus = casterPersonality / HealingPersonalityDivisor
 
 	totalHealing = baseHealing + personalityBonus
 	return

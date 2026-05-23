@@ -172,7 +172,7 @@ func TestCharacterSkills(t *testing.T) {
 			for _, expectedSkill := range tt.expectedSkills {
 				if skill, exists := char.Skills[expectedSkill]; !exists {
 					t.Errorf("Expected skill %d not found", expectedSkill)
-				} else if skill.Level != 1 || skill.Mastery != MasteryNovice {
+				} else if skill.Level() != 1 || skill.Mastery != MasteryNovice {
 					t.Errorf("Expected skill %d at level 1 with Novice mastery", expectedSkill)
 				}
 			}
@@ -181,7 +181,7 @@ func TestCharacterSkills(t *testing.T) {
 			for _, expectedSchool := range tt.expectedMagic {
 				if magicSkill, exists := char.MagicSchools[expectedSchool]; !exists {
 					t.Errorf("Expected magic school %s not found", expectedSchool)
-				} else if magicSkill.Level != 1 || magicSkill.Mastery != MasteryNovice {
+				} else if magicSkill.Level() != 1 || magicSkill.Mastery != MasteryNovice {
 					t.Errorf("Expected magic school %s at level 1 with Novice mastery", expectedSchool)
 				}
 			}

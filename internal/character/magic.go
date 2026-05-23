@@ -57,8 +57,19 @@ func (ms MagicSchoolID) AvailableSpellIDs() ([]spells.SpellID, error) {
 }
 
 type MagicSkill struct {
-	Level       int
 	Mastery     SkillMastery
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
 	CastCount   int              // Total casts in this school (for mastery progression)
+}
+
+func (ms *MagicSkill) Level() int {
+	return int(ms.Mastery) + 1
+}
+
+func (ms *MagicSkill) IncreaseMastery() bool {
+	if ms == nil || ms.Mastery >= MasteryGrandMaster {
+		return false
+	}
+	ms.Mastery++
+	return true
 }

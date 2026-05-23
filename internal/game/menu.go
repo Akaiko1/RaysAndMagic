@@ -43,6 +43,7 @@ type GameSave struct {
 	MapMonsters  map[string][]MonsterSave `json:"map_monsters,omitempty"`
 	NPCStates    []NPCSave                `json:"npc_states"`
 	Quests       []QuestSave              `json:"quests,omitempty"`
+	LootBags     []LootBagSave            `json:"loot_bags,omitempty"`
 	PlayedTimeNs int64                    `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 
 	// Turn-based state
@@ -88,26 +89,27 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	Name           string             `json:"name"`
-	Class          int                `json:"class"`
-	Level          int                `json:"level"`
-	Experience     int                `json:"experience"`
-	HitPoints      int                `json:"hit_points"`
-	MaxHitPoints   int                `json:"max_hit_points"`
-	SpellPoints    int                `json:"spell_points"`
-	MaxSpellPoints int                `json:"max_spell_points"`
-	Might          int                `json:"might"`
-	Intellect      int                `json:"intellect"`
-	Personality    int                `json:"personality"`
-	Endurance      int                `json:"endurance"`
-	Accuracy       int                `json:"accuracy"`
-	Speed          int                `json:"speed"`
-	Luck           int                `json:"luck"`
-	FreeStatPoints int                `json:"free_stat_points"`
-	Conditions     []int              `json:"conditions"`
-	Skills         []SkillEntry       `json:"skills"`
-	MagicSchools   []MagicSchoolEntry `json:"magic_schools"`
-	Equipment      []EquipmentEntry   `json:"equipment"`
+	Name                  string             `json:"name"`
+	Class                 int                `json:"class"`
+	Level                 int                `json:"level"`
+	Experience            int                `json:"experience"`
+	HitPoints             int                `json:"hit_points"`
+	MaxHitPoints          int                `json:"max_hit_points"`
+	SpellPoints           int                `json:"spell_points"`
+	MaxSpellPoints        int                `json:"max_spell_points"`
+	Might                 int                `json:"might"`
+	Intellect             int                `json:"intellect"`
+	Personality           int                `json:"personality"`
+	Endurance             int                `json:"endurance"`
+	Accuracy              int                `json:"accuracy"`
+	Speed                 int                `json:"speed"`
+	Luck                  int                `json:"luck"`
+	FreeStatPoints        int                `json:"free_stat_points"`
+	Conditions            []int              `json:"conditions"`
+	Skills                []SkillEntry       `json:"skills"`
+	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
+	Equipment             []EquipmentEntry   `json:"equipment"`
+	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
 }
 
 type SkillEntry struct {
@@ -127,6 +129,15 @@ type MagicSchoolEntry struct {
 type EquipmentEntry struct {
 	Slot int        `json:"slot"`
 	Item items.Item `json:"item"`
+}
+
+// LootBagSave captures a dropped loot bag on the ground for save/load.
+type LootBagSave struct {
+	X              float64      `json:"x"`
+	Y              float64      `json:"y"`
+	Gold           int          `json:"gold"`
+	Items          []items.Item `json:"items,omitempty"`
+	SizeMultiplier float64      `json:"size_multiplier"`
 }
 
 type MonsterSave struct {
@@ -318,11 +329,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Skills
 		for t, s := range m.Skills {
-			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level, Mastery: int(s.Mastery)})
+			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
 		}
 		// Magic schools
 		for school, ms := range m.MagicSchools {
-			entry := MagicSchoolEntry{School: string(school), Level: ms.Level, Mastery: int(ms.Mastery), CastCount: ms.CastCount}
+			entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
 			if len(ms.KnownSpells) > 0 {
 				entry.KnownSpells = make([]string, len(ms.KnownSpells))
 				for i, sp := range ms.KnownSpells {
@@ -335,7 +346,22 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		for slot, item := range m.Equipment {
 			cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
 		}
+		// Poison timer (so save/load doesn't cure ongoing poison).
+		cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 		ps.Members = append(ps.Members, cs)
+	}
+
+	// Loot bags currently on the ground in the current map.
+	var lootBagSaves []LootBagSave
+	if len(g.lootBags) > 0 {
+		lootBagSaves = make([]LootBagSave, len(g.lootBags))
+		for i, bag := range g.lootBags {
+			entry := LootBagSave{X: bag.X, Y: bag.Y, Gold: bag.Gold, SizeMultiplier: bag.SizeMultiplier}
+			if len(bag.Items) > 0 {
+				entry.Items = append([]items.Item(nil), bag.Items...)
+			}
+			lootBagSaves[i] = entry
+		}
 	}
 
 	// Monsters across all loaded maps.
@@ -419,6 +445,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		MapMonsters:            mapMonsters,
 		NPCStates:              nstates,
 		Quests:                 questSaves,
+		LootBags:               lootBagSaves,
 		PlayedTimeNs:           playedTime.Nanoseconds(),
 		CurrentTurn:            g.currentTurn,
 		PartyActionsUsed:       g.partyActionsUsed,
@@ -502,11 +529,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			}
 		}
 		for _, s := range cs.Skills {
-			m.Skills[character.SkillType(s.Type)] = &character.Skill{Level: s.Level, Mastery: character.SkillMastery(s.Mastery)}
+			mastery := character.SkillMastery(s.Mastery)
+			if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
+				mastery = migrated
+			}
+			skill := &character.Skill{Mastery: mastery}
+			m.Skills[character.SkillType(s.Type)] = skill
 		}
 		for _, me := range cs.MagicSchools {
 			mk := character.MagicSchoolID(me.School)
-			ms := &character.MagicSkill{Level: me.Level, Mastery: character.SkillMastery(me.Mastery), CastCount: me.CastCount}
+			mastery := character.SkillMastery(me.Mastery)
+			if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
+				mastery = migrated
+			}
+			ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
 			if len(me.KnownSpells) > 0 {
 				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
 				for i, s := range me.KnownSpells {
@@ -520,6 +556,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			normalizeItemFromConfig(&item)
 			m.Equipment[items.EquipSlot(eq.Slot)] = item
 		}
+		m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 		g.party.Members = append(g.party.Members, m)
 	}
 
@@ -629,10 +666,27 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
 	g.levelUpChoiceQueue = nil
+	g.gameOver = false
+	g.gameVictory = false
+	g.showHighScores = false
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
+	}
+
+	// Restore dropped loot bags on the current map.
+	g.lootBags = make([]LootBag, 0, len(save.LootBags))
+	for _, bag := range save.LootBags {
+		restored := LootBag{X: bag.X, Y: bag.Y, Gold: bag.Gold, SizeMultiplier: bag.SizeMultiplier}
+		if len(bag.Items) > 0 {
+			restored.Items = make([]items.Item, len(bag.Items))
+			for i, it := range bag.Items {
+				normalizeItemFromConfig(&it)
+				restored.Items[i] = it
+			}
+		}
+		g.lootBags = append(g.lootBags, restored)
 	}
 
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)

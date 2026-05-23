@@ -115,6 +115,16 @@ func (sm *SpriteManager) GetSprite(name string) *ebiten.Image {
 	return sm.createPlaceholder(name)
 }
 
+func (sm *SpriteManager) HasSprite(name string) bool {
+	if name == "" {
+		return false
+	}
+	if _, exists := sm.sprites[name]; exists {
+		return true
+	}
+	return sm.spriteExists(name)
+}
+
 func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
 	variants := []string{}
 	if sm.spriteExists(baseName) {

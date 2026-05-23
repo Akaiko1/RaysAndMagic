@@ -444,7 +444,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 			cellColor := getMapTileColor(tile, floorColor, tm, tileDataByKey)
 			drawX := originX + tx*tileSize
 			drawY := originY + ty*tileSize
-			vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
+			vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
 
@@ -1018,7 +1018,7 @@ func drawTileMarkerRect(screen *ebiten.Image, originX, originY, tileSize, tx, ty
 	}
 	drawX := originX + tx*tileSize + (tileSize-size)/2
 	drawY := originY + ty*tileSize + (tileSize-size)/2
-	vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), clr, false)
+	vector.FillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), clr, false)
 }
 
 func drawTileLetter(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, letter string) {
@@ -1209,7 +1209,7 @@ func colorFromRGB(rgb [3]int, a uint8) color.RGBA {
 }
 
 func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
+	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
 }
 
 func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.RGBA) {
@@ -1218,10 +1218,10 @@ func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.R
 	fy := float32(y)
 	fw := float32(w)
 	fh := float32(h)
-	vector.DrawFilledRect(screen, fx, fy, fw, t, clr, false)
-	vector.DrawFilledRect(screen, fx, fy+fh-t, fw, t, clr, false)
-	vector.DrawFilledRect(screen, fx, fy, t, fh, clr, false)
-	vector.DrawFilledRect(screen, fx+fw-t, fy, t, fh, clr, false)
+	vector.FillRect(screen, fx, fy, fw, t, clr, false)
+	vector.FillRect(screen, fx, fy+fh-t, fw, t, clr, false)
+	vector.FillRect(screen, fx, fy, t, fh, clr, false)
+	vector.FillRect(screen, fx+fw-t, fy, t, fh, clr, false)
 }
 
 func ensureRuntimeCWD() {

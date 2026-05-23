@@ -24,7 +24,7 @@ type statMeta struct {
 const MaxStatValue = 99
 
 // drawStatPointRow draws a single stat row with name, value, and + button
-func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
+func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
 
 	// Check if stat is already at max (99)
@@ -39,8 +39,8 @@ func drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX
 	} else {
 		plusColor = color.RGBA{60, 120, 60, 180}
 	}
-	vector.DrawFilledRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
-	drawCenteredDebugText(screen, "+", plusX, plusY, btnW, btnH)
+	vector.FillRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
+	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
 	// Handle click
 	if canActuallyAdd && *isHover && clickIn {
 		(*valuePtr)++
@@ -98,7 +98,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		canAdd := member.FreeStatPoints > 0
 		isHover := mouseX >= plusX && mouseX < plusX+btnW && mouseY >= plusY && mouseY < plusY+btnH
 		clickIn := ui.game.consumeLeftClickIn(plusX, plusY, plusX+btnW, plusY+btnH)
-		if drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, clickIn) {
+		if ui.drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, clickIn) {
 			member.FreeStatPoints--
 			// Recalculate derived stats (HP, SP) when any stat is increased
 			member.CalculateDerivedStats(ui.game.config)
@@ -114,7 +114,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	} else {
 		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{120, 60, 60, 180})
 	}
-	drawCenteredDebugText(screen, "X", closeX, closeY, 28, 28)
+	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 24, 24)
 	// Handle close click
 	// Only allow closing if the mouse was released after opening the popup
 	if isCloseHover && ui.game.consumeLeftClickIn(closeX, closeY, closeX+28, closeY+28) && !ui.justOpenedStatPopup {
@@ -159,6 +159,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 		y := startY + i*rowH
 		if i == req.selection {
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
 		}
 		if option.hasMastery && option.masteryCurrent != "" && option.masteryNext != "" {
 			segments := []coloredTextSegment{
@@ -167,9 +168,9 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 				{text: " -> ", color: color.White},
 				{text: option.masteryNext, color: color.RGBA{80, 220, 80, 255}},
 			}
-			drawColoredTextSegments(screen, popupX+28, y, segments)
+			drawColoredTextSegments(screen, popupX+40, y, segments)
 		} else {
-			ebitenutil.DebugPrintAt(screen, option.label, popupX+28, y)
+			ebitenutil.DebugPrintAt(screen, option.label, popupX+40, y)
 		}
 
 		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
@@ -183,7 +184,11 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 				tooltip = magicMasteryTooltipText()
 			}
 			if tooltip != "" {
-				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+				icon := ""
+				if strings.ToLower(option.choice.Type) == "spell" {
+					icon = spellTooltipIconName(option.spellID)
+				}
+				ui.queueTooltipIcon(strings.Split(tooltip, "\n"), icon, mouseX+16, mouseY+8)
 			}
 		}
 	}
@@ -602,7 +607,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	closeX := panelX + panelW - 26
 	closeY := panelY + 10
 	drawFilledRect(screen, closeX, closeY, 16, 16, color.RGBA{200, 60, 60, 220})
-	drawCenteredDebugText(screen, "X", closeX, closeY, 16, 16)
+	ui.drawInterfaceIcon(screen, "icon_close", closeX, closeY, 16, 16)
 	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+16, closeY+16) {
 		ui.game.mapOverlayOpen = false
 	}
@@ -637,13 +642,15 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 		}
 	}
 
+	defaultWallColor := color.RGBA{40, 40, 50, 255}
 	for y := 0; y < worldH; y++ {
 		for x := 0; x < worldW; x++ {
 			tile := ui.game.world.Tiles[y][x]
 			cellColor := floorColor
+			matched := true
 			switch tile {
 			case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-				cellColor = color.RGBA{40, 40, 50, 255}
+				cellColor = defaultWallColor
 			case world.TileWater:
 				cellColor = color.RGBA{40, 90, 160, 255}
 			case world.TileDeepWater:
@@ -652,11 +659,25 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 				cellColor = color.RGBA{170, 80, 200, 255}
 			case world.TileRedTeleporter:
 				cellColor = color.RGBA{200, 70, 70, 255}
+			default:
+				matched = false
+			}
+			// Dynamic tiles (corals, sand dunes, etc.) aren't in the predefined
+			// constants — pull their colour from the tile manager so they show
+			// up on the map overlay too.
+			if !matched && world.GlobalTileManager != nil {
+				if td := world.GlobalTileManager.GetTileData(tile); td != nil {
+					if td.Solid {
+						cellColor = color.RGBA{uint8(td.WallColor[0]), uint8(td.WallColor[1]), uint8(td.WallColor[2]), 255}
+					} else if td.FloorNearColor != [3]int{} {
+						cellColor = color.RGBA{uint8(td.FloorNearColor[0]), uint8(td.FloorNearColor[1]), uint8(td.FloorNearColor[2]), 255}
+					}
+				}
 			}
 
 			drawX := originX + x*tileSize
 			drawY := originY + y*tileSize
-			vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
+			vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
 
@@ -674,7 +695,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 		if size < 3 {
 			size = 3
 		}
-		vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
+		vector.FillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
 	}
 
 	// Quest markers overlay (top 3 active quests with RGB colors)

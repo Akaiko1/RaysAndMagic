@@ -122,7 +122,7 @@ func (cs *TestCombatSystem) SwordAttack() bool {
 		Y:        cs.camera.Y,
 		VelX:     math.Cos(cs.camera.Angle) * 5.0, // Default sword speed
 		VelY:     math.Sin(cs.camera.Angle) * 5.0,
-		Damage:   8 + attacker.Might/3 + swordSkill.Level,
+		Damage:   8 + attacker.Might/3 + swordSkill.Level(),
 		LifeTime: 15, // Default sword lifetime
 		Active:   true,
 	}
@@ -286,7 +286,7 @@ func TestCombatMechanics(t *testing.T) {
 			}
 
 			swordSkill := knight.Skills[SkillSword]
-			expectedDamage := 8 + knight.Might/3 + swordSkill.Level
+			expectedDamage := 8 + knight.Might/3 + swordSkill.Level()
 			if attack.Damage != expectedDamage {
 				t.Errorf("Expected sword damage %d, got %d", expectedDamage, attack.Damage)
 			}
