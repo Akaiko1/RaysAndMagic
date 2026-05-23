@@ -98,7 +98,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	// Draw tooltip for equipped item if needed
 	if equipTooltip != "" && equipTooltipHasItem {
 		lines := strings.Split(equipTooltip, "\n")
-		ui.queueTooltipColored(lines, ui.itemTooltipColors(equipTooltipItem, lines), equipTooltipX, equipTooltipY)
+		ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(equipTooltipItem, lines), itemTooltipIconName(equipTooltipItem), equipTooltipX, equipTooltipY)
 	}
 
 	// General inventory section (right side)
@@ -195,7 +195,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		// Draw tooltip if needed
 		if tooltip != "" && tooltipHasItem {
 			lines := strings.Split(tooltip, "\n")
-			ui.queueTooltipColored(lines, ui.itemTooltipColors(tooltipItem, lines), tooltipX, tooltipY)
+			ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
 			if compareTooltip != "" {
 				compareLines := strings.Split(compareTooltip, "\n")
 				ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
@@ -456,6 +456,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	y := contentY + 60
 	var spellTooltip string
 	var spellCompareTooltip string
+	var spellTooltipID spells.SpellID
 	var tooltipX, tooltipY int
 
 	for schoolIndex, school := range schools {
@@ -512,6 +513,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 				// Generate spell tooltip using SpellID
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
 				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
+				spellTooltipID = spellID
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
 			}
@@ -530,7 +532,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	// Draw spell tooltip if hovering over a spell
 	if spellTooltip != "" {
 		lines := strings.Split(spellTooltip, "\n")
-		ui.queueTooltip(lines, tooltipX, tooltipY)
+		ui.queueTooltipIcon(lines, spellTooltipIconName(spellTooltipID), tooltipX, tooltipY)
 		if spellCompareTooltip != "" {
 			compareLines := strings.Split(spellCompareTooltip, "\n")
 			ui.queueTooltipComparison(compareLines, nil)

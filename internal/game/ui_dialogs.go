@@ -184,7 +184,11 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 				tooltip = magicMasteryTooltipText()
 			}
 			if tooltip != "" {
-				ui.queueTooltip(strings.Split(tooltip, "\n"), mouseX+16, mouseY+8)
+				icon := ""
+				if strings.ToLower(option.choice.Type) == "spell" {
+					icon = spellTooltipIconName(option.spellID)
+				}
+				ui.queueTooltipIcon(strings.Split(tooltip, "\n"), icon, mouseX+16, mouseY+8)
 			}
 		}
 	}

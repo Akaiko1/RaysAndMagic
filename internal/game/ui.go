@@ -43,6 +43,7 @@ type UISystem struct {
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string
 	tooltipColors         []color.Color
+	tooltipIcon           string
 	tooltipX              int
 	tooltipY              int
 	tooltipCompareLines   []string
@@ -94,6 +95,7 @@ func drawCircleToImage(img *ebiten.Image, size int, c color.RGBA) {
 func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipLines = nil
 	ui.tooltipColors = nil
+	ui.tooltipIcon = ""
 	ui.tooltipCompareLines = nil
 	ui.tooltipCompareColors = nil
 
@@ -133,22 +135,22 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 
 	// Draw tooltip last so it stays above other UI (unless a blocking popup is open)
 	if ui.tooltipLines != nil && !ui.game.statPopupOpen {
-		mainW, _ := tooltipBoxSize(ui.tooltipLines)
-		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipX, ui.tooltipY)
+		screenW := screen.Bounds().Dx()
+		mainW, _ := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
+		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, ui.tooltipY, ui.game.sprites)
 		if ui.tooltipCompareLines != nil {
-			compareW, _ := tooltipBoxSize(ui.tooltipCompareLines)
+			compareW, _ := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
 			compareX := ui.tooltipX - tooltipCompareGap - compareW
 			if compareX < 0 {
 				compareX = ui.tooltipX + mainW + tooltipCompareGap
 			}
-			screenW := screen.Bounds().Dx()
 			if compareX+compareW > screenW {
 				compareX = screenW - compareW
 			}
 			if compareX < 0 {
 				compareX = 0
 			}
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, compareX, ui.tooltipY)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, ui.tooltipY, ui.game.sprites)
 		}
 	}
 }

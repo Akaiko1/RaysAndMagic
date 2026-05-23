@@ -9,7 +9,9 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -133,18 +135,31 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 }
 
 const tooltipCompareGap = 8
+const tooltipIconSize = 64
+const tooltipIconGap = 8
 
 func tooltipBoxSize(lines []string) (int, int) {
+	return tooltipBoxSizeWithIcon(lines, false)
+}
+
+func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 	if len(lines) == 0 {
 		return 0, 0
 	}
+	iconSpace := 0
+	if hasIcon {
+		iconSpace = tooltipIconSize + tooltipIconGap
+	}
 	bgWidth := 0
 	for _, line := range lines {
-		if w := debugTextWidth(line) + 12; w > bgWidth {
+		if w := debugTextWidth(line) + 12 + iconSpace; w > bgWidth {
 			bgWidth = w
 		}
 	}
 	bgHeight := len(lines)*16 + 8
+	if hasIcon && bgHeight < tooltipIconSize+12 {
+		bgHeight = tooltipIconSize + 12
+	}
 	return bgWidth, bgHeight
 }
 
@@ -152,20 +167,26 @@ func tooltipBoxSize(lines []string) (int, int) {
 // position. Lines that don't fit between the tooltip's x position and the
 // right screen edge are word-wrapped onto multiple rows; the colors slice
 // (if provided) is expanded so each wrapped row keeps its original color.
-func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, y int) {
+func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y int, sprites *graphics.SpriteManager) {
 	screenW := screen.Bounds().Dx()
-	lines, colors = wrapTooltipLines(lines, colors, x, screenW)
 
-	bgWidth, bgHeight := tooltipBoxSize(lines)
+	hasIcon := iconName != "" && sprites != nil
+	lines, colors = wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
+	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
+	textX := x + 6
+	if hasIcon {
+		drawImageScaled(screen, sprites.GetSprite(iconName), x+6, y+6, tooltipIconSize, tooltipIconSize)
+		textX += tooltipIconSize + tooltipIconGap
+	}
 	if len(colors) == len(lines) && len(colors) > 0 {
 		for i, line := range lines {
-			drawDebugTextColored(screen, line, x+6, y+6+i*16, colors[i])
+			drawDebugTextColored(screen, line, textX, y+6+i*16, colors[i])
 		}
 		return
 	}
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, x+6, y+6+i*16)
+		ebitenutil.DebugPrintAt(screen, line, textX, y+6+i*16)
 	}
 }
 
@@ -174,8 +195,8 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, x, 
 // (each wrapped fragment inherits the original line's color, or nil if no
 // colors were provided). Minimum wrap width is 16 chars so we don't produce
 // pathological single-char columns when x is very close to the right edge.
-func wrapTooltipLines(lines []string, colors []color.Color, x, screenW int) ([]string, []color.Color) {
-	availablePx := screenW - x - 12 // 6px padding each side
+func wrapTooltipLines(lines []string, colors []color.Color, x, screenW, textOffsetPx int) ([]string, []color.Color) {
+	availablePx := screenW - x - 12 - textOffsetPx // 6px padding each side
 	maxChars := availablePx / debugTextCharWidth
 	if maxChars < 16 {
 		maxChars = 16
@@ -210,12 +231,36 @@ func wrapTooltipLines(lines []string, colors []color.Color, x, screenW int) ([]s
 	return wrapped, wrappedColors
 }
 
+func tooltipTextOffset(hasIcon bool) int {
+	if hasIcon {
+		return tooltipIconSize + tooltipIconGap
+	}
+	return 0
+}
+
+func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW int) (int, int) {
+	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
+	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
+}
+
 func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 	if len(lines) == 0 {
 		return
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
+	ui.tooltipIcon = ""
+	ui.tooltipX = x
+	ui.tooltipY = y
+}
+
+func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipLines = lines
+	ui.tooltipColors = nil
+	ui.tooltipIcon = icon
 	ui.tooltipX = x
 	ui.tooltipY = y
 }
@@ -226,6 +271,18 @@ func (ui *UISystem) queueTooltipColored(lines []string, colors []color.Color, x,
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = colors
+	ui.tooltipIcon = ""
+	ui.tooltipX = x
+	ui.tooltipY = y
+}
+
+func (ui *UISystem) queueTooltipColoredIcon(lines []string, colors []color.Color, icon string, x, y int) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipLines = lines
+	ui.tooltipColors = colors
+	ui.tooltipIcon = icon
 	ui.tooltipX = x
 	ui.tooltipY = y
 }
@@ -236,6 +293,35 @@ func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color)
 	}
 	ui.tooltipCompareLines = lines
 	ui.tooltipCompareColors = colors
+}
+
+func itemTooltipIconName(item items.Item) string {
+	switch item.Type {
+	case items.ItemWeapon:
+		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
+		if !ok {
+			key = items.GetWeaponKeyByName(item.Name)
+		}
+		if key != "" {
+			return "icon_weapon_" + key
+		}
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		if item.SpellEffect != "" {
+			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
+		}
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if ok && key != "" {
+		return "icon_item_" + key
+	}
+	return ""
+}
+
+func spellTooltipIconName(spellID spells.SpellID) string {
+	if spellID == "" {
+		return ""
+	}
+	return "icon_spell_" + string(spellID)
 }
 
 const (
