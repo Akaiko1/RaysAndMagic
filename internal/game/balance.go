@@ -60,3 +60,14 @@ const (
 	// percent points.
 	LuckToDodgeDivisor = 5
 )
+
+// Sprite animation timing.
+const (
+	// SpriteFrameStride is the number of game frames each animation frame is
+	// held for in horizontal sprite sheets (~0.3s at 60 FPS).
+	SpriteFrameStride = 18
+
+	// SpriteSheetFrameCount is the expected number of frames in a horizontal
+	// sprite sheet (sheet width = frame height × SpriteSheetFrameCount).
+	SpriteSheetFrameCount = 4
+)

@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -306,5 +307,68 @@ func TestSaveLoad_PreservesEncounterRewards(t *testing.T) {
 	}
 	if encB.EncounterRewards.Gold != rewardsB.Gold || encB.EncounterRewards.Experience != rewardsB.Experience {
 		t.Fatalf("encounter_b rewards mismatch")
+	}
+}
+
+func TestSaveLoad_PersistsLootBags(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wm := world.NewWorldManager(cfg)
+	worldTest := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": worldTest}
+	wm.CurrentMapKey = "forest"
+
+	game := newTestGame(cfg, worldTest)
+	game.lootBags = []LootBag{
+		{X: 100, Y: 200, Gold: 42, SizeMultiplier: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
+		{X: 320, Y: 256, Gold: 0, SizeMultiplier: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
+	}
+
+	save := game.buildSave(wm)
+
+	loaded := newTestGame(cfg, worldTest)
+	loaded.lootBags = []LootBag{{X: 999, Y: 999, Gold: 1}} // should be wiped
+	if err := loaded.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	if len(loaded.lootBags) != 2 {
+		t.Fatalf("expected 2 loot bags after load, got %d", len(loaded.lootBags))
+	}
+	if loaded.lootBags[0].Gold != 42 || loaded.lootBags[0].X != 100 || loaded.lootBags[0].Y != 200 {
+		t.Fatalf("first loot bag mismatch: %+v", loaded.lootBags[0])
+	}
+	if loaded.lootBags[0].SizeMultiplier != 0.5 {
+		t.Fatalf("size multiplier not preserved: %v", loaded.lootBags[0].SizeMultiplier)
+	}
+	if len(loaded.lootBags[0].Items) != 1 || loaded.lootBags[0].Items[0].Name != "Iron Sword" {
+		t.Fatalf("first loot bag items mismatch: %+v", loaded.lootBags[0].Items)
+	}
+	if loaded.lootBags[1].Items[0].Name != "Leather Armor" {
+		t.Fatalf("second loot bag items mismatch: %+v", loaded.lootBags[1].Items)
+	}
+}
+
+func TestSaveLoad_PersistsPoisonTimer(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wm := world.NewWorldManager(cfg)
+	worldTest := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": worldTest}
+	wm.CurrentMapKey = "forest"
+
+	game := newTestGame(cfg, worldTest)
+	if len(game.party.Members) == 0 {
+		t.Fatalf("party expected to have members")
+	}
+	game.party.Members[0].PoisonFramesRemaining = 1500
+
+	save := game.buildSave(wm)
+
+	loaded := newTestGame(cfg, worldTest)
+	if err := loaded.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	if got := loaded.party.Members[0].PoisonFramesRemaining; got != 1500 {
+		t.Fatalf("expected poison timer 1500 after load, got %d", got)
 	}
 }

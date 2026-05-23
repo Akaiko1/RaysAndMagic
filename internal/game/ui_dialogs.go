@@ -642,13 +642,15 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 		}
 	}
 
+	defaultWallColor := color.RGBA{40, 40, 50, 255}
 	for y := 0; y < worldH; y++ {
 		for x := 0; x < worldW; x++ {
 			tile := ui.game.world.Tiles[y][x]
 			cellColor := floorColor
+			matched := true
 			switch tile {
 			case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-				cellColor = color.RGBA{40, 40, 50, 255}
+				cellColor = defaultWallColor
 			case world.TileWater:
 				cellColor = color.RGBA{40, 90, 160, 255}
 			case world.TileDeepWater:
@@ -657,6 +659,20 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 				cellColor = color.RGBA{170, 80, 200, 255}
 			case world.TileRedTeleporter:
 				cellColor = color.RGBA{200, 70, 70, 255}
+			default:
+				matched = false
+			}
+			// Dynamic tiles (corals, sand dunes, etc.) aren't in the predefined
+			// constants — pull their colour from the tile manager so they show
+			// up on the map overlay too.
+			if !matched && world.GlobalTileManager != nil {
+				if td := world.GlobalTileManager.GetTileData(tile); td != nil {
+					if td.Solid {
+						cellColor = color.RGBA{uint8(td.WallColor[0]), uint8(td.WallColor[1]), uint8(td.WallColor[2]), 255}
+					} else if td.FloorNearColor != [3]int{} {
+						cellColor = color.RGBA{uint8(td.FloorNearColor[0]), uint8(td.FloorNearColor[1]), uint8(td.FloorNearColor[2]), 255}
+					}
+				}
 			}
 
 			drawX := originX + x*tileSize
