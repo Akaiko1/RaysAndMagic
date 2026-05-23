@@ -1127,6 +1127,9 @@ func (ih *InputHandler) handleMouseInput() {
 	if ih.game.turnBasedMode {
 		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
 	}
+	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyActionsUsed >= 2) {
+		healPressed = false
+	}
 	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
 		caster := ih.game.party.Members[ih.game.selectedChar]
 
@@ -1135,19 +1138,21 @@ func (ih *InputHandler) handleMouseInput() {
 		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
 			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
 
+			healed := false
 			if targetCharIndex >= 0 {
 				// Check if the spell can target others or if targeting self
 				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+					healed = ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 				} else {
 					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
-					ih.game.combat.EquipmentHeal()
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
+					healed = ih.game.combat.EquipmentHeal()
 				}
 			} else {
 				// No target under mouse, heal self (original behavior)
-				ih.game.combat.EquipmentHeal()
+				healed = ih.game.combat.EquipmentHeal()
+			}
+			if healed {
+				ih.consumeTurnBasedActionForHeal()
 				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 			}
 		}
@@ -1777,17 +1782,20 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			mouseX, mouseY := ebiten.CursorPosition()
 			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
 
+			healed := false
 			if targetCharIndex >= 0 {
 				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
+					healed = ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 				} else {
-					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+					healed = ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
 				}
 			} else {
-				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
+				healed = ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
 			}
-			ih.game.partyActionsUsed++
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
+			if healed {
+				ih.game.partyActionsUsed++
+				ih.game.spellInputCooldown = ih.actionCooldown(15)
+			}
 		} else {
 			// Not a heal spell, cast normally
 			if ih.game.combat.CastEquippedSpell() {
@@ -1936,6 +1944,16 @@ func (ih *InputHandler) endPartyTurn() {
 	ih.game.currentTurn = 1 // Monster turn
 	ih.game.monsterTurnResolved = false
 	// Don't spam combat log with turn messages
+}
+
+func (ih *InputHandler) consumeTurnBasedActionForHeal() {
+	if !ih.game.turnBasedMode {
+		return
+	}
+	ih.game.partyActionsUsed++
+	if ih.game.partyActionsUsed >= 2 {
+		ih.endPartyTurn()
+	}
 }
 
 // handleSpellTraderInput handles input for spell trader NPCs

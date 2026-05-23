@@ -195,24 +195,25 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	return true
 }
 
-// EquipmentHeal casts heal using equipped spell (special targeting for heal spells)
-func (cs *CombatSystem) EquipmentHeal() {
+// EquipmentHeal casts heal using equipped spell (special targeting for heal spells).
+// Returns true if the spell was successfully cast.
+func (cs *CombatSystem) EquipmentHeal() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast heals
 	if caster.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return // No spell equipped
+		return false // No spell equipped
 	}
 
 	// Only allow heal-type spells for this function
 	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return // Not a heal spell, use F key for other spells
+		return false // Not a heal spell, use F key for other spells
 	}
 
 	// Check spell points (use spell cost for utility spells)
@@ -220,13 +221,13 @@ func (cs *CombatSystem) EquipmentHeal() {
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			caster.Name, caster.SpellPoints, spellCost))
-		return
+		return false
 	}
 
 	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
 		// Unknown utility spell, exit
-		return
+		return false
 	}
 
 	// Cast the utility spell
@@ -238,7 +239,7 @@ func (cs *CombatSystem) EquipmentHeal() {
 	result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Personality)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	if result.Success {
@@ -269,34 +270,36 @@ func (cs *CombatSystem) EquipmentHeal() {
 		// For now, just show the message
 		cs.game.AddCombatMessage(result.Message)
 		cs.recordSpellCast(caster, spellID)
+		return true
 	} else {
 		cs.game.AddCombatMessage(result.Message)
 	}
+	return false
 }
 
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
-func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
+func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot cast heals
 	if caster.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a heal spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return // No spell equipped
+		return false // No spell equipped
 	}
 
 	// Allow both heal-type spells for targeting
 	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return // Not a heal spell
+		return false // Not a heal spell
 	}
 
 	spellIDStr := string(spell.SpellEffect)
 	if spellIDStr == "" {
-		return
+		return false
 	}
 	spellID := spells.SpellID(spellIDStr)
 
@@ -305,17 +308,17 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			caster.Name, caster.SpellPoints, spellCost))
-		return
+		return false
 	}
 
 	// For First Aid (SpellEffectHealSelf), only allow self-targeting
 	if spell.SpellEffect == items.SpellEffectHealSelf && targetIndex != cs.game.selectedChar {
-		return // First Aid can only target self
+		return false // First Aid can only target self
 	}
 
 	// Check if target index is valid
 	if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
-		return
+		return false
 	}
 
 	target := cs.game.party.Members[targetIndex]
@@ -323,7 +326,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 	// Heal must not revive characters at 0 HP / Dead.
 	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
-		return
+		return false
 	}
 
 	// Cast heal on target
@@ -347,6 +350,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) {
 		cs.game.AddCombatMessage(message)
 	}
 	cs.recordSpellCast(caster, spellID)
+	return true
 }
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon

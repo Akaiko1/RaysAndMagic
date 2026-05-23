@@ -56,8 +56,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			highlightColor = color.RGBA{210, 170, 80, 220}
 		}
 
-		// Highlight heal target when H key is pressed and current player has healing spell equipped
-		if !ui.game.menuOpen && ebiten.IsKeyPressed(ebiten.KeyH) {
+		// Highlight heal target when a heal key is pressed and current player has healing spell equipped
+		if !ui.game.menuOpen && (ebiten.IsKeyPressed(ebiten.KeyH) || ebiten.IsKeyPressed(ebiten.KeyF)) {
 			// Check if current player has a healing spell equipped
 			currentPlayer := ui.game.party.Members[ui.game.selectedChar]
 			spell, hasSpell := currentPlayer.Equipment[items.SlotSpell]
