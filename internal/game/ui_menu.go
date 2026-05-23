@@ -271,6 +271,10 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 // handleTabClick checks if mouse clicked on a tab and switches to it
 func (ui *UISystem) handleTabClick(tabX, tabY, tabWidth, tabHeight int, tab MenuTab) {
 	if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabWidth, tabY+tabHeight) {
+		if tab == TabSpellbook && ui.game.currentTab != TabSpellbook {
+			// Entering the spellbook fresh: no spell highlighted until user picks one.
+			ui.game.selectedSpell = -1
+		}
 		ui.game.currentTab = tab
 	}
 }
@@ -290,7 +294,8 @@ func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, sc
 		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex && delta < doubleClickWindowMs
 
 		ui.game.selectedSchool = schoolIndex
-		ui.game.selectedSpell = 0 // Reset spell selection when changing school
+		// Don't auto-select a spell — wait for the user to click one.
+		ui.game.selectedSpell = -1
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]

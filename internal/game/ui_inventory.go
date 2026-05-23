@@ -12,6 +12,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // drawInventoryContent draws the inventory tab content
@@ -434,7 +435,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 // drawSpellbookContent draws the spellbook tab content
 func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
-	schools := currentChar.GetAvailableSchools()
+	schools := spellbookSchoolsWithSpells(currentChar)
 
 	// Validate and fix selected school index if it's out of bounds
 	if ui.game.selectedSchool >= len(schools) {
@@ -442,90 +443,124 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		ui.game.selectedSpell = 0
 	}
 
-	// Title
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("=== %s's SPELLBOOK ===", currentChar.Name), panelX+20, contentY+10)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Spell Points: %d/%d",
-		currentChar.SpellPoints, currentChar.MaxSpellPoints), panelX+20, contentY+30)
+	bookX := panelX + 24
+	// Push the book down so the bookmark flags have room between the menu tabs and the book.
+	bookY := contentY + 60
+	bookW := 652
+	bookH := bookW / 2
+	if maxBookH := contentHeight - 94; bookH > maxBookH {
+		bookH = maxBookH
+		bookW = bookH * 2
+		bookX = panelX + (700-bookW)/2
+	}
+
+	scaleX := float64(bookW) / 1024.0
+	scaleY := float64(bookH) / 512.0
+	srcX := func(v int) int { return bookX + int(float64(v)*scaleX) }
+	srcY := func(v int) int { return bookY + int(float64(v)*scaleY) }
+	srcW := func(v int) int { return int(float64(v) * scaleX) }
+	srcH := func(v int) int { return int(float64(v) * scaleY) }
+
+	// Draw bookmarks first so the book sprite hides the inserted portion.
+	if len(schools) > 0 {
+		var selSchool character.MagicSchoolID
+		if ui.game.selectedSchool < len(schools) {
+			selSchool = schools[ui.game.selectedSchool]
+		}
+		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bookX, bookY, scaleX, scaleY)
+	}
+
+	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bookX, bookY, bookW, bookH)
+
+	leftTextX := srcX(92)
+	leftTextW := srcW(350)
+
+	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, srcY(72), leftTextW, 20)
+	// SP counter is shown in the party panel; no need to duplicate it in the book.
+	// School name is shown by the active bookmark; no header needed on the right page.
 
 	if len(schools) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No magic schools available", panelX+30, contentY+60)
+		drawCenteredDebugText(screen, "No magic schools available", bookX+24, bookY+bookH/2-8, bookW-48, 20)
 		return
 	}
 
-	// Draw schools and spells
-	y := contentY + 60
 	var spellTooltip string
 	var spellCompareTooltip string
 	var spellTooltipID spells.SpellID
 	var tooltipX, tooltipY int
 
-	for schoolIndex, school := range schools {
-		schoolName := school.DisplayName()
-		schoolSpells := currentChar.GetSpellsForSchool(school)
+	if ui.game.selectedSchool >= len(schools) {
+		return
+	}
 
-		// Handle mouse clicks on school names
-		ui.handleSpellbookSchoolClick(panelX+30, y, 300, 20, schoolIndex, school)
+	selectedSchool := schools[ui.game.selectedSchool]
+	// School tabs are drawn before the book so they appear inserted; click handling lives inside drawSpellbookSchoolTabs.
 
-		// Draw school name
-		if schoolIndex == ui.game.selectedSchool {
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("> %s School:", schoolName), panelX+30, y)
-		} else {
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("  %s School:", schoolName), panelX+30, y)
+	schoolSpells := currentChar.GetSpellsForSchool(selectedSchool)
+	if ui.game.selectedSpell >= len(schoolSpells) {
+		ui.game.selectedSpell = 0
+	}
+
+	if len(schoolSpells) == 0 {
+		drawCenteredDebugText(screen, "No learned spells", leftTextX, bookY+bookH/2-8, leftTextW, 20)
+	} else {
+		// 2×2 grid per page (left + right) = up to 8 spells visible at once.
+		gridY := srcY(118)
+		cardW := srcW(180)
+		cardH := srcH(150)
+		cols := 2
+		const cardsPerPage = 4
+		iconSize := srcW(96)
+		// Clamp icon size so name + stats rows fit below it without overlap at small scales.
+		if maxIcon := cardH - 2*debugTextCharHeight - 12; iconSize > maxIcon {
+			iconSize = maxIcon
 		}
-		y += 20
-
-		// Validate and fix selected spell index if it's out of bounds
-		if schoolIndex == ui.game.selectedSchool && ui.game.selectedSpell >= len(schoolSpells) {
-			ui.game.selectedSpell = 0
+		if iconSize < 16 {
+			iconSize = 16
 		}
-
-		// Draw spells for this school (unless collapsed)
-		if ui.game.collapsedSpellSchools[school] {
-			continue
+		cardGap := srcW(18)
+		rowGap := srcH(14)
+		// Centre the 2×2 grid on the parchment area of each page. Source-coord
+		// centres measured from the spellbook_open sprite: left page parchment
+		// spans x=87..468 (centre 278), right page spans x=558..936 (centre 747).
+		gridW := cols*cardW + (cols-1)*cardGap
+		pageOriginX := [2]int{
+			srcX(278) - gridW/2,
+			srcX(747) - gridW/2,
 		}
+		mouseX, mouseY := ebiten.CursorPosition()
 
 		for spellIndex, spellID := range schoolSpells {
-			// Get spell definition from centralized system
+			if spellIndex >= 2*cardsPerPage {
+				break
+			}
 			def, err := spells.GetSpellDefinitionByID(spellID)
 			if err != nil {
-				continue // Skip invalid spells
+				continue
 			}
 
-			canCast := "✓"
-			if currentChar.SpellPoints < def.SpellPointsCost {
-				canCast = "✗"
+			page := spellIndex / cardsPerPage
+			local := spellIndex % cardsPerPage
+			col := local % cols
+			row := local / cols
+			cardX := pageOriginX[page] + col*(cardW+cardGap)
+			cardY := gridY + row*(cardH+rowGap)
+			if cardY+cardH > srcY(460) {
+				continue
 			}
 
-			// Handle mouse interactions for spells
-			spellY := y
-			spellHeight := 15
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHovering := mouseX >= panelX+50 && mouseX < panelX+350 && mouseY >= spellY && mouseY < spellY+spellHeight
+			ui.handleSpellbookSpellClick(cardX, cardY, cardW, cardH, ui.game.selectedSchool, spellIndex)
+			isSelected := spellIndex == ui.game.selectedSpell
+			isHovering := mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH
+			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
 
-			// Handle mouse clicks on spells
-			ui.handleSpellbookSpellClick(panelX+50, spellY, 300, spellHeight, schoolIndex, spellIndex)
-
-			// Generate tooltip for hovering spell
 			if isHovering {
-				// Draw hover background
-				drawFilledRect(screen, panelX+50, spellY, 300, spellHeight, color.RGBA{100, 100, 150, 100})
-
-				// Generate spell tooltip using SpellID
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
 				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
 				spellTooltipID = spellID
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
 			}
-
-			if schoolIndex == ui.game.selectedSchool && spellIndex == ui.game.selectedSpell {
-				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("  > %s %s (SP:%d)",
-					canCast, def.Name, def.SpellPointsCost), panelX+50, y)
-			} else {
-				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("    %s %s (SP:%d)",
-					canCast, def.Name, def.SpellPointsCost), panelX+50, y)
-			}
-			y += 15
 		}
 	}
 
@@ -540,7 +575,100 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	// Draw spellbook controls
-	ebitenutil.DebugPrintAt(screen, "Up/Down: Navigate, Enter: Equip, Click: Select, Double-click: Cast", panelX+30, contentY+contentHeight-30)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+}
+
+func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {
+	available := currentChar.GetAvailableSchools()
+	schools := make([]character.MagicSchoolID, 0, len(available))
+	for _, school := range available {
+		if len(currentChar.GetSpellsForSchool(school)) > 0 {
+			schools = append(schools, school)
+		}
+	}
+	return schools
+}
+
+func (ui *UISystem) drawSpellbookSchoolTabs(screen *ebiten.Image, schools []character.MagicSchoolID, selectedSchool character.MagicSchoolID, bookX, bookY int, scaleX, scaleY float64) {
+	if len(schools) == 0 {
+		return
+	}
+	tabW := int(72 * scaleX)
+	tabH := int(112 * scaleY)
+	if tabW < 44 {
+		tabW = 44
+	}
+	if tabH < 68 {
+		tabH = 68
+	}
+	gap := int(10 * scaleX)
+	if gap < 4 {
+		gap = 4
+	}
+	// Bookmarks start from the left side of the book. They are drawn before the
+	// book sprite so the inserted lower portion is hidden behind the page.
+	startX := bookX + int(40*scaleX)
+	// Show roughly the upper half of the tab; the lower half is hidden behind the book.
+	visibleFrac := 0.55
+	hiddenH := int(float64(tabH) * (1 - visibleFrac))
+	for i, school := range schools {
+		tabX := startX + i*(tabW+gap)
+		tabY := bookY - (tabH - hiddenH)
+		if school == selectedSchool {
+			// Pull the selected bookmark slightly further up.
+			tabY -= int(10 * scaleY)
+		}
+		// Click region covers the entire bookmark sprite — the lower portion is
+		// only visually hidden by the book, the bookmark itself is still the target.
+		ui.handleSpellbookSchoolClick(tabX, tabY, tabW, tabH, i, school)
+		drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_tab_"+school.String()), tabX, tabY, tabW, tabH)
+	}
+}
+
+func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, iconSize int, spellID spells.SpellID, def spells.SpellDefinition, currentChar *character.MMCharacter, selected bool) {
+	if selected {
+		// Selected spell: dark gold border, contrasts against the parchment pages.
+		vector.StrokeRect(screen, float32(x), float32(y), float32(w), float32(h), 3, color.RGBA{170, 115, 30, 255}, false)
+	}
+
+	iconX := x + (w-iconSize)/2
+	iconY := y + 6
+	iconName := spellTooltipIconName(spellID)
+	if ui.game.sprites.HasSprite(iconName) {
+		drawImageScaled(screen, ui.game.sprites.GetSprite(iconName), iconX, iconY, iconSize, iconSize)
+	} else {
+		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{42, 32, 45, 255})
+		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{218, 170, 72, 255})
+		drawCenteredDebugText(screen, spellInitials(def.Name), iconX, iconY, iconSize, iconSize)
+	}
+
+	name := truncateName(def.Name, 12)
+	nameY := y + iconSize + 8
+	statsY := nameY + debugTextCharHeight + 2
+	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
+	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", def.SpellPointsCost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
+	if currentChar.SpellPoints < def.SpellPointsCost {
+		// Red icon outline signals "not enough SP".
+		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
+	}
+}
+
+func spellInitials(name string) string {
+	parts := strings.Fields(name)
+	if len(parts) == 0 {
+		return "?"
+	}
+	initials := ""
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		initials += strings.ToUpper(part[:1])
+		if len(initials) >= 2 {
+			break
+		}
+	}
+	return initials
 }
 
 // handleInventoryItemClick handles double-click to equip items from inventory

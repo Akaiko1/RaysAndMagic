@@ -606,7 +606,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
-	if cs.game.selectedSpell >= len(availableSpells) {
+	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
 		return
 	}
 
@@ -774,7 +774,7 @@ func (cs *CombatSystem) EquipSelectedSpell() {
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
-	if cs.game.selectedSpell >= len(availableSpells) {
+	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
 		return
 	}
 

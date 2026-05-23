@@ -818,7 +818,9 @@ func (ih *InputHandler) handleUIInput() {
 				ih.game.menuOpen = false // Close menu if already on Spellbook tab
 				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			} else {
+				// Switching into the spellbook: clear highlight until user picks one.
 				ih.game.currentTab = TabSpellbook
+				ih.game.selectedSpell = -1
 			}
 		} else {
 			ih.openTabbedMenu(TabSpellbook)
@@ -1095,6 +1097,14 @@ func (ih *InputHandler) checkDeepWater() {
 func (ih *InputHandler) navigateSpellbookUp(schools []character.MagicSchoolID) {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 
+	// Selection cleared (e.g. after switching schools): keyboard nav starts at the last spell.
+	if ih.game.selectedSpell < 0 {
+		currentSpells := currentChar.GetSpellsForSchool(schools[ih.game.selectedSchool])
+		if len(currentSpells) > 0 {
+			ih.game.selectedSpell = len(currentSpells) - 1
+		}
+		return
+	}
 	if ih.game.selectedSpell > 0 {
 		ih.game.selectedSpell--
 	} else if ih.game.selectedSchool > 0 {
@@ -1108,6 +1118,13 @@ func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchoolID)
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 	currentSpells := currentChar.GetSpellsForSchool(schools[ih.game.selectedSchool])
 
+	// Selection cleared: keyboard nav starts at the first spell.
+	if ih.game.selectedSpell < 0 {
+		if len(currentSpells) > 0 {
+			ih.game.selectedSpell = 0
+		}
+		return
+	}
 	if ih.game.selectedSpell < len(currentSpells)-1 {
 		ih.game.selectedSpell++
 	} else if ih.game.selectedSchool < len(schools)-1 {
@@ -1224,6 +1241,10 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 func (ih *InputHandler) openTabbedMenu(tab MenuTab) {
 	ih.game.menuOpen = true
 	ih.game.currentTab = tab
+	if tab == TabSpellbook {
+		// No spell highlighted until the user clicks or navigates.
+		ih.game.selectedSpell = -1
+	}
 	ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 }
 
@@ -1267,27 +1288,26 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 // handleSpellbookNavigation handles navigation within the spellbook tab
 func (ih *InputHandler) handleSpellbookNavigation() {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
-	schools := currentChar.GetAvailableSchools()
+	schools := spellbookSchoolsWithSpells(currentChar)
 
 	if len(schools) == 0 {
 		return
 	}
 
-	// Navigation
-	if ebiten.IsKeyPressed(ebiten.KeyUp) {
+	// Navigation: step one spell per key press so the user can't overshoot.
+	// No cooldown needed — IsKeyJustPressed already debounces to one step per press.
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 		ih.navigateSpellbookUp(schools)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	if ebiten.IsKeyPressed(ebiten.KeyDown) {
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
 		ih.navigateSpellbookDown(schools)
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Cast spell
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
+	// Equip spell to the fast spell slot. Keep the spellbook open so the player
+	// can keep browsing after binding the fast slot.
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
 		ih.game.combat.EquipSelectedSpell()
-		ih.game.menuOpen = false
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 }
