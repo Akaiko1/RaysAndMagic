@@ -232,7 +232,7 @@ func testCombatSystemIntegration(cfg *config.Config) {
 		// Test sword attack calculation
 		if hasSwordSkill(member) {
 			swordSkill := member.Skills[character.SkillSword]
-			damage := 8 + member.Might/3 + swordSkill.Level
+			damage := 8 + member.Might/3 + swordSkill.Level()
 			fmt.Printf("  ✓ Can perform sword attack (Damage: %d)\n", damage)
 		}
 
@@ -257,7 +257,7 @@ func testMagicSystemIntegration(cfg *config.Config) {
 		fmt.Printf("\n%s's Magic:\n", member.Name)
 		for school, magicSkill := range member.MagicSchools {
 			schoolName := getMagicSchoolName(school)
-			fmt.Printf("  %s Magic (Level %d):\n", schoolName, magicSkill.Level)
+			fmt.Printf("  %s Magic (Level %d):\n", schoolName, magicSkill.Level())
 
 			for _, spellID := range magicSkill.KnownSpells {
 				def, err := spells.GetSpellDefinitionByID(spellID)
@@ -351,7 +351,7 @@ func testFullGameSessionSimulation(t *testing.T, cfg *config.Config) {
 	knight := party.Members[0]
 	if hasSwordSkill(knight) {
 		swordSkill := knight.Skills[character.SkillSword]
-		damage := 8 + knight.Might/3 + swordSkill.Level
+		damage := 8 + knight.Might/3 + swordSkill.Level()
 		fmt.Printf("  Knight sword attack: %d damage\n", damage)
 	}
 

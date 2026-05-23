@@ -79,7 +79,7 @@ func TestMonsterCombat(t *testing.T) {
 
 			// Calculate sword damage
 			swordSkill := knight.Skills[SkillSword]
-			damage := 8 + knight.Might/3 + swordSkill.Level
+			damage := 8 + knight.Might/3 + swordSkill.Level()
 
 			// Monster takes physical damage
 			actualDamage := orc.TakeDamage(damage, monster.DamagePhysical, 150, 150)
@@ -125,7 +125,7 @@ func TestMonsterCombat(t *testing.T) {
 			knight := party.Members[0]
 			if knight.HitPoints > 0 {
 				swordSkill := knight.Skills[SkillSword]
-				damage := 8 + knight.Might/3 + swordSkill.Level
+				damage := 8 + knight.Might/3 + swordSkill.Level()
 				actualDamage := troll.TakeDamage(damage, monster.DamagePhysical, 250, 250)
 				totalDamageDealt += actualDamage
 				fmt.Printf("  Knight %s: %d sword damage\n", knight.Name, actualDamage)

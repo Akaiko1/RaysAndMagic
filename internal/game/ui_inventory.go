@@ -373,7 +373,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		if !ok || s == nil {
 			continue
 		}
-		line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level, s.Mastery.String())
+		line := fmt.Sprintf("%s %d (%s)", st.String(), s.Level(), s.Mastery.String())
 		x := col1X
 		if skillIdx >= skillRows {
 			x = col2X
@@ -405,7 +405,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			continue
 		}
 		line := fmt.Sprintf("%s %d (%s) C:%d",
-			school.DisplayName(), ms.Level, ms.Mastery, ms.CastCount)
+			school.DisplayName(), ms.Level(), ms.Mastery, ms.CastCount)
 		x := col1X
 		if schoolIdx >= magicRows {
 			x = col2X

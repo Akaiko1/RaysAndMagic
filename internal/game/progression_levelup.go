@@ -231,7 +231,6 @@ func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillTy
 	name := skillType.String()
 	current := character.MasteryNovice
 	if skill, ok := char.Skills[skillType]; ok {
-		skill.SyncLevelAndMastery()
 		current = skill.Mastery
 	}
 	if current >= character.MasteryGrandMaster {
@@ -244,7 +243,6 @@ func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillTy
 func magicMasteryOptionLabel(char *character.MMCharacter, school character.MagicSchoolID) (string, string, string, bool) {
 	name := school.DisplayName()
 	if skill, ok := char.MagicSchools[school]; ok {
-		skill.SyncLevelAndMastery()
 		if skill.Mastery >= character.MasteryGrandMaster {
 			return fmt.Sprintf("%s Magic Mastery: %s (Max)", name, skill.Mastery.String()), "", "", false
 		}
@@ -274,7 +272,6 @@ func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
 	school := character.MagicSchoolID(def.School)
 	if char.MagicSchools[school] == nil {
 		char.MagicSchools[school] = &character.MagicSkill{
-			Level:       1,
 			Mastery:     character.MasteryNovice,
 			KnownSpells: make([]spells.SpellID, 0),
 		}
@@ -309,10 +306,10 @@ func spellDisplayName(spellID spells.SpellID) string {
 func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillType) bool {
 	skill, ok := char.Skills[skillType]
 	if !ok {
-		skill = &character.Skill{Level: 1, Mastery: character.MasteryNovice}
+		skill = &character.Skill{Mastery: character.MasteryNovice}
 		char.Skills[skillType] = skill
 	}
-	return skill.IncreaseLevel()
+	return skill.IncreaseMastery()
 }
 
 func upgradeMagicMastery(char *character.MMCharacter, school character.MagicSchoolID) bool {
@@ -320,7 +317,7 @@ func upgradeMagicMastery(char *character.MMCharacter, school character.MagicScho
 	if !ok {
 		return false
 	}
-	return skill.IncreaseLevel()
+	return skill.IncreaseMastery()
 }
 
 func levelUpChoiceLayout(req *levelUpChoiceRequest, screenW, screenH int) (popupX, popupY, popupW, popupH, startY, rowH int) {

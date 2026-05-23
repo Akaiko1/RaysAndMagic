@@ -318,13 +318,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Skills
 		for t, s := range m.Skills {
-			s.SyncLevelAndMastery()
-			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level, Mastery: int(s.Mastery)})
+			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
 		}
 		// Magic schools
 		for school, ms := range m.MagicSchools {
-			ms.SyncLevelAndMastery()
-			entry := MagicSchoolEntry{School: string(school), Level: ms.Level, Mastery: int(ms.Mastery), CastCount: ms.CastCount}
+			entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
 			if len(ms.KnownSpells) > 0 {
 				entry.KnownSpells = make([]string, len(ms.KnownSpells))
 				for i, sp := range ms.KnownSpells {
@@ -504,14 +502,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			}
 		}
 		for _, s := range cs.Skills {
-			skill := &character.Skill{Level: s.Level, Mastery: character.SkillMastery(s.Mastery)}
-			skill.SyncLevelAndMastery()
+			mastery := character.SkillMastery(s.Mastery)
+			if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
+				mastery = migrated
+			}
+			skill := &character.Skill{Mastery: mastery}
 			m.Skills[character.SkillType(s.Type)] = skill
 		}
 		for _, me := range cs.MagicSchools {
 			mk := character.MagicSchoolID(me.School)
-			ms := &character.MagicSkill{Level: me.Level, Mastery: character.SkillMastery(me.Mastery), CastCount: me.CastCount}
-			ms.SyncLevelAndMastery()
+			mastery := character.SkillMastery(me.Mastery)
+			if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
+				mastery = migrated
+			}
+			ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
 			if len(me.KnownSpells) > 0 {
 				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
 				for i, s := range me.KnownSpells {

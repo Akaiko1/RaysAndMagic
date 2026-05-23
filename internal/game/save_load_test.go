@@ -168,6 +168,50 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	}
 }
 
+func TestApplySaveMigratesSkillLevelToMastery(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wm := world.NewWorldManager(cfg)
+	worldTest := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": worldTest}
+	wm.CurrentMapKey = "forest"
+
+	game := newTestGame(cfg, worldTest)
+	save := &GameSave{
+		MapKey: "forest",
+		Party: PartySave{
+			Members: []CharacterSave{
+				{
+					Name:           "Migrated",
+					Class:          int(character.ClassSorcerer),
+					Level:          1,
+					HitPoints:      10,
+					MaxHitPoints:   10,
+					SpellPoints:    10,
+					MaxSpellPoints: 10,
+					Skills: []SkillEntry{
+						{Type: int(character.SkillSword), Level: 3, Mastery: int(character.MasteryNovice)},
+					},
+					MagicSchools: []MagicSchoolEntry{
+						{School: string(character.MagicSchoolWater), Level: 3, Mastery: int(character.MasteryNovice)},
+					},
+				},
+			},
+		},
+	}
+
+	if err := game.applySave(wm, save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	member := game.party.Members[0]
+	if got := member.Skills[character.SkillSword].Mastery; got != character.MasteryMaster {
+		t.Fatalf("expected skill mastery migrated to master, got %s", got)
+	}
+	if got := member.MagicSchools[character.MagicSchoolWater].Mastery; got != character.MasteryMaster {
+		t.Fatalf("expected magic mastery migrated to master, got %s", got)
+	}
+}
+
 func TestSaveLoad_PreservesEncounterRewards(t *testing.T) {
 	cfg := loadTestConfig(t)
 

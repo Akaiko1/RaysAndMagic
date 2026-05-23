@@ -1482,7 +1482,6 @@ func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellDa
 	// Ensure the character has the magic school
 	if char.MagicSchools[targetSchool] == nil {
 		char.MagicSchools[targetSchool] = &character.MagicSkill{
-			Level:       1,
 			Mastery:     character.MasteryNovice,
 			KnownSpells: make([]spells.SpellID, 0),
 		}

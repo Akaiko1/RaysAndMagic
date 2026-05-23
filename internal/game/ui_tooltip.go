@@ -727,7 +727,7 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	if magicSkill, exists := char.MagicSchools[school]; exists {
 		tooltip = append(tooltip, "")
 		tooltip = append(tooltip, fmt.Sprintf("Your %s Skill:", formatSchoolName(def.School)))
-		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level, magicSkill.Mastery))
+		tooltip = append(tooltip, fmt.Sprintf("Level %d (%s)", magicSkill.Level(), magicSkill.Mastery))
 	}
 
 	// Description

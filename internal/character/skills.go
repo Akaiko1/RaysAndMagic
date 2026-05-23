@@ -106,63 +106,28 @@ func (m SkillMastery) String() string {
 }
 
 type Skill struct {
-	Level   int
 	Mastery SkillMastery
 }
 
-func ClampSkillLevel(level int) int {
+func MasteryForLevel(level int) SkillMastery {
 	if level < MinSkillLevel {
-		return MinSkillLevel
+		return MasteryNovice
 	}
 	if level > MaxSkillLevel {
-		return MaxSkillLevel
+		return MasteryGrandMaster
 	}
-	return level
+	return SkillMastery(level - 1)
 }
 
-func MasteryForLevel(level int) SkillMastery {
-	return SkillMastery(ClampSkillLevel(level) - 1)
+func (s *Skill) Level() int {
+	return int(s.Mastery) + 1
 }
 
-func LevelForMastery(mastery SkillMastery) int {
-	if mastery < MasteryNovice {
-		return MinSkillLevel
-	}
-	if mastery > MasteryGrandMaster {
-		return MaxSkillLevel
-	}
-	return int(mastery) + 1
-}
-
-func (s *Skill) SyncLevelAndMastery() {
-	if s == nil {
-		return
-	}
-	level := ClampSkillLevel(s.Level)
-	masteryLevel := LevelForMastery(s.Mastery)
-	if masteryLevel > level {
-		level = masteryLevel
-	}
-	s.SetLevel(level)
-}
-
-func (s *Skill) SetLevel(level int) {
-	if s == nil {
-		return
-	}
-	s.Level = ClampSkillLevel(level)
-	s.Mastery = MasteryForLevel(s.Level)
-}
-
-func (s *Skill) IncreaseLevel() bool {
-	if s == nil {
+func (s *Skill) IncreaseMastery() bool {
+	if s == nil || s.Mastery >= MasteryGrandMaster {
 		return false
 	}
-	s.SyncLevelAndMastery()
-	if s.Level >= MaxSkillLevel {
-		return false
-	}
-	s.SetLevel(s.Level + 1)
+	s.Mastery++
 	return true
 }
 

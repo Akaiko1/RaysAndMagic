@@ -25,20 +25,20 @@ func TestSpriteUsesPerpendicularDistance(t *testing.T) {
 		entityY    float64
 	}{
 		{
-			name:     "entity directly ahead - perp equals euclidean",
-			camX:     320, camY: 320,
-			camAngle: 0, // facing east
+			name: "entity directly ahead - perp equals euclidean",
+			camX: 320, camY: 320,
+			camAngle: 0,                 // facing east
 			entityX:  512, entityY: 320, // directly ahead
 		},
 		{
-			name:     "entity at angle - perp less than euclidean",
-			camX:     320, camY: 320,
+			name: "entity at angle - perp less than euclidean",
+			camX: 320, camY: 320,
 			camAngle: 0,
 			entityX:  512, entityY: 448, // 3 tiles ahead, 2 tiles right
 		},
 		{
-			name:     "entity at steep angle",
-			camX:     320, camY: 320,
+			name: "entity at steep angle",
+			camX: 320, camY: 320,
 			camAngle: 0,
 			entityX:  384, entityY: 512, // 1 tile ahead, 3 tiles right
 		},
