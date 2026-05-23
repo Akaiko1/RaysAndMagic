@@ -1766,7 +1766,7 @@ func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass 
 			applyArmor = false // Armor piercing shot!
 		}
 		if applyArmor {
-			armorReduction := armorClass / 2
+			armorReduction := armorClass / ArmorPhysicalReductionDivisor
 			reducedDamage = damage - armorReduction
 			if reducedDamage < 1 {
 				reducedDamage = 1 // Minimum 1 damage

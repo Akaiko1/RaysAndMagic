@@ -117,6 +117,8 @@ func (r *Renderer) ensureRayHitBuffers(numRays int) {
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
+	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
+
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
 		r.tileLightCache = nil

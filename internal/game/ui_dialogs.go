@@ -39,7 +39,7 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr
 	} else {
 		plusColor = color.RGBA{60, 120, 60, 180}
 	}
-	vector.DrawFilledRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
+	vector.FillRect(screen, float32(plusX), float32(plusY), float32(btnW), float32(btnH), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", plusX+2, plusY+2, btnW-4, btnH-4)
 	// Handle click
 	if canActuallyAdd && *isHover && clickIn {
@@ -661,7 +661,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 
 			drawX := originX + x*tileSize
 			drawY := originY + y*tileSize
-			vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
+			vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
 
@@ -679,7 +679,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 		if size < 3 {
 			size = 3
 		}
-		vector.DrawFilledRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
+		vector.FillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), npcColor, false)
 	}
 
 	// Quest markers overlay (top 3 active quests with RGB colors)

@@ -281,7 +281,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	portraitName := strings.ToLower(member.Name) + "_full"
 	portrait := ui.game.sprites.GetSprite(portraitName)
 	portraitFramePad := 6
-	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, 16)
+	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
 	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
 
 	// Text colors tuned for the parchment scroll: near-black body for readable

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"strings"
 	"unicode/utf8"
 
@@ -22,6 +23,8 @@ type coloredTextSegment struct {
 	text  string
 	color color.Color
 }
+
+var missingTooltipIcons = make(map[string]bool)
 
 func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredTextSegment) {
 	curX := x
@@ -60,7 +63,7 @@ func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	vector.DrawFilledRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
+	vector.FillRect(dst, float32(x), float32(y), float32(w), float32(h), clr, false)
 }
 
 func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
@@ -125,13 +128,13 @@ func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 // drawRectBorder draws a rectangle border of given thickness and color
 func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Color) {
 	// Top border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y-thickness), float32(w+2*thickness), float32(thickness), clr, false)
 	// Bottom border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y+h), float32(w+2*thickness), float32(thickness), clr, false)
 	// Left border
-	vector.DrawFilledRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
+	vector.FillRect(dst, float32(x-thickness), float32(y), float32(thickness), float32(h), clr, false)
 	// Right border
-	vector.DrawFilledRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
+	vector.FillRect(dst, float32(x+w), float32(y), float32(thickness), float32(h), clr, false)
 }
 
 const tooltipCompareGap = 8
@@ -260,7 +263,7 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
-	ui.tooltipIcon = icon
+	ui.tooltipIcon = ui.validTooltipIcon(icon)
 	ui.tooltipX = x
 	ui.tooltipY = y
 }
@@ -282,9 +285,23 @@ func (ui *UISystem) queueTooltipColoredIcon(lines []string, colors []color.Color
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = colors
-	ui.tooltipIcon = icon
+	ui.tooltipIcon = ui.validTooltipIcon(icon)
 	ui.tooltipX = x
 	ui.tooltipY = y
+}
+
+func (ui *UISystem) validTooltipIcon(icon string) string {
+	if icon == "" || ui == nil || ui.game == nil || ui.game.sprites == nil {
+		return ""
+	}
+	if ui.game.sprites.HasSprite(icon) {
+		return icon
+	}
+	if !missingTooltipIcons[icon] {
+		missingTooltipIcons[icon] = true
+		log.Printf("[UI] Missing tooltip icon sprite: %s", icon)
+	}
+	return ""
 }
 
 func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color) {

@@ -12,6 +12,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
+const menuPanelFrameSlice = 16
+
 // drawOverlayInterfaces draws overlay interfaces like menus and dialogs
 func (ui *UISystem) drawOverlayInterfaces(screen *ebiten.Image) {
 	if ui.game.menuOpen {
@@ -190,7 +192,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 
 	// Draw main background and frame
 	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
-	drawNineSlice(screen, menuFrame, panelX, panelY, panelWidth, panelHeight, 16)
+	drawNineSlice(screen, menuFrame, panelX, panelY, panelWidth, panelHeight, menuPanelFrameSlice)
 
 	// Tab dimensions
 	tabWidth := 120
