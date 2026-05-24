@@ -52,7 +52,7 @@ tiles:
     transparent: false
     walkable: false  # Can be changed to true when opened
     height_multiplier: 1.0
-    sprite: ""
+    sprite: "forest_gate"
     render_type: "textured_wall"
     wall_color: [139, 69, 19]  # Brown wooden door
     letter: "D"
@@ -155,7 +155,7 @@ tiles:
     transparent: false
     walkable: false
     height_multiplier: 0.8
-    sprite: ""
+    sprite: "thicket"
     render_type: "textured_wall"
     wall_color: [34, 80, 34]  # Dark green thicket
     letter: "%"
@@ -275,7 +275,7 @@ tiles:
     transparent: false
     walkable: false
     height_multiplier: 0.5
-    sprite: ""
+    sprite: "low_wall"
     render_type: "textured_wall"
     wall_color: [120, 120, 120]  # Light gray low wall
     letter: "-"
@@ -286,7 +286,7 @@ tiles:
     transparent: false
     walkable: false
     height_multiplier: 1.5
-    sprite: ""
+    sprite: "high_wall"
     render_type: "textured_wall"
     wall_color: [40, 40, 40]  # Dark gray high wall
     letter: "="

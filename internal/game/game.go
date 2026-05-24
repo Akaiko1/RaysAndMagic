@@ -514,6 +514,19 @@ func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 	return int(g.camera.X / tileSize), int(g.camera.Y / tileSize)
 }
 
+// registerSpawnedMonster appends a freshly-created monster to the world and
+// registers its collision entity. Shared by every spawn pathway so we can't
+// accidentally forget the collision registration step.
+func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
+	if m == nil {
+		return
+	}
+	g.world.Monsters = append(g.world.Monsters, m)
+	width, height := m.GetSize()
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
+	g.collisionSystem.RegisterEntity(entity)
+}
+
 // GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
 func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	currentWorld := g.GetCurrentWorld()
@@ -751,12 +764,7 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	if m == nil {
 		return false
 	}
-	g.world.Monsters = append(g.world.Monsters, m)
-	// Register with collision system
-	width, height := m.GetSize()
-	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
-	g.collisionSystem.RegisterEntity(entity)
-
+	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
 	return true
 }

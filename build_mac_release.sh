@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_build_lib.sh
+source "${SCRIPT_DIR}/_build_lib.sh"
+
 APP_NAME="RaysAndMagic"
 VIEWER_NAME="RaysAndMagicMapViewer"
 OUT_DIR="dist"
@@ -30,58 +34,6 @@ bundle_runtime_files() {
   cp config.yaml "${out_dir}/config.yaml"
 }
 
-build_macos_app() {
-  local arch_label="$1"
-  local bin_path="$2"
-  local app_dir="${OUT_DIR}/mac_${arch_label}/${APP_NAME}.app"
-  local contents_dir="${app_dir}/Contents"
-  local macos_dir="${contents_dir}/MacOS"
-  local resources_dir="${contents_dir}/Resources"
-
-  rm -rf "${app_dir}"
-  mkdir -p "${macos_dir}" "${resources_dir}"
-
-  cp "${bin_path}" "${macos_dir}/${APP_NAME}"
-  cp -R assets "${resources_dir}/assets"
-  rm -rf "${resources_dir}/assets/map_viewer"
-  cp config.yaml "${resources_dir}/config.yaml"
-
-  cat > "${contents_dir}/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleDisplayName</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleExecutable</key>
-  <string>${APP_NAME}</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.raysandmagic.game</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleVersion</key>
-  <string>1.0</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>10.13</string>
-</dict>
-</plist>
-EOF
-
-  # Go's linker auto-signs the bare binary with an ad-hoc signature that
-  # claims sealed resources. Once the binary is dropped into the bundle and
-  # Resources/ is populated, that signature no longer matches and Gatekeeper
-  # silently refuses to launch the .app. Strip and re-sign over the full
-  # bundle so the resource seal is correct.
-  if command -v codesign >/dev/null 2>&1; then
-    codesign --remove-signature "${macos_dir}/${APP_NAME}" 2>/dev/null || true
-    codesign --force --deep --sign - "${app_dir}"
-  fi
-}
-
 # macOS (Intel + Apple Silicon) - Ebiten needs cgo on macOS
 build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${APP_NAME}" "" 1 .
 build_target darwin amd64 "${OUT_DIR}/mac_amd64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
@@ -91,8 +43,10 @@ build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${APP_NAME}" "" 1 .
 build_target darwin arm64 "${OUT_DIR}/mac_arm64" "${VIEWER_NAME}" "" 1 ./assets/map_viewer
 bundle_runtime_files "${OUT_DIR}/mac_arm64"
 
-build_macos_app "amd64" "${OUT_DIR}/mac_amd64/${APP_NAME}"
-build_macos_app "arm64" "${OUT_DIR}/mac_arm64/${APP_NAME}"
+build_macos_app_bundle "${OUT_DIR}/mac_amd64/${APP_NAME}.app"    "${APP_NAME}"    "${OUT_DIR}/mac_amd64/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"
+build_macos_app_bundle "${OUT_DIR}/mac_amd64/${VIEWER_NAME}.app" "${VIEWER_NAME}" "${OUT_DIR}/mac_amd64/${VIEWER_NAME}" "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns"
+build_macos_app_bundle "${OUT_DIR}/mac_arm64/${APP_NAME}.app"    "${APP_NAME}"    "${OUT_DIR}/mac_arm64/${APP_NAME}"    "com.raysandmagic.game"      "assets/app_icons/rays_and_magic.icns"
+build_macos_app_bundle "${OUT_DIR}/mac_arm64/${VIEWER_NAME}.app" "${VIEWER_NAME}" "${OUT_DIR}/mac_arm64/${VIEWER_NAME}" "com.raysandmagic.mapviewer" "assets/app_icons/rays_and_magic_map_editor.icns"
 
 # Windows (no console window)
 build_target windows amd64 "${OUT_DIR}/windows_amd64" "${APP_NAME}.exe" "-H=windowsgui" 0 .

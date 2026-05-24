@@ -336,77 +336,63 @@ func (gl *GameLoop) updateSpecialEffects() {
 	gl.updateWaterBreathingEffect()
 }
 
-// updateTorchLightEffect updates the torch light illumination effect
-func (gl *GameLoop) updateTorchLightEffect() {
-	if gl.game.torchLightActive {
-		gl.game.torchLightDuration--
-		if gl.game.torchLightDuration <= 0 {
-			gl.game.torchLightActive = false
-			gl.game.torchLightDuration = 0
+// tickBuff decrements the duration of an active timed buff and runs onExpire
+// when it hits zero. Shared by all utility spells with active/duration pairs.
+// Returns true if the buff was active this tick (regardless of expiration).
+func tickBuff(active *bool, duration *int, onExpire func()) bool {
+	if !*active {
+		return false
+	}
+	*duration--
+	if *duration <= 0 {
+		*active = false
+		*duration = 0
+		if onExpire != nil {
+			onExpire()
 		}
 	}
+	return true
+}
+
+// updateTorchLightEffect updates the torch light illumination effect
+func (gl *GameLoop) updateTorchLightEffect() {
+	tickBuff(&gl.game.torchLightActive, &gl.game.torchLightDuration, nil)
 	gl.game.updateUtilityStatus(spells.SpellID("torch_light"), gl.game.torchLightDuration, gl.game.torchLightActive)
 }
 
 // updateWizardEyeEffect updates the wizard eye enemy detection effect
 func (gl *GameLoop) updateWizardEyeEffect() {
-	if gl.game.wizardEyeActive {
-		gl.game.wizardEyeDuration--
-		if gl.game.wizardEyeDuration <= 0 {
-			gl.game.wizardEyeActive = false
-			gl.game.wizardEyeDuration = 0
-		}
-	}
+	tickBuff(&gl.game.wizardEyeActive, &gl.game.wizardEyeDuration, nil)
 	gl.game.updateUtilityStatus(spells.SpellID("wizard_eye"), gl.game.wizardEyeDuration, gl.game.wizardEyeActive)
 }
 
 // updateWalkOnWaterEffect updates the walk on water effect
 func (gl *GameLoop) updateWalkOnWaterEffect() {
-	if gl.game.walkOnWaterActive {
-		gl.game.walkOnWaterDuration--
-		if gl.game.walkOnWaterDuration <= 0 {
-			gl.game.walkOnWaterActive = false
-			gl.game.walkOnWaterDuration = 0
-		}
-	}
-
+	tickBuff(&gl.game.walkOnWaterActive, &gl.game.walkOnWaterDuration, nil)
 	gl.game.updateUtilityStatus(spells.SpellID("walk_on_water"), gl.game.walkOnWaterDuration, gl.game.walkOnWaterActive)
 
-	// Sync the walk on water state with the world
+	// Sync the walk on water and water breathing states with the world
 	gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
-
-	// Sync the water breathing state with the world
 	gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 }
 
 // updateBlessEffect updates the bless stat bonus effect
 func (gl *GameLoop) updateBlessEffect() {
-	if gl.game.blessActive {
-		gl.game.blessDuration--
-		if gl.game.blessDuration <= 0 {
-			gl.game.blessActive = false
-			gl.game.blessDuration = 0
-			gl.game.statBonus -= gl.game.blessStatBonus // Subtract the stored Bless bonus
-			gl.game.blessStatBonus = 0
-		}
-	}
+	tickBuff(&gl.game.blessActive, &gl.game.blessDuration, func() {
+		gl.game.statBonus -= gl.game.blessStatBonus
+		gl.game.blessStatBonus = 0
+	})
 	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)
 }
 
 // updateWaterBreathingEffect updates the water breathing effect
 func (gl *GameLoop) updateWaterBreathingEffect() {
-	if gl.game.waterBreathingActive {
-		gl.game.waterBreathingDuration--
-		if gl.game.waterBreathingDuration <= 0 {
-			gl.game.waterBreathingActive = false
-			gl.game.waterBreathingDuration = 0
-
-			// If currently underwater (water map), teleport back to surface
-			if world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
-				gl.returnFromUnderwater()
-			}
+	tickBuff(&gl.game.waterBreathingActive, &gl.game.waterBreathingDuration, func() {
+		// If currently underwater (water map), teleport back to surface
+		if world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+			gl.returnFromUnderwater()
 		}
-	}
+	})
 	gl.game.updateUtilityStatus(spells.SpellID("water_breathing"), gl.game.waterBreathingDuration, gl.game.waterBreathingActive)
 }
 

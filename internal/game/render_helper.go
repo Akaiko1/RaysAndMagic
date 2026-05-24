@@ -451,9 +451,9 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
 	distanceMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
 	heightMultiplier := distanceMultiplier / float64(rh.game.config.GetScreenHeight())
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier)
+	screenX, screenY, spriteSize, visible = rh.calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier)
 
-	// screenY is now correctly calculated by calculateSpriteMetricsWithHeightMultiplier to anchor
+	// screenY is now correctly calculated by calculateScreenCappedSpriteMetrics to anchor
 	// the sprite's bottom to the floor at its distance
 
 	return screenX, screenY, spriteSize, visible
@@ -469,7 +469,7 @@ func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance,
 	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
 	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
 	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	return rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
+	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
@@ -515,30 +515,26 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	return screenX, screenY, spriteHeight, true
 }
 
-// calculateSpriteMetricsWithConfig calculates screen position and size for sprites.
+// calculateBoundedSpriteMetrics projects an entity and sizes its sprite within
+// caller-supplied per-instance bounds.
 //
-// This is the core sprite projection function used by monsters, NPCs, and other entities.
-// It performs three key calculations:
+// Use this when each entity has its own min/max screen size in pixels — i.e.,
+// the entity should NEVER grow beyond `maxSize` or shrink below `minSize`
+// regardless of how close/far it is. NPCs use this path because they carry a
+// per-NPC `size_multiplier` that scales both the projection coefficient and
+// the size bounds together (so a "size 4" NPC reads as a tall building, not
+// the same size as a "size 1" NPC at close range).
 //
-//  1. Screen X position: Uses projectToScreenX to convert world coords to screen coords
-//     via camera plane projection (same math as raycasting walls).
+// For the alternative (entity is screen-relative and grows freely until it
+// fills the viewport), see calculateScreenCappedSpriteMetrics.
 //
-//  2. Sprite size: Uses PERPENDICULAR distance (not Euclidean) for sizing.
-//     This is critical - using Euclidean distance would cause sprites at screen edges
-//     to appear smaller than they should, creating a fisheye effect and causing
-//     sprites to "drift" from their floor tiles when viewed at angles.
-//
-//  3. Screen Y position: Anchors the sprite's BOTTOM edge to the floor at its distance.
-//     The floor at perpendicular distance D appears at screen Y = horizon + p,
-//     where p = (0.5 * screenHeight * tileSize) / D. We position sprites so their
-//     bottom aligns with this floor position, making them appear grounded.
-//
-// Parameters:
-//   - entityX, entityY: World coordinates of the entity
-//   - distance: Euclidean distance (used only for view culling, NOT for sizing)
-//   - maxSize, minSize: Size bounds for the sprite
-//   - multiplier: Size scaling factor from config
-func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
+// Math notes:
+//   - Screen X is projected via projectToScreenX (camera plane math)
+//   - Sprite size uses PERPENDICULAR distance, not Euclidean — using Euclidean
+//     would create fisheye distortion at screen edges
+//   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
+//     so sprites appear grounded rather than floating
+func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
 	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0
@@ -580,9 +576,19 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 	return screenX, screenY, spriteSize, true
 }
 
-// calculateSpriteMetricsWithHeightMultiplier matches environment sprite scaling
-// (screenHeight / perpDist * tileSize * heightMultiplier) and uses the same caps.
-func (rh *RenderingHelper) calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
+// calculateScreenCappedSpriteMetrics projects an entity and sizes its sprite
+// using a SCREEN-RELATIVE scaling model.
+//
+// Use this for entities that should grow freely as the player approaches
+// until they fill the viewport — environment props (trees, ferns, moss),
+// monsters, and ground containers (loot bags, treasure chests). There are
+// no per-instance bounds; the sprite is allowed to scale up to one screen
+// height (so a big monster fills the screen at point-blank range) and is
+// floored at 8 px so distant sprites don't vanish to a single row.
+//
+// For the alternative (per-instance min/max bounds, NPCs), see
+// calculateBoundedSpriteMetrics.
+func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0

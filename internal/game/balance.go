@@ -59,6 +59,47 @@ const (
 	// LuckToDodgeDivisor: Luck/divisor sets the perfect-dodge chance in
 	// percent points.
 	LuckToDodgeDivisor = 5
+
+	// CritDamageMultiplier multiplies final damage on a critical hit.
+	// Applied identically to weapon swings, melee, and ranged.
+	CritDamageMultiplier = 2
+
+	// ArmorPierceRangedChancePct: a ranged hit has this percent chance to
+	// bypass armor entirely (treated as armor=0 for that strike).
+	ArmorPierceRangedChancePct = 33
+
+	// SpellSchoolLevelDurationBonus: per skill level of the spell's school,
+	// duration is scaled by (1 + level * bonus). 0.1 → +10% per level.
+	SpellSchoolLevelDurationBonus = 0.1
+)
+
+// Combat reach distances in tiles. Multiplied by tile size at call time.
+const (
+	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
+	// trigger reaches when starting / entering turn-based mode.
+	TurnBasedVisionRangeTiles = 6.0
+
+	// PackAggroRadiusTiles: when a monster is hit, same-name neighbors
+	// within this radius become aggressive too.
+	PackAggroRadiusTiles = 8.0
+
+	// TorchLightRadiusTiles: the lit-area radius granted by the torch_light
+	// utility spell. Tuning this changes how far the player can see in dark
+	// biomes.
+	TorchLightRadiusTiles = 4.0
+)
+
+// Speed-stat → action cooldown curve. Cooldown in frames is a linear function
+// of the character's effective Speed stat, clamped to [Min, Max] frames.
+// The formula `frames = Intercept - Slope * Speed` was originally fit through
+// two anchor points: Speed=5 ⇒ ~60 frames, Speed=50 ⇒ ~30 frames. Adjusting
+// these knobs changes how much Speed matters for action cadence in realtime
+// combat.
+const (
+	AttackCooldownIntercept   = 63.333333 // frames at Speed=0 (before clamp)
+	AttackCooldownSpeedSlope  = 2.0 / 3.0 // frames lost per +1 Speed
+	AttackCooldownMinFrames   = 15        // floor: ~0.125s at 120 TPS
+	AttackCooldownMaxFrames   = 90        // ceiling: ~0.75s at 120 TPS
 )
 
 // Sprite animation timing.

@@ -8,6 +8,14 @@ import (
 	"ugataima/internal/spells"
 )
 
+// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor)
+// every ManaRegenIntervalFrames ticks. Kept in this package because game's
+// balance.go can't be imported from internal/character (circular).
+const (
+	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
+	ManaRegenPersonalityDivisor = 10
+)
+
 type MMCharacter struct {
 	Name  string
 	Class CharacterClass
@@ -313,11 +321,10 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 	if c.HasCondition(ConditionUnconscious) {
 		return
 	}
-	// Regenerate spell points slowly - only every 5 seconds (600 ticks at 120 TPS)
-	const spellRegenFrames = 600
+	// Regenerate spell points on a fixed cadence.
 	c.spellRegenTimer++
 
-	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
+	if c.spellRegenTimer >= ManaRegenIntervalFrames && c.SpellPoints < c.MaxSpellPoints {
 		regen := c.CalculateManaRegenAmount(statBonus)
 		c.SpellPoints += regen
 		if c.SpellPoints > c.MaxSpellPoints {
@@ -330,7 +337,7 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
 	effectivePersonality := c.GetEffectivePersonality(statBonus)
-	regen := 1 + (effectivePersonality / 10)
+	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor)
 	if regen < 1 {
 		return 1
 	}

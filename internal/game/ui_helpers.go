@@ -141,10 +141,6 @@ const tooltipCompareGap = 8
 const tooltipIconSize = 64
 const tooltipIconGap = 8
 
-func tooltipBoxSize(lines []string) (int, int) {
-	return tooltipBoxSizeWithIcon(lines, false)
-}
-
 func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 	if len(lines) == 0 {
 		return 0, 0
@@ -264,17 +260,6 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
 	ui.tooltipIcon = ui.validTooltipIcon(icon)
-	ui.tooltipX = x
-	ui.tooltipY = y
-}
-
-func (ui *UISystem) queueTooltipColored(lines []string, colors []color.Color, x, y int) {
-	if len(lines) == 0 {
-		return
-	}
-	ui.tooltipLines = lines
-	ui.tooltipColors = colors
-	ui.tooltipIcon = ""
 	ui.tooltipX = x
 	ui.tooltipY = y
 }

@@ -1312,29 +1312,27 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 }
 
-// handleNPCInteraction handles talking to nearby NPCs
+// handleNPCInteraction starts a dialog with the nearest NPC within
+// interaction range. Mirrors the HUD hint (GetNearestInteractableNPC) so the
+// player always talks to the same NPC they see prompted.
 func (ih *InputHandler) handleNPCInteraction() {
-	for _, npc := range ih.game.GetCurrentWorld().NPCs {
-		dist := Distance(ih.game.camera.X, ih.game.camera.Y, npc.X, npc.Y)
+	npc := ih.game.GetNearestInteractableNPC()
+	if npc == nil {
+		return
+	}
+	ih.game.dialogActive = true
+	ih.game.dialogNPC = npc
+	ih.game.selectedCharIdx = 0     // Default to first character
+	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
+	ih.game.dialogSelectedSpell = 0 // Default to first spell
+	ih.game.selectedSpellKey = ""   // No spell selected initially
+	ih.game.selectedChoice = 0      // Reset encounter choice selection
 
-		if dist <= InteractionDistance {
-			// Start dialog with this NPC
-			ih.game.dialogActive = true
-			ih.game.dialogNPC = npc
-			ih.game.selectedCharIdx = 0     // Default to first character
-			ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
-			ih.game.dialogSelectedSpell = 0 // Default to first spell
-			ih.game.selectedSpellKey = ""   // No spell selected initially
-			ih.game.selectedChoice = 0      // Reset encounter choice selection
-
-			// If NPC has spells, select the first one (deterministic order)
-			if npcHasSpellTrading(npc) {
-				spellKeys := npcSpellKeys(npc) // Use deterministic ordering
-				if len(spellKeys) > 0 {
-					ih.game.selectedSpellKey = spellKeys[0]
-				}
-			}
-			return
+	// If NPC has spells, select the first one (deterministic order)
+	if npcHasSpellTrading(npc) {
+		spellKeys := npcSpellKeys(npc) // Use deterministic ordering
+		if len(spellKeys) > 0 {
+			ih.game.selectedSpellKey = spellKeys[0]
 		}
 	}
 }
@@ -2199,13 +2197,7 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				// Mark this monster as part of an encounter for reward tracking
 				monster.IsEncounterMonster = true
 				monster.EncounterRewards = npc.EncounterData.Rewards
-				ih.game.world.Monsters = append(ih.game.world.Monsters, monster)
-
-				// Register monster with collision system for proper AI movement
-				width, height := monster.GetSize()
-				entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, true)
-				ih.game.collisionSystem.RegisterEntity(entity)
-
+				ih.game.registerSpawnedMonster(monster)
 				fmt.Printf("Spawned %s at walkable position (%.1f, %.1f) with AI enabled\n", monsterDef.Type, spawnX, spawnY)
 			}
 		}

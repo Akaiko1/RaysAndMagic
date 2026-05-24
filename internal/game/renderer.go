@@ -1022,7 +1022,7 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	// Calculate tree height and position
 	// distance is already perpendicular distance from the raycast
-	spriteHeight := int(float64(screenHeight) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
 	if spriteHeight < 8 {
 		spriteHeight = 8
 	}
@@ -1156,8 +1156,7 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	// Calculate sprite height and position
-	spriteHeight := int(float64(r.game.config.GetScreenHeight()) / distance * r.game.config.GetTileSize() * r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
 	}
@@ -2098,29 +2097,11 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 
 // drawUnifiedMonsterSprite draws a monster sprite from unified data
 func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	drawLeft := s.screenX - s.spriteSize/2
-	drawRight := s.screenX + s.spriteSize/2
-	depthLeft := drawLeft
-	depthRight := drawRight
-
-	if depthLeft < 0 {
-		depthLeft = 0
-	}
-	if depthRight >= len(r.game.depthBuffer) {
-		depthRight = len(r.game.depthBuffer) - 1
-	}
-
-	visible := false
-	for x := depthLeft; x <= depthRight; x++ {
-		if s.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
-		}
-	}
-	if !visible {
+	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
 
+	drawLeft := s.screenX - s.spriteSize/2
 	opts := &ebiten.DrawImageOptions{}
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
@@ -2143,29 +2124,11 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	drawLeft := s.screenX - s.spriteSize/2
-	drawRight := s.screenX + s.spriteSize/2
-	depthLeft := drawLeft
-	depthRight := drawRight
-
-	if depthLeft < 0 {
-		depthLeft = 0
-	}
-	if depthRight >= len(r.game.depthBuffer) {
-		depthRight = len(r.game.depthBuffer) - 1
-	}
-
-	visible := false
-	for x := depthLeft; x <= depthRight; x++ {
-		if s.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
-		}
-	}
-	if !visible {
+	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
 
+	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
 	opts := &ebiten.DrawImageOptions{}

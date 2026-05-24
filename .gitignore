@@ -39,4 +39,8 @@ assets/sprites/environment/archive/
 
 assets/sprites/characters/archive/
 
+# App-icon iconsets are intermediate PNG bundles regenerated from the master
+# PNGs by gen_icons.sh; only the master PNGs and final .icns/.ico are tracked.
+assets/app_icons/*.iconset/
+
 /tmp*

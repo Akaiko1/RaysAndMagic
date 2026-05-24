@@ -109,7 +109,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 			case "torch_light":
 				cs.game.torchLightActive = true
 				cs.game.torchLightDuration = result.Duration
-				cs.game.torchLightRadius = 4.0 // 4-tile radius
+				cs.game.torchLightRadius = TorchLightRadiusTiles
 			case "wizard_eye":
 				cs.game.wizardEyeActive = true
 				cs.game.wizardEyeDuration = result.Duration
@@ -162,7 +162,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Determine critical hit for spells based on Luck only (no base crit for spells)
 	isCrit, _ := cs.RollCriticalChance(0, caster)
 	if isCrit {
-		projectile.Damage *= 2
+		projectile.Damage *= CritDamageMultiplier
 	}
 
 	// Create magic projectile with proper type information
@@ -302,7 +302,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	}
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
-		totalDamage *= 2
+		totalDamage *= CritDamageMultiplier
 	}
 
 	// Create instant melee attack for close-range weapons
@@ -358,7 +358,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
-		damage *= 2
+		damage *= CritDamageMultiplier
 	}
 
 	arrow := Arrow{
@@ -575,7 +575,7 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 	}
 
 	tileSize := float64(cs.game.config.GetTileSize())
-	radius := tileSize * 8.0
+	radius := tileSize * PackAggroRadiusTiles
 	hitName := hit.Name
 
 	for _, m := range cs.game.world.Monsters {
@@ -655,7 +655,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		// Determine critical hit for spells based on Luck only (no base crit for spells)
 		isCrit, _ := cs.RollCriticalChance(0, currentChar)
 		if isCrit {
-			projectile.Damage *= 2
+			projectile.Damage *= CritDamageMultiplier
 		}
 		disintegrateChance := 0.0
 		if spellDefConfig, exists := config.GetSpellDefinition(string(selectedSpellID)); exists && spellDefConfig != nil {
@@ -1775,7 +1775,7 @@ func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass 
 	reducedDamage := damage
 	if isPhysicalDamageType(damageTypeStr) {
 		applyArmor := true
-		if isRanged && rand.Intn(100) < 33 {
+		if isRanged && rand.Intn(100) < ArmorPierceRangedChancePct {
 			applyArmor = false // Armor piercing shot!
 		}
 		if applyArmor {

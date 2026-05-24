@@ -19,9 +19,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
-	// Only monsters within 6-tile vision range participate in turn-based combat
+	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
-	visionRange := tileSize * 6.0 // 6 tiles
+	visionRange := tileSize * TurnBasedVisionRangeTiles
 
 	// Cache player radius ONCE before the loop (was being looked up for each monster)
 	playerRadius := 8.0 // default if entity not found
