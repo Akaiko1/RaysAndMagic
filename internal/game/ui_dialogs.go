@@ -224,7 +224,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 
 	// Handle different NPC capabilities (data-driven)
 	switch {
-	case npcHasEncounter(ui.game.dialogNPC):
+	case npcHasChoiceDialog(ui.game.dialogNPC):
 		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case npcHasSpellTrading(ui.game.dialogNPC):
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogHeight)

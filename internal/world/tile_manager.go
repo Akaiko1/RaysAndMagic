@@ -73,14 +73,8 @@ func (tm *TileManager) validateTileConfiguration() error {
 			}
 		}
 
-		// Check for universal vs biome-specific conflicts
-		if universalTiles, hasUniversal := biomeMap["universal"]; hasUniversal && len(universalTiles) > 0 {
-			for biome, biomeTiles := range biomeMap {
-				if biome != "universal" && len(biomeTiles) > 0 {
-					conflicts = append(conflicts, fmt.Sprintf("Letter '%s' has both universal tiles %v and biome-specific tiles %v in '%s'", letter, universalTiles, biomeTiles, biome))
-				}
-			}
-		}
+		// Universal tiles are allowed as fallbacks for biome-specific overrides.
+		// GetTileTypeFromLetterForBiome resolves biome-specific tiles first.
 	}
 
 	if len(conflicts) > 0 {
@@ -321,17 +315,16 @@ func (tm *TileManager) GetRenderType(tileType TileType3D) string {
 	return data.RenderType
 }
 
-// GetFloorColor returns the floor color for a tile type
+// GetFloorColor returns the floor color for a tile type, or [0,0,0] when no
+// floor_color is configured. Callers use the zero sentinel to mean "unset" and
+// fall back to the current map's default_floor_color, so do NOT bake a green
+// (or any other) default here — that would override the map's biome colour.
 func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 	data := tm.GetTileData(tileType)
 	if data == nil {
-		return [3]int{60, 180, 60} // Default green
+		return [3]int{0, 0, 0}
 	}
-	// Check if floor color is set (non-zero)
-	if data.FloorColor[0] != 0 || data.FloorColor[1] != 0 || data.FloorColor[2] != 0 {
-		return data.FloorColor
-	}
-	return [3]int{60, 180, 60} // Default green
+	return data.FloorColor
 }
 
 // GetFloorNearColor returns the floor color to use near this tile type
@@ -447,7 +440,7 @@ func (tm *TileManager) GetTileTypeFromLetterForBiome(letter string, biome string
 	for tileType, key := range tm.typeToKey {
 		if data, ok := tm.tileData[key]; ok && data.Letter == letter {
 			// Check if this tile supports the requested biome
-			if tm.tileSupportsbiome(data, biome) {
+			if len(data.Biomes) > 0 && tm.tileSupportsbiome(data, biome) {
 				return tileType, true
 			}
 		}
@@ -466,13 +459,10 @@ func (tm *TileManager) GetTileTypeFromLetterForBiome(letter string, biome string
 	return TileEmpty, false
 }
 
-// tileSupportsbiome checks if a tile supports a specific biome
+// tileSupportsbiome checks if a tile's biome list includes the requested biome.
+// Callers must verify len(tileData.Biomes) > 0 before calling; universal tiles
+// (empty Biomes) are handled by the fallback loop in GetTileTypeFromLetterForBiome.
 func (tm *TileManager) tileSupportsbiome(tileData *config.TileData, biome string) bool {
-	if len(tileData.Biomes) == 0 {
-		// No biome restriction - works everywhere
-		return true
-	}
-
 	for _, supportedBiome := range tileData.Biomes {
 		if supportedBiome == biome {
 			return true

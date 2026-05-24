@@ -48,6 +48,7 @@ type NPCDialogue struct {
 type NPCDialogueChoice struct {
 	Text   string `yaml:"text"`
 	Action string `yaml:"action"`
+	Map    string `yaml:"map,omitempty"`
 }
 
 // NPCEncounter represents an encounter definition

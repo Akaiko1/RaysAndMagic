@@ -706,7 +706,7 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	// Create interaction message based on NPC capabilities
 	var message string
 	switch {
-	case npcHasEncounter(nearestNPC):
+	case npcHasChoiceDialog(nearestNPC):
 		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
 	case npcHasSpellTrading(nearestNPC):
 		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)

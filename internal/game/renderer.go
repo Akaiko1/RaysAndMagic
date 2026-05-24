@@ -1266,7 +1266,21 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	heightMultiplier := world.GetTileHeight(tileType)
 	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
 
-	// Create cache key - pass original height, cache will quantize internally
+	// Sprite-textured walls bypass the WallSliceCache: every ray has its own
+	// continuous textureCoord (float), so cache keys never collide and caching
+	// would just allocate one new image per ray. Draw the strip directly.
+	if world.GlobalTileManager != nil {
+		if spriteName := world.GlobalTileManager.GetSprite(tileType); spriteName != "" {
+			sprite := r.game.sprites.GetSprite(spriteName)
+			if sprite != nil {
+				r.drawSpriteTexturedWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
+				return
+			}
+		}
+	}
+
+	// Cached path for procedural / color-only walls. Discrete TileType + integer
+	// width/height/side/wallX make cache hits useful here.
 	cacheKey := rendering.WallSliceKey{
 		Height:   wallHeight,
 		Width:    width,
@@ -1275,23 +1289,16 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		WallX:    textureCoord,
 	}
 
-	// Get cached base wall slice or create new one if not in cache
-	// The cache quantizes height and passes the quantized value to createFunc
 	wallSliceImage := r.game.threading.WallSliceCache.GetOrCreate(cacheKey, func(quantizedHeight int) *ebiten.Image {
 		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide, textureCoord)
 	})
 
-	// Render the wall slice to the screen with distance-based shading applied at draw time
 	drawOptions := &ebiten.DrawImageOptions{}
-
-	// Scale the cached image to exact wall height
-	// The cached image may be quantized to a different height for cache efficiency
 	cachedHeight := wallSliceImage.Bounds().Dy()
 	if cachedHeight > 0 && wallHeight != cachedHeight {
 		scaleY := float64(wallHeight) / float64(cachedHeight)
 		drawOptions.GeoM.Scale(1.0, scaleY)
 	}
-
 	drawOptions.GeoM.Translate(float64(screenX), float64(wallTop))
 
 	// Apply distance-based color scaling at draw time for better cache efficiency
@@ -1302,6 +1309,52 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	drawOptions.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	screen.DrawImage(wallSliceImage, drawOptions)
+}
+
+// drawSpriteTexturedWallSlice draws a single ray's slice of a sprite-textured
+// wall straight to the screen. The textureCoord is continuous per ray, so this
+// deliberately skips the WallSliceCache (which keys on it as a float and would
+// just churn one entry per ray).
+//
+// Classic raycasting: one ray corresponds to ONE column of the wall texture,
+// stretched across `width` screen pixels (rayWidth). Sampling rayWidth source
+// columns per ray instead of one used to make the texture shimmer as the camera
+// panned — adjacent rays' integer-truncated textureX values jumped 1..N source
+// pixels at a time and showed disjoint strips. Stick with a single column and
+// let the horizontal stretch handle the screen width.
+func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, wallTop, wallHeight, width, wallSide int, textureCoord, distance float64) {
+	spriteBounds := sprite.Bounds()
+	spriteWidth := spriteBounds.Dx()
+	spriteHeight := spriteBounds.Dy()
+	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 || wallHeight <= 0 {
+		return
+	}
+
+	textureX := int(textureCoord * float64(spriteWidth))
+	if textureX < 0 {
+		textureX = 0
+	}
+	if textureX >= spriteWidth {
+		textureX = spriteWidth - 1
+	}
+
+	xScale := float64(width)
+	yScale := float64(wallHeight) / float64(spriteHeight)
+
+	brightness := 1.0 - (distance / r.game.camera.ViewDist)
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	if wallSide == 1 {
+		brightness *= 0.7
+	}
+
+	src := sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(xScale, yScale)
+	opts.GeoM.Translate(float64(screenX), float64(wallTop))
+	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	screen.DrawImage(src, opts)
 }
 
 type projectileFxProfile struct {
@@ -1849,7 +1902,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		dy := npc.Y - camY
 		distanceSq := dx*dx + dy*dy
 
-		if distanceSq > viewDistSq {
+		// Same cull thresholds as environment sprites so NPCs (including the
+		// shipwreck / church / exit) disappear cleanly when the player walks
+		// into them, instead of glitching as their floor anchor slides below
+		// the screen at very small perpDist.
+		if distanceSq < minDistSq || distanceSq > viewDistSq {
 			continue
 		}
 
@@ -1895,7 +1952,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		dx := bag.X - camX
 		dy := bag.Y - camY
 		distanceSq := dx*dx + dy*dy
-		if distanceSq > viewDistSq {
+		// Same one-tile cull as env sprites / NPCs so a bag at the player's feet
+		// disappears cleanly instead of sliding under the camera.
+		if distanceSq < minDistSq || distanceSq > viewDistSq {
 			continue
 		}
 		depthPerp := dx*camDirX + dy*camDirY
@@ -2163,6 +2222,67 @@ func (r *Renderer) drawProjectiles(screen *ebiten.Image) {
 	r.drawArrows(screen)
 }
 
+// projectileProjection bundles the camera-space projection of a point-like
+// moving entity (magic projectile, melee swing, arrow). Returned by
+// projectMovingEntity when the entity passes range / FOV / depth-buffer culls.
+type projectileProjection struct {
+	screenX int
+	screenY int
+	size    int
+}
+
+// projectMovingEntity culls and projects a point-like entity at world (x, y)
+// against the camera frustum and depth buffer. baseSize/minSize/maxSize come
+// from the entity's graphics config (spell or weapon). Returns ok=false if the
+// entity should be skipped this frame.
+func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize int) (projectileProjection, bool) {
+	cam := r.game.camera
+	dx := x - cam.X
+	dy := y - cam.Y
+	distSq := dx*dx + dy*dy
+	viewDistSq := cam.ViewDist * cam.ViewDist
+	if distSq > viewDistSq || distSq < 100 { // 10 unit near clip, squared
+		return projectileProjection{}, false
+	}
+
+	angleDiff := math.Atan2(dy, dx) - cam.Angle
+	for angleDiff > math.Pi {
+		angleDiff -= 2 * math.Pi
+	}
+	for angleDiff < -math.Pi {
+		angleDiff += 2 * math.Pi
+	}
+	halfFOV := cam.FOV / 2
+	if math.Abs(angleDiff) > halfFOV {
+		return projectileProjection{}, false
+	}
+
+	halfW := float64(r.game.config.GetScreenWidth()) / 2
+	screenX := int(halfW + (angleDiff/halfFOV)*halfW)
+
+	depthPerp := dx*math.Cos(cam.Angle) + dy*math.Sin(cam.Angle)
+	if screenX >= 0 && screenX < len(r.game.depthBuffer) {
+		if depthPerp >= r.game.depthBuffer[screenX] {
+			return projectileProjection{}, false
+		}
+	}
+
+	dist := math.Sqrt(distSq)
+	size := int(float64(baseSize) / dist * float64(r.game.config.GetTileSize()))
+	if size > maxSize {
+		size = maxSize
+	}
+	if size < minSize {
+		size = minSize
+	}
+
+	return projectileProjection{
+		screenX: screenX,
+		screenY: r.game.config.GetScreenHeight()/2 - size/2,
+		size:    size,
+	}, true
+}
+
 // drawMagicProjectiles draws all active magic projectiles
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 	glowBlend := ebiten.Blend{
@@ -2179,66 +2299,21 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			continue
 		}
 
-		// Calculate magic projectile position relative to camera
-		dx := magicProjectile.X - r.game.camera.X
-		dy := magicProjectile.Y - r.game.camera.Y
-		dist := Distance(r.game.camera.X, r.game.camera.Y, magicProjectile.X, magicProjectile.Y)
-
-		if dist > r.game.camera.ViewDist || dist < 10 {
-			continue
-		}
-
-		// Calculate angle to magic projectile
-		projectileAngle := math.Atan2(dy, dx)
-		angleDiff := projectileAngle - r.game.camera.Angle
-
-		// Normalize angle difference
-		for angleDiff > math.Pi {
-			angleDiff -= 2 * math.Pi
-		}
-		for angleDiff < -math.Pi {
-			angleDiff += 2 * math.Pi
-		}
-
-		// Check if magic projectile is in view
-		if math.Abs(angleDiff) > r.game.camera.FOV/2 {
-			continue
-		}
-
-		// Calculate screen position
-		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
-
-		// Calculate camera-space perpendicular depth for depth buffer comparison
-		camDirX := math.Cos(r.game.camera.Angle)
-		camDirY := math.Sin(r.game.camera.Angle)
-		depthPerp := dx*camDirX + dy*camDirY
-
-		// Depth test: check if projectile is behind walls
-		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
-			if depthPerp >= r.game.depthBuffer[screenX] {
-				continue // Projectile is behind a wall
-			}
-		}
-
-		// Get spell-specific graphics config based on spell type
-		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball")
+		// The SpellType string is actually the SpellID (e.g., "firebolt", "fireball").
 		spellConfigName := magicProjectile.SpellType
 		spellGraphicsConfig, err := r.game.config.GetSpellGraphicsConfig(spellConfigName)
 		if err != nil {
 			continue // Skip rendering if no graphics config
 		}
 
-		// Calculate projectile size based on distance using spell-specific config
-		baseSize := float64(spellGraphicsConfig.BaseSize)
-		projectileSize := int(baseSize / dist * r.game.config.GetTileSize())
-		if projectileSize > spellGraphicsConfig.MaxSize {
-			projectileSize = spellGraphicsConfig.MaxSize
+		proj, ok := r.projectMovingEntity(magicProjectile.X, magicProjectile.Y,
+			spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
+		if !ok {
+			continue
 		}
-		if projectileSize < spellGraphicsConfig.MinSize {
-			projectileSize = spellGraphicsConfig.MinSize
-		}
-
-		screenY := r.game.config.GetScreenHeight()/2 - projectileSize/2
+		screenX := proj.screenX
+		screenY := proj.screenY
+		projectileSize := proj.size
 
 		// Draw collision box if enabled (draw first, so it's behind the projectile)
 		if r.game.showCollisionBoxes {
@@ -2325,64 +2400,19 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 			continue
 		}
 
-		// Calculate attack position relative to camera
-		dx := attack.X - r.game.camera.X
-		dy := attack.Y - r.game.camera.Y
-		dist := Distance(r.game.camera.X, r.game.camera.Y, attack.X, attack.Y)
-
-		if dist > r.game.camera.ViewDist || dist < 10 {
-			continue
-		}
-
-		// Calculate angle to attack
-		attackAngle := math.Atan2(dy, dx)
-		angleDiff := attackAngle - r.game.camera.Angle
-
-		// Normalize angle difference
-		for angleDiff > math.Pi {
-			angleDiff -= 2 * math.Pi
-		}
-		for angleDiff < -math.Pi {
-			angleDiff += 2 * math.Pi
-		}
-
-		// Check if attack is in view
-		if math.Abs(angleDiff) > r.game.camera.FOV/2 {
-			continue
-		}
-
-		// Calculate screen position
-		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
-
-		// Calculate camera-space perpendicular depth for depth buffer comparison
-		camDirX := math.Cos(r.game.camera.Angle)
-		camDirY := math.Sin(r.game.camera.Angle)
-		depthPerp := dx*camDirX + dy*camDirY
-
-		// Depth test: check if melee attack is behind walls
-		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
-			if depthPerp >= r.game.depthBuffer[screenX] {
-				continue // Melee attack is behind a wall
-			}
-		}
-
-		// Get weapon-specific graphics config from YAML
 		weaponDef := lookupWeaponConfigByName(attack.WeaponName)
 		if weaponDef == nil || weaponDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing
 		}
 
-		// Calculate attack size based on distance using weapon-specific config
-		baseSize := float64(weaponDef.Graphics.BaseSize)
-		attackSize := int(baseSize / dist * r.game.config.GetTileSize())
-		if attackSize > weaponDef.Graphics.MaxSize {
-			attackSize = weaponDef.Graphics.MaxSize
+		proj, ok := r.projectMovingEntity(attack.X, attack.Y,
+			weaponDef.Graphics.BaseSize, weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize)
+		if !ok {
+			continue
 		}
-		if attackSize < weaponDef.Graphics.MinSize {
-			attackSize = weaponDef.Graphics.MinSize
-		}
-
-		screenY := r.game.config.GetScreenHeight()/2 - attackSize/2
+		screenX := proj.screenX
+		screenY := proj.screenY
+		attackSize := proj.size
 
 		// Draw collision box if enabled (draw first, so it's behind the attack)
 		if r.game.showCollisionBoxes {
@@ -2453,62 +2483,19 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 
-		// Calculate arrow position relative to camera
-		dx := arrow.X - r.game.camera.X
-		dy := arrow.Y - r.game.camera.Y
-		dist := Distance(r.game.camera.X, r.game.camera.Y, arrow.X, arrow.Y)
-
-		if dist > r.game.camera.ViewDist || dist < 10 {
-			continue
-		}
-
-		// Calculate angle to arrow
-		arrowAngle := math.Atan2(dy, dx)
-		angleDiff := arrowAngle - r.game.camera.Angle
-
-		// Normalize angle difference
-		for angleDiff > math.Pi {
-			angleDiff -= 2 * math.Pi
-		}
-		for angleDiff < -math.Pi {
-			angleDiff += 2 * math.Pi
-		}
-
-		// Check if arrow is in view
-		if math.Abs(angleDiff) > r.game.camera.FOV/2 {
-			continue
-		}
-
-		// Calculate screen position
-		screenX := int(float64(r.game.config.GetScreenWidth())/2 + (angleDiff/(r.game.camera.FOV/2))*float64(r.game.config.GetScreenWidth()/2))
-
-		// Calculate camera-space perpendicular depth for depth buffer comparison
-		camDirX := math.Cos(r.game.camera.Angle)
-		camDirY := math.Sin(r.game.camera.Angle)
-		depthPerp := dx*camDirX + dy*camDirY
-
-		// Depth test: check if arrow is behind walls
-		if screenX >= 0 && screenX < len(r.game.depthBuffer) {
-			if depthPerp >= r.game.depthBuffer[screenX] {
-				continue // Arrow is behind a wall
-			}
-		}
-
-		// Calculate arrow size based on distance using bow-specific config from YAML
 		bowDef := lookupWeaponConfigByKey(arrow.BowKey)
 		if bowDef == nil || bowDef.Graphics == nil {
 			continue // Skip rendering if weapon config missing
 		}
-		baseSize := float64(bowDef.Graphics.BaseSize)
-		arrowSize := int(baseSize / dist * r.game.config.GetTileSize())
-		if arrowSize > bowDef.Graphics.MaxSize {
-			arrowSize = bowDef.Graphics.MaxSize
-		}
-		if arrowSize < bowDef.Graphics.MinSize {
-			arrowSize = bowDef.Graphics.MinSize
-		}
 
-		screenY := r.game.config.GetScreenHeight()/2 - arrowSize/2
+		proj, ok := r.projectMovingEntity(arrow.X, arrow.Y,
+			bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize)
+		if !ok {
+			continue
+		}
+		screenX := proj.screenX
+		screenY := proj.screenY
+		arrowSize := proj.size
 
 		// Draw collision box if enabled (draw first, so it's behind the arrow)
 		if r.game.showCollisionBoxes {

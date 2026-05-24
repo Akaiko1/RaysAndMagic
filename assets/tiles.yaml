@@ -10,7 +10,7 @@ tiles:
     render_type: "floor_only"
     floor_color: [60, 180, 60]  # Green grass
     letter: "."
-    
+
   wall:
     name: "Stone Wall"
     solid: true
@@ -21,7 +21,7 @@ tiles:
     render_type: "textured_wall"
     wall_color: [64, 64, 64]  # Gray stone wall
     letter: "#"
-    
+
   water:
     name: "Water"
     solid: false
@@ -33,7 +33,7 @@ tiles:
     floor_color: [100, 150, 255]  # Blue water
     floor_near_color: [205, 175, 149]  # Sandy shore near water
     letter: "W"
-    
+
   deep_water:
     name: "Deep Water"
     solid: false
@@ -45,7 +45,7 @@ tiles:
     floor_color: [30, 80, 180]  # Darker blue deep water
     floor_near_color: [205, 175, 149]  # Sandy shore near deep water
     letter: "Q"
-    
+
   door:
     name: "Door"
     solid: true
@@ -56,7 +56,7 @@ tiles:
     render_type: "textured_wall"
     wall_color: [139, 69, 19]  # Brown wooden door
     letter: "D"
-    
+
   stairs:
     name: "Stairs"
     solid: false
@@ -81,7 +81,7 @@ tiles:
     floor_near_color: [20, 90, 20]  # Dark green near trees
     letter: "T"
     biomes: ["forest"]
-    
+
   ancient_tree:
     name: "Ancient Tree"
     solid: true
@@ -108,7 +108,7 @@ tiles:
     floor_near_color: [205, 175, 149]  # Lighter sand near dunes
     letter: "T"
     biomes: ["desert"]
-    
+
   large_dune:
     name: "Large Sand Dune"
     solid: true
@@ -135,7 +135,7 @@ tiles:
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "T"
     biomes: ["water"]
-    
+
   large_coral:
     name: "Large Coral Formation"
     solid: true
@@ -148,7 +148,7 @@ tiles:
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "A"
     biomes: ["water"]
-    
+
   thicket:
     name: "Dense Undergrowth"
     solid: true
@@ -159,7 +159,32 @@ tiles:
     render_type: "textured_wall"
     wall_color: [34, 80, 34]  # Dark green thicket
     letter: "%"
-    
+
+  church_floor:
+    name: "Abandoned Church Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [74, 68, 61]
+    floor_near_color: [92, 84, 73]
+    letter: "."
+    biomes: ["church"]
+
+  church_wall:
+    name: "Abandoned Church Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "church_wall"
+    render_type: "textured_wall"
+    wall_color: [72, 72, 72]
+    letter: "%"
+    biomes: ["church"]
+
   moss_rock:
     name: "Moss-covered Stone"
     solid: true
@@ -181,7 +206,7 @@ tiles:
     sprite: "mushroom_ring"
     render_type: "environment_sprite"
     letter: "M"
-    
+
   forest_stream:
     name: "Flowing Water"
     solid: false
@@ -193,7 +218,7 @@ tiles:
     floor_color: [0, 139, 139]  # Teal water
     floor_near_color: [205, 175, 149]  # Sandy banks near streams
     letter: "S"
-    
+
   fern_patch:
     name: "Dense Ferns"
     solid: false
@@ -203,7 +228,7 @@ tiles:
     sprite: "fern_patch"
     render_type: "environment_sprite"
     letter: "P"
-    
+
   firefly_swarm:
     name: "Magical Lights"
     solid: false
@@ -218,7 +243,7 @@ tiles:
       radius_tiles: 3.0
       intensity: 0.25
     letter: "F"
-    
+
   clearing:
     name: "Open Grass Area"
     solid: false
@@ -254,7 +279,7 @@ tiles:
     render_type: "textured_wall"
     wall_color: [120, 120, 120]  # Light gray low wall
     letter: "-"
-    
+
   high_wall:
     name: "Tall Fortification"
     solid: true

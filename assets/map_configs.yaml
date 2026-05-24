@@ -19,3 +19,10 @@ maps:
     biome: "water"
     sky_color: [72, 61, 139]          # Dark slate blue underwater
     default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+
+  church:
+    name: "Abandoned Church"
+    file: "church.map"
+    biome: "church"
+    sky_color: [35, 35, 45]
+    default_floor_color: [55, 50, 45]

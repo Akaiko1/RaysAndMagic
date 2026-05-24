@@ -24,8 +24,11 @@ func npcHasMerchant(npc *character.NPC) bool {
 	return npc != nil && (npc.SellAvailable || len(npc.MerchantStock) > 0)
 }
 
-func npcHasEncounter(npc *character.NPC) bool {
-	return npc != nil && npc.EncounterData != nil
+// npcHasChoiceDialog reports whether the NPC presents a choice prompt — either
+// an encounter (combat / quest pickup) or a pure dialogue with selectable
+// options. Both flow through the same encounter-style UI and input handler.
+func npcHasChoiceDialog(npc *character.NPC) bool {
+	return npc != nil && (npc.EncounterData != nil || (npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0))
 }
 
 func npcSpellKeys(npc *character.NPC) []string {

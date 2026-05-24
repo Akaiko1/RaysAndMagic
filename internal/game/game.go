@@ -148,6 +148,12 @@ var ElementColors = map[string][3]int{
 	"physical": {200, 200, 200}, // Gray
 }
 
+// MapPose captures the player's position and facing on a specific map so
+// two-way transitions can drop them back where they came in.
+type MapPose struct {
+	X, Y, Angle float64
+}
+
 type MMGame struct {
 	world     *world.World3D
 	camera    *FirstPersonCamera
@@ -244,6 +250,11 @@ type MMGame struct {
 	underwaterReturnX      float64 // X position to return to when spell expires
 	underwaterReturnY      float64 // Y position to return to when spell expires
 	underwaterReturnMap    string  // Map to return to when spell expires
+
+	// Per-map last-known player pose so two-way map transitions (e.g. enter /
+	// leave a church) drop the player back where they left, not at the map's
+	// spawn point.
+	mapReturnPoses map[string]MapPose
 
 	// Generic stat bonus system (for Bless, Day of Gods, Hour of Power, etc.)
 	statBonus int // Total stat bonus from all active effects

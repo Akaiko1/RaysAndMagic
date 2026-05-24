@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"ugataima/internal/world"
@@ -32,9 +33,13 @@ func (rh *RenderingHelper) CalculateWallDimensions(distance float64) (wallHeight
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	// Prevent division by zero or very small distances
-	if distance < 0.1 {
-		distance = 0.1
+	// Clamp to a sane minimum: below ~half a tile the projection formula sends
+	// wallTop far past the bottom of the screen and the wall vanishes (same bug
+	// trees used to have when the camera pressed against them). tileSize/2 keeps
+	// the wall on-screen while the player can still bump right up to it.
+	minDist := float64(rh.game.config.GetTileSize()) / 2
+	if distance < minDist {
+		distance = minDist
 	}
 
 	// Calculate base wall height on screen
@@ -350,8 +355,16 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 		textureX = 0
 	}
 
-	// Create cache key including sprite dimensions, texture position, and target size
-	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_%dx%d", spriteWidth, spriteHeight, textureX, width, height)
+	sourceWidth := width
+	if sourceWidth < 1 {
+		sourceWidth = 1
+	}
+	if sourceWidth > spriteWidth {
+		sourceWidth = spriteWidth
+	}
+
+	// Create cache key including sprite dimensions, texture position, sampled strip width, and target size.
+	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_sw%d_%dx%d", spriteWidth, spriteHeight, textureX, sourceWidth, width, height)
 
 	// Check if we have this sprite slice cached
 	if cachedSlice, exists := rh.textureCache[cacheKey]; exists {
@@ -370,22 +383,32 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 		return
 	}
 
-	// Create a 1-pixel wide slice from the sprite
-	sliceImage := ebiten.NewImage(1, spriteHeight)
-
-	// Use DrawImage with source rectangle to extract the slice - much faster than pixel operations
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(-textureX), 0) // Offset to show only the desired column
-
-	// Create a temporary 1-pixel wide image to act as a mask
-	sliceImage.DrawImage(sprite, opts)
+	// Create a narrow strip from the sprite. This keeps real wall textures readable
+	// for ray widths > 1 and wraps at texture edges for seamless textures.
+	sliceImage := ebiten.NewImage(sourceWidth, spriteHeight)
+	drawSourceStrip := func(srcX, dstX, stripWidth int) {
+		if stripWidth <= 0 {
+			return
+		}
+		src := sprite.SubImage(image.Rect(srcX, 0, srcX+stripWidth, spriteHeight)).(*ebiten.Image)
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Translate(float64(dstX), 0)
+		sliceImage.DrawImage(src, opts)
+	}
+	if textureX+sourceWidth <= spriteWidth {
+		drawSourceStrip(textureX, 0, sourceWidth)
+	} else {
+		firstWidth := spriteWidth - textureX
+		drawSourceStrip(textureX, 0, firstWidth)
+		drawSourceStrip(0, firstWidth, sourceWidth-firstWidth)
+	}
 
 	// Create the final scaled slice for caching
 	scaledSlice := ebiten.NewImage(width, height)
 	drawOpts := &ebiten.DrawImageOptions{}
 
 	// Scale the slice to fit the wall dimensions
-	scaleX := float64(width)
+	scaleX := float64(width) / float64(sourceWidth)
 	scaleY := float64(height) / float64(spriteHeight)
 	drawOpts.GeoM.Scale(scaleX, scaleY)
 
@@ -436,7 +459,9 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 	return screenX, screenY, spriteSize, visible
 }
 
-// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters)
+// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters).
+// People-sized NPCs use this; buildings should set render_type: environment_sprite in YAML
+// so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeMultiplier <= 0 {
 		sizeMultiplier = 1
@@ -444,12 +469,7 @@ func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance,
 	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
 	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
 	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
-
-	// screenY is now correctly calculated by calculateSpriteMetricsWithConfig to anchor
-	// the sprite's bottom to the floor at its distance
-
-	return screenX, screenY, spriteSize, visible
+	return rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)

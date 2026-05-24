@@ -1371,7 +1371,7 @@ func (ih *InputHandler) handleDialogInput() {
 		switch {
 		case npcHasSpellTrading(ih.game.dialogNPC):
 			ih.handleSpellTraderInput()
-		case npcHasEncounter(ih.game.dialogNPC):
+		case npcHasChoiceDialog(ih.game.dialogNPC):
 			ih.handleEncounterInput()
 		}
 	}
@@ -1628,7 +1628,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	}
 
 	// Check if clicking on encounter choices (if NPC is encounter type)
-	if ih.game.dialogNPC != nil && npcHasEncounter(ih.game.dialogNPC) {
+	if ih.game.dialogNPC != nil && npcHasChoiceDialog(ih.game.dialogNPC) {
 		npc := ih.game.dialogNPC
 		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
 			// Skip if already visited and encounter is first-visit-only
@@ -2067,10 +2067,60 @@ func (ih *InputHandler) executeEncounterChoice() {
 		// Start encounter combat
 		ih.startEncounter()
 
+	case "enter_map":
+		ih.enterEncounterMap(choice.Map)
+
 	default:
 		// Unknown action - just close dialog
 		ih.game.dialogActive = false
 		ih.game.dialogNPC = nil
+	}
+}
+
+func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
+	if targetMapKey == "" || world.GlobalWorldManager == nil || !world.GlobalWorldManager.IsValidMap(targetMapKey) {
+		ih.game.AddCombatMessage("You cannot enter from here.")
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+		return
+	}
+
+	// Remember where the player is on the current map so a return trip
+	// drops them back at the doorway, not at the map's spawn tile.
+	if ih.game.mapReturnPoses == nil {
+		ih.game.mapReturnPoses = make(map[string]MapPose)
+	}
+	if currentKey := world.GlobalWorldManager.CurrentMapKey; currentKey != "" {
+		ih.game.mapReturnPoses[currentKey] = MapPose{
+			X:     ih.game.camera.X,
+			Y:     ih.game.camera.Y,
+			Angle: ih.game.camera.Angle,
+		}
+	}
+
+	ih.game.dialogActive = false
+	ih.game.dialogNPC = nil
+	ih.switchToMap(targetMapKey)
+
+	currentWorld := ih.game.GetCurrentWorld()
+	if currentWorld == nil {
+		return
+	}
+
+	// Prefer the previously-stored pose for this map if we've been here before;
+	// fall back to the map's spawn tile on first visit.
+	var x, y, angle float64
+	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
+		x, y, angle = pose.X, pose.Y, pose.Angle
+	} else {
+		x, y = currentWorld.GetStartingPosition()
+		angle = 0
+	}
+	ih.game.camera.X = x
+	ih.game.camera.Y = y
+	ih.game.camera.Angle = angle
+	if ih.game.collisionSystem != nil {
+		ih.game.collisionSystem.UpdateEntity("player", x, y)
 	}
 }
 
