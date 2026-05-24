@@ -17,21 +17,11 @@ func getWeaponFromConfig(weaponKey string) (*items.WeaponDefinitionFromYAML, boo
 		return nil, false
 	}
 
-	// Convert config weapon to items weapon definition
-	itemsWeapon := &items.WeaponDefinitionFromYAML{
-		Name:               weaponDef.Name,
-		Description:        weaponDef.Description,
-		Category:           weaponDef.Category,
-		Damage:             weaponDef.Damage,
-		Range:              weaponDef.Range,
-		BonusStat:          weaponDef.BonusStat,
-		BonusStatSecondary: weaponDef.BonusStatSecondary,
-		DamageType:         weaponDef.DamageType,
-		MaxProjectiles:     weaponDef.MaxProjectiles,
-		CritChance:         weaponDef.CritChance,
-		Rarity:             weaponDef.Rarity,
-		Value:              weaponDef.Value,
-	}
-
-	return itemsWeapon, true
+	return &items.WeaponDefinitionFromYAML{
+		Name:        weaponDef.Name,
+		Description: weaponDef.Description,
+		Category:    weaponDef.Category,
+		Rarity:      weaponDef.Rarity,
+		Value:       weaponDef.Value,
+	}, true
 }

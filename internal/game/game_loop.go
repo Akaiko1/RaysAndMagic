@@ -243,6 +243,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 					}
 				}
 			}
+			gl.game.addTreasureChestFromReward(rewards.TreasureChest)
 			return // Quest handled rewards, don't double-award
 		}
 	}
@@ -252,6 +253,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	if rewards.CompletionMessage != "" {
 		gl.game.AddCombatMessage(rewards.CompletionMessage)
 	}
+	gl.game.addTreasureChestFromReward(rewards.TreasureChest)
 
 	// Award gold to party
 	if rewards.Gold > 0 {

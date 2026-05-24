@@ -10,16 +10,16 @@ import (
 
 // Config holds all game configuration values
 type Config struct {
-	Display    DisplayConfig    `yaml:"display"`
-	Engine     EngineConfig     `yaml:"engine"`
-	World      WorldConfig      `yaml:"world"`
-	Movement   MovementConfig   `yaml:"movement"`
-	Camera     CameraConfig     `yaml:"camera"`
-	UI         UIConfig         `yaml:"ui"`
-	Characters CharacterConfig  `yaml:"characters"`
-	MonsterAI  MonsterAIConfig  `yaml:"monster_ai"`
-	Graphics   GraphicsConfig   `yaml:"graphics"`
-	Tiles      TileConfig       `yaml:"tiles"`
+	Display    DisplayConfig   `yaml:"display"`
+	Engine     EngineConfig    `yaml:"engine"`
+	World      WorldConfig     `yaml:"world"`
+	Movement   MovementConfig  `yaml:"movement"`
+	Camera     CameraConfig    `yaml:"camera"`
+	UI         UIConfig        `yaml:"ui"`
+	Characters CharacterConfig `yaml:"characters"`
+	MonsterAI  MonsterAIConfig `yaml:"monster_ai"`
+	Graphics   GraphicsConfig  `yaml:"graphics"`
+	Tiles      TileConfig      `yaml:"tiles"`
 }
 
 type DisplayConfig struct {
@@ -277,11 +277,35 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string `yaml:"name"`
-	File              string `yaml:"file"`
-	Biome             string `yaml:"biome"`
-	SkyColor          [3]int `yaml:"sky_color"`
-	DefaultFloorColor [3]int `yaml:"default_floor_color"`
+	Name              string                   `yaml:"name"`
+	File              string                   `yaml:"file"`
+	Biome             string                   `yaml:"biome"`
+	SkyColor          [3]int                   `yaml:"sky_color"`
+	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
+	ClearEncounter    *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+}
+
+type MapClearEncounterConfig struct {
+	Rewards *MapEncounterRewardsConfig `yaml:"rewards,omitempty"`
+}
+
+type MapEncounterRewardsConfig struct {
+	Gold              int                           `yaml:"gold"`
+	Experience        int                           `yaml:"experience"`
+	CompletionMessage string                        `yaml:"completion_message,omitempty"`
+	TreasureChest     *MapTreasureChestRewardConfig `yaml:"treasure_chest,omitempty"`
+}
+
+type MapTreasureChestRewardConfig struct {
+	ID                string  `yaml:"id,omitempty"`
+	Map               string  `yaml:"map,omitempty"`
+	TileX             int     `yaml:"tile_x"`
+	TileY             int     `yaml:"tile_y"`
+	Sprite            string  `yaml:"sprite,omitempty"`
+	SizeMultiplier    float64 `yaml:"size_multiplier,omitempty"` // Visual scale; defaults to 0.45 if unset
+	RandomWeaponCount int     `yaml:"random_weapon_count,omitempty"`
+	Gold              int     `yaml:"gold,omitempty"`
+	CompletionMessage string  `yaml:"completion_message,omitempty"`
 }
 
 type MapConfigs struct {
@@ -752,4 +776,3 @@ func GetWeaponDefinitionByName(name string) (*WeaponDefinitionConfig, string, bo
 	}
 	return def, weaponKeyByName[name], true
 }
-

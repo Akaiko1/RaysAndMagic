@@ -289,16 +289,16 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	// Calculate damage using centralized function
 	_, _, totalDamage := cs.CalculateWeaponDamage(weapon, attacker)
 
-	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
-	// For ranged: roll crit and apply doubling inside createArrowAttack only.
-	if weapon.Range > 3 {
-		cs.createArrowAttack(totalDamage)
-		return
-	}
-
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
+	}
+
+	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
+	// For ranged: roll crit and apply doubling inside createArrowAttack only.
+	if weaponDef.Range > 3 {
+		cs.createArrowAttack(totalDamage)
+		return
 	}
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
@@ -315,12 +315,16 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
 	bowKey := "hunting_bow"
-	if hasWeapon && weapon.Range > 3 {
-		bowKey = items.GetWeaponKeyByName(weapon.Name)
+	var equippedDef *config.WeaponDefinitionConfig
+	if hasWeapon {
+		equippedDef = lookupWeaponConfigByName(weapon.Name)
+		if equippedDef != nil && equippedDef.Range > 3 {
+			bowKey = items.GetWeaponKeyByName(weapon.Name)
+		}
 	}
 
 	// Check max projectiles limit for this weapon
-	if hasWeapon && weapon.MaxProjectiles > 0 {
+	if equippedDef != nil && equippedDef.MaxProjectiles > 0 {
 		// Count active arrows from this specific bow
 		activeArrowsFromBow := 0
 		for _, arrow := range cs.game.arrows {
@@ -330,7 +334,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		}
 
 		// If we've reached the limit, don't create a new arrow
-		if activeArrowsFromBow >= weapon.MaxProjectiles {
+		if activeArrowsFromBow >= equippedDef.MaxProjectiles {
 			return
 		}
 	}
@@ -348,8 +352,8 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 	// Determine damage type from weapon
 	damageType := "physical" // Default
-	if hasWeapon && weapon.DamageType != "" {
-		damageType = weapon.DamageType
+	if equippedDef != nil && equippedDef.DamageType != "" {
+		damageType = equippedDef.DamageType
 	}
 
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
@@ -450,7 +454,12 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 
 	// Convert range from tiles to pixels
 	tileSize := float64(cs.game.config.GetTileSize())
-	attackRange := float64(weapon.Range) * tileSize
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
+	weaponRange := 1
+	if weaponDef != nil {
+		weaponRange = weaponDef.Range
+	}
+	attackRange := float64(weaponRange) * tileSize
 
 	// Convert arc angle from degrees to radians
 	arcAngleRad := float64(meleeConfig.ArcAngle) * math.Pi / 180.0
@@ -1487,7 +1496,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 		if sizeMultiplier < 0.1 {
 			sizeMultiplier = 0.1
 		}
-		cs.game.addLootBag(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
+		cs.game.addLootBagDrop(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
 	}
 }
 
@@ -1544,7 +1553,11 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
-	baseDamage := weapon.Damage
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
+	if weaponDef == nil {
+		return 0, 0, 0
+	}
+	baseDamage := weaponDef.Damage
 	masteryBonus := cs.weaponMasteryBonus(weapon, character)
 	if masteryBonus > 0 {
 		baseDamage += masteryBonus
@@ -1555,7 +1568,7 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 
 	// Get the appropriate stat bonus based on weapon's primary bonus stat
 	var primaryStatBonus int
-	switch weapon.BonusStat {
+	switch weaponDef.BonusStat {
 	case "Might":
 		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	case "Accuracy":
@@ -1569,8 +1582,8 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 
 	// Add secondary stat bonus if weapon has dual scaling
 	var secondaryStatBonus int
-	if weapon.BonusStatSecondary != "" {
-		switch weapon.BonusStatSecondary {
+	if weaponDef.BonusStatSecondary != "" {
+		switch weaponDef.BonusStatSecondary {
 		case "Might":
 			secondaryStatBonus = might / WeaponSecondaryStatDivisor
 		case "Accuracy":

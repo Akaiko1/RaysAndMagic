@@ -10,10 +10,24 @@ import (
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
-	Gold              int    `yaml:"gold"`
-	Experience        int    `yaml:"experience"`
-	CompletionMessage string `yaml:"completion_message"` // Configurable message shown when encounter is completed
-	QuestID           string `yaml:"-"`                  // Quest ID linked to this encounter (set at runtime, not from YAML)
+	Gold              int                  `yaml:"gold"`
+	Experience        int                  `yaml:"experience"`
+	CompletionMessage string               `yaml:"completion_message"`       // Configurable message shown when encounter is completed
+	TreasureChest     *TreasureChestReward `yaml:"treasure_chest,omitempty"` // Optional chest spawned when encounter is completed
+	QuestID           string               `yaml:"-"`                        // Quest ID linked to this encounter (set at runtime, not from YAML)
+}
+
+// TreasureChestReward describes a chest spawned after an encounter is cleared.
+type TreasureChestReward struct {
+	ID                string  `yaml:"id,omitempty"`
+	Map               string  `yaml:"map,omitempty"`
+	TileX             int     `yaml:"tile_x"`
+	TileY             int     `yaml:"tile_y"`
+	Sprite            string  `yaml:"sprite,omitempty"`
+	SizeMultiplier    float64 `yaml:"size_multiplier,omitempty"`
+	RandomWeaponCount int     `yaml:"random_weapon_count,omitempty"`
+	Gold              int     `yaml:"gold,omitempty"`
+	CompletionMessage string  `yaml:"completion_message,omitempty"`
 }
 
 // Global counter for unique monster IDs

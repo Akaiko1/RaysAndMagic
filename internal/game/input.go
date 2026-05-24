@@ -206,7 +206,7 @@ func (ih *InputHandler) restartNewGame() {
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.meleeAttacks = g.meleeAttacks[:0]
 	g.arrows = g.arrows[:0]
-	g.lootBags = g.lootBags[:0]
+	g.groundContainers = g.groundContainers[:0]
 	g.slashEffects = g.slashEffects[:0]
 	g.arrowHitEffects = g.arrowHitEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
@@ -776,7 +776,7 @@ func (ih *InputHandler) handleCombatInput() {
 
 	// Melee attack (Space key) - with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()
@@ -1170,13 +1170,13 @@ func (ih *InputHandler) handleMouseInput() {
 		}
 	}
 
-	// Loot bag pickup (only during gameplay, no overlays)
+	// Ground container pickup (only during gameplay, no overlays)
 	if !ih.game.menuOpen && !ih.game.mainMenuOpen && !ih.game.showHighScores && !ih.game.mapOverlayOpen && !ih.game.dialogActive && !ih.game.statPopupOpen && ih.game.currentLevelUpChoice() == nil {
-		pickupRange := ih.game.lootBagPickupRange()
+		pickupRange := ih.game.groundContainerPickupRange()
 		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
-			if idx := ih.game.findLootBagIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
+			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
-				ih.game.pickupLootBagAt(idx)
+				ih.game.pickupGroundContainerAt(idx)
 				return
 			}
 		}
@@ -1768,7 +1768,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()

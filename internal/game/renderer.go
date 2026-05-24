@@ -1731,7 +1731,7 @@ const (
 	SpriteTypeTree
 	SpriteTypeMonster
 	SpriteTypeNPC
-	SpriteTypeLootBag
+	SpriteTypeGroundContainer
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -1752,9 +1752,8 @@ type UnifiedSpriteRenderData struct {
 	monsterFlip bool
 	// NPC specific
 	npc *character.NPC
-	// Loot bag specific
-	lootX float64
-	lootY float64
+	// Ground container (loot bag / treasure chest) specific
+	groundContainer *GroundContainer
 }
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
@@ -1946,14 +1945,18 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
-	// 5. Collect loot bags
-	for i := range r.game.lootBags {
-		bag := &r.game.lootBags[i]
-		dx := bag.X - camX
-		dy := bag.Y - camY
+	// 5. Collect ground containers (loot bags + treasure chests)
+	activeMapKey := currentMapKey()
+	for i := range r.game.groundContainers {
+		c := &r.game.groundContainers[i]
+		if c.MapKey != "" && c.MapKey != activeMapKey {
+			continue
+		}
+		dx := c.X - camX
+		dy := c.Y - camY
 		distanceSq := dx*dx + dy*dy
-		// Same one-tile cull as env sprites / NPCs so a bag at the player's feet
-		// disappears cleanly instead of sliding under the camera.
+		// Same one-tile cull as env sprites / NPCs so a container at the
+		// player's feet disappears cleanly instead of sliding under the camera.
 		if distanceSq < minDistSq || distanceSq > viewDistSq {
 			continue
 		}
@@ -1962,21 +1965,20 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 		distance := math.Sqrt(distanceSq)
-		info := r.game.lootBagRenderInfo(bag, distance)
+		info := r.game.groundContainerRenderInfo(c, distance)
 		if !info.Visible {
 			continue
 		}
-		sprite := r.game.sprites.GetSprite("bag")
+		sprite := r.game.sprites.GetSprite(c.effectiveSprite())
 		sprites = append(sprites, UnifiedSpriteRenderData{
-			spriteType: SpriteTypeLootBag,
-			screenX:    info.ScreenX,
-			screenY:    info.ScreenY,
-			spriteSize: info.SpriteSize,
-			depthPerp:  depthPerp,
-			distance:   info.Distance,
-			sprite:     sprite,
-			lootX:      bag.X,
-			lootY:      bag.Y,
+			spriteType:      SpriteTypeGroundContainer,
+			screenX:         info.ScreenX,
+			screenY:         info.ScreenY,
+			spriteSize:      info.SpriteSize,
+			depthPerp:       depthPerp,
+			distance:        info.Distance,
+			sprite:          sprite,
+			groundContainer: c,
 		})
 	}
 
@@ -1999,112 +2001,99 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawUnifiedMonsterSprite(screen, s)
 		case SpriteTypeNPC:
 			r.drawUnifiedNPCSprite(screen, s)
-		case SpriteTypeLootBag:
-			r.drawUnifiedLootBagSprite(screen, s)
+		case SpriteTypeGroundContainer:
+			r.drawUnifiedGroundContainerSprite(screen, s)
 		}
 	}
 }
 
-// drawUnifiedLootBagSprite draws a loot bag sprite from unified data
-func (r *Renderer) drawUnifiedLootBagSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	drawLeft := s.screenX - s.spriteSize/2
-	drawRight := s.screenX + s.spriteSize/2
-	depthLeft := drawLeft
-	depthRight := drawRight
-
-	if depthLeft < 0 {
-		depthLeft = 0
+// spriteDepthBufferVisible returns true if the sprite's screen-X span has at
+// least one pixel where the sprite is in front of the wall depth buffer.
+// Shared by all the floor-anchored sprite drawers (env / loot bag / chest).
+func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
+	left := s.screenX - s.spriteSize/2
+	right := s.screenX + s.spriteSize/2
+	if left < 0 {
+		left = 0
 	}
-	if depthRight >= len(r.game.depthBuffer) {
-		depthRight = len(r.game.depthBuffer) - 1
+	if right >= len(r.game.depthBuffer) {
+		right = len(r.game.depthBuffer) - 1
 	}
-
-	visible := false
-	for x := depthLeft; x <= depthRight; x++ {
+	for x := left; x <= right; x++ {
 		if s.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
+			return true
 		}
 	}
-	if !visible {
+	return false
+}
+
+// drawTintedSprite draws a sprite scaled to spriteSize at (drawLeft, screenY)
+// with the given RGBA tint applied via ColorScale. Used for both the
+// brightness pass and the hover-highlight overlay.
+func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize int, tintR, tintG, tintB, tintA float32) {
+	if sprite == nil {
+		return
+	}
+	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
+	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
+	opts.Blend = ebiten.BlendSourceOver
+	screen.DrawImage(sprite, opts)
+}
+
+// hoverHighlightTint is the soft yellow overlay drawn on pickup-range
+// sprites (ground containers) when the cursor is over them.
+var hoverHighlightTint = [4]float32{1.0, 0.95, 0.6, 0.6}
+
+// drawUnifiedGroundContainerSprite draws a ground container (loot bag or
+// treasure chest) from unified data with brightness and optional hover.
+func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	if !r.spriteDepthBufferVisible(s) || s.groundContainer == nil {
 		return
 	}
 
-	pickupRange := r.game.lootBagPickupRange()
+	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
 	if s.distance <= pickupRange {
 		mouseX, mouseY := ebiten.CursorPosition()
-		info := LootBagRenderInfo{
+		info := GroundContainerRenderInfo{
 			ScreenX:    s.screenX,
 			ScreenY:    s.screenY,
 			SpriteSize: s.spriteSize,
 			Distance:   s.distance,
 			Visible:    true,
 		}
-		hovered = r.game.lootBagHitTestFromInfo(info, mouseX, mouseY, pickupRange)
+		hovered = r.game.groundContainerHitTestFromInfo(info, s.groundContainer.effectiveSprite(), mouseX, mouseY, pickupRange)
 	}
 
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
-	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
-
-	brightness := r.calculateBrightnessWithTorchLight(s.lootX, s.lootY, s.distance)
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(s.sprite, opts)
+	drawLeft := s.screenX - s.spriteSize/2
+	brightness := r.calculateBrightnessWithTorchLight(s.groundContainer.X, s.groundContainer.Y, s.distance)
+	b := float32(brightness)
+	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 
 	if hovered {
-		highlight := &ebiten.DrawImageOptions{}
-		highlight.GeoM.Scale(scaleX, scaleY)
-		highlight.GeoM.Translate(float64(drawLeft), float64(s.screenY))
-		highlight.ColorScale.Scale(1.0, 0.95, 0.6, 0.6)
-		highlight.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(s.sprite, highlight)
+		r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize,
+			hoverHighlightTint[0], hoverHighlightTint[1], hoverHighlightTint[2], hoverHighlightTint[3])
 	}
 }
 
 // drawUnifiedEnvironmentSprite draws an environment sprite from unified data
 func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	drawLeft := s.screenX - s.spriteSize/2
-	drawRight := s.screenX + s.spriteSize/2
-	depthLeft := drawLeft
-	depthRight := drawRight
-
-	if depthLeft < 0 {
-		depthLeft = 0
-	}
-	if depthRight >= len(r.game.depthBuffer) {
-		depthRight = len(r.game.depthBuffer) - 1
-	}
-
-	visible := false
-	for x := depthLeft; x <= depthRight; x++ {
-		if s.depthPerp < r.game.depthBuffer[x] {
-			visible = true
-			break
-		}
-	}
-	if !visible {
+	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
-
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
-	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-	opts.GeoM.Scale(scaleX, scaleY)
-	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
 	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
-	opts.Blend = ebiten.BlendSourceOver
+	b := float32(brightness)
 
-	screen.DrawImage(s.sprite, opts)
+	drawLeft := s.screenX - s.spriteSize/2
+	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 }
 
 // drawUnifiedMonsterSprite draws a monster sprite from unified data

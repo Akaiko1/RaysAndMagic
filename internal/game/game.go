@@ -211,7 +211,7 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
-	lootBags         []LootBag
+	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
 
 	// Spellbook UI state
 	collapsedSpellSchools map[character.MagicSchoolID]bool

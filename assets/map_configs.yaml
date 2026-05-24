@@ -26,3 +26,14 @@ maps:
     biome: "church"
     sky_color: [35, 35, 45]
     default_floor_color: [55, 50, 45]
+    clear_encounter:
+      rewards:
+        completion_message: "The last skeleton collapses. A sealed chest appears at the end of the corridor."
+        treasure_chest:
+          id: "church_skeleton_chest"
+          map: "church"
+          tile_x: 15
+          tile_y: 1
+          sprite: "chest"
+          size_multiplier: 5.0
+          random_weapon_count: 1

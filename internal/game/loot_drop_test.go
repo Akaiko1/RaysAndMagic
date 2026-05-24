@@ -25,18 +25,18 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 	}
 
 	cs.game.party.Inventory = nil
-	cs.game.lootBags = nil
+	cs.game.groundContainers = nil
 	for i := 0; i < trials; i++ {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cs.game.config)
 		drops := cs.checkMonsterLootDrop(monster)
 		if len(drops) > 0 {
-			cs.game.addLootBag(monster.X, monster.Y, drops, 0, 0.33)
+			cs.game.addLootBagDrop(monster.X, monster.Y, drops, 0, 0.33)
 		}
 	}
 
 	counts := make(map[string]int)
-	for _, bag := range cs.game.lootBags {
-		for _, item := range bag.Items {
+	for _, c := range cs.game.groundContainers {
+		for _, item := range c.Items {
 			counts[item.Name]++
 		}
 	}

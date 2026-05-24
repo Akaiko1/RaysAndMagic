@@ -318,33 +318,33 @@ func TestSaveLoad_PersistsLootBags(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 
 	game := newTestGame(cfg, worldTest)
-	game.lootBags = []LootBag{
-		{X: 100, Y: 200, Gold: 42, SizeMultiplier: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
-		{X: 320, Y: 256, Gold: 0, SizeMultiplier: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
+	game.groundContainers = []GroundContainer{
+		{Kind: ContainerKindLootBag, X: 100, Y: 200, Gold: 42, SizeMultiplier: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
+		{Kind: ContainerKindLootBag, X: 320, Y: 256, Gold: 0, SizeMultiplier: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
 	}
 
 	save := game.buildSave(wm)
 
 	loaded := newTestGame(cfg, worldTest)
-	loaded.lootBags = []LootBag{{X: 999, Y: 999, Gold: 1}} // should be wiped
+	loaded.groundContainers = []GroundContainer{{Kind: ContainerKindLootBag, X: 999, Y: 999, Gold: 1}} // should be wiped
 	if err := loaded.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
 
-	if len(loaded.lootBags) != 2 {
-		t.Fatalf("expected 2 loot bags after load, got %d", len(loaded.lootBags))
+	if len(loaded.groundContainers) != 2 {
+		t.Fatalf("expected 2 ground containers after load, got %d", len(loaded.groundContainers))
 	}
-	if loaded.lootBags[0].Gold != 42 || loaded.lootBags[0].X != 100 || loaded.lootBags[0].Y != 200 {
-		t.Fatalf("first loot bag mismatch: %+v", loaded.lootBags[0])
+	if loaded.groundContainers[0].Gold != 42 || loaded.groundContainers[0].X != 100 || loaded.groundContainers[0].Y != 200 {
+		t.Fatalf("first container mismatch: %+v", loaded.groundContainers[0])
 	}
-	if loaded.lootBags[0].SizeMultiplier != 0.5 {
-		t.Fatalf("size multiplier not preserved: %v", loaded.lootBags[0].SizeMultiplier)
+	if loaded.groundContainers[0].SizeMultiplier != 0.5 {
+		t.Fatalf("size multiplier not preserved: %v", loaded.groundContainers[0].SizeMultiplier)
 	}
-	if len(loaded.lootBags[0].Items) != 1 || loaded.lootBags[0].Items[0].Name != "Iron Sword" {
-		t.Fatalf("first loot bag items mismatch: %+v", loaded.lootBags[0].Items)
+	if len(loaded.groundContainers[0].Items) != 1 || loaded.groundContainers[0].Items[0].Name != "Iron Sword" {
+		t.Fatalf("first container items mismatch: %+v", loaded.groundContainers[0].Items)
 	}
-	if loaded.lootBags[1].Items[0].Name != "Leather Armor" {
-		t.Fatalf("second loot bag items mismatch: %+v", loaded.lootBags[1].Items)
+	if loaded.groundContainers[1].Items[0].Name != "Leather Armor" {
+		t.Fatalf("second container items mismatch: %+v", loaded.groundContainers[1].Items)
 	}
 }
 

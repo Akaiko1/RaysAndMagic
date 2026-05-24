@@ -30,14 +30,6 @@ type Item struct {
 	Rarity      string
 	// For armor
 	ArmorCategory string
-	// For weapons
-	Damage    int
-	Range     int    // In tiles
-	BonusStat string // "Might", "Accuracy", "Intellect", etc. - which stat provides damage bonus
-	// Advanced weapon properties
-	BonusStatSecondary string // Secondary scaling stat (e.g., "Intellect")
-	DamageType         string // "physical", "fire", "dark", etc.
-	MaxProjectiles     int    // Maximum projectiles allowed at once (0 = unlimited)
 	// For spells
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
@@ -100,19 +92,6 @@ const (
 )
 
 // Helper functions to create items
-func CreateWeapon(name string, damage, weaponRange int, bonusStat, description string) Item {
-	return Item{
-		Name:        name,
-		Type:        ItemWeapon,
-		Damage:      damage,
-		Range:       weaponRange,
-		BonusStat:   bonusStat,
-		Description: description,
-		Rarity:      "common",
-		Attributes:  make(map[string]int),
-	}
-}
-
 func CreateBattleSpell(name string, effect SpellEffect, school string, cost int, description string) Item {
 	return Item{
 		Name:        name,
@@ -156,17 +135,11 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 	}
 
 	it := Item{
-		Name:               weaponDef.Name,
-		Type:               ItemWeapon,
-		Damage:             weaponDef.Damage,
-		Range:              weaponDef.Range,
-		BonusStat:          weaponDef.BonusStat,
-		BonusStatSecondary: weaponDef.BonusStatSecondary,
-		DamageType:         weaponDef.DamageType,
-		MaxProjectiles:     weaponDef.MaxProjectiles,
-		Description:        weaponDef.Description,
-		Rarity:             weaponDef.Rarity,
-		Attributes:         make(map[string]int),
+		Name:        weaponDef.Name,
+		Type:        ItemWeapon,
+		Description: weaponDef.Description,
+		Rarity:      weaponDef.Rarity,
+		Attributes:  make(map[string]int),
 	}
 	if weaponDef.Value > 0 {
 		it.Attributes["value"] = weaponDef.Value
@@ -181,20 +154,17 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*WeaponDefinitionFromYAML,
 	return getGlobalWeaponDef(weaponKey)
 }
 
-// WeaponDefinitionFromYAML represents weapon data without circular import
+// WeaponDefinitionFromYAML is the minimal mirror of config.WeaponDefinitionConfig
+// needed by packages that can't import config (items, character). All combat
+// math reads from config.WeaponDefinitionConfig directly; this struct only
+// exposes the fields needed to construct a base items.Item and to enforce
+// class skill checks.
 type WeaponDefinitionFromYAML struct {
-	Name               string
-	Description        string
-	Category           string
-	Damage             int
-	Range              int
-	BonusStat          string
-	BonusStatSecondary string // Secondary scaling stat
-	DamageType         string // Damage element type
-	MaxProjectiles     int    // Max projectiles at once
-	CritChance         int
-	Rarity             string
-	Value              int
+	Name        string
+	Description string
+	Category    string
+	Rarity      string
+	Value       int
 }
 
 // getGlobalWeaponDef accesses the global weapon configuration

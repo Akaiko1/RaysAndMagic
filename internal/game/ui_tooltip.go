@@ -30,37 +30,41 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 	switch item.Type {
 	case items.ItemWeapon:
+		// All weapon stats come from weapons.yaml via config — items.Item only
+		// carries the name. Look up once and use the def throughout.
+		weaponKey := items.GetWeaponKeyByName(item.Name)
+		weaponDef, _ := config.GetWeaponDefinition(weaponKey)
+
 		// Core weapon mechanics
 		base, bonus, total := combatSystem.CalculateWeaponDamage(item, char)
 		fields["w_base"] = fmt.Sprintf("Base Damage: %d", base)
 		fields["w_scaling"] = weaponScalingLine(item, char, combatSystem)
 		fields["w_bonus"] = fmt.Sprintf("Stat Bonus: +%d", bonus)
 		fields["w_total"] = fmt.Sprintf("Total Damage: %d", total)
-		if item.Range > 0 {
-			fields["w_range"] = fmt.Sprintf("Range: %d tiles", item.Range)
+		if weaponDef != nil && weaponDef.Range > 0 {
+			fields["w_range"] = fmt.Sprintf("Range: %d tiles", weaponDef.Range)
 		}
 		if cooldown := formatCooldownLine(char, combatSystem); cooldown != "" {
 			fields["w_cd"] = cooldown
 		}
-		// From YAML weapon definition
-		weaponKey := items.GetWeaponKeyByName(item.Name)
-		if weaponDef, exists := config.GetWeaponDefinition(weaponKey); exists {
+		effectKeys := []string{}
+		if weaponDef != nil {
 			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
 			totalCrit := combatSystem.CalculateWeaponCritChance(item, char)
 			if totalCrit > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
 				fields["w_crit"] = fmt.Sprintf("Critical Chance: %d%% (Base: %d, Luck: +%d)", totalCrit, weaponDef.CritChance, critBonus)
 			}
-			if weaponDef.StunChance > 0 {
-				turns := weaponDef.StunTurns
-				if turns <= 0 {
-					turns = 1
-				}
-				fields["w_stun"] = fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", weaponDef.StunChance*100, turns)
+			for i, line := range weaponEffectLines(weaponDef) {
+				key := fmt.Sprintf("w_eff_%d", i)
+				fields[key] = line
+				effectKeys = append(effectKeys, key)
 			}
 			fields["w_type"] = fmt.Sprintf("Type: %s (%s)", weaponDef.Category, weaponDef.Rarity)
 		}
-		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit", "w_stun", "w_type", "__sep__")
+		order = append(order, "w_base", "w_scaling", "w_bonus", "w_total", "w_range", "w_cd", "w_crit")
+		order = append(order, effectKeys...)
+		order = append(order, "w_type", "__sep__")
 
 	case items.ItemArmor:
 		if line := getArmorCategoryLine(item); line != "" {
@@ -253,16 +257,20 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 // The /N divisors come from balance.go so the displayed weights stay in
 // lockstep with the actual damage formula in CalculateMeleeDamage.
 func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
-	primary := item.BonusStat
-	if primary == "" {
-		primary = "Might"
+	primary := "Might"
+	secondary := ""
+	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil {
+		if def.BonusStat != "" {
+			primary = def.BonusStat
+		}
+		secondary = def.BonusStatSecondary
 	}
 	primaryValue := getEffectiveStatValue(primary, char, combatSystem)
-	if sec := item.BonusStatSecondary; sec != "" {
-		secondaryValue := getEffectiveStatValue(sec, char, combatSystem)
+	if secondary != "" {
+		secondaryValue := getEffectiveStatValue(secondary, char, combatSystem)
 		return fmt.Sprintf("Scales with %s/%d (Effective: %d) + %s/%d (Effective: %d)",
 			primary, WeaponPrimaryStatDivisor, primaryValue,
-			sec, WeaponSecondaryStatDivisor, secondaryValue)
+			secondary, WeaponSecondaryStatDivisor, secondaryValue)
 	}
 	return fmt.Sprintf("Scales with %s/%d (Effective: %d)",
 		primary, WeaponPrimaryStatDivisor, primaryValue)
@@ -531,8 +539,15 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	_, _, eqTotal := combatSystem.CalculateWeaponDamage(equipped, char)
 	lines = append(lines, fmt.Sprintf("Total Damage: %d vs %d (%+d)", total, eqTotal, total-eqTotal))
 
-	if item.Range > 0 || equipped.Range > 0 {
-		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", item.Range, equipped.Range, item.Range-equipped.Range))
+	itemRange, eqRange := 0, 0
+	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok && def != nil {
+		itemRange = def.Range
+	}
+	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok && def != nil {
+		eqRange = def.Range
+	}
+	if itemRange > 0 || eqRange > 0 {
+		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", itemRange, eqRange, itemRange-eqRange))
 	}
 
 	itemCrit := combatSystem.CalculateWeaponCritChance(item, char)
@@ -636,27 +651,39 @@ func effectOrNone(s string) string {
 	return s
 }
 
-func weaponEffectsSummary(item items.Item) string {
-	def, _, ok := config.GetWeaponDefinitionByName(item.Name)
-	if !ok || def == nil {
-		return ""
+// weaponEffectLines is the single source of truth for non-base-stat weapon
+// effects (damage type, stun, disintegrate). Used by both the main tooltip
+// (where each line is rendered separately) and the comparison summary (where
+// they are joined into a single comma-separated row).
+func weaponEffectLines(def *config.WeaponDefinitionConfig) []string {
+	if def == nil {
+		return nil
 	}
-	var parts []string
-	if bonus := formatWeaponBonusSummary(def.BonusVs); bonus != "" {
-		parts = append(parts, bonus)
-	}
+	var lines []string
 	if def.DamageType != "" && def.DamageType != "physical" {
-		parts = append(parts, fmt.Sprintf("Damage Type: %s", def.DamageType))
-	}
-	if def.DisintegrateChance > 0 {
-		parts = append(parts, fmt.Sprintf("Disintegrate: %.0f%%", def.DisintegrateChance*100))
+		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCase(def.DamageType)))
 	}
 	if def.StunChance > 0 {
 		turns := def.StunTurns
 		if turns <= 0 {
 			turns = 1
 		}
-		parts = append(parts, fmt.Sprintf("Stun: %.0f%% (%d turns)", def.StunChance*100, turns))
+		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", def.StunChance*100, turns))
+	}
+	if def.DisintegrateChance > 0 {
+		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", def.DisintegrateChance*100))
+	}
+	return lines
+}
+
+func weaponEffectsSummary(item items.Item) string {
+	def, _, ok := config.GetWeaponDefinitionByName(item.Name)
+	if !ok || def == nil {
+		return ""
+	}
+	parts := weaponEffectLines(def)
+	if bonus := formatWeaponBonusSummary(def.BonusVs); bonus != "" {
+		parts = append(parts, bonus)
 	}
 	return strings.Join(parts, ", ")
 }

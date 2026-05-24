@@ -91,8 +91,6 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		Name:        def.Name,
 		Type:        itemType,
 		Description: def.Description,
-		Damage:      def.Damage,
-		Range:       def.SpellPointsCost,
 		SpellSchool: def.School,
 		SpellCost:   def.SpellPointsCost,
 		SpellEffect: items.SpellEffect(spellID),
