@@ -19,7 +19,12 @@ const (
 
 	// MasterySpellEffectPerLevel is the bonus added to a spell's effect
 	// (damage, healing, duration in seconds, stat bonus) per magic-school
-	// mastery level.
+	// mastery tier ABOVE Novice. Applied as `skill.Mastery × this` where
+	// Mastery is 0/1/2/3 for Novice/Expert/Master/Grandmaster — so a Novice
+	// caster gets +0 here. The duration calculation also multiplies by
+	// SpellSchoolLevelDurationBonus, which uses `skill.Level()` (1..4), so
+	// Novice still gets a +10% duration bump; this asymmetry between
+	// damage (no Novice bonus) and duration (Novice bonus) is intentional.
 	MasterySpellEffectPerLevel = 5
 )
 
@@ -68,8 +73,12 @@ const (
 	// bypass armor entirely (treated as armor=0 for that strike).
 	ArmorPierceRangedChancePct = 33
 
-	// SpellSchoolLevelDurationBonus: per skill level of the spell's school,
+	// SpellSchoolLevelDurationBonus: per skill LEVEL of the spell's school,
 	// duration is scaled by (1 + level * bonus). 0.1 → +10% per level.
+	// Note level here is `skill.Level()` (1..4 for Novice..Grandmaster), so
+	// Novice already enjoys +10%. Damage scaling, by contrast, uses Mastery
+	// (0..3) and so deliberately gives Novice no damage bonus. See
+	// MasterySpellEffectPerLevel for the full rationale.
 	SpellSchoolLevelDurationBonus = 0.1
 )
 

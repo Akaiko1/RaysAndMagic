@@ -52,9 +52,8 @@ type Monster3D struct {
 	ID           string // Unique identifier for collision tracking
 
 	// Combat stats
-	AttackBonus int
-	DamageMin   int
-	DamageMax   int
+	DamageMin int
+	DamageMax int
 	// Light emission (torch-like)
 	LightRadius    float64
 	LightIntensity float64

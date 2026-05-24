@@ -153,12 +153,16 @@ type SpellDefinitionConfig struct {
 	Level              int     `yaml:"level"`
 	SpellPointsCost    int     `yaml:"spell_points_cost"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
-	Damage             int     `yaml:"damage"`
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
-	ProjectileSize     int     `yaml:"projectile_size"`
-	IsProjectile       bool    `yaml:"is_projectile"`
+	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
+	// every monster within this many tiles of the primary target. The splash
+	// uses the same base damage as the direct hit (each splash victim still
+	// applies its own armor reduction). Single source of truth for combat
+	// math and tooltip text.
+	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
+	ProjectileSize int     `yaml:"projectile_size"`
+	IsProjectile   bool    `yaml:"is_projectile"`
 	IsUtility          bool    `yaml:"is_utility"`
-	VisualEffect       string  `yaml:"visual_effect"`
 	StatusIcon         string  `yaml:"status_icon,omitempty"`
 
 	// Utility spell specific fields

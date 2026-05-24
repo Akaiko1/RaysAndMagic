@@ -819,6 +819,9 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
 			details = append(details, fmt.Sprintf("Total Damage: %d", totalDamage))
 		}
+		if def.AoeRadiusTiles > 0 {
+			details = append(details, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", def.AoeRadiusTiles))
+		}
 	}
 
 	// Check if this is a healing spell

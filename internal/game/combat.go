@@ -732,7 +732,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 				case "torch_light":
 					cs.game.torchLightActive = true
 					cs.game.torchLightDuration = result.Duration
-					cs.game.torchLightRadius = 4.0
+					cs.game.torchLightRadius = TorchLightRadiusTiles
 				case "wizard_eye":
 					cs.game.wizardEyeActive = true
 					cs.game.wizardEyeDuration = result.Duration
@@ -1242,6 +1242,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var weaponDef *config.WeaponDefinitionConfig
 	var arrowVelX, arrowVelY float64
 	var disintegrateChance float64
+	var aoeRadiusTiles float64
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1256,6 +1257,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		weaponName = spellDef.Name
 		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
 		damageType = convertToMonsterDamageType(damageTypeStr)
+		aoeRadiusTiles = spellDef.AoeRadiusTiles
 		mp.Active = false
 		isSpell = true
 
@@ -1369,6 +1371,49 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
 			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
+	}
+
+	if isSpell && aoeRadiusTiles > 0 {
+		cs.applySpellSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles)
+	}
+}
+
+// applySpellSplash deals the spell's base damage to every OTHER alive monster
+// within radiusTiles of the primary target. Each splash victim applies its
+// own armor reduction. No crit, no disintegrate, no stun on splash — those
+// belong to the primary hit only. Drives Fireball-style AoE from a single
+// YAML field (`aoe_radius_tiles`).
+func (cs *CombatSystem) applySpellSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64) {
+	if center == nil || radiusTiles <= 0 {
+		return
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	radiusPx := radiusTiles * tileSize
+	radiusSq := radiusPx * radiusPx
+	cx, cy := center.X, center.Y
+
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || m == center || !m.IsAlive() {
+			continue
+		}
+		dx := m.X - cx
+		dy := m.Y - cy
+		if dx*dx+dy*dy > radiusSq {
+			continue
+		}
+		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
+		actual := m.TakeDamage(reduced, damageType, cs.game.camera.X, cs.game.camera.Y)
+		m.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+		cs.engageTurnBasedPackOnHit(m)
+		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+
+		if !m.IsAlive() {
+			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+			cs.awardExperienceAndGold(m)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", weaponName, m.Name, m.Experience))
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d %s damage.", weaponName, m.Name, actual, damageTypeStr))
+		}
 	}
 }
 

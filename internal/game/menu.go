@@ -718,7 +718,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.torchLightDuration = save.TorchLightDuration
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive && g.torchLightRadius == 0 {
-		g.torchLightRadius = 4.0
+		g.torchLightRadius = TorchLightRadiusTiles
 	}
 	g.wizardEyeActive = save.WizardEyeActive
 	g.wizardEyeDuration = save.WizardEyeDuration

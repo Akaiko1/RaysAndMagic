@@ -1,8 +1,13 @@
 # UgaTaima Spell Configuration
 # This file contains ALL spell-related configuration including:
-# - Spell definitions (damage, cost, schools, etc.)
+# - Spell definitions (cost, school, level, effects)
 # - Projectile physics (speed in tiles/sec, range in tiles)
 # - Visual appearance (colors, sizes, effects)
+#
+# DAMAGE NOTE: offensive spell damage is NOT specified here. It is derived
+# from spell_points_cost as: base = cost × spells.SpellDamagePerSP (default 3).
+# Designer-facing knob is therefore spell_points_cost — to make a spell hit
+# harder, raise its cost. Healing spells use heal_amount explicitly.
 
 # Add new spells here without needing any code changes!
 
@@ -13,16 +18,15 @@ spells:
   fireball:
     # Basic spell properties
     name: "Fireball"
-    description: "Hurls a powerful ball of fire that explodes on impact"
+    description: "Hurls a powerful ball of fire that explodes on impact, splashing nearby foes"
     school: "fire"
     level: 1
     spell_points_cost: 4
     duration: 0                # 0 for instant spells
-    damage: 12
+    aoe_radius_tiles: 2.0      # splash damages all monsters within 2 tiles of the hit
     projectile_size: 16
     is_projectile: true
     is_utility: false
-    visual_effect: "fireball"
 
     # Projectile physics (tile-based units)
     physics:
@@ -45,11 +49,9 @@ spells:
     level: 1
     spell_points_cost: 1
     duration: 0
-    damage: 3
     projectile_size: 10
     is_projectile: true
     is_utility: false
-    visual_effect: "fire_bolt"
 
     # Projectile physics (tile-based units)
     physics:
@@ -72,11 +74,9 @@ spells:
     level: 1
     spell_points_cost: 3
     duration: 0
-    damage: 6
     projectile_size: 12
     is_projectile: true
     is_utility: false
-    visual_effect: "dark_bolt"
 
     # Projectile physics (tile-based units)
     physics:
@@ -99,12 +99,10 @@ spells:
     level: 2
     spell_points_cost: 2
     duration: 0
-    damage: 8
     disintegrate_chance: 0.01
     projectile_size: 12
     is_projectile: true
     is_utility: false
-    visual_effect: "dark_bolt"
 
     # Projectile physics (tile-based units)
     physics:
@@ -127,11 +125,9 @@ spells:
     level: 1
     spell_points_cost: 2
     duration: 0
-    damage: 4
     projectile_size: 12
     is_projectile: true
     is_utility: false
-    visual_effect: "ice_bolt"
 
     # Projectile physics (tile-based units)
     physics:
@@ -154,11 +150,9 @@ spells:
     level: 2
     spell_points_cost: 8
     duration: 0
-    damage: 18
     projectile_size: 8
     is_projectile: true
     is_utility: false
-    visual_effect: "lightning"
 
     # Projectile physics (tile-based units)
     physics:
@@ -181,11 +175,9 @@ spells:
     level: 1
     spell_points_cost: 4
     duration: 0
-    damage: 0
     heal_amount: 15
     is_projectile: false
     is_utility: true
-    visual_effect: "heal"
     target_self: true
     message: "You feel renewed!"
 
@@ -199,11 +191,9 @@ spells:
     level: 2
     spell_points_cost: 4
     duration: 0
-    damage: 0
     heal_amount: 20
     is_projectile: false
     is_utility: true
-    visual_effect: "heal"
     target_self: false
     message: "Healing energy flows to your ally!"
 
@@ -217,10 +207,8 @@ spells:
     level: 1
     spell_points_cost: 1
     duration: 300              # 5 minutes
-    damage: 0
     is_projectile: false
     is_utility: true
-    visual_effect: "light"
     status_icon: "torch"
     vision_bonus: 50.0
     message: "A magical light illuminates the area!"
@@ -235,11 +223,9 @@ spells:
     level: 2
     spell_points_cost: 15
     duration: 300              # 5 minutes
-    damage: 0
     stat_bonus: 10             # +10 to all stats
     is_projectile: false
     is_utility: true
-    visual_effect: "bless"
     status_icon: "bless"
     message: "The party feels blessed! (+10 to all stats)"
 
@@ -253,11 +239,9 @@ spells:
     level: 4
     spell_points_cost: 8
     duration: 300              # 5 minutes
-    damage: 0
     vision_bonus: 100.0
     is_projectile: false
     is_utility: true
-    visual_effect: "wizard_eye"
     status_icon: "eye"
     message: "Your vision extends beyond normal limits!"
 
@@ -271,10 +255,8 @@ spells:
     level: 2
     spell_points_cost: 4
     duration: 0
-    damage: 0
     is_projectile: false
     is_utility: true
-    visual_effect: "awaken"
     awaken: true
     message: "Awakening energy spreads through the party!"
 
@@ -288,10 +270,8 @@ spells:
     level: 3
     spell_points_cost: 6
     duration: 180              # 3 minutes
-    damage: 0
     is_projectile: false
     is_utility: true
-    visual_effect: "water_walk"
     status_icon: "water_walk"
     water_walk: true
     message: "The party gains the ability to walk on water!"
@@ -306,10 +286,8 @@ spells:
     level: 3
     spell_points_cost: 10
     duration: 600              # 10 minutes
-    damage: 0
     is_projectile: false
     is_utility: true
-    visual_effect: "water_breathing"
     status_icon: "water_breathing"
     water_breathing: true
     message: "You can now breathe underwater!"
@@ -342,11 +320,9 @@ spells:
 #   level: 2
 #   spell_points_cost: 6
 #   duration: 0
-#   damage: 15
 #   projectile_size: 12
 #   is_projectile: true
 #   is_utility: false
-#   visual_effect: "ice_shard"
 #   physics:
 #     speed_tiles: 10.0          # 10 tiles per second
 #     range_tiles: 10.0          # 10 tile range
