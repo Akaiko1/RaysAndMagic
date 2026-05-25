@@ -634,12 +634,256 @@ func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, hei
 
 // RenderBackgroundLayers renders sky and ground layers
 func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
-	// Draw cached sky
-	skyOpts := &ebiten.DrawImageOptions{}
-	screen.DrawImage(rh.game.skyImg, skyOpts)
+	if !rh.drawSkyPanorama(screen) {
+		// Draw cached solid-color sky fallback.
+		skyOpts := &ebiten.DrawImageOptions{}
+		screen.DrawImage(rh.game.skyImg, skyOpts)
+	}
 
 	// Draw cached ground
 	groundOpts := &ebiten.DrawImageOptions{}
 	groundOpts.GeoM.Translate(0, float64(rh.game.config.GetScreenHeight()/2))
 	screen.DrawImage(rh.game.groundImg, groundOpts)
+}
+
+// floorShaderSrc is a Kage fragment shader that renders the perspective
+// floor. Per-fragment logic:
+//
+//	samplePx = floor(px/2)·2 + 1               # 2×2 block quantization
+//	rowDist  = RowDistFactor / (samplePx.y - Horizon)
+//	s        = 2·samplePx.x / ScreenSize.x - 1
+//	floorX   = camX + rowDist·DirCos + rowDist·PlaneCos·s
+//	floorY   = camY + rowDist·DirSin + rowDist·PlaneSin·s
+//	tx, ty   = floor(floor[XY] / TileSize)
+//	base     = floorColorMap[tx, ty] (RGB ÷ A, texturable if A>=0.999)
+//	idx      = (tx·73 ^ ty·19) mod TexCount    # small-prime XOR (int32-safe)
+//	texel    = atlas[idx·TexW + int(localX·TexW), int(localY·TexH)]
+//	weight   = 0.8 · (1 - smoothstep(1.5, 5.0, texelsPerPixel))
+//	color    = mix(base, texel, weight) · brightness(dist, lights)
+//
+// Inputs:
+//
+//	Images[0] = floorColorMap (worldW×worldH RGBA8; alpha 255 = texturable
+//	  empty tile, 254 = anything else. Premultiplied; recover RGB via /alpha)
+//	Images[1] = floorTexAtlas (horizontal strip of N floor textures); pass a
+//	  1×1 dummy when TexCount == 0
+const floorShaderSrc = `//kage:unit pixels
+
+package main
+
+var CamPos vec2
+var DirCos float
+var DirSin float
+var PlaneCos float
+var PlaneSin float
+var ScreenSize vec2
+var Horizon float
+var RowDistFactor float
+var TileSize float
+var WorldSize vec2
+var ViewDist float
+var MinBrightness float
+var TexCount float
+var TexTileSize vec2
+var LightCount float
+var Lights [16]vec4
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	px := dstPos.xy - imageDstOrigin()
+	samplePx := floor(px/2.0)*2.0 + vec2(1.0)
+
+	p := samplePx.y - Horizon
+	if p < 0.5 {
+		p = 0.5
+	}
+	rowDist := RowDistFactor / p
+
+	t := samplePx.x / ScreenSize.x
+	s := 2.0*t - 1.0
+	floorX := CamPos.x + rowDist*DirCos + rowDist*PlaneCos*s
+	floorY := CamPos.y + rowDist*DirSin + rowDist*PlaneSin*s
+
+	tx := floor(floorX / TileSize)
+	ty := floor(floorY / TileSize)
+
+	var rgb vec3
+	var texturable float
+	if tx < 0.0 || tx >= WorldSize.x || ty < 0.0 || ty >= WorldSize.y {
+		rgb = vec3(30.0/255.0, 30.0/255.0, 30.0/255.0)
+		texturable = 0.0
+	} else {
+		raw := imageSrc0UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
+		invA := 1.0 / max(raw.a, 0.001)
+		rgb = raw.rgb * invA
+		texturable = step(0.999, raw.a)
+	}
+
+	if texturable > 0.5 && TexCount > 0.5 {
+		// XOR hash with int32-safe multipliers (smaller than CPU's
+		// 73856093 / 19349663 to avoid overflow on Kage's 32-bit int).
+		// Different absolute idx values than CPU but the same per-tile
+		// variation pattern.
+		itx := int(tx)
+		ity := int(ty)
+		h := itx*73 ^ ity*19
+		if h < 0 {
+			h = -h
+		}
+		idx := float(h - (h/int(TexCount))*int(TexCount))
+
+		lx := fract(floorX / TileSize)
+		ly := fract(floorY / TileSize)
+		if lx < 0.0 {
+			lx += 1.0
+		}
+		if ly < 0.0 {
+			ly += 1.0
+		}
+
+		// Nearest-texel sample matching CPU's int(localX * texWidth).
+		atlasX := idx*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
+		atlasY := floor(ly*TexTileSize.y) + 0.5
+		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
+		// space; Ebitengine converts them to the target source internally.
+		texColor := imageSrc1UnsafeAt(imageSrc0Origin() + vec2(atlasX, atlasY))
+
+		// The floor texture is high-frequency pixel art. In the far field one
+		// screen pixel spans many source texels, so nearest sampling aliases into
+		// long stripes. Fade texture detail out based on the horizontal texel
+		// footprint instead of pretending we have mipmaps.
+		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
+		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
+		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
+		textureWeight := 0.8 * (1.0 - smoothstep(1.5, 5.0, texelsPerPixel))
+
+		rgb = texColor.rgb*textureWeight + rgb*(1.0-textureWeight)
+	}
+
+	dx := floorX - CamPos.x
+	dy := floorY - CamPos.y
+	dist := sqrt(dx*dx + dy*dy)
+	brightness := 1.0 - dist/ViewDist
+	if brightness < MinBrightness {
+		brightness = MinBrightness
+	}
+	for i := 0; i < 16; i++ {
+		if float(i) >= LightCount {
+			break
+		}
+		L := Lights[i]
+		ldx := floorX - L.x
+		ldy := floorY - L.y
+		d := sqrt(ldx*ldx + ldy*ldy)
+		if d < L.z {
+			falloff := 1.0 - d/L.z
+			brightness += L.w * falloff
+		}
+	}
+	if brightness > 1.0 {
+		brightness = 1.0
+	}
+
+	return vec4(rgb*brightness, 1.0)
+}
+`
+
+// skyShaderSrc is a Kage fragment shader that samples the sky panorama with
+// manual bilinear filtering and X-axis wrap. Doing this in a custom shader
+// lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
+// (which break batching and force the source out of the texture atlas).
+const skyShaderSrc = `//kage:unit pixels
+
+package main
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	size := imageSrc0Size()
+	origin := imageSrc0Origin()
+
+	// Image-local coordinates (atlas offset removed).
+	local := srcPos - origin
+
+	// Bilinear: gather four texels around the sample point. Texel centers sit
+	// at integer + 0.5, so shift by 0.5 before flooring.
+	p := local - vec2(0.5)
+	base := floor(p)
+	f := p - base
+
+	// Wrap X over the image width; clamp Y to a valid row.
+	sx0 := mod(base.x, size.x)
+	sx1 := mod(base.x+1.0, size.x)
+	sy0 := clamp(base.y, 0.0, size.y-1.0)
+	sy1 := clamp(base.y+1.0, 0.0, size.y-1.0)
+	half := vec2(0.5)
+
+	c00 := imageSrc0UnsafeAt(origin + vec2(sx0, sy0) + half)
+	c10 := imageSrc0UnsafeAt(origin + vec2(sx1, sy0) + half)
+	c01 := imageSrc0UnsafeAt(origin + vec2(sx0, sy1) + half)
+	c11 := imageSrc0UnsafeAt(origin + vec2(sx1, sy1) + half)
+
+	top := mix(c00, c10, f.x)
+	bot := mix(c01, c11, f.x)
+	return mix(top, bot, f.y) * color
+}
+`
+
+// drawSkyPanorama draws the sky with an isotropic pixel scale (horizontal scale
+// equals vertical scale) so panorama features don't appear stretched at any
+// resolution. The visible source span auto-adapts to screen width, which means
+// the texture repeats more times per 360° turn on wider screens — classic
+// Doom-style behavior, but without anisotropy.
+//
+// Sampling is done by skyShader, which performs bilinear filtering + X-wrap in
+// a single draw call. This avoids deprecated Filter/Address paths so the
+// panorama can sit in the shared texture atlas and the draw batches normally.
+func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
+	panorama := rh.game.skyPanorama
+	if panorama == nil {
+		return false
+	}
+
+	shader, err := rh.game.ensureSkyShader()
+	if err != nil || shader == nil {
+		return false
+	}
+
+	screenWidth := rh.game.config.GetScreenWidth()
+	skyHeight := rh.game.config.GetScreenHeight() / 2
+	if screenWidth <= 0 || skyHeight <= 0 {
+		return false
+	}
+
+	bounds := panorama.Bounds()
+	srcW := float64(bounds.Dx())
+	srcH := float64(bounds.Dy())
+	if srcW <= 0 || srcH <= 0 {
+		return false
+	}
+
+	scale := float64(skyHeight) / srcH
+	srcSpan := float64(screenWidth) / scale
+	if scale <= 0 || srcSpan <= 0 {
+		return false
+	}
+
+	pixelsPerRadian := srcSpan / rh.game.camera.FOV
+	bx := float64(bounds.Min.X)
+	by := float64(bounds.Min.Y)
+	sx0 := bx + rh.game.camera.Angle*pixelsPerRadian - srcSpan/2
+	sx1 := sx0 + srcSpan
+	sy0 := by
+	sy1 := by + srcH
+	dx1 := float32(screenWidth)
+	dy1 := float32(skyHeight)
+
+	vertices := [4]ebiten.Vertex{
+		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+	}
+	indices := [6]uint16{0, 1, 2, 1, 3, 2}
+	op := &ebiten.DrawTrianglesShaderOptions{}
+	op.Images[0] = panorama
+	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+	return true
 }

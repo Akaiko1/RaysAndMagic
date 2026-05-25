@@ -164,8 +164,8 @@ type SpellDefinitionConfig struct {
 	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
 	ProjectileSize int     `yaml:"projectile_size"`
 	IsProjectile   bool    `yaml:"is_projectile"`
-	IsUtility          bool    `yaml:"is_utility"`
-	StatusIcon         string  `yaml:"status_icon,omitempty"`
+	IsUtility      bool    `yaml:"is_utility"`
+	StatusIcon     string  `yaml:"status_icon,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -287,7 +287,9 @@ type MapConfig struct {
 	File              string                   `yaml:"file"`
 	Biome             string                   `yaml:"biome"`
 	SkyColor          [3]int                   `yaml:"sky_color"`
+	SkyTexture        string                   `yaml:"sky_texture,omitempty"`
 	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
+	FloorTextures     []string                 `yaml:"floor_textures,omitempty"`
 	ClearEncounter    *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
 }
 

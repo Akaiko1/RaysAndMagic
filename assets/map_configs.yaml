@@ -4,13 +4,20 @@ maps:
     file: "forest.map"
     biome: "forest"
     sky_color: [135, 206, 235]        # Light blue sky
+    sky_texture: "forest_panorama"
     default_floor_color: [60, 180, 60]  # Green grass
+    floor_textures:
+      - "forest_grass_0"
+      - "forest_grass_1"
+      - "forest_grass_2"
+      - "forest_grass_3"
 
   desert:
     name: "Scorching Desert"
     file: "desert.map"
     biome: "desert"
     sky_color: [255, 218, 185]        # Sandy beige sky
+    sky_texture: "desert_panorama"
     default_floor_color: [238, 203, 173]  # Desert sand
 
   water:

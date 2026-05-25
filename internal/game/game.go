@@ -2,10 +2,13 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	_ "image/png"
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -204,8 +207,11 @@ type MMGame struct {
 	lastClickedUtilitySpell   string // Icon of last clicked utility spell
 
 	// Cached images for performance
-	skyImg    *ebiten.Image
-	groundImg *ebiten.Image
+	skyImg            *ebiten.Image
+	groundImg         *ebiten.Image
+	skyPanorama       *ebiten.Image
+	currentSkyTexture string
+	skyShader         *ebiten.Shader // lazily compiled, reused across frames
 
 	// Combat effects
 	magicProjectiles []MagicProjectile
@@ -639,12 +645,14 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 func (g *MMGame) UpdateSkyAndGroundColors() {
 	// Get current map configuration
 	var skyColor, groundColor [3]int
+	skyTexture := ""
 
 	if world.GlobalWorldManager != nil {
 		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
 		if mapConfig != nil {
 			skyColor = mapConfig.SkyColor
 			groundColor = mapConfig.DefaultFloorColor
+			skyTexture = mapConfig.SkyTexture
 		} else {
 			// Fallback to config defaults
 			skyColor = g.config.Graphics.Colors.Sky
@@ -658,9 +666,71 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 
 	// Update sky image
 	g.skyImg.Fill(color.RGBA{uint8(skyColor[0]), uint8(skyColor[1]), uint8(skyColor[2]), 255})
+	g.updateSkyPanorama(skyTexture)
 
 	// Update ground image
 	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
+}
+
+func (g *MMGame) updateSkyPanorama(textureName string) {
+	if textureName == g.currentSkyTexture {
+		return
+	}
+	g.currentSkyTexture = textureName
+	g.skyPanorama = nil
+	if textureName == "" {
+		return
+	}
+
+	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
+	if err != nil {
+		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
+		return
+	}
+	g.skyPanorama = img
+}
+
+func resolveNamedPNG(baseDir, name string) string {
+	if filepath.IsAbs(name) {
+		return name
+	}
+	if filepath.Ext(name) == "" {
+		name += ".png"
+	}
+	if filepath.Dir(name) != "." {
+		return name
+	}
+	return filepath.Join(baseDir, name)
+}
+
+func decodePNG(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	return img, err
+}
+
+func loadPNGAsEbiten(path string) (*ebiten.Image, error) {
+	img, err := decodePNG(path)
+	if err != nil {
+		return nil, err
+	}
+	return ebiten.NewImageFromImage(img), nil
+}
+
+func (g *MMGame) ensureSkyShader() (*ebiten.Shader, error) {
+	if g.skyShader != nil {
+		return g.skyShader, nil
+	}
+	s, err := ebiten.NewShader([]byte(skyShaderSrc))
+	if err != nil {
+		return nil, err
+	}
+	g.skyShader = s
+	return s, nil
 }
 
 func (g *MMGame) Update() error {

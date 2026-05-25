@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"sort"
 	"strings"
@@ -34,6 +35,13 @@ type LightSource struct {
 	Intensity float64
 }
 
+type floorTexture struct {
+	name   string
+	width  int
+	height int
+	pixels []byte
+}
+
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
 	game                     *MMGame
@@ -42,9 +50,21 @@ type Renderer struct {
 	circleCache              map[int]*ebiten.Image // Cached circle masks by diameter
 	circleCacheOrder         []int                 // LRU order tracking for circle cache eviction
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
-	// Floor rendering optimization buffers
-	floorImage  *ebiten.Image // Persistent floor image buffer
-	floorPixels []byte        // Persistent pixel buffer for floor rendering
+	// GPU floor rendering — a Kage shader replaces the per-pixel CPU loop.
+	// floorColorMap is a worldW×worldH RGBA8 image: RGB = base tile color,
+	// alpha encodes texturable flag (255 = empty/texturable, 254 = not).
+	// floorTexAtlas is a horizontal strip of N floor textures, selected
+	// per-tile inside the shader (see floorShaderSrc).
+	floorShader      *ebiten.Shader
+	floorColorMap    *ebiten.Image
+	floorTexAtlas    *ebiten.Image
+	floorTexCount    int
+	floorTexTileW    int
+	floorTexTileH    int
+	floorTexturesKey string // map file the textures were loaded for (cache key)
+	// Per-frame reusable uniform buffer for floor shader light data, avoids
+	// a 64-float allocation each draw call.
+	floorLightsBuf [maxFloorShaderLights * 4]float32
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
 	// Cached tile light sources (world-space)
@@ -83,11 +103,7 @@ func NewRenderer(game *MMGame) *Renderer {
 	r.whiteImg = ebiten.NewImage(1, 1)
 	r.whiteImg.Fill(color.White)
 
-	// Initialize persistent floor rendering buffers
 	screenWidth := game.config.GetScreenWidth()
-	screenHeight := game.config.GetScreenHeight()
-	r.floorImage = ebiten.NewImage(screenWidth, screenHeight)
-	r.floorPixels = make([]byte, screenWidth*screenHeight*4)
 
 	// Initialize transparent sprite cache
 	r.buildTransparentSpriteCache()
@@ -124,8 +140,6 @@ func (r *Renderer) handleResize(screenWidth, screenHeight int) {
 	if screenWidth <= 0 || screenHeight <= 0 {
 		return
 	}
-	r.floorImage = ebiten.NewImage(screenWidth, screenHeight)
-	r.floorPixels = make([]byte, screenWidth*screenHeight*4)
 
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	if rayWidth <= 0 {
@@ -374,6 +388,8 @@ func (r *Renderer) applyTreeDepthShading(brightness, distance float64) float64 {
 
 // precomputeFloorColorCache precalculates the floor color for every tile in the world
 func (r *Renderer) precomputeFloorColorCache() {
+	r.loadCurrentMapFloorTextures()
+
 	// Get map-specific default floor color
 	var defaultFloorColor [3]int
 	if world.GlobalWorldManager != nil {
@@ -488,6 +504,134 @@ func (r *Renderer) precomputeFloorColorCache() {
 	}
 
 	r.floorColorCache = cache
+	r.buildFloorColorMap(worldWidth, worldHeight)
+}
+
+// buildFloorColorMap encodes floorColorCache as a worldW×worldH RGBA8 image,
+// one pixel per tile. Alpha encodes the "texturable" flag: 255 = empty tile
+// (eligible for texture overlay), 254 = anything else. WritePixels expects
+// premultiplied bytes; for A=254 we scale RGB by 254/255 so the shader's
+// `raw.rgb / raw.a` recovers the original color.
+func (r *Renderer) buildFloorColorMap(worldWidth, worldHeight int) {
+	if worldWidth <= 0 || worldHeight <= 0 {
+		r.floorColorMap = nil
+		return
+	}
+	if r.floorColorMap == nil ||
+		r.floorColorMap.Bounds().Dx() != worldWidth ||
+		r.floorColorMap.Bounds().Dy() != worldHeight {
+		r.floorColorMap = ebiten.NewImage(worldWidth, worldHeight)
+	}
+
+	pixels := make([]byte, worldWidth*worldHeight*4)
+	hasTM := world.GlobalTileManager != nil
+	for ty := 0; ty < worldHeight; ty++ {
+		for tx := 0; tx < worldWidth; tx++ {
+			clr := r.floorColorCache[[2]int{tx, ty}]
+			texturable := false
+			if hasTM && r.game.world != nil &&
+				tx >= 0 && tx < r.game.world.Width &&
+				ty >= 0 && ty < r.game.world.Height {
+				texturable = world.GlobalTileManager.GetTileKey(r.game.world.Tiles[ty][tx]) == "empty"
+			}
+			idx := (ty*worldWidth + tx) * 4
+			if texturable {
+				pixels[idx] = clr.R
+				pixels[idx+1] = clr.G
+				pixels[idx+2] = clr.B
+				pixels[idx+3] = 255
+			} else {
+				pixels[idx] = uint8(int(clr.R) * 254 / 255)
+				pixels[idx+1] = uint8(int(clr.G) * 254 / 255)
+				pixels[idx+2] = uint8(int(clr.B) * 254 / 255)
+				pixels[idx+3] = 254
+			}
+		}
+	}
+	r.floorColorMap.WritePixels(pixels)
+}
+
+func (r *Renderer) loadCurrentMapFloorTextures() {
+	if world.GlobalWorldManager == nil {
+		r.clearFloorAtlas()
+		return
+	}
+	mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
+	if mapConfig == nil || len(mapConfig.FloorTextures) == 0 {
+		r.clearFloorAtlas()
+		return
+	}
+	if mapConfig.File == r.floorTexturesKey && r.floorTexAtlas != nil {
+		return // same map, atlas already built
+	}
+
+	textures := make([]floorTexture, 0, len(mapConfig.FloorTextures))
+	for _, name := range mapConfig.FloorTextures {
+		tex, err := loadFloorTexture(name)
+		if err != nil {
+			fmt.Printf("[FloorTextures] failed to load %q: %v\n", name, err)
+			continue
+		}
+		textures = append(textures, tex)
+	}
+	r.buildFloorTexAtlas(textures)
+	r.floorTexturesKey = mapConfig.File
+}
+
+func (r *Renderer) clearFloorAtlas() {
+	r.floorTexAtlas = nil
+	r.floorTexCount = 0
+	r.floorTexTileW = 0
+	r.floorTexTileH = 0
+	r.floorTexturesKey = ""
+}
+
+// buildFloorTexAtlas packs the given source textures into a horizontal strip
+// (tex[0] occupies x in [0, tileW), tex[1] in [tileW, 2*tileW), …). All
+// textures must share dimensions (first one wins; mismatched are skipped).
+// The source `textures` slice is consumed here and not retained — the pixel
+// data lives on the GPU once the atlas is built.
+func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
+	if len(textures) == 0 {
+		r.clearFloorAtlas()
+		return
+	}
+	tileW := textures[0].width
+	tileH := textures[0].height
+	atlas := image.NewRGBA(image.Rect(0, 0, tileW*len(textures), tileH))
+	for i, tex := range textures {
+		if tex.width != tileW || tex.height != tileH {
+			fmt.Printf("[FloorTexAtlas] skipping %q: size %dx%d != %dx%d\n",
+				tex.name, tex.width, tex.height, tileW, tileH)
+			continue
+		}
+		for y := 0; y < tileH; y++ {
+			srcRow := tex.pixels[y*tileW*4 : (y+1)*tileW*4]
+			dstStart := y*atlas.Stride + i*tileW*4
+			copy(atlas.Pix[dstStart:dstStart+tileW*4], srcRow)
+		}
+	}
+	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
+	r.floorTexCount = len(textures)
+	r.floorTexTileW = tileW
+	r.floorTexTileH = tileH
+}
+
+func loadFloorTexture(name string) (floorTexture, error) {
+	src, err := decodePNG(resolveNamedPNG("assets/sprites/floor", name))
+	if err != nil {
+		return floorTexture{}, err
+	}
+	bounds := src.Bounds()
+	rgba := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	draw.Draw(rgba, rgba.Bounds(), src, bounds.Min, draw.Src)
+
+	return floorTexture{
+		name:   name,
+		width:  rgba.Bounds().Dx(),
+		height: rgba.Bounds().Dy(),
+		pixels: rgba.Pix,
+	}, nil
 }
 
 // RenderFirstPersonView renders the complete first-person 3D view
@@ -928,8 +1072,28 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	}
 }
 
-// drawSimpleFloorCeiling draws a simple 3D perspective floor (and optionally ceiling)
+const maxFloorShaderLights = 16
+
+// drawSimpleFloorCeiling renders the perspective floor entirely on the GPU
+// via a Kage shader (see floorShaderSrc). Per-fragment work: reverse-project
+// screen → world → tile, look up base color, optionally blend a hash-selected
+// floor texture, then apply distance shading plus up to maxFloorShaderLights
+// point lights.
+//
+// The shader does NOT exactly match the previous CPU loop:
+//   - hash uses smaller multipliers (73 / 19) due to int32 overflow in Kage
+//     where CPU used 73856093 / 19349663
+//   - texture contribution fades out by distance via smoothstep on the texel
+//     footprint per screen pixel, to avoid far-field stripes from nearest
+//     sampling
+// Per-tile variation pattern is similar; absolute texture index per tile
+// will differ from the old CPU rendering.
 func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
+	shader, err := r.ensureFloorShader()
+	if err != nil || shader == nil || r.floorColorMap == nil || r.game.world == nil {
+		return
+	}
+
 	screenWidth := r.game.config.GetScreenWidth()
 	screenHeight := r.game.config.GetScreenHeight()
 	tileSize := r.game.config.GetTileSize()
@@ -937,99 +1101,84 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	camY := r.game.camera.Y
 	camAngle := r.game.camera.Angle
 	fov := r.game.camera.FOV
+	horizon := float64(screenHeight) / 2
 
-	horizon := screenHeight / 2
-	tileColorCache := r.floorColorCache
+	cosA := math.Cos(camAngle)
+	sinA := math.Sin(camAngle)
+	planeX := math.Cos(camAngle+math.Pi/2) * math.Tan(fov/2)
+	planeY := math.Sin(camAngle+math.Pi/2) * math.Tan(fov/2)
 
-	// Pre-calculate cosine and sine of camera angle
-	cosAngle := math.Cos(camAngle)
-	sinAngle := math.Sin(camAngle)
+	worldW := r.floorColorMap.Bounds().Dx()
+	worldH := r.floorColorMap.Bounds().Dy()
 
-	// Pre-calculate camera plane vectors
-	// The camera plane is perpendicular to the direction vector
-	planeX := math.Cos(camAngle + math.Pi/2)
-	planeY := math.Sin(camAngle + math.Pi/2)
-
-	// Adjust plane vectors by FOV
-	// The half-width of the camera plane is tan(FOV/2)
-	fovFactor := math.Tan(fov / 2)
-	planeX *= fovFactor
-	planeY *= fovFactor
-
-	// Reuse persistent buffers for floor rendering (optimization)
-	floorImage := r.floorImage
-	pixels := r.floorPixels
-
-	// OPTIMIZATION: Skip every other row and column for 4x performance boost
-	rowStep := 2
-	colStep := 2
-
-	// Draw floor and ceiling
-	for y := horizon; y < screenHeight; y += rowStep {
-		// Relative position of the floor pixel from the center of the screen
-		// This determines the distance from the camera to the floor point
-		sampleY := float64(y) + float64(rowStep)/2
-		p := sampleY - float64(horizon)
-		if p == 0 {
-			p = 1 // Avoid division by zero
-		}
-
-		// Vertical position of the floor, corrected for perspective.
-		// This is the distance from the camera to the floor point in camera space.
-		// The '0.5 * screenHeight' is a projection plane constant.
-		rowDistance := (0.5 * float64(screenHeight) * float64(tileSize)) / p
-
-		// Calculate the world coordinates for the leftmost and rightmost pixels of this scanline
-		// Start of the scanline (leftmost pixel)
-		floorX := camX + rowDistance*cosAngle - rowDistance*planeX
-		floorY := camY + rowDistance*sinAngle - rowDistance*planeY
-
-		// End of the scanline (rightmost pixel)
-		endFloorX := camX + rowDistance*cosAngle + rowDistance*planeX
-		endFloorY := camY + rowDistance*sinAngle + rowDistance*planeY
-
-		// Calculate the step to increment world coordinates for each pixel in this scanline
-		stepX := (endFloorX - floorX) / float64(screenWidth)
-		stepY := (endFloorY - floorY) / float64(screenWidth)
-
-		// Sample from the center of each block to reduce shimmer at distance.
-		floorX += stepX * (float64(colStep) * 0.5)
-		floorY += stepY * (float64(colStep) * 0.5)
-
-		for x := 0; x < screenWidth; x += colStep {
-			// Get the tile coordinates from world coordinates
-			tileX := int(math.Floor(floorX / float64(tileSize)))
-			tileY := int(math.Floor(floorY / float64(tileSize)))
-
-			// Get color from tile cache
-			clr, ok := tileColorCache[[2]int{tileX, tileY}]
-			if !ok {
-				clr = color.RGBA{30, 30, 30, 255} // Fallback color (dark gray)
-			}
-
-			// Apply distance shading with torch light effects
-			dist := math.Sqrt(math.Pow(floorX-camX, 2) + math.Pow(floorY-camY, 2))
-			brightness := r.calculateBrightnessWithTorchLight(floorX, floorY, dist)
-
-			// Set pixel color for 2x2 block to fill in the gaps
-			for dx := 0; dx < colStep && x+dx < screenWidth; dx++ {
-				for dy := 0; dy < rowStep && y+dy < screenHeight; dy++ {
-					idx := ((y+dy)*screenWidth + (x + dx)) * 4
-					pixels[idx] = uint8(float64(clr.R) * brightness)
-					pixels[idx+1] = uint8(float64(clr.G) * brightness)
-					pixels[idx+2] = uint8(float64(clr.B) * brightness)
-					pixels[idx+3] = clr.A
-				}
-			}
-
-			// Move to the next world coordinate (skip by colStep)
-			floorX += stepX * float64(colStep)
-			floorY += stepY * float64(colStep)
-		}
+	texAtlas := r.floorTexAtlas
+	if texAtlas == nil {
+		texAtlas = r.whiteImg // dummy; shader skips sampling when TexCount == 0
 	}
 
-	floorImage.WritePixels(pixels)
-	screen.DrawImage(floorImage, nil)
+	lights := r.floorLightsBuf[:]
+	lightCount := len(r.activeLights)
+	if lightCount > maxFloorShaderLights {
+		lightCount = maxFloorShaderLights
+	}
+	for i := 0; i < lightCount; i++ {
+		l := r.activeLights[i]
+		lights[i*4] = float32(l.X)
+		lights[i*4+1] = float32(l.Y)
+		lights[i*4+2] = float32(l.Radius)
+		lights[i*4+3] = float32(l.Intensity)
+	}
+	// Zero out unused slots so previous frame's data doesn't bleed in.
+	for i := lightCount * 4; i < len(lights); i++ {
+		lights[i] = 0
+	}
+
+	uniforms := map[string]any{
+		"CamPos":        []float32{float32(camX), float32(camY)},
+		"DirCos":        float32(cosA),
+		"DirSin":        float32(sinA),
+		"PlaneCos":      float32(planeX),
+		"PlaneSin":      float32(planeY),
+		"ScreenSize":    []float32{float32(screenWidth), float32(screenHeight)},
+		"Horizon":       float32(horizon),
+		"RowDistFactor": float32(0.5 * float64(screenHeight) * float64(tileSize)),
+		"TileSize":      float32(tileSize),
+		"WorldSize":     []float32{float32(worldW), float32(worldH)},
+		"ViewDist":      float32(r.game.camera.ViewDist),
+		"MinBrightness": float32(r.game.config.Graphics.BrightnessMin),
+		"TexCount":      float32(r.floorTexCount),
+		"TexTileSize":   []float32{float32(r.floorTexTileW), float32(r.floorTexTileH)},
+		"LightCount":    float32(lightCount),
+		"Lights":        lights,
+	}
+
+	x0 := float32(0)
+	x1 := float32(screenWidth)
+	y0 := float32(horizon)
+	y1 := float32(screenHeight)
+	vertices := [4]ebiten.Vertex{
+		{DstX: x0, DstY: y0, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: x1, DstY: y0, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: x0, DstY: y1, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: x1, DstY: y1, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+	}
+	indices := [6]uint16{0, 1, 2, 1, 3, 2}
+	op := &ebiten.DrawTrianglesShaderOptions{Uniforms: uniforms}
+	op.Images[0] = r.floorColorMap
+	op.Images[1] = texAtlas
+	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+}
+
+func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
+	if r.floorShader != nil {
+		return r.floorShader, nil
+	}
+	s, err := ebiten.NewShader([]byte(floorShaderSrc))
+	if err != nil {
+		return nil, err
+	}
+	r.floorShader = s
+	return s, nil
 }
 
 // drawTreeSprite draws tree sprites in the 3D world
