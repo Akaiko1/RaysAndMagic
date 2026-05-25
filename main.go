@@ -85,6 +85,9 @@ func main() {
 	if cfg.Display.Resizable {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
+	if cfg.Display.Fullscreen {
+		ebiten.SetFullscreen(true)
+	}
 	disableVsync := runtime.GOOS == "darwin" && cfg.Display.DisableVsyncOnMac
 	if disableVsync {
 		ebiten.SetVsyncEnabled(false)

@@ -27,6 +27,7 @@ type DisplayConfig struct {
 	ScreenHeight      int    `yaml:"screen_height"`
 	WindowTitle       string `yaml:"window_title"`
 	Resizable         bool   `yaml:"resizable"`
+	Fullscreen        bool   `yaml:"fullscreen"`
 	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
 }
 
@@ -108,6 +109,7 @@ type CameraConfig struct {
 type UIConfig struct {
 	SpellInputCooldown  int `yaml:"spell_input_cooldown"`
 	PartyPortraitHeight int `yaml:"party_portrait_height"`
+	PartyPortraitWidth  int `yaml:"party_portrait_width"`
 	CompassRadius       int `yaml:"compass_radius"`
 	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
 }

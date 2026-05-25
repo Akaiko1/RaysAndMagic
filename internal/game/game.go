@@ -686,6 +686,32 @@ func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHei
 	return g.gameLoop.Layout(outsideWidth, outsideHeight)
 }
 
+// handleResize updates the runtime screen dimensions used by rendering and
+// UI anchoring. All 80-odd call sites read config.GetScreenWidth/Height each
+// frame, so mutating those values here propagates the new size transparently
+// without an audit. Pre-allocated screen-sized buffers (depth buffer,
+// sky/ground images, floor cache, ray caches) are reallocated to match;
+// otherwise width-indexed pixel writes in the renderer would overrun.
+func (g *MMGame) handleResize(screenWidth, screenHeight int) {
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return
+	}
+	if screenWidth == g.config.Display.ScreenWidth && screenHeight == g.config.Display.ScreenHeight && len(g.depthBuffer) == screenWidth {
+		return
+	}
+	g.config.Display.ScreenWidth = screenWidth
+	g.config.Display.ScreenHeight = screenHeight
+
+	g.depthBuffer = make([]float64, screenWidth)
+	g.skyImg = ebiten.NewImage(screenWidth, screenHeight/2)
+	g.groundImg = ebiten.NewImage(screenWidth, screenHeight/2)
+	g.UpdateSkyAndGroundColors()
+
+	if g.gameLoop != nil && g.gameLoop.renderer != nil {
+		g.gameLoop.renderer.handleResize(screenWidth, screenHeight)
+	}
+}
+
 // Shutdown releases threading resources. Safe to call multiple times only via
 // the threading components' own idempotency — call once on game exit.
 func (g *MMGame) Shutdown() {

@@ -42,13 +42,12 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		return
 	}
 
-	// Draw party member portraits and stats at bottom of screen
-	portraitWidth := ui.game.config.GetScreenWidth() / 4 // 4 characters across screen
-	portraitHeight := ui.game.config.UI.PartyPortraitHeight
-	startY := ui.game.config.GetScreenHeight() - portraitHeight
+	// Draw party member portraits and stats at bottom of screen.
+	// Fixed portrait width, centered horizontally — does not stretch in fullscreen.
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
 
 	for i, member := range ui.game.party.Members {
-		x := i * portraitWidth
+		x := baseLeft + i*portraitWidth
 
 		// Highlight selected character and heal target
 		highlightColor := color.RGBA{0, 0, 0, 0}
@@ -63,7 +62,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			spell, hasSpell := currentPlayer.Equipment[items.SlotSpell]
 			if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
 				mouseX, mouseY := ebiten.CursorPosition()
-				if ui.isMouseOverCharacter(mouseX, mouseY, i, portraitWidth, portraitHeight, startY) {
+				if ui.isMouseOverCharacter(mouseX, mouseY, i, portraitWidth, portraitHeight, startY, baseLeft) {
 					// Check if this is a valid target based on spell effect
 					var canTarget bool
 					switch spell.SpellEffect {

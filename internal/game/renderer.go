@@ -116,6 +116,30 @@ func (r *Renderer) ensureRayHitBuffers(numRays int) {
 	}
 }
 
+// handleResize reallocates fixed-size rendering buffers when the viewport
+// size changes (e.g. fullscreen toggle, window resize). Callers must also
+// update the depth buffer + sky/ground images on MMGame — see
+// MMGame.handleResize.
+func (r *Renderer) handleResize(screenWidth, screenHeight int) {
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return
+	}
+	r.floorImage = ebiten.NewImage(screenWidth, screenHeight)
+	r.floorPixels = make([]byte, screenWidth*screenHeight*4)
+
+	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
+	if rayWidth <= 0 {
+		rayWidth = 1
+	}
+	numRays := (screenWidth + rayWidth - 1) / rayWidth
+	if numRays <= 0 {
+		numRays = 1
+	}
+	r.rayDirectionsX = make([]float64, numRays)
+	r.rayDirectionsY = make([]float64, numRays)
+	r.ensureRayHitBuffers(numRays)
+}
+
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
 	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)

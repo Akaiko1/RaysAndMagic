@@ -140,9 +140,16 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	gl.ui.Draw(screen)
 }
 
-// Layout returns the screen dimensions
+// Layout returns the actual outside window dimensions, mutating runtime
+// screen size + reallocating screen-sized buffers when the viewport changes
+// (e.g. fullscreen on first frame). Returning fixed config dims would
+// letterbox the game; returning outside dims renders at native resolution
+// and lets UI anchors stick to actual screen edges.
 func (gl *GameLoop) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return gl.game.config.GetScreenWidth(), gl.game.config.GetScreenHeight()
+	if outsideWidth > 0 && outsideHeight > 0 {
+		gl.game.handleResize(outsideWidth, outsideHeight)
+	}
+	return outsideWidth, outsideHeight
 }
 
 // updateMonstersParallel updates all monsters using parallel processing

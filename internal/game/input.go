@@ -1193,22 +1193,23 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	}
 
 	// Calculate party UI layout (same as UI system)
-	portraitWidth := ih.game.config.GetScreenWidth() / 4
-	portraitHeight := ih.game.config.UI.PartyPortraitHeight
-	startY := ih.game.config.GetScreenHeight() - portraitHeight
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ih.game)
 
 	// Check if mouse is in party UI area
 	if mouseY < startY || mouseY >= startY+portraitHeight {
 		return -1
 	}
+	if mouseX < baseLeft || mouseX >= baseLeft+portraitWidth*4 {
+		return -1
+	}
 
 	// Determine which character portrait the mouse is over
-	charIndex := mouseX / portraitWidth
+	charIndex := (mouseX - baseLeft) / portraitWidth
 	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
 		// Check if the click is on the + button area (exclude it from character selection)
 		member := ih.game.party.Members[charIndex]
 		if member.FreeStatPoints > 0 {
-			x := charIndex * portraitWidth
+			x := baseLeft + charIndex*portraitWidth
 			plusBtnX := x + 20
 			plusBtnY := startY + portraitHeight - 28
 			plusBtnW := 24
