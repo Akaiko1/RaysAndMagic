@@ -786,20 +786,28 @@ func (ih *InputHandler) handleCombatInput() {
 	// Note: H key healing is also handled in handleMouseInput for proper targeting
 }
 
-// handleCharacterSelectionInput processes party character selection
+// handleCharacterSelectionInput processes party character selection via 1-4
+// keys. In turn-based mode, characters that have already spent all their
+// action slots this round (or are KO) are not selectable.
 func (ih *InputHandler) handleCharacterSelectionInput() {
-	if ebiten.IsKeyPressed(ebiten.Key1) {
-		ih.game.selectedChar = 0
+	target := -1
+	switch {
+	case ebiten.IsKeyPressed(ebiten.Key1):
+		target = 0
+	case ebiten.IsKeyPressed(ebiten.Key2):
+		target = 1
+	case ebiten.IsKeyPressed(ebiten.Key3):
+		target = 2
+	case ebiten.IsKeyPressed(ebiten.Key4):
+		target = 3
 	}
-	if ebiten.IsKeyPressed(ebiten.Key2) {
-		ih.game.selectedChar = 1
+	if target < 0 || target >= len(ih.game.party.Members) {
+		return
 	}
-	if ebiten.IsKeyPressed(ebiten.Key3) {
-		ih.game.selectedChar = 2
+	if ih.game.turnBasedMode && !ih.game.canSelectChar(target) {
+		return
 	}
-	if ebiten.IsKeyPressed(ebiten.Key4) {
-		ih.game.selectedChar = 3
-	}
+	ih.game.selectedChar = target
 }
 
 // handleUIInput processes UI-related input
@@ -1144,7 +1152,7 @@ func (ih *InputHandler) handleMouseInput() {
 	if ih.game.turnBasedMode {
 		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
 	}
-	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyActionsUsed >= 2) {
+	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyAllExhausted()) {
 		healPressed = false
 	}
 	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
@@ -1162,11 +1170,19 @@ func (ih *InputHandler) handleMouseInput() {
 		}
 	}
 
-	// Handle party character selection clicks (works both in and out of menu)
+	// Handle party character selection clicks (works both in and out of menu).
+	// In turn-based mode, skip portraits whose owner can't act this round
+	// (KO or already spent all their slots).
 	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
-		if targetCharIndex >= 0 && ih.game.consumeLeftClick() {
-			ih.game.selectedChar = targetCharIndex
+		if targetCharIndex >= 0 {
+			if ih.game.turnBasedMode && !ih.game.canSelectChar(targetCharIndex) {
+				// Eat the click anyway so we don't fall through to other
+				// handlers thinking the click is unused.
+				ih.game.consumeLeftClick()
+			} else if ih.game.consumeLeftClick() {
+				ih.game.selectedChar = targetCharIndex
+			}
 		}
 	}
 
@@ -1699,13 +1715,9 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		ih.game.turnBasedRotCooldown--
 	}
 
-	// Safeguard: if partyActionsUsed is somehow > 2, reset it to prevent soft-lock
-	if ih.game.partyActionsUsed > 2 {
-		ih.game.partyActionsUsed = 2
-	}
-
-	// Party can move 1 tile OR 2 characters can attack
-	if ih.game.partyActionsUsed >= 2 {
+	// Each alive+conscious character has Speed-derived attack slots
+	// (ActionsRemaining). Round ends when all are 0 OR the party moves.
+	if ih.game.partyAllExhausted() {
 		return // Turn is over
 	}
 
@@ -1751,32 +1763,27 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if moved {
+		// Movement is a party-wide commitment: it spends EVERY remaining
+		// action slot and ends the round immediately.
+		for _, m := range ih.game.party.Members {
+			m.ActionsRemaining = 0
+		}
 		ih.endPartyTurn()
 		return
 	}
 
-	// Handle attacks (any 2 attacks from any party members)
-	// Only allow actions if selected character is conscious
+	// Selected character can attack/spell if they're still selectable this
+	// round (alive + conscious + has an action slot).
 	selected := ih.game.party.Members[ih.game.selectedChar]
-	canAct := !(selected.HitPoints <= 0)
-	for _, cond := range selected.Conditions {
-		if cond == character.ConditionUnconscious {
-			canAct = false
-			break
-		}
-	}
+	canAct := ih.game.canSelectChar(ih.game.selectedChar)
 
 	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.partyActionsUsed++
+		ih.consumeSelectedCharAction()
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
-
-		if ih.game.partyActionsUsed >= 2 {
-			ih.endPartyTurn()
-		}
 	}
 
 	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
@@ -1795,14 +1802,30 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		} else {
 			// Not a heal spell, cast normally
 			if ih.game.combat.CastEquippedSpell() {
-				ih.game.partyActionsUsed++
+				ih.consumeSelectedCharAction()
 				ih.game.spellInputCooldown = ih.actionCooldown(15)
 			}
 		}
+	}
+}
 
-		if ih.game.partyActionsUsed >= 2 {
+// consumeSelectedCharAction spends one action slot on the currently-selected
+// character. If they ran out, auto-advances to the next eligible character.
+// If nobody is left with actions, ends the party turn → monsters move.
+func (ih *InputHandler) consumeSelectedCharAction() {
+	if !ih.game.turnBasedMode {
+		return
+	}
+	selected := ih.game.party.Members[ih.game.selectedChar]
+	if selected.ActionsRemaining > 0 {
+		selected.ActionsRemaining--
+	}
+	if selected.ActionsRemaining == 0 {
+		if ih.game.partyAllExhausted() {
 			ih.endPartyTurn()
+			return
 		}
+		ih.game.advanceToNextEligibleChar()
 	}
 }
 
@@ -1920,20 +1943,16 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	}
 }
 
-// endPartyTurn ends the party's turn and starts monster turn
+// endPartyTurn ends the party's turn and starts monster turn. Every
+// TurnBasedSpRegenEveryNRounds rounds, every able-bodied party member gets
+// one SP regen tick (Personality-derived). KO members are skipped — same
+// rule as the real-time tick path (RegenerateSpellPoints handles both).
 func (ih *InputHandler) endPartyTurn() {
-	// Regenerate 1 mana for all party members every 5 turns
 	ih.game.turnBasedSpRegenCount++
-	if ih.game.turnBasedSpRegenCount >= 5 {
+	if ih.game.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
 		ih.game.turnBasedSpRegenCount = 0
 		for _, member := range ih.game.party.Members {
-			if member.SpellPoints < member.MaxSpellPoints {
-				regen := member.CalculateManaRegenAmount(ih.game.statBonus)
-				member.SpellPoints += regen
-				if member.SpellPoints > member.MaxSpellPoints {
-					member.SpellPoints = member.MaxSpellPoints
-				}
-			}
+			member.RegenerateSpellPoints(ih.game.statBonus)
 		}
 	}
 
@@ -1943,13 +1962,7 @@ func (ih *InputHandler) endPartyTurn() {
 }
 
 func (ih *InputHandler) consumeTurnBasedActionForHeal() {
-	if !ih.game.turnBasedMode {
-		return
-	}
-	ih.game.partyActionsUsed++
-	if ih.game.partyActionsUsed >= 2 {
-		ih.endPartyTurn()
-	}
+	ih.consumeSelectedCharAction()
 }
 
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {

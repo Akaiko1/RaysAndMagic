@@ -114,6 +114,10 @@ type CharacterSave struct {
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
+	// ActionsRemaining preserves mid-round turn-based state so save/reload
+	// can't be used to refill action slots. Omitted from real-time saves
+	// (value will simply be 0; ignored when turn-based mode is off).
+	ActionsRemaining int `json:"actions_remaining,omitempty"`
 }
 
 type SkillEntry struct {
@@ -426,6 +430,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Poison timer (so save/load doesn't cure ongoing poison).
 		cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+		// Mid-round turn-based slot count.
+		cs.ActionsRemaining = m.ActionsRemaining
 		ps.Members = append(ps.Members, cs)
 	}
 
@@ -659,6 +665,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			m.Equipment[items.EquipSlot(eq.Slot)] = item
 		}
 		m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+		m.ActionsRemaining = cs.ActionsRemaining
 		g.party.Members = append(g.party.Members, m)
 	}
 

@@ -92,6 +92,11 @@ const (
 	// within this radius become aggressive too.
 	PackAggroRadiusTiles = 8.0
 
+	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
+	// turn-based mode between SP regeneration ticks. Each tick adds
+	// CalculateManaRegenAmount SP to every able-bodied member.
+	TurnBasedSpRegenEveryNRounds = 3
+
 	// TorchLightRadiusTiles: the lit-area radius granted by the torch_light
 	// utility spell. Tuning this changes how far the player can see in dark
 	// biomes.

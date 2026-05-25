@@ -673,6 +673,9 @@ func weaponEffectLines(def *config.WeaponDefinitionConfig) []string {
 	if def.DisintegrateChance > 0 {
 		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", def.DisintegrateChance*100))
 	}
+	if def.AoeRadiusTiles > 0 {
+		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", def.AoeRadiusTiles))
+	}
 	return lines
 }
 

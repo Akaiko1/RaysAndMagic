@@ -1288,6 +1288,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		isRanged = true
 		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
 			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
+			if weaponDef != nil {
+				aoeRadiusTiles = weaponDef.AoeRadiusTiles
+				if weaponDef.Name != "" {
+					weaponName = weaponDef.Name
+				}
+			}
 		}
 	}
 
@@ -1373,17 +1379,18 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
 	}
 
-	if isSpell && aoeRadiusTiles > 0 {
-		cs.applySpellSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles)
+	if aoeRadiusTiles > 0 {
+		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles)
 	}
 }
 
-// applySpellSplash deals the spell's base damage to every OTHER alive monster
-// within radiusTiles of the primary target. Each splash victim applies its
-// own armor reduction. No crit, no disintegrate, no stun on splash — those
-// belong to the primary hit only. Drives Fireball-style AoE from a single
-// YAML field (`aoe_radius_tiles`).
-func (cs *CombatSystem) applySpellSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64) {
+// applyAoeSplash deals the primary attack's base damage to every OTHER alive
+// monster within radiusTiles of the primary target. Each splash victim
+// applies its own armor reduction. No crit, no disintegrate, no stun on
+// splash — those belong to the primary hit only. Drives Fireball-style AoE
+// from a single YAML field (`aoe_radius_tiles`), shared between spells and
+// weapon projectiles (e.g. Bow of Hellfire).
+func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64) {
 	if center == nil || radiusTiles <= 0 {
 		return
 	}

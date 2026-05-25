@@ -49,8 +49,14 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	for i, member := range ui.game.party.Members {
 		x := baseLeft + i*portraitWidth
 
-		// Highlight selected character and heal target
+		// Highlight selected character and heal target. In turn-based mode an
+		// alive character that has already spent all their action slots gets
+		// a gray frame so the player can see at a glance who still has a
+		// move left. KO characters are skipped — they get no frame at all.
 		highlightColor := color.RGBA{0, 0, 0, 0}
+		if ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0 {
+			highlightColor = color.RGBA{120, 120, 120, 220}
+		}
 		if i == ui.game.selectedChar {
 			highlightColor = color.RGBA{210, 170, 80, 220}
 		}
@@ -194,6 +200,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			ui.drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
 			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
 				ui.game.statPopupOpen = true
+				// Open popup for THIS character and also make them the
+				// selected one — so 1-4 / portrait clicks naturally update
+				// the popup contents as the user browses.
+				ui.game.selectedChar = i
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
 			}

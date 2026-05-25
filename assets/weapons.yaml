@@ -351,6 +351,7 @@ weapons:
     value: 1000
     damage_type: "dark"
     max_projectiles: 2
+    aoe_radius_tiles: 2.0  # arrows splash 2 tiles around the primary hit
 
     # Projectile physics (tile-based) - slow but long range
     physics:

@@ -235,10 +235,12 @@ func (gl *GameLoop) isMonsterPerpendicularToPlayer(monster *monster.Monster3D, t
 	return monsterTileX == playerTileX || monsterTileY == playerTileY
 }
 
-// endMonsterTurn ends the monster turn and starts party turn
+// endMonsterTurn ends the monster turn and starts a fresh party turn. The
+// slot refill + selectedChar reset live inside startPartyTurn.
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
+	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages
 }

@@ -919,6 +919,72 @@ func (g *MMGame) GetPartyActionsUsed() int {
 	return g.partyActionsUsed
 }
 
+// canSelectChar reports whether the player can switch selection to the given
+// party index in turn-based mode: the character must still be able to act
+// (alive + conscious) AND have at least one action slot left. In real-time
+// mode every index is selectable — callers gate this with turnBasedMode.
+func (g *MMGame) canSelectChar(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	return m.CanAct() && m.ActionsRemaining > 0
+}
+
+// partyAllExhausted reports whether every still-able-to-act party member has
+// spent all their action slots this round. KO members are skipped — the
+// round ends when the remaining able-bodied ones are done.
+func (g *MMGame) partyAllExhausted() bool {
+	for i := range g.party.Members {
+		if g.canSelectChar(i) {
+			return false
+		}
+	}
+	return true
+}
+
+// firstEligiblePartyIndex returns the lowest party index of a character who
+// can still act this round. Returns -1 if none.
+func (g *MMGame) firstEligiblePartyIndex() int {
+	for i := range g.party.Members {
+		if g.canSelectChar(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// advanceToNextEligibleChar moves selectedChar forward to the next party
+// member that can still act this round, wrapping from the end back to the
+// start. No-op if none are eligible.
+func (g *MMGame) advanceToNextEligibleChar() {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if g.canSelectChar(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+}
+
+// startPartyTurn resets ActionsRemaining for every able-bodied party member
+// based on their effective Speed and snaps selectedChar to the first one.
+// Called when entering turn-based mode and at the end of each monster turn.
+// KO members get 0 slots — they skip the round entirely.
+func (g *MMGame) startPartyTurn() {
+	for _, m := range g.party.Members {
+		if m.CanAct() {
+			m.ActionsRemaining = m.ActionSlotsForTurn(g.statBonus)
+		} else {
+			m.ActionsRemaining = 0
+		}
+	}
+	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
+		g.selectedChar = idx
+	}
+}
+
 func (g *MMGame) ToggleTurnBasedMode() {
 	g.turnBasedMode = !g.turnBasedMode
 
@@ -938,6 +1004,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.turnBasedMoveCooldown = 0
 		g.turnBasedRotCooldown = 0
 		g.monsterTurnResolved = false
+		g.startPartyTurn()
 		g.AddCombatMessage("Turn-based mode activated!")
 	} else {
 		g.AddCombatMessage("Real-time mode activated!")

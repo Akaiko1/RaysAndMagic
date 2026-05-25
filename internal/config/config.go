@@ -347,6 +347,12 @@ type WeaponDefinitionConfig struct {
 	StunChance         float64            `yaml:"stun_chance"`
 	StunTurns          int                `yaml:"stun_turns"`
 	DisintegrateChance float64            `yaml:"disintegrate_chance,omitempty"`
+	// AoeRadiusTiles, when > 0, makes the weapon's projectile splash damage
+	// to every other monster within this radius (in tiles) of the primary
+	// hit. Same semantics as the spell field of the same name: splash uses
+	// the base damage, applies the victim's armor reduction, and skips
+	// crits/disintegrate/stun.
+	AoeRadiusTiles     float64            `yaml:"aoe_radius_tiles,omitempty"`
 	Rarity             string             `yaml:"rarity"`
 	Value              int                `yaml:"value,omitempty"`
 	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`
