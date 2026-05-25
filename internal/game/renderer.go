@@ -42,6 +42,11 @@ type floorTexture struct {
 	pixels []byte
 }
 
+type floorTextureGroup struct {
+	start int
+	count int
+}
+
 // Renderer handles all 3D rendering functionality
 type Renderer struct {
 	game                     *MMGame
@@ -51,17 +56,19 @@ type Renderer struct {
 	circleCacheOrder         []int                 // LRU order tracking for circle cache eviction
 	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// GPU floor rendering — a Kage shader replaces the per-pixel CPU loop.
-	// floorColorMap is a worldW×worldH RGBA8 image: RGB = base tile color,
-	// alpha encodes texturable flag (255 = empty/texturable, 254 = not).
-	// floorTexAtlas is a horizontal strip of N floor textures, selected
-	// per-tile inside the shader (see floorShaderSrc).
-	floorShader      *ebiten.Shader
-	floorColorMap    *ebiten.Image
-	floorTexAtlas    *ebiten.Image
-	floorTexCount    int
-	floorTexTileW    int
-	floorTexTileH    int
-	floorTexturesKey string // map file the textures were loaded for (cache key)
+	// floorColorMap is a worldW×worldH RGBA8 image with base tile colors.
+	// floorTextureIndexMap is a worldW×worldH RGBA8 image; R encodes
+	// atlas-index+1, 0 means no texture overlay. floorTexAtlas is a horizontal
+	// strip of all configured floor material variants.
+	floorShader          *ebiten.Shader
+	floorColorMap        *ebiten.Image
+	floorTextureIndexMap *ebiten.Image
+	floorTexAtlas        *ebiten.Image
+	floorTexGroups       map[string]floorTextureGroup
+	floorTexCount        int
+	floorTexTileW        int
+	floorTexTileH        int
+	floorTexturesKey     string // map file the textures were loaded for (cache key)
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
@@ -508,13 +515,12 @@ func (r *Renderer) precomputeFloorColorCache() {
 }
 
 // buildFloorColorMap encodes floorColorCache as a worldW×worldH RGBA8 image,
-// one pixel per tile. Alpha encodes the "texturable" flag: 255 = empty tile
-// (eligible for texture overlay), 254 = anything else. WritePixels expects
-// premultiplied bytes; for A=254 we scale RGB by 254/255 so the shader's
-// `raw.rgb / raw.a` recovers the original color.
+// one pixel per tile. A second one-pixel-per-tile image stores the floor
+// texture atlas index selected for each tile.
 func (r *Renderer) buildFloorColorMap(worldWidth, worldHeight int) {
 	if worldWidth <= 0 || worldHeight <= 0 {
 		r.floorColorMap = nil
+		r.floorTextureIndexMap = nil
 		return
 	}
 	if r.floorColorMap == nil ||
@@ -522,33 +528,99 @@ func (r *Renderer) buildFloorColorMap(worldWidth, worldHeight int) {
 		r.floorColorMap.Bounds().Dy() != worldHeight {
 		r.floorColorMap = ebiten.NewImage(worldWidth, worldHeight)
 	}
+	if r.floorTextureIndexMap == nil ||
+		r.floorTextureIndexMap.Bounds().Dx() != worldWidth ||
+		r.floorTextureIndexMap.Bounds().Dy() != worldHeight {
+		r.floorTextureIndexMap = ebiten.NewImage(worldWidth, worldHeight)
+	}
 
-	pixels := make([]byte, worldWidth*worldHeight*4)
+	colorPixels := make([]byte, worldWidth*worldHeight*4)
+	indexPixels := make([]byte, worldWidth*worldHeight*4)
 	hasTM := world.GlobalTileManager != nil
 	for ty := 0; ty < worldHeight; ty++ {
 		for tx := 0; tx < worldWidth; tx++ {
 			clr := r.floorColorCache[[2]int{tx, ty}]
-			texturable := false
+			tileType := world.TileEmpty
 			if hasTM && r.game.world != nil &&
 				tx >= 0 && tx < r.game.world.Width &&
 				ty >= 0 && ty < r.game.world.Height {
-				texturable = world.GlobalTileManager.GetTileKey(r.game.world.Tiles[ty][tx]) == "empty"
+				tileType = r.game.world.Tiles[ty][tx]
 			}
 			idx := (ty*worldWidth + tx) * 4
-			if texturable {
-				pixels[idx] = clr.R
-				pixels[idx+1] = clr.G
-				pixels[idx+2] = clr.B
-				pixels[idx+3] = 255
-			} else {
-				pixels[idx] = uint8(int(clr.R) * 254 / 255)
-				pixels[idx+1] = uint8(int(clr.G) * 254 / 255)
-				pixels[idx+2] = uint8(int(clr.B) * 254 / 255)
-				pixels[idx+3] = 254
+			colorPixels[idx] = clr.R
+			colorPixels[idx+1] = clr.G
+			colorPixels[idx+2] = clr.B
+			colorPixels[idx+3] = 255
+
+			// Shader reads only the R channel; G/B left zero, alpha 255 keeps
+			// the image fully opaque so premultiplication is a no-op.
+			indexPixels[idx+3] = 255
+			if atlasIndex, ok := r.floorTextureIndexForTile(tx, ty, tileType); ok {
+				indexPixels[idx] = uint8(atlasIndex + 1)
 			}
 		}
 	}
-	r.floorColorMap.WritePixels(pixels)
+	r.floorColorMap.WritePixels(colorPixels)
+	r.floorTextureIndexMap.WritePixels(indexPixels)
+}
+
+func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.TileType3D) (int, bool) {
+	groupName := r.floorTextureGroupForTile(tileX, tileY, tileType)
+	group, ok := r.floorTexGroups[groupName]
+	if !ok || group.count <= 0 {
+		return 0, false
+	}
+	offset := stableFloorTextureIndex(tileX, tileY, int(tileType), group.count)
+	return group.start + offset, true
+}
+
+// floorTextureGroupForTile returns the floor-texture group name for a tile.
+// Mapping is data-driven from tiles.yaml (TileData.FloorTextureGroup). The
+// only hardcoded override is the "beach" special case: an "empty" tile that
+// borders any water-group tile uses "beach" instead of its own group, so
+// shorelines visually transition into sand.
+func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.TileType3D) string {
+	if world.GlobalTileManager == nil {
+		return ""
+	}
+	tileData := world.GlobalTileManager.GetTileData(tileType)
+	if tileData == nil {
+		return ""
+	}
+	if world.GlobalTileManager.GetTileKey(tileType) == "empty" && r.emptyTileBordersWater(tileX, tileY) {
+		return "beach"
+	}
+	return tileData.FloorTextureGroup
+}
+
+func (r *Renderer) emptyTileBordersWater(tileX, tileY int) bool {
+	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
+		return false
+	}
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			nx, ny := tileX+dx, tileY+dy
+			if nx < 0 || ny < 0 || nx >= r.game.world.Width || ny >= r.game.world.Height {
+				continue
+			}
+			key := world.GlobalTileManager.GetTileKey(r.game.world.Tiles[ny][nx])
+			if key == "water" || key == "deep_water" || key == "forest_stream" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stableFloorTextureIndex(tileX, tileY, tileType, count int) int {
+	if count <= 1 {
+		return 0
+	}
+	hash := uint32(tileX)*73856093 ^ uint32(tileY)*19349663 ^ uint32(tileType)*83492791
+	return int(hash % uint32(count))
 }
 
 func (r *Renderer) loadCurrentMapFloorTextures() {
@@ -557,7 +629,7 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return
 	}
 	mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-	if mapConfig == nil || len(mapConfig.FloorTextures) == 0 {
+	if mapConfig == nil || (len(mapConfig.FloorTextures) == 0 && len(mapConfig.FloorTextureGroups) == 0) {
 		r.clearFloorAtlas()
 		return
 	}
@@ -565,32 +637,94 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return // same map, atlas already built
 	}
 
-	textures := make([]floorTexture, 0, len(mapConfig.FloorTextures))
-	for _, name := range mapConfig.FloorTextures {
-		tex, err := loadFloorTexture(name)
-		if err != nil {
-			fmt.Printf("[FloorTextures] failed to load %q: %v\n", name, err)
+	// Load every configured group into its own slice first; legacy
+	// FloorTextures becomes the implicit "default" group.
+	groupSources := mapConfig.FloorTextureGroups
+	if len(groupSources) == 0 {
+		groupSources = map[string][]string{"default": mapConfig.FloorTextures}
+	}
+	groupNames := floorTextureGroupLoadOrder(groupSources)
+	rawGroups := make(map[string][]floorTexture, len(groupNames))
+	for _, name := range groupNames {
+		texs := make([]floorTexture, 0, len(groupSources[name]))
+		for _, texName := range groupSources[name] {
+			tex, err := loadFloorTexture(texName)
+			if err != nil {
+				fmt.Printf("[FloorTextures] failed to load %q: %v\n", texName, err)
+				continue
+			}
+			texs = append(texs, tex)
+		}
+		if len(texs) > 0 {
+			rawGroups[name] = texs
+		}
+	}
+
+	// Pick canonical dimensions from the first non-empty group; drop any
+	// group containing a mismatched texture so we never leave black slots in
+	// the atlas (every group is either fully present or fully absent).
+	canonicalW, canonicalH := 0, 0
+	for _, name := range groupNames {
+		if texs := rawGroups[name]; len(texs) > 0 {
+			canonicalW, canonicalH = texs[0].width, texs[0].height
+			break
+		}
+	}
+	textures := make([]floorTexture, 0)
+	groups := make(map[string]floorTextureGroup)
+	for _, name := range groupNames {
+		texs := rawGroups[name]
+		if len(texs) == 0 {
 			continue
 		}
-		textures = append(textures, tex)
+		valid := true
+		for _, t := range texs {
+			if t.width != canonicalW || t.height != canonicalH {
+				fmt.Printf("[FloorTextures] dropping group %q: %q is %dx%d, expected %dx%d\n",
+					name, t.name, t.width, t.height, canonicalW, canonicalH)
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		start := len(textures)
+		textures = append(textures, texs...)
+		groups[name] = floorTextureGroup{start: start, count: len(texs)}
 	}
+
 	r.buildFloorTexAtlas(textures)
+	r.floorTexGroups = groups
 	r.floorTexturesKey = mapConfig.File
 }
 
 func (r *Renderer) clearFloorAtlas() {
 	r.floorTexAtlas = nil
+	r.floorTexGroups = nil
 	r.floorTexCount = 0
 	r.floorTexTileW = 0
 	r.floorTexTileH = 0
 	r.floorTexturesKey = ""
 }
 
+// floorTextureGroupLoadOrder returns group names sorted alphabetically. Order
+// only affects atlas layout (start offset per group), not visuals — sorting is
+// purely for deterministic atlas placement across runs.
+func floorTextureGroupLoadOrder(groups map[string][]string) []string {
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // buildFloorTexAtlas packs the given source textures into a horizontal strip
 // (tex[0] occupies x in [0, tileW), tex[1] in [tileW, 2*tileW), …). All
-// textures must share dimensions (first one wins; mismatched are skipped).
-// The source `textures` slice is consumed here and not retained — the pixel
-// data lives on the GPU once the atlas is built.
+// textures must share dimensions — the caller pre-validates this so we never
+// leave black slots in the atlas. The source slice is consumed here and not
+// retained; the pixel data lives on the GPU once the atlas is built.
 func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 	if len(textures) == 0 {
 		r.clearFloorAtlas()
@@ -600,11 +734,6 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 	tileH := textures[0].height
 	atlas := image.NewRGBA(image.Rect(0, 0, tileW*len(textures), tileH))
 	for i, tex := range textures {
-		if tex.width != tileW || tex.height != tileH {
-			fmt.Printf("[FloorTexAtlas] skipping %q: size %dx%d != %dx%d\n",
-				tex.name, tex.width, tex.height, tileW, tileH)
-			continue
-		}
 		for y := 0; y < tileH; y++ {
 			srcRow := tex.pixels[y*tileW*4 : (y+1)*tileW*4]
 			dstStart := y*atlas.Stride + i*tileW*4
@@ -1086,11 +1215,12 @@ const maxFloorShaderLights = 16
 //   - texture contribution fades out by distance via smoothstep on the texel
 //     footprint per screen pixel, to avoid far-field stripes from nearest
 //     sampling
+//
 // Per-tile variation pattern is similar; absolute texture index per tile
 // will differ from the old CPU rendering.
 func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	shader, err := r.ensureFloorShader()
-	if err != nil || shader == nil || r.floorColorMap == nil || r.game.world == nil {
+	if err != nil || shader == nil || r.floorColorMap == nil || r.floorTextureIndexMap == nil || r.game.world == nil {
 		return
 	}
 
@@ -1166,6 +1296,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	op := &ebiten.DrawTrianglesShaderOptions{Uniforms: uniforms}
 	op.Images[0] = r.floorColorMap
 	op.Images[1] = texAtlas
+	op.Images[2] = r.floorTextureIndexMap
 	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
 }
 

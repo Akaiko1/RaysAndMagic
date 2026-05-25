@@ -44,7 +44,11 @@ type GameSave struct {
 	NPCStates    []NPCSave                `json:"npc_states"`
 	Quests       []QuestSave              `json:"quests,omitempty"`
 	GroundContainers []GroundContainerSave `json:"ground_containers,omitempty"`
-	PlayedTimeNs int64                    `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
+	// level-ups. Options are rebuilt from class+level on load, so we only
+	// need to remember which character is owed a choice at which level.
+	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
+	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 
 	// Turn-based state
 	CurrentTurn           int  `json:"current_turn,omitempty"`
@@ -116,6 +120,14 @@ type SkillEntry struct {
 	Type    int `json:"type"`
 	Level   int `json:"level"`
 	Mastery int `json:"mastery"`
+}
+
+// PendingLevelUpChoiceSave records that party member CharIndex has earned a
+// level-up choice at Level but hasn't picked one yet. Options themselves are
+// not stored — they're rebuilt from the character's class config on load.
+type PendingLevelUpChoiceSave struct {
+	CharIndex int `json:"char_index"`
+	Level     int `json:"level"`
 }
 
 type MagicSchoolEntry struct {
@@ -511,6 +523,17 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Calculate played time
 	playedTime := time.Since(g.sessionStartTime)
 
+	var pendingChoices []PendingLevelUpChoiceSave
+	if len(g.levelUpChoiceQueue) > 0 {
+		pendingChoices = make([]PendingLevelUpChoiceSave, 0, len(g.levelUpChoiceQueue))
+		for _, req := range g.levelUpChoiceQueue {
+			pendingChoices = append(pendingChoices, PendingLevelUpChoiceSave{
+				CharIndex: req.charIndex,
+				Level:     req.level,
+			})
+		}
+	}
+
 	return GameSave{
 		MapKey:                 wm.CurrentMapKey,
 		PlayerX:                g.camera.X,
@@ -524,6 +547,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		NPCStates:              nstates,
 		Quests:                 questSaves,
 		GroundContainers:       groundContainerSaves,
+		PendingLevelUpChoices:  pendingChoices,
 		PlayedTimeNs:           playedTime.Nanoseconds(),
 		CurrentTurn:            g.currentTurn,
 		PartyActionsUsed:       g.partyActionsUsed,
@@ -733,7 +757,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
-	g.levelUpChoiceQueue = nil
+	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
+	g.levelUpChoiceOpen = false
+	g.levelUpChoiceIdx = 0
+	for _, pending := range save.PendingLevelUpChoices {
+		if pending.CharIndex < 0 || pending.CharIndex >= len(g.party.Members) {
+			continue
+		}
+		char := g.party.Members[pending.CharIndex]
+		choices := config.GetLevelUpChoices(char.GetClassKey(), pending.Level)
+		if len(choices) == 0 {
+			continue
+		}
+		g.queueLevelUpChoices(char, pending.Level, choices)
+	}
 	g.gameOver = false
 	g.gameVictory = false
 	g.showHighScores = false

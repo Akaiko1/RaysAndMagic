@@ -655,18 +655,17 @@ func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
 //	floorX   = camX + rowDist·DirCos + rowDist·PlaneCos·s
 //	floorY   = camY + rowDist·DirSin + rowDist·PlaneSin·s
 //	tx, ty   = floor(floor[XY] / TileSize)
-//	base     = floorColorMap[tx, ty] (RGB ÷ A, texturable if A>=0.999)
-//	idx      = (tx·73 ^ ty·19) mod TexCount    # small-prime XOR (int32-safe)
+//	base     = floorColorMap[tx, ty]
+//	idx      = floorTextureIndexMap[tx, ty].r - 1
 //	texel    = atlas[idx·TexW + int(localX·TexW), int(localY·TexH)]
 //	weight   = 0.8 · (1 - smoothstep(1.5, 5.0, texelsPerPixel))
 //	color    = mix(base, texel, weight) · brightness(dist, lights)
 //
 // Inputs:
 //
-//	Images[0] = floorColorMap (worldW×worldH RGBA8; alpha 255 = texturable
-//	  empty tile, 254 = anything else. Premultiplied; recover RGB via /alpha)
-//	Images[1] = floorTexAtlas (horizontal strip of N floor textures); pass a
-//	  1×1 dummy when TexCount == 0
+//	Images[0] = floorColorMap (worldW×worldH RGBA8 base colors)
+//	Images[1] = floorTexAtlas (horizontal strip of N floor textures)
+//	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
 const floorShaderSrc = `//kage:unit pixels
 
 package main
@@ -707,30 +706,18 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	ty := floor(floorY / TileSize)
 
 	var rgb vec3
-	var texturable float
+	var atlasIndex float
 	if tx < 0.0 || tx >= WorldSize.x || ty < 0.0 || ty >= WorldSize.y {
 		rgb = vec3(30.0/255.0, 30.0/255.0, 30.0/255.0)
-		texturable = 0.0
+		atlasIndex = -1.0
 	} else {
 		raw := imageSrc0UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
-		invA := 1.0 / max(raw.a, 0.001)
-		rgb = raw.rgb * invA
-		texturable = step(0.999, raw.a)
+		rgb = raw.rgb
+		idxRaw := imageSrc2UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
+		atlasIndex = floor(idxRaw.r*255.0 + 0.5) - 1.0
 	}
 
-	if texturable > 0.5 && TexCount > 0.5 {
-		// XOR hash with int32-safe multipliers (smaller than CPU's
-		// 73856093 / 19349663 to avoid overflow on Kage's 32-bit int).
-		// Different absolute idx values than CPU but the same per-tile
-		// variation pattern.
-		itx := int(tx)
-		ity := int(ty)
-		h := itx*73 ^ ity*19
-		if h < 0 {
-			h = -h
-		}
-		idx := float(h - (h/int(TexCount))*int(TexCount))
-
+	if atlasIndex >= 0.0 && atlasIndex < TexCount && TexCount > 0.5 {
 		lx := fract(floorX / TileSize)
 		ly := fract(floorY / TileSize)
 		if lx < 0.0 {
@@ -741,7 +728,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		}
 
 		// Nearest-texel sample matching CPU's int(localX * texWidth).
-		atlasX := idx*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
+		atlasX := atlasIndex*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
 		atlasY := floor(ly*TexTileSize.y) + 0.5
 		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
 		// space; Ebitengine converts them to the target source internally.

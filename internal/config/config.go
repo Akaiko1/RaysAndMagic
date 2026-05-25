@@ -270,6 +270,11 @@ type TileData struct {
 	RenderType          string                 `yaml:"render_type"`
 	FloorColor          [3]int                 `yaml:"floor_color"`
 	FloorNearColor      [3]int                 `yaml:"floor_near_color"`
+	// FloorTextureGroup selects which named group from MapConfig.FloorTextureGroups
+	// supplies the floor texture for this tile type. Empty = no texture overlay
+	// (renderer falls back to base color). The "beach" group is picked
+	// dynamically for empty tiles bordering water — see the renderer.
+	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	WallColor           [3]int                 `yaml:"wall_color"`
 	Letter              string                 `yaml:"letter"`
 	Biomes              []string               `yaml:"biomes,omitempty"`
@@ -283,14 +288,15 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string                   `yaml:"name"`
-	File              string                   `yaml:"file"`
-	Biome             string                   `yaml:"biome"`
-	SkyColor          [3]int                   `yaml:"sky_color"`
-	SkyTexture        string                   `yaml:"sky_texture,omitempty"`
-	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
-	FloorTextures     []string                 `yaml:"floor_textures,omitempty"`
-	ClearEncounter    *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+	Name               string                   `yaml:"name"`
+	File               string                   `yaml:"file"`
+	Biome              string                   `yaml:"biome"`
+	SkyColor           [3]int                   `yaml:"sky_color"`
+	SkyTexture         string                   `yaml:"sky_texture,omitempty"`
+	DefaultFloorColor  [3]int                   `yaml:"default_floor_color"`
+	FloorTextures      []string                 `yaml:"floor_textures,omitempty"`
+	FloorTextureGroups map[string][]string      `yaml:"floor_texture_groups,omitempty"`
+	ClearEncounter     *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
 }
 
 type MapClearEncounterConfig struct {

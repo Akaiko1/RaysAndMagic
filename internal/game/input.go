@@ -1222,7 +1222,7 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 			}
 		}
 		if ih.game.hasLevelUpChoiceForChar(charIndex) {
-			x := charIndex * portraitWidth
+			x := baseLeft + charIndex*portraitWidth
 			caretX := x + portraitWidth - 28
 			caretY := startY + portraitHeight - 28
 			caretW := 24
