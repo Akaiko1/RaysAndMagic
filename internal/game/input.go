@@ -111,6 +111,13 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// Revival potion target picker: clicks are consumed inside the popup's
+	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
+	// so the player can't move/attack/cast while choosing a revive target.
+	if ih.game.revivalPickerOpen {
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -1164,7 +1171,7 @@ func (ih *InputHandler) handleMouseInput() {
 			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 			if healed {
-				ih.consumeTurnBasedActionForHeal()
+				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 		}
@@ -1768,7 +1775,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		for _, m := range ih.game.party.Members {
 			m.ActionsRemaining = 0
 		}
-		ih.endPartyTurn()
+		ih.game.endPartyTurn()
 		return
 	}
 
@@ -1782,7 +1789,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()
-		ih.consumeSelectedCharAction()
+		ih.game.consumeSelectedCharAction()
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	}
 
@@ -1795,39 +1802,20 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 			if healed {
-				ih.consumeTurnBasedActionForHeal()
+				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		} else {
 			// Not a heal spell, cast normally
 			if ih.game.combat.CastEquippedSpell() {
-				ih.consumeSelectedCharAction()
+				ih.game.consumeSelectedCharAction()
 				ih.game.spellInputCooldown = ih.actionCooldown(15)
 			}
 		}
 	}
 }
 
-// consumeSelectedCharAction spends one action slot on the currently-selected
-// character. If they ran out, auto-advances to the next eligible character.
-// If nobody is left with actions, ends the party turn → monsters move.
-func (ih *InputHandler) consumeSelectedCharAction() {
-	if !ih.game.turnBasedMode {
-		return
-	}
-	selected := ih.game.party.Members[ih.game.selectedChar]
-	if selected.ActionsRemaining > 0 {
-		selected.ActionsRemaining--
-	}
-	if selected.ActionsRemaining == 0 {
-		if ih.game.partyAllExhausted() {
-			ih.endPartyTurn()
-			return
-		}
-		ih.game.advanceToNextEligibleChar()
-	}
-}
 
 // Movement functions for turn-based mode (snap to tile centers)
 func (ih *InputHandler) moveTurnBasedForward() bool {
@@ -1943,27 +1931,6 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	}
 }
 
-// endPartyTurn ends the party's turn and starts monster turn. Every
-// TurnBasedSpRegenEveryNRounds rounds, every able-bodied party member gets
-// one SP regen tick (Personality-derived). KO members are skipped — same
-// rule as the real-time tick path (RegenerateSpellPoints handles both).
-func (ih *InputHandler) endPartyTurn() {
-	ih.game.turnBasedSpRegenCount++
-	if ih.game.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
-		ih.game.turnBasedSpRegenCount = 0
-		for _, member := range ih.game.party.Members {
-			member.RegenerateSpellPoints(ih.game.statBonus)
-		}
-	}
-
-	ih.game.currentTurn = 1 // Monster turn
-	ih.game.monsterTurnResolved = false
-	// Don't spam combat log with turn messages
-}
-
-func (ih *InputHandler) consumeTurnBasedActionForHeal() {
-	ih.consumeSelectedCharAction()
-}
 
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
 	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)

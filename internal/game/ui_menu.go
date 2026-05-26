@@ -322,8 +322,13 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 		ui.game.selectedSpell = spellIndex
 
 		if doubleClick {
-			// Double-click detected - cast the spell directly
-			ui.game.combat.CastSelectedSpell()
+			// Double-click detected - cast the spell directly. In turn-based
+			// mode, a successful cast consumes one action slot for the active
+			// character (just like F-key on the equipped spell), so it can't
+			// be spammed beyond their Speed-derived budget.
+			if ui.game.combat.CastSelectedSpell() {
+				ui.game.consumeSelectedCharAction()
+			}
 		}
 
 		// Update click tracking

@@ -319,6 +319,14 @@ type MMGame struct {
 	levelUpChoiceOpen  bool
 	levelUpChoiceIdx   int
 
+	// Revival potion target picker. Dead/unconscious party members can't be
+	// selected via the portrait click, so when the player uses a revive
+	// consumable we hand them a small modal listing eligible targets.
+	// revivalPickerOpen means the picker is visible; revivalPickerItemIdx
+	// is the inventory slot of the consumable to spend on confirm.
+	revivalPickerOpen    bool
+	revivalPickerItemIdx int
+
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
 	currentTurn           int  // 0 = party turn, 1 = monster turn
@@ -982,6 +990,64 @@ func (g *MMGame) startPartyTurn() {
 	}
 	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
 		g.selectedChar = idx
+	}
+}
+
+// endPartyTurn ends the party's turn and starts the monster turn. Every
+// TurnBasedSpRegenEveryNRounds rounds, every able-bodied party member gets
+// one SP regen tick (Personality-derived); KO members are skipped via
+// RegenerateSpellPoints. Lives on MMGame so non-input callers (spellbook
+// double-click, future UI dialogs) can drive a turn end too.
+func (g *MMGame) endPartyTurn() {
+	g.turnBasedSpRegenCount++
+	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
+		g.turnBasedSpRegenCount = 0
+		for _, member := range g.party.Members {
+			member.RegenerateSpellPoints(g.statBonus)
+		}
+	}
+
+	g.currentTurn = 1 // Monster turn
+	g.monsterTurnResolved = false
+}
+
+// ensureSelectedCharCanAct auto-advances selectedChar to the next eligible
+// member when the current one can no longer act. Necessary because a party
+// member can become KO mid-party-turn from sources outside the action loop:
+// in-flight projectiles fired during the previous monster turn that connect
+// during the party turn, poison ticks, etc. Without this guard pressing
+// Space/F on a dead selectedChar would silently do nothing.
+// Real-time mode no-ops — selection isn't gated on CanAct there.
+func (g *MMGame) ensureSelectedCharCanAct() {
+	if !g.turnBasedMode {
+		return
+	}
+	if g.canSelectChar(g.selectedChar) {
+		return
+	}
+	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
+		g.selectedChar = idx
+	}
+}
+
+// consumeSelectedCharAction spends one action slot on the currently selected
+// character (turn-based mode only — no-op otherwise). If they ran out,
+// auto-advances to the next eligible character. If nobody is left with
+// actions, ends the party turn so monsters can move.
+func (g *MMGame) consumeSelectedCharAction() {
+	if !g.turnBasedMode {
+		return
+	}
+	selected := g.party.Members[g.selectedChar]
+	if selected.ActionsRemaining > 0 {
+		selected.ActionsRemaining--
+	}
+	if selected.ActionsRemaining == 0 {
+		if g.partyAllExhausted() {
+			g.endPartyTurn()
+			return
+		}
+		g.advanceToNextEligibleChar()
 	}
 }
 

@@ -135,6 +135,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawStatDistributionPopup(screen)
 	}
 
+	// Draw revival picker (dead/unconscious party member chooser) if open
+	if ui.game.revivalPickerOpen {
+		ui.drawRevivalPickerPopup(screen)
+	}
+
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)
@@ -142,7 +147,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 
 	// Draw tooltip last so it stays above other UI (unless a blocking popup is open
 	// or a fullscreen overlay like the world map / dialog is covering the menu).
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.mapOverlayOpen && !ui.game.dialogActive {
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.dialogActive {
 		screenW := screen.Bounds().Dx()
 		mainW, _ := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
 		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, ui.tooltipY, ui.game.sprites)

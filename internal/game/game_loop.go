@@ -64,11 +64,17 @@ func (gl *GameLoop) Update() error {
 
 // updateExploration handles the main exploration gameplay loop
 func (gl *GameLoop) updateExploration() {
+	// In turn-based, snap selectedChar to a living member if the current one
+	// died from delayed sources (in-flight projectiles, poison ticks). Has
+	// to run before HandleInput so Space/F on a corpse advances selection
+	// rather than silently no-opping for one frame.
+	gl.game.ensureSelectedCharCanAct()
+
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.statPopupOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 

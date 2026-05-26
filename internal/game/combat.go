@@ -598,39 +598,41 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 	}
 }
 
-// CastSelectedSpell casts the currently selected spell from the spellbook
-func (cs *CombatSystem) CastSelectedSpell() {
+// CastSelectedSpell casts the currently selected spell from the spellbook.
+// Returns true if SP was actually spent and the spell went off — callers use
+// that to consume a turn-based action slot.
+func (cs *CombatSystem) CastSelectedSpell() bool {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
 
 	// Prevent casting while down; also avoids utility healing from acting as a revive.
 	if currentChar.IsIncapacitated() {
-		return
+		return false
 	}
 	schools := currentChar.GetAvailableSchools()
 
 	if cs.game.selectedSchool >= len(schools) {
-		return
+		return false
 	}
 
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
 	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
-		return
+		return false
 	}
 
 	selectedSpellID := availableSpells[cs.game.selectedSpell]
 	selectedSpellDef, err := spells.GetSpellDefinitionByID(selectedSpellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			currentChar.Name, currentChar.SpellPoints, selectedSpellDef.SpellPointsCost))
-		return
+		return false
 	}
 
 	// Cast the spell
@@ -645,7 +647,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		projectile, err := castingSystem.CreateProjectile(selectedSpellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 		// Override damage with centralized calculation (includes mastery bonus).
 		if _, _, totalDamage := cs.CalculateSpellDamage(selectedSpellID, currentChar); totalDamage > 0 {
@@ -683,7 +685,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		spellConfig, err := cs.game.config.GetSpellConfig(string(selectedSpellID))
 		if err != nil {
 			cs.game.AddCombatMessage("Spell config error: " + err.Error())
-			return
+			return false
 		}
 		tileSize := cs.game.config.GetTileSize()
 		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
@@ -699,7 +701,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		result, err := castingSystem.ApplyUtilitySpell(selectedSpellID, currentChar.Personality)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 
 		if result.Success {
@@ -769,6 +771,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			cs.recordSpellCast(currentChar, selectedSpellID)
 		}
 	}
+	return true
 }
 
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot

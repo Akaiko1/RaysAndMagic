@@ -169,6 +169,81 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	}
 }
 
+// drawRevivalPickerPopup draws the "Choose who to revive" overlay opened
+// when a revival potion is used while 2+ party members are dead or
+// unconscious. The list is recomputed every frame from the current party
+// state so a member dying mid-popup naturally appears, and a member already
+// revived disappears. Closing without a click cancels (potion not spent).
+func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
+	targets := ui.game.RevivablePartyIndices()
+	if len(targets) == 0 {
+		// No one left to revive (cured externally?) — close cleanly.
+		ui.game.revivalPickerOpen = false
+		return
+	}
+
+	screenW := ui.game.config.GetScreenWidth()
+	screenH := ui.game.config.GetScreenHeight()
+	popupW := 360
+	rowH := 28
+	popupH := 100 + len(targets)*rowH
+	popupX := (screenW - popupW) / 2
+	popupY := (screenH - popupH) / 2
+
+	// Dim background
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+
+	// Panel
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
+	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+
+	ebitenutil.DebugPrintAt(screen, "Revive Whom?", popupX+16, popupY+16)
+	ebitenutil.DebugPrintAt(screen, "Click a fallen party member.", popupX+16, popupY+36)
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	startY := popupY + 64
+	for row, idx := range targets {
+		y := startY + row*rowH
+		member := ui.game.party.Members[idx]
+		isHover := mouseX >= popupX+16 && mouseX < popupX+popupW-16 &&
+			mouseY >= y-2 && mouseY < y-2+rowH
+		if isHover {
+			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+
+		status := "Unconscious"
+		if member.HasCondition(character.ConditionDead) {
+			status = "Dead"
+		}
+		ebitenutil.DebugPrintAt(screen,
+			fmt.Sprintf("%d) %s — %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints),
+			popupX+24, y+6)
+
+		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			ui.game.applyReviveTo(ui.game.revivalPickerItemIdx, idx)
+			ui.game.revivalPickerOpen = false
+			return
+		}
+	}
+
+	// Close (X) button — cancel without spending the potion.
+	closeX := popupX + popupW - 36
+	closeY := popupY + 12
+	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
+	} else {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
+	}
+	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
+	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
+		ui.game.revivalPickerOpen = false
+		return
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		ui.game.revivalPickerOpen = false
+	}
+}
+
 // drawLevelUpChoicePopup draws the level-up choice selection overlay.
 func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	req := ui.game.currentLevelUpChoice()

@@ -9,10 +9,9 @@ import (
 
 // turnBasedRegenSetup builds a game with a 4-member party where every member
 // has Personality=10 (regen=2 per tick), SP=20/100, and is alive+conscious.
-// Returns the game and a fresh InputHandler so tests can drive endPartyTurn.
 // Loads weapon/item configs because newTestGame → NewParty → CreateCharacter
 // pulls starter equipment from those YAML files; without them setup* panics.
-func turnBasedRegenSetup(t *testing.T) (*MMGame, *InputHandler) {
+func turnBasedRegenSetup(t *testing.T) *MMGame {
 	t.Helper()
 	cfg := loadTestConfig(t)
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
@@ -32,16 +31,15 @@ func turnBasedRegenSetup(t *testing.T) (*MMGame, *InputHandler) {
 		m.SpellPoints = 20
 		m.HitPoints = m.MaxHitPoints
 	}
-	ih := &InputHandler{game: g}
-	return g, ih
+	return g
 }
 
 func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
-	g, ih := turnBasedRegenSetup(t)
+	g := turnBasedRegenSetup(t)
 
 	// Rounds 1 .. N-1: no regen.
 	for i := 1; i < TurnBasedSpRegenEveryNRounds; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 		for _, m := range g.party.Members {
 			if m.SpellPoints != 20 {
 				t.Fatalf("round %d: regen fired early, SP=%d", i, m.SpellPoints)
@@ -50,7 +48,7 @@ func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
 	}
 
 	// Round N: tick fires for everyone.
-	ih.endPartyTurn()
+	g.endPartyTurn()
 	for i, m := range g.party.Members {
 		if m.SpellPoints != 22 { // 20 + regen(2)
 			t.Errorf("char %d: SP=%d after first regen tick, want 22", i, m.SpellPoints)
@@ -59,7 +57,7 @@ func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
 
 	// Another N rounds → another tick.
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 	}
 	for i, m := range g.party.Members {
 		if m.SpellPoints != 24 {
@@ -69,13 +67,13 @@ func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
 }
 
 func TestTurnBasedRegenSkipsUnconscious(t *testing.T) {
-	g, ih := turnBasedRegenSetup(t)
+	g := turnBasedRegenSetup(t)
 	g.party.Members[0].AddCondition(character.ConditionUnconscious)
 	startSP := g.party.Members[0].SpellPoints
 
 	// Drive enough rounds to trigger several regen ticks.
 	for i := 0; i < TurnBasedSpRegenEveryNRounds*3; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 	}
 
 	if got := g.party.Members[0].SpellPoints; got != startSP {
@@ -94,12 +92,12 @@ func TestTurnBasedRegenSkipsUnconscious(t *testing.T) {
 }
 
 func TestTurnBasedRegenSkipsDeadHP(t *testing.T) {
-	g, ih := turnBasedRegenSetup(t)
+	g := turnBasedRegenSetup(t)
 	g.party.Members[1].HitPoints = 0
 	startSP := g.party.Members[1].SpellPoints
 
 	for i := 0; i < TurnBasedSpRegenEveryNRounds*2; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 	}
 
 	if got := g.party.Members[1].SpellPoints; got != startSP {
@@ -108,14 +106,14 @@ func TestTurnBasedRegenSkipsDeadHP(t *testing.T) {
 }
 
 func TestTurnBasedRegenCapsAtMax(t *testing.T) {
-	g, ih := turnBasedRegenSetup(t)
+	g := turnBasedRegenSetup(t)
 	for _, m := range g.party.Members {
 		m.SpellPoints = 99 // 1 short of cap with regen=2
 		m.MaxSpellPoints = 100
 	}
 
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 	}
 
 	for i, m := range g.party.Members {
@@ -126,11 +124,11 @@ func TestTurnBasedRegenCapsAtMax(t *testing.T) {
 }
 
 func TestTurnBasedRegenUsesEffectivePersonalityViaStatBonus(t *testing.T) {
-	g, ih := turnBasedRegenSetup(t)
+	g := turnBasedRegenSetup(t)
 	g.statBonus = 20 // Bless adds +20 to all stats → Personality 10 → effective 30 → regen 4
 
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
-		ih.endPartyTurn()
+		g.endPartyTurn()
 	}
 
 	for i, m := range g.party.Members {

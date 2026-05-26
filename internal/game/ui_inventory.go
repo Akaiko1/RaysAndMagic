@@ -673,6 +673,13 @@ func spellInitials(name string) string {
 
 // handleInventoryItemClick handles double-click to equip items from inventory
 func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) {
+	// When a modal popup is up, suppress inventory clicks entirely. Without
+	// this an open revival picker (whose item-index points into inventory)
+	// would be invalidated if the user double-clicked another consumable —
+	// applyReviveTo's re-validation would silently no-op the chosen potion.
+	if ui.game.revivalPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil {
+		return
+	}
 	// Check for mouse click
 	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
