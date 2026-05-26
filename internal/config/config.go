@@ -10,16 +10,16 @@ import (
 
 // Config holds all game configuration values
 type Config struct {
-	Display    DisplayConfig    `yaml:"display"`
-	Engine     EngineConfig     `yaml:"engine"`
-	World      WorldConfig      `yaml:"world"`
-	Movement   MovementConfig   `yaml:"movement"`
-	Camera     CameraConfig     `yaml:"camera"`
-	UI         UIConfig         `yaml:"ui"`
-	Characters CharacterConfig  `yaml:"characters"`
-	MonsterAI  MonsterAIConfig  `yaml:"monster_ai"`
-	Graphics   GraphicsConfig   `yaml:"graphics"`
-	Tiles      TileConfig       `yaml:"tiles"`
+	Display    DisplayConfig   `yaml:"display"`
+	Engine     EngineConfig    `yaml:"engine"`
+	World      WorldConfig     `yaml:"world"`
+	Movement   MovementConfig  `yaml:"movement"`
+	Camera     CameraConfig    `yaml:"camera"`
+	UI         UIConfig        `yaml:"ui"`
+	Characters CharacterConfig `yaml:"characters"`
+	MonsterAI  MonsterAIConfig `yaml:"monster_ai"`
+	Graphics   GraphicsConfig  `yaml:"graphics"`
+	Tiles      TileConfig      `yaml:"tiles"`
 }
 
 type DisplayConfig struct {
@@ -27,6 +27,7 @@ type DisplayConfig struct {
 	ScreenHeight      int    `yaml:"screen_height"`
 	WindowTitle       string `yaml:"window_title"`
 	Resizable         bool   `yaml:"resizable"`
+	Fullscreen        bool   `yaml:"fullscreen"`
 	DisableVsyncOnMac bool   `yaml:"disable_vsync_on_mac"`
 }
 
@@ -108,6 +109,7 @@ type CameraConfig struct {
 type UIConfig struct {
 	SpellInputCooldown  int `yaml:"spell_input_cooldown"`
 	PartyPortraitHeight int `yaml:"party_portrait_height"`
+	PartyPortraitWidth  int `yaml:"party_portrait_width"`
 	CompassRadius       int `yaml:"compass_radius"`
 	DamageBlinkFrames   int `yaml:"damage_blink_frames"`
 }
@@ -153,13 +155,17 @@ type SpellDefinitionConfig struct {
 	Level              int     `yaml:"level"`
 	SpellPointsCost    int     `yaml:"spell_points_cost"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
-	Damage             int     `yaml:"damage"`
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
-	ProjectileSize     int     `yaml:"projectile_size"`
-	IsProjectile       bool    `yaml:"is_projectile"`
-	IsUtility          bool    `yaml:"is_utility"`
-	VisualEffect       string  `yaml:"visual_effect"`
-	StatusIcon         string  `yaml:"status_icon,omitempty"`
+	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
+	// every monster within this many tiles of the primary target. The splash
+	// uses the same base damage as the direct hit (each splash victim still
+	// applies its own armor reduction). Single source of truth for combat
+	// math and tooltip text.
+	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
+	ProjectileSize int     `yaml:"projectile_size"`
+	IsProjectile   bool    `yaml:"is_projectile"`
+	IsUtility      bool    `yaml:"is_utility"`
+	StatusIcon     string  `yaml:"status_icon,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -264,6 +270,11 @@ type TileData struct {
 	RenderType          string                 `yaml:"render_type"`
 	FloorColor          [3]int                 `yaml:"floor_color"`
 	FloorNearColor      [3]int                 `yaml:"floor_near_color"`
+	// FloorTextureGroup selects which named group from MapConfig.FloorTextureGroups
+	// supplies the floor texture for this tile type. Empty = no texture overlay
+	// (renderer falls back to base color). The "beach" group is picked
+	// dynamically for empty tiles bordering water — see the renderer.
+	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	WallColor           [3]int                 `yaml:"wall_color"`
 	Letter              string                 `yaml:"letter"`
 	Biomes              []string               `yaml:"biomes,omitempty"`
@@ -277,11 +288,38 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string `yaml:"name"`
-	File              string `yaml:"file"`
-	Biome             string `yaml:"biome"`
-	SkyColor          [3]int `yaml:"sky_color"`
-	DefaultFloorColor [3]int `yaml:"default_floor_color"`
+	Name               string                   `yaml:"name"`
+	File               string                   `yaml:"file"`
+	Biome              string                   `yaml:"biome"`
+	SkyColor           [3]int                   `yaml:"sky_color"`
+	SkyTexture         string                   `yaml:"sky_texture,omitempty"`
+	DefaultFloorColor  [3]int                   `yaml:"default_floor_color"`
+	FloorTextures      []string                 `yaml:"floor_textures,omitempty"`
+	FloorTextureGroups map[string][]string      `yaml:"floor_texture_groups,omitempty"`
+	ClearEncounter     *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+}
+
+type MapClearEncounterConfig struct {
+	Rewards *MapEncounterRewardsConfig `yaml:"rewards,omitempty"`
+}
+
+type MapEncounterRewardsConfig struct {
+	Gold              int                           `yaml:"gold"`
+	Experience        int                           `yaml:"experience"`
+	CompletionMessage string                        `yaml:"completion_message,omitempty"`
+	TreasureChest     *MapTreasureChestRewardConfig `yaml:"treasure_chest,omitempty"`
+}
+
+type MapTreasureChestRewardConfig struct {
+	ID                string  `yaml:"id,omitempty"`
+	Map               string  `yaml:"map,omitempty"`
+	TileX             int     `yaml:"tile_x"`
+	TileY             int     `yaml:"tile_y"`
+	Sprite            string  `yaml:"sprite,omitempty"`
+	SizeMultiplier    float64 `yaml:"size_multiplier,omitempty"` // Visual scale; defaults to 0.45 if unset
+	RandomWeaponCount int     `yaml:"random_weapon_count,omitempty"`
+	Gold              int     `yaml:"gold,omitempty"`
+	CompletionMessage string  `yaml:"completion_message,omitempty"`
 }
 
 type MapConfigs struct {
@@ -309,6 +347,12 @@ type WeaponDefinitionConfig struct {
 	StunChance         float64            `yaml:"stun_chance"`
 	StunTurns          int                `yaml:"stun_turns"`
 	DisintegrateChance float64            `yaml:"disintegrate_chance,omitempty"`
+	// AoeRadiusTiles, when > 0, makes the weapon's projectile splash damage
+	// to every other monster within this radius (in tiles) of the primary
+	// hit. Same semantics as the spell field of the same name: splash uses
+	// the base damage, applies the victim's armor reduction, and skips
+	// crits/disintegrate/stun.
+	AoeRadiusTiles     float64            `yaml:"aoe_radius_tiles,omitempty"`
 	Rarity             string             `yaml:"rarity"`
 	Value              int                `yaml:"value,omitempty"`
 	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`
@@ -752,4 +796,3 @@ func GetWeaponDefinitionByName(name string) (*WeaponDefinitionConfig, string, bo
 	}
 	return def, weaponKeyByName[name], true
 }
-

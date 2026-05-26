@@ -8,6 +8,14 @@ import (
 	"ugataima/internal/spells"
 )
 
+// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor)
+// every ManaRegenIntervalFrames ticks. Kept in this package because game's
+// balance.go can't be imported from internal/character (circular).
+const (
+	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
+	ManaRegenPersonalityDivisor = 10
+)
+
 type MMCharacter struct {
 	Name  string
 	Class CharacterClass
@@ -49,6 +57,45 @@ type MMCharacter struct {
 
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
+
+	// ActionsRemaining tracks how many attack/spell actions this character
+	// has left in the current turn-based round. Refilled by ActionSlotsForTurn
+	// at party-turn start, decremented on each attack/spell, set to 0 on
+	// party movement (which immediately ends the round). Unused in real-time.
+	ActionsRemaining int
+}
+
+// ActionSlotsForTurn returns the number of attack/spell slots this character
+// gets per turn-based round, based on effective Speed:
+//   Speed > 50 → 3
+//   Speed > 25 → 2
+//   otherwise → 1
+// statBonus is the global Bless-style stat buff (0 if none).
+func (c *MMCharacter) ActionSlotsForTurn(statBonus int) int {
+	speed := c.GetEffectiveSpeed(statBonus)
+	switch {
+	case speed > 50:
+		return 3
+	case speed > 25:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// CanAct reports whether this character can take actions this turn: alive
+// (HP > 0) AND not unconscious. Dead/KO characters are skipped by the
+// turn-based scheduler entirely (no gray frame, can't be selected).
+func (c *MMCharacter) CanAct() bool {
+	if c == nil || c.HitPoints <= 0 {
+		return false
+	}
+	for _, cond := range c.Conditions {
+		if cond == ConditionUnconscious {
+			return false
+		}
+	}
+	return true
 }
 
 type CharacterClass int
@@ -313,16 +360,10 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 	if c.HasCondition(ConditionUnconscious) {
 		return
 	}
-	// Regenerate spell points slowly - only every 5 seconds (600 ticks at 120 TPS)
-	const spellRegenFrames = 600
+	// Regenerate spell points on a fixed cadence.
 	c.spellRegenTimer++
-
-	if c.spellRegenTimer >= spellRegenFrames && c.SpellPoints < c.MaxSpellPoints {
-		regen := c.CalculateManaRegenAmount(statBonus)
-		c.SpellPoints += regen
-		if c.SpellPoints > c.MaxSpellPoints {
-			c.SpellPoints = c.MaxSpellPoints
-		}
+	if c.spellRegenTimer >= ManaRegenIntervalFrames {
+		c.RegenerateSpellPoints(statBonus)
 		c.spellRegenTimer = 0 // Reset timer
 	}
 }
@@ -330,11 +371,28 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
 	effectivePersonality := c.GetEffectivePersonality(statBonus)
-	regen := 1 + (effectivePersonality / 10)
+	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor)
 	if regen < 1 {
 		return 1
 	}
 	return regen
+}
+
+// RegenerateSpellPoints adds Personality-derived SP to the character, capped
+// at MaxSpellPoints. No-op for KO/unconscious characters and for those
+// already at max SP. Used by both the real-time tick timer and the
+// turn-based round counter so both paths share the same skip/cap rules.
+func (c *MMCharacter) RegenerateSpellPoints(statBonus int) {
+	if !c.CanAct() {
+		return
+	}
+	if c.SpellPoints >= c.MaxSpellPoints {
+		return
+	}
+	c.SpellPoints += c.CalculateManaRegenAmount(statBonus)
+	if c.SpellPoints > c.MaxSpellPoints {
+		c.SpellPoints = c.MaxSpellPoints
+	}
 }
 
 // ApplyPoison applies or refreshes a poison effect for the given duration in frames.

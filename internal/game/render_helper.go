@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"ugataima/internal/world"
@@ -32,9 +33,13 @@ func (rh *RenderingHelper) CalculateWallDimensions(distance float64) (wallHeight
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	// Prevent division by zero or very small distances
-	if distance < 0.1 {
-		distance = 0.1
+	// Clamp to a sane minimum: below ~half a tile the projection formula sends
+	// wallTop far past the bottom of the screen and the wall vanishes (same bug
+	// trees used to have when the camera pressed against them). tileSize/2 keeps
+	// the wall on-screen while the player can still bump right up to it.
+	minDist := float64(rh.game.config.GetTileSize()) / 2
+	if distance < minDist {
+		distance = minDist
 	}
 
 	// Calculate base wall height on screen
@@ -350,8 +355,16 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 		textureX = 0
 	}
 
-	// Create cache key including sprite dimensions, texture position, and target size
-	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_%dx%d", spriteWidth, spriteHeight, textureX, width, height)
+	sourceWidth := width
+	if sourceWidth < 1 {
+		sourceWidth = 1
+	}
+	if sourceWidth > spriteWidth {
+		sourceWidth = spriteWidth
+	}
+
+	// Create cache key including sprite dimensions, texture position, sampled strip width, and target size.
+	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_sw%d_%dx%d", spriteWidth, spriteHeight, textureX, sourceWidth, width, height)
 
 	// Check if we have this sprite slice cached
 	if cachedSlice, exists := rh.textureCache[cacheKey]; exists {
@@ -370,22 +383,32 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 		return
 	}
 
-	// Create a 1-pixel wide slice from the sprite
-	sliceImage := ebiten.NewImage(1, spriteHeight)
-
-	// Use DrawImage with source rectangle to extract the slice - much faster than pixel operations
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(float64(-textureX), 0) // Offset to show only the desired column
-
-	// Create a temporary 1-pixel wide image to act as a mask
-	sliceImage.DrawImage(sprite, opts)
+	// Create a narrow strip from the sprite. This keeps real wall textures readable
+	// for ray widths > 1 and wraps at texture edges for seamless textures.
+	sliceImage := ebiten.NewImage(sourceWidth, spriteHeight)
+	drawSourceStrip := func(srcX, dstX, stripWidth int) {
+		if stripWidth <= 0 {
+			return
+		}
+		src := sprite.SubImage(image.Rect(srcX, 0, srcX+stripWidth, spriteHeight)).(*ebiten.Image)
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Translate(float64(dstX), 0)
+		sliceImage.DrawImage(src, opts)
+	}
+	if textureX+sourceWidth <= spriteWidth {
+		drawSourceStrip(textureX, 0, sourceWidth)
+	} else {
+		firstWidth := spriteWidth - textureX
+		drawSourceStrip(textureX, 0, firstWidth)
+		drawSourceStrip(0, firstWidth, sourceWidth-firstWidth)
+	}
 
 	// Create the final scaled slice for caching
 	scaledSlice := ebiten.NewImage(width, height)
 	drawOpts := &ebiten.DrawImageOptions{}
 
 	// Scale the slice to fit the wall dimensions
-	scaleX := float64(width)
+	scaleX := float64(width) / float64(sourceWidth)
 	scaleY := float64(height) / float64(spriteHeight)
 	drawOpts.GeoM.Scale(scaleX, scaleY)
 
@@ -428,15 +451,17 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
 	distanceMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
 	heightMultiplier := distanceMultiplier / float64(rh.game.config.GetScreenHeight())
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier)
+	screenX, screenY, spriteSize, visible = rh.calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier)
 
-	// screenY is now correctly calculated by calculateSpriteMetricsWithHeightMultiplier to anchor
+	// screenY is now correctly calculated by calculateScreenCappedSpriteMetrics to anchor
 	// the sprite's bottom to the floor at its distance
 
 	return screenX, screenY, spriteSize, visible
 }
 
-// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters)
+// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters).
+// People-sized NPCs use this; buildings should set render_type: environment_sprite in YAML
+// so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeMultiplier <= 0 {
 		sizeMultiplier = 1
@@ -444,12 +469,7 @@ func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance,
 	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
 	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
 	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	screenX, screenY, spriteSize, visible = rh.calculateSpriteMetricsWithConfig(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
-
-	// screenY is now correctly calculated by calculateSpriteMetricsWithConfig to anchor
-	// the sprite's bottom to the floor at its distance
-
-	return screenX, screenY, spriteSize, visible
+	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
@@ -495,30 +515,26 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	return screenX, screenY, spriteHeight, true
 }
 
-// calculateSpriteMetricsWithConfig calculates screen position and size for sprites.
+// calculateBoundedSpriteMetrics projects an entity and sizes its sprite within
+// caller-supplied per-instance bounds.
 //
-// This is the core sprite projection function used by monsters, NPCs, and other entities.
-// It performs three key calculations:
+// Use this when each entity has its own min/max screen size in pixels — i.e.,
+// the entity should NEVER grow beyond `maxSize` or shrink below `minSize`
+// regardless of how close/far it is. NPCs use this path because they carry a
+// per-NPC `size_multiplier` that scales both the projection coefficient and
+// the size bounds together (so a "size 4" NPC reads as a tall building, not
+// the same size as a "size 1" NPC at close range).
 //
-//  1. Screen X position: Uses projectToScreenX to convert world coords to screen coords
-//     via camera plane projection (same math as raycasting walls).
+// For the alternative (entity is screen-relative and grows freely until it
+// fills the viewport), see calculateScreenCappedSpriteMetrics.
 //
-//  2. Sprite size: Uses PERPENDICULAR distance (not Euclidean) for sizing.
-//     This is critical - using Euclidean distance would cause sprites at screen edges
-//     to appear smaller than they should, creating a fisheye effect and causing
-//     sprites to "drift" from their floor tiles when viewed at angles.
-//
-//  3. Screen Y position: Anchors the sprite's BOTTOM edge to the floor at its distance.
-//     The floor at perpendicular distance D appears at screen Y = horizon + p,
-//     where p = (0.5 * screenHeight * tileSize) / D. We position sprites so their
-//     bottom aligns with this floor position, making them appear grounded.
-//
-// Parameters:
-//   - entityX, entityY: World coordinates of the entity
-//   - distance: Euclidean distance (used only for view culling, NOT for sizing)
-//   - maxSize, minSize: Size bounds for the sprite
-//   - multiplier: Size scaling factor from config
-func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
+// Math notes:
+//   - Screen X is projected via projectToScreenX (camera plane math)
+//   - Sprite size uses PERPENDICULAR distance, not Euclidean — using Euclidean
+//     would create fisheye distortion at screen edges
+//   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
+//     so sprites appear grounded rather than floating
+func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
 	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0
@@ -560,9 +576,19 @@ func (rh *RenderingHelper) calculateSpriteMetricsWithConfig(entityX, entityY, di
 	return screenX, screenY, spriteSize, true
 }
 
-// calculateSpriteMetricsWithHeightMultiplier matches environment sprite scaling
-// (screenHeight / perpDist * tileSize * heightMultiplier) and uses the same caps.
-func (rh *RenderingHelper) calculateSpriteMetricsWithHeightMultiplier(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
+// calculateScreenCappedSpriteMetrics projects an entity and sizes its sprite
+// using a SCREEN-RELATIVE scaling model.
+//
+// Use this for entities that should grow freely as the player approaches
+// until they fill the viewport — environment props (trees, ferns, moss),
+// monsters, and ground containers (loot bags, treasure chests). There are
+// no per-instance bounds; the sprite is allowed to scale up to one screen
+// height (so a big monster fills the screen at point-blank range) and is
+// floored at 8 px so distant sprites don't vanish to a single row.
+//
+// For the alternative (per-instance min/max bounds, NPCs), see
+// calculateBoundedSpriteMetrics.
+func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0
@@ -608,12 +634,243 @@ func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, hei
 
 // RenderBackgroundLayers renders sky and ground layers
 func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
-	// Draw cached sky
-	skyOpts := &ebiten.DrawImageOptions{}
-	screen.DrawImage(rh.game.skyImg, skyOpts)
+	if !rh.drawSkyPanorama(screen) {
+		// Draw cached solid-color sky fallback.
+		skyOpts := &ebiten.DrawImageOptions{}
+		screen.DrawImage(rh.game.skyImg, skyOpts)
+	}
 
 	// Draw cached ground
 	groundOpts := &ebiten.DrawImageOptions{}
 	groundOpts.GeoM.Translate(0, float64(rh.game.config.GetScreenHeight()/2))
 	screen.DrawImage(rh.game.groundImg, groundOpts)
+}
+
+// floorShaderSrc is a Kage fragment shader that renders the perspective
+// floor. Per-fragment logic:
+//
+//	samplePx = floor(px/2)·2 + 1               # 2×2 block quantization
+//	rowDist  = RowDistFactor / (samplePx.y - Horizon)
+//	s        = 2·samplePx.x / ScreenSize.x - 1
+//	floorX   = camX + rowDist·DirCos + rowDist·PlaneCos·s
+//	floorY   = camY + rowDist·DirSin + rowDist·PlaneSin·s
+//	tx, ty   = floor(floor[XY] / TileSize)
+//	base     = floorColorMap[tx, ty]
+//	idx      = floorTextureIndexMap[tx, ty].r - 1
+//	texel    = atlas[idx·TexW + int(localX·TexW), int(localY·TexH)]
+//	weight   = 0.8 · (1 - smoothstep(1.5, 5.0, texelsPerPixel))
+//	color    = mix(base, texel, weight) · brightness(dist, lights)
+//
+// Inputs:
+//
+//	Images[0] = floorColorMap (worldW×worldH RGBA8 base colors)
+//	Images[1] = floorTexAtlas (horizontal strip of N floor textures)
+//	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
+const floorShaderSrc = `//kage:unit pixels
+
+package main
+
+var CamPos vec2
+var DirCos float
+var DirSin float
+var PlaneCos float
+var PlaneSin float
+var ScreenSize vec2
+var Horizon float
+var RowDistFactor float
+var TileSize float
+var WorldSize vec2
+var ViewDist float
+var MinBrightness float
+var TexCount float
+var TexTileSize vec2
+var LightCount float
+var Lights [16]vec4
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	px := dstPos.xy - imageDstOrigin()
+	samplePx := floor(px/2.0)*2.0 + vec2(1.0)
+
+	p := samplePx.y - Horizon
+	if p < 0.5 {
+		p = 0.5
+	}
+	rowDist := RowDistFactor / p
+
+	t := samplePx.x / ScreenSize.x
+	s := 2.0*t - 1.0
+	floorX := CamPos.x + rowDist*DirCos + rowDist*PlaneCos*s
+	floorY := CamPos.y + rowDist*DirSin + rowDist*PlaneSin*s
+
+	tx := floor(floorX / TileSize)
+	ty := floor(floorY / TileSize)
+
+	var rgb vec3
+	var atlasIndex float
+	if tx < 0.0 || tx >= WorldSize.x || ty < 0.0 || ty >= WorldSize.y {
+		rgb = vec3(30.0/255.0, 30.0/255.0, 30.0/255.0)
+		atlasIndex = -1.0
+	} else {
+		raw := imageSrc0UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
+		rgb = raw.rgb
+		idxRaw := imageSrc2UnsafeAt(imageSrc0Origin() + vec2(tx+0.5, ty+0.5))
+		atlasIndex = floor(idxRaw.r*255.0 + 0.5) - 1.0
+	}
+
+	if atlasIndex >= 0.0 && atlasIndex < TexCount && TexCount > 0.5 {
+		lx := fract(floorX / TileSize)
+		ly := fract(floorY / TileSize)
+		if lx < 0.0 {
+			lx += 1.0
+		}
+		if ly < 0.0 {
+			ly += 1.0
+		}
+
+		// Nearest-texel sample matching CPU's int(localX * texWidth).
+		atlasX := atlasIndex*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
+		atlasY := floor(ly*TexTileSize.y) + 0.5
+		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
+		// space; Ebitengine converts them to the target source internally.
+		texColor := imageSrc1UnsafeAt(imageSrc0Origin() + vec2(atlasX, atlasY))
+
+		// The floor texture is high-frequency pixel art. In the far field one
+		// screen pixel spans many source texels, so nearest sampling aliases into
+		// long stripes. Fade texture detail out based on the horizontal texel
+		// footprint instead of pretending we have mipmaps.
+		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
+		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
+		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
+		textureWeight := 0.8 * (1.0 - smoothstep(1.5, 5.0, texelsPerPixel))
+
+		rgb = texColor.rgb*textureWeight + rgb*(1.0-textureWeight)
+	}
+
+	dx := floorX - CamPos.x
+	dy := floorY - CamPos.y
+	dist := sqrt(dx*dx + dy*dy)
+	brightness := 1.0 - dist/ViewDist
+	if brightness < MinBrightness {
+		brightness = MinBrightness
+	}
+	for i := 0; i < 16; i++ {
+		if float(i) >= LightCount {
+			break
+		}
+		L := Lights[i]
+		ldx := floorX - L.x
+		ldy := floorY - L.y
+		d := sqrt(ldx*ldx + ldy*ldy)
+		if d < L.z {
+			falloff := 1.0 - d/L.z
+			brightness += L.w * falloff
+		}
+	}
+	if brightness > 1.0 {
+		brightness = 1.0
+	}
+
+	return vec4(rgb*brightness, 1.0)
+}
+`
+
+// skyShaderSrc is a Kage fragment shader that samples the sky panorama with
+// manual bilinear filtering and X-axis wrap. Doing this in a custom shader
+// lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
+// (which break batching and force the source out of the texture atlas).
+const skyShaderSrc = `//kage:unit pixels
+
+package main
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	size := imageSrc0Size()
+	origin := imageSrc0Origin()
+
+	// Image-local coordinates (atlas offset removed).
+	local := srcPos - origin
+
+	// Bilinear: gather four texels around the sample point. Texel centers sit
+	// at integer + 0.5, so shift by 0.5 before flooring.
+	p := local - vec2(0.5)
+	base := floor(p)
+	f := p - base
+
+	// Wrap X over the image width; clamp Y to a valid row.
+	sx0 := mod(base.x, size.x)
+	sx1 := mod(base.x+1.0, size.x)
+	sy0 := clamp(base.y, 0.0, size.y-1.0)
+	sy1 := clamp(base.y+1.0, 0.0, size.y-1.0)
+	half := vec2(0.5)
+
+	c00 := imageSrc0UnsafeAt(origin + vec2(sx0, sy0) + half)
+	c10 := imageSrc0UnsafeAt(origin + vec2(sx1, sy0) + half)
+	c01 := imageSrc0UnsafeAt(origin + vec2(sx0, sy1) + half)
+	c11 := imageSrc0UnsafeAt(origin + vec2(sx1, sy1) + half)
+
+	top := mix(c00, c10, f.x)
+	bot := mix(c01, c11, f.x)
+	return mix(top, bot, f.y) * color
+}
+`
+
+// drawSkyPanorama draws the sky with an isotropic pixel scale (horizontal scale
+// equals vertical scale) so panorama features don't appear stretched at any
+// resolution. The visible source span auto-adapts to screen width, which means
+// the texture repeats more times per 360° turn on wider screens — classic
+// Doom-style behavior, but without anisotropy.
+//
+// Sampling is done by skyShader, which performs bilinear filtering + X-wrap in
+// a single draw call. This avoids deprecated Filter/Address paths so the
+// panorama can sit in the shared texture atlas and the draw batches normally.
+func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
+	panorama := rh.game.skyPanorama
+	if panorama == nil {
+		return false
+	}
+
+	shader, err := rh.game.ensureSkyShader()
+	if err != nil || shader == nil {
+		return false
+	}
+
+	screenWidth := rh.game.config.GetScreenWidth()
+	skyHeight := rh.game.config.GetScreenHeight() / 2
+	if screenWidth <= 0 || skyHeight <= 0 {
+		return false
+	}
+
+	bounds := panorama.Bounds()
+	srcW := float64(bounds.Dx())
+	srcH := float64(bounds.Dy())
+	if srcW <= 0 || srcH <= 0 {
+		return false
+	}
+
+	scale := float64(skyHeight) / srcH
+	srcSpan := float64(screenWidth) / scale
+	if scale <= 0 || srcSpan <= 0 {
+		return false
+	}
+
+	pixelsPerRadian := srcSpan / rh.game.camera.FOV
+	bx := float64(bounds.Min.X)
+	by := float64(bounds.Min.Y)
+	sx0 := bx + rh.game.camera.Angle*pixelsPerRadian - srcSpan/2
+	sx1 := sx0 + srcSpan
+	sy0 := by
+	sy1 := by + srcH
+	dx1 := float32(screenWidth)
+	dy1 := float32(skyHeight)
+
+	vertices := [4]ebiten.Vertex{
+		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+	}
+	indices := [6]uint16{0, 1, 2, 1, 3, 2}
+	op := &ebiten.DrawTrianglesShaderOptions{}
+	op.Images[0] = panorama
+	screen.DrawTrianglesShader(vertices[:], indices[:], shader, op)
+	return true
 }

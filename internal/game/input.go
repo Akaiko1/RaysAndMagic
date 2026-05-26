@@ -111,6 +111,13 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// Revival potion target picker: clicks are consumed inside the popup's
+	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
+	// so the player can't move/attack/cast while choosing a revive target.
+	if ih.game.revivalPickerOpen {
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -206,7 +213,7 @@ func (ih *InputHandler) restartNewGame() {
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.meleeAttacks = g.meleeAttacks[:0]
 	g.arrows = g.arrows[:0]
-	g.lootBags = g.lootBags[:0]
+	g.groundContainers = g.groundContainers[:0]
 	g.slashEffects = g.slashEffects[:0]
 	g.arrowHitEffects = g.arrowHitEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
@@ -776,7 +783,7 @@ func (ih *InputHandler) handleCombatInput() {
 
 	// Melee attack (Space key) - with cooldown to prevent spam
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()
@@ -786,20 +793,28 @@ func (ih *InputHandler) handleCombatInput() {
 	// Note: H key healing is also handled in handleMouseInput for proper targeting
 }
 
-// handleCharacterSelectionInput processes party character selection
+// handleCharacterSelectionInput processes party character selection via 1-4
+// keys. In turn-based mode, characters that have already spent all their
+// action slots this round (or are KO) are not selectable.
 func (ih *InputHandler) handleCharacterSelectionInput() {
-	if ebiten.IsKeyPressed(ebiten.Key1) {
-		ih.game.selectedChar = 0
+	target := -1
+	switch {
+	case ebiten.IsKeyPressed(ebiten.Key1):
+		target = 0
+	case ebiten.IsKeyPressed(ebiten.Key2):
+		target = 1
+	case ebiten.IsKeyPressed(ebiten.Key3):
+		target = 2
+	case ebiten.IsKeyPressed(ebiten.Key4):
+		target = 3
 	}
-	if ebiten.IsKeyPressed(ebiten.Key2) {
-		ih.game.selectedChar = 1
+	if target < 0 || target >= len(ih.game.party.Members) {
+		return
 	}
-	if ebiten.IsKeyPressed(ebiten.Key3) {
-		ih.game.selectedChar = 2
+	if ih.game.turnBasedMode && !ih.game.canSelectChar(target) {
+		return
 	}
-	if ebiten.IsKeyPressed(ebiten.Key4) {
-		ih.game.selectedChar = 3
-	}
+	ih.game.selectedChar = target
 }
 
 // handleUIInput processes UI-related input
@@ -1144,7 +1159,7 @@ func (ih *InputHandler) handleMouseInput() {
 	if ih.game.turnBasedMode {
 		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
 	}
-	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyActionsUsed >= 2) {
+	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyAllExhausted()) {
 		healPressed = false
 	}
 	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
@@ -1156,27 +1171,35 @@ func (ih *InputHandler) handleMouseInput() {
 			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 			if healed {
-				ih.consumeTurnBasedActionForHeal()
+				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
 		}
 	}
 
-	// Handle party character selection clicks (works both in and out of menu)
+	// Handle party character selection clicks (works both in and out of menu).
+	// In turn-based mode, skip portraits whose owner can't act this round
+	// (KO or already spent all their slots).
 	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
-		if targetCharIndex >= 0 && ih.game.consumeLeftClick() {
-			ih.game.selectedChar = targetCharIndex
+		if targetCharIndex >= 0 {
+			if ih.game.turnBasedMode && !ih.game.canSelectChar(targetCharIndex) {
+				// Eat the click anyway so we don't fall through to other
+				// handlers thinking the click is unused.
+				ih.game.consumeLeftClick()
+			} else if ih.game.consumeLeftClick() {
+				ih.game.selectedChar = targetCharIndex
+			}
 		}
 	}
 
-	// Loot bag pickup (only during gameplay, no overlays)
+	// Ground container pickup (only during gameplay, no overlays)
 	if !ih.game.menuOpen && !ih.game.mainMenuOpen && !ih.game.showHighScores && !ih.game.mapOverlayOpen && !ih.game.dialogActive && !ih.game.statPopupOpen && ih.game.currentLevelUpChoice() == nil {
-		pickupRange := ih.game.lootBagPickupRange()
+		pickupRange := ih.game.groundContainerPickupRange()
 		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
-			if idx := ih.game.findLootBagIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
+			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
-				ih.game.pickupLootBagAt(idx)
+				ih.game.pickupGroundContainerAt(idx)
 				return
 			}
 		}
@@ -1193,22 +1216,23 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	}
 
 	// Calculate party UI layout (same as UI system)
-	portraitWidth := ih.game.config.GetScreenWidth() / 4
-	portraitHeight := ih.game.config.UI.PartyPortraitHeight
-	startY := ih.game.config.GetScreenHeight() - portraitHeight
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ih.game)
 
 	// Check if mouse is in party UI area
 	if mouseY < startY || mouseY >= startY+portraitHeight {
 		return -1
 	}
+	if mouseX < baseLeft || mouseX >= baseLeft+portraitWidth*4 {
+		return -1
+	}
 
 	// Determine which character portrait the mouse is over
-	charIndex := mouseX / portraitWidth
+	charIndex := (mouseX - baseLeft) / portraitWidth
 	if charIndex >= 0 && charIndex < len(ih.game.party.Members) {
 		// Check if the click is on the + button area (exclude it from character selection)
 		member := ih.game.party.Members[charIndex]
 		if member.FreeStatPoints > 0 {
-			x := charIndex * portraitWidth
+			x := baseLeft + charIndex*portraitWidth
 			plusBtnX := x + 20
 			plusBtnY := startY + portraitHeight - 28
 			plusBtnW := 24
@@ -1221,7 +1245,7 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 			}
 		}
 		if ih.game.hasLevelUpChoiceForChar(charIndex) {
-			x := charIndex * portraitWidth
+			x := baseLeft + charIndex*portraitWidth
 			caretX := x + portraitWidth - 28
 			caretY := startY + portraitHeight - 28
 			caretW := 24
@@ -1312,29 +1336,27 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 }
 
-// handleNPCInteraction handles talking to nearby NPCs
+// handleNPCInteraction starts a dialog with the nearest NPC within
+// interaction range. Mirrors the HUD hint (GetNearestInteractableNPC) so the
+// player always talks to the same NPC they see prompted.
 func (ih *InputHandler) handleNPCInteraction() {
-	for _, npc := range ih.game.GetCurrentWorld().NPCs {
-		dist := Distance(ih.game.camera.X, ih.game.camera.Y, npc.X, npc.Y)
+	npc := ih.game.GetNearestInteractableNPC()
+	if npc == nil {
+		return
+	}
+	ih.game.dialogActive = true
+	ih.game.dialogNPC = npc
+	ih.game.selectedCharIdx = 0     // Default to first character
+	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
+	ih.game.dialogSelectedSpell = 0 // Default to first spell
+	ih.game.selectedSpellKey = ""   // No spell selected initially
+	ih.game.selectedChoice = 0      // Reset encounter choice selection
 
-		if dist <= InteractionDistance {
-			// Start dialog with this NPC
-			ih.game.dialogActive = true
-			ih.game.dialogNPC = npc
-			ih.game.selectedCharIdx = 0     // Default to first character
-			ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
-			ih.game.dialogSelectedSpell = 0 // Default to first spell
-			ih.game.selectedSpellKey = ""   // No spell selected initially
-			ih.game.selectedChoice = 0      // Reset encounter choice selection
-
-			// If NPC has spells, select the first one (deterministic order)
-			if npcHasSpellTrading(npc) {
-				spellKeys := npcSpellKeys(npc) // Use deterministic ordering
-				if len(spellKeys) > 0 {
-					ih.game.selectedSpellKey = spellKeys[0]
-				}
-			}
-			return
+	// If NPC has spells, select the first one (deterministic order)
+	if npcHasSpellTrading(npc) {
+		spellKeys := npcSpellKeys(npc) // Use deterministic ordering
+		if len(spellKeys) > 0 {
+			ih.game.selectedSpellKey = spellKeys[0]
 		}
 	}
 }
@@ -1371,7 +1393,7 @@ func (ih *InputHandler) handleDialogInput() {
 		switch {
 		case npcHasSpellTrading(ih.game.dialogNPC):
 			ih.handleSpellTraderInput()
-		case npcHasEncounter(ih.game.dialogNPC):
+		case npcHasChoiceDialog(ih.game.dialogNPC):
 			ih.handleEncounterInput()
 		}
 	}
@@ -1628,7 +1650,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	}
 
 	// Check if clicking on encounter choices (if NPC is encounter type)
-	if ih.game.dialogNPC != nil && npcHasEncounter(ih.game.dialogNPC) {
+	if ih.game.dialogNPC != nil && npcHasChoiceDialog(ih.game.dialogNPC) {
 		npc := ih.game.dialogNPC
 		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
 			// Skip if already visited and encounter is first-visit-only
@@ -1700,13 +1722,9 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		ih.game.turnBasedRotCooldown--
 	}
 
-	// Safeguard: if partyActionsUsed is somehow > 2, reset it to prevent soft-lock
-	if ih.game.partyActionsUsed > 2 {
-		ih.game.partyActionsUsed = 2
-	}
-
-	// Party can move 1 tile OR 2 characters can attack
-	if ih.game.partyActionsUsed >= 2 {
+	// Each alive+conscious character has Speed-derived attack slots
+	// (ActionsRemaining). Round ends when all are 0 OR the party moves.
+	if ih.game.partyAllExhausted() {
 		return // Turn is over
 	}
 
@@ -1752,32 +1770,27 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if moved {
-		ih.endPartyTurn()
+		// Movement is a party-wide commitment: it spends EVERY remaining
+		// action slot and ends the round immediately.
+		for _, m := range ih.game.party.Members {
+			m.ActionsRemaining = 0
+		}
+		ih.game.endPartyTurn()
 		return
 	}
 
-	// Handle attacks (any 2 attacks from any party members)
-	// Only allow actions if selected character is conscious
+	// Selected character can attack/spell if they're still selectable this
+	// round (alive + conscious + has an action slot).
 	selected := ih.game.party.Members[ih.game.selectedChar]
-	canAct := !(selected.HitPoints <= 0)
-	for _, cond := range selected.Conditions {
-		if cond == character.ConditionUnconscious {
-			canAct = false
-			break
-		}
-	}
+	canAct := ih.game.canSelectChar(ih.game.selectedChar)
 
 	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		if ih.game.tryPickupNearestLootBag(ih.game.lootBagPickupRange()) {
+		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
 		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.partyActionsUsed++
+		ih.game.consumeSelectedCharAction()
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
-
-		if ih.game.partyActionsUsed >= 2 {
-			ih.endPartyTurn()
-		}
 	}
 
 	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
@@ -1789,23 +1802,20 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
 			if healed {
-				ih.consumeTurnBasedActionForHeal()
+				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		} else {
 			// Not a heal spell, cast normally
 			if ih.game.combat.CastEquippedSpell() {
-				ih.game.partyActionsUsed++
+				ih.game.consumeSelectedCharAction()
 				ih.game.spellInputCooldown = ih.actionCooldown(15)
 			}
 		}
-
-		if ih.game.partyActionsUsed >= 2 {
-			ih.endPartyTurn()
-		}
 	}
 }
+
 
 // Movement functions for turn-based mode (snap to tile centers)
 func (ih *InputHandler) moveTurnBasedForward() bool {
@@ -1921,37 +1931,6 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	}
 }
 
-// endPartyTurn ends the party's turn and starts monster turn
-func (ih *InputHandler) endPartyTurn() {
-	// Regenerate 1 mana for all party members every 5 turns
-	ih.game.turnBasedSpRegenCount++
-	if ih.game.turnBasedSpRegenCount >= 5 {
-		ih.game.turnBasedSpRegenCount = 0
-		for _, member := range ih.game.party.Members {
-			if member.SpellPoints < member.MaxSpellPoints {
-				regen := member.CalculateManaRegenAmount(ih.game.statBonus)
-				member.SpellPoints += regen
-				if member.SpellPoints > member.MaxSpellPoints {
-					member.SpellPoints = member.MaxSpellPoints
-				}
-			}
-		}
-	}
-
-	ih.game.currentTurn = 1 // Monster turn
-	ih.game.monsterTurnResolved = false
-	// Don't spam combat log with turn messages
-}
-
-func (ih *InputHandler) consumeTurnBasedActionForHeal() {
-	if !ih.game.turnBasedMode {
-		return
-	}
-	ih.game.partyActionsUsed++
-	if ih.game.partyActionsUsed >= 2 {
-		ih.endPartyTurn()
-	}
-}
 
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
 	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
@@ -2067,10 +2046,60 @@ func (ih *InputHandler) executeEncounterChoice() {
 		// Start encounter combat
 		ih.startEncounter()
 
+	case "enter_map":
+		ih.enterEncounterMap(choice.Map)
+
 	default:
 		// Unknown action - just close dialog
 		ih.game.dialogActive = false
 		ih.game.dialogNPC = nil
+	}
+}
+
+func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
+	if targetMapKey == "" || world.GlobalWorldManager == nil || !world.GlobalWorldManager.IsValidMap(targetMapKey) {
+		ih.game.AddCombatMessage("You cannot enter from here.")
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+		return
+	}
+
+	// Remember where the player is on the current map so a return trip
+	// drops them back at the doorway, not at the map's spawn tile.
+	if ih.game.mapReturnPoses == nil {
+		ih.game.mapReturnPoses = make(map[string]MapPose)
+	}
+	if currentKey := world.GlobalWorldManager.CurrentMapKey; currentKey != "" {
+		ih.game.mapReturnPoses[currentKey] = MapPose{
+			X:     ih.game.camera.X,
+			Y:     ih.game.camera.Y,
+			Angle: ih.game.camera.Angle,
+		}
+	}
+
+	ih.game.dialogActive = false
+	ih.game.dialogNPC = nil
+	ih.switchToMap(targetMapKey)
+
+	currentWorld := ih.game.GetCurrentWorld()
+	if currentWorld == nil {
+		return
+	}
+
+	// Prefer the previously-stored pose for this map if we've been here before;
+	// fall back to the map's spawn tile on first visit.
+	var x, y, angle float64
+	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
+		x, y, angle = pose.X, pose.Y, pose.Angle
+	} else {
+		x, y = currentWorld.GetStartingPosition()
+		angle = 0
+	}
+	ih.game.camera.X = x
+	ih.game.camera.Y = y
+	ih.game.camera.Angle = angle
+	if ih.game.collisionSystem != nil {
+		ih.game.collisionSystem.UpdateEntity("player", x, y)
 	}
 }
 
@@ -2149,13 +2178,7 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				// Mark this monster as part of an encounter for reward tracking
 				monster.IsEncounterMonster = true
 				monster.EncounterRewards = npc.EncounterData.Rewards
-				ih.game.world.Monsters = append(ih.game.world.Monsters, monster)
-
-				// Register monster with collision system for proper AI movement
-				width, height := monster.GetSize()
-				entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, true)
-				ih.game.collisionSystem.RegisterEntity(entity)
-
+				ih.game.registerSpawnedMonster(monster)
 				fmt.Printf("Spawned %s at walkable position (%.1f, %.1f) with AI enabled\n", monsterDef.Type, spawnX, spawnY)
 			}
 		}

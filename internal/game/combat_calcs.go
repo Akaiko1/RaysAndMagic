@@ -53,7 +53,7 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if char != nil && def.School != "" {
 		school := character.MagicSchoolID(def.School)
 		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
-			multiplier := 1.0 + (float64(skill.Level()) * 0.1)
+			multiplier := 1.0 + float64(skill.Level())*SpellSchoolLevelDurationBonus
 			seconds = int(float64(seconds) * multiplier)
 		}
 	}
@@ -163,14 +163,13 @@ func (cs *CombatSystem) CalculateActionCooldownFrames(char *character.MMCharacte
 }
 
 func calculateSpeedActionCooldownFrames(speed int) int {
-	// Linear fit through points: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
-	frames := 63.333333 - (2.0/3.0)*float64(speed)
+	frames := AttackCooldownIntercept - AttackCooldownSpeedSlope*float64(speed)
 	cd := int(math.Round(frames))
-	if cd < 15 {
-		return 15
+	if cd < AttackCooldownMinFrames {
+		return AttackCooldownMinFrames
 	}
-	if cd > 90 {
-		return 90
+	if cd > AttackCooldownMaxFrames {
+		return AttackCooldownMaxFrames
 	}
 	return cd
 }

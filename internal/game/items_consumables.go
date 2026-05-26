@@ -6,6 +6,59 @@ import (
 	"ugataima/internal/items"
 )
 
+// RevivablePartyIndices returns the indices of party members who can be
+// revived by a revival potion: currently Dead OR Unconscious, but NOT
+// Eradicated. Used by the revival-picker UI so dead members (who can't be
+// portrait-clicked) can still be chosen as targets.
+func (g *MMGame) RevivablePartyIndices() []int {
+	if g == nil || g.party == nil {
+		return nil
+	}
+	var idxs []int
+	for i, m := range g.party.Members {
+		if m == nil || m.HasCondition(character.ConditionEradicated) {
+			continue
+		}
+		if m.HasCondition(character.ConditionDead) ||
+			m.HasCondition(character.ConditionUnconscious) ||
+			m.HitPoints <= 0 {
+			idxs = append(idxs, i)
+		}
+	}
+	return idxs
+}
+
+// applyReviveTo consumes the revival item at itemIdx and revives the party
+// member at targetIdx. Shared by the 1-target fast path and the picker
+// confirmation. Re-validates the item at itemIdx is actually a revive
+// consumable: the index can become stale between picker-open and confirm
+// if other inventory operations (drop/sell/use) shift the slice.
+// Returns true if the revive applied.
+func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
+	if itemIdx < 0 || itemIdx >= len(g.party.Inventory) {
+		return false
+	}
+	if targetIdx < 0 || targetIdx >= len(g.party.Members) {
+		return false
+	}
+	item := g.party.Inventory[itemIdx]
+	if item.Type != items.ItemConsumable || item.Attributes["revive"] <= 0 {
+		// Slot now holds something else — inventory shifted under us.
+		return false
+	}
+	ch := g.party.Members[targetIdx]
+	ch.RemoveCondition(character.ConditionUnconscious)
+	ch.RemoveCondition(character.ConditionDead)
+	if item.Attributes["full_heal"] > 0 {
+		ch.HitPoints = ch.MaxHitPoints
+	} else if ch.HitPoints <= 0 {
+		ch.HitPoints = 1
+	}
+	g.party.RemoveItem(itemIdx)
+	g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
+	return true
+}
+
 // UseConsumableFromInventory consumes a consumable item at inventory index for the selected character.
 // Handles game-side effects, inventory removal, and combat messages. Returns true if consumed.
 func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) bool {
@@ -24,25 +77,23 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		return false
 	}
 	// Attribute-driven behaviors (single source of truth)
-	// Revive consumable
+	// Revive consumable: branch on number of revivable party members.
+	//   0 → nothing to do, don't waste the potion
+	//   1 → revive immediately (no picker needed)
+	//   N → open revivalPicker, target gets revived when user confirms
 	if item.Attributes["revive"] > 0 {
-		ch := g.party.Members[selectedChar]
-		if ch.HasCondition(character.ConditionEradicated) {
-			g.AddCombatMessage(fmt.Sprintf("%s cannot be revived.", ch.Name))
+		targets := g.RevivablePartyIndices()
+		switch len(targets) {
+		case 0:
+			g.AddCombatMessage("No one in the party needs reviving.")
+			return false
+		case 1:
+			return g.applyReviveTo(itemIndex, targets[0])
+		default:
+			g.revivalPickerOpen = true
+			g.revivalPickerItemIdx = itemIndex
 			return false
 		}
-		// Cure Dead and Unconscious
-		ch.RemoveCondition(character.ConditionUnconscious)
-		ch.RemoveCondition(character.ConditionDead)
-		// Restore HP fully if requested, otherwise set at least 1 HP
-		if item.Attributes["full_heal"] > 0 {
-			ch.HitPoints = ch.MaxHitPoints
-		} else if ch.HitPoints <= 0 {
-			ch.HitPoints = 1
-		}
-		g.party.RemoveItem(itemIndex)
-		g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
-		return true
 	}
 
 	// Healing consumable

@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 
 	"gopkg.in/yaml.v3"
 )
@@ -141,11 +142,46 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 
 	// Load fixed monsters from map data (converts MonsterSpawn entries to Monster3D objects)
 	world.loadMonstersFromMapData(mapData.MonsterSpawns)
+	wm.attachMapClearEncounter(world, mapKey, mapConfig)
 
 	// Do NOT add random/procedural monsters on premade (.map) worlds.
 	// Only monsters explicitly placed in the map should be present.
 
 	return world, nil
+}
+
+func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, mapConfig *config.MapConfig) {
+	if world == nil || mapConfig == nil || mapConfig.ClearEncounter == nil || mapConfig.ClearEncounter.Rewards == nil || len(world.Monsters) == 0 {
+		return
+	}
+	cfg := mapConfig.ClearEncounter.Rewards
+	rewards := &monster.EncounterRewards{
+		Gold:              cfg.Gold,
+		Experience:        cfg.Experience,
+		CompletionMessage: cfg.CompletionMessage,
+	}
+	if cfg.TreasureChest != nil {
+		chestCfg := cfg.TreasureChest
+		chestMap := chestCfg.Map
+		if chestMap == "" {
+			chestMap = mapKey
+		}
+		rewards.TreasureChest = &monster.TreasureChestReward{
+			ID:                chestCfg.ID,
+			Map:               chestMap,
+			TileX:             chestCfg.TileX,
+			TileY:             chestCfg.TileY,
+			Sprite:            chestCfg.Sprite,
+			SizeMultiplier:    chestCfg.SizeMultiplier,
+			RandomWeaponCount: chestCfg.RandomWeaponCount,
+			Gold:              chestCfg.Gold,
+			CompletionMessage: chestCfg.CompletionMessage,
+		}
+	}
+	for _, mon := range world.Monsters {
+		mon.IsEncounterMonster = true
+		mon.EncounterRewards = rewards
+	}
 }
 
 // GetCurrentWorld returns the currently active world

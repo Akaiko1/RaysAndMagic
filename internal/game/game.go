@@ -2,10 +2,13 @@ package game
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	_ "image/png"
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -148,6 +151,12 @@ var ElementColors = map[string][3]int{
 	"physical": {200, 200, 200}, // Gray
 }
 
+// MapPose captures the player's position and facing on a specific map so
+// two-way transitions can drop them back where they came in.
+type MapPose struct {
+	X, Y, Angle float64
+}
+
 type MMGame struct {
 	world     *world.World3D
 	camera    *FirstPersonCamera
@@ -198,14 +207,17 @@ type MMGame struct {
 	lastClickedUtilitySpell   string // Icon of last clicked utility spell
 
 	// Cached images for performance
-	skyImg    *ebiten.Image
-	groundImg *ebiten.Image
+	skyImg            *ebiten.Image
+	groundImg         *ebiten.Image
+	skyPanorama       *ebiten.Image
+	currentSkyTexture string
+	skyShader         *ebiten.Shader // lazily compiled, reused across frames
 
 	// Combat effects
 	magicProjectiles []MagicProjectile
 	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
-	lootBags         []LootBag
+	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
 
 	// Spellbook UI state
 	collapsedSpellSchools map[character.MagicSchoolID]bool
@@ -244,6 +256,11 @@ type MMGame struct {
 	underwaterReturnX      float64 // X position to return to when spell expires
 	underwaterReturnY      float64 // Y position to return to when spell expires
 	underwaterReturnMap    string  // Map to return to when spell expires
+
+	// Per-map last-known player pose so two-way map transitions (e.g. enter /
+	// leave a church) drop the player back where they left, not at the map's
+	// spawn point.
+	mapReturnPoses map[string]MapPose
 
 	// Generic stat bonus system (for Bless, Day of Gods, Hour of Power, etc.)
 	statBonus int // Total stat bonus from all active effects
@@ -301,6 +318,14 @@ type MMGame struct {
 	levelUpChoiceQueue []levelUpChoiceRequest
 	levelUpChoiceOpen  bool
 	levelUpChoiceIdx   int
+
+	// Revival potion target picker. Dead/unconscious party members can't be
+	// selected via the portrait click, so when the player uses a revive
+	// consumable we hand them a small modal listing eligible targets.
+	// revivalPickerOpen means the picker is visible; revivalPickerItemIdx
+	// is the inventory slot of the consumable to spend on confirm.
+	revivalPickerOpen    bool
+	revivalPickerItemIdx int
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
@@ -503,6 +528,19 @@ func (g *MMGame) GetPlayerTilePosition() (tileX, tileY int) {
 	return int(g.camera.X / tileSize), int(g.camera.Y / tileSize)
 }
 
+// registerSpawnedMonster appends a freshly-created monster to the world and
+// registers its collision entity. Shared by every spawn pathway so we can't
+// accidentally forget the collision registration step.
+func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
+	if m == nil {
+		return
+	}
+	g.world.Monsters = append(g.world.Monsters, m)
+	width, height := m.GetSize()
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
+	g.collisionSystem.RegisterEntity(entity)
+}
+
 // GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
 func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	currentWorld := g.GetCurrentWorld()
@@ -615,12 +653,14 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 func (g *MMGame) UpdateSkyAndGroundColors() {
 	// Get current map configuration
 	var skyColor, groundColor [3]int
+	skyTexture := ""
 
 	if world.GlobalWorldManager != nil {
 		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
 		if mapConfig != nil {
 			skyColor = mapConfig.SkyColor
 			groundColor = mapConfig.DefaultFloorColor
+			skyTexture = mapConfig.SkyTexture
 		} else {
 			// Fallback to config defaults
 			skyColor = g.config.Graphics.Colors.Sky
@@ -634,9 +674,71 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 
 	// Update sky image
 	g.skyImg.Fill(color.RGBA{uint8(skyColor[0]), uint8(skyColor[1]), uint8(skyColor[2]), 255})
+	g.updateSkyPanorama(skyTexture)
 
 	// Update ground image
 	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
+}
+
+func (g *MMGame) updateSkyPanorama(textureName string) {
+	if textureName == g.currentSkyTexture {
+		return
+	}
+	g.currentSkyTexture = textureName
+	g.skyPanorama = nil
+	if textureName == "" {
+		return
+	}
+
+	img, err := loadPNGAsEbiten(resolveNamedPNG("assets/sprites/sky", textureName))
+	if err != nil {
+		fmt.Printf("[Sky] failed to load %q: %v\n", textureName, err)
+		return
+	}
+	g.skyPanorama = img
+}
+
+func resolveNamedPNG(baseDir, name string) string {
+	if filepath.IsAbs(name) {
+		return name
+	}
+	if filepath.Ext(name) == "" {
+		name += ".png"
+	}
+	if filepath.Dir(name) != "." {
+		return name
+	}
+	return filepath.Join(baseDir, name)
+}
+
+func decodePNG(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	return img, err
+}
+
+func loadPNGAsEbiten(path string) (*ebiten.Image, error) {
+	img, err := decodePNG(path)
+	if err != nil {
+		return nil, err
+	}
+	return ebiten.NewImageFromImage(img), nil
+}
+
+func (g *MMGame) ensureSkyShader() (*ebiten.Shader, error) {
+	if g.skyShader != nil {
+		return g.skyShader, nil
+	}
+	s, err := ebiten.NewShader([]byte(skyShaderSrc))
+	if err != nil {
+		return nil, err
+	}
+	g.skyShader = s
+	return s, nil
 }
 
 func (g *MMGame) Update() error {
@@ -660,6 +762,32 @@ func (g *MMGame) GenerateProjectileID(projectileType string) string {
 
 func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return g.gameLoop.Layout(outsideWidth, outsideHeight)
+}
+
+// handleResize updates the runtime screen dimensions used by rendering and
+// UI anchoring. All 80-odd call sites read config.GetScreenWidth/Height each
+// frame, so mutating those values here propagates the new size transparently
+// without an audit. Pre-allocated screen-sized buffers (depth buffer,
+// sky/ground images, floor cache, ray caches) are reallocated to match;
+// otherwise width-indexed pixel writes in the renderer would overrun.
+func (g *MMGame) handleResize(screenWidth, screenHeight int) {
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return
+	}
+	if screenWidth == g.config.Display.ScreenWidth && screenHeight == g.config.Display.ScreenHeight && len(g.depthBuffer) == screenWidth {
+		return
+	}
+	g.config.Display.ScreenWidth = screenWidth
+	g.config.Display.ScreenHeight = screenHeight
+
+	g.depthBuffer = make([]float64, screenWidth)
+	g.skyImg = ebiten.NewImage(screenWidth, screenHeight/2)
+	g.groundImg = ebiten.NewImage(screenWidth, screenHeight/2)
+	g.UpdateSkyAndGroundColors()
+
+	if g.gameLoop != nil && g.gameLoop.renderer != nil {
+		g.gameLoop.renderer.handleResize(screenWidth, screenHeight)
+	}
 }
 
 // Shutdown releases threading resources. Safe to call multiple times only via
@@ -740,12 +868,7 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	if m == nil {
 		return false
 	}
-	g.world.Monsters = append(g.world.Monsters, m)
-	// Register with collision system
-	width, height := m.GetSize()
-	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
-	g.collisionSystem.RegisterEntity(entity)
-
+	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
 	return true
 }
@@ -804,6 +927,130 @@ func (g *MMGame) GetPartyActionsUsed() int {
 	return g.partyActionsUsed
 }
 
+// canSelectChar reports whether the player can switch selection to the given
+// party index in turn-based mode: the character must still be able to act
+// (alive + conscious) AND have at least one action slot left. In real-time
+// mode every index is selectable — callers gate this with turnBasedMode.
+func (g *MMGame) canSelectChar(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	return m.CanAct() && m.ActionsRemaining > 0
+}
+
+// partyAllExhausted reports whether every still-able-to-act party member has
+// spent all their action slots this round. KO members are skipped — the
+// round ends when the remaining able-bodied ones are done.
+func (g *MMGame) partyAllExhausted() bool {
+	for i := range g.party.Members {
+		if g.canSelectChar(i) {
+			return false
+		}
+	}
+	return true
+}
+
+// firstEligiblePartyIndex returns the lowest party index of a character who
+// can still act this round. Returns -1 if none.
+func (g *MMGame) firstEligiblePartyIndex() int {
+	for i := range g.party.Members {
+		if g.canSelectChar(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// advanceToNextEligibleChar moves selectedChar forward to the next party
+// member that can still act this round, wrapping from the end back to the
+// start. No-op if none are eligible.
+func (g *MMGame) advanceToNextEligibleChar() {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if g.canSelectChar(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+}
+
+// startPartyTurn resets ActionsRemaining for every able-bodied party member
+// based on their effective Speed and snaps selectedChar to the first one.
+// Called when entering turn-based mode and at the end of each monster turn.
+// KO members get 0 slots — they skip the round entirely.
+func (g *MMGame) startPartyTurn() {
+	for _, m := range g.party.Members {
+		if m.CanAct() {
+			m.ActionsRemaining = m.ActionSlotsForTurn(g.statBonus)
+		} else {
+			m.ActionsRemaining = 0
+		}
+	}
+	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
+		g.selectedChar = idx
+	}
+}
+
+// endPartyTurn ends the party's turn and starts the monster turn. Every
+// TurnBasedSpRegenEveryNRounds rounds, every able-bodied party member gets
+// one SP regen tick (Personality-derived); KO members are skipped via
+// RegenerateSpellPoints. Lives on MMGame so non-input callers (spellbook
+// double-click, future UI dialogs) can drive a turn end too.
+func (g *MMGame) endPartyTurn() {
+	g.turnBasedSpRegenCount++
+	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
+		g.turnBasedSpRegenCount = 0
+		for _, member := range g.party.Members {
+			member.RegenerateSpellPoints(g.statBonus)
+		}
+	}
+
+	g.currentTurn = 1 // Monster turn
+	g.monsterTurnResolved = false
+}
+
+// ensureSelectedCharCanAct auto-advances selectedChar to the next eligible
+// member when the current one can no longer act. Necessary because a party
+// member can become KO mid-party-turn from sources outside the action loop:
+// in-flight projectiles fired during the previous monster turn that connect
+// during the party turn, poison ticks, etc. Without this guard pressing
+// Space/F on a dead selectedChar would silently do nothing.
+// Real-time mode no-ops — selection isn't gated on CanAct there.
+func (g *MMGame) ensureSelectedCharCanAct() {
+	if !g.turnBasedMode {
+		return
+	}
+	if g.canSelectChar(g.selectedChar) {
+		return
+	}
+	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
+		g.selectedChar = idx
+	}
+}
+
+// consumeSelectedCharAction spends one action slot on the currently selected
+// character (turn-based mode only — no-op otherwise). If they ran out,
+// auto-advances to the next eligible character. If nobody is left with
+// actions, ends the party turn so monsters can move.
+func (g *MMGame) consumeSelectedCharAction() {
+	if !g.turnBasedMode {
+		return
+	}
+	selected := g.party.Members[g.selectedChar]
+	if selected.ActionsRemaining > 0 {
+		selected.ActionsRemaining--
+	}
+	if selected.ActionsRemaining == 0 {
+		if g.partyAllExhausted() {
+			g.endPartyTurn()
+			return
+		}
+		g.advanceToNextEligibleChar()
+	}
+}
+
 func (g *MMGame) ToggleTurnBasedMode() {
 	g.turnBasedMode = !g.turnBasedMode
 
@@ -823,6 +1070,7 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.turnBasedMoveCooldown = 0
 		g.turnBasedRotCooldown = 0
 		g.monsterTurnResolved = false
+		g.startPartyTurn()
 		g.AddCombatMessage("Turn-based mode activated!")
 	} else {
 		g.AddCombatMessage("Real-time mode activated!")

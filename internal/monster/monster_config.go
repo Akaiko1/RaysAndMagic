@@ -17,7 +17,6 @@ type MonsterDefinition struct {
 	ArmorClass         int                 `yaml:"armor_class"`
 	PerfectDodge       int                 `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
 	Experience         int                 `yaml:"experience"`
-	AttackBonus        int                 `yaml:"attack_bonus"`
 	DamageMin          int                 `yaml:"damage_min"`
 	DamageMax          int                 `yaml:"damage_max"`
 	AlertRadius        float64             `yaml:"alert_radius"`
@@ -190,7 +189,6 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.ArmorClass = def.ArmorClass
 	m.PerfectDodge = def.PerfectDodge
 	m.Experience = def.Experience
-	m.AttackBonus = def.AttackBonus
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
 	// Convert tile-based radii to pixels (1 tile = 64 pixels)

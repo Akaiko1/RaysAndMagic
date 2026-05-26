@@ -51,15 +51,11 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 		return 0, 0, 0
 	}
 
-	// Use heal_amount from YAML if specified, otherwise use damage field
-	if def.HealAmount > 0 {
-		baseHealing = def.HealAmount
-	} else {
-		baseHealing = def.Damage
-	}
-
+	// Healing spells MUST set heal_amount; we no longer fall back to the
+	// damage field because the damage field has been removed from the YAML
+	// schema (offensive damage is derived from spell_points_cost × N).
+	baseHealing = def.HealAmount
 	personalityBonus = casterPersonality / HealingPersonalityDivisor
-
 	totalHealing = baseHealing + personalityBonus
 	return
 }

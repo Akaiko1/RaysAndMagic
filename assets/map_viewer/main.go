@@ -21,9 +21,16 @@ import (
 )
 
 const (
-	windowWidth  = 1200
-	windowHeight = 800
-	sidebarWidth = 300
+	windowWidth   = 1200
+	windowHeight  = 800
+	sidebarWidth  = 300
+	pageBarHeight = 32 // top tab bar (Maps | Items & Spells)
+)
+
+// Top-level pages within the viewer window.
+const (
+	pageMaps    = 0
+	pageContent = 1 // items + spells, grouped
 )
 
 type mapInfo struct {
@@ -34,6 +41,7 @@ type mapInfo struct {
 }
 
 type viewer struct {
+	page           int
 	maps           []mapInfo
 	mapIndex       int
 	legendLines    []legendEntry
@@ -46,7 +54,14 @@ type viewer struct {
 	savePath       string
 	saveError      string
 	lastErr        string
+
+	// Content page state.
+	contentItems  []contentCard
+	contentScroll int
+	iconCache     map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
 }
+
+// contentCard, contentKind, and the cardX constants live in content_cards.go.
 
 const (
 	tabInfo = iota
@@ -132,12 +147,25 @@ func main() {
 
 	monsterCfg := monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
+	// Content tab needs item / weapon / spell defs. These are optional — if a
+	// file is missing the corresponding section is just empty.
+	if _, err := config.LoadItemConfig("assets/items.yaml"); err != nil {
+		log.Printf("Warning: failed to load items.yaml: %v", err)
+	}
+	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
+		log.Printf("Warning: failed to load weapons.yaml: %v", err)
+	}
+	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
+		log.Printf("Warning: failed to load spells.yaml: %v", err)
+	}
+
 	maps, err := loadMaps(cfg)
 	if err != nil {
 		log.Printf("Warning: %v", err)
 	}
 
 	v := &viewer{
+		page:          pageMaps,
 		maps:          maps,
 		mapIndex:      0,
 		legendLines:   buildLegendEntries(world.GlobalTileManager, monsterCfg),
@@ -145,6 +173,8 @@ func main() {
 		tileDataByKey: world.GlobalTileManager.ListTiles(),
 		tileManager:   world.GlobalTileManager,
 		brush:         brush{kind: brushEraser},
+		contentItems:  buildContentCards(),
+		iconCache:     make(map[string]*ebiten.Image),
 	}
 	if len(maps) == 0 {
 		v.lastErr = "no maps loaded"
@@ -169,6 +199,56 @@ func (v *viewer) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
+
+	// Top-page switching: F1=Maps, F2=Items&Spells.
+	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
+		v.page = pageMaps
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
+		v.page = pageContent
+	}
+
+	// Page-bar click works on both pages. Consume the click here if it
+	// landed on a tab so the page-specific handler below doesn't also
+	// fire (e.g., a stray brush stroke on the Maps page).
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		_, my := ebiten.CursorPosition()
+		if my < pageBarHeight {
+			v.handlePageBarClick()
+			return nil
+		}
+	}
+
+	if v.page == pageContent {
+		_, wheelY := ebiten.Wheel()
+		if wheelY != 0 {
+			v.contentScroll -= int(wheelY * 30)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) {
+			v.contentScroll += 200
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
+			v.contentScroll -= 200
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
+			v.contentScroll += 40
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
+			v.contentScroll -= 40
+		}
+		if v.contentScroll < 0 {
+			v.contentScroll = 0
+		}
+		if max := v.maxContentScroll(); v.contentScroll > max {
+			v.contentScroll = max
+		}
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			v.handlePageBarClick()
+		}
+		return nil
+	}
+
+	// Maps page below.
 	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 		if v.sidebarTab == tabInfo {
 			v.sidebarTab = tabLegend
@@ -235,18 +315,26 @@ func (v *viewer) Update() error {
 func (v *viewer) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{15, 15, 22, 255})
 
+	v.drawPageBar(screen)
+
+	if v.page == pageContent {
+		v.drawContentPage(screen)
+		return
+	}
+
+	// Maps page below.
 	if len(v.maps) == 0 {
 		msg := v.lastErr
 		if msg == "" {
 			msg = "no maps loaded"
 		}
-		ebitenutil.DebugPrintAt(screen, msg, 16, 16)
+		ebitenutil.DebugPrintAt(screen, msg, 16, pageBarHeight+16)
 		return
 	}
 
 	m := v.maps[v.mapIndex]
 	if m.Err != nil {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, 16)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s failed to load: %v", m.Key, m.Err), 16, pageBarHeight+16)
 		return
 	}
 
@@ -268,15 +356,16 @@ func (v *viewer) Layout(_, _ int) (int, int) {
 func (v *viewer) computeLayout(m mapInfo) layout {
 	padding := 16
 	toolbarH := 36
+	topOffset := pageBarHeight + padding // leave room for the top page-tab bar
 	mapAreaW := windowWidth - sidebarWidth - padding*3
-	mapAreaH := windowHeight - padding*2 - toolbarH - padding
+	mapAreaH := windowHeight - topOffset - padding - toolbarH - padding
 	mapAreaX := padding
-	mapAreaY := padding
+	mapAreaY := topOffset
 	toolbarX := mapAreaX
 	toolbarY := mapAreaY + mapAreaH + padding
 	toolbarW := mapAreaW
 	sidebarX := mapAreaX + mapAreaW + padding
-	sidebarY := padding
+	sidebarY := topOffset
 	tabHeight := 24
 
 	legendX := sidebarX
@@ -1251,3 +1340,4 @@ func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (str
 	}
 	return "", false
 }
+

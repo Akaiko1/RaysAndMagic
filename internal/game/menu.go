@@ -43,8 +43,12 @@ type GameSave struct {
 	MapMonsters  map[string][]MonsterSave `json:"map_monsters,omitempty"`
 	NPCStates    []NPCSave                `json:"npc_states"`
 	Quests       []QuestSave              `json:"quests,omitempty"`
-	LootBags     []LootBagSave            `json:"loot_bags,omitempty"`
-	PlayedTimeNs int64                    `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	GroundContainers []GroundContainerSave `json:"ground_containers,omitempty"`
+	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
+	// level-ups. Options are rebuilt from class+level on load, so we only
+	// need to remember which character is owed a choice at which level.
+	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
+	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 
 	// Turn-based state
 	CurrentTurn           int  `json:"current_turn,omitempty"`
@@ -110,12 +114,24 @@ type CharacterSave struct {
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
+	// ActionsRemaining preserves mid-round turn-based state so save/reload
+	// can't be used to refill action slots. Omitted from real-time saves
+	// (value will simply be 0; ignored when turn-based mode is off).
+	ActionsRemaining int `json:"actions_remaining,omitempty"`
 }
 
 type SkillEntry struct {
 	Type    int `json:"type"`
 	Level   int `json:"level"`
 	Mastery int `json:"mastery"`
+}
+
+// PendingLevelUpChoiceSave records that party member CharIndex has earned a
+// level-up choice at Level but hasn't picked one yet. Options themselves are
+// not stored — they're rebuilt from the character's class config on load.
+type PendingLevelUpChoiceSave struct {
+	CharIndex int `json:"char_index"`
+	Level     int `json:"level"`
 }
 
 type MagicSchoolEntry struct {
@@ -131,12 +147,18 @@ type EquipmentEntry struct {
 	Item items.Item `json:"item"`
 }
 
-// LootBagSave captures a dropped loot bag on the ground for save/load.
-type LootBagSave struct {
+// GroundContainerSave captures an on-floor reward container (loot bag or
+// treasure chest) for save/load. Kind drives the presentation defaults; the
+// rest of the fields are the runtime state.
+type GroundContainerSave struct {
+	Kind           int          `json:"kind"`
+	ID             string       `json:"id,omitempty"`
+	MapKey         string       `json:"map_key,omitempty"`
 	X              float64      `json:"x"`
 	Y              float64      `json:"y"`
 	Gold           int          `json:"gold"`
 	Items          []items.Item `json:"items,omitempty"`
+	Sprite         string       `json:"sprite,omitempty"`
 	SizeMultiplier float64      `json:"size_multiplier"`
 }
 
@@ -152,10 +174,70 @@ type MonsterSave struct {
 }
 
 type EncounterRewardSave struct {
-	Gold              int    `json:"gold"`
-	Experience        int    `json:"experience"`
-	CompletionMessage string `json:"completion_message,omitempty"`
-	QuestID           string `json:"quest_id,omitempty"`
+	Gold              int                      `json:"gold"`
+	Experience        int                      `json:"experience"`
+	CompletionMessage string                   `json:"completion_message,omitempty"`
+	QuestID           string                   `json:"quest_id,omitempty"`
+	TreasureChest     *TreasureChestRewardSave `json:"treasure_chest,omitempty"`
+}
+
+type TreasureChestRewardSave struct {
+	ID                string  `json:"id,omitempty"`
+	Map               string  `json:"map,omitempty"`
+	TileX             int     `json:"tile_x"`
+	TileY             int     `json:"tile_y"`
+	Sprite            string  `json:"sprite,omitempty"`
+	SizeMultiplier    float64 `json:"size_multiplier,omitempty"`
+	RandomWeaponCount int     `json:"random_weapon_count,omitempty"`
+	Gold              int     `json:"gold,omitempty"`
+	CompletionMessage string  `json:"completion_message,omitempty"`
+}
+
+func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChestRewardSave {
+	if reward == nil {
+		return nil
+	}
+	return &TreasureChestRewardSave{
+		ID:                reward.ID,
+		Map:               reward.Map,
+		TileX:             reward.TileX,
+		TileY:             reward.TileY,
+		Sprite:            reward.Sprite,
+		SizeMultiplier:    reward.SizeMultiplier,
+		RandomWeaponCount: reward.RandomWeaponCount,
+		Gold:              reward.Gold,
+		CompletionMessage: reward.CompletionMessage,
+	}
+}
+
+func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.TreasureChestReward {
+	if save == nil {
+		return nil
+	}
+	return &monster.TreasureChestReward{
+		ID:                save.ID,
+		Map:               save.Map,
+		TileX:             save.TileX,
+		TileY:             save.TileY,
+		Sprite:            save.Sprite,
+		SizeMultiplier:    save.SizeMultiplier,
+		RandomWeaponCount: save.RandomWeaponCount,
+		Gold:              save.Gold,
+		CompletionMessage: save.CompletionMessage,
+	}
+}
+
+func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewards {
+	if save == nil {
+		return nil
+	}
+	return &monster.EncounterRewards{
+		Gold:              save.Gold,
+		Experience:        save.Experience,
+		CompletionMessage: save.CompletionMessage,
+		QuestID:           save.QuestID,
+		TreasureChest:     treasureChestRewardFromSave(save.TreasureChest),
+	}
 }
 
 // NPCSave tracks persistent NPC flags across maps
@@ -348,19 +430,30 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		}
 		// Poison timer (so save/load doesn't cure ongoing poison).
 		cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+		// Mid-round turn-based slot count.
+		cs.ActionsRemaining = m.ActionsRemaining
 		ps.Members = append(ps.Members, cs)
 	}
 
-	// Loot bags currently on the ground in the current map.
-	var lootBagSaves []LootBagSave
-	if len(g.lootBags) > 0 {
-		lootBagSaves = make([]LootBagSave, len(g.lootBags))
-		for i, bag := range g.lootBags {
-			entry := LootBagSave{X: bag.X, Y: bag.Y, Gold: bag.Gold, SizeMultiplier: bag.SizeMultiplier}
-			if len(bag.Items) > 0 {
-				entry.Items = append([]items.Item(nil), bag.Items...)
+	// Ground containers (loot bags + treasure chests) currently on the ground.
+	var groundContainerSaves []GroundContainerSave
+	if len(g.groundContainers) > 0 {
+		groundContainerSaves = make([]GroundContainerSave, len(g.groundContainers))
+		for i, c := range g.groundContainers {
+			entry := GroundContainerSave{
+				Kind:           int(c.Kind),
+				ID:             c.ID,
+				MapKey:         c.MapKey,
+				X:              c.X,
+				Y:              c.Y,
+				Gold:           c.Gold,
+				Sprite:         c.Sprite,
+				SizeMultiplier: c.SizeMultiplier,
 			}
-			lootBagSaves[i] = entry
+			if len(c.Items) > 0 {
+				entry.Items = append([]items.Item(nil), c.Items...)
+			}
+			groundContainerSaves[i] = entry
 		}
 	}
 
@@ -389,6 +482,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 					Experience:        rewards.Experience,
 					CompletionMessage: rewards.CompletionMessage,
 					QuestID:           rewards.QuestID,
+				}
+				if rewards.TreasureChest != nil {
+					saveEntry.EncounterRewards.TreasureChest = treasureChestRewardToSave(rewards.TreasureChest)
 				}
 			}
 			monsters = append(monsters, saveEntry)
@@ -433,6 +529,17 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Calculate played time
 	playedTime := time.Since(g.sessionStartTime)
 
+	var pendingChoices []PendingLevelUpChoiceSave
+	if len(g.levelUpChoiceQueue) > 0 {
+		pendingChoices = make([]PendingLevelUpChoiceSave, 0, len(g.levelUpChoiceQueue))
+		for _, req := range g.levelUpChoiceQueue {
+			pendingChoices = append(pendingChoices, PendingLevelUpChoiceSave{
+				CharIndex: req.charIndex,
+				Level:     req.level,
+			})
+		}
+	}
+
 	return GameSave{
 		MapKey:                 wm.CurrentMapKey,
 		PlayerX:                g.camera.X,
@@ -445,7 +552,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		MapMonsters:            mapMonsters,
 		NPCStates:              nstates,
 		Quests:                 questSaves,
-		LootBags:               lootBagSaves,
+		GroundContainers:       groundContainerSaves,
+		PendingLevelUpChoices:  pendingChoices,
 		PlayedTimeNs:           playedTime.Nanoseconds(),
 		CurrentTurn:            g.currentTurn,
 		PartyActionsUsed:       g.partyActionsUsed,
@@ -557,6 +665,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			m.Equipment[items.EquipSlot(eq.Slot)] = item
 		}
 		m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+		m.ActionsRemaining = cs.ActionsRemaining
 		g.party.Members = append(g.party.Members, m)
 	}
 
@@ -581,22 +690,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 						if rewards, ok := rewardsCache[ms.EncounterID]; ok {
 							m.EncounterRewards = rewards
 						} else {
-							rewards = &monster.EncounterRewards{
-								Gold:              ms.EncounterRewards.Gold,
-								Experience:        ms.EncounterRewards.Experience,
-								CompletionMessage: ms.EncounterRewards.CompletionMessage,
-								QuestID:           ms.EncounterRewards.QuestID,
-							}
+							rewards = encounterRewardsFromSave(ms.EncounterRewards)
 							rewardsCache[ms.EncounterID] = rewards
 							m.EncounterRewards = rewards
 						}
 					} else {
-						m.EncounterRewards = &monster.EncounterRewards{
-							Gold:              ms.EncounterRewards.Gold,
-							Experience:        ms.EncounterRewards.Experience,
-							CompletionMessage: ms.EncounterRewards.CompletionMessage,
-							QuestID:           ms.EncounterRewards.QuestID,
-						}
+						m.EncounterRewards = encounterRewardsFromSave(ms.EncounterRewards)
 					}
 				}
 				w.Monsters = append(w.Monsters, m)
@@ -650,7 +749,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.torchLightDuration = save.TorchLightDuration
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive && g.torchLightRadius == 0 {
-		g.torchLightRadius = 4.0
+		g.torchLightRadius = TorchLightRadiusTiles
 	}
 	g.wizardEyeActive = save.WizardEyeActive
 	g.wizardEyeDuration = save.WizardEyeDuration
@@ -665,7 +764,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
-	g.levelUpChoiceQueue = nil
+	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
+	g.levelUpChoiceOpen = false
+	g.levelUpChoiceIdx = 0
+	for _, pending := range save.PendingLevelUpChoices {
+		if pending.CharIndex < 0 || pending.CharIndex >= len(g.party.Members) {
+			continue
+		}
+		char := g.party.Members[pending.CharIndex]
+		choices := config.GetLevelUpChoices(char.GetClassKey(), pending.Level)
+		if len(choices) == 0 {
+			continue
+		}
+		g.queueLevelUpChoices(char, pending.Level, choices)
+	}
 	g.gameOver = false
 	g.gameVictory = false
 	g.showHighScores = false
@@ -675,18 +787,27 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}
 
-	// Restore dropped loot bags on the current map.
-	g.lootBags = make([]LootBag, 0, len(save.LootBags))
-	for _, bag := range save.LootBags {
-		restored := LootBag{X: bag.X, Y: bag.Y, Gold: bag.Gold, SizeMultiplier: bag.SizeMultiplier}
-		if len(bag.Items) > 0 {
-			restored.Items = make([]items.Item, len(bag.Items))
-			for i, it := range bag.Items {
+	// Restore ground containers (loot bags + treasure chests).
+	g.groundContainers = make([]GroundContainer, 0, len(save.GroundContainers))
+	for _, c := range save.GroundContainers {
+		restored := GroundContainer{
+			Kind:           ContainerKind(c.Kind),
+			ID:             c.ID,
+			MapKey:         c.MapKey,
+			X:              c.X,
+			Y:              c.Y,
+			Gold:           c.Gold,
+			Sprite:         c.Sprite,
+			SizeMultiplier: c.SizeMultiplier,
+		}
+		if len(c.Items) > 0 {
+			restored.Items = make([]items.Item, len(c.Items))
+			for i, it := range c.Items {
 				normalizeItemFromConfig(&it)
 				restored.Items[i] = it
 			}
 		}
-		g.lootBags = append(g.lootBags, restored)
+		g.groundContainers = append(g.groundContainers, restored)
 	}
 
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)

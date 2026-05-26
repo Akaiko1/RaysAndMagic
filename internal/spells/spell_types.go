@@ -23,12 +23,11 @@ type SpellDefinition struct {
 	Level              int // Spell level (1-9)
 	SpellPointsCost    int
 	Duration           int // Duration in seconds (0 for instant spells)
-	Damage             int
 	DisintegrateChance float64
+	AoeRadiusTiles     float64 // 0 = single-target; >0 = splash radius in tiles
 	ProjectileSize     int
 	IsProjectile       bool
 	IsUtility          bool
-	VisualEffect       string
 	StatusIcon         string
 	StatBonus          int // Stat bonus for buff spells like Bless
 	// Effect configuration
@@ -56,12 +55,11 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		Level:              configDef.Level,
 		SpellPointsCost:    configDef.SpellPointsCost,
 		Duration:           configDef.Duration,
-		Damage:             configDef.Damage,
 		DisintegrateChance: configDef.DisintegrateChance,
+		AoeRadiusTiles:     configDef.AoeRadiusTiles,
 		ProjectileSize:     configDef.ProjectileSize,
 		IsProjectile:       configDef.IsProjectile,
 		IsUtility:          configDef.IsUtility,
-		VisualEffect:       configDef.VisualEffect,
 		StatusIcon:         configDef.StatusIcon,
 		StatBonus:          configDef.StatBonus,
 		// Effect configuration from YAML
@@ -91,8 +89,6 @@ func CreateSpellItem(spellID SpellID) (items.Item, error) {
 		Name:        def.Name,
 		Type:        itemType,
 		Description: def.Description,
-		Damage:      def.Damage,
-		Range:       def.SpellPointsCost,
 		SpellSchool: def.School,
 		SpellCost:   def.SpellPointsCost,
 		SpellEffect: items.SpellEffect(spellID),

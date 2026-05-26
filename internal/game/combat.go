@@ -109,7 +109,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 			case "torch_light":
 				cs.game.torchLightActive = true
 				cs.game.torchLightDuration = result.Duration
-				cs.game.torchLightRadius = 4.0 // 4-tile radius
+				cs.game.torchLightRadius = TorchLightRadiusTiles
 			case "wizard_eye":
 				cs.game.wizardEyeActive = true
 				cs.game.wizardEyeDuration = result.Duration
@@ -162,7 +162,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Determine critical hit for spells based on Luck only (no base crit for spells)
 	isCrit, _ := cs.RollCriticalChance(0, caster)
 	if isCrit {
-		projectile.Damage *= 2
+		projectile.Damage *= CritDamageMultiplier
 	}
 
 	// Create magic projectile with proper type information
@@ -289,20 +289,20 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	// Calculate damage using centralized function
 	_, _, totalDamage := cs.CalculateWeaponDamage(weapon, attacker)
 
-	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
-	// For ranged: roll crit and apply doubling inside createArrowAttack only.
-	if weapon.Range > 3 {
-		cs.createArrowAttack(totalDamage)
-		return
-	}
-
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
 		return // Weapon not found, skip attack
 	}
+
+	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
+	// For ranged: roll crit and apply doubling inside createArrowAttack only.
+	if weaponDef.Range > 3 {
+		cs.createArrowAttack(totalDamage)
+		return
+	}
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
-		totalDamage *= 2
+		totalDamage *= CritDamageMultiplier
 	}
 
 	// Create instant melee attack for close-range weapons
@@ -315,12 +315,16 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
 	bowKey := "hunting_bow"
-	if hasWeapon && weapon.Range > 3 {
-		bowKey = items.GetWeaponKeyByName(weapon.Name)
+	var equippedDef *config.WeaponDefinitionConfig
+	if hasWeapon {
+		equippedDef = lookupWeaponConfigByName(weapon.Name)
+		if equippedDef != nil && equippedDef.Range > 3 {
+			bowKey = items.GetWeaponKeyByName(weapon.Name)
+		}
 	}
 
 	// Check max projectiles limit for this weapon
-	if hasWeapon && weapon.MaxProjectiles > 0 {
+	if equippedDef != nil && equippedDef.MaxProjectiles > 0 {
 		// Count active arrows from this specific bow
 		activeArrowsFromBow := 0
 		for _, arrow := range cs.game.arrows {
@@ -330,7 +334,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 		}
 
 		// If we've reached the limit, don't create a new arrow
-		if activeArrowsFromBow >= weapon.MaxProjectiles {
+		if activeArrowsFromBow >= equippedDef.MaxProjectiles {
 			return
 		}
 	}
@@ -348,13 +352,13 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 	// Determine damage type from weapon
 	damageType := "physical" // Default
-	if hasWeapon && weapon.DamageType != "" {
-		damageType = weapon.DamageType
+	if equippedDef != nil && equippedDef.DamageType != "" {
+		damageType = equippedDef.DamageType
 	}
 
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
-		damage *= 2
+		damage *= CritDamageMultiplier
 	}
 
 	arrow := Arrow{
@@ -450,7 +454,12 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 
 	// Convert range from tiles to pixels
 	tileSize := float64(cs.game.config.GetTileSize())
-	attackRange := float64(weapon.Range) * tileSize
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
+	weaponRange := 1
+	if weaponDef != nil {
+		weaponRange = weaponDef.Range
+	}
+	attackRange := float64(weaponRange) * tileSize
 
 	// Convert arc angle from degrees to radians
 	arcAngleRad := float64(meleeConfig.ArcAngle) * math.Pi / 180.0
@@ -566,7 +575,7 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 	}
 
 	tileSize := float64(cs.game.config.GetTileSize())
-	radius := tileSize * 8.0
+	radius := tileSize * PackAggroRadiusTiles
 	hitName := hit.Name
 
 	for _, m := range cs.game.world.Monsters {
@@ -589,39 +598,41 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 	}
 }
 
-// CastSelectedSpell casts the currently selected spell from the spellbook
-func (cs *CombatSystem) CastSelectedSpell() {
+// CastSelectedSpell casts the currently selected spell from the spellbook.
+// Returns true if SP was actually spent and the spell went off — callers use
+// that to consume a turn-based action slot.
+func (cs *CombatSystem) CastSelectedSpell() bool {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
 
 	// Prevent casting while down; also avoids utility healing from acting as a revive.
 	if currentChar.IsIncapacitated() {
-		return
+		return false
 	}
 	schools := currentChar.GetAvailableSchools()
 
 	if cs.game.selectedSchool >= len(schools) {
-		return
+		return false
 	}
 
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
 	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
-		return
+		return false
 	}
 
 	selectedSpellID := availableSpells[cs.game.selectedSpell]
 	selectedSpellDef, err := spells.GetSpellDefinitionByID(selectedSpellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return
+		return false
 	}
 
 	// Check spell points
 	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			currentChar.Name, currentChar.SpellPoints, selectedSpellDef.SpellPointsCost))
-		return
+		return false
 	}
 
 	// Cast the spell
@@ -636,7 +647,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		projectile, err := castingSystem.CreateProjectile(selectedSpellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 		// Override damage with centralized calculation (includes mastery bonus).
 		if _, _, totalDamage := cs.CalculateSpellDamage(selectedSpellID, currentChar); totalDamage > 0 {
@@ -646,7 +657,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		// Determine critical hit for spells based on Luck only (no base crit for spells)
 		isCrit, _ := cs.RollCriticalChance(0, currentChar)
 		if isCrit {
-			projectile.Damage *= 2
+			projectile.Damage *= CritDamageMultiplier
 		}
 		disintegrateChance := 0.0
 		if spellDefConfig, exists := config.GetSpellDefinition(string(selectedSpellID)); exists && spellDefConfig != nil {
@@ -674,7 +685,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		spellConfig, err := cs.game.config.GetSpellConfig(string(selectedSpellID))
 		if err != nil {
 			cs.game.AddCombatMessage("Spell config error: " + err.Error())
-			return
+			return false
 		}
 		tileSize := cs.game.config.GetTileSize()
 		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
@@ -690,7 +701,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 		result, err := castingSystem.ApplyUtilitySpell(selectedSpellID, currentChar.Personality)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return
+			return false
 		}
 
 		if result.Success {
@@ -723,7 +734,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 				case "torch_light":
 					cs.game.torchLightActive = true
 					cs.game.torchLightDuration = result.Duration
-					cs.game.torchLightRadius = 4.0
+					cs.game.torchLightRadius = TorchLightRadiusTiles
 				case "wizard_eye":
 					cs.game.wizardEyeActive = true
 					cs.game.wizardEyeDuration = result.Duration
@@ -760,6 +771,7 @@ func (cs *CombatSystem) CastSelectedSpell() {
 			cs.recordSpellCast(currentChar, selectedSpellID)
 		}
 	}
+	return true
 }
 
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
@@ -1233,6 +1245,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var weaponDef *config.WeaponDefinitionConfig
 	var arrowVelX, arrowVelY float64
 	var disintegrateChance float64
+	var aoeRadiusTiles float64
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1247,6 +1260,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		weaponName = spellDef.Name
 		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
 		damageType = convertToMonsterDamageType(damageTypeStr)
+		aoeRadiusTiles = spellDef.AoeRadiusTiles
 		mp.Active = false
 		isSpell = true
 
@@ -1277,6 +1291,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		isRanged = true
 		if ar.Owner == ProjectileOwnerPlayer && ar.BowKey != "" {
 			weaponDef = lookupWeaponConfigByKey(ar.BowKey)
+			if weaponDef != nil {
+				aoeRadiusTiles = weaponDef.AoeRadiusTiles
+				if weaponDef.Name != "" {
+					weaponName = weaponDef.Name
+				}
+			}
 		}
 	}
 
@@ -1360,6 +1380,50 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hit %s for %d %s damage! (HP: %d/%d)",
 			prefix, weaponName, monster.Name, actualDamage, damageTypeStr, monster.HitPoints, monster.MaxHitPoints))
+	}
+
+	if aoeRadiusTiles > 0 {
+		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles)
+	}
+}
+
+// applyAoeSplash deals the primary attack's base damage to every OTHER alive
+// monster within radiusTiles of the primary target. Each splash victim
+// applies its own armor reduction. No crit, no disintegrate, no stun on
+// splash — those belong to the primary hit only. Drives Fireball-style AoE
+// from a single YAML field (`aoe_radius_tiles`), shared between spells and
+// weapon projectiles (e.g. Bow of Hellfire).
+func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64) {
+	if center == nil || radiusTiles <= 0 {
+		return
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	radiusPx := radiusTiles * tileSize
+	radiusSq := radiusPx * radiusPx
+	cx, cy := center.X, center.Y
+
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || m == center || !m.IsAlive() {
+			continue
+		}
+		dx := m.X - cx
+		dy := m.Y - cy
+		if dx*dx+dy*dy > radiusSq {
+			continue
+		}
+		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
+		actual := m.TakeDamage(reduced, damageType, cs.game.camera.X, cs.game.camera.Y)
+		m.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+		cs.engageTurnBasedPackOnHit(m)
+		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+
+		if !m.IsAlive() {
+			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+			cs.awardExperienceAndGold(m)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", weaponName, m.Name, m.Experience))
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d %s damage.", weaponName, m.Name, actual, damageTypeStr))
+		}
 	}
 }
 
@@ -1487,7 +1551,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 		if sizeMultiplier < 0.1 {
 			sizeMultiplier = 0.1
 		}
-		cs.game.addLootBag(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
+		cs.game.addLootBagDrop(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
 	}
 }
 
@@ -1544,7 +1608,11 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 
 // CalculateWeaponDamage calculates total weapon damage using weapon-specific bonus stat(s)
 func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *character.MMCharacter) (int, int, int) {
-	baseDamage := weapon.Damage
+	weaponDef := lookupWeaponConfigByName(weapon.Name)
+	if weaponDef == nil {
+		return 0, 0, 0
+	}
+	baseDamage := weaponDef.Damage
 	masteryBonus := cs.weaponMasteryBonus(weapon, character)
 	if masteryBonus > 0 {
 		baseDamage += masteryBonus
@@ -1555,7 +1623,7 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 
 	// Get the appropriate stat bonus based on weapon's primary bonus stat
 	var primaryStatBonus int
-	switch weapon.BonusStat {
+	switch weaponDef.BonusStat {
 	case "Might":
 		primaryStatBonus = might / WeaponPrimaryStatDivisor
 	case "Accuracy":
@@ -1569,8 +1637,8 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 
 	// Add secondary stat bonus if weapon has dual scaling
 	var secondaryStatBonus int
-	if weapon.BonusStatSecondary != "" {
-		switch weapon.BonusStatSecondary {
+	if weaponDef.BonusStatSecondary != "" {
+		switch weaponDef.BonusStatSecondary {
 		case "Might":
 			secondaryStatBonus = might / WeaponSecondaryStatDivisor
 		case "Accuracy":
@@ -1762,7 +1830,7 @@ func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass 
 	reducedDamage := damage
 	if isPhysicalDamageType(damageTypeStr) {
 		applyArmor := true
-		if isRanged && rand.Intn(100) < 33 {
+		if isRanged && rand.Intn(100) < ArmorPierceRangedChancePct {
 			applyArmor = false // Armor piercing shot!
 		}
 		if applyArmor {

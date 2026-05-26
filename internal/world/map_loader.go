@@ -207,9 +207,14 @@ func (ml *MapLoader) parseMapCharacter(char rune) (TileType3D, string, bool) {
 	}
 
 	// Check if it's a monster spawn (lowercase letters)
-	// Monster spawns set the underlying tile to empty
+	// Monster spawns use the biome's normal floor underneath.
 	if char >= 'a' && char <= 'z' {
 		tileType = TileEmpty
+		if GlobalTileManager != nil {
+			if floorType, found := GlobalTileManager.GetTileTypeFromLetterForBiome(".", ml.biome); found {
+				tileType = floorType
+			}
+		}
 		monsterLetter = charStr
 		return tileType, monsterLetter, isStartPosition
 	}

@@ -19,7 +19,12 @@ const (
 
 	// MasterySpellEffectPerLevel is the bonus added to a spell's effect
 	// (damage, healing, duration in seconds, stat bonus) per magic-school
-	// mastery level.
+	// mastery tier ABOVE Novice. Applied as `skill.Mastery × this` where
+	// Mastery is 0/1/2/3 for Novice/Expert/Master/Grandmaster — so a Novice
+	// caster gets +0 here. The duration calculation also multiplies by
+	// SpellSchoolLevelDurationBonus, which uses `skill.Level()` (1..4), so
+	// Novice still gets a +10% duration bump; this asymmetry between
+	// damage (no Novice bonus) and duration (Novice bonus) is intentional.
 	MasterySpellEffectPerLevel = 5
 )
 
@@ -59,6 +64,56 @@ const (
 	// LuckToDodgeDivisor: Luck/divisor sets the perfect-dodge chance in
 	// percent points.
 	LuckToDodgeDivisor = 5
+
+	// CritDamageMultiplier multiplies final damage on a critical hit.
+	// Applied identically to weapon swings, melee, and ranged.
+	CritDamageMultiplier = 2
+
+	// ArmorPierceRangedChancePct: a ranged hit has this percent chance to
+	// bypass armor entirely (treated as armor=0 for that strike).
+	ArmorPierceRangedChancePct = 33
+
+	// SpellSchoolLevelDurationBonus: per skill LEVEL of the spell's school,
+	// duration is scaled by (1 + level * bonus). 0.1 → +10% per level.
+	// Note level here is `skill.Level()` (1..4 for Novice..Grandmaster), so
+	// Novice already enjoys +10%. Damage scaling, by contrast, uses Mastery
+	// (0..3) and so deliberately gives Novice no damage bonus. See
+	// MasterySpellEffectPerLevel for the full rationale.
+	SpellSchoolLevelDurationBonus = 0.1
+)
+
+// Combat reach distances in tiles. Multiplied by tile size at call time.
+const (
+	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
+	// trigger reaches when starting / entering turn-based mode.
+	TurnBasedVisionRangeTiles = 6.0
+
+	// PackAggroRadiusTiles: when a monster is hit, same-name neighbors
+	// within this radius become aggressive too.
+	PackAggroRadiusTiles = 8.0
+
+	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
+	// turn-based mode between SP regeneration ticks. Each tick adds
+	// CalculateManaRegenAmount SP to every able-bodied member.
+	TurnBasedSpRegenEveryNRounds = 3
+
+	// TorchLightRadiusTiles: the lit-area radius granted by the torch_light
+	// utility spell. Tuning this changes how far the player can see in dark
+	// biomes.
+	TorchLightRadiusTiles = 4.0
+)
+
+// Speed-stat → action cooldown curve. Cooldown in frames is a linear function
+// of the character's effective Speed stat, clamped to [Min, Max] frames.
+// The formula `frames = Intercept - Slope * Speed` was originally fit through
+// two anchor points: Speed=5 ⇒ ~60 frames, Speed=50 ⇒ ~30 frames. Adjusting
+// these knobs changes how much Speed matters for action cadence in realtime
+// combat.
+const (
+	AttackCooldownIntercept   = 63.333333 // frames at Speed=0 (before clamp)
+	AttackCooldownSpeedSlope  = 2.0 / 3.0 // frames lost per +1 Speed
+	AttackCooldownMinFrames   = 15        // floor: ~0.125s at 120 TPS
+	AttackCooldownMaxFrames   = 90        // ceiling: ~0.75s at 120 TPS
 )
 
 // Sprite animation timing.

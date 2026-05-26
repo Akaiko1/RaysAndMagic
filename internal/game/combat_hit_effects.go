@@ -67,8 +67,10 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	damage := 1
 	if err == nil {
 		element = def.School
-		if def.Damage > 0 {
-			damage = def.Damage
+		// Use the canonical damage formula (cost × SpellDamagePerSP) so the
+		// visual scales follow the same balance lever as actual damage.
+		if base := def.SpellPointsCost * spells.SpellDamagePerSP; base > 0 {
+			damage = base
 		}
 	}
 

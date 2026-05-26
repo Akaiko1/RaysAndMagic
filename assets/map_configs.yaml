@@ -4,14 +4,51 @@ maps:
     file: "forest.map"
     biome: "forest"
     sky_color: [135, 206, 235]        # Light blue sky
+    sky_texture: "forest_panorama"
     default_floor_color: [60, 180, 60]  # Green grass
+    floor_textures:
+      - "forest_grass_0"
+      - "forest_grass_1"
+      - "forest_grass_2"
+      - "forest_grass_3"
+    floor_texture_groups:
+      default:
+        - "forest_grass_0"
+        - "forest_grass_1"
+        - "forest_grass_2"
+        - "forest_grass_3"
+      beach:
+        - "beach_sand_0"
+        - "beach_sand_1"
+      water:
+        - "water_0"
+        - "water_1"
+      forest_stream:
+        - "forest_stream_0"
+        - "forest_stream_1"
+      clearing:
+        - "clearing_grass_0"
+        - "clearing_grass_1"
 
   desert:
     name: "Scorching Desert"
     file: "desert.map"
     biome: "desert"
     sky_color: [255, 218, 185]        # Sandy beige sky
+    sky_texture: "desert_panorama"
     default_floor_color: [238, 203, 173]  # Desert sand
+    floor_texture_groups:
+      default:
+        - "desert_sand_0"
+        - "desert_sand_1"
+        - "desert_sand_2"
+        - "desert_sand_3"
+      beach:
+        - "beach_sand_0"
+        - "beach_sand_1"
+      water:
+        - "water_0"
+        - "water_1"
 
   water:
     name: "Ocean Depths"
@@ -19,3 +56,25 @@ maps:
     biome: "water"
     sky_color: [72, 61, 139]          # Dark slate blue underwater
     default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+    floor_texture_groups:
+      water:
+        - "water_0"
+        - "water_1"
+
+  church:
+    name: "Abandoned Church"
+    file: "church.map"
+    biome: "church"
+    sky_color: [35, 35, 45]
+    default_floor_color: [55, 50, 45]
+    clear_encounter:
+      rewards:
+        completion_message: "The last skeleton collapses. A sealed chest appears at the end of the corridor."
+        treasure_chest:
+          id: "church_skeleton_chest"
+          map: "church"
+          tile_x: 15
+          tile_y: 1
+          sprite: "chest"
+          size_multiplier: 5.0
+          random_weapon_count: 1

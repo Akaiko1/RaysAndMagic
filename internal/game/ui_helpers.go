@@ -34,11 +34,31 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-// isMouseOverCharacter checks if the mouse cursor is over a specific character portrait
-func (ui *UISystem) isMouseOverCharacter(mouseX, mouseY, charIndex, portraitWidth, portraitHeight, startY int) bool {
-	charX := charIndex * portraitWidth
+// isMouseOverCharacter checks if the mouse cursor is over a specific character portrait.
+// baseLeft is the x-offset where the (centered) party row begins.
+func (ui *UISystem) isMouseOverCharacter(mouseX, mouseY, charIndex, portraitWidth, portraitHeight, startY, baseLeft int) bool {
+	charX := baseLeft + charIndex*portraitWidth
 	return mouseX >= charX && mouseX < charX+portraitWidth &&
 		mouseY >= startY && mouseY < startY+portraitHeight
+}
+
+// partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
+// horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
+// Portrait width comes from UIConfig (not derived from screen width) so going
+// fullscreen does not stretch the party row — it stays at its design size and
+// the row is centered with empty side margins.
+func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, startY int) {
+	portraitWidth = g.config.UI.PartyPortraitWidth
+	if portraitWidth <= 0 {
+		portraitWidth = g.config.GetScreenWidth() / 4 // safety fallback for old configs
+	}
+	portraitHeight = g.config.UI.PartyPortraitHeight
+	baseLeft = (g.config.GetScreenWidth() - portraitWidth*4) / 2
+	if baseLeft < 0 {
+		baseLeft = 0
+	}
+	startY = g.config.GetScreenHeight() - portraitHeight
+	return
 }
 
 // wrapText delegates to the standalone wrapText function in ui_dialogs.go
@@ -140,10 +160,6 @@ func drawRectBorder(dst *ebiten.Image, x, y, w, h, thickness int, clr color.Colo
 const tooltipCompareGap = 8
 const tooltipIconSize = 64
 const tooltipIconGap = 8
-
-func tooltipBoxSize(lines []string) (int, int) {
-	return tooltipBoxSizeWithIcon(lines, false)
-}
 
 func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 	if len(lines) == 0 {
@@ -264,17 +280,6 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
 	ui.tooltipIcon = ui.validTooltipIcon(icon)
-	ui.tooltipX = x
-	ui.tooltipY = y
-}
-
-func (ui *UISystem) queueTooltipColored(lines []string, colors []color.Color, x, y int) {
-	if len(lines) == 0 {
-		return
-	}
-	ui.tooltipLines = lines
-	ui.tooltipColors = colors
-	ui.tooltipIcon = ""
 	ui.tooltipX = x
 	ui.tooltipY = y
 }

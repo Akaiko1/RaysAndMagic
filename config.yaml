@@ -6,6 +6,7 @@ display:
   screen_height: 768
   window_title: "Rays and Magic"
   resizable: true
+  fullscreen: true
   disable_vsync_on_mac: true
 
 # Engine settings
@@ -32,6 +33,7 @@ camera:
 ui:
   spell_input_cooldown: 10
   party_portrait_height: 100
+  party_portrait_width: 256   # Fixed portrait width — 4× this = total party row width, centered horizontally
   compass_radius: 20
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
 

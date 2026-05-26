@@ -42,16 +42,21 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		return
 	}
 
-	// Draw party member portraits and stats at bottom of screen
-	portraitWidth := ui.game.config.GetScreenWidth() / 4 // 4 characters across screen
-	portraitHeight := ui.game.config.UI.PartyPortraitHeight
-	startY := ui.game.config.GetScreenHeight() - portraitHeight
+	// Draw party member portraits and stats at bottom of screen.
+	// Fixed portrait width, centered horizontally — does not stretch in fullscreen.
+	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
 
 	for i, member := range ui.game.party.Members {
-		x := i * portraitWidth
+		x := baseLeft + i*portraitWidth
 
-		// Highlight selected character and heal target
+		// Highlight selected character and heal target. In turn-based mode an
+		// alive character that has already spent all their action slots gets
+		// a gray frame so the player can see at a glance who still has a
+		// move left. KO characters are skipped — they get no frame at all.
 		highlightColor := color.RGBA{0, 0, 0, 0}
+		if ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0 {
+			highlightColor = color.RGBA{120, 120, 120, 220}
+		}
 		if i == ui.game.selectedChar {
 			highlightColor = color.RGBA{210, 170, 80, 220}
 		}
@@ -63,7 +68,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			spell, hasSpell := currentPlayer.Equipment[items.SlotSpell]
 			if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
 				mouseX, mouseY := ebiten.CursorPosition()
-				if ui.isMouseOverCharacter(mouseX, mouseY, i, portraitWidth, portraitHeight, startY) {
+				if ui.isMouseOverCharacter(mouseX, mouseY, i, portraitWidth, portraitHeight, startY, baseLeft) {
 					// Check if this is a valid target based on spell effect
 					var canTarget bool
 					switch spell.SpellEffect {
@@ -195,6 +200,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			ui.drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
 			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
 				ui.game.statPopupOpen = true
+				// Open popup for THIS character and also make them the
+				// selected one — so 1-4 / portrait clicks naturally update
+				// the popup contents as the user browses.
+				ui.game.selectedChar = i
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
 			}
@@ -706,7 +715,7 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	// Create interaction message based on NPC capabilities
 	var message string
 	switch {
-	case npcHasEncounter(nearestNPC):
+	case npcHasChoiceDialog(nearestNPC):
 		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
 	case npcHasSpellTrading(nearestNPC):
 		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)

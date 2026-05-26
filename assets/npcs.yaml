@@ -1,5 +1,5 @@
 # UgaTaima NPC Configuration
-# 
+#
 # NPC TYPES:
 # - spell_trader: Teaches spells to party members for gold
 # - skill_trainer: Trains skills (already implemented in code)
@@ -23,7 +23,7 @@ npcs:
       insufficient_gold: "You need %d gold to learn this spell."
       already_known: "%s already knows this spell."
       success: "The knowledge flows into %s's mind. Use it wisely!"
-    
+
     # Spells this NPC can teach
     spells:
       walk_on_water:
@@ -36,10 +36,10 @@ npcs:
           schools:
             - school: "water"
               min_level: 1
-      
+
       water_breathing:
         name: "Water Breathing"
-        school: "water" 
+        school: "water"
         cost: 1500
         description: "Allows underwater exploration for extended periods"
         requirements:
@@ -140,3 +140,37 @@ npcs:
         experience: 500
         completion_message: "The shipwreck bandits have been defeated!"
       first_visit_only: true
+
+  abandoned_church:
+    name: "Abandoned Church"
+    type: "encounter"
+    description: "A ruined stone church whose broken doorway descends into darkness"
+    sprite: "abandoned_church"
+    render_type: "environment_sprite"
+    transparent: true
+    dialogue:
+      greeting: "The abandoned church stands silent among the trees. Villagers say the old priest locked the doors after the crypt bells rang by themselves, and no one who entered after dusk returned unchanged."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the church"
+          action: "enter_map"
+          map: "church"
+        - text: "Leave it alone"
+          action: "leave"
+
+  abandoned_church_exit:
+    name: "Church Entrance"
+    type: "encounter"
+    description: "The cold doorway back to the forest"
+    sprite: "church_exit"
+    render_type: "environment_sprite"
+    transparent: true
+    dialogue:
+      greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the forest"
+          action: "enter_map"
+          map: "forest"
+        - text: "Stay inside"
+          action: "leave"
