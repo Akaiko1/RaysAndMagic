@@ -17,238 +17,238 @@ import (
 
 // drawInventoryContent draws the inventory tab content
 func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	// Title
-	ebitenutil.DebugPrintAt(screen, "=== PARTY INVENTORY & EQUIPMENT ===", panelX+20, contentY+10)
+	currentChar := ui.game.party.Members[ui.game.selectedChar]
+	mouseX, mouseY := ebiten.CursorPosition()
 
-	// Party resources
+	const (
+		paperW   = inventoryPaperdollSourceW
+		paperH   = inventoryPaperdollSourceH
+		gridSize = inventoryGridSourceSize
+		panelGap = 52
+	)
+	// inventory panel is 700 wide; centre the paperdoll+grid block within it.
+	const blockW = paperW + panelGap + gridSize
+	paperX := panelX + (700-blockW)/2
+	paperY := contentY + 48
+	gridX := paperX + paperW + panelGap
+	gridY := contentY + 84
+
+	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
 		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems()),
-		panelX+20, contentY+30)
+		paperX, contentY+29)
 
-	// Split into two sections: Equipment (left) and General Inventory (right)
+	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
+	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_grid_panel"), gridX, gridY, gridSize, gridSize)
 
-	// Equipment section (left side)
-	equipX := panelX + 20
-	equipY := contentY + 60
-	ebitenutil.DebugPrintAt(screen, "=== CHARACTER EQUIPMENT ===", equipX, equipY)
+	var tooltip string
+	var compareTooltip string
+	var tooltipItem items.Item
+	var tooltipHasItem bool
+	var tooltipX, tooltipY int
 
-	currentChar := ui.game.party.Members[ui.game.selectedChar]
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s's Equipment:", currentChar.Name), equipX, equipY+20)
-
-	// Show equipped items for selected character
-	equipSlots := []struct {
-		slot items.EquipSlot
-		name string
-	}{
-		{items.SlotMainHand, "Main Hand"},
-		{items.SlotOffHand, "Off Hand"},
-		{items.SlotSpell, "Spell"},
-		{items.SlotArmor, "Armor"},
-		{items.SlotHelmet, "Helmet"},
-		{items.SlotBoots, "Boots"},
-		{items.SlotGauntlets, "Gauntlets"},
-		{items.SlotBelt, "Belt"},
-		{items.SlotCloak, "Cloak"},
-		{items.SlotAmulet, "Amulet"},
-		{items.SlotRing1, "Ring 1"},
-		{items.SlotRing2, "Ring 2"},
-	}
-
-	equipmentY := equipY + 40
-	mouseX, mouseY := ebiten.CursorPosition()
-	var equipTooltip string
-	var equipTooltipItem items.Item
-	var equipTooltipHasItem bool
-	var equipTooltipX, equipTooltipY int
-	for i, slotInfo := range equipSlots {
-		y := equipmentY + (i * 15)
-		if item, equipped := currentChar.Equipment[slotInfo.slot]; equipped {
-			// Create colored background for equipped items
-			isHovering := isMouseHoveringBox(mouseX, mouseY, equipX, y, equipX+220, y+15)
-
-			var bgColor color.RGBA
-			if isHovering {
-				bgColor = color.RGBA{60, 80, 40, 80} // Green tint when hovering over equipped items
-			} else {
-				bgColor = color.RGBA{30, 40, 20, 40} // Subtle green background for equipped items
-			}
-
-			drawFilledRect(screen, equipX, y, 220, 15, bgColor)
-
-			label := fmt.Sprintf("%-8s: ", slotInfo.name)
-			drawColoredTextSegments(screen, equipX, y, []coloredTextSegment{
-				{text: label, color: color.White},
-				{text: item.Name, color: ui.itemRarityColor(item)},
-			})
-
-			// Handle double-click to unequip
-			ui.handleEquippedItemClick(slotInfo.slot, equipX, y, equipX+220, y+15)
-
-			// Handle hover tooltip
-			if isHovering {
-				equipTooltip = GetItemTooltip(item, currentChar, ui.game.combat)
-				equipTooltipItem = item
-				equipTooltipHasItem = true
-				equipTooltipX = mouseX + 16
-				equipTooltipY = mouseY + 8
-			}
-		} else {
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%-8s: (empty)", slotInfo.name), equipX, y)
+	for _, slotInfo := range inventoryPaperdollSlots {
+		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
+		item, equipped := currentChar.Equipment[slotInfo.slot]
+		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+		if isHovering {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 		}
-	}
-	// Draw tooltip for equipped item if needed
-	if equipTooltip != "" && equipTooltipHasItem {
-		lines := strings.Split(equipTooltip, "\n")
-		ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(equipTooltipItem, lines), itemTooltipIconName(equipTooltipItem), equipTooltipX, equipTooltipY)
-	}
-
-	// General inventory section (right side)
-	invX := panelX + 350 // Moved further right due to larger panel
-	invY := contentY + 60
-	ebitenutil.DebugPrintAt(screen, "=== GENERAL INVENTORY ===", invX, invY)
-
-	// Inventory items
-	itemsY := invY + 20
-	if len(ui.game.party.Inventory) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No items in inventory", invX, itemsY)
-	} else {
-		mouseX, mouseY := ebiten.CursorPosition()
-		var tooltip string
-		var compareTooltip string
-		var tooltipItem items.Item
-		var tooltipHasItem bool
-		var tooltipX, tooltipY int
-		for i, item := range ui.game.party.Inventory {
-			if i >= 15 {
-				ebitenutil.DebugPrintAt(screen, fmt.Sprintf("... and %d more items",
-					len(ui.game.party.Inventory)-15), invX, itemsY+(i*15))
-				break
-			}
-			y := itemsY + (i * 15)
-			currentChar := ui.game.party.Members[ui.game.selectedChar]
-
-			// Check if item can be equipped by current character
-			canEquip := true
-			if item.Type == items.ItemWeapon {
-				canEquip = currentChar.CanEquipWeaponByName(item.Name)
-			} else if item.Type == items.ItemArmor {
-				canEquip = currentChar.CanEquipArmor(item)
-			}
-
-			// Create colored background for the item
-			var bgColor color.RGBA
-			isHovering := isMouseHoveringBox(mouseX, mouseY, invX, y, invX+200, y+15)
-
-			if !canEquip {
-				// Red background for unusable items
-				if isHovering {
-					bgColor = color.RGBA{120, 40, 40, 100}
-				} else {
-					bgColor = color.RGBA{80, 20, 20, 60}
-				}
-			} else {
-				// Normal background
-				if isHovering {
-					bgColor = color.RGBA{40, 40, 80, 80}
-				} else {
-					bgColor = color.RGBA{20, 20, 40, 40}
-				}
-			}
-
-			drawFilledRect(screen, invX, y, 200, 15, bgColor)
-
-			// Draw item name
-			prefix := fmt.Sprintf("%d. ", i+1)
-			suffix := ""
-			if !canEquip {
-				suffix = " (can't equip)"
-			}
-			drawColoredTextSegments(screen, invX, y, []coloredTextSegment{
-				{text: prefix, color: color.White},
-				{text: item.Name, color: ui.itemRarityColor(item)},
-				{text: suffix, color: color.White},
-			})
-
-			// Handle double-click to equip
-			if !ui.inventoryContextOpen {
-				ui.handleInventoryItemClick(i, invX, y, invX+200, y+15)
-			}
-
-			// Handle right-click to open context menu
-			if !ui.inventoryContextOpen && ui.game.consumeRightClickIn(invX, y, invX+200, y+15) {
-				ui.inventoryContextOpen = true
-				ui.inventoryContextX = ui.game.mouseRightClickX
-				ui.inventoryContextY = ui.game.mouseRightClickY
-				ui.inventoryContextIndex = i
-			}
-
-			// Handle hover tooltip
+		if equipped {
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
+			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
 			if isHovering {
-				// Show tooltip for this item
 				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
-				compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
 			}
 		}
-		// Draw tooltip if needed
-		if tooltip != "" && tooltipHasItem {
-			lines := strings.Split(tooltip, "\n")
-			ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
-			if compareTooltip != "" {
-				compareLines := strings.Split(compareTooltip, "\n")
-				ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
-			}
+	}
+
+	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
+	maxItems := len(inventoryGridSlots)
+	for i := 0; i < maxItems && i < len(ui.game.party.Inventory); i++ {
+		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[i])
+		item := ui.game.party.Inventory[i]
+		canEquip := ui.canSelectedCharacterEquipInventoryItem(item)
+		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+		if !canEquip {
+			drawFilledRect(screen, x, y, w, h, color.RGBA{120, 28, 28, 95})
 		}
-
-		// Draw inventory context menu if open
-		if ui.inventoryContextOpen {
-			menuW := 140
-			menuH := 24
-			x := ui.inventoryContextX
-			y := ui.inventoryContextY
-			// Background
-			drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
-			// Border
-			drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
-			// Entry text
-			drawCenteredDebugText(screen, "Discard", x, y, menuW, menuH)
-
-			// Handle clicks on context menu
-			if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
-				// Discard clicked
-				idx := ui.inventoryContextIndex
-				if idx >= 0 && idx < len(ui.game.party.Inventory) {
-					item := ui.game.party.Inventory[idx]
-					if item.Type == items.ItemQuest {
-						ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
-					} else {
-						ui.game.party.RemoveItem(idx)
-						ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
-					}
-				}
-				ui.inventoryContextOpen = false
-			} else if ui.game.consumeLeftClick() {
-				// Close the context menu on any left click
-				ui.inventoryContextOpen = false
+		if isHovering {
+			border := color.RGBA{210, 170, 80, 230}
+			if !canEquip {
+				border = color.RGBA{190, 70, 60, 230}
 			}
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
+		}
+		ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
 
-			// Mouse state is updated once per frame in updateMouseState().
+		if !ui.inventoryContextOpen {
+			ui.handleInventoryItemClick(i, x-3, y-3, x+w+3, y+h+3)
+		}
+		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
+			ui.inventoryContextOpen = true
+			ui.inventoryContextX = ui.game.mouseRightClickX
+			ui.inventoryContextY = ui.game.mouseRightClickY
+			ui.inventoryContextIndex = i
+		}
+		if isHovering {
+			tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+			compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
+			tooltipItem = item
+			tooltipHasItem = true
+			tooltipX = mouseX + 16
+			tooltipY = mouseY + 8
+		}
+	}
+	if len(ui.game.party.Inventory) > maxItems {
+		drawCenteredDebugText(screen, fmt.Sprintf("+%d more", len(ui.game.party.Inventory)-maxItems), gridX, gridY+gridSize+8, gridSize, 18)
+	}
+
+	if tooltip != "" && tooltipHasItem {
+		lines := strings.Split(tooltip, "\n")
+		ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
+		if compareTooltip != "" {
+			compareLines := strings.Split(compareTooltip, "\n")
+			ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
 		}
 	}
 
-	// Instructions
-	instructionY := contentY + contentHeight - 55
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to select different characters and view their equipment", panelX+20, instructionY)
-	ebitenutil.DebugPrintAt(screen, "Double-click items in inventory to equip them (red items can't be equipped)", panelX+20, instructionY+15)
-	ebitenutil.DebugPrintAt(screen, "Double-click equipped items to unequip them back to inventory", panelX+20, instructionY+30)
-	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it", panelX+20, instructionY+45)
+	ui.drawInventoryContextMenu(screen)
+
+	instructionY := contentY + contentHeight - 35
+	ebitenutil.DebugPrintAt(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
+	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
+}
+
+const (
+	inventoryPaperdollSourceW = 300
+	inventoryPaperdollSourceH = 450
+	inventoryGridSourceSize   = 300
+)
+
+type inventorySourceRect struct {
+	x int
+	y int
+	w int
+	h int
+}
+
+type inventoryPaperdollSlot struct {
+	slot items.EquipSlot
+	rect inventorySourceRect
+}
+
+var inventoryPaperdollSlots = []inventoryPaperdollSlot{
+	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 38}},
+	{items.SlotSpell, inventorySourceRect{217, 40, 40, 38}},
+	{items.SlotHelmet, inventorySourceRect{131, 57, 39, 39}},
+	{items.SlotMainHand, inventorySourceRect{54, 167, 38, 37}},
+	{items.SlotArmor, inventorySourceRect{133, 167, 35, 38}},
+	{items.SlotOffHand, inventorySourceRect{207, 167, 39, 37}},
+	{items.SlotGauntlets, inventorySourceRect{54, 238, 39, 37}},
+	{items.SlotBelt, inventorySourceRect{133, 238, 35, 38}},
+	{items.SlotCloak, inventorySourceRect{207, 238, 39, 38}},
+	{items.SlotRing1, inventorySourceRect{57, 310, 38, 37}},
+	{items.SlotRing2, inventorySourceRect{205, 310, 38, 37}},
+	{items.SlotBoots, inventorySourceRect{131, 359, 39, 37}},
+}
+
+var inventoryGridSlots = []inventorySourceRect{
+	{43, 42, 45, 45}, {100, 42, 44, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
+	{43, 99, 45, 45}, {100, 99, 44, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
+	{43, 155, 45, 45}, {100, 155, 44, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
+	{43, 212, 45, 44}, {100, 212, 44, 44}, {156, 212, 45, 44}, {212, 212, 45, 44},
+}
+
+func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
+	x := dstX + int(float64(r.x)*float64(dstW)/float64(srcW))
+	y := dstY + int(float64(r.y)*float64(dstH)/float64(srcH))
+	w := int(float64(r.w) * float64(dstW) / float64(srcW))
+	h := int(float64(r.h) * float64(dstH) / float64(srcH))
+	return x, y, w, h
+}
+
+// inventoryInputBlocked reports whether a modal popup should swallow inventory
+// clicks. The revival picker holds an inventory index across frames, so any
+// click that mutates inventory (equip, use, discard) would invalidate it.
+func (ui *UISystem) inventoryInputBlocked() bool {
+	return ui.game.revivalPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
+}
+
+func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
+	currentChar := ui.game.party.Members[ui.game.selectedChar]
+	switch item.Type {
+	case items.ItemWeapon:
+		return currentChar.CanEquipWeaponByName(item.Name)
+	case items.ItemArmor:
+		return currentChar.CanEquipArmor(item)
+	default:
+		return true
+	}
+}
+
+func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item, x, y, w, h int, pad int, enabled bool) {
+	iconX := x + pad
+	iconY := y + pad
+	iconW := w - pad*2
+	iconH := h - pad*2
+	if iconW <= 0 || iconH <= 0 {
+		return
+	}
+	iconSize := iconW
+	if iconH < iconSize {
+		iconSize = iconH
+	}
+	iconX += (iconW - iconSize) / 2
+	iconY += (iconH - iconSize) / 2
+	iconName := itemTooltipIconName(item)
+	if iconName != "" && ui.game.sprites.HasSprite(iconName) {
+		drawImageScaled(screen, ui.game.sprites.GetSprite(iconName), iconX, iconY, iconSize, iconSize)
+	} else {
+		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{22, 18, 24, 210})
+		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{150, 110, 52, 220})
+		drawCenteredDebugText(screen, spellInitials(item.Name), iconX, iconY, iconSize, iconSize)
+	}
+	if !enabled {
+		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
+	}
+}
+
+func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
+	if !ui.inventoryContextOpen {
+		return
+	}
+	menuW := 140
+	menuH := 24
+	x := ui.inventoryContextX
+	y := ui.inventoryContextY
+	drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
+	drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
+	drawCenteredDebugText(screen, "Discard", x, y, menuW, menuH)
+
+	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
+		idx := ui.inventoryContextIndex
+		if idx >= 0 && idx < len(ui.game.party.Inventory) {
+			item := ui.game.party.Inventory[idx]
+			if item.Type == items.ItemQuest {
+				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
+			} else {
+				ui.game.party.RemoveItem(idx)
+				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
+			}
+		}
+		ui.inventoryContextOpen = false
+	} else if ui.game.consumeLeftClick() {
+		ui.inventoryContextOpen = false
+	}
 }
 
 // drawCharactersContent draws the characters tab content
-func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY int) {
+func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
 	ebitenutil.DebugPrintAt(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
 
@@ -267,16 +267,20 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	var tooltip string
 	var tooltipX, tooltipY int
 
-	// Character layout
-	cardX := panelX + 20
+	// Character layout — centre the portrait+scroll block within the 700-wide panel.
+	const (
+		portraitSize = 180
+		portraitGap  = 24
+		scrollW      = 420
+		scrollH      = 330
+		blockW       = portraitSize + portraitGap + scrollW
+	)
+	cardX := panelX + (700-blockW)/2
 	cardY := contentY + 40
 	portraitX := cardX
 	portraitY := cardY + 8
-	portraitSize := 180
-	scrollX := cardX + portraitSize + 24
+	scrollX := cardX + portraitSize + portraitGap
 	scrollY := cardY
-	scrollW := 420
-	scrollH := 330
 	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), scrollX, scrollY, scrollW, scrollH, 16)
 
 	portraitName := strings.ToLower(member.Name) + "_full"
@@ -425,7 +429,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", panelX+20, scrollY+scrollH+18)
+	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-20)
 
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
@@ -673,11 +677,7 @@ func spellInitials(name string) string {
 
 // handleInventoryItemClick handles double-click to equip items from inventory
 func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) {
-	// When a modal popup is up, suppress inventory clicks entirely. Without
-	// this an open revival picker (whose item-index points into inventory)
-	// would be invalidated if the user double-clicked another consumable —
-	// applyReviveTo's re-validation would silently no-op the chosen potion.
-	if ui.game.revivalPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil {
+	if ui.inventoryInputBlocked() {
 		return
 	}
 	// Check for mouse click
@@ -727,13 +727,9 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
 						currentChar.Name, item.Name))
 				}
-			} else {
-				// Other item types (spells, etc.)
-				if ui.game.party.EquipItemFromInventory(itemIndex, ui.game.selectedChar) {
-					ui.game.AddCombatMessage(fmt.Sprintf("%s equipped %s!",
-						currentChar.Name, item.Name))
-				}
 			}
+			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;
+			// they shouldn't appear in inventory, so we don't equip from here.
 		}
 
 		ui.lastClickedItem = itemIndex
@@ -745,6 +741,9 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 
 // handleEquippedItemClick handles double-click to unequip items from equipment slots
 func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2 int) {
+	if ui.inventoryInputBlocked() {
+		return
+	}
 	// Check for mouse click
 	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)

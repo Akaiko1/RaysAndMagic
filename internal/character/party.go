@@ -96,8 +96,9 @@ func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
 		// Successfully equipped - remove item from inventory
 		p.RemoveItem(itemIndex)
 
-		// Add the previously equipped item back to inventory (if any)
-		if hadPreviousItem {
+		// Add the previously equipped item back to inventory (if any).
+		// Spells are spellbook-owned and must never leak into inventory.
+		if hadPreviousItem && previousItem.Type != items.ItemBattleSpell && previousItem.Type != items.ItemUtilitySpell {
 			p.AddItem(previousItem)
 		}
 		return true
@@ -105,7 +106,9 @@ func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
 	return false
 }
 
-// UnequipItemToInventory removes an item from a character's equipment and adds it to inventory
+// UnequipItemToInventory removes an item from a character's equipment and adds it to inventory.
+// Spell-slot items are never returned to inventory — the spellbook is the only owner
+// of learned spells, so unequipping just clears the slot.
 func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int) bool {
 	if characterIndex < 0 || characterIndex >= len(p.Members) {
 		return false
@@ -113,11 +116,12 @@ func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int)
 
 	character := p.Members[characterIndex]
 
-	// Try to unequip the item
-	if item, success := character.UnequipItem(slot); success {
-		// Add the unequipped item to inventory
-		p.AddItem(item)
-		return true
+	item, success := character.UnequipItem(slot)
+	if !success {
+		return false
 	}
-	return false
+	if slot != items.SlotSpell {
+		p.AddItem(item)
+	}
+	return true
 }
