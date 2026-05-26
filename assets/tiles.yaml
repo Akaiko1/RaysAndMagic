@@ -173,6 +173,7 @@ tiles:
     render_type: "floor_only"
     floor_color: [74, 68, 61]
     floor_near_color: [92, 84, 73]
+    floor_texture_group: "default"
     letter: "."
     biomes: ["church"]
 
