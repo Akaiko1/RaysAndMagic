@@ -174,3 +174,178 @@ npcs:
           map: "forest"
         - text: "Stay inside"
           action: "leave"
+
+  city_gate:
+    name: "Seabright Gate"
+    type: "encounter"
+    description: "A stone road gate leading toward the sea city of Seabright"
+    sprite: "city_exterior"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue:
+      greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter Seabright"
+          action: "enter_map"
+          map: "city"
+        - text: "Stay in the forest"
+          action: "leave"
+
+  city_exit:
+    name: "City Gate"
+    type: "encounter"
+    description: "The main gate back to the forest road"
+    sprite: "city_gate"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue:
+      greeting: "The gate opens back onto the forest path."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the forest"
+          action: "enter_map"
+          map: "forest"
+        - text: "Stay in Seabright"
+          action: "leave"
+
+  city_weapon_shop:
+    name: "Seabright Arms"
+    type: "merchant"
+    description: "A weapon shop with upgraded blades, bows and staves"
+    sprite: "merchant"
+    size_multiplier: 4
+    sell_available: true
+    dialogue:
+      greeting: "Starter steel won't last the road. These will."
+    # Stock is one class-appropriate upgrade above the starter loadout —
+    # nothing here matches an item the party already carries at L1.
+    inventory:
+      - type: "weapon"
+        name: "Silver Sword"
+        cost: 800
+        quantity: 2
+      - type: "weapon"
+        name: "Steel Mace"
+        cost: 550
+        quantity: 2
+      - type: "weapon"
+        name: "Battle Staff"
+        cost: 400
+        quantity: 2
+      - type: "weapon"
+        name: "Elven Bow"
+        cost: 750
+        quantity: 1
+      - type: "weapon"
+        name: "Throwing Knife"
+        cost: 200
+        quantity: 3
+
+  city_potion_shop:
+    name: "Harbor Remedies"
+    type: "merchant"
+    description: "A small apothecary selling road medicine"
+    sprite: "merchant"
+    size_multiplier: 4
+    sell_available: true
+    dialogue:
+      greeting: "Careful bottles, clear labels, no mystery brews."
+    inventory:
+      - type: "potion"
+        name: "Health Potion"
+        cost: 50
+        quantity: 12
+      - type: "potion"
+        name: "Revival Potion"
+        cost: 500
+        quantity: 3
+
+  city_spell_shop:
+    name: "Tideglass Scriptorium"
+    type: "spell_trader"
+    description: "A spell shop whose windows overlook the harbor"
+    sprite: "elf_warrior"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Ink, salt, and spellwork. Choose a character and a spell."
+      insufficient_gold: "You need %d gold for this spell."
+      already_known: "%s already knows this spell."
+      success: "%s learned the spell."
+    spells:
+      firebolt:
+        name: "Fire Bolt"
+        school: "fire"
+        cost: 300
+        description: "Launches a small, fast bolt of fire."
+        requirements:
+          schools:
+            - school: "fire"
+              min_level: 1
+      torch_light:
+        name: "Torch Light"
+        school: "fire"
+        cost: 150
+        description: "Creates a magical light that illuminates the surroundings."
+        requirements:
+          schools:
+            - school: "fire"
+              min_level: 1
+      ice_bolt:
+        name: "Ice Bolt"
+        school: "water"
+        cost: 350
+        description: "Launches a chilling bolt of ice."
+        requirements:
+          schools:
+            - school: "water"
+              min_level: 1
+      heal:
+        name: "Heal"
+        school: "body"
+        cost: 500
+        description: "Restores health to another party member."
+        requirements:
+          schools:
+            - school: "body"
+              min_level: 2
+      bless:
+        name: "Bless"
+        school: "spirit"
+        cost: 700
+        description: "Blesses the party with divine protection."
+        requirements:
+          schools:
+            - school: "spirit"
+              min_level: 2
+      walk_on_water:
+        name: "Walk on Water"
+        school: "water"
+        cost: 1000
+        description: "Allows the party to walk across water surfaces."
+        requirements:
+          min_level: 3
+          schools:
+            - school: "water"
+              min_level: 1
+      water_breathing:
+        name: "Water Breathing"
+        school: "water"
+        cost: 1500
+        description: "Allows underwater exploration for extended periods."
+        requirements:
+          min_level: 5
+          schools:
+            - school: "water"
+              min_level: 2
+
+  city_mastery_trainer:
+    name: "Master Ilyra"
+    type: "skill_trainer"
+    description: "A city trainer who sharpens known skills and magic schools"
+    sprite: "elf"
+    size_multiplier: 4
+    dialogue:
+      greeting: "I train discipline, not wishes. Pick a character and a known mastery to improve."

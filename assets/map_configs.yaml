@@ -91,3 +91,17 @@ maps:
           sprite: "chest"
           size_multiplier: 5.0
           random_weapon_count: 1
+
+  city:
+    name: "Seabright"
+    file: "city.map"
+    biome: "city"
+    sky_color: [120, 190, 230]
+    sky_texture: "city_panorama"
+    default_floor_color: [108, 102, 88]
+    floor_texture_groups:
+      default:
+        - "city_cobblestone_0"
+        - "city_cobblestone_1"
+        - "city_cobblestone_2"
+        - "city_cobblestone_3"

@@ -16,12 +16,26 @@ type npcDialogVars struct {
 	Cost  int
 }
 
+type trainerOption struct {
+	Label     string
+	Current   character.SkillMastery
+	Next      character.SkillMastery
+	Cost      int
+	IsMagic   bool
+	SkillType character.SkillType
+	School    character.MagicSchoolID
+}
+
 func npcHasSpellTrading(npc *character.NPC) bool {
 	return npc != nil && len(npc.SpellData) > 0
 }
 
 func npcHasMerchant(npc *character.NPC) bool {
 	return npc != nil && (npc.SellAvailable || len(npc.MerchantStock) > 0)
+}
+
+func npcHasSkillTraining(npc *character.NPC) bool {
+	return npc != nil && npc.Type == "skill_trainer"
 }
 
 // npcHasChoiceDialog reports whether the NPC presents a choice prompt — either
@@ -41,6 +55,47 @@ func npcSpellKeys(npc *character.NPC) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func trainerOptions(char *character.MMCharacter) []trainerOption {
+	if char == nil {
+		return nil
+	}
+	options := make([]trainerOption, 0, len(char.Skills)+len(char.MagicSchools))
+	for skillType, skill := range char.Skills {
+		if skill == nil || skill.Mastery >= character.MasteryGrandMaster {
+			continue
+		}
+		next := skill.Mastery + 1
+		options = append(options, trainerOption{
+			Label:     skillType.String(),
+			Current:   skill.Mastery,
+			Next:      next,
+			Cost:      character.TrainingCostForMastery(next),
+			SkillType: skillType,
+		})
+	}
+	for school, skill := range char.MagicSchools {
+		if skill == nil || skill.Mastery >= character.MasteryGrandMaster {
+			continue
+		}
+		next := skill.Mastery + 1
+		options = append(options, trainerOption{
+			Label:   school.DisplayName() + " Magic",
+			Current: skill.Mastery,
+			Next:    next,
+			Cost:    character.TrainingCostForMastery(next),
+			IsMagic: true,
+			School:  school,
+		})
+	}
+	sort.Slice(options, func(i, j int) bool {
+		if options[i].IsMagic != options[j].IsMagic {
+			return !options[i].IsMagic
+		}
+		return options[i].Label < options[j].Label
+	})
+	return options
 }
 
 func characterKnowsSpellByName(char *character.MMCharacter, spellName string) bool {

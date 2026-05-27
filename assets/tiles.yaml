@@ -189,6 +189,178 @@ tiles:
     letter: "%"
     biomes: ["church"]
 
+  city_floor:
+    name: "City Cobblestone"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [108, 102, 88]
+    floor_near_color: [128, 120, 104]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["city"]
+
+  city_wall:
+    name: "City Stone Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_wall"
+    render_type: "textured_wall"
+    wall_color: [110, 104, 94]
+    letter: "%"
+    biomes: ["city"]
+
+  city_house_0:
+    name: "Town House"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_0"
+    render_type: "textured_wall"
+    wall_color: [124, 96, 66]
+    letter: "A"
+    biomes: ["city"]
+
+  city_house_1:
+    name: "Plaster House"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_1"
+    render_type: "textured_wall"
+    wall_color: [150, 128, 96]
+    letter: "B"
+    biomes: ["city"]
+
+  city_house_2:
+    name: "Stone Townhouse"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_2"
+    render_type: "textured_wall"
+    wall_color: [120, 118, 112]
+    letter: "C"
+    biomes: ["city"]
+
+  city_house_3:
+    name: "Brick House"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_3"
+    render_type: "textured_wall"
+    wall_color: [130, 70, 46]
+    letter: "D"
+    biomes: ["city"]
+
+  city_house_4:
+    name: "Narrow House"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_4"
+    render_type: "textured_wall"
+    wall_color: [132, 102, 70]
+    letter: "E"
+    biomes: ["city"]
+
+  city_house_5:
+    name: "Ivy House"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_house_5"
+    render_type: "textured_wall"
+    wall_color: [90, 116, 72]
+    letter: "F"
+    biomes: ["city"]
+
+  city_shop_weapon:
+    name: "Weapon Shop"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_shop_weapon"
+    render_type: "textured_wall"
+    wall_color: [110, 88, 70]
+    # M (not W) so the universal water tile letter stays usable in city maps.
+    letter: "M"
+    biomes: ["city"]
+
+  city_shop_potions:
+    name: "Potion Shop"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_shop_potions"
+    render_type: "textured_wall"
+    wall_color: [96, 70, 110]
+    letter: "P"
+    biomes: ["city"]
+
+  city_shop_spells:
+    name: "Spell Shop"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_shop_spells"
+    render_type: "textured_wall"
+    wall_color: [64, 96, 112]
+    letter: "S"
+    biomes: ["city"]
+
+  city_shop_trainer:
+    name: "Mastery Trainer"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_shop_trainer"
+    render_type: "textured_wall"
+    wall_color: [80, 110, 70]
+    letter: "R"
+    biomes: ["city"]
+
+  city_gate_wall:
+    name: "City Gate"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "city_gate"
+    render_type: "textured_wall"
+    wall_color: [120, 115, 106]
+    letter: "G"
+    biomes: ["city"]
+
+  city_fountain:
+    name: "City Fountain"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.2
+    sprite: "city_fountain"
+    render_type: "environment_sprite"
+    wall_color: [120, 120, 110]
+    floor_texture_group: "default"
+    letter: "O"
+    biomes: ["city"]
+
   moss_rock:
     name: "Moss-covered Stone"
     solid: true

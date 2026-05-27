@@ -40,3 +40,31 @@ func TestCanCharacterLearnNPCSpell(t *testing.T) {
 		t.Fatalf("expected water skill requirement to fail")
 	}
 }
+
+func TestTrainerOptionsUseKnownSkillsAndNextMasteryCost(t *testing.T) {
+	char := &character.MMCharacter{
+		Skills: map[character.SkillType]*character.Skill{
+			character.SkillSword: {Mastery: character.MasteryNovice},
+			character.SkillBow:   {Mastery: character.MasteryGrandMaster},
+		},
+		MagicSchools: map[character.MagicSchoolID]*character.MagicSkill{
+			character.MagicSchoolFire: {Mastery: character.MasteryExpert},
+		},
+	}
+
+	options := trainerOptions(char)
+	if len(options) != 2 {
+		t.Fatalf("expected 2 trainable options, got %d", len(options))
+	}
+
+	if options[0].Label != "Sword" || options[0].Next != character.MasteryExpert {
+		t.Fatalf("unexpected first option: %+v", options[0])
+	}
+	if options[0].Cost != character.TrainingCostForMastery(character.MasteryExpert) {
+		t.Fatalf("unexpected sword training cost: %d", options[0].Cost)
+	}
+
+	if options[1].Label != "Fire Magic" || !options[1].IsMagic || options[1].Next != character.MasteryMaster {
+		t.Fatalf("unexpected second option: %+v", options[1])
+	}
+}

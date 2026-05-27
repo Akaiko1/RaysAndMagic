@@ -271,6 +271,7 @@ type MMGame struct {
 	dialogSelectedChar  int            // Currently selected character in dialog
 	dialogSelectedSpell int            // Currently selected spell in dialog
 	selectedCharIdx     int            // Selected character index for spell learning
+	skillTrainerPopup   bool           // Skill trainer: per-character mastery popup open
 	selectedSpellKey    string         // Selected spell key for learning
 	selectedChoice      int            // Selected choice in encounter dialogs
 

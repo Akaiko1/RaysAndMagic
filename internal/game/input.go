@@ -142,10 +142,17 @@ func (ih *InputHandler) HandleInput() {
 			ih.game.statPopupOpen = false
 			return
 		}
-		// Close dialog if open
+		// Close dialog if open. The skill-trainer mastery popup is a sub-
+		// modal on top of the dialog, so ESC peels it off first instead
+		// of closing the whole trader.
 		if ih.game.dialogActive {
-			ih.game.dialogActive = false
-			ih.game.dialogNPC = nil
+			if ih.game.skillTrainerPopup {
+				ih.game.skillTrainerPopup = false
+			} else {
+				ih.game.dialogActive = false
+				ih.game.dialogNPC = nil
+				ih.game.skillTrainerPopup = false
+			}
 			return
 		}
 		// Close tabbed menu if open
@@ -1350,6 +1357,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
 	ih.game.selectedSpellKey = ""   // No spell selected initially
+	ih.game.skillTrainerPopup = false
 	ih.game.selectedChoice = 0      // Reset encounter choice selection
 
 	// If NPC has spells, select the first one (deterministic order)
@@ -1366,13 +1374,8 @@ func (ih *InputHandler) handleDialogInput() {
 	// Handle mouse input for character selection
 	ih.handleDialogMouseInput()
 
-	// Close dialog with Escape
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) && ih.game.spellInputCooldown == 0 {
-		ih.game.dialogActive = false
-		ih.game.dialogNPC = nil
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-		return
-	}
+	// ESC is handled at the top-level input dispatcher (sees the
+	// skillTrainerPopup flag and peels off the popup before the dialog).
 
 	// Navigate characters with Left/Right arrows
 	if ebiten.IsKeyPressed(ebiten.KeyLeft) && ih.game.spellInputCooldown == 0 {
@@ -1393,6 +1396,8 @@ func (ih *InputHandler) handleDialogInput() {
 		switch {
 		case npcHasSpellTrading(ih.game.dialogNPC):
 			ih.handleSpellTraderInput()
+		case npcHasSkillTraining(ih.game.dialogNPC):
+			ih.handleSkillTrainerInput()
 		case npcHasChoiceDialog(ih.game.dialogNPC):
 			ih.handleEncounterInput()
 		}
@@ -1560,40 +1565,71 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dialogX := (screenWidth - dialogWidth) / 2
 	dialogY := (screenHeight - dialogHeight) / 2
 
-	// Check if clicking on spells (if NPC is spell trader)
+	// Spell trader — portrait strip + icon grid.
 	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
-
-		// Check if clicking on character list
 		for i := range ih.game.party.Members {
-			charY := dialogY + 100 + (i * 25)
-
-			// Check if mouse is over this character entry
-			if ih.game.consumeLeftClickIn(dialogX+20, charY-2, dialogX+320+1, charY+22+1) {
+			x, y, w, h := spellTraderPortraitRect(dialogX, dialogY, i)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				ih.game.selectedCharIdx = i
 				return
 			}
 		}
-
-		spellsY := dialogY + 100 + (len(ih.game.party.Members) * 25) + 20
 		spellKeys := npcSpellKeys(ih.game.dialogNPC)
-
-		for spellIndex, spellKey := range spellKeys {
-			spellY := spellsY + 20 + (spellIndex * 25)
-
-			// Check if mouse is over this spell entry
-			if ih.game.consumeLeftClickIn(dialogX+20, spellY-2, dialogX+370+1, spellY+22+1) {
-				// Check for double-click to purchase spell directly (neutral dialog tracking)
-				if ih.dialogDoubleClick(spellIndex) {
-					// Double-click detected - purchase the spell
+		for i, spellKey := range spellKeys {
+			x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick(i) {
 					ih.purchaseSelectedSpell()
 				} else {
-					// Single click - just select the spell
-					ih.game.dialogSelectedSpell = spellIndex
+					ih.game.dialogSelectedSpell = i
 					ih.game.selectedSpellKey = spellKey
 				}
 				return
 			}
 		}
+		return
+	}
+
+	// Skill trainer — portrait click opens the per-character popup with
+	// trainable masteries. Popup option clicks select/purchase. Clicks
+	// outside the popup close it (back to portrait grid).
+	if ih.game.dialogNPC != nil && npcHasSkillTraining(ih.game.dialogNPC) {
+		if ih.game.skillTrainerPopup &&
+			ih.game.selectedCharIdx >= 0 &&
+			ih.game.selectedCharIdx < len(ih.game.party.Members) {
+			px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
+			options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx])
+			for i := range options {
+				x, y, w, h := skillTrainerOptionRect(px, py, i)
+				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+					ih.game.dialogSelectedSpell = i
+					if ih.dialogDoubleClick(i) {
+						ih.purchaseSelectedTraining()
+					}
+					return
+				}
+			}
+			// Click outside popup → close.
+			if ih.game.consumeLeftClick() {
+				_ = px
+				_ = py
+				_ = pw
+				_ = ph
+				ih.game.skillTrainerPopup = false
+			}
+			return
+		}
+		// No popup → portrait click opens it.
+		for i := range ih.game.party.Members {
+			x, y, w, h := skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				ih.game.selectedCharIdx = i
+				ih.game.dialogSelectedSpell = 0
+				ih.game.skillTrainerPopup = true
+				return
+			}
+		}
+		return
 	}
 
 	// Check if clicking to buy/sell items (if NPC is merchant)
@@ -1816,7 +1852,6 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 }
 
-
 // Movement functions for turn-based mode (snap to tile centers)
 func (ih *InputHandler) moveTurnBasedForward() bool {
 	// Move in the direction the camera is facing
@@ -1931,7 +1966,6 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	}
 }
 
-
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
 	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
 	if targetCharIndex >= 0 && spell.SpellEffect == items.SpellEffectHealOther {
@@ -1961,6 +1995,78 @@ func (ih *InputHandler) handleSpellTraderInput() {
 		ih.purchaseSelectedSpell()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
+}
+
+func (ih *InputHandler) handleSkillTrainerInput() {
+	if ih.game.selectedCharIdx < 0 || ih.game.selectedCharIdx >= len(ih.game.party.Members) {
+		return
+	}
+	options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx])
+	if len(options) == 0 {
+		ih.game.dialogSelectedSpell = 0
+		return
+	}
+	if ih.game.dialogSelectedSpell >= len(options) {
+		ih.game.dialogSelectedSpell = len(options) - 1
+	}
+
+	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
+		if ih.game.dialogSelectedSpell > 0 {
+			ih.game.dialogSelectedSpell--
+		} else {
+			ih.game.dialogSelectedSpell = len(options) - 1
+		}
+		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
+		if ih.game.dialogSelectedSpell < len(options)-1 {
+			ih.game.dialogSelectedSpell++
+		} else {
+			ih.game.dialogSelectedSpell = 0
+		}
+		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+		ih.purchaseSelectedTraining()
+		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	}
+}
+
+func (ih *InputHandler) purchaseSelectedTraining() {
+	if ih.game.dialogNPC == nil || !npcHasSkillTraining(ih.game.dialogNPC) {
+		return
+	}
+	if ih.game.selectedCharIdx < 0 || ih.game.selectedCharIdx >= len(ih.game.party.Members) {
+		return
+	}
+	selectedChar := ih.game.party.Members[ih.game.selectedCharIdx]
+	options := trainerOptions(selectedChar)
+	if ih.game.dialogSelectedSpell < 0 || ih.game.dialogSelectedSpell >= len(options) {
+		return
+	}
+	option := options[ih.game.dialogSelectedSpell]
+	if ih.game.party.Gold < option.Cost {
+		ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to train %s.", option.Cost, option.Label))
+		return
+	}
+
+	trained := false
+	if option.IsMagic {
+		if skill := selectedChar.MagicSchools[option.School]; skill != nil {
+			trained = skill.IncreaseMastery()
+		}
+	} else {
+		if skill := selectedChar.Skills[option.SkillType]; skill != nil {
+			trained = skill.IncreaseMastery()
+		}
+	}
+	if !trained {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s is already at maximum mastery.", option.Label))
+		return
+	}
+
+	ih.game.party.Gold -= option.Cost
+	ih.game.AddCombatMessage(fmt.Sprintf("%s trained %s to %s for %d gold.", selectedChar.Name, option.Label, option.Next.String(), option.Cost))
 }
 
 // handleEncounterInput handles input for encounter NPCs

@@ -462,12 +462,18 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 // CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters).
 // People-sized NPCs use this; buildings should set render_type: environment_sprite in YAML
 // so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
+//
+// sizeMultiplier scales maxSize (how big a "size 4" NPC gets up close) and the
+// distance multiplier (so it grows proportionally), but NOT minSize — the floor
+// stays absolute so far-away NPCs recede to the same pixel size as small ones,
+// instead of clamping at a sizeMultiplier×bigger floor and appearing oversized
+// relative to the receding background.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeMultiplier <= 0 {
 		sizeMultiplier = 1
 	}
 	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
-	minSize := int(float64(rh.game.config.Graphics.NPC.MinSpriteSize) * sizeMultiplier)
+	minSize := rh.game.config.Graphics.NPC.MinSpriteSize
 	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
 	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
 }
