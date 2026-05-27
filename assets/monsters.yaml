@@ -7,7 +7,7 @@ monsters:
   goblin:
     name: "Goblin"
     level: 1
-    max_hit_points: 20
+    max_hit_points: 28
     armor_class: 6
     experience: 15
     damage_min: 4
@@ -30,11 +30,12 @@ monsters:
   orc:
     name: "Orc"
     level: 3
-    max_hit_points: 40
+    max_hit_points: 48
     armor_class: 8
     experience: 65
     damage_min: 2
     damage_max: 8
+    attacks_per_round: 2
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
@@ -57,11 +58,11 @@ monsters:
   wolf:
     name: "Wolf"
     level: 2
-    max_hit_points: 30
+    max_hit_points: 38
     armor_class: 7
     experience: 35
-    damage_min: 4
-    damage_max: 6
+    damage_min: 6
+    damage_max: 9
     alert_radius: 3
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
@@ -102,11 +103,11 @@ monsters:
   spider:
     name: "Spider"
     level: 2
-    max_hit_points: 22
+    max_hit_points: 30
     armor_class: 8
     experience: 25
-    damage_min: 1
-    damage_max: 3
+    damage_min: 3
+    damage_max: 5
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
@@ -124,11 +125,11 @@ monsters:
   skeleton:
     name: "Skeleton"
     level: 3
-    max_hit_points: 35
+    max_hit_points: 43
     armor_class: 7
     experience: 45
-    damage_min: 1
-    damage_max: 6
+    damage_min: 4
+    damage_max: 8
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
@@ -287,11 +288,11 @@ monsters:
   forest_spider:
     name: "Forest Spider"
     level: 3
-    max_hit_points: 28
+    max_hit_points: 36
     armor_class: 10
     experience: 45
-    damage_min: 1
-    damage_max: 6
+    damage_min: 4
+    damage_max: 9
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
@@ -343,7 +344,7 @@ monsters:
   pixie:
     name: "Pixie"
     level: 2
-    max_hit_points: 15
+    max_hit_points: 33
     armor_class: 4     # Light armor, relies on dodge
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 50
@@ -383,11 +384,11 @@ monsters:
   bandit:
     name: "Bandit"
     level: 3
-    max_hit_points: 35
+    max_hit_points: 43
     armor_class: 8
     experience: 55
-    damage_min: 5
-    damage_max: 8
+    damage_min: 7
+    damage_max: 10
     alert_radius: 3  # 3 tiles
     attack_radius: 2  # 2 tiles (ranged knives)
     projectile_weapon: "throwing_knife"
@@ -404,6 +405,65 @@ monsters:
     habitat_preferences:
       - "empty"
       - "clearing"
+
+  # Water-specific monsters
+  medusa:
+    name: "Medusa"
+    level: 6
+    max_hit_points: 180
+    armor_class: 10
+    experience: 260
+    damage_min: 10
+    damage_max: 18
+    alert_radius: 5
+    attack_radius: 1
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+    speed: 1.4
+    gold_min: 25
+    gold_max: 80
+    sprite: "medusa"
+    letter: "m"
+    biomes: ["water"]
+    flying: true
+    passive_until_attacked: true
+    box_w: 48
+    box_h: 48
+    size_game: 5.0
+    resistances:
+      water: 60
+      air: 35
+      physical: 10
+    habitat_preferences:
+      - "empty"
+
+  octopus:
+    name: "Octopus"
+    level: 5
+    max_hit_points: 165
+    armor_class: 11
+    experience: 240
+    damage_min: 12
+    damage_max: 18
+    attacks_per_round: 4
+    attack_cooldown_multiplier: 0.5
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.5
+    gold_min: 20
+    gold_max: 65
+    sprite: "octopus"
+    letter: "o"
+    biomes: ["water"]
+    box_w: 48
+    box_h: 48
+    size_game: 10.0
+    resistances:
+      water: 60
+      physical: 10
+      air: -25
+    habitat_preferences:
+      - "empty"
 
 # Damage type mappings for resistances
 damage_types:

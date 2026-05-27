@@ -170,6 +170,16 @@ items:
     rarity: "rare"
     value: 300
 
+  belt_of_speed:
+    name: "Belt of Speed"
+    type: "accessory"
+    description: "A light belt that quickens movement"
+    flavor: "Blue sparks crawl along the buckle when danger nears."
+    equip_slot: "belt"
+    bonus_speed: 15
+    rarity: "rare"
+    value: 650
+
   lucky_paw:
     name: "Lucky Paw"
     type: "accessory"
@@ -179,6 +189,14 @@ items:
     bonus_luck: 40
     rarity: "legendary"
     value: 800
+
+  medusa_card:
+    name: "Medusa Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped parchment card showing a glowing sea medusa."
+    rarity: "rare"
+    value: 500
 
   world_map:
     name: "World Map"

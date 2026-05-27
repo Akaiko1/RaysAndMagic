@@ -93,6 +93,10 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	case items.ItemQuest:
 		fields["q_line"] = "Quest Item - Cannot be sold or dropped"
 		order = append(order, "q_line", "__sep__")
+
+	case items.ItemTrinket:
+		fields["t_line"] = "Trinket - Collectible; sell to merchants"
+		order = append(order, "t_line", "__sep__")
 	}
 
 	// Value

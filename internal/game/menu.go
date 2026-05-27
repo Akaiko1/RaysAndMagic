@@ -343,7 +343,7 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	switch item.Type {
-	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest:
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket:
 	default:
 		return
 	}

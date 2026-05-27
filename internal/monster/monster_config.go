@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,7 @@ type MonsterDefinition struct {
 	GoldMax            int                 `yaml:"gold_max"`
 	Sprite             string              `yaml:"sprite"`
 	Letter             string              `yaml:"letter"`
+	Biomes             []string            `yaml:"biomes,omitempty"`
 	BoxW               float64             `yaml:"box_w"`
 	BoxH               float64             `yaml:"box_h"`
 	SizeGame           float64             `yaml:"size_game"`
@@ -36,6 +38,9 @@ type MonsterDefinition struct {
 	ProjectileWeapon   string              `yaml:"projectile_weapon"`
 	Flying             bool                `yaml:"flying"`
 	RangedAttackRange  float64             `yaml:"ranged_attack_range"`
+	AttacksPerRound    int                 `yaml:"attacks_per_round"`
+	AttackCooldownMult float64             `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit    bool                `yaml:"passive_until_attacked"`
 	FireburstChance    float64             `yaml:"fireburst_chance"`
 	FireburstDamageMin int                 `yaml:"fireburst_damage_min"`
 	FireburstDamageMax int                 `yaml:"fireburst_damage_max"`
@@ -66,24 +71,43 @@ type MonsterYAMLConfig struct {
 // Global monster configuration
 var MonsterConfig *MonsterYAMLConfig
 
-// validateMonsterConfiguration checks for conflicts in monster letters
+// validateMonsterConfiguration checks for conflicts in monster letters.
+// Monster letters are allowed to be reused by biome-scoped definitions; the map
+// loader resolves biome-specific monsters before universal monsters.
 func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
-	letterToMonsters := make(map[string][]string)
+	universalLetters := make(map[string][]string)
+	biomeLetters := make(map[string]map[string][]string)
 
-	// Group monsters by their letters
 	for key, monster := range config.Monsters {
 		letter := monster.Letter
 		if letter == "" {
-			continue // Skip monsters without letters (might be special spawns)
+			continue
 		}
-		letterToMonsters[letter] = append(letterToMonsters[letter], key)
+		if len(monster.Biomes) == 0 {
+			universalLetters[letter] = append(universalLetters[letter], key)
+			continue
+		}
+		if biomeLetters[letter] == nil {
+			biomeLetters[letter] = make(map[string][]string)
+		}
+		for _, biome := range monster.Biomes {
+			biomeLetters[letter][biome] = append(biomeLetters[letter][biome], key)
+		}
 	}
 
-	// Check for conflicts
 	var conflicts []string
-	for letter, monsterKeys := range letterToMonsters {
+	for letter, monsterKeys := range universalLetters {
 		if len(monsterKeys) > 1 {
+			sort.Strings(monsterKeys)
 			conflicts = append(conflicts, fmt.Sprintf("Letter '%s' is used by multiple monsters: %v", letter, monsterKeys))
+		}
+	}
+	for letter, byBiome := range biomeLetters {
+		for biome, monsterKeys := range byBiome {
+			if len(monsterKeys) > 1 {
+				sort.Strings(monsterKeys)
+				conflicts = append(conflicts, fmt.Sprintf("Letter '%s' is used by multiple monsters in biome '%s': %v", letter, biome, monsterKeys))
+			}
 		}
 	}
 
@@ -138,12 +162,34 @@ func (c *MonsterYAMLConfig) GetMonsterByKey(key string) (*MonsterDefinition, err
 
 // GetMonsterByLetter returns monster definition by letter marker
 func (c *MonsterYAMLConfig) GetMonsterByLetter(letter string) (*MonsterDefinition, string, error) {
+	return c.GetMonsterByLetterForBiome(letter, "")
+}
+
+// GetMonsterByLetterForBiome resolves a monster spawn marker for a map biome.
+// Biome-specific definitions win over universal fallback definitions.
+func (c *MonsterYAMLConfig) GetMonsterByLetterForBiome(letter string, biome string) (*MonsterDefinition, string, error) {
+	if biome != "" {
+		for key, monster := range c.Monsters {
+			if monster.Letter == letter && monsterSupportsBiome(monster.Biomes, biome) {
+				return &monster, key, nil
+			}
+		}
+	}
 	for key, monster := range c.Monsters {
-		if monster.Letter == letter {
+		if monster.Letter == letter && len(monster.Biomes) == 0 {
 			return &monster, key, nil
 		}
 	}
 	return nil, "", fmt.Errorf("monster with letter '%s' not found", letter)
+}
+
+func monsterSupportsBiome(biomes []string, biome string) bool {
+	for _, supported := range biomes {
+		if supported == biome {
+			return true
+		}
+	}
+	return false
 }
 
 // GetAllMonsterKeys returns all monster keys
@@ -219,6 +265,9 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.ProjectileSpell = def.ProjectileSpell
 	m.ProjectileWeapon = def.ProjectileWeapon
 	m.Flying = def.Flying
+	m.AttacksPerRound = def.AttacksPerRound
+	m.AttackCooldownMultiplier = def.AttackCooldownMult
+	m.PassiveUntilAttacked = def.PassiveUntilHit
 	if def.RangedAttackRange > 0 {
 		m.RangedAttackRange = def.RangedAttackRange * 64.0
 	}
