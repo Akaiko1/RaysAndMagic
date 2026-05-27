@@ -7,7 +7,7 @@ monsters:
   goblin:
     name: "Goblin"
     level: 1
-    max_hit_points: 28
+    max_hit_points: 56
     armor_class: 6
     experience: 15
     damage_min: 4
@@ -30,7 +30,7 @@ monsters:
   orc:
     name: "Orc"
     level: 3
-    max_hit_points: 48
+    max_hit_points: 96
     armor_class: 8
     experience: 65
     damage_min: 2
@@ -58,7 +58,7 @@ monsters:
   wolf:
     name: "Wolf"
     level: 2
-    max_hit_points: 38
+    max_hit_points: 76
     armor_class: 7
     experience: 35
     damage_min: 6
@@ -81,7 +81,7 @@ monsters:
   bear:
     name: "Bear"
     level: 4
-    max_hit_points: 65
+    max_hit_points: 130
     armor_class: 9
     experience: 120
     damage_min: 10
@@ -103,7 +103,7 @@ monsters:
   spider:
     name: "Spider"
     level: 2
-    max_hit_points: 30
+    max_hit_points: 60
     armor_class: 8
     experience: 25
     damage_min: 3
@@ -125,7 +125,7 @@ monsters:
   skeleton:
     name: "Skeleton"
     level: 3
-    max_hit_points: 43
+    max_hit_points: 86
     armor_class: 7
     experience: 45
     damage_min: 4
@@ -150,7 +150,7 @@ monsters:
   troll:
     name: "Troll"
     level: 6
-    max_hit_points: 80
+    max_hit_points: 160
     armor_class: 10
     experience: 300
     damage_min: 10
@@ -176,7 +176,7 @@ monsters:
   dragon:
     name: "Dragon"
     level: 15
-    max_hit_points: 550
+    max_hit_points: 1100
     armor_class: 18
     experience: 2000
     damage_min: 30
@@ -210,7 +210,7 @@ monsters:
   forest_orc:
     name: "Forest Orc"
     level: 4
-    max_hit_points: 50
+    max_hit_points: 100
     armor_class: 9
     experience: 85
     damage_min: 8
@@ -238,7 +238,7 @@ monsters:
   dire_wolf:
     name: "Dire Wolf"
     level: 5
-    max_hit_points: 60
+    max_hit_points: 120
     armor_class: 9
     experience: 125
     damage_min: 2
@@ -261,7 +261,7 @@ monsters:
   alien:
     name: "Alien"
     level: 5
-    max_hit_points: 250
+    max_hit_points: 500
     armor_class: 12
     experience: 550
     damage_min: 25
@@ -288,7 +288,7 @@ monsters:
   forest_spider:
     name: "Forest Spider"
     level: 3
-    max_hit_points: 36
+    max_hit_points: 72
     armor_class: 10
     experience: 45
     damage_min: 4
@@ -315,7 +315,7 @@ monsters:
   treant:
     name: "Treant"
     level: 8
-    max_hit_points: 120
+    max_hit_points: 240
     armor_class: 12
     experience: 400
     damage_min: 20
@@ -344,7 +344,7 @@ monsters:
   pixie:
     name: "Pixie"
     level: 2
-    max_hit_points: 33
+    max_hit_points: 66
     armor_class: 4     # Light armor, relies on dodge
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 50
@@ -384,7 +384,7 @@ monsters:
   bandit:
     name: "Bandit"
     level: 3
-    max_hit_points: 43
+    max_hit_points: 86
     armor_class: 8
     experience: 55
     damage_min: 7
@@ -410,7 +410,7 @@ monsters:
   medusa:
     name: "Medusa"
     level: 6
-    max_hit_points: 180
+    max_hit_points: 360
     armor_class: 10
     experience: 260
     damage_min: 10
@@ -440,7 +440,7 @@ monsters:
   octopus:
     name: "Octopus"
     level: 5
-    max_hit_points: 165
+    max_hit_points: 330
     armor_class: 11
     experience: 240
     damage_min: 12

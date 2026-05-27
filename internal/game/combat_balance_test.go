@@ -14,9 +14,14 @@ package game
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
@@ -262,13 +267,60 @@ func allMonstersDead(monsters []*monsterPkg.Monster3D) bool {
 	return true
 }
 
+// runOneFight runs a single combat between party and monsters; both slices
+// are mutated. Returns whether the monsters were all killed, whether the
+// party was wiped, and how many rounds elapsed.
+func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*monsterPkg.Monster3D) (killed, wiped bool, rounds int) {
+	const maxRounds = 30
+	for ; rounds < maxRounds; rounds++ {
+		// Party turn — each char uses their action slots on the
+		// lowest-HP alive monster (focus-fire).
+		for _, c := range party {
+			if !c.CanAct() {
+				continue
+			}
+			slots := c.ActionSlotsForTurn(cs.game.statBonus)
+			for s := 0; s < slots; s++ {
+				target := pickLowestHPTarget(monsters)
+				if target == nil {
+					break
+				}
+				playerActSlot(cs, c, target, party)
+			}
+			if allMonstersDead(monsters) {
+				killed = true
+				break
+			}
+		}
+		if killed {
+			rounds++
+			return
+		}
+		// Each surviving monster acts.
+		for _, m := range monsters {
+			if !m.IsAlive() {
+				continue
+			}
+			monsterActOnce(cs, m, party)
+			if partyAllDown(party) {
+				break
+			}
+		}
+		if partyAllDown(party) {
+			wiped = true
+			return
+		}
+	}
+	wiped = partyAllDown(party)
+	return
+}
+
 // simulateFight runs one or more monsters against the party, repeated N
 // times. Caller passes monsterKeys with duplicates to spawn multiples
 // (e.g., ["goblin", "goblin"] for a 2-goblin encounter).
 func simulateFight(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, monsterKeys []string, blessActive bool, trials int) simResult {
 	var totalRoundsWin, wins, wipes int
 	var sumHPLeft float64
-	const maxRounds = 30
 
 	if blessActive {
 		cs.game.statBonus = 10 // Novice-tier Bless from spells.yaml.
@@ -287,46 +339,7 @@ func simulateFight(t *testing.T, cs *CombatSystem, party []*character.MMCharacte
 			m.WasAttacked = true
 			monsters = append(monsters, m)
 		}
-		round := 0
-		killed := false
-		for ; round < maxRounds; round++ {
-			// Party turn — each char uses their action slots on the
-			// lowest-HP alive monster (focus-fire).
-			for _, c := range party {
-				if !c.CanAct() {
-					continue
-				}
-				slots := c.ActionSlotsForTurn(cs.game.statBonus)
-				for s := 0; s < slots; s++ {
-					target := pickLowestHPTarget(monsters)
-					if target == nil {
-						break
-					}
-					playerActSlot(cs, c, target, party)
-				}
-				if allMonstersDead(monsters) {
-					killed = true
-					break
-				}
-			}
-			if killed {
-				round++
-				break
-			}
-			// Each surviving monster acts.
-			for _, m := range monsters {
-				if !m.IsAlive() {
-					continue
-				}
-				monsterActOnce(cs, m, party)
-				if partyAllDown(party) {
-					break
-				}
-			}
-			if partyAllDown(party) {
-				break
-			}
-		}
+		killed, _, round := runOneFight(cs, party, monsters)
 		if killed {
 			wins++
 			totalRoundsWin += round
@@ -499,6 +512,707 @@ var forestMonsters = []string{
 	"goblin", "orc", "wolf", "bear", "spider", "skeleton", "troll",
 	"forest_orc", "dire_wolf", "forest_spider", "treant", "pixie",
 	"bandit", "alien", "dragon",
+}
+
+// countMonsterSpawns parses a .map file and returns monster_key → count
+// using the biome-aware letter resolution from monster_config. Mirrors
+// map_loader's parsing rules: skip comment lines ('#'), strip the
+// `  >[npc:...]`/`[stile:...]` suffix from each line (otherwise the YAML
+// keys inside NPC/stile names get counted as monster spawns).
+func countMonsterSpawns(mapPath, biome string) (map[string]int, error) {
+	data, err := os.ReadFile(mapPath)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.Index(line, "  >"); i != -1 {
+			line = line[:i]
+		}
+		for _, ch := range line {
+			if ch < 'a' || ch > 'z' {
+				continue
+			}
+			_, key, err := monsterPkg.MonsterConfig.GetMonsterByLetterForBiome(string(ch), biome)
+			if err != nil {
+				continue
+			}
+			counts[key]++
+		}
+	}
+	return counts, nil
+}
+
+// statStrategy spends one stat point. Used at level-up to model
+// different player builds (all-speed vs casters-only-speed etc).
+type statStrategy func(c *character.MMCharacter)
+
+// statSpeedFloorThenPrimary: Spd→16, End→15, then class primary.
+func statSpeedFloorThenPrimary(c *character.MMCharacter) {
+	primary := classPrimaryStat(c)
+	switch {
+	case c.Speed < 16:
+		c.Speed++
+	case c.Endurance < 15:
+		c.Endurance++
+	default:
+		*primary++
+	}
+}
+
+// statSpeedOnlyForCasters: Sorc + Archer follow the speed-floor path;
+// Knight and Cleric skip Speed and only build End→15 → primary.
+func statSpeedOnlyForCasters(c *character.MMCharacter) {
+	primary := classPrimaryStat(c)
+	switch c.Class {
+	case character.ClassSorcerer, character.ClassArcher:
+		statSpeedFloorThenPrimary(c)
+	default:
+		// Knight/Cleric: End→15 floor, then primary. No Speed.
+		switch {
+		case c.Endurance < 15:
+			c.Endurance++
+		default:
+			*primary++
+		}
+	}
+}
+
+func classPrimaryStat(c *character.MMCharacter) *int {
+	switch c.Class {
+	case character.ClassKnight:
+		return &c.Might
+	case character.ClassSorcerer:
+		return &c.Intellect
+	case character.ClassCleric:
+		return &c.Personality
+	case character.ClassArcher:
+		return &c.Accuracy
+	}
+	return &c.Might
+}
+
+// applyXPAndLevelUp grants experience to a character and applies as
+// many level-ups as the total XP allows. Each level: spend
+// StatPointsPerLevel points via the given strategy, apply L3
+// mastery/spell choice, recalc derived stats.
+func applyXPAndLevelUp(c *character.MMCharacter, cfg *config.Config, xpGained int, strategy statStrategy) {
+	c.Experience += xpGained
+	for {
+		required := c.Level * XPRequiredPerLevel
+		if c.Experience < required {
+			break
+		}
+		c.Experience -= required
+		c.Level++
+		for p := 0; p < StatPointsPerLevel; p++ {
+			strategy(c)
+		}
+		// Apply L3 unlock choice (the only level with choices in YAML so far).
+		if c.Level == 3 {
+			switch c.Class {
+			case character.ClassKnight:
+				if sk, ok := c.Skills[character.SkillSword]; ok && sk.Mastery < character.MasteryExpert {
+					sk.Mastery = character.MasteryExpert
+				}
+			case character.ClassSorcerer:
+				_ = addSpellByID(c, "fireball")
+			case character.ClassCleric:
+				_ = addSpellByID(c, "bless")
+			case character.ClassArcher:
+				if sk, ok := c.Skills[character.SkillBow]; ok && sk.Mastery < character.MasteryExpert {
+					sk.Mastery = character.MasteryExpert
+				}
+			}
+		}
+		c.CalculateDerivedStats(cfg)
+	}
+}
+
+// classArmorPriority returns the best-fit armor category for a class.
+// Used to break ties when multiple items target the same slot.
+func classArmorPriority(class character.CharacterClass) []string {
+	switch class {
+	case character.ClassKnight:
+		return []string{"plate", "chain", "leather", "cloth"}
+	case character.ClassCleric:
+		return []string{"chain", "leather", "plate", "cloth"}
+	case character.ClassArcher:
+		return []string{"leather", "chain", "cloth", "plate"}
+	case character.ClassSorcerer:
+		return []string{"cloth", "leather", "chain", "plate"}
+	}
+	return []string{"leather", "chain", "plate", "cloth"}
+}
+
+func armorScore(item items.Item, preferOrder []string) int {
+	cat := item.ArmorCategory
+	for i, want := range preferOrder {
+		if cat == want {
+			return 100 - i*10 + item.Attributes["armor_class_base"]
+		}
+	}
+	return item.Attributes["armor_class_base"]
+}
+
+// autoEquipPool greedily assigns loot to party members. Each char is given
+// a chance in turn to grab the best-fitting item; the pool shrinks as
+// items are equipped. Items the char can't equip (wrong category) are
+// skipped for that char.
+func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.Item {
+	leftover := make([]items.Item, 0, len(pool))
+	for _, it := range pool {
+		// Skip non-equippable types upfront.
+		switch it.Type {
+		case items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemBattleSpell, items.ItemUtilitySpell:
+			leftover = append(leftover, it)
+			continue
+		}
+		// Find best candidate among party (highest armorScore or weapon damage).
+		bestChar := -1
+		bestScore := -1
+		for i, c := range party {
+			if it.Type == items.ItemArmor && !c.CanEquipArmor(it) {
+				continue
+			}
+			if it.Type == items.ItemWeapon && !c.CanEquipWeaponByName(it.Name) {
+				continue
+			}
+			score := 0
+			switch it.Type {
+			case items.ItemArmor:
+				score = armorScore(it, classArmorPriority(c.Class))
+			case items.ItemWeapon:
+				if def := lookupWeaponConfigByName(it.Name); def != nil {
+					score = def.Damage * 10
+				}
+			case items.ItemAccessory:
+				// Accessories — heuristic by class fit
+				switch c.Class {
+				case character.ClassKnight:
+					score = it.Attributes["bonus_might"]*5 + it.Attributes["bonus_endurance"]*4
+				case character.ClassSorcerer:
+					score = it.Attributes["bonus_intellect"]*5 + it.Attributes["intellect_scaling_divisor"]*3
+				case character.ClassCleric:
+					score = it.Attributes["bonus_personality"]*5 + it.Attributes["personality_scaling_divisor"]*3
+				case character.ClassArcher:
+					score = it.Attributes["bonus_accuracy"]*5 + it.Attributes["bonus_speed"]*4 + it.Attributes["bonus_luck"]*2
+				}
+			}
+			// Compare against currently-equipped item in the target slot.
+			// EquipItem auto-routes; if there's already something better there,
+			// new item displaces it but we want to keep the better one.
+			// Simple heuristic: score above the threshold of "interesting"
+			// before we let it swap.
+			if score > bestScore {
+				bestScore = score
+				bestChar = i
+			}
+		}
+		if bestChar < 0 || bestScore <= 0 {
+			leftover = append(leftover, it)
+			continue
+		}
+		previous, hadPrev, ok := party[bestChar].EquipItem(it)
+		if !ok {
+			leftover = append(leftover, it)
+			continue
+		}
+		// If swap displaced something of higher quality, swap back. Cheap
+		// way to avoid downgrades: compare armor_class_base.
+		if hadPrev && it.Type == items.ItemArmor {
+			prevAC := previous.Attributes["armor_class_base"]
+			newAC := it.Attributes["armor_class_base"]
+			if prevAC > newAC {
+				// Undo: put `it` to leftover, restore previous
+				delete(party[bestChar].Equipment, items.EquipSlot(it.Attributes["equip_slot"]))
+				party[bestChar].EquipItem(previous)
+				leftover = append(leftover, it)
+				continue
+			}
+		}
+		// Otherwise prev item goes back to leftover for other chars or discard.
+		if hadPrev {
+			leftover = append(leftover, previous)
+		}
+	}
+	return leftover
+}
+
+// grindMaps simulates clearing all given maps (path, biome) end-to-end:
+// awards XP to each party member (split /4), rolls loot per kill, plus
+// the church_skeleton_chest weapon if the church map is in the list.
+// The dragon is excluded from the grind (it's the target of the
+// upcoming fight). Statpoints follow `strategy`. Returns the loot pool
+// that didn't fit into anyone's equipment.
+func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, maps []struct{ path, biome string }, strategy statStrategy) []items.Item {
+	t.Helper()
+	cfg := cs.game.config
+	var allDrops []items.Item
+	hasChurch := false
+
+	for _, mapInfo := range maps {
+		if mapInfo.biome == "church" {
+			hasChurch = true
+		}
+		counts, err := countMonsterSpawns(mapInfo.path, mapInfo.biome)
+		if err != nil {
+			t.Fatalf("count %s: %v", mapInfo.path, err)
+		}
+		delete(counts, "dragon") // dragon = endgame target, not auto-cleared
+		totalXP := 0
+		for monsterKey, n := range counts {
+			def, err := monsterPkg.MonsterConfig.GetMonsterByKey(monsterKey)
+			if err != nil || def == nil {
+				continue
+			}
+			totalXP += def.Experience * n
+			for i := 0; i < n; i++ {
+				m := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cfg)
+				drops := cs.checkMonsterLootDrop(m)
+				allDrops = append(allDrops, drops...)
+			}
+		}
+		xpPerMember := totalXP / len(party)
+		for _, c := range party {
+			applyXPAndLevelUp(c, cfg, xpPerMember, strategy)
+		}
+	}
+
+	if hasChurch {
+		// Church skeleton chest: 1 random weapon.
+		allDrops = append(allDrops, randomWeaponRewards(1)...)
+	}
+
+	// Shipwreck encounter (forest-side): 2-5 bandits + 500 XP completion.
+	shipwreckBandits := 2 + rand.Intn(4)
+	banditDef, _ := monsterPkg.MonsterConfig.GetMonsterByKey("bandit")
+	shipwreckXP := 0
+	if banditDef != nil {
+		shipwreckXP = banditDef.Experience * shipwreckBandits
+		for i := 0; i < shipwreckBandits; i++ {
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, "bandit", cfg)
+			allDrops = append(allDrops, cs.checkMonsterLootDrop(m)...)
+		}
+	}
+	shipwreckTotalXP := (shipwreckXP + 500) / len(party)
+	for _, c := range party {
+		applyXPAndLevelUp(c, cfg, shipwreckTotalXP+250, strategy)
+	}
+
+	sort.Slice(allDrops, func(i, j int) bool {
+		return allDrops[i].Attributes["armor_class_base"] > allDrops[j].Attributes["armor_class_base"]
+	})
+	return autoEquipPool(party, allDrops)
+}
+
+// grindForestAndChurch — convenience for the forest+church baseline scenario.
+func grindForestAndChurch(t *testing.T, cs *CombatSystem, party []*character.MMCharacter) []items.Item {
+	return grindMaps(t, cs, party, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+	}, statSpeedFloorThenPrimary)
+}
+
+// equipBestOffensiveSpellVs picks the spell with the highest effective
+// damage against `target`, accounting for the monster's resistances by
+// school. Used to make casters "prepare the right spell" before a fight
+// — e.g. ice_bolt against a fire-90-resistant dragon beats fireball
+// despite higher SP cost.
+func equipBestOffensiveSpellVs(c *character.MMCharacter, target *monsterPkg.Monster3D) {
+	bestID := spells.SpellID("")
+	bestScore := 0
+	for _, school := range c.MagicSchools {
+		if school == nil {
+			continue
+		}
+		for _, sid := range school.KnownSpells {
+			def, err := spells.GetSpellDefinitionByID(sid)
+			if err != nil || def.IsUtility {
+				continue
+			}
+			base := def.SpellPointsCost * 3 // SpellDamagePerSP
+			// Apply monster resistance for this spell's school.
+			dmgType := spellSchoolToDamageType(def.School)
+			resist := 0
+			if r, ok := target.Resistances[dmgType]; ok {
+				resist = r
+			}
+			effective := base * (100 - resist) / 100
+			if effective > bestScore {
+				bestScore = effective
+				bestID = sid
+			}
+		}
+	}
+	if bestID == "" {
+		return
+	}
+	if sp, err := spells.CreateSpellItem(bestID); err == nil {
+		c.Equipment[items.SlotSpell] = sp
+	}
+}
+
+// findInventoryItem returns the inventory index of the first item with the
+// given key (matched against config), or -1 if not present.
+func findInventoryItem(party *character.Party, name string) int {
+	for i, it := range party.Inventory {
+		if it.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// tryUsePotions consumes at most one revival_potion and one health_potion
+// per call. Revival is used first if anyone is KO'd; healing is used if
+// anyone alive has HP < 50% of max.
+func tryUsePotions(cs *CombatSystem) {
+	party := cs.game.party
+	// Revival: find first KO ally, look for revival potion in inventory.
+	for i, m := range party.Members {
+		if m.CanAct() {
+			continue
+		}
+		idx := findInventoryItem(party, "Revival Potion")
+		if idx < 0 {
+			break
+		}
+		cs.game.selectedChar = i
+		cs.game.UseConsumableFromInventory(idx, i)
+		break
+	}
+	// Healing: lowest-HP ally below 50%.
+	var hurt *character.MMCharacter
+	hurtIdx := -1
+	bestRatio := 0.5
+	for i, m := range party.Members {
+		if !m.CanAct() {
+			continue
+		}
+		r := float64(m.HitPoints) / float64(m.MaxHitPoints)
+		if r < bestRatio {
+			bestRatio = r
+			hurt = m
+			hurtIdx = i
+		}
+	}
+	if hurt != nil {
+		idx := findInventoryItem(party, "Health Potion")
+		if idx >= 0 {
+			cs.game.selectedChar = hurtIdx
+			cs.game.UseConsumableFromInventory(idx, hurtIdx)
+		}
+	}
+}
+
+// runOneFightWithPotions is runOneFight with one revival_potion + one
+// health_potion automatically consumed when conditions warrant it.
+// Potions are drawn from cs.game.party.Inventory.
+func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, monsters []*monsterPkg.Monster3D) (killed, wiped bool, rounds int) {
+	const maxRounds = 30
+	for ; rounds < maxRounds; rounds++ {
+		tryUsePotions(cs)
+		// Party turn — each char uses their action slots on the
+		// lowest-HP alive monster.
+		for _, c := range party {
+			if !c.CanAct() {
+				continue
+			}
+			slots := c.ActionSlotsForTurn(cs.game.statBonus)
+			for s := 0; s < slots; s++ {
+				target := pickLowestHPTarget(monsters)
+				if target == nil {
+					break
+				}
+				playerActSlot(cs, c, target, party)
+			}
+			if allMonstersDead(monsters) {
+				killed = true
+				break
+			}
+		}
+		if killed {
+			rounds++
+			return
+		}
+		for _, m := range monsters {
+			if !m.IsAlive() {
+				continue
+			}
+			monsterActOnce(cs, m, party)
+			if partyAllDown(party) {
+				break
+			}
+		}
+		if partyAllDown(party) {
+			wiped = true
+			return
+		}
+	}
+	wiped = partyAllDown(party)
+	return
+}
+
+// buildClearedForestParty installs a fresh L1 party on cs.game, grinds
+// the forest+church content (XP + loot to inventory), distributes stat
+// points, max-masters the Sorcerer's water school (ice_bolt prep),
+// auto-equips every armor/accessory/weapon from inventory by class
+// priority. Returns the party slice.
+func buildClearedForestParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	return buildClearedMapsParty(t, cs, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+	}, statSpeedFloorThenPrimary)
+}
+
+// buildClearedMapsParty grinds the given maps with the given stat strategy,
+// then equips everything from inventory.
+func buildClearedMapsParty(t *testing.T, cs *CombatSystem, maps []struct{ path, biome string }, strategy statStrategy) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config) // starter party with inventory
+	party := cs.game.party.Members
+
+	dropsForInventory := grindMaps(t, cs, party, maps, strategy)
+	for _, d := range dropsForInventory {
+		cs.game.party.AddItem(d)
+	}
+
+	// Sorcerer trains water school to Grandmaster (ice_bolt mastery).
+	for _, c := range party {
+		if c.Class != character.ClassSorcerer {
+			continue
+		}
+		if c.MagicSchools[character.MagicSchoolWater] == nil {
+			c.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{}
+		}
+		c.MagicSchools[character.MagicSchoolWater].Mastery = character.MasteryGrandMaster
+	}
+
+	autoEquipPartyInventory(cs.game.party)
+	return party
+}
+
+// autoEquipPartyInventory equips items from party.Inventory onto party
+// members based on class fit. Walks the inventory repeatedly until no
+// more upgrades can be applied.
+func autoEquipPartyInventory(party *character.Party) {
+	maxIterations := len(party.Inventory) * 2
+	for iter := 0; iter < maxIterations; iter++ {
+		bestInvIdx := -1
+		bestCharIdx := -1
+		bestScore := 0
+		for invIdx, it := range party.Inventory {
+			switch it.Type {
+			case items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemBattleSpell, items.ItemUtilitySpell:
+				continue
+			}
+			for charIdx, c := range party.Members {
+				if it.Type == items.ItemArmor && !c.CanEquipArmor(it) {
+					continue
+				}
+				if it.Type == items.ItemWeapon && !c.CanEquipWeaponByName(it.Name) {
+					continue
+				}
+				score := equipFitScore(c, it)
+				// Compare against currently-equipped item in target slot.
+				targetSlot := items.EquipSlot(it.Attributes["equip_slot"])
+				if it.Type == items.ItemWeapon {
+					targetSlot = items.SlotMainHand
+				}
+				if cur, exists := c.Equipment[targetSlot]; exists && targetSlot != 0 {
+					curScore := equipFitScore(c, cur)
+					if curScore >= score {
+						continue
+					}
+				}
+				if score > bestScore {
+					bestScore = score
+					bestInvIdx = invIdx
+					bestCharIdx = charIdx
+				}
+			}
+		}
+		if bestInvIdx < 0 {
+			break
+		}
+		party.EquipItemFromInventory(bestInvIdx, bestCharIdx)
+	}
+}
+
+// equipFitScore: armor → AC + class-priority bonus; weapon → damage;
+// accessory → class-relevant stat bonuses.
+func equipFitScore(c *character.MMCharacter, it items.Item) int {
+	switch it.Type {
+	case items.ItemArmor:
+		return armorScore(it, classArmorPriority(c.Class))
+	case items.ItemWeapon:
+		if def := lookupWeaponConfigByName(it.Name); def != nil {
+			return def.Damage * 10
+		}
+	case items.ItemAccessory:
+		switch c.Class {
+		case character.ClassKnight:
+			return it.Attributes["bonus_might"]*5 + it.Attributes["bonus_endurance"]*4
+		case character.ClassSorcerer:
+			return it.Attributes["bonus_intellect"]*5 +
+				it.Attributes["intellect_scaling_divisor"]*3 +
+				it.Attributes["bonus_personality"]*2
+		case character.ClassCleric:
+			return it.Attributes["bonus_personality"]*5 +
+				it.Attributes["personality_scaling_divisor"]*3
+		case character.ClassArcher:
+			return it.Attributes["bonus_accuracy"]*5 +
+				it.Attributes["bonus_speed"]*4 +
+				it.Attributes["bonus_luck"]*2
+		}
+	}
+	return 0
+}
+
+// runEndgameSim runs N trials of: build a fresh party via `build`,
+// fight the given monster set with potions + Bless + Sorcerer ice prep.
+// Reports wins/wipes/avg-HP and average enemy HP remaining on wipe.
+func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string) {
+	t.Helper()
+	const trials = 50
+	var wins, wipes int
+	var sumRoundsWin int
+	var sumHPLeft, sumEnemyHPLeftOnWipe float64
+	var sumLevel float64
+	var enemyMaxHPSum int
+
+	for trial := 0; trial < trials; trial++ {
+		party := build(t, cs)
+
+		// Spawn monsters first so the caster picks a spell that targets
+		// their resistance profile (water vs dragon, water vs alien
+		// — both have 0% water resist).
+		monsters := make([]*monsterPkg.Monster3D, 0, len(monsterKeys))
+		for _, key := range monsterKeys {
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config)
+			m.WasAttacked = true
+			monsters = append(monsters, m)
+		}
+		// Pick spell vs the first (representative) target.
+		for _, c := range party {
+			if c.Class == character.ClassSorcerer {
+				equipBestOffensiveSpellVs(c, monsters[0])
+			}
+		}
+
+		// Bless on (Cleric pre-cast), full HP/SP top-up.
+		cs.game.statBonus = 10
+		resetPartyForSim(party)
+
+		killed, wiped, rounds := runOneFightWithPotions(cs, party, monsters)
+		if killed {
+			wins++
+			sumRoundsWin += rounds
+		}
+		if wiped {
+			wipes++
+			// Sum of remaining HP across all enemies, fraction of total.
+			remHP := 0
+			totalMax := 0
+			for _, m := range monsters {
+				remHP += m.HitPoints
+				totalMax += m.MaxHitPoints
+			}
+			if totalMax > 0 {
+				sumEnemyHPLeftOnWipe += float64(remHP) / float64(totalMax)
+			}
+		}
+		sumHPLeft += partyHPRatio(party)
+		levelSum := 0
+		for _, c := range party {
+			levelSum += c.Level
+		}
+		sumLevel += float64(levelSum) / float64(len(party))
+		if trial == 0 {
+			for _, m := range monsters {
+				enemyMaxHPSum += m.MaxHitPoints
+			}
+		}
+	}
+	cs.game.statBonus = 0
+
+	avgRoundsWin := 0.0
+	if wins > 0 {
+		avgRoundsWin = float64(sumRoundsWin) / float64(wins)
+	}
+	t.Logf("%s — %d trials, fresh loot RNG per trial", label, trials)
+	t.Logf("  avg party level after grind: %.1f", sumLevel/float64(trials))
+	t.Logf("  wins:  %d/%d  (%.0f%%)", wins, trials, float64(wins)*100/float64(trials))
+	t.Logf("  wipes: %d/%d  (%.0f%%)", wipes, trials, float64(wipes)*100/float64(trials))
+	if wins > 0 {
+		t.Logf("  avg rounds to kill all enemies: %.1f", avgRoundsWin)
+	}
+	if wipes > 0 {
+		t.Logf("  avg enemy HP remaining on wipe: %.0f%% (of %d total)",
+			sumEnemyHPLeftOnWipe*100/float64(wipes), enemyMaxHPSum)
+	}
+	t.Logf("  avg party HP left: %.0f%%", sumHPLeft*100/float64(trials))
+}
+
+// TestCombatBalance_ClearedForestPartyVsDragon — cleared forest+church
+// party (Spd/End floor + ice_bolt GM + full potions + Bless) vs the
+// L15 dragon (HP 1100, 30-50 dmg, fire 90%, physical 50%, air 75%).
+func TestCombatBalance_ClearedForestPartyVsDragon(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	runEndgameSim(t, cs, buildClearedForestParty, []string{"dragon"}, "Cleared-forest party vs Dragon")
+}
+
+// TestCombatBalance_ClearedForestPartyVsTwoAliens — same cleared-forest
+// party against TWO L5 aliens (HP 500 each, 25-35 dmg, alien_dark_bolt
+// 4-tile projectile, fire 25%/dark 30%/physical −50% vulnerability).
+// Two of them double the burst damage but also double the kill load
+// — focus-fire usually finishes one before the second activates.
+func TestCombatBalance_ClearedForestPartyVsTwoAliens(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	runEndgameSim(t, cs, buildClearedForestParty, []string{"alien", "alien"}, "Cleared-forest party vs 2 Aliens")
+}
+
+// buildFullClearCasterSpeedParty grinds forest + church + water with the
+// caster-only-speed stat strategy: only Sorcerer/Archer reach Spd=16
+// (and thus 2 action slots under Bless). Knight/Cleric stay at base
+// Spd and invest only in End+primary.
+func buildFullClearCasterSpeedParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	return buildClearedMapsParty(t, cs, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+		{"../../assets/water.map", "water"},
+	}, statSpeedOnlyForCasters)
+}
+
+// TestCombatBalance_FullClearCasterSpeedPartyVsDragon — party clears
+// forest + church + water (everything except dragon), then fights the
+// dragon. Stat strategy: only Sorcerer/Archer invest Spd→16; Knight
+// and Cleric pour everything into End→15 then primary stat. Tests
+// whether the extra water-map XP/loot offsets the lost action slots
+// on the two melee chars.
+func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{"dragon"},
+		"Full-clear party (caster-only Spd, all 3 maps) vs Dragon")
 }
 
 // TestCombatBalance_LowLevelPartyVsForest runs the default starter party at
