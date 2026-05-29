@@ -2,12 +2,14 @@
 
 A retro first-person party RPG built with Go and Ebiten. Lead a four-member party through raycasted dungeons, fight in real-time or turn-based combat, and slay the four dragons to save the realm.
 
-![Spellbook UI with bookmarks and spell cards](src/spellbook.png)
-![Turn-based combat with bandits](src/turn_based_combat.png)
-![Dragon boss battle](src/dragon_battle.png)
-![Forest biome screenshot](src/forest.png)
-![Desert biome screenshot](src/desert.png)
-![Shipwreck encounter screenshot](src/shipwreck.png)
+![Dragon battle in the Scorching Desert](src/dragon.png)
+![Facing a forest orc](src/forest_orc.png)
+![Seabright, the seaside city](src/city.png)
+![Abandoned Church interior](src/church.png)
+![Ocean Depths underwater biome](src/water.png)
+![Spellbook with bookmarks and spell cards](src/spellbook.png)
+![Inventory and paperdoll equipment](src/inventory.png)
+![Weapon tooltip with full stats](src/item_tooltip.png)
 
 ## Features
 
@@ -91,7 +93,7 @@ Release archives include both the game executable and `RaysAndMagicMapViewer` fo
 | `npcs.yaml`        | NPCs (merchants, trainers, encounters) | [Adding an NPC](how_to_add_a_new_npc.md)           |
 | `loots.yaml`       | Monster drop tables                    |                                                    |
 | `tiles.yaml`       | Tile types per biome                   | [Adding a tile](how_to_add_a_new_tile.md)          |
-| `map_configs.yaml` | Per-map settings (biome, sky color)    |                                                    |
+| `map_configs.yaml` | Per-map settings + per-biome floor textures + clear-encounter chests |                                       |
 
 ### Adding new content
 

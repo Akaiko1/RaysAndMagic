@@ -42,6 +42,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
+		// Passive monsters mirror RT behaviour: no move, no attack until hit.
+		// The RT path enforces this in updatePlayerEngagementWithVision; the
+		// TB scheduler skips engagement updates entirely, so re-check here.
+		if m.PassiveUntilAttacked && !m.WasAttacked {
+			continue
+		}
 		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 
 		// Calculate distance to player
@@ -96,16 +102,26 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		return
 	}
 
-	// Attack a random party character
-	targetIndex := rand.Intn(len(gl.game.party.Members))
-	target := gl.game.party.Members[targetIndex]
+	attacks := monster.GetTurnBasedAttackCount()
+	for hit := 0; hit < attacks; hit++ {
+		// Re-filter every iteration: a previous attack may have just KO'd
+		// the only remaining target, in which case the rest are no-ops.
+		alive := alivePartyIndices(gl.game.party.Members)
+		if len(alive) == 0 {
+			return
+		}
+		targetIndex := alive[rand.Intn(len(alive))]
+		target := gl.game.party.Members[targetIndex]
 
-	damage := monster.GetAttackDamage()
+		damage := monster.GetAttackDamage()
+		finalDamage := gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
 
-	finalDamage := gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
+		// Perfect Dodge: luck/5% roll to avoid all damage
+		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {
+			gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
+			continue
+		}
 
-	// Perfect Dodge: luck/5% roll to avoid all damage
-	if dodged, _ := gl.combat.RollPerfectDodge(target); !dodged {
 		target.HitPoints -= finalDamage
 		if target.HitPoints < 0 {
 			target.HitPoints = 0
@@ -113,13 +129,26 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		if target.HitPoints == 0 {
 			target.AddCondition(character.ConditionUnconscious)
 		}
-		// Trigger damage blink effect
 		gl.game.TriggerDamageBlink(targetIndex)
 
-		gl.game.AddCombatMessage(fmt.Sprintf("%s attacks %s for %d damage!", monster.Name, target.Name, finalDamage))
-	} else {
-		gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
+		suffix := ""
+		if attacks > 1 {
+			suffix = fmt.Sprintf(" (%d/%d)", hit+1, attacks)
+		}
+		gl.game.AddCombatMessage(fmt.Sprintf("%s attacks %s for %d damage!%s", monster.Name, target.Name, finalDamage, suffix))
 	}
+}
+
+// alivePartyIndices returns indices of party members who can still take a hit
+// (HP > 0 and not unconscious). Order is preserved.
+func alivePartyIndices(members []*character.MMCharacter) []int {
+	indices := make([]int, 0, len(members))
+	for i, m := range members {
+		if m.CanAct() {
+			indices = append(indices, i)
+		}
+	}
+	return indices
 }
 
 // monsterMoveTurnBased handles a monster move in turn-based mode

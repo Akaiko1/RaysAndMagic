@@ -49,6 +49,7 @@ type viewer struct {
 	sidebarTab     int
 	tileDataByKey  map[string]*config.TileData
 	tileManager    *world.TileManager
+	monsterCfg     *monster.MonsterYAMLConfig
 	brush          brush
 	saveDialogOpen bool
 	savePath       string
@@ -168,14 +169,17 @@ func main() {
 		page:          pageMaps,
 		maps:          maps,
 		mapIndex:      0,
-		legendLines:   buildLegendEntries(world.GlobalTileManager, monsterCfg),
 		sidebarTab:    tabInfo,
 		tileDataByKey: world.GlobalTileManager.ListTiles(),
 		tileManager:   world.GlobalTileManager,
+		monsterCfg:    monsterCfg,
 		brush:         brush{kind: brushEraser},
 		contentItems:  buildContentCards(),
 		iconCache:     make(map[string]*ebiten.Image),
 	}
+	// Legend is biome-scoped to the current map (universal tiles/monsters
+	// plus the map biome's own); rebuilt whenever the map changes.
+	v.refreshLegend()
 	if len(maps) == 0 {
 		v.lastErr = "no maps loaded"
 	}
@@ -269,6 +273,7 @@ func (v *viewer) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
 		if len(v.maps) > 0 {
 			v.mapIndex = (v.mapIndex + 1) % len(v.maps)
+			v.refreshLegend()
 		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
@@ -277,6 +282,7 @@ func (v *viewer) Update() error {
 			if v.mapIndex < 0 {
 				v.mapIndex = len(v.maps) - 1
 			}
+			v.refreshLegend()
 		}
 	}
 
@@ -340,9 +346,9 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	lay := v.computeLayout(m)
 
-	drawMapPanel(screen, m, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH, v.tileManager, v.tileDataByKey)
+	drawMapPanel(screen, m, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 	drawToolbar(screen, lay, v.brush)
-	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush)
+	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileDataByKey, v.tileSpriteThumbnail)
 
 	if v.saveDialogOpen {
 		drawSaveDialog(screen, v.savePath, v.saveError)
@@ -498,7 +504,7 @@ func (v *viewer) maxLegendScroll() int {
 	return totalHeight - contentHeight
 }
 
-func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.TileManager, tileDataByKey map[string]*config.TileData) {
+func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
 	drawFilledRect(screen, x, y, w, h, color.RGBA{20, 20, 35, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
 
@@ -530,9 +536,26 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 	for ty := 0; ty < worldH; ty++ {
 		for tx := 0; tx < worldW; tx++ {
 			tile := m.Data.Tiles[ty][tx]
-			cellColor := getMapTileColor(tile, floorColor, tm, tileDataByKey)
 			drawX := originX + tx*tileSize
 			drawY := originY + ty*tileSize
+			// Tiles with a sprite (objects: trees, palms, houses…) draw the
+			// sprite over the floor color, so the map reads like the game,
+			// not just colored squares. Floors stay flat color. Skip sprites
+			// when cells are too tiny to be legible (keeps it fast + clean).
+			var sprite string
+			if key := tm.GetTileKey(tile); key != "" {
+				if data := tileDataByKey[key]; data != nil {
+					sprite = data.Sprite
+				}
+			}
+			if tileSize >= 6 && sprite != "" && thumb != nil {
+				if img := thumb(sprite); img != nil {
+					vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), floorColor, false)
+					drawImageInBox(screen, img, drawX, drawY, tileSize, tileSize)
+					continue
+				}
+			}
+			cellColor := getMapTileColor(tile, floorColor, tm, tileDataByKey)
 			vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
@@ -578,7 +601,7 @@ func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize in
 	}
 }
 
-func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legendLines []legendEntry, scroll int, currentBrush brush) {
+func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legendLines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
 	drawFilledRect(screen, x, y, w, h, color.RGBA{18, 18, 26, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
 
@@ -587,7 +610,11 @@ func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legen
 	row := y + tabHeight + 12
 
 	if tab == tabLegend {
-		drawLegendList(screen, x, row, w, h-(row-y)-12, legendLines, scroll, currentBrush)
+		floorColor := color.RGBA{60, 180, 60, 255}
+		if m.Config != nil {
+			floorColor = colorFromRGB(m.Config.DefaultFloorColor, 255)
+		}
+		drawLegendList(screen, x, row, w, h-(row-y)-12, legendLines, scroll, currentBrush, tileDataByKey, floorColor, thumb)
 		return
 	}
 
@@ -636,7 +663,7 @@ func drawSidebarTabs(screen *ebiten.Image, x, y, w, h int, active int) {
 	drawCenteredLabel(screen, "Legend (2)", rect{x: x + tabW, y: y, w: w - tabW, h: h})
 }
 
-func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, scroll int, currentBrush brush) {
+func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, floorColor color.RGBA, thumb func(sprite string) *ebiten.Image) {
 	lineHeight := 14
 	startY := y - scroll
 	for i, entry := range lines {
@@ -650,8 +677,83 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		if brushMatchesEntry(currentBrush, entry) {
 			drawFilledRect(screen, x+4, drawY-2, w-8, lineHeight+2, color.RGBA{70, 70, 95, 255})
 		}
-		ebitenutil.DebugPrintAt(screen, entry.Text, x+10, drawY)
+		// Preview showing how the tile/monster looks on the map, so the
+		// letter isn't the only cue: a sprite thumbnail for tiles that have
+		// one (objects), otherwise a color swatch matching the map grid.
+		// Floors have no sprite, so they stay color-only (no atlas overload).
+		const sw = 12
+		textX := x + 10
+		if !entry.IsHeader {
+			sx, sy := x+8, drawY
+			drawn := false
+			if entry.Kind == brushTile && thumb != nil {
+				if data := tileDataByKey[entry.TileKey]; data != nil && data.Sprite != "" {
+					if img := thumb(data.Sprite); img != nil {
+						drawImageInBox(screen, img, sx, sy, sw, sw)
+						drawn = true
+					}
+				}
+			}
+			if !drawn {
+				if swatch, ok := legendSwatchColor(entry, tileDataByKey, floorColor); ok {
+					drawFilledRect(screen, sx, sy, sw, sw, swatch)
+					drawn = true
+				}
+			}
+			if drawn {
+				drawRectBorder(screen, sx, sy, sw, sw, 1, color.RGBA{15, 15, 22, 255})
+				textX = sx + sw + 6
+			}
+		}
+		// Clip text so long names don't run off the panel.
+		avail := (x + w) - textX - 8
+		ebitenutil.DebugPrintAt(screen, clipText(entry.Text, avail), textX, drawY)
 	}
+}
+
+// drawImageInBox draws img scaled to fit a sw×sw box at (bx,by).
+func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int) {
+	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
+	if iw == 0 || ih == 0 {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(float64(bw)/float64(iw), float64(bh)/float64(ih))
+	op.GeoM.Translate(float64(bx), float64(by))
+	screen.DrawImage(img, op)
+}
+
+// clipText truncates text with an ellipsis to fit availPx (≈6px per glyph in
+// the debug font).
+func clipText(text string, availPx int) string {
+	const glyphW = 6
+	maxChars := availPx / glyphW
+	if maxChars < 1 {
+		return ""
+	}
+	if len(text) <= maxChars {
+		return text
+	}
+	if maxChars <= 1 {
+		return text[:maxChars]
+	}
+	return text[:maxChars-1] + "…"
+}
+
+// legendSwatchColor returns the preview color for a legend entry: the map
+// color for tiles, a red marker for monsters. ok=false for entries with no
+// visual (eraser / unresolved).
+func legendSwatchColor(entry legendEntry, tileDataByKey map[string]*config.TileData, floorColor color.RGBA) (color.RGBA, bool) {
+	switch entry.Kind {
+	case brushTile:
+		if c, ok := tileSwatchColor(entry.TileKey, tileDataByKey[entry.TileKey], floorColor); ok {
+			return c, true
+		}
+		return floorColor, true
+	case brushMonster:
+		return color.RGBA{200, 60, 60, 255}, true // monsters render as red markers on the map
+	}
+	return color.RGBA{}, false
 }
 
 func drawToolbar(screen *ebiten.Image, lay layout, currentBrush brush) {
@@ -1119,43 +1221,59 @@ func drawTileLetter(screen *ebiten.Image, originX, originY, tileSize, tx, ty int
 	ebitenutil.DebugPrintAt(screen, letter, drawX, drawY)
 }
 
-func getMapTileColor(tile world.TileType3D, floorColor color.RGBA, tm *world.TileManager, tileDataByKey map[string]*config.TileData) color.RGBA {
+// tileSwatchColor returns the schematic map color for a tile from its key +
+// config, mirroring exactly how the map grid paints it. Shared by the map
+// panel and the legend palette so the legend swatch matches the map. The bool
+// is false when the key/data don't determine a color (caller falls back).
+func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (color.RGBA, bool) {
 	obstacle := color.RGBA{50, 50, 60, 255}
+	switch key {
+	case "vteleporter":
+		return color.RGBA{170, 80, 200, 255}, true
+	case "rteleporter":
+		return color.RGBA{200, 70, 70, 255}, true
+	}
+	if data != nil {
+		if data.RenderType == "floor_only" || data.RenderType == "flooring_object" {
+			if key == "empty" {
+				return floorColor, true
+			}
+			if data.FloorColor != [3]int{} {
+				return colorFromRGB(data.FloorColor, 255), true
+			}
+			return floorColor, true
+		}
+		if data.RenderType == "environment_sprite" && data.Walkable {
+			return floorColor, true
+		}
+		if data.Solid || !data.Walkable {
+			// Use the obstacle's own wall_color so different obstacles
+			// (tree vs dune vs house) are distinguishable, not a flat gray.
+			if data.WallColor != [3]int{} {
+				return colorFromRGB(data.WallColor, 255), true
+			}
+			return obstacle, true
+		}
+		if data.FloorColor != [3]int{} {
+			return colorFromRGB(data.FloorColor, 255), true
+		}
+	}
+	return color.RGBA{}, false
+}
+
+func getMapTileColor(tile world.TileType3D, floorColor color.RGBA, tm *world.TileManager, tileDataByKey map[string]*config.TileData) color.RGBA {
 	if tm != nil {
 		key := tm.GetTileKey(tile)
 		if key != "" {
-			if key == "vteleporter" {
-				return color.RGBA{170, 80, 200, 255}
-			}
-			if key == "rteleporter" {
-				return color.RGBA{200, 70, 70, 255}
-			}
-			if data, ok := tileDataByKey[key]; ok && data != nil {
-				if data.RenderType == "floor_only" || data.RenderType == "flooring_object" {
-					if key == "empty" {
-						return floorColor
-					}
-					if data.FloorColor != [3]int{} {
-						return colorFromRGB(data.FloorColor, 255)
-					}
-					return floorColor
-				}
-				if data.RenderType == "environment_sprite" && data.Walkable {
-					return floorColor
-				}
-				if data.Solid || !data.Walkable {
-					return obstacle
-				}
-				if data.FloorColor != [3]int{} {
-					return colorFromRGB(data.FloorColor, 255)
-				}
+			if c, ok := tileSwatchColor(key, tileDataByKey[key], floorColor); ok {
+				return c
 			}
 		}
 	}
 
 	switch tile {
 	case world.TileWall, world.TileTree, world.TileAncientTree, world.TileThicket, world.TileMossRock, world.TileLowWall, world.TileHighWall:
-		return obstacle
+		return color.RGBA{50, 50, 60, 255}
 	case world.TileWater:
 		return color.RGBA{40, 90, 160, 255}
 	case world.TileDeepWater:
@@ -1200,77 +1318,142 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 	return maps, nil
 }
 
-func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig) []legendEntry {
+// matchesBiome reports whether a tile/monster (with the given biome scope) is
+// usable in the given biome. Empty scope = universal (every biome).
+func matchesBiome(scope []string, biome string) bool {
+	if len(scope) == 0 {
+		return true
+	}
+	for _, b := range scope {
+		if b == biome {
+			return true
+		}
+	}
+	return false
+}
+
+// currentBiome returns the biome of the map currently being edited.
+func (v *viewer) currentBiome() string {
+	if v.mapIndex >= 0 && v.mapIndex < len(v.maps) && v.maps[v.mapIndex].Config != nil {
+		return v.maps[v.mapIndex].Config.Biome
+	}
+	return ""
+}
+
+// refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
+// current map. Call after any change to mapIndex.
+func (v *viewer) refreshLegend() {
+	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome())
+	v.legendScroll = 0
+}
+
+// legendBuildItem is a legend entry plus whether its source def is
+// biome-specific (used to drop the universal fallback when a biome-specific
+// def claims the same letter).
+type legendBuildItem struct {
+	entry    legendEntry
+	specific bool
+}
+
+// emitBiomeScoped flattens per-letter build items into sorted legend entries,
+// dropping universal entries for any letter that ALSO has a biome-specific one.
+// This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
+// where a biome-specific def wins over the universal fallback for that letter —
+// so the palette shows only what would actually be placed.
+func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
+	letters := make([]string, 0, len(byLetter))
+	for l := range byLetter {
+		letters = append(letters, l)
+	}
+	sort.Strings(letters)
+	var out []legendEntry
+	for _, l := range letters {
+		items := byLetter[l]
+		hasSpecific := false
+		for _, it := range items {
+			if it.specific {
+				hasSpecific = true
+				break
+			}
+		}
+		kept := make([]legendEntry, 0, len(items))
+		for _, it := range items {
+			if hasSpecific && !it.specific {
+				continue // biome-specific def wins this letter; hide universal
+			}
+			kept = append(kept, it.entry)
+		}
+		sort.Slice(kept, func(i, j int) bool { return kept[i].Text < kept[j].Text })
+		out = append(out, kept...)
+	}
+	return out
+}
+
+// buildLegendEntries builds the editor palette scoped to one biome: universal
+// tiles/monsters plus those whose biome list contains `biome`. Other biomes'
+// entries are hidden so a forest tree can't be painted into a desert map, and
+// when a biome-specific def shares a letter with a universal one, only the
+// biome-specific (the def that actually resolves) is shown.
+func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string) []legendEntry {
 	var entries []legendEntry
 	entries = append(entries, legendEntry{Text: "Tools", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "Eraser", Kind: brushEraser})
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 
-	entries = append(entries, legendEntry{Text: "Tiles (letter -> key/name [biomes])", IsHeader: true})
+	biomeLabel := biome
+	if biomeLabel == "" {
+		biomeLabel = "—"
+	}
+	entries = append(entries, legendEntry{Text: fmt.Sprintf("Tiles — biome: %s", biomeLabel), IsHeader: true})
 
-	tileEntries := make(map[string][]legendEntry)
+	tileItems := make(map[string][]legendBuildItem)
 	for key, data := range tm.ListTiles() {
 		letter := data.Letter
 		if letter == "" {
 			continue
 		}
-		biomes := "all"
-		if len(data.Biomes) > 0 {
-			biomes = strings.Join(data.Biomes, ",")
+		if !matchesBiome(data.Biomes, biome) {
+			continue
 		}
-		text := fmt.Sprintf("%s -> %s (%s) [%s]", letter, key, data.Name, biomes)
-		tileEntries[letter] = append(tileEntries[letter], legendEntry{
-			Text:    text,
-			Kind:    brushTile,
-			Letter:  letter,
-			TileKey: key,
+		text := fmt.Sprintf("%s  %s (%s)", letter, key, data.Name)
+		tileItems[letter] = append(tileItems[letter], legendBuildItem{
+			entry: legendEntry{
+				Text:    text,
+				Kind:    brushTile,
+				Letter:  letter,
+				TileKey: key,
+			},
+			specific: len(data.Biomes) > 0,
 		})
 	}
-
-	letters := make([]string, 0, len(tileEntries))
-	for letter := range tileEntries {
-		letters = append(letters, letter)
-	}
-	sort.Strings(letters)
-	for _, letter := range letters {
-		entriesForLetter := tileEntries[letter]
-		sort.Slice(entriesForLetter, func(i, j int) bool {
-			return entriesForLetter[i].Text < entriesForLetter[j].Text
-		})
-		entries = append(entries, entriesForLetter...)
-	}
+	entries = append(entries, emitBiomeScoped(tileItems)...)
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "Monsters (letter -> key/name)", IsHeader: true})
 
 	if mc != nil {
-		monsterEntries := make(map[string][]legendEntry)
+		monsterItems := make(map[string][]legendBuildItem)
 		for key, def := range mc.Monsters {
 			letter := def.Letter
 			if letter == "" {
 				continue
 			}
-			text := fmt.Sprintf("%s -> %s (%s)", letter, key, def.Name)
-			monsterEntries[letter] = append(monsterEntries[letter], legendEntry{
-				Text:        text,
-				Kind:        brushMonster,
-				Letter:      letter,
-				MonsterKey:  key,
-				MonsterName: def.Name,
+			if !matchesBiome(def.Biomes, biome) {
+				continue
+			}
+			text := fmt.Sprintf("%s  %s (%s)", letter, key, def.Name)
+			monsterItems[letter] = append(monsterItems[letter], legendBuildItem{
+				entry: legendEntry{
+					Text:        text,
+					Kind:        brushMonster,
+					Letter:      letter,
+					MonsterKey:  key,
+					MonsterName: def.Name,
+				},
+				specific: len(def.Biomes) > 0,
 			})
 		}
-		monsterLetters := make([]string, 0, len(monsterEntries))
-		for letter := range monsterEntries {
-			monsterLetters = append(monsterLetters, letter)
-		}
-		sort.Strings(monsterLetters)
-		for _, letter := range monsterLetters {
-			entriesForLetter := monsterEntries[letter]
-			sort.Slice(entriesForLetter, func(i, j int) bool {
-				return entriesForLetter[i].Text < entriesForLetter[j].Text
-			})
-			entries = append(entries, entriesForLetter...)
-		}
+		entries = append(entries, emitBiomeScoped(monsterItems)...)
 	}
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})

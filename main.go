@@ -73,7 +73,7 @@ func main() {
 	// Initialize and load world manager
 	world.GlobalWorldManager = world.NewWorldManager(cfg)
 	if err := world.GlobalWorldManager.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
-		log.Printf("Warning: Failed to load map configs: %v", err)
+		log.Fatalf("Failed to load map configs: %v", err)
 	}
 	if err := world.GlobalWorldManager.LoadAllMaps(); err != nil {
 		log.Fatalf("Failed to load maps: %v", err)

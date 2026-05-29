@@ -178,6 +178,7 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 
 	// Starting skills
 	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
 

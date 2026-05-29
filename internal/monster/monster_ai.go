@@ -179,6 +179,16 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
+	if m.PassiveUntilAttacked && !m.WasAttacked {
+		if m.IsEngagingPlayer {
+			m.IsEngagingPlayer = false
+			m.State = StateIdle
+			m.StateTimer = 0
+			m.AttackCount = 0
+		}
+		return
+	}
+
 	// Get detection radius (use AlertRadius or default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
@@ -917,6 +927,12 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 
 	if m.config != nil {
 		attackCooldown = m.config.MonsterAI.AttackCooldown
+	}
+	if m.AttackCooldownMultiplier > 0 {
+		attackCooldown = int(math.Round(float64(attackCooldown) * m.AttackCooldownMultiplier))
+		if attackCooldown < 1 {
+			attackCooldown = 1
+		}
 	}
 
 	// Attack delay from config

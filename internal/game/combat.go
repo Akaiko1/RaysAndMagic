@@ -294,7 +294,9 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 		return // Weapon not found, skip attack
 	}
 
-	// Check if weapon is a bow (range > 3 tiles indicates ranged weapon)
+	// Ranged dispatch by `range` field (in display tiles). Anything > 3
+	// goes through the projectile path. Throwing weapons must declare
+	// range ≥ 4 to count as ranged (otherwise they fall into melee).
 	// For ranged: roll crit and apply doubling inside createArrowAttack only.
 	if weaponDef.Range > 3 {
 		cs.createArrowAttack(totalDamage)
@@ -311,7 +313,8 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 
 // createArrowAttack creates a projectile arrow attack
 func (cs *CombatSystem) createArrowAttack(damage int) {
-	// Find the equipped bow's YAML key
+	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
+	// (matches the dispatch gate in EquipmentMeleeAttack).
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
 	bowKey := "hunting_bow"

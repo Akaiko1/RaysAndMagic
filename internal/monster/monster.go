@@ -43,6 +43,7 @@ func generateUniqueMonsterID() string {
 type Monster3D struct {
 	X, Y         float64
 	Name         string
+	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements
 	Level        int
 	HitPoints    int
 	MaxHitPoints int
@@ -88,21 +89,24 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY      float64 // Original spawn position
-	TetherRadius        float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer    bool    // True when actively pursuing/fighting player
-	WasAttacked         bool    // True when monster was hit - prevents disengagement
-	HitTintFrames       int     // Frames remaining for red hit tint
-	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
-	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining int     // Real-time stun duration in frames
-	Flying              bool    // Whether the monster should be rendered above ground
-	RangedAttackRange   float64 // Optional ranged attack range override (pixels)
-	FireburstChance     float64 // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin  int     // Fireburst damage min
-	FireburstDamageMax  int     // Fireburst damage max
-	PoisonChance        float64 // Chance to apply poison on hit
-	PoisonDurationSec   int     // Poison duration in seconds
+	SpawnX, SpawnY           float64 // Original spawn position
+	TetherRadius             float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer         bool    // True when actively pursuing/fighting player
+	WasAttacked              bool    // True when monster was hit - prevents disengagement
+	HitTintFrames            int     // Frames remaining for red hit tint
+	AttackAnimFrames         int     // Frames remaining for attack animation (TB mode)
+	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining      int     // Real-time stun duration in frames
+	Flying                   bool    // Whether the monster should be rendered above ground
+	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
+	AttacksPerRound          int     // Turn-based melee attacks per monster round
+	PassiveUntilAttacked     bool    // True when the monster should not aggro until hit
+	AttackCooldownMultiplier float64 // Real-time attack cooldown multiplier (0.5 = twice as often)
+	FireburstChance          float64 // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin       int     // Fireburst damage min
+	FireburstDamageMax       int     // Fireburst damage max
+	PoisonChance             float64 // Chance to apply poison on hit
+	PoisonDurationSec        int     // Poison duration in seconds
 
 	// Loot
 	Gold  int
@@ -140,6 +144,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	monster := &Monster3D{
 		X:           x,
 		Y:           y,
+		Key:         monsterKey,
 		State:       StatePatrolling, // Start patrolling immediately to avoid "vibing" at spawn
 		Speed:       1.0,
 		Direction:   rand.Float64() * 2 * math.Pi,
@@ -202,6 +207,13 @@ func (m *Monster3D) GetAttackDamage() int {
 		return m.DamageMin
 	}
 	return m.DamageMin + rand.Intn(m.DamageMax-m.DamageMin+1)
+}
+
+func (m *Monster3D) GetTurnBasedAttackCount() int {
+	if m.AttacksPerRound < 1 {
+		return 1
+	}
+	return m.AttacksPerRound
 }
 
 func (m *Monster3D) HasRangedAttack() bool {

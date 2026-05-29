@@ -186,7 +186,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	// Panel dimensions
 	panelWidth := 700
-	panelHeight := 500 // Increased from 441 to accommodate taller character cards
+	panelHeight := 640
 	panelX := (ui.game.config.GetScreenWidth() - panelWidth) / 2
 	panelY := (ui.game.config.GetScreenHeight() - panelHeight) / 2
 
@@ -260,7 +260,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	case TabInventory:
 		ui.drawInventoryContent(screen, panelX, contentY, contentHeight)
 	case TabCharacters:
-		ui.drawCharactersContent(screen, panelX, contentY)
+		ui.drawCharactersContent(screen, panelX, contentY, contentHeight)
 	case TabSpellbook:
 		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
 	case TabQuests:

@@ -145,9 +145,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawLevelUpChoicePopup(screen)
 	}
 
-	// Draw tooltip last so it stays above other UI (unless a blocking popup is open
-	// or a fullscreen overlay like the world map / dialog is covering the menu).
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.dialogActive {
+	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
+	// are no longer suppressed — the spell trader UI surfaces spell details on
+	// hover and that's the only path that queues a tooltip there. Other modal
+	// states (stat popup, revival picker, fullscreen map) still suppress.
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen {
 		screenW := screen.Bounds().Dx()
 		mainW, _ := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
 		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, ui.tooltipY, ui.game.sprites)

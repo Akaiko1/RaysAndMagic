@@ -47,11 +47,11 @@ func NewSkillTeacher(name string, skill interface{}, maxMastery SkillMastery, x,
 		MaxMastery: maxMastery,
 		X:          x,
 		Y:          y,
-		Cost:       calculateTeachingCost(maxMastery),
+		Cost:       TrainingCostForMastery(maxMastery),
 	}
 }
 
-func calculateTeachingCost(mastery SkillMastery) int {
+func TrainingCostForMastery(mastery SkillMastery) int {
 	switch mastery {
 	case MasteryNovice:
 		return 100

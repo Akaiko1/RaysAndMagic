@@ -8,6 +8,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/highscore"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -339,7 +340,9 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	case npcHasChoiceDialog(ui.game.dialogNPC):
 		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case npcHasSpellTrading(ui.game.dialogNPC):
-		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogHeight)
+		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case npcHasSkillTraining(ui.game.dialogNPC):
+		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case npcHasMerchant(ui.game.dialogNPC):
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
@@ -403,84 +406,243 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 	}
 }
 
-// drawSpellTraderDialog draws dialog for spell trader NPCs
-func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
-	// Draw title
+// Spell-trader layout constants.
+const (
+	spellTraderPortraitSize = 56
+	spellTraderPortraitGap  = 28 // wider gap so name labels under portraits don't overlap.
+	spellTraderIconSize     = 48
+	spellTraderIconGap      = 10
+	spellTraderGridCols     = 6
+)
+
+// spellTraderPortraitRect returns the screen rect for the i-th party
+// portrait in the spell-trader dialog.
+func spellTraderPortraitRect(dialogX, dialogY, i int) (x, y, w, h int) {
+	stripW := 4*spellTraderPortraitSize + 3*spellTraderPortraitGap
+	startX := dialogX + (600-stripW)/2
+	return startX + i*(spellTraderPortraitSize+spellTraderPortraitGap),
+		dialogY + 78,
+		spellTraderPortraitSize,
+		spellTraderPortraitSize
+}
+
+// spellTraderIconRect returns the screen rect for the i-th spell icon.
+func spellTraderIconRect(dialogX, dialogY, i int) (x, y, w, h int) {
+	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
+	startX := dialogX + (600-gridW)/2
+	gridY := dialogY + 78 + spellTraderPortraitSize + 32
+	row := i / spellTraderGridCols
+	col := i % spellTraderGridCols
+	cellH := spellTraderIconSize + 14 // icon + cost line
+	return startX + col*(spellTraderIconSize+spellTraderIconGap),
+		gridY + row*(cellH+8),
+		spellTraderIconSize,
+		spellTraderIconSize
+}
+
+// drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
+// portrait strip at top, icon grid for spells below, tooltip on hover.
+func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
 
-	// Draw greeting
 	greetingText := "Welcome! I can teach you powerful spells for gold."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greetingText = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	ebitenutil.DebugPrintAt(screen, greetingText, dialogX+20, dialogY+50)
+	ebitenutil.DebugPrintAt(screen, greetingText, dialogX+20, dialogY+44)
 
-	// Draw party gold
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-	ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
+	ebitenutil.DebugPrintAt(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
 
-	// Draw character selection header
-	ebitenutil.DebugPrintAt(screen, "Select Character:", dialogX+20, dialogY+80)
-
-	// Get currently selected spell for eligibility checking
-	var selectedSpell *character.NPCSpell
-	if ui.game.selectedSpellKey != "" {
-		selectedSpell = ui.game.dialogNPC.SpellData[ui.game.selectedSpellKey]
-	}
-
-	// Draw character list
+	// Portrait strip — click to switch active character.
+	mouseX, mouseY := ebiten.CursorPosition()
 	for i, member := range ui.game.party.Members {
-		y := dialogY + 100 + (i * UIRowSpacing)
-		charText := fmt.Sprintf("%d. %s (Level %d %s)", i+1, member.Name, member.Level, member.Class)
-
-		// Check if character can learn the selected spell
-		canLearn := selectedSpell != nil && ui.characterCanLearnSpell(member, selectedSpell)
-		alreadyKnows := selectedSpell != nil && characterKnowsSpellByName(member, selectedSpell.Name)
-
-		// Color coding and text based on eligibility
-		bgColor, statusText := ui.getCharacterSpellStatus(i, canLearn, alreadyKnows, selectedSpell != nil)
-		charText += statusText
-
-		// Draw background if needed
-		ui.drawUIBackground(screen, dialogX+15, y-2, UICharacterBackgroundWidth, UIRowHeight, bgColor)
-
-		ebitenutil.DebugPrintAt(screen, charText, dialogX+20, y)
+		x, y, w, h := spellTraderPortraitRect(dialogX, dialogY, i)
+		if i == ui.game.selectedCharIdx {
+			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
+		} else if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 160, 200})
+		}
+		portrait := ui.game.sprites.GetSprite(strings.ToLower(member.Name))
+		drawImageScaled(screen, portrait, x, y, w, h)
+		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
+		drawCenteredDebugText(screen, label, x-8, y+h+2, w+16, debugTextCharHeight)
 	}
 
-	// Draw spells section
-	spellsY := dialogY + 100 + (len(ui.game.party.Members) * UIRowSpacing) + 20
-	ebitenutil.DebugPrintAt(screen, "Available Spells:", dialogX+20, spellsY)
-
-	// Draw spell list using deterministic ordering
+	// Spell icon grid.
 	spellKeys := npcSpellKeys(ui.game.dialogNPC)
-	for spellIndex, spellKey := range spellKeys {
-		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
-		y := spellsY + 20 + (spellIndex * UIRowSpacing)
-		spellText := fmt.Sprintf("%d. %s - %d gold", spellIndex+1, npcSpell.Name, npcSpell.Cost)
+	var selectedChar *character.MMCharacter
+	if ui.game.selectedCharIdx >= 0 && ui.game.selectedCharIdx < len(ui.game.party.Members) {
+		selectedChar = ui.game.party.Members[ui.game.selectedCharIdx]
+	}
 
-		// Check if character already knows this spell
-		if ui.game.selectedCharIdx >= 0 && ui.game.selectedCharIdx < len(ui.game.party.Members) {
-			selectedChar := ui.game.party.Members[ui.game.selectedCharIdx]
-			if characterKnowsSpellByName(selectedChar, npcSpell.Name) {
-				spellText += " (Already Known)"
+	var hoverSpellIdx = -1
+	for i, spellKey := range spellKeys {
+		x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
+
+		// Determine status for the selected character.
+		canLearn := selectedChar != nil && ui.characterCanLearnSpell(selectedChar, npcSpell)
+		alreadyKnows := selectedChar != nil && characterKnowsSpellByName(selectedChar, npcSpell.Name)
+
+		// Frame: selected = bright gold; can-learn = green; cannot = red; known = gray.
+		switch {
+		case i == ui.game.dialogSelectedSpell:
+			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{220, 180, 60, 255})
+		case alreadyKnows:
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 120, 220})
+		case selectedChar != nil && canLearn:
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 220})
+		case selectedChar != nil:
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{200, 80, 80, 220})
+		}
+
+		// Icon.
+		iconName := spellTooltipIconName(spells.SpellID(spellKey))
+		if ui.game.sprites.HasSprite(iconName) {
+			drawImageScaled(screen, ui.game.sprites.GetSprite(iconName), x, y, w, h)
+		} else {
+			drawFilledRect(screen, x, y, w, h, color.RGBA{42, 32, 45, 255})
+			drawCenteredDebugText(screen, spellInitials(npcSpell.Name), x, y, w, h)
+		}
+
+		// Cost under icon.
+		costText := fmt.Sprintf("%d g", npcSpell.Cost)
+		drawCenteredDebugText(screen, costText, x-4, y+h+2, w+8, debugTextCharHeight)
+
+		// Dim overlay if known.
+		if alreadyKnows {
+			drawFilledRect(screen, x, y, w, h, color.RGBA{0, 0, 0, 130})
+		}
+
+		if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+			hoverSpellIdx = i
+		}
+	}
+
+	// Hover tooltip — name + school + cost + requirements.
+	if hoverSpellIdx >= 0 {
+		spellKey := spellKeys[hoverSpellIdx]
+		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
+		lines := []string{
+			npcSpell.Name,
+			fmt.Sprintf("%s school   %d gold", strings.Title(npcSpell.School), npcSpell.Cost),
+		}
+		if npcSpell.Requirements != nil {
+			if npcSpell.Requirements.MinLevel > 0 {
+				lines = append(lines, fmt.Sprintf("Requires char level %d", npcSpell.Requirements.MinLevel))
+			}
+			for _, req := range npcSpell.Requirements.Schools {
+				lines = append(lines, fmt.Sprintf("Requires %s magic L%d", strings.Title(req.School), req.MinLevel))
 			}
 		}
-
-		// Highlight selected spell
-		if spellIndex == ui.game.dialogSelectedSpell {
-			ui.drawUIBackground(screen, dialogX+15, y-2, UISpellBackgroundWidth, UIRowHeight, UIColorSpellSelection)
-		}
-
-		ebitenutil.DebugPrintAt(screen, spellText, dialogX+20, y)
+		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}
 
-	// Draw instructions
-	instructionsY := dialogY + dialogHeight - 95
-	ebitenutil.DebugPrintAt(screen, "Arrow Keys: Navigate  |  Mouse: Click to Select", dialogX+20, instructionsY)
-	ebitenutil.DebugPrintAt(screen, "Enter or Double-Click: Purchase Spell", dialogX+20, instructionsY+15)
-	ebitenutil.DebugPrintAt(screen, "Escape: Close Dialog", dialogX+20, instructionsY+30)
-	ebitenutil.DebugPrintAt(screen, "Green: Can Learn  |  Red: Cannot Learn  |  Gray: Knows Spell", dialogX+20, instructionsY+45)
+	// Instructions.
+	instructionsY := dialogY + dialogHeight - 60
+	ebitenutil.DebugPrintAt(screen, "Click portrait: select character  |  Hover spell: details", dialogX+20, instructionsY)
+	ebitenutil.DebugPrintAt(screen, "Click spell: select  |  Double-click: purchase  |  ESC: close", dialogX+20, instructionsY+15)
+	ebitenutil.DebugPrintAt(screen, "Gold frame: selected | Green: can learn | Red: cannot | Gray: known", dialogX+20, instructionsY+30)
+}
+
+// Skill-trainer layout.
+const (
+	skillTrainerPortraitSize = 80
+	skillTrainerPortraitGap  = 24
+)
+
+func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h int) {
+	stripW := 4*skillTrainerPortraitSize + 3*skillTrainerPortraitGap
+	startX := dialogX + (dialogWidth-stripW)/2
+	return startX + i*(skillTrainerPortraitSize+skillTrainerPortraitGap),
+		dialogY + 120,
+		skillTrainerPortraitSize,
+		skillTrainerPortraitSize
+}
+
+// skillTrainerOptionRect returns the rect for the i-th mastery option
+// inside the modal popup (top-anchored).
+func skillTrainerOptionRect(popupX, popupY, i int) (x, y, w, h int) {
+	return popupX + 12, popupY + 56 + i*UIRowSpacing, 396, UIRowHeight
+}
+
+func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, y, w, h int) {
+	popupW := 420
+	popupH := dialogHeight - 60
+	return dialogX + (dialogWidth-popupW)/2, dialogY + 30, popupW, popupH
+}
+
+func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	titleText := fmt.Sprintf("Mastery Trainer - %s", ui.game.dialogNPC.Name)
+	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+
+	greeting := "Choose a character to view trainable masteries."
+	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+		greeting = ui.game.dialogNPC.DialogueData.Greeting
+	}
+	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+44)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
+
+	// Portrait row.
+	mouseX, mouseY := ebiten.CursorPosition()
+	for i, member := range ui.game.party.Members {
+		x, y, w, h := skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i)
+		hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+		if hover && !ui.game.skillTrainerPopup {
+			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
+		}
+		drawImageScaled(screen, ui.game.sprites.GetSprite(strings.ToLower(member.Name)), x, y, w, h)
+		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.Class), x-8, y+h+20, w+16, debugTextCharHeight)
+	}
+
+	instructionsY := dialogY + dialogHeight - 40
+	ebitenutil.DebugPrintAt(screen, "Click a portrait to view trainable masteries  |  ESC: close", dialogX+20, instructionsY)
+
+	// Modal popup on top when character was clicked.
+	if ui.game.skillTrainerPopup &&
+		ui.game.selectedCharIdx >= 0 &&
+		ui.game.selectedCharIdx < len(ui.game.party.Members) {
+		ui.drawSkillTrainerPopup(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	}
+}
+
+func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
+	drawFilledRect(screen, px, py, pw, ph, color.RGBA{30, 30, 50, 245})
+	drawRectBorder(screen, px, py, pw, ph, 3, color.RGBA{180, 150, 80, 240})
+
+	member := ui.game.party.Members[ui.game.selectedCharIdx]
+	header := fmt.Sprintf("%s - Trainable Masteries", member.Name)
+	drawCenteredDebugText(screen, header, px, py+10, pw, 18)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d", ui.game.party.Gold), px+12, py+30)
+
+	options := trainerOptions(member)
+	if len(options) == 0 {
+		drawCenteredDebugText(screen, "All known masteries are already maxed.", px, py+ph/2-8, pw, 16)
+	} else {
+		mouseX, mouseY := ebiten.CursorPosition()
+		maxOptions := (ph - 90) / UIRowSpacing
+		for i := 0; i < len(options) && i < maxOptions; i++ {
+			option := options[i]
+			x, y, w, h := skillTrainerOptionRect(px, py, i)
+			hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+			if i == ui.game.dialogSelectedSpell {
+				ui.drawUIBackground(screen, x, y-2, w, h+4, color.RGBA{80, 130, 70, 200})
+			} else if hover {
+				ui.drawUIBackground(screen, x, y-2, w, h+4, color.RGBA{60, 70, 100, 160})
+			}
+			label := fmt.Sprintf("%s:  %s -> %s   %d gold", option.Label, option.Current.String(), option.Next.String(), option.Cost)
+			if option.Cost > ui.game.party.Gold {
+				label += "  (Need Gold)"
+			}
+			ebitenutil.DebugPrintAt(screen, label, x+6, y)
+		}
+	}
+
+	ebitenutil.DebugPrintAt(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
 }
 
 // drawMerchantDialog draws a buy/sell UI for merchant NPCs

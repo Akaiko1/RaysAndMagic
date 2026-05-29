@@ -68,7 +68,7 @@ type Renderer struct {
 	floorTexCount        int
 	floorTexTileW        int
 	floorTexTileH        int
-	floorTexturesKey     string // map file the textures were loaded for (cache key)
+	floorTexturesKey     string // biome the floor textures were loaded for (cache key)
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
@@ -574,11 +574,22 @@ func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.Til
 	return group.start + offset, true
 }
 
+// defaultFloorTextureGroup is the biome floor group used for any tile that
+// doesn't name its own group — see floorTextureGroupForTile.
+const defaultFloorTextureGroup = "default"
+
 // floorTextureGroupForTile returns the floor-texture group name for a tile.
-// Mapping is data-driven from tiles.yaml (TileData.FloorTextureGroup). The
-// only hardcoded override is the "beach" special case: an "empty" tile that
-// borders any water-group tile uses "beach" instead of its own group, so
-// shorelines visually transition into sand.
+// Mapping is data-driven from tiles.yaml (TileData.FloorTextureGroup) with two
+// fallbacks resolved here, not in the data:
+//   - "beach": an "empty" tile bordering any water-group tile uses "beach"
+//     instead of its own group, so shorelines transition into sand.
+//   - "default": a tile that names no group AND paints no floor_color of its
+//     own falls back to the biome's "default" floor (grass in forest, sand in
+//     desert, …). This lets decorative objects (ferns, moss rocks, trees) sit
+//     on the biome ground without hardcoding a group. Tiles that DO set a
+//     floor_color — teleporters, traps, spawn — are coloured squares whose
+//     color is their whole look, so they stay untextured. If the biome has no
+//     "default" group, floorTextureIndexForTile falls back to the base color.
 func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.TileType3D) string {
 	if world.GlobalTileManager == nil {
 		return ""
@@ -587,13 +598,30 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	if tileData == nil {
 		return ""
 	}
-	if world.GlobalTileManager.GetTileKey(tileType) == "empty" && r.emptyTileBordersWater(tileX, tileY) {
-		return "beach"
+	group := tileData.FloorTextureGroup
+	if group == "" {
+		// No group: borrow the biome default only for tiles that paint no
+		// floor of their own. A set floor_color means the color IS the look
+		// (teleporter/trap/spawn) — leave it untextured.
+		if tileData.FloorColor != ([3]int{0, 0, 0}) {
+			return ""
+		}
+		group = defaultFloorTextureGroup
 	}
-	return tileData.FloorTextureGroup
+	// Beach shoreline: any tile sitting on the biome's default ground that
+	// borders water uses "beach" instead, so the sand transition is
+	// continuous — including the ground under objects like palms, not just
+	// bare empty tiles. Only when the current biome actually defines a
+	// "beach" group (forest/desert), so city/church floors are unaffected.
+	if group == defaultFloorTextureGroup && r.tileBordersWater(tileX, tileY) {
+		if _, ok := r.floorTexGroups["beach"]; ok {
+			return "beach"
+		}
+	}
+	return group
 }
 
-func (r *Renderer) emptyTileBordersWater(tileX, tileY int) bool {
+func (r *Renderer) tileBordersWater(tileX, tileY int) bool {
 	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
 		return false
 	}
@@ -629,19 +657,19 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return
 	}
 	mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-	if mapConfig == nil || (len(mapConfig.FloorTextures) == 0 && len(mapConfig.FloorTextureGroups) == 0) {
+	if mapConfig == nil {
 		r.clearFloorAtlas()
 		return
 	}
-	if mapConfig.File == r.floorTexturesKey && r.floorTexAtlas != nil {
-		return // same map, atlas already built
-	}
-
-	// Load every configured group into its own slice first; legacy
-	// FloorTextures becomes the implicit "default" group.
-	groupSources := mapConfig.FloorTextureGroups
+	// Floor textures are biome-driven: every map of a biome shares the same
+	// groups, so the atlas is cached per biome rather than per map file.
+	groupSources := world.GlobalWorldManager.GetCurrentBiomeFloorTextureGroups()
 	if len(groupSources) == 0 {
-		groupSources = map[string][]string{"default": mapConfig.FloorTextures}
+		r.clearFloorAtlas()
+		return
+	}
+	if mapConfig.Biome == r.floorTexturesKey && r.floorTexAtlas != nil {
+		return // same biome, atlas already built
 	}
 	groupNames := floorTextureGroupLoadOrder(groupSources)
 	rawGroups := make(map[string][]floorTexture, len(groupNames))
@@ -696,7 +724,7 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 
 	r.buildFloorTexAtlas(textures)
 	r.floorTexGroups = groups
-	r.floorTexturesKey = mapConfig.File
+	r.floorTexturesKey = mapConfig.Biome
 }
 
 func (r *Renderer) clearFloorAtlas() {

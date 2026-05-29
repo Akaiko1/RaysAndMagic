@@ -72,6 +72,16 @@ loots:
       key: "alien_blaster"
       chance: 0.06
 
+  medusa:
+    - type: "item"
+      key: "medusa_card"
+      chance: 0.005
+
+  octopus:
+    - type: "item"
+      key: "belt_of_speed"
+      chance: 0.03
+
   skeleton:
     - type: "item"
       key: "chain_armor"

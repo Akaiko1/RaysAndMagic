@@ -1,46 +1,15 @@
-# UgaTaima Forest Map
-# 
-# TILE MAPPINGS:
-# All tile symbols and their properties are defined in assets/tiles.yaml
-# Terrain tiles used in this map:
-# . = Empty Space (walkable)
-# # = Stone Wall (blocking)
-# W = Water (blocking)
-# D = Door (blocking, can be opened)
-# ^ = Stairs (walkable)
-# T = Forest Tree (blocking)
-# A = Ancient Tree (blocking)
-# % = Dense Undergrowth/Thicket (blocking)
-# R = Moss-covered Stone (blocking)
-# M = Magical Fairy Ring (walkable, magical)
-# S = Flowing Water/Forest Stream (walkable)
-# P = Dense Ferns/Fern Patch (walkable)
-# F = Magical Lights/Firefly Swarm (walkable, magical)
-# C = Open Grass Area/Clearing (walkable)
-# + = Starting Position (walkable)
-# - = Short Defensive Wall/Low Wall (blocking)
-# = = Tall Fortification/High Wall (blocking)
-# X = Magic Crystal (walkable, magical)
-# 
-# MONSTER SPAWNS:
-# All monster letters and their properties are defined in assets/monsters.yaml
-# Monster spawns (will be processed after map loading):
-# g = Goblin spawn
-# o = Orc spawn  
-# w = Wolf spawn
-# b = Bear spawn
-# s = Spider spawn
-# k = Skeleton spawn
-# l = Troll spawn
-# d = Dragon spawn
-# f = Forest Orc spawn
-# u = Dire Wolf spawn
-# i = Forest Spider spawn
-# t = Treant spawn
-# p = Pixie spawn
-# n = Bandit spawn
+# UgaTaima Forest Map (biome: forest)
 #
-# Map size: 50x50
+# Symbols resolve via assets/tiles.yaml for the "forest" biome. The map viewer
+# shows the authoritative, data-driven legend with tile/monster previews.
+# Tiles used here:
+# . = grass floor   % = thicket   T = tree   A = ancient tree   R = moss rock
+# C = clearing      P = fern patch   F = firefly swarm   M = fairy ring
+# S = forest stream W = water         Q = deep water       D = door
+# - = low wall      = = high wall     + = start
+# Monster spawns: b=bear f=forest orc g=goblin l=troll n=bandit p=pixie
+#                 t=treant w=wolf
+# @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %.@..T...T....T.PPPPP...T........T....T.PPWQQQQQQ%  >[npc:mtrader0]
@@ -48,7 +17,7 @@
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%
 %..........T.CCCCCCl..T.........T.....T........WW%
-%tT.....T...CCCCCC.l..T.......T.....T............%
+%tT.....T...CCCCCC.l..T.......T.....T...........@%  >[npc:seabright_gate]
 %....T.......CCCCCC.....T.........T.....T........%
 %..........T.......T.....T.......T...............%
 %tT.....T.......T.....T.......T.....T............%

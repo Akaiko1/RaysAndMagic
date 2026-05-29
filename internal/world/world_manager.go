@@ -3,6 +3,7 @@ package world
 import (
 	"fmt"
 	"os"
+	"sort"
 	"time"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
@@ -15,6 +16,7 @@ type WorldManager struct {
 	CurrentMapKey        string
 	LoadedMaps           map[string]*World3D
 	MapConfigs           map[string]*config.MapConfig
+	Biomes               map[string]config.BiomeConfig
 	TransitionInProgress bool
 	config               *config.Config
 
@@ -31,6 +33,7 @@ func NewWorldManager(cfg *config.Config) *WorldManager {
 		CurrentMapKey:        "forest", // Default starting map
 		LoadedMaps:           make(map[string]*World3D),
 		MapConfigs:           make(map[string]*config.MapConfig),
+		Biomes:               make(map[string]config.BiomeConfig),
 		TransitionInProgress: false,
 		config:               cfg,
 		GlobalTeleporterRegistry: &TeleporterRegistry{
@@ -61,7 +64,55 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		wm.MapConfigs[key] = &configCopy
 	}
 
-	fmt.Printf("Loaded %d map configurations\n", len(wm.MapConfigs))
+	// Store biome definitions (floor texture groups etc.) shared by maps.
+	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
+	for name, biome := range mapConfigs.Biomes {
+		wm.Biomes[name] = biome
+	}
+
+	// Fail fast: every map's biome must have a definition so floors render.
+	for key, mapConfig := range wm.MapConfigs {
+		if _, ok := wm.Biomes[mapConfig.Biome]; !ok {
+			return fmt.Errorf("map %q references biome %q with no definition in biomes:", key, mapConfig.Biome)
+		}
+	}
+
+	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
+	// named group must be defined by at least one biome (we don't require
+	// every biome to define it — universal tiles like water legitimately
+	// fall back to base color in biomes that omit the group). The dynamic
+	// "beach"/"default" fallbacks are resolved in the renderer, not from a
+	// tile field, so they need no entry here.
+	if err := wm.validateTileFloorTextureGroups(); err != nil {
+		return err
+	}
+
+	fmt.Printf("Loaded %d map configurations, %d biomes\n", len(wm.MapConfigs), len(wm.Biomes))
+	return nil
+}
+
+// validateTileFloorTextureGroups ensures every floor_texture_group named by a
+// tile in tiles.yaml is defined in at least one biome, catching typos at load
+// time instead of silently rendering the tile's base color.
+func (wm *WorldManager) validateTileFloorTextureGroups() error {
+	if GlobalTileManager == nil {
+		return nil // tiles not loaded (e.g. a context that skips them) — nothing to check
+	}
+	definedGroups := make(map[string]bool)
+	for _, biome := range wm.Biomes {
+		for groupName := range biome.FloorTextureGroups {
+			definedGroups[groupName] = true
+		}
+	}
+	for tileKey, data := range GlobalTileManager.ListTiles() {
+		group := data.FloorTextureGroup
+		if group == "" {
+			continue // empty = renderer falls back to the biome "default" group
+		}
+		if !definedGroups[group] {
+			return fmt.Errorf("tile %q references floor_texture_group %q not defined in any biome", tileKey, group)
+		}
+	}
 	return nil
 }
 
@@ -151,10 +202,85 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 }
 
 func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, mapConfig *config.MapConfig) {
-	if world == nil || mapConfig == nil || mapConfig.ClearEncounter == nil || mapConfig.ClearEncounter.Rewards == nil || len(world.Monsters) == 0 {
+	if world == nil || mapConfig == nil || len(world.Monsters) == 0 {
 		return
 	}
-	cfg := mapConfig.ClearEncounter.Rewards
+
+	// Multiple independent encounters. Each encounter data-drives its own
+	// roster via `monsters: [{type, count}]`; the engine binds the `count`
+	// pre-placed monsters of each type nearest to that encounter's chest.
+	// The runtime keys reward completion by the EncounterRewards pointer, so
+	// each group's chest fires when its bound monsters are all dead.
+	if len(mapConfig.ClearEncounters) > 0 {
+		tileSize := wm.config.GetTileSize()
+		assigned := make([]bool, len(world.Monsters))
+		for i := range mapConfig.ClearEncounters {
+			ec := &mapConfig.ClearEncounters[i]
+			if ec.Rewards == nil {
+				continue
+			}
+			ax, ay := 0.0, 0.0
+			if ec.Rewards.TreasureChest != nil {
+				ax, ay = tileCenterFromTile(ec.Rewards.TreasureChest.TileX, ec.Rewards.TreasureChest.TileY, tileSize)
+			}
+			rewards := buildEncounterRewards(ec, mapKey)
+			for _, req := range ec.Monsters {
+				// Rank unassigned monsters of this type by distance to the chest.
+				type candidate struct {
+					idx  int
+					dist float64
+				}
+				var cands []candidate
+				for mi, mon := range world.Monsters {
+					if assigned[mi] || mon.Key != req.Type {
+						continue
+					}
+					dx, dy := mon.X-ax, mon.Y-ay
+					cands = append(cands, candidate{mi, dx*dx + dy*dy})
+				}
+				sort.Slice(cands, func(a, b int) bool { return cands[a].dist < cands[b].dist })
+				n := req.Count
+				if n > len(cands) {
+					fmt.Printf("[WARN] map %q encounter chest %q wants %d %q but only %d available; binding %d\n",
+						mapKey, encounterChestID(ec), req.Count, req.Type, len(cands), len(cands))
+					n = len(cands)
+				}
+				for k := 0; k < n; k++ {
+					mi := cands[k].idx
+					assigned[mi] = true
+					world.Monsters[mi].IsEncounterMonster = true
+					world.Monsters[mi].EncounterRewards = rewards
+				}
+			}
+		}
+		return
+	}
+
+	// Single map-wide encounter: every monster shares it; reward fires when
+	// the last one dies.
+	if mapConfig.ClearEncounter == nil || mapConfig.ClearEncounter.Rewards == nil {
+		return
+	}
+	rewards := buildEncounterRewards(mapConfig.ClearEncounter, mapKey)
+	for _, mon := range world.Monsters {
+		mon.IsEncounterMonster = true
+		mon.EncounterRewards = rewards
+	}
+}
+
+// encounterChestID returns the chest ID of an encounter for log messages,
+// or "<no chest>" when the encounter declares none.
+func encounterChestID(ec *config.MapClearEncounterConfig) string {
+	if ec.Rewards != nil && ec.Rewards.TreasureChest != nil && ec.Rewards.TreasureChest.ID != "" {
+		return ec.Rewards.TreasureChest.ID
+	}
+	return "<no chest>"
+}
+
+// buildEncounterRewards converts a YAML clear-encounter config into the
+// runtime reward struct, defaulting the chest's map to the owning map.
+func buildEncounterRewards(ec *config.MapClearEncounterConfig, mapKey string) *monster.EncounterRewards {
+	cfg := ec.Rewards
 	rewards := &monster.EncounterRewards{
 		Gold:              cfg.Gold,
 		Experience:        cfg.Experience,
@@ -178,10 +304,7 @@ func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, m
 			CompletionMessage: chestCfg.CompletionMessage,
 		}
 	}
-	for _, mon := range world.Monsters {
-		mon.IsEncounterMonster = true
-		mon.EncounterRewards = rewards
-	}
+	return rewards
 }
 
 // GetCurrentWorld returns the currently active world
@@ -203,6 +326,20 @@ func (wm *WorldManager) GetCurrentWorld() *World3D {
 func (wm *WorldManager) GetCurrentMapConfig() *config.MapConfig {
 	if config, exists := wm.MapConfigs[wm.CurrentMapKey]; exists {
 		return config
+	}
+	return nil
+}
+
+// GetCurrentBiomeFloorTextureGroups returns the floor-texture groups defined
+// by the current map's biome, or nil if the map/biome is unknown. The
+// renderer builds its floor atlas from these groups (keyed by group name).
+func (wm *WorldManager) GetCurrentBiomeFloorTextureGroups() map[string][]string {
+	mapConfig := wm.GetCurrentMapConfig()
+	if mapConfig == nil {
+		return nil
+	}
+	if biome, ok := wm.Biomes[mapConfig.Biome]; ok {
+		return biome.FloorTextureGroups
 	}
 	return nil
 }

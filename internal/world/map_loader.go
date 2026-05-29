@@ -159,7 +159,7 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 			if monsterLetter != "" {
 				// Convert letter to monster key using YAML config
 				if monster.MonsterConfig != nil {
-					_, monsterKey, err := monster.MonsterConfig.GetMonsterByLetter(monsterLetter)
+					_, monsterKey, err := monster.MonsterConfig.GetMonsterByLetterForBiome(monsterLetter, ml.biome)
 					if err == nil {
 						spawn := MonsterSpawn{
 							X:          x,

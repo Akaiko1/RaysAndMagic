@@ -719,6 +719,8 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
 	case npcHasSpellTrading(nearestNPC):
 		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
+	case npcHasSkillTraining(nearestNPC):
+		message = fmt.Sprintf("Press T to train with %s", nearestNPC.Name)
 	case npcHasMerchant(nearestNPC):
 		message = fmt.Sprintf("Press T to trade with %s", nearestNPC.Name)
 	default:

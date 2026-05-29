@@ -1,5 +1,9 @@
-# Abandoned Church
-# % = church wall, . = church floor, k = skeleton, @ = entrance back to forest
+# Abandoned Church (biome: church)
+# Symbols resolve via assets/tiles.yaml for the "church" biome; the map viewer
+# shows the authoritative, data-driven legend with previews. Tiles used here:
+# % = church wall   . = church floor   + = start
+# Monster spawns: k = skeleton
+# @ = NPC placeholder (entrance back to forest; bound by >[npc:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%...%%%%%%%%%%%%%%
 %%.........%%%...%%%.........%%

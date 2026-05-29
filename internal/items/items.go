@@ -46,6 +46,7 @@ const (
 	ItemQuest
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
+	ItemTrinket      // Collectible cards/curios — non-equippable, discardable, sellable.
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -65,6 +66,8 @@ func (t ItemType) String() string {
 		return "Battle Spell"
 	case ItemUtilitySpell:
 		return "Utility Spell"
+	case ItemTrinket:
+		return "Trinket"
 	default:
 		return "Unknown"
 	}
@@ -252,6 +255,8 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		t = ItemConsumable
 	case "quest":
 		t = ItemQuest
+	case "trinket":
+		t = ItemTrinket
 	default:
 		return Item{}, fmt.Errorf("unknown item type for '%s': %s", itemKey, def.Type)
 	}
