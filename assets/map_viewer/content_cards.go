@@ -187,6 +187,9 @@ func buildSpellCards() []contentCard {
 
 func weaponCard(section, key string, def *config.WeaponDefinitionConfig) contentCard {
 	subtitle := fmt.Sprintf("Dmg %d  Range %d", def.Damage, def.Range)
+	if def.AoeRadiusTiles > 0 {
+		subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
+	}
 	if def.BonusStat != "" {
 		subtitle += "  +" + def.BonusStat
 	}
@@ -195,24 +198,16 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	rows = appendRow(rows, "Range", fmt.Sprintf("%d tiles", def.Range))
 	rows = appendRow(rows, "Bonus stat", def.BonusStat)
 	rows = appendRow(rows, "Bonus stat (2nd)", def.BonusStatSecondary)
-	if def.DamageType != "" && def.DamageType != "physical" {
-		rows = appendRow(rows, "Damage type", titleCase(def.DamageType))
-	}
 	if def.CritChance > 0 {
-		rows = appendRow(rows, "Crit chance", fmt.Sprintf("%d%%", def.CritChance))
+		rows = appendRow(rows, "Crit Chance", fmt.Sprintf("%d%%", def.CritChance))
 	}
-	if def.StunChance > 0 {
-		turns := def.StunTurns
-		if turns <= 0 {
-			turns = 1
-		}
-		rows = appendRow(rows, "Stun chance", fmt.Sprintf("%.0f%% (%d turns)", def.StunChance*100, turns))
-	}
-	if def.DisintegrateChance > 0 {
-		rows = appendRow(rows, "Disintegrate chance", fmt.Sprintf("%.0f%%", def.DisintegrateChance*100))
-	}
-	if def.MaxProjectiles > 0 {
-		rows = appendRow(rows, "Max airborne", fmt.Sprintf("%d", def.MaxProjectiles))
+	// All non-base special effects come from the canonical formatter on
+	// the config type, so this card stays in sync with the in-game
+	// tooltip whenever a new effect field is added. CritChance is a base
+	// attribute rendered above; the in-game tooltip renders its own
+	// personalized crit line, hence the split (see EffectLines doc).
+	for _, line := range def.EffectLines() {
+		rows = append(rows, line)
 	}
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
@@ -325,14 +320,22 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 		}
 	case "accessory":
 		parts := []string{}
-		if def.BonusMight > 0 {
-			parts = append(parts, fmt.Sprintf("+%d Might", def.BonusMight))
+		flatBonuses := []struct {
+			label string
+			val   int
+		}{
+			{"Might", def.BonusMight},
+			{"Int", def.BonusIntellect},
+			{"Per", def.BonusPersonality},
+			{"End", def.BonusEndurance},
+			{"Acc", def.BonusAccuracy},
+			{"Spd", def.BonusSpeed},
+			{"Luck", def.BonusLuck},
 		}
-		if def.BonusIntellect > 0 {
-			parts = append(parts, fmt.Sprintf("+%d Int", def.BonusIntellect))
-		}
-		if def.BonusLuck > 0 {
-			parts = append(parts, fmt.Sprintf("+%d Luck", def.BonusLuck))
+		for _, b := range flatBonuses {
+			if b.val > 0 {
+				parts = append(parts, fmt.Sprintf("+%d %s", b.val, b.label))
+			}
 		}
 		if def.IntellectScalingDivisor > 0 {
 			parts = append(parts, fmt.Sprintf("SpellPwr +Int/%d", def.IntellectScalingDivisor))

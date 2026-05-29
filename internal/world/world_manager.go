@@ -15,6 +15,7 @@ type WorldManager struct {
 	CurrentMapKey        string
 	LoadedMaps           map[string]*World3D
 	MapConfigs           map[string]*config.MapConfig
+	Biomes               map[string]config.BiomeConfig
 	TransitionInProgress bool
 	config               *config.Config
 
@@ -31,6 +32,7 @@ func NewWorldManager(cfg *config.Config) *WorldManager {
 		CurrentMapKey:        "forest", // Default starting map
 		LoadedMaps:           make(map[string]*World3D),
 		MapConfigs:           make(map[string]*config.MapConfig),
+		Biomes:               make(map[string]config.BiomeConfig),
 		TransitionInProgress: false,
 		config:               cfg,
 		GlobalTeleporterRegistry: &TeleporterRegistry{
@@ -61,7 +63,55 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		wm.MapConfigs[key] = &configCopy
 	}
 
-	fmt.Printf("Loaded %d map configurations\n", len(wm.MapConfigs))
+	// Store biome definitions (floor texture groups etc.) shared by maps.
+	wm.Biomes = make(map[string]config.BiomeConfig, len(mapConfigs.Biomes))
+	for name, biome := range mapConfigs.Biomes {
+		wm.Biomes[name] = biome
+	}
+
+	// Fail fast: every map's biome must have a definition so floors render.
+	for key, mapConfig := range wm.MapConfigs {
+		if _, ok := wm.Biomes[mapConfig.Biome]; !ok {
+			return fmt.Errorf("map %q references biome %q with no definition in biomes:", key, mapConfig.Biome)
+		}
+	}
+
+	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
+	// named group must be defined by at least one biome (we don't require
+	// every biome to define it — universal tiles like water legitimately
+	// fall back to base color in biomes that omit the group). The dynamic
+	// "beach"/"default" fallbacks are resolved in the renderer, not from a
+	// tile field, so they need no entry here.
+	if err := wm.validateTileFloorTextureGroups(); err != nil {
+		return err
+	}
+
+	fmt.Printf("Loaded %d map configurations, %d biomes\n", len(wm.MapConfigs), len(wm.Biomes))
+	return nil
+}
+
+// validateTileFloorTextureGroups ensures every floor_texture_group named by a
+// tile in tiles.yaml is defined in at least one biome, catching typos at load
+// time instead of silently rendering the tile's base color.
+func (wm *WorldManager) validateTileFloorTextureGroups() error {
+	if GlobalTileManager == nil {
+		return nil // tiles not loaded (e.g. a context that skips them) — nothing to check
+	}
+	definedGroups := make(map[string]bool)
+	for _, biome := range wm.Biomes {
+		for groupName := range biome.FloorTextureGroups {
+			definedGroups[groupName] = true
+		}
+	}
+	for tileKey, data := range GlobalTileManager.ListTiles() {
+		group := data.FloorTextureGroup
+		if group == "" {
+			continue // empty = renderer falls back to the biome "default" group
+		}
+		if !definedGroups[group] {
+			return fmt.Errorf("tile %q references floor_texture_group %q not defined in any biome", tileKey, group)
+		}
+	}
 	return nil
 }
 
@@ -203,6 +253,20 @@ func (wm *WorldManager) GetCurrentWorld() *World3D {
 func (wm *WorldManager) GetCurrentMapConfig() *config.MapConfig {
 	if config, exists := wm.MapConfigs[wm.CurrentMapKey]; exists {
 		return config
+	}
+	return nil
+}
+
+// GetCurrentBiomeFloorTextureGroups returns the floor-texture groups defined
+// by the current map's biome, or nil if the map/biome is unknown. The
+// renderer builds its floor atlas from these groups (keyed by group name).
+func (wm *WorldManager) GetCurrentBiomeFloorTextureGroups() map[string][]string {
+	mapConfig := wm.GetCurrentMapConfig()
+	if mapConfig == nil {
+		return nil
+	}
+	if biome, ok := wm.Biomes[mapConfig.Biome]; ok {
+		return biome.FloorTextureGroups
 	}
 	return nil
 }

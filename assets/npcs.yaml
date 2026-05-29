@@ -175,14 +175,14 @@ npcs:
         - text: "Stay inside"
           action: "leave"
 
-  city_gate:
+  seabright_gate:
     name: "Seabright Gate"
     type: "encounter"
     description: "A stone road gate leading toward the sea city of Seabright"
     sprite: "city_exterior"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 6
     dialogue:
       greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch."
       choice_prompt: "What do you want to do?"

@@ -3,10 +3,67 @@ package config
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// EffectLines returns user-facing description lines for the non-base
+// special effects of a weapon (damage type override, stun, disintegrate,
+// AoE splash, max airborne projectiles, per-monster bonus multipliers).
+// Single source of truth — both the in-game tooltip and the map-viewer
+// card pull from here so any new effect surfaces everywhere automatically.
+//
+// Base attributes (Damage, Range, BonusStat, CritChance) are shown
+// separately by each consumer because their formatting differs — e.g.
+// the in-game tooltip renders crit as "Critical Chance: total% (Base: X,
+// Luck: +N)" using character context, while the map-viewer card shows
+// the raw "Crit Chance: X%". Listing crit here too would render it
+// twice in every in-game tooltip.
+func (w *WeaponDefinitionConfig) EffectLines() []string {
+	if w == nil {
+		return nil
+	}
+	var lines []string
+	if w.DamageType != "" && w.DamageType != "physical" {
+		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCaseLower(w.DamageType)))
+	}
+	if w.StunChance > 0 {
+		turns := w.StunTurns
+		if turns <= 0 {
+			turns = 1
+		}
+		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", w.StunChance*100, turns))
+	}
+	if w.DisintegrateChance > 0 {
+		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", w.DisintegrateChance*100))
+	}
+	if w.AoeRadiusTiles > 0 {
+		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", w.AoeRadiusTiles))
+	}
+	if w.MaxProjectiles > 0 {
+		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
+	}
+	if len(w.BonusVs) > 0 {
+		keys := make([]string, 0, len(w.BonusVs))
+		for k := range w.BonusVs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			lines = append(lines, fmt.Sprintf("Bonus vs %s: x%.1f", titleCaseLower(k), w.BonusVs[k]))
+		}
+	}
+	return lines
+}
+
+func titleCaseLower(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
 
 // Config holds all game configuration values
 type Config struct {
@@ -270,10 +327,11 @@ type TileData struct {
 	RenderType          string                 `yaml:"render_type"`
 	FloorColor          [3]int                 `yaml:"floor_color"`
 	FloorNearColor      [3]int                 `yaml:"floor_near_color"`
-	// FloorTextureGroup selects which named group from MapConfig.FloorTextureGroups
-	// supplies the floor texture for this tile type. Empty = no texture overlay
-	// (renderer falls back to base color). The "beach" group is picked
-	// dynamically for empty tiles bordering water — see the renderer.
+	// FloorTextureGroup selects which named group from the current biome's
+	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
+	// this tile type. Empty = no texture overlay (renderer falls back to base
+	// color). The "beach" group is picked dynamically for empty tiles
+	// bordering water — see the renderer.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	WallColor           [3]int                 `yaml:"wall_color"`
 	Letter              string                 `yaml:"letter"`
@@ -288,15 +346,21 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name               string                   `yaml:"name"`
-	File               string                   `yaml:"file"`
-	Biome              string                   `yaml:"biome"`
-	SkyColor           [3]int                   `yaml:"sky_color"`
-	SkyTexture         string                   `yaml:"sky_texture,omitempty"`
-	DefaultFloorColor  [3]int                   `yaml:"default_floor_color"`
-	FloorTextures      []string                 `yaml:"floor_textures,omitempty"`
-	FloorTextureGroups map[string][]string      `yaml:"floor_texture_groups,omitempty"`
-	ClearEncounter     *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+	Name              string                   `yaml:"name"`
+	File              string                   `yaml:"file"`
+	Biome             string                   `yaml:"biome"`
+	SkyColor          [3]int                   `yaml:"sky_color"`
+	SkyTexture        string                   `yaml:"sky_texture,omitempty"`
+	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
+	ClearEncounter    *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+}
+
+// BiomeConfig holds the data-driven appearance shared by every map of a
+// biome. Floor textures live here (keyed by group name; tiles select a
+// group via TileData.FloorTextureGroup) so all maps of the same biome
+// render identical ground without re-declaring texture lists per map.
+type BiomeConfig struct {
+	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
 }
 
 type MapClearEncounterConfig struct {
@@ -323,7 +387,8 @@ type MapTreasureChestRewardConfig struct {
 }
 
 type MapConfigs struct {
-	Maps map[string]MapConfig `yaml:"maps"`
+	Maps   map[string]MapConfig   `yaml:"maps"`
+	Biomes map[string]BiomeConfig `yaml:"biomes"`
 }
 
 // WeaponSystemConfig contains the complete weapon system configuration

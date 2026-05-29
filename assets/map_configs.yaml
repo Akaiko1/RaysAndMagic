@@ -1,16 +1,10 @@
-maps:
+# Floor-texture groups are biome-driven: defined once per biome below and
+# shared by every map that declares that biome. Tiles pick a group via their
+# `floor_texture_group` field (see tiles.yaml); the renderer builds one atlas
+# per biome. The "beach" group is selected dynamically by the renderer for
+# empty tiles bordering water.
+biomes:
   forest:
-    name: "Elvish Forest"
-    file: "forest.map"
-    biome: "forest"
-    sky_color: [135, 206, 235]        # Light blue sky
-    sky_texture: "forest_panorama"
-    default_floor_color: [60, 180, 60]  # Green grass
-    floor_textures:
-      - "forest_grass_0"
-      - "forest_grass_1"
-      - "forest_grass_2"
-      - "forest_grass_3"
     floor_texture_groups:
       default:
         - "forest_grass_0"
@@ -31,12 +25,6 @@ maps:
         - "clearing_grass_1"
 
   desert:
-    name: "Scorching Desert"
-    file: "desert.map"
-    biome: "desert"
-    sky_color: [255, 218, 185]        # Sandy beige sky
-    sky_texture: "desert_panorama"
-    default_floor_color: [238, 203, 173]  # Desert sand
     floor_texture_groups:
       default:
         - "desert_sand_0"
@@ -51,12 +39,6 @@ maps:
         - "water_1"
 
   water:
-    name: "Ocean Depths"
-    file: "water.map"
-    biome: "water"
-    sky_color: [72, 61, 139]          # Dark slate blue underwater
-    sky_texture: "water_panorama"
-    default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
     floor_texture_groups:
       default:
         - "underwater_floor_0"
@@ -68,18 +50,53 @@ maps:
         - "water_1"
 
   church:
-    name: "Abandoned Church"
-    file: "church.map"
-    biome: "church"
-    sky_color: [35, 35, 45]
-    sky_texture: "church_panorama"
-    default_floor_color: [55, 50, 45]
     floor_texture_groups:
       default:
         - "church_floor_0"
         - "church_floor_1"
         - "church_floor_2"
         - "church_floor_3"
+
+  city:
+    floor_texture_groups:
+      default:
+        - "city_cobblestone_0"
+        - "city_cobblestone_1"
+        - "city_cobblestone_2"
+        - "city_cobblestone_3"
+
+maps:
+  forest:
+    name: "Elvish Forest"
+    file: "forest.map"
+    biome: "forest"
+    sky_color: [135, 206, 235]        # Light blue sky
+    sky_texture: "forest_panorama"
+    default_floor_color: [60, 180, 60]  # Green grass
+
+  desert:
+    name: "Scorching Desert"
+    file: "desert.map"
+    biome: "desert"
+    sky_color: [255, 218, 185]        # Sandy beige sky
+    sky_texture: "desert_panorama"
+    default_floor_color: [238, 203, 173]  # Desert sand
+
+  water:
+    name: "Ocean Depths"
+    file: "water.map"
+    biome: "water"
+    sky_color: [72, 61, 139]          # Dark slate blue underwater
+    sky_texture: "water_panorama"
+    default_floor_color: [25, 25, 112]  # Midnight blue ocean floor
+
+  church:
+    name: "Abandoned Church"
+    file: "church.map"
+    biome: "church"
+    sky_color: [35, 35, 45]
+    sky_texture: "church_panorama"
+    default_floor_color: [55, 50, 45]
     clear_encounter:
       rewards:
         completion_message: "The last skeleton collapses. A sealed chest appears at the end of the corridor."
@@ -99,9 +116,3 @@ maps:
     sky_color: [120, 190, 230]
     sky_texture: "city_panorama"
     default_floor_color: [108, 102, 88]
-    floor_texture_groups:
-      default:
-        - "city_cobblestone_0"
-        - "city_cobblestone_1"
-        - "city_cobblestone_2"
-        - "city_cobblestone_3"

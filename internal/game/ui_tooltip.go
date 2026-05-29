@@ -2,8 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math"
-	"sort"
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -21,7 +19,6 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 
 	fields := map[string]string{}
 	order := []string{}
-	var weaponBonusSummary string
 
 	// Header
 	fields["header"] = fmt.Sprintf("=== %s ===", item.Name)
@@ -49,7 +46,6 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		}
 		effectKeys := []string{}
 		if weaponDef != nil {
-			weaponBonusSummary = formatWeaponBonusSummary(weaponDef.BonusVs)
 			totalCrit := combatSystem.CalculateWeaponCritChance(item, char)
 			if totalCrit > 0 {
 				critBonus := combatSystem.CalculateCriticalChance(char)
@@ -105,13 +101,11 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		order = append(order, "value")
 	}
 
-	// Flavor/description
+	// Flavor/description. BonusVs is intentionally NOT repeated here — it is
+	// already surfaced via EffectLines in the effects section above.
 	var flavorLines []string
 	if item.Description != "" {
 		flavorLines = append(flavorLines, fmt.Sprintf("\"%s\"", item.Description))
-	}
-	if weaponBonusSummary != "" {
-		flavorLines = append(flavorLines, weaponBonusSummary)
 	}
 
 	// Glue everything together following the order list
@@ -300,48 +294,6 @@ func getEffectiveStatValue(statName string, char *character.MMCharacter, combatS
 	default:
 		return might
 	}
-}
-
-func formatWeaponBonusSummary(bonusVs map[string]float64) string {
-	if len(bonusVs) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(bonusVs))
-	for k := range bonusVs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, key := range keys {
-		mult := bonusVs[key]
-		if mult == 0 {
-			continue
-		}
-		pct := (mult - 1.0) * 100.0
-		if math.Abs(pct) < 0.5 {
-			continue
-		}
-		label := titleCase(strings.ReplaceAll(key, "_", " "))
-		parts = append(parts, fmt.Sprintf("Bonus vs %s: %+0.0f%%", label, pct))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, ", ")
-}
-
-func titleCase(text string) string {
-	if text == "" {
-		return ""
-	}
-	words := strings.Fields(text)
-	for i, w := range words {
-		if len(w) == 0 {
-			continue
-		}
-		words[i] = strings.ToUpper(w[:1]) + w[1:]
-	}
-	return strings.Join(words, " ")
 }
 
 // getArmorTooltip returns armor-specific tooltip information (YAML-driven)
@@ -655,32 +607,12 @@ func effectOrNone(s string) string {
 	return s
 }
 
-// weaponEffectLines is the single source of truth for non-base-stat weapon
-// effects (damage type, stun, disintegrate). Used by both the main tooltip
-// (where each line is rendered separately) and the comparison summary (where
-// they are joined into a single comma-separated row).
+// weaponEffectLines delegates to the canonical formatter on the config
+// type so the in-game tooltip, compare-tooltip and map-viewer card stay
+// in sync. Add new special-effect rows in config.WeaponDefinitionConfig
+// EffectLines and every consumer picks them up automatically.
 func weaponEffectLines(def *config.WeaponDefinitionConfig) []string {
-	if def == nil {
-		return nil
-	}
-	var lines []string
-	if def.DamageType != "" && def.DamageType != "physical" {
-		lines = append(lines, fmt.Sprintf("Damage Type: %s", titleCase(def.DamageType)))
-	}
-	if def.StunChance > 0 {
-		turns := def.StunTurns
-		if turns <= 0 {
-			turns = 1
-		}
-		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", def.StunChance*100, turns))
-	}
-	if def.DisintegrateChance > 0 {
-		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", def.DisintegrateChance*100))
-	}
-	if def.AoeRadiusTiles > 0 {
-		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", def.AoeRadiusTiles))
-	}
-	return lines
+	return def.EffectLines()
 }
 
 func weaponEffectsSummary(item items.Item) string {
@@ -688,11 +620,8 @@ func weaponEffectsSummary(item items.Item) string {
 	if !ok || def == nil {
 		return ""
 	}
-	parts := weaponEffectLines(def)
-	if bonus := formatWeaponBonusSummary(def.BonusVs); bonus != "" {
-		parts = append(parts, bonus)
-	}
-	return strings.Join(parts, ", ")
+	// EffectLines already includes BonusVs entries.
+	return strings.Join(weaponEffectLines(def), ", ")
 }
 
 func armorEffectsSummary(item items.Item) string {

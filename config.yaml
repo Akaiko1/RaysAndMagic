@@ -40,7 +40,7 @@ ui:
 # Character stats and progression
 characters:
   # Starting party gold and food
-  starting_gold: 5000
+  starting_gold: 500
   starting_food: 50
 
   # Stat calculation multipliers
