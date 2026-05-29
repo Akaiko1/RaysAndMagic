@@ -1,3 +1,8 @@
+# Ocean Depths (biome: water)
+# Symbols resolve via assets/tiles.yaml for the "water" biome; the map viewer
+# shows the authoritative, data-driven legend with previews. Tiles used here:
+# . = ocean floor   T = coral reef   A = large coral   W = water
+# Monster spawns: m=medusa o=octopus x=alien
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 T.......m...............o................m.......T
 T...............m.................o..............T

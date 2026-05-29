@@ -57,6 +57,11 @@ spells:
     message: "Powerful healing energy flows through you!"
 ```
 
+## Supported projectile fields
+- `damage`, `projectile_size`, `disintegrate_chance`
+- `aoe_radius_tiles` (splash radius; 0 = single-target, >0 splashes all monsters within N tiles)
+- `physics` (`speed_tiles`, `range_tiles`, `collision_size_tiles`), `graphics`
+
 ## Supported utility fields
 - `heal_amount`
 - `stat_bonus`

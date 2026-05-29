@@ -125,6 +125,18 @@ tiles:
     letter: "A"
     biomes: ["desert"]
 
+  palm_tree:
+    name: "Desert Palm"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "palm"
+    render_type: "environment_sprite"
+    wall_color: [96, 128, 56]  # Palm-frond green
+    letter: "P"
+    biomes: ["desert"]
+
   # Water biome variants
   coral_reef:
     name: "Coral Reef"

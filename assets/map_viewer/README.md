@@ -1,7 +1,14 @@
-Map Viewer (Utility)
-====================
+Map Viewer / Editor (Utility)
+=============================
 
-Simple GUI tool to preview maps with all objects and browse a legend.
+GUI tool to preview and edit maps: browse a biome-scoped legend, paint tiles
+and monsters, and save back to the `.map` file. Also has an Items & Spells
+content page.
+
+The legend is biome-aware: it shows only the tiles and monsters valid for the
+current map's biome (universal ones plus that biome's own), rebuilding when you
+switch maps. Each entry shows a color swatch matching how it's drawn on the map
+grid, so the letter isn't the only cue.
 
 Run from the repo root:
 

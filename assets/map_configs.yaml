@@ -81,6 +81,36 @@ maps:
     sky_color: [255, 218, 185]        # Sandy beige sky
     sky_texture: "desert_panorama"
     default_floor_color: [238, 203, 173]  # Desert sand
+    # Two independent bandit camps, one per oasis. Each monster is bound to
+    # the encounter whose chest tile is nearest, so clearing the 5 bandits
+    # around an oasis drops that oasis's chest at its water's edge.
+    clear_encounters:
+      - monsters:
+          - type: "bandit"
+            count: 5
+        rewards:
+          completion_message: "The northwest oasis is clear. A stash glints at the water's edge."
+          treasure_chest:
+            id: "desert_oasis_nw_chest"
+            map: "desert"
+            tile_x: 12
+            tile_y: 8
+            sprite: "chest"
+            size_multiplier: 5.0
+            gold: 500
+      - monsters:
+          - type: "bandit"
+            count: 5
+        rewards:
+          completion_message: "The southeast oasis is clear. A stash glints at the water's edge."
+          treasure_chest:
+            id: "desert_oasis_se_chest"
+            map: "desert"
+            tile_x: 37
+            tile_y: 41
+            sprite: "chest"
+            size_multiplier: 5.0
+            gold: 500
 
   water:
     name: "Ocean Depths"

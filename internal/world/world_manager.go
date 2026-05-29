@@ -3,6 +3,7 @@ package world
 import (
 	"fmt"
 	"os"
+	"sort"
 	"time"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
@@ -201,10 +202,85 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 }
 
 func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, mapConfig *config.MapConfig) {
-	if world == nil || mapConfig == nil || mapConfig.ClearEncounter == nil || mapConfig.ClearEncounter.Rewards == nil || len(world.Monsters) == 0 {
+	if world == nil || mapConfig == nil || len(world.Monsters) == 0 {
 		return
 	}
-	cfg := mapConfig.ClearEncounter.Rewards
+
+	// Multiple independent encounters. Each encounter data-drives its own
+	// roster via `monsters: [{type, count}]`; the engine binds the `count`
+	// pre-placed monsters of each type nearest to that encounter's chest.
+	// The runtime keys reward completion by the EncounterRewards pointer, so
+	// each group's chest fires when its bound monsters are all dead.
+	if len(mapConfig.ClearEncounters) > 0 {
+		tileSize := wm.config.GetTileSize()
+		assigned := make([]bool, len(world.Monsters))
+		for i := range mapConfig.ClearEncounters {
+			ec := &mapConfig.ClearEncounters[i]
+			if ec.Rewards == nil {
+				continue
+			}
+			ax, ay := 0.0, 0.0
+			if ec.Rewards.TreasureChest != nil {
+				ax, ay = tileCenterFromTile(ec.Rewards.TreasureChest.TileX, ec.Rewards.TreasureChest.TileY, tileSize)
+			}
+			rewards := buildEncounterRewards(ec, mapKey)
+			for _, req := range ec.Monsters {
+				// Rank unassigned monsters of this type by distance to the chest.
+				type candidate struct {
+					idx  int
+					dist float64
+				}
+				var cands []candidate
+				for mi, mon := range world.Monsters {
+					if assigned[mi] || mon.Key != req.Type {
+						continue
+					}
+					dx, dy := mon.X-ax, mon.Y-ay
+					cands = append(cands, candidate{mi, dx*dx + dy*dy})
+				}
+				sort.Slice(cands, func(a, b int) bool { return cands[a].dist < cands[b].dist })
+				n := req.Count
+				if n > len(cands) {
+					fmt.Printf("[WARN] map %q encounter chest %q wants %d %q but only %d available; binding %d\n",
+						mapKey, encounterChestID(ec), req.Count, req.Type, len(cands), len(cands))
+					n = len(cands)
+				}
+				for k := 0; k < n; k++ {
+					mi := cands[k].idx
+					assigned[mi] = true
+					world.Monsters[mi].IsEncounterMonster = true
+					world.Monsters[mi].EncounterRewards = rewards
+				}
+			}
+		}
+		return
+	}
+
+	// Single map-wide encounter: every monster shares it; reward fires when
+	// the last one dies.
+	if mapConfig.ClearEncounter == nil || mapConfig.ClearEncounter.Rewards == nil {
+		return
+	}
+	rewards := buildEncounterRewards(mapConfig.ClearEncounter, mapKey)
+	for _, mon := range world.Monsters {
+		mon.IsEncounterMonster = true
+		mon.EncounterRewards = rewards
+	}
+}
+
+// encounterChestID returns the chest ID of an encounter for log messages,
+// or "<no chest>" when the encounter declares none.
+func encounterChestID(ec *config.MapClearEncounterConfig) string {
+	if ec.Rewards != nil && ec.Rewards.TreasureChest != nil && ec.Rewards.TreasureChest.ID != "" {
+		return ec.Rewards.TreasureChest.ID
+	}
+	return "<no chest>"
+}
+
+// buildEncounterRewards converts a YAML clear-encounter config into the
+// runtime reward struct, defaulting the chest's map to the owning map.
+func buildEncounterRewards(ec *config.MapClearEncounterConfig, mapKey string) *monster.EncounterRewards {
+	cfg := ec.Rewards
 	rewards := &monster.EncounterRewards{
 		Gold:              cfg.Gold,
 		Experience:        cfg.Experience,
@@ -228,10 +304,7 @@ func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, m
 			CompletionMessage: chestCfg.CompletionMessage,
 		}
 	}
-	for _, mon := range world.Monsters {
-		mon.IsEncounterMonster = true
-		mon.EncounterRewards = rewards
-	}
+	return rewards
 }
 
 // GetCurrentWorld returns the currently active world

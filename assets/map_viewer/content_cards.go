@@ -445,6 +445,28 @@ func titleCase(s string) string {
 	return strings.Join(words, " ")
 }
 
+// tileSpriteThumbnail loads a tile's sprite image (for legend previews),
+// searching the same sprite dirs the game does. Returns nil for tiles with no
+// sprite (floors) or no file on disk. Cached alongside card icons.
+func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
+	if sprite == "" {
+		return nil
+	}
+	cacheKey := "tilesprite:" + sprite
+	if img, ok := v.iconCache[cacheKey]; ok {
+		return img // may be nil — already checked, no file
+	}
+	for _, dir := range []string{"environment", "mobs", "characters", "interface"} {
+		path := filepath.Join("assets", "sprites", dir, sprite+".png")
+		if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
+			v.iconCache[cacheKey] = img
+			return img
+		}
+	}
+	v.iconCache[cacheKey] = nil
+	return nil
+}
+
 // iconForCard loads the per-card sprite by naming convention
 // (assets/sprites/interface/icon_<kind>_<key>.png). Returns nil if no file.
 func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {

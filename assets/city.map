@@ -1,5 +1,9 @@
-# Seabright City
-# . = cobblestone, % = wall, A-F = houses, M/P/S/R = shops, G = gate, O = fountain, @ = NPC, + = start
+# Seabright City (biome: city)
+# Symbols resolve via assets/tiles.yaml for the "city" biome; the map viewer
+# shows the authoritative, data-driven legend with previews. Tiles used here:
+# . = cobblestone   % = wall   A-F = houses   M/P/S/R = shops   G = gate
+# O = fountain      + = start
+# @ = NPC placeholder (bound by >[npc:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %AABBBCC....GGGGG.....DDDEEE..%
 %A....C.......@.........D...E.%  >[npc:city_exit]

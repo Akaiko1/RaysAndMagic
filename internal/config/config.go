@@ -352,7 +352,14 @@ type MapConfig struct {
 	SkyColor          [3]int                   `yaml:"sky_color"`
 	SkyTexture        string                   `yaml:"sky_texture,omitempty"`
 	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
-	ClearEncounter    *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
+	// share it and the reward fires when the last one dies.
+	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
+	// ClearEncounters: multiple independent encounters on one map. Each
+	// monster is assigned to the encounter whose treasure-chest tile is
+	// nearest, so spatially-clustered groups (e.g. bandits per oasis) each
+	// trigger their own reward. Takes precedence over ClearEncounter.
+	ClearEncounters []MapClearEncounterConfig `yaml:"clear_encounters,omitempty"`
 }
 
 // BiomeConfig holds the data-driven appearance shared by every map of a
@@ -365,6 +372,18 @@ type BiomeConfig struct {
 
 type MapClearEncounterConfig struct {
 	Rewards *MapEncounterRewardsConfig `yaml:"rewards,omitempty"`
+	// Monsters declares which pre-placed map monsters belong to this
+	// encounter (by type + count). At load the engine binds the `count`
+	// monsters of each `type` nearest to this encounter's chest. Used only
+	// by the multi-encounter `clear_encounters` form; the single
+	// `clear_encounter` binds every monster on the map.
+	Monsters []MapEncounterMonsterReq `yaml:"monsters,omitempty"`
+}
+
+// MapEncounterMonsterReq binds a count of a monster type to an encounter.
+type MapEncounterMonsterReq struct {
+	Type  string `yaml:"type"`
+	Count int    `yaml:"count"`
 }
 
 type MapEncounterRewardsConfig struct {

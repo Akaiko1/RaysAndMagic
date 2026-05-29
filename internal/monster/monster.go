@@ -43,6 +43,7 @@ func generateUniqueMonsterID() string {
 type Monster3D struct {
 	X, Y         float64
 	Name         string
+	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements
 	Level        int
 	HitPoints    int
 	MaxHitPoints int
@@ -143,6 +144,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	monster := &Monster3D{
 		X:           x,
 		Y:           y,
+		Key:         monsterKey,
 		State:       StatePatrolling, // Start patrolling immediately to avoid "vibing" at spawn
 		Speed:       1.0,
 		Direction:   rand.Float64() * 2 * math.Pi,

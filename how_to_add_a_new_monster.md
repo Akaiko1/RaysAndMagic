@@ -40,9 +40,26 @@ monsters:
 ```
 
 Key requirements:
-- `letter` must be unique and lowercase (map spawns recognize a-z).
+- `letter` must be lowercase (map spawns recognize a-z). It must be unique
+  within its biome scope — see "Biome restriction" below.
 - `sprite` must exist in `assets/sprites/mobs/` (without `.png`).
 - `alert_radius` and `attack_radius` are in tiles.
+
+## Biome restriction (optional)
+Add a `biomes` list to restrict a monster to specific map biomes. Omit it for
+a universal monster that can appear in any biome.
+```yaml
+  medusa:
+    # ...stats...
+    letter: "m"
+    biomes: ["water"]   # only spawns on maps whose biome is "water"
+```
+A map letter is resolved biome-aware (`GetMonsterByLetterForBiome`): a
+biome-specific monster wins for that biome, and a universal monster (no
+`biomes`) is the fallback. So the SAME letter may map to different monsters in
+different biomes — `letter` only has to be unique among monsters sharing a
+biome (and among the universal set). A letter on a map whose biome no monster
+matches resolves to nothing (no spawn).
 
 ## Step 2: Add a sprite
 Place a PNG in `assets/sprites/mobs/` that matches the `sprite` key.

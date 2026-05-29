@@ -583,12 +583,13 @@ const defaultFloorTextureGroup = "default"
 // fallbacks resolved here, not in the data:
 //   - "beach": an "empty" tile bordering any water-group tile uses "beach"
 //     instead of its own group, so shorelines transition into sand.
-//   - "default": a tile that names no group falls back to the biome's
-//     "default" floor (grass in forest, sand in desert, …). This lets
-//     decorative objects (ferns, moss rocks, trees) sit on the biome ground
-//     without each tile hardcoding a group; set floor_texture_group
-//     explicitly to override. If the biome has no "default" group,
-//     floorTextureIndexForTile falls back to the tile's base color.
+//   - "default": a tile that names no group AND paints no floor_color of its
+//     own falls back to the biome's "default" floor (grass in forest, sand in
+//     desert, …). This lets decorative objects (ferns, moss rocks, trees) sit
+//     on the biome ground without hardcoding a group. Tiles that DO set a
+//     floor_color — teleporters, traps, spawn — are coloured squares whose
+//     color is their whole look, so they stay untextured. If the biome has no
+//     "default" group, floorTextureIndexForTile falls back to the base color.
 func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.TileType3D) string {
 	if world.GlobalTileManager == nil {
 		return ""
@@ -597,16 +598,30 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	if tileData == nil {
 		return ""
 	}
-	if world.GlobalTileManager.GetTileKey(tileType) == "empty" && r.emptyTileBordersWater(tileX, tileY) {
-		return "beach"
+	group := tileData.FloorTextureGroup
+	if group == "" {
+		// No group: borrow the biome default only for tiles that paint no
+		// floor of their own. A set floor_color means the color IS the look
+		// (teleporter/trap/spawn) — leave it untextured.
+		if tileData.FloorColor != ([3]int{0, 0, 0}) {
+			return ""
+		}
+		group = defaultFloorTextureGroup
 	}
-	if tileData.FloorTextureGroup == "" {
-		return defaultFloorTextureGroup
+	// Beach shoreline: any tile sitting on the biome's default ground that
+	// borders water uses "beach" instead, so the sand transition is
+	// continuous — including the ground under objects like palms, not just
+	// bare empty tiles. Only when the current biome actually defines a
+	// "beach" group (forest/desert), so city/church floors are unaffected.
+	if group == defaultFloorTextureGroup && r.tileBordersWater(tileX, tileY) {
+		if _, ok := r.floorTexGroups["beach"]; ok {
+			return "beach"
+		}
 	}
-	return tileData.FloorTextureGroup
+	return group
 }
 
-func (r *Renderer) emptyTileBordersWater(tileX, tileY int) bool {
+func (r *Renderer) tileBordersWater(tileX, tileY int) bool {
 	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
 		return false
 	}

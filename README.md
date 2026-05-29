@@ -91,7 +91,7 @@ Release archives include both the game executable and `RaysAndMagicMapViewer` fo
 | `npcs.yaml`        | NPCs (merchants, trainers, encounters) | [Adding an NPC](how_to_add_a_new_npc.md)           |
 | `loots.yaml`       | Monster drop tables                    |                                                    |
 | `tiles.yaml`       | Tile types per biome                   | [Adding a tile](how_to_add_a_new_tile.md)          |
-| `map_configs.yaml` | Per-map settings (biome, sky color)    |                                                    |
+| `map_configs.yaml` | Per-map settings + per-biome floor textures + clear-encounter chests |                                       |
 
 ### Adding new content
 

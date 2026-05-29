@@ -77,8 +77,14 @@ weapons:
 - `damage_type`
 - `max_projectiles`
 - `bonus_vs` (map of monster name or key to damage multiplier)
+- `stun_chance` (0.0-1.0) + `stun_turns`
 - `disintegrate_chance`
+- `aoe_radius_tiles` (splash radius; hits all monsters within N tiles)
 - `crit_chance`, `value`, `rarity`
+
+These non-base effects surface in tooltips via `WeaponDefinitionConfig.EffectLines`
+(single source of truth — add a new effect there and every tooltip/card picks
+it up). `crit_chance` is a base attribute rendered separately, not in EffectLines.
 
 ## Class restrictions
 Weapon categories are restricted by class in `internal/character/character.go`.
