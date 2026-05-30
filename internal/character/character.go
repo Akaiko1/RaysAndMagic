@@ -329,6 +329,34 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.SpellPoints = c.MaxSpellPoints
 }
 
+// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP after a stat change
+// (e.g. spending a single stat point) WITHOUT fully healing: any increase in a
+// max is added to the current value and current is capped at the new max, so a
+// hurt character only gains the stat's bonus, not a free full heal. Use this
+// instead of CalculateDerivedStats, which fully restores (intended only at
+// character creation and on level-up).
+func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
+	oldMaxHP := c.MaxHitPoints
+	oldMaxSP := c.MaxSpellPoints
+
+	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
+	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
+
+	if c.MaxHitPoints > oldMaxHP {
+		c.HitPoints += c.MaxHitPoints - oldMaxHP
+	}
+	if c.HitPoints > c.MaxHitPoints {
+		c.HitPoints = c.MaxHitPoints
+	}
+	if c.MaxSpellPoints > oldMaxSP {
+		c.SpellPoints += c.MaxSpellPoints - oldMaxSP
+	}
+	if c.SpellPoints > c.MaxSpellPoints {
+		c.SpellPoints = c.MaxSpellPoints
+	}
+}
+
 func (c *MMCharacter) Update() {
 	c.UpdateWithStatBonus(0)
 }

@@ -260,16 +260,17 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 }
 
 func (m *Monster3D) GetSpriteType() string {
-	// Get sprite from config
+	// Resolve by the monster's own KEY (always set by NewMonster3DFromConfig),
+	// never by name: several monsters can share a display Name (the 4 elemental
+	// dragons are all "Dragon"), and a name scan returns a random match per call
+	// (Go map order) — which made dragons flicker through every color each frame.
 	if MonsterConfig != nil {
-		for _, def := range MonsterConfig.Monsters {
-			if def.Name == m.Name {
-				return def.GetSpriteFromConfig()
-			}
+		if def, err := MonsterConfig.GetMonsterByKey(m.Key); err == nil {
+			return def.GetSpriteFromConfig()
 		}
 	}
 
-	// Fallback if config not loaded or monster not found
+	// Fallback if config not loaded or key unknown.
 	return "goblin"
 }
 

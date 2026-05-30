@@ -579,13 +579,13 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 
 	tileSize := float64(cs.game.config.GetTileSize())
 	radius := tileSize * PackAggroRadiusTiles
-	hitName := hit.Name
+	hitKey := hit.Key // pack by exact type (key), not display Name
 
 	for _, m := range cs.game.world.Monsters {
 		if !m.IsAlive() {
 			continue
 		}
-		if m.Name != hitName {
+		if m.Key != hitKey {
 			continue
 		}
 		if Distance(hit.X, hit.Y, m.X, m.Y) > radius {
@@ -1435,11 +1435,12 @@ func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinition
 		return 1.0
 	}
 
+	// Match bonus_vs against both the display Name (so `bonus_vs: dragon`
+	// hits every elemental dragon, all named "Dragon") and the exact key
+	// (so a key-specific `bonus_vs: dragon_gold` is also possible).
 	candidates := []string{monster.Name}
-	if monsterPkg.MonsterConfig != nil {
-		if key, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name); ok {
-			candidates = append(candidates, key)
-		}
+	if monster.Key != "" {
+		candidates = append(candidates, monster.Key)
 	}
 
 	for bonusKey, mult := range weaponDef.BonusVs {
@@ -1863,15 +1864,10 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 
 // checkMonsterLootDrop handles loot drops when monsters are killed
 func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []items.Item {
-	// Use YAML-configured loot tables keyed by monster
-	if monsterPkg.MonsterConfig == nil {
-		return nil
-	}
-	monsterKey, ok := monsterPkg.MonsterConfig.GetMonsterKeyByName(monster.Name)
-	if !ok {
-		return nil
-	}
-	entries := config.GetLootTable(monsterKey)
+	// Resolve loot by the monster's canonical YAML key (always set), NOT by
+	// name: several monsters can share a display Name (the four elemental
+	// dragons are all "Dragon"), so a name lookup would scramble their loot.
+	entries := config.GetLootTable(monster.Key)
 	if len(entries) == 0 {
 		return nil
 	}

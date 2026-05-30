@@ -138,8 +138,9 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 
 		if ui.drawStatPointRow(screen, stat.Name, stat.Ptr, y, plusX, plusY, btnW, btnH, &canAdd, &isHover, clickIn) {
 			member.FreeStatPoints--
-			// Recalculate derived stats (HP, SP) when any stat is increased
-			member.CalculateDerivedStats(ui.game.config)
+			// Recompute HP/SP caps for the raised stat WITHOUT full-healing:
+			// spending a point grants only that stat's bonus, not a free heal.
+			member.RecalculateMaxStatsKeepingCurrent(ui.game.config)
 		}
 	}
 

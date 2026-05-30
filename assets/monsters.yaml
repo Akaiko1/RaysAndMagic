@@ -206,6 +206,98 @@ monsters:
       - "desert_dune"
       - "large_dune"
 
+  # Elemental dragon variants — the 4 main-quest dragons in the desert corners
+  # are one of each (base `dragon` = fire, plus the three below). ALL share
+  # name "Dragon" so the dragon_slayer quest (matches by name) counts every
+  # color toward the 4-kill victory. Same lvl-15 power tier as the base dragon;
+  # they differ only in element (resists / projectile / proc) for variety.
+  dragon_red:
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 18
+    experience: 2000
+    damage_min: 30
+    damage_max: 50
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_red"
+    flying: true
+    letter: "r"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      dark: 90
+      physical: 50
+      fire: 40
+    habitat_preferences:
+      - "empty"
+
+  dragon_green:
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 20            # tankier: melee-only, no ranged attack
+    experience: 2000
+    damage_min: 32
+    damage_max: 52
+    poison_chance: 0.33
+    poison_duration_seconds: 20
+    alert_radius: 5
+    attack_radius: 2
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_green"
+    flying: true
+    letter: "e"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      earth: 90
+      physical: 60
+      fire: -25                # nature dragon: vulnerable to fire
+    habitat_preferences:
+      - "empty"
+
+  dragon_gold:
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1050       # a bit squishier but faster + longer reach
+    armor_class: 18
+    experience: 2000
+    damage_min: 28
+    damage_max: 46
+    alert_radius: 6
+    attack_radius: 2
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+    speed: 4.5                  # storm dragon: fast
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_gold"
+    flying: true
+    letter: "y"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      air: 90
+      physical: 50
+      water: -25               # vulnerable to water/ice
+    habitat_preferences:
+      - "empty"
+
   # Forest-specific monsters
   forest_orc:
     name: "Forest Orc"
