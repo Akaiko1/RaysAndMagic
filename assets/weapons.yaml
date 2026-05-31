@@ -364,3 +364,89 @@ weapons:
       min_size: 4
       base_size: 16
       color: [139, 0, 139]  # Dark magenta/hellfire color
+
+  agility_katar:
+    name: "Agility Katar"
+    description: "A swift punch-blade favored by nimble fighters"
+    category: "dagger"
+    damage: 7
+    range: 1  # 1 tile reach
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 18
+    rarity: "rare"
+    value: 350
+
+    melee:
+      arc_angle: 28
+      animation_frames: 8
+      hit_delay: 3
+    graphics:
+      slash_color: [120, 200, 140]  # green agile flash
+      slash_width: 16
+      slash_length: 60
+
+  long_bow:
+    name: "Long Bow"
+    description: "A tall yew bow with tremendous reach and power"
+    category: "bow"
+    damage: 12
+    range: 11  # Display range in tiles
+    bonus_stat: "Accuracy"
+    crit_chance: 22
+    rarity: "rare"
+    value: 400
+
+    physics:
+      speed_tiles: 13.0          # 13 tiles/sec
+      range_tiles: 11.0          # 11 tile range
+      collision_size_tiles: 0.5
+
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 14
+      color: [200, 180, 120]
+
+  archmage_staff:
+    name: "Archmage Staff"
+    description: "A crystal-topped staff that scatters arcane fire"
+    category: "staff"
+    damage: 9
+    range: 2  # Display range in tiles
+    bonus_stat: "Intellect"
+    damage_type: "fire"
+    aoe_radius_tiles: 3.0   # splashes all monsters within 3 tiles of the hit
+    crit_chance: 12
+    rarity: "legendary"
+    value: 900
+
+    melee:
+      arc_angle: 40
+      animation_frames: 10
+      hit_delay: 4
+    graphics:
+      slash_color: [120, 160, 240]  # arcane blue
+      slash_width: 36
+      slash_length: 80
+
+  book_of_darkness:
+    name: "Book of Darkness"
+    description: "A forbidden tome that lashes foes with shadow"
+    category: "staff"
+    damage: 8
+    range: 2  # Display range in tiles
+    bonus_stat: "Intellect"
+    damage_type: "dark"
+    crit_chance: 12
+    rarity: "rare"
+    value: 600
+
+    melee:
+      arc_angle: 35
+      animation_frames: 10
+      hit_delay: 4
+    graphics:
+      slash_color: [120, 60, 160]  # dark violet
+      slash_width: 32
+      slash_length: 76
