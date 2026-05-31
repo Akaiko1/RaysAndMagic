@@ -6,6 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"ugataima/internal/bridge"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
@@ -25,6 +26,17 @@ func loadTestConfig(t *testing.T) *config.Config {
 	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
 		t.Fatalf("load spells: %v", err)
 	}
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
+		t.Fatalf("load items: %v", err)
+	}
+	// Wire the items↔config bridges so party setup can create weapons/items.
+	// Without this, newTestGame-based tests only worked when another test
+	// happened to run first and set these global accessors.
+	bridge.SetupWeaponBridge()
+	bridge.SetupItemBridge()
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	return cfg
 }

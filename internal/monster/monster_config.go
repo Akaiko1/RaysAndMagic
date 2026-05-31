@@ -46,7 +46,12 @@ type MonsterDefinition struct {
 	FireburstDamageMax int                 `yaml:"fireburst_damage_max"`
 	PoisonChance       float64             `yaml:"poison_chance"`
 	PoisonDurationSec  int                 `yaml:"poison_duration_seconds"`
-	Light              *MonsterLightConfig `yaml:"light,omitempty"`
+	// PounceRangeTiles > 0 gives the monster a leap: from within this range
+	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
+	// (real-time only) throttles repeats.
+	PounceRangeTiles      float64             `yaml:"pounce_range_tiles"`
+	PounceCooldownSeconds float64             `yaml:"pounce_cooldown_seconds"`
+	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -275,6 +280,10 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	if def.PoisonDurationSec > 0 {
 		m.PoisonDurationSec = def.PoisonDurationSec
+	}
+	if def.PounceRangeTiles > 0 {
+		m.PounceRangePixels = def.PounceRangeTiles * 64.0
+		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
 
 	m.LightRadius = 0

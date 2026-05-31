@@ -23,6 +23,10 @@ biomes:
       clearing:
         - "clearing_grass_0"
         - "clearing_grass_1"
+      # Used only by the Highlands portal stream tile (J) in forest.map.
+      highlands_stream:
+        - "highlands_stream_0"
+        - "highlands_stream_1"
 
   desert:
     floor_texture_groups:
@@ -64,6 +68,17 @@ biomes:
         - "city_cobblestone_1"
         - "city_cobblestone_2"
         - "city_cobblestone_3"
+
+  highlands:
+    floor_texture_groups:
+      default:
+        - "highlands_grass_0"
+        - "highlands_grass_1"
+        - "highlands_grass_2"
+        - "highlands_grass_3"
+      highlands_stream:
+        - "highlands_stream_0"
+        - "highlands_stream_1"
 
 maps:
   forest:
@@ -146,3 +161,11 @@ maps:
     sky_color: [120, 190, 230]
     sky_texture: "city_panorama"
     default_floor_color: [108, 102, 88]
+
+  highlands:
+    name: "Misty Highlands"
+    file: "highlands.map"
+    biome: "highlands"
+    sky_color: [150, 165, 180]          # Overcast highland sky
+    sky_texture: "highlands_panorama"
+    default_floor_color: [86, 110, 74]  # Muted highland grass

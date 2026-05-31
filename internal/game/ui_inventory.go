@@ -142,26 +142,31 @@ type inventoryPaperdollSlot struct {
 	rect inventorySourceRect
 }
 
+// Paper-doll slots: uniform 39×39 so every equipped icon renders at the same
+// size. Each rect is centered on the original (variable-sized) slot's center so
+// it still lines up with the drawn slot boxes on inventory_paperdoll_panel.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
-	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 38}},
-	{items.SlotSpell, inventorySourceRect{217, 40, 40, 38}},
+	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 39}},
+	{items.SlotSpell, inventorySourceRect{218, 40, 39, 39}},
 	{items.SlotHelmet, inventorySourceRect{131, 57, 39, 39}},
-	{items.SlotMainHand, inventorySourceRect{54, 167, 38, 37}},
-	{items.SlotArmor, inventorySourceRect{133, 167, 35, 38}},
-	{items.SlotOffHand, inventorySourceRect{207, 167, 39, 37}},
-	{items.SlotGauntlets, inventorySourceRect{54, 238, 39, 37}},
-	{items.SlotBelt, inventorySourceRect{133, 238, 35, 38}},
-	{items.SlotCloak, inventorySourceRect{207, 238, 39, 38}},
-	{items.SlotRing1, inventorySourceRect{57, 310, 38, 37}},
-	{items.SlotRing2, inventorySourceRect{205, 310, 38, 37}},
-	{items.SlotBoots, inventorySourceRect{131, 359, 39, 37}},
+	{items.SlotMainHand, inventorySourceRect{54, 166, 39, 39}},
+	{items.SlotArmor, inventorySourceRect{131, 167, 39, 39}},
+	{items.SlotOffHand, inventorySourceRect{207, 166, 39, 39}},
+	{items.SlotGauntlets, inventorySourceRect{54, 237, 39, 39}},
+	{items.SlotBelt, inventorySourceRect{131, 238, 39, 39}},
+	{items.SlotCloak, inventorySourceRect{207, 238, 39, 39}},
+	{items.SlotRing1, inventorySourceRect{57, 309, 39, 39}},
+	{items.SlotRing2, inventorySourceRect{205, 309, 39, 39}},
+	{items.SlotBoots, inventorySourceRect{131, 358, 39, 39}},
 }
 
+// Grid slots: uniform 45×45 (the dominant size; were sloppily 44 in column 2
+// and the bottom row). Positions kept as authored so they stay on the panel art.
 var inventoryGridSlots = []inventorySourceRect{
-	{43, 42, 45, 45}, {100, 42, 44, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
-	{43, 99, 45, 45}, {100, 99, 44, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
-	{43, 155, 45, 45}, {100, 155, 44, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
-	{43, 212, 45, 44}, {100, 212, 44, 44}, {156, 212, 45, 44}, {212, 212, 45, 44},
+	{43, 42, 45, 45}, {100, 42, 45, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
+	{43, 99, 45, 45}, {100, 99, 45, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
+	{43, 155, 45, 45}, {100, 155, 45, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
+	{43, 212, 45, 45}, {100, 212, 45, 45}, {156, 212, 45, 45}, {212, 212, 45, 45},
 }
 
 func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {

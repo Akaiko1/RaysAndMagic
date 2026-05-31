@@ -24,6 +24,7 @@ type NPCData struct {
 	Sprite         string               `yaml:"sprite"`
 	RenderType     string               `yaml:"render_type,omitempty"`
 	Transparent    bool                 `yaml:"transparent,omitempty"`
+	GroundTile     string               `yaml:"ground_tile,omitempty"`
 	SizeMultiplier float64              `yaml:"size_multiplier,omitempty"`
 	SellAvailable  bool                 `yaml:"sell_available,omitempty"`
 	Dialogue       *NPCDialogue         `yaml:"dialogue"`
@@ -154,6 +155,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Sprite:         data.Sprite,
 		RenderType:     data.RenderType,
 		Transparent:    data.Transparent,
+		GroundTile:     data.GroundTile,
 		SizeMultiplier: data.SizeMultiplier,
 		SellAvailable:  data.SellAvailable,
 		DialogueData:   data.Dialogue,

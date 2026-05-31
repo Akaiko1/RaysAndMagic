@@ -557,6 +557,196 @@ monsters:
     habitat_preferences:
       - "empty"
 
+  # ---------------------------------------------------------------------------
+  # Highlands monsters (target party levels 6-12), ascending power. Biome-scoped
+  # to "highlands" and distributed by habitat: beasts/archers in heather & rocks,
+  # knights/casters near ruins, the lich by the slate tombs. HP/AC/dmg/xp
+  # interpolate the existing curve (troll L6 ~160 HP → dragon L15 ~1100 HP).
+  # ---------------------------------------------------------------------------
+
+  # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
+  puma:
+    name: "Puma"
+    level: 6
+    max_hit_points: 150
+    armor_class: 11
+    experience: 280
+    damage_min: 14
+    damage_max: 22
+    perfect_dodge: 20
+    alert_radius: 6
+    attack_radius: 1
+    speed: 2.3
+    gold_min: 5
+    gold_max: 25
+    sprite: "puma"
+    letter: "c"
+    box_w: 48
+    box_h: 48
+    size_game: 5.0
+    biomes: ["highlands"]
+    pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
+    pounce_cooldown_seconds: 4
+    resistances: {}
+    habitat_preferences:
+      - "highlands_floor"
+      - "highlands_heather"
+    habitat_near:
+      - type: "highlands_rock_outcrop"
+        radius: 4
+
+  # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
+  elf_archer:
+    name: "Elf Archer"
+    level: 7
+    max_hit_points: 190
+    armor_class: 11
+    experience: 380
+    damage_min: 16
+    damage_max: 26
+    perfect_dodge: 10
+    projectile_weapon: "hunting_bow"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.6
+    gold_min: 30
+    gold_max: 70
+    sprite: "elf_archer"
+    letter: "h"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["highlands"]
+    resistances: {}
+    habitat_preferences:
+      - "highlands_floor"
+      - "highlands_heather"
+    habitat_near:
+      - type: "highlands_pine"
+        radius: 3
+
+  # L9 — armored elf knight. High AC + physical resist, melee bruiser.
+  elf_swordsman:
+    name: "Elf Swordsman"
+    level: 9
+    max_hit_points: 320
+    armor_class: 14
+    experience: 520
+    damage_min: 22
+    damage_max: 34
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.5
+    gold_min: 40
+    gold_max: 100
+    sprite: "elf_swordsman"
+    letter: "j"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["highlands"]
+    resistances:
+      physical: 30
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_ruin_wall"
+        radius: 4
+
+  # L10 — brute. Huge HP, hits hard, slow; resists physical, burns to fire.
+  mountain_troll:
+    name: "Mountain Troll"
+    level: 10
+    max_hit_points: 480
+    armor_class: 13
+    experience: 720
+    damage_min: 28
+    damage_max: 44
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.1
+    gold_min: 50
+    gold_max: 150
+    sprite: "mountain_troll"
+    letter: "v"
+    box_w: 48
+    box_h: 48
+    size_game: 12.0
+    biomes: ["highlands"]
+    resistances:
+      physical: 40
+      fire: -25
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_boulder"
+        radius: 3
+
+  # L11 — glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
+  archmage:
+    name: "Archmage"
+    level: 11
+    max_hit_points: 360
+    armor_class: 12
+    experience: 880
+    damage_min: 16
+    damage_max: 26
+    projectile_spell: "fireball"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.5
+    gold_min: 100
+    gold_max: 250
+    sprite: "archmage"
+    letter: "z"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["highlands"]
+    resistances:
+      fire: 50
+      dark: 30
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_ruin_wall"
+        radius: 4
+
+  # L12 — undead caster mini-boss (top of the 6-12 band, below dragons). Dark
+  # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
+  lich:
+    name: "Lich"
+    level: 12
+    max_hit_points: 620
+    armor_class: 15
+    experience: 1300
+    damage_min: 24
+    damage_max: 36
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.4
+    gold_min: 200
+    gold_max: 500
+    sprite: "lich"
+    letter: "q"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["highlands"]
+    resistances:
+      dark: 75
+      physical: 40
+      fire: -25
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_slate_wall"
+        radius: 4
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0
@@ -585,3 +775,10 @@ tile_types:
   fallen_log: 10
   boulder: 11
   flower_patch: 12
+  highlands_floor: 13
+  highlands_pine: 14
+  highlands_rock_outcrop: 15
+  highlands_boulder: 16
+  highlands_heather: 17
+  highlands_stream: 18
+  highlands_ruin_wall: 19

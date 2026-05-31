@@ -122,6 +122,13 @@ type Monster3D struct {
 	ProjectileSpell  string
 	ProjectileWeapon string
 
+	// Pounce/leap: PounceRangePixels > 0 enables it. Runtime cooldowns are
+	// tracked separately per mode (frames in real-time, turns in turn-based).
+	PounceRangePixels     float64
+	PounceCooldownSeconds float64
+	PounceCDFrames        int // real-time cooldown countdown (frames)
+	PounceCDTurns         int // turn-based cooldown countdown (turns)
+
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
 	EncounterRewards   *EncounterRewards // Rewards for defeating this encounter monster
@@ -218,6 +225,11 @@ func (m *Monster3D) GetTurnBasedAttackCount() int {
 
 func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
+}
+
+// CanPounce reports whether the monster has the leap ability configured.
+func (m *Monster3D) CanPounce() bool {
+	return m.PounceRangePixels > 0
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.

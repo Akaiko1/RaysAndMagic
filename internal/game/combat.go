@@ -815,10 +815,33 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		}
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
-
-		// If monster is in attacking state and within attack range, perform attack
 		attackRange := monster.GetAttackRangePixels()
-		if monster.State == monsterPkg.StateAttacking && dist < attackRange {
+
+		// Pounce (real-time): from within pounce range but beyond melee, leap
+		// to melee contact and strike immediately, then go on cooldown.
+		if monster.CanPounce() {
+			if monster.PounceCDFrames > 0 {
+				monster.PounceCDFrames--
+			}
+			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
+				(!monster.PassiveUntilAttacked || monster.WasAttacked) {
+				if newDist, landed := cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y); landed {
+					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
+					cs.applyMonsterMeleeDamage(monster, newDist)
+					tps := cs.game.config.GetTPS()
+					if tps <= 0 {
+						tps = 60
+					}
+					monster.PounceCDFrames = int(monster.PounceCooldownSeconds * float64(tps))
+					continue
+				}
+			}
+		}
+
+		// If monster is in attacking state and within attack range, perform attack.
+		// Inclusive (<=) so a mob sitting exactly one tile away (e.g. a puma that
+		// just pounced onto an adjacent tile) still lands its hit.
+		if monster.State == monsterPkg.StateAttacking && dist <= attackRange {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
 				if monster.HasRangedAttack() {
@@ -829,6 +852,36 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 		}
 	}
+}
+
+// executePounce leaps a pouncing monster onto the nearest walkable tile
+// directly N/S/E/W of the player — never inside the player's own tile (where
+// the sprite would vanish) and never diagonally. Returns the new
+// center-to-center distance and whether a landing tile was found; callers must
+// only resolve the strike when landed is true. Shared by RT and TB pounce hooks.
+func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) (float64, bool) {
+	tileSize := float64(cs.game.config.GetTileSize())
+	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
+
+	cands := [4][2]int{{ptx + 1, pty}, {ptx - 1, pty}, {ptx, pty + 1}, {ptx, pty - 1}}
+	bestX, bestY, bestD := m.X, m.Y, math.MaxFloat64
+	found := false
+	for _, c := range cands {
+		cx, cy := TileCenterFromTile(c[0], c[1], tileSize)
+		if !cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+			continue
+		}
+		if d := (cx-m.X)*(cx-m.X) + (cy-m.Y)*(cy-m.Y); d < bestD {
+			bestD, bestX, bestY, found = d, cx, cy, true
+		}
+	}
+	if !found {
+		return Distance(playerX, playerY, m.X, m.Y), false // no free adjacent tile — can't pounce
+	}
+	m.X, m.Y = bestX, bestY
+	cs.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+	m.AttackAnimFrames = 8 // brief leap/strike animation
+	return Distance(playerX, playerY, bestX, bestY), true
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
@@ -952,8 +1005,10 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		return
 	}
 	disintegrateChance := 0.0
+	aoe := false
 	if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
 		disintegrateChance = spellDefConfig.DisintegrateChance
+		aoe = spellDefConfig.AoeRadiusTiles > 0 // e.g. fireball: splash the whole party on hit
 	}
 
 	magicProjectile := MagicProjectile{
@@ -971,6 +1026,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		DisintegrateChance: disintegrateChance,
 		Owner:              ProjectileOwnerMonster,
 		SourceName:         monster.Name,
+		AoE:                aoe,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
@@ -1107,7 +1163,11 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		}
 		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
 			damageTypeStr := spellDamageTypeStr(mp.SpellType)
-			cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
+			if mp.AoE {
+				cs.applyMonsterProjectileDamageAoE(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
+			} else {
+				cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
+			}
 			mp.Active = false
 			cs.game.collisionSystem.UnregisterEntity(mp.ID)
 		}
@@ -1135,8 +1195,31 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
 }
 
+// applyMonsterProjectileDamage applies a monster projectile to the single
+// tankiest standing party member.
 func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
-	currentChar := cs.findHighestEnduranceTarget()
+	cs.applyMonsterProjectileDamageToChar(cs.findHighestEnduranceTarget(), sourceName, damage, damageTypeStr, disintegrateChance)
+}
+
+// applyMonsterProjectileDamageAoE splashes a monster projectile across EVERY
+// party member that can still take a hit (AoE spells like a monster's fireball).
+func (cs *CombatSystem) applyMonsterProjectileDamageAoE(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
+	if sourceName == "" {
+		sourceName = "Monster"
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s's blast engulfs the whole party!", sourceName))
+	for _, member := range cs.game.party.Members {
+		if member == nil || !member.CanAct() {
+			continue
+		}
+		cs.applyMonsterProjectileDamageToChar(member, sourceName, damage, damageTypeStr, disintegrateChance)
+	}
+}
+
+func (cs *CombatSystem) applyMonsterProjectileDamageToChar(currentChar *character.MMCharacter, sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
+	if currentChar == nil {
+		return
+	}
 	finalDamage := cs.applyArmorToCharacterIfPhysical(damage, damageTypeStr, currentChar)
 
 	if sourceName == "" {

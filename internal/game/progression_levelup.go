@@ -28,7 +28,7 @@ type levelUpChoiceRequest struct {
 }
 
 func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, choices []config.LevelUpChoice) {
-	if char == nil || len(choices) == 0 {
+	if char == nil || len(choices) == 0 || g.party == nil {
 		return
 	}
 	charIndex := -1

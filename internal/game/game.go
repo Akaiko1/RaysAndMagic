@@ -55,6 +55,7 @@ type MagicProjectile struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
+	AoE                bool // monster projectile: on hit, splash damage to the whole party
 }
 
 type MeleeAttack struct {

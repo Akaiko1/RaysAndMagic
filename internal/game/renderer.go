@@ -2228,6 +2228,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 	// 4. Collect NPCs
 	for _, npc := range r.game.GetCurrentWorld().NPCs {
+		// Spriteless NPCs (e.g. invisible portal gates) render nothing — they
+		// exist only as an interaction anchor; their tile shows through instead.
+		if npc.Sprite == "" || npc.Sprite == "none" {
+			continue
+		}
 		dx := npc.X - camX
 		dy := npc.Y - camY
 		distanceSq := dx*dx + dy*dy
@@ -2434,16 +2439,27 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	}
 
 	drawLeft := s.screenX - s.spriteSize/2
+	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
+	// otherwise sink its lower body behind the bar. If its feet would cross the
+	// bar's top edge, raise the whole sprite so its bottom rests on the bar.
+	screenY := s.screenY
+	if r.game.showPartyStats {
+		barTop := r.game.config.GetScreenHeight() - r.game.config.UI.PartyPortraitHeight
+		if screenY+s.spriteSize > barTop {
+			screenY = barTop - s.spriteSize
+		}
+	}
+
 	opts := &ebiten.DrawImageOptions{}
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
 
 	if s.monsterFlip {
 		opts.GeoM.Scale(-scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(s.screenY))
+		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
 	} else {
 		opts.GeoM.Scale(scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
+		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
 	}
 
 	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))

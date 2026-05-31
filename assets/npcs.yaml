@@ -193,6 +193,45 @@ npcs:
         - text: "Stay in the forest"
           action: "leave"
 
+  # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
+  # nothing at all; ground_tile paints the portal-stream tile under the gate so
+  # the party steps onto shimmering water. Triggered with the interact key.
+  portal_gate_highlands:
+    name: "Mountain Path"
+    type: "encounter"
+    description: "A shimmer over the stream — a path toward the misty highlands"
+    sprite: ""
+    ground_tile: "forest_portal_stream"
+    transparent: true
+    size_multiplier: 1
+    dialogue:
+      greeting: "The water shimmers with a cold mountain light. A path to the misty highlands opens beyond."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Travel to the highlands"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay in the forest"
+          action: "leave"
+
+  portal_gate_forest:
+    name: "Forest Path"
+    type: "encounter"
+    description: "The shimmer that leads back down to the forest"
+    sprite: ""
+    ground_tile: "highlands_stream"
+    transparent: true
+    size_multiplier: 1
+    dialogue:
+      greeting: "The mountain mist parts, revealing the green path back down to the forest."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the forest"
+          action: "enter_map"
+          map: "forest"
+        - text: "Stay in the highlands"
+          action: "leave"
+
   city_exit:
     name: "City Gate"
     type: "encounter"

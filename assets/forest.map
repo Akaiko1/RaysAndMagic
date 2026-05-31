@@ -7,6 +7,9 @@
 # C = clearing      P = fern patch   F = firefly swarm   M = fairy ring
 # S = forest stream W = water         Q = deep water       D = door
 # - = low wall      = = high wall     + = start
+# Highlands portal: K = highland rock outcrop post (flanks the gate). The center
+#   @ is the spriteless portal_gate_highlands NPC; its ground_tile paints the
+#   portal-stream water under it. Interact opens "travel to the highlands?".
 # Monster spawns: b=bear f=forest orc g=goblin l=troll n=bandit p=pixie
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
@@ -45,8 +48,8 @@
 %.T.....T.......T.....T...w...T.....T...PP....P..%
 %....T.........T.....T.....ww..T.....T...........%
 %...ww.....T.......T.....T.......T............P..%
-%.T.....T.......T.....T.......T.....T............%
-%TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT...........%
+%.T.....T....TTTTT....T.......T.....T............%
+%TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
 %..P.Tb...Pb...Tb....T...PP....T.....T...........%
