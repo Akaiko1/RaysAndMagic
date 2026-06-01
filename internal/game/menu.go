@@ -31,19 +31,19 @@ var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Exit"
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	MapKey       string                   `json:"map_key"`
-	PlayerX      float64                  `json:"player_x"`
-	PlayerY      float64                  `json:"player_y"`
-	PlayerAngle  float64                  `json:"player_angle"`
-	TurnBased    bool                     `json:"turn_based"`
-	SaveName     string                   `json:"save_name,omitempty"`
-	SavedAt      string                   `json:"saved_at"`
-	Party        PartySave                `json:"party"`
-	Monsters     []MonsterSave            `json:"monsters"`
-	MapMonsters  map[string][]MonsterSave `json:"map_monsters,omitempty"`
-	NPCStates    []NPCSave                `json:"npc_states"`
-	Quests       []QuestSave              `json:"quests,omitempty"`
-	GroundContainers []GroundContainerSave `json:"ground_containers,omitempty"`
+	MapKey           string                   `json:"map_key"`
+	PlayerX          float64                  `json:"player_x"`
+	PlayerY          float64                  `json:"player_y"`
+	PlayerAngle      float64                  `json:"player_angle"`
+	TurnBased        bool                     `json:"turn_based"`
+	SaveName         string                   `json:"save_name,omitempty"`
+	SavedAt          string                   `json:"saved_at"`
+	Party            PartySave                `json:"party"`
+	Monsters         []MonsterSave            `json:"monsters"`
+	MapMonsters      map[string][]MonsterSave `json:"map_monsters,omitempty"`
+	NPCStates        []NPCSave                `json:"npc_states"`
+	Quests           []QuestSave              `json:"quests,omitempty"`
+	GroundContainers []GroundContainerSave    `json:"ground_containers,omitempty"`
 	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
 	// level-ups. Options are rebuilt from class+level on load, so we only
 	// need to remember which character is owed a choice at which level.
@@ -69,12 +69,23 @@ type GameSave struct {
 	BlessActive            bool    `json:"bless_active,omitempty"`
 	BlessDuration          int     `json:"bless_duration,omitempty"`
 	BlessStatBonus         int     `json:"bless_stat_bonus,omitempty"`
+	DayGodsActive          bool    `json:"day_gods_active,omitempty"`
+	DayGodsDuration        int     `json:"day_gods_duration,omitempty"`
+	DayGodsResistPct       int     `json:"day_gods_resist_pct,omitempty"`
+	HourPowerActive        bool    `json:"hour_power_active,omitempty"`
+	HourPowerDuration      int     `json:"hour_power_duration,omitempty"`
+	HourPowerOutBonus      int     `json:"hour_power_out_bonus,omitempty"`
+	HourPowerInReduce      int     `json:"hour_power_in_reduce,omitempty"`
 	WaterBreathingActive   bool    `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int     `json:"water_breathing_duration,omitempty"`
 	UnderwaterReturnX      float64 `json:"underwater_return_x,omitempty"`
 	UnderwaterReturnY      float64 `json:"underwater_return_y,omitempty"`
 	UnderwaterReturnMap    string  `json:"underwater_return_map,omitempty"`
 	StatBonus              int     `json:"stat_bonus,omitempty"`
+
+	// MapReturnPoses remembers where the party entered each map via a gate, so a
+	// return trip drops them at the doorway rather than the map's spawn tile.
+	MapReturnPoses map[string]MapPose `json:"map_return_poses,omitempty"`
 }
 
 // QuestSave captures quest progress for save/load
@@ -163,14 +174,16 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Key                string               `json:"key"`
-	Name               string               `json:"name"`
-	X                  float64              `json:"x"`
-	Y                  float64              `json:"y"`
-	HitPoints          int                  `json:"hit_points"`
-	IsEncounterMonster bool                 `json:"is_encounter_monster,omitempty"`
-	EncounterID        int                  `json:"encounter_id,omitempty"`
-	EncounterRewards   *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	Key                  string               `json:"key"`
+	Name                 string               `json:"name"`
+	X                    float64              `json:"x"`
+	Y                    float64              `json:"y"`
+	HitPoints            int                  `json:"hit_points"`
+	Charmed              bool                 `json:"charmed,omitempty"`
+	CharmFramesRemaining int                  `json:"charm_frames_remaining,omitempty"`
+	IsEncounterMonster   bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID          int                  `json:"encounter_id,omitempty"`
+	EncounterRewards     *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
 
 type EncounterRewardSave struct {
@@ -468,7 +481,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints}
+			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Charmed: mon.Charmed, CharmFramesRemaining: mon.CharmFramesRemaining}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -573,12 +586,20 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		BlessActive:            g.blessActive,
 		BlessDuration:          g.blessDuration,
 		BlessStatBonus:         g.blessStatBonus,
+		DayGodsActive:          g.dayGodsActive,
+		DayGodsDuration:        g.dayGodsDuration,
+		DayGodsResistPct:       g.dayGodsResistPct,
+		HourPowerActive:        g.hourPowerActive,
+		HourPowerDuration:      g.hourPowerDuration,
+		HourPowerOutBonus:      g.hourPowerOutBonus,
+		HourPowerInReduce:      g.hourPowerInReduce,
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
 		UnderwaterReturnY:      g.underwaterReturnY,
 		UnderwaterReturnMap:    g.underwaterReturnMap,
 		StatBonus:              g.statBonus,
+		MapReturnPoses:         g.mapReturnPoses,
 	}
 }
 
@@ -686,6 +707,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
 				m.HitPoints = ms.HitPoints
+				m.Charmed = ms.Charmed
+				m.CharmFramesRemaining = ms.CharmFramesRemaining
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
@@ -760,12 +783,23 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.blessActive = save.BlessActive
 	g.blessDuration = save.BlessDuration
 	g.blessStatBonus = save.BlessStatBonus
+	g.dayGodsActive = save.DayGodsActive
+	g.dayGodsDuration = save.DayGodsDuration
+	g.dayGodsResistPct = save.DayGodsResistPct
+	g.hourPowerActive = save.HourPowerActive
+	g.hourPowerDuration = save.HourPowerDuration
+	g.hourPowerOutBonus = save.HourPowerOutBonus
+	g.hourPowerInReduce = save.HourPowerInReduce
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
+	g.mapReturnPoses = save.MapReturnPoses
+	if g.mapReturnPoses == nil {
+		g.mapReturnPoses = make(map[string]MapPose)
+	}
 	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
 	g.levelUpChoiceOpen = false
 	g.levelUpChoiceIdx = 0
@@ -812,12 +846,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.groundContainers = append(g.groundContainers, restored)
 	}
 
+	// Rebuild HUD buff icons from the single timed-buff registry (same source the
+	// per-frame update uses), so a restored buff shows its timer immediately.
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
-	g.updateUtilityStatus(spells.SpellID("torch_light"), g.torchLightDuration, g.torchLightActive)
-	g.updateUtilityStatus(spells.SpellID("wizard_eye"), g.wizardEyeDuration, g.wizardEyeActive)
-	g.updateUtilityStatus(spells.SpellID("walk_on_water"), g.walkOnWaterDuration, g.walkOnWaterActive)
-	g.updateUtilityStatus(spells.SpellID("bless"), g.blessDuration, g.blessActive)
-	g.updateUtilityStatus(spells.SpellID("water_breathing"), g.waterBreathingDuration, g.waterBreathingActive)
+	for _, b := range g.timedBuffs() {
+		g.updateUtilityStatus(b.id, *b.duration, *b.active)
+	}
 
 	// Restore quest progress
 	if g.questManager != nil && len(save.Quests) > 0 {

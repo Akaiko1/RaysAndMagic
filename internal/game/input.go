@@ -1027,6 +1027,18 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
+	// Bound (charmed) monsters can't follow across maps: they crumble as the
+	// party departs, granting their XP but no loot or gold.
+	if ih.game.world != nil && ih.game.combat != nil {
+		for _, m := range ih.game.world.Monsters {
+			if m != nil && m.Charmed && m.IsAlive() {
+				ih.game.combat.awardExperienceOnly(m)
+				ih.game.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
+				m.HitPoints = 0
+			}
+		}
+	}
+
 	err := world.GlobalWorldManager.SwitchToMap(targetMapKey)
 	if err != nil {
 		fmt.Printf("Failed to switch to map %s: %v\n", targetMapKey, err)

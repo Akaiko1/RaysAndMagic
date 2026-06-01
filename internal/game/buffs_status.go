@@ -25,7 +25,7 @@ func (g *MMGame) setUtilityStatus(spellID spells.SpellID, duration int) {
 	if g.utilitySpellStatuses == nil {
 		g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
 	}
-	icon, fallback := resolveStatusIcon(def.StatusIcon)
+	icon, fallback := g.resolveStatusIconSprite(def.StatusIcon)
 	status, exists := g.utilitySpellStatuses[spellID]
 	if !exists {
 		status = &UtilitySpellStatus{SpellID: spellID}
@@ -58,6 +58,27 @@ func (g *MMGame) updateUtilityStatus(spellID spells.SpellID, duration int, activ
 	if duration > status.MaxDuration {
 		status.MaxDuration = duration
 	}
+}
+
+// resolveStatusIconSprite picks the HUD status-bar icon for a token. A known
+// legacy token (bless, torch, …) maps to its dedicated status_* sprite. For any
+// other token (e.g. a spell key) it PREFERS a dedicated "status_<token>" sprite
+// if one exists, otherwise falls back to the spellbook icon "icon_spell_<token>"
+// (which drawSpellIcon shrinks to the bar), and finally to a text label.
+func (g *MMGame) resolveStatusIconSprite(token string) (icon, fallback string) {
+	icon, fallback = resolveStatusIcon(token)
+	if icon != token {
+		return icon, fallback // known legacy token, already mapped to a status_* sprite
+	}
+	if g.sprites != nil {
+		if status := "status_" + token; g.sprites.HasSprite(status) {
+			return status, fallback
+		}
+		if spellIcon := "icon_spell_" + token; g.sprites.HasSprite(spellIcon) {
+			return spellIcon, fallback
+		}
+	}
+	return icon, fallback
 }
 
 func resolveStatusIcon(token string) (string, string) {

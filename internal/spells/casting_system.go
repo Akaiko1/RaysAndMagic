@@ -37,7 +37,11 @@ func CalculateSpellDamageByID(spellID SpellID, casterIntellect int) (baseDamage,
 		return 0, 0, 0
 	}
 
-	baseDamage = def.SpellPointsCost * SpellDamagePerSP
+	mult := def.DamageCostMultiplier
+	if mult < 1 {
+		mult = 1
+	}
+	baseDamage = def.SpellPointsCost * SpellDamagePerSP * mult
 	intellectBonus = casterIntellect / SpellIntellectDivisor
 
 	totalDamage = baseDamage + intellectBonus

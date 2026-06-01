@@ -251,6 +251,17 @@ type MMGame struct {
 	blessDuration  int  // Remaining duration in frames
 	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
 
+	// Day of the Gods — party-wide % incoming-damage reduction
+	dayGodsActive    bool
+	dayGodsDuration  int // frames remaining
+	dayGodsResistPct int // % reduction applied to all incoming damage while active
+
+	// Hour of Power — party-wide outgoing-damage bonus + flat incoming reduction
+	hourPowerActive   bool
+	hourPowerDuration int // frames remaining
+	hourPowerOutBonus int // flat bonus added to all party outgoing damage
+	hourPowerInReduce int // flat reduction subtracted from incoming damage (floors at 0)
+
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
 	waterBreathingDuration int     // Remaining duration in frames

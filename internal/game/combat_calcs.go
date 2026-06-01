@@ -16,6 +16,14 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	}
 	effectiveIntellect := char.GetEffectiveIntellect(cs.game.statBonus)
 	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, effectiveIntellect)
+	// Spells flagged scales_with_personality (e.g. ray_of_light) add a second
+	// Personality/divisor term on top of the Intellect term. Both combat and the
+	// tooltip call this function, so the displayed number matches what's dealt.
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.ScalesWithPersonality {
+		perBonus := char.GetEffectivePersonality(cs.game.statBonus) / spells.SpellIntellectDivisor
+		intellectBonus += perBonus
+		totalDamage += perBonus
+	}
 	masteryBonus := cs.spellMasteryBonus(char, spellID)
 	if masteryBonus > 0 {
 		baseDamage += masteryBonus

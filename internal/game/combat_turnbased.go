@@ -36,6 +36,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
+		// Charmed (bind_undead): fights the nearest other monster, never the
+		// party. Spends its whole turn on that, then yields.
+		if m.Charmed {
+			gl.combat.charmedAttackNearest(m)
+			continue
+		}
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
@@ -150,7 +156,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		target := gl.game.party.Members[targetIndex]
 
 		damage := monster.GetAttackDamage()
-		finalDamage := gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
+		finalDamage := gl.combat.mitigateIncoming(gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target))
 
 		// Perfect Dodge: luck/5% roll to avoid all damage
 		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {

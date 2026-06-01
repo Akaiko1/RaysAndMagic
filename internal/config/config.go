@@ -224,6 +224,38 @@ type SpellDefinitionConfig struct {
 	IsUtility      bool    `yaml:"is_utility"`
 	StatusIcon     string  `yaml:"status_icon,omitempty"`
 
+	// Damage-formula modifiers (data-driven; default behaviour when unset).
+	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost × SpellDamagePerSP × this (default 1)
+	ScalesWithPersonality bool `yaml:"scales_with_personality,omitempty"` // also add Personality/divisor to spell damage
+
+	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
+	// every monster within that radius of the caster — no damage. RT uses
+	// seconds×TPS frames, TB uses StunDurationTurns.
+	StunRadiusTiles     float64 `yaml:"stun_radius_tiles,omitempty"`
+	StunDurationSeconds int     `yaml:"stun_duration_seconds,omitempty"`
+	StunDurationTurns   int     `yaml:"stun_duration_turns,omitempty"`
+
+	// DealsNoDamage zeroes the projectile's direct damage (e.g. Disintegrate,
+	// whose only effect is its disintegrate_chance instakill roll on hit).
+	DealsNoDamage bool `yaml:"deals_no_damage,omitempty"`
+
+	// Party combat buffs (applied for `duration` seconds). Day of the Gods sets
+	// ResistBuffPct; Hour of Power sets OutgoingDamageBonus + IncomingDamageReduction.
+	ResistBuffPct          int `yaml:"resist_buff_pct,omitempty"`          // % reduction of all incoming party damage
+	OutgoingDamageBonus    int `yaml:"outgoing_damage_bonus,omitempty"`    // flat add to all party outgoing damage
+	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
+
+	// Charm (bind_undead): on hit, takes control of an UNDEAD target for the
+	// duration — it fights other monsters and ignores the party. No effect on
+	// non-undead. Dies (party XP, no loot) when the party leaves the map.
+	Charm               bool `yaml:"charm,omitempty"`
+	CharmDurationSeconds int `yaml:"charm_duration_seconds,omitempty"`
+
+	// Resurrect: restores a fallen ally (incl. eradicated, unlike a revival
+	// potion). FullHeal restores them to maximum HP.
+	Revive   bool `yaml:"revive,omitempty"`
+	FullHeal bool `yaml:"full_heal,omitempty"`
+
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
 	StatBonus   int     `yaml:"stat_bonus,omitempty"`

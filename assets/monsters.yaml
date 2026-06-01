@@ -123,6 +123,7 @@ monsters:
       - "empty"
 
   skeleton:
+    type: "undead"
     name: "Skeleton"
     level: 3
     max_hit_points: 86
@@ -174,6 +175,7 @@ monsters:
       - "empty"
 
   dragon:
+    type: "dragon"
     name: "Dragon"
     level: 15
     max_hit_points: 1100
@@ -212,6 +214,7 @@ monsters:
   # color toward the 4-kill victory. Same lvl-15 power tier as the base dragon;
   # they differ only in element (resists / projectile / proc) for variety.
   dragon_red:
+    type: "dragon"
     name: "Dragon"
     level: 15
     max_hit_points: 1100
@@ -241,6 +244,7 @@ monsters:
       - "empty"
 
   dragon_green:
+    type: "dragon"
     name: "Dragon"
     level: 15
     max_hit_points: 1100
@@ -270,6 +274,7 @@ monsters:
       - "empty"
 
   dragon_gold:
+    type: "dragon"
     name: "Dragon"
     level: 15
     max_hit_points: 1050       # a bit squishier but faster + longer reach
@@ -717,6 +722,7 @@ monsters:
   # L12 — undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
+    type: "undead"
     name: "Lich"
     level: 12
     max_hit_points: 620

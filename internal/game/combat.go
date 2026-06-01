@@ -67,6 +67,11 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
 	}
+	// Data-driven effect spells (AoE stun, party buffs, resurrect) — no
+	// projectile, no direct damage.
+	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
+		return true
+	}
 	if spellDef.IsUtility {
 		// Handle utility spells (like Torch Light)
 		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Intellect)
@@ -146,6 +151,9 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Override damage with centralized calculation (includes mastery bonus).
 	if _, _, totalDamage := cs.CalculateSpellDamage(spellID, caster); totalDamage > 0 {
 		projectile.Damage = totalDamage
+	}
+	if spellDef.DealsNoDamage {
+		projectile.Damage = 0 // Disintegrate: only the instakill roll matters
 	}
 
 	// Get spell-specific config dynamically
@@ -641,6 +649,11 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 	// Cast the spell
 	currentChar.SpellPoints -= selectedSpellDef.SpellPointsCost
 
+	// Data-driven effect spells (AoE stun, party buffs, resurrect).
+	if cs.tryCastSpecialEffect(selectedSpellID, selectedSpellDef, currentChar) {
+		return true
+	}
+
 	// Dynamic spell casting - no more hardcoded switches!
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 
@@ -655,6 +668,9 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 		// Override damage with centralized calculation (includes mastery bonus).
 		if _, _, totalDamage := cs.CalculateSpellDamage(selectedSpellID, currentChar); totalDamage > 0 {
 			projectile.Damage = totalDamage
+		}
+		if selectedSpellDef.DealsNoDamage {
+			projectile.Damage = 0 // Disintegrate: only the instakill roll matters
 		}
 
 		// Determine critical hit for spells based on Luck only (no base crit for spells)
@@ -814,6 +830,19 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
+		// Charmed (bind_undead): attacks the nearest other monster on a ~1s
+		// cadence and never the party.
+		if monster.Charmed {
+			if monster.CharmAttackCD > 0 {
+				monster.CharmAttackCD--
+			} else {
+				if cs.charmedAttackNearest(monster) {
+					monster.CharmAttackCD = cs.game.config.GetTPS()
+				}
+			}
+			continue
+		}
+
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 		attackRange := monster.GetAttackRangePixels()
 
@@ -894,7 +923,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	currentChar := cs.findHighestEnduranceTarget()
 	damage := monster.GetAttackDamage()
 
-	finalDamage := cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar)
+	finalDamage := cs.mitigateIncoming(cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar))
 
 	// Perfect Dodge: luck/5% to avoid all damage
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
@@ -961,6 +990,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage > minDamage {
 			damage = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
+		damage = cs.mitigateIncoming(damage)
 		member.HitPoints -= damage
 		if member.HitPoints < 0 {
 			member.HitPoints = 0
@@ -1220,7 +1250,7 @@ func (cs *CombatSystem) applyMonsterProjectileDamageToChar(currentChar *characte
 	if currentChar == nil {
 		return
 	}
-	finalDamage := cs.applyArmorToCharacterIfPhysical(damage, damageTypeStr, currentChar)
+	finalDamage := cs.mitigateIncoming(cs.applyArmorToCharacterIfPhysical(damage, damageTypeStr, currentChar))
 
 	if sourceName == "" {
 		sourceName = "Monster"
@@ -1332,6 +1362,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var arrowVelX, arrowVelY float64
 	var disintegrateChance float64
 	var aoeRadiusTiles float64
+	var isCharmSpell bool
+	var charmSeconds int
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1347,6 +1379,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
 		damageType = convertToMonsterDamageType(damageTypeStr)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
+		isCharmSpell = spellDef.Charm
+		charmSeconds = spellDef.CharmDurationSeconds
 		mp.Active = false
 		isSpell = true
 
@@ -1386,6 +1420,11 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 	}
 
+	// Hour of Power: flat bonus to all party outgoing damage while active.
+	if cs.game.hourPowerActive && damage > 0 {
+		damage += cs.game.hourPowerOutBonus
+	}
+
 	// Check monster perfect dodge (applies to all attack types)
 	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
@@ -1393,7 +1432,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
+	// Charm (bind_undead): no damage — takes control of an undead target.
+	if isCharmSpell {
+		cs.applyCharm(monster, charmSeconds, weaponName)
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+
+	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < disintegrateChance {
 		if isSpell {
 			if mp, ok := projectile.(*MagicProjectile); ok {
 				cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
@@ -1826,6 +1872,204 @@ func (cs *CombatSystem) RollWeaponCriticalChance(weapon items.Item, chr *charact
 	total := cs.CalculateWeaponCritChance(weapon, chr)
 	roll := rand.Intn(100)
 	return roll < total, total
+}
+
+// monsterImmuneToDisintegrate reports whether a monster cannot be instakilled by
+// any disintegrate effect (spell or weapon proc). Driven entirely by the
+// monster's `type` (data) — undead and dragons are immune.
+func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
+	if m == nil {
+		return false
+	}
+	return m.MonsterType == "undead" || m.MonsterType == "dragon"
+}
+
+// tryCastSpecialEffect runs the data-driven "effect spell" dispatchers in order
+// (AoE stun → party buffs → resurrect). Each returns false unless the spell
+// carries its trigger field, so the OR-chain stops at the first that handles
+// the cast. Returns true if one did — callers must then skip the
+// projectile/utility paths. Single place to register a new effect-spell type.
+func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	return cs.tryCastAoeStun(spellID, def, caster) ||
+		cs.tryCastPartyBuff(spellID, def, caster) ||
+		cs.tryCastResurrect(spellID, def, caster)
+}
+
+// tryCastResurrect handles the Resurrect spell: restores the first fallen party
+// member (unconscious, dead, or even eradicated) — to full HP if FullHeal.
+// Shared by both cast paths. Returns true if it handled the spell.
+func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if !def.Revive {
+		return false
+	}
+	var target *character.MMCharacter
+	for _, m := range cs.game.party.Members {
+		if m == nil {
+			continue
+		}
+		if m.HasCondition(character.ConditionUnconscious) ||
+			m.HasCondition(character.ConditionDead) ||
+			m.HasCondition(character.ConditionEradicated) ||
+			m.HitPoints <= 0 {
+			target = m
+			break
+		}
+	}
+	if target == nil {
+		// Nothing to resurrect — refund the spell points (cast didn't happen).
+		caster.SpellPoints += def.SpellPointsCost
+		cs.game.AddCombatMessage("There is no fallen ally to resurrect.")
+		return true
+	}
+	target.RemoveCondition(character.ConditionUnconscious)
+	target.RemoveCondition(character.ConditionDead)
+	target.RemoveCondition(character.ConditionEradicated)
+	if def.FullHeal {
+		target.HitPoints = target.MaxHitPoints
+	} else if target.HitPoints <= 0 {
+		target.HitPoints = 1
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is restored to life!", target.Name))
+	cs.recordSpellCast(caster, spellID)
+	return true
+}
+
+// applyCharm takes control of an UNDEAD monster (bind_undead). Non-undead are
+// immune — the binding simply fails. No damage is dealt.
+func (cs *CombatSystem) applyCharm(m *monsterPkg.Monster3D, seconds int, spellName string) {
+	if m.MonsterType != "undead" {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s — only the undead can be bound.", spellName, m.Name))
+		return
+	}
+	m.Charmed = true
+	m.CharmFramesRemaining = seconds * cs.game.config.GetTPS()
+	m.CharmAttackCD = 0
+	m.WasAttacked = false
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+}
+
+// charmedAttackNearest makes a charmed monster strike the nearest OTHER alive,
+// non-charmed monster within its alert radius. A kill awards the party normally
+// (XP + loot). Returns true if it attacked something.
+func (cs *CombatSystem) charmedAttackNearest(m *monsterPkg.Monster3D) bool {
+	aggro := m.AlertRadius
+	if aggro <= 0 {
+		aggro = float64(cs.game.config.GetTileSize()) * 6
+	}
+	var target *monsterPkg.Monster3D
+	best := aggro
+	for _, other := range cs.game.world.Monsters {
+		if other == nil || other == m || !other.IsAlive() || other.Charmed {
+			continue
+		}
+		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
+			best, target = d, other
+		}
+	}
+	if target == nil {
+		return false
+	}
+	dmg := m.GetAttackDamage()
+	target.TakeDamage(dmg, monsterPkg.DamagePhysical, m.X, m.Y)
+	target.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	cs.game.AddCombatMessage(fmt.Sprintf("%s (bound) strikes %s for %d!", m.Name, target.Name, dmg))
+	if !target.IsAlive() {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", m.Name, target.Name))
+		cs.game.collisionSystem.UnregisterEntity(target.ID)
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
+		cs.awardExperienceAndGold(target)
+	}
+	return true
+}
+
+// awardExperienceOnly grants the party a monster's XP with NO gold or loot — used
+// when a bound (charmed) monster perishes as the party leaves the map.
+func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
+	xp := monster.Experience / len(cs.game.party.Members)
+	for _, member := range cs.game.party.Members {
+		if member.HitPoints > 0 {
+			member.Experience += xp
+			cs.checkLevelUp(member)
+		}
+	}
+}
+
+// tryCastAoeStun handles AoE-stun effect spells (e.g. Darkness): if the spell
+// has StunRadiusTiles > 0, every alive monster within that radius of the caster
+// is stunned (RT frames + TB turns), no damage dealt. Shared by both cast
+// paths. Returns true if it handled the spell (caller should stop).
+func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if def.StunRadiusTiles <= 0 {
+		return false
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	radius := def.StunRadiusTiles * tileSize
+	frames := def.StunDurationSeconds * cs.game.config.GetTPS()
+	turns := def.StunDurationTurns
+	stunned := 0
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {
+			continue
+		}
+		if frames > m.StunFramesRemaining {
+			m.StunFramesRemaining = frames
+		}
+		if turns > m.StunTurnsRemaining {
+			m.StunTurnsRemaining = turns
+		}
+		stunned++
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area — %d foe(s) stunned!", def.Name, stunned))
+	cs.game.setUtilityStatus(spellID, frames)
+	cs.recordSpellCast(caster, spellID)
+	return true
+}
+
+// tryCastPartyBuff handles party combat-buff spells (Day of the Gods, Hour of
+// Power). If the spell carries any party-buff field it activates the buff for
+// `duration` seconds and returns true. Shared by both cast paths.
+func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 {
+		return false
+	}
+	frames := def.Duration * cs.game.config.GetTPS()
+	if def.ResistBuffPct > 0 {
+		cs.game.dayGodsActive = true
+		cs.game.dayGodsDuration = frames
+		cs.game.dayGodsResistPct = def.ResistBuffPct
+	}
+	if def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0 {
+		cs.game.hourPowerActive = true
+		cs.game.hourPowerDuration = frames
+		cs.game.hourPowerOutBonus = def.OutgoingDamageBonus
+		cs.game.hourPowerInReduce = def.IncomingDamageReduction
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
+	cs.game.setUtilityStatus(spellID, frames)
+	cs.recordSpellCast(caster, spellID)
+	return true
+}
+
+// mitigateIncoming reduces a single incoming-damage value by the party's active
+// defensive buffs: Day of the Gods (% reduction) then Hour of Power (flat),
+// floored at 0. Applied at every party damage-application site.
+func (cs *CombatSystem) mitigateIncoming(dmg int) int {
+	if dmg <= 0 {
+		return dmg
+	}
+	if cs.game.dayGodsActive && cs.game.dayGodsResistPct > 0 {
+		dmg = dmg * (100 - cs.game.dayGodsResistPct) / 100
+	}
+	if cs.game.hourPowerActive && cs.game.hourPowerInReduce > 0 {
+		dmg -= cs.game.hourPowerInReduce
+	}
+	if dmg < 0 {
+		dmg = 0
+	}
+	return dmg
 }
 
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods

@@ -13,6 +13,7 @@ import (
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
 	Name               string              `yaml:"name"`
+	Type               string              `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
 	Level              int                 `yaml:"level"`
 	MaxHitPoints       int                 `yaml:"max_hit_points"`
 	ArmorClass         int                 `yaml:"armor_class"`
@@ -225,6 +226,7 @@ func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
 // SetupMonsterFromConfig configures a monster from YAML definition
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
+	m.MonsterType = def.Type
 	m.Level = def.Level
 	m.MaxHitPoints = def.MaxHitPoints
 	m.ArmorClass = def.ArmorClass

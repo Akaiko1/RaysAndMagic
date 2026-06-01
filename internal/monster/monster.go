@@ -44,6 +44,7 @@ type Monster3D struct {
 	X, Y         float64
 	Name         string
 	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements
+	MonsterType  string // creature category from YAML, e.g. "undead" (empty = generic)
 	Level        int
 	HitPoints    int
 	MaxHitPoints int
@@ -97,6 +98,9 @@ type Monster3D struct {
 	AttackAnimFrames         int     // Frames remaining for attack animation (TB mode)
 	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining      int     // Real-time stun duration in frames
+	Charmed                  bool    // Bound to the party (bind_undead): fights other monsters, ignores party
+	CharmFramesRemaining     int     // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	CharmAttackCD            int     // RT cadence counter between charmed attacks
 	Flying                   bool    // Whether the monster should be rendered above ground
 	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
 	AttacksPerRound          int     // Turn-based melee attacks per monster round

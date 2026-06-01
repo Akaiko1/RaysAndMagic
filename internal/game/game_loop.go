@@ -333,20 +333,58 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
-	// Update torch light effect
-	gl.updateTorchLightEffect()
+	// Tick every timed party buff and refresh its HUD status from ONE registry.
+	for _, b := range gl.game.timedBuffs() {
+		tickBuff(b.active, b.duration, b.onExpire)
+		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
+	}
 
-	// Update wizard eye effect
-	gl.updateWizardEyeEffect()
+	// Walk-on-water / water-breathing drive world flags every frame.
+	if gl.game.world != nil {
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
+		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
+	}
 
-	// Update walk on water effect
-	gl.updateWalkOnWaterEffect()
+	// Bind_undead charm timers are per-monster, not a party buff.
+	gl.updateCharmedMonsters()
+}
 
-	// Update bless effect
-	gl.updateBlessEffect()
+// timedBuff is one duration-based party buff: its active/duration pointers are
+// ticked each frame and surfaced as a HUD status; onExpire (optional) undoes the
+// buff's effect when it runs out.
+type timedBuff struct {
+	id       spells.SpellID
+	active   *bool
+	duration *int
+	onExpire func()
+}
 
-	// Update water breathing effect
-	gl.updateWaterBreathingEffect()
+// timedBuffs is the SINGLE registry of duration-based buffs. To add a new timed
+// buff, add one entry here — it then ticks, shows its HUD icon, and is restored
+// on load automatically, with no other code changes.
+func (g *MMGame) timedBuffs() []timedBuff {
+	return []timedBuff{
+		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
+		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
+		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
+		{"bless", &g.blessActive, &g.blessDuration, func() {
+			g.statBonus -= g.blessStatBonus
+			g.blessStatBonus = 0
+		}},
+		{"day_of_the_gods", &g.dayGodsActive, &g.dayGodsDuration, func() {
+			g.dayGodsResistPct = 0
+		}},
+		{"hour_of_power", &g.hourPowerActive, &g.hourPowerDuration, func() {
+			g.hourPowerOutBonus = 0
+			g.hourPowerInReduce = 0
+		}},
+		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
+			// If still underwater when it lapses, surface the party.
+			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+				g.gameLoop.returnFromUnderwater()
+			}
+		}},
+	}
 }
 
 // tickBuff decrements the duration of an active timed buff and runs onExpire
@@ -367,46 +405,22 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateTorchLightEffect updates the torch light illumination effect
-func (gl *GameLoop) updateTorchLightEffect() {
-	tickBuff(&gl.game.torchLightActive, &gl.game.torchLightDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("torch_light"), gl.game.torchLightDuration, gl.game.torchLightActive)
-}
-
-// updateWizardEyeEffect updates the wizard eye enemy detection effect
-func (gl *GameLoop) updateWizardEyeEffect() {
-	tickBuff(&gl.game.wizardEyeActive, &gl.game.wizardEyeDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("wizard_eye"), gl.game.wizardEyeDuration, gl.game.wizardEyeActive)
-}
-
-// updateWalkOnWaterEffect updates the walk on water effect
-func (gl *GameLoop) updateWalkOnWaterEffect() {
-	tickBuff(&gl.game.walkOnWaterActive, &gl.game.walkOnWaterDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("walk_on_water"), gl.game.walkOnWaterDuration, gl.game.walkOnWaterActive)
-
-	// Sync the walk on water and water breathing states with the world
-	gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
-	gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
-}
-
-// updateBlessEffect updates the bless stat bonus effect
-func (gl *GameLoop) updateBlessEffect() {
-	tickBuff(&gl.game.blessActive, &gl.game.blessDuration, func() {
-		gl.game.statBonus -= gl.game.blessStatBonus
-		gl.game.blessStatBonus = 0
-	})
-	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)
-}
-
-// updateWaterBreathingEffect updates the water breathing effect
-func (gl *GameLoop) updateWaterBreathingEffect() {
-	tickBuff(&gl.game.waterBreathingActive, &gl.game.waterBreathingDuration, func() {
-		// If currently underwater (water map), teleport back to surface
-		if world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
-			gl.returnFromUnderwater()
+// updateCharmedMonsters ticks bind_undead charm timers in real-time. When a
+// charm expires the undead turns hostile again. (TB charm persists the encounter.)
+func (gl *GameLoop) updateCharmedMonsters() {
+	if gl.game.world == nil {
+		return
+	}
+	for _, m := range gl.game.world.Monsters {
+		if !m.Charmed || m.CharmFramesRemaining <= 0 {
+			continue
 		}
-	})
-	gl.game.updateUtilityStatus(spells.SpellID("water_breathing"), gl.game.waterBreathingDuration, gl.game.waterBreathingActive)
+		m.CharmFramesRemaining--
+		if m.CharmFramesRemaining == 0 {
+			m.Charmed = false
+			gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+		}
+	}
 }
 
 // returnFromUnderwater teleports the player back to the surface when Water Breathing expires

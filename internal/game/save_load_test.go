@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -382,5 +383,35 @@ func TestSaveLoad_PersistsPoisonTimer(t *testing.T) {
 
 	if got := loaded.party.Members[0].PoisonFramesRemaining; got != 1500 {
 		t.Fatalf("expected poison timer 1500 after load, got %d", got)
+	}
+}
+
+// Old saves (written before charm / day-of-the-gods / hour-of-power / map-return
+// fields existed) must still decode cleanly, with the new state defaulting to
+// "off". Guards backward compatibility of the additive save-format changes.
+func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
+	// A minimal pre-change save: only fields that existed before this session.
+	oldJSON := `{
+		"map_key":"forest","player_x":100,"player_y":200,"turn_based":true,
+		"bless_active":true,"bless_duration":300,"bless_stat_bonus":10,
+		"monsters":[{"key":"skeleton","name":"Skeleton","x":64,"y":64,"hit_points":30}]
+	}`
+	var s GameSave
+	if err := json.Unmarshal([]byte(oldJSON), &s); err != nil {
+		t.Fatalf("old-format save failed to decode: %v", err)
+	}
+	// Pre-existing fields survive.
+	if s.MapKey != "forest" || !s.TurnBased || !s.BlessActive || s.BlessStatBonus != 10 {
+		t.Errorf("pre-existing fields not decoded: %+v", s)
+	}
+	// New fields default to off / empty (no crash, no spurious buffs).
+	if s.DayGodsActive || s.HourPowerActive || s.DayGodsResistPct != 0 {
+		t.Errorf("new buff fields should default off, got dayGods=%v hour=%v pct=%d", s.DayGodsActive, s.HourPowerActive, s.DayGodsResistPct)
+	}
+	if s.MapReturnPoses != nil {
+		t.Errorf("absent map_return_poses should decode to nil (load makes it empty)")
+	}
+	if len(s.Monsters) != 1 || s.Monsters[0].Charmed || s.Monsters[0].CharmFramesRemaining != 0 {
+		t.Errorf("old monster should decode un-charmed, got %+v", s.Monsters)
 	}
 }
