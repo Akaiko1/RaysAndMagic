@@ -16,6 +16,7 @@ type EncounterRewards struct {
 	TreasureChest     *TreasureChestReward  `yaml:"treasure_chest,omitempty"`  // Optional chest spawned when encounter is completed
 	TreasureChests    []TreasureChestReward `yaml:"treasure_chests,omitempty"` // Optional chests spawned when encounter is completed
 	QuestID           string                `yaml:"-"`                         // Quest ID linked to this encounter (set at runtime, not from YAML)
+	FreesCaptives     bool                  `yaml:"frees_captives,omitempty"`  // On clear, move the party's imprisoned heroes into the reserve roster
 }
 
 // TreasureChestReward describes a chest spawned after an encounter is cleared.
@@ -31,6 +32,24 @@ type TreasureChestReward struct {
 	Weapons           []string `yaml:"weapons,omitempty"`
 	Gold              int      `yaml:"gold,omitempty"`
 	CompletionMessage string   `yaml:"completion_message,omitempty"`
+}
+
+// PartyTraits holds the party's currently-active "traits" (e.g. "lich"),
+// refreshed once per frame before monster updates. A passive monster turns
+// hostile on sight only if one of ITS hated traits (HatesTraits, from hates.yaml)
+// is present here — so a Lich enrages just archmages and elf warriors, not every
+// passive monster. Mutated in place to avoid per-frame allocation.
+var PartyTraits = map[string]bool{}
+
+// HatesActiveTrait reports whether any of this monster's hated party traits is
+// currently active — i.e. whether a passive monster should turn hostile on sight.
+func (m *Monster3D) HatesActiveTrait() bool {
+	for _, t := range m.HatesTraits {
+		if PartyTraits[t] {
+			return true
+		}
+	}
+	return false
 }
 
 // Global counter for unique monster IDs
@@ -107,8 +126,9 @@ type Monster3D struct {
 	Flying                   bool    // Whether the monster should be rendered above ground
 	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
 	AttacksPerRound          int     // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool    // True when the monster should not aggro until hit
-	AttackCooldownMultiplier float64 // Real-time attack cooldown multiplier (0.5 = twice as often)
+	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
+	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
 	FireburstChance          float64 // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int     // Fireburst damage min
 	FireburstDamageMax       int     // Fireburst damage max

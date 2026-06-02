@@ -172,11 +172,21 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
-	StartingGold int                   `yaml:"starting_gold"`
-	StartingFood int                   `yaml:"starting_food"`
-	HitPoints    HitPointsConfig       `yaml:"hit_points"`
-	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
-	Classes      map[string]ClassStats `yaml:"classes"`
+	StartingGold  int                   `yaml:"starting_gold"`
+	StartingFood  int                   `yaml:"starting_food"`
+	HitPoints     HitPointsConfig       `yaml:"hit_points"`
+	SpellPoints   SpellPointsConfig     `yaml:"spell_points"`
+	Classes       map[string]ClassStats `yaml:"classes"`
+	StartingParty []RosterEntry         `yaml:"starting_party,omitempty"`
+	Captives      []RosterEntry         `yaml:"captives,omitempty"`
+}
+
+// RosterEntry defines one starting hero (active party or imprisoned captive).
+// Class is a class key (knight/paladin/...); Name is the display name (and,
+// lowercased, the portrait sprite key — falls back to the class sprite).
+type RosterEntry struct {
+	Name  string `yaml:"name"`
+	Class string `yaml:"class"`
 }
 
 type HitPointsConfig struct {
@@ -475,6 +485,10 @@ type WeaponDefinitionConfig struct {
 	Rarity         string             `yaml:"rarity"`
 	Value          int                `yaml:"value,omitempty"`
 	BonusVs        map[string]float64 `yaml:"bonus_vs,omitempty"`
+	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
+	// projectile render as a glowing spell-style orb of that school instead of a
+	// plain arrow. Cosmetic only; damage stays weapon-based.
+	ProjectileSchool string `yaml:"projectile_school,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
@@ -668,7 +682,8 @@ type ItemDefinitionConfig struct {
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
 	Value       int    `yaml:"value,omitempty"`      // Gold value
 	Rarity      string `yaml:"rarity,omitempty"`
-	OpensMap    bool   `yaml:"opens_map,omitempty"` // Quest items that open the map overlay
+	OpensMap     bool `yaml:"opens_map,omitempty"`      // Quest items that open the map overlay
+	PromotesLich bool `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`

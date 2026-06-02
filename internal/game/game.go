@@ -340,6 +340,19 @@ type MMGame struct {
 	revivalPickerOpen    bool
 	revivalPickerItemIdx int
 
+	// Promotion picker: when more than one party member is eligible for a
+	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
+	// the target promotion; promotionPickerItemIdx is the phylactery slot to
+	// consume on confirm (-1 for the quest-driven Archmage path).
+	promotionPickerOpen    bool
+	promotionPickerKind    character.Promotion
+	promotionPickerItemIdx int
+
+	// Tavern roster screen: swap active party members with the reserve roster.
+	// rosterSelectedActive is the active slot the player picked first (-1 = none).
+	rosterScreenOpen     bool
+	rosterSelectedActive int
+
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
 	currentTurn           int  // 0 = party turn, 1 = monster turn

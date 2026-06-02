@@ -87,6 +87,10 @@ func (gl *GameLoop) updateExploration() {
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
+	// Refresh the party's active "traits" once per frame so passive monsters
+	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
+	monster.PartyTraits["lich"] = gl.game.party.HasLich()
+
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		gl.updateMonstersTurnBased()
@@ -249,14 +253,10 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 			// Award experience to all party members
 			if questRewards.Experience > 0 {
-				for _, member := range gl.game.party.Members {
-					if member.HitPoints > 0 {
-						member.Experience += questRewards.Experience
-						gl.game.combat.checkLevelUp(member)
-					}
-				}
+				gl.game.grantSharedXP(questRewards.Experience)
 			}
 			gl.game.addTreasureChestsFromRewards(rewards)
+			gl.freeCaptivesFromRewards(rewards)
 			return // Quest handled rewards, don't double-award
 		}
 	}
@@ -276,15 +276,22 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 	// Award experience to all party members
 	if rewards.Experience > 0 {
-		for _, member := range gl.game.party.Members {
-			if member.HitPoints > 0 { // Only living members get experience
-				member.Experience += rewards.Experience
-
-				// Check for level up using the combat system's level up logic
-				gl.game.combat.checkLevelUp(member)
-			}
-		}
+		gl.game.grantSharedXP(rewards.Experience)
 		gl.game.AddCombatMessage(fmt.Sprintf("Party gains %d experience!", rewards.Experience))
+	}
+	gl.freeCaptivesFromRewards(rewards)
+}
+
+// freeCaptivesFromRewards moves the party's imprisoned heroes into the reserve
+// when an encounter that frees them is cleared. The captives have been leveling
+// alongside the party all along, so they arrive at the right level with their
+// stat points and owed level-up choices banked for the player to distribute.
+func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
+	if rewards == nil || !rewards.FreesCaptives {
+		return
+	}
+	for _, c := range gl.game.party.FreeCaptives() {
+		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed — they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }
 

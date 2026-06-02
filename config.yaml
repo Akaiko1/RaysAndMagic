@@ -107,6 +107,20 @@ characters:
       speed: 11
       luck: 11
 
+  # Starting roster (data-driven). class is a class key; name is the display
+  # name and (lowercased) the portrait sprite key — falls back to the class
+  # sprite if no per-name portrait exists.
+  starting_party:
+    - { name: Gareth,    class: knight }
+    - { name: Lysander,  class: sorcerer }
+    - { name: Celestine, class: cleric }
+    - { name: Silvelyn,  class: archer }
+  # Heroes imprisoned in the mountain prison: they train with the party from the
+  # start and join the reserve when freed.
+  captives:
+    - { name: Auberon, class: paladin }
+    - { name: Mirelle, class: druid }
+
 
 # Monster stats and AI
 monster_ai:

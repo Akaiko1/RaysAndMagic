@@ -1838,6 +1838,13 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 			profile.trailWidthScale = 0.4
 			profile.glowScale = 1.3
 			profile.spark = true
+		case "staff":
+			// Staves/books fling a glowing spell-style orb, not an arrow streak.
+			profile.glowScale = 1.8
+			profile.trailLengthScale = 1.3
+			profile.trailWidthScale = 0.45
+			profile.pulseSpeed = 1.3
+			profile.spark = true
 		}
 		switch strings.ToLower(weaponDef.BonusStat) {
 		case "might":
@@ -1852,6 +1859,20 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 		case "personality":
 			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 180, 220}, 0.35)
 			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 200, 230}, 0.25)
+		}
+		// Projectile school wins over the stat tint, giving staves/books a
+		// distinct magical hue.
+		switch strings.ToLower(weaponDef.ProjectileSchool) {
+		case "dark":
+			profile.glowColor = [3]int{170, 90, 220}
+			profile.trailColor = [3]int{210, 140, 255}
+			profile.sparkColor = [3]int{210, 160, 255}
+			profile.spark = true
+		case "arcane":
+			profile.glowColor = [3]int{150, 190, 255}
+			profile.trailColor = [3]int{210, 230, 255}
+			profile.sparkColor = [3]int{220, 235, 255}
+			profile.spark = true
 		}
 	}
 	return profile

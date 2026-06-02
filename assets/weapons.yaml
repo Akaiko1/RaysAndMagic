@@ -180,23 +180,23 @@ weapons:
     description: "A staff carved from ancient oak, perfect for magic users"
     category: "staff"
     damage: 5
-    range: 2  # Display range in tiles
+    range: 6  # ranged: hurls an arcane bolt
     bonus_stat: "Intellect"
     crit_chance: 5
     rarity: "common"
     value: 90
+    projectile_school: "arcane"
 
-    # Melee-specific configuration
-    melee:
-      arc_angle: 35
-      animation_frames: 10
-      hit_delay: 4
+    physics:
+      speed_tiles: 9.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
 
-    # Visual effects for staff swing
     graphics:
-      slash_color: [100, 80, 150]  # Purple magical flash
-      slash_width: 28
-      slash_length: 72
+      max_size: 28
+      min_size: 4
+      base_size: 14
+      color: [150, 180, 255]  # arcane blue-white
 
   silver_sword:
     name: "Silver Sword"
@@ -320,23 +320,23 @@ weapons:
     description: "A reinforced staff designed for combat mages"
     category: "staff"
     damage: 7
-    range: 2  # Display range in tiles
+    range: 6  # ranged: hurls an arcane bolt
     bonus_stat: "Intellect"
     crit_chance: 8
     rarity: "uncommon"
     value: 160
+    projectile_school: "arcane"
 
-    # Melee-specific configuration
-    melee:
-      arc_angle: 35
-      animation_frames: 10
-      hit_delay: 4
+    physics:
+      speed_tiles: 9.5
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
 
-    # Visual effects for staff swing
     graphics:
-      slash_color: [100, 80, 150]  # Purple magical flash
-      slash_width: 32
-      slash_length: 76
+      max_size: 30
+      min_size: 4
+      base_size: 15
+      color: [150, 180, 255]  # arcane blue-white
 
   bow_of_hellfire:
     name: "Bow of Hellfire"
@@ -413,40 +413,46 @@ weapons:
     description: "A crystal-topped staff that scatters arcane fire"
     category: "staff"
     damage: 9
-    range: 2  # Display range in tiles
+    range: 7  # ranged: scatters arcane fire
     bonus_stat: "Intellect"
     damage_type: "fire"
     aoe_radius_tiles: 3.0   # splashes all monsters within 3 tiles of the hit
     crit_chance: 12
     rarity: "legendary"
     value: 900
+    projectile_school: "arcane"
 
-    melee:
-      arc_angle: 40
-      animation_frames: 10
-      hit_delay: 4
+    physics:
+      speed_tiles: 10.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.6
+
     graphics:
-      slash_color: [120, 160, 240]  # arcane blue
-      slash_width: 36
-      slash_length: 80
+      max_size: 34
+      min_size: 4
+      base_size: 18
+      color: [170, 200, 255]  # bright arcane
 
   book_of_darkness:
     name: "Book of Darkness"
     description: "A forbidden tome that lashes foes with shadow"
     category: "staff"
     damage: 8
-    range: 2  # Display range in tiles
+    range: 6  # ranged: lashes foes with a shadow bolt
     bonus_stat: "Intellect"
     damage_type: "dark"
     crit_chance: 12
     rarity: "rare"
     value: 600
+    projectile_school: "dark"
 
-    melee:
-      arc_angle: 35
-      animation_frames: 10
-      hit_delay: 4
+    physics:
+      speed_tiles: 9.5
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
+
     graphics:
-      slash_color: [120, 60, 160]  # dark violet
-      slash_width: 32
-      slash_length: 76
+      max_size: 30
+      min_size: 4
+      base_size: 16
+      color: [150, 60, 200]  # dark violet

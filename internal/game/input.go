@@ -118,6 +118,17 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// Promotion picker: same deal — clicks handled inside its Draw; just suppress
+	// gameplay input while the player chooses who to promote.
+	if ih.game.promotionPickerOpen {
+		return
+	}
+
+	// Tavern roster screen: clicks handled inside its Draw; suppress gameplay.
+	if ih.game.rosterScreenOpen {
+		return
+	}
+
 	// Close map overlay with ESC before other UI handling
 	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
@@ -682,38 +693,45 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 		return
 	}
 
+	// Cursor range: single-select spans the options; multi-select adds a trailing
+	// Confirm row at index == optionCount.
+	maxSel := optionCount - 1
+	if req.isMultiSelect() {
+		maxSel = req.confirmRowIndex()
+	}
+
 	// Keyboard navigation
 	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && req.selection > 0 {
 		req.selection--
 	}
-	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && req.selection < optionCount-1 {
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && req.selection < maxSel {
 		req.selection++
 	}
 
-	// Mouse hover selection
+	// Mouse hover selection (rows + confirm row for multi-select)
 	mouseX, mouseY := ebiten.CursorPosition()
 	screenW := ih.game.config.GetScreenWidth()
 	screenH := ih.game.config.GetScreenHeight()
 	popupX, _, popupW, _, startY, rowH := levelUpChoiceLayout(req, screenW, screenH)
 
-	for i := 0; i < optionCount; i++ {
+	for i := 0; i <= maxSel; i++ {
 		y := startY + i*rowH
-		x1 := popupX + 16
-		x2 := popupX + popupW - 16
-		y1 := y - 2
-		y2 := y - 2 + rowH
-		if mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2 {
+		if mouseX >= popupX+16 && mouseX < popupX+popupW-16 && mouseY >= y-2 && mouseY < y-2+rowH {
 			req.selection = i
 			break
 		}
 	}
 
-	// Confirm selection
+	if req.isMultiSelect() {
+		ih.handleMultiSelectInput(req, popupX, popupW, startY, rowH)
+		return
+	}
+
+	// Single-select: Enter or click applies immediately.
 	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
 		ih.game.consumeLevelUpChoice(req.selection)
 		return
 	}
-	// Click to choose
 	for i := 0; i < optionCount; i++ {
 		y := startY + i*rowH
 		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
@@ -721,6 +739,39 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 			ih.game.consumeLevelUpChoice(req.selection)
 			return
 		}
+	}
+}
+
+// handleMultiSelectInput drives the "pick K of N" picker: Space/Enter on an
+// option toggles it, Enter/click on the Confirm row applies all picks.
+func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX, popupW, startY, rowH int) {
+	optionCount := len(req.options)
+	confirmIdx := req.confirmRowIndex()
+
+	if ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && req.selection < optionCount {
+		ih.game.toggleLevelUpSelection(req.selection)
+	}
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		if req.selection == confirmIdx {
+			ih.game.confirmLevelUpSelections()
+		} else {
+			ih.game.toggleLevelUpSelection(req.selection)
+		}
+		return
+	}
+	// Clicks: option rows toggle, the Confirm row confirms.
+	for i := 0; i < optionCount; i++ {
+		y := startY + i*rowH
+		if ih.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			req.selection = i
+			ih.game.toggleLevelUpSelection(i)
+			return
+		}
+	}
+	cy := startY + optionCount*rowH
+	if ih.game.consumeLeftClickIn(popupX+16, cy-2, popupX+popupW-16, cy-2+rowH) {
+		req.selection = confirmIdx
+		ih.game.confirmLevelUpSelections()
 	}
 }
 
@@ -1367,8 +1418,15 @@ func (ih *InputHandler) handleNPCInteraction() {
 	if npc == nil {
 		return
 	}
+	// A Lich in the party can't even speak with quest-giving wards (the Mage
+	// Tower). The wards reject the undead outright.
+	if npcIsQuestGiver(npc) && ih.game.party.HasLich() {
+		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
+		return
+	}
 	ih.game.dialogActive = true
 	ih.game.dialogNPC = npc
+	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
 	ih.game.selectedCharIdx = 0     // Default to first character
 	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
@@ -2171,11 +2229,156 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "enter_map":
 		ih.enterEncounterMap(choice.Map)
 
+	case "give_quest":
+		ih.handleGiveQuest(choice.QuestID)
+
+	case "turn_in_quest":
+		ih.handleTurnInQuest(choice.QuestID)
+
+	case "summon_dragon":
+		ih.summonDragonFromStatue(npc, choice.SummonIndex)
+
+	case "open_roster":
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+		ih.game.rosterScreenOpen = true
+		ih.game.rosterSelectedActive = -1
+
 	default:
 		// Unknown action - just close dialog
 		ih.game.dialogActive = false
 		ih.game.dialogNPC = nil
 	}
+}
+
+// npcIsQuestGiver reports whether an NPC offers any give_quest/turn_in_quest
+// choice — used to reject Lich party members from those NPCs (the Mage Tower).
+func npcIsQuestGiver(npc *character.NPC) bool {
+	if npc == nil || npc.DialogueData == nil {
+		return false
+	}
+	for _, c := range npc.DialogueData.Choices {
+		if c.Action == "give_quest" || c.Action == "turn_in_quest" {
+			return true
+		}
+	}
+	return false
+}
+
+// handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).
+func (ih *InputHandler) handleGiveQuest(questID string) {
+	g := ih.game
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if questID == "" || quests.GlobalQuestManager == nil {
+		return
+	}
+	if g.party.HasLich() {
+		g.AddCombatMessage("The tower's wards reject the undead.")
+		return
+	}
+	if len(g.eligibleArchmageIndices()) == 0 {
+		g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+		return
+	}
+	if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
+		g.AddCombatMessage("The trial is already underway — return when the Lich King is slain.")
+		return
+	}
+	g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
+}
+
+// handleTurnInQuest completes the Archmage trial at the tower and promotes a
+// compatible party member.
+func (ih *InputHandler) handleTurnInQuest(questID string) {
+	g := ih.game
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if questID == "" || quests.GlobalQuestManager == nil {
+		return
+	}
+	if g.party.HasLich() {
+		g.AddCombatMessage("The tower's wards reject the undead.")
+		return
+	}
+	quest := quests.GlobalQuestManager.GetQuest(questID)
+	if quest == nil || !quest.Completed {
+		g.AddCombatMessage("The Lich King still draws breath. Return when the deed is done.")
+		return
+	}
+	if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
+		g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+		return
+	}
+	// Remove the quest so the trial can't be turned in twice.
+	quests.GlobalQuestManager.RemoveQuest(questID)
+}
+
+// buildStatueChoices rebuilds a dragon statue's dialogue choices at open time:
+// one "summon" option per dragon statuette the party currently holds (unless the
+// statue is spent), plus a trailing Leave. No-op for non-statue NPCs.
+func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
+	if npc == nil || len(npc.Summons) == 0 || npc.DialogueData == nil {
+		return
+	}
+	var choices []*character.NPCDialogueChoice
+	if !npc.Visited {
+		for i, s := range npc.Summons {
+			for _, it := range ih.game.party.Inventory {
+				if it.Name == s.Statuette {
+					choices = append(choices, &character.NPCDialogueChoice{
+						Text:        fmt.Sprintf("Offer the %s Dragon Statuette", s.Label),
+						Action:      "summon_dragon",
+						SummonIndex: i,
+					})
+					break
+				}
+			}
+		}
+	}
+	choices = append(choices, &character.NPCDialogueChoice{Text: "Leave", Action: "leave"})
+	npc.DialogueData.Choices = choices
+}
+
+// summonDragonFromStatue consumes the chosen statuette, spawns its dragon next
+// to the statue (flagged so it — and only it — counts toward the win quest),
+// and removes the spent statue from the world.
+func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int) {
+	g := ih.game
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if npc == nil || summonIdx < 0 || summonIdx >= len(npc.Summons) {
+		return
+	}
+	s := npc.Summons[summonIdx]
+	// Re-find the statuette now (inventory may have shifted since the dialog opened).
+	itemIdx := -1
+	for i, it := range g.party.Inventory {
+		if it.Name == s.Statuette {
+			itemIdx = i
+			break
+		}
+	}
+	if itemIdx < 0 {
+		return
+	}
+	g.party.RemoveItem(itemIdx)
+
+	spawnX, spawnY := ih.findEncounterSpawnLocation(npc.X, npc.Y)
+	if spawnX == 0 && spawnY == 0 {
+		spawnX, spawnY = npc.X, npc.Y // walled corner: spawn on the statue's tile
+	}
+	m := monster.NewMonster3DFromConfig(spawnX, spawnY, s.Monster, g.config)
+	// Flag so updateQuestProgress credits dragon_slayer for THIS dragon only.
+	m.IsEncounterMonster = true
+	m.EncounterRewards = &monster.EncounterRewards{QuestID: "dragon_slayer"}
+	g.registerSpawnedMonster(m)
+
+	npc.Visited = true
+	if w := g.GetCurrentWorld(); w != nil {
+		w.RemoveNPC(npc)
+	}
+	g.AddCombatMessage(fmt.Sprintf("The %s Dragon erupts from the shattering statue!", s.Label))
 }
 
 func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
@@ -2302,6 +2505,11 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				// Mark this monster as part of an encounter for reward tracking
 				monster.IsEncounterMonster = true
 				monster.EncounterRewards = npc.EncounterData.Rewards
+				// Encounter monsters are hostile from the start (the player
+				// initiated the fight) — this also wakes passive_until_attacked
+				// types like the prison's elf swordsmen.
+				monster.WasAttacked = true
+				monster.IsEngagingPlayer = true
 				ih.game.registerSpawnedMonster(monster)
 				fmt.Printf("Spawned %s at walkable position (%.1f, %.1f) with AI enabled\n", monsterDef.Type, spawnX, spawnY)
 			}

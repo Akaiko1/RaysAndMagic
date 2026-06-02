@@ -265,6 +265,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AttacksPerRound = def.AttacksPerRound
 	m.AttackCooldownMultiplier = def.AttackCooldownMult
 	m.PassiveUntilAttacked = def.PassiveUntilHit
+	m.HatesTraits = HatesTable[m.Key] // party traits that enrage this passive monster (hates.yaml)
 	if def.RangedAttackRange > 0 {
 		m.RangedAttackRange = def.RangedAttackRange * 64.0
 	}

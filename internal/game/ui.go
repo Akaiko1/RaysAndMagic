@@ -141,6 +141,16 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawRevivalPickerPopup(screen)
 	}
 
+	// Draw promotion picker (which member becomes Archmage/Lich) if open
+	if ui.game.promotionPickerOpen {
+		ui.drawPromotionPickerPopup(screen)
+	}
+
+	// Draw tavern roster swap screen if open
+	if ui.game.rosterScreenOpen {
+		ui.drawRosterScreen(screen)
+	}
+
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)

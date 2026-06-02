@@ -17,8 +17,9 @@ const (
 )
 
 type MMCharacter struct {
-	Name  string
-	Class CharacterClass
+	Name      string
+	Class     CharacterClass
+	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
 
 	// Core stats
 	Level          int
@@ -57,6 +58,12 @@ type MMCharacter struct {
 
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
+
+	// OwedLevelChoices are levels at which this character earned a class
+	// level-up choice that hasn't been made yet. Active members queue choices
+	// immediately; benched members (no party slot) bank them here until swapped
+	// in. Persisted so they survive save/load.
+	OwedLevelChoices []int
 
 	// ActionsRemaining tracks how many attack/spell actions this character
 	// has left in the current turn-based round. Refilled by ActionSlotsForTurn
@@ -108,6 +115,32 @@ const (
 	ClassSorcerer
 	ClassDruid
 )
+
+// Promotion is a mutually-exclusive elite status a spellcaster can earn:
+// Archmage (Light magic) via the Mage Tower trial, or Lich (Dark magic) via a
+// phylactery. PromotionNone is the default.
+type Promotion int
+
+const (
+	PromotionNone Promotion = iota
+	PromotionArchmage
+	PromotionLich
+)
+
+func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
+func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
+
+// ClassDisplayName returns the promoted title if any, else the base class name.
+func (c *MMCharacter) ClassDisplayName() string {
+	switch c.Promotion {
+	case PromotionArchmage:
+		return "Archmage"
+	case PromotionLich:
+		return "Lich"
+	default:
+		return c.Class.String()
+	}
+}
 
 func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMCharacter {
 	char := &MMCharacter{
@@ -275,14 +308,23 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills
+	// Starting skills — paladins wield axes and swords, wear chain, bear shields.
+	c.Skills[SkillAxe] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
 
-	// Starting magic - give Paladin Bless
-	// Starting equipment
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("silver_sword")
+	// Starting magic — a touch of holy support (Body school).
+	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
+		Mastery:     MasteryNovice,
+		KnownSpells: []spells.SpellID{spells.SpellID("heal_other")},
+	}
+
+	// Starting equipment — a heavy steel axe.
+	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("steel_axe")
+	if spellItem, err := spells.CreateSpellItem(spells.SpellID("heal_other")); err == nil {
+		c.Equipment[items.SlotSpell] = spellItem
+	}
 }
 
 func (c *MMCharacter) setupDruid(cfg *config.Config) {
@@ -464,7 +506,7 @@ func (c *MMCharacter) updatePoison(tps int) {
 }
 
 func (c *MMCharacter) GetDisplayInfo() string {
-	className := c.Class.String()
+	className := c.ClassDisplayName()
 	condition := "OK"
 	if len(c.Conditions) > 0 {
 		condNames := make([]string, 0, len(c.Conditions))
@@ -495,7 +537,7 @@ func (c *MMCharacter) GetDisplayInfo() string {
 
 func (c *MMCharacter) GetDetailedInfo() string {
 	info := fmt.Sprintf("=== %s ===\n", c.Name)
-	info += fmt.Sprintf("Class: %s  Level: %d\n", c.Class, c.Level)
+	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
 	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
 
 	info += "ATTRIBUTES:\n"
@@ -555,6 +597,27 @@ func (c *MMCharacter) GetClassKey() string {
 		return "druid"
 	default:
 		return "unknown"
+	}
+}
+
+// ClassFromKey resolves a lowercase class key (knight/paladin/...) to its
+// CharacterClass. Returns false for an unknown key.
+func ClassFromKey(key string) (CharacterClass, bool) {
+	switch key {
+	case "knight":
+		return ClassKnight, true
+	case "paladin":
+		return ClassPaladin, true
+	case "archer":
+		return ClassArcher, true
+	case "cleric":
+		return ClassCleric, true
+	case "sorcerer":
+		return ClassSorcerer, true
+	case "druid":
+		return ClassDruid, true
+	default:
+		return 0, false
 	}
 }
 

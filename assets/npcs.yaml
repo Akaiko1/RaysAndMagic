@@ -141,6 +141,152 @@ npcs:
         completion_message: "The shipwreck bandits have been defeated!"
       first_visit_only: true
 
+  # Dragon statues (desert corners). Unique names so save/load tracks each
+  # spent statue independently. The "summon" choice is injected at dialog-open
+  # from the statuettes the party holds; only "Leave" is static here.
+  dragon_statue_black:
+    name: "Black Dragon Statue"
+    type: "encounter"
+    description: "A coiled obsidian dragon, mouth agape as if mid-roar"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Black Dragon Statuette"
+        monster: "dragon"
+        label: "Black"
+
+  dragon_statue_red:
+    name: "Red Dragon Statue"
+    type: "encounter"
+    description: "A rearing crimson dragon wrought in dark stone"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Red Dragon Statuette"
+        monster: "dragon_red"
+        label: "Red"
+
+  dragon_statue_green:
+    name: "Green Dragon Statue"
+    type: "encounter"
+    description: "A serpentine dragon of mossy green stone"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Green Dragon Statuette"
+        monster: "dragon_green"
+        label: "Green"
+
+  dragon_statue_gold:
+    name: "Gold Dragon Statue"
+    type: "encounter"
+    description: "A gilded dragon that glints even in the shade"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Gold Dragon Statuette"
+        monster: "dragon_gold"
+        label: "Gold"
+
+  prison:
+    name: "Mountain Prison"
+    type: "encounter"
+    description: "A grim stockade of black iron, two elf jailers pacing the gate"
+    sprite: "prison"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
+      choice_prompt: "Free the prisoners?"
+      choices:
+        - text: "Break them out (fight the jailers)"
+          action: "combat"
+        - text: "Leave"
+          action: "leave"
+    encounter:
+      type: "prison_break"
+      first_visit_only: true
+      start_message: "The elf jailers draw steel!"
+      monsters:
+        - type: "elf_swordsman"
+          count_min: 2
+          count_max: 2
+      rewards:
+        experience: 0
+        completion_message: "The cages spring open — the imprisoned champions head for the tavern to await you."
+        frees_captives: true
+
+  tavern:
+    name: "The Wandering Wyvern"
+    type: "encounter"
+    description: "A cozy timber tavern; off-duty heroes nurse their drinks here"
+    sprite: "tavern"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "The keeper nods. 'Your benched companions rest here. Care to shuffle the party?'"
+      choice_prompt: "Manage your roster?"
+      choices:
+        - text: "Manage roster"
+          action: "open_roster"
+        - text: "Leave"
+          action: "leave"
+
+  mage_tower:
+    name: "Mage Tower"
+    type: "encounter"
+    description: "A slender spire of pale stone, humming faintly with warded power"
+    sprite: "mage_tower"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
+      choice_prompt: "The Mage Tower awaits."
+      choices:
+        - text: "Accept the trial (slay the Lich King)"
+          action: "give_quest"
+          quest_id: "archmage_trial"
+        - text: "I have slain the Lich King"
+          action: "turn_in_quest"
+          quest_id: "archmage_trial"
+        - text: "Leave"
+          action: "leave"
+
   abandoned_church:
     name: "Abandoned Church"
     type: "encounter"

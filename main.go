@@ -58,6 +58,9 @@ func main() {
 	// Load monster configuration (needed before world loading)
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
+	// Load aggro relationships (which party traits enrage passive monsters)
+	monster.MustLoadHatesConfig("assets/hates.yaml")
+
 	// Load NPC configuration (needed before world loading)
 	character.MustLoadNPCConfig("assets/npcs.yaml")
 

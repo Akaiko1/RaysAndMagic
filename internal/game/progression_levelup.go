@@ -25,7 +25,33 @@ type levelUpChoiceRequest struct {
 	level     int
 	options   []levelUpChoiceOption
 	selection int
+	// Multi-select support. maxSelections == 1 (or 0) is the classic single-pick
+	// level-up flow. maxSelections > 1 turns the popup into a "pick K of N"
+	// picker (used by Archmage/Lich promotions): rows toggle into `selected`, and
+	// a Confirm row applies them all at once, then runs onComplete.
+	maxSelections int
+	selected      []bool
+	title         string
+	onComplete    func()
 }
+
+// isMultiSelect reports whether this request is a "pick K of N" picker.
+func (r *levelUpChoiceRequest) isMultiSelect() bool { return r.maxSelections > 1 }
+
+// selectedCount returns how many options are currently toggled on.
+func (r *levelUpChoiceRequest) selectedCount() int {
+	n := 0
+	for _, s := range r.selected {
+		if s {
+			n++
+		}
+	}
+	return n
+}
+
+// confirmRowIndex is the cursor index of the Confirm row (only for multi-select),
+// drawn just below the last option.
+func (r *levelUpChoiceRequest) confirmRowIndex() int { return len(r.options) }
 
 func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, choices []config.LevelUpChoice) {
 	if char == nil || len(choices) == 0 || g.party == nil {
@@ -39,6 +65,9 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 		}
 	}
 	if charIndex == -1 {
+		// Benched (non-active) hero: bank the owed choice on the character; it
+		// surfaces when they're swapped into the active party.
+		bankOwedLevelChoice(char, level)
 		return
 	}
 
@@ -47,11 +76,106 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 		return
 	}
 	g.levelUpChoiceQueue = append(g.levelUpChoiceQueue, levelUpChoiceRequest{
-		charIndex: charIndex,
-		level:     level,
-		options:   options,
-		selection: 0,
+		charIndex:     charIndex,
+		level:         level,
+		options:       options,
+		selection:     0,
+		maxSelections: 1,
+		selected:      make([]bool, len(options)),
 	})
+}
+
+// grantSharedXP gives `amount` experience to every LIVING hero — active party,
+// tavern reserve, and imprisoned captives — and applies any level-ups. Benched
+// heroes thus "train alongside the party" (their stat points / L3 choice bank
+// unspent). The living-only rule is uniform, so a downed hero (even benched)
+// gains nothing. Single source for all XP-award sites. No-op without combat.
+func (g *MMGame) grantSharedXP(amount int) {
+	if amount <= 0 || g.combat == nil {
+		return
+	}
+	award := func(m *character.MMCharacter) {
+		if m != nil && m.HitPoints > 0 {
+			m.Experience += amount
+			g.combat.checkLevelUp(m)
+		}
+	}
+	for _, m := range g.party.Members {
+		award(m)
+	}
+	for _, m := range g.party.Reserve {
+		award(m)
+	}
+	for _, m := range g.party.Captive {
+		award(m)
+	}
+}
+
+// bankOwedLevelChoice records a level-up choice owed to a benched character
+// (dedup), to be surfaced when they next enter the active party.
+func bankOwedLevelChoice(char *character.MMCharacter, level int) {
+	for _, l := range char.OwedLevelChoices {
+		if l == level {
+			return
+		}
+	}
+	char.OwedLevelChoices = append(char.OwedLevelChoices, level)
+}
+
+// swapRosterMember exchanges an active party member with a reserve member and
+// reconciles the level-up choice queue: the outgoing member's un-consumed
+// queued choices are banked back onto them, and the incoming member's banked
+// choices are queued for their new slot.
+func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
+	if g.party == nil || activeIdx < 0 || activeIdx >= len(g.party.Members) ||
+		reserveIdx < 0 || reserveIdx >= len(g.party.Reserve) {
+		return false
+	}
+	outgoing := g.party.Members[activeIdx]
+	g.benchQueuedChoices(activeIdx, outgoing)
+	if !g.party.SwapActiveReserve(activeIdx, reserveIdx) {
+		return false
+	}
+	g.drainOwedChoices(activeIdx)
+	return true
+}
+
+// benchQueuedChoices removes any queued level-up choices for the given active
+// slot and banks their levels back onto the character (they're leaving the party).
+func (g *MMGame) benchQueuedChoices(charIndex int, char *character.MMCharacter) {
+	if char == nil {
+		return
+	}
+	kept := g.levelUpChoiceQueue[:0]
+	for _, req := range g.levelUpChoiceQueue {
+		if req.charIndex == charIndex {
+			bankOwedLevelChoice(char, req.level)
+			continue
+		}
+		kept = append(kept, req)
+	}
+	g.levelUpChoiceQueue = kept
+	g.levelUpChoiceOpen = false
+	g.levelUpChoiceIdx = 0
+}
+
+// drainOwedChoices queues every choice owed to the character now occupying the
+// given active slot, then clears their owed list.
+func (g *MMGame) drainOwedChoices(charIndex int) {
+	if charIndex < 0 || charIndex >= len(g.party.Members) {
+		return
+	}
+	char := g.party.Members[charIndex]
+	if char == nil || len(char.OwedLevelChoices) == 0 {
+		return
+	}
+	owed := char.OwedLevelChoices
+	char.OwedLevelChoices = nil
+	for _, lvl := range owed {
+		if choices := config.GetLevelUpChoices(char.GetClassKey(), lvl); len(choices) > 0 {
+			g.queueLevelUpChoices(char, lvl, choices)
+		}
+	}
 }
 
 func (g *MMGame) currentLevelUpChoice() *levelUpChoiceRequest {
@@ -93,21 +217,8 @@ func (g *MMGame) closeLevelUpChoice() {
 	g.levelUpChoiceIdx = 0
 }
 
-func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
-	req := g.currentLevelUpChoice()
-	if req == nil {
-		return
-	}
-	if choiceIdx < 0 || choiceIdx >= len(req.options) {
-		return
-	}
-	charIndex := req.charIndex
-	if charIndex < 0 || charIndex >= len(g.party.Members) {
-		return
-	}
-	char := g.party.Members[charIndex]
-	option := req.options[choiceIdx]
-
+// applyLevelUpOption applies a single chosen option to the character.
+func (g *MMGame) applyLevelUpOption(char *character.MMCharacter, option levelUpChoiceOption) {
 	switch option.choice.Type {
 	case "spell":
 		if addSpellByID(char, option.spellID) {
@@ -128,8 +239,10 @@ func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 			g.AddCombatMessage(fmt.Sprintf("%s's %s Magic Mastery is already at maximum.", char.Name, option.school.DisplayName()))
 		}
 	}
+}
 
-	// Pop the current request
+// popLevelUpChoice removes the active request from the queue and closes the popup.
+func (g *MMGame) popLevelUpChoice() {
 	idx := g.levelUpChoiceIdx
 	if idx < 0 || idx >= len(g.levelUpChoiceQueue) {
 		g.closeLevelUpChoice()
@@ -141,6 +254,69 @@ func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 		g.levelUpChoiceQueue = append(g.levelUpChoiceQueue[:idx], g.levelUpChoiceQueue[idx+1:]...)
 	}
 	g.closeLevelUpChoice()
+}
+
+// consumeLevelUpChoice applies a single-select choice and pops the request.
+// Used by the classic level-up flow (maxSelections == 1).
+func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
+	req := g.currentLevelUpChoice()
+	if req == nil {
+		return
+	}
+	if choiceIdx < 0 || choiceIdx >= len(req.options) {
+		return
+	}
+	charIndex := req.charIndex
+	if charIndex < 0 || charIndex >= len(g.party.Members) {
+		return
+	}
+	g.applyLevelUpOption(g.party.Members[charIndex], req.options[choiceIdx])
+	g.popLevelUpChoice()
+}
+
+// toggleLevelUpSelection flips option `idx` on/off in a multi-select picker,
+// enforcing the maxSelections cap (a new toggle past the cap is ignored).
+func (g *MMGame) toggleLevelUpSelection(idx int) {
+	req := g.currentLevelUpChoice()
+	if req == nil || idx < 0 || idx >= len(req.options) || idx >= len(req.selected) {
+		return
+	}
+	if req.selected[idx] {
+		req.selected[idx] = false
+		return
+	}
+	if req.selectedCount() >= req.maxSelections {
+		return // already picked the maximum
+	}
+	req.selected[idx] = true
+}
+
+// confirmLevelUpSelections applies every toggled option in a multi-select
+// picker, runs onComplete, and pops the request. No-op until exactly
+// maxSelections are chosen.
+func (g *MMGame) confirmLevelUpSelections() {
+	req := g.currentLevelUpChoice()
+	if req == nil || !req.isMultiSelect() {
+		return
+	}
+	if req.selectedCount() != req.maxSelections {
+		return
+	}
+	charIndex := req.charIndex
+	if charIndex < 0 || charIndex >= len(g.party.Members) {
+		return
+	}
+	char := g.party.Members[charIndex]
+	for i, on := range req.selected {
+		if on && i < len(req.options) {
+			g.applyLevelUpOption(char, req.options[i])
+		}
+	}
+	onComplete := req.onComplete
+	g.popLevelUpChoice()
+	if onComplete != nil {
+		onComplete()
+	}
 }
 
 func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.LevelUpChoice) []levelUpChoiceOption {
@@ -325,7 +501,11 @@ func levelUpChoiceLayout(req *levelUpChoiceRequest, screenW, screenH int) (popup
 	rowH = 26
 	baseH := 140
 	if req != nil {
-		popupH = baseH + len(req.options)*rowH
+		rows := len(req.options)
+		if req.isMultiSelect() {
+			rows++ // Confirm row drawn below the options
+		}
+		popupH = baseH + rows*rowH
 	} else {
 		popupH = baseH
 	}

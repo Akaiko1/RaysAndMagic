@@ -25,6 +25,18 @@ quests:
       gold: 75
       experience: 150
 
+  # Archmage trial - given by the Mage Tower; turning it in promotes a member.
+  archmage_trial:
+    name: "The Archmage's Trial"
+    description: "Prove your mastery of Light: slay the Lich King, then return to the Mage Tower."
+    type: "kill"
+    target_monster: "lich_king"
+    target_count: 1
+    is_starting_quest: false
+    rewards:
+      gold: 0
+      experience: 0
+
   # Main quest - victory condition
   dragon_slayer:
     name: "Dragon Slayer"

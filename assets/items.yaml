@@ -442,3 +442,4 @@ items:
     flavor: "Something inside it still hates you."
     rarity: "legendary"
     value: 0
+    promotes_lich: true   # using it offers a compatible party member the path of the Lich

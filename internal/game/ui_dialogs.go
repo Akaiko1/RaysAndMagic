@@ -246,6 +246,145 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	}
 }
 
+// drawRosterScreen is the tavern party-management modal: a left column of the 4
+// active members and a right column of the reserve roster. Click an active slot
+// to select it, then click a reserve hero to swap them (they keep all gear/XP/
+// skills). A "!" flags a hero with unspent stat points or an owed level-up choice.
+func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
+	g := ui.game
+	screenW := g.config.GetScreenWidth()
+	screenH := g.config.GetScreenHeight()
+	popupW, popupH := 560, 360
+	popupX := (screenW - popupW) / 2
+	popupY := (screenH - popupH) / 2
+	rowH := 30
+	colW := (popupW - 48) / 2
+	leftX := popupX + 16
+	rightX := popupX + 32 + colW
+	listY := popupY + 70
+
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
+	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
+	ebitenutil.DebugPrintAt(screen, "Tavern — Manage Roster", popupX+16, popupY+14)
+	ebitenutil.DebugPrintAt(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
+	ebitenutil.DebugPrintAt(screen, "Active Party", leftX, listY-16)
+	ebitenutil.DebugPrintAt(screen, "Reserve (tavern)", rightX, listY-16)
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	label := func(m *character.MMCharacter) string {
+		flag := ""
+		if m.FreeStatPoints > 0 || len(m.OwedLevelChoices) > 0 {
+			flag = " !"
+		}
+		return fmt.Sprintf("%s — %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
+	}
+
+	// Active column
+	for i, m := range g.party.Members {
+		y := listY + i*rowH
+		hover := mouseX >= leftX && mouseX < leftX+colW && mouseY >= y-2 && mouseY < y-2+rowH
+		if i == g.rosterSelectedActive {
+			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{90, 120, 60, 220})
+		} else if hover {
+			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
+		}
+		ebitenutil.DebugPrintAt(screen, label(m), leftX+6, y+6)
+		if hover && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
+			g.rosterSelectedActive = i
+		}
+	}
+
+	// Reserve column
+	for j, m := range g.party.Reserve {
+		y := listY + j*rowH
+		hover := mouseX >= rightX && mouseX < rightX+colW && mouseY >= y-2 && mouseY < y-2+rowH
+		if hover {
+			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
+		}
+		ebitenutil.DebugPrintAt(screen, label(m), rightX+6, y+6)
+		if hover && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
+			if g.rosterSelectedActive >= 0 {
+				g.swapRosterMember(g.rosterSelectedActive, j)
+				g.rosterSelectedActive = -1
+			}
+		}
+	}
+	if len(g.party.Reserve) == 0 {
+		ebitenutil.DebugPrintAt(screen, "(no benched heroes yet)", rightX+6, listY+6)
+	}
+
+	// Close button
+	closeX := popupX + popupW - 36
+	closeY := popupY + 10
+	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
+	} else {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
+	}
+	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
+	if g.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) || ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		g.rosterScreenOpen = false
+		g.rosterSelectedActive = -1
+	}
+}
+
+// drawPromotionPickerPopup lists the party members eligible for the pending
+// promotion (Archmage/Lich) and applies it to whomever the player clicks.
+// Mirrors the revival picker. Cannot be cancelled — a quest/phylactery has
+// already committed to the promotion by the time this opens.
+func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
+	kind := ui.game.promotionPickerKind
+	var targets []int
+	title := "Promote Whom?"
+	if kind == character.PromotionArchmage {
+		targets = ui.game.eligibleArchmageIndices()
+		title = "Who Becomes the Archmage?"
+	} else {
+		targets = ui.game.eligibleLichIndices()
+		title = "Who Becomes the Lich?"
+	}
+	if len(targets) == 0 {
+		ui.game.promotionPickerOpen = false
+		return
+	}
+
+	screenW := ui.game.config.GetScreenWidth()
+	screenH := ui.game.config.GetScreenHeight()
+	popupW := 380
+	rowH := 28
+	popupH := 100 + len(targets)*rowH
+	popupX := (screenW - popupW) / 2
+	popupY := (screenH - popupH) / 2
+
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
+	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+
+	ebitenutil.DebugPrintAt(screen, title, popupX+16, popupY+16)
+	ebitenutil.DebugPrintAt(screen, "Click a party member.", popupX+16, popupY+36)
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	startY := popupY + 64
+	for row, idx := range targets {
+		y := startY + row*rowH
+		member := ui.game.party.Members[idx]
+		isHover := mouseX >= popupX+16 && mouseX < popupX+popupW-16 && mouseY >= y-2 && mouseY < y-2+rowH
+		if isHover {
+			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+		ebitenutil.DebugPrintAt(screen,
+			fmt.Sprintf("%d) %s the %s (Lv.%d)", idx+1, member.Name, member.Class.String(), member.Level),
+			popupX+24, y+6)
+		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			itemIdx := ui.game.promotionPickerItemIdx
+			ui.game.promotionPickerOpen = false
+			ui.game.applyPromotionKind(kind, idx, itemIdx)
+			return
+		}
+	}
+}
+
 // drawLevelUpChoicePopup draws the level-up choice selection overlay.
 func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	req := ui.game.currentLevelUpChoice()
@@ -266,13 +405,26 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
 
-	ebitenutil.DebugPrintAt(screen, "Level Up Choice", popupX+16, popupY+16)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+	title := req.title
+	if title == "" {
+		title = "Level Up Choice"
+	}
+	ebitenutil.DebugPrintAt(screen, title, popupX+16, popupY+16)
+	if req.isMultiSelect() {
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: choose %d (%d selected)", member.Name, req.maxSelections, req.selectedCount()), popupX+16, popupY+36)
+	} else {
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+	}
 
 	for i, option := range req.options {
 		y := startY + i*rowH
 		if i == req.selection {
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+		// Multi-select: a check icon marks toggled options; cursor uses the icon too.
+		if req.isMultiSelect() && i < len(req.selected) && req.selected[i] {
+			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
+		} else if !req.isMultiSelect() && i == req.selection {
 			ui.drawInterfaceIcon(screen, "icon_level_choice", popupX+20, y, 16, 16)
 		}
 		if option.hasMastery && option.masteryCurrent != "" && option.masteryNext != "" {
@@ -307,7 +459,22 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 		}
 	}
 
-	ebitenutil.DebugPrintAt(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
+	if req.isMultiSelect() {
+		// Confirm row, drawn just below the options.
+		cy := startY + len(req.options)*rowH
+		ready := req.selectedCount() == req.maxSelections
+		confirmCol := color.RGBA{150, 150, 150, 255}
+		if ready {
+			confirmCol = color.RGBA{90, 220, 90, 255}
+		}
+		if req.selection == req.confirmRowIndex() {
+			drawFilledRect(screen, popupX+16, cy-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+		drawDebugTextColored(screen, "Confirm", popupX+40, cy, confirmCol)
+		ebitenutil.DebugPrintAt(screen, "↑/↓ move · Space toggles · Enter confirms", popupX+16, popupY+popupH-22)
+	} else {
+		ebitenutil.DebugPrintAt(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
+	}
 }
 
 // drawNPCDialog draws the NPC dialog interface for different NPC types
@@ -465,7 +632,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		} else if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 160, 200})
 		}
-		portrait := ui.game.sprites.GetSprite(strings.ToLower(member.Name))
+		portrait := ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member))
 		drawImageScaled(screen, portrait, x, y, w, h)
 		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
 		drawCenteredDebugText(screen, label, x-8, y+h+2, w+16, debugTextCharHeight)
@@ -594,7 +761,7 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		if hover && !ui.game.skillTrainerPopup {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
 		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(strings.ToLower(member.Name)), x, y, w, h)
+		drawImageScaled(screen, ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member)), x, y, w, h)
 		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
 		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.Class), x-8, y+h+20, w+16, debugTextCharHeight)
 	}

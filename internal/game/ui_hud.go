@@ -100,8 +100,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
 		}
 
-		// Draw character portrait (Column 1)
-		portraitName := strings.ToLower(member.Name)
+		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich variant).
+		portraitName := ui.game.portraitSpriteName(member)
 		portrait := ui.game.sprites.GetSprite(portraitName)
 
 		// Portrait dimensions aligned to the left recess in party_member_panel.png.

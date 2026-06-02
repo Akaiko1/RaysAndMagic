@@ -341,7 +341,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	scrollY := cardY
 	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), scrollX, scrollY, scrollW, scrollH, 16)
 
-	portraitName := strings.ToLower(member.Name) + "_full"
+	portraitName := ui.game.fullPortraitSpriteName(member)
 	portrait := ui.game.sprites.GetSprite(portraitName)
 	portraitFramePad := 6
 	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
@@ -753,6 +753,10 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 			if item.Type == items.ItemQuest {
 				if item.Attributes["opens_map"] > 0 {
 					ui.game.mapOverlayOpen = true
+					return
+				}
+				if item.Attributes["promotes_lich"] > 0 {
+					ui.game.useLichPhylactery(itemIndex)
 					return
 				}
 			}

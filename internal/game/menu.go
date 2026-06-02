@@ -101,11 +101,14 @@ type PartySave struct {
 	Food      int             `json:"food"`
 	Inventory []items.Item    `json:"inventory"`
 	Members   []CharacterSave `json:"members"`
+	Reserve   []CharacterSave `json:"reserve,omitempty"`
+	Captive   []CharacterSave `json:"captive,omitempty"`
 }
 
 type CharacterSave struct {
 	Name                  string             `json:"name"`
 	Class                 int                `json:"class"`
+	Promotion             int                `json:"promotion,omitempty"`
 	Level                 int                `json:"level"`
 	Experience            int                `json:"experience"`
 	HitPoints             int                `json:"hit_points"`
@@ -120,6 +123,7 @@ type CharacterSave struct {
 	Speed                 int                `json:"speed"`
 	Luck                  int                `json:"luck"`
 	FreeStatPoints        int                `json:"free_stat_points"`
+	OwedLevelChoices      []int              `json:"owed_level_choices,omitempty"`
 	Conditions            []int              `json:"conditions"`
 	Skills                []SkillEntry       `json:"skills"`
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
@@ -400,6 +404,118 @@ func normalizeItemFromConfig(item *items.Item) {
 	}
 }
 
+// restoreCharacterSave reconstructs one character (active or reserve) from a save.
+func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
+	m := &character.MMCharacter{
+		Name:             cs.Name,
+		Class:            character.CharacterClass(cs.Class),
+		Promotion:        character.Promotion(cs.Promotion),
+		Level:            cs.Level,
+		Experience:       cs.Experience,
+		HitPoints:        cs.HitPoints,
+		MaxHitPoints:     cs.MaxHitPoints,
+		SpellPoints:      cs.SpellPoints,
+		MaxSpellPoints:   cs.MaxSpellPoints,
+		Might:            cs.Might,
+		Intellect:        cs.Intellect,
+		Personality:      cs.Personality,
+		Endurance:        cs.Endurance,
+		Accuracy:         cs.Accuracy,
+		Speed:            cs.Speed,
+		Luck:             cs.Luck,
+		FreeStatPoints:   cs.FreeStatPoints,
+		OwedLevelChoices: append([]int(nil), cs.OwedLevelChoices...),
+		Skills:           make(map[character.SkillType]*character.Skill),
+		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
+		Equipment:        make(map[items.EquipSlot]items.Item),
+	}
+	if len(cs.Conditions) > 0 {
+		m.Conditions = make([]character.Condition, len(cs.Conditions))
+		for i, c := range cs.Conditions {
+			m.Conditions[i] = character.Condition(c)
+		}
+	}
+	for _, s := range cs.Skills {
+		mastery := character.SkillMastery(s.Mastery)
+		if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
+			mastery = migrated
+		}
+		m.Skills[character.SkillType(s.Type)] = &character.Skill{Mastery: mastery}
+	}
+	for _, me := range cs.MagicSchools {
+		mk := character.MagicSchoolID(me.School)
+		mastery := character.SkillMastery(me.Mastery)
+		if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
+			mastery = migrated
+		}
+		ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
+		if len(me.KnownSpells) > 0 {
+			ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
+			for i, s := range me.KnownSpells {
+				ms.KnownSpells[i] = spells.SpellID(s)
+			}
+		}
+		m.MagicSchools[mk] = ms
+	}
+	for _, eq := range cs.Equipment {
+		item := eq.Item
+		normalizeItemFromConfig(&item)
+		m.Equipment[items.EquipSlot(eq.Slot)] = item
+	}
+	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+	m.ActionsRemaining = cs.ActionsRemaining
+	return m
+}
+
+// buildCharacterSave serializes one character (active or reserve).
+func buildCharacterSave(m *character.MMCharacter) CharacterSave {
+	cs := CharacterSave{
+		Name:             m.Name,
+		Class:            int(m.Class),
+		Promotion:        int(m.Promotion),
+		Level:            m.Level,
+		Experience:       m.Experience,
+		HitPoints:        m.HitPoints,
+		MaxHitPoints:     m.MaxHitPoints,
+		SpellPoints:      m.SpellPoints,
+		MaxSpellPoints:   m.MaxSpellPoints,
+		Might:            m.Might,
+		Intellect:        m.Intellect,
+		Personality:      m.Personality,
+		Endurance:        m.Endurance,
+		Accuracy:         m.Accuracy,
+		Speed:            m.Speed,
+		Luck:             m.Luck,
+		FreeStatPoints:   m.FreeStatPoints,
+		OwedLevelChoices: append([]int(nil), m.OwedLevelChoices...),
+	}
+	if len(m.Conditions) > 0 {
+		cs.Conditions = make([]int, len(m.Conditions))
+		for i, c := range m.Conditions {
+			cs.Conditions[i] = int(c)
+		}
+	}
+	for t, s := range m.Skills {
+		cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
+	}
+	for school, ms := range m.MagicSchools {
+		entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
+		if len(ms.KnownSpells) > 0 {
+			entry.KnownSpells = make([]string, len(ms.KnownSpells))
+			for i, sp := range ms.KnownSpells {
+				entry.KnownSpells[i] = string(sp)
+			}
+		}
+		cs.MagicSchools = append(cs.MagicSchools, entry)
+	}
+	for slot, item := range m.Equipment {
+		cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
+	}
+	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+	cs.ActionsRemaining = m.ActionsRemaining
+	return cs
+}
+
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Party
@@ -410,55 +526,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		Members:   make([]CharacterSave, 0, len(g.party.Members)),
 	}
 	for _, m := range g.party.Members {
-		cs := CharacterSave{
-			Name:           m.Name,
-			Class:          int(m.Class),
-			Level:          m.Level,
-			Experience:     m.Experience,
-			HitPoints:      m.HitPoints,
-			MaxHitPoints:   m.MaxHitPoints,
-			SpellPoints:    m.SpellPoints,
-			MaxSpellPoints: m.MaxSpellPoints,
-			Might:          m.Might,
-			Intellect:      m.Intellect,
-			Personality:    m.Personality,
-			Endurance:      m.Endurance,
-			Accuracy:       m.Accuracy,
-			Speed:          m.Speed,
-			Luck:           m.Luck,
-			FreeStatPoints: m.FreeStatPoints,
-		}
-		// Conditions
-		if len(m.Conditions) > 0 {
-			cs.Conditions = make([]int, len(m.Conditions))
-			for i, c := range m.Conditions {
-				cs.Conditions[i] = int(c)
-			}
-		}
-		// Skills
-		for t, s := range m.Skills {
-			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
-		}
-		// Magic schools
-		for school, ms := range m.MagicSchools {
-			entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
-			if len(ms.KnownSpells) > 0 {
-				entry.KnownSpells = make([]string, len(ms.KnownSpells))
-				for i, sp := range ms.KnownSpells {
-					entry.KnownSpells[i] = string(sp)
-				}
-			}
-			cs.MagicSchools = append(cs.MagicSchools, entry)
-		}
-		// Equipment (convert map to slice)
-		for slot, item := range m.Equipment {
-			cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
-		}
-		// Poison timer (so save/load doesn't cure ongoing poison).
-		cs.PoisonFramesRemaining = m.PoisonFramesRemaining
-		// Mid-round turn-based slot count.
-		cs.ActionsRemaining = m.ActionsRemaining
-		ps.Members = append(ps.Members, cs)
+		ps.Members = append(ps.Members, buildCharacterSave(m))
+	}
+	for _, m := range g.party.Reserve {
+		ps.Reserve = append(ps.Reserve, buildCharacterSave(m))
+	}
+	for _, m := range g.party.Captive {
+		ps.Captive = append(ps.Captive, buildCharacterSave(m))
 	}
 
 	// Ground containers (loot bags + treasure chests) currently on the ground.
@@ -650,64 +724,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
 	for _, cs := range save.Party.Members {
-		m := &character.MMCharacter{
-			Name:           cs.Name,
-			Class:          character.CharacterClass(cs.Class),
-			Level:          cs.Level,
-			Experience:     cs.Experience,
-			HitPoints:      cs.HitPoints,
-			MaxHitPoints:   cs.MaxHitPoints,
-			SpellPoints:    cs.SpellPoints,
-			MaxSpellPoints: cs.MaxSpellPoints,
-			Might:          cs.Might,
-			Intellect:      cs.Intellect,
-			Personality:    cs.Personality,
-			Endurance:      cs.Endurance,
-			Accuracy:       cs.Accuracy,
-			Speed:          cs.Speed,
-			Luck:           cs.Luck,
-			FreeStatPoints: cs.FreeStatPoints,
-			Skills:         make(map[character.SkillType]*character.Skill),
-			MagicSchools:   make(map[character.MagicSchoolID]*character.MagicSkill),
-			Equipment:      make(map[items.EquipSlot]items.Item),
-		}
-		if len(cs.Conditions) > 0 {
-			m.Conditions = make([]character.Condition, len(cs.Conditions))
-			for i, c := range cs.Conditions {
-				m.Conditions[i] = character.Condition(c)
-			}
-		}
-		for _, s := range cs.Skills {
-			mastery := character.SkillMastery(s.Mastery)
-			if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
-				mastery = migrated
-			}
-			skill := &character.Skill{Mastery: mastery}
-			m.Skills[character.SkillType(s.Type)] = skill
-		}
-		for _, me := range cs.MagicSchools {
-			mk := character.MagicSchoolID(me.School)
-			mastery := character.SkillMastery(me.Mastery)
-			if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
-				mastery = migrated
-			}
-			ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
-			if len(me.KnownSpells) > 0 {
-				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
-				for i, s := range me.KnownSpells {
-					ms.KnownSpells[i] = spells.SpellID(s)
-				}
-			}
-			m.MagicSchools[mk] = ms
-		}
-		for _, eq := range cs.Equipment {
-			item := eq.Item
-			normalizeItemFromConfig(&item)
-			m.Equipment[items.EquipSlot(eq.Slot)] = item
-		}
-		m.PoisonFramesRemaining = cs.PoisonFramesRemaining
-		m.ActionsRemaining = cs.ActionsRemaining
-		g.party.Members = append(g.party.Members, m)
+		g.party.Members = append(g.party.Members, restoreCharacterSave(cs))
+	}
+	for _, cs := range save.Party.Reserve {
+		g.party.Reserve = append(g.party.Reserve, restoreCharacterSave(cs))
+	}
+	for _, cs := range save.Party.Captive {
+		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
 	}
 
 	// Restore monsters (all loaded maps)

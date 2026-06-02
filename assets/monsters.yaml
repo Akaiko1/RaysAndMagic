@@ -727,6 +727,7 @@ monsters:
     alert_radius: 5
     attack_radius: 1
     speed: 1.5
+    passive_until_attacked: true   # elf warriors won't aggro unless struck (or a Lich is in the party)
     gold_min: 40
     gold_max: 100
     sprite: "elf_swordsman"
@@ -785,6 +786,7 @@ monsters:
     ranged_attack_range: 5
     alert_radius: 7
     attack_radius: 5
+    passive_until_attacked: true   # archmages stay neutral unless attacked (or a Lich is in the party)
     speed: 1.5
     gold_min: 100
     gold_max: 250

@@ -17,6 +17,7 @@ type NPC struct {
 	SpellData      map[string]*NPCSpell
 	DialogueData   *NPCDialogue
 	EncounterData  *NPCEncounter
+	Summons        []*NPCSummon
 	Visited        bool
 }
 

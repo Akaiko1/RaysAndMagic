@@ -45,7 +45,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
-		if m.PassiveUntilAttacked && !m.WasAttacked {
+		if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
 			continue
 		}
 		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)

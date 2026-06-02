@@ -51,7 +51,7 @@ func (g *MMGame) ApplyTestArena() {
 	g.party.Gold += gold
 
 	g.completeTestEncounters() // shipwreck quest (gold + XP) + church chest reward
-	g.grantPartyXP(perMemberXP) // forest + church kill XP → natural level-ups
+	g.grantSharedXP(perMemberXP) // forest + church kill XP → natural level-ups
 	g.setupTestParty()          // pump stats / full heal on top of the earned level
 
 	level := 0
@@ -121,23 +121,6 @@ func (g *MMGame) setupTestParty() {
 	}
 }
 
-// grantPartyXP adds xpEach to every living member and applies any resulting
-// level-ups through the normal combat path — which also queues the level-3
-// skill choice (left unspent here, so it hangs as a HUD caret). No-op without a
-// combat system.
-func (g *MMGame) grantPartyXP(xpEach int) {
-	if xpEach <= 0 || g.combat == nil {
-		return
-	}
-	for _, m := range g.party.Members {
-		if m == nil || m.HitPoints <= 0 {
-			continue
-		}
-		m.Experience += xpEach
-		g.combat.checkLevelUp(m)
-	}
-}
-
 // completeTestEncounters finishes the two forest-side encounters the way the
 // game would, reading every value from config so it can't drift:
 //   - shipwreck bandits: an NPC encounter quest (npcs.yaml) — registered and
@@ -170,7 +153,7 @@ func (g *MMGame) completeShipwreckEncounter() {
 			mon := monster.NewMonster3DFromConfig(0, 0, em.Type, g.config)
 			xp, gold := g.tallyMonsterKill(mon)
 			g.party.Gold += gold
-			g.grantPartyXP(xp)
+			g.grantSharedXP(xp)
 		}
 	}
 
@@ -186,7 +169,7 @@ func (g *MMGame) completeShipwreckEncounter() {
 		g.party.Gold += enc.Rewards.Gold
 		// Encounter completion XP is awarded in full to each member (matching the
 		// live awardEncounterRewards path), not split like per-kill XP.
-		g.grantPartyXP(enc.Rewards.Experience)
+		g.grantSharedXP(enc.Rewards.Experience)
 		if enc.Rewards.CompletionMessage != "" {
 			g.AddCombatMessage(enc.Rewards.CompletionMessage)
 		}

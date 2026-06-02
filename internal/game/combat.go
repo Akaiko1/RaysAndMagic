@@ -853,7 +853,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 				monster.PounceCDFrames--
 			}
 			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
-				(!monster.PassiveUntilAttacked || monster.WasAttacked) {
+				(!monster.PassiveUntilAttacked || monster.WasAttacked || monster.HatesActiveTrait()) {
 				if newDist, landed := cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y); landed {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
 					cs.applyMonsterMeleeDamage(monster, newDist)
@@ -1661,16 +1661,8 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed
 func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
-	// Distribute experience among all living party members
-	experiencePerMember := monster.Experience / len(cs.game.party.Members)
-	for _, member := range cs.game.party.Members {
-		if member.HitPoints > 0 { // Only living members get experience
-			member.Experience += experiencePerMember
-
-			// Check for level up (simple level up system)
-			cs.checkLevelUp(member)
-		}
-	}
+	// Each living hero — active, reserve, or captive — gets the per-member share.
+	cs.game.grantSharedXP(monster.Experience / len(cs.game.party.Members))
 
 	// Check for loot drops
 	drops := cs.checkMonsterLootDrop(monster)
@@ -1696,6 +1688,17 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 
 	// Convert monster name to lowercase key format (e.g., "Goblin" -> "goblin", "Dire Wolf" -> "dire_wolf")
 	monsterType := strings.ToLower(strings.ReplaceAll(monster.Name, " ", "_"))
+
+	// Only statue-summoned dragons count toward the win quest. They're flagged
+	// at summon (IsEncounterMonster + EncounterRewards.QuestID == "dragon_slayer");
+	// any other dragon is ignored so it can never trip the victory.
+	if monsterType == "dragon" {
+		summoned := monster.IsEncounterMonster && monster.EncounterRewards != nil &&
+			monster.EncounterRewards.QuestID == "dragon_slayer"
+		if !summoned {
+			return
+		}
+	}
 
 	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType)
 
