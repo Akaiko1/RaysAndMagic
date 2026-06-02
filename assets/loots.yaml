@@ -96,6 +96,48 @@ loots:
       key: "chain_pants"
       chance: 0.07
 
+  # Pyramid dungeon mobs.
+  mummy:
+    - type: "item"
+      key: "ancient_linen_wrap"
+      chance: 0.10
+    - type: "item"
+      key: "scarab_amulet"
+      chance: 0.04
+
+  minotaur:
+    - type: "weapon"
+      key: "steel_axe"
+      chance: 0.08
+    - type: "item"
+      key: "minotaur_horn"
+      chance: 0.08
+
+  isis:
+    - type: "item"
+      key: "isis_feather"
+      chance: 0.07
+    - type: "item"
+      key: "serpent_diadem"
+      chance: 0.04
+
+  # Lich Nexus mobs.
+  revenant:
+    - type: "item"
+      key: "revenant_blade_shard"
+      chance: 0.08
+    - type: "item"
+      key: "grave_knight_sigil"
+      chance: 0.04
+
+  lich_king:
+    - type: "item"
+      key: "lich_king_crown"
+      chance: 0.06
+    - type: "item"
+      key: "soul_phylactery_gem"
+      chance: 0.10
+
   # Highlands mid-tier mobs (L6-12) — gear + monster-trophy cards.
   puma:
     - type: "weapon"

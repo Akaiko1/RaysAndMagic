@@ -177,4 +177,3 @@ func GetProjectileColor(spellID SpellID) ([3]int, error) {
 
 	return [3]int{}, fmt.Errorf("no spell configuration available for '%s'", spellID)
 }
-

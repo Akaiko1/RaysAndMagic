@@ -187,23 +187,26 @@ type MonsterSave struct {
 }
 
 type EncounterRewardSave struct {
-	Gold              int                      `json:"gold"`
-	Experience        int                      `json:"experience"`
-	CompletionMessage string                   `json:"completion_message,omitempty"`
-	QuestID           string                   `json:"quest_id,omitempty"`
-	TreasureChest     *TreasureChestRewardSave `json:"treasure_chest,omitempty"`
+	Gold              int                       `json:"gold"`
+	Experience        int                       `json:"experience"`
+	CompletionMessage string                    `json:"completion_message,omitempty"`
+	QuestID           string                    `json:"quest_id,omitempty"`
+	TreasureChest     *TreasureChestRewardSave  `json:"treasure_chest,omitempty"`
+	TreasureChests    []TreasureChestRewardSave `json:"treasure_chests,omitempty"`
 }
 
 type TreasureChestRewardSave struct {
-	ID                string  `json:"id,omitempty"`
-	Map               string  `json:"map,omitempty"`
-	TileX             int     `json:"tile_x"`
-	TileY             int     `json:"tile_y"`
-	Sprite            string  `json:"sprite,omitempty"`
-	SizeMultiplier    float64 `json:"size_multiplier,omitempty"`
-	RandomWeaponCount int     `json:"random_weapon_count,omitempty"`
-	Gold              int     `json:"gold,omitempty"`
-	CompletionMessage string  `json:"completion_message,omitempty"`
+	ID                string   `json:"id,omitempty"`
+	Map               string   `json:"map,omitempty"`
+	TileX             int      `json:"tile_x"`
+	TileY             int      `json:"tile_y"`
+	Sprite            string   `json:"sprite,omitempty"`
+	SizeMultiplier    float64  `json:"size_multiplier,omitempty"`
+	RandomWeaponCount int      `json:"random_weapon_count,omitempty"`
+	Items             []string `json:"items,omitempty"`
+	Weapons           []string `json:"weapons,omitempty"`
+	Gold              int      `json:"gold,omitempty"`
+	CompletionMessage string   `json:"completion_message,omitempty"`
 }
 
 func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChestRewardSave {
@@ -218,6 +221,8 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		Sprite:            reward.Sprite,
 		SizeMultiplier:    reward.SizeMultiplier,
 		RandomWeaponCount: reward.RandomWeaponCount,
+		Items:             append([]string(nil), reward.Items...),
+		Weapons:           append([]string(nil), reward.Weapons...),
 		Gold:              reward.Gold,
 		CompletionMessage: reward.CompletionMessage,
 	}
@@ -235,6 +240,8 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		Sprite:            save.Sprite,
 		SizeMultiplier:    save.SizeMultiplier,
 		RandomWeaponCount: save.RandomWeaponCount,
+		Items:             append([]string(nil), save.Items...),
+		Weapons:           append([]string(nil), save.Weapons...),
 		Gold:              save.Gold,
 		CompletionMessage: save.CompletionMessage,
 	}
@@ -244,13 +251,19 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 	if save == nil {
 		return nil
 	}
-	return &monster.EncounterRewards{
+	rewards := &monster.EncounterRewards{
 		Gold:              save.Gold,
 		Experience:        save.Experience,
 		CompletionMessage: save.CompletionMessage,
 		QuestID:           save.QuestID,
 		TreasureChest:     treasureChestRewardFromSave(save.TreasureChest),
 	}
+	for _, chestSave := range save.TreasureChests {
+		if chest := treasureChestRewardFromSave(&chestSave); chest != nil {
+			rewards.TreasureChests = append(rewards.TreasureChests, *chest)
+		}
+	}
+	return rewards
 }
 
 // NPCSave tracks persistent NPC flags across maps
@@ -500,6 +513,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				if rewards.TreasureChest != nil {
 					saveEntry.EncounterRewards.TreasureChest = treasureChestRewardToSave(rewards.TreasureChest)
+				}
+				for _, chest := range rewards.TreasureChests {
+					if chestSave := treasureChestRewardToSave(&chest); chestSave != nil {
+						saveEntry.EncounterRewards.TreasureChests = append(saveEntry.EncounterRewards.TreasureChests, *chestSave)
+					}
 				}
 			}
 			monsters = append(monsters, saveEntry)

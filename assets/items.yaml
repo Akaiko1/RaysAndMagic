@@ -198,6 +198,121 @@ items:
     rarity: "rare"
     value: 500
 
+  black_dragon_statuette:
+    name: "Black Dragon Statuette"
+    type: "quest"
+    description: "An obsidian statuette of the black desert dragon"
+    flavor: "Cold stone holds the shape of a sleeping wyrm."
+    rarity: "legendary"
+
+  red_dragon_statuette:
+    name: "Red Dragon Statuette"
+    type: "quest"
+    description: "A ruby-red statuette of the red dragon"
+    flavor: "Its scales catch the light like banked embers."
+    rarity: "legendary"
+
+  green_dragon_statuette:
+    name: "Green Dragon Statuette"
+    type: "quest"
+    description: "An emerald-green statuette of the green dragon"
+    flavor: "A small serpent of stone and jungle venom."
+    rarity: "legendary"
+
+  gold_dragon_statuette:
+    name: "Gold Dragon Statuette"
+    type: "quest"
+    description: "A golden statuette of the storm dragon"
+    flavor: "Tiny wings of hammered gold seem ready to stir."
+    rarity: "legendary"
+
+  ancient_linen_wrap:
+    name: "Ancient Linen Wrap"
+    type: "trinket"
+    description: "Dusty embalming cloth clasped with a small seal"
+    flavor: "Dry as old prayers, but still strangely intact."
+    rarity: "common"
+    value: 120
+
+  scarab_amulet:
+    name: "Scarab Amulet"
+    type: "accessory"
+    description: "A turquoise scarab charm from the pyramid crypts"
+    flavor: "Its wings click softly when danger nears."
+    equip_slot: "amulet"
+    bonus_luck: 15
+    bonus_endurance: 5
+    rarity: "uncommon"
+    value: 550
+
+  minotaur_horn:
+    name: "Minotaur Horn"
+    type: "trinket"
+    description: "A cracked horn bound with a bronze ring"
+    flavor: "Heavy, sharp, and still warm near the base."
+    rarity: "uncommon"
+    value: 420
+
+  isis_feather:
+    name: "Isis Feather"
+    type: "accessory"
+    description: "A blue-gold feather charm from an Isis guardian"
+    flavor: "It moves as if touched by a wind you cannot feel."
+    equip_slot: "cloak"
+    bonus_personality: 8
+    bonus_speed: 8
+    rarity: "rare"
+    value: 800
+
+  serpent_diadem:
+    name: "Serpent Diadem"
+    type: "accessory"
+    description: "A golden cobra diadem set with a blue gem"
+    flavor: "The cobra's eyes seem to follow every spell you cast."
+    equip_slot: "helmet"
+    bonus_intellect: 10
+    bonus_personality: 5
+    rarity: "rare"
+    value: 950
+
+  revenant_blade_shard:
+    name: "Revenant Blade Shard"
+    type: "trinket"
+    description: "A broken spectral blade fragment"
+    flavor: "Green light crawls along the edge, searching for a hand."
+    rarity: "uncommon"
+    value: 520
+
+  grave_knight_sigil:
+    name: "Grave Knight Sigil"
+    type: "accessory"
+    description: "A black iron badge from an undead knightly order"
+    flavor: "The skull mark is worn smooth by armored fingers."
+    equip_slot: "amulet"
+    bonus_might: 8
+    bonus_endurance: 8
+    rarity: "rare"
+    value: 850
+
+  lich_king_crown:
+    name: "Lich King Crown"
+    type: "accessory"
+    description: "A dark spiked crown with a bound soul gem"
+    flavor: "A whisper offers counsel from inside the emerald stone."
+    equip_slot: "helmet"
+    bonus_intellect: 18
+    bonus_personality: 8
+    rarity: "legendary"
+    value: 1800
+
+  soul_phylactery_gem:
+    name: "Soul Phylactery Gem"
+    type: "trinket"
+    description: "A green-violet crystal vessel in a bone setting"
+    flavor: "Something inside taps once, then goes silent."
+    rarity: "legendary"
+    value: 1300
+
   world_map:
     name: "World Map"
     type: "quest"

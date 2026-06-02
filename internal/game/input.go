@@ -969,6 +969,10 @@ func (ih *InputHandler) checkTeleporter() {
 	// Handle map transition if needed
 	if targetMapKey != "" && world.GlobalWorldManager != nil && targetMapKey != world.GlobalWorldManager.CurrentMapKey {
 		ih.switchToMap(targetMapKey)
+		// Cross-location teleport: face north on arrival for a consistent
+		// orientation (same rule as enter_map portals). Same-map teleporters
+		// keep the party's current heading.
+		ih.game.camera.Angle = AngleNorth
 	}
 
 	ih.game.camera.X = newX
@@ -1370,7 +1374,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
 	ih.game.selectedSpellKey = ""   // No spell selected initially
 	ih.game.skillTrainerPopup = false
-	ih.game.selectedChoice = 0      // Reset encounter choice selection
+	ih.game.selectedChoice = 0 // Reset encounter choice selection
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -2210,8 +2214,10 @@ func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
 	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
 		x, y, angle = pose.X, pose.Y, pose.Angle
 	} else {
+		// First arrival: drop the party on the centre of the spawn tile facing
+		// north, so every fresh location entry is consistent and predictable.
 		x, y = currentWorld.GetStartingPosition()
-		angle = 0
+		angle = AngleNorth
 	}
 	ih.game.camera.X = x
 	ih.game.camera.Y = y

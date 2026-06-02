@@ -110,10 +110,10 @@ const (
 // these knobs changes how much Speed matters for action cadence in realtime
 // combat.
 const (
-	AttackCooldownIntercept   = 63.333333 // frames at Speed=0 (before clamp)
-	AttackCooldownSpeedSlope  = 2.0 / 3.0 // frames lost per +1 Speed
-	AttackCooldownMinFrames   = 15        // floor: ~0.125s at 120 TPS
-	AttackCooldownMaxFrames   = 90        // ceiling: ~0.75s at 120 TPS
+	AttackCooldownIntercept  = 63.333333 // frames at Speed=0 (before clamp)
+	AttackCooldownSpeedSlope = 2.0 / 3.0 // frames lost per +1 Speed
+	AttackCooldownMinFrames  = 15        // floor: ~0.125s at 120 TPS
+	AttackCooldownMaxFrames  = 90        // ceiling: ~0.75s at 120 TPS
 )
 
 // Sprite animation timing.

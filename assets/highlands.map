@@ -3,6 +3,7 @@
 #   % = cliff  # = granite  B = ruined wall  = = slate wall
 #   T = pine   A = rock outcrop  R = boulder  + = start
 #   @ next to start = invisible portal_gate_forest NPC ("return to the forest?")
+#   @ near the slate tomb = lich_nexus_entrance
 # Monster spawns (match assets/monsters.yaml): c=puma h=elf_archer
 #   j=elf_swordsman v=mountain_troll z=archmage q=lich
 # Zones: start meadow (S) -> heather moor & pumas (W), pine grove & archers (N),
@@ -52,7 +53,7 @@
 %...HA....A.....................H............=...%
 %.H.A........H.....H.......c.................=...%
 %.A......................SS......=.....q.....=...%
-%...........A...H.......SS..H....=...........=...%
+%...........A...H@......SS..H....=...........=...%  >[npc:lich_nexus_entrance]
 %.....H..A...........H...SS......=...........=.H.%
 %.H.H....H...............SS......=...........=...%
 %............H.......HA...SSH.H..=============...%

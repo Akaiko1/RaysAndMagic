@@ -99,6 +99,14 @@ func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
 	opts.GeoM.Translate(float64(x), float64(y))
+	// Shrinking with the default nearest filter drops whole source rows/columns,
+	// which clips thin baked-in details — e.g. an icon's frame on the trailing
+	// (right/bottom) edges. Linear filtering (mipmaps kick in automatically for
+	// shrink) resamples instead and keeps them. Upscales stay nearest so pixel
+	// art is not blurred.
+	if w < srcW || h < srcH {
+		opts.Filter = ebiten.FilterLinear
+	}
 	dst.DrawImage(src, opts)
 }
 

@@ -8,6 +8,7 @@
 # P = Desert Palm (blocking, environment sprite)
 # Spawns / markers:
 # n = bandit   @ = NPC / special-tile placeholder
+# @ in the open desert = pyramid_entrance
 # Dragons (4 corners, one per element — all named "Dragon"):
 #   d = fire (base)   r = dark (dragon_red)   e = poison (dragon_green)
 #   y = air/storm (dragon_gold)
@@ -31,7 +32,7 @@ T....n...PWW.....................................T
 T........PWW....P................................T
 T........PPPP..n....P............................T
 T.........n..............P.......................T
-T................................................T
+T........................@.......................T  >[npc:pyramid_entrance]
 T....................................P...........T
 T................................................T
 T................................................T

@@ -287,24 +287,33 @@ func buildEncounterRewards(ec *config.MapClearEncounterConfig, mapKey string) *m
 		CompletionMessage: cfg.CompletionMessage,
 	}
 	if cfg.TreasureChest != nil {
-		chestCfg := cfg.TreasureChest
-		chestMap := chestCfg.Map
-		if chestMap == "" {
-			chestMap = mapKey
-		}
-		rewards.TreasureChest = &monster.TreasureChestReward{
-			ID:                chestCfg.ID,
-			Map:               chestMap,
-			TileX:             chestCfg.TileX,
-			TileY:             chestCfg.TileY,
-			Sprite:            chestCfg.Sprite,
-			SizeMultiplier:    chestCfg.SizeMultiplier,
-			RandomWeaponCount: chestCfg.RandomWeaponCount,
-			Gold:              chestCfg.Gold,
-			CompletionMessage: chestCfg.CompletionMessage,
-		}
+		chest := buildTreasureChestReward(*cfg.TreasureChest, mapKey)
+		rewards.TreasureChest = &chest
+	}
+	for _, chestCfg := range cfg.TreasureChests {
+		rewards.TreasureChests = append(rewards.TreasureChests, buildTreasureChestReward(chestCfg, mapKey))
 	}
 	return rewards
+}
+
+func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapKey string) monster.TreasureChestReward {
+	chestMap := chestCfg.Map
+	if chestMap == "" {
+		chestMap = mapKey
+	}
+	return monster.TreasureChestReward{
+		ID:                chestCfg.ID,
+		Map:               chestMap,
+		TileX:             chestCfg.TileX,
+		TileY:             chestCfg.TileY,
+		Sprite:            chestCfg.Sprite,
+		SizeMultiplier:    chestCfg.SizeMultiplier,
+		RandomWeaponCount: chestCfg.RandomWeaponCount,
+		Items:             append([]string(nil), chestCfg.Items...),
+		Weapons:           append([]string(nil), chestCfg.Weapons...),
+		Gold:              chestCfg.Gold,
+		CompletionMessage: chestCfg.CompletionMessage,
+	}
 }
 
 // GetCurrentWorld returns the currently active world

@@ -153,7 +153,10 @@ func (w *World3D) GetStartingPosition() (float64, float64) {
 		panic("Map has no starting position defined! Maps must have a '+' symbol to be used as starting maps.")
 	}
 	tileSize := w.config.GetTileSize()
-	return float64(w.StartX) * tileSize, float64(w.StartY) * tileSize
+	// Return the CENTER of the start tile, not its corner — every other
+	// positioning path (movement, teleporters) centers on the tile, and an
+	// off-centre spawn drops the party into the corner of the doorway.
+	return float64(w.StartX)*tileSize + tileSize/2, float64(w.StartY)*tileSize + tileSize/2
 }
 
 // Registers all teleporter tiles in the map into the global registry with unique labels and type
@@ -472,4 +475,3 @@ func (reg *TeleporterRegistry) GetRandomDestinationTeleporter(source TeleporterL
 	}
 	return candidates[0], true
 }
-

@@ -61,6 +61,22 @@ biomes:
         - "church_floor_2"
         - "church_floor_3"
 
+  pyramid:
+    floor_texture_groups:
+      default:
+        - "pyramid_floor_0"
+        - "pyramid_floor_1"
+        - "pyramid_floor_2"
+        - "pyramid_floor_3"
+
+  lich_nexus:
+    floor_texture_groups:
+      default:
+        - "lich_nexus_floor_0"
+        - "lich_nexus_floor_1"
+        - "lich_nexus_floor_2"
+        - "lich_nexus_floor_3"
+
   city:
     floor_texture_groups:
       default:
@@ -153,6 +169,70 @@ maps:
           sprite: "chest"
           size_multiplier: 5.0
           random_weapon_count: 1
+
+  pyramid_1:
+    name: "Pyramid - Level 1"
+    file: "pyramid_1.map"
+    biome: "pyramid"
+    sky_color: [70, 55, 35]
+    sky_texture: "pyramid_panorama"
+    default_floor_color: [154, 125, 76]
+
+  pyramid_2:
+    name: "Pyramid - Level 2"
+    file: "pyramid_2.map"
+    biome: "pyramid"
+    sky_color: [60, 48, 34]
+    sky_texture: "pyramid_panorama"
+    default_floor_color: [142, 112, 70]
+
+  pyramid_3:
+    name: "Pyramid - Sanctum"
+    file: "pyramid_3.map"
+    biome: "pyramid"
+    sky_color: [55, 42, 32]
+    sky_texture: "pyramid_panorama"
+    default_floor_color: [132, 100, 64]
+    clear_encounter:
+      rewards:
+        completion_message: "The last Isis falls. Four sealed dragon reliquaries slide open behind the dais."
+        treasure_chests:
+          - id: "pyramid_black_dragon_statuette_chest"
+            map: "pyramid_3"
+            tile_x: 9
+            tile_y: 3
+            sprite: "pyramid_chest"
+            size_multiplier: 5.0
+            items: ["black_dragon_statuette"]
+          - id: "pyramid_red_dragon_statuette_chest"
+            map: "pyramid_3"
+            tile_x: 13
+            tile_y: 3
+            sprite: "pyramid_chest"
+            size_multiplier: 5.0
+            items: ["red_dragon_statuette"]
+          - id: "pyramid_green_dragon_statuette_chest"
+            map: "pyramid_3"
+            tile_x: 17
+            tile_y: 3
+            sprite: "pyramid_chest"
+            size_multiplier: 5.0
+            items: ["green_dragon_statuette"]
+          - id: "pyramid_gold_dragon_statuette_chest"
+            map: "pyramid_3"
+            tile_x: 21
+            tile_y: 3
+            sprite: "pyramid_chest"
+            size_multiplier: 5.0
+            items: ["gold_dragon_statuette"]
+
+  lich_nexus:
+    name: "Lich Nexus"
+    file: "lich_nexus.map"
+    biome: "lich_nexus"
+    sky_color: [18, 16, 28]
+    sky_texture: "lich_nexus_panorama"
+    default_floor_color: [32, 28, 42]
 
   city:
     name: "Seabright"

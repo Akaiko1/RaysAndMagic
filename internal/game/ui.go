@@ -31,21 +31,22 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                  *MMGame
-	justOpenedStatPopup   bool
+	game                *MMGame
+	justOpenedStatPopup bool
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
 	// after statHoldInitialDelay frames and fires every statHoldRepeatRate
 	// frames thereafter so points pour out at a controllable rate.
-	statHoldStat   string
-	statHoldFrames int
+	statHoldStat          string
+	statHoldFrames        int
 	lastClickTime         time.Time
 	lastClickedItem       int
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
+	inventoryPage         int // current inventory grid page (0-based)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string

@@ -12,41 +12,41 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Name               string              `yaml:"name"`
-	Type               string              `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
-	Level              int                 `yaml:"level"`
-	MaxHitPoints       int                 `yaml:"max_hit_points"`
-	ArmorClass         int                 `yaml:"armor_class"`
-	PerfectDodge       int                 `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
-	Experience         int                 `yaml:"experience"`
-	DamageMin          int                 `yaml:"damage_min"`
-	DamageMax          int                 `yaml:"damage_max"`
-	AlertRadius        float64             `yaml:"alert_radius"`
-	AttackRadius       float64             `yaml:"attack_radius"`
-	Speed              float64             `yaml:"speed"`
-	GoldMin            int                 `yaml:"gold_min"`
-	GoldMax            int                 `yaml:"gold_max"`
-	Sprite             string              `yaml:"sprite"`
-	Letter             string              `yaml:"letter"`
-	Biomes             []string            `yaml:"biomes,omitempty"`
-	BoxW               float64             `yaml:"box_w"`
-	BoxH               float64             `yaml:"box_h"`
-	SizeGame           float64             `yaml:"size_game"`
-	Resistances        map[string]int      `yaml:"resistances"`
-	HabitatPrefs       []string            `yaml:"habitat_preferences"`
-	HabitatNear        []HabitatNearRule   `yaml:"habitat_near"`
-	ProjectileSpell    string              `yaml:"projectile_spell"`
-	ProjectileWeapon   string              `yaml:"projectile_weapon"`
-	Flying             bool                `yaml:"flying"`
-	RangedAttackRange  float64             `yaml:"ranged_attack_range"`
-	AttacksPerRound    int                 `yaml:"attacks_per_round"`
-	AttackCooldownMult float64             `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit    bool                `yaml:"passive_until_attacked"`
-	FireburstChance    float64             `yaml:"fireburst_chance"`
-	FireburstDamageMin int                 `yaml:"fireburst_damage_min"`
-	FireburstDamageMax int                 `yaml:"fireburst_damage_max"`
-	PoisonChance       float64             `yaml:"poison_chance"`
-	PoisonDurationSec  int                 `yaml:"poison_duration_seconds"`
+	Name               string            `yaml:"name"`
+	Type               string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
+	Level              int               `yaml:"level"`
+	MaxHitPoints       int               `yaml:"max_hit_points"`
+	ArmorClass         int               `yaml:"armor_class"`
+	PerfectDodge       int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
+	Experience         int               `yaml:"experience"`
+	DamageMin          int               `yaml:"damage_min"`
+	DamageMax          int               `yaml:"damage_max"`
+	AlertRadius        float64           `yaml:"alert_radius"`
+	AttackRadius       float64           `yaml:"attack_radius"`
+	Speed              float64           `yaml:"speed"`
+	GoldMin            int               `yaml:"gold_min"`
+	GoldMax            int               `yaml:"gold_max"`
+	Sprite             string            `yaml:"sprite"`
+	Letter             string            `yaml:"letter"`
+	Biomes             []string          `yaml:"biomes,omitempty"`
+	BoxW               float64           `yaml:"box_w"`
+	BoxH               float64           `yaml:"box_h"`
+	SizeGame           float64           `yaml:"size_game"`
+	Resistances        map[string]int    `yaml:"resistances"`
+	HabitatPrefs       []string          `yaml:"habitat_preferences"`
+	HabitatNear        []HabitatNearRule `yaml:"habitat_near"`
+	ProjectileSpell    string            `yaml:"projectile_spell"`
+	ProjectileWeapon   string            `yaml:"projectile_weapon"`
+	Flying             bool              `yaml:"flying"`
+	RangedAttackRange  float64           `yaml:"ranged_attack_range"`
+	AttacksPerRound    int               `yaml:"attacks_per_round"`
+	AttackCooldownMult float64           `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit    bool              `yaml:"passive_until_attacked"`
+	FireburstChance    float64           `yaml:"fireburst_chance"`
+	FireburstDamageMin int               `yaml:"fireburst_damage_min"`
+	FireburstDamageMax int               `yaml:"fireburst_damage_max"`
+	PoisonChance       float64           `yaml:"poison_chance"`
+	PoisonDurationSec  int               `yaml:"poison_duration_seconds"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.

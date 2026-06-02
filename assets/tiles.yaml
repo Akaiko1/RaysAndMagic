@@ -201,6 +201,58 @@ tiles:
     letter: "%"
     biomes: ["church"]
 
+  pyramid_floor:
+    name: "Pyramid Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [154, 125, 76]
+    floor_near_color: [178, 142, 86]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["pyramid"]
+
+  pyramid_wall:
+    name: "Pyramid Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "pyramid_wall"
+    render_type: "textured_wall"
+    wall_color: [128, 94, 52]
+    letter: "%"
+    biomes: ["pyramid"]
+
+  lich_nexus_floor:
+    name: "Lich Nexus Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [32, 28, 42]
+    floor_near_color: [55, 45, 72]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["lich_nexus"]
+
+  lich_nexus_wall:
+    name: "Lich Nexus Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "lich_nexus_wall"
+    render_type: "textured_wall"
+    wall_color: [28, 24, 36]
+    letter: "%"
+    biomes: ["lich_nexus"]
+
   city_floor:
     name: "City Cobblestone"
     solid: false

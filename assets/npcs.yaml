@@ -175,6 +175,132 @@ npcs:
         - text: "Stay inside"
           action: "leave"
 
+  pyramid_entrance:
+    name: "Ancient Pyramid"
+    type: "encounter"
+    description: "A sun-baked pyramid with a narrow stairway descending into darkness"
+    sprite: "pyramid_entrance"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the pyramid"
+          action: "enter_map"
+          map: "pyramid_1"
+        - text: "Leave it alone"
+          action: "leave"
+
+  pyramid_exit:
+    name: "Pyramid Entrance"
+    type: "encounter"
+    description: "The stairway back out of the pyramid"
+    sprite: "pyramid_stairs_up"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "Warm daylight spills down the sandstone stairs behind you."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Leave the pyramid"
+          action: "enter_map"
+          map: "desert"
+        - text: "Stay inside"
+          action: "leave"
+
+  pyramid_stairs_to_1:
+    name: "Stairs to Level 1"
+    type: "encounter"
+    description: "Sandstone stairs leading upward"
+    sprite: "pyramid_stairs_up"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "The stairs climb toward the upper chambers."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to level 1"
+          action: "enter_map"
+          map: "pyramid_1"
+        - text: "Stay here"
+          action: "leave"
+
+  pyramid_stairs_to_2:
+    name: "Stairs to Level 2"
+    type: "encounter"
+    description: "Sandstone stairs leading deeper"
+    sprite: "pyramid_stairs_down"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "The stairs descend into a colder, darker level of the pyramid."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to level 2"
+          action: "enter_map"
+          map: "pyramid_2"
+        - text: "Stay here"
+          action: "leave"
+
+  pyramid_stairs_to_3:
+    name: "Stairs to the Sanctum"
+    type: "encounter"
+    description: "A narrow stairway toward the sealed sanctum"
+    sprite: "pyramid_stairs_down"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to the sanctum"
+          action: "enter_map"
+          map: "pyramid_3"
+        - text: "Stay here"
+          action: "leave"
+
+  lich_nexus_entrance:
+    name: "Lich Nexus"
+    type: "encounter"
+    description: "A black stone arch humming with trapped souls"
+    sprite: "lich_nexus_entrance"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the nexus"
+          action: "enter_map"
+          map: "lich_nexus"
+        - text: "Step away"
+          action: "leave"
+
+  lich_nexus_exit:
+    name: "Nexus Portal"
+    type: "encounter"
+    description: "A portal back to the living world"
+    sprite: "lich_nexus_exit"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue:
+      greeting: "The portal flickers with a path away from the liches' hall."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Leave the nexus"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay inside"
+          action: "leave"
+
   seabright_gate:
     name: "Seabright Gate"
     type: "encounter"

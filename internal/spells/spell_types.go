@@ -39,9 +39,9 @@ type SpellDefinition struct {
 	StunDurationTurns   int
 	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
 	// Party combat buffs (duration seconds)
-	ResistBuffPct           int // Day of the Gods: % incoming damage reduction
-	OutgoingDamageBonus     int // Hour of Power: flat outgoing damage bonus
-	IncomingDamageReduction int // Hour of Power: flat incoming damage reduction
+	ResistBuffPct           int  // Day of the Gods: % incoming damage reduction
+	OutgoingDamageBonus     int  // Hour of Power: flat outgoing damage bonus
+	IncomingDamageReduction int  // Hour of Power: flat incoming damage reduction
 	Charm                   bool // bind_undead: charm an undead target
 	CharmDurationSeconds    int  // charm duration (RT seconds)
 	Revive                  bool // resurrect: restore a fallen ally (incl. eradicated)
@@ -64,26 +64,26 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
-		ID:                 spellID,
-		Name:               configDef.Name,
-		Description:        configDef.Description,
-		School:             configDef.School,
-		Level:              configDef.Level,
-		SpellPointsCost:    configDef.SpellPointsCost,
-		Duration:           configDef.Duration,
-		DisintegrateChance: configDef.DisintegrateChance,
-		AoeRadiusTiles:     configDef.AoeRadiusTiles,
-		ProjectileSize:     configDef.ProjectileSize,
-		IsProjectile:       configDef.IsProjectile,
-		IsUtility:          configDef.IsUtility,
-		StatusIcon:         configDef.StatusIcon,
-		StatBonus:          configDef.StatBonus,
-		DamageCostMultiplier:  configDef.DamageCostMultiplier,
-		ScalesWithPersonality: configDef.ScalesWithPersonality,
-		StunRadiusTiles:       configDef.StunRadiusTiles,
-		StunDurationSeconds:   configDef.StunDurationSeconds,
-		StunDurationTurns:     configDef.StunDurationTurns,
-		DealsNoDamage:         configDef.DealsNoDamage,
+		ID:                      spellID,
+		Name:                    configDef.Name,
+		Description:             configDef.Description,
+		School:                  configDef.School,
+		Level:                   configDef.Level,
+		SpellPointsCost:         configDef.SpellPointsCost,
+		Duration:                configDef.Duration,
+		DisintegrateChance:      configDef.DisintegrateChance,
+		AoeRadiusTiles:          configDef.AoeRadiusTiles,
+		ProjectileSize:          configDef.ProjectileSize,
+		IsProjectile:            configDef.IsProjectile,
+		IsUtility:               configDef.IsUtility,
+		StatusIcon:              configDef.StatusIcon,
+		StatBonus:               configDef.StatBonus,
+		DamageCostMultiplier:    configDef.DamageCostMultiplier,
+		ScalesWithPersonality:   configDef.ScalesWithPersonality,
+		StunRadiusTiles:         configDef.StunRadiusTiles,
+		StunDurationSeconds:     configDef.StunDurationSeconds,
+		StunDurationTurns:       configDef.StunDurationTurns,
+		DealsNoDamage:           configDef.DealsNoDamage,
 		ResistBuffPct:           configDef.ResistBuffPct,
 		OutgoingDamageBonus:     configDef.OutgoingDamageBonus,
 		IncomingDamageReduction: configDef.IncomingDamageReduction,
@@ -144,4 +144,3 @@ func GetSpellIDsBySchool(school string) ([]SpellID, error) {
 
 	return spellIDs, nil
 }
-

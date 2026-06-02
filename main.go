@@ -100,6 +100,11 @@ func main() {
 
 	g := game.NewMMGame(cfg)
 	defer g.Shutdown()
+
+	// --test-arena: fast-forward the party to a mid-game state for testing.
+	if hasFlag("--test-arena") {
+		g.ApplyTestArena()
+	}
 	if err := ebiten.RunGame(g); err != nil {
 		if errors.Is(err, game.ErrExit) {
 			// Clean exit requested from game
@@ -107,6 +112,16 @@ func main() {
 		}
 		log.Fatal(err)
 	}
+}
+
+// hasFlag reports whether the given command-line flag was passed.
+func hasFlag(name string) bool {
+	for _, arg := range os.Args[1:] {
+		if arg == name {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureRuntimeCWD() {

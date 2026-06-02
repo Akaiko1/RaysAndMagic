@@ -891,13 +891,16 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 		for _, dk := range dragonKeys { // all 4 dragon variants = endgame target, never auto-cleared
 			delete(counts, dk)
 		}
-		totalXP := 0
+		// Mirror the live kill path: each member gets monster.Experience/len(party)
+		// floored PER kill (not summed-then-divided), matching combat.go's
+		// awardExperienceAndGold.
+		xpPerMember := 0
 		for monsterKey, n := range counts {
 			def, err := monsterPkg.MonsterConfig.GetMonsterByKey(monsterKey)
 			if err != nil || def == nil {
 				continue
 			}
-			totalXP += def.Experience * n
+			xpPerMember += (def.Experience / len(party)) * n
 			for i := 0; i < n; i++ {
 				m := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cfg)
 				drops := cs.checkMonsterLootDrop(m)
@@ -907,7 +910,6 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 				allDrops = append(allDrops, drops...)
 			}
 		}
-		xpPerMember := totalXP / len(party)
 		for _, c := range party {
 			applyXPAndLevelUp(c, cfg, xpPerMember, strategy)
 		}
@@ -923,11 +925,14 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 	}
 
 	// Shipwreck encounter (forest-side): 2-5 bandits + 500 XP completion.
+	// Real game: each member gets per-kill XP (bandit.Experience/len(party)) for
+	// the bandits PLUS the full 500 completion XP — awardEncounterRewards grants
+	// the encounter XP in full to every living member, it is NOT divided.
 	shipwreckBandits := 2 + rand.Intn(4)
 	banditDef, _ := monsterPkg.MonsterConfig.GetMonsterByKey("bandit")
-	shipwreckXP := 0
+	shipwreckPerMember := 500
 	if banditDef != nil {
-		shipwreckXP = banditDef.Experience * shipwreckBandits
+		shipwreckPerMember += (banditDef.Experience / len(party)) * shipwreckBandits
 		for i := 0; i < shipwreckBandits; i++ {
 			m := monsterPkg.NewMonster3DFromConfig(0, 0, "bandit", cfg)
 			drops := cs.checkMonsterLootDrop(m)
@@ -937,9 +942,8 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 			allDrops = append(allDrops, drops...)
 		}
 	}
-	shipwreckTotalXP := (shipwreckXP + 500) / len(party)
 	for _, c := range party {
-		applyXPAndLevelUp(c, cfg, shipwreckTotalXP+250, strategy)
+		applyXPAndLevelUp(c, cfg, shipwreckPerMember, strategy)
 	}
 
 	sort.Slice(allDrops, func(i, j int) bool {
@@ -1397,7 +1401,9 @@ func buildHighlandsReadyParty(t *testing.T, cs *CombatSystem) []*character.MMCha
 	// Two desert oases: 10 guarding bandits (XP + loot). Dragons NOT fought.
 	if banditDef, err := monsterPkg.MonsterConfig.GetMonsterByKey("bandit"); err == nil && banditDef != nil {
 		const oasisBandits = 10
-		xpEach := banditDef.Experience * oasisBandits / len(party)
+		// Per-kill floor split, matching the live award path (the oases grant no
+		// completion XP of their own — only treasure chests).
+		xpEach := (banditDef.Experience / len(party)) * oasisBandits
 		for _, c := range party {
 			applyXPAndLevelUp(c, cfg, xpEach, statSpeedFloorThenPrimary)
 		}

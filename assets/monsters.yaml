@@ -148,6 +148,90 @@ monsters:
     habitat_preferences:
       - "empty"
 
+  mummy:
+    type: "undead"
+    name: "Mummy"
+    level: 5
+    max_hit_points: 180
+    armor_class: 10
+    experience: 180
+    damage_min: 12
+    damage_max: 20
+    poison_chance: 0.20
+    poison_duration_seconds: 15
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.0
+    gold_min: 15
+    gold_max: 55
+    sprite: "mummy"
+    letter: "m"
+    box_w: 48
+    box_h: 48
+    size_game: 5.0
+    biomes: ["pyramid"]
+    resistances:
+      mind: 100
+      body: 40
+      fire: -25
+      dark: 50
+    habitat_preferences:
+      - "pyramid_floor"
+
+  minotaur:
+    name: "Minotaur"
+    level: 8
+    max_hit_points: 360
+    armor_class: 13
+    experience: 620
+    damage_min: 24
+    damage_max: 38
+    attacks_per_round: 2
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.4
+    gold_min: 60
+    gold_max: 160
+    sprite: "minotaur"
+    letter: "n"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["pyramid"]
+    resistances:
+      physical: 25
+    habitat_preferences:
+      - "pyramid_floor"
+
+  isis:
+    name: "Isis"
+    level: 11
+    max_hit_points: 460
+    armor_class: 14
+    perfect_dodge: 10
+    experience: 950
+    damage_min: 20
+    damage_max: 32
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.7
+    gold_min: 120
+    gold_max: 260
+    sprite: "isis"
+    letter: "i"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["pyramid"]
+    resistances:
+      air: 50
+      mind: 40
+      physical: 15
+    habitat_preferences:
+      - "pyramid_floor"
+
   troll:
     name: "Troll"
     level: 6
@@ -742,16 +826,75 @@ monsters:
     box_w: 48
     box_h: 48
     size_game: 7.0
-    biomes: ["highlands"]
+    biomes: ["highlands", "lich_nexus"]
     resistances:
       dark: 75
       physical: 40
       fire: -25
     habitat_preferences:
       - "highlands_floor"
+      - "lich_nexus_floor"
     habitat_near:
       - type: "highlands_slate_wall"
         radius: 4
+
+  revenant:
+    type: "undead"
+    name: "Revenant"
+    level: 10
+    max_hit_points: 420
+    armor_class: 14
+    experience: 760
+    damage_min: 24
+    damage_max: 38
+    alert_radius: 6
+    attack_radius: 1
+    speed: 1.3
+    gold_min: 80
+    gold_max: 180
+    sprite: "revenant"
+    letter: "r"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["lich_nexus"]
+    resistances:
+      dark: 60
+      physical: 35
+      fire: -20
+      light: -35
+    habitat_preferences:
+      - "lich_nexus_floor"
+
+  lich_king:
+    type: "undead"
+    name: "Lich King"
+    level: 14
+    max_hit_points: 900
+    armor_class: 18
+    experience: 1800
+    damage_min: 32
+    damage_max: 52
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 6
+    alert_radius: 8
+    attack_radius: 6
+    speed: 1.2
+    gold_min: 400
+    gold_max: 900
+    sprite: "lich_king"
+    letter: "k"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["lich_nexus"]
+    resistances:
+      dark: 90
+      physical: 45
+      fire: -20
+      light: -50
+    habitat_preferences:
+      - "lich_nexus_floor"
 
 # Damage type mappings for resistances
 damage_types:
@@ -788,3 +931,6 @@ tile_types:
   highlands_heather: 17
   highlands_stream: 18
   highlands_ruin_wall: 19
+  highlands_slate_wall: 20
+  pyramid_floor: 21
+  lich_nexus_floor: 22
