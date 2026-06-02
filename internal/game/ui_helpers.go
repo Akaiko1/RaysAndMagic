@@ -480,7 +480,8 @@ func statTooltipText(stat string) string {
 	case "accuracy":
 		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
 	case "speed":
-		return "Reduces real-time action cooldowns (no effect in turn-based mode)."
+		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
+			character.SpeedActionSlot2Threshold, character.SpeedActionSlot3Threshold)
 	case "luck":
 		return "Improves critical chance and dodges."
 	default:
@@ -495,6 +496,24 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 		return fmt.Sprintf("Weapon Mastery: +%d base damage per mastery level.", MasteryWeaponDamagePerLevel)
 	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
 		return fmt.Sprintf("Armor Mastery: +%d base AC per mastery level.", MasteryArmorACPerLevel)
+	// Misc skills — descriptions read the SAME constants the mechanics use, so
+	// tooltip and combat can't drift. All scale by tier (Novice gives none).
+	case character.SkillBodybuilding:
+		return fmt.Sprintf("Bodybuilding: +%d max HP per mastery level.", character.BodybuildingHPPerTier)
+	case character.SkillMeditation:
+		return fmt.Sprintf("Meditation: +%d spell points per regen tick per mastery level (faster mana recovery).", character.MeditationRegenPerTier)
+	case character.SkillLearning:
+		return fmt.Sprintf("Learning: +%d%% experience gained per mastery level.", LearningXPPctPerTier)
+	case character.SkillArmsMaster:
+		return fmt.Sprintf("Arms Master: +%d damage with any weapon per mastery level.", ArmsMasterDamagePerTier)
+	case character.SkillMerchant:
+		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level (the party's best applies).", MerchantPricePctPerTier)
+	case character.SkillDisarmTrap:
+		return fmt.Sprintf("Disarm Trap: -%d incoming damage per mastery level (placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
+	case character.SkillRepair:
+		return "Repair: no effect yet (planned: equipment durability)."
+	case character.SkillIdentifyItem:
+		return "Identify Item: no effect yet (planned: reveal unidentified loot)."
 	default:
 		return ""
 	}

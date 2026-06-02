@@ -1029,6 +1029,10 @@ func (ih *InputHandler) checkTeleporter() {
 	ih.game.camera.X = newX
 	ih.game.camera.Y = newY
 	ih.game.collisionSystem.UpdateEntity("player", newX, newY)
+	// Keep turn-based facing cardinal after a teleport.
+	if ih.game.turnBasedMode {
+		ih.game.snapToCardinalDirection()
+	}
 }
 
 // switchToMap performs a world switch and refreshes render caches for the new map
@@ -1721,14 +1725,15 @@ func (ih *InputHandler) handleDialogMouseInput() {
 						ih.game.AddCombatMessage("That item is sold out.")
 						return
 					}
-					if entry.Cost > ih.game.party.Gold {
-						ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", entry.Cost, entry.Item.Name))
+					cost := ih.game.merchantBuyPrice(entry.Cost) // Merchant skill discount
+					if cost > ih.game.party.Gold {
+						ih.game.AddCombatMessage(fmt.Sprintf("Need %d gold to buy %s.", cost, entry.Item.Name))
 						return
 					}
-					ih.game.party.Gold -= entry.Cost
+					ih.game.party.Gold -= cost
 					ih.game.party.AddItem(entry.Item)
 					entry.Quantity--
-					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, entry.Cost))
+					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
 					return
 				}
 				return
@@ -1742,11 +1747,12 @@ func (ih *InputHandler) handleDialogMouseInput() {
 				if ih.game.consumeLeftClickIn(rightX-2, y-2, rightX+colW+1, y-2+rowH+1) {
 					if ih.dialogDoubleClick(i) {
 						item := ih.game.party.Inventory[i]
-						price := item.Attributes["value"]
-						if price <= 0 {
+						base := item.Attributes["value"]
+						if base <= 0 {
 							ih.game.AddCombatMessage("This item has no value.")
 							return
 						}
+						price := ih.game.merchantSellPrice(base) // Merchant skill markup
 						ih.game.party.Gold += price
 						ih.game.party.RemoveItem(i)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
@@ -2130,9 +2136,8 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 			trained = skill.IncreaseMastery()
 		}
 	} else {
-		if skill := selectedChar.Skills[option.SkillType]; skill != nil {
-			trained = skill.IncreaseMastery()
-		}
+		// trainSkill bumps mastery AND refreshes derived stats (Bodybuilding → Max HP).
+		trained = ih.game.trainSkill(selectedChar, option.SkillType)
 	}
 	if !trained {
 		ih.game.AddCombatMessage(fmt.Sprintf("%s is already at maximum mastery.", option.Label))
@@ -2427,6 +2432,12 @@ func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
 	ih.game.camera.Angle = angle
 	if ih.game.collisionSystem != nil {
 		ih.game.collisionSystem.UpdateEntity("player", x, y)
+	}
+	// Turn-based facing must be cardinal. A restored return-pose angle can be a
+	// free real-time heading (diagonal), which would leave the party at 45° on
+	// the new map — snap it to the nearest cardinal in TB.
+	if ih.game.turnBasedMode {
+		ih.game.snapToCardinalDirection()
 	}
 }
 

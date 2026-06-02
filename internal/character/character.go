@@ -8,13 +8,35 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor)
-// every ManaRegenIntervalFrames ticks. Kept in this package because game's
-// balance.go can't be imported from internal/character (circular).
+// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
+// Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
+// because game's balance.go can't be imported from internal/character (circular).
 const (
 	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
+	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
+	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
+	MeditationRegenPerTier = 2
+	// BodybuildingHPPerTier: bonus Max HP per Bodybuilding mastery tier.
+	BodybuildingHPPerTier = 5
 )
+
+// SkillTier returns a character's mastery level for a skill as an int
+// (Novice=0, Expert=1, Master=2, Grandmaster=3), or 0 if they lack the skill.
+// Used to scale skill effects, mirroring weapon/armor/magic mastery bonuses.
+func (c *MMCharacter) SkillTier(skill SkillType) int {
+	if s, ok := c.Skills[skill]; ok && s != nil {
+		return int(s.Mastery)
+	}
+	return 0
+}
+
+// Convenience tier accessors for misc skills (the game package scales these by
+// its own per-tier constants). Methods avoid the package-name shadowing in
+// combat functions whose parameter is literally named `character`.
+func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster) }
+func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
+func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 
 type MMCharacter struct {
 	Name      string
@@ -72,18 +94,22 @@ type MMCharacter struct {
 	ActionsRemaining int
 }
 
+// Turn-based action-slot thresholds on effective Speed. Single source shared by
+// ActionSlotsForTurn (mechanic) and the Speed stat tooltip (description).
+const (
+	SpeedActionSlot2Threshold = 25 // Speed > this → 2 actions/turn
+	SpeedActionSlot3Threshold = 50 // Speed > this → 3 actions/turn
+)
+
 // ActionSlotsForTurn returns the number of attack/spell slots this character
-// gets per turn-based round, based on effective Speed:
-//   Speed > 50 → 3
-//   Speed > 25 → 2
-//   otherwise → 1
-// statBonus is the global Bless-style stat buff (0 if none).
+// gets per turn-based round, based on effective Speed (see the threshold
+// constants above). statBonus is the global Bless-style stat buff (0 if none).
 func (c *MMCharacter) ActionSlotsForTurn(statBonus int) int {
 	speed := c.GetEffectiveSpeed(statBonus)
 	switch {
-	case speed > 50:
+	case speed > SpeedActionSlot3Threshold:
 		return 3
-	case speed > 25:
+	case speed > SpeedActionSlot2Threshold:
 		return 2
 	default:
 		return 1
@@ -214,6 +240,7 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Sorcerer fire and water spells
 	c.MagicSchools[MagicSchoolFire] = &MagicSkill{
@@ -251,7 +278,9 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 	// Starting skills
 	c.Skills[SkillMace] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Cleric healing spells and spirit magic
 	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
@@ -283,6 +312,8 @@ func (c *MMCharacter) setupArcher(cfg *config.Config) {
 	c.Skills[SkillBow] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillDisarmTrap] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Archer Wizard's Eye
 	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
@@ -308,23 +339,18 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills — paladins wield axes and swords, wear chain, bear shields.
+	// Starting skills — paladins wield axes and swords, wear chain, bear shields,
+	// and train their bodies for the front line.
 	c.Skills[SkillAxe] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
 
-	// Starting magic — a touch of holy support (Body school).
-	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("heal_other")},
-	}
+	// No starting magic — the paladin can choose to learn Heal Other at level 3.
 
 	// Starting equipment — a heavy steel axe.
 	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("steel_axe")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("heal_other")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
-	}
 }
 
 func (c *MMCharacter) setupDruid(cfg *config.Config) {
@@ -338,10 +364,12 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills
+	// Starting skills — wilderness hardiness and nature lore round out the druid.
 	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Druid water and mind magic
 	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
@@ -362,7 +390,7 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	// Calculate hit points (Endurance based)
-	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier + c.SkillTier(SkillBodybuilding)*BodybuildingHPPerTier
 	c.HitPoints = c.MaxHitPoints
 
 	// Calculate spell points (Intellect + Personality based + equipment bonuses)
@@ -381,7 +409,7 @@ func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
 	oldMaxHP := c.MaxHitPoints
 	oldMaxSP := c.MaxSpellPoints
 
-	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier + c.SkillTier(SkillBodybuilding)*BodybuildingHPPerTier
 	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 
@@ -442,7 +470,8 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
 	effectivePersonality := c.GetEffectivePersonality(statBonus)
-	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor)
+	// Meditation speeds recovery: extra SP per regen tick per mastery tier.
+	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor) + c.SkillTier(SkillMeditation)*MeditationRegenPerTier
 	if regen < 1 {
 		return 1
 	}

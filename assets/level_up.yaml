@@ -52,6 +52,6 @@ level_ups:
       - level: 3
         choices:
           - type: "magic_mastery"
-            school: "any"
+            school: "water"
           - type: "spell"
             spell: "water_breathing"

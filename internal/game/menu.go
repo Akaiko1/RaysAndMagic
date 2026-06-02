@@ -153,7 +153,6 @@ type MagicSchoolEntry struct {
 	School      string   `json:"school"`
 	Level       int      `json:"level"`
 	Mastery     int      `json:"mastery"`
-	CastCount   int      `json:"cast_count"`
 	KnownSpells []string `json:"known_spells"`
 }
 
@@ -448,7 +447,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
 			mastery = migrated
 		}
-		ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
+		ms := &character.MagicSkill{Mastery: mastery}
 		if len(me.KnownSpells) > 0 {
 			ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
 			for i, s := range me.KnownSpells {
@@ -499,7 +498,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 		cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
 	}
 	for school, ms := range m.MagicSchools {
-		entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
+		entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery)}
 		if len(ms.KnownSpells) > 0 {
 			entry.KnownSpells = make([]string, len(ms.KnownSpells))
 			for i, sp := range ms.KnownSpells {

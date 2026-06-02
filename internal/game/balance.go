@@ -26,6 +26,22 @@ const (
 	// Novice still gets a +10% duration bump; this asymmetry between
 	// damage (no Novice bonus) and duration (Novice bonus) is intentional.
 	MasterySpellEffectPerLevel = 5
+
+	// Misc-skill effects, scaled by mastery tier (Novice=0 → bonus from Expert up),
+	// mirroring the weapon/armor/magic mastery pattern.
+
+	// LearningXPPctPerTier: +% experience this character gains, per Learning tier.
+	LearningXPPctPerTier = 10
+	// ArmsMasterDamagePerTier: bonus damage with ANY weapon, per ArmsMaster tier
+	// (stacks on top of the weapon's own category mastery).
+	ArmsMasterDamagePerTier = 2
+	// DisarmTrapDamageReductionPerTier: flat incoming-damage reduction per
+	// DisarmTrap tier. PLACEHOLDER — see TODO at usage; the real feature is
+	// disarming trap tiles, not a damage shield.
+	DisarmTrapDamageReductionPerTier = 1
+	// MerchantPricePctPerTier: % better buy AND sell prices, per the party's best
+	// Merchant tier (sell +this%, buy -this%).
+	MerchantPricePctPerTier = 5
 )
 
 // Stat-to-damage scaling. A weapon's `bonus_stat` field selects which stat
@@ -53,9 +69,14 @@ const (
 	// the next level: required = currentLevel * XPRequiredPerLevel.
 	XPRequiredPerLevel = 100
 
-	// AutoMasteryCastsPerLevel: every N casts of a spell school auto-bumps
-	// its mastery one tier (capped at Grandmaster).
-	AutoMasteryCastsPerLevel = 30
+	// LevelUpChoiceInterval: a class-progression choice is offered every Nth
+	// level (3, 6, 9, 12, ...).
+	LevelUpChoiceInterval = 3
+
+	// MinLevelUpOptions: a level-up choice always presents at least this many
+	// options. Levels with fewer (or zero) explicit options in level_up.yaml are
+	// padded with random upgrades of skills the character already owns.
+	MinLevelUpOptions = 4
 
 	// LuckToCritDivisor: Luck/divisor adds to a character's critical chance
 	// (in percent points), on top of the weapon's base crit_chance.

@@ -355,7 +355,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	scrollTextY := scrollY + 18
 
 	// Header
-	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.Class.String(), member.Level)
+	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.ClassDisplayName(), member.Level)
 	drawDebugTextColored(screen, header, scrollTextX, scrollTextY, textColor)
 
 	// Core info
@@ -467,8 +467,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		if !ok || ms == nil {
 			continue
 		}
-		line := fmt.Sprintf("%s %d (%s) C:%d",
-			school.DisplayName(), ms.Level(), ms.Mastery, ms.CastCount)
+		line := fmt.Sprintf("%s %d (%s)",
+			school.DisplayName(), ms.Level(), ms.Mastery)
 		x := col1X
 		if schoolIdx >= magicRows {
 			x = col2X

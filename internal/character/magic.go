@@ -59,7 +59,6 @@ func (ms MagicSchoolID) AvailableSpellIDs() ([]spells.SpellID, error) {
 type MagicSkill struct {
 	Mastery     SkillMastery
 	KnownSpells []spells.SpellID // Dynamic - using SpellID strings for full flexibility
-	CastCount   int              // Total casts in this school (for mastery progression)
 }
 
 func (ms *MagicSkill) Level() int {

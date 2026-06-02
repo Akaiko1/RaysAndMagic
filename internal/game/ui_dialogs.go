@@ -763,7 +763,7 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		}
 		drawImageScaled(screen, ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member)), x, y, w, h)
 		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
-		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.Class), x-8, y+h+20, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+20, w+16, debugTextCharHeight)
 	}
 
 	instructionsY := dialogY + dialogHeight - 40
@@ -813,6 +813,33 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	ebitenutil.DebugPrintAt(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
 }
 
+// partyMerchantTier returns the best Merchant mastery tier among active members.
+func (g *MMGame) partyMerchantTier() int {
+	best := 0
+	for _, m := range g.party.Members {
+		if m != nil {
+			if t := m.MerchantTier(); t > best {
+				best = t
+			}
+		}
+	}
+	return best
+}
+
+// merchantBuyPrice / merchantSellPrice apply the party's Merchant haggling:
+// cheaper to buy, more gold when selling, scaled by the best Merchant tier.
+func (g *MMGame) merchantBuyPrice(base int) int {
+	p := base - base*g.partyMerchantTier()*MerchantPricePctPerTier/100
+	if p < 1 {
+		p = 1
+	}
+	return p
+}
+
+func (g *MMGame) merchantSellPrice(base int) int {
+	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
+}
+
 // drawMerchantDialog draws a buy/sell UI for merchant NPCs
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	// Title and greeting
@@ -847,7 +874,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			if entry.Quantity <= 0 {
 				stockLabel += " (Sold Out)"
 			}
-			priceLabel := fmt.Sprintf("  %4d gold", entry.Cost)
+			priceLabel := fmt.Sprintf("  %4d gold", ui.game.merchantBuyPrice(entry.Cost))
 
 			mouseX, mouseY := ebiten.CursorPosition()
 			isHover := mouseX >= leftX-2 && mouseX <= leftX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
@@ -868,7 +895,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
 			item := ui.game.party.Inventory[i]
 			y := listY + i*rowH
-			price := item.Attributes["value"]
+			price := ui.game.merchantSellPrice(item.Attributes["value"])
 			prefix := fmt.Sprintf("%2d. ", i+1)
 			nameField := fmt.Sprintf("%-18s", item.Name)
 			suffix := fmt.Sprintf("  %4d gold", price)

@@ -135,7 +135,6 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 			}
 
 			cs.game.setUtilityStatus(spellID, result.Duration)
-			cs.recordSpellCast(caster, spellID)
 			return true
 		}
 		return false
@@ -199,7 +198,6 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 	// Note: Combat message for spell casting is now only generated when projectile hits a target
 	// This prevents spam of "X casts Y!" messages for attacks that miss
-	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -275,7 +273,6 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 		message := fmt.Sprintf("%s healed %s for %d HP with %s!", caster.Name, target.Name, healAmount, spell.Name)
 		cs.game.AddCombatMessage(message)
 	}
-	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -713,7 +710,6 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 
 		// Add message based on spell definition
 		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", selectedSpellDef.Name))
-		cs.recordSpellCast(currentChar, selectedSpellID)
 
 	} else if selectedSpellDef.IsUtility {
 		// Handle utility spells using centralized system
@@ -787,7 +783,6 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 			}
 
 			cs.game.setUtilityStatus(selectedSpellID, result.Duration)
-			cs.recordSpellCast(currentChar, selectedSpellID)
 		}
 	}
 	return true
@@ -1733,8 +1728,14 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 				character.Name, character.Level, oldLevel, StatPointsPerLevel)
 			cs.game.AddCombatMessage(message)
 
-			if choices := config.GetLevelUpChoices(character.GetClassKey(), character.Level); len(choices) > 0 {
-				cs.game.queueLevelUpChoices(character, character.Level, choices)
+			// Offer a class-progression choice every LevelUpChoiceInterval levels
+			// (3, 6, 9, 12, ...), or whenever level_up.yaml explicitly defines one
+			// for this level (so YAML entries off the interval still fire). The
+			// choice is padded to MinLevelUpOptions with random upgrades of skills
+			// the character already owns.
+			explicit := config.GetLevelUpChoices(character.GetClassKey(), character.Level)
+			if character.Level%LevelUpChoiceInterval == 0 || len(explicit) > 0 {
+				cs.game.queueLevelUpChoices(character, character.Level, explicit)
 			}
 		} else {
 			break // No more level-ups possible
@@ -1753,6 +1754,8 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	if masteryBonus > 0 {
 		baseDamage += masteryBonus
 	}
+	// ArmsMaster: general weapon expertise — flat bonus with ANY weapon.
+	baseDamage += character.ArmsMasterTier() * ArmsMasterDamagePerTier
 
 	// Get effective stats including any stat bonuses (Bless, Day of Gods, etc.)
 	might, intellect, _, _, accuracy, _, _ := character.GetEffectiveStats(cs.game.statBonus)
@@ -1826,27 +1829,6 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 		return int(skill.Mastery) * MasterySpellEffectPerLevel
 	}
 	return 0
-}
-
-// recordSpellCast increments cast counters and auto-advances mastery every 30 casts per school.
-func (cs *CombatSystem) recordSpellCast(char *character.MMCharacter, spellID spells.SpellID) {
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil || def.School == "" {
-		return
-	}
-	school := character.MagicSchoolID(def.School)
-	skill, exists := char.MagicSchools[school]
-	if !exists {
-		return
-	}
-	skill.CastCount++
-	desired := character.SkillMastery(skill.CastCount / AutoMasteryCastsPerLevel)
-	if desired > character.MasteryGrandMaster {
-		desired = character.MasteryGrandMaster
-	}
-	if desired > skill.Mastery {
-		skill.Mastery = desired
-	}
 }
 
 // CalculateCriticalChance calculates critical hit bonus from character stats
@@ -1933,7 +1915,6 @@ func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.Spel
 		target.HitPoints = 1
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is restored to life!", target.Name))
-	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -2027,7 +2008,6 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area — %d foe(s) stunned!", def.Name, stunned))
 	cs.game.setUtilityStatus(spellID, frames)
-	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -2052,7 +2032,6 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)
-	cs.recordSpellCast(caster, spellID)
 	return true
 }
 
@@ -2110,6 +2089,14 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 
 	// Apply damage reduction
 	finalDamage := damage - damageReduction
+
+	// DisarmTrap PLACEHOLDER effect: until trap tiles exist, the skill simply
+	// shaves a flat amount off incoming damage per mastery tier.
+	// TODO: implement the real trap-disarming mechanic — trap special-tiles on
+	// maps that trigger damage/effects unless a party member's DisarmTrap check
+	// defuses them — and remove this stand-in damage reduction.
+	finalDamage -= char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier
+
 	if finalDamage < 1 {
 		finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
 	}

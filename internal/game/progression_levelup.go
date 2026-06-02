@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -54,7 +55,7 @@ func (r *levelUpChoiceRequest) selectedCount() int {
 func (r *levelUpChoiceRequest) confirmRowIndex() int { return len(r.options) }
 
 func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, choices []config.LevelUpChoice) {
-	if char == nil || len(choices) == 0 || g.party == nil {
+	if char == nil || g.party == nil {
 		return
 	}
 	charIndex := -1
@@ -72,6 +73,10 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 	}
 
 	options := buildLevelUpChoiceOptions(char, choices)
+	// Always offer at least MinLevelUpOptions: when level_up.yaml specifies fewer
+	// (or none, e.g. levels 6/9/12), pad with random upgrades of skills the
+	// character already owns so the player still gets a meaningful choice.
+	options = padLevelUpOptions(char, options)
 	if len(options) == 0 {
 		return
 	}
@@ -96,7 +101,9 @@ func (g *MMGame) grantSharedXP(amount int) {
 	}
 	award := func(m *character.MMCharacter) {
 		if m != nil && m.HitPoints > 0 {
-			m.Experience += amount
+			// Learning grants a percentage XP bonus per mastery tier.
+			gain := amount + amount*m.SkillTier(character.SkillLearning)*LearningXPPctPerTier/100
+			m.Experience += gain
 			g.combat.checkLevelUp(m)
 		}
 	}
@@ -172,9 +179,9 @@ func (g *MMGame) drainOwedChoices(charIndex int) {
 	owed := char.OwedLevelChoices
 	char.OwedLevelChoices = nil
 	for _, lvl := range owed {
-		if choices := config.GetLevelUpChoices(char.GetClassKey(), lvl); len(choices) > 0 {
-			g.queueLevelUpChoices(char, lvl, choices)
-		}
+		// Queue unconditionally: even levels with no explicit level_up.yaml entry
+		// (6/9/12/...) still get padded to MinLevelUpOptions random upgrades.
+		g.queueLevelUpChoices(char, lvl, config.GetLevelUpChoices(char.GetClassKey(), lvl))
 	}
 }
 
@@ -227,7 +234,7 @@ func (g *MMGame) applyLevelUpOption(char *character.MMCharacter, option levelUpC
 			g.AddCombatMessage(fmt.Sprintf("%s already knows %s.", char.Name, spellDisplayName(option.spellID)))
 		}
 	case "weapon_mastery", "armor_mastery":
-		if upgradeSkillMastery(char, option.skillType) {
+		if g.trainSkill(char, option.skillType) {
 			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery increased!", char.Name, option.skillType.String()))
 		} else {
 			g.AddCombatMessage(fmt.Sprintf("%s's %s Mastery is already at maximum.", char.Name, option.skillType.String()))
@@ -403,6 +410,77 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 	return options
 }
 
+// padLevelUpOptions ensures a level-up choice presents at least MinLevelUpOptions
+// entries. It appends random "upgrade an existing skill/school" options for
+// skills the character already owns (and hasn't maxed), skipping any already in
+// the list, until the minimum is met or candidates run out.
+func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOption) []levelUpChoiceOption {
+	if char == nil || len(options) >= MinLevelUpOptions {
+		return options
+	}
+
+	// Skills/schools already represented (don't re-offer the same upgrade).
+	usedSkills := make(map[character.SkillType]bool)
+	usedSchools := make(map[character.MagicSchoolID]bool)
+	for _, opt := range options {
+		switch strings.ToLower(opt.choice.Type) {
+		case "weapon_mastery", "armor_mastery":
+			usedSkills[opt.skillType] = true
+		case "magic_mastery":
+			usedSchools[opt.school] = true
+		}
+	}
+
+	var candidates []levelUpChoiceOption
+	for skillType := range char.Skills {
+		if usedSkills[skillType] {
+			continue
+		}
+		label, current, next, ok := masteryOptionLabel(char, skillType)
+		if !ok { // already Grandmaster
+			continue
+		}
+		candidates = append(candidates, levelUpChoiceOption{
+			choice:         config.LevelUpChoice{Type: "weapon_mastery"},
+			label:          label,
+			masteryPrefix:  fmt.Sprintf("%s Mastery: ", skillType.String()),
+			masteryCurrent: current,
+			masteryNext:    next,
+			hasMastery:     true,
+			skillType:      skillType,
+		})
+	}
+	for school := range char.MagicSchools {
+		if usedSchools[school] {
+			continue
+		}
+		label, current, next, ok := magicMasteryOptionLabel(char, school)
+		if !ok { // already Grandmaster
+			continue
+		}
+		candidates = append(candidates, levelUpChoiceOption{
+			choice:         config.LevelUpChoice{Type: "magic_mastery", School: string(school)},
+			label:          label,
+			masteryPrefix:  fmt.Sprintf("%s Magic Mastery: ", school.DisplayName()),
+			masteryCurrent: current,
+			masteryNext:    next,
+			hasMastery:     true,
+			school:         school,
+		})
+	}
+
+	rand.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+	for _, cand := range candidates {
+		if len(options) >= MinLevelUpOptions {
+			break
+		}
+		options = append(options, cand)
+	}
+	return options
+}
+
 func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillType) (string, string, string, bool) {
 	name := skillType.String()
 	current := character.MasteryNovice
@@ -486,6 +564,18 @@ func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillT
 		char.Skills[skillType] = skill
 	}
 	return skill.IncreaseMastery()
+}
+
+// trainSkill raises a skill's mastery and refreshes derived stats so any
+// stat-feeding skill (e.g. Bodybuilding → Max HP) updates immediately, just
+// like spending an Endurance point. Single entry point for both the level-up
+// choice and the NPC trainer. Returns false if already at max mastery.
+func (g *MMGame) trainSkill(char *character.MMCharacter, skillType character.SkillType) bool {
+	if !upgradeSkillMastery(char, skillType) {
+		return false
+	}
+	char.RecalculateMaxStatsKeepingCurrent(g.config)
+	return true
 }
 
 func upgradeMagicMastery(char *character.MMCharacter, school character.MagicSchoolID) bool {
