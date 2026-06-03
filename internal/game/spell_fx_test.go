@@ -1,0 +1,102 @@
+package game
+
+import "testing"
+
+// TestPerspectiveScale_NeverInflates: the collision scale must not balloon near
+// the camera (the spawn-frame bug where a fireball hit/exploded several tiles
+// away before being drawn). It clamps to 1 up close and shrinks far away.
+func TestPerspectiveScale_NeverInflates(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	cs.game.camera.X, cs.game.camera.Y = 0, 0
+	ts := float64(cs.game.config.GetTileSize())
+
+	if near := cs.calculatePerspectiveScale(1, 1, 28, 4, 110); near > 1.0 {
+		t.Errorf("point-blank scale = %v, want <= 1 (no inflation)", near)
+	}
+	if far := cs.calculatePerspectiveScale(ts*8, 0, 28, 4, 110); far >= 1.0 {
+		t.Errorf("far scale = %v, want < 1 (shrinks with distance)", far)
+	}
+}
+
+// TestFireboltParticleSize_ShrinksWithDistance: a firebolt's explosion particles
+// must get smaller with distance (not pin to the max cap at every range, which
+// read as "always point-blank"). Uses firebolt's real spawn size + the camera's
+// real fov/screen height.
+func TestFireboltParticleSize_ShrinksWithDistance(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+
+	// Firebolt's actual per-particle base size (damage/radius-derived).
+	cs.game.CreateSpellHitEffectFromSpell(0, 0, "firebolt")
+	if len(cs.game.spellHitEffects) == 0 || len(cs.game.spellHitEffects[0].Particles) == 0 {
+		t.Fatal("firebolt produced no hit particles")
+	}
+	ps := cs.game.spellHitEffects[0].Particles[0].Size
+
+	fov := cs.game.camera.FOV
+	sh := float64(cs.game.config.GetScreenHeight())
+	ts := float64(cs.game.config.GetTileSize())
+	scaleAt := func(tiles float64) float64 { return sh / (tiles * ts * fov) }
+
+	near := spellParticleScreenSize(ps, 1.0, scaleAt(2))
+	mid := spellParticleScreenSize(ps, 1.0, scaleAt(6))
+	far := spellParticleScreenSize(ps, 1.0, scaleAt(12))
+
+	if !(near > mid && mid > far) {
+		t.Errorf("firebolt particle size should shrink with distance: near=%.1f mid=%.1f far=%.1f", near, mid, far)
+	}
+	if mid >= spellParticleMaxSize {
+		t.Errorf("mid-range particles hit the max cap (%.0f) — reads as uniform/point-blank: mid=%.1f", spellParticleMaxSize, mid)
+	}
+	if far > near*0.5 {
+		t.Errorf("far particles should be well under half the near size: near=%.1f far=%.1f", near, far)
+	}
+}
+
+// TestSpellHitStyle: impact style is keyed by element/school so it generalizes
+// beyond the named spells.
+func TestSpellHitStyle(t *testing.T) {
+	cases := map[string]string{
+		"fire":     "ember",
+		"water":    "shard",
+		"earth":    "burst",
+		"physical": "burst",
+		"":         "burst",
+	}
+	for el, want := range cases {
+		if got := spellHitStyle(el); got != want {
+			t.Errorf("spellHitStyle(%q) = %q, want %q", el, got, want)
+		}
+	}
+}
+
+// TestCreateSpellHitEffect_StyleMotion: fire embers rise (gravity < 0), ice
+// shards fall (gravity > 0), and a plain burst has no gravity. All start at the
+// anchor with zero screen offset.
+func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+
+	check := func(element string, wantSign int) {
+		g.spellHitEffects = nil
+		g.CreateSpellHitEffect(100, 100, element, 12, 4)
+		if len(g.spellHitEffects) != 1 || len(g.spellHitEffects[0].Particles) == 0 {
+			t.Fatalf("%s: expected one effect with particles", element)
+		}
+		for _, p := range g.spellHitEffects[0].Particles {
+			if p.OffsetX != 0 || p.OffsetY != 0 {
+				t.Errorf("%s: particle should start at anchor, got offset (%v,%v)", element, p.OffsetX, p.OffsetY)
+			}
+			switch {
+			case wantSign < 0 && p.Gravity >= 0:
+				t.Errorf("%s: embers should rise (gravity<0), got %v", element, p.Gravity)
+			case wantSign > 0 && p.Gravity <= 0:
+				t.Errorf("%s: shards should fall (gravity>0), got %v", element, p.Gravity)
+			case wantSign == 0 && p.Gravity != 0:
+				t.Errorf("%s: burst should have no gravity, got %v", element, p.Gravity)
+			}
+		}
+	}
+	check("fire", -1)
+	check("water", 1)
+	check("earth", 0)
+}

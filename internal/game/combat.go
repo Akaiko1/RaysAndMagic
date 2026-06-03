@@ -409,49 +409,32 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	meleeConfig := weaponDef.Melee
 	graphicsConfig := weaponDef.Graphics
 
-	// Create visual slash effect
+	// Create visual slash effect (a per-weapon pixel-particle flourish; see
+	// drawMeleeParticles, driven by Kind).
 	if graphicsConfig != nil {
-		style := meleeEffectStyle(weaponDef, meleeConfig)
-		sweep := 0.0
-		if style == SlashEffectStyleSlash {
-			sweep = float64(meleeConfig.ArcAngle) * math.Pi / 180.0
+		// Linger the visual flourish past the (fast) swing so the shaped trail
+		// fades slowly — the instant hit already resolved separately.
+		maxFrames := meleeConfig.AnimationFrames
+		if maxFrames < MeleeFxLingerFrames {
+			maxFrames = MeleeFxLingerFrames
 		}
 		slashEffect := SlashEffect{
 			ID:             cs.game.GenerateProjectileID("slash"),
 			X:              cs.game.camera.X,
 			Y:              cs.game.camera.Y,
-			Angle:          cs.game.camera.Angle,
-			SweepAngle:     sweep,
 			Width:          graphicsConfig.SlashWidth,
 			Length:         graphicsConfig.SlashLength,
 			Color:          graphicsConfig.SlashColor,
 			AnimationFrame: 0,
-			MaxFrames:      meleeConfig.AnimationFrames,
+			MaxFrames:      maxFrames,
 			Active:         true,
-			Style:          style,
+			Kind:           meleeFxKind(weaponDef),
 		}
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)
 	}
 
 	// Perform instant hit detection in arc
 	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
-}
-
-func meleeEffectStyle(weaponDef *config.WeaponDefinitionConfig, meleeConfig *config.MeleeAttackConfig) SlashEffectStyle {
-	if weaponDef == nil {
-		return SlashEffectStyleSlash
-	}
-	category := strings.ToLower(weaponDef.Category)
-	if strings.Contains(category, "spear") ||
-		strings.Contains(category, "dagger") ||
-		strings.Contains(category, "knife") ||
-		strings.Contains(category, "rapier") {
-		return SlashEffectStyleThrust
-	}
-	if meleeConfig != nil && meleeConfig.ArcAngle > 0 && meleeConfig.ArcAngle <= 40 {
-		return SlashEffectStyleThrust
-	}
-	return SlashEffectStyleSlash
 }
 
 // performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
@@ -852,6 +835,14 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
+		// Stunned monsters take no action (the TB path already skips them; the
+		// real-time path must too, or a stun frozen at StateTimer==1 would let a
+		// monster pounce/strike every frame for the whole stun). Update() decrements
+		// the stun counter; here we just suppress the action.
+		if monster.StunFramesRemaining > 0 {
+			continue
+		}
+
 		// Charmed (bind_undead): attacks the nearest other monster on a ~1s
 		// cadence and never the party.
 		if monster.Charmed {
@@ -1028,6 +1019,19 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 
 		cs.game.TriggerDamageBlink(idx)
 	}
+}
+
+// spawnRangedHitEffect spawns the impact burst for a ranged weapon projectile.
+// A magical weapon (staff/book with a projectile_school) bursts like a spell in
+// its school's colour; a plain arrow/bolt gets the small directional puff.
+func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int, arrowVelX, arrowVelY float64) {
+	// Scale a magical burst by damage (arrow puff ignores count/size).
+	count := SpellParticleCount + damage/2
+	if count > 48 {
+		count = 48
+	}
+	size := SpellParticleSize + damage/8
+	cs.game.spawnWeaponBoltImpact(monster.X, monster.Y, weaponDef, count, size, arrowVelX, arrowVelY)
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -1368,7 +1372,16 @@ func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSiz
 	if visualSize < float64(minSize) {
 		visualSize = float64(minSize)
 	}
-	return visualSize / baseSize
+	scale := visualSize / baseSize
+	// Never INFLATE the collision box above its true world size. Near the camera
+	// (e.g. the spawn frame, dist≈0) this scale would otherwise balloon — a
+	// fireball's 2-tile box × ~3.9 ≈ 8 tiles — so it "hit" and exploded on a
+	// monster several tiles away before the projectile was even drawn. Clamping
+	// to 1 keeps collision at the world box up close and only shrinks it far away.
+	if scale > 1.0 {
+		scale = 1.0
+	}
+	return scale
 }
 
 // applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
@@ -1485,7 +1498,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 				cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 			}
 		} else if isRanged {
-			cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
+			cs.spawnRangedHitEffect(monster, weaponDef, damage, arrowVelX, arrowVelY)
 		}
 
 		monster.HitPoints = 0
@@ -1510,7 +1523,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		}
 	} else if isRanged {
-		cs.game.CreateArrowHitEffect(monster.X, monster.Y, arrowVelX, arrowVelY)
+		cs.spawnRangedHitEffect(monster, weaponDef, damage, arrowVelX, arrowVelY)
 	}
 
 	// Calculate damage reduction based on damage type
@@ -1987,8 +2000,9 @@ func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.Spel
 		}
 	}
 	if target == nil {
-		// Nothing to resurrect — refund the spell points (cast didn't happen).
-		caster.SpellPoints += def.SpellPointsCost
+		// Nothing to resurrect — refund the spell points actually paid (matches
+		// the Meditation-discounted cost so a GM can't farm SP on empty casts).
+		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
 		cs.game.AddCombatMessage("There is no fallen ally to resurrect.")
 		return true
 	}
@@ -2055,13 +2069,12 @@ func (cs *CombatSystem) charmedAttackNearest(m *monsterPkg.Monster3D) bool {
 // awardExperienceOnly grants the party a monster's XP with NO gold or loot — used
 // when a bound (charmed) monster perishes as the party leaves the map.
 func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
-	xp := monster.Experience / len(cs.game.party.Members)
-	for _, member := range cs.game.party.Members {
-		if member.HitPoints > 0 {
-			member.Experience += xp
-			cs.checkLevelUp(member)
-		}
+	if len(cs.game.party.Members) == 0 {
+		return
 	}
+	// Same per-member share as awardExperienceAndGold, but no gold/loot. Routed
+	// through grantSharedXP so Learning bonuses and bench training apply uniformly.
+	cs.game.grantSharedXP(monster.Experience / len(cs.game.party.Members))
 }
 
 // tryCastAoeStun handles AoE-stun effect spells (e.g. Darkness): if the spell

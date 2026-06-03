@@ -1432,14 +1432,10 @@ func (ui *UISystem) claimQuestReward(questID string) {
 		ui.game.party.Gold += rewards.Gold
 	}
 
-	// Award experience to all living party members
+	// Award experience via the single XP source so Learning bonuses and bench
+	// training apply (active party, reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
-		for _, member := range ui.game.party.Members {
-			if member.HitPoints > 0 {
-				member.Experience += rewards.Experience
-				ui.game.combat.checkLevelUp(member)
-			}
-		}
+		ui.game.grantSharedXP(rewards.Experience)
 	}
 
 	quest := ui.game.questManager.GetQuest(questID)

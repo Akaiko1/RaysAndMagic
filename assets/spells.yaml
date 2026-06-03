@@ -36,9 +36,9 @@ spells:
 
     # Visual appearance
     graphics:
-      max_size: 64
+      max_size: 110
       min_size: 4
-      base_size: 16
+      base_size: 28
       color: [255, 50, 0]      # Deep red
 
   firebolt:

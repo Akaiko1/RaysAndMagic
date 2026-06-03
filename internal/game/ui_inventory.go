@@ -707,9 +707,15 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	name := truncateName(def.Name, 12)
 	nameY := y + iconSize + 8
 	statsY := nameY + debugTextCharHeight + 2
+	// Show the cost actually paid (Meditation GM discount applied) so the card
+	// and its red "can't afford" outline match what casting will charge.
+	cost := def.SpellPointsCost
+	if ui.game.combat != nil {
+		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
+	}
 	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", def.SpellPointsCost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
-	if currentChar.SpellPoints < def.SpellPointsCost {
+	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
+	if currentChar.SpellPoints < cost {
 		// Red icon outline signals "not enough SP".
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
 	}

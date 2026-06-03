@@ -655,9 +655,14 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 	tooltip = append(tooltip, fmt.Sprintf("=== %s ===", def.Name))
 	tooltip = append(tooltip, fmt.Sprintf("%s Magic (Level %d)", formatSchoolName(def.School), def.Level))
 
-	// Spell cost and availability
+	// Spell cost and availability — show the cost actually paid (Meditation GM
+	// discount applied) so the tooltip can't claim "can't cast" when you can.
+	cost := def.SpellPointsCost
+	if combatSystem != nil {
+		cost = combatSystem.effectiveSpellCost(char, def.SpellPointsCost)
+	}
 	tooltip = append(tooltip, "")
-	tooltip = append(tooltip, fmt.Sprintf("Spell Points: %d", def.SpellPointsCost))
+	tooltip = append(tooltip, fmt.Sprintf("Spell Points: %d", cost))
 	if cooldown := formatCooldownLine(char, combatSystem); cooldown != "" {
 		tooltip = append(tooltip, cooldown)
 	}
@@ -678,10 +683,10 @@ func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combat
 		}
 	}
 
-	if char.SpellPoints >= def.SpellPointsCost {
+	if char.SpellPoints >= cost {
 		tooltip = append(tooltip, "✓ Can cast")
 	} else {
-		needed := def.SpellPointsCost - char.SpellPoints
+		needed := cost - char.SpellPoints
 		tooltip = append(tooltip, fmt.Sprintf("✗ Need %d more SP", needed))
 	}
 

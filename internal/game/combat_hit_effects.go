@@ -3,9 +3,23 @@ package game
 import (
 	"math"
 	"math/rand"
+	"strings"
 
+	"ugataima/internal/config"
 	"ugataima/internal/spells"
 )
+
+// spawnWeaponBoltImpact spawns the impact burst for a ranged WEAPON projectile:
+// a magical school burst for a staff/book (projectile_school set), otherwise the
+// plain arrow puff. Single source for both the monster-hit and wall-hit paths so
+// a staff never "explodes like an arrow".
+func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int, velX, velY float64) {
+	if weaponDef != nil && weaponDef.ProjectileSchool != "" {
+		g.CreateSpellHitEffect(x, y, strings.ToLower(weaponDef.ProjectileSchool), count, size)
+		return
+	}
+	g.CreateArrowHitEffect(x, y, velX, velY)
+}
 
 const (
 	ArrowHitLifetime      = 30 // 0.5 seconds at 60fps
@@ -100,14 +114,28 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	g.CreateSpellHitEffect(x, y, element, particleCount, particleSize)
 }
 
+// spellHitStyle maps a damage element to an impact particle behaviour:
+// fire → rising embers, water → falling ice shards, everything else → a plain
+// radial burst. Keyed by school so it generalizes beyond the named spells.
+func spellHitStyle(element string) string {
+	switch strings.ToLower(element) {
+	case "fire":
+		return "ember"
+	case "water":
+		return "shard"
+	default:
+		return "burst"
+	}
+}
+
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
 func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
-	color, ok := ElementColors[element]
+	baseColor, ok := ElementColors[element]
 	if !ok {
-		color = ElementColors["physical"]
+		baseColor = ElementColors["physical"]
 	}
 
 	if particleCount <= 0 {
@@ -116,29 +144,56 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 	if particleSize <= 0 {
 		particleSize = SpellParticleSize
 	}
+	style := spellHitStyle(element)
+	// Bigger spells (larger particleSize, set from damage+radius) throw their
+	// burst WIDER, not just denser — a fireball blast dwarfs a bolt's.
+	spread := 1.0 + float64(particleSize-SpellParticleSize)*0.14
+	if spread < 1 {
+		spread = 1
+	}
+	if spread > 3.5 {
+		spread = 3.5
+	}
 	particles := make([]SpellHitParticle, particleCount)
 
 	for i := 0; i < particleCount; i++ {
-		// Random angle for particle direction
-		angle := (float64(i) / float64(particleCount)) * 2 * math.Pi
-		angle += (rand.Float64() - 0.5) * 0.5 // Add some randomness
+		// Burst in ALL screen directions (a real 2D star, not a ground line):
+		// VelX/VelY are screen-space, integrated into OffsetX/OffsetY each frame.
+		angle := (float64(i)/float64(particleCount))*2*math.Pi + (rand.Float64()-0.5)*0.6
+		speed := SpellParticleSpeed * (0.6 + rand.Float64()*0.8) * spread
+		vx := math.Cos(angle) * speed
+		vy := math.Sin(angle) * speed
+		life := SpellParticleLife + rand.Intn(10) - 5
+		grav := 0.0
+		tint := baseColor
 
-		speed := SpellParticleSpeed * (0.5 + rand.Float64()*0.5)
+		switch style {
+		case "ember": // fire: bias upward, drift up, hot tint, fade fast
+			vy = vy*0.55 - (0.6 + rand.Float64()*1.0)
+			grav = -0.05
+			tint = mixColor(baseColor, [3]int{255, 240, 180}, rand.Float64()*0.55)
+		case "shard": // ice: sharp outward shards that fall and linger
+			vx *= 1.3
+			vy *= 1.3
+			grav = 0.14
+			life += 8
+			tint = mixColor(baseColor, [3]int{235, 245, 255}, rand.Float64()*0.5)
+		}
 
-		// Slight color variation per particle
 		particleColor := [3]int{
-			clampColor(color[0] + rand.Intn(40) - 20),
-			clampColor(color[1] + rand.Intn(40) - 20),
-			clampColor(color[2] + rand.Intn(40) - 20),
+			clampColor(tint[0] + rand.Intn(30) - 15),
+			clampColor(tint[1] + rand.Intn(30) - 15),
+			clampColor(tint[2] + rand.Intn(30) - 15),
 		}
 
 		particles[i] = SpellHitParticle{
 			X:        x,
 			Y:        y,
-			VelX:     math.Cos(angle) * speed,
-			VelY:     math.Sin(angle) * speed,
+			VelX:     vx,
+			VelY:     vy,
+			Gravity:  grav,
 			Color:    particleColor,
-			LifeTime: SpellParticleLife + rand.Intn(10) - 5,
+			LifeTime: life,
 			MaxLife:  SpellParticleLife,
 			Size:     particleSize,
 			Active:   true,
@@ -217,10 +272,11 @@ func (g *MMGame) UpdateHitEffects() {
 				continue
 			}
 
-			particle.X += particle.VelX
-			particle.Y += particle.VelY
-			particle.VelX *= 0.95 // Slow down
-			particle.VelY *= 0.95
+			// Integrate screen-space offsets; gravity pulls embers up / shards down.
+			particle.OffsetX += particle.VelX
+			particle.OffsetY += particle.VelY
+			particle.VelX *= 0.94
+			particle.VelY = particle.VelY*0.96 + particle.Gravity
 			particle.LifeTime--
 
 			if particle.LifeTime <= 0 {

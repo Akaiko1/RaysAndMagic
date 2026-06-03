@@ -128,8 +128,10 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	if p.SpeedTiles <= 0 {
 		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
-	// lifetime = range / speed * tps (frames per second)
-	return int((p.RangeTiles / p.SpeedTiles) * float64(GetTargetTPS()))
+	// lifetime = range / speed * tps (frames per second). Round (not truncate) so
+	// the projectile travels as close to range_tiles as discrete frames allow —
+	// truncation left a few weapons ~1 frame short of their stated range.
+	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
 }
 
 // GetCollisionSizePixels returns collision size in pixels for the game engine

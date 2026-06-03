@@ -69,25 +69,17 @@ type MeleeAttack struct {
 	Crit       bool   // Critical hit flag
 }
 
-type SlashEffectStyle int
-
-const (
-	SlashEffectStyleSlash SlashEffectStyle = iota
-	SlashEffectStyleThrust
-)
-
-// SlashEffect represents a visual slash animation for melee weapons
+// SlashEffect represents a visual melee swing (a per-weapon pixel-particle
+// flourish; see drawMeleeParticles).
 type SlashEffect struct {
 	ID             string  // Unique identifier
-	X, Y           float64 // Center position
-	Angle          float64 // Base direction of the effect
-	SweepAngle     float64 // Total sweep in radians for slashes
-	Width, Length  int     // Dimensions of slash
+	X, Y           float64 // Origin (camera position at swing) — for cleanup/debug
+	Width, Length  int     // Dimensions from weapon graphics config
 	Color          [3]int  // RGB color
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	Active         bool
-	Style          SlashEffectStyle
+	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
 }
 
 type Arrow struct {
@@ -126,13 +118,15 @@ type ArrowHitEffect struct {
 
 // SpellHitParticle represents a single particle from a spell impact
 type SpellHitParticle struct {
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity (outward from impact)
-	Color      [3]int  // RGB color based on element
-	LifeTime   int     // Frames remaining
-	MaxLife    int     // Initial lifetime for alpha calculation
-	Size       int     // Particle size (shrinks over time)
-	Active     bool
+	X, Y             float64 // World anchor (impact point) — fixed; used for projection
+	OffsetX, OffsetY float64 // Screen-space offset from the anchor (a real 2D burst)
+	VelX, VelY       float64 // Screen-space velocity (px/frame at the anchor's scale)
+	Gravity          float64 // Added to VelY each frame (ice shards fall, embers rise)
+	Color            [3]int  // RGB color based on element
+	LifeTime         int     // Frames remaining
+	MaxLife          int     // Initial lifetime for alpha calculation
+	Size             int     // Particle size (shrinks over time)
+	Active           bool
 }
 
 // SpellHitEffect represents a burst of particles from a spell impact
@@ -149,6 +143,7 @@ var ElementColors = map[string][3]int{
 	"earth":    {139, 90, 43},   // Brown
 	"light":    {255, 255, 200}, // Warm white
 	"dark":     {80, 0, 120},    // Purple
+	"arcane":   {150, 190, 255}, // Arcane blue-white (staff/book bolts)
 	"physical": {200, 200, 200}, // Gray
 }
 
@@ -1470,7 +1465,10 @@ func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
 	if aw.game == nil {
 		return
 	}
-	aw.game.CreateArrowHitEffect(hitX, hitY, aw.Arrow.VelX, aw.Arrow.VelY)
+	// Staff/book bolt → magical burst on wall/terrain impact, not an arrow puff
+	// (shares the monster-hit decision so the staff never "explodes like an arrow").
+	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
+	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize, aw.Arrow.VelX, aw.Arrow.VelY)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {
