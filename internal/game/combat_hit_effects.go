@@ -71,7 +71,11 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 		particleCount = 48
 	}
 
-	particleSize := SpellParticleSize + int(math.Round(float64(damage)/4.0)) + int(math.Round(radiusTiles*2))
+	// Per-pixel chunkiness tracks the spell's BLAST (radius) more than a flat
+	// floor, so a weak, tight bolt (radius 0.5) reads as fine sparks even at
+	// range, while a wide AoE (fireball, radius 2.0) keeps fat embers. The old
+	// flat base (4) pinned bolts to ~5-7px and made them look chunky on impact.
+	particleSize := 2 + int(math.Round(float64(damage)/5.0)) + int(math.Round(radiusTiles*3))
 	if particleSize < 2 {
 		particleSize = 2
 	}
