@@ -233,7 +233,6 @@ func (ih *InputHandler) restartNewGame() {
 	g.arrows = g.arrows[:0]
 	g.groundContainers = g.groundContainers[:0]
 	g.slashEffects = g.slashEffects[:0]
-	g.arrowHitEffects = g.arrowHitEffects[:0]
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.deadMonsterIDs = g.deadMonsterIDs[:0]
 	g.combatMessages = g.combatMessages[:0]

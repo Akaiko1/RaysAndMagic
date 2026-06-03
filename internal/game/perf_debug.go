@@ -71,7 +71,7 @@ func (gl *GameLoop) logPerfSnapshot(fps float64) {
 	}
 
 	projectiles := len(gl.game.magicProjectiles) + len(gl.game.meleeAttacks) + len(gl.game.arrows)
-	effects := len(gl.game.slashEffects) + len(gl.game.arrowHitEffects) + len(gl.game.spellHitEffects)
+	effects := len(gl.game.slashEffects) + len(gl.game.spellHitEffects)
 
 	activeUtility := 0
 	for _, status := range gl.game.utilitySpellStatuses {

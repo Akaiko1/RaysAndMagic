@@ -787,11 +787,6 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 				cs.applyBlessEffect(result.Duration, result.StatBonus)
 			}
 
-			// Apply awakening effects
-			if result.Awaken {
-				// TODO: Remove sleep/paralysis conditions from party
-			}
-
 			cs.game.setUtilityStatus(selectedSpellID, result.Duration)
 		}
 	}
@@ -1021,17 +1016,17 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	}
 }
 
-// spawnRangedHitEffect spawns the impact burst for a ranged weapon projectile.
-// A magical weapon (staff/book with a projectile_school) bursts like a spell in
-// its school's colour; a plain arrow/bolt gets the small directional puff.
-func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int, arrowVelX, arrowVelY float64) {
-	// Scale a magical burst by damage (arrow puff ignores count/size).
+// spawnRangedHitEffect spawns the impact for a ranged weapon projectile: a
+// magical weapon (staff/book with a projectile_school) bursts like a spell in its
+// school's colour; a plain arrow freezes where it hit and fades.
+func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int) {
+	// Scale a magical burst by damage (arrow freeze ignores count/size).
 	count := SpellParticleCount + damage/2
 	if count > 48 {
 		count = 48
 	}
 	size := SpellParticleSize + damage/8
-	cs.game.spawnWeaponBoltImpact(monster.X, monster.Y, weaponDef, count, size, arrowVelX, arrowVelY)
+	cs.game.spawnWeaponBoltImpact(monster.X, monster.Y, weaponDef, count, size)
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -1394,7 +1389,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var isSpell bool
 	var isRanged bool
 	var weaponDef *config.WeaponDefinitionConfig
-	var arrowVelX, arrowVelY float64
 	var disintegrateChance float64
 	var aoeRadiusTiles float64
 	var isCharmSpell bool
@@ -1440,7 +1434,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		disintegrateChance = ar.DisintegrateChance
 		weaponName = "Arrow"
 		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
-		arrowVelX, arrowVelY = ar.VelX, ar.VelY
 		damageType = convertToMonsterDamageType(damageTypeStr)
 		ar.Active = false
 		isRanged = true
@@ -1498,7 +1491,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 				cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 			}
 		} else if isRanged {
-			cs.spawnRangedHitEffect(monster, weaponDef, damage, arrowVelX, arrowVelY)
+			cs.spawnRangedHitEffect(monster, weaponDef, damage)
 		}
 
 		monster.HitPoints = 0
@@ -1523,7 +1516,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		}
 	} else if isRanged {
-		cs.spawnRangedHitEffect(monster, weaponDef, damage, arrowVelX, arrowVelY)
+		cs.spawnRangedHitEffect(monster, weaponDef, damage)
 	}
 
 	// Calculate damage reduction based on damage type
@@ -1976,7 +1969,36 @@ func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	return cs.tryCastAoeStun(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
-		cs.tryCastResurrect(spellID, def, caster)
+		cs.tryCastResurrect(spellID, def, caster) ||
+		cs.tryCastAwaken(spellID, def, caster)
+}
+
+// tryCastAwaken handles the Awaken spell: rouses EVERY unconscious party member
+// back to 1 HP (does not touch the truly dead/eradicated — that's Resurrect).
+// Shared by both cast paths. Returns true if it handled the spell.
+func (cs *CombatSystem) tryCastAwaken(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if !def.Awaken {
+		return false
+	}
+	revived := 0
+	for _, m := range cs.game.party.Members {
+		if m == nil || !m.HasCondition(character.ConditionUnconscious) {
+			continue
+		}
+		m.RemoveCondition(character.ConditionUnconscious)
+		if m.HitPoints < 1 {
+			m.HitPoints = 1
+		}
+		revived++
+	}
+	if revived == 0 {
+		// No one to wake — refund the SP actually paid (matches Meditation discount).
+		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
+		cs.game.AddCombatMessage("No one is unconscious to awaken.")
+		return true
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("Awakening rouses %d fallen ally(s) back to 1 HP!", revived))
+	return true
 }
 
 // tryCastResurrect handles the Resurrect spell: restores the first fallen party

@@ -877,7 +877,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Draw slash effects
 		r.drawSlashEffects(screen)
 
-		// Draw hit effects (stuck arrows, spell particles)
+		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
 	})
 }
@@ -1793,6 +1793,7 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.pulseSpeed = 1.5
 			profile.spark = true
 			profile.sparkColor = [3]int{210, 160, 255}
+			profile.style = "dark" // sinking violet motes (not the legacy square)
 		case "light":
 			profile.glowColor = [3]int{255, 240, 150}
 			profile.trailColor = [3]int{255, 255, 210}
@@ -1984,32 +1985,6 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 	)
 	opts.Blend = blend
 	screen.DrawImage(r.whiteImg, opts)
-}
-
-func (r *Renderer) drawTrail(screen *ebiten.Image, x, y, dirX, dirY, length, width float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
-	if length <= 0 || width <= 0 || alpha <= 0 {
-		return
-	}
-	dirLen := math.Hypot(dirX, dirY)
-	if dirLen <= 0 {
-		return
-	}
-	dirX /= dirLen
-	dirY /= dirLen
-	segments := int(length / 4)
-	if segments < 4 {
-		segments = 4
-	}
-	for i := 0; i < segments; i++ {
-		t := float64(i) / float64(segments)
-		segX := x - dirX*length*t
-		segY := y - dirY*length*t
-		segW := width * (1.0 - 0.75*t)
-		if segW < 1 {
-			segW = 1
-		}
-		r.drawGlowRect(screen, segX, segY, segW, rgb, alpha*(1.0-t), blend)
-	}
 }
 
 func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
@@ -2752,27 +2727,11 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			dirX = 1 // default trail direction when motion is head-on
 		}
 
-		if fxProfile.style != "" {
-			// Procedural pixel-particle body + evaporating trail (fire embers /
-			// ice shards / arcane). Seeded per projectile so simultaneous casts differ.
-			r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX,
-				projectileColor, fxProfile, critBoost, idx)
-		} else {
-			// Legacy look for other schools: line trail + solid core quad.
-			trailLen := float64(projectileSize) * fxProfile.trailLengthScale * critBoost
-			trailWidth := float64(projectileSize) * fxProfile.trailWidthScale
-			r.drawTrail(screen, centerX, centerY, dirX, 0, trailLen, trailWidth, fxProfile.trailColor, 0.75*critBoost, glowBlend)
-			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Scale(float64(projectileSize), float64(projectileSize))
-			opts.GeoM.Translate(float64(screenX-projectileSize/2), float64(screenY))
-			opts.ColorScale.Scale(
-				float32(projectileColor[0])/255,
-				float32(projectileColor[1])/255,
-				float32(projectileColor[2])/255,
-				1,
-			)
-			screen.DrawImage(r.whiteImg, opts)
-		}
+		// Spells are always magical → particle body + evaporating trail (never the
+		// old solid square). Drift/mirror come from the school's style; colour comes
+		// from the projectile colour, so every school looks distinct.
+		r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX,
+			projectileColor, fxProfile, critBoost, idx)
 	}
 }
 
@@ -2781,14 +2740,12 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
 // Density/length scale with `size`, so a fireball reads far bigger than a bolt.
 func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
-	ice := p.style == "shard"
+	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
+	sink := p.style == "shard" || p.style == "dark"
 	mirror := p.style == "arcane" // staff/book bolt: trail sweeps the other way (R→L)
-	hot := [3]int{255, 240, 190}  // fire highlight (cooled toward core)
-	if ice {
-		hot = [3]int{235, 248, 255} // icy white highlight
-	} else if mirror {
-		hot = [3]int{225, 235, 255} // arcane blue-white highlight
-	}
+	// Hot core = the spell's own colour lightened, so every school reads distinct
+	// (fire → light orange, dark → light violet, ice → light blue, …).
+	hot := mixColor(core, [3]int{255, 255, 255}, 0.6)
 	// Mirror the trail's horizontal direction for arcane bolts.
 	if mirror {
 		dirX = -dirX
@@ -2813,10 +2770,10 @@ func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dir
 		spread := size * (0.25 + 0.8*t)
 		px := cx - dirX*back + (j2-0.5)*spread
 		py := cy + (j1-0.5)*spread*0.8
-		if ice {
-			py += drift // shards sink
+		if sink {
+			py += drift // ice shards / dark motes sink
 		} else {
-			py -= drift // embers rise
+			py -= drift // embers / wisps rise
 		}
 		qs := size*0.22*(1.0-t) + 1.5
 		alpha := (1.0 - t) * 0.5 * (0.6 + 0.4*j2)
@@ -2992,12 +2949,11 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		if arrow.Crit {
 			critBoost = 1.2
 		}
-		glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
-		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-
 		if fxProfile.style != "" {
-			// Staff/book bolt: same pixel-particle body + evaporating trail as
+			// Staff/book bolt: glowing pixel-particle body + evaporating trail as
 			// spells, mirrored (R→L) for arcane. Reuses the spell FX renderer.
+			glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
+			r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
 			dirX, _, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
 			if !ok {
 				dirX = 1
@@ -3007,26 +2963,47 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 
-		if dirX, dirY, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY); ok {
-			trailLen := float64(arrowSize) * fxProfile.trailLengthScale * critBoost
-			trailWidth := float64(arrowSize) * fxProfile.trailWidthScale
-			r.drawTrail(screen, centerX, centerY, dirX, dirY, trailLen, trailWidth, fxProfile.trailColor, 0.7*critBoost, glowBlend)
+		// Plain arrow: crisp element-coloured discs in a touching line, no glow.
+		r.drawArrowBolt(screen, centerX, centerY, float64(arrowSize), arrowScreenAngle, arrowColor, 1.0)
+	}
+}
 
-			tipX := centerX + dirX*float64(arrowSize)*0.35
-			tipY := centerY + dirY*float64(arrowSize)*0.35
-			r.drawGlowRect(screen, tipX, tipY, math.Max(2, float64(arrowSize)*0.25), fxProfile.glowColor, 0.9*critBoost, glowBlend)
+// arrowScreenAngle is the fixed screen tilt arrows fly/stick at (up-left, R→L) —
+// same diagonal as the staff bolt — so the projectile reads side-on.
+const arrowScreenAngle = -2.7
+
+// arrowTrailCircles is the max number of trail circles behind the head (older
+// ones drop off), per the arrow spec.
+const arrowTrailCircles = 5
+
+// drawArrowBolt draws an arrow as a short line of touching round circles in the
+// bow's element colour, along `angle`. Perspective: the leading tip is smallest
+// and each circle toward the tail (nearer the camera) is slightly bigger. Drawn
+// source-over (no additive bloom) so the colour stays vivid, not a bright glow.
+// `head` sizes the tail (largest) circle; caller scales it by distance. Used in
+// flight (alpha 1) and frozen-on-hit (fading).
+func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float64, color [3]int, alpha float64) {
+	if head < 2 || alpha <= 0 {
+		return
+	}
+	ca, sa := math.Cos(angle), math.Sin(angle)
+	const n = arrowTrailCircles + 1 // tip + trail
+	var px, py, sz [n]float64
+	pos, prevR := 0.0, 0.0
+	for k := 0; k < n; k++ {
+		t := float64(k) / float64(n-1)  // 0 tip → 1 tail
+		s := head * (0.25 + 0.25*t)     // small circles; tip smallest, tail biggest
+		rr := s * 0.5
+		if k > 0 {
+			pos += (prevR + rr) * 0.5 // strong overlap — a near-continuous line
 		}
-
-		opts := &ebiten.DrawImageOptions{}
-		opts.GeoM.Scale(float64(arrowSize), float64(arrowSize))
-		opts.GeoM.Translate(float64(screenX-arrowSize/2), float64(screenY))
-		opts.ColorScale.Scale(
-			float32(arrowColor[0])/255,
-			float32(arrowColor[1])/255,
-			float32(arrowColor[2])/255,
-			1,
-		)
-		screen.DrawImage(r.whiteImg, opts)
+		px[k], py[k], sz[k] = cx-ca*pos, cy-sa*pos, s
+		prevR = rr
+	}
+	// Soft additive glow circles (same look as the bolt, just smaller) with a
+	// faint bloom. Back-to-front so the leading tip is on top.
+	for k := n - 1; k >= 0; k-- {
+		r.drawGlowSprite(screen, px[k], py[k], sz[k], color, alpha, additiveGlowBlend)
 	}
 }
 
@@ -3049,74 +3026,12 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 	}
 }
 
-// drawHitEffects draws stuck arrows and spell impact particles
+// drawHitEffects draws spell impact particles.
 func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 	screenWidth := r.game.config.GetScreenWidth()
 	screenHeight := r.game.config.GetScreenHeight()
 	centerX := float64(screenWidth) / 2
 	centerY := float64(screenHeight) / 2
-
-	// Draw arrow hit particles
-	for i := range r.game.arrowHitEffects {
-		effect := &r.game.arrowHitEffects[i]
-		if !effect.Active {
-			continue
-		}
-
-		for j := range effect.Particles {
-			particle := &effect.Particles[j]
-			if !particle.Active {
-				continue
-			}
-
-			// Calculate screen position using perspective
-			dx := particle.X - r.game.camera.X
-			dy := particle.Y - r.game.camera.Y
-
-			// Rotate to camera space (relY is forward depth, relX is lateral offset)
-			cosAngle := math.Cos(r.game.camera.Angle)
-			sinAngle := math.Sin(r.game.camera.Angle)
-			relY := dx*cosAngle + dy*sinAngle
-			relX := -dx*sinAngle + dy*cosAngle
-
-			// Skip if behind camera
-			if relY <= 0.1 {
-				continue
-			}
-
-			// Project to screen
-			fov := r.game.camera.FOV
-			scale := float64(screenHeight) / (relY * fov)
-			screenX := centerX + relX*scale + particle.OffsetX*scale
-			screenY := centerY + particle.OffsetY*scale
-
-			// Skip if off screen
-			if screenX < -20 || screenX > float64(screenWidth)+20 {
-				continue
-			}
-
-			lifeRatio := float64(particle.LifeTime) / float64(particle.MaxLife)
-			alpha := lifeRatio
-			size := float64(particle.Size) * scale
-			if size < 1 {
-				size = 1
-			}
-			if size > 6 {
-				size = 6
-			}
-
-			opts := &ebiten.DrawImageOptions{}
-			opts.GeoM.Scale(size, size)
-			opts.GeoM.Translate(screenX-size/2, screenY-size/2)
-			opts.ColorScale.Scale(
-				float32(particle.Color[0])/255,
-				float32(particle.Color[1])/255,
-				float32(particle.Color[2])/255,
-				float32(alpha),
-			)
-			screen.DrawImage(r.whiteImg, opts)
-		}
-	}
 
 	// Draw spell hit particles
 	for i := range r.game.spellHitEffects {

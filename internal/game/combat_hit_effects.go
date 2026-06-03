@@ -9,70 +9,35 @@ import (
 	"ugataima/internal/spells"
 )
 
-// spawnWeaponBoltImpact spawns the impact burst for a ranged WEAPON projectile:
-// a magical school burst for a staff/book (projectile_school set), otherwise the
-// plain arrow puff. Single source for both the monster-hit and wall-hit paths so
-// a staff never "explodes like an arrow".
-func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int, velX, velY float64) {
-	if weaponDef != nil && weaponDef.ProjectileSchool != "" {
+// spawnWeaponBoltImpact spawns the impact effect for a ranged WEAPON projectile:
+// a magical school burst for a staff/book (projectile_school set), a fire/element
+// burst for an AoE bow (e.g. Bow of Hellfire), and nothing for a plain arrow —
+// the arrow simply vanishes on hit. Single source for the monster- and wall-hit paths.
+func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int) {
+	if weaponDef == nil {
+		return
+	}
+	if weaponDef.ProjectileSchool != "" {
 		g.CreateSpellHitEffect(x, y, strings.ToLower(weaponDef.ProjectileSchool), count, size)
 		return
 	}
-	g.CreateArrowHitEffect(x, y, velX, velY)
+	// Explosive arrows (AoE bows, e.g. Bow of Hellfire) burst in their damage element.
+	if weaponDef.AoeRadiusTiles > 0 {
+		el := strings.ToLower(weaponDef.DamageType)
+		if el == "" || el == "physical" {
+			el = "fire"
+		}
+		g.CreateSpellHitEffect(x, y, el, count, size)
+	}
+	// Plain arrow: no impact effect — it just disappears.
 }
 
 const (
-	ArrowHitLifetime      = 30 // 0.5 seconds at 60fps
-	ArrowHitParticleLife  = 12
-	ArrowHitParticleSize  = 3
-	ArrowHitParticleSpeed = 1.2
-
 	SpellParticleCount = 8  // Base number of particles per spell hit
 	SpellParticleLife  = 20 // ~0.33 seconds at 60fps
 	SpellParticleSpeed = 2.0
 	SpellParticleSize  = 4
 )
-
-// CreateArrowHitEffect spawns a short perpendicular particle burst at the impact point
-func (g *MMGame) CreateArrowHitEffect(x, y, velX, velY float64) {
-	particles := make([]ArrowHitParticle, 4)
-	for i := 0; i < 4; i++ {
-		speed := ArrowHitParticleSpeed * (0.85 + rand.Float64()*0.3)
-		velX, velY := 0.0, 0.0
-		switch i {
-		case 0: // up
-			velY = -speed
-		case 1: // down
-			velY = speed
-		case 2: // left
-			velX = -speed
-		case 3: // right
-			velX = speed
-		}
-		particles[i] = ArrowHitParticle{
-			X:        x,
-			Y:        y,
-			OffsetX:  0,
-			OffsetY:  0,
-			VelX:     velX,
-			VelY:     velY,
-			LifeTime: ArrowHitParticleLife,
-			MaxLife:  ArrowHitParticleLife,
-			Size:     ArrowHitParticleSize,
-			Active:   true,
-			Color:    [3]int{140, 90, 50},
-		}
-	}
-
-	effect := ArrowHitEffect{
-		Particles: particles,
-		Active:    true,
-	}
-
-	g.hitEffectsMu.Lock()
-	g.arrowHitEffects = append(g.arrowHitEffects, effect)
-	g.hitEffectsMu.Unlock()
-}
 
 // CreateSpellHitEffectFromSpell spawns spell hit particles scaled by base damage and hit radius.
 func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
@@ -123,6 +88,10 @@ func spellHitStyle(element string) string {
 		return "ember"
 	case "water":
 		return "shard"
+	case "dark":
+		return "void"
+	case "light":
+		return "flash"
 	default:
 		return "burst"
 	}
@@ -178,6 +147,17 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 			grav = 0.14
 			life += 8
 			tint = mixColor(baseColor, [3]int{235, 245, 255}, rand.Float64()*0.5)
+		case "void": // dark: slow, soft motes that creep outward, sink and linger
+			vx *= 0.7
+			vy = vy*0.7 + 0.3
+			grav = 0.05
+			life += 6
+			tint = mixColor(baseColor, [3]int{190, 120, 255}, rand.Float64()*0.55)
+		case "flash": // light: a bright, fast radiant flare that pops out and fades quickly
+			vx *= 1.5
+			vy *= 1.5
+			life -= 4
+			tint = mixColor(baseColor, [3]int{255, 255, 235}, rand.Float64()*0.6)
 		}
 
 		particleColor := [3]int{
@@ -221,43 +201,8 @@ func clampColor(c int) int {
 
 // UpdateHitEffects updates all hit effects (called from game loop)
 func (g *MMGame) UpdateHitEffects() {
-	// Update arrow hit effects (particle bursts)
-	writeIdx := 0
-	for i := range g.arrowHitEffects {
-		effect := &g.arrowHitEffects[i]
-		if !effect.Active {
-			continue
-		}
-
-		activeParticles := 0
-		for j := range effect.Particles {
-			particle := &effect.Particles[j]
-			if !particle.Active {
-				continue
-			}
-			particle.OffsetX += particle.VelX
-			particle.OffsetY += particle.VelY
-			particle.LifeTime--
-
-			if particle.LifeTime <= 0 {
-				particle.Active = false
-			} else {
-				activeParticles++
-			}
-		}
-
-		if activeParticles == 0 {
-			effect.Active = false
-			continue
-		}
-
-		g.arrowHitEffects[writeIdx] = *effect
-		writeIdx++
-	}
-	g.arrowHitEffects = g.arrowHitEffects[:writeIdx]
-
 	// Update spell hit effects
-	writeIdx = 0
+	writeIdx := 0
 	for i := range g.spellHitEffects {
 		effect := &g.spellHitEffects[i]
 		if !effect.Active {

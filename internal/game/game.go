@@ -97,25 +97,6 @@ type Arrow struct {
 	SourceName         string
 }
 
-// ArrowHitParticle represents a small particle burst for arrow impacts
-type ArrowHitParticle struct {
-	X, Y       float64
-	OffsetX    float64
-	OffsetY    float64
-	VelX, VelY float64
-	LifeTime   int
-	MaxLife    int
-	Size       int
-	Active     bool
-	Color      [3]int
-}
-
-// ArrowHitEffect represents a short particle burst on arrow impact
-type ArrowHitEffect struct {
-	Particles []ArrowHitParticle
-	Active    bool
-}
-
 // SpellHitParticle represents a single particle from a spell impact
 type SpellHitParticle struct {
 	X, Y             float64 // World anchor (impact point) — fixed; used for projection
@@ -144,6 +125,9 @@ var ElementColors = map[string][3]int{
 	"light":    {255, 255, 200}, // Warm white
 	"dark":     {80, 0, 120},    // Purple
 	"arcane":   {150, 190, 255}, // Arcane blue-white (staff/book bolts)
+	"body":     {120, 230, 150}, // Healing green
+	"mind":     {170, 190, 255}, // Pale blue
+	"spirit":   {210, 185, 255}, // Pale violet
 	"physical": {200, 200, 200}, // Gray
 }
 
@@ -221,7 +205,6 @@ type MMGame struct {
 	// Utility spell status icons (data-driven)
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
-	arrowHitEffects      []ArrowHitEffect
 	spellHitEffects      []SpellHitEffect
 	hitEffectsMu         sync.Mutex
 
@@ -461,7 +444,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		meleeAttacks:     make([]MeleeAttack, 0),
 		arrows:           make([]Arrow, 0),
 		slashEffects:     make([]SlashEffect, 0),
-		arrowHitEffects:  make([]ArrowHitEffect, 0),
 		spellHitEffects:  make([]SpellHitEffect, 0),
 
 		// Tabbed menu system
@@ -1468,7 +1450,7 @@ func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
 	// Staff/book bolt → magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize, aw.Arrow.VelX, aw.Arrow.VelY)
+	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

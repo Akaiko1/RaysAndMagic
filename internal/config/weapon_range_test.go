@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+// TestMeleeWeaponsHaveSlashGraphics: every melee weapon must carry a graphics
+// block, otherwise createMeleeAttack spawns no slash effect (no swing FX).
+func TestMeleeWeaponsHaveSlashGraphics(t *testing.T) {
+	cfg, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	for key, def := range cfg.Weapons {
+		if def.Melee == nil {
+			continue // ranged weapon, uses projectile FX
+		}
+		if def.Graphics == nil {
+			t.Errorf("melee weapon %q has no graphics block — no slash effect would spawn", key)
+		}
+	}
+}
+
 // TestRangedWeaponTravelsStatedRange: a ranged weapon's projectile must actually
 // travel its configured range_tiles (lifetime × speed), and the display `range`
 // field must match range_tiles — so "6 tiles" really reaches 6 tiles.

@@ -1,6 +1,20 @@
 package game
 
-import "testing"
+import (
+	"testing"
+
+	"ugataima/internal/character"
+)
+
+// TestEveryMagicSchoolHasImpactColor: every magic school must have an explosion
+// colour, so a spell hit never falls back to the gray "physical" default.
+func TestEveryMagicSchoolHasImpactColor(t *testing.T) {
+	for _, school := range character.AllMagicSchools {
+		if _, ok := ElementColors[string(school)]; !ok {
+			t.Errorf("school %q has no ElementColors entry (spell hit would render gray)", school)
+		}
+	}
+}
 
 // TestPerspectiveScale_NeverInflates: the collision scale must not balloon near
 // the camera (the spawn-frame bug where a fireball hit/exploded several tiles
@@ -58,6 +72,8 @@ func TestSpellHitStyle(t *testing.T) {
 	cases := map[string]string{
 		"fire":     "ember",
 		"water":    "shard",
+		"dark":     "void",
+		"light":    "flash",
 		"earth":    "burst",
 		"physical": "burst",
 		"":         "burst",

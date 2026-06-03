@@ -119,8 +119,9 @@ func (gl *GameLoop) updateExploration() {
 		gl.updateSlashEffects()
 	}
 
-	// Update hit effects (arrow sticks, spell particles)
-	if len(gl.game.arrowHitEffects) > 0 || len(gl.game.spellHitEffects) > 0 {
+	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
+	// arrows outlive the burst, so they must keep the updater alive too.
+	if len(gl.game.spellHitEffects) > 0 {
 		gl.game.UpdateHitEffects()
 	}
 
