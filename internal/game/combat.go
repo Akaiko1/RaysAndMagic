@@ -43,7 +43,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Check spell points (use spell cost for spells)
 	var spellCost int
 	if spell.Type == items.ItemBattleSpell || spell.Type == items.ItemUtilitySpell {
-		spellCost = spell.SpellCost
+		spellCost = cs.effectiveSpellCost(caster, spell.SpellCost)
 	} else {
 		// This shouldn't happen - SlotSpell should only contain spells
 		return false
@@ -228,7 +228,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	spellID := spells.SpellID(spellIDStr)
 
 	// Check spell points (use spell cost for utility spells)
-	spellCost := spell.SpellCost
+	spellCost := cs.effectiveSpellCost(caster, spell.SpellCost)
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			caster.Name, caster.SpellPoints, spellCost))
@@ -522,16 +522,41 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
 // This is for melee attacks - AC applies only to physical damage as reduction
-func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
-	// Check monster perfect dodge first
-	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, cs.game.party.Members[cs.game.selectedChar].Name))
-		return
+// applyTrueDamageThroughDodge deals flat weapon-mastery TRUE damage that landed
+// despite the target's Perfect Dodge, with the usual hit bookkeeping (tint, pack
+// aggro, death/XP). Caller is responsible for any projectile cleanup.
+func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, trueDmg int, damageType monsterPkg.DamageType, attackerName string) {
+	actual := monster.TakeDamage(trueDmg, damageType, cs.game.camera.X, cs.game.camera.Y)
+	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	cs.engageTurnBasedPackOnHit(monster)
+	if !monster.IsAlive() {
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
+		cs.awardExperienceAndGold(monster)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's mastery pierces %s's dodge for %d true damage and kills it!", attackerName, monster.Name, actual))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+	} else {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s's mastery lands %d true damage! (HP: %d/%d)", monster.Name, attackerName, actual, monster.HitPoints, monster.MaxHitPoints))
 	}
+}
 
+func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
 	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
+	trueDmg, ignoreDodge := cs.weaponMasteryStrike(weaponDef)
+	attackerName := cs.game.party.Members[cs.game.selectedChar].Name
+
+	// Check monster perfect dodge. A Grandmaster ignores it entirely; otherwise
+	// the normal hit is avoided but weapon-mastery TRUE damage still lands.
+	if monster.PerfectDodge > 0 && !ignoreDodge && rand.Intn(100) < monster.PerfectDodge {
+		if trueDmg > 0 {
+			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, attackerName)
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s's attack!", monster.Name, attackerName))
+		}
+		return
+	}
+
 	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, false)
 	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
@@ -539,6 +564,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 			reducedDamage = 1
 		}
 	}
+	reducedDamage += trueDmg // weapon-mastery true damage bypasses armor
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
@@ -637,14 +663,15 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 	}
 
 	// Check spell points
-	if currentChar.SpellPoints < selectedSpellDef.SpellPointsCost {
+	spellCost := cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost)
+	if currentChar.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			currentChar.Name, currentChar.SpellPoints, selectedSpellDef.SpellPointsCost))
+			currentChar.Name, currentChar.SpellPoints, spellCost))
 		return false
 	}
 
 	// Cast the spell
-	currentChar.SpellPoints -= selectedSpellDef.SpellPointsCost
+	currentChar.SpellPoints -= spellCost
 
 	// Data-driven effect spells (AoE stun, party buffs, resurrect).
 	if cs.tryCastSpecialEffect(selectedSpellID, selectedSpellDef, currentChar) {
@@ -1420,9 +1447,25 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damage += cs.game.hourPowerOutBonus
 	}
 
-	// Check monster perfect dodge (applies to all attack types)
-	if monster.PerfectDodge > 0 && rand.Intn(100) < monster.PerfectDodge {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
+	// Weapon-mastery TRUE damage / dodge-ignore (physical weapons only; spells
+	// leave these zero/false). Spell schools instead pierce resistance at GM.
+	trueDmg, ignoreDodge := cs.weaponMasteryStrike(weaponDef)
+	resistPierce := 0
+	if isSpell {
+		if mp, ok := projectile.(*MagicProjectile); ok {
+			resistPierce = cs.spellResistPierce(mp.SpellType)
+		}
+	}
+
+	// Check monster perfect dodge (applies to all attack types). A Grandmaster
+	// weapon strike ignores it; otherwise the normal hit is dodged but mastery
+	// TRUE damage still lands.
+	if monster.PerfectDodge > 0 && !ignoreDodge && rand.Intn(100) < monster.PerfectDodge {
+		if trueDmg > 0 {
+			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, cs.game.party.Members[cs.game.selectedChar].Name)
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
+		}
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
@@ -1480,8 +1523,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 	}
+	reducedDamage += trueDmg // weapon-mastery true damage bypasses armor
 
-	actualDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	// GM spell mastery pierces part of the target's resistance.
+	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
@@ -1510,7 +1555,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 
 	if aoeRadiusTiles > 0 {
-		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles)
+		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles, resistPierce)
 	}
 }
 
@@ -1520,7 +1565,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 // splash — those belong to the primary hit only. Drives Fireball-style AoE
 // from a single YAML field (`aoe_radius_tiles`), shared between spells and
 // weapon projectiles (e.g. Bow of Hellfire).
-func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64) {
+func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64, resistPierce int) {
 	if center == nil || radiusTiles <= 0 {
 		return
 	}
@@ -1539,7 +1584,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 			continue
 		}
 		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
-		actual := m.TakeDamage(reduced, damageType, cs.game.camera.X, cs.game.camera.Y)
+		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
@@ -1750,10 +1795,9 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 		return 0, 0, 0
 	}
 	baseDamage := weaponDef.Damage
-	masteryBonus := cs.weaponMasteryBonus(weapon, character)
-	if masteryBonus > 0 {
-		baseDamage += masteryBonus
-	}
+	// Weapon-category mastery no longer adds to this (normal, armor-reduced,
+	// dodgeable) damage — it now grants flat TRUE damage applied at the hit site
+	// (weaponMasteryStrike), which bypasses armor and lands through dodges.
 	// ArmsMaster: general weapon expertise — flat bonus with ANY weapon.
 	baseDamage += character.ArmsMasterTier() * ArmsMasterDamagePerTier
 
@@ -1792,22 +1836,64 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	return baseDamage, totalStatBonus, totalDamage
 }
 
-func (cs *CombatSystem) weaponMasteryBonus(weapon items.Item, char *character.MMCharacter) int {
-	if char == nil {
-		return 0
+// activeAttacker returns the currently selected party member (the attacker for
+// melee/ranged hits resolved this frame), or nil if unavailable.
+func (cs *CombatSystem) activeAttacker() *character.MMCharacter {
+	if cs.game == nil || cs.game.party == nil {
+		return nil
 	}
-	weaponDef := lookupWeaponConfigByName(weapon.Name)
+	if cs.game.selectedChar < 0 || cs.game.selectedChar >= len(cs.game.party.Members) {
+		return nil
+	}
+	return cs.game.party.Members[cs.game.selectedChar]
+}
+
+// weaponMasteryStrike returns the TRUE-damage bonus and dodge-ignore flag for the
+// active attacker wielding the given weapon. True damage bypasses the target's
+// armor class and lands even through a Perfect Dodge; a Grandmaster (tier 3)
+// makes the WHOLE strike ignore the target's Perfect Dodge.
+func (cs *CombatSystem) weaponMasteryStrike(weaponDef *config.WeaponDefinitionConfig) (trueDmg int, ignoreDodge bool) {
 	if weaponDef == nil {
-		return 0
+		return 0, false
+	}
+	attacker := cs.activeAttacker()
+	if attacker == nil {
+		return 0, false
 	}
 	skillType, ok := character.WeaponSkillForCategory(strings.ToLower(weaponDef.Category))
 	if !ok {
+		return 0, false
+	}
+	tier := attacker.SkillTier(skillType)
+	return tier * MasteryWeaponTrueDamagePerTier, tier >= int(character.MasteryGrandMaster)
+}
+
+// spellResistPierce returns the resistance-pierce percent for the active caster's
+// spell: MagicGMResistPiercePct if they are Grandmaster in that spell's school,
+// else 0.
+func (cs *CombatSystem) spellResistPierce(spellType string) int {
+	caster := cs.activeAttacker()
+	if caster == nil {
 		return 0
 	}
-	if skill, exists := char.Skills[skillType]; exists {
-		return int(skill.Mastery) * MasteryWeaponDamagePerLevel
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType))
+	if err != nil || def.School == "" {
+		return 0
+	}
+	school := character.MagicSchoolID(def.School)
+	if ms, ok := caster.MagicSchools[school]; ok && ms != nil && ms.Mastery >= character.MasteryGrandMaster {
+		return MagicGMResistPiercePct
 	}
 	return 0
+}
+
+// effectiveSpellCost applies a Grandmaster meditator's flat percent spell-cost
+// reduction. Single source used by every SP check/deduction site.
+func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCost int) int {
+	if caster != nil && caster.SkillTier(character.SkillMeditation) >= int(character.MasteryGrandMaster) {
+		baseCost = baseCost * (100 - MeditationGMSpellCostReductionPct) / 100
+	}
+	return baseCost
 }
 
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
@@ -2068,9 +2154,37 @@ func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
 // chance = effective Luck / LuckToDodgeDivisor, clamped to [0,100].
+// armorGMDodgeBonus grants ArmorGMDodgeBonus dodge for each Grandmaster-mastered
+// armor type the character is wearing at least one piece of (e.g. GM Plate +
+// plate equipped → +5; also GM Shield + shield in the off-hand → +10).
+func (cs *CombatSystem) armorGMDodgeBonus(chr *character.MMCharacter) int {
+	if chr == nil {
+		return 0
+	}
+	armorSlots := []items.EquipSlot{
+		items.SlotOffHand, items.SlotArmor, items.SlotHelmet,
+		items.SlotBoots, items.SlotCloak, items.SlotGauntlets, items.SlotBelt,
+	}
+	gmTypes := map[character.SkillType]bool{}
+	for _, slot := range armorSlots {
+		piece, ok := chr.Equipment[slot]
+		if !ok {
+			continue
+		}
+		st, ok := character.ArmorSkillForCategory(strings.ToLower(piece.ArmorCategory))
+		if !ok {
+			continue
+		}
+		if chr.SkillTier(st) >= int(character.MasteryGrandMaster) {
+			gmTypes[st] = true
+		}
+	}
+	return len(gmTypes) * ArmorGMDodgeBonus
+}
+
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck(cs.game.statBonus) / LuckToDodgeDivisor
+	chance := chr.GetEffectiveLuck(cs.game.statBonus)/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
 	if chance < 0 {
 		chance = 0
 	}

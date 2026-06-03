@@ -493,19 +493,21 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	switch skill {
 	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
 		character.SkillBow, character.SkillMace, character.SkillStaff:
-		return fmt.Sprintf("Weapon Mastery: +%d base damage per mastery level.", MasteryWeaponDamagePerLevel)
+		return fmt.Sprintf("Weapon Mastery: +%d TRUE damage per level (ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and strikes ignore Perfect Dodge.",
+			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
-		return fmt.Sprintf("Armor Mastery: +%d base AC per mastery level.", MasteryArmorACPerLevel)
+		return fmt.Sprintf("Armor Mastery: +%d base AC per level. Grandmaster: +%d%% Perfect Dodge while wearing this armor type.",
+			MasteryArmorACPerLevel, ArmorGMDodgeBonus)
 	// Misc skills — descriptions read the SAME constants the mechanics use, so
 	// tooltip and combat can't drift. All scale by tier (Novice gives none).
 	case character.SkillBodybuilding:
-		return fmt.Sprintf("Bodybuilding: +%d max HP per mastery level.", character.BodybuildingHPPerTier)
+		return fmt.Sprintf("Bodybuilding: +%d max HP per level. Grandmaster: +%d%% max HP.", character.BodybuildingHPPerTier, character.BodybuildingGMMaxHPPct)
 	case character.SkillMeditation:
-		return fmt.Sprintf("Meditation: +%d spell points per regen tick per mastery level (faster mana recovery).", character.MeditationRegenPerTier)
+		return fmt.Sprintf("Meditation: +%d spell points per regen tick per level (faster mana recovery). Grandmaster: −%d%% spell point cost on all spells.", character.MeditationRegenPerTier, MeditationGMSpellCostReductionPct)
 	case character.SkillLearning:
-		return fmt.Sprintf("Learning: +%d%% experience gained per mastery level.", LearningXPPctPerTier)
+		return fmt.Sprintf("Learning: +%d%% experience gained per level. Grandmaster: +%d%% experience to the whole party.", LearningXPPctPerTier, LearningGMPartyXPPct)
 	case character.SkillArmsMaster:
-		return fmt.Sprintf("Arms Master: +%d damage with any weapon per mastery level.", ArmsMasterDamagePerTier)
+		return fmt.Sprintf("Arms Master: +%d damage with any weapon per level. Grandmaster: +%d%% crit with any weapon.", ArmsMasterDamagePerTier, ArmsMasterGMCritBonus)
 	case character.SkillMerchant:
 		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level (the party's best applies).", MerchantPricePctPerTier)
 	case character.SkillDisarmTrap:
@@ -527,25 +529,5 @@ func magicMasteryTooltipText() string {
 func (ui *UISystem) drawUIBackground(screen *ebiten.Image, x, y, width, height int, bgColor color.RGBA) {
 	if bgColor.A > 0 {
 		drawFilledRect(screen, x, y, width, height, bgColor)
-	}
-}
-
-// getCharacterSpellStatus returns the background color and status text for a character in spell trader dialog (DRY helper)
-func (ui *UISystem) getCharacterSpellStatus(charIndex int, canLearn, alreadyKnows, spellSelected bool) (color.RGBA, string) {
-	if charIndex == ui.game.selectedCharIdx {
-		// Selected character - blue background
-		return UIColorSelectedCharacter, ""
-	} else if alreadyKnows {
-		// Already knows spell - gray background
-		return UIColorKnowsSpell, " (Knows Spell)"
-	} else if canLearn {
-		// Can learn spell - green tint
-		return UIColorCanLearn, " (Can Learn)"
-	} else if spellSelected {
-		// Cannot learn spell - red tint
-		return UIColorCannotLearn, " (Cannot Learn)"
-	} else {
-		// No spell selected - no background
-		return color.RGBA{0, 0, 0, 0}, ""
 	}
 }

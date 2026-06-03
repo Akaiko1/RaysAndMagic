@@ -85,6 +85,49 @@ func TestApplyLevelUpOption_BodybuildingRefreshesMaxHP(t *testing.T) {
 	}
 }
 
+// TestStackedLevelUp_SecondPopupRefreshesMastery: two stacked level-ups that
+// both offer the same skill must not both read "Novice -> Expert". After the
+// first popup raises mastery, the second must show "Expert -> Master".
+func TestStackedLevelUp_SecondPopupRefreshesMastery(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	member := g.party.Members[0]
+	member.Skills[character.SkillSword] = &character.Skill{Mastery: character.MasteryNovice}
+
+	mkReq := func() levelUpChoiceRequest {
+		opt := levelUpChoiceOption{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: character.SkillSword}
+		setLevelUpOptionDisplay(member, &opt)
+		return levelUpChoiceRequest{
+			charIndex: 0, level: 3,
+			options:  []levelUpChoiceOption{opt},
+			selected: make([]bool, 1), maxSelections: 1,
+		}
+	}
+	g.levelUpChoiceQueue = []levelUpChoiceRequest{mkReq(), mkReq()}
+
+	// First popup: Novice -> Expert, then apply.
+	g.openLevelUpChoiceForChar(0)
+	if got := g.currentLevelUpChoice().options[0].masteryNext; got != character.MasteryExpert.String() {
+		t.Fatalf("first popup next = %q, want %q", got, character.MasteryExpert.String())
+	}
+	g.consumeLevelUpChoice(0)
+	if member.Skills[character.SkillSword].Mastery != character.MasteryExpert {
+		t.Fatalf("Sword should be Expert after first pick, got %v", member.Skills[character.SkillSword].Mastery)
+	}
+
+	// Second (stacked) popup must reflect the new mastery, not the stale one.
+	g.openLevelUpChoiceForChar(0)
+	opt := g.currentLevelUpChoice().options[0]
+	if opt.masteryCurrent != character.MasteryExpert.String() || opt.masteryNext != character.MasteryMaster.String() {
+		t.Errorf("second popup shows %q -> %q, want %q -> %q",
+			opt.masteryCurrent, opt.masteryNext, character.MasteryExpert.String(), character.MasteryMaster.String())
+	}
+	g.consumeLevelUpChoice(0)
+	if member.Skills[character.SkillSword].Mastery != character.MasteryMaster {
+		t.Errorf("Sword should be Master after second pick, got %v", member.Skills[character.SkillSword].Mastery)
+	}
+}
+
 // TestPadLevelUpOptions_NoDuplicateSkill: padding never re-offers a skill that
 // an explicit option already covers.
 func TestPadLevelUpOptions_NoDuplicateSkill(t *testing.T) {

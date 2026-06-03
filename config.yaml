@@ -23,6 +23,7 @@ world:
 movement:
   move_speed: 2.0
   rotation_speed: 0.05
+  run_multiplier: 2.0   # real-time sprint speed while Shift is held
 
 # Camera/3D rendering settings
 camera:
@@ -176,3 +177,13 @@ graphics:
     max_sprite_size: 120
     min_sprite_size: 16
     size_distance_multiplier: 150
+
+  # Rising "bubble" particles along the ground edges of impassable billboard
+  # tiles (rocks/cliffs — not trees, which already read as solid). Signals which
+  # tiles block movement without cluttering the view. Bubbles take the tile's
+  # own floor colour so they blend in.
+  impassable_aura:
+    enabled: true
+    radius_tiles: 7        # only tiles within this many tiles of the player
+    bubbles_per_edge: 60   # particle columns per walkable-facing edge (full border)
+    alpha: 0.5             # base glow strength (0..1)

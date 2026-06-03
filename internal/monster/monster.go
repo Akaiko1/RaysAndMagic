@@ -202,8 +202,18 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 }
 
 func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playerY float64) int {
-	// Apply resistance
+	return m.TakeDamageResist(damage, damageType, 0, playerX, playerY)
+}
+
+// TakeDamageResist is TakeDamage with resistance piercing: resistPiercePct (0..100)
+// of the target's resistance to damageType is ignored before reduction. Used by
+// Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
+func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
+	// Apply resistance (reduced by any piercing)
 	if resistance, exists := m.Resistances[damageType]; exists {
+		if resistPiercePct > 0 {
+			resistance = resistance * (100 - resistPiercePct) / 100
+		}
 		damage = damage * (100 - resistance) / 100
 		if damage < 0 {
 			damage = 0

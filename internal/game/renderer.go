@@ -94,6 +94,14 @@ type Renderer struct {
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
 	unifiedSprites []UnifiedSpriteRenderData
+	// Cached average texture colour per tile type, used to tint the impassable
+	// aura bubbles to match the rock/cliff sprite they rise from. Computed lazily.
+	auraTileColorCache map[world.TileType3D][3]int
+	// Reused draw options for glow quads (bubbles, projectile/arrow/slash glows).
+	// Thousands of glow draws per frame would otherwise allocate one options
+	// struct each; reset-and-reuse keeps the hot path allocation-free. Safe
+	// because rendering is single-threaded and DrawImage reads it synchronously.
+	glowOpts ebiten.DrawImageOptions
 }
 
 // NewRenderer creates a new renderer
@@ -857,6 +865,10 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw all sprites (trees, ferns, monsters, NPCs) sorted by depth
 		r.drawAllSpritesSorted(screen)
+
+		// Highlight impassable billboard tiles with rising ground bubbles
+		// (after walls/sprites so the depth buffer is populated for occlusion).
+		r.drawImpassableTileAura(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -1878,13 +1890,27 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 	return profile
 }
 
+// additiveGlowBlend is the standard additive blend used for all glow/particle
+// effects (projectiles, arrows, slashes, spell hits, the impassable-tile aura):
+// src·srcAlpha + dst, so overlapping glows accumulate into brighter light.
+var additiveGlowBlend = ebiten.Blend{
+	BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
+	BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
+	BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
+	BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
+	BlendOperationRGB:           ebiten.BlendOperationAdd,
+	BlendOperationAlpha:         ebiten.BlendOperationAdd,
+}
+
 func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3]int, alpha float64, blend ebiten.Blend) {
 	if size <= 0 || alpha <= 0 {
 		return
 	}
-	opts := &ebiten.DrawImageOptions{}
+	opts := &r.glowOpts // reused; reset the fields we set below
+	opts.GeoM.Reset()
 	opts.GeoM.Scale(size, size)
 	opts.GeoM.Translate(x-size/2, y-size/2)
+	opts.ColorScale.Reset()
 	opts.ColorScale.Scale(
 		float32(rgb[0])/255,
 		float32(rgb[1])/255,
@@ -2606,14 +2632,7 @@ func (r *Renderer) projectMovingEntity(x, y float64, baseSize, minSize, maxSize 
 
 // drawMagicProjectiles draws all active magic projectiles
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
-	glowBlend := ebiten.Blend{
-		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
-		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
-		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
-		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
-		BlendOperationRGB:           ebiten.BlendOperationAdd,
-		BlendOperationAlpha:         ebiten.BlendOperationAdd,
-	}
+	glowBlend := additiveGlowBlend
 
 	for _, magicProjectile := range r.game.magicProjectiles {
 		if !magicProjectile.Active {
@@ -2790,14 +2809,7 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 
 // drawArrows draws all active arrows
 func (r *Renderer) drawArrows(screen *ebiten.Image) {
-	glowBlend := ebiten.Blend{
-		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
-		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
-		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
-		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
-		BlendOperationRGB:           ebiten.BlendOperationAdd,
-		BlendOperationAlpha:         ebiten.BlendOperationAdd,
-	}
+	glowBlend := additiveGlowBlend
 
 	for _, arrow := range r.game.arrows {
 		if !arrow.Active {
@@ -2897,14 +2909,7 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 	centerX := screenWidth / 2
 	centerY := screenHeight / 2
 
-	glowBlend := ebiten.Blend{
-		BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
-		BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
-		BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
-		BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
-		BlendOperationRGB:           ebiten.BlendOperationAdd,
-		BlendOperationAlpha:         ebiten.BlendOperationAdd,
-	}
+	glowBlend := additiveGlowBlend
 
 	type strokePass struct {
 		widthMul float64
@@ -3322,14 +3327,7 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM.Translate(screenX-float64(diameter)/2, screenY-float64(diameter)/2)
 			// Use additive blending for glow effect
-			opts.Blend = ebiten.Blend{
-				BlendFactorSourceRGB:        ebiten.BlendFactorSourceAlpha,
-				BlendFactorSourceAlpha:      ebiten.BlendFactorSourceAlpha,
-				BlendFactorDestinationRGB:   ebiten.BlendFactorOne,
-				BlendFactorDestinationAlpha: ebiten.BlendFactorOne,
-				BlendOperationRGB:           ebiten.BlendOperationAdd,
-				BlendOperationAlpha:         ebiten.BlendOperationAdd,
-			}
+			opts.Blend = additiveGlowBlend
 			opts.ColorScale.Scale(
 				float32(clr.R)/255,
 				float32(clr.G)/255,

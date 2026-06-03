@@ -9,13 +9,29 @@ package game
 // Mastery progression bonuses applied per mastery level.
 // Mastery values: Novice=0, Expert=1, Master=2, Grandmaster=3.
 const (
-	// MasteryWeaponDamagePerLevel is the bonus melee/ranged damage added
-	// per weapon-mastery level for the weapon's category skill.
-	MasteryWeaponDamagePerLevel = 2
+	// MasteryWeaponTrueDamagePerTier is bonus TRUE damage added per weapon-mastery
+	// tier for the weapon's category skill. True damage bypasses the target's
+	// armor class AND lands even through a Perfect Dodge (only the dodged portion
+	// is the normal damage). Expert +3 / Master +6 / Grandmaster +9.
+	MasteryWeaponTrueDamagePerTier = 3
+
+	// WeaponGMCritBonus is the extra crit chance (percent points) a Grandmaster
+	// gets with their mastered weapon. GM also makes the whole strike ignore the
+	// target's Perfect Dodge (see weaponMasteryStrike).
+	WeaponGMCritBonus = 7
 
 	// MasteryArmorACPerLevel is the bonus armor class added per armor-mastery
 	// level for the armor's category skill.
-	MasteryArmorACPerLevel = 1
+	MasteryArmorACPerLevel = 2
+
+	// ArmorGMDodgeBonus is the extra Perfect Dodge chance (percent points) granted
+	// per Grandmaster-mastered armor type the character is wearing at least one
+	// piece of (e.g. GM Plate + plate worn → +5; also GM Shield + shield → +10).
+	ArmorGMDodgeBonus = 5
+
+	// MagicGMResistPiercePct: a Grandmaster's spells ignore this percent of the
+	// target's resistance to that school's damage type.
+	MagicGMResistPiercePct = 50
 
 	// MasterySpellEffectPerLevel is the bonus added to a spell's effect
 	// (damage, healing, duration in seconds, stat bonus) per magic-school
@@ -32,9 +48,15 @@ const (
 
 	// LearningXPPctPerTier: +% experience this character gains, per Learning tier.
 	LearningXPPctPerTier = 10
+	// LearningGMPartyXPPct: a Grandmaster "teacher" grants this extra % XP to the
+	// WHOLE party (every member), on top of their own per-tier bonus.
+	LearningGMPartyXPPct = 5
 	// ArmsMasterDamagePerTier: bonus damage with ANY weapon, per ArmsMaster tier
 	// (stacks on top of the weapon's own category mastery).
 	ArmsMasterDamagePerTier = 2
+	// ArmsMasterGMCritBonus: a Grandmaster Arms Master gets this extra crit chance
+	// (percent points) with ANY weapon.
+	ArmsMasterGMCritBonus = 5
 	// DisarmTrapDamageReductionPerTier: flat incoming-damage reduction per
 	// DisarmTrap tier. PLACEHOLDER — see TODO at usage; the real feature is
 	// disarming trap tiles, not a damage shield.
@@ -42,6 +64,9 @@ const (
 	// MerchantPricePctPerTier: % better buy AND sell prices, per the party's best
 	// Merchant tier (sell +this%, buy -this%).
 	MerchantPricePctPerTier = 5
+	// MeditationGMSpellCostReductionPct: a Grandmaster meditator pays this percent
+	// less spell points for every spell.
+	MeditationGMSpellCostReductionPct = 25
 )
 
 // Stat-to-damage scaling. A weapon's `bonus_stat` field selects which stat

@@ -99,10 +99,13 @@ func (g *MMGame) grantSharedXP(amount int) {
 	if amount <= 0 || g.combat == nil {
 		return
 	}
+	// A Grandmaster of Learning teaches the whole party: a flat % to everyone,
+	// on top of each hero's own per-tier bonus.
+	teacherPct := g.learningTeacherBonusPct()
 	award := func(m *character.MMCharacter) {
 		if m != nil && m.HitPoints > 0 {
-			// Learning grants a percentage XP bonus per mastery tier.
-			gain := amount + amount*m.SkillTier(character.SkillLearning)*LearningXPPctPerTier/100
+			pct := m.SkillTier(character.SkillLearning)*LearningXPPctPerTier + teacherPct
+			gain := amount + amount*pct/100
 			m.Experience += gain
 			g.combat.checkLevelUp(m)
 		}
@@ -116,6 +119,23 @@ func (g *MMGame) grantSharedXP(amount int) {
 	for _, m := range g.party.Captive {
 		award(m)
 	}
+}
+
+// learningTeacherBonusPct returns the party-wide XP percentage contributed by a
+// living Grandmaster of Learning ("teacher"). Counted once for the whole party.
+func (g *MMGame) learningTeacherBonusPct() int {
+	if g.party == nil {
+		return 0
+	}
+	rosters := [][]*character.MMCharacter{g.party.Members, g.party.Reserve, g.party.Captive}
+	for _, roster := range rosters {
+		for _, m := range roster {
+			if m != nil && m.HitPoints > 0 && m.SkillTier(character.SkillLearning) >= int(character.MasteryGrandMaster) {
+				return LearningGMPartyXPPct
+			}
+		}
+	}
+	return 0
 }
 
 // bankOwedLevelChoice records a level-up choice owed to a benched character
@@ -214,6 +234,9 @@ func (g *MMGame) openLevelUpChoiceForChar(charIndex int) {
 			g.levelUpChoiceIdx = i
 			g.levelUpChoiceOpen = true
 			g.levelUpChoiceQueue[i].selection = 0
+			// Recompute labels: an earlier stacked popup may have already raised
+			// this skill's mastery, so "Novice -> Expert" must become "Expert -> Master".
+			g.refreshLevelUpOptionLabels(&g.levelUpChoiceQueue[i])
 			return
 		}
 	}
@@ -326,84 +349,79 @@ func (g *MMGame) confirmLevelUpSelections() {
 	}
 }
 
+// setLevelUpOptionDisplay (re)computes an option's display fields (label and
+// mastery prefix/current/next) from the character's CURRENT state. Single source
+// for building, padding, and refreshing options so a stacked second popup can't
+// show a stale "Novice -> Expert" after the first popup already raised mastery.
+// hasMastery ends false for a maxed (Grandmaster) skill/school.
+func setLevelUpOptionDisplay(char *character.MMCharacter, opt *levelUpChoiceOption) {
+	switch strings.ToLower(opt.choice.Type) {
+	case "spell":
+		def, err := spells.GetSpellDefinitionByID(opt.spellID)
+		if err != nil {
+			return
+		}
+		if characterKnowsSpellByID(char, opt.spellID) {
+			opt.label = fmt.Sprintf("Learn Spell: %s (Already Known)", def.Name)
+		} else {
+			opt.label = fmt.Sprintf("Learn Spell: %s", def.Name)
+		}
+	case "weapon_mastery", "armor_mastery":
+		label, current, next, ok := masteryOptionLabel(char, opt.skillType)
+		opt.label, opt.masteryCurrent, opt.masteryNext, opt.hasMastery = label, current, next, ok
+		if ok {
+			opt.masteryPrefix = fmt.Sprintf("%s Mastery: ", opt.skillType.String())
+		} else {
+			opt.masteryPrefix = ""
+		}
+	case "magic_mastery":
+		label, current, next, ok := magicMasteryOptionLabel(char, opt.school)
+		opt.label, opt.masteryCurrent, opt.masteryNext, opt.hasMastery = label, current, next, ok
+		if ok {
+			opt.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", opt.school.DisplayName())
+		} else {
+			opt.masteryPrefix = ""
+		}
+	}
+}
+
 func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.LevelUpChoice) []levelUpChoiceOption {
 	var options []levelUpChoiceOption
+	add := func(opt levelUpChoiceOption) {
+		setLevelUpOptionDisplay(char, &opt)
+		options = append(options, opt)
+	}
 	for _, choice := range choices {
 		switch strings.ToLower(choice.Type) {
 		case "spell":
-			spellID := spells.SpellID(choice.Spell)
 			if choice.Spell == "" {
 				continue
 			}
-			def, err := spells.GetSpellDefinitionByID(spellID)
-			if err != nil {
+			spellID := spells.SpellID(choice.Spell)
+			if _, err := spells.GetSpellDefinitionByID(spellID); err != nil {
 				continue
 			}
-			label := fmt.Sprintf("Learn Spell: %s", def.Name)
-			if characterKnowsSpellByID(char, spellID) {
-				label = fmt.Sprintf("Learn Spell: %s (Already Known)", def.Name)
-			}
-			options = append(options, levelUpChoiceOption{
-				choice:  choice,
-				label:   label,
-				spellID: spellID,
-			})
+			add(levelUpChoiceOption{choice: choice, spellID: spellID})
 		case "weapon_mastery", "armor_mastery":
 			skillType, ok := skillTypeFromKey(choice.Skill)
 			if !ok {
 				continue
 			}
-			label, current, next, ok := masteryOptionLabel(char, skillType)
-			option := levelUpChoiceOption{
-				choice:    choice,
-				label:     label,
-				skillType: skillType,
-			}
-			if ok {
-				option.masteryPrefix = fmt.Sprintf("%s Mastery: ", skillType.String())
-				option.masteryCurrent = current
-				option.masteryNext = next
-				option.hasMastery = true
-			}
-			options = append(options, option)
+			add(levelUpChoiceOption{choice: choice, skillType: skillType})
 		case "magic_mastery":
 			if strings.ToLower(choice.School) == "any" {
 				for school := range char.MagicSchools {
-					label, current, next, ok := magicMasteryOptionLabel(char, school)
-					option := levelUpChoiceOption{
-						choice: config.LevelUpChoice{
-							Type:   choice.Type,
-							School: string(school),
-						},
-						label:  label,
+					add(levelUpChoiceOption{
+						choice: config.LevelUpChoice{Type: choice.Type, School: string(school)},
 						school: school,
-					}
-					if ok {
-						option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", school.DisplayName())
-						option.masteryCurrent = current
-						option.masteryNext = next
-						option.hasMastery = true
-					}
-					options = append(options, option)
+					})
 				}
 			} else {
 				school := character.MagicSchoolID(choice.School)
 				if _, ok := char.MagicSchools[school]; !ok {
 					continue
 				}
-				label, current, next, ok := magicMasteryOptionLabel(char, school)
-				option := levelUpChoiceOption{
-					choice: choice,
-					label:  label,
-					school: school,
-				}
-				if ok {
-					option.masteryPrefix = fmt.Sprintf("%s Magic Mastery: ", school.DisplayName())
-					option.masteryCurrent = current
-					option.masteryNext = next
-					option.hasMastery = true
-				}
-				options = append(options, option)
+				add(levelUpChoiceOption{choice: choice, school: school})
 			}
 		}
 	}
@@ -432,41 +450,22 @@ func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOptio
 	}
 
 	var candidates []levelUpChoiceOption
+	addCandidate := func(opt levelUpChoiceOption) {
+		setLevelUpOptionDisplay(char, &opt)
+		if !opt.hasMastery { // already Grandmaster → not a real upgrade
+			return
+		}
+		candidates = append(candidates, opt)
+	}
 	for skillType := range char.Skills {
-		if usedSkills[skillType] {
-			continue
+		if !usedSkills[skillType] {
+			addCandidate(levelUpChoiceOption{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: skillType})
 		}
-		label, current, next, ok := masteryOptionLabel(char, skillType)
-		if !ok { // already Grandmaster
-			continue
-		}
-		candidates = append(candidates, levelUpChoiceOption{
-			choice:         config.LevelUpChoice{Type: "weapon_mastery"},
-			label:          label,
-			masteryPrefix:  fmt.Sprintf("%s Mastery: ", skillType.String()),
-			masteryCurrent: current,
-			masteryNext:    next,
-			hasMastery:     true,
-			skillType:      skillType,
-		})
 	}
 	for school := range char.MagicSchools {
-		if usedSchools[school] {
-			continue
+		if !usedSchools[school] {
+			addCandidate(levelUpChoiceOption{choice: config.LevelUpChoice{Type: "magic_mastery", School: string(school)}, school: school})
 		}
-		label, current, next, ok := magicMasteryOptionLabel(char, school)
-		if !ok { // already Grandmaster
-			continue
-		}
-		candidates = append(candidates, levelUpChoiceOption{
-			choice:         config.LevelUpChoice{Type: "magic_mastery", School: string(school)},
-			label:          label,
-			masteryPrefix:  fmt.Sprintf("%s Magic Mastery: ", school.DisplayName()),
-			masteryCurrent: current,
-			masteryNext:    next,
-			hasMastery:     true,
-			school:         school,
-		})
 	}
 
 	rand.Shuffle(len(candidates), func(i, j int) {
@@ -479,6 +478,22 @@ func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOptio
 		options = append(options, cand)
 	}
 	return options
+}
+
+// refreshLevelUpOptionLabels recomputes every option's display text against the
+// character's current mastery. Called when a (possibly stacked) request becomes
+// the active popup so labels reflect upgrades applied by earlier popups.
+func (g *MMGame) refreshLevelUpOptionLabels(req *levelUpChoiceRequest) {
+	if req == nil || req.charIndex < 0 || req.charIndex >= len(g.party.Members) {
+		return
+	}
+	char := g.party.Members[req.charIndex]
+	if char == nil {
+		return
+	}
+	for i := range req.options {
+		setLevelUpOptionDisplay(char, &req.options[i])
+	}
 }
 
 func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillType) (string, string, string, bool) {

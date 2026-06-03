@@ -101,6 +101,9 @@ type WorldConfig struct {
 type MovementConfig struct {
 	MoveSpeed     float64 `yaml:"move_speed"`
 	RotationSpeed float64 `yaml:"rotation_speed"`
+	// RunMultiplier scales real-time translation speed while the run key (Shift)
+	// is held. <= 1 (or absent) falls back to RunMultiplierDefault.
+	RunMultiplier float64 `yaml:"run_multiplier"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
@@ -309,12 +312,24 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig        `yaml:"colors"`
-	Sprite             SpriteConfig        `yaml:"sprite"`
-	BrightnessMin      float64             `yaml:"brightness_min"`
-	Monster            MonsterRenderConfig `yaml:"monster"`
-	NPC                NPCRenderConfig     `yaml:"npc"`
+	RaysPerScreenWidth int                  `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig         `yaml:"colors"`
+	Sprite             SpriteConfig         `yaml:"sprite"`
+	BrightnessMin      float64              `yaml:"brightness_min"`
+	Monster            MonsterRenderConfig  `yaml:"monster"`
+	NPC                NPCRenderConfig      `yaml:"npc"`
+	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
+}
+
+// ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
+// ground edges of impassable billboard tiles (rocks/cliffs) so the player can
+// tell which tiles block movement. Zero/absent numeric fields fall back to
+// in-code defaults; Enabled defaults off unless set in config.yaml.
+type ImpassableAuraConfig struct {
+	Enabled        bool    `yaml:"enabled"`
+	RadiusTiles    int     `yaml:"radius_tiles"`     // scan radius around the camera, in tiles
+	BubblesPerEdge int     `yaml:"bubbles_per_edge"` // particle columns per walkable-facing edge
+	Alpha          float64 `yaml:"alpha"`            // base glow alpha (0..1)
 }
 
 type ColorsConfig struct {
@@ -833,6 +848,19 @@ func (c *Config) GetMapHeight() int {
 
 func (c *Config) GetMoveSpeed() float64 {
 	return c.Movement.MoveSpeed
+}
+
+// RunMultiplierDefault is the fallback run/sprint speed multiplier when the
+// config omits (or zeroes) movement.run_multiplier.
+const RunMultiplierDefault = 2.0
+
+// GetRunMultiplier returns the real-time sprint multiplier (Shift held),
+// falling back to RunMultiplierDefault when unset.
+func (c *Config) GetRunMultiplier() float64 {
+	if c.Movement.RunMultiplier > 1 {
+		return c.Movement.RunMultiplier
+	}
+	return RunMultiplierDefault
 }
 
 func (c *Config) GetRotSpeed() float64 {

@@ -951,7 +951,7 @@ func (ih *InputHandler) handleUIInput() {
 // handleSpellbookInput processes spellbook navigation and casting
 // Movement helper methods
 func (ih *InputHandler) moveForward() {
-	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	speed := ih.moveSpeed()
 	newX := ih.game.camera.X + ih.game.camera.GetForwardX()*speed
 	newY := ih.game.camera.Y + ih.game.camera.GetForwardY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
@@ -964,7 +964,7 @@ func (ih *InputHandler) moveForward() {
 }
 
 func (ih *InputHandler) moveBackward() {
-	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	speed := ih.moveSpeed()
 	newX := ih.game.camera.X - ih.game.camera.GetForwardX()*speed
 	newY := ih.game.camera.Y - ih.game.camera.GetForwardY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
@@ -977,7 +977,7 @@ func (ih *InputHandler) moveBackward() {
 }
 
 func (ih *InputHandler) strafeLeft() {
-	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	speed := ih.moveSpeed()
 	newX := ih.game.camera.X + ih.game.camera.GetRightX()*-speed
 	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*-speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
@@ -990,7 +990,7 @@ func (ih *InputHandler) strafeLeft() {
 }
 
 func (ih *InputHandler) strafeRight() {
-	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	speed := ih.moveSpeed()
 	newX := ih.game.camera.X + ih.game.camera.GetRightX()*speed
 	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*speed
 	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
@@ -1008,6 +1008,18 @@ func (ih *InputHandler) movementScale() float64 {
 		return 1.0
 	}
 	return 60.0 / float64(tps)
+}
+
+// moveSpeed is the per-frame real-time translation speed: base move speed × the
+// tick-rate scale, sprinted by the run multiplier while Shift is held. Sprint is
+// real-time only (turn-based movement is tile-stepped) and applies to translation,
+// not rotation.
+func (ih *InputHandler) moveSpeed() float64 {
+	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
+	if !ih.game.turnBasedMode && (ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)) {
+		speed *= ih.game.config.GetRunMultiplier()
+	}
+	return speed
 }
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation

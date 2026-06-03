@@ -952,14 +952,6 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 	return autoEquipPool(party, allDrops)
 }
 
-// grindForestAndChurch — convenience for the forest+church baseline scenario.
-func grindForestAndChurch(t *testing.T, cs *CombatSystem, party []*character.MMCharacter) []items.Item {
-	return grindMaps(t, cs, party, []struct{ path, biome string }{
-		{"../../assets/forest.map", "forest"},
-		{"../../assets/church.map", "church"},
-	}, statSpeedFloorThenPrimary)
-}
-
 // equipBestOffensiveSpellVs picks the spell with the highest effective
 // damage against `target`, accounting for the monster's resistances by
 // school. Used to make casters "prepare the right spell" before a fight

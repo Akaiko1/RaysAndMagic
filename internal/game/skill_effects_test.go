@@ -23,7 +23,7 @@ func TestSkillTooltips_NoOmission(t *testing.T) {
 // constants the mechanics use, so tooltip and combat can't drift.
 func TestSkillTooltips_UseRealConstants(t *testing.T) {
 	checks := map[character.SkillType]int{
-		character.SkillSword:        MasteryWeaponDamagePerLevel,
+		character.SkillSword:        MasteryWeaponTrueDamagePerTier,
 		character.SkillLeather:      MasteryArmorACPerLevel,
 		character.SkillBodybuilding: character.BodybuildingHPPerTier,
 		character.SkillMeditation:   character.MeditationRegenPerTier,

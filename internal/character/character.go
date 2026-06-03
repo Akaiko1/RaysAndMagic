@@ -16,10 +16,26 @@ const (
 	ManaRegenPersonalityDivisor = 10
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
 	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
-	MeditationRegenPerTier = 2
+	MeditationRegenPerTier = 3
 	// BodybuildingHPPerTier: bonus Max HP per Bodybuilding mastery tier.
-	BodybuildingHPPerTier = 5
+	BodybuildingHPPerTier = 8
+	// BodybuildingGMMaxHPPct: a Grandmaster bodybuilder gets this percent of extra
+	// Max HP (on the pre-bonus base) on top of the flat per-tier amount.
+	BodybuildingGMMaxHPPct = 10
 )
+
+// bodybuildingBonusHP returns the Bodybuilding contribution to Max HP for a
+// given base (pre-bonus) Max HP: a flat per-tier amount plus, at Grandmaster, a
+// percentage of the base. Single source for CalculateDerivedStats and
+// RecalculateMaxStatsKeepingCurrent so the two can't drift.
+func (c *MMCharacter) bodybuildingBonusHP(baseMaxHP int) int {
+	tier := c.SkillTier(SkillBodybuilding)
+	bonus := tier * BodybuildingHPPerTier
+	if tier >= int(MasteryGrandMaster) {
+		bonus += baseMaxHP * BodybuildingGMMaxHPPct / 100
+	}
+	return bonus
+}
 
 // SkillTier returns a character's mastery level for a skill as an int
 // (Novice=0, Expert=1, Master=2, Grandmaster=3), or 0 if they lack the skill.
@@ -389,8 +405,9 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 }
 
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
-	// Calculate hit points (Endurance based)
-	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier + c.SkillTier(SkillBodybuilding)*BodybuildingHPPerTier
+	// Calculate hit points (Endurance based) + Bodybuilding bonus
+	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
 	c.HitPoints = c.MaxHitPoints
 
 	// Calculate spell points (Intellect + Personality based + equipment bonuses)
@@ -409,7 +426,8 @@ func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
 	oldMaxHP := c.MaxHitPoints
 	oldMaxSP := c.MaxSpellPoints
 
-	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier + c.SkillTier(SkillBodybuilding)*BodybuildingHPPerTier
+	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
 	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 

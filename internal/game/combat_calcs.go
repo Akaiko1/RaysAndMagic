@@ -2,6 +2,7 @@ package game
 
 import (
 	"math"
+	"strings"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -99,10 +100,21 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 // CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
 	baseCrit := 0
+	gmWeaponBonus := 0
 	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
 		baseCrit = def.CritChance
+		// Grandmaster in this weapon's category: extra crit with it.
+		if st, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok &&
+			char != nil && char.SkillTier(st) >= int(character.MasteryGrandMaster) {
+			gmWeaponBonus = WeaponGMCritBonus
+		}
 	}
-	total := baseCrit + cs.CalculateCriticalChance(char)
+	// Grandmaster Arms Master: extra crit with ANY weapon.
+	armsBonus := 0
+	if char != nil && char.SkillTier(character.SkillArmsMaster) >= int(character.MasteryGrandMaster) {
+		armsBonus = ArmsMasterGMCritBonus
+	}
+	total := baseCrit + cs.CalculateCriticalChance(char) + gmWeaponBonus + armsBonus
 	if total < 0 {
 		return 0
 	}
