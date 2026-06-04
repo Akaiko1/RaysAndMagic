@@ -55,6 +55,7 @@ type MagicProjectile struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
+	AoE                bool // monster projectile: on hit, splash damage to the whole party
 }
 
 type MeleeAttack struct {
@@ -68,25 +69,17 @@ type MeleeAttack struct {
 	Crit       bool   // Critical hit flag
 }
 
-type SlashEffectStyle int
-
-const (
-	SlashEffectStyleSlash SlashEffectStyle = iota
-	SlashEffectStyleThrust
-)
-
-// SlashEffect represents a visual slash animation for melee weapons
+// SlashEffect represents a visual melee swing (a per-weapon pixel-particle
+// flourish; see drawMeleeParticles).
 type SlashEffect struct {
 	ID             string  // Unique identifier
-	X, Y           float64 // Center position
-	Angle          float64 // Base direction of the effect
-	SweepAngle     float64 // Total sweep in radians for slashes
-	Width, Length  int     // Dimensions of slash
+	X, Y           float64 // Origin (camera position at swing) — for cleanup/debug
+	Width, Length  int     // Dimensions from weapon graphics config
 	Color          [3]int  // RGB color
 	AnimationFrame int     // Current animation frame
 	MaxFrames      int     // Total animation frames
 	Active         bool
-	Style          SlashEffectStyle
+	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
 }
 
 type Arrow struct {
@@ -104,34 +97,17 @@ type Arrow struct {
 	SourceName         string
 }
 
-// ArrowHitParticle represents a small particle burst for arrow impacts
-type ArrowHitParticle struct {
-	X, Y       float64
-	OffsetX    float64
-	OffsetY    float64
-	VelX, VelY float64
-	LifeTime   int
-	MaxLife    int
-	Size       int
-	Active     bool
-	Color      [3]int
-}
-
-// ArrowHitEffect represents a short particle burst on arrow impact
-type ArrowHitEffect struct {
-	Particles []ArrowHitParticle
-	Active    bool
-}
-
 // SpellHitParticle represents a single particle from a spell impact
 type SpellHitParticle struct {
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity (outward from impact)
-	Color      [3]int  // RGB color based on element
-	LifeTime   int     // Frames remaining
-	MaxLife    int     // Initial lifetime for alpha calculation
-	Size       int     // Particle size (shrinks over time)
-	Active     bool
+	X, Y             float64 // World anchor (impact point) — fixed; used for projection
+	OffsetX, OffsetY float64 // Screen-space offset from the anchor (a real 2D burst)
+	VelX, VelY       float64 // Screen-space velocity (px/frame at the anchor's scale)
+	Gravity          float64 // Added to VelY each frame (ice shards fall, embers rise)
+	Color            [3]int  // RGB color based on element
+	LifeTime         int     // Frames remaining
+	MaxLife          int     // Initial lifetime for alpha calculation
+	Size             int     // Particle size (shrinks over time)
+	Active           bool
 }
 
 // SpellHitEffect represents a burst of particles from a spell impact
@@ -148,6 +124,10 @@ var ElementColors = map[string][3]int{
 	"earth":    {139, 90, 43},   // Brown
 	"light":    {255, 255, 200}, // Warm white
 	"dark":     {80, 0, 120},    // Purple
+	"arcane":   {150, 190, 255}, // Arcane blue-white (staff/book bolts)
+	"body":     {120, 230, 150}, // Healing green
+	"mind":     {170, 190, 255}, // Pale blue
+	"spirit":   {210, 185, 255}, // Pale violet
 	"physical": {200, 200, 200}, // Gray
 }
 
@@ -225,7 +205,6 @@ type MMGame struct {
 	// Utility spell status icons (data-driven)
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
-	arrowHitEffects      []ArrowHitEffect
 	spellHitEffects      []SpellHitEffect
 	hitEffectsMu         sync.Mutex
 
@@ -249,6 +228,17 @@ type MMGame struct {
 	blessActive    bool // Whether bless is currently active
 	blessDuration  int  // Remaining duration in frames
 	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
+
+	// Day of the Gods — party-wide % incoming-damage reduction
+	dayGodsActive    bool
+	dayGodsDuration  int // frames remaining
+	dayGodsResistPct int // % reduction applied to all incoming damage while active
+
+	// Hour of Power — party-wide outgoing-damage bonus + flat incoming reduction
+	hourPowerActive   bool
+	hourPowerDuration int // frames remaining
+	hourPowerOutBonus int // flat bonus added to all party outgoing damage
+	hourPowerInReduce int // flat reduction subtracted from incoming damage (floors at 0)
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -327,6 +317,19 @@ type MMGame struct {
 	// is the inventory slot of the consumable to spend on confirm.
 	revivalPickerOpen    bool
 	revivalPickerItemIdx int
+
+	// Promotion picker: when more than one party member is eligible for a
+	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
+	// the target promotion; promotionPickerItemIdx is the phylactery slot to
+	// consume on confirm (-1 for the quest-driven Archmage path).
+	promotionPickerOpen    bool
+	promotionPickerKind    character.Promotion
+	promotionPickerItemIdx int
+
+	// Tavern roster screen: swap active party members with the reserve roster.
+	// rosterSelectedActive is the active slot the player picked first (-1 = none).
+	rosterScreenOpen     bool
+	rosterSelectedActive int
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
@@ -441,7 +444,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		meleeAttacks:     make([]MeleeAttack, 0),
 		arrows:           make([]Arrow, 0),
 		slashEffects:     make([]SlashEffect, 0),
-		arrowHitEffects:  make([]ArrowHitEffect, 0),
 		spellHitEffects:  make([]SpellHitEffect, 0),
 
 		// Tabbed menu system
@@ -1445,7 +1447,10 @@ func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
 	if aw.game == nil {
 		return
 	}
-	aw.game.CreateArrowHitEffect(hitX, hitY, aw.Arrow.VelX, aw.Arrow.VelY)
+	// Staff/book bolt → magical burst on wall/terrain impact, not an arrow puff
+	// (shares the monster-hit decision so the staff never "explodes like an arrow").
+	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
+	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

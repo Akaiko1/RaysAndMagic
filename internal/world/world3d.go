@@ -153,7 +153,10 @@ func (w *World3D) GetStartingPosition() (float64, float64) {
 		panic("Map has no starting position defined! Maps must have a '+' symbol to be used as starting maps.")
 	}
 	tileSize := w.config.GetTileSize()
-	return float64(w.StartX) * tileSize, float64(w.StartY) * tileSize
+	// Return the CENTER of the start tile, not its corner — every other
+	// positioning path (movement, teleporters) centers on the tile, and an
+	// off-centre spawn drops the party into the corner of the doorway.
+	return float64(w.StartX)*tileSize + tileSize/2, float64(w.StartY)*tileSize + tileSize/2
 }
 
 // Registers all teleporter tiles in the map into the global registry with unique labels and type
@@ -414,9 +417,33 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 			continue
 		}
 
+		// Optional ground-tile override: paint a specific tile under the NPC
+		// instead of the default '.' (e.g. a portal-stream tile beneath an
+		// invisible gate NPC). Lets a spriteless NPC sit on bespoke ground.
+		if npc.GroundTile != "" && GlobalTileManager != nil &&
+			spawn.Y >= 0 && spawn.Y < len(w.Tiles) && spawn.X >= 0 && spawn.X < len(w.Tiles[spawn.Y]) {
+			if tileType, ok := GlobalTileManager.GetTileTypeFromKey(npc.GroundTile); ok {
+				w.Tiles[spawn.Y][spawn.X] = tileType
+			} else {
+				fmt.Printf("Warning: NPC %s ground_tile %q not found\n", spawn.NPCKey, npc.GroundTile)
+			}
+		}
+
 		w.NPCs = append(w.NPCs, npc)
 	}
 }
+
+// RemoveNPC drops an NPC from the world (e.g. a dragon statue after it's used).
+// NPCs aren't registered with the collision system, so no deregistration needed.
+func (w *World3D) RemoveNPC(target *character.NPC) {
+	for i, n := range w.NPCs {
+		if n == target {
+			w.NPCs = append(w.NPCs[:i], w.NPCs[i+1:]...)
+			return
+		}
+	}
+}
+
 func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }
@@ -460,4 +487,3 @@ func (reg *TeleporterRegistry) GetRandomDestinationTeleporter(source TeleporterL
 	}
 	return candidates[0], true
 }
-

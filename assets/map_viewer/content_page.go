@@ -16,12 +16,12 @@ import (
 
 // Layout constants for the content grid.
 const (
-	contentPad           = 16
-	contentCardW         = 220
-	contentCardH         = 96
-	contentCardGap       = 12
-	contentIconSize      = 64
-	contentSectionH      = 28
+	contentPad              = 16
+	contentCardW            = 220
+	contentCardH            = 96
+	contentCardGap          = 12
+	contentIconSize         = 64
+	contentSectionH         = 28
 	contentSectionMarginTop = 10
 	contentSectionMarginBot = 6
 )

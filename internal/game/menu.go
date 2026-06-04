@@ -31,19 +31,19 @@ var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Exit"
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
-	MapKey       string                   `json:"map_key"`
-	PlayerX      float64                  `json:"player_x"`
-	PlayerY      float64                  `json:"player_y"`
-	PlayerAngle  float64                  `json:"player_angle"`
-	TurnBased    bool                     `json:"turn_based"`
-	SaveName     string                   `json:"save_name,omitempty"`
-	SavedAt      string                   `json:"saved_at"`
-	Party        PartySave                `json:"party"`
-	Monsters     []MonsterSave            `json:"monsters"`
-	MapMonsters  map[string][]MonsterSave `json:"map_monsters,omitempty"`
-	NPCStates    []NPCSave                `json:"npc_states"`
-	Quests       []QuestSave              `json:"quests,omitempty"`
-	GroundContainers []GroundContainerSave `json:"ground_containers,omitempty"`
+	MapKey           string                   `json:"map_key"`
+	PlayerX          float64                  `json:"player_x"`
+	PlayerY          float64                  `json:"player_y"`
+	PlayerAngle      float64                  `json:"player_angle"`
+	TurnBased        bool                     `json:"turn_based"`
+	SaveName         string                   `json:"save_name,omitempty"`
+	SavedAt          string                   `json:"saved_at"`
+	Party            PartySave                `json:"party"`
+	Monsters         []MonsterSave            `json:"monsters"`
+	MapMonsters      map[string][]MonsterSave `json:"map_monsters,omitempty"`
+	NPCStates        []NPCSave                `json:"npc_states"`
+	Quests           []QuestSave              `json:"quests,omitempty"`
+	GroundContainers []GroundContainerSave    `json:"ground_containers,omitempty"`
 	// PendingLevelUpChoices preserves unconsumed skill/spell choices from
 	// level-ups. Options are rebuilt from class+level on load, so we only
 	// need to remember which character is owed a choice at which level.
@@ -69,12 +69,23 @@ type GameSave struct {
 	BlessActive            bool    `json:"bless_active,omitempty"`
 	BlessDuration          int     `json:"bless_duration,omitempty"`
 	BlessStatBonus         int     `json:"bless_stat_bonus,omitempty"`
+	DayGodsActive          bool    `json:"day_gods_active,omitempty"`
+	DayGodsDuration        int     `json:"day_gods_duration,omitempty"`
+	DayGodsResistPct       int     `json:"day_gods_resist_pct,omitempty"`
+	HourPowerActive        bool    `json:"hour_power_active,omitempty"`
+	HourPowerDuration      int     `json:"hour_power_duration,omitempty"`
+	HourPowerOutBonus      int     `json:"hour_power_out_bonus,omitempty"`
+	HourPowerInReduce      int     `json:"hour_power_in_reduce,omitempty"`
 	WaterBreathingActive   bool    `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int     `json:"water_breathing_duration,omitempty"`
 	UnderwaterReturnX      float64 `json:"underwater_return_x,omitempty"`
 	UnderwaterReturnY      float64 `json:"underwater_return_y,omitempty"`
 	UnderwaterReturnMap    string  `json:"underwater_return_map,omitempty"`
 	StatBonus              int     `json:"stat_bonus,omitempty"`
+
+	// MapReturnPoses remembers where the party entered each map via a gate, so a
+	// return trip drops them at the doorway rather than the map's spawn tile.
+	MapReturnPoses map[string]MapPose `json:"map_return_poses,omitempty"`
 }
 
 // QuestSave captures quest progress for save/load
@@ -90,11 +101,14 @@ type PartySave struct {
 	Food      int             `json:"food"`
 	Inventory []items.Item    `json:"inventory"`
 	Members   []CharacterSave `json:"members"`
+	Reserve   []CharacterSave `json:"reserve,omitempty"`
+	Captive   []CharacterSave `json:"captive,omitempty"`
 }
 
 type CharacterSave struct {
 	Name                  string             `json:"name"`
 	Class                 int                `json:"class"`
+	Promotion             int                `json:"promotion,omitempty"`
 	Level                 int                `json:"level"`
 	Experience            int                `json:"experience"`
 	HitPoints             int                `json:"hit_points"`
@@ -109,6 +123,7 @@ type CharacterSave struct {
 	Speed                 int                `json:"speed"`
 	Luck                  int                `json:"luck"`
 	FreeStatPoints        int                `json:"free_stat_points"`
+	OwedLevelChoices      []int              `json:"owed_level_choices,omitempty"`
 	Conditions            []int              `json:"conditions"`
 	Skills                []SkillEntry       `json:"skills"`
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
@@ -138,7 +153,6 @@ type MagicSchoolEntry struct {
 	School      string   `json:"school"`
 	Level       int      `json:"level"`
 	Mastery     int      `json:"mastery"`
-	CastCount   int      `json:"cast_count"`
 	KnownSpells []string `json:"known_spells"`
 }
 
@@ -163,34 +177,39 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Key                string               `json:"key"`
-	Name               string               `json:"name"`
-	X                  float64              `json:"x"`
-	Y                  float64              `json:"y"`
-	HitPoints          int                  `json:"hit_points"`
-	IsEncounterMonster bool                 `json:"is_encounter_monster,omitempty"`
-	EncounterID        int                  `json:"encounter_id,omitempty"`
-	EncounterRewards   *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	Key                  string               `json:"key"`
+	Name                 string               `json:"name"`
+	X                    float64              `json:"x"`
+	Y                    float64              `json:"y"`
+	HitPoints            int                  `json:"hit_points"`
+	Charmed              bool                 `json:"charmed,omitempty"`
+	CharmFramesRemaining int                  `json:"charm_frames_remaining,omitempty"`
+	IsEncounterMonster   bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID          int                  `json:"encounter_id,omitempty"`
+	EncounterRewards     *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
 
 type EncounterRewardSave struct {
-	Gold              int                      `json:"gold"`
-	Experience        int                      `json:"experience"`
-	CompletionMessage string                   `json:"completion_message,omitempty"`
-	QuestID           string                   `json:"quest_id,omitempty"`
-	TreasureChest     *TreasureChestRewardSave `json:"treasure_chest,omitempty"`
+	Gold              int                       `json:"gold"`
+	Experience        int                       `json:"experience"`
+	CompletionMessage string                    `json:"completion_message,omitempty"`
+	QuestID           string                    `json:"quest_id,omitempty"`
+	TreasureChest     *TreasureChestRewardSave  `json:"treasure_chest,omitempty"`
+	TreasureChests    []TreasureChestRewardSave `json:"treasure_chests,omitempty"`
 }
 
 type TreasureChestRewardSave struct {
-	ID                string  `json:"id,omitempty"`
-	Map               string  `json:"map,omitempty"`
-	TileX             int     `json:"tile_x"`
-	TileY             int     `json:"tile_y"`
-	Sprite            string  `json:"sprite,omitempty"`
-	SizeMultiplier    float64 `json:"size_multiplier,omitempty"`
-	RandomWeaponCount int     `json:"random_weapon_count,omitempty"`
-	Gold              int     `json:"gold,omitempty"`
-	CompletionMessage string  `json:"completion_message,omitempty"`
+	ID                string   `json:"id,omitempty"`
+	Map               string   `json:"map,omitempty"`
+	TileX             int      `json:"tile_x"`
+	TileY             int      `json:"tile_y"`
+	Sprite            string   `json:"sprite,omitempty"`
+	SizeMultiplier    float64  `json:"size_multiplier,omitempty"`
+	RandomWeaponCount int      `json:"random_weapon_count,omitempty"`
+	Items             []string `json:"items,omitempty"`
+	Weapons           []string `json:"weapons,omitempty"`
+	Gold              int      `json:"gold,omitempty"`
+	CompletionMessage string   `json:"completion_message,omitempty"`
 }
 
 func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChestRewardSave {
@@ -205,6 +224,8 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		Sprite:            reward.Sprite,
 		SizeMultiplier:    reward.SizeMultiplier,
 		RandomWeaponCount: reward.RandomWeaponCount,
+		Items:             append([]string(nil), reward.Items...),
+		Weapons:           append([]string(nil), reward.Weapons...),
 		Gold:              reward.Gold,
 		CompletionMessage: reward.CompletionMessage,
 	}
@@ -222,6 +243,8 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		Sprite:            save.Sprite,
 		SizeMultiplier:    save.SizeMultiplier,
 		RandomWeaponCount: save.RandomWeaponCount,
+		Items:             append([]string(nil), save.Items...),
+		Weapons:           append([]string(nil), save.Weapons...),
 		Gold:              save.Gold,
 		CompletionMessage: save.CompletionMessage,
 	}
@@ -231,13 +254,19 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 	if save == nil {
 		return nil
 	}
-	return &monster.EncounterRewards{
+	rewards := &monster.EncounterRewards{
 		Gold:              save.Gold,
 		Experience:        save.Experience,
 		CompletionMessage: save.CompletionMessage,
 		QuestID:           save.QuestID,
 		TreasureChest:     treasureChestRewardFromSave(save.TreasureChest),
 	}
+	for _, chestSave := range save.TreasureChests {
+		if chest := treasureChestRewardFromSave(&chestSave); chest != nil {
+			rewards.TreasureChests = append(rewards.TreasureChests, *chest)
+		}
+	}
+	return rewards
 }
 
 // NPCSave tracks persistent NPC flags across maps
@@ -374,6 +403,118 @@ func normalizeItemFromConfig(item *items.Item) {
 	}
 }
 
+// restoreCharacterSave reconstructs one character (active or reserve) from a save.
+func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
+	m := &character.MMCharacter{
+		Name:             cs.Name,
+		Class:            character.CharacterClass(cs.Class),
+		Promotion:        character.Promotion(cs.Promotion),
+		Level:            cs.Level,
+		Experience:       cs.Experience,
+		HitPoints:        cs.HitPoints,
+		MaxHitPoints:     cs.MaxHitPoints,
+		SpellPoints:      cs.SpellPoints,
+		MaxSpellPoints:   cs.MaxSpellPoints,
+		Might:            cs.Might,
+		Intellect:        cs.Intellect,
+		Personality:      cs.Personality,
+		Endurance:        cs.Endurance,
+		Accuracy:         cs.Accuracy,
+		Speed:            cs.Speed,
+		Luck:             cs.Luck,
+		FreeStatPoints:   cs.FreeStatPoints,
+		OwedLevelChoices: append([]int(nil), cs.OwedLevelChoices...),
+		Skills:           make(map[character.SkillType]*character.Skill),
+		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
+		Equipment:        make(map[items.EquipSlot]items.Item),
+	}
+	if len(cs.Conditions) > 0 {
+		m.Conditions = make([]character.Condition, len(cs.Conditions))
+		for i, c := range cs.Conditions {
+			m.Conditions[i] = character.Condition(c)
+		}
+	}
+	for _, s := range cs.Skills {
+		mastery := character.SkillMastery(s.Mastery)
+		if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
+			mastery = migrated
+		}
+		m.Skills[character.SkillType(s.Type)] = &character.Skill{Mastery: mastery}
+	}
+	for _, me := range cs.MagicSchools {
+		mk := character.MagicSchoolID(me.School)
+		mastery := character.SkillMastery(me.Mastery)
+		if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
+			mastery = migrated
+		}
+		ms := &character.MagicSkill{Mastery: mastery}
+		if len(me.KnownSpells) > 0 {
+			ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
+			for i, s := range me.KnownSpells {
+				ms.KnownSpells[i] = spells.SpellID(s)
+			}
+		}
+		m.MagicSchools[mk] = ms
+	}
+	for _, eq := range cs.Equipment {
+		item := eq.Item
+		normalizeItemFromConfig(&item)
+		m.Equipment[items.EquipSlot(eq.Slot)] = item
+	}
+	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+	m.ActionsRemaining = cs.ActionsRemaining
+	return m
+}
+
+// buildCharacterSave serializes one character (active or reserve).
+func buildCharacterSave(m *character.MMCharacter) CharacterSave {
+	cs := CharacterSave{
+		Name:             m.Name,
+		Class:            int(m.Class),
+		Promotion:        int(m.Promotion),
+		Level:            m.Level,
+		Experience:       m.Experience,
+		HitPoints:        m.HitPoints,
+		MaxHitPoints:     m.MaxHitPoints,
+		SpellPoints:      m.SpellPoints,
+		MaxSpellPoints:   m.MaxSpellPoints,
+		Might:            m.Might,
+		Intellect:        m.Intellect,
+		Personality:      m.Personality,
+		Endurance:        m.Endurance,
+		Accuracy:         m.Accuracy,
+		Speed:            m.Speed,
+		Luck:             m.Luck,
+		FreeStatPoints:   m.FreeStatPoints,
+		OwedLevelChoices: append([]int(nil), m.OwedLevelChoices...),
+	}
+	if len(m.Conditions) > 0 {
+		cs.Conditions = make([]int, len(m.Conditions))
+		for i, c := range m.Conditions {
+			cs.Conditions[i] = int(c)
+		}
+	}
+	for t, s := range m.Skills {
+		cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
+	}
+	for school, ms := range m.MagicSchools {
+		entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery)}
+		if len(ms.KnownSpells) > 0 {
+			entry.KnownSpells = make([]string, len(ms.KnownSpells))
+			for i, sp := range ms.KnownSpells {
+				entry.KnownSpells[i] = string(sp)
+			}
+		}
+		cs.MagicSchools = append(cs.MagicSchools, entry)
+	}
+	for slot, item := range m.Equipment {
+		cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
+	}
+	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+	cs.ActionsRemaining = m.ActionsRemaining
+	return cs
+}
+
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Party
@@ -384,55 +525,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		Members:   make([]CharacterSave, 0, len(g.party.Members)),
 	}
 	for _, m := range g.party.Members {
-		cs := CharacterSave{
-			Name:           m.Name,
-			Class:          int(m.Class),
-			Level:          m.Level,
-			Experience:     m.Experience,
-			HitPoints:      m.HitPoints,
-			MaxHitPoints:   m.MaxHitPoints,
-			SpellPoints:    m.SpellPoints,
-			MaxSpellPoints: m.MaxSpellPoints,
-			Might:          m.Might,
-			Intellect:      m.Intellect,
-			Personality:    m.Personality,
-			Endurance:      m.Endurance,
-			Accuracy:       m.Accuracy,
-			Speed:          m.Speed,
-			Luck:           m.Luck,
-			FreeStatPoints: m.FreeStatPoints,
-		}
-		// Conditions
-		if len(m.Conditions) > 0 {
-			cs.Conditions = make([]int, len(m.Conditions))
-			for i, c := range m.Conditions {
-				cs.Conditions[i] = int(c)
-			}
-		}
-		// Skills
-		for t, s := range m.Skills {
-			cs.Skills = append(cs.Skills, SkillEntry{Type: int(t), Level: s.Level(), Mastery: int(s.Mastery)})
-		}
-		// Magic schools
-		for school, ms := range m.MagicSchools {
-			entry := MagicSchoolEntry{School: string(school), Level: ms.Level(), Mastery: int(ms.Mastery), CastCount: ms.CastCount}
-			if len(ms.KnownSpells) > 0 {
-				entry.KnownSpells = make([]string, len(ms.KnownSpells))
-				for i, sp := range ms.KnownSpells {
-					entry.KnownSpells[i] = string(sp)
-				}
-			}
-			cs.MagicSchools = append(cs.MagicSchools, entry)
-		}
-		// Equipment (convert map to slice)
-		for slot, item := range m.Equipment {
-			cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
-		}
-		// Poison timer (so save/load doesn't cure ongoing poison).
-		cs.PoisonFramesRemaining = m.PoisonFramesRemaining
-		// Mid-round turn-based slot count.
-		cs.ActionsRemaining = m.ActionsRemaining
-		ps.Members = append(ps.Members, cs)
+		ps.Members = append(ps.Members, buildCharacterSave(m))
+	}
+	for _, m := range g.party.Reserve {
+		ps.Reserve = append(ps.Reserve, buildCharacterSave(m))
+	}
+	for _, m := range g.party.Captive {
+		ps.Captive = append(ps.Captive, buildCharacterSave(m))
 	}
 
 	// Ground containers (loot bags + treasure chests) currently on the ground.
@@ -465,8 +564,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
-			key := findMonsterKeyByName(mon.Name)
-			saveEntry := MonsterSave{Key: key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints}
+			// Save the monster's own key (always set) — a name lookup is
+			// ambiguous when several monsters share a Name (the elemental
+			// dragons are all "Dragon") and would restore the wrong variant.
+			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Charmed: mon.Charmed, CharmFramesRemaining: mon.CharmFramesRemaining}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -485,6 +586,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				if rewards.TreasureChest != nil {
 					saveEntry.EncounterRewards.TreasureChest = treasureChestRewardToSave(rewards.TreasureChest)
+				}
+				for _, chest := range rewards.TreasureChests {
+					if chestSave := treasureChestRewardToSave(&chest); chestSave != nil {
+						saveEntry.EncounterRewards.TreasureChests = append(saveEntry.EncounterRewards.TreasureChests, *chestSave)
+					}
 				}
 			}
 			monsters = append(monsters, saveEntry)
@@ -571,12 +677,20 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		BlessActive:            g.blessActive,
 		BlessDuration:          g.blessDuration,
 		BlessStatBonus:         g.blessStatBonus,
+		DayGodsActive:          g.dayGodsActive,
+		DayGodsDuration:        g.dayGodsDuration,
+		DayGodsResistPct:       g.dayGodsResistPct,
+		HourPowerActive:        g.hourPowerActive,
+		HourPowerDuration:      g.hourPowerDuration,
+		HourPowerOutBonus:      g.hourPowerOutBonus,
+		HourPowerInReduce:      g.hourPowerInReduce,
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
 		UnderwaterReturnY:      g.underwaterReturnY,
 		UnderwaterReturnMap:    g.underwaterReturnMap,
 		StatBonus:              g.statBonus,
+		MapReturnPoses:         g.mapReturnPoses,
 	}
 }
 
@@ -609,64 +723,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
 	for _, cs := range save.Party.Members {
-		m := &character.MMCharacter{
-			Name:           cs.Name,
-			Class:          character.CharacterClass(cs.Class),
-			Level:          cs.Level,
-			Experience:     cs.Experience,
-			HitPoints:      cs.HitPoints,
-			MaxHitPoints:   cs.MaxHitPoints,
-			SpellPoints:    cs.SpellPoints,
-			MaxSpellPoints: cs.MaxSpellPoints,
-			Might:          cs.Might,
-			Intellect:      cs.Intellect,
-			Personality:    cs.Personality,
-			Endurance:      cs.Endurance,
-			Accuracy:       cs.Accuracy,
-			Speed:          cs.Speed,
-			Luck:           cs.Luck,
-			FreeStatPoints: cs.FreeStatPoints,
-			Skills:         make(map[character.SkillType]*character.Skill),
-			MagicSchools:   make(map[character.MagicSchoolID]*character.MagicSkill),
-			Equipment:      make(map[items.EquipSlot]items.Item),
-		}
-		if len(cs.Conditions) > 0 {
-			m.Conditions = make([]character.Condition, len(cs.Conditions))
-			for i, c := range cs.Conditions {
-				m.Conditions[i] = character.Condition(c)
-			}
-		}
-		for _, s := range cs.Skills {
-			mastery := character.SkillMastery(s.Mastery)
-			if migrated := character.MasteryForLevel(s.Level); migrated > mastery {
-				mastery = migrated
-			}
-			skill := &character.Skill{Mastery: mastery}
-			m.Skills[character.SkillType(s.Type)] = skill
-		}
-		for _, me := range cs.MagicSchools {
-			mk := character.MagicSchoolID(me.School)
-			mastery := character.SkillMastery(me.Mastery)
-			if migrated := character.MasteryForLevel(me.Level); migrated > mastery {
-				mastery = migrated
-			}
-			ms := &character.MagicSkill{Mastery: mastery, CastCount: me.CastCount}
-			if len(me.KnownSpells) > 0 {
-				ms.KnownSpells = make([]spells.SpellID, len(me.KnownSpells))
-				for i, s := range me.KnownSpells {
-					ms.KnownSpells[i] = spells.SpellID(s)
-				}
-			}
-			m.MagicSchools[mk] = ms
-		}
-		for _, eq := range cs.Equipment {
-			item := eq.Item
-			normalizeItemFromConfig(&item)
-			m.Equipment[items.EquipSlot(eq.Slot)] = item
-		}
-		m.PoisonFramesRemaining = cs.PoisonFramesRemaining
-		m.ActionsRemaining = cs.ActionsRemaining
-		g.party.Members = append(g.party.Members, m)
+		g.party.Members = append(g.party.Members, restoreCharacterSave(cs))
+	}
+	for _, cs := range save.Party.Reserve {
+		g.party.Reserve = append(g.party.Reserve, restoreCharacterSave(cs))
+	}
+	for _, cs := range save.Party.Captive {
+		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
 	}
 
 	// Restore monsters (all loaded maps)
@@ -684,6 +747,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
 				m.HitPoints = ms.HitPoints
+				m.Charmed = ms.Charmed
+				m.CharmFramesRemaining = ms.CharmFramesRemaining
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
@@ -758,12 +823,23 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.blessActive = save.BlessActive
 	g.blessDuration = save.BlessDuration
 	g.blessStatBonus = save.BlessStatBonus
+	g.dayGodsActive = save.DayGodsActive
+	g.dayGodsDuration = save.DayGodsDuration
+	g.dayGodsResistPct = save.DayGodsResistPct
+	g.hourPowerActive = save.HourPowerActive
+	g.hourPowerDuration = save.HourPowerDuration
+	g.hourPowerOutBonus = save.HourPowerOutBonus
+	g.hourPowerInReduce = save.HourPowerInReduce
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	g.statBonus = save.StatBonus
+	g.mapReturnPoses = save.MapReturnPoses
+	if g.mapReturnPoses == nil {
+		g.mapReturnPoses = make(map[string]MapPose)
+	}
 	g.levelUpChoiceQueue = g.levelUpChoiceQueue[:0]
 	g.levelUpChoiceOpen = false
 	g.levelUpChoiceIdx = 0
@@ -810,12 +886,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.groundContainers = append(g.groundContainers, restored)
 	}
 
+	// Rebuild HUD buff icons from the single timed-buff registry (same source the
+	// per-frame update uses), so a restored buff shows its timer immediately.
 	g.utilitySpellStatuses = make(map[spells.SpellID]*UtilitySpellStatus)
-	g.updateUtilityStatus(spells.SpellID("torch_light"), g.torchLightDuration, g.torchLightActive)
-	g.updateUtilityStatus(spells.SpellID("wizard_eye"), g.wizardEyeDuration, g.wizardEyeActive)
-	g.updateUtilityStatus(spells.SpellID("walk_on_water"), g.walkOnWaterDuration, g.walkOnWaterActive)
-	g.updateUtilityStatus(spells.SpellID("bless"), g.blessDuration, g.blessActive)
-	g.updateUtilityStatus(spells.SpellID("water_breathing"), g.waterBreathingDuration, g.waterBreathingActive)
+	for _, b := range g.timedBuffs() {
+		g.updateUtilityStatus(b.id, *b.duration, *b.active)
+	}
 
 	// Restore quest progress
 	if g.questManager != nil && len(save.Quests) > 0 {

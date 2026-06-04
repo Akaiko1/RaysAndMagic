@@ -1,0 +1,13 @@
+# Aggro relationships: which party "traits" make an otherwise-passive monster
+# turn hostile on sight (in addition to being attacked).
+#
+#   <monster key>: [<party trait>, ...]
+#
+# Party traits currently emitted by the game:
+#   lich  - the party contains a member promoted to Lich
+#
+# Only the monsters listed here react to the trait; every other passive monster
+# stays neutral until struck. To make a new monster hate liches, add its key.
+hates:
+  archmage: ["lich"]
+  elf_swordsman: ["lich"]

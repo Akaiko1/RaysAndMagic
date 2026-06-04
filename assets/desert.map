@@ -7,18 +7,24 @@
 # R = Moss-covered Stone (corners)   W = oasis water (blocking)
 # P = Desert Palm (blocking, environment sprite)
 # Spawns / markers:
-# n = bandit   d = dragon (lvl-15)   @ = NPC / special-tile placeholder
+# n = bandit   @ = NPC / special-tile placeholder
+# @ in the open desert = pyramid_entrance
+# Dragon STATUES (4 corners): each is an NPC placeholder bound to a
+# dragon_statue_* entry in npcs.yaml. Approaching one lets you spend a matching
+# dragon statuette (looted from the pyramid) to SUMMON that dragon; the statue
+# then vanishes. Black->dragon(fire), Red->dragon_red(dark),
+# Green->dragon_green(poison), Gold->dragon_gold(air).
 #
 # Layout: a central oasis (desert merchant + red teleporter) plus two small
 # palm oases, each guarded by 5 bandits (clearing an oasis's bandits drops a
 # 500-gold chest at its water — see desert.clear_encounters in map_configs.yaml).
-# The 4 corner 'd's are the MAIN-QUEST dragons: the "dragon_slayer" quest
-# (assets/quests.yaml) and the game's victory condition require slaying all 4.
-# Keep exactly 4 dragons in the desert unless you also change the win condition.
+# MAIN QUEST: only these statue-summoned dragons count toward "dragon_slayer"
+# (combat.go updateQuestProgress gates the credit on the summoned-dragon flag),
+# so wild dragons elsewhere would NOT win the game.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 TTAARTRTA................................ATRTRTAAT
-TTAAd....................................AA.T.TAAT
-TTAA.T.TA...................................d.TAAT
+TTAA@....................................AA.T.TAAT  >[npc:dragon_statue_black]
+TTAA.T.TA...................................@.TAAT  >[npc:dragon_statue_red]
 TTAA.T.TA................................AT.T.TAAT
 T................................................T
 T........n..n....................................T
@@ -27,7 +33,7 @@ T....n...PWW.....................................T
 T........PWW....P................................T
 T........PPPP..n....P............................T
 T.........n..............P.......................T
-T................................................T
+T........................@.......................T  >[npc:pyramid_entrance]
 T....................................P...........T
 T................................................T
 T................................................T
@@ -61,7 +67,7 @@ T.................................PWW............T
 T.................................PPPP..n........T
 T..................................n.............T
 T................................................T
-TTAAd....................................AA...TAAT
-TTAA.....................................AT.d.TAAT
+TTAA@....................................AA...TAAT  >[npc:dragon_statue_green]
+TTAA.....................................AT.@.TAAT  >[npc:dragon_statue_gold]
 TTAARTRTA................................ATRTRTAAT
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT

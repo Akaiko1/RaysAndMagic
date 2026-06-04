@@ -179,7 +179,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 
-	if m.PassiveUntilAttacked && !m.WasAttacked {
+	if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
 		if m.IsEngagingPlayer {
 			m.IsEngagingPlayer = false
 			m.State = StateIdle

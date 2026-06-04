@@ -595,6 +595,133 @@ func classPrimaryStat(c *character.MMCharacter) *int {
 	return &c.Might
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Verbose simulation tracing (opt-in). When simTrace is non-nil, the build +
+// fight helpers emit a detailed lifecycle log: loot drops, level-ups, stat
+// gains, level-3 picks, equips, inventory contents, and item use. Tests turn
+// it on for a single trial so the rest of the suite stays quiet. tracef is a
+// no-op when disabled.
+var simTrace func(format string, args ...any)
+
+func tracef(format string, args ...any) {
+	if simTrace != nil {
+		simTrace(format, args...)
+	}
+}
+
+// l3PicksThisTrial collects the level-3 choices made during the current build
+// ("Name→pick") so runEndgameSim can log, per trial, what each char picked.
+// Reset at the start of every trial; appended to by applyRandomL3Choice.
+var l3PicksThisTrial []string
+
+type statSnap struct{ might, intellect, personality, endurance, accuracy, speed, luck int }
+
+func snapStats(c *character.MMCharacter) statSnap {
+	return statSnap{c.Might, c.Intellect, c.Personality, c.Endurance, c.Accuracy, c.Speed, c.Luck}
+}
+
+// statDeltaStr lists the stats that rose between two snapshots, e.g.
+// "+3 Speed, +2 Endurance".
+func statDeltaStr(a, b statSnap) string {
+	var parts []string
+	add := func(name string, before, after int) {
+		if after > before {
+			parts = append(parts, fmt.Sprintf("+%d %s", after-before, name))
+		}
+	}
+	add("Might", a.might, b.might)
+	add("Intellect", a.intellect, b.intellect)
+	add("Personality", a.personality, b.personality)
+	add("Endurance", a.endurance, b.endurance)
+	add("Accuracy", a.accuracy, b.accuracy)
+	add("Speed", a.speed, b.speed)
+	add("Luck", a.luck, b.luck)
+	if len(parts) == 0 {
+		return "(no stat change)"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// applyRandomL3Choice picks one of the character's real level-3 options from
+// level_up.yaml at random (each run differs) and applies it through the same
+// code the game uses (addSpellByID / upgradeSkillMastery / upgradeMagicMastery).
+// Records the pick for per-trial logging and traces it.
+func applyRandomL3Choice(c *character.MMCharacter) {
+	choices := config.GetLevelUpChoices(c.GetClassKey(), 3)
+	if len(choices) == 0 {
+		return
+	}
+	choice := choices[rand.Intn(len(choices))]
+	desc := applyLevelUpChoice(c, choice)
+	l3PicksThisTrial = append(l3PicksThisTrial, fmt.Sprintf("%s→%s", c.Name, desc))
+	tracef("      L3 choice: %s picks %s", c.Name, desc)
+}
+
+// applyLevelUpChoice applies a single level-up choice via the production
+// appliers and returns a short description of what was gained. magic_mastery
+// "any" resolves to a random known school (the game lets the player choose).
+func applyLevelUpChoice(c *character.MMCharacter, choice config.LevelUpChoice) string {
+	switch strings.ToLower(choice.Type) {
+	case "spell":
+		sid := spells.SpellID(choice.Spell)
+		addSpellByID(c, sid)
+		return "spell " + spellDisplayName(sid)
+	case "weapon_mastery", "armor_mastery":
+		if st, ok := skillTypeFromKey(choice.Skill); ok {
+			upgradeSkillMastery(c, st)
+			return st.String() + " mastery"
+		}
+	case "magic_mastery":
+		school := character.MagicSchoolID(choice.School)
+		if strings.ToLower(choice.School) == "any" {
+			known := make([]character.MagicSchoolID, 0, len(c.MagicSchools))
+			for s := range c.MagicSchools {
+				known = append(known, s)
+			}
+			if len(known) == 0 {
+				return "magic mastery (no school)"
+			}
+			school = known[rand.Intn(len(known))]
+		}
+		upgradeMagicMastery(c, school)
+		return school.DisplayName() + " magic mastery"
+	}
+	return string(choice.Type)
+}
+
+// traceInventory logs a count-by-name summary of the party inventory.
+func traceInventory(p *character.Party) {
+	counts := map[string]int{}
+	var order []string
+	for _, it := range p.Inventory {
+		if _, ok := counts[it.Name]; !ok {
+			order = append(order, it.Name)
+		}
+		counts[it.Name]++
+	}
+	sort.Strings(order)
+	tracef("  inventory after build (%d items):", len(p.Inventory))
+	for _, name := range order {
+		tracef("    %2d × %s", counts[name], name)
+	}
+}
+
+// traceLoadout logs each member's final equipped gear and derived caps.
+func traceLoadout(party []*character.MMCharacter) {
+	tracef("  final loadout:")
+	for _, c := range party {
+		var eq []string
+		for _, it := range c.Equipment {
+			if it.Name != "" {
+				eq = append(eq, it.Name)
+			}
+		}
+		sort.Strings(eq)
+		tracef("    %s (L%d %s) HP %d SP %d: %s",
+			c.Name, c.Level, c.GetClassKey(), c.MaxHitPoints, c.MaxSpellPoints, strings.Join(eq, ", "))
+	}
+}
+
 // applyXPAndLevelUp grants experience to a character and applies as
 // many level-ups as the total XP allows. Each level: spend
 // StatPointsPerLevel points via the given strategy, apply L3
@@ -608,25 +735,16 @@ func applyXPAndLevelUp(c *character.MMCharacter, cfg *config.Config, xpGained in
 		}
 		c.Experience -= required
 		c.Level++
+		before := snapStats(c)
 		for p := 0; p < StatPointsPerLevel; p++ {
 			strategy(c)
 		}
-		// Apply L3 unlock choice (the only level with choices in YAML so far).
+		tracef("    %s reaches L%d: %s", c.Name, c.Level, statDeltaStr(before, snapStats(c)))
+		// Level 3 is the only level with a player choice in level_up.yaml.
+		// Pick one of the real options at random so each run differs (e.g.
+		// Sorcerer rolls fireball vs darkbolt, Knight sword vs spear).
 		if c.Level == 3 {
-			switch c.Class {
-			case character.ClassKnight:
-				if sk, ok := c.Skills[character.SkillSword]; ok && sk.Mastery < character.MasteryExpert {
-					sk.Mastery = character.MasteryExpert
-				}
-			case character.ClassSorcerer:
-				_ = addSpellByID(c, "fireball")
-			case character.ClassCleric:
-				_ = addSpellByID(c, "bless")
-			case character.ClassArcher:
-				if sk, ok := c.Skills[character.SkillBow]; ok && sk.Mastery < character.MasteryExpert {
-					sk.Mastery = character.MasteryExpert
-				}
-			}
+			applyRandomL3Choice(c)
 		}
 		c.CalculateDerivedStats(cfg)
 	}
@@ -735,12 +853,20 @@ func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.It
 			}
 		}
 		// Otherwise prev item goes back to leftover for other chars or discard.
+		tracef("    equip: %-18s → %s", party[bestChar].Name, it.Name)
 		if hadPrev {
+			tracef("      (replaced %s, back to pool)", previous.Name)
 			leftover = append(leftover, previous)
 		}
 	}
 	return leftover
 }
+
+// dragonKeys are the 4 main-quest dragons (one per desert corner). They all
+// share name "Dragon" but differ by element: base=fire, red=dark,
+// green=poison/nature, gold=air. Never auto-cleared during a grind — they're
+// the endgame fight, tested explicitly with the right spell per resist profile.
+var dragonKeys = []string{"dragon", "dragon_red", "dragon_green", "dragon_gold"}
 
 // grindMaps simulates clearing all given maps (path, biome) end-to-end:
 // awards XP to each party member (split /4), rolls loot per kill, plus
@@ -762,21 +888,28 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 		if err != nil {
 			t.Fatalf("count %s: %v", mapInfo.path, err)
 		}
-		delete(counts, "dragon") // dragon = endgame target, not auto-cleared
-		totalXP := 0
+		for _, dk := range dragonKeys { // all 4 dragon variants = endgame target, never auto-cleared
+			delete(counts, dk)
+		}
+		// Mirror the live kill path: each member gets monster.Experience/len(party)
+		// floored PER kill (not summed-then-divided), matching combat.go's
+		// awardExperienceAndGold.
+		xpPerMember := 0
 		for monsterKey, n := range counts {
 			def, err := monsterPkg.MonsterConfig.GetMonsterByKey(monsterKey)
 			if err != nil || def == nil {
 				continue
 			}
-			totalXP += def.Experience * n
+			xpPerMember += (def.Experience / len(party)) * n
 			for i := 0; i < n; i++ {
 				m := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cfg)
 				drops := cs.checkMonsterLootDrop(m)
+				for _, d := range drops {
+					tracef("    drop: %-24s (from %s)", d.Name, monsterKey)
+				}
 				allDrops = append(allDrops, drops...)
 			}
 		}
-		xpPerMember := totalXP / len(party)
 		for _, c := range party {
 			applyXPAndLevelUp(c, cfg, xpPerMember, strategy)
 		}
@@ -784,37 +917,39 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 
 	if hasChurch {
 		// Church skeleton chest: 1 random weapon.
-		allDrops = append(allDrops, randomWeaponRewards(1)...)
+		chest := randomWeaponRewards(1)
+		for _, d := range chest {
+			tracef("    drop: %-24s (church skeleton chest)", d.Name)
+		}
+		allDrops = append(allDrops, chest...)
 	}
 
 	// Shipwreck encounter (forest-side): 2-5 bandits + 500 XP completion.
+	// Real game: each member gets per-kill XP (bandit.Experience/len(party)) for
+	// the bandits PLUS the full 500 completion XP — awardEncounterRewards grants
+	// the encounter XP in full to every living member, it is NOT divided.
 	shipwreckBandits := 2 + rand.Intn(4)
 	banditDef, _ := monsterPkg.MonsterConfig.GetMonsterByKey("bandit")
-	shipwreckXP := 0
+	shipwreckPerMember := 500
 	if banditDef != nil {
-		shipwreckXP = banditDef.Experience * shipwreckBandits
+		shipwreckPerMember += (banditDef.Experience / len(party)) * shipwreckBandits
 		for i := 0; i < shipwreckBandits; i++ {
 			m := monsterPkg.NewMonster3DFromConfig(0, 0, "bandit", cfg)
-			allDrops = append(allDrops, cs.checkMonsterLootDrop(m)...)
+			drops := cs.checkMonsterLootDrop(m)
+			for _, d := range drops {
+				tracef("    drop: %-24s (shipwreck bandit)", d.Name)
+			}
+			allDrops = append(allDrops, drops...)
 		}
 	}
-	shipwreckTotalXP := (shipwreckXP + 500) / len(party)
 	for _, c := range party {
-		applyXPAndLevelUp(c, cfg, shipwreckTotalXP+250, strategy)
+		applyXPAndLevelUp(c, cfg, shipwreckPerMember, strategy)
 	}
 
 	sort.Slice(allDrops, func(i, j int) bool {
 		return allDrops[i].Attributes["armor_class_base"] > allDrops[j].Attributes["armor_class_base"]
 	})
 	return autoEquipPool(party, allDrops)
-}
-
-// grindForestAndChurch — convenience for the forest+church baseline scenario.
-func grindForestAndChurch(t *testing.T, cs *CombatSystem, party []*character.MMCharacter) []items.Item {
-	return grindMaps(t, cs, party, []struct{ path, biome string }{
-		{"../../assets/forest.map", "forest"},
-		{"../../assets/church.map", "church"},
-	}, statSpeedFloorThenPrimary)
 }
 
 // equipBestOffensiveSpellVs picks the spell with the highest effective
@@ -883,6 +1018,7 @@ func tryUsePotions(cs *CombatSystem) {
 		}
 		cs.game.selectedChar = i
 		cs.game.UseConsumableFromInventory(idx, i)
+		tracef("    item use: Revival Potion on %s", m.Name)
 		break
 	}
 	// Healing: lowest-HP ally below 50%.
@@ -905,6 +1041,7 @@ func tryUsePotions(cs *CombatSystem) {
 		if idx >= 0 {
 			cs.game.selectedChar = hurtIdx
 			cs.game.UseConsumableFromInventory(idx, hurtIdx)
+			tracef("    item use: Health Potion on %s (was %.0f%% HP)", hurt.Name, bestRatio*100)
 		}
 	}
 }
@@ -1039,7 +1176,9 @@ func autoEquipPartyInventory(party *character.Party) {
 		if bestInvIdx < 0 {
 			break
 		}
+		equippedName := party.Inventory[bestInvIdx].Name
 		party.EquipItemFromInventory(bestInvIdx, bestCharIdx)
+		tracef("    equip: %-18s → %s", party.Members[bestCharIdx].Name, equippedName)
 	}
 }
 
@@ -1074,9 +1213,11 @@ func equipFitScore(c *character.MMCharacter, it items.Item) int {
 }
 
 // runEndgameSim runs N trials of: build a fresh party via `build`,
-// fight the given monster set with potions + Bless + Sorcerer ice prep.
+// fight the given monster set with potions + Bless + Sorcerer spell prep.
 // Reports wins/wipes/avg-HP and average enemy HP remaining on wipe.
-func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string) {
+// When verbose: logs each trial's level-3 picks, and a full lifecycle trace
+// (drops, level-ups, stat gains, equips, inventory, item use) for trial 0.
+func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string, statBonus int, verbose bool) {
 	t.Helper()
 	const trials = 50
 	var wins, wipes int
@@ -1086,6 +1227,14 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 	var enemyMaxHPSum int
 
 	for trial := 0; trial < trials; trial++ {
+		l3PicksThisTrial = l3PicksThisTrial[:0]
+		traceThis := verbose && trial == 0
+		if traceThis {
+			simTrace = t.Logf
+			tracef("════════ detailed trace · trial 0 · %s ════════", label)
+			tracef("  [grind: drops → level-ups → equips]")
+		}
+
 		party := build(t, cs)
 
 		// Spawn monsters first so the caster picks a spell that targets
@@ -1101,14 +1250,34 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 		for _, c := range party {
 			if c.Class == character.ClassSorcerer {
 				equipBestOffensiveSpellVs(c, monsters[0])
+				tracef("  spell prep: %s readies %s vs %s", c.Name, c.Equipment[items.SlotSpell].Name, monsterKeys[0])
 			}
 		}
 
-		// Bless on (Cleric pre-cast), full HP/SP top-up.
-		cs.game.statBonus = 10
+		if traceThis {
+			traceInventory(cs.game.party)
+			traceLoadout(party)
+		}
+		if verbose {
+			t.Logf("  trial %2d L3 picks: %s", trial, strings.Join(l3PicksThisTrial, ", "))
+		}
+
+		// Bless (Cleric pre-cast) per caller: 10 = +10 all stats, 0 = none.
+		cs.game.statBonus = statBonus
 		resetPartyForSim(party)
 
+		if traceThis {
+			tracef("  [fight begins — %d enemy(s), Bless +%d]", len(monsters), statBonus)
+		}
 		killed, wiped, rounds := runOneFightWithPotions(cs, party, monsters)
+		if traceThis {
+			outcome := "WIN"
+			if wiped {
+				outcome = "WIPE"
+			}
+			tracef("  [fight ends: %s in %d rounds, party HP %.0f%%]", outcome, rounds, partyHPRatio(party)*100)
+			simTrace = nil
+		}
 		if killed {
 			wins++
 			sumRoundsWin += rounds
@@ -1159,8 +1328,10 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 }
 
 // TestCombatBalance_ClearedForestPartyVsDragon — cleared forest+church
-// party (Spd/End floor + ice_bolt GM + full potions + Bless) vs the
-// L15 dragon (HP 1100, 30-50 dmg, fire 90%, physical 50%, air 75%).
+// party (Spd/End floor + GM caster + full potions + Bless) vs EACH of the
+// 4 elemental dragons (HP 1100, 30-50 dmg). The caster auto-prepares the
+// best spell per dragon's resist profile (e.g. fireball vs the fire-weak
+// green/nature dragon, ice vs the fire-90 base dragon).
 func TestCombatBalance_ClearedForestPartyVsDragon(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -1168,7 +1339,9 @@ func TestCombatBalance_ClearedForestPartyVsDragon(t *testing.T) {
 		t.Fatalf("load loots: %v", err)
 	}
 	rand.Seed(time.Now().UnixNano())
-	runEndgameSim(t, cs, buildClearedForestParty, []string{"dragon"}, "Cleared-forest party vs Dragon")
+	for _, dk := range dragonKeys {
+		runEndgameSim(t, cs, buildClearedForestParty, []string{dk}, "Cleared-forest party vs "+dk, 10, true)
+	}
 }
 
 // TestCombatBalance_ClearedForestPartyVsTwoAliens — same cleared-forest
@@ -1183,7 +1356,7 @@ func TestCombatBalance_ClearedForestPartyVsTwoAliens(t *testing.T) {
 		t.Fatalf("load loots: %v", err)
 	}
 	rand.Seed(time.Now().UnixNano())
-	runEndgameSim(t, cs, buildClearedForestParty, []string{"alien", "alien"}, "Cleared-forest party vs 2 Aliens")
+	runEndgameSim(t, cs, buildClearedForestParty, []string{"alien", "alien"}, "Cleared-forest party vs 2 Aliens", 10, false)
 }
 
 // buildFullClearCasterSpeedParty grinds forest + church + water with the
@@ -1196,6 +1369,97 @@ func buildFullClearCasterSpeedParty(t *testing.T, cs *CombatSystem) []*character
 		{"../../assets/church.map", "church"},
 		{"../../assets/water.map", "water"},
 	}, statSpeedOnlyForCasters)
+}
+
+// buildHighlandsReadyParty models the party state when first entering the
+// highlands: cleared forest, church, the shipwreck encounter and BOTH desert
+// oases, then spent its coin on city gear. It does NOT fight the dragons (those
+// are the endgame). Grinds forest+church (shipwreck XP baked into grindMaps),
+// adds the two oases' 10 guarding bandits (XP + loot), buys the Seabright Arms
+// class-upgrade weapons, trains the Sorcerer's water school, then auto-equips.
+func buildHighlandsReadyParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	party := cs.game.party.Members
+	cfg := cs.game.config
+
+	for _, d := range grindMaps(t, cs, party, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+	}, statSpeedFloorThenPrimary) {
+		cs.game.party.AddItem(d)
+	}
+
+	// Two desert oases: 10 guarding bandits (XP + loot). Dragons NOT fought.
+	if banditDef, err := monsterPkg.MonsterConfig.GetMonsterByKey("bandit"); err == nil && banditDef != nil {
+		const oasisBandits = 10
+		// Per-kill floor split, matching the live award path (the oases grant no
+		// completion XP of their own — only treasure chests).
+		xpEach := (banditDef.Experience / len(party)) * oasisBandits
+		for _, c := range party {
+			applyXPAndLevelUp(c, cfg, xpEach, statSpeedFloorThenPrimary)
+		}
+		for i := 0; i < oasisBandits; i++ {
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, "bandit", cfg)
+			for _, d := range cs.checkMonsterLootDrop(m) {
+				cs.game.party.AddItem(d)
+			}
+		}
+	}
+
+	// Bought from Seabright Arms (city weapon shop) — one class-fit upgrade each.
+	for _, name := range []string{"Silver Sword", "Steel Mace", "Battle Staff", "Elven Bow"} {
+		if it, err := items.TryCreateWeaponFromYAML(items.GetWeaponKeyByName(name)); err == nil {
+			cs.game.party.AddItem(it)
+		}
+	}
+
+	// Sorcerer trains water to Grandmaster (matches the other cleared-party builders).
+	for _, c := range party {
+		if c.Class != character.ClassSorcerer {
+			continue
+		}
+		if c.MagicSchools[character.MagicSchoolWater] == nil {
+			c.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{}
+		}
+		c.MagicSchools[character.MagicSchoolWater].Mastery = character.MasteryGrandMaster
+	}
+
+	autoEquipPartyInventory(cs.game.party)
+	return party
+}
+
+// TestCombatBalance_HighlandsPartyVsMobs — a party that cleared forest, church,
+// the shipwreck and both desert oases and bought city gear, fought 1-on-1
+// against every new highlands monster (50 trials each, Bless on).
+func TestCombatBalance_HighlandsPartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	for _, key := range []string{"puma", "elf_archer", "elf_swordsman", "mountain_troll", "archmage", "lich"} {
+		runEndgameSim(t, cs, buildHighlandsReadyParty, []string{key}, "Highlands-ready party vs "+key+" (no Bless)", 0, false)
+		runEndgameSim(t, cs, buildHighlandsReadyParty, []string{key}, "Highlands-ready party vs "+key+" (Bless +10)", 10, false)
+	}
+}
+
+// TestCombatBalance_HighlandsPartyVs2Mobs — same highlands-ready party, but vs
+// PAIRS of each mob (zone ambushes stack damage). 50 trials each, no-Bless and
+// Bless. This is where the zone's real threat shows vs the trivial 1-on-1.
+func TestCombatBalance_HighlandsPartyVs2Mobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	for _, key := range []string{"puma", "elf_archer", "elf_swordsman", "mountain_troll", "archmage", "lich"} {
+		pair := []string{key, key}
+		runEndgameSim(t, cs, buildHighlandsReadyParty, pair, "Highlands party vs 2x "+key+" (no Bless)", 0, false)
+		runEndgameSim(t, cs, buildHighlandsReadyParty, pair, "Highlands party vs 2x "+key+" (Bless +10)", 10, false)
+	}
 }
 
 // TestCombatBalance_FullClearCasterSpeedPartyVsDragon — party clears
@@ -1211,8 +1475,12 @@ func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
 		t.Fatalf("load loots: %v", err)
 	}
 	rand.Seed(time.Now().UnixNano())
-	runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{"dragon"},
-		"Full-clear party (caster-only Spd, all 3 maps) vs Dragon")
+	for _, dk := range dragonKeys {
+		runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{dk},
+			"Full-clear party (all 3 maps) vs "+dk+" (no Bless)", 0, false)
+		runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{dk},
+			"Full-clear party (all 3 maps) vs "+dk+" (Bless +10)", 10, true)
+	}
 }
 
 // TestCombatBalance_LowLevelPartyVsForest runs the default starter party at

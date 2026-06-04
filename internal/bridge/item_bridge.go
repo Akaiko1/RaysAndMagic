@@ -42,6 +42,7 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		Revive:                    def.Revive,
 		FullHeal:                  def.FullHeal,
 		OpensMap:                  def.OpensMap,
+		PromotesLich:              def.PromotesLich,
 	}
 	return adapted, true
 }

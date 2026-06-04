@@ -36,9 +36,9 @@ spells:
 
     # Visual appearance
     graphics:
-      max_size: 64
+      max_size: 110
       min_size: 4
-      base_size: 16
+      base_size: 28
       color: [255, 50, 0]      # Deep red
 
   firebolt:
@@ -167,6 +167,139 @@ spells:
       base_size: 10
       color: [100, 150, 255]   # Bright blue
 
+  ray_of_light:
+    # Basic spell properties
+    name: "Ray of Light"
+    description: "A searing beam of holy light that scales with both Intellect and Personality"
+    school: "light"
+    level: 4
+    spell_points_cost: 8
+    duration: 0
+    projectile_size: 8
+    is_projectile: true
+    is_utility: false
+    damage_cost_multiplier: 2      # base damage = cost × SpellDamagePerSP × 2
+    scales_with_personality: true  # adds Personality/divisor on top of Intellect/divisor
+
+    # Projectile physics (tile-based units)
+    physics:
+      speed_tiles: 22.0          # very fast beam
+      range_tiles: 8.0
+      collision_size_tiles: 0.5
+
+    # Visual appearance
+    graphics:
+      max_size: 44
+      min_size: 2
+      base_size: 12
+      color: [255, 245, 180]   # warm golden light
+
+  darkness:
+    # Basic spell properties
+    name: "Darkness"
+    description: "A shroud of crushing dark that stuns every foe within 5 tiles"
+    school: "dark"
+    level: 5
+    spell_points_cost: 20
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    # AoE-stun effect (no damage): stuns all monsters within the radius.
+    stun_radius_tiles: 5.0
+    stun_duration_seconds: 5
+    stun_duration_turns: 3
+
+  disintegrate:
+    # Basic spell properties
+    name: "Disintegrate"
+    description: "Unmakes a foe — 15% chance to instantly slay it. No effect on undead or dragons."
+    school: "dark"
+    level: 5
+    spell_points_cost: 10
+    duration: 0
+    projectile_size: 10
+    is_projectile: true
+    is_utility: false
+    deals_no_damage: true        # only the instakill roll matters
+    disintegrate_chance: 0.15    # 15% instant kill on hit (undead/dragons immune)
+
+    # Projectile physics (tile-based units)
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+
+    # Visual appearance
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 12
+      color: [170, 60, 200]   # violet unmaking
+
+  day_of_the_gods:
+    name: "Day of the Gods"
+    description: "Blesses the party with +50% resistance to all damage for 5 minutes"
+    school: "light"
+    level: 7
+    spell_points_cost: 20
+    duration: 300              # 5 minutes
+    is_projectile: false
+    is_utility: true
+    resist_buff_pct: 50        # -50% to all incoming party damage while active
+    status_icon: "day_of_the_gods"   # HUD: status_day_of_the_gods if present, else the spell icon
+
+  hour_of_power:
+    name: "Hour of Power"
+    description: "For 10 minutes the party deals +15 damage and takes 5 less from every hit"
+    school: "light"
+    level: 8
+    spell_points_cost: 18
+    duration: 600              # 10 minutes
+    is_projectile: false
+    is_utility: true
+    outgoing_damage_bonus: 15
+    incoming_damage_reduction: 5
+    status_icon: "hour_of_power"   # HUD: status_hour_of_power if present, else the spell icon
+
+  bind_undead:
+    name: "Bind Undead"
+    description: "Binds an undead to your will for 5 minutes — it fights other monsters. No effect on the living. It perishes when you leave the area."
+    school: "dark"
+    level: 6
+    spell_points_cost: 8
+    duration: 0
+    projectile_size: 8
+    is_projectile: true
+    is_utility: false
+    deals_no_damage: true          # the bind, not damage, is the effect
+    charm: true
+    charm_duration_seconds: 300    # 5 minutes (real-time)
+
+    # Projectile physics (tile-based units)
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+
+    # Visual appearance
+    graphics:
+      max_size: 36
+      min_size: 2
+      base_size: 12
+      color: [180, 120, 220]   # pale binding light
+
+  resurrect:
+    name: "Resurrect"
+    description: "Restores a fallen ally to full health — even one who has been eradicated"
+    school: "light"
+    level: 7
+    spell_points_cost: 16
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    revive: true
+    full_heal: true
+
   heal:
     # Basic spell properties
     name: "First Aid"
@@ -250,7 +383,7 @@ spells:
   awaken:
     # Basic spell properties
     name: "Awaken"
-    description: "Awakening spell (no current gameplay effect)"
+    description: "Rouses every unconscious party member back to 1 HP"
     school: "mind"
     level: 2
     spell_points_cost: 4

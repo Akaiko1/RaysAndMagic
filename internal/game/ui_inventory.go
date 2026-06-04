@@ -68,10 +68,31 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
-	maxItems := len(inventoryGridSlots)
-	for i := 0; i < maxItems && i < len(ui.game.party.Inventory); i++ {
-		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[i])
-		item := ui.game.party.Inventory[i]
+	pageSize := len(inventoryGridSlots)
+	totalItems := len(ui.game.party.Inventory)
+	totalPages := (totalItems + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	// Clamp the page every frame so it stays valid when the inventory shrinks
+	// (equip/discard) out from under the current page.
+	if ui.inventoryPage >= totalPages {
+		ui.inventoryPage = totalPages - 1
+	}
+	if ui.inventoryPage < 0 {
+		ui.inventoryPage = 0
+	}
+	pageStart := ui.inventoryPage * pageSize
+	for slot := 0; slot < pageSize; slot++ {
+		idx := pageStart + slot
+		// Guard against the LIVE length, not the cached totalItems: a
+		// double-click below can equip/use an item mid-loop, shrinking the
+		// inventory, and a stale bound would index out of range.
+		if idx >= len(ui.game.party.Inventory) {
+			break
+		}
+		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
+		item := ui.game.party.Inventory[idx]
 		canEquip := ui.canSelectedCharacterEquipInventoryItem(item)
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
 		if !canEquip {
@@ -87,13 +108,13 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
 
 		if !ui.inventoryContextOpen {
-			ui.handleInventoryItemClick(i, x-3, y-3, x+w+3, y+h+3)
+			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
 		}
 		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
 			ui.inventoryContextOpen = true
 			ui.inventoryContextX = ui.game.mouseRightClickX
 			ui.inventoryContextY = ui.game.mouseRightClickY
-			ui.inventoryContextIndex = i
+			ui.inventoryContextIndex = idx
 		}
 		if isHovering {
 			tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
@@ -104,9 +125,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			tooltipY = mouseY + 8
 		}
 	}
-	if len(ui.game.party.Inventory) > maxItems {
-		drawCenteredDebugText(screen, fmt.Sprintf("+%d more", len(ui.game.party.Inventory)-maxItems), gridX, gridY+gridSize+8, gridSize, 18)
-	}
+	ui.drawInventoryPager(screen, gridX, gridY+gridSize+6, gridSize, totalPages)
 
 	if tooltip != "" && tooltipHasItem {
 		lines := strings.Split(tooltip, "\n")
@@ -122,6 +141,40 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	instructionY := contentY + contentHeight - 35
 	ebitenutil.DebugPrintAt(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
 	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
+}
+
+// drawInventoryPager draws the "Page X/Y" indicator plus prev/next buttons
+// under the inventory grid and handles their clicks. It's a no-op when the
+// whole inventory fits on a single page (nothing to flip through).
+func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, totalPages int) {
+	if totalPages <= 1 {
+		return
+	}
+	const btnW, btnH = 30, 18
+	mouseX, mouseY := ebiten.CursorPosition()
+	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
+
+	drawBtn := func(bx int, label string, enabled bool) bool {
+		bg := color.RGBA{70, 50, 30, 210}
+		switch {
+		case !enabled:
+			bg = color.RGBA{45, 40, 38, 160}
+		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
+			bg = color.RGBA{120, 90, 50, 230}
+		}
+		drawFilledRect(screen, bx, y, btnW, btnH, bg)
+		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
+		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
+		return enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	}
+
+	if drawBtn(gridX, "<", ui.inventoryPage > 0) {
+		ui.inventoryPage--
+	}
+	if drawBtn(gridX+gridW-btnW, ">", ui.inventoryPage < totalPages-1) {
+		ui.inventoryPage++
+	}
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.inventoryPage+1, totalPages), gridX, y+2, gridW, btnH-2)
 }
 
 const (
@@ -142,26 +195,31 @@ type inventoryPaperdollSlot struct {
 	rect inventorySourceRect
 }
 
+// Paper-doll slots: uniform 39×39 so every equipped icon renders at the same
+// size. Each rect is centered on the original (variable-sized) slot's center so
+// it still lines up with the drawn slot boxes on inventory_paperdoll_panel.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
-	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 38}},
-	{items.SlotSpell, inventorySourceRect{217, 40, 40, 38}},
+	{items.SlotAmulet, inventorySourceRect{44, 40, 39, 39}},
+	{items.SlotSpell, inventorySourceRect{218, 40, 39, 39}},
 	{items.SlotHelmet, inventorySourceRect{131, 57, 39, 39}},
-	{items.SlotMainHand, inventorySourceRect{54, 167, 38, 37}},
-	{items.SlotArmor, inventorySourceRect{133, 167, 35, 38}},
-	{items.SlotOffHand, inventorySourceRect{207, 167, 39, 37}},
-	{items.SlotGauntlets, inventorySourceRect{54, 238, 39, 37}},
-	{items.SlotBelt, inventorySourceRect{133, 238, 35, 38}},
-	{items.SlotCloak, inventorySourceRect{207, 238, 39, 38}},
-	{items.SlotRing1, inventorySourceRect{57, 310, 38, 37}},
-	{items.SlotRing2, inventorySourceRect{205, 310, 38, 37}},
-	{items.SlotBoots, inventorySourceRect{131, 359, 39, 37}},
+	{items.SlotMainHand, inventorySourceRect{54, 166, 39, 39}},
+	{items.SlotArmor, inventorySourceRect{131, 167, 39, 39}},
+	{items.SlotOffHand, inventorySourceRect{207, 166, 39, 39}},
+	{items.SlotGauntlets, inventorySourceRect{54, 237, 39, 39}},
+	{items.SlotBelt, inventorySourceRect{131, 238, 39, 39}},
+	{items.SlotCloak, inventorySourceRect{207, 238, 39, 39}},
+	{items.SlotRing1, inventorySourceRect{57, 309, 39, 39}},
+	{items.SlotRing2, inventorySourceRect{205, 309, 39, 39}},
+	{items.SlotBoots, inventorySourceRect{131, 358, 39, 39}},
 }
 
+// Grid slots: uniform 45×45 (the dominant size; were sloppily 44 in column 2
+// and the bottom row). Positions kept as authored so they stay on the panel art.
 var inventoryGridSlots = []inventorySourceRect{
-	{43, 42, 45, 45}, {100, 42, 44, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
-	{43, 99, 45, 45}, {100, 99, 44, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
-	{43, 155, 45, 45}, {100, 155, 44, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
-	{43, 212, 45, 44}, {100, 212, 44, 44}, {156, 212, 45, 44}, {212, 212, 45, 44},
+	{43, 42, 45, 45}, {100, 42, 45, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
+	{43, 99, 45, 45}, {100, 99, 45, 45}, {156, 99, 45, 45}, {212, 99, 45, 45},
+	{43, 155, 45, 45}, {100, 155, 45, 45}, {156, 155, 45, 45}, {212, 155, 45, 45},
+	{43, 212, 45, 45}, {100, 212, 45, 45}, {156, 212, 45, 45}, {212, 212, 45, 45},
 }
 
 func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventorySourceRect) (int, int, int, int) {
@@ -283,7 +341,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	scrollY := cardY
 	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), scrollX, scrollY, scrollW, scrollH, 16)
 
-	portraitName := strings.ToLower(member.Name) + "_full"
+	portraitName := ui.game.fullPortraitSpriteName(member)
 	portrait := ui.game.sprites.GetSprite(portraitName)
 	portraitFramePad := 6
 	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
@@ -297,7 +355,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	scrollTextY := scrollY + 18
 
 	// Header
-	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.Class.String(), member.Level)
+	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.ClassDisplayName(), member.Level)
 	drawDebugTextColored(screen, header, scrollTextX, scrollTextY, textColor)
 
 	// Core info
@@ -409,8 +467,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		if !ok || ms == nil {
 			continue
 		}
-		line := fmt.Sprintf("%s %d (%s) C:%d",
-			school.DisplayName(), ms.Level(), ms.Mastery, ms.CastCount)
+		line := fmt.Sprintf("%s %d (%s)",
+			school.DisplayName(), ms.Level(), ms.Mastery)
 		x := col1X
 		if schoolIdx >= magicRows {
 			x = col2X
@@ -649,9 +707,15 @@ func (ui *UISystem) drawSpellbookSpellCard(screen *ebiten.Image, x, y, w, h, ico
 	name := truncateName(def.Name, 12)
 	nameY := y + iconSize + 8
 	statsY := nameY + debugTextCharHeight + 2
+	// Show the cost actually paid (Meditation GM discount applied) so the card
+	// and its red "can't afford" outline match what casting will charge.
+	cost := def.SpellPointsCost
+	if ui.game.combat != nil {
+		cost = ui.game.combat.effectiveSpellCost(currentChar, def.SpellPointsCost)
+	}
 	drawCenteredDebugText(screen, name, x+4, nameY, w-8, debugTextCharHeight)
-	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", def.SpellPointsCost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
-	if currentChar.SpellPoints < def.SpellPointsCost {
+	drawCenteredDebugText(screen, fmt.Sprintf("SP %d  Lv %d", cost, def.Level), x+4, statsY, w-8, debugTextCharHeight)
+	if currentChar.SpellPoints < cost {
 		// Red icon outline signals "not enough SP".
 		drawRectBorder(screen, iconX, iconY, iconSize, iconSize, 1, color.RGBA{120, 38, 28, 255})
 	}
@@ -697,6 +761,10 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 					ui.game.mapOverlayOpen = true
 					return
 				}
+				if item.Attributes["promotes_lich"] > 0 {
+					ui.game.useLichPhylactery(itemIndex)
+					return
+				}
 			}
 
 			if item.Type == items.ItemConsumable {
@@ -730,6 +798,14 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 			}
 			// Spells (ItemBattleSpell/ItemUtilitySpell) are spellbook-owned;
 			// they shouldn't appear in inventory, so we don't equip from here.
+
+			// Consume the double-click: reset to a sentinel so a third rapid
+			// click starts a fresh pair instead of re-triggering. Equipping
+			// shifts the next item into this index, so without this a burst of
+			// clicks equips a whole cascade of items.
+			ui.lastClickedItem = -1
+			ui.lastClickTime = time.Time{}
+			return
 		}
 
 		ui.lastClickedItem = itemIndex
@@ -763,6 +839,11 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 					ui.game.AddCombatMessage("Cannot unequip this item!")
 				}
 			}
+			// Consume the double-click so a third rapid click doesn't re-fire.
+			// -1 is not a real slot, so the next click can't pair with it.
+			ui.lastClickedSlot = items.EquipSlot(-1)
+			ui.lastEquipClickTime = time.Time{}
+			return
 		}
 
 		ui.lastClickedSlot = slot

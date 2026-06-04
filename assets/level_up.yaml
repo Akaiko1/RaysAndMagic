@@ -37,3 +37,21 @@ level_ups:
             spell: "lightning"
           - type: "weapon_mastery"
             skill: "bow"
+
+  paladin:
+    levels:
+      - level: 3
+        choices:
+          - type: "weapon_mastery"
+            skill: "axe"
+          - type: "spell"
+            spell: "heal_other"
+
+  druid:
+    levels:
+      - level: 3
+        choices:
+          - type: "magic_mastery"
+            school: "water"
+          - type: "spell"
+            spell: "water_breathing"

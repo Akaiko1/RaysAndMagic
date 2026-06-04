@@ -8,17 +8,56 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor)
-// every ManaRegenIntervalFrames ticks. Kept in this package because game's
-// balance.go can't be imported from internal/character (circular).
+// Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
+// Meditation tier) every ManaRegenIntervalFrames ticks. Kept in this package
+// because game's balance.go can't be imported from internal/character (circular).
 const (
 	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
+	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
+	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
+	MeditationRegenPerTier = 3
+	// BodybuildingHPPerTier: bonus Max HP per Bodybuilding mastery tier.
+	BodybuildingHPPerTier = 8
+	// BodybuildingGMMaxHPPct: a Grandmaster bodybuilder gets this percent of extra
+	// Max HP (on the pre-bonus base) on top of the flat per-tier amount.
+	BodybuildingGMMaxHPPct = 10
 )
 
+// bodybuildingBonusHP returns the Bodybuilding contribution to Max HP for a
+// given base (pre-bonus) Max HP: a flat per-tier amount plus, at Grandmaster, a
+// percentage of the base. Single source for CalculateDerivedStats and
+// RecalculateMaxStatsKeepingCurrent so the two can't drift.
+func (c *MMCharacter) bodybuildingBonusHP(baseMaxHP int) int {
+	tier := c.SkillTier(SkillBodybuilding)
+	bonus := tier * BodybuildingHPPerTier
+	if tier >= int(MasteryGrandMaster) {
+		bonus += baseMaxHP * BodybuildingGMMaxHPPct / 100
+	}
+	return bonus
+}
+
+// SkillTier returns a character's mastery level for a skill as an int
+// (Novice=0, Expert=1, Master=2, Grandmaster=3), or 0 if they lack the skill.
+// Used to scale skill effects, mirroring weapon/armor/magic mastery bonuses.
+func (c *MMCharacter) SkillTier(skill SkillType) int {
+	if s, ok := c.Skills[skill]; ok && s != nil {
+		return int(s.Mastery)
+	}
+	return 0
+}
+
+// Convenience tier accessors for misc skills (the game package scales these by
+// its own per-tier constants). Methods avoid the package-name shadowing in
+// combat functions whose parameter is literally named `character`.
+func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster) }
+func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
+func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
+
 type MMCharacter struct {
-	Name  string
-	Class CharacterClass
+	Name      string
+	Class     CharacterClass
+	Promotion Promotion // elite status (Archmage/Lich); PromotionNone by default
 
 	// Core stats
 	Level          int
@@ -58,6 +97,12 @@ type MMCharacter struct {
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
 
+	// OwedLevelChoices are levels at which this character earned a class
+	// level-up choice that hasn't been made yet. Active members queue choices
+	// immediately; benched members (no party slot) bank them here until swapped
+	// in. Persisted so they survive save/load.
+	OwedLevelChoices []int
+
 	// ActionsRemaining tracks how many attack/spell actions this character
 	// has left in the current turn-based round. Refilled by ActionSlotsForTurn
 	// at party-turn start, decremented on each attack/spell, set to 0 on
@@ -65,18 +110,22 @@ type MMCharacter struct {
 	ActionsRemaining int
 }
 
+// Turn-based action-slot thresholds on effective Speed. Single source shared by
+// ActionSlotsForTurn (mechanic) and the Speed stat tooltip (description).
+const (
+	SpeedActionSlot2Threshold = 25 // Speed > this → 2 actions/turn
+	SpeedActionSlot3Threshold = 50 // Speed > this → 3 actions/turn
+)
+
 // ActionSlotsForTurn returns the number of attack/spell slots this character
-// gets per turn-based round, based on effective Speed:
-//   Speed > 50 → 3
-//   Speed > 25 → 2
-//   otherwise → 1
-// statBonus is the global Bless-style stat buff (0 if none).
+// gets per turn-based round, based on effective Speed (see the threshold
+// constants above). statBonus is the global Bless-style stat buff (0 if none).
 func (c *MMCharacter) ActionSlotsForTurn(statBonus int) int {
 	speed := c.GetEffectiveSpeed(statBonus)
 	switch {
-	case speed > 50:
+	case speed > SpeedActionSlot3Threshold:
 		return 3
-	case speed > 25:
+	case speed > SpeedActionSlot2Threshold:
 		return 2
 	default:
 		return 1
@@ -108,6 +157,32 @@ const (
 	ClassSorcerer
 	ClassDruid
 )
+
+// Promotion is a mutually-exclusive elite status a spellcaster can earn:
+// Archmage (Light magic) via the Mage Tower trial, or Lich (Dark magic) via a
+// phylactery. PromotionNone is the default.
+type Promotion int
+
+const (
+	PromotionNone Promotion = iota
+	PromotionArchmage
+	PromotionLich
+)
+
+func (c *MMCharacter) IsArchmage() bool { return c.Promotion == PromotionArchmage }
+func (c *MMCharacter) IsLich() bool     { return c.Promotion == PromotionLich }
+
+// ClassDisplayName returns the promoted title if any, else the base class name.
+func (c *MMCharacter) ClassDisplayName() string {
+	switch c.Promotion {
+	case PromotionArchmage:
+		return "Archmage"
+	case PromotionLich:
+		return "Lich"
+	default:
+		return c.Class.String()
+	}
+}
 
 func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMCharacter {
 	char := &MMCharacter{
@@ -181,6 +256,7 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Sorcerer fire and water spells
 	c.MagicSchools[MagicSchoolFire] = &MagicSkill{
@@ -218,7 +294,9 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 	// Starting skills
 	c.Skills[SkillMace] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Cleric healing spells and spirit magic
 	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
@@ -250,6 +328,8 @@ func (c *MMCharacter) setupArcher(cfg *config.Config) {
 	c.Skills[SkillBow] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillDisarmTrap] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Archer Wizard's Eye
 	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
@@ -275,14 +355,18 @@ func (c *MMCharacter) setupPaladin(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills
+	// Starting skills — paladins wield axes and swords, wear chain, bear shields,
+	// and train their bodies for the front line.
+	c.Skills[SkillAxe] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
 
-	// Starting magic - give Paladin Bless
-	// Starting equipment
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("silver_sword")
+	// No starting magic — the paladin can choose to learn Heal Other at level 3.
+
+	// Starting equipment — a heavy steel axe.
+	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("steel_axe")
 }
 
 func (c *MMCharacter) setupDruid(cfg *config.Config) {
@@ -296,10 +380,12 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills
+	// Starting skills — wilderness hardiness and nature lore round out the druid.
 	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
 	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
+	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
 
 	// Starting magic - give Druid water and mind magic
 	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
@@ -319,14 +405,44 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 }
 
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
-	// Calculate hit points (Endurance based)
-	c.MaxHitPoints = c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	// Calculate hit points (Endurance based) + Bodybuilding bonus
+	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
 	c.HitPoints = c.MaxHitPoints
 
 	// Calculate spell points (Intellect + Personality based + equipment bonuses)
 	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
 	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
 	c.SpellPoints = c.MaxSpellPoints
+}
+
+// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP after a stat change
+// (e.g. spending a single stat point) WITHOUT fully healing: any increase in a
+// max is added to the current value and current is capped at the new max, so a
+// hurt character only gains the stat's bonus, not a free full heal. Use this
+// instead of CalculateDerivedStats, which fully restores (intended only at
+// character creation and on level-up).
+func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
+	oldMaxHP := c.MaxHitPoints
+	oldMaxSP := c.MaxSpellPoints
+
+	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
+	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
+	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
+
+	if c.MaxHitPoints > oldMaxHP {
+		c.HitPoints += c.MaxHitPoints - oldMaxHP
+	}
+	if c.HitPoints > c.MaxHitPoints {
+		c.HitPoints = c.MaxHitPoints
+	}
+	if c.MaxSpellPoints > oldMaxSP {
+		c.SpellPoints += c.MaxSpellPoints - oldMaxSP
+	}
+	if c.SpellPoints > c.MaxSpellPoints {
+		c.SpellPoints = c.MaxSpellPoints
+	}
 }
 
 func (c *MMCharacter) Update() {
@@ -372,7 +488,8 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
 func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
 	effectivePersonality := c.GetEffectivePersonality(statBonus)
-	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor)
+	// Meditation speeds recovery: extra SP per regen tick per mastery tier.
+	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor) + c.SkillTier(SkillMeditation)*MeditationRegenPerTier
 	if regen < 1 {
 		return 1
 	}
@@ -436,7 +553,7 @@ func (c *MMCharacter) updatePoison(tps int) {
 }
 
 func (c *MMCharacter) GetDisplayInfo() string {
-	className := c.Class.String()
+	className := c.ClassDisplayName()
 	condition := "OK"
 	if len(c.Conditions) > 0 {
 		condNames := make([]string, 0, len(c.Conditions))
@@ -467,7 +584,7 @@ func (c *MMCharacter) GetDisplayInfo() string {
 
 func (c *MMCharacter) GetDetailedInfo() string {
 	info := fmt.Sprintf("=== %s ===\n", c.Name)
-	info += fmt.Sprintf("Class: %s  Level: %d\n", c.Class, c.Level)
+	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
 	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
 
 	info += "ATTRIBUTES:\n"
@@ -527,6 +644,27 @@ func (c *MMCharacter) GetClassKey() string {
 		return "druid"
 	default:
 		return "unknown"
+	}
+}
+
+// ClassFromKey resolves a lowercase class key (knight/paladin/...) to its
+// CharacterClass. Returns false for an unknown key.
+func ClassFromKey(key string) (CharacterClass, bool) {
+	switch key {
+	case "knight":
+		return ClassKnight, true
+	case "paladin":
+		return ClassPaladin, true
+	case "archer":
+		return ClassArcher, true
+	case "cleric":
+		return ClassCleric, true
+	case "sorcerer":
+		return ClassSorcerer, true
+	case "druid":
+		return ClassDruid, true
+	default:
+		return 0, false
 	}
 }
 

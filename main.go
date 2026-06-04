@@ -58,6 +58,9 @@ func main() {
 	// Load monster configuration (needed before world loading)
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
+	// Load aggro relationships (which party traits enrage passive monsters)
+	monster.MustLoadHatesConfig("assets/hates.yaml")
+
 	// Load NPC configuration (needed before world loading)
 	character.MustLoadNPCConfig("assets/npcs.yaml")
 
@@ -100,6 +103,11 @@ func main() {
 
 	g := game.NewMMGame(cfg)
 	defer g.Shutdown()
+
+	// --test-arena: fast-forward the party to a mid-game state for testing.
+	if hasFlag("--test-arena") {
+		g.ApplyTestArena()
+	}
 	if err := ebiten.RunGame(g); err != nil {
 		if errors.Is(err, game.ErrExit) {
 			// Clean exit requested from game
@@ -107,6 +115,16 @@ func main() {
 		}
 		log.Fatal(err)
 	}
+}
+
+// hasFlag reports whether the given command-line flag was passed.
+func hasFlag(name string) bool {
+	for _, arg := range os.Args[1:] {
+		if arg == name {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureRuntimeCWD() {

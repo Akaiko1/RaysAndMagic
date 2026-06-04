@@ -87,6 +87,10 @@ func (gl *GameLoop) updateExploration() {
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 
+	// Refresh the party's active "traits" once per frame so passive monsters
+	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
+	monster.PartyTraits["lich"] = gl.game.party.HasLich()
+
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		gl.updateMonstersTurnBased()
@@ -115,8 +119,9 @@ func (gl *GameLoop) updateExploration() {
 		gl.updateSlashEffects()
 	}
 
-	// Update hit effects (arrow sticks, spell particles)
-	if len(gl.game.arrowHitEffects) > 0 || len(gl.game.spellHitEffects) > 0 {
+	// Update hit effects (arrow bursts, stuck arrows, spell particles). Stuck
+	// arrows outlive the burst, so they must keep the updater alive too.
+	if len(gl.game.spellHitEffects) > 0 {
 		gl.game.UpdateHitEffects()
 	}
 
@@ -249,14 +254,10 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 			// Award experience to all party members
 			if questRewards.Experience > 0 {
-				for _, member := range gl.game.party.Members {
-					if member.HitPoints > 0 {
-						member.Experience += questRewards.Experience
-						gl.game.combat.checkLevelUp(member)
-					}
-				}
+				gl.game.grantSharedXP(questRewards.Experience)
 			}
-			gl.game.addTreasureChestFromReward(rewards.TreasureChest)
+			gl.game.addTreasureChestsFromRewards(rewards)
+			gl.freeCaptivesFromRewards(rewards)
 			return // Quest handled rewards, don't double-award
 		}
 	}
@@ -266,7 +267,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 	if rewards.CompletionMessage != "" {
 		gl.game.AddCombatMessage(rewards.CompletionMessage)
 	}
-	gl.game.addTreasureChestFromReward(rewards.TreasureChest)
+	gl.game.addTreasureChestsFromRewards(rewards)
 
 	// Award gold to party
 	if rewards.Gold > 0 {
@@ -276,15 +277,22 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 	// Award experience to all party members
 	if rewards.Experience > 0 {
-		for _, member := range gl.game.party.Members {
-			if member.HitPoints > 0 { // Only living members get experience
-				member.Experience += rewards.Experience
-
-				// Check for level up using the combat system's level up logic
-				gl.game.combat.checkLevelUp(member)
-			}
-		}
+		gl.game.grantSharedXP(rewards.Experience)
 		gl.game.AddCombatMessage(fmt.Sprintf("Party gains %d experience!", rewards.Experience))
+	}
+	gl.freeCaptivesFromRewards(rewards)
+}
+
+// freeCaptivesFromRewards moves the party's imprisoned heroes into the reserve
+// when an encounter that frees them is cleared. The captives have been leveling
+// alongside the party all along, so they arrive at the right level with their
+// stat points and owed level-up choices banked for the player to distribute.
+func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
+	if rewards == nil || !rewards.FreesCaptives {
+		return
+	}
+	for _, c := range gl.game.party.FreeCaptives() {
+		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed — they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }
 
@@ -333,20 +341,58 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
-	// Update torch light effect
-	gl.updateTorchLightEffect()
+	// Tick every timed party buff and refresh its HUD status from ONE registry.
+	for _, b := range gl.game.timedBuffs() {
+		tickBuff(b.active, b.duration, b.onExpire)
+		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
+	}
 
-	// Update wizard eye effect
-	gl.updateWizardEyeEffect()
+	// Walk-on-water / water-breathing drive world flags every frame.
+	if gl.game.world != nil {
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
+		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
+	}
 
-	// Update walk on water effect
-	gl.updateWalkOnWaterEffect()
+	// Bind_undead charm timers are per-monster, not a party buff.
+	gl.updateCharmedMonsters()
+}
 
-	// Update bless effect
-	gl.updateBlessEffect()
+// timedBuff is one duration-based party buff: its active/duration pointers are
+// ticked each frame and surfaced as a HUD status; onExpire (optional) undoes the
+// buff's effect when it runs out.
+type timedBuff struct {
+	id       spells.SpellID
+	active   *bool
+	duration *int
+	onExpire func()
+}
 
-	// Update water breathing effect
-	gl.updateWaterBreathingEffect()
+// timedBuffs is the SINGLE registry of duration-based buffs. To add a new timed
+// buff, add one entry here — it then ticks, shows its HUD icon, and is restored
+// on load automatically, with no other code changes.
+func (g *MMGame) timedBuffs() []timedBuff {
+	return []timedBuff{
+		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
+		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
+		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
+		{"bless", &g.blessActive, &g.blessDuration, func() {
+			g.statBonus -= g.blessStatBonus
+			g.blessStatBonus = 0
+		}},
+		{"day_of_the_gods", &g.dayGodsActive, &g.dayGodsDuration, func() {
+			g.dayGodsResistPct = 0
+		}},
+		{"hour_of_power", &g.hourPowerActive, &g.hourPowerDuration, func() {
+			g.hourPowerOutBonus = 0
+			g.hourPowerInReduce = 0
+		}},
+		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
+			// If still underwater when it lapses, surface the party.
+			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
+				g.gameLoop.returnFromUnderwater()
+			}
+		}},
+	}
 }
 
 // tickBuff decrements the duration of an active timed buff and runs onExpire
@@ -367,46 +413,22 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateTorchLightEffect updates the torch light illumination effect
-func (gl *GameLoop) updateTorchLightEffect() {
-	tickBuff(&gl.game.torchLightActive, &gl.game.torchLightDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("torch_light"), gl.game.torchLightDuration, gl.game.torchLightActive)
-}
-
-// updateWizardEyeEffect updates the wizard eye enemy detection effect
-func (gl *GameLoop) updateWizardEyeEffect() {
-	tickBuff(&gl.game.wizardEyeActive, &gl.game.wizardEyeDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("wizard_eye"), gl.game.wizardEyeDuration, gl.game.wizardEyeActive)
-}
-
-// updateWalkOnWaterEffect updates the walk on water effect
-func (gl *GameLoop) updateWalkOnWaterEffect() {
-	tickBuff(&gl.game.walkOnWaterActive, &gl.game.walkOnWaterDuration, nil)
-	gl.game.updateUtilityStatus(spells.SpellID("walk_on_water"), gl.game.walkOnWaterDuration, gl.game.walkOnWaterActive)
-
-	// Sync the walk on water and water breathing states with the world
-	gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
-	gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
-}
-
-// updateBlessEffect updates the bless stat bonus effect
-func (gl *GameLoop) updateBlessEffect() {
-	tickBuff(&gl.game.blessActive, &gl.game.blessDuration, func() {
-		gl.game.statBonus -= gl.game.blessStatBonus
-		gl.game.blessStatBonus = 0
-	})
-	gl.game.updateUtilityStatus(spells.SpellID("bless"), gl.game.blessDuration, gl.game.blessActive)
-}
-
-// updateWaterBreathingEffect updates the water breathing effect
-func (gl *GameLoop) updateWaterBreathingEffect() {
-	tickBuff(&gl.game.waterBreathingActive, &gl.game.waterBreathingDuration, func() {
-		// If currently underwater (water map), teleport back to surface
-		if world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
-			gl.returnFromUnderwater()
+// updateCharmedMonsters ticks bind_undead charm timers in real-time. When a
+// charm expires the undead turns hostile again. (TB charm persists the encounter.)
+func (gl *GameLoop) updateCharmedMonsters() {
+	if gl.game.world == nil {
+		return
+	}
+	for _, m := range gl.game.world.Monsters {
+		if !m.Charmed || m.CharmFramesRemaining <= 0 {
+			continue
 		}
-	})
-	gl.game.updateUtilityStatus(spells.SpellID("water_breathing"), gl.game.waterBreathingDuration, gl.game.waterBreathingActive)
+		m.CharmFramesRemaining--
+		if m.CharmFramesRemaining == 0 {
+			m.Charmed = false
+			gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+		}
+	}
 }
 
 // returnFromUnderwater teleports the player back to the surface when Water Breathing expires

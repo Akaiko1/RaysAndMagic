@@ -11,6 +11,9 @@ loots:
     - type: "weapon"
       key: "bow_of_hellfire"
       chance: 0.05
+    - type: "item"
+      key: "ruby"
+      chance: 0.15
 
   bandit:
     - type: "item"
@@ -92,3 +95,128 @@ loots:
     - type: "item"
       key: "chain_pants"
       chance: 0.07
+
+  # Pyramid dungeon mobs.
+  mummy:
+    - type: "item"
+      key: "ancient_linen_wrap"
+      chance: 0.10
+    - type: "item"
+      key: "scarab_amulet"
+      chance: 0.04
+
+  minotaur:
+    - type: "weapon"
+      key: "steel_axe"
+      chance: 0.08
+    - type: "item"
+      key: "minotaur_horn"
+      chance: 0.08
+
+  isis:
+    - type: "item"
+      key: "isis_feather"
+      chance: 0.07
+    - type: "item"
+      key: "serpent_diadem"
+      chance: 0.04
+
+  # Lich Nexus mobs.
+  revenant:
+    - type: "item"
+      key: "revenant_blade_shard"
+      chance: 0.08
+    - type: "item"
+      key: "grave_knight_sigil"
+      chance: 0.04
+
+  lich_king:
+    - type: "item"
+      key: "lich_king_crown"
+      chance: 0.06
+    - type: "item"
+      key: "soul_phylactery_gem"
+      chance: 0.10
+
+  # Highlands mid-tier mobs (L6-12) — gear + monster-trophy cards.
+  puma:
+    - type: "weapon"
+      key: "agility_katar"
+      chance: 0.06
+    - type: "item"
+      key: "puma_claw"
+      chance: 0.08
+    - type: "item"
+      key: "puma_card"
+      chance: 0.03
+
+  elf_archer:
+    - type: "weapon"
+      key: "long_bow"
+      chance: 0.08
+    - type: "item"
+      key: "accuracy_talisman"
+      chance: 0.06
+
+  elf_swordsman:
+    - type: "item"
+      key: "elven_shield"
+      chance: 0.10
+    - type: "item"
+      key: "golden_armor"
+      chance: 0.05
+
+  mountain_troll:
+    - type: "item"
+      key: "granite"
+      chance: 0.12
+    - type: "item"
+      key: "ruby"
+      chance: 0.10
+    - type: "item"
+      key: "emerald"
+      chance: 0.10
+    - type: "item"
+      key: "diamond"
+      chance: 0.06
+
+  archmage:
+    - type: "item"
+      key: "archmage_robe"
+      chance: 0.08
+    - type: "weapon"
+      key: "archmage_staff"
+      chance: 0.06
+    - type: "item"
+      key: "archmage_card"
+      chance: 0.03
+
+  lich:
+    - type: "item"
+      key: "lich_phylactery"
+      chance: 0.12
+    - type: "weapon"
+      key: "book_of_darkness"
+      chance: 0.06
+    - type: "item"
+      key: "lich_card"
+      chance: 0.03
+
+  # Elemental dragons — each hoards a signature gem (base dragon: ruby, above).
+  dragon_red:
+    - type: "item"
+      key: "diamond"
+      chance: 0.15
+
+  dragon_green:
+    - type: "item"
+      key: "emerald"
+      chance: 0.15
+
+  dragon_gold:
+    - type: "item"
+      key: "diamond"
+      chance: 0.15
+    - type: "item"
+      key: "golden_armor"
+      chance: 0.06

@@ -218,6 +218,7 @@ type ItemDefinitionFromYAML struct {
 	Revive                    bool
 	FullHeal                  bool
 	OpensMap                  bool
+	PromotesLich              bool
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -315,6 +316,9 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.OpensMap {
 		attrs["opens_map"] = 1
+	}
+	if def.PromotesLich {
+		attrs["promotes_lich"] = 1
 	}
 	if def.Revive {
 		attrs["revive"] = 1

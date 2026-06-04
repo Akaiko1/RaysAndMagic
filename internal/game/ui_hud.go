@@ -100,8 +100,8 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
 		}
 
-		// Draw character portrait (Column 1)
-		portraitName := strings.ToLower(member.Name)
+		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich variant).
+		portraitName := ui.game.portraitSpriteName(member)
 		portrait := ui.game.sprites.GetSprite(portraitName)
 
 		// Portrait dimensions aligned to the left recess in party_member_panel.png.
@@ -118,6 +118,11 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 		portraitOpts.GeoM.Scale(scale, scale)
 		portraitOpts.GeoM.Translate(float64(portraitX), float64(portraitY))
+		// Bilinear (with mipmaps) when shrinking keeps the portrait crisp instead
+		// of the nearest-neighbour mush the default filter gives on downscale.
+		if scale < 1 {
+			portraitOpts.Filter = ebiten.FilterLinear
+		}
 
 		// Apply red tint if character is blinking from damage
 		if ui.game.IsCharacterBlinking(i) {
@@ -300,6 +305,10 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 		opts := &ebiten.DrawImageOptions{}
 		opts.GeoM.Scale(float64(size)/float64(sprite.Bounds().Dx()), float64(size)/float64(sprite.Bounds().Dy()))
 		opts.GeoM.Translate(float64(x), float64(y))
+		// Linear (mipmapped) on the typical downscale keeps spell icons crisp.
+		if size < sprite.Bounds().Dx() || size < sprite.Bounds().Dy() {
+			opts.Filter = ebiten.FilterLinear
+		}
 		screen.DrawImage(sprite, opts)
 	} else if fallback != "" {
 		ebitenutil.DebugPrintAt(screen, fallback, x+size/2-4, y+size/2-4)

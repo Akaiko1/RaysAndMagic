@@ -31,21 +31,22 @@ const (
 
 // UISystem handles all user interface rendering and logic
 type UISystem struct {
-	game                  *MMGame
-	justOpenedStatPopup   bool
+	game                *MMGame
+	justOpenedStatPopup bool
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
 	// after statHoldInitialDelay frames and fires every statHoldRepeatRate
 	// frames thereafter so points pour out at a controllable rate.
-	statHoldStat   string
-	statHoldFrames int
+	statHoldStat          string
+	statHoldFrames        int
 	lastClickTime         time.Time
 	lastClickedItem       int
 	inventoryContextOpen  bool
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
+	inventoryPage         int // current inventory grid page (0-based)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string
@@ -138,6 +139,16 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw revival picker (dead/unconscious party member chooser) if open
 	if ui.game.revivalPickerOpen {
 		ui.drawRevivalPickerPopup(screen)
+	}
+
+	// Draw promotion picker (which member becomes Archmage/Lich) if open
+	if ui.game.promotionPickerOpen {
+		ui.drawPromotionPickerPopup(screen)
+	}
+
+	// Draw tavern roster swap screen if open
+	if ui.game.rosterScreenOpen {
+		ui.drawRosterScreen(screen)
 	}
 
 	// Draw level-up choice popup if pending

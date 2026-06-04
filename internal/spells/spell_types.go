@@ -30,6 +30,22 @@ type SpellDefinition struct {
 	IsUtility          bool
 	StatusIcon         string
 	StatBonus          int // Stat bonus for buff spells like Bless
+	// Damage-formula modifiers (default behaviour when zero/false)
+	DamageCostMultiplier  int  // base = cost × SpellDamagePerSP × this (default 1)
+	ScalesWithPersonality bool // also add Personality/divisor to spell damage
+	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
+	StunRadiusTiles     float64
+	StunDurationSeconds int
+	StunDurationTurns   int
+	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
+	// Party combat buffs (duration seconds)
+	ResistBuffPct           int  // Day of the Gods: % incoming damage reduction
+	OutgoingDamageBonus     int  // Hour of Power: flat outgoing damage bonus
+	IncomingDamageReduction int  // Hour of Power: flat incoming damage reduction
+	Charm                   bool // bind_undead: charm an undead target
+	CharmDurationSeconds    int  // charm duration (RT seconds)
+	Revive                  bool // resurrect: restore a fallen ally (incl. eradicated)
+	FullHeal                bool // resurrect: restore to maximum HP
 	// Effect configuration
 	HealAmount     int     // For healing spells
 	VisionBonus    float64 // For vision enhancement spells
@@ -48,20 +64,33 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
-		ID:                 spellID,
-		Name:               configDef.Name,
-		Description:        configDef.Description,
-		School:             configDef.School,
-		Level:              configDef.Level,
-		SpellPointsCost:    configDef.SpellPointsCost,
-		Duration:           configDef.Duration,
-		DisintegrateChance: configDef.DisintegrateChance,
-		AoeRadiusTiles:     configDef.AoeRadiusTiles,
-		ProjectileSize:     configDef.ProjectileSize,
-		IsProjectile:       configDef.IsProjectile,
-		IsUtility:          configDef.IsUtility,
-		StatusIcon:         configDef.StatusIcon,
-		StatBonus:          configDef.StatBonus,
+		ID:                      spellID,
+		Name:                    configDef.Name,
+		Description:             configDef.Description,
+		School:                  configDef.School,
+		Level:                   configDef.Level,
+		SpellPointsCost:         configDef.SpellPointsCost,
+		Duration:                configDef.Duration,
+		DisintegrateChance:      configDef.DisintegrateChance,
+		AoeRadiusTiles:          configDef.AoeRadiusTiles,
+		ProjectileSize:          configDef.ProjectileSize,
+		IsProjectile:            configDef.IsProjectile,
+		IsUtility:               configDef.IsUtility,
+		StatusIcon:              configDef.StatusIcon,
+		StatBonus:               configDef.StatBonus,
+		DamageCostMultiplier:    configDef.DamageCostMultiplier,
+		ScalesWithPersonality:   configDef.ScalesWithPersonality,
+		StunRadiusTiles:         configDef.StunRadiusTiles,
+		StunDurationSeconds:     configDef.StunDurationSeconds,
+		StunDurationTurns:       configDef.StunDurationTurns,
+		DealsNoDamage:           configDef.DealsNoDamage,
+		ResistBuffPct:           configDef.ResistBuffPct,
+		OutgoingDamageBonus:     configDef.OutgoingDamageBonus,
+		IncomingDamageReduction: configDef.IncomingDamageReduction,
+		Charm:                   configDef.Charm,
+		CharmDurationSeconds:    configDef.CharmDurationSeconds,
+		Revive:                  configDef.Revive,
+		FullHeal:                configDef.FullHeal,
 		// Effect configuration from YAML
 		HealAmount:     configDef.HealAmount,
 		VisionBonus:    configDef.VisionBonus,
@@ -115,4 +144,3 @@ func GetSpellIDsBySchool(school string) ([]SpellID, error) {
 
 	return spellIDs, nil
 }
-

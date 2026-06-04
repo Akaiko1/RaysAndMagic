@@ -99,6 +99,14 @@ func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
 	opts.GeoM.Translate(float64(x), float64(y))
+	// Shrinking with the default nearest filter drops whole source rows/columns,
+	// which clips thin baked-in details — e.g. an icon's frame on the trailing
+	// (right/bottom) edges. Linear filtering (mipmaps kick in automatically for
+	// shrink) resamples instead and keeps them. Upscales stay nearest so pixel
+	// art is not blurred.
+	if w < srcW || h < srcH {
+		opts.Filter = ebiten.FilterLinear
+	}
 	dst.DrawImage(src, opts)
 }
 
@@ -472,7 +480,8 @@ func statTooltipText(stat string) string {
 	case "accuracy":
 		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
 	case "speed":
-		return "Reduces real-time action cooldowns (no effect in turn-based mode)."
+		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
+			character.SpeedActionSlot2Threshold, character.SpeedActionSlot3Threshold)
 	case "luck":
 		return "Improves critical chance and dodges."
 	default:
@@ -484,9 +493,29 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 	switch skill {
 	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
 		character.SkillBow, character.SkillMace, character.SkillStaff:
-		return fmt.Sprintf("Weapon Mastery: +%d base damage per mastery level.", MasteryWeaponDamagePerLevel)
+		return fmt.Sprintf("Weapon Mastery: +%d TRUE damage per level (ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and strikes ignore Perfect Dodge.",
+			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
-		return fmt.Sprintf("Armor Mastery: +%d base AC per mastery level.", MasteryArmorACPerLevel)
+		return fmt.Sprintf("Armor Mastery: +%d base AC per level. Grandmaster: +%d%% Perfect Dodge while wearing this armor type.",
+			MasteryArmorACPerLevel, ArmorGMDodgeBonus)
+	// Misc skills — descriptions read the SAME constants the mechanics use, so
+	// tooltip and combat can't drift. All scale by tier (Novice gives none).
+	case character.SkillBodybuilding:
+		return fmt.Sprintf("Bodybuilding: +%d max HP per level. Grandmaster: +%d%% max HP.", character.BodybuildingHPPerTier, character.BodybuildingGMMaxHPPct)
+	case character.SkillMeditation:
+		return fmt.Sprintf("Meditation: +%d spell points per regen tick per level (faster mana recovery). Grandmaster: −%d%% spell point cost on all spells.", character.MeditationRegenPerTier, MeditationGMSpellCostReductionPct)
+	case character.SkillLearning:
+		return fmt.Sprintf("Learning: +%d%% experience gained per level. Grandmaster: +%d%% experience to the whole party.", LearningXPPctPerTier, LearningGMPartyXPPct)
+	case character.SkillArmsMaster:
+		return fmt.Sprintf("Arms Master: +%d damage with any weapon per level. Grandmaster: +%d%% crit with any weapon.", ArmsMasterDamagePerTier, ArmsMasterGMCritBonus)
+	case character.SkillMerchant:
+		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level (the party's best applies).", MerchantPricePctPerTier)
+	case character.SkillDisarmTrap:
+		return fmt.Sprintf("Disarm Trap: -%d incoming damage per mastery level (placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
+	case character.SkillRepair:
+		return "Repair: no effect yet (planned: equipment durability)."
+	case character.SkillIdentifyItem:
+		return "Identify Item: no effect yet (planned: reveal unidentified loot)."
 	default:
 		return ""
 	}
@@ -500,25 +529,5 @@ func magicMasteryTooltipText() string {
 func (ui *UISystem) drawUIBackground(screen *ebiten.Image, x, y, width, height int, bgColor color.RGBA) {
 	if bgColor.A > 0 {
 		drawFilledRect(screen, x, y, width, height, bgColor)
-	}
-}
-
-// getCharacterSpellStatus returns the background color and status text for a character in spell trader dialog (DRY helper)
-func (ui *UISystem) getCharacterSpellStatus(charIndex int, canLearn, alreadyKnows, spellSelected bool) (color.RGBA, string) {
-	if charIndex == ui.game.selectedCharIdx {
-		// Selected character - blue background
-		return UIColorSelectedCharacter, ""
-	} else if alreadyKnows {
-		// Already knows spell - gray background
-		return UIColorKnowsSpell, " (Knows Spell)"
-	} else if canLearn {
-		// Can learn spell - green tint
-		return UIColorCanLearn, " (Can Learn)"
-	} else if spellSelected {
-		// Cannot learn spell - red tint
-		return UIColorCannotLearn, " (Cannot Learn)"
-	} else {
-		// No spell selected - no background
-		return color.RGBA{0, 0, 0, 0}, ""
 	}
 }

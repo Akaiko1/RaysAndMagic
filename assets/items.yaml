@@ -198,6 +198,121 @@ items:
     rarity: "rare"
     value: 500
 
+  black_dragon_statuette:
+    name: "Black Dragon Statuette"
+    type: "quest"
+    description: "An obsidian statuette of the black desert dragon"
+    flavor: "Cold stone holds the shape of a sleeping wyrm."
+    rarity: "legendary"
+
+  red_dragon_statuette:
+    name: "Red Dragon Statuette"
+    type: "quest"
+    description: "A ruby-red statuette of the red dragon"
+    flavor: "Its scales catch the light like banked embers."
+    rarity: "legendary"
+
+  green_dragon_statuette:
+    name: "Green Dragon Statuette"
+    type: "quest"
+    description: "An emerald-green statuette of the green dragon"
+    flavor: "A small serpent of stone and jungle venom."
+    rarity: "legendary"
+
+  gold_dragon_statuette:
+    name: "Gold Dragon Statuette"
+    type: "quest"
+    description: "A golden statuette of the storm dragon"
+    flavor: "Tiny wings of hammered gold seem ready to stir."
+    rarity: "legendary"
+
+  ancient_linen_wrap:
+    name: "Ancient Linen Wrap"
+    type: "trinket"
+    description: "Dusty embalming cloth clasped with a small seal"
+    flavor: "Dry as old prayers, but still strangely intact."
+    rarity: "common"
+    value: 120
+
+  scarab_amulet:
+    name: "Scarab Amulet"
+    type: "accessory"
+    description: "A turquoise scarab charm from the pyramid crypts"
+    flavor: "Its wings click softly when danger nears."
+    equip_slot: "amulet"
+    bonus_luck: 15
+    bonus_endurance: 5
+    rarity: "uncommon"
+    value: 550
+
+  minotaur_horn:
+    name: "Minotaur Horn"
+    type: "trinket"
+    description: "A cracked horn bound with a bronze ring"
+    flavor: "Heavy, sharp, and still warm near the base."
+    rarity: "uncommon"
+    value: 420
+
+  isis_feather:
+    name: "Isis Feather"
+    type: "accessory"
+    description: "A blue-gold feather charm from an Isis guardian"
+    flavor: "It moves as if touched by a wind you cannot feel."
+    equip_slot: "cloak"
+    bonus_personality: 8
+    bonus_speed: 8
+    rarity: "rare"
+    value: 800
+
+  serpent_diadem:
+    name: "Serpent Diadem"
+    type: "accessory"
+    description: "A golden cobra diadem set with a blue gem"
+    flavor: "The cobra's eyes seem to follow every spell you cast."
+    equip_slot: "helmet"
+    bonus_intellect: 10
+    bonus_personality: 5
+    rarity: "rare"
+    value: 950
+
+  revenant_blade_shard:
+    name: "Revenant Blade Shard"
+    type: "trinket"
+    description: "A broken spectral blade fragment"
+    flavor: "Green light crawls along the edge, searching for a hand."
+    rarity: "uncommon"
+    value: 520
+
+  grave_knight_sigil:
+    name: "Grave Knight Sigil"
+    type: "accessory"
+    description: "A black iron badge from an undead knightly order"
+    flavor: "The skull mark is worn smooth by armored fingers."
+    equip_slot: "amulet"
+    bonus_might: 8
+    bonus_endurance: 8
+    rarity: "rare"
+    value: 850
+
+  lich_king_crown:
+    name: "Lich King Crown"
+    type: "accessory"
+    description: "A dark spiked crown with a bound soul gem"
+    flavor: "A whisper offers counsel from inside the emerald stone."
+    equip_slot: "helmet"
+    bonus_intellect: 18
+    bonus_personality: 8
+    rarity: "legendary"
+    value: 1800
+
+  soul_phylactery_gem:
+    name: "Soul Phylactery Gem"
+    type: "trinket"
+    description: "A green-violet crystal vessel in a bone setting"
+    flavor: "Something inside taps once, then goes silent."
+    rarity: "legendary"
+    value: 1300
+
   world_map:
     name: "World Map"
     type: "quest"
@@ -205,3 +320,126 @@ items:
     flavor: "Ink and charcoal sketch the known roads and rumors."
     opens_map: true
     rarity: "common"
+
+  archmage_robe:
+    name: "Archmage Robe"
+    type: "armor"
+    armor_category: "cloth"
+    description: "Master-woven robes humming with arcane power"
+    flavor: "Violet silk that drinks the candlelight."
+    equip_slot: "armor"
+    armor_class_base: 10
+    bonus_intellect: 15
+    bonus_personality: 15
+    rarity: "legendary"
+    value: 900
+
+  golden_armor:
+    name: "Golden Armor"
+    type: "armor"
+    armor_category: "plate"
+    description: "Gilded plate fit for a dragon's hoard"
+    flavor: "Heavy gold that turns blades and heads alike."
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 4
+    rarity: "legendary"
+    value: 1500
+
+  elven_shield:
+    name: "Elven Shield"
+    type: "armor"
+    armor_category: "shield"
+    description: "A light leaf-etched shield of elven make"
+    flavor: "Lighter than it looks; quick to raise."
+    equip_slot: "offhand"
+    armor_class_base: 3
+    bonus_speed: 5
+    rarity: "uncommon"
+    value: 400
+
+  accuracy_talisman:
+    name: "Accuracy Talisman"
+    type: "accessory"
+    description: "A compass-like charm that steadies the aim"
+    flavor: "Its needle always finds the mark."
+    equip_slot: "amulet"
+    bonus_accuracy: 30
+    rarity: "uncommon"
+    value: 600
+
+  puma_claw:
+    name: "Puma Claw"
+    type: "accessory"
+    description: "A predator's claw strung on a leather cord"
+    flavor: "Still sharp; still hungry."
+    equip_slot: "amulet"
+    bonus_speed: 10
+    bonus_might: 5
+    rarity: "uncommon"
+    value: 500
+
+  granite:
+    name: "Granite Chunk"
+    type: "trinket"
+    description: "A heavy lump of mountain stone"
+    flavor: "Worthless to most; ballast to a troll."
+    rarity: "common"
+    value: 150
+
+  emerald:
+    name: "Emerald"
+    type: "trinket"
+    description: "A flawless green gemstone"
+    flavor: "Green fire caught in glass."
+    rarity: "rare"
+    value: 700
+
+  ruby:
+    name: "Ruby"
+    type: "trinket"
+    description: "A deep-red gem that glows like banked coals"
+    flavor: "A drop of dragonfire turned to stone."
+    rarity: "rare"
+    value: 800
+
+  diamond:
+    name: "Diamond"
+    type: "trinket"
+    description: "A brilliant, flawless diamond"
+    flavor: "A king's ransom in a single facet."
+    rarity: "legendary"
+    value: 1200
+
+  puma_card:
+    name: "Puma Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card showing a prowling highland puma."
+    rarity: "rare"
+    value: 500
+
+  archmage_card:
+    name: "Archmage Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card showing a robed highland archmage."
+    rarity: "rare"
+    value: 500
+
+  lich_card:
+    name: "Lich Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card showing a crowned lich wreathed in shadow."
+    rarity: "rare"
+    value: 500
+
+  lich_phylactery:
+    name: "Lich Phylactery"
+    type: "quest"
+    description: "The soul-vessel of a lich, cold to the touch"
+    flavor: "Something inside it still hates you."
+    rarity: "legendary"
+    value: 0
+    promotes_lich: true   # using it offers a compatible party member the path of the Lich

@@ -201,6 +201,58 @@ tiles:
     letter: "%"
     biomes: ["church"]
 
+  pyramid_floor:
+    name: "Pyramid Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [154, 125, 76]
+    floor_near_color: [178, 142, 86]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["pyramid"]
+
+  pyramid_wall:
+    name: "Pyramid Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "pyramid_wall"
+    render_type: "textured_wall"
+    wall_color: [128, 94, 52]
+    letter: "%"
+    biomes: ["pyramid"]
+
+  lich_nexus_floor:
+    name: "Lich Nexus Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [32, 28, 42]
+    floor_near_color: [55, 45, 72]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["lich_nexus"]
+
+  lich_nexus_wall:
+    name: "Lich Nexus Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "lich_nexus_wall"
+    render_type: "textured_wall"
+    wall_color: [28, 24, 36]
+    letter: "%"
+    biomes: ["lich_nexus"]
+
   city_floor:
     name: "City Cobblestone"
     solid: false
@@ -372,6 +424,162 @@ tiles:
     floor_texture_group: "default"
     letter: "O"
     biomes: ["city"]
+
+  highlands_floor:
+    name: "Highlands Grass"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [88, 150, 48]
+    floor_near_color: [104, 166, 62]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["highlands"]
+
+  highlands_cliff:
+    name: "Highlands Cliff"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.2
+    sprite: "highlands_cliff_wall"
+    render_type: "textured_wall"
+    wall_color: [82, 86, 80]
+    letter: "%"
+    biomes: ["highlands"]
+
+  highlands_granite:
+    name: "Granite Cliff"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "highlands_granite_wall"
+    render_type: "textured_wall"
+    wall_color: [118, 122, 118]
+    letter: "#"
+    biomes: ["highlands"]
+
+  highlands_ruin_wall:
+    name: "Highland Ruins"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "highlands_ruin_wall"
+    render_type: "textured_wall"
+    wall_color: [96, 98, 88]
+    letter: "B"
+    biomes: ["highlands"]
+
+  highlands_slate_wall:
+    name: "Slate Retaining Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 0.7
+    sprite: "highlands_slate_wall"
+    render_type: "textured_wall"
+    wall_color: [74, 78, 74]
+    letter: "="
+    biomes: ["highlands"]
+
+  highlands_pine:
+    name: "Highland Pine"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 2.0
+    sprite: "highlands_pine"
+    render_type: "environment_sprite"
+    wall_color: [64, 92, 38]
+    floor_near_color: [48, 102, 42]
+    letter: "T"
+    biomes: ["highlands"]
+
+  highlands_rock_outcrop:
+    name: "Rock Outcrop"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.6
+    sprite: "highlands_rock_outcrop"
+    render_type: "environment_sprite"
+    wall_color: [124, 122, 112]
+    floor_near_color: [96, 112, 72]
+    letter: "A"
+    biomes: ["highlands"]
+
+  highlands_boulder:
+    name: "Mossy Boulder"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "highlands_boulder"
+    render_type: "environment_sprite"
+    wall_color: [116, 116, 104]
+    letter: "R"
+    biomes: ["highlands"]
+
+  highlands_heather:
+    name: "Heather Patch"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "highlands_heather"
+    render_type: "environment_sprite"
+    floor_near_color: [116, 158, 64]
+    letter: "H"
+    biomes: ["highlands"]
+
+  highlands_stream:
+    name: "Highland Stream"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [54, 136, 144]
+    floor_near_color: [116, 158, 72]
+    floor_texture_group: "highlands_stream"
+    letter: "S"
+    biomes: ["highlands"]
+
+  # Forest→Highlands portal dressing (forest biome only). Two rock-outcrop
+  # posts (K) flank a shimmering stream tile (J); an invisible gate NPC sits on
+  # the tile below the stream and opens the travel dialog when the party is near.
+  forest_portal_rock:
+    name: "Highland Rock Outcrop"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.6
+    sprite: "highlands_rock_outcrop"
+    render_type: "environment_sprite"
+    wall_color: [124, 122, 112]
+    floor_near_color: [48, 102, 42]
+    letter: "K"
+    biomes: ["forest"]
+
+  forest_portal_stream:
+    name: "Shimmering Portal Water"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [54, 136, 144]
+    floor_near_color: [48, 102, 42]
+    floor_texture_group: "highlands_stream"
+    letter: "J"
+    biomes: ["forest"]
 
   moss_rock:
     name: "Moss-covered Stone"

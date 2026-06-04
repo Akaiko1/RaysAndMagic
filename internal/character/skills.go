@@ -18,12 +18,23 @@ const (
 	SkillPlate
 	SkillShield
 
-	// Misc skills
+	// Misc skills.
+	// Implemented effects (scaled by SkillTier, see combat/character code):
+	//   Bodybuilding → +Max HP, Meditation → faster mana regen,
+	//   Learning → +% XP gained, ArmsMaster → +weapon damage,
+	//   Merchant → better buy/sell prices,
+	//   DisarmTrap → PLACEHOLDER incoming-damage reduction (see TODO below).
 	SkillBodybuilding
 	SkillMeditation
 	SkillMerchant
+	// SkillRepair: no effect yet. TODO: implement an item-durability system
+	// (gear wears with use; Repair restores it / slows wear) for this to matter.
 	SkillRepair
+	// SkillIdentifyItem: no effect yet. TODO: implement unidentified loot (dropped
+	// items start with hidden stats until a party member with Identify inspects).
 	SkillIdentifyItem
+	// SkillDisarmTrap: currently a placeholder damage reduction. TODO: implement
+	// trap special-tiles on maps that a DisarmTrap check defuses.
 	SkillDisarmTrap
 	SkillLearning
 	SkillArmsMaster

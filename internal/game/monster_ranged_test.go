@@ -50,6 +50,9 @@ func newTestCombatSystemWithConfig(t *testing.T) *CombatSystem {
 	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
 		t.Fatalf("load items: %v", err)
 	}
+	if _, err := config.LoadLevelUpConfig("../../assets/level_up.yaml"); err != nil {
+		t.Fatalf("load level-up choices: %v", err)
+	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
 

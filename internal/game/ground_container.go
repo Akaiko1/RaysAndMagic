@@ -19,8 +19,8 @@ import (
 type ContainerKind int
 
 const (
-	ContainerKindLootBag        ContainerKind = iota // dropped by a monster on death
-	ContainerKindTreasureChest                       // spawned by an encounter clear
+	ContainerKindLootBag       ContainerKind = iota // dropped by a monster on death
+	ContainerKindTreasureChest                      // spawned by an encounter clear
 )
 
 // containerKindDefaults bundles the look-and-feel that a kind chooses when the
@@ -156,6 +156,8 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	x, y := TileCenterFromTile(reward.TileX, reward.TileY, tileSize)
 
 	chestItems := randomWeaponRewards(reward.RandomWeaponCount)
+	chestItems = append(chestItems, fixedWeaponRewards(reward.Weapons)...)
+	chestItems = append(chestItems, fixedItemRewards(reward.Items)...)
 	if len(chestItems) == 0 && reward.Gold <= 0 {
 		return
 	}
@@ -173,6 +175,16 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	})
 	if reward.CompletionMessage != "" {
 		g.AddCombatMessage(reward.CompletionMessage)
+	}
+}
+
+func (g *MMGame) addTreasureChestsFromRewards(rewards *monster.EncounterRewards) {
+	if g == nil || rewards == nil {
+		return
+	}
+	g.addTreasureChestFromReward(rewards.TreasureChest)
+	for i := range rewards.TreasureChests {
+		g.addTreasureChestFromReward(&rewards.TreasureChests[i])
 	}
 }
 
@@ -203,6 +215,33 @@ func randomWeaponRewards(count int) []items.Item {
 		keys = append(keys[:idx], keys[idx+1:]...)
 	}
 	return weapons
+}
+
+// fixedRewards turns an explicit list of YAML keys into items via the given
+// constructor, skipping (with a warning) any key that fails to resolve. Shared
+// by the weapon and item chest-reward paths.
+func fixedRewards(keys []string, create func(string) (items.Item, error), label string) []items.Item {
+	if len(keys) == 0 {
+		return nil
+	}
+	rewards := make([]items.Item, 0, len(keys))
+	for _, key := range keys {
+		item, err := create(key)
+		if err != nil {
+			fmt.Printf("[WARN] %s: %v\n", label, err)
+			continue
+		}
+		rewards = append(rewards, item)
+	}
+	return rewards
+}
+
+func fixedWeaponRewards(keys []string) []items.Item {
+	return fixedRewards(keys, items.TryCreateWeaponFromYAML, "fixedWeaponRewards")
+}
+
+func fixedItemRewards(keys []string) []items.Item {
+	return fixedRewards(keys, items.TryCreateItemFromYAML, "fixedItemRewards")
 }
 
 // tryPickupNearestGroundContainer triggers pickup on the closest container in

@@ -24,12 +24,22 @@ type NPCData struct {
 	Sprite         string               `yaml:"sprite"`
 	RenderType     string               `yaml:"render_type,omitempty"`
 	Transparent    bool                 `yaml:"transparent,omitempty"`
+	GroundTile     string               `yaml:"ground_tile,omitempty"`
 	SizeMultiplier float64              `yaml:"size_multiplier,omitempty"`
 	SellAvailable  bool                 `yaml:"sell_available,omitempty"`
 	Dialogue       *NPCDialogue         `yaml:"dialogue"`
 	Spells         map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory      []*NPCItem           `yaml:"inventory,omitempty"`
 	Encounter      *NPCEncounter        `yaml:"encounter,omitempty"`
+	Summons        []*NPCSummon         `yaml:"summons,omitempty"`
+}
+
+// NPCSummon maps a held statuette (by item Name) to the monster a statue
+// summons when that statuette is offered, plus a short label for the choice.
+type NPCSummon struct {
+	Statuette string `yaml:"statuette"`
+	Monster   string `yaml:"monster"`
+	Label     string `yaml:"label"`
 }
 
 // NPCDialogue represents the dialogue options for an NPC
@@ -46,9 +56,13 @@ type NPCDialogue struct {
 
 // NPCDialogueChoice represents a dialogue choice option
 type NPCDialogueChoice struct {
-	Text   string `yaml:"text"`
-	Action string `yaml:"action"`
-	Map    string `yaml:"map,omitempty"`
+	Text    string `yaml:"text"`
+	Action  string `yaml:"action"`
+	Map     string `yaml:"map,omitempty"`
+	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	// SummonIndex is set at runtime (not from YAML) when statue summon choices
+	// are built from the held statuettes; it indexes NPC.Summons.
+	SummonIndex int `yaml:"-"`
 }
 
 // NPCEncounter represents an encounter definition
@@ -154,9 +168,11 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Sprite:         data.Sprite,
 		RenderType:     data.RenderType,
 		Transparent:    data.Transparent,
+		GroundTile:     data.GroundTile,
 		SizeMultiplier: data.SizeMultiplier,
 		SellAvailable:  data.SellAvailable,
 		DialogueData:   data.Dialogue,
+		Summons:        data.Summons,
 	}
 
 	// Set up type-specific data

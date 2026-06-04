@@ -141,6 +141,152 @@ npcs:
         completion_message: "The shipwreck bandits have been defeated!"
       first_visit_only: true
 
+  # Dragon statues (desert corners). Unique names so save/load tracks each
+  # spent statue independently. The "summon" choice is injected at dialog-open
+  # from the statuettes the party holds; only "Leave" is static here.
+  dragon_statue_black:
+    name: "Black Dragon Statue"
+    type: "encounter"
+    description: "A coiled obsidian dragon, mouth agape as if mid-roar"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Black Dragon Statuette"
+        monster: "dragon"
+        label: "Black"
+
+  dragon_statue_red:
+    name: "Red Dragon Statue"
+    type: "encounter"
+    description: "A rearing crimson dragon wrought in dark stone"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Red Dragon Statuette"
+        monster: "dragon_red"
+        label: "Red"
+
+  dragon_statue_green:
+    name: "Green Dragon Statue"
+    type: "encounter"
+    description: "A serpentine dragon of mossy green stone"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Green Dragon Statuette"
+        monster: "dragon_green"
+        label: "Green"
+
+  dragon_statue_gold:
+    name: "Gold Dragon Statue"
+    type: "encounter"
+    description: "A gilded dragon that glints even in the shade"
+    sprite: "dragon_statue"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
+      choice_prompt: "Place a statuette?"
+      choices:
+        - text: "Leave"
+          action: "leave"
+    summons:
+      - statuette: "Gold Dragon Statuette"
+        monster: "dragon_gold"
+        label: "Gold"
+
+  prison:
+    name: "Mountain Prison"
+    type: "encounter"
+    description: "A grim stockade of black iron, two elf jailers pacing the gate"
+    sprite: "prison"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 5.0
+    dialogue:
+      greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
+      choice_prompt: "Free the prisoners?"
+      choices:
+        - text: "Break them out (fight the jailers)"
+          action: "combat"
+        - text: "Leave"
+          action: "leave"
+    encounter:
+      type: "prison_break"
+      first_visit_only: true
+      start_message: "The elf jailers draw steel!"
+      monsters:
+        - type: "elf_swordsman"
+          count_min: 2
+          count_max: 2
+      rewards:
+        experience: 0
+        completion_message: "The cages spring open — the imprisoned champions head for the tavern to await you."
+        frees_captives: true
+
+  tavern:
+    name: "The Wandering Wyvern"
+    type: "encounter"
+    description: "A cozy timber tavern; off-duty heroes nurse their drinks here"
+    sprite: "tavern"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "The keeper nods. 'Your benched companions rest here. Care to shuffle the party?'"
+      choice_prompt: "Manage your roster?"
+      choices:
+        - text: "Manage roster"
+          action: "open_roster"
+        - text: "Leave"
+          action: "leave"
+
+  mage_tower:
+    name: "Mage Tower"
+    type: "encounter"
+    description: "A slender spire of pale stone, humming faintly with warded power"
+    sprite: "mage_tower"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
+      choice_prompt: "The Mage Tower awaits."
+      choices:
+        - text: "Accept the trial (slay the Lich King)"
+          action: "give_quest"
+          quest_id: "archmage_trial"
+        - text: "I have slain the Lich King"
+          action: "turn_in_quest"
+          quest_id: "archmage_trial"
+        - text: "Leave"
+          action: "leave"
+
   abandoned_church:
     name: "Abandoned Church"
     type: "encounter"
@@ -175,6 +321,132 @@ npcs:
         - text: "Stay inside"
           action: "leave"
 
+  pyramid_entrance:
+    name: "Ancient Pyramid"
+    type: "encounter"
+    description: "A sun-baked pyramid with a narrow stairway descending into darkness"
+    sprite: "pyramid_entrance"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the pyramid"
+          action: "enter_map"
+          map: "pyramid_1"
+        - text: "Leave it alone"
+          action: "leave"
+
+  pyramid_exit:
+    name: "Pyramid Entrance"
+    type: "encounter"
+    description: "The stairway back out of the pyramid"
+    sprite: "pyramid_stairs_up"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "Warm daylight spills down the sandstone stairs behind you."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Leave the pyramid"
+          action: "enter_map"
+          map: "desert"
+        - text: "Stay inside"
+          action: "leave"
+
+  pyramid_stairs_to_1:
+    name: "Stairs to Level 1"
+    type: "encounter"
+    description: "Sandstone stairs leading upward"
+    sprite: "pyramid_stairs_up"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "The stairs climb toward the upper chambers."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to level 1"
+          action: "enter_map"
+          map: "pyramid_1"
+        - text: "Stay here"
+          action: "leave"
+
+  pyramid_stairs_to_2:
+    name: "Stairs to Level 2"
+    type: "encounter"
+    description: "Sandstone stairs leading deeper"
+    sprite: "pyramid_stairs_down"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "The stairs descend into a colder, darker level of the pyramid."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to level 2"
+          action: "enter_map"
+          map: "pyramid_2"
+        - text: "Stay here"
+          action: "leave"
+
+  pyramid_stairs_to_3:
+    name: "Stairs to the Sanctum"
+    type: "encounter"
+    description: "A narrow stairway toward the sealed sanctum"
+    sprite: "pyramid_stairs_down"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 3
+    dialogue:
+      greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Go to the sanctum"
+          action: "enter_map"
+          map: "pyramid_3"
+        - text: "Stay here"
+          action: "leave"
+
+  lich_nexus_entrance:
+    name: "Lich Nexus"
+    type: "encounter"
+    description: "A black stone arch humming with trapped souls"
+    sprite: "lich_nexus_entrance"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the nexus"
+          action: "enter_map"
+          map: "lich_nexus"
+        - text: "Step away"
+          action: "leave"
+
+  lich_nexus_exit:
+    name: "Nexus Portal"
+    type: "encounter"
+    description: "A portal back to the living world"
+    sprite: "lich_nexus_exit"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue:
+      greeting: "The portal flickers with a path away from the liches' hall."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Leave the nexus"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay inside"
+          action: "leave"
+
   seabright_gate:
     name: "Seabright Gate"
     type: "encounter"
@@ -191,6 +463,45 @@ npcs:
           action: "enter_map"
           map: "city"
         - text: "Stay in the forest"
+          action: "leave"
+
+  # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
+  # nothing at all; ground_tile paints the portal-stream tile under the gate so
+  # the party steps onto shimmering water. Triggered with the interact key.
+  portal_gate_highlands:
+    name: "Mountain Path"
+    type: "encounter"
+    description: "A shimmer over the stream — a path toward the misty highlands"
+    sprite: ""
+    ground_tile: "forest_portal_stream"
+    transparent: true
+    size_multiplier: 1
+    dialogue:
+      greeting: "The water shimmers with a cold mountain light. A path to the misty highlands opens beyond."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Travel to the highlands"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay in the forest"
+          action: "leave"
+
+  portal_gate_forest:
+    name: "Forest Path"
+    type: "encounter"
+    description: "The shimmer that leads back down to the forest"
+    sprite: ""
+    ground_tile: "highlands_stream"
+    transparent: true
+    size_multiplier: 1
+    dialogue:
+      greeting: "The mountain mist parts, revealing the green path back down to the forest."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the forest"
+          action: "enter_map"
+          map: "forest"
+        - text: "Stay in the highlands"
           action: "leave"
 
   city_exit:

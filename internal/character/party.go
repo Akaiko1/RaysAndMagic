@@ -10,6 +10,66 @@ type Party struct {
 	Gold      int
 	Food      int
 	Inventory []items.Item
+	// Reserve holds benched heroes available at the tavern (swappable into the
+	// active party). They keep all gear/XP/skills and level alongside the party.
+	Reserve []*MMCharacter
+	// Captive holds heroes still imprisoned (e.g. the mountain prison). They also
+	// level alongside the party from the start, but aren't usable until freed —
+	// clearing the prison moves them into Reserve.
+	Captive []*MMCharacter
+}
+
+// FreeCaptives moves all imprisoned heroes into the reserve roster and returns
+// the freed heroes (for messaging). No-op if there are none.
+func (p *Party) FreeCaptives() []*MMCharacter {
+	freed := p.Captive
+	p.Reserve = append(p.Reserve, p.Captive...)
+	p.Captive = nil
+	return freed
+}
+
+// Recruit adds a hero to the reserve roster (e.g. rescued from the prison).
+func (p *Party) Recruit(c *MMCharacter) {
+	if c != nil {
+		p.Reserve = append(p.Reserve, c)
+	}
+}
+
+// SwapActiveReserve exchanges an active party member with a reserve member.
+// The party stays at the same size; the benched member moves to the reserve
+// slot the new active member came from. All state rides along on the pointers.
+func (p *Party) SwapActiveReserve(activeIdx, reserveIdx int) bool {
+	if activeIdx < 0 || activeIdx >= len(p.Members) ||
+		reserveIdx < 0 || reserveIdx >= len(p.Reserve) {
+		return false
+	}
+	p.Members[activeIdx], p.Reserve[reserveIdx] = p.Reserve[reserveIdx], p.Members[activeIdx]
+	return true
+}
+
+
+// Fallback rosters used when config.yaml omits the lists (keeps older/minimal
+// configs and tests working). The canonical roster lives in config.yaml.
+var defaultStartingParty = []config.RosterEntry{
+	{Name: "Gareth", Class: "knight"},
+	{Name: "Lysander", Class: "sorcerer"},
+	{Name: "Celestine", Class: "cleric"},
+	{Name: "Silvelyn", Class: "archer"},
+}
+
+var defaultCaptives = []config.RosterEntry{
+	{Name: "Auberon", Class: "paladin"},
+	{Name: "Mirelle", Class: "druid"},
+}
+
+// createRosterCharacter builds a roster hero from a config entry, or nil on an
+// unknown class key.
+func createRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacter {
+	class, ok := ClassFromKey(e.Class)
+	if !ok {
+		return nil
+	}
+	return CreateCharacter(e.Name, class, cfg)
 }
 
 func NewParty(cfg *config.Config) *Party {
@@ -20,11 +80,27 @@ func NewParty(cfg *config.Config) *Party {
 		Inventory: make([]items.Item, 0),
 	}
 
-	// Create starting party with classic classes
-	party.AddMember(CreateCharacter("Gareth", ClassKnight, cfg))
-	party.AddMember(CreateCharacter("Lysander", ClassSorcerer, cfg))
-	party.AddMember(CreateCharacter("Celestine", ClassCleric, cfg))
-	party.AddMember(CreateCharacter("Silvelyn", ClassArcher, cfg))
+	// Build the starting roster from config (data-driven). Active party + the
+	// imprisoned captives that train alongside it. Falls back to the classic
+	// roster if a config omits the lists (older configs / minimal test configs).
+	active := cfg.Characters.StartingParty
+	captives := cfg.Characters.Captives
+	if len(active) == 0 {
+		active = defaultStartingParty
+	}
+	if len(captives) == 0 {
+		captives = defaultCaptives
+	}
+	for _, e := range active {
+		if c := createRosterCharacter(e, cfg); c != nil {
+			party.AddMember(c)
+		}
+	}
+	for _, e := range captives {
+		if c := createRosterCharacter(e, cfg); c != nil {
+			party.Captive = append(party.Captive, c)
+		}
+	}
 
 	// Add some starting items using YAML definitions
 	party.AddItem(items.CreateWeaponFromYAML("iron_spear"))
@@ -35,6 +111,17 @@ func NewParty(cfg *config.Config) *Party {
 	party.AddItem(items.CreateItemFromYAML("world_map"))
 
 	return party
+}
+
+// HasLich reports whether any living-or-dead party member has been promoted to
+// a Lich. Used to gate the Mage Tower and to enrage otherwise-passive monsters.
+func (p *Party) HasLich() bool {
+	for _, m := range p.Members {
+		if m != nil && m.IsLich() {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Party) AddMember(character *MMCharacter) {

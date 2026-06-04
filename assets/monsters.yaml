@@ -123,6 +123,7 @@ monsters:
       - "empty"
 
   skeleton:
+    type: "undead"
     name: "Skeleton"
     level: 3
     max_hit_points: 86
@@ -146,6 +147,90 @@ monsters:
       light: -50
     habitat_preferences:
       - "empty"
+
+  mummy:
+    type: "undead"
+    name: "Mummy"
+    level: 5
+    max_hit_points: 180
+    armor_class: 10
+    experience: 180
+    damage_min: 12
+    damage_max: 20
+    poison_chance: 0.20
+    poison_duration_seconds: 15
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.0
+    gold_min: 15
+    gold_max: 55
+    sprite: "mummy"
+    letter: "m"
+    box_w: 48
+    box_h: 48
+    size_game: 5.0
+    biomes: ["pyramid"]
+    resistances:
+      mind: 100
+      body: 40
+      fire: -25
+      dark: 50
+    habitat_preferences:
+      - "pyramid_floor"
+
+  minotaur:
+    name: "Minotaur"
+    level: 8
+    max_hit_points: 360
+    armor_class: 13
+    experience: 620
+    damage_min: 24
+    damage_max: 38
+    attacks_per_round: 2
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.4
+    gold_min: 60
+    gold_max: 160
+    sprite: "minotaur"
+    letter: "n"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["pyramid"]
+    resistances:
+      physical: 25
+    habitat_preferences:
+      - "pyramid_floor"
+
+  isis:
+    name: "Isis"
+    level: 11
+    max_hit_points: 460
+    armor_class: 14
+    perfect_dodge: 10
+    experience: 950
+    damage_min: 20
+    damage_max: 32
+    projectile_spell: "lightning"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.7
+    gold_min: 120
+    gold_max: 260
+    sprite: "isis"
+    letter: "i"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["pyramid"]
+    resistances:
+      air: 50
+      mind: 40
+      physical: 15
+    habitat_preferences:
+      - "pyramid_floor"
 
   troll:
     name: "Troll"
@@ -174,6 +259,7 @@ monsters:
       - "empty"
 
   dragon:
+    type: "dragon"
     name: "Dragon"
     level: 15
     max_hit_points: 1100
@@ -205,6 +291,101 @@ monsters:
       - "empty"
       - "desert_dune"
       - "large_dune"
+
+  # Elemental dragon variants — the 4 main-quest dragons in the desert corners
+  # are one of each (base `dragon` = fire, plus the three below). ALL share
+  # name "Dragon" so the dragon_slayer quest (matches by name) counts every
+  # color toward the 4-kill victory. Same lvl-15 power tier as the base dragon;
+  # they differ only in element (resists / projectile / proc) for variety.
+  dragon_red:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 18
+    experience: 2000
+    damage_min: 30
+    damage_max: 50
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_red"
+    flying: true
+    letter: "r"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      dark: 90
+      physical: 50
+      fire: 40
+    habitat_preferences:
+      - "empty"
+
+  dragon_green:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 20            # tankier: melee-only, no ranged attack
+    experience: 2000
+    damage_min: 32
+    damage_max: 52
+    poison_chance: 0.33
+    poison_duration_seconds: 20
+    alert_radius: 5
+    attack_radius: 2
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_green"
+    flying: true
+    letter: "e"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      earth: 90
+      physical: 60
+      fire: -25                # nature dragon: vulnerable to fire
+    habitat_preferences:
+      - "empty"
+
+  dragon_gold:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1050       # a bit squishier but faster + longer reach
+    armor_class: 18
+    experience: 2000
+    damage_min: 28
+    damage_max: 46
+    alert_radius: 6
+    attack_radius: 2
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+    speed: 4.5                  # storm dragon: fast
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_gold"
+    flying: true
+    letter: "y"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["desert"]
+    resistances:
+      air: 90
+      physical: 50
+      water: -25               # vulnerable to water/ice
+    habitat_preferences:
+      - "empty"
 
   # Forest-specific monsters
   forest_orc:
@@ -465,6 +646,258 @@ monsters:
     habitat_preferences:
       - "empty"
 
+  # ---------------------------------------------------------------------------
+  # Highlands monsters (target party levels 6-12), ascending power. Biome-scoped
+  # to "highlands" and distributed by habitat: beasts/archers in heather & rocks,
+  # knights/casters near ruins, the lich by the slate tombs. HP/AC/dmg/xp
+  # interpolate the existing curve (troll L6 ~160 HP → dragon L15 ~1100 HP).
+  # ---------------------------------------------------------------------------
+
+  # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
+  puma:
+    name: "Puma"
+    level: 6
+    max_hit_points: 150
+    armor_class: 11
+    experience: 280
+    damage_min: 14
+    damage_max: 22
+    perfect_dodge: 20
+    alert_radius: 6
+    attack_radius: 1
+    speed: 2.3
+    gold_min: 5
+    gold_max: 25
+    sprite: "puma"
+    letter: "c"
+    box_w: 48
+    box_h: 48
+    size_game: 5.0
+    biomes: ["highlands"]
+    pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
+    pounce_cooldown_seconds: 4
+    resistances: {}
+    habitat_preferences:
+      - "highlands_floor"
+      - "highlands_heather"
+    habitat_near:
+      - type: "highlands_rock_outcrop"
+        radius: 4
+
+  # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
+  elf_archer:
+    name: "Elf Archer"
+    level: 7
+    max_hit_points: 190
+    armor_class: 11
+    experience: 380
+    damage_min: 16
+    damage_max: 26
+    perfect_dodge: 10
+    projectile_weapon: "hunting_bow"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.6
+    gold_min: 30
+    gold_max: 70
+    sprite: "elf_archer"
+    letter: "h"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["highlands"]
+    resistances: {}
+    habitat_preferences:
+      - "highlands_floor"
+      - "highlands_heather"
+    habitat_near:
+      - type: "highlands_pine"
+        radius: 3
+
+  # L9 — armored elf knight. High AC + physical resist, melee bruiser.
+  elf_swordsman:
+    name: "Elf Swordsman"
+    level: 9
+    max_hit_points: 320
+    armor_class: 14
+    experience: 520
+    damage_min: 22
+    damage_max: 34
+    alert_radius: 5
+    attack_radius: 1
+    speed: 1.5
+    passive_until_attacked: true   # elf warriors won't aggro unless struck (or a Lich is in the party)
+    gold_min: 40
+    gold_max: 100
+    sprite: "elf_swordsman"
+    letter: "j"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["highlands"]
+    resistances:
+      physical: 30
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_ruin_wall"
+        radius: 4
+
+  # L10 — brute. Huge HP, hits hard, slow; resists physical, burns to fire.
+  mountain_troll:
+    name: "Mountain Troll"
+    level: 10
+    max_hit_points: 480
+    armor_class: 13
+    experience: 720
+    damage_min: 28
+    damage_max: 44
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.1
+    gold_min: 50
+    gold_max: 150
+    sprite: "mountain_troll"
+    letter: "v"
+    box_w: 48
+    box_h: 48
+    size_game: 12.0
+    biomes: ["highlands"]
+    resistances:
+      physical: 40
+      fire: -25
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_boulder"
+        radius: 3
+
+  # L11 — glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
+  archmage:
+    name: "Archmage"
+    level: 11
+    max_hit_points: 360
+    armor_class: 12
+    experience: 880
+    damage_min: 16
+    damage_max: 26
+    projectile_spell: "fireball"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    passive_until_attacked: true   # archmages stay neutral unless attacked (or a Lich is in the party)
+    speed: 1.5
+    gold_min: 100
+    gold_max: 250
+    sprite: "archmage"
+    letter: "z"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["highlands"]
+    resistances:
+      fire: 50
+      dark: 30
+    habitat_preferences:
+      - "highlands_floor"
+    habitat_near:
+      - type: "highlands_ruin_wall"
+        radius: 4
+
+  # L12 — undead caster mini-boss (top of the 6-12 band, below dragons). Dark
+  # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
+  lich:
+    type: "undead"
+    name: "Lich"
+    level: 12
+    max_hit_points: 620
+    armor_class: 15
+    experience: 1300
+    damage_min: 24
+    damage_max: 36
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 5
+    alert_radius: 7
+    attack_radius: 5
+    speed: 1.4
+    gold_min: 200
+    gold_max: 500
+    sprite: "lich"
+    letter: "q"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["highlands", "lich_nexus"]
+    resistances:
+      dark: 75
+      physical: 40
+      fire: -25
+    habitat_preferences:
+      - "highlands_floor"
+      - "lich_nexus_floor"
+    habitat_near:
+      - type: "highlands_slate_wall"
+        radius: 4
+
+  revenant:
+    type: "undead"
+    name: "Revenant"
+    level: 10
+    max_hit_points: 420
+    armor_class: 14
+    experience: 760
+    damage_min: 24
+    damage_max: 38
+    alert_radius: 6
+    attack_radius: 1
+    speed: 1.3
+    gold_min: 80
+    gold_max: 180
+    sprite: "revenant"
+    letter: "r"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["lich_nexus"]
+    resistances:
+      dark: 60
+      physical: 35
+      fire: -20
+      light: -35
+    habitat_preferences:
+      - "lich_nexus_floor"
+
+  lich_king:
+    type: "undead"
+    name: "Lich King"
+    level: 14
+    max_hit_points: 900
+    armor_class: 18
+    experience: 1800
+    damage_min: 32
+    damage_max: 52
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 6
+    alert_radius: 8
+    attack_radius: 6
+    speed: 1.2
+    gold_min: 400
+    gold_max: 900
+    sprite: "lich_king"
+    letter: "k"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["lich_nexus"]
+    resistances:
+      dark: 90
+      physical: 45
+      fire: -20
+      light: -50
+    habitat_preferences:
+      - "lich_nexus_floor"
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0
@@ -493,3 +926,13 @@ tile_types:
   fallen_log: 10
   boulder: 11
   flower_patch: 12
+  highlands_floor: 13
+  highlands_pine: 14
+  highlands_rock_outcrop: 15
+  highlands_boulder: 16
+  highlands_heather: 17
+  highlands_stream: 18
+  highlands_ruin_wall: 19
+  highlands_slate_wall: 20
+  pyramid_floor: 21
+  lich_nexus_floor: 22

@@ -10,24 +10,46 @@ import (
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
-	Gold              int                  `yaml:"gold"`
-	Experience        int                  `yaml:"experience"`
-	CompletionMessage string               `yaml:"completion_message"`       // Configurable message shown when encounter is completed
-	TreasureChest     *TreasureChestReward `yaml:"treasure_chest,omitempty"` // Optional chest spawned when encounter is completed
-	QuestID           string               `yaml:"-"`                        // Quest ID linked to this encounter (set at runtime, not from YAML)
+	Gold              int                   `yaml:"gold"`
+	Experience        int                   `yaml:"experience"`
+	CompletionMessage string                `yaml:"completion_message"`        // Configurable message shown when encounter is completed
+	TreasureChest     *TreasureChestReward  `yaml:"treasure_chest,omitempty"`  // Optional chest spawned when encounter is completed
+	TreasureChests    []TreasureChestReward `yaml:"treasure_chests,omitempty"` // Optional chests spawned when encounter is completed
+	QuestID           string                `yaml:"-"`                         // Quest ID linked to this encounter (set at runtime, not from YAML)
+	FreesCaptives     bool                  `yaml:"frees_captives,omitempty"`  // On clear, move the party's imprisoned heroes into the reserve roster
 }
 
 // TreasureChestReward describes a chest spawned after an encounter is cleared.
 type TreasureChestReward struct {
-	ID                string  `yaml:"id,omitempty"`
-	Map               string  `yaml:"map,omitempty"`
-	TileX             int     `yaml:"tile_x"`
-	TileY             int     `yaml:"tile_y"`
-	Sprite            string  `yaml:"sprite,omitempty"`
-	SizeMultiplier    float64 `yaml:"size_multiplier,omitempty"`
-	RandomWeaponCount int     `yaml:"random_weapon_count,omitempty"`
-	Gold              int     `yaml:"gold,omitempty"`
-	CompletionMessage string  `yaml:"completion_message,omitempty"`
+	ID                string   `yaml:"id,omitempty"`
+	Map               string   `yaml:"map,omitempty"`
+	TileX             int      `yaml:"tile_x"`
+	TileY             int      `yaml:"tile_y"`
+	Sprite            string   `yaml:"sprite,omitempty"`
+	SizeMultiplier    float64  `yaml:"size_multiplier,omitempty"`
+	RandomWeaponCount int      `yaml:"random_weapon_count,omitempty"`
+	Items             []string `yaml:"items,omitempty"`
+	Weapons           []string `yaml:"weapons,omitempty"`
+	Gold              int      `yaml:"gold,omitempty"`
+	CompletionMessage string   `yaml:"completion_message,omitempty"`
+}
+
+// PartyTraits holds the party's currently-active "traits" (e.g. "lich"),
+// refreshed once per frame before monster updates. A passive monster turns
+// hostile on sight only if one of ITS hated traits (HatesTraits, from hates.yaml)
+// is present here — so a Lich enrages just archmages and elf warriors, not every
+// passive monster. Mutated in place to avoid per-frame allocation.
+var PartyTraits = map[string]bool{}
+
+// HatesActiveTrait reports whether any of this monster's hated party traits is
+// currently active — i.e. whether a passive monster should turn hostile on sight.
+func (m *Monster3D) HatesActiveTrait() bool {
+	for _, t := range m.HatesTraits {
+		if PartyTraits[t] {
+			return true
+		}
+	}
+	return false
 }
 
 // Global counter for unique monster IDs
@@ -44,6 +66,7 @@ type Monster3D struct {
 	X, Y         float64
 	Name         string
 	Key          string // YAML monster key (e.g. "bandit"); used to match encounter monster requirements
+	MonsterType  string // creature category from YAML, e.g. "undead" (empty = generic)
 	Level        int
 	HitPoints    int
 	MaxHitPoints int
@@ -97,11 +120,15 @@ type Monster3D struct {
 	AttackAnimFrames         int     // Frames remaining for attack animation (TB mode)
 	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining      int     // Real-time stun duration in frames
+	Charmed                  bool    // Bound to the party (bind_undead): fights other monsters, ignores party
+	CharmFramesRemaining     int     // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	CharmAttackCD            int     // RT cadence counter between charmed attacks
 	Flying                   bool    // Whether the monster should be rendered above ground
 	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
 	AttacksPerRound          int     // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool    // True when the monster should not aggro until hit
-	AttackCooldownMultiplier float64 // Real-time attack cooldown multiplier (0.5 = twice as often)
+	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
+	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
 	FireburstChance          float64 // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int     // Fireburst damage min
 	FireburstDamageMax       int     // Fireburst damage max
@@ -121,6 +148,13 @@ type Monster3D struct {
 	// Ranged attack configuration
 	ProjectileSpell  string
 	ProjectileWeapon string
+
+	// Pounce/leap: PounceRangePixels > 0 enables it. Runtime cooldowns are
+	// tracked separately per mode (frames in real-time, turns in turn-based).
+	PounceRangePixels     float64
+	PounceCooldownSeconds float64
+	PounceCDFrames        int // real-time cooldown countdown (frames)
+	PounceCDTurns         int // turn-based cooldown countdown (turns)
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -168,8 +202,18 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 }
 
 func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playerY float64) int {
-	// Apply resistance
+	return m.TakeDamageResist(damage, damageType, 0, playerX, playerY)
+}
+
+// TakeDamageResist is TakeDamage with resistance piercing: resistPiercePct (0..100)
+// of the target's resistance to damageType is ignored before reduction. Used by
+// Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
+func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
+	// Apply resistance (reduced by any piercing)
 	if resistance, exists := m.Resistances[damageType]; exists {
+		if resistPiercePct > 0 {
+			resistance = resistance * (100 - resistPiercePct) / 100
+		}
 		damage = damage * (100 - resistance) / 100
 		if damage < 0 {
 			damage = 0
@@ -220,6 +264,11 @@ func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
 }
 
+// CanPounce reports whether the monster has the leap ability configured.
+func (m *Monster3D) CanPounce() bool {
+	return m.PounceRangePixels > 0
+}
+
 // GetAttackRangePixels returns the effective attack range in pixels.
 // For ranged monsters, this uses the projectile range from config when available.
 func (m *Monster3D) GetAttackRangePixels() float64 {
@@ -260,16 +309,17 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 }
 
 func (m *Monster3D) GetSpriteType() string {
-	// Get sprite from config
+	// Resolve by the monster's own KEY (always set by NewMonster3DFromConfig),
+	// never by name: several monsters can share a display Name (the 4 elemental
+	// dragons are all "Dragon"), and a name scan returns a random match per call
+	// (Go map order) — which made dragons flicker through every color each frame.
 	if MonsterConfig != nil {
-		for _, def := range MonsterConfig.Monsters {
-			if def.Name == m.Name {
-				return def.GetSpriteFromConfig()
-			}
+		if def, err := MonsterConfig.GetMonsterByKey(m.Key); err == nil {
+			return def.GetSpriteFromConfig()
 		}
 	}
 
-	// Fallback if config not loaded or monster not found
+	// Fallback if config not loaded or key unknown.
 	return "goblin"
 }
 

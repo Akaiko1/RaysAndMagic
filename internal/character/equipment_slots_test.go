@@ -73,9 +73,9 @@ func TestEquipmentStatBonusesFromYAML(t *testing.T) {
 
 	_, intellect, personality, endurance, _, _, _ := character.GetEffectiveStats(0)
 
-	wantInt := 30 + (30 / 6)   // 35
-	wantPer := 25 + (25 / 8)   // 28
-	wantEnd := 20              // ring has no endurance bonus
+	wantInt := 30 + (30 / 6) // 35
+	wantPer := 25 + (25 / 8) // 28
+	wantEnd := 20            // ring has no endurance bonus
 
 	if intellect != wantInt {
 		t.Errorf("intellect: got %d, want %d", intellect, wantInt)

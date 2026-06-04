@@ -101,6 +101,9 @@ type WorldConfig struct {
 type MovementConfig struct {
 	MoveSpeed     float64 `yaml:"move_speed"`
 	RotationSpeed float64 `yaml:"rotation_speed"`
+	// RunMultiplier scales real-time translation speed while the run key (Shift)
+	// is held. <= 1 (or absent) falls back to RunMultiplierDefault.
+	RunMultiplier float64 `yaml:"run_multiplier"`
 }
 
 // ProjectilePhysicsConfig is the unified config for all projectile physics (spells, arrows, etc.)
@@ -125,8 +128,10 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 	if p.SpeedTiles <= 0 {
 		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
-	// lifetime = range / speed * tps (frames per second)
-	return int((p.RangeTiles / p.SpeedTiles) * float64(GetTargetTPS()))
+	// lifetime = range / speed * tps (frames per second). Round (not truncate) so
+	// the projectile travels as close to range_tiles as discrete frames allow —
+	// truncation left a few weapons ~1 frame short of their stated range.
+	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
 }
 
 // GetCollisionSizePixels returns collision size in pixels for the game engine
@@ -172,11 +177,21 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
-	StartingGold int                   `yaml:"starting_gold"`
-	StartingFood int                   `yaml:"starting_food"`
-	HitPoints    HitPointsConfig       `yaml:"hit_points"`
-	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
-	Classes      map[string]ClassStats `yaml:"classes"`
+	StartingGold  int                   `yaml:"starting_gold"`
+	StartingFood  int                   `yaml:"starting_food"`
+	HitPoints     HitPointsConfig       `yaml:"hit_points"`
+	SpellPoints   SpellPointsConfig     `yaml:"spell_points"`
+	Classes       map[string]ClassStats `yaml:"classes"`
+	StartingParty []RosterEntry         `yaml:"starting_party,omitempty"`
+	Captives      []RosterEntry         `yaml:"captives,omitempty"`
+}
+
+// RosterEntry defines one starting hero (active party or imprisoned captive).
+// Class is a class key (knight/paladin/...); Name is the display name (and,
+// lowercased, the portrait sprite key — falls back to the class sprite).
+type RosterEntry struct {
+	Name  string `yaml:"name"`
+	Class string `yaml:"class"`
 }
 
 type HitPointsConfig struct {
@@ -224,6 +239,38 @@ type SpellDefinitionConfig struct {
 	IsUtility      bool    `yaml:"is_utility"`
 	StatusIcon     string  `yaml:"status_icon,omitempty"`
 
+	// Damage-formula modifiers (data-driven; default behaviour when unset).
+	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost × SpellDamagePerSP × this (default 1)
+	ScalesWithPersonality bool `yaml:"scales_with_personality,omitempty"` // also add Personality/divisor to spell damage
+
+	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
+	// every monster within that radius of the caster — no damage. RT uses
+	// seconds×TPS frames, TB uses StunDurationTurns.
+	StunRadiusTiles     float64 `yaml:"stun_radius_tiles,omitempty"`
+	StunDurationSeconds int     `yaml:"stun_duration_seconds,omitempty"`
+	StunDurationTurns   int     `yaml:"stun_duration_turns,omitempty"`
+
+	// DealsNoDamage zeroes the projectile's direct damage (e.g. Disintegrate,
+	// whose only effect is its disintegrate_chance instakill roll on hit).
+	DealsNoDamage bool `yaml:"deals_no_damage,omitempty"`
+
+	// Party combat buffs (applied for `duration` seconds). Day of the Gods sets
+	// ResistBuffPct; Hour of Power sets OutgoingDamageBonus + IncomingDamageReduction.
+	ResistBuffPct           int `yaml:"resist_buff_pct,omitempty"`           // % reduction of all incoming party damage
+	OutgoingDamageBonus     int `yaml:"outgoing_damage_bonus,omitempty"`     // flat add to all party outgoing damage
+	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
+
+	// Charm (bind_undead): on hit, takes control of an UNDEAD target for the
+	// duration — it fights other monsters and ignores the party. No effect on
+	// non-undead. Dies (party XP, no loot) when the party leaves the map.
+	Charm                bool `yaml:"charm,omitempty"`
+	CharmDurationSeconds int  `yaml:"charm_duration_seconds,omitempty"`
+
+	// Resurrect: restores a fallen ally (incl. eradicated, unlike a revival
+	// potion). FullHeal restores them to maximum HP.
+	Revive   bool `yaml:"revive,omitempty"`
+	FullHeal bool `yaml:"full_heal,omitempty"`
+
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
 	StatBonus   int     `yaml:"stat_bonus,omitempty"`
@@ -267,12 +314,24 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig        `yaml:"colors"`
-	Sprite             SpriteConfig        `yaml:"sprite"`
-	BrightnessMin      float64             `yaml:"brightness_min"`
-	Monster            MonsterRenderConfig `yaml:"monster"`
-	NPC                NPCRenderConfig     `yaml:"npc"`
+	RaysPerScreenWidth int                  `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig         `yaml:"colors"`
+	Sprite             SpriteConfig         `yaml:"sprite"`
+	BrightnessMin      float64              `yaml:"brightness_min"`
+	Monster            MonsterRenderConfig  `yaml:"monster"`
+	NPC                NPCRenderConfig      `yaml:"npc"`
+	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
+}
+
+// ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
+// ground edges of impassable billboard tiles (rocks/cliffs) so the player can
+// tell which tiles block movement. Zero/absent numeric fields fall back to
+// in-code defaults; Enabled defaults off unless set in config.yaml.
+type ImpassableAuraConfig struct {
+	Enabled        bool    `yaml:"enabled"`
+	RadiusTiles    int     `yaml:"radius_tiles"`     // scan radius around the camera, in tiles
+	BubblesPerEdge int     `yaml:"bubbles_per_edge"` // particle columns per walkable-facing edge
+	Alpha          float64 `yaml:"alpha"`            // base glow alpha (0..1)
 }
 
 type ColorsConfig struct {
@@ -317,22 +376,22 @@ type TileLightConfig struct {
 }
 
 type TileData struct {
-	Name                string                 `yaml:"name"`
-	Type                string                 `yaml:"type,omitempty"`
-	Solid               bool                   `yaml:"solid"`
-	Transparent         bool                   `yaml:"transparent"`
-	Walkable            bool                   `yaml:"walkable"`
-	HeightMultiplier    float64                `yaml:"height_multiplier"`
-	Sprite              string                 `yaml:"sprite"`
-	RenderType          string                 `yaml:"render_type"`
-	FloorColor          [3]int                 `yaml:"floor_color"`
-	FloorNearColor      [3]int                 `yaml:"floor_near_color"`
+	Name             string  `yaml:"name"`
+	Type             string  `yaml:"type,omitempty"`
+	Solid            bool    `yaml:"solid"`
+	Transparent      bool    `yaml:"transparent"`
+	Walkable         bool    `yaml:"walkable"`
+	HeightMultiplier float64 `yaml:"height_multiplier"`
+	Sprite           string  `yaml:"sprite"`
+	RenderType       string  `yaml:"render_type"`
+	FloorColor       [3]int  `yaml:"floor_color"`
+	FloorNearColor   [3]int  `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
 	// bordering water — see the renderer.
-	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
+	FloorTextureGroup   string                 `yaml:"floor_texture_group,omitempty"`
 	WallColor           [3]int                 `yaml:"wall_color"`
 	Letter              string                 `yaml:"letter"`
 	Biomes              []string               `yaml:"biomes,omitempty"`
@@ -346,12 +405,12 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string                   `yaml:"name"`
-	File              string                   `yaml:"file"`
-	Biome             string                   `yaml:"biome"`
-	SkyColor          [3]int                   `yaml:"sky_color"`
-	SkyTexture        string                   `yaml:"sky_texture,omitempty"`
-	DefaultFloorColor [3]int                   `yaml:"default_floor_color"`
+	Name              string `yaml:"name"`
+	File              string `yaml:"file"`
+	Biome             string `yaml:"biome"`
+	SkyColor          [3]int `yaml:"sky_color"`
+	SkyTexture        string `yaml:"sky_texture,omitempty"`
+	DefaultFloorColor [3]int `yaml:"default_floor_color"`
 	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
@@ -387,22 +446,25 @@ type MapEncounterMonsterReq struct {
 }
 
 type MapEncounterRewardsConfig struct {
-	Gold              int                           `yaml:"gold"`
-	Experience        int                           `yaml:"experience"`
-	CompletionMessage string                        `yaml:"completion_message,omitempty"`
-	TreasureChest     *MapTreasureChestRewardConfig `yaml:"treasure_chest,omitempty"`
+	Gold              int                            `yaml:"gold"`
+	Experience        int                            `yaml:"experience"`
+	CompletionMessage string                         `yaml:"completion_message,omitempty"`
+	TreasureChest     *MapTreasureChestRewardConfig  `yaml:"treasure_chest,omitempty"`
+	TreasureChests    []MapTreasureChestRewardConfig `yaml:"treasure_chests,omitempty"`
 }
 
 type MapTreasureChestRewardConfig struct {
-	ID                string  `yaml:"id,omitempty"`
-	Map               string  `yaml:"map,omitempty"`
-	TileX             int     `yaml:"tile_x"`
-	TileY             int     `yaml:"tile_y"`
-	Sprite            string  `yaml:"sprite,omitempty"`
-	SizeMultiplier    float64 `yaml:"size_multiplier,omitempty"` // Visual scale; defaults to 0.45 if unset
-	RandomWeaponCount int     `yaml:"random_weapon_count,omitempty"`
-	Gold              int     `yaml:"gold,omitempty"`
-	CompletionMessage string  `yaml:"completion_message,omitempty"`
+	ID                string   `yaml:"id,omitempty"`
+	Map               string   `yaml:"map,omitempty"`
+	TileX             int      `yaml:"tile_x"`
+	TileY             int      `yaml:"tile_y"`
+	Sprite            string   `yaml:"sprite,omitempty"`
+	SizeMultiplier    float64  `yaml:"size_multiplier,omitempty"` // Visual scale; defaults to 0.45 if unset
+	RandomWeaponCount int      `yaml:"random_weapon_count,omitempty"`
+	Items             []string `yaml:"items,omitempty"`
+	Weapons           []string `yaml:"weapons,omitempty"`
+	Gold              int      `yaml:"gold,omitempty"`
+	CompletionMessage string   `yaml:"completion_message,omitempty"`
 }
 
 type MapConfigs struct {
@@ -418,28 +480,32 @@ type WeaponSystemConfig struct {
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
 type WeaponDefinitionConfig struct {
 	// Basic weapon properties
-	Name               string             `yaml:"name"`
-	Description        string             `yaml:"description"`
-	Category           string             `yaml:"category"`
-	Damage             int                `yaml:"damage"`
-	Range              int                `yaml:"range"` // Range in tiles (for melee reach)
-	BonusStat          string             `yaml:"bonus_stat"`
-	BonusStatSecondary string             `yaml:"bonus_stat_secondary"`
-	DamageType         string             `yaml:"damage_type"`
-	MaxProjectiles     int                `yaml:"max_projectiles"`
-	CritChance         int                `yaml:"crit_chance"`
-	StunChance         float64            `yaml:"stun_chance"`
-	StunTurns          int                `yaml:"stun_turns"`
-	DisintegrateChance float64            `yaml:"disintegrate_chance,omitempty"`
+	Name               string  `yaml:"name"`
+	Description        string  `yaml:"description"`
+	Category           string  `yaml:"category"`
+	Damage             int     `yaml:"damage"`
+	Range              int     `yaml:"range"` // Range in tiles (for melee reach)
+	BonusStat          string  `yaml:"bonus_stat"`
+	BonusStatSecondary string  `yaml:"bonus_stat_secondary"`
+	DamageType         string  `yaml:"damage_type"`
+	MaxProjectiles     int     `yaml:"max_projectiles"`
+	CritChance         int     `yaml:"crit_chance"`
+	StunChance         float64 `yaml:"stun_chance"`
+	StunTurns          int     `yaml:"stun_turns"`
+	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes the weapon's projectile splash damage
 	// to every other monster within this radius (in tiles) of the primary
 	// hit. Same semantics as the spell field of the same name: splash uses
 	// the base damage, applies the victim's armor reduction, and skips
 	// crits/disintegrate/stun.
-	AoeRadiusTiles     float64            `yaml:"aoe_radius_tiles,omitempty"`
-	Rarity             string             `yaml:"rarity"`
-	Value              int                `yaml:"value,omitempty"`
-	BonusVs            map[string]float64 `yaml:"bonus_vs,omitempty"`
+	AoeRadiusTiles float64            `yaml:"aoe_radius_tiles,omitempty"`
+	Rarity         string             `yaml:"rarity"`
+	Value          int                `yaml:"value,omitempty"`
+	BonusVs        map[string]float64 `yaml:"bonus_vs,omitempty"`
+	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
+	// projectile render as a glowing spell-style orb of that school instead of a
+	// plain arrow. Cosmetic only; damage stays weapon-based.
+	ProjectileSchool string `yaml:"projectile_school,omitempty"`
 
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
@@ -633,7 +699,8 @@ type ItemDefinitionConfig struct {
 	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
 	Value       int    `yaml:"value,omitempty"`      // Gold value
 	Rarity      string `yaml:"rarity,omitempty"`
-	OpensMap    bool   `yaml:"opens_map,omitempty"` // Quest items that open the map overlay
+	OpensMap     bool `yaml:"opens_map,omitempty"`      // Quest items that open the map overlay
+	PromotesLich bool `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -783,6 +850,19 @@ func (c *Config) GetMapHeight() int {
 
 func (c *Config) GetMoveSpeed() float64 {
 	return c.Movement.MoveSpeed
+}
+
+// RunMultiplierDefault is the fallback run/sprint speed multiplier when the
+// config omits (or zeroes) movement.run_multiplier.
+const RunMultiplierDefault = 2.0
+
+// GetRunMultiplier returns the real-time sprint multiplier (Shift held),
+// falling back to RunMultiplierDefault when unset.
+func (c *Config) GetRunMultiplier() float64 {
+	if c.Movement.RunMultiplier > 1 {
+		return c.Movement.RunMultiplier
+	}
+	return RunMultiplierDefault
 }
 
 func (c *Config) GetRotSpeed() float64 {
