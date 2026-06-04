@@ -2976,23 +2976,22 @@ const arrowScreenAngle = -2.7
 // ones drop off), per the arrow spec.
 const arrowTrailCircles = 5
 
-// drawArrowBolt draws an arrow as a short line of touching round circles in the
+// drawArrowBolt draws an arrow as a short line of 5 touching crisp squares in the
 // bow's element colour, along `angle`. Perspective: the leading tip is smallest
-// and each circle toward the tail (nearer the camera) is slightly bigger. Drawn
-// source-over (no additive bloom) so the colour stays vivid, not a bright glow.
-// `head` sizes the tail (largest) circle; caller scales it by distance. Used in
-// flight (alpha 1) and frozen-on-hit (fading).
+// and each square toward the tail (nearer the camera) is slightly bigger. Drawn
+// source-over (no blur, no additive bloom) so the colour stays vivid.
+// `head` sizes the tail (largest) square; caller scales it by distance.
 func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float64, color [3]int, alpha float64) {
 	if head < 2 || alpha <= 0 {
 		return
 	}
 	ca, sa := math.Cos(angle), math.Sin(angle)
-	const n = arrowTrailCircles + 1 // tip + trail
+	const n = arrowTrailCircles // 5 squares
 	var px, py, sz [n]float64
 	pos, prevR := 0.0, 0.0
 	for k := 0; k < n; k++ {
 		t := float64(k) / float64(n-1)  // 0 tip → 1 tail
-		s := head * (0.25 + 0.25*t)     // small circles; tip smallest, tail biggest
+		s := head * (0.25 + 0.25*t)     // small squares; tip smallest, tail biggest
 		rr := s * 0.5
 		if k > 0 {
 			pos += (prevR + rr) * 0.5 // strong overlap — a near-continuous line
@@ -3000,10 +2999,10 @@ func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float
 		px[k], py[k], sz[k] = cx-ca*pos, cy-sa*pos, s
 		prevR = rr
 	}
-	// Soft additive glow circles (same look as the bolt, just smaller) with a
-	// faint bloom. Back-to-front so the leading tip is on top.
+	// Crisp source-over squares (no blur, no bloom) so the colour stays vivid.
+	// Back-to-front so the leading tip is on top.
 	for k := n - 1; k >= 0; k-- {
-		r.drawGlowSprite(screen, px[k], py[k], sz[k], color, alpha, additiveGlowBlend)
+		r.drawGlowRect(screen, px[k], py[k], sz[k], color, alpha, ebiten.BlendSourceOver)
 	}
 }
 
