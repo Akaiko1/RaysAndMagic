@@ -180,7 +180,9 @@ func (gl *GameLoop) updateProjectilesParallel() {
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
-	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanMoveTo)
+	// Projectiles fly over floor-level obstacles (chasms, water) and only stop at
+	// solid walls — unlike entity movement, which uses CanMoveTo.
+	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanProjectileMoveTo)
 
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
@@ -341,11 +343,26 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
+	// Tick down each party member's real-time action cooldown. Off in
+	// turn-based mode (which gates on action slots, not frame cooldowns).
+	if !gl.game.turnBasedMode {
+		for _, m := range gl.game.party.Members {
+			if m != nil && m.RTCooldown > 0 {
+				m.RTCooldown--
+			}
+		}
+	}
+
 	// Tick every timed party buff and refresh its HUD status from ONE registry.
 	for _, b := range gl.game.timedBuffs() {
 		tickBuff(b.active, b.duration, b.onExpire)
 		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
+	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
+	// tick from their own list — see combat_buffs.go.
+	gl.game.tickCombatBuffs()
+	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
+	gl.updateSteamZonesRT()
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {
@@ -378,13 +395,6 @@ func (g *MMGame) timedBuffs() []timedBuff {
 		{"bless", &g.blessActive, &g.blessDuration, func() {
 			g.statBonus -= g.blessStatBonus
 			g.blessStatBonus = 0
-		}},
-		{"day_of_the_gods", &g.dayGodsActive, &g.dayGodsDuration, func() {
-			g.dayGodsResistPct = 0
-		}},
-		{"hour_of_power", &g.hourPowerActive, &g.hourPowerDuration, func() {
-			g.hourPowerOutBonus = 0
-			g.hourPowerInReduce = 0
 		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
@@ -425,8 +435,15 @@ func (gl *GameLoop) updateCharmedMonsters() {
 		}
 		m.CharmFramesRemaining--
 		if m.CharmFramesRemaining == 0 {
+			wasPacified := m.CharmPacified
 			m.Charmed = false
-			gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+			m.CharmPacified = false
+			if wasPacified {
+				m.WasAttacked = true // pacified mob re-aggros when the charm wears off
+				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+			} else {
+				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+			}
 		}
 	}
 }

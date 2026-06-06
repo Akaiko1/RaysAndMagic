@@ -55,15 +55,26 @@ loots:
       key: "steel_mace"
       chance: 0.10
 
+  goblin:
+    - type: "item"
+      key: "goblin_hide_gauntlets"
+      chance: 0.05
+
   bear:
     - type: "item"
       key: "belt_of_strength"
       chance: 0.07
+    - type: "item"
+      key: "bearpaw_gauntlets"
+      chance: 0.06
 
   wolf:
     - type: "item"
       key: "lucky_paw"
       chance: 0.01
+    - type: "item"
+      key: "direpelt_cloak"
+      chance: 0.03
 
   dire_wolf:
     - type: "item"
@@ -79,11 +90,17 @@ loots:
     - type: "item"
       key: "medusa_card"
       chance: 0.005
+    - type: "item"
+      key: "serpentscale_gauntlets"
+      chance: 0.05
 
   octopus:
     - type: "item"
       key: "belt_of_speed"
       chance: 0.03
+    - type: "item"
+      key: "tideclasp_gauntlets"
+      chance: 0.05
 
   skeleton:
     - type: "item"
@@ -112,6 +129,12 @@ loots:
     - type: "item"
       key: "minotaur_horn"
       chance: 0.08
+    - type: "weapon"
+      key: "bronze_labrys"
+      chance: 0.07
+    - type: "weapon"
+      key: "gorehorn_greataxe"
+      chance: 0.06
 
   isis:
     - type: "item"

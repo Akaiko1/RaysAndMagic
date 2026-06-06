@@ -226,6 +226,10 @@ type SpellDefinitionConfig struct {
 	School             string  `yaml:"school"`
 	Level              int     `yaml:"level"`
 	SpellPointsCost    int     `yaml:"spell_points_cost"`
+	// CooldownSeconds is the real-time cast cooldown for this spell at the
+	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
+	// fall back to SpellCooldownDefaultSecondsForLevel(level).
+	CooldownSeconds    float64 `yaml:"cooldown_seconds,omitempty"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
@@ -270,6 +274,39 @@ type SpellDefinitionConfig struct {
 	// potion). FullHeal restores them to maximum HP.
 	Revive   bool `yaml:"revive,omitempty"`
 	FullHeal bool `yaml:"full_heal,omitempty"`
+	// Raise Dead: revives the first fallen ally (Unconscious/Dead, NOT eradicated)
+	// to this percentage of max HP. Distinct from Resurrect (Revive+FullHeal).
+	ReviveHpPct int `yaml:"revive_hp_pct,omitempty"`
+
+	// HealParty makes a heal_amount spell restore EVERY party member (Mass Heal),
+	// not just the caster/target.
+	HealParty bool `yaml:"heal_party,omitempty"`
+
+	// StunChance (0..1): on a projectile hit, chance to also stun the struck
+	// monster for StunDurationSeconds/Turns (Psychic Shock). Single-target.
+	StunChance float64 `yaml:"stun_chance,omitempty"`
+
+	// Charm variants. CharmLiving lets the bind affect non-undead too; CharmPacify
+	// makes the target simply STOP attacking (no fighting others) and breaks on any
+	// hit it takes (Charm). bind_undead leaves both false (undead-only, fights others).
+	CharmLiving bool `yaml:"charm_living,omitempty"`
+	CharmPacify bool `yaml:"charm_pacify,omitempty"`
+
+	// PartyAoeRadiusTiles > 0 makes the spell an instant nova centered on the party
+	// that damages every monster AND every party member within the radius (Inferno).
+	// Damage = SpellPointsCost × SpellDamagePerSP.
+	PartyAoeRadiusTiles float64 `yaml:"party_aoe_radius_tiles,omitempty"`
+
+	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
+	// within the spell's AoE radius (Starburst). Purely visual; damage uses AoeRadiusTiles.
+	StarburstFx bool `yaml:"starburst_fx,omitempty"`
+
+	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
+	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
+	// ZoneTickDamage to monsters inside it — every turn in TB, every ZoneTickSeconds in RT.
+	ZoneRadiusTiles float64 `yaml:"zone_radius_tiles,omitempty"`
+	ZoneTickDamage  int     `yaml:"zone_tick_damage,omitempty"`
+	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -395,6 +432,11 @@ type TileData struct {
 	WallColor           [3]int                 `yaml:"wall_color"`
 	Letter              string                 `yaml:"letter"`
 	Biomes              []string               `yaml:"biomes,omitempty"`
+	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
+	// (render_type floor_only) that blocks movement but reads like walkable
+	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura
+	// automatically; ordinary impassable floors (water) leave this false.
+	ImpassableAura bool `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
@@ -475,6 +517,23 @@ type MapConfigs struct {
 // WeaponSystemConfig contains the complete weapon system configuration
 type WeaponSystemConfig struct {
 	Weapons map[string]*WeaponDefinitionConfig `yaml:"weapons"`
+	// WeaponCooldownMultipliers is the per-weapon-TYPE real-time attack-cooldown
+	// multiplier (1.0 = baseline sword), keyed by the canonical weapon-skill
+	// noun (sword/dagger/axe/spear/bow/mace/staff). Types not listed default to
+	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
+	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
+}
+
+// WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
+// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown — so a
+// weapon whose category maps to no skill (e.g. the alien blaster) is neutral.
+func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
+	if GlobalWeapons != nil {
+		if m, ok := GlobalWeapons.WeaponCooldownMultipliers[skillNoun]; ok && m > 0 {
+			return m
+		}
+	}
+	return 1.0
 }
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
@@ -502,6 +561,16 @@ type WeaponDefinitionConfig struct {
 	Rarity         string             `yaml:"rarity"`
 	Value          int                `yaml:"value,omitempty"`
 	BonusVs        map[string]float64 `yaml:"bonus_vs,omitempty"`
+	// CooldownMultiplier overrides the weapon's category attack-cooldown
+	// multiplier in real time (the per-skill defaults live in weapons.yaml
+	// `weapon_cooldown_multipliers`, read via WeaponCooldownMultiplierForSkill).
+	// Used for legendaries with a bespoke cadence (e.g. Bow of Hellfire = 1.7, slow).
+	// 0 = use the category default.
+	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
+	// SpellCooldownMultiplier, when > 0, scales the cooldown of EVERY spell the
+	// wielder casts while this weapon is in their main hand (e.g. Archmage
+	// Staff = 0.8 → −20% spell cooldown). 0 = no effect.
+	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
 	// plain arrow. Cosmetic only; damage stays weapon-based.

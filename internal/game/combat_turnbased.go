@@ -19,6 +19,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
+	// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
+	gl.tickSteamZonesTB()
+
 	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
 	visionRange := tileSize * TurnBasedVisionRangeTiles

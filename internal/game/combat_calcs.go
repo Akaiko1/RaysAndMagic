@@ -9,16 +9,49 @@ import (
 	"ugataima/internal/spells"
 )
 
+// spellScalesWithPersonality reports whether a school's spell DAMAGE scales with
+// Personality (self magic: Body/Mind/Spirit) instead of Intellect. Single source
+// of truth for both the damage formula (CalculateSpellDamage) and the tooltip's
+// stat-bonus label (spellDamageStatLabel), so they can never disagree.
+func spellScalesWithPersonality(school string) bool {
+	switch school {
+	case "body", "mind", "spirit":
+		return true
+	}
+	return false
+}
+
+// spellDamageStatLabel returns the name of the stat(s) that scale a spell's
+// damage, for tooltip display. It mirrors CalculateSpellDamage exactly: the
+// primary stat is Personality for self schools (body/mind/spirit) else Intellect,
+// and a spell flagged scales_with_personality (e.g. ray_of_light) adds a SECOND
+// Personality term on top — so the label must name both, or it under-reports.
+func spellDamageStatLabel(school string, scalesWithPersonality bool) string {
+	if spellScalesWithPersonality(school) {
+		return "Personality"
+	}
+	if scalesWithPersonality {
+		return "Intellect + Personality"
+	}
+	return "Intellect"
+}
+
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual projectile damage.
 func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	effectiveIntellect := char.GetEffectiveIntellect(cs.game.statBonus)
-	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, effectiveIntellect)
-	// Spells flagged scales_with_personality (e.g. ray_of_light) add a second
-	// Personality/divisor term on top of the Intellect term. Both combat and the
+	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
+	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic —
+	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
+	scalingStat := char.GetEffectiveIntellect(cs.game.statBonus)
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && spellScalesWithPersonality(def.School) {
+		scalingStat = char.GetEffectivePersonality(cs.game.statBonus)
+	}
+	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
+	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
+	// Personality/divisor term on top of the primary term. Both combat and the
 	// tooltip call this function, so the displayed number matches what's dealt.
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.ScalesWithPersonality {
 		perBonus := char.GetEffectivePersonality(cs.game.statBonus) / spells.SpellIntellectDivisor
@@ -192,4 +225,88 @@ func calculateSpeedActionCooldownFrames(speed int) int {
 		return AttackCooldownMaxFrames
 	}
 	return cd
+}
+
+// clampRTCooldown clamps a real-time per-character cooldown to the sane range.
+func clampRTCooldown(frames int) int {
+	if frames < RTCooldownMinFrames {
+		return RTCooldownMinFrames
+	}
+	if frames > RTCooldownMaxFrames {
+		return RTCooldownMaxFrames
+	}
+	return frames
+}
+
+// WeaponCooldownFrames is the real-time cooldown after a weapon attack: the
+// doubled Speed curve scaled by the weapon's category multiplier (or a
+// per-weapon `cooldown_multiplier` override for legendaries). Unarmed = sword
+// baseline. Speed still drives the underlying curve.
+func (cs *CombatSystem) WeaponCooldownFrames(char *character.MMCharacter) int {
+	if cs == nil || cs.game == nil || char == nil {
+		return RTCooldownMinFrames
+	}
+	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	base := float64(calculateSpeedActionCooldownFrames(speed)) * RTBaseCooldownMult
+	mult := 1.0
+	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
+		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil {
+			switch {
+			case def.CooldownMultiplier > 0:
+				mult = def.CooldownMultiplier // legendary / per-weapon override
+			default:
+				// Resolve the weapon's category to its canonical weapon SKILL
+				// (so "throwing" → dagger) and read that type's multiplier from
+				// weapons.yaml. Categories with no skill (e.g. blaster) stay 1.0.
+				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
+					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
+				}
+			}
+		}
+	}
+	return clampRTCooldown(int(math.Round(base * mult)))
+}
+
+// spellCooldownSpeedFactor scales a spell's authored cooldown_seconds by Speed,
+// reusing the same Speed curve as weapons so faster casters also cast faster.
+// 1.0 at the reference Speed, clamped to [Min, Max].
+func spellCooldownSpeedFactor(speed int) float64 {
+	ref := float64(calculateSpeedActionCooldownFrames(SpellCooldownSpeedRefSpeed))
+	cur := float64(calculateSpeedActionCooldownFrames(speed))
+	factor := cur / ref
+	if factor < SpellCooldownSpeedFactorMin {
+		return SpellCooldownSpeedFactorMin
+	}
+	if factor > SpellCooldownSpeedFactorMax {
+		return SpellCooldownSpeedFactorMax
+	}
+	return factor
+}
+
+// SpellCooldownFrames is the real-time cooldown after casting spellID: the
+// spell's authored cooldown_seconds (or a level-based default) at reference
+// Speed, scaled by the caster's Speed and any equipped weapon's
+// spell_cooldown_multiplier (e.g. Archmage Staff −20%).
+func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
+	if cs == nil || cs.game == nil || char == nil {
+		return RTCooldownMinFrames
+	}
+	seconds := 0.0
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		seconds = def.CooldownSeconds
+		if seconds <= 0 {
+			seconds = SpellCooldownDefaultSecondsForLevel(def.Level)
+		}
+	} else {
+		seconds = SpellCooldownDefaultSecondsForLevel(1)
+	}
+	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	frames := seconds * float64(cs.game.config.GetTPS()) * spellCooldownSpeedFactor(speed)
+	// Equipped-weapon spell-cooldown modifier (caster staff perk).
+	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
+		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
+			frames *= def.SpellCooldownMultiplier
+		}
+	}
+	return clampRTCooldown(int(math.Round(frames)))
 }

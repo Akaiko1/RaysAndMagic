@@ -405,8 +405,8 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 		t.Errorf("pre-existing fields not decoded: %+v", s)
 	}
 	// New fields default to off / empty (no crash, no spurious buffs).
-	if s.DayGodsActive || s.HourPowerActive || s.DayGodsResistPct != 0 {
-		t.Errorf("new buff fields should default off, got dayGods=%v hour=%v pct=%d", s.DayGodsActive, s.HourPowerActive, s.DayGodsResistPct)
+	if len(s.CombatBuffs) != 0 {
+		t.Errorf("new combat-buff list should default empty, got %+v", s.CombatBuffs)
 	}
 	if s.MapReturnPoses != nil {
 		t.Errorf("absent map_return_poses should decode to nil (load makes it empty)")

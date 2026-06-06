@@ -282,7 +282,7 @@ monsters:
     letter: "d"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_game: 12.0
     resistances:
       fire: 90
       physical: 50
@@ -318,7 +318,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_game: 12.0
     biomes: ["desert"]
     resistances:
       dark: 90
@@ -348,8 +348,8 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_game: 8.0
-    biomes: ["desert"]
+    size_game: 12.0
+    biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
       physical: 60
@@ -378,8 +378,8 @@ monsters:
     letter: "y"
     box_w: 48
     box_h: 48
-    size_game: 8.0
-    biomes: ["desert"]
+    size_game: 12.0
+    biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
       physical: 50
@@ -763,7 +763,7 @@ monsters:
     box_w: 48
     box_h: 48
     size_game: 12.0
-    biomes: ["highlands"]
+    biomes: ["highlands", "dragon_cliffs"]
     resistances:
       physical: 40
       fire: -25
@@ -795,7 +795,7 @@ monsters:
     box_w: 48
     box_h: 48
     size_game: 7.0
-    biomes: ["highlands"]
+    biomes: ["highlands", "dragon_cliffs"]
     resistances:
       fire: 50
       dark: 30

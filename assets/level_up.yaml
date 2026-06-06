@@ -19,6 +19,16 @@ level_ups:
             spell: "fireball"
           - type: "spell"
             spell: "darkbolt"
+      - level: 9
+        choices:
+          - type: "magic_mastery"
+            school: "fire"
+          - type: "magic_mastery"
+            school: "water"
+          - type: "weapon_mastery"
+            skill: "staff"
+          - type: "spell"
+            spell: "sparks"
 
   cleric:
     levels:
@@ -28,6 +38,16 @@ level_ups:
             spell: "bless"
           - type: "magic_mastery"
             school: "any"
+      - level: 9
+        choices:
+          - type: "magic_mastery"
+            school: "body"
+          - type: "magic_mastery"
+            school: "spirit"
+          - type: "weapon_mastery"
+            skill: "mace"
+          - type: "spell"
+            spell: "mass_heal"
 
   archer:
     levels:
@@ -37,6 +57,16 @@ level_ups:
             spell: "lightning"
           - type: "weapon_mastery"
             skill: "bow"
+      - level: 9
+        choices:
+          - type: "weapon_mastery"
+            skill: "bow"
+          - type: "magic_mastery"
+            school: "air"
+          - type: "weapon_mastery"
+            skill: "dagger"
+          - type: "spell"
+            spell: "lightning"
 
   paladin:
     levels:
@@ -55,3 +85,13 @@ level_ups:
             school: "water"
           - type: "spell"
             spell: "water_breathing"
+      - level: 9
+        choices:
+          - type: "magic_mastery"
+            school: "water"
+          - type: "magic_mastery"
+            school: "mind"
+          - type: "magic_mastery"
+            school: "earth"
+          - type: "spell"
+            spell: "hot_steam"

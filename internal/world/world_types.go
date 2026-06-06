@@ -11,7 +11,7 @@ const (
 	TileWater                       // Water bodies - walkable but rendered differently
 	TileDeepWater                   // Deep water bodies - blocks movement, different rendering
 	TileDoor                        // Interactive doors - can be opened/closed
-	TileStairs                      // Level transitions - special movement behavior
+	_                               // (removed: unused "stairs" tile; slot kept so following iota values stay stable)
 
 	// Natural features
 	TileTree        // Standard forest tree - tall, blocks movement

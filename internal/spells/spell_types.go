@@ -22,7 +22,8 @@ type SpellDefinition struct {
 	School             string
 	Level              int // Spell level (1-9)
 	SpellPointsCost    int
-	Duration           int // Duration in seconds (0 for instant spells)
+	CooldownSeconds    float64 // RT cast cooldown (seconds) at reference Speed; 0 = derive from Level
+	Duration           int     // Duration in seconds (0 for instant spells)
 	DisintegrateChance float64
 	AoeRadiusTiles     float64 // 0 = single-target; >0 = splash radius in tiles
 	ProjectileSize     int
@@ -44,8 +45,20 @@ type SpellDefinition struct {
 	IncomingDamageReduction int  // Hour of Power: flat incoming damage reduction
 	Charm                   bool // bind_undead: charm an undead target
 	CharmDurationSeconds    int  // charm duration (RT seconds)
+	CharmLiving             bool // Charm: also affects non-undead
+	CharmPacify             bool // Charm: target stops attacking; breaks on any hit it takes
 	Revive                  bool // resurrect: restore a fallen ally (incl. eradicated)
 	FullHeal                bool // resurrect: restore to maximum HP
+	ReviveHpPct             int  // Raise Dead: revive a fallen ally (not eradicated) to this % of max HP
+	HealParty               bool // Mass Heal: heal every party member
+	StunChance              float64 // Psychic Shock: chance to stun the struck monster on hit
+	// Party-centered instant nova (Inferno): damages all monsters AND the party in radius.
+	PartyAoeRadiusTiles float64
+	// Persistent damage zone (Hot Steam).
+	StarburstFx     bool
+	ZoneRadiusTiles float64
+	ZoneTickDamage  int
+	ZoneTickSeconds float64
 	// Effect configuration
 	HealAmount     int     // For healing spells
 	VisionBonus    float64 // For vision enhancement spells
@@ -70,6 +83,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		School:                  configDef.School,
 		Level:                   configDef.Level,
 		SpellPointsCost:         configDef.SpellPointsCost,
+		CooldownSeconds:         configDef.CooldownSeconds,
 		Duration:                configDef.Duration,
 		DisintegrateChance:      configDef.DisintegrateChance,
 		AoeRadiusTiles:          configDef.AoeRadiusTiles,
@@ -89,8 +103,18 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		IncomingDamageReduction: configDef.IncomingDamageReduction,
 		Charm:                   configDef.Charm,
 		CharmDurationSeconds:    configDef.CharmDurationSeconds,
+		CharmLiving:             configDef.CharmLiving,
+		CharmPacify:             configDef.CharmPacify,
 		Revive:                  configDef.Revive,
 		FullHeal:                configDef.FullHeal,
+		ReviveHpPct:             configDef.ReviveHpPct,
+		HealParty:               configDef.HealParty,
+		StunChance:              configDef.StunChance,
+		PartyAoeRadiusTiles:     configDef.PartyAoeRadiusTiles,
+		StarburstFx:             configDef.StarburstFx,
+		ZoneRadiusTiles:         configDef.ZoneRadiusTiles,
+		ZoneTickDamage:          configDef.ZoneTickDamage,
+		ZoneTickSeconds:         configDef.ZoneTickSeconds,
 		// Effect configuration from YAML
 		HealAmount:     configDef.HealAmount,
 		VisionBonus:    configDef.VisionBonus,
@@ -100,6 +124,114 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		WaterBreathing: configDef.WaterBreathing,
 		Message:        configDef.Message,
 	}, nil
+}
+
+// IsOffensive reports whether this spell harms or disables enemies — i.e. it
+// is a "combat" spell for the smart-attack autocast (Space). Decided purely by
+// mechanical effect, NOT by the IsUtility flag: AoE-stun (Stun/Darkness) and
+// damage zones (Hot Steam) are flagged utility yet are clearly offensive.
+// Heals, revives, buffs and pure utility (vision/movement) all return false.
+func (d SpellDefinition) IsOffensive() bool {
+	return d.IsProjectile ||
+		d.AoeRadiusTiles > 0 ||
+		d.StunRadiusTiles > 0 ||
+		d.ZoneRadiusTiles > 0 ||
+		d.PartyAoeRadiusTiles > 0 ||
+		d.Charm ||
+		d.CharmLiving ||
+		d.DisintegrateChance > 0 ||
+		d.StunChance > 0
+}
+
+// EffectLines returns the character-INDEPENDENT mechanics of a spell as
+// human-readable lines — the SINGLE SOURCE shared by the in-game tooltip and the
+// map-editor spell card so the two can never drift. It excludes values that
+// scale with the caster (projectile damage/heal totals, the Bless stat bonus,
+// buff duration); those are rendered per-consumer because the editor has no
+// character context. Every line reads a flat SpellDefinition field — add a YAML
+// field, add a line here, never name-switch.
+func (d SpellDefinition) EffectLines() []string {
+	var out []string
+	if d.AoeRadiusTiles > 0 {
+		out = append(out, fmt.Sprintf("AoE radius: %.1f tiles (splashes nearby monsters)", d.AoeRadiusTiles))
+	}
+	if d.DisintegrateChance > 0 {
+		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit", d.DisintegrateChance*100))
+	}
+	if d.StunChance > 0 {
+		line := fmt.Sprintf("Stun chance: %.0f%% on hit", d.StunChance*100)
+		if d.StunDurationSeconds > 0 {
+			line += fmt.Sprintf(" (%ds)", d.StunDurationSeconds)
+		}
+		out = append(out, line)
+	}
+	if d.StunRadiusTiles > 0 {
+		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds", d.StunRadiusTiles, d.StunDurationSeconds))
+	}
+	if d.Charm {
+		target := "undead"
+		if d.CharmLiving {
+			target = "any"
+		}
+		if d.CharmPacify {
+			out = append(out, fmt.Sprintf("Pacifies %s target for %ds (stops attacking; breaks if hit)", target, d.CharmDurationSeconds))
+		} else {
+			out = append(out, fmt.Sprintf("Charms %s target for %ds (fights for you)", target, d.CharmDurationSeconds))
+		}
+	}
+	if d.PartyAoeRadiusTiles > 0 {
+		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage — your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
+	}
+	if d.ZoneRadiusTiles > 0 {
+		out = append(out, fmt.Sprintf("Leaves a %.1f-tile zone: %d damage every %.0fs", d.ZoneRadiusTiles, d.ZoneTickDamage, d.ZoneTickSeconds))
+	}
+	switch {
+	case d.HealParty:
+		out = append(out, "Heals the entire party")
+	case d.HealAmount > 0 && d.TargetSelf:
+		out = append(out, "Self-target only")
+	case d.HealAmount > 0:
+		out = append(out, "Can target any party member")
+	}
+	if d.Revive {
+		if d.FullHeal {
+			out = append(out, "Revives a fallen ally to full HP (even if eradicated)")
+		} else {
+			out = append(out, "Revives a fallen ally")
+		}
+	}
+	if d.ReviveHpPct > 0 {
+		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
+	}
+	if d.ResistBuffPct > 0 {
+		out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
+	}
+	if d.OutgoingDamageBonus > 0 {
+		out = append(out, fmt.Sprintf("Party attacks deal +%d damage", d.OutgoingDamageBonus))
+	}
+	if d.IncomingDamageReduction > 0 {
+		out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
+	}
+	if d.VisionBonus > 0 {
+		out = append(out, "Extends the party's sight radius")
+	}
+	if d.WaterWalk {
+		out = append(out, "Allows the party to walk on water")
+	}
+	if d.WaterBreathing {
+		out = append(out, "Allows underwater travel through deep water")
+	}
+	if d.Awaken {
+		out = append(out, "Wakes all unconscious allies (back to 1 HP)")
+	}
+	return out
+}
+
+// IsHeal reports whether this spell restores HP to a living ally (single-target
+// or whole party). Revives (which target the fallen) are intentionally excluded
+// so the heal hotkey never wastes a resurrect on a conscious member.
+func (d SpellDefinition) IsHeal() bool {
+	return d.HealAmount > 0 || d.HealParty
 }
 
 // CreateSpellItem creates an item from a spell definition

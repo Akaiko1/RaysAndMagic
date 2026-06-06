@@ -57,34 +57,13 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		if ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0 {
 			highlightColor = color.RGBA{120, 120, 120, 220}
 		}
+		// Real-time: a member on action cooldown gets the same gray frame so the
+		// player can see at a glance who's busy and who's free to act next.
+		if !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0 {
+			highlightColor = color.RGBA{120, 120, 120, 220}
+		}
 		if i == ui.game.selectedChar {
 			highlightColor = color.RGBA{210, 170, 80, 220}
-		}
-
-		// Highlight heal target when a heal key is pressed and current player has healing spell equipped
-		if !ui.game.menuOpen && (ebiten.IsKeyPressed(ebiten.KeyH) || ebiten.IsKeyPressed(ebiten.KeyF)) {
-			// Check if current player has a healing spell equipped
-			currentPlayer := ui.game.party.Members[ui.game.selectedChar]
-			spell, hasSpell := currentPlayer.Equipment[items.SlotSpell]
-			if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-				mouseX, mouseY := ebiten.CursorPosition()
-				if ui.isMouseOverCharacter(mouseX, mouseY, i, portraitWidth, portraitHeight, startY, baseLeft) {
-					// Check if this is a valid target based on spell effect
-					var canTarget bool
-					switch spell.SpellEffect {
-					case items.SpellEffectHealSelf:
-						// Only highlight the caster for self-only spells (First Aid)
-						canTarget = (i == ui.game.selectedChar)
-					case items.SpellEffectHealOther:
-						// Highlight any party member for other-targeting spells (Heal)
-						canTarget = true
-					}
-
-					if canTarget {
-						highlightColor = color.RGBA{80, 220, 100, 220} // Green highlight for heal target
-					}
-				}
-			}
 		}
 
 		// Draw background panel
@@ -144,11 +123,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		}
 		if isUnconscious {
 			vector.FillRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{0, 0, 0, 140}, false)
-		} else if isPoisoned {
-			pulse := 0.6 + 0.4*math.Sin(float64(ui.game.frameCount)*0.15)
-			alpha := uint8((80 + 60*pulse) / 3.0)
-			vector.FillRect(screen, float32(x), float32(startY), float32(portraitWidth-2), float32(portraitHeight), color.RGBA{40, 160, 80, alpha}, false)
 		}
+		// Poison: green bubbles drift up the card (replaces the old green tint).
+		if isPoisoned && !isUnconscious {
+			ui.drawCardPoisonBubbles(screen, x, startY, portraitWidth, portraitHeight)
+		}
+
+		// Particle overlays: Inferno scorch flames, hit sparks, heal "+" glyphs.
+		ui.drawCardFlames(screen, x, startY, portraitWidth, portraitHeight, i)
+		ui.drawCardSparks(screen, x, startY, portraitWidth, portraitHeight, i)
+		ui.drawCardHealPlus(screen, x, startY, portraitWidth, portraitHeight, i)
 
 		// Status Column (Column 2) - basic character info
 		statusColX := x + portraitColWidth + 4
@@ -205,10 +189,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			ui.drawStatPointPlusButton(screen, plusBtnX, plusBtnY, plusBtnW, plusBtnH, member.FreeStatPoints, isHover)
 			if ui.game.consumeLeftClickIn(plusBtnX, plusBtnY, plusBtnX+plusBtnW, plusBtnY+plusBtnH) {
 				ui.game.statPopupOpen = true
-				// Open popup for THIS character and also make them the
-				// selected one — so 1-4 / portrait clicks naturally update
-				// the popup contents as the user browses.
-				ui.game.selectedChar = i
+				// Open the popup for THIS character. Don't touch selectedChar:
+				// in turn-based mode it tracks whose turn it is, and hijacking it
+				// made the popup show the active char instead of the clicked one.
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
 			}
@@ -227,6 +210,117 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
 		}
+	}
+}
+
+// drawCardFlames draws rising flame-tongue particles over a party card while
+// that member's Inferno scorch timer burns (set by TriggerPartyFlame). Each
+// tongue rises on its own phase, flickers sideways, and shifts yellow→red and
+// fades as it climbs; the whole effect dims as the timer runs out.
+func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx int) {
+	t := ui.game.cardFxActive(fxFlame, idx)
+	if t <= 0 {
+		return
+	}
+	intensity := float64(t) / float64(PartyFlameFrames) // 1 → 0 overall fade
+	f := int(ui.game.frameCount)
+	const n = 14
+	for k := 0; k < n; k++ {
+		phase := float64((f*2+k*53)%60) / 60.0 // 0..1 rising cycle, staggered per tongue
+		rise := 1.0 - phase                     // brightness/heat fade as it climbs
+		a := uint8(220 * rise * intensity)
+		if a < 8 {
+			continue
+		}
+		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.2+float64(k))*3
+		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
+		sz := float32(3 + 3*rise)
+		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow→orange→red
+		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
+	}
+}
+
+// drawCardSparks draws the hit feedback on a party card after the member takes a
+// hit (fxSpark, set by TriggerDamageBlink): the WHOLE card flashes
+// red, plus a big radial spark burst flies outward — both fading over the timer.
+func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx int) {
+	t := ui.game.cardFxActive(fxSpark, idx)
+	if t <= 0 {
+		return
+	}
+	intensity := float64(t) / float64(HitSparkFrames) // 1 → 0 fade
+	prog := 1.0 - intensity                            // 0 → 1 as sparks fly out
+
+	// Whole-card red flash (not just the portrait).
+	vector.FillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
+		color.RGBA{225, 40, 40, uint8(150 * intensity)}, false)
+
+	// Big radial spark burst from the card centre.
+	cx := float64(x) + float64(w)/2
+	cy := float64(startY) + float64(h)/2
+	maxR := float64(h) * 0.8
+	const n = 16
+	for k := 0; k < n; k++ {
+		ang := 2*math.Pi*float64(k)/float64(n) + 0.4
+		dist := prog * maxR
+		px := cx + math.Cos(ang)*dist
+		py := cy + math.Sin(ang)*dist*0.8
+		a := uint8(245 * intensity)
+		if a < 10 {
+			continue
+		}
+		sz := float32(6*intensity + 2)
+		col := color.RGBA{255, uint8(160 + 80*intensity), uint8(150 * intensity), a} // hot white-gold, fading
+		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
+	}
+}
+
+// drawCardHealPlus draws green "+" glyphs rising and evaporating up a member's
+// card when they're healed (fxHeal, set by TriggerPartyHeal).
+func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx int) {
+	t := ui.game.cardFxActive(fxHeal, idx)
+	if t <= 0 {
+		return
+	}
+	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 → 1 as they rise & fade
+	const n = 5
+	for k := 0; k < n; k++ {
+		// Each "+" rises on its own staggered phase so they don't move in lockstep.
+		ph := prog + float64(k)*0.13
+		if ph > 1 {
+			ph -= 1
+		}
+		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(ph*6+float64(k))*4
+		py := float64(startY+h) - 6 - ph*(float64(h)-10) // rise from bottom toward top
+		a := uint8(235 * (1 - ph))                        // evaporate as it climbs
+		if a < 12 {
+			continue
+		}
+		col := color.RGBA{90, 230, 110, a}
+		arm := float32(4)                  // half-length of the plus arms
+		th := float32(2)                   // arm thickness
+		cx, cy := float32(px), float32(py) // centre
+		vector.FillRect(screen, cx-arm, cy-th/2, arm*2, th, col, false) // horizontal bar
+		vector.FillRect(screen, cx-th/2, cy-arm, th, arm*2, col, false) // vertical bar
+	}
+}
+
+// drawCardPoisonBubbles draws green bubbles drifting up a poisoned member's card
+// (replaces the old flat green tint). Runs continuously while poisoned.
+func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h int) {
+	f := int(ui.game.frameCount)
+	const n = 6
+	const period = 72
+	for k := 0; k < n; k++ {
+		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
+		bx := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.08+float64(k))*3
+		by := float64(startY+h) - phase*float64(h)
+		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
+		if a < 12 {
+			continue
+		}
+		r := float32(1.5 + 2.2*phase) // swells as it rises
+		vector.DrawFilledCircle(screen, float32(bx), float32(by), r, color.RGBA{70, 210, 90, a}, true)
 	}
 }
 

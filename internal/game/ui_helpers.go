@@ -34,13 +34,6 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-// isMouseOverCharacter checks if the mouse cursor is over a specific character portrait.
-// baseLeft is the x-offset where the (centered) party row begins.
-func (ui *UISystem) isMouseOverCharacter(mouseX, mouseY, charIndex, portraitWidth, portraitHeight, startY, baseLeft int) bool {
-	charX := baseLeft + charIndex*portraitWidth
-	return mouseX >= charX && mouseX < charX+portraitWidth &&
-		mouseY >= startY && mouseY < startY+portraitHeight
-}
 
 // partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
 // horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
@@ -489,36 +482,12 @@ func statTooltipText(stat string) string {
 	}
 }
 
+// masteryTooltipTextForSkill returns the canonical skill description. The text
+// (and the constants behind it) live in the character package so the in-game
+// tooltip, combat, and the map editor all share one source — see
+// character.SkillType.Description.
 func masteryTooltipTextForSkill(skill character.SkillType) string {
-	switch skill {
-	case character.SkillSword, character.SkillDagger, character.SkillAxe, character.SkillSpear,
-		character.SkillBow, character.SkillMace, character.SkillStaff:
-		return fmt.Sprintf("Weapon Mastery: +%d TRUE damage per level (ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and strikes ignore Perfect Dodge.",
-			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
-	case character.SkillLeather, character.SkillChain, character.SkillPlate, character.SkillShield:
-		return fmt.Sprintf("Armor Mastery: +%d base AC per level. Grandmaster: +%d%% Perfect Dodge while wearing this armor type.",
-			MasteryArmorACPerLevel, ArmorGMDodgeBonus)
-	// Misc skills — descriptions read the SAME constants the mechanics use, so
-	// tooltip and combat can't drift. All scale by tier (Novice gives none).
-	case character.SkillBodybuilding:
-		return fmt.Sprintf("Bodybuilding: +%d max HP per level. Grandmaster: +%d%% max HP.", character.BodybuildingHPPerTier, character.BodybuildingGMMaxHPPct)
-	case character.SkillMeditation:
-		return fmt.Sprintf("Meditation: +%d spell points per regen tick per level (faster mana recovery). Grandmaster: −%d%% spell point cost on all spells.", character.MeditationRegenPerTier, MeditationGMSpellCostReductionPct)
-	case character.SkillLearning:
-		return fmt.Sprintf("Learning: +%d%% experience gained per level. Grandmaster: +%d%% experience to the whole party.", LearningXPPctPerTier, LearningGMPartyXPPct)
-	case character.SkillArmsMaster:
-		return fmt.Sprintf("Arms Master: +%d damage with any weapon per level. Grandmaster: +%d%% crit with any weapon.", ArmsMasterDamagePerTier, ArmsMasterGMCritBonus)
-	case character.SkillMerchant:
-		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level (the party's best applies).", MerchantPricePctPerTier)
-	case character.SkillDisarmTrap:
-		return fmt.Sprintf("Disarm Trap: -%d incoming damage per mastery level (placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
-	case character.SkillRepair:
-		return "Repair: no effect yet (planned: equipment durability)."
-	case character.SkillIdentifyItem:
-		return "Identify Item: no effect yet (planned: reveal unidentified loot)."
-	default:
-		return ""
-	}
+	return skill.Description()
 }
 
 func magicMasteryTooltipText() string {

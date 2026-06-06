@@ -67,8 +67,12 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				continue
 			}
 			tile := r.game.world.Tiles[ty][tx]
-			if !isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile)) {
-				continue // trees, textured walls, floor-only: not ambiguous
+			showAura := isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile))
+			if td := world.GlobalTileManager.GetTileData(tile); td != nil && td.ImpassableAura {
+				showAura = true // floor pit (chasm): blocks but reads like ground
+			}
+			if !showAura {
+				continue // trees, textured walls, ordinary floors: not ambiguous
 			}
 			// Bubble colour = average of the tile's sprite texture (so it matches
 			// the rock/cliff), falling back to the tile's floor colour.

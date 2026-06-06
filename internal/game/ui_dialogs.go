@@ -64,14 +64,14 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr
 
 // drawStatDistributionPopup draws the stat allocation popup for the selected character
 func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
-	// Bound to selectedChar so 1-4 keys / portrait clicks update the popup
-	// live. statPopupCharIdx is kept in sync at the open site (ui_hud.go) for
-	// any legacy reader; selectedChar is the source of truth here.
-	charIdx := ui.game.selectedChar
+	// Bound to statPopupCharIdx — the character whose "+" button was clicked
+	// (set at the open site in ui_hud.go). NOT selectedChar: in turn-based mode
+	// selectedChar tracks the active turn, so binding to it opened the wrong
+	// character's popup when you clicked "+" on someone who had already acted.
+	charIdx := ui.game.statPopupCharIdx
 	if charIdx < 0 || charIdx >= len(ui.game.party.Members) {
 		return
 	}
-	ui.game.statPopupCharIdx = charIdx
 	member := ui.game.party.Members[charIdx]
 
 	// Popup dimensions
@@ -1295,8 +1295,35 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 	questY := contentY + 40
 	questHeight := 95 // Height of each quest entry (increased for wrapped text)
 	questWidth := 520
+	const questGap = 8
 
-	for _, quest := range allQuests {
+	// Paginate so a long quest log never spills past the panel. Reserve the
+	// bottom strip for the pager; fit as many whole entries as the panel allows.
+	const pagerH = 22
+	listTop := contentY + 40
+	listBottom := contentY + contentHeight - pagerH
+	pageSize := (listBottom - listTop) / (questHeight + questGap)
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	totalPages := (len(allQuests) + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	// Clamp every frame so the page stays valid when quests are added/removed.
+	if ui.questPage >= totalPages {
+		ui.questPage = totalPages - 1
+	}
+	if ui.questPage < 0 {
+		ui.questPage = 0
+	}
+	pageStart := ui.questPage * pageSize
+	pageEnd := pageStart + pageSize
+	if pageEnd > len(allQuests) {
+		pageEnd = len(allQuests)
+	}
+
+	for _, quest := range allQuests[pageStart:pageEnd] {
 		// Draw quest background
 		// Different colors based on quest status
 		var bgColor color.RGBA
@@ -1405,8 +1432,42 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			}
 		}
 
-		questY += questHeight + 8
+		questY += questHeight + questGap
 	}
+
+	ui.drawQuestPager(screen, panelX+20, contentY+contentHeight-pagerH, questWidth, totalPages)
+}
+
+// drawQuestPager draws "Page X/Y" plus prev/next buttons under the quest list
+// and handles their clicks. No-op when every quest fits on one page.
+func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages int) {
+	if totalPages <= 1 {
+		return
+	}
+	const btnW, btnH = 30, 18
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	drawBtn := func(bx int, label string, enabled bool) bool {
+		bg := color.RGBA{70, 50, 30, 210}
+		switch {
+		case !enabled:
+			bg = color.RGBA{45, 40, 38, 160}
+		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
+			bg = color.RGBA{120, 90, 50, 230}
+		}
+		drawFilledRect(screen, bx, y, btnW, btnH, bg)
+		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
+		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
+		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	}
+
+	if drawBtn(x, "<", ui.questPage > 0) {
+		ui.questPage--
+	}
+	if drawBtn(x+width-btnW, ">", ui.questPage < totalPages-1) {
+		ui.questPage++
+	}
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, btnH-2)
 }
 
 // characterKnowsSpell checks if a character already knows a spell

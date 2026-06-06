@@ -98,14 +98,12 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 
 			// Apply healing effects for heal spells
 			if result.HealAmount > 0 {
-				// Both heal and heal_other now use mouse targeting (handled by CastEquippedSpellWithTarget)
-				// Fallback to self-heal if no target specified
-				caster.HitPoints += result.HealAmount
-				if caster.HitPoints > caster.MaxHitPoints {
-					caster.HitPoints = caster.MaxHitPoints
-				}
-				if caster.HitPoints > 0 {
-					caster.RemoveCondition(character.ConditionUnconscious)
+				if spellDef.HealParty {
+					// Mass Heal: restore every party member.
+					cs.healWholeParty(result.HealAmount)
+				} else {
+					// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
+					cs.healMember(cs.game.selectedChar, result.HealAmount)
 				}
 			}
 
@@ -202,6 +200,44 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 }
 
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
+// healWholeParty restores `amount` HP to every CONSCIOUS party member (Mass
+// Heal). Like single-target heal, it will not revive the dead/eradicated.
+// Returns the number of members healed.
+// healMember is the single source for applying a heal to ONE party member: add
+// HP, clamp to max, clear Unconscious when revived above 0, and flash the green
+// "+" overlay. Every single-target heal path funnels through here so the clamp /
+// revive / VFX behaviour can't drift between them.
+func (cs *CombatSystem) healMember(idx, amount int) {
+	if idx < 0 || idx >= len(cs.game.party.Members) {
+		return
+	}
+	m := cs.game.party.Members[idx]
+	if m == nil {
+		return
+	}
+	m.HitPoints += amount
+	if m.HitPoints > m.MaxHitPoints {
+		m.HitPoints = m.MaxHitPoints
+	}
+	if m.HitPoints > 0 {
+		m.RemoveCondition(character.ConditionUnconscious)
+	}
+	cs.game.TriggerPartyHeal(idx) // rising green "+" overlay on the healed card
+}
+
+func (cs *CombatSystem) healWholeParty(amount int) int {
+	healed := 0
+	for i, m := range cs.game.party.Members {
+		if m == nil || m.HitPoints <= 0 ||
+			m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
+			continue
+		}
+		cs.healMember(i, amount)
+		healed++
+	}
+	return healed
+}
+
 func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
@@ -257,13 +293,7 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster.SpellPoints -= spellCost
 	// Calculate heal amount using centralized spell formula
 	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
-	target.HitPoints += healAmount
-	if target.HitPoints > target.MaxHitPoints {
-		target.HitPoints = target.MaxHitPoints
-	}
-	if target.HitPoints > 0 {
-		target.RemoveCondition(character.ConditionUnconscious)
-	}
+	cs.healMember(targetIndex, healAmount)
 
 	// Print feedback message
 	if targetIndex == cs.game.selectedChar {
@@ -274,6 +304,155 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 		cs.game.AddCombatMessage(message)
 	}
 	return true
+}
+
+// bestKnownHealSpell returns the most powerful heal spell the caster knows
+// across all their magic schools, preferring the highest spell Level (ties
+// broken by HealAmount, then by HealParty). Returns false if they know none.
+func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spells.SpellID, bool) {
+	var bestID spells.SpellID
+	var best spells.SpellDefinition
+	found := false
+	for _, school := range caster.MagicSchools {
+		if school == nil {
+			continue
+		}
+		for _, id := range school.KnownSpells {
+			def, err := spells.GetSpellDefinitionByID(id)
+			if err != nil || !def.IsHeal() {
+				continue
+			}
+			better := !found ||
+				def.Level > best.Level ||
+				(def.Level == best.Level && def.HealAmount > best.HealAmount) ||
+				(def.Level == best.Level && def.HealAmount == best.HealAmount && def.HealParty && !best.HealParty)
+			if better {
+				bestID, best, found = id, def, true
+			}
+		}
+	}
+	return bestID, found
+}
+
+// CastBestHealOnTarget casts the selected character's strongest known heal (by
+// level) — bound to the C key. Party heals hit everyone; self-only heals (e.g.
+// First Aid) ignore the requested target and heal the caster; other heals use
+// targetIndex (resolved from the mouse by the caller). Returns whether a heal
+// fired plus the spell used (for the real-time cooldown).
+func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.SpellID) {
+	caster := cs.game.party.Members[cs.game.selectedChar]
+	if caster.IsIncapacitated() {
+		return false, ""
+	}
+	spellID, ok := cs.bestKnownHealSpell(caster)
+	if !ok {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s knows no healing spell.", caster.Name))
+		return false, ""
+	}
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return false, ""
+	}
+	spellCost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
+	if caster.SpellPoints < spellCost {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
+			caster.Name, def.Name, caster.SpellPoints, spellCost))
+		return false, ""
+	}
+
+	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
+
+	// Party heal: restore everyone, ignore the single target.
+	if def.HealParty {
+		caster.SpellPoints -= spellCost
+		n := cs.healWholeParty(healAmount)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s, healing %d allies for %d HP!",
+			caster.Name, def.Name, n, healAmount))
+		return true, spellID
+	}
+
+	// Single-target heal. Self-only heals (TargetSelf) always land on the caster.
+	if def.TargetSelf {
+		targetIndex = cs.game.selectedChar
+	}
+	if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
+		targetIndex = cs.game.selectedChar
+	}
+	target := cs.game.party.Members[targetIndex]
+	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
+		return false, ""
+	}
+
+	caster.SpellPoints -= spellCost
+	cs.healMember(targetIndex, healAmount)
+	if targetIndex == cs.game.selectedChar {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s heals themselves for %d HP with %s!", caster.Name, healAmount, def.Name))
+	} else {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
+	}
+	return true, spellID
+}
+
+// SmartAttack is the Space-key "smart attack" (both modes). Priority:
+//  1. A HEAL slotted + a wounded ally present → cast it on the MOST wounded
+//     (a healer with First Aid/Heal auto-triages instead of meleeing).
+//  2. An OFFENSIVE spell slotted + enough SP → cast it.
+//  3. Otherwise swing the equipped weapon.
+// Returns whether a spell was cast (and which) so the caller can pick the right
+// cooldown; a false return means a weapon attack happened.
+func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
+	caster := cs.game.party.Members[cs.game.selectedChar]
+	if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
+		spellID := spells.SpellID(spell.SpellEffect)
+		def, err := spells.GetSpellDefinitionByID(spellID)
+		canPay := caster.SpellPoints >= cs.effectiveSpellCost(caster, spell.SpellCost)
+		switch {
+		case err == nil && def.IsHeal():
+			// A heal is slotted: if an ally is wounded and we can pay, heal the
+			// most-wounded instead of attacking. Party heals (Mass Heal) cast on
+			// the whole party; single heals target the wounded ally.
+			if target := cs.mostWoundedHealTarget(spell); target >= 0 && canPay {
+				if def.HealParty {
+					if cs.CastEquippedSpell() {
+						return true, spellID
+					}
+				} else if cs.CastEquippedHealOnTarget(target) {
+					return true, spellID
+				}
+			}
+			// No one worth healing → fall through to a weapon swing.
+		case err == nil && def.IsOffensive():
+			if canPay && cs.CastEquippedSpell() {
+				return true, spellID
+			}
+		}
+	}
+	cs.EquipmentMeleeAttack()
+	return false, ""
+}
+
+// mostWoundedHealTarget returns the party index of the most-wounded ally a
+// slotted heal should target (lowest HP fraction, below SmartHealWoundedPct),
+// or -1 if no one is hurt enough. A self-only heal (First Aid) only ever
+// considers the caster; an other-target heal considers the whole party. Dead/KO
+// members are skipped (heals don't revive).
+func (cs *CombatSystem) mostWoundedHealTarget(spell items.Item) int {
+	selfOnly := spell.SpellEffect == items.SpellEffectHealSelf
+	best, bestFrac := -1, SmartHealWoundedPct
+	for i, m := range cs.game.party.Members {
+		if m == nil || !m.CanAct() || m.MaxHitPoints <= 0 {
+			continue
+		}
+		if selfOnly && i != cs.game.selectedChar {
+			continue
+		}
+		frac := float64(m.HitPoints) / float64(m.MaxHitPoints)
+		if frac < bestFrac {
+			best, bestFrac = i, frac
+		}
+	}
+	return best
 }
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
@@ -510,7 +689,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 // aggro, death/XP). Caller is responsible for any projectile cleanup.
 func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, trueDmg int, damageType monsterPkg.DamageType, attackerName string) {
 	actual := monster.TakeDamage(trueDmg, damageType, cs.game.camera.X, cs.game.camera.Y)
-	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	monster.HitTintFrames = MonsterHitFlashFrames
 	cs.engageTurnBasedPackOnHit(monster)
 	if !monster.IsAlive() {
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
@@ -551,7 +730,15 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
-	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	monster.HitTintFrames = MonsterHitFlashFrames
+	// Impact feedback: spark burst at the monster + a small recoil away from the
+	// party (the AI walks back in, so it reads as a stagger-and-return).
+	cs.game.spawnImpactSparks(monster.X, monster.Y)
+	if d := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y); d > 0.001 {
+		kb := cs.game.config.MonsterAI.PushbackDistance * 0.7
+		monster.X += (monster.X - cs.game.camera.X) / d * kb
+		monster.Y += (monster.Y - cs.game.camera.Y) / d * kb
+	}
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
@@ -747,9 +934,10 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 
 			// Apply healing
 			if result.HealAmount > 0 {
-				currentChar.HitPoints += result.HealAmount
-				if currentChar.HitPoints > currentChar.MaxHitPoints {
-					currentChar.HitPoints = currentChar.MaxHitPoints
+				if selectedSpellDef.HealParty {
+					cs.healWholeParty(result.HealAmount)
+				} else {
+					cs.healMember(cs.game.selectedChar, result.HealAmount)
 				}
 			}
 
@@ -838,13 +1026,13 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
-		// Charmed (bind_undead): attacks the nearest other monster on a ~1s
-		// cadence and never the party.
+		// Charmed: bind_undead attacks the nearest other monster on a ~1s cadence;
+		// Charm (pacified) simply does nothing. Neither ever attacks the party.
 		if monster.Charmed {
-			if monster.CharmAttackCD > 0 {
-				monster.CharmAttackCD--
-			} else {
-				if cs.charmedAttackNearest(monster) {
+			if !monster.CharmPacified {
+				if monster.CharmAttackCD > 0 {
+					monster.CharmAttackCD--
+				} else if cs.charmedAttackNearest(monster) {
 					monster.CharmAttackCD = cs.game.config.GetTPS()
 				}
 			}
@@ -927,8 +1115,11 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 		return
 	}
 
-	// Monster attacks character with highest endurance (and HP > 0)
-	currentChar := cs.findHighestEnduranceTarget()
+	// Melee hits a random living party member (both RT and TB).
+	currentChar := cs.randomLivingMember()
+	if currentChar == nil {
+		return
+	}
 	damage := monster.GetAttackDamage()
 
 	finalDamage := cs.mitigateIncoming(cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar))
@@ -1246,10 +1437,17 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 	return projEntity.BoundingBox.Intersects(playerEntity.BoundingBox)
 }
 
-// applyMonsterProjectileDamage applies a monster projectile to the single
-// tankiest standing party member.
+// applyMonsterProjectileDamage applies a single-target monster projectile/arrow.
+// Real-time → the tank (front slot). Turn-based → mostly the tank, sometimes a
+// back-liner (see rangedTBTarget / RangedOffTankChance).
 func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
-	cs.applyMonsterProjectileDamageToChar(cs.findHighestEnduranceTarget(), sourceName, damage, damageTypeStr, disintegrateChance)
+	var target *character.MMCharacter
+	if cs.game.turnBasedMode {
+		target = cs.rangedTBTarget()
+	} else {
+		target = cs.tankTarget()
+	}
+	cs.applyMonsterProjectileDamageToChar(target, sourceName, damage, damageTypeStr, disintegrateChance)
 }
 
 // applyMonsterProjectileDamageAoE splashes a monster projectile across EVERY
@@ -1393,6 +1591,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var aoeRadiusTiles float64
 	var isCharmSpell bool
 	var charmSeconds int
+	var charmLiving bool
+	var charmPacify bool
+	var stunChance float64
+	var stunSeconds int
+	var stunTurns int
+	var starburstFx bool
 
 	switch projectileType {
 	case "magic_projectile":
@@ -1410,6 +1614,12 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
 		isCharmSpell = spellDef.Charm
 		charmSeconds = spellDef.CharmDurationSeconds
+		charmLiving = spellDef.CharmLiving
+		charmPacify = spellDef.CharmPacify
+		stunChance = spellDef.StunChance
+		stunSeconds = spellDef.StunDurationSeconds
+		stunTurns = spellDef.StunDurationTurns
+		starburstFx = spellDef.StarburstFx
 		mp.Active = false
 		isSpell = true
 
@@ -1448,9 +1658,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 	}
 
-	// Hour of Power: flat bonus to all party outgoing damage while active.
-	if cs.game.hourPowerActive && damage > 0 {
-		damage += cs.game.hourPowerOutBonus
+	// Party buffs (Hour of Power, Heroism, …): flat bonus to all party outgoing damage.
+	if damage > 0 {
+		damage += cs.game.combatBuffOutBonus()
 	}
 
 	// Weapon-mastery TRUE damage / dodge-ignore (physical weapons only; spells
@@ -1476,9 +1686,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	// Charm (bind_undead): no damage — takes control of an undead target.
+	// Charm (bind_undead / Charm): no damage — binds or pacifies the target.
 	if isCharmSpell {
-		cs.applyCharm(monster, charmSeconds, weaponName)
+		cs.applyCharm(monster, charmSeconds, charmLiving, charmPacify, weaponName)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
@@ -1496,7 +1706,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 		monster.HitPoints = 0
 		monster.WasAttacked = true
-		monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+		monster.HitTintFrames = MonsterHitFlashFrames
 		cs.engageTurnBasedPackOnHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
@@ -1533,10 +1743,16 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	// GM spell mastery pierces part of the target's resistance.
 	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
-	monster.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	monster.HitTintFrames = MonsterHitFlashFrames
+	cs.breakCharmOnHit(monster) // any hit frees a pacified (Charm) monster
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
+		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
+		if stunChance > 0 && rand.Float64() < stunChance {
+			cs.applyStun(monster, stunSeconds, stunTurns)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned by %s!", monster.Name, weaponName))
+		}
 	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
@@ -1562,6 +1778,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	if aoeRadiusTiles > 0 {
 		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles, resistPierce)
+	}
+	// Starburst: a star falls into every tile of the blast (purely visual).
+	if starburstFx {
+		r := aoeRadiusTiles
+		if r <= 0 {
+			r = 1
+		}
+		cs.game.spawnStarburstFx(monster.X, monster.Y, r)
 	}
 }
 
@@ -1591,7 +1815,8 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 		}
 		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
 		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
-		m.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+		m.HitTintFrames = MonsterHitFlashFrames
+		cs.breakCharmOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 
@@ -1968,9 +2193,102 @@ func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 // projectile/utility paths. Single place to register a new effect-spell type.
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	return cs.tryCastAoeStun(spellID, def, caster) ||
+		cs.tryCastInferno(spellID, def, caster) ||
+		cs.tryCastSteamZone(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
+		cs.tryCastRaiseDead(spellID, def, caster) ||
 		cs.tryCastResurrect(spellID, def, caster) ||
 		cs.tryCastAwaken(spellID, def, caster)
+}
+
+// tryCastInferno handles party-centered nova spells (Inferno): every monster AND
+// every party member within PartyAoeRadiusTiles of the party takes the spell's
+// full damage (cost × SpellDamagePerSP). Gated on PartyAoeRadiusTiles > 0.
+func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if def.PartyAoeRadiusTiles <= 0 {
+		return false
+	}
+	dmg := def.SpellPointsCost * spells.SpellDamagePerSP
+	radius := def.PartyAoeRadiusTiles * float64(cs.game.config.GetTileSize())
+	cx, cy := cs.game.camera.X, cs.game.camera.Y
+	damageTypeStr := normalizeDamageTypeStr(def.School)
+	damageType := convertToMonsterDamageType(damageTypeStr)
+
+	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
+
+	// Monsters in range.
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || !m.IsAlive() || Distance(cx, cy, m.X, m.Y) > radius {
+			continue
+		}
+		reduced := applyArmorReductionIfPhysical(dmg, damageTypeStr, m.ArmorClass, false)
+		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
+		m.HitTintFrames = MonsterHitFlashFrames
+		cs.breakCharmOnHit(m)
+		cs.engageTurnBasedPackOnHit(m)
+		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		if !m.IsAlive() {
+			cs.game.collisionSystem.UnregisterEntity(m.ID)
+			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+			cs.awardExperienceAndGold(m)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, m.Experience))
+		}
+	}
+
+	// The party is caught in the blast too — flat, equal damage (no mitigation).
+	for idx, member := range cs.game.party.Members {
+		if member == nil || member.HitPoints <= 0 {
+			continue
+		}
+		member.HitPoints -= dmg
+		if member.HitPoints < 0 {
+			member.HitPoints = 0
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
+			member.Name, dmg, member.HitPoints, member.MaxHitPoints))
+		if member.HitPoints == 0 {
+			member.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+		}
+		cs.game.TriggerDamageBlink(idx)
+		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
+	}
+	return true
+}
+
+// tryCastRaiseDead handles Raise Dead: revives the first fallen ally that is
+// Unconscious or Dead (NOT eradicated — that's Resurrect's domain) to
+// ReviveHpPct% of max HP, clearing both conditions. Returns true if it handled
+// the spell. Gated on ReviveHpPct > 0 so it never collides with Resurrect.
+func (cs *CombatSystem) tryCastRaiseDead(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+	if def.ReviveHpPct <= 0 {
+		return false
+	}
+	var target *character.MMCharacter
+	for _, m := range cs.game.party.Members {
+		if m == nil || m.HasCondition(character.ConditionEradicated) {
+			continue
+		}
+		if m.HasCondition(character.ConditionUnconscious) || m.HasCondition(character.ConditionDead) || m.HitPoints <= 0 {
+			target = m
+			break
+		}
+	}
+	if target == nil {
+		// Nothing to raise — refund the SP actually paid (matches Resurrect/Awaken).
+		caster.SpellPoints += cs.effectiveSpellCost(caster, def.SpellPointsCost)
+		cs.game.AddCombatMessage("There is no fallen ally to raise.")
+		return true
+	}
+	target.RemoveCondition(character.ConditionUnconscious)
+	target.RemoveCondition(character.ConditionDead)
+	hp := target.MaxHitPoints * def.ReviveHpPct / 100
+	if hp < 1 {
+		hp = 1
+	}
+	target.HitPoints = hp
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is raised to %d HP!", target.Name, hp))
+	return true
 }
 
 // tryCastAwaken handles the Awaken spell: rouses EVERY unconscious party member
@@ -2040,18 +2358,54 @@ func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.Spel
 	return true
 }
 
-// applyCharm takes control of an UNDEAD monster (bind_undead). Non-undead are
-// immune — the binding simply fails. No damage is dealt.
-func (cs *CombatSystem) applyCharm(m *monsterPkg.Monster3D, seconds int, spellName string) {
-	if m.MonsterType != "undead" {
+// applyStun stuns a single monster for `seconds` real-time (× TPS frames) and
+// `turns` turn-based turns, taking the max with any existing stun.
+func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
+	if frames := seconds * cs.game.config.GetTPS(); frames > m.StunFramesRemaining {
+		m.StunFramesRemaining = frames
+	}
+	if turns > m.StunTurnsRemaining {
+		m.StunTurnsRemaining = turns
+	}
+}
+
+// applyCharm binds or pacifies a monster. bind_undead (living=false) only works
+// on undead and makes them fight other monsters. Charm (living=true) only works
+// on the LIVING and merely pacifies them — they stop attacking and break free on
+// any hit they take (handled in breakCharmOnHit). No damage is dealt either way.
+func (cs *CombatSystem) applyCharm(m *monsterPkg.Monster3D, seconds int, living, pacify bool, spellName string) {
+	isUndead := m.MonsterType == "undead"
+	if !living && !isUndead {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s — only the undead can be bound.", spellName, m.Name))
 		return
 	}
+	if living && isUndead {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the undead %s.", spellName, m.Name))
+		return
+	}
 	m.Charmed = true
+	m.CharmPacified = pacify
 	m.CharmFramesRemaining = seconds * cs.game.config.GetTPS()
 	m.CharmAttackCD = 0
 	m.WasAttacked = false
-	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+	if pacify {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is charmed and stops attacking!", m.Name))
+	} else {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+	}
+}
+
+// breakCharmOnHit releases a pacified (Charm) monster the instant it takes any
+// hit — it snaps out of the charm and re-aggros. Bound undead (bind_undead) are
+// unaffected. Called wherever the party deals damage to a monster.
+func (cs *CombatSystem) breakCharmOnHit(m *monsterPkg.Monster3D) {
+	if m.Charmed && m.CharmPacified {
+		m.Charmed = false
+		m.CharmPacified = false
+		m.CharmFramesRemaining = 0
+		m.WasAttacked = true
+		cs.game.AddCombatMessage(fmt.Sprintf("%s breaks free of the charm!", m.Name))
+	}
 }
 
 // charmedAttackNearest makes a charmed monster strike the nearest OTHER alive,
@@ -2077,7 +2431,7 @@ func (cs *CombatSystem) charmedAttackNearest(m *monsterPkg.Monster3D) bool {
 	}
 	dmg := m.GetAttackDamage()
 	target.TakeDamage(dmg, monsterPkg.DamagePhysical, m.X, m.Y)
-	target.HitTintFrames = cs.game.config.UI.DamageBlinkFrames
+	target.HitTintFrames = MonsterHitFlashFrames
 	cs.game.AddCombatMessage(fmt.Sprintf("%s (bound) strikes %s for %d!", m.Name, target.Name, dmg))
 	if !target.IsAlive() {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", m.Name, target.Name))
@@ -2140,17 +2494,13 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 		return false
 	}
 	frames := def.Duration * cs.game.config.GetTPS()
-	if def.ResistBuffPct > 0 {
-		cs.game.dayGodsActive = true
-		cs.game.dayGodsDuration = frames
-		cs.game.dayGodsResistPct = def.ResistBuffPct
-	}
-	if def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0 {
-		cs.game.hourPowerActive = true
-		cs.game.hourPowerDuration = frames
-		cs.game.hourPowerOutBonus = def.OutgoingDamageBonus
-		cs.game.hourPowerInReduce = def.IncomingDamageReduction
-	}
+	cs.game.addCombatBuff(TimedCombatBuff{
+		SpellID:   string(spellID),
+		Frames:    frames,
+		OutBonus:  def.OutgoingDamageBonus,
+		InReduce:  def.IncomingDamageReduction,
+		ResistPct: def.ResistBuffPct,
+	})
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)
 	return true
@@ -2163,11 +2513,11 @@ func (cs *CombatSystem) mitigateIncoming(dmg int) int {
 	if dmg <= 0 {
 		return dmg
 	}
-	if cs.game.dayGodsActive && cs.game.dayGodsResistPct > 0 {
-		dmg = dmg * (100 - cs.game.dayGodsResistPct) / 100
+	if pct := cs.game.combatBuffResistPct(); pct > 0 {
+		dmg = dmg * (100 - pct) / 100
 	}
-	if cs.game.hourPowerActive && cs.game.hourPowerInReduce > 0 {
-		dmg -= cs.game.hourPowerInReduce
+	if red := cs.game.combatBuffInReduce(); red > 0 {
+		dmg -= red
 	}
 	if dmg < 0 {
 		dmg = 0
@@ -2360,33 +2710,59 @@ func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []it
 	return drops
 }
 
-// findHighestEnduranceTarget finds the party member with the highest endurance who has HP > 0
-func (cs *CombatSystem) findHighestEnduranceTarget() *character.MMCharacter {
-	var bestTarget *character.MMCharacter
-	highestEndurance := -1
+// randomLivingMember returns a uniformly-random alive+conscious party member
+// (nil if the whole party is down). Used for MELEE targeting in both modes.
+func (cs *CombatSystem) randomLivingMember() *character.MMCharacter {
+	alive := alivePartyIndices(cs.game.party.Members)
+	if len(alive) == 0 {
+		return nil
+	}
+	return cs.game.party.Members[alive[rand.Intn(len(alive))]]
+}
 
-	for _, member := range cs.game.party.Members {
-		// Only consider living members
-		if member.HitPoints <= 0 {
-			continue
-		}
-
-		// Get effective endurance (includes equipment bonuses)
-		effectiveEndurance := member.GetEffectiveEndurance(cs.game.statBonus)
-
-		// Check if this member has higher endurance than current best
-		if effectiveEndurance > highestEndurance {
-			highestEndurance = effectiveEndurance
-			bestTarget = member
+// tankIndex returns the party slot that counts as the "tank": the FRONT slot
+// (index 0) while it's alive, else the first living member. -1 if all down.
+func (cs *CombatSystem) tankIndex() int {
+	m := cs.game.party.Members
+	if len(m) > 0 && m[0] != nil && m[0].HitPoints > 0 {
+		return 0
+	}
+	for i, x := range m {
+		if x != nil && x.HitPoints > 0 {
+			return i
 		}
 	}
+	return -1
+}
 
-	// Fallback to selected character if no living members found (shouldn't happen)
-	if bestTarget == nil {
-		bestTarget = cs.game.party.Members[cs.game.selectedChar]
+// tankTarget is the tank member (front slot, or first survivor). RANGED single
+// hits in real time always land here.
+func (cs *CombatSystem) tankTarget() *character.MMCharacter {
+	if i := cs.tankIndex(); i >= 0 {
+		return cs.game.party.Members[i]
 	}
+	return nil
+}
 
-	return bestTarget
+// rangedTBTarget is the turn-based ranged single-target rule: mostly the tank,
+// but RangedOffTankChance of the time a random NON-tank living member instead.
+func (cs *CombatSystem) rangedTBTarget() *character.MMCharacter {
+	ti := cs.tankIndex()
+	if ti < 0 {
+		return nil
+	}
+	if rand.Float64() < RangedOffTankChance {
+		others := make([]int, 0, len(cs.game.party.Members))
+		for i, x := range cs.game.party.Members {
+			if i != ti && x != nil && x.HitPoints > 0 {
+				others = append(others, i)
+			}
+		}
+		if len(others) > 0 {
+			return cs.game.party.Members[others[rand.Intn(len(others))]]
+		}
+	}
+	return cs.game.party.Members[ti]
 }
 
 // findCharacterIndex finds the index of a character in the party

@@ -60,17 +60,6 @@ tiles:
     wall_color: [139, 69, 19]  # Brown wooden door
     letter: "D"
 
-  stairs:
-    name: "Stairs"
-    solid: false
-    transparent: true
-    walkable: true
-    height_multiplier: 1.0
-    sprite: ""
-    render_type: "textured_wall"
-    wall_color: [160, 160, 160]  # Light gray stone stairs
-    letter: "^"
-
   # Natural features - Trees (Forest biome)
   tree:
     name: "Forest Tree"
@@ -551,6 +540,250 @@ tiles:
     letter: "S"
     biomes: ["highlands"]
 
+  dragon_cliffs_floor:
+    name: "Dragon Cliffs Grass"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [92, 112, 64]
+    floor_near_color: [120, 132, 72]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_basalt_floor:
+    name: "Scorched Basalt Ground"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [54, 50, 44]
+    floor_near_color: [92, 58, 40]
+    floor_texture_group: "basalt"
+    letter: "V"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_stream:
+    name: "Cold Cliff Stream"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [64, 124, 132]
+    floor_near_color: [112, 132, 88]
+    floor_texture_group: "dragon_cliffs_stream"
+    letter: "S"
+    biomes: ["dragon_cliffs"]
+
+  # Bridge / chasm-edge / chasm-floor each have TWO explicit variant tiles
+  # (0 and 1) instead of one tile randomly picking a variant, so a level
+  # designer places a specific look deliberately. Variant 0 keeps the original
+  # letter (and is what's already on the map); variant 1 is a new letter with a
+  # distinct floor_color so the two read apart in the editor legend.
+  dragon_cliffs_bridge:
+    name: "Cliff Bridge (v0)"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [92, 70, 48]
+    floor_near_color: [124, 94, 62]
+    floor_texture_group: "bridge_0"
+    letter: "M"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_bridge_b:
+    name: "Cliff Bridge (v1)"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [126, 96, 58]
+    floor_near_color: [150, 116, 72]
+    floor_texture_group: "bridge_1"
+    letter: "N"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_chasm_edge:
+    name: "Chasm Edge (v0)"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [78, 76, 70]
+    floor_near_color: [104, 98, 82]
+    floor_texture_group: "chasm_edge_0"
+    letter: "E"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_chasm_edge_b:
+    name: "Chasm Edge (v1)"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [112, 104, 88]
+    floor_near_color: [136, 126, 104]
+    floor_texture_group: "chasm_edge_1"
+    letter: "J"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_chasm_floor:
+    name: "Chasm Bottom (v0)"
+    solid: false
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [28, 38, 48]
+    floor_near_color: [42, 54, 62]
+    floor_texture_group: "chasm_floor_0"
+    letter: "C"
+    impassable_aura: true   # a pit: glows as impassable though it reads like ground
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_chasm_floor_b:
+    name: "Chasm Bottom (v1)"
+    solid: false
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [44, 58, 70]
+    floor_near_color: [60, 74, 86]
+    floor_texture_group: "chasm_floor_1"
+    letter: "F"
+    impassable_aura: true
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_cliff:
+    name: "Dragon Cliffs"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.25
+    sprite: "dragon_cliffs_cliff_wall"
+    render_type: "textured_wall"
+    wall_color: [78, 82, 78]
+    letter: "%"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_basalt_wall:
+    name: "Ember Basalt Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.1
+    sprite: "dragon_cliffs_basalt_wall"
+    render_type: "textured_wall"
+    wall_color: [46, 44, 42]
+    letter: "#"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_ruin_wall:
+    name: "Dragon-Carved Ruins"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "dragon_cliffs_ruin_wall"
+    render_type: "textured_wall"
+    wall_color: [88, 88, 78]
+    letter: "B"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_slate_wall:
+    name: "Claw-Marked Slate Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 0.75
+    sprite: "dragon_cliffs_slate_wall"
+    render_type: "textured_wall"
+    wall_color: [56, 58, 60]
+    letter: "="
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_wind_pine:
+    name: "Wind-Bent Pine"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 2.0
+    sprite: "dragon_cliffs_wind_pine"
+    render_type: "environment_sprite"
+    wall_color: [62, 88, 48]
+    floor_near_color: [64, 102, 52]
+    letter: "T"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_rock_outcrop:
+    name: "Cliff Rock Outcrop"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.6
+    sprite: "dragon_cliffs_boulder"
+    render_type: "environment_sprite"
+    wall_color: [112, 112, 104]
+    floor_near_color: [92, 104, 72]
+    letter: "A"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_boulder:
+    name: "Mossy Cliff Boulder"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "dragon_cliffs_boulder"
+    render_type: "environment_sprite"
+    wall_color: [108, 108, 100]
+    letter: "R"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_heather:
+    name: "Ember Heather Patch"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: "dragon_cliffs_heather"
+    render_type: "environment_sprite"
+    floor_near_color: [118, 118, 64]
+    letter: "H"
+    biomes: ["dragon_cliffs"]
+
+  dragon_cliffs_dragon_bones:
+    name: "Dragon Bones"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.35
+    sprite: "dragon_cliffs_dragon_bones"
+    render_type: "environment_sprite"
+    wall_color: [178, 158, 132]
+    floor_near_color: [92, 84, 70]
+    letter: "D"
+    biomes: ["dragon_cliffs"]
+
   # Forest→Highlands portal dressing (forest biome only). Two rock-outcrop
   # posts (K) flank a shimmering stream tile (J); an invisible gate NPC sits on
   # the tile below the stream and opens the travel dialog when the party is near.
@@ -688,15 +921,3 @@ tiles:
     render_type: "textured_wall"
     wall_color: [40, 40, 40]  # Dark gray high wall
     letter: "="
-
-  # Test dynamic tile - this will get a dynamically assigned TileType3D
-  crystal:
-    name: "Magic Crystal"
-    solid: false
-    transparent: true
-    walkable: true
-    height_multiplier: 1.2
-    sprite: "crystal"
-    render_type: "environment_sprite"
-    floor_color: [150, 100, 255]  # Purple glow
-    letter: "X"

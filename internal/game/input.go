@@ -43,6 +43,10 @@ type InputHandler struct {
 	spaceKeyTracker      keytracker.KeyStateTracker
 	fKeyTracker          keytracker.KeyStateTracker
 	hKeyTracker          keytracker.KeyStateTracker
+	rKeyTracker          keytracker.KeyStateTracker
+	cKeyTracker          keytracker.KeyStateTracker
+	pKeyTracker          keytracker.KeyStateTracker
+	attackHoldFrames     int // frames an RT attack key has been held (tap vs hold-repeat)
 	menuKeyTracker       keytracker.KeyStateTracker
 	inventoryKeyTracker  keytracker.KeyStateTracker
 	charactersKeyTracker keytracker.KeyStateTracker
@@ -59,6 +63,18 @@ func NewInputHandler(game *MMGame) *InputHandler {
 
 // inputDebounceCooldown is a minimal cooldown to prevent key repeat issues
 const inputDebounceCooldown = 10
+
+// rtActionStagger is the short global gap (frames) between any two real-time
+// combat actions. The big gate is each character's own RTCooldown; this small
+// stagger only spaces out a held-key volley so the party visibly fires in turn
+// (~0.07s apart at 120 TPS) instead of several members acting on one frame.
+const rtActionStagger = 8
+
+// rtHoldRepeatDelay is how long (frames) an attack key must be HELD before it
+// starts auto-repeating (cycling the party). Set well above a normal tap (even a
+// slow ~0.3s one) so single presses fire exactly once — only a deliberate hold
+// cycles. ~0.45s at 120 TPS.
+const rtHoldRepeatDelay = 54
 
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
@@ -236,7 +252,7 @@ func (ih *InputHandler) restartNewGame() {
 	g.spellHitEffects = g.spellHitEffects[:0]
 	g.deadMonsterIDs = g.deadMonsterIDs[:0]
 	g.combatMessages = g.combatMessages[:0]
-	g.damageBlinkTimers = [4]int{}
+	g.cardFxTimers = [cardFxCount][4]int{}
 
 	// Reset spell/UI selections and cooldowns
 	g.selectedSchool = 0
@@ -802,52 +818,157 @@ func (ih *InputHandler) handleMovementInput() {
 	}
 }
 
-// handleCombatInput processes combat-related input
+// handleCombatInput processes real-time combat input. Keys (all modes):
+//
+//	R     — melee/ranged WEAPON attack
+//	Space — smart attack: cast the slotted spell if it's offensive, else weapon
+//	F     — cast the slotted spell (heal spells target via mouse)
+//	C     — cast the strongest known heal from the spellbook
+//
+// Every action gates on the SELECTED character being off their own cooldown
+// (RTCooldown) plus a short global stagger, then advances selection to the next
+// ready member — so holding a key fires the party in turn, not one machine-gun.
 func (ih *InputHandler) handleCombatInput() {
-	// Magic attack (F key) - single press with cooldown to prevent spam
-	// For heal spells, use mouse targeting like H key
-	if ebiten.IsKeyPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
-		caster := ih.game.party.Members[ih.game.selectedChar]
-		spell, hasSpell := caster.Equipment[items.SlotSpell]
+	// Edge state for every action key — read EVERY frame so tracker state stays
+	// synced (must not be short-circuited by an early return below).
+	rJust := ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR)
+	spaceJust := ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace)
+	fJust := ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF)
+	cJust := ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC)
+	hJust := ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
+	rHeld := ebiten.IsKeyPressed(ebiten.KeyR)
+	spaceHeld := ebiten.IsKeyPressed(ebiten.KeySpace)
+	fHeld := ebiten.IsKeyPressed(ebiten.KeyF)
+	cHeld := ebiten.IsKeyPressed(ebiten.KeyC)
+	hHeld := ebiten.IsKeyPressed(ebiten.KeyH)
 
-		// Check if this is a heal spell - use mouse targeting
-		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-			mouseX, mouseY := ebiten.CursorPosition()
-			targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+	// No attacks/casts/shots while running — you must stop sprinting to act.
+	running := ih.isRunning()
 
-			if targetCharIndex >= 0 {
-				// Check if the spell can target others or if targeting self
-				if spell.SpellEffect == items.SpellEffectHealOther || targetCharIndex == ih.game.selectedChar {
-					ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-				} else {
-					// Self-only spell (First Aid) but targeting someone else - fallback to self-heal
-					ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
-					ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-				}
-			} else {
-				// No target under mouse, heal self
-				ih.game.combat.CastEquippedHealOnTarget(ih.game.selectedChar)
-				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-			}
-		} else {
-			// Not a heal spell, cast normally
-			if ih.game.combat.CastEquippedSpell() {
-				ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-			}
-		}
-	}
-
-	// Melee attack (Space key) - with cooldown to prevent spam
-	if ebiten.IsKeyPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
+	// Space also picks up ground loot — works while sprinting, cooldown-independent.
+	if spaceHeld && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.spellInputCooldown = ih.actionCooldown(15) // base ~0.25s at 60 FPS
+	}
+	if running {
+		ih.attackHoldFrames = 0
+		return
 	}
 
-	// Note: H key healing is also handled in handleMouseInput for proper targeting
+	// Tap vs hold: a fresh press (Just) fires ONCE; a sustained hold only
+	// auto-repeats after rtHoldRepeatDelay, so a single tap can't fire twice.
+	anyHeld := rHeld || spaceHeld || fHeld || cHeld || hHeld
+	if anyHeld {
+		ih.attackHoldFrames++
+	} else {
+		ih.attackHoldFrames = 0
+	}
+	repeat := ih.attackHoldFrames >= rtHoldRepeatDelay
+
+	const (
+		actNone = iota
+		actWeapon
+		actSmart
+		actCast
+		actHeal
+	)
+	kind := actNone
+	switch {
+	case rJust:
+		kind = actWeapon
+	case spaceJust:
+		kind = actSmart
+	case fJust:
+		kind = actCast
+	case cJust || hJust:
+		kind = actHeal
+	case repeat && rHeld:
+		kind = actWeapon
+	case repeat && spaceHeld:
+		kind = actSmart
+	case repeat && fHeld:
+		kind = actCast
+	case repeat && (cHeld || hHeld):
+		kind = actHeal
+	}
+	if kind == actNone {
+		return
+	}
+
+	// If the selected member can no longer act (just died/KO'd), hand control to a
+	// living one. While cycling (hold), if the selected one is on cooldown jump to
+	// whoever IS ready — so a held key fires the party in turn, fastest most often.
+	ih.game.ensureSelectedCanActRT()
+	if !ih.game.rtCharReady(ih.game.selectedChar) {
+		ih.game.advanceToNextReadyCharRT()
+	}
+
+	// Gate: short global stagger AND the selected character ready (off cooldown).
+	if ih.game.spellInputCooldown != 0 || !ih.game.rtCharReady(ih.game.selectedChar) {
+		return
+	}
+	sel := ih.game.party.Members[ih.game.selectedChar]
+
+	switch kind {
+	case actWeapon:
+		ih.game.combat.EquipmentMeleeAttack()
+		ih.commitRTAction(ih.game.combat.WeaponCooldownFrames(sel))
+	case actSmart:
+		if cast, spellID := ih.game.combat.SmartAttack(); cast {
+			ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+		} else {
+			ih.commitRTAction(ih.game.combat.WeaponCooldownFrames(sel))
+		}
+	case actCast:
+		ih.castSlottedSpell(sel)
+	case actHeal:
+		ih.castBestHeal(sel)
+	}
+}
+
+// commitRTAction puts the just-acted character on cooldown, applies the short
+// global stagger, and hands selection to the next ready member.
+func (ih *InputHandler) commitRTAction(cooldownFrames int) {
+	sel := ih.game.party.Members[ih.game.selectedChar]
+	sel.RTCooldown = cooldownFrames
+	ih.game.spellInputCooldown = rtActionStagger
+	ih.game.advanceToNextReadyCharRT()
+}
+
+// castSlottedSpell casts the selected character's slotted spell (F key). Heal
+// spells are aimed with the mouse; everything else casts directly. Applies the
+// real-time cooldown only if the cast actually fired.
+func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+	spell, hasSpell := sel.Equipment[items.SlotSpell]
+	if !hasSpell {
+		return
+	}
+	spellID := spells.SpellID(spell.SpellEffect)
+	if spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther {
+		mouseX, mouseY := ebiten.CursorPosition()
+		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
+		if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
+			ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+		}
+		return
+	}
+	if ih.game.combat.CastEquippedSpell() {
+		ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+	}
+}
+
+// castBestHeal casts the selected character's strongest known heal (C key),
+// aimed at the party member under the mouse (or self). No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+	mouseX, mouseY := ebiten.CursorPosition()
+	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+	if targetCharIndex < 0 {
+		targetCharIndex = ih.game.selectedChar
+	}
+	if cast, spellID := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+		ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+	}
 }
 
 // handleCharacterSelectionInput processes party character selection via 1-4
@@ -910,7 +1031,8 @@ func (ih *InputHandler) handleUIInput() {
 			ih.openTabbedMenu(TabInventory)
 		}
 	}
-	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyC) && ih.game.spellInputCooldown == 0 {
+	// Characters sheet is on P ('party') — C now casts the best heal in combat.
+	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
 		if ih.game.menuOpen {
 			if ih.game.currentTab == TabCharacters {
 				ih.game.menuOpen = false // Close menu if already on Characters tab
@@ -949,56 +1071,52 @@ func (ih *InputHandler) handleUIInput() {
 
 // handleSpellbookInput processes spellbook navigation and casting
 // Movement helper methods
+// movePlayer translates the party by (dx, dy) world units with wall-sliding: if
+// the combined move is blocked, it slides along whichever single axis is still
+// clear, so grazing a corner/obstacle no longer stops the party dead. Only one
+// axis slides (sliding both would just recreate the blocked diagonal and clip).
+func (ih *InputHandler) movePlayer(dx, dy float64) {
+	cam := ih.game.camera
+	cs := ih.game.collisionSystem
+	moved := false
+	switch {
+	case cs.CanMoveTo("player", cam.X+dx, cam.Y+dy):
+		cam.X += dx
+		cam.Y += dy
+		moved = true
+	case dx != 0 && cs.CanMoveTo("player", cam.X+dx, cam.Y):
+		cam.X += dx
+		moved = true
+	case dy != 0 && cs.CanMoveTo("player", cam.X, cam.Y+dy):
+		cam.Y += dy
+		moved = true
+	}
+	if !moved {
+		return
+	}
+	cs.UpdateEntity("player", cam.X, cam.Y)
+	ih.checkTeleporter()
+	ih.checkDeepWater()
+}
+
 func (ih *InputHandler) moveForward() {
 	speed := ih.moveSpeed()
-	newX := ih.game.camera.X + ih.game.camera.GetForwardX()*speed
-	newY := ih.game.camera.Y + ih.game.camera.GetForwardY()*speed
-	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
-		ih.game.camera.X = newX
-		ih.game.camera.Y = newY
-		ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-		ih.checkTeleporter()
-		ih.checkDeepWater()
-	}
+	ih.movePlayer(ih.game.camera.GetForwardX()*speed, ih.game.camera.GetForwardY()*speed)
 }
 
 func (ih *InputHandler) moveBackward() {
 	speed := ih.moveSpeed()
-	newX := ih.game.camera.X - ih.game.camera.GetForwardX()*speed
-	newY := ih.game.camera.Y - ih.game.camera.GetForwardY()*speed
-	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
-		ih.game.camera.X = newX
-		ih.game.camera.Y = newY
-		ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-		ih.checkTeleporter()
-		ih.checkDeepWater()
-	}
+	ih.movePlayer(-ih.game.camera.GetForwardX()*speed, -ih.game.camera.GetForwardY()*speed)
 }
 
 func (ih *InputHandler) strafeLeft() {
 	speed := ih.moveSpeed()
-	newX := ih.game.camera.X + ih.game.camera.GetRightX()*-speed
-	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*-speed
-	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
-		ih.game.camera.X = newX
-		ih.game.camera.Y = newY
-		ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-		ih.checkTeleporter()
-		ih.checkDeepWater()
-	}
+	ih.movePlayer(ih.game.camera.GetRightX()*-speed, ih.game.camera.GetRightY()*-speed)
 }
 
 func (ih *InputHandler) strafeRight() {
 	speed := ih.moveSpeed()
-	newX := ih.game.camera.X + ih.game.camera.GetRightX()*speed
-	newY := ih.game.camera.Y + ih.game.camera.GetRightY()*speed
-	if ih.game.collisionSystem.CanMoveTo("player", newX, newY) {
-		ih.game.camera.X = newX
-		ih.game.camera.Y = newY
-		ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-		ih.checkTeleporter()
-		ih.checkDeepWater()
-	}
+	ih.movePlayer(ih.game.camera.GetRightX()*speed, ih.game.camera.GetRightY()*speed)
 }
 
 func (ih *InputHandler) movementScale() float64 {
@@ -1015,10 +1133,18 @@ func (ih *InputHandler) movementScale() float64 {
 // not rotation.
 func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
-	if !ih.game.turnBasedMode && (ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)) {
+	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()
 	}
 	return speed
+}
+
+// isRunning reports whether the party is sprinting (run key held) in real time.
+// All attacks/casts/shots are disabled while running — you must stop to act.
+// Always false in turn-based mode (movement there is tile-stepped, not sprinted).
+func (ih *InputHandler) isRunning() bool {
+	return !ih.game.turnBasedMode &&
+		(ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight))
 }
 
 // checkTeleporter checks if player is on a teleporter and handles teleportation
@@ -1240,31 +1366,9 @@ func (ih *InputHandler) navigateSpellbookDown(schools []character.MagicSchoolID)
 
 // handleMouseInput processes mouse input for targeting and UI interaction
 func (ih *InputHandler) handleMouseInput() {
-	// Get mouse position
-	mouseX, mouseY := ebiten.CursorPosition()
-
-	// Handle heal targeting when H key is pressed (only when menu is not open and cooldown is ready)
-	healPressed := ebiten.IsKeyPressed(ebiten.KeyH)
-	if ih.game.turnBasedMode {
-		healPressed = ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
-	}
-	if ih.game.turnBasedMode && (ih.game.currentTurn != 0 || ih.game.partyAllExhausted()) {
-		healPressed = false
-	}
-	if !ih.game.menuOpen && healPressed && ih.game.spellInputCooldown == 0 {
-		caster := ih.game.party.Members[ih.game.selectedChar]
-
-		// Check if character has a heal spell equipped
-		spell, hasSpell := caster.Equipment[items.SlotSpell]
-		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-			if healed {
-				ih.game.consumeSelectedCharAction()
-			}
-			ih.game.spellInputCooldown = ih.actionCooldown(ih.game.config.UI.SpellInputCooldown)
-		}
-	}
+	// Heal targeting (H/C key) is handled in the combat input handlers
+	// (handleCombatInput / handleTurnBasedInput) so it shares the new
+	// per-character cooldown + auto-advance, instead of a separate path here.
 
 	// Handle party character selection clicks (works both in and out of menu).
 	// In turn-based mode, skip portraits whose owner can't act this round
@@ -1907,39 +2011,50 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	// Selected character can attack/spell if they're still selectable this
-	// round (alive + conscious + has an action slot).
+	// round (alive + conscious + has an action slot). Same key scheme as
+	// real-time (R/Space/F/C); turn-based gates on action slots (not frame
+	// cooldowns) and consumes a slot per action via consumeSelectedCharAction.
 	selected := ih.game.party.Members[ih.game.selectedChar]
 	canAct := ih.game.canSelectChar(ih.game.selectedChar)
+	if !canAct || ih.game.spellInputCooldown != 0 {
+		return
+	}
 
-	if canAct && ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && ih.game.spellInputCooldown == 0 {
-		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
-			return
-		}
+	switch {
+	case ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR): // melee/ranged weapon attack
 		ih.game.combat.EquipmentMeleeAttack()
 		ih.game.consumeSelectedCharAction()
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
-	}
-
-	if canAct && ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) && ih.game.spellInputCooldown == 0 {
+	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
+		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
+			return
+		}
+		ih.game.combat.SmartAttack()
+		ih.game.consumeSelectedCharAction()
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
+	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
 		spell, hasSpell := selected.Equipment[items.SlotSpell]
-
-		// Check if this is a heal spell - use mouse targeting
 		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
 			mouseX, mouseY := ebiten.CursorPosition()
 			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-			healed := ih.game.combat.CastEquippedHealOnTarget(targetCharIndex)
-			if healed {
+			if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
 				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
-			return
-		} else {
-			// Not a heal spell, cast normally
-			if ih.game.combat.CastEquippedSpell() {
-				ih.game.consumeSelectedCharAction()
-				ih.game.spellInputCooldown = ih.actionCooldown(15)
-			}
+		} else if ih.game.combat.CastEquippedSpell() {
+			ih.game.consumeSelectedCharAction()
+			ih.game.spellInputCooldown = ih.actionCooldown(15)
 		}
+	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
+		mouseX, mouseY := ebiten.CursorPosition()
+		targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
+		if targetCharIndex < 0 {
+			targetCharIndex = ih.game.selectedChar
+		}
+		if cast, _ := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+			ih.game.consumeSelectedCharAction()
+		}
+		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	}
 }
 
@@ -2289,19 +2404,37 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	if questID == "" || quests.GlobalQuestManager == nil {
 		return
 	}
-	if g.party.HasLich() {
-		g.AddCombatMessage("The tower's wards reject the undead.")
+	// The Archmage's Trial is special: it has promotion prerequisites (no lich in
+	// the party, an eligible promotable member) and its own Lich-King flavor. Those
+	// checks/messages must NOT leak onto ordinary quests (e.g. the Dragon Cliffs
+	// kill quests), which just activate generically.
+	if questID == "archmage_trial" {
+		if g.party.HasLich() {
+			g.AddCombatMessage("The tower's wards reject the undead.")
+			return
+		}
+		if len(g.eligibleArchmageIndices()) == 0 {
+			g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+			return
+		}
+		if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
+			g.AddCombatMessage("The trial is already underway — return when the Lich King is slain.")
+			return
+		}
+		g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
 		return
 	}
-	if len(g.eligibleArchmageIndices()) == 0 {
-		g.AddCombatMessage("No one in your party can walk the Archmage's path.")
-		return
-	}
+
+	// Generic quest activation.
 	if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-		g.AddCombatMessage("The trial is already underway — return when the Lich King is slain.")
+		g.AddCombatMessage("You are already on that quest.")
 		return
 	}
-	g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
+	name := questID
+	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
+		name = q.Definition.Name
+	}
+	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
 }
 
 // handleTurnInQuest completes the Archmage trial at the tower and promotes a

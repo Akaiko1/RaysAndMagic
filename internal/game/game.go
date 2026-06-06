@@ -107,6 +107,7 @@ type SpellHitParticle struct {
 	LifeTime         int     // Frames remaining
 	MaxLife          int     // Initial lifetime for alpha calculation
 	Size             int     // Particle size (shrinks over time)
+	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
 	Active           bool
 }
 
@@ -229,16 +230,13 @@ type MMGame struct {
 	blessDuration  int  // Remaining duration in frames
 	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
 
-	// Day of the Gods — party-wide % incoming-damage reduction
-	dayGodsActive    bool
-	dayGodsDuration  int // frames remaining
-	dayGodsResistPct int // % reduction applied to all incoming damage while active
+	// Stacking timed party combat buffs (Day of the Gods, Hour of Power, Stone
+	// Skin, Heroism, …) — see combat_buffs.go. Their ResistPct/OutBonus/InReduce
+	// sum across all active entries.
+	combatBuffs []TimedCombatBuff
 
-	// Hour of Power — party-wide outgoing-damage bonus + flat incoming reduction
-	hourPowerActive   bool
-	hourPowerDuration int // frames remaining
-	hourPowerOutBonus int // flat bonus added to all party outgoing damage
-	hourPowerInReduce int // flat reduction subtracted from incoming damage (floors at 0)
+	// Persistent damage zones (Hot Steam) — see combat_zones.go.
+	steamZones []SteamZone
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -274,8 +272,10 @@ type MMGame struct {
 	combatMessages []string
 	maxMessages    int
 
-	// Damage blink effects
-	damageBlinkTimers [4]int // One timer per party member (0-3)
+	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
+	// spark/heal. One table instead of four parallel arrays — see cardFx and
+	// triggerCardFx. Indexed [effect][memberIndex].
+	cardFxTimers [cardFxCount][4]int
 
 	// Multi-threading components
 	threading *threading.ThreadingComponents
@@ -881,18 +881,67 @@ func (g *MMGame) GetCombatMessages() []string {
 	return g.combatMessages
 }
 
-// TriggerDamageBlink triggers the red blink effect for a specific character
-func (g *MMGame) TriggerDamageBlink(characterIndex int) {
-	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
-		g.damageBlinkTimers[characterIndex] = g.config.UI.DamageBlinkFrames
+// cardFx identifies a party-card overlay effect tracked per member in
+// cardFxTimers. Durations: blink uses the config value, the rest the consts.
+type cardFx int
+
+const (
+	fxBlink cardFx = iota // red damage flash (portrait tint)
+	fxFlame               // Inferno scorch flames
+	fxSpark               // whole-card red flash + spark burst on a hit
+	fxHeal                // rising green "+" on a heal
+	cardFxCount
+)
+
+// HitSparkFrames is how long the hit feedback (whole-card red flash + spark
+// burst) plays on a party card after the member takes a hit.
+const HitSparkFrames = 18
+
+// PartyFlameFrames is how long the Inferno flame overlay burns on a card.
+const PartyFlameFrames = 45
+
+// HealEffectFrames is how long the rising green "+" overlay plays on a card.
+const HealEffectFrames = 48
+
+// triggerCardFx lights one card overlay on one member for `frames` frames.
+func (g *MMGame) triggerCardFx(fx cardFx, characterIndex, frames int) {
+	if characterIndex >= 0 && characterIndex < len(g.cardFxTimers[fx]) {
+		g.cardFxTimers[fx][characterIndex] = frames
 	}
 }
 
-// UpdateDamageBlinkTimers decrements damage blink timers each frame
+// cardFxActive returns the remaining frames of a card overlay (0 = inactive).
+func (g *MMGame) cardFxActive(fx cardFx, characterIndex int) int {
+	if characterIndex >= 0 && characterIndex < len(g.cardFxTimers[fx]) {
+		return g.cardFxTimers[fx][characterIndex]
+	}
+	return 0
+}
+
+// TriggerDamageBlink triggers the red blink AND a spark burst on a character's
+// card — fired wherever a member takes a visible hit, so impacts read clearly.
+func (g *MMGame) TriggerDamageBlink(characterIndex int) {
+	g.triggerCardFx(fxBlink, characterIndex, g.config.UI.DamageBlinkFrames)
+	g.triggerCardFx(fxSpark, characterIndex, HitSparkFrames)
+}
+
+// TriggerPartyFlame lights the Inferno flame-particle overlay on a party card.
+func (g *MMGame) TriggerPartyFlame(characterIndex int) {
+	g.triggerCardFx(fxFlame, characterIndex, PartyFlameFrames)
+}
+
+// TriggerPartyHeal lights the rising green "+" overlay on a healed member's card.
+func (g *MMGame) TriggerPartyHeal(characterIndex int) {
+	g.triggerCardFx(fxHeal, characterIndex, HealEffectFrames)
+}
+
+// UpdateDamageBlinkTimers decrements every card-overlay timer each frame.
 func (g *MMGame) UpdateDamageBlinkTimers() {
-	for i := range g.damageBlinkTimers {
-		if g.damageBlinkTimers[i] > 0 {
-			g.damageBlinkTimers[i]--
+	for fx := range g.cardFxTimers {
+		for i := range g.cardFxTimers[fx] {
+			if g.cardFxTimers[fx][i] > 0 {
+				g.cardFxTimers[fx][i]--
+			}
 		}
 	}
 }
@@ -911,10 +960,7 @@ func (g *MMGame) UpdateMonsterHitTintTimers() {
 
 // IsCharacterBlinking returns true if a character should be rendered with red tint
 func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
-	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
-		return g.damageBlinkTimers[characterIndex] > 0
-	}
-	return false
+	return g.cardFxActive(fxBlink, characterIndex) > 0
 }
 
 // Getter methods for turn-based mode testing
@@ -973,6 +1019,63 @@ func (g *MMGame) advanceToNextEligibleChar() {
 	for off := 1; off <= n; off++ {
 		idx := (g.selectedChar + off) % n
 		if g.canSelectChar(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+}
+
+// rtCharReady reports whether a party member can act right now in real-time
+// combat: alive, conscious, and off cooldown. The real-time analogue of
+// canSelectChar (which is turn-based, gated by action slots).
+func (g *MMGame) rtCharReady(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	return m.CanAct() && m.RTCooldown <= 0
+}
+
+// advanceToNextReadyCharRT moves the selection to the next party member ready
+// to act in real time (off cooldown), wrapping around. If nobody else is ready
+// it leaves the selection where it is. This is what makes holding an attack key
+// fire the party in turn instead of one member machine-gunning.
+func (g *MMGame) advanceToNextReadyCharRT() {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if g.rtCharReady(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+}
+
+// ensureSelectedCanActRT guarantees the real-time selection points at a member
+// who can still act (alive + conscious). If the current one was just killed/KO'd
+// it moves to the next ready member, or failing that any living member (who'll
+// act once their cooldown ends) — without this the party freezes on a corpse.
+func (g *MMGame) ensureSelectedCanActRT() {
+	if g.rtCharReady(g.selectedChar) {
+		return
+	}
+	cur := g.party.Members[g.selectedChar]
+	if cur != nil && cur.CanAct() {
+		return // alive, just on cooldown — leave selection put
+	}
+	n := len(g.party.Members)
+	// Prefer a member ready right now.
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if g.rtCharReady(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+	// Otherwise any living member (still on cooldown — they'll fire when ready).
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if m := g.party.Members[idx]; m != nil && m.CanAct() {
 			g.selectedChar = idx
 			return
 		}

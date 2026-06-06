@@ -9,7 +9,14 @@ import (
 func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 
-	target := cs.findHighestEnduranceTarget()
+	// Melee picks a random LIVING member — KO everyone but slot 0 so the hit is
+	// deterministic, then assert that survivor gets poisoned.
+	for i, m := range cs.game.party.Members {
+		if i != 0 {
+			m.HitPoints = 0
+		}
+	}
+	target := cs.game.party.Members[0]
 	target.Luck = 0
 	target.HitPoints = target.MaxHitPoints
 

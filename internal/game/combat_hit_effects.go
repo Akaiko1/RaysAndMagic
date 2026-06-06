@@ -192,6 +192,76 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 	g.spellHitEffects = append(g.spellHitEffects, effect)
 }
 
+// spawnImpactSparks throws a quick radial burst of bright white→gold sparks at
+// a world point — the weapon-hit feedback when the party strikes a monster.
+func (g *MMGame) spawnImpactSparks(x, y float64) {
+	g.hitEffectsMu.Lock()
+	defer g.hitEffectsMu.Unlock()
+	const n = 14
+	parts := make([]SpellHitParticle, n)
+	for i := 0; i < n; i++ {
+		ang := rand.Float64() * 2 * math.Pi
+		sp := 2.8 + rand.Float64()*3.2
+		life := 11 + rand.Intn(7)
+		parts[i] = SpellHitParticle{
+			X: x, Y: y,
+			VelX:    math.Cos(ang) * sp,
+			VelY:    math.Sin(ang)*sp - 0.8, // slight upward bias
+			Gravity: 0.11,
+			Color:   mixColor([3]int{255, 255, 210}, [3]int{255, 200, 80}, rand.Float64()),
+			LifeTime: life, MaxLife: life, Size: 5, Active: true,
+		}
+	}
+	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
+}
+
+// spawnStarburstFx drops a small star into every tile within `radiusTiles` of
+// the impact point: each star is a cluster of bright particles that begins above
+// the tile and falls into it (Starburst). Purely visual — damage is handled by
+// the spell's AoE splash.
+func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
+	g.hitEffectsMu.Lock()
+	defer g.hitEffectsMu.Unlock()
+
+	tile := float64(g.config.GetTileSize())
+	reach := radiusTiles * tile
+	r := int(radiusTiles + 0.999)
+	ctx := int(cx / tile)
+	cty := int(cy / tile)
+	star := [3]int{235, 240, 255} // bright star-white
+
+	for ty := cty - r; ty <= cty+r; ty++ {
+		for tx := ctx - r; tx <= ctx+r; tx++ {
+			wx := (float64(tx) + 0.5) * tile
+			wy := (float64(ty) + 0.5) * tile
+			if math.Hypot(wx-cx, wy-cy) > reach {
+				continue
+			}
+			particles := make([]SpellHitParticle, 0, 6)
+			for i := 0; i < 6; i++ {
+				tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white→gold sparkle
+				life := SpellParticleLife + rand.Intn(8)
+				particles = append(particles, SpellHitParticle{
+					X:        wx,
+					Y:        wy,
+					OffsetX:  (rand.Float64() - 0.5) * 8,
+					OffsetY:  -36 - rand.Float64()*28, // start above the tile
+					VelX:     (rand.Float64() - 0.5) * 0.8,
+					VelY:     2.6 + rand.Float64()*1.6, // fall down into the tile
+					Gravity:  0.12,
+					Color:    tint,
+					LifeTime: life,
+					MaxLife:  life,
+					Size:     SpellParticleSize,
+					Trail:    true, // leaves a slowly-evaporating streak as it falls
+					Active:   true,
+				})
+			}
+			g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Particles: particles, Active: true})
+		}
+	}
+}
+
 // clampColor clamps a color value to 0-255
 func clampColor(c int) int {
 	if c < 0 {
@@ -205,6 +275,10 @@ func clampColor(c int) int {
 
 // UpdateHitEffects updates all hit effects (called from game loop)
 func (g *MMGame) UpdateHitEffects() {
+	// Trail breadcrumbs spawned this frame (collected, then appended AFTER the
+	// in-place compaction below — never mutate g.spellHitEffects mid-iteration).
+	var trail []SpellHitEffect
+
 	// Update spell hit effects
 	writeIdx := 0
 	for i := range g.spellHitEffects {
@@ -232,6 +306,20 @@ func (g *MMGame) UpdateHitEffects() {
 				particle.Active = false
 			} else {
 				activeParticles++
+				// Falling-star trail: drop a faint, motionless breadcrumb at the
+				// current position every few frames; it lingers and fades on its
+				// own ("slowly evaporates"). Breadcrumbs don't trail themselves.
+				if particle.Trail && particle.LifeTime%3 == 0 {
+					sz := particle.Size - 1
+					if sz < 1 {
+						sz = 1
+					}
+					trail = append(trail, SpellHitEffect{Active: true, Particles: []SpellHitParticle{{
+						X: particle.X, Y: particle.Y,
+						OffsetX: particle.OffsetX, OffsetY: particle.OffsetY,
+						Color: particle.Color, LifeTime: 14, MaxLife: 14, Size: sz, Active: true,
+					}}})
+				}
 			}
 		}
 
@@ -244,4 +332,7 @@ func (g *MMGame) UpdateHitEffects() {
 		writeIdx++
 	}
 	g.spellHitEffects = g.spellHitEffects[:writeIdx]
+	if len(trail) > 0 {
+		g.spellHitEffects = append(g.spellHitEffects, trail...)
+	}
 }

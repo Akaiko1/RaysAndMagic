@@ -69,13 +69,8 @@ type GameSave struct {
 	BlessActive            bool    `json:"bless_active,omitempty"`
 	BlessDuration          int     `json:"bless_duration,omitempty"`
 	BlessStatBonus         int     `json:"bless_stat_bonus,omitempty"`
-	DayGodsActive          bool    `json:"day_gods_active,omitempty"`
-	DayGodsDuration        int     `json:"day_gods_duration,omitempty"`
-	DayGodsResistPct       int     `json:"day_gods_resist_pct,omitempty"`
-	HourPowerActive        bool    `json:"hour_power_active,omitempty"`
-	HourPowerDuration      int     `json:"hour_power_duration,omitempty"`
-	HourPowerOutBonus      int     `json:"hour_power_out_bonus,omitempty"`
-	HourPowerInReduce      int     `json:"hour_power_in_reduce,omitempty"`
+	CombatBuffs            []CombatBuffSave `json:"combat_buffs,omitempty"`
+	SteamZones             []SteamZoneSave  `json:"steam_zones,omitempty"`
 	WaterBreathingActive   bool    `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int     `json:"water_breathing_duration,omitempty"`
 	UnderwaterReturnX      float64 `json:"underwater_return_x,omitempty"`
@@ -183,6 +178,7 @@ type MonsterSave struct {
 	Y                    float64              `json:"y"`
 	HitPoints            int                  `json:"hit_points"`
 	Charmed              bool                 `json:"charmed,omitempty"`
+	CharmPacified        bool                 `json:"charm_pacified,omitempty"`
 	CharmFramesRemaining int                  `json:"charm_frames_remaining,omitempty"`
 	IsEncounterMonster   bool                 `json:"is_encounter_monster,omitempty"`
 	EncounterID          int                  `json:"encounter_id,omitempty"`
@@ -567,7 +563,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Charmed: mon.Charmed, CharmFramesRemaining: mon.CharmFramesRemaining}
+			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Charmed: mon.Charmed, CharmPacified: mon.CharmPacified, CharmFramesRemaining: mon.CharmFramesRemaining}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -677,13 +673,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		BlessActive:            g.blessActive,
 		BlessDuration:          g.blessDuration,
 		BlessStatBonus:         g.blessStatBonus,
-		DayGodsActive:          g.dayGodsActive,
-		DayGodsDuration:        g.dayGodsDuration,
-		DayGodsResistPct:       g.dayGodsResistPct,
-		HourPowerActive:        g.hourPowerActive,
-		HourPowerDuration:      g.hourPowerDuration,
-		HourPowerOutBonus:      g.hourPowerOutBonus,
-		HourPowerInReduce:      g.hourPowerInReduce,
+		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
+		SteamZones:             buildSteamZoneSaves(g.steamZones),
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
@@ -748,6 +739,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
 				m.HitPoints = ms.HitPoints
 				m.Charmed = ms.Charmed
+				m.CharmPacified = ms.CharmPacified
 				m.CharmFramesRemaining = ms.CharmFramesRemaining
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
@@ -823,13 +815,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.blessActive = save.BlessActive
 	g.blessDuration = save.BlessDuration
 	g.blessStatBonus = save.BlessStatBonus
-	g.dayGodsActive = save.DayGodsActive
-	g.dayGodsDuration = save.DayGodsDuration
-	g.dayGodsResistPct = save.DayGodsResistPct
-	g.hourPowerActive = save.HourPowerActive
-	g.hourPowerDuration = save.HourPowerDuration
-	g.hourPowerOutBonus = save.HourPowerOutBonus
-	g.hourPowerInReduce = save.HourPowerInReduce
+	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
+	g.steamZones = restoreSteamZones(save.SteamZones)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX

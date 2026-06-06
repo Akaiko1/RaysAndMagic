@@ -748,77 +748,46 @@ func formatSchoolName(school string) string {
 	return strings.ToUpper(school[:1]) + school[1:]
 }
 
-// getSpellMechanicsFromDefinition returns detailed spell mechanics using centralized spell definitions
+// getSpellMechanicsFromDefinition returns the full mechanics of a spell for its
+// tooltip. It is FIELD-DRIVEN: every player-facing SpellDefinition field emits a
+// line, reading the SAME values combat uses (flat fields read directly = SSoT;
+// scaled values via the Calculate* helpers). Add a YAML field → add a line here,
+// never name-switch.
 func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	var details []string
 
-	// Check if this is a damage spell
-	if def.IsProjectile {
-		if combatSystem != nil {
-			baseDamage, intellectBonus, totalDamage := combatSystem.CalculateSpellDamage(def.ID, char)
-			details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
-			details = append(details, fmt.Sprintf("Intellect Bonus: +%d", intellectBonus))
-			details = append(details, fmt.Sprintf("Total Damage: %d", totalDamage))
-		}
-		if def.AoeRadiusTiles > 0 {
-			details = append(details, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", def.AoeRadiusTiles))
-		}
+	// Caster-scaled projectile damage — suppressed for no-damage projectiles
+	// (Charm, Bind Undead, Disintegrate), whose only effect is a rider below.
+	if def.IsProjectile && !def.DealsNoDamage && combatSystem != nil {
+		baseDamage, statBonus, totalDamage := combatSystem.CalculateSpellDamage(def.ID, char)
+		details = append(details, fmt.Sprintf("Base Damage: %d", baseDamage))
+		details = append(details, fmt.Sprintf("%s Bonus: +%d", spellDamageStatLabel(def.School, def.ScalesWithPersonality), statBonus))
+		details = append(details, fmt.Sprintf("Total Damage: %d", totalDamage))
+	}
+	// Caster-scaled healing.
+	if def.HealAmount > 0 && combatSystem != nil {
+		baseHeal, personalityBonus, totalHeal := combatSystem.CalculateSpellHealing(def.ID, char)
+		details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
+		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
+		details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 	}
 
-	// Check if this is a healing spell
-	if def.HealAmount > 0 {
-		if combatSystem != nil {
-			baseHeal, personalityBonus, totalHeal := combatSystem.CalculateSpellHealing(def.ID, char)
-			details = append(details, fmt.Sprintf("Base Healing: %d", baseHeal))
-			details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
-			details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
-		}
+	// Character-INDEPENDENT mechanics — shared SSoT with the map-editor card.
+	details = append(details, def.EffectLines()...)
 
-		if def.TargetSelf {
-			details = append(details, "Self-target only")
-		} else {
-			details = append(details, "Can target any party member")
+	// Caster-scaled extras the editor can't compute (Bless mastery, duration).
+	if def.StatBonus > 0 && combatSystem != nil {
+		if statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char); statBonus > 0 {
+			details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats (whole party)", statBonus))
 		}
 	}
-
-	// Check if this is a utility spell
-	if def.IsUtility {
-		if combatSystem != nil {
-			duration := combatSystem.CalculateSpellDurationSeconds(def.ID, char)
-
-			// Display duration appropriately (seconds vs minutes)
+	if def.Duration > 0 && combatSystem != nil {
+		if duration := combatSystem.CalculateSpellDurationSeconds(def.ID, char); duration > 0 {
 			if duration >= 60 {
-				details = append(details, fmt.Sprintf("Duration: %d minutes", duration/60))
+				details = append(details, fmt.Sprintf("Duration: %d min %d sec", duration/60, duration%60))
 			} else {
 				details = append(details, fmt.Sprintf("Duration: %d seconds", duration))
 			}
-		}
-
-		if def.StatBonus > 0 && combatSystem != nil {
-			if statBonus := combatSystem.CalculateSpellStatBonus(def.ID, char); statBonus > 0 {
-				details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats", statBonus))
-				details = append(details, "Affects entire party")
-			}
-		}
-		if def.WaterWalk {
-			details = append(details, "Allows party to walk on water")
-		}
-		if def.WaterBreathing {
-			details = append(details, "Allows underwater travel via deep water")
-		}
-		if def.Awaken {
-			details = append(details, "No current gameplay effect")
-		}
-	}
-
-	// Generic information for unknown spells
-	if len(details) == 0 && !def.IsUtility {
-		switch def.School {
-		case "fire", "air", "water", "earth":
-			details = append(details, "Offensive elemental spell")
-		case "body", "mind", "spirit":
-			details = append(details, "Self-magic spell")
-			details = append(details, "Provides beneficial effects")
 		}
 	}
 

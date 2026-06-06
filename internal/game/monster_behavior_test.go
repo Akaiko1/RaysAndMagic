@@ -303,15 +303,16 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("day_of_the_gods cast failed")
 	}
-	if !game.dayGodsActive || game.dayGodsResistPct != 50 {
-		t.Fatalf("expected 50%% resist active, got active=%v pct=%d", game.dayGodsActive, game.dayGodsResistPct)
+	if got := game.combatBuffResistPct(); got != 50 {
+		t.Fatalf("expected 50%% resist active, got %d", got)
 	}
 	if got := game.combat.mitigateIncoming(100); got != 50 {
 		t.Errorf("100 incoming with 50%% resist should be 50, got %d", got)
 	}
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
-	if want := def.Duration * game.config.GetTPS(); game.dayGodsDuration != want {
-		t.Errorf("duration frames: got %d, want %d (%ds × TPS)", game.dayGodsDuration, want, def.Duration)
+	buff, ok := game.combatBuffByID("day_of_the_gods")
+	if want := def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds × TPS)", buff.Frames, ok, want, def.Duration)
 	}
 }
 
@@ -322,8 +323,8 @@ func TestHourOfPower_DamageBuffs(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if !game.hourPowerActive || game.hourPowerOutBonus != 15 || game.hourPowerInReduce != 5 {
-		t.Fatalf("hour_of_power: active=%v out=%d in=%d (want true/15/5)", game.hourPowerActive, game.hourPowerOutBonus, game.hourPowerInReduce)
+	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 15 || in != 5 {
+		t.Fatalf("hour_of_power: out=%d in=%d (want 15/5)", out, in)
 	}
 	if got := game.combat.mitigateIncoming(10); got != 5 {
 		t.Errorf("10 incoming -5 should be 5, got %d", got)
@@ -354,8 +355,9 @@ func TestBindUndead_CharmsUndeadOnly(t *testing.T) {
 	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	gob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 
-	game.combat.applyCharm(skel, 300, "Bind Undead")
-	game.combat.applyCharm(gob, 300, "Bind Undead")
+	// bind_undead: living=false, pacify=false → undead only, fights others.
+	game.combat.applyCharm(skel, 300, false, false, "Bind Undead")
+	game.combat.applyCharm(gob, 300, false, false, "Bind Undead")
 
 	if !skel.Charmed {
 		t.Errorf("undead skeleton should be charmed")
@@ -364,12 +366,38 @@ func TestBindUndead_CharmsUndeadOnly(t *testing.T) {
 		t.Errorf("charm frames: got %d, want %d", skel.CharmFramesRemaining, 300*cfg.GetTPS())
 	}
 	if gob.Charmed {
-		t.Errorf("living goblin must NOT be charmable")
+		t.Errorf("living goblin must NOT be charmable by bind_undead")
 	}
 
 	def, _ := spells.GetSpellDefinitionByID("bind_undead")
 	if !def.Charm || !def.DealsNoDamage {
 		t.Errorf("bind_undead should be a no-damage charm spell (charm=%v, noDmg=%v)", def.Charm, def.DealsNoDamage)
+	}
+}
+
+// Charm (living/pacify): only the LIVING are affected and they are pacified
+// (stop attacking); a pacified monster snaps free the instant it is hit.
+func TestCharm_PacifiesLivingAndBreaksOnHit(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
+	gob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
+
+	// living=true, pacify=true → undead immune, living pacified.
+	game.combat.applyCharm(skel, 120, true, true, "Charm")
+	game.combat.applyCharm(gob, 120, true, true, "Charm")
+
+	if skel.Charmed {
+		t.Errorf("undead skeleton must NOT be charmed by living Charm")
+	}
+	if !gob.Charmed || !gob.CharmPacified {
+		t.Fatalf("living goblin should be charmed+pacified, got charmed=%v pacified=%v", gob.Charmed, gob.CharmPacified)
+	}
+
+	// Any hit frees the pacified goblin.
+	game.combat.breakCharmOnHit(gob)
+	if gob.Charmed || gob.CharmPacified {
+		t.Errorf("a hit should free the pacified goblin, got charmed=%v pacified=%v", gob.Charmed, gob.CharmPacified)
 	}
 }
 
@@ -383,7 +411,7 @@ func TestBindUndead_CharmedFightsOtherMonsterNotParty(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{skel, gob}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.combat.applyCharm(skel, 300, "Bind Undead")
+	game.combat.applyCharm(skel, 300, false, false, "Bind Undead")
 	gobHP0 := gob.HitPoints
 	partyHP0 := partyHPSum(game)
 

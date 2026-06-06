@@ -26,28 +26,40 @@ const (
 	contentSectionMarginBot = 6
 )
 
-// drawPageBar draws the two top-level tabs at the very top of the window.
+// pageTabRect is one tab's hit-box, shared by draw and click handling so they
+// can never drift apart.
+type pageTabRect struct {
+	page int
+	x, w int
+}
+
+// pageTabLayout computes the on-screen rect of every top tab.
+func pageTabLayout() []pageTabRect {
+	rects := make([]pageTabRect, 0, len(pageTabDefs))
+	x := 8
+	for _, def := range pageTabDefs {
+		w := utf8.RuneCountInString(def.label)*7 + 60
+		rects = append(rects, pageTabRect{page: def.page, x: x + 4, w: w})
+		x += 4 + w + 4
+	}
+	return rects
+}
+
+// drawPageBar draws the top-level tabs (Maps / Items / Spells / Characters / Skills).
 func (v *viewer) drawPageBar(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, windowWidth, pageBarHeight, color.RGBA{24, 24, 36, 255})
-	drawTab := func(x int, label string, active bool, hotkey string) (rectX, rectW int) {
-		w := utf8.RuneCountInString(label)*7 + 60
+	rects := pageTabLayout()
+	for i, r := range rects {
+		def := pageTabDefs[i]
 		bg := color.RGBA{36, 36, 52, 255}
-		fg := color.RGBA{200, 200, 215, 255}
-		if active {
+		if v.page == def.page {
 			bg = color.RGBA{60, 80, 130, 255}
-			fg = color.RGBA{255, 255, 255, 255}
 		}
-		drawFilledRect(screen, x+4, 4, w, pageBarHeight-8, bg)
-		drawRectBorder(screen, x+4, 4, w, pageBarHeight-8, 1, color.RGBA{90, 90, 110, 255})
-		ebitenutil.DebugPrintAt(screen, label, x+14, 10)
-		ebitenutil.DebugPrintAt(screen, hotkey, x+w-22, 10)
-		_ = fg
-		return x + 4, w
+		drawFilledRect(screen, r.x, 4, r.w, pageBarHeight-8, bg)
+		drawRectBorder(screen, r.x, 4, r.w, pageBarHeight-8, 1, color.RGBA{90, 90, 110, 255})
+		ebitenutil.DebugPrintAt(screen, def.label, r.x+10, 10)
+		ebitenutil.DebugPrintAt(screen, def.hotkey, r.x+r.w-22, 10)
 	}
-	x := 8
-	_, w := drawTab(x, "Maps", v.page == pageMaps, "F1")
-	x += 4 + w + 4
-	drawTab(x, "Items & Spells", v.page == pageContent, "F2")
 }
 
 // handlePageBarClick switches pages if a click landed on a tab.
@@ -56,25 +68,20 @@ func (v *viewer) handlePageBarClick() {
 	if my < 0 || my >= pageBarHeight {
 		return
 	}
-	// Re-compute the same widths drawPageBar produced. Cheap, no allocation.
-	x := 8
-	mapsW := utf8.RuneCountInString("Maps")*7 + 60
-	if mx >= x+4 && mx < x+4+mapsW {
-		v.page = pageMaps
-		return
-	}
-	x += 4 + mapsW + 4
-	contentW := utf8.RuneCountInString("Items & Spells")*7 + 60
-	if mx >= x+4 && mx < x+4+contentW {
-		v.page = pageContent
-		return
+	for _, r := range pageTabLayout() {
+		if mx >= r.x && mx < r.x+r.w {
+			v.page = r.page
+			return
+		}
 	}
 }
 
 // drawContentPage renders the scrollable grid of cards.
 func (v *viewer) drawContentPage(screen *ebiten.Image) {
-	if len(v.contentItems) == 0 {
-		ebitenutil.DebugPrintAt(screen, "no content loaded (check items.yaml / weapons.yaml / spells.yaml)", contentPad, pageBarHeight+contentPad)
+	cards := v.pageCards[v.page]
+	contentScroll := v.pageScroll[v.page]
+	if len(cards) == 0 {
+		ebitenutil.DebugPrintAt(screen, "no content loaded", contentPad, pageBarHeight+contentPad)
 		return
 	}
 
@@ -94,11 +101,11 @@ func (v *viewer) drawContentPage(screen *ebiten.Image) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hovered *contentCard
 
-	y := areaY - v.contentScroll
+	y := areaY - contentScroll
 	prevSection := ""
 	colInRow := 0
-	for i := range v.contentItems {
-		card := &v.contentItems[i]
+	for i := range cards {
+		card := &cards[i]
 
 		if card.section != prevSection {
 			if prevSection != "" {
@@ -139,7 +146,7 @@ func (v *viewer) drawContentPage(screen *ebiten.Image) {
 // maxContentScroll computes how far down the user can scroll the content
 // grid. Returns 0 if all rows fit on screen.
 func (v *viewer) maxContentScroll() int {
-	if len(v.contentItems) == 0 {
+	if len(v.pageCards[v.page]) == 0 {
 		return 0
 	}
 	areaW := windowWidth - 2*contentPad
@@ -152,7 +159,7 @@ func (v *viewer) maxContentScroll() int {
 	total := 0
 	prevSection := ""
 	colInRow := 0
-	for _, card := range v.contentItems {
+	for _, card := range v.pageCards[v.page] {
 		if card.section != prevSection {
 			if prevSection != "" {
 				if colInRow != 0 {
@@ -196,13 +203,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
 	iconX := x + 8
 	iconY := y + (contentCardH-contentIconSize)/2
 	if icon := v.iconForCard(c); icon != nil {
-		opts := &ebiten.DrawImageOptions{}
-		ib := icon.Bounds()
-		sx := float64(contentIconSize) / float64(ib.Dx())
-		sy := float64(contentIconSize) / float64(ib.Dy())
-		opts.GeoM.Scale(sx, sy)
-		opts.GeoM.Translate(float64(iconX), float64(iconY))
-		dst.DrawImage(icon, opts)
+		drawImageScaled(dst, icon, iconX, iconY, contentIconSize, contentIconSize)
 	} else {
 		// Placeholder so the layout doesn't collapse when art is missing.
 		drawFilledRect(dst, iconX, iconY, contentIconSize, contentIconSize, color.RGBA{52, 52, 68, 255})
@@ -212,8 +213,22 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
 
 	textX := x + 8 + contentIconSize + 10
 	textY := y + 8
-	ebitenutil.DebugPrintAt(dst, truncate(c.name, 22), textX, textY)
-	ebitenutil.DebugPrintAt(dst, truncate(c.subtitle, 22), textX, textY+18)
+	// Wrap the subtitle to the text column width instead of truncating, so long
+	// stat lines like "Dmg 7  Range 6  +Intellect" stay fully readable.
+	textW := contentCardW - (8 + contentIconSize + 10) - 8
+	maxChars := textW / 7
+	if maxChars < 6 {
+		maxChars = 6
+	}
+	ebitenutil.DebugPrintAt(dst, truncate(c.name, maxChars), textX, textY)
+	lines := wrapTooltipLines(c.subtitle, maxChars)
+	const maxSubtitleLines = 4 // card height fits name + ~4 wrapped lines
+	for i, ln := range lines {
+		if i >= maxSubtitleLines {
+			break
+		}
+		ebitenutil.DebugPrintAt(dst, ln, textX, textY+18+i*14)
+	}
 }
 
 // drawCardTooltip draws a multi-line tooltip near the cursor with full card

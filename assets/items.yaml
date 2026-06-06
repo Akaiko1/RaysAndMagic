@@ -443,3 +443,69 @@ items:
     rarity: "legendary"
     value: 0
     promotes_lich: true   # using it offers a compatible party member the path of the Lich
+
+  # --- Gauntlets (hands slot) — first items to fill the previously-empty
+  # gauntlets slot. Armor-type, so they add to total armor class and gate on the
+  # matching armor skill; "cloth" is universally wearable (caster-friendly).
+  goblin_hide_gauntlets:
+    name: "Goblin Hide Gauntlets"
+    type: "armor"
+    armor_category: "leather"
+    description: "Crude hide gloves stiffened with bone splints"
+    flavor: "They still reek of the warren that skinned them."
+    equip_slot: "gauntlets"
+    armor_class_base: 1
+    endurance_scaling_divisor: 7
+    bonus_accuracy: 3
+    rarity: "common"
+    value: 35
+
+  tideclasp_gauntlets:
+    name: "Tideclasp Gauntlets"
+    type: "armor"
+    armor_category: "chain"
+    description: "Barnacled chain gloves that never lose their grip"
+    flavor: "Cold seawater still beads between the links."
+    equip_slot: "gauntlets"
+    armor_class_base: 2
+    endurance_scaling_divisor: 6
+    bonus_speed: 6
+    rarity: "uncommon"
+    value: 240
+
+  bearpaw_gauntlets:
+    name: "Bearpaw Gauntlets"
+    type: "armor"
+    armor_category: "plate"
+    description: "Massive plated gauntlets clawed like a bear's paw"
+    flavor: "Make a fist and the whole room takes a step back."
+    equip_slot: "gauntlets"
+    armor_class_base: 3
+    bonus_might: 4
+    rarity: "rare"
+    value: 360
+
+  serpentscale_gauntlets:
+    name: "Serpentscale Gauntlets"
+    type: "armor"
+    armor_category: "cloth"
+    description: "Supple scaled gloves that channel arcane focus"
+    flavor: "The scales shift like a snake dreaming of stone."
+    equip_slot: "gauntlets"
+    armor_class_base: 1
+    intellect_scaling_divisor: 8
+    bonus_personality: 3
+    rarity: "rare"
+    value: 380
+
+  # --- Cloak (second cloak in the game, after isis_feather) ---
+  direpelt_cloak:
+    name: "Direpelt Cloak"
+    type: "accessory"
+    description: "A heavy dire-wolf pelt worn across the shoulders"
+    flavor: "Still warm, as if the beast only just stopped running."
+    equip_slot: "cloak"
+    bonus_endurance: 6
+    bonus_speed: 5
+    rarity: "rare"
+    value: 430

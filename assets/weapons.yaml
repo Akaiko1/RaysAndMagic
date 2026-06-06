@@ -342,6 +342,7 @@ weapons:
     name: "Bow of Hellfire"
     description: "A cursed bow wreathed in dark flames, fires slow but devastating arrows"
     category: "bow"
+    cooldown_multiplier: 1.7
     damage: 7
     range: 12  # Display range in tiles
     bonus_stat: "Accuracy"
@@ -412,6 +413,7 @@ weapons:
     name: "Archmage Staff"
     description: "A crystal-topped staff that scatters arcane fire"
     category: "staff"
+    spell_cooldown_multiplier: 0.8
     damage: 9
     range: 7  # ranged: scatters arcane fire
     bonus_stat: "Intellect"
@@ -456,3 +458,65 @@ weapons:
       min_size: 4
       base_size: 16
       color: [150, 60, 200]  # dark violet
+
+  # --- Axes — both hoarded by minotaurs in the labyrinth ---
+  bronze_labrys:
+    name: "Bronze Labrys"
+    description: "A double-bitted bronze axe of the old labyrinth guard"
+    category: "axe"
+    damage: 10
+    range: 1  # 1 tile reach for axe
+    bonus_stat: "Might"
+    crit_chance: 16
+    rarity: "uncommon"
+    value: 210
+
+    # Melee-specific configuration
+    melee:
+      arc_angle: 100   # Wide cleaving arc
+      animation_frames: 13
+      hit_delay: 5
+
+    # Visual effects for slash animation
+    graphics:
+      slash_color: [205, 150, 70]  # Bronze flash
+      slash_width: 46
+      slash_length: 60
+
+  gorehorn_greataxe:
+    name: "Gorehorn Greataxe"
+    description: "A brutal horned greataxe that splits shield and bone"
+    category: "axe"
+    damage: 14
+    range: 1  # 1 tile reach for axe
+    bonus_stat: "Might"
+    crit_chance: 20
+    rarity: "rare"
+    value: 480
+
+    # Melee-specific configuration
+    melee:
+      arc_angle: 110   # Very wide, heavy cleave
+      animation_frames: 16  # Slow, ponderous swing
+      hit_delay: 7      # Long windup
+
+    # Visual effects for slash animation
+    graphics:
+      slash_color: [150, 40, 40]  # Dark red gore flash
+      slash_width: 52
+      slash_length: 70
+
+# Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
+# Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
+# skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a
+# category with no skill such as "blaster" stays neutral 1.0). Lighter weapons
+# swing faster, heavy weapons slower. Legendaries override via their own
+# `cooldown_multiplier`.
+weapon_cooldown_multipliers:
+  dagger: 0.6
+  staff: 0.9
+  sword: 1.0
+  spear: 1.1
+  mace: 1.15
+  bow: 1.2
+  axe: 1.35

@@ -121,6 +121,7 @@ type Monster3D struct {
 	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining      int     // Real-time stun duration in frames
 	Charmed                  bool    // Bound to the party (bind_undead): fights other monsters, ignores party
+	CharmPacified            bool    // Charm: simply stops attacking (no fighting others); breaks on any hit taken
 	CharmFramesRemaining     int     // Real-time charm duration in frames (0 in TB = lasts the encounter)
 	CharmAttackCD            int     // RT cadence counter between charmed attacks
 	Flying                   bool    // Whether the monster should be rendered above ground

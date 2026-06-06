@@ -48,6 +48,28 @@ npcs:
             - school: "water"
               min_level: 2
 
+      inferno:
+        name: "Inferno"
+        school: "fire"
+        cost: 2500
+        description: "Engulfs everything around the party in flame — friend and foe alike"
+        requirements:
+          min_level: 7
+          schools:
+            - school: "fire"
+              min_level: 2
+
+      starburst:
+        name: "Starburst"
+        school: "air"
+        cost: 2000
+        description: "A bolt that bursts into a rain of falling stars over a wide area"
+        requirements:
+          min_level: 6
+          schools:
+            - school: "air"
+              min_level: 2
+
   # Spell trader for testing
   mtrader0:
     name: "Mystic Trader Aldric"
@@ -71,6 +93,81 @@ npcs:
           schools:
             - school: "water"
               min_level: 1
+      heal:
+        name: "First Aid"
+        school: "body"
+        cost: 150
+        description: "Restores a little health to the caster."
+        requirements:
+          schools:
+            - school: "body"
+              min_level: 1
+      heal_other:
+        name: "Heal"
+        school: "body"
+        cost: 500
+        description: "Restores health to another party member."
+        requirements:
+          schools:
+            - school: "body"
+              min_level: 2
+      harm:
+        name: "Harm"
+        school: "body"
+        cost: 300
+        description: "Concentrated body energy that wounds a foe."
+        requirements:
+          schools:
+            - school: "body"
+              min_level: 1
+      mass_heal:
+        name: "Mass Heal"
+        school: "body"
+        cost: 800
+        description: "A wave of healing that mends the whole party at once."
+        requirements:
+          min_level: 4
+          schools:
+            - school: "body"
+              min_level: 2
+      bless:
+        name: "Bless"
+        school: "spirit"
+        cost: 700
+        description: "Blesses the party with divine protection (+10 to all stats)."
+        requirements:
+          schools:
+            - school: "spirit"
+              min_level: 2
+      spirit_lash:
+        name: "Spirit Lash"
+        school: "spirit"
+        cost: 300
+        description: "A whip of spirit energy that scourges a foe."
+        requirements:
+          schools:
+            - school: "spirit"
+              min_level: 1
+      heroism:
+        name: "Heroism"
+        school: "spirit"
+        cost: 900
+        description: "Fills the party with valor, boosting the damage they deal."
+        requirements:
+          min_level: 4
+          schools:
+            - school: "spirit"
+              min_level: 2
+      raise_dead:
+        name: "Raise Dead"
+        school: "spirit"
+        cost: 1500
+        description: "Restores a fallen ally (not eradicated) to 25% of their health."
+        requirements:
+          min_level: 6
+          schools:
+            - school: "spirit"
+              min_level: 3
 
   # Example of other NPC types for future expansion
   merchant_general:
@@ -286,6 +383,102 @@ npcs:
           quest_id: "archmage_trial"
         - text: "Leave"
           action: "leave"
+
+  dragon_cliffs_ranger:
+    name: "Maera Cliffwatch"
+    type: "quest_giver"
+    description: "A wind-battered scout who watches the dragon cliffs for raiders and trolls"
+    sprite: "dragon_cliffs_ranger"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Keep low when the wind shifts. The trolls use the cliff mist as cover, and they are getting bold near the bridge stones."
+      choice_prompt: "Maera studies the ridgeline."
+      choices:
+        - text: "Ask about the troll raids"
+          action: "give_quest"
+          quest_id: "dragon_cliffs_troll_cull"
+        - text: "Leave"
+          action: "leave"
+
+  dragon_cliffs_bone_hermit:
+    name: "Old Varric Bone-Speaker"
+    type: "quest_giver"
+    description: "A hermit draped in dragon teeth and old cliff charms"
+    sprite: "dragon_cliffs_bone_hermit"
+    size_multiplier: 4
+    dialogue:
+      greeting: "The bones remember flame. Something below the cliffs has taught the mountain mages to listen to it."
+      choice_prompt: "The hermit taps his dragon-bone staff."
+      choices:
+        - text: "Ask about the ember rites"
+          action: "give_quest"
+          quest_id: "dragon_cliffs_ember_rites"
+        - text: "Leave"
+          action: "leave"
+
+  dragon_cliffs_bone_lair:
+    name: "Bone-Maw Lair"
+    type: "encounter"
+    description: "A cliff cave framed by fossilized dragon jaws and scattered ribs"
+    sprite: "dragon_cliffs_bone_lair"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
+      choice_prompt: "Enter the Bone-Maw?"
+      choices:
+        - text: "Enter the lair"
+          action: "combat"
+        - text: "Back away"
+          action: "leave"
+    encounter:
+      type: "dragon_lair"
+      first_visit_only: true
+      start_message: "A green dragon coils out of the bone-strewn dark!"
+      quest_id: "dragon_cliffs_bone_lair"
+      quest_name: "Bone-Maw Lair"
+      quest_description: "Clear the bone-framed dragon lair in the Dragon Cliffs."
+      monsters:
+        - type: "dragon_green"
+          count_min: 1
+          count_max: 1
+      rewards:
+        gold: 1500
+        experience: 3500
+        completion_message: "The Bone-Maw falls silent."
+
+  dragon_cliffs_ember_lair:
+    name: "Ember-Heart Lair"
+    type: "encounter"
+    description: "A basalt dragon den split by glowing ember cracks"
+    sprite: "dragon_cliffs_ember_lair"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6.0
+    dialogue:
+      greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
+      choice_prompt: "Enter the Ember-Heart?"
+      choices:
+        - text: "Enter the lair"
+          action: "combat"
+        - text: "Back away"
+          action: "leave"
+    encounter:
+      type: "dragon_lair"
+      first_visit_only: true
+      start_message: "A red dragon erupts from the ember-lit cavern!"
+      quest_id: "dragon_cliffs_ember_lair"
+      quest_name: "Ember-Heart Lair"
+      quest_description: "Clear the burning dragon lair in the Dragon Cliffs."
+      monsters:
+        - type: "dragon_red"
+          count_min: 1
+          count_max: 1
+      rewards:
+        gold: 2000
+        experience: 4500
+        completion_message: "The Ember-Heart cools to black stone."
 
   abandoned_church:
     name: "Abandoned Church"
@@ -585,71 +778,71 @@ npcs:
       insufficient_gold: "You need %d gold for this spell."
       already_known: "%s already knows this spell."
       success: "%s learned the spell."
+    # A general arcane catalog — none of these are starting spells, so the shop
+    # actually expands the party's repertoire (offense + control + defense).
     spells:
-      firebolt:
-        name: "Fire Bolt"
+      fireball:
+        name: "Fireball"
         school: "fire"
-        cost: 300
-        description: "Launches a small, fast bolt of fire."
+        cost: 400
+        description: "Hurls a ball of fire that explodes on impact, splashing nearby foes."
         requirements:
           schools:
             - school: "fire"
               min_level: 1
-      torch_light:
-        name: "Torch Light"
-        school: "fire"
-        cost: 150
-        description: "Creates a magical light that illuminates the surroundings."
+      lightning:
+        name: "Lightning Bolt"
+        school: "air"
+        cost: 600
+        description: "Strikes the target with a fast bolt of lightning."
         requirements:
           schools:
-            - school: "fire"
+            - school: "air"
               min_level: 1
-      ice_bolt:
-        name: "Ice Bolt"
-        school: "water"
+      rock_blast:
+        name: "Rock Blast"
+        school: "earth"
         cost: 350
-        description: "Launches a chilling bolt of ice."
+        description: "Hurls a jagged chunk of stone."
         requirements:
           schools:
-            - school: "water"
+            - school: "earth"
               min_level: 1
-      heal:
-        name: "Heal"
-        school: "body"
+      mind_blast:
+        name: "Mind Blast"
+        school: "mind"
+        cost: 350
+        description: "A lance of raw psychic force."
+        requirements:
+          schools:
+            - school: "mind"
+              min_level: 1
+      psychic_shock:
+        name: "Psychic Shock"
+        school: "mind"
+        cost: 550
+        description: "A jolt of psychic force that wounds and may stun the target."
+        requirements:
+          schools:
+            - school: "mind"
+              min_level: 2
+      stun:
+        name: "Stun"
+        school: "earth"
+        cost: 600
+        description: "A shockwave that stuns every foe within 3 tiles."
+        requirements:
+          schools:
+            - school: "earth"
+              min_level: 2
+      stone_skin:
+        name: "Stone Skin"
+        school: "earth"
         cost: 500
-        description: "Restores health to another party member."
+        description: "Hardens the party's skin to stone, reducing all incoming damage."
         requirements:
           schools:
-            - school: "body"
-              min_level: 2
-      bless:
-        name: "Bless"
-        school: "spirit"
-        cost: 700
-        description: "Blesses the party with divine protection."
-        requirements:
-          schools:
-            - school: "spirit"
-              min_level: 2
-      walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the party to walk across water surfaces."
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
-      water_breathing:
-        name: "Water Breathing"
-        school: "water"
-        cost: 1500
-        description: "Allows underwater exploration for extended periods."
-        requirements:
-          min_level: 5
-          schools:
-            - school: "water"
+            - school: "earth"
               min_level: 2
 
   city_mastery_trainer:

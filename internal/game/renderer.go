@@ -870,6 +870,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
 		r.drawImpassableTileAura(screen)
+		// Steam bubbles across every tile of an active Hot Steam zone.
+		r.drawSteamZoneBubbles(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -2498,7 +2500,20 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
 	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	br := float32(brightness)
+	rr, gg, bb := br, br, br
+	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
+	// over MonsterHitFlashFrames so the impact reads clearly.
+	if s.monster != nil && s.monster.HitTintFrames > 0 {
+		f := float32(s.monster.HitTintFrames) / float32(MonsterHitFlashFrames)
+		if f > 1 {
+			f = 1
+		}
+		rr = br + (1.7-br)*f
+		gg = br * (1 - 0.75*f)
+		bb = br * (1 - 0.75*f)
+	}
+	opts.ColorScale.Scale(rr, gg, bb, 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(s.sprite, opts)

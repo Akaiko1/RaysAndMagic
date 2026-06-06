@@ -556,7 +556,22 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 		return true
 	}
 
-	// Path blocked - drop it and fall back to grid movement
+	// The diagonal step clips a wall corner (the box grazes the inside edge while
+	// rounding it). Instead of giving up and freezing, slide along whichever axis
+	// is still clear so the monster rounds the corner. This is the usual fix for
+	// pursuers sticking on corners; only if BOTH axes are blocked do we repath.
+	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		m.X = newX
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		m.Y = newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+
+	// Truly boxed in on both axes - drop the path and repath next tick.
 	m.PathTiles = nil
 	return false
 }
