@@ -2475,6 +2475,20 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	}
 
 	drawLeft := s.screenX - s.spriteSize/2
+	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
+	// place (amplitude decays with the timer). Reads as a struck shudder without
+	// moving the monster's actual position — replaces the old knockback.
+	if s.monster != nil && s.monster.HitTintFrames > 0 {
+		f := float64(s.monster.HitTintFrames) / float64(MonsterHitFlashFrames)
+		if f > 1 {
+			f = 1
+		}
+		dir := 1.0
+		if s.monster.HitTintFrames%2 == 0 {
+			dir = -1.0
+		}
+		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * float64(s.spriteSize))
+	}
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
 	// bar's top edge, raise the whole sprite so its bottom rests on the bar.

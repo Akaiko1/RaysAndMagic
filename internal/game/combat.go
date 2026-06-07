@@ -732,14 +732,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = MonsterHitFlashFrames
-	// Impact feedback: spark burst at the monster + a small recoil away from the
-	// party (the AI walks back in, so it reads as a stagger-and-return).
+	// Impact feedback: spark burst at the monster. The monster stays put and the
+	// HitTintFrames timer also drives an in-place sprite shake (see renderer) — no
+	// positional knockback.
 	cs.game.spawnImpactSparks(monster.X, monster.Y)
-	if d := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y); d > 0.001 {
-		kb := cs.game.config.MonsterAI.PushbackDistance * 0.7
-		monster.X += (monster.X - cs.game.camera.X) / d * kb
-		monster.Y += (monster.Y - cs.game.camera.Y) / d * kb
-	}
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
@@ -1160,14 +1156,8 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	// Trigger damage blink effect for the character that was hit
 	targetIndex := cs.findCharacterIndex(currentChar)
 	cs.game.TriggerDamageBlink(targetIndex)
-
-	// Push monster back slightly to prevent spam
-	pushBack := cs.game.config.MonsterAI.PushbackDistance
-	if dist == 0 {
-		dist = 0.001
-	}
-	monster.X += (monster.X - cs.game.camera.X) / dist * pushBack
-	monster.Y += (monster.Y - cs.game.camera.Y) / dist * pushBack
+	// No knockback: monster attacks are already gated to once per attacking state
+	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
 }
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {

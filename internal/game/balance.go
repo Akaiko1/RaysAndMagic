@@ -185,6 +185,12 @@ const (
 // (~0.1s at 120 TPS) makes the reaction read clearly.
 const MonsterHitFlashFrames = 12
 
+// MonsterHitShakeAmplitudeFrac is the peak left-right sprite jitter on hit, as a
+// fraction of the sprite's on-screen size. Driven by the same HitTintFrames timer
+// as the red flash and decaying with it, it makes a struck monster shudder in
+// place — replacing the old positional knockback (it stays put, just rattles).
+const MonsterHitShakeAmplitudeFrac = 0.0333
+
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
 // of attacking. 0.9 = heal anyone at or below 90% HP; full-HP party → attack.

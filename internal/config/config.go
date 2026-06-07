@@ -346,8 +346,6 @@ type MonsterAIConfig struct {
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
-
-	PushbackDistance float64 `yaml:"pushback_distance"`
 }
 
 type GraphicsConfig struct {

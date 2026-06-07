@@ -144,8 +144,6 @@ monster_ai:
   # AI frequency checks (in frames)
   path_check_frequency: 30      # Check for blocked paths every N frames
 
-  pushback_distance: 20
-
 # Graphics and rendering
 graphics:
   # Raycasting optimization - reduced for 60 FPS performance
