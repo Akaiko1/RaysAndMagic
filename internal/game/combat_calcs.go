@@ -12,28 +12,15 @@ import (
 // spellScalesWithPersonality reports whether a school's spell DAMAGE scales with
 // Personality (self magic: Body/Mind/Spirit) instead of Intellect. Single source
 // of truth for both the damage formula (CalculateSpellDamage) and the tooltip's
-// stat-bonus label (spellDamageStatLabel), so they can never disagree.
+// stat-bonus label (spellDamageStatLabel), so they can never disagree. The school
+// classification + label themselves live in the spells package (shared SSoT with
+// EffectLines / the map editor); these thin wrappers keep the combat call sites.
 func spellScalesWithPersonality(school string) bool {
-	switch school {
-	case "body", "mind", "spirit":
-		return true
-	}
-	return false
+	return spells.SchoolScalesWithPersonality(school)
 }
 
-// spellDamageStatLabel returns the name of the stat(s) that scale a spell's
-// damage, for tooltip display. It mirrors CalculateSpellDamage exactly: the
-// primary stat is Personality for self schools (body/mind/spirit) else Intellect,
-// and a spell flagged scales_with_personality (e.g. ray_of_light) adds a SECOND
-// Personality term on top — so the label must name both, or it under-reports.
 func spellDamageStatLabel(school string, scalesWithPersonality bool) string {
-	if spellScalesWithPersonality(school) {
-		return "Personality"
-	}
-	if scalesWithPersonality {
-		return "Intellect + Personality"
-	}
-	return "Intellect"
+	return spells.DamageStatLabel(school, scalesWithPersonality)
 }
 
 // CalculateSpellDamage returns base/stat/total damage for a spell using the same formulas as combat.

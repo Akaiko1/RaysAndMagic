@@ -221,11 +221,11 @@ type SpellSystemConfig struct {
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	// Basic spell properties
-	Name               string  `yaml:"name"`
-	Description        string  `yaml:"description"`
-	School             string  `yaml:"school"`
-	Level              int     `yaml:"level"`
-	SpellPointsCost    int     `yaml:"spell_points_cost"`
+	Name            string `yaml:"name"`
+	Description     string `yaml:"description"`
+	School          string `yaml:"school"`
+	Level           int    `yaml:"level"`
+	SpellPointsCost int    `yaml:"spell_points_cost"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
 	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
 	// fall back to SpellCooldownDefaultSecondsForLevel(level).
@@ -242,6 +242,9 @@ type SpellDefinitionConfig struct {
 	IsProjectile   bool    `yaml:"is_projectile"`
 	IsUtility      bool    `yaml:"is_utility"`
 	StatusIcon     string  `yaml:"status_icon,omitempty"`
+	// MonsterOnly spells are cast by monsters (as projectile_spell) but never
+	// offered to the player — excluded from every learnable school list.
+	MonsterOnly bool `yaml:"monster_only,omitempty"`
 
 	// Damage-formula modifiers (data-driven; default behaviour when unset).
 	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost × SpellDamagePerSP × this (default 1)
@@ -264,11 +267,11 @@ type SpellDefinitionConfig struct {
 	OutgoingDamageBonus     int `yaml:"outgoing_damage_bonus,omitempty"`     // flat add to all party outgoing damage
 	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
 
-	// Charm (bind_undead): on hit, takes control of an UNDEAD target for the
-	// duration — it fights other monsters and ignores the party. No effect on
-	// non-undead. Dies (party XP, no loot) when the party leaves the map.
-	Charm                bool `yaml:"charm,omitempty"`
-	CharmDurationSeconds int  `yaml:"charm_duration_seconds,omitempty"`
+	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
+	// hunts other monsters and ignores the party. No effect on non-undead. Dies
+	// (party XP, no loot) when the party leaves the map.
+	BindUndead          bool `yaml:"bind_undead,omitempty"`
+	BindDurationSeconds int  `yaml:"bind_duration_seconds,omitempty"`
 
 	// Resurrect: restores a fallen ally (incl. eradicated, unlike a revival
 	// potion). FullHeal restores them to maximum HP.
@@ -286,11 +289,11 @@ type SpellDefinitionConfig struct {
 	// monster for StunDurationSeconds/Turns (Psychic Shock). Single-target.
 	StunChance float64 `yaml:"stun_chance,omitempty"`
 
-	// Charm variants. CharmLiving lets the bind affect non-undead too; CharmPacify
-	// makes the target simply STOP attacking (no fighting others) and breaks on any
-	// hit it takes (Charm). bind_undead leaves both false (undead-only, fights others).
-	CharmLiving bool `yaml:"charm_living,omitempty"`
-	CharmPacify bool `yaml:"charm_pacify,omitempty"`
+	// Charm: pacifies a LIVING target — it simply STOPS attacking (does not fight
+	// others) and breaks free on any hit it takes. Undead-only Bind Undead is the
+	// separate spell above; the two never mix.
+	Pacify                bool `yaml:"pacify,omitempty"`
+	PacifyDurationSeconds int  `yaml:"pacify_duration_seconds,omitempty"`
 
 	// PartyAoeRadiusTiles > 0 makes the spell an instant nova centered on the party
 	// that damages every monster AND every party member within the radius (Inferno).
@@ -426,15 +429,15 @@ type TileData struct {
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
 	// bordering water — see the renderer.
-	FloorTextureGroup   string                 `yaml:"floor_texture_group,omitempty"`
-	WallColor           [3]int                 `yaml:"wall_color"`
-	Letter              string                 `yaml:"letter"`
-	Biomes              []string               `yaml:"biomes,omitempty"`
+	FloorTextureGroup string   `yaml:"floor_texture_group,omitempty"`
+	WallColor         [3]int   `yaml:"wall_color"`
+	Letter            string   `yaml:"letter"`
+	Biomes            []string `yaml:"biomes,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor_only) that blocks movement but reads like walkable
 	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura
 	// automatically; ordinary impassable floors (water) leave this false.
-	ImpassableAura bool `yaml:"impassable_aura,omitempty"`
+	ImpassableAura      bool                   `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
@@ -758,16 +761,16 @@ type ItemSystemConfig struct {
 }
 
 type ItemDefinitionConfig struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType   string `yaml:"armor_category,omitempty"`
-	Description string `yaml:"description"`          // Gameplay-neutral summary (optional)
-	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
-	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value       int    `yaml:"value,omitempty"`      // Gold value
-	Rarity      string `yaml:"rarity,omitempty"`
-	OpensMap     bool `yaml:"opens_map,omitempty"`      // Quest items that open the map overlay
-	PromotesLich bool `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Name         string `yaml:"name"`
+	Type         string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType    string `yaml:"armor_category,omitempty"`
+	Description  string `yaml:"description"`          // Gameplay-neutral summary (optional)
+	Flavor       string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
+	EquipSlot    string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value        int    `yaml:"value,omitempty"`      // Gold value
+	Rarity       string `yaml:"rarity,omitempty"`
+	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -995,7 +998,7 @@ func GetSpellsBySchool(schoolKey string) []string {
 	}
 	var spells []string
 	for key, def := range GlobalSpells.Spells {
-		if def.School == schoolKey {
+		if def.School == schoolKey && !def.MonsterOnly {
 			spells = append(spells, key)
 		}
 	}

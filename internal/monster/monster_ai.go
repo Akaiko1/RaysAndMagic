@@ -171,6 +171,40 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 // updatePlayerEngagementWithVision handles player detection with line-of-sight checks
 // Trees and other opaque obstacles reduce detection radius
 func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
+	// A pacified (Charm) monster stands down — it never aggros or pursues the
+	// party, but it still idly wanders. Drop any aggressive state ONCE (so it
+	// stops chasing), then skip detection so it can't re-engage; the idle/patrol
+	// states below drive its wandering as normal. (Resetting the state every frame
+	// would freeze it — the idle→patrol timer could never elapse.)
+	if m.Pacified {
+		m.IsEngagingPlayer = false
+		switch m.State {
+		case StateAlert, StatePursuing, StateAttacking, StateFleeing:
+			m.State = StateIdle
+			m.StateTimer = 0
+		}
+		return
+	}
+
+	// A bound undead (Bind Undead) always pursues the target it was handed (its
+	// enemy, picked by the game's AI-target logic) regardless of normal detection
+	// range — it actively hunts, and never flees. It only enters its attack stance
+	// once within real attack range; beyond that it keeps closing. When it has no
+	// enemy the target is its own position, so this just parks it (dist 0).
+	if m.Bound {
+		m.IsEngagingPlayer = true
+		if distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() {
+			if m.State != StatePursuing {
+				m.State = StatePursuing
+				m.StateTimer = 0
+			}
+		} else if m.State != StateAttacking {
+			m.State = StateAttacking
+			m.StateTimer = 0
+		}
+		return
+	}
+
 	// Don't process engagement while fleeing - flee state takes priority
 	if m.State == StateFleeing {
 		return

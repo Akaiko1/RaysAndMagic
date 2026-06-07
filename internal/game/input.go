@@ -76,7 +76,6 @@ const rtActionStagger = 8
 // cycles. ~0.45s at 120 TPS.
 const rtHoldRepeatDelay = 54
 
-
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
@@ -1229,11 +1228,12 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
-	// Bound (charmed) monsters can't follow across maps: they crumble as the
-	// party departs, granting their XP but no loot or gold.
+	// Bound undead can't follow across maps: they crumble as the party departs,
+	// granting their XP but no loot or gold. (Pacified mobs aren't yours — they're
+	// simply left behind.)
 	if ih.game.world != nil && ih.game.combat != nil {
 		for _, m := range ih.game.world.Monsters {
-			if m != nil && m.Charmed && m.IsAlive() {
+			if m != nil && m.Bound && m.IsAlive() {
 				ih.game.combat.awardExperienceOnly(m)
 				ih.game.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
 				m.HitPoints = 0

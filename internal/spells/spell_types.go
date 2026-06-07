@@ -40,18 +40,19 @@ type SpellDefinition struct {
 	StunDurationTurns   int
 	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
 	// Party combat buffs (duration seconds)
-	ResistBuffPct           int  // Day of the Gods: % incoming damage reduction
-	OutgoingDamageBonus     int  // Hour of Power: flat outgoing damage bonus
-	IncomingDamageReduction int  // Hour of Power: flat incoming damage reduction
-	Charm                   bool // bind_undead: charm an undead target
-	CharmDurationSeconds    int  // charm duration (RT seconds)
-	CharmLiving             bool // Charm: also affects non-undead
-	CharmPacify             bool // Charm: target stops attacking; breaks on any hit it takes
-	Revive                  bool // resurrect: restore a fallen ally (incl. eradicated)
-	FullHeal                bool // resurrect: restore to maximum HP
-	ReviveHpPct             int  // Raise Dead: revive a fallen ally (not eradicated) to this % of max HP
-	HealParty               bool // Mass Heal: heal every party member
-	StunChance              float64 // Psychic Shock: chance to stun the struck monster on hit
+	ResistBuffPct           int // Day of the Gods: % incoming damage reduction
+	OutgoingDamageBonus     int // Hour of Power: flat outgoing damage bonus
+	IncomingDamageReduction int // Hour of Power: flat incoming damage reduction
+	// Bind Undead and Charm are two DISTINCT control spells (never mixed):
+	BindUndead            bool    // Bind Undead: take control of an UNDEAD target — it hunts other monsters for you
+	BindDurationSeconds   int     // Bind Undead duration (RT seconds)
+	Pacify                bool    // Charm: pacify a LIVING target — it stops attacking; breaks on any hit it takes
+	PacifyDurationSeconds int     // Charm duration (RT seconds)
+	Revive                bool    // resurrect: restore a fallen ally (incl. eradicated)
+	FullHeal              bool    // resurrect: restore to maximum HP
+	ReviveHpPct           int     // Raise Dead: revive a fallen ally (not eradicated) to this % of max HP
+	HealParty             bool    // Mass Heal: heal every party member
+	StunChance            float64 // Psychic Shock: chance to stun the struck monster on hit
 	// Party-centered instant nova (Inferno): damages all monsters AND the party in radius.
 	PartyAoeRadiusTiles float64
 	// Persistent damage zone (Hot Steam).
@@ -101,10 +102,10 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		ResistBuffPct:           configDef.ResistBuffPct,
 		OutgoingDamageBonus:     configDef.OutgoingDamageBonus,
 		IncomingDamageReduction: configDef.IncomingDamageReduction,
-		Charm:                   configDef.Charm,
-		CharmDurationSeconds:    configDef.CharmDurationSeconds,
-		CharmLiving:             configDef.CharmLiving,
-		CharmPacify:             configDef.CharmPacify,
+		BindUndead:              configDef.BindUndead,
+		BindDurationSeconds:     configDef.BindDurationSeconds,
+		Pacify:                  configDef.Pacify,
+		PacifyDurationSeconds:   configDef.PacifyDurationSeconds,
 		Revive:                  configDef.Revive,
 		FullHeal:                configDef.FullHeal,
 		ReviveHpPct:             configDef.ReviveHpPct,
@@ -137,8 +138,8 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunRadiusTiles > 0 ||
 		d.ZoneRadiusTiles > 0 ||
 		d.PartyAoeRadiusTiles > 0 ||
-		d.Charm ||
-		d.CharmLiving ||
+		d.BindUndead ||
+		d.Pacify ||
 		d.DisintegrateChance > 0 ||
 		d.StunChance > 0
 }
@@ -168,22 +169,19 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.StunRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds", d.StunRadiusTiles, d.StunDurationSeconds))
 	}
-	if d.Charm {
-		target := "undead"
-		if d.CharmLiving {
-			target = "any"
-		}
-		if d.CharmPacify {
-			out = append(out, fmt.Sprintf("Pacifies %s target for %ds (stops attacking; breaks if hit)", target, d.CharmDurationSeconds))
-		} else {
-			out = append(out, fmt.Sprintf("Charms %s target for %ds (fights for you)", target, d.CharmDurationSeconds))
-		}
+	if d.BindUndead {
+		out = append(out, fmt.Sprintf("Binds an undead target for %ds (it fights other monsters for you)", d.BindDurationSeconds))
+	}
+	if d.Pacify {
+		out = append(out, fmt.Sprintf("Pacifies a living target for %ds (stops attacking; breaks if hit)", d.PacifyDurationSeconds))
 	}
 	if d.PartyAoeRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage — your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
 	}
 	if d.ZoneRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Leaves a %.1f-tile zone: %d damage every %.0fs", d.ZoneRadiusTiles, d.ZoneTickDamage, d.ZoneTickSeconds))
+		// Tick damage is caster-scaled (Intellect + mastery) — shown by the in-game
+		// tooltip; here (character-independent) we list only radius and cadence.
+		out = append(out, fmt.Sprintf("Leaves a %.1f-tile zone, searing everything inside every %.0fs", d.ZoneRadiusTiles, d.ZoneTickSeconds))
 	}
 	switch {
 	case d.HealParty:
@@ -224,7 +222,53 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.Awaken {
 		out = append(out, "Wakes all unconscious allies (back to 1 HP)")
 	}
+
+	// Scaling source — character-INDEPENDENT (which stat & mastery the effect
+	// grows with), so the map-editor card and the in-game tooltip both surface
+	// what a spell scales from. The numeric bonus itself is caster-dependent and
+	// shown only by the in-game tooltip.
+	switch {
+	case d.IsProjectile && !d.DealsNoDamage:
+		out = append(out, fmt.Sprintf("Damage scales with %s & %s mastery", d.DamageScalingStat(), d.School))
+	case d.ZoneRadiusTiles > 0:
+		out = append(out, fmt.Sprintf("Tick damage scales with Intellect & %s mastery", d.School))
+	}
+	if d.HealAmount > 0 {
+		out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
+	}
+	if d.StatBonus > 0 {
+		out = append(out, fmt.Sprintf("Bonus & duration scale with %s mastery", d.School))
+	}
 	return out
+}
+
+// SchoolScalesWithPersonality reports whether a school's spells scale with
+// Personality instead of Intellect — the self-magic schools (body/mind/spirit).
+func SchoolScalesWithPersonality(school string) bool {
+	switch school {
+	case "body", "mind", "spirit":
+		return true
+	}
+	return false
+}
+
+// DamageStatLabel names the stat(s) that scale a spell's damage: Personality for
+// self schools, Intellect otherwise, plus a second Personality term when the
+// spell is flagged scales_with_personality. Character-independent SSoT shared by
+// EffectLines and the in-game damage label.
+func DamageStatLabel(school string, scalesWithPersonality bool) string {
+	if SchoolScalesWithPersonality(school) {
+		return "Personality"
+	}
+	if scalesWithPersonality {
+		return "Intellect + Personality"
+	}
+	return "Intellect"
+}
+
+// DamageScalingStat is DamageStatLabel for this definition.
+func (d SpellDefinition) DamageScalingStat() string {
+	return DamageStatLabel(d.School, d.ScalesWithPersonality)
 }
 
 // IsHeal reports whether this spell restores HP to a living ally (single-target

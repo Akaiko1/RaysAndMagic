@@ -411,7 +411,7 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 	if s.MapReturnPoses != nil {
 		t.Errorf("absent map_return_poses should decode to nil (load makes it empty)")
 	}
-	if len(s.Monsters) != 1 || s.Monsters[0].Charmed || s.Monsters[0].CharmFramesRemaining != 0 {
-		t.Errorf("old monster should decode un-charmed, got %+v", s.Monsters)
+	if len(s.Monsters) != 1 || s.Monsters[0].Bound || s.Monsters[0].BoundFramesRemaining != 0 {
+		t.Errorf("old monster should decode unbound, got %+v", s.Monsters)
 	}
 }

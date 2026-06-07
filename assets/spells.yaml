@@ -107,6 +107,7 @@ spells:
     projectile_size: 12
     is_projectile: true
     is_utility: false
+    monster_only: true          # alien projectile — never offered to the player (e.g. Lich Dark picks)
 
     # Projectile physics (tile-based units)
     physics:
@@ -284,8 +285,8 @@ spells:
     is_projectile: true
     is_utility: false
     deals_no_damage: true          # the bind, not damage, is the effect
-    charm: true
-    charm_duration_seconds: 300    # 5 minutes (real-time)
+    bind_undead: true
+    bind_duration_seconds: 300     # 5 minutes (real-time)
 
     # Projectile physics (tile-based units)
     physics:
@@ -688,11 +689,9 @@ spells:
     projectile_size: 8
     is_projectile: true
     is_utility: false
-    deals_no_damage: true       # the charm, not damage, is the effect
-    charm: true
-    charm_living: true          # affects the LIVING (not undead)
-    charm_pacify: true          # target stops attacking; breaks on any hit
-    charm_duration_seconds: 120 # 2 minutes
+    deals_no_damage: true        # the pacify, not damage, is the effect
+    pacify: true                 # living-only: target stops attacking; breaks on any hit
+    pacify_duration_seconds: 120 # 2 minutes
     physics:
       speed_tiles: 16.0
       range_tiles: 7.0

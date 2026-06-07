@@ -37,6 +37,12 @@ type ProjectileOwner int
 const (
 	ProjectileOwnerPlayer ProjectileOwner = iota
 	ProjectileOwnerMonster
+	// ProjectileOwnerBoundUndead is a bound undead's projectile: it damages enemy
+	// (non-controlled) monsters, but never the party or other controlled allies.
+	ProjectileOwnerBoundUndead
+	// ProjectileOwnerMonsterAtBound is an enemy mob's projectile aimed at a
+	// bound undead: it damages ONLY bound monsters (the undead), never the party.
+	ProjectileOwnerMonsterAtBound
 )
 
 // InteractionDistance is the max range (in world units, ~2 tiles) for the
@@ -238,6 +244,12 @@ type MMGame struct {
 
 	// Persistent damage zones (Hot Steam) — see combat_zones.go.
 	steamZones []SteamZone
+
+	// boundUndead caches the bound undead (bind_undead) present this frame so the
+	// per-monster AI-target lookup can let normal mobs turn on them without an
+	// O(n²) scan in the common (no-bind) case. Rebuilt each frame before the
+	// monster update; see refreshBoundUndeadCache.
+	boundUndead []*monster.Monster3D
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -959,6 +971,32 @@ func (g *MMGame) UpdateMonsterHitTintTimers() {
 	}
 }
 
+// refreshBoundUndeadCache rebuilds the per-frame list of bound undead (bind_undead)
+// so the AI-target lookup can let normal mobs retaliate against them without an
+// O(n²) scan when none exist. Called once per frame before the monster update.
+func (g *MMGame) refreshBoundUndeadCache() {
+	g.boundUndead = g.boundUndead[:0]
+	for _, m := range g.world.Monsters {
+		if m != nil && m.Bound && m.IsAlive() {
+			g.boundUndead = append(g.boundUndead, m)
+		}
+	}
+	// Precompute each monster's foe + pursuit target ONCE per frame, single-threaded,
+	// so the parallel real-time update never scans other monsters' positions (which
+	// are being mutated concurrently) and no consumer recomputes the foe. The wrapper
+	// reads AITargetX/Y; combat reads AIFoe.
+	if g.combat == nil {
+		return
+	}
+	for _, m := range g.world.Monsters {
+		if m == nil {
+			continue
+		}
+		m.AIFoe = g.combat.monsterAIFoeMonster(m)
+		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
+	}
+}
+
 // IsCharacterBlinking returns true if a character should be rendered with red tint
 func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
 	return g.cardFxActive(fxBlink, characterIndex) > 0
@@ -1385,8 +1423,14 @@ func (mw *MonsterWrapper) Update() {
 	playerX := mw.game.camera.X
 	playerY := mw.game.camera.Y
 
-	// Use collision-aware update with player position for tethering
-	mw.Monster.Update(mw.collisionSystem, playerX, playerY)
+	// AI pursuit/engagement target: normally the party, but charmed monsters are
+	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
+	// so they never chase the party. Precomputed single-threaded each frame in
+	// refreshBoundUndeadCache to keep this parallel update race-free.
+	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
+
+	// Use collision-aware update with the chosen AI target for tethering
+	mw.Monster.Update(mw.collisionSystem, targetX, targetY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 

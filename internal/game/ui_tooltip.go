@@ -771,6 +771,12 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 		details = append(details, fmt.Sprintf("Personality Bonus: +%d", personalityBonus))
 		details = append(details, fmt.Sprintf("Total Healing: %d", totalHeal))
 	}
+	// Caster-scaled persistent-zone tick (Hot Steam): Intellect + mastery on top
+	// of the flat base, matching the damage actually dealt.
+	if def.ZoneRadiusTiles > 0 && combatSystem != nil {
+		details = append(details, fmt.Sprintf("Zone Damage: %d every %.0fs (Intellect-scaled)",
+			combatSystem.CalculateSteamZoneTickDamage(def, char), def.ZoneTickSeconds))
+	}
 
 	// Character-INDEPENDENT mechanics — shared SSoT with the map-editor card.
 	details = append(details, def.EffectLines()...)

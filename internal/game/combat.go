@@ -400,6 +400,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 //     (a healer with First Aid/Heal auto-triages instead of meleeing).
 //  2. An OFFENSIVE spell slotted + enough SP → cast it.
 //  3. Otherwise swing the equipped weapon.
+//
 // Returns whether a spell was cast (and which) so the caller can pick the right
 // cooldown; a false return means a weapon attack happened.
 func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
@@ -1023,21 +1024,42 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
-		// Charmed: bind_undead attacks the nearest other monster on a ~1s cadence;
-		// Charm (pacified) simply does nothing. Neither ever attacks the party.
-		if monster.Charmed {
-			if !monster.CharmPacified {
-				if monster.CharmAttackCD > 0 {
-					monster.CharmAttackCD--
-				} else if cs.charmedAttackNearest(monster) {
-					monster.CharmAttackCD = cs.game.config.GetTPS()
-				}
+		// Pacified (Charm): stands and does nothing, never attacks the party.
+		if monster.Pacified {
+			continue
+		}
+		// Bound (Bind Undead): hunts the nearest enemy monster on a ~1s cadence,
+		// never the party.
+		if monster.Bound {
+			if monster.CrossfireCD > 0 {
+				monster.CrossfireCD--
+			} else if cs.boundAttackNearest(monster) {
+				monster.CrossfireCD = cs.game.config.GetTPS()
 			}
 			continue
 		}
 
-		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
+		// Lured at a bound undead instead of the party: attack it on its own ~1s
+		// cadence whenever within reach (ranged mobs loose a visible bolt; melee
+		// strike directly), independent of the engagement state machine — so a mob
+		// jittering at the edge of melee range still connects. Then skip party logic.
+		if foe := monster.AIFoe; foe != nil && foe.IsAlive() {
+			if monster.CrossfireCD > 0 {
+				monster.CrossfireCD--
+			} else if Distance(monster.X, monster.Y, foe.X, foe.Y) <= cs.monsterVsMonsterReach(monster) {
+				if monster.HasRangedAttack() {
+					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
+				} else {
+					cs.monsterStrikeMonster(monster, foe)
+				}
+				monster.CrossfireCD = cs.game.config.GetTPS()
+			}
+			continue
+		}
+
 		attackRange := monster.GetAttackRangePixels()
+
+		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
 		// Pounce (real-time): from within pounce range but beyond melee, leap
 		// to melee contact and strike immediately, then go on cooldown.
@@ -1216,18 +1238,122 @@ func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) 
 		cs.applyMonsterFireburst(monster)
 		return
 	}
+	cs.spawnMonsterRangedAttackAt(monster, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster)
+}
+
+// spawnMonsterRangedAttackAt fires monster's projectile toward a world point with
+// the given owner, dispatching to its spell or weapon projectile. Returns true if
+// one was spawned. Fireburst (party-only AoE) is handled by the caller.
+func (cs *CombatSystem) spawnMonsterRangedAttackAt(monster *monsterPkg.Monster3D, targetX, targetY float64, owner ProjectileOwner) bool {
 	if monster.ProjectileSpell != "" {
-		cs.spawnMonsterSpellProjectile(monster, spells.SpellID(monster.ProjectileSpell))
-		return
+		cs.spawnMonsterSpellProjectile(monster, spells.SpellID(monster.ProjectileSpell), targetX, targetY, owner)
+		return true
 	}
 	if monster.ProjectileWeapon != "" {
-		cs.spawnMonsterWeaponProjectile(monster, monster.ProjectileWeapon)
+		cs.spawnMonsterWeaponProjectile(monster, monster.ProjectileWeapon, targetX, targetY, owner)
+		return true
+	}
+	return false
+}
+
+// spawnMonsterRangedAttackAtMonster aims spawnMonsterRangedAttackAt at another
+// monster (BoundUndead: bound undead → enemy; MonsterAtBound: mob → bound undead).
+func (cs *CombatSystem) spawnMonsterRangedAttackAtMonster(monster, target *monsterPkg.Monster3D, owner ProjectileOwner) bool {
+	return cs.spawnMonsterRangedAttackAt(monster, target.X, target.Y, owner)
+}
+
+// resolveMonsterProjectileVsMonster applies a monster-fired projectile's hit to
+// another monster (bound undead ↔ enemy crossfire). Damage is the projectile's
+// own; the party is rewarded ONLY when an enemy falls (never for a bound ally).
+func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}, pType string, target *monsterPkg.Monster3D, entityID string) {
+	var damage int
+	var dmgType monsterPkg.DamageType
+	var dmgTypeStr, spellFx, sourceName string
+	var disintegrateChance, aoeRadiusTiles, stunChance float64
+	var stunSeconds, stunTurns int
+	switch pType {
+	case "magic_projectile":
+		mp := projectile.(*MagicProjectile)
+		if !mp.Active || mp.LifeTime <= 0 {
+			return
+		}
+		mp.Active = false
+		damage, sourceName, spellFx = mp.Damage, mp.SourceName, mp.SpellType
+		disintegrateChance = mp.DisintegrateChance
+		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
+		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
+		aoeRadiusTiles = spellDef.AoeRadiusTiles
+		stunChance, stunSeconds, stunTurns = spellDef.StunChance, spellDef.StunDurationSeconds, spellDef.StunDurationTurns
+	case "arrow":
+		ar := projectile.(*Arrow)
+		if !ar.Active || ar.LifeTime <= 0 {
+			return
+		}
+		ar.Active = false
+		damage, sourceName = ar.Damage, ar.SourceName
+		disintegrateChance = ar.DisintegrateChance
+		dmgTypeStr = normalizeDamageTypeStr(ar.DamageType)
+	default:
+		return
+	}
+	dmgType = convertToMonsterDamageType(dmgTypeStr)
+	cs.game.collisionSystem.UnregisterEntity(entityID)
+	// Target already slain this frame (another hit landed first): consume the
+	// projectile but don't re-damage or double-reward.
+	if !target.IsAlive() {
+		return
+	}
+	if sourceName == "" {
+		sourceName = "A bolt"
+	}
+	if spellFx != "" {
+		cs.game.CreateSpellHitEffectFromSpell(target.X, target.Y, spellFx)
+	}
+
+	// kill finalizes a slain target: a fallen enemy rewards the party; a fallen
+	// bound ally yields nothing.
+	kill := func() {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
+		cs.game.collisionSystem.UnregisterEntity(target.ID)
+		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
+		if !target.Bound {
+			cs.awardExperienceAndGold(target)
+		}
+	}
+
+	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
+	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(target) && rand.Float64() < disintegrateChance {
+		target.HitPoints = 0
+		target.HitTintFrames = MonsterHitFlashFrames
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt disintegrates %s!", sourceName, target.Name))
+		kill()
+		return
+	}
+
+	if damage > 0 {
+		target.TakeDamage(damage, dmgType, target.X, target.Y)
+		target.HitTintFrames = MonsterHitFlashFrames
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt hits %s for %d!", sourceName, target.Name, damage))
+	}
+	// Stun rider (Psychic Shock etc.) carries over too.
+	if target.IsAlive() && stunChance > 0 && rand.Float64() < stunChance {
+		cs.applyStun(target, stunSeconds, stunTurns)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", target.Name))
+	}
+	if !target.IsAlive() {
+		kill()
+		return
+	}
+	// AoE rider: splash the blast to other nearby monsters (party rewarded on
+	// splash kills, like a player AoE).
+	if aoeRadiusTiles > 0 {
+		cs.applyAoeSplash(target, damage, dmgTypeStr, dmgType, sourceName, aoeRadiusTiles, 0)
 	}
 }
 
-func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3D, spellID spells.SpellID) {
+func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3D, spellID spells.SpellID, targetX, targetY float64, owner ProjectileOwner) {
 	castingSystem := spells.NewCastingSystem(cs.game.config)
-	angle := math.Atan2(cs.game.camera.Y-monster.Y, cs.game.camera.X-monster.X)
+	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
 	projectile, err := castingSystem.CreateProjectile(spellID, monster.X, monster.Y, angle, 0)
 	if err != nil {
 		return
@@ -1257,7 +1383,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		Size:               projectile.Size,
 		Crit:               false,
 		DisintegrateChance: disintegrateChance,
-		Owner:              ProjectileOwnerMonster,
+		Owner:              owner,
 		SourceName:         monster.Name,
 		AoE:                aoe,
 	}
@@ -1269,7 +1395,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 	cs.game.collisionSystem.RegisterEntity(projectileEntity)
 }
 
-func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string) {
+func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster3D, weaponKey string, targetX, targetY float64, owner ProjectileOwner) {
 	weaponDef, exists := config.GetWeaponDefinition(weaponKey)
 	if !exists || weaponDef == nil || weaponDef.Physics == nil {
 		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", weaponKey)
@@ -1286,7 +1412,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		damageType = weaponDef.DamageType
 	}
 
-	angle := math.Atan2(cs.game.camera.Y-monster.Y, cs.game.camera.X-monster.X)
+	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
 	arrow := Arrow{
 		ID:                 cs.game.GenerateProjectileID("monster_arrow"),
 		X:                  monster.X,
@@ -1300,7 +1426,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		DamageType:         damageType,
 		Crit:               false,
 		DisintegrateChance: weaponDef.DisintegrateChance,
-		Owner:              ProjectileOwnerMonster,
+		Owner:              owner,
 		SourceName:         monster.Name,
 	}
 
@@ -1313,27 +1439,29 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
 // using perspective-scaled bounding boxes for accurate visual collision detection
 func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
-	// Collect all active projectiles
+	// Collect all active projectiles. Monster-owned ones are excluded (they hit
+	// the party, not other monsters); player- and bound/mob-at-bound ones hit monsters.
 	type projectileInfo struct {
 		entityID string
 		data     interface{}
 		pType    string
+		owner    ProjectileOwner
 	}
 	var projectiles []projectileInfo
 
 	for i := range cs.game.arrows {
 		if cs.game.arrows[i].Active && cs.game.arrows[i].LifeTime > 0 && cs.game.arrows[i].Owner != ProjectileOwnerMonster {
-			projectiles = append(projectiles, projectileInfo{cs.game.arrows[i].ID, &cs.game.arrows[i], "arrow"})
+			projectiles = append(projectiles, projectileInfo{cs.game.arrows[i].ID, &cs.game.arrows[i], "arrow", cs.game.arrows[i].Owner})
 		}
 	}
 	for i := range cs.game.magicProjectiles {
 		if cs.game.magicProjectiles[i].Active && cs.game.magicProjectiles[i].LifeTime > 0 && cs.game.magicProjectiles[i].Owner != ProjectileOwnerMonster {
-			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile"})
+			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile", cs.game.magicProjectiles[i].Owner})
 		}
 	}
 	for i := range cs.game.meleeAttacks {
 		if cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
-			projectiles = append(projectiles, projectileInfo{cs.game.meleeAttacks[i].ID, &cs.game.meleeAttacks[i], "melee"})
+			projectiles = append(projectiles, projectileInfo{cs.game.meleeAttacks[i].ID, &cs.game.meleeAttacks[i], "melee", ProjectileOwnerPlayer})
 		}
 	}
 
@@ -1348,6 +1476,14 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 
 		for _, monster := range cs.game.world.Monsters {
 			if !monster.IsAlive() {
+				continue
+			}
+			// Crossfire faction rules: a bound undead's bolt skips controlled allies
+			// (hits enemies); a mob's anti-undead bolt hits ONLY the bound undead.
+			if proj.owner == ProjectileOwnerBoundUndead && (monster.Bound || monster.Pacified) {
+				continue
+			}
+			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
 				continue
 			}
 			if cs.checkPerspectiveScaledCollision(proj.entityID, proj.data, proj.pType, monster) {
@@ -1377,7 +1513,13 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 		}
 		if hitMonster != nil {
-			cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
+			// Monster-fired crossfire resolves as monster-vs-monster (no party
+			// attribution); player projectiles use the full party-damage path.
+			if proj.owner == ProjectileOwnerBoundUndead || proj.owner == ProjectileOwnerMonsterAtBound {
+				cs.resolveMonsterProjectileVsMonster(proj.data, proj.pType, hitMonster, proj.entityID)
+			} else {
+				cs.applyProjectileDamage(proj.data, proj.pType, hitMonster, proj.entityID)
+			}
 		}
 	}
 }
@@ -1580,10 +1722,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var weaponDef *config.WeaponDefinitionConfig
 	var disintegrateChance float64
 	var aoeRadiusTiles float64
-	var isCharmSpell bool
-	var charmSeconds int
-	var charmLiving bool
-	var charmPacify bool
+	var isBindSpell bool
+	var bindSeconds int
+	var isPacifySpell bool
+	var pacifySeconds int
 	var stunChance float64
 	var stunSeconds int
 	var stunTurns int
@@ -1603,10 +1745,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damageTypeStr = normalizeDamageTypeStr(spellDef.School)
 		damageType = convertToMonsterDamageType(damageTypeStr)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
-		isCharmSpell = spellDef.Charm
-		charmSeconds = spellDef.CharmDurationSeconds
-		charmLiving = spellDef.CharmLiving
-		charmPacify = spellDef.CharmPacify
+		isBindSpell = spellDef.BindUndead
+		bindSeconds = spellDef.BindDurationSeconds
+		isPacifySpell = spellDef.Pacify
+		pacifySeconds = spellDef.PacifyDurationSeconds
 		stunChance = spellDef.StunChance
 		stunSeconds = spellDef.StunDurationSeconds
 		stunTurns = spellDef.StunDurationTurns
@@ -1677,9 +1819,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	// Charm (bind_undead / Charm): no damage — binds or pacifies the target.
-	if isCharmSpell {
-		cs.applyCharm(monster, charmSeconds, charmLiving, charmPacify, weaponName)
+	// Control spells deal no damage — Bind Undead takes control, Charm pacifies.
+	if isBindSpell {
+		cs.applyBindUndead(monster, bindSeconds, weaponName)
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+	if isPacifySpell {
+		cs.applyPacify(monster, pacifySeconds, weaponName)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
@@ -1735,7 +1882,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// GM spell mastery pierces part of the target's resistance.
 	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = MonsterHitFlashFrames
-	cs.breakCharmOnHit(monster) // any hit frees a pacified (Charm) monster
+	cs.breakPacifyOnHit(monster) // any hit frees a pacified (Charm) monster
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
@@ -1807,7 +1954,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
 		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakCharmOnHit(m)
+		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 
@@ -2126,6 +2273,20 @@ func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *cha
 	return baseDamage, intellectBonus, totalDamage
 }
 
+// CalculateSteamZoneTickDamage is the per-tick damage of a persistent damage zone
+// (Hot Steam), scaled by the caster like the elemental spells: the YAML
+// zone_tick_damage is the flat base, plus Intellect/divisor and the caster's
+// school mastery. Single source of truth for the cast (tryCastSteamZone) and the
+// tooltip, so the displayed number always matches the damage dealt.
+func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
+	tick := def.ZoneTickDamage
+	if char != nil {
+		tick += char.GetEffectiveIntellect(cs.game.statBonus) / spells.SpellIntellectDivisor
+		tick += cs.spellMasteryBonus(char, def.ID)
+	}
+	return tick
+}
+
 // spellMasteryBonus returns +5 per mastery level for the spell's school.
 func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID spells.SpellID) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
@@ -2215,7 +2376,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		reduced := applyArmorReductionIfPhysical(dmg, damageTypeStr, m.ArmorClass, false)
 		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
 		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakCharmOnHit(m)
+		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		if !m.IsAlive() {
@@ -2360,75 +2521,187 @@ func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
 	}
 }
 
-// applyCharm binds or pacifies a monster. bind_undead (living=false) only works
-// on undead and makes them fight other monsters. Charm (living=true) only works
-// on the LIVING and merely pacifies them — they stop attacking and break free on
-// any hit they take (handled in breakCharmOnHit). No damage is dealt either way.
-func (cs *CombatSystem) applyCharm(m *monsterPkg.Monster3D, seconds int, living, pacify bool, spellName string) {
-	isUndead := m.MonsterType == "undead"
-	if !living && !isUndead {
+// applyBindUndead (Bind Undead) takes control of an UNDEAD target — it hunts
+// other monsters for you and ignores the party. No effect on the living. No
+// damage is dealt. A separate, mutually exclusive effect from Pacify (Charm).
+func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, spellName string) {
+	if m.MonsterType != "undead" {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s — only the undead can be bound.", spellName, m.Name))
 		return
 	}
-	if living && isUndead {
+	m.Bound = true
+	m.BoundFramesRemaining = seconds * cs.game.config.GetTPS()
+	m.CrossfireCD = 0
+	m.WasAttacked = false
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
+}
+
+// applyPacify (Charm) pacifies a LIVING target — it stops attacking and breaks
+// free on any hit it takes (see breakPacifyOnHit). No effect on undead, no
+// damage. A separate, mutually exclusive effect from Bind Undead.
+func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellName string) {
+	if m.MonsterType == "undead" {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the undead %s.", spellName, m.Name))
 		return
 	}
-	m.Charmed = true
-	m.CharmPacified = pacify
-	m.CharmFramesRemaining = seconds * cs.game.config.GetTPS()
-	m.CharmAttackCD = 0
+	m.Pacified = true
+	m.PacifiedFramesRemaining = seconds * cs.game.config.GetTPS()
 	m.WasAttacked = false
-	if pacify {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is charmed and stops attacking!", m.Name))
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
-	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is charmed and stops attacking!", m.Name))
 }
 
-// breakCharmOnHit releases a pacified (Charm) monster the instant it takes any
-// hit — it snaps out of the charm and re-aggros. Bound undead (bind_undead) are
-// unaffected. Called wherever the party deals damage to a monster.
-func (cs *CombatSystem) breakCharmOnHit(m *monsterPkg.Monster3D) {
-	if m.Charmed && m.CharmPacified {
-		m.Charmed = false
-		m.CharmPacified = false
-		m.CharmFramesRemaining = 0
+// breakPacifyOnHit releases a pacified (Charm) monster the instant it takes any
+// hit — it snaps out of the charm and re-aggros. Bound undead are unaffected.
+// Called wherever the party deals damage to a monster.
+func (cs *CombatSystem) breakPacifyOnHit(m *monsterPkg.Monster3D) {
+	if m.Pacified {
+		m.Pacified = false
+		m.PacifiedFramesRemaining = 0
 		m.WasAttacked = true
 		cs.game.AddCombatMessage(fmt.Sprintf("%s breaks free of the charm!", m.Name))
 	}
 }
 
-// charmedAttackNearest makes a charmed monster strike the nearest OTHER alive,
-// non-charmed monster within its alert radius. A kill awards the party normally
-// (XP + loot). Returns true if it attacked something.
-func (cs *CombatSystem) charmedAttackNearest(m *monsterPkg.Monster3D) bool {
-	aggro := m.AlertRadius
-	if aggro <= 0 {
-		aggro = float64(cs.game.config.GetTileSize()) * 6
+// boundUndeadSeekRadius is the pixel range a bound undead hunts for enemies to
+// walk toward (see BoundUndeadSeekTiles).
+func (cs *CombatSystem) boundUndeadSeekRadius() float64 {
+	return BoundUndeadSeekTiles * float64(cs.game.config.GetTileSize())
+}
+
+// monsterVsMonsterReach is the distance at which m can hit ANOTHER monster.
+// Ranged uses the real projectile range; melee uses a floor of 1.5 tiles so a
+// pursuer that can only path to a diagonally-adjacent tile (~1.41 tiles away),
+// or that jitters during a mutual chase, still lands its blow instead of standing
+// one pixel out of reach forever.
+func (cs *CombatSystem) monsterVsMonsterReach(m *monsterPkg.Monster3D) float64 {
+	reach := m.GetAttackRangePixels()
+	if !m.HasRangedAttack() {
+		if min := 1.5 * float64(cs.game.config.GetTileSize()); reach < min {
+			reach = min
+		}
 	}
+	return reach
+}
+
+// nearestEnemyMonster returns the closest alive ENEMY monster to m within maxDist
+// (pixels), or nil. An "enemy" is one the party does not control — i.e. neither
+// bound nor pacified. The target of a bound undead and the lure for a normal mob.
+func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist float64) *monsterPkg.Monster3D {
 	var target *monsterPkg.Monster3D
-	best := aggro
+	best := maxDist
 	for _, other := range cs.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.Charmed {
+		if other == nil || other == m || !other.IsAlive() || other.Bound || other.Pacified {
 			continue
 		}
 		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
 			best, target = d, other
 		}
 	}
-	if target == nil {
+	return target
+}
+
+// monsterAIFoeMonster returns the OTHER monster m should pursue and strike, or
+// nil if its foe is the party (or it has none):
+//   - bound undead: the nearest enemy monster (within the seek radius).
+//   - pacified charm: nil (fully passive — never fights).
+//   - normal monster: the nearest bound undead within its alert radius, if one is
+//     no farther than the party — so mobs turn on the bound undead in their midst.
+func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg.Monster3D {
+	if m.Pacified {
+		return nil
+	}
+	if m.Bound {
+		return cs.nearestEnemyMonster(m, cs.boundUndeadSeekRadius())
+	}
+	// Normal monster: only bother if any bound undead exist this frame.
+	if len(cs.game.boundUndead) == 0 {
+		return nil
+	}
+	aggro := m.AlertRadius
+	if aggro <= 0 {
+		aggro = float64(cs.game.config.GetTileSize()) * 6
+	}
+	distParty := Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
+	var foe *monsterPkg.Monster3D
+	best := aggro
+	for _, u := range cs.game.boundUndead {
+		if u == nil || !u.IsAlive() {
+			continue
+		}
+		d := Distance(m.X, m.Y, u.X, u.Y)
+		if d <= best && d <= distParty {
+			best, foe = d, u
+		}
+	}
+	return foe
+}
+
+// monsterAITargetPoint is the world point a monster should pursue/engage, used by
+// both the real-time and turn-based movement. It redirects controlled monsters off
+// the party: a pacified charm stands still (targets itself), a bound undead seeks
+// its enemy (or stands if none), and a normal mob chases its undead foe if it has
+// one, else the party. Reads the per-frame cached AIFoe (set in
+// refreshBoundUndeadCache) — never recomputes the foe.
+func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
+	if m.Pacified {
+		return m.X, m.Y // pacified: never chase the party — hold position
+	}
+	if m.AIFoe != nil {
+		return m.AIFoe.X, m.AIFoe.Y
+	}
+	if m.Bound {
+		return m.X, m.Y // bound undead with no enemy in reach: wait, don't chase party
+	}
+	return cs.game.camera.X, cs.game.camera.Y
+}
+
+// monsterStrikeMonster resolves one melee hit from attacker onto target (a
+// monster-vs-monster blow). On a kill the party is rewarded ONLY if the slain
+// monster was an enemy (not a bound ally that a mob just cut down).
+func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monster3D) {
+	if !target.IsAlive() {
+		return // already slain this frame — no double damage/reward
+	}
+	dmg := attacker.GetAttackDamage()
+	target.TakeDamage(dmg, monsterPkg.DamagePhysical, attacker.X, attacker.Y)
+	target.HitTintFrames = MonsterHitFlashFrames
+	verb := "strikes"
+	if attacker.Bound {
+		verb = "(bound) strikes"
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, dmg))
+	if target.IsAlive() {
+		return
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
+	cs.game.collisionSystem.UnregisterEntity(target.ID)
+	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
+	if !target.Bound { // an enemy fell — reward; a fallen bound ally yields nothing
+		cs.awardExperienceAndGold(target)
+	}
+}
+
+// boundAttackNearest makes a bound undead attack the nearest enemy monster —
+// but ONLY when that enemy is within real attack range (melee: reach; ranged:
+// bolt range). It searches a wider seek radius: if the nearest enemy is found but
+// still out of attack range it returns false, so the caller walks the undead
+// toward it (it hunts instead of striking across the room). Returns true only
+// when it actually attacked.
+func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
+	target := m.AIFoe // precomputed this frame (= nearest enemy within seek radius)
+	if target == nil || !target.IsAlive() {
 		return false
 	}
-	dmg := m.GetAttackDamage()
-	target.TakeDamage(dmg, monsterPkg.DamagePhysical, m.X, m.Y)
-	target.HitTintFrames = MonsterHitFlashFrames
-	cs.game.AddCombatMessage(fmt.Sprintf("%s (bound) strikes %s for %d!", m.Name, target.Name, dmg))
-	if !target.IsAlive() {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", m.Name, target.Name))
-		cs.game.collisionSystem.UnregisterEntity(target.ID)
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
-		cs.awardExperienceAndGold(target)
+	if Distance(m.X, m.Y, target.X, target.Y) > cs.monsterVsMonsterReach(m) {
+		return false // in sight but out of reach — close the distance first
+	}
+	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit
+	// is resolved on impact in CheckProjectileMonsterCollisions. Melee ones strike
+	// directly.
+	if m.HasRangedAttack() {
+		cs.spawnMonsterRangedAttackAtMonster(m, target, ProjectileOwnerBoundUndead)
+	} else {
+		cs.monsterStrikeMonster(m, target)
 	}
 	return true
 }

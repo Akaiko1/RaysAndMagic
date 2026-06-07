@@ -91,6 +91,10 @@ func (gl *GameLoop) updateExploration() {
 	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
 	monster.PartyTraits["lich"] = gl.game.party.HasLich()
 
+	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
+	// retaliation) stays cheap when none exist — the overwhelmingly common case.
+	gl.game.refreshBoundUndeadCache()
+
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		gl.updateMonstersTurnBased()
@@ -371,7 +375,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
-	gl.updateCharmedMonsters()
+	gl.updateControlledMonsters()
 }
 
 // timedBuff is one duration-based party buff: its active/duration pointers are
@@ -423,26 +427,27 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateCharmedMonsters ticks bind_undead charm timers in real-time. When a
-// charm expires the undead turns hostile again. (TB charm persists the encounter.)
-func (gl *GameLoop) updateCharmedMonsters() {
+// updateControlledMonsters ticks Bind Undead and Charm timers in real-time. When a
+// bind expires the undead turns hostile again; when a charm expires the living
+// mob re-aggros. (TB control persists the encounter — no real-frame countdown.)
+func (gl *GameLoop) updateControlledMonsters() {
 	if gl.game.world == nil {
 		return
 	}
 	for _, m := range gl.game.world.Monsters {
-		if !m.Charmed || m.CharmFramesRemaining <= 0 {
-			continue
-		}
-		m.CharmFramesRemaining--
-		if m.CharmFramesRemaining == 0 {
-			wasPacified := m.CharmPacified
-			m.Charmed = false
-			m.CharmPacified = false
-			if wasPacified {
-				m.WasAttacked = true // pacified mob re-aggros when the charm wears off
-				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
-			} else {
+		if m.Bound && m.BoundFramesRemaining > 0 {
+			m.BoundFramesRemaining--
+			if m.BoundFramesRemaining == 0 {
+				m.Bound = false
 				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+			}
+		}
+		if m.Pacified && m.PacifiedFramesRemaining > 0 {
+			m.PacifiedFramesRemaining--
+			if m.PacifiedFramesRemaining == 0 {
+				m.Pacified = false
+				m.WasAttacked = true // re-aggros when the charm wears off
+				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}
 		}
 	}

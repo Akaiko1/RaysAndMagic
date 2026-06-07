@@ -112,29 +112,34 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY           float64 // Original spawn position
-	TetherRadius             float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer         bool    // True when actively pursuing/fighting player
-	WasAttacked              bool    // True when monster was hit - prevents disengagement
-	HitTintFrames            int     // Frames remaining for red hit tint
-	AttackAnimFrames         int     // Frames remaining for attack animation (TB mode)
-	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining      int     // Real-time stun duration in frames
-	Charmed                  bool    // Bound to the party (bind_undead): fights other monsters, ignores party
-	CharmPacified            bool    // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	CharmFramesRemaining     int     // Real-time charm duration in frames (0 in TB = lasts the encounter)
-	CharmAttackCD            int     // RT cadence counter between charmed attacks
-	Flying                   bool    // Whether the monster should be rendered above ground
-	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
-	AttacksPerRound          int     // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
-	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
-	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
-	FireburstChance          float64 // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin       int     // Fireburst damage min
-	FireburstDamageMax       int     // Fireburst damage max
-	PoisonChance             float64 // Chance to apply poison on hit
-	PoisonDurationSec        int     // Poison duration in seconds
+	SpawnX, SpawnY      float64 // Original spawn position
+	TetherRadius        float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer    bool    // True when actively pursuing/fighting player
+	WasAttacked         bool    // True when monster was hit - prevents disengagement
+	HitTintFrames       int     // Frames remaining for red hit tint
+	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int     // Real-time stun duration in frames
+	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
+	Bound                    bool       // Bind Undead: under party control — hunts other monsters, ignores party
+	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
+	CrossfireCD              int        // RT cadence between this monster's monster-vs-monster attacks (bound↔enemy crossfire)
+	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundUndeadCache)
+	AITargetY                float64    // Per-frame pursuit target Y
+	AIFoe                    *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	Flying                   bool       // Whether the monster should be rendered above ground
+	RangedAttackRange        float64    // Optional ranged attack range override (pixels)
+	AttacksPerRound          int        // Turn-based melee attacks per monster round
+	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
+	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
+	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin       int        // Fireburst damage min
+	FireburstDamageMax       int        // Fireburst damage max
+	PoisonChance             float64    // Chance to apply poison on hit
+	PoisonDurationSec        int        // Poison duration in seconds
 
 	// Loot
 	Gold  int

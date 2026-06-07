@@ -51,8 +51,8 @@ type floorTextureGroup struct {
 type Renderer struct {
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
-	whiteImg                 *ebiten.Image   // 1x1 white image for untextured polygons
-	renderedSpritesThisFrame map[[2]int]bool // Track which environment sprites have been rendered this frame
+	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
+	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// GPU floor rendering — a Kage shader replaces the per-pixel CPU loop.
 	// floorColorMap is a worldW×worldH RGBA8 image with base tile colors.
 	// floorTextureIndexMap is a worldW×worldH RGBA8 image; R encodes
@@ -1703,6 +1703,11 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	screen.DrawImage(src, opts)
 }
 
+// spellFxMinClusterSize is the floor (in screen px) for a spell projectile's
+// particle-cluster size, so distant/small bolts still render as a recognizable
+// puff instead of a single dot. Close bolts are far larger and unaffected.
+const spellFxMinClusterSize = 10.0
+
 type projectileFxProfile struct {
 	glowColor        [3]int
 	trailColor       [3]int
@@ -2769,6 +2774,13 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
 // Density/length scale with `size`, so a fireball reads far bigger than a bolt.
 func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+	// Floor the cluster size so a bolt launched far from the camera (e.g. a bound
+	// lich shooting across the room) still reads as a particle puff rather than a
+	// lone dot. Party bolts spawn at the camera (size ≈ MaxSize) so they're well
+	// above this and unaffected; only distant/small projectiles get the lift.
+	if size < spellFxMinClusterSize {
+		size = spellFxMinClusterSize
+	}
 	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
 	sink := p.style == "shard" || p.style == "dark"
 	mirror := p.style == "arcane" // staff/book bolt: trail sweeps the other way (R→L)
@@ -3019,8 +3031,8 @@ func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float
 	var px, py, sz [n]float64
 	pos, prevR := 0.0, 0.0
 	for k := 0; k < n; k++ {
-		t := float64(k) / float64(n-1)  // 0 tip → 1 tail
-		s := head * (0.25 + 0.25*t)     // small squares; tip smallest, tail biggest
+		t := float64(k) / float64(n-1) // 0 tip → 1 tail
+		s := head * (0.25 + 0.25*t)    // small squares; tip smallest, tail biggest
 		rr := s * 0.5
 		if k > 0 {
 			pos += (prevR + rr) * 0.5 // strong overlap — a near-continuous line

@@ -156,7 +156,7 @@ const (
 	// `cooldown_seconds`); see SpellCooldownDefaultSecondsForLevel for the
 	// fallback when a spell omits it. The authored seconds are the cooldown at
 	// the reference Speed below; Speed scales it via spellCooldownSpeedFactor.
-	SpellCooldownSpeedRefSpeed = 25 // Speed at which a spell's authored seconds apply as-is
+	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
 	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: ×0.5 (never below half)
 	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: ×1.35
 )
@@ -179,6 +179,11 @@ const (
 	// lands on a random NON-tank living member this often; otherwise on the tank.
 	RangedOffTankChance = 0.30
 )
+
+// BoundUndeadSeekTiles is how far a bound undead (bind_undead) hunts for an enemy
+// to walk toward — deliberately wider than a typical alert radius so it actively
+// seeks across the room rather than only engaging foes already on its doorstep.
+const BoundUndeadSeekTiles = 10.0
 
 // MonsterHitFlashFrames is how long a monster flashes red when hit. The shared
 // config `damage_blink_frames` (3) is far too brief to see; this dedicated value

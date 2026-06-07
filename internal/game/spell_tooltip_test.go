@@ -35,7 +35,13 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"charm", "Pacifies"},
 		{"charm", "120s"},
 		{"bind_undead", "undead target for 300s"},
-		{"hot_steam", "3 damage every 3s"},
+		{"hot_steam", "Zone Damage:"},
+		{"hot_steam", "searing everything inside every 3s"},
+		// Scaling source is now stated (SSoT — shows in the map editor too).
+		{"firebolt", "Damage scales with Intellect & fire mastery"},
+		{"psychic_shock", "Damage scales with Personality & mind mastery"}, // self-magic school → Personality
+		{"hot_steam", "Tick damage scales with Intellect & water mastery"},
+		{"heal", "Healing scales with Personality & body mastery"},
 		{"inferno", "within 7.0 tiles for 45 damage"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},
 		{"resurrect", "full HP"},

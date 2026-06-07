@@ -40,7 +40,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 		Y:              cs.game.camera.Y,
 		Radius:         def.ZoneRadiusTiles * tile,
 		FramesLeft:     def.Duration * tps,
-		TickDamage:     def.ZoneTickDamage,
+		TickDamage:     cs.CalculateSteamZoneTickDamage(def, caster),
 		IntervalFrames: interval,
 	})
 	cs.game.AddCombatMessage(def.Message)
@@ -64,7 +64,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		}
 		m.TakeDamageResist(z.TickDamage, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakCharmOnHit(m)
+		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.spawnSteamPuff(m.X, m.Y)
 		if !m.IsAlive() {
