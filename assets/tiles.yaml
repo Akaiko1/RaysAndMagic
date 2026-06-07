@@ -242,6 +242,68 @@ tiles:
     letter: "%"
     biomes: ["lich_nexus"]
 
+  culverts_floor:
+    name: "Culverts Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [58, 54, 48]
+    floor_near_color: [92, 86, 72]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["culverts"]
+
+  culverts_wall:
+    name: "Culverts Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "culverts_wall_0"
+    render_type: "textured_wall"
+    wall_color: [44, 44, 52]
+    letter: "%"
+    biomes: ["culverts"]
+
+  culverts_wall_1:
+    name: "Culverts Wall (Brick)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "culverts_wall_1"
+    render_type: "textured_wall"
+    wall_color: [50, 46, 50]
+    letter: "#"
+    biomes: ["culverts"]
+
+  culverts_wall_2:
+    name: "Culverts Wall (Mossy)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "culverts_wall_2"
+    render_type: "textured_wall"
+    wall_color: [42, 48, 46]
+    letter: "B"
+    biomes: ["culverts"]
+
+  culverts_wall_3:
+    name: "Culverts Wall (Grate)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "culverts_wall_3"
+    render_type: "textured_wall"
+    wall_color: [48, 44, 40]
+    letter: "="
+    biomes: ["culverts"]
+
   city_floor:
     name: "City Cobblestone"
     solid: false

@@ -34,17 +34,20 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	if interval < 1 {
 		interval = tps // default: once per second
 	}
+	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
+	// in-game tooltip — same source of truth as every other timed spell.
+	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.steamZones = append(cs.game.steamZones, SteamZone{
 		SpellID:        string(spellID),
 		X:              cs.game.camera.X,
 		Y:              cs.game.camera.Y,
 		Radius:         def.ZoneRadiusTiles * tile,
-		FramesLeft:     def.Duration * tps,
+		FramesLeft:     frames,
 		TickDamage:     cs.CalculateSteamZoneTickDamage(def, caster),
 		IntervalFrames: interval,
 	})
 	cs.game.AddCombatMessage(def.Message)
-	cs.game.setUtilityStatus(spellID, def.Duration*tps)
+	cs.game.setUtilityStatus(spellID, frames)
 	return true
 }
 

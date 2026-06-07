@@ -28,7 +28,7 @@ level_ups:
           - type: "weapon_mastery"
             skill: "staff"
           - type: "spell"
-            spell: "sparks"
+            spell: "hot_steam"
 
   cleric:
     levels:

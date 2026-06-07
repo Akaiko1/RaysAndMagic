@@ -2382,6 +2382,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "turn_in_quest":
 		ih.handleTurnInQuest(choice.QuestID)
 
+	case "close_valve":
+		ih.handleCloseValve(choice.QuestID)
+
 	case "summon_dragon":
 		ih.summonDragonFromStatue(npc, choice.SummonIndex)
 
@@ -2495,6 +2498,30 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	}
 	if g.claimQuestReward(questID) && npc != nil {
 		npc.Visited = true
+	}
+}
+
+// handleCloseValve shuts a sluice valve: advances the interact-quest by one (only
+// while it's active) and marks this valve Visited so it stays shut and can't be
+// re-counted. The quest's tag is its TargetMonster ("valve").
+func (ih *InputHandler) handleCloseValve(questID string) {
+	g := ih.game
+	npc := g.dialogNPC
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if g.questManager == nil || npc == nil {
+		return
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Status != quests.QuestStatusActive {
+		g.AddCombatMessage("The valve won't budge — no reason to shut it yet.")
+		return
+	}
+	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
+	npc.Visited = true // this valve stays shut and can't be re-counted
+	g.AddCombatMessage(fmt.Sprintf("You heave the valve shut. (%s)", q.GetProgressString()))
+	for _, cq := range completed {
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
 	}
 }
 

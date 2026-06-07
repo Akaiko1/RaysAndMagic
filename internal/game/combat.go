@@ -1061,6 +1061,19 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		dist := Distance(cs.game.camera.X, cs.game.camera.Y, monster.X, monster.Y)
 
+		// Boss behaviour (Golden Thief Bug): evade-until-quest blink, low-HP blink,
+		// Inferno casts. Returns true when it has handled the action this tick.
+		if cs.isBoss(monster) {
+			ready := monster.BossCD == 0
+			if monster.BossCD > 0 {
+				monster.BossCD--
+			}
+			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 && dist <= attackRange
+			if cs.updateBoss(monster, ready, attackTick) {
+				continue
+			}
+		}
+
 		// Pounce (real-time): from within pounce range but beyond melee, leap
 		// to melee contact and strike immediately, then go on cooldown.
 		if monster.CanPounce() {
@@ -1141,7 +1154,13 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	}
 	damage := monster.GetAttackDamage()
 
-	finalDamage := cs.mitigateIncoming(cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar))
+	// Armour-piercing attackers (Golden Thief Bug) bypass the party's armor class;
+	// only the buff mitigation (Stone Skin etc.) still applies.
+	armored := damage
+	if !monster.IgnoresArmor {
+		armored = cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar)
+	}
+	finalDamage := cs.mitigateIncoming(armored)
 
 	// Perfect Dodge: luck/5% to avoid all damage
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
@@ -2300,6 +2319,18 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	return 0
 }
 
+// spellBuffMagnitude scales a party-buff magnitude (Heroism's outgoing bonus,
+// Stone Skin's reduction, Day of the Gods' resist %) by the spell-mastery bonus,
+// the same +Mastery×5 model as Bless's stat bonus. A zero base stays zero (the
+// spell doesn't carry that effect). Single source of truth shared by combat
+// (tryCastPartyBuff) and the tooltip (getSpellMechanicsFromDefinition).
+func (cs *CombatSystem) spellBuffMagnitude(base int, spellID spells.SpellID, char *character.MMCharacter) int {
+	if base <= 0 {
+		return 0
+	}
+	return base + cs.spellMasteryBonus(char, spellID)
+}
+
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
@@ -2646,6 +2677,9 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 	if m.Pacified {
 		return m.X, m.Y // pacified: never chase the party — hold position
 	}
+	if cs.bossEvasive(m) {
+		return m.X, m.Y // evasive boss (quest unfinished): never chases — holds + blinks away
+	}
 	if m.AIFoe != nil {
 		return m.AIFoe.X, m.AIFoe.Y
 	}
@@ -2757,13 +2791,16 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 {
 		return false
 	}
-	frames := def.Duration * cs.game.config.GetTPS()
+	// Mastery scales both magnitude and duration (same +Mastery×5 model as Bless),
+	// so combat matches the in-game tooltip — getSpellMechanicsFromDefinition reads
+	// the exact same helpers.
+	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(TimedCombatBuff{
 		SpellID:   string(spellID),
 		Frames:    frames,
-		OutBonus:  def.OutgoingDamageBonus,
-		InReduce:  def.IncomingDamageReduction,
-		ResistPct: def.ResistBuffPct,
+		OutBonus:  cs.spellBuffMagnitude(def.OutgoingDamageBonus, spellID, caster),
+		InReduce:  cs.spellBuffMagnitude(def.IncomingDamageReduction, spellID, caster),
+		ResistPct: cs.spellBuffMagnitude(def.ResistBuffPct, spellID, caster),
 	})
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)

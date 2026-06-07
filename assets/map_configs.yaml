@@ -77,6 +77,14 @@ biomes:
         - "lich_nexus_floor_2"
         - "lich_nexus_floor_3"
 
+  culverts:
+    floor_texture_groups:
+      default:
+        - "culverts_floor_0"
+        - "culverts_floor_1"
+        - "culverts_floor_2"
+        - "culverts_floor_3"
+
   city:
     floor_texture_groups:
       default:
@@ -261,6 +269,14 @@ maps:
     sky_color: [18, 16, 28]
     sky_texture: "lich_nexus_panorama"
     default_floor_color: [32, 28, 42]
+
+  culverts:
+    name: "Seabright Culverts"
+    file: "culverts.map"
+    biome: "culverts"
+    sky_color: [20, 24, 26]
+    sky_texture: "culverts_panorama"
+    default_floor_color: [58, 54, 48]
 
   city:
     name: "Seabright"

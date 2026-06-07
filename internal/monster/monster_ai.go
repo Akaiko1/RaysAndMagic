@@ -168,6 +168,23 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	}
 }
 
+// pursueRelentlessly drives the monster straight at (targetX, targetY), closing
+// until within attack range and ignoring detection range, line-of-sight and the
+// flee cycle. Shared by bound undead (hunting their handed enemy) and aggressive
+// bosses (hunting the party).
+func (m *Monster3D) pursueRelentlessly(targetX, targetY float64) {
+	m.IsEngagingPlayer = true
+	if distance(m.X, m.Y, targetX, targetY) > m.GetAttackRangePixels() {
+		if m.State != StatePursuing {
+			m.State = StatePursuing
+			m.StateTimer = 0
+		}
+	} else if m.State != StateAttacking {
+		m.State = StateAttacking
+		m.StateTimer = 0
+	}
+}
+
 // updatePlayerEngagementWithVision handles player detection with line-of-sight checks
 // Trees and other opaque obstacles reduce detection radius
 func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
@@ -192,16 +209,15 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// once within real attack range; beyond that it keeps closing. When it has no
 	// enemy the target is its own position, so this just parks it (dist 0).
 	if m.Bound {
-		m.IsEngagingPlayer = true
-		if distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() {
-			if m.State != StatePursuing {
-				m.State = StatePursuing
-				m.StateTimer = 0
-			}
-		} else if m.State != StateAttacking {
-			m.State = StateAttacking
-			m.StateTimer = 0
-		}
+		m.pursueRelentlessly(playerX, playerY)
+		return
+	}
+
+	// An aggressive boss (e.g. the Golden Thief Bug once its quest gate is cleared)
+	// hunts the party relentlessly, ignoring detection range / line-of-sight / flee
+	// — same always-pursue logic as a bound undead, but aimed at the party.
+	if m.BossAggro {
+		m.pursueRelentlessly(playerX, playerY)
 		return
 	}
 
@@ -417,6 +433,19 @@ func (m *Monster3D) clearMoveTarget() {
 	m.HasMoveTarget = false
 	m.MoveTargetTileX = 0
 	m.MoveTargetTileY = 0
+}
+
+// ResetPathfinding drops any cached A* path and move-target so the monster
+// repaths from its CURRENT position on the next tick. Must be called after the
+// monster is teleported (e.g. a boss blink) — otherwise the stale waypoints,
+// computed for the old position, can leave it stuck rounding a wall that's no
+// longer there.
+func (m *Monster3D) ResetPathfinding() {
+	m.PathTiles = nil
+	m.PathIndex = 0
+	m.PathTargetTileX = 0
+	m.PathTargetTileY = 0
+	m.clearMoveTarget()
 }
 
 func (m *Monster3D) hasMoveTarget(state MonsterState) bool {
@@ -720,6 +749,13 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 		rangeTiles = 4
 	}
 	rangeTiles *= 2
+	if m.BossAggro {
+		// A relentless boss pursues across the WHOLE map (incl. far blinks), so the
+		// search window must be wide enough to hold maze detours that leave the
+		// straight-line start↔target box. 48 covers our largest map (50x50). Normal
+		// mobs keep the tight window (they only engage within alert radius).
+		rangeTiles = 48
+	}
 
 	minX := mathutil.IntMin(start.X, targetTileX) - rangeTiles
 	maxX := mathutil.IntMax(start.X, targetTileX) + rangeTiles
@@ -798,7 +834,12 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 	ps.heap.push(gridNode{idx: startIdx, g: 0, f: heuristic(start)})
 
 	nodesSearched := 0
-	maxNodes := 500 // Reduced from 2000 - typical search area is ~200-400 tiles
+	maxNodes := 500 // typical mob search area is ~200-400 tiles
+	if m.BossAggro {
+		// A relentless boss may path across a whole maze (50x50 ≈ 2500 reachable
+		// tiles, with dead-ends to explore), far beyond a normal mob's budget.
+		maxNodes = 4000
+	}
 
 	for len(ps.heap.nodes) > 0 && nodesSearched < maxNodes {
 		current, ok := ps.heap.pop()

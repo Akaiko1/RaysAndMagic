@@ -842,3 +842,32 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 
 	t.Logf("Monster moved from %.1f to %.1f (%.1f tiles)", initialX, m.X, (m.X-initialX)/64.0)
 }
+
+// A relentless boss (BossAggro) must path around a wall that forces a detour far
+// outside a normal mob's search window — otherwise, after a random blink lands it
+// across the map, it freezes and only "attacks" when you walk into melee. Guards
+// the wider window + higher node budget for BossAggro pursuers.
+func TestBossAggroPathsAroundLongDetour(t *testing.T) {
+	checker := NewMockCollisionChecker(tileSize)
+	// Wall at column 10 spanning rows -13..19 (covers a normal mob's whole ~±12-tile
+	// window around the straight start↔target line); the ONLY gap is row 20. Any
+	// crossing must detour ~20 tiles down — within a relentless boss's window, not a
+	// normal mob's.
+	for row := -13; row <= 19; row++ {
+		checker.BlockTile(10, row)
+	}
+	bossX, bossY := tileToWorldCenter(8, 0)
+	tgtX, tgtY := tileToWorldCenter(12, 0)
+	newMob := func() *Monster3D { return &Monster3D{X: bossX, Y: bossY, Speed: 1.5, AlertRadius: 384} }
+
+	// Regression guard: a normal mob's narrow window can't reach the detour gap.
+	if p := newMob().findPathToTarget(checker, tgtX, tgtY); len(p) != 0 {
+		t.Errorf("normal window unexpectedly spanned the detour (len %d) — test no longer guards the fix", len(p))
+	}
+	// The fix: a relentless boss widens window + node budget and finds the route.
+	boss := newMob()
+	boss.BossAggro = true
+	if p := boss.findPathToTarget(checker, tgtX, tgtY); len(p) == 0 {
+		t.Fatal("aggressive boss must path around the wall to keep pursuing, got no path")
+	}
+}

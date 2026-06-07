@@ -14,6 +14,10 @@ type QuestType string
 const (
 	QuestTypeKill      QuestType = "kill"
 	QuestTypeEncounter QuestType = "encounter" // Encounter quests auto-complete when all monsters are defeated
+	// Interact quests count player interactions with a tagged object (e.g. closing
+	// valves). The interaction tag is matched against the quest's TargetMonster
+	// field; CurrentCount increments via OnInteract until TargetCount.
+	QuestTypeInteract QuestType = "interact"
 	// Future quest types can be added here:
 	// QuestTypeCollect QuestType = "collect"
 	// QuestTypeDeliver QuestType = "deliver"
@@ -164,35 +168,38 @@ func (qm *QuestManager) ActivateQuest(questID string) error {
 // OnMonsterKilled updates quest progress when a monster is killed
 // Returns a list of quests that were completed by this kill
 func (qm *QuestManager) OnMonsterKilled(monsterType string) []*Quest {
+	return qm.advanceCountedQuests(QuestTypeKill, monsterType)
+}
+
+// OnInteract advances active interact-quests whose tag (TargetMonster) matches —
+// e.g. closing a valve calls OnInteract("valve"). Mirrors OnMonsterKilled: bumps
+// CurrentCount and completes at TargetCount. Returns the quests that completed.
+func (qm *QuestManager) OnInteract(tag string) []*Quest {
+	return qm.advanceCountedQuests(QuestTypeInteract, tag)
+}
+
+// advanceCountedQuests bumps CurrentCount on every active quest of the given type
+// whose TargetMonster tag matches, completing it at TargetCount. Shared by the
+// kill and interact progress hooks (OnMonsterKilled / OnInteract).
+func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag string) []*Quest {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
 	var completedQuests []*Quest
-
 	for _, quest := range qm.activeQuests {
-		if quest.Status != QuestStatusActive {
+		if quest.Status != QuestStatusActive || quest.Definition.Type != qType {
 			continue
 		}
-
-		if quest.Definition.Type != QuestTypeKill {
+		if quest.Definition.TargetMonster != tag {
 			continue
 		}
-
-		if quest.Definition.TargetMonster != monsterType {
-			continue
-		}
-
-		// Increment progress
 		quest.CurrentCount++
-
-		// Check if quest is now complete
 		if quest.CurrentCount >= quest.Definition.TargetCount {
 			quest.Completed = true
 			quest.Status = QuestStatusCompleted
 			completedQuests = append(completedQuests, quest)
 		}
 	}
-
 	return completedQuests
 }
 
@@ -267,8 +274,11 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 
 // GetProgressString returns a formatted progress string for a kill quest
 func (q *Quest) GetProgressString() string {
-	if q.Definition.Type == QuestTypeKill {
+	switch q.Definition.Type {
+	case QuestTypeKill:
 		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Definition.TargetCount, q.Definition.TargetMonster)
+	case QuestTypeInteract:
+		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Definition.TargetCount, q.Definition.TargetMonster)
 	}
 	return ""
 }

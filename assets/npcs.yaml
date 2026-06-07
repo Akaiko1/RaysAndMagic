@@ -24,51 +24,25 @@ npcs:
       already_known: "%s already knows this spell."
       success: "The knowledge flows into %s's mind. Use it wisely!"
 
-    # Spells this NPC can teach
+    # Self & divine magic — every Body, Mind and Spirit spell. Each entry authors
+    # only its shop price; name/school/level/requirements are backfilled from
+    # spells.yaml (see backfillTraderSpells), so this stays in sync automatically.
     spells:
-      walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the party to walk across water surfaces for a limited time"
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
-
-      water_breathing:
-        name: "Water Breathing"
-        school: "water"
-        cost: 1500
-        description: "Allows underwater exploration for extended periods"
-        requirements:
-          min_level: 5
-          schools:
-            - school: "water"
-              min_level: 2
-
-      inferno:
-        name: "Inferno"
-        school: "fire"
-        cost: 2500
-        description: "Engulfs everything around the party in flame — friend and foe alike"
-        requirements:
-          min_level: 7
-          schools:
-            - school: "fire"
-              min_level: 2
-
-      starburst:
-        name: "Starburst"
-        school: "air"
-        cost: 2000
-        description: "A bolt that bursts into a rain of falling stars over a wide area"
-        requirements:
-          min_level: 6
-          schools:
-            - school: "air"
-              min_level: 2
+      # Body
+      heal: { cost: 150 }
+      heal_other: { cost: 500 }
+      harm: { cost: 300 }
+      mass_heal: { cost: 800 }
+      # Mind
+      awaken: { cost: 300 }
+      mind_blast: { cost: 350 }
+      psychic_shock: { cost: 1200 }
+      charm: { cost: 1200 }
+      # Spirit
+      bless: { cost: 700 }
+      spirit_lash: { cost: 300 }
+      heroism: { cost: 900 }
+      raise_dead: { cost: 1500 }
 
   # Spell trader for testing
   mtrader0:
@@ -82,92 +56,10 @@ npcs:
       insufficient_gold: "You lack the gold required for this knowledge."
       already_known: "This character already knows that spell."
       success: "The magical knowledge has been imparted. Use it wisely!"
+    # Corner trader: sells only Walk on Water, at a flat 500 gold.
     spells:
       walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the caster to walk on water surfaces for a limited time."
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
-      heal:
-        name: "First Aid"
-        school: "body"
-        cost: 150
-        description: "Restores a little health to the caster."
-        requirements:
-          schools:
-            - school: "body"
-              min_level: 1
-      heal_other:
-        name: "Heal"
-        school: "body"
         cost: 500
-        description: "Restores health to another party member."
-        requirements:
-          schools:
-            - school: "body"
-              min_level: 2
-      harm:
-        name: "Harm"
-        school: "body"
-        cost: 300
-        description: "Concentrated body energy that wounds a foe."
-        requirements:
-          schools:
-            - school: "body"
-              min_level: 1
-      mass_heal:
-        name: "Mass Heal"
-        school: "body"
-        cost: 800
-        description: "A wave of healing that mends the whole party at once."
-        requirements:
-          min_level: 4
-          schools:
-            - school: "body"
-              min_level: 2
-      bless:
-        name: "Bless"
-        school: "spirit"
-        cost: 700
-        description: "Blesses the party with divine protection (+10 to all stats)."
-        requirements:
-          schools:
-            - school: "spirit"
-              min_level: 2
-      spirit_lash:
-        name: "Spirit Lash"
-        school: "spirit"
-        cost: 300
-        description: "A whip of spirit energy that scourges a foe."
-        requirements:
-          schools:
-            - school: "spirit"
-              min_level: 1
-      heroism:
-        name: "Heroism"
-        school: "spirit"
-        cost: 900
-        description: "Fills the party with valor, boosting the damage they deal."
-        requirements:
-          min_level: 4
-          schools:
-            - school: "spirit"
-              min_level: 2
-      raise_dead:
-        name: "Raise Dead"
-        school: "spirit"
-        cost: 1500
-        description: "Restores a fallen ally (not eradicated) to 25% of their health."
-        requirements:
-          min_level: 6
-          schools:
-            - school: "spirit"
-              min_level: 3
 
   # Example of other NPC types for future expansion
   merchant_general:
@@ -676,6 +568,134 @@ npcs:
         - text: "Stay in the forest"
           action: "leave"
 
+  # --- Seabright Culverts (sewer dungeon) ---
+  culverts_entrance:
+    name: "Culvert Outflow"
+    type: "encounter"
+    description: "A great barred storm-drain venting into the harbor"
+    sprite: "culvert_outlet"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
+      choice_prompt: "Descend into the culverts?"
+      choices:
+        - text: "Enter the culverts"
+          action: "enter_map"
+          map: "culverts"
+        - text: "Stay in the city"
+          action: "leave"
+
+  culverts_exit:
+    name: "Outflow Grate"
+    type: "encounter"
+    description: "The barred outflow back up to Seabright harbor"
+    sprite: "culvert_outlet"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 6
+    dialogue:
+      greeting: "Daylight filters down through the outflow grate — the way back up to Seabright."
+      choice_prompt: "Leave the culverts?"
+      choices:
+        - text: "Climb back to Seabright"
+          action: "enter_map"
+          map: "city"
+        - text: "Stay below"
+          action: "leave"
+
+  culverts_oldman:
+    name: "Sewerman Garran"
+    type: "quest_giver"
+    description: "A stooped old sewer-keeper who knows the culverts' every drip"
+    sprite: "dragon_cliffs_bone_hermit"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Mind the gold glint in the dark, traveler. The Golden Thief Bug hoards down here — but it won't stand and fight; it blinks away the moment you close in. Shut the seven sluice valves and the flood drains from its lair. Cornered in the dry, it'll finally turn on you."
+      active_message: "Valves still gushing. Seven of them — shut every one and the bug's lair drains dry."
+      completed_message: "The channels run dry; the Thief Bug's nowhere left to skitter. Here's for your trouble — now go corner the thing."
+      visited_message: "Dry as old bone down there now. Mind that bug's bite."
+      choice_prompt: "Garran leans on his hook-pole."
+      choices:
+        - text: "Ask about the Golden Thief Bug"
+          action: "give_quest"
+          quest_id: "culverts_valves"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "culverts_valves"
+        - text: "Leave"
+          action: "leave"
+
+  # Seven sluice valves. Distinct keys/names so each remembers being shut
+  # independently (NPC Visited is save-tracked by name). Dialogue is shared via a
+  # YAML anchor — it's a read-only template; only npc.Visited mutates at runtime.
+  culvert_valve_1:
+    name: "Sluice Valve I"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: &valve_dialogue
+      greeting: "A rust-caked sluice valve, half-open. Water roars through the channel below."
+      visited_message: "The valve is wrenched shut; the channel runs dry."
+      choice_prompt: "Close the valve?"
+      choices:
+        - text: "Heave the wheel shut"
+          action: "close_valve"
+          quest_id: "culverts_valves"
+        - text: "Leave it"
+          action: "leave"
+  culvert_valve_2:
+    name: "Sluice Valve II"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+  culvert_valve_3:
+    name: "Sluice Valve III"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+  culvert_valve_4:
+    name: "Sluice Valve IV"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+  culvert_valve_5:
+    name: "Sluice Valve V"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+  culvert_valve_6:
+    name: "Sluice Valve VI"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+  culvert_valve_7:
+    name: "Sluice Valve VII"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4
+    dialogue: *valve_dialogue
+
   # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
   # nothing at all; ground_tile paints the portal-stream tile under the gate so
   # the party steps onto shimmering water. Triggered with the interact key.
@@ -796,72 +816,30 @@ npcs:
       insufficient_gold: "You need %d gold for this spell."
       already_known: "%s already knows this spell."
       success: "%s learned the spell."
-    # A general arcane catalog — none of these are starting spells, so the shop
-    # actually expands the party's repertoire (offense + control + defense).
+    # The elemental catalog: every Fire, Water, Air and Earth spell (no Light or
+    # Dark). Each entry authors only its shop price; name/school/level/requirements
+    # are backfilled from spells.yaml (see backfillTraderSpells).
     spells:
-      fireball:
-        name: "Fireball"
-        school: "fire"
-        cost: 400
-        description: "Hurls a ball of fire that explodes on impact, splashing nearby foes."
-        requirements:
-          schools:
-            - school: "fire"
-              min_level: 1
-      lightning:
-        name: "Lightning Bolt"
-        school: "air"
-        cost: 600
-        description: "Strikes the target with a fast bolt of lightning."
-        requirements:
-          schools:
-            - school: "air"
-              min_level: 1
-      rock_blast:
-        name: "Rock Blast"
-        school: "earth"
-        cost: 350
-        description: "Hurls a jagged chunk of stone."
-        requirements:
-          schools:
-            - school: "earth"
-              min_level: 1
-      mind_blast:
-        name: "Mind Blast"
-        school: "mind"
-        cost: 350
-        description: "A lance of raw psychic force."
-        requirements:
-          schools:
-            - school: "mind"
-              min_level: 1
-      psychic_shock:
-        name: "Psychic Shock"
-        school: "mind"
-        cost: 550
-        description: "A jolt of psychic force that wounds and may stun the target."
-        requirements:
-          schools:
-            - school: "mind"
-              min_level: 2
-      stun:
-        name: "Stun"
-        school: "earth"
-        cost: 600
-        description: "A shockwave that stuns every foe within 3 tiles."
-        requirements:
-          schools:
-            - school: "earth"
-              min_level: 2
-      stone_skin:
-        name: "Stone Skin"
-        school: "earth"
-        cost: 500
-        description: "Hardens the party's skin to stone, reducing all incoming damage."
-        requirements:
-          schools:
-            - school: "earth"
-              min_level: 2
+      # Fire
+      fireball: { cost: 400 }
+      firebolt: { cost: 250 }
+      torch_light: { cost: 150 }
+      inferno: { cost: 2500 }
+      # Water
+      ice_bolt: { cost: 250 }
+      walk_on_water: { cost: 750 }
+      water_breathing: { cost: 800 }
+      hot_steam: { cost: 1500 }
+      # Air
+      sparks: { cost: 150 }
+      lightning: { cost: 600 }
+      wizard_eye: { cost: 700 }
+      starburst: { cost: 2000 }
+      # Earth
+      rock_blast: { cost: 350 }
+      deadly_swarm: { cost: 700 }
+      stun: { cost: 600 }
+      stone_skin: { cost: 500 }
 
   city_mastery_trainer:
     name: "Master Ilyra"

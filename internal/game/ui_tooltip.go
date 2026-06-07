@@ -787,12 +787,29 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats (whole party)", statBonus))
 		}
 	}
+	// Party-buff magnitudes scale with mastery (same helper combat applies in
+	// tryCastPartyBuff — SSoT), so the printed number is what you actually get.
+	if def.OutgoingDamageBonus > 0 && combatSystem != nil {
+		details = append(details, fmt.Sprintf("Party attacks deal +%d damage", combatSystem.spellBuffMagnitude(def.OutgoingDamageBonus, def.ID, char)))
+	}
+	if def.IncomingDamageReduction > 0 && combatSystem != nil {
+		details = append(details, fmt.Sprintf("Party takes -%d damage per hit", combatSystem.spellBuffMagnitude(def.IncomingDamageReduction, def.ID, char)))
+	}
+	if def.ResistBuffPct > 0 && combatSystem != nil {
+		details = append(details, fmt.Sprintf("Party takes %d%% less damage", combatSystem.spellBuffMagnitude(def.ResistBuffPct, def.ID, char)))
+	}
 	if def.Duration > 0 && combatSystem != nil {
 		if duration := combatSystem.CalculateSpellDurationSeconds(def.ID, char); duration > 0 {
+			// Duration is mastery-scaled for every timed spell — state the source so
+			// the player sees mastery matters (the number already reflects it).
+			scales := ""
+			if def.School != "" {
+				scales = fmt.Sprintf(" (scales with %s mastery)", def.School)
+			}
 			if duration >= 60 {
-				details = append(details, fmt.Sprintf("Duration: %d min %d sec", duration/60, duration%60))
+				details = append(details, fmt.Sprintf("Duration: %d min %d sec%s", duration/60, duration%60, scales))
 			} else {
-				details = append(details, fmt.Sprintf("Duration: %d seconds", duration))
+				details = append(details, fmt.Sprintf("Duration: %d seconds%s", duration, scales))
 			}
 		}
 	}

@@ -48,6 +48,17 @@ quests:
       gold: 900
       experience: 800
 
+  culverts_valves:
+    name: "Stem the Flow"
+    description: "Old Sewerman Garran wants the seven sluice valves in the Seabright culverts shut to flush out the Golden Thief Bug's lair."
+    type: "interact"
+    target_monster: "valve"   # interaction tag matched by OnInteract
+    target_count: 7
+    is_starting_quest: false
+    rewards:
+      gold: 1500
+      experience: 700
+
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
     description: "Old Varric says the cliff mages have begun listening to something beneath the dragon bones. Slay two archmages to break the rite."

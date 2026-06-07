@@ -151,7 +151,7 @@ spells:
   lightning:
     # Basic spell properties
     name: "Lightning Bolt"
-    description: "Strikes the target with a bolt of lightning"
+    description: "Strikes the target with a bolt of lightning that may briefly stun it"
     school: "air"
     level: 2
     spell_points_cost: 8
@@ -160,6 +160,12 @@ spells:
     projectile_size: 8
     is_projectile: true
     is_utility: false
+
+    # Stun-on-hit rider (like Psychic Shock): a jolt of lightning has a chance to
+    # briefly stun the struck monster. Shown in tooltips via SpellDefinition.EffectLines.
+    stun_chance: 0.20           # 20% chance to stun on hit
+    stun_duration_seconds: 2
+    stun_duration_turns: 1
 
     # Projectile physics (tile-based units)
     physics:

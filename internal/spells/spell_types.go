@@ -201,14 +201,17 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ReviveHpPct > 0 {
 		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
 	}
+	// Party buffs: the numeric value is caster-dependent (scales with mastery, like
+	// Bless) and printed by the in-game tooltip; here (character-independent) we
+	// state only the effect + its scaling source so the map-editor card shows it.
 	if d.ResistBuffPct > 0 {
-		out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
+		out = append(out, fmt.Sprintf("Party %% damage resistance (scales with %s mastery)", d.School))
 	}
 	if d.OutgoingDamageBonus > 0 {
-		out = append(out, fmt.Sprintf("Party attacks deal +%d damage", d.OutgoingDamageBonus))
+		out = append(out, fmt.Sprintf("Party flat attack bonus (scales with %s mastery)", d.School))
 	}
 	if d.IncomingDamageReduction > 0 {
-		out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
+		out = append(out, fmt.Sprintf("Party flat damage reduction (scales with %s mastery)", d.School))
 	}
 	if d.VisionBonus > 0 {
 		out = append(out, "Extends the party's sight radius")
@@ -237,7 +240,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
 	}
 	if d.StatBonus > 0 {
-		out = append(out, fmt.Sprintf("Bonus & duration scale with %s mastery", d.School))
+		out = append(out, fmt.Sprintf("Bonus scales with %s mastery", d.School))
 	}
 	return out
 }

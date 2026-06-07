@@ -994,6 +994,9 @@ func (g *MMGame) refreshBoundUndeadCache() {
 		}
 		m.AIFoe = g.combat.monsterAIFoeMonster(m)
 		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
+		// A boss past its quest gate chases the party relentlessly (no detection
+		// range / flee). Evasive bosses stay false: they hold + blink (boss hook).
+		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m)
 	}
 }
 

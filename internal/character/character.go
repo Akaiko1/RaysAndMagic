@@ -319,12 +319,16 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 			spells.SpellID("harm"),       // offensive body magic
 		},
 	}
-	// Clerics are the masters of self magic — open Mind too (alongside Body and the
-	// Spirit they can pick at level 3) so they can learn/cast the full self-magic
-	// catalog (all of which scales with their high Personality).
+	// Clerics are the masters of self magic — open Mind and Spirit too (alongside
+	// Body) so they can learn/cast the full self-magic catalog (all of which scales
+	// with their high Personality). Spirit starts with Spirit Lash.
 	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("mind_blast")},
+	}
+	c.MagicSchools[MagicSchoolSpirit] = &MagicSkill{
+		Mastery:     MasteryNovice,
+		KnownSpells: []spells.SpellID{spells.SpellID("spirit_lash")},
 	}
 
 	// Starting equipment - give Cleric Heal

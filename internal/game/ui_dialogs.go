@@ -1346,8 +1346,9 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		// Bottom row: Progress on left, Rewards on right
 		bottomY := questY + 54
 
-		// Progress for kill quests
-		if quest.Definition.Type == "kill" {
+		// Progress for counted quests (kill / interact) — both advance a
+		// CurrentCount toward TargetCount, so they share the bar.
+		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 			progressText := quest.GetProgressString()
 			ebitenutil.DebugPrintAt(screen, progressText, panelX+30, bottomY)
 

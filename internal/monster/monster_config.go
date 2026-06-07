@@ -53,6 +53,12 @@ type MonsterDefinition struct {
 	PounceRangeTiles      float64             `yaml:"pounce_range_tiles"`
 	PounceCooldownSeconds float64             `yaml:"pounce_cooldown_seconds"`
 	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
+	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
+	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`       // melee bypasses party armor class
+	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`      // 0..1 chance per action to cast a party-nova Inferno
+	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`      // when HP <= this, may blink to a random tile
+	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`     // 0..1 chance per action to blink (only below TeleportAtHP)
+	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"` // while this quest is incomplete: only evades (blinks away when the party is near), never attacks; turns aggressive once complete
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -288,6 +294,11 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.PounceRangePixels = def.PounceRangeTiles * 64.0
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
+	m.IgnoresArmor = def.IgnoresArmor
+	m.InfernoChance = def.InfernoChance
+	m.TeleportAtHP = def.TeleportAtHP
+	m.TeleportChance = def.TeleportChance
+	m.PassiveUntilQuest = def.PassiveUntilQuest
 
 	m.LightRadius = 0
 	m.LightIntensity = 0

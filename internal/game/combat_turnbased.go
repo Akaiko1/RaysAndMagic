@@ -71,6 +71,15 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
 
+		// Boss behaviour (Golden Thief Bug): evade-until-quest blink, low-HP blink,
+		// Inferno. Each monster turn is one action tick (ready + attackTick = true).
+		if gl.combat.isBoss(m) {
+			if gl.combat.updateBoss(m, true, true) {
+				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+				continue
+			}
+		}
+
 		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
 		// a bolt from within range, melee strike from an adjacent tile), else step
 		// toward it; never touch the party.
@@ -198,7 +207,11 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		target := gl.game.party.Members[targetIndex]
 
 		damage := monster.GetAttackDamage()
-		finalDamage := gl.combat.mitigateIncoming(gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target))
+		armored := damage // armour-piercing attackers (Golden Thief Bug) bypass armor class
+		if !monster.IgnoresArmor {
+			armored = gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
+		}
+		finalDamage := gl.combat.mitigateIncoming(armored)
 
 		// Perfect Dodge: luck/5% roll to avoid all damage
 		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {

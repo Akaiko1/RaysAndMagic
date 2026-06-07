@@ -112,11 +112,14 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	}
 	want := map[string]string{
 		"psychic_shock": "Stun chance: 10%",
-		"stone_skin":    "Party takes -6 damage per hit",
-		"heroism":       "Party attacks deal +10 damage",
-		"charm":         "Pacifies",
-		"stun":          "Stuns every monster within 3.0 tiles",
-		"raise_dead":    "Revives a fallen ally to 25% HP",
+		// Party-buff magnitudes scale with mastery (like Bless), so the
+		// character-independent editor card states the scaling SOURCE, not a flat
+		// number; the actual number is caster-dependent and shown in-game.
+		"stone_skin": "scales with earth mastery",
+		"heroism":    "scales with spirit mastery",
+		"charm":      "Pacifies",
+		"stun":       "Stuns every monster within 3.0 tiles",
+		"raise_dead": "Revives a fallen ally to 25% HP",
 	}
 	for key, sub := range want {
 		if got := rowsFor(key); !strings.Contains(got, sub) {

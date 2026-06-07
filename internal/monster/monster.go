@@ -162,6 +162,17 @@ type Monster3D struct {
 	PounceCDFrames        int // real-time cooldown countdown (frames)
 	PounceCDTurns         int // turn-based cooldown countdown (turns)
 
+	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
+	IgnoresArmor      bool    // melee bypasses the party's armor class
+	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
+	TeleportAtHP      int     // when HP <= this, may blink to a random walkable tile
+	TeleportChance    float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
+	PassiveUntilQuest string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
+	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
+	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
 	EncounterRewards   *EncounterRewards // Rewards for defeating this encounter monster

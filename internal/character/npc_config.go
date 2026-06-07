@@ -138,6 +138,61 @@ func LoadNPCConfig(filename string) error {
 	}
 
 	NPCConfigInstance = &config
+	if err := backfillTraderSpells(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// backfillTraderSpells fills each spell_trader catalog entry's INTRINSIC spell
+// data from the canonical definition in spells.yaml (looked up by the entry's
+// spell ID = its map key): name, school, level, description, and the learn gate
+// (min-level = the spell's own level). So a catalog only authors what's specific
+// to the shop — the price — and the rest can't drift from spells.yaml.
+//
+// Cost is NOT derived here: a price is a shop-listing property, authored per
+// entry in npcs.yaml exactly like merchant item prices (NPCItem.Cost), and
+// validated fail-fast (a missing cost is a content error, not a free spell).
+// Spells must already be loaded (main loads them before NPCs).
+func backfillTraderSpells() error {
+	if NPCConfigInstance == nil {
+		return nil
+	}
+	for npcKey, npc := range NPCConfigInstance.NPCs {
+		if npc == nil || npc.Type != "spell_trader" {
+			continue
+		}
+		for id, sp := range npc.Spells {
+			if sp == nil {
+				sp = &NPCSpell{}
+				npc.Spells[id] = sp
+			}
+			if sp.Cost <= 0 {
+				return fmt.Errorf("spell_trader %q: spell %q must declare a positive cost", npcKey, id)
+			}
+			def, ok := config.GetSpellDefinition(id)
+			if !ok || def == nil {
+				continue // unknown spell ID → respect whatever the YAML gave
+			}
+			if sp.Name == "" {
+				sp.Name = def.Name
+			}
+			if sp.School == "" {
+				sp.School = def.School
+			}
+			if sp.Level == 0 {
+				sp.Level = def.Level
+			}
+			if sp.Description == "" {
+				sp.Description = def.Description
+			}
+			if sp.Requirements == nil {
+				// Gate purchase on the spell's own level; the school-open check is
+				// already enforced by canCharacterLearnNPCSpell.
+				sp.Requirements = &SpellRequirements{MinLevel: def.Level}
+			}
+		}
+	}
 	return nil
 }
 
