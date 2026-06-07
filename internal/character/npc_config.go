@@ -44,12 +44,18 @@ type NPCSummon struct {
 
 // NPCDialogue represents the dialogue options for an NPC
 type NPCDialogue struct {
-	Greeting         string               `yaml:"greeting"`
-	Teaching         string               `yaml:"teaching,omitempty"`
-	InsufficientGold string               `yaml:"insufficient_gold,omitempty"`
-	AlreadyKnown     string               `yaml:"already_known,omitempty"`
-	Success          string               `yaml:"success,omitempty"`
-	VisitedMessage   string               `yaml:"visited_message,omitempty"`
+	Greeting         string `yaml:"greeting"`
+	Teaching         string `yaml:"teaching,omitempty"`
+	InsufficientGold string `yaml:"insufficient_gold,omitempty"`
+	AlreadyKnown     string `yaml:"already_known,omitempty"`
+	Success          string `yaml:"success,omitempty"`
+	VisitedMessage   string `yaml:"visited_message,omitempty"`
+	// Quest-state bodies for quest-giver NPCs: ActiveMessage shows while the
+	// linked quest is taken-but-not-done, CompletedMessage once it's done (turn-in
+	// available). The offer state uses Greeting; the concluded state uses
+	// VisitedMessage. See npc_dialogue.go.
+	ActiveMessage    string               `yaml:"active_message,omitempty"`
+	CompletedMessage string               `yaml:"completed_message,omitempty"`
 	ChoicePrompt     string               `yaml:"choice_prompt,omitempty"`
 	Choices          []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }

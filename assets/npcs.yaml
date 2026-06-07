@@ -327,6 +327,7 @@ npcs:
     size_multiplier: 5.0
     dialogue:
       greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
+      visited_message: "The cages hang open and empty — the freed champions have gone to await you at the tavern."
       choice_prompt: "Free the prisoners?"
       choices:
         - text: "Break them out (fight the jailers)"
@@ -373,6 +374,9 @@ npcs:
     size_multiplier: 6.0
     dialogue:
       greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
+      active_message: "The voice stirs again: 'The Lich King still draws breath. Return when the deed is done.'"
+      completed_message: "The wards blaze bright: 'You have broken the Lich King. Step forward and be raised to Archmage.'"
+      visited_message: "The tower stands quiet now — an Archmage walks among you."
       choice_prompt: "The Mage Tower awaits."
       choices:
         - text: "Accept the trial (slay the Lich King)"
@@ -392,10 +396,16 @@ npcs:
     size_multiplier: 4
     dialogue:
       greeting: "Keep low when the wind shifts. The trolls use the cliff mist as cover, and they are getting bold near the bridge stones."
+      active_message: "Still too many trolls on the ridge. Thin them out and the bridge approaches are ours again."
+      completed_message: "The bridge stones are quiet for the first time in weeks. You've earned your due — let me settle up."
+      visited_message: "The cliffs hold. Safe travels, friend."
       choice_prompt: "Maera studies the ridgeline."
       choices:
         - text: "Ask about the troll raids"
           action: "give_quest"
+          quest_id: "dragon_cliffs_troll_cull"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
           quest_id: "dragon_cliffs_troll_cull"
         - text: "Leave"
           action: "leave"
@@ -408,10 +418,16 @@ npcs:
     size_multiplier: 4
     dialogue:
       greeting: "The bones remember flame. Something below the cliffs has taught the mountain mages to listen to it."
+      active_message: "The rite still hums in the rock. The mages yet breathe — silence them, and the bones will rest."
+      completed_message: "The humming has stopped. You broke the rite. Take what the bones owe you."
+      visited_message: "The dragon-bones are quiet at last. Go well."
       choice_prompt: "The hermit taps his dragon-bone staff."
       choices:
         - text: "Ask about the ember rites"
           action: "give_quest"
+          quest_id: "dragon_cliffs_ember_rites"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
           quest_id: "dragon_cliffs_ember_rites"
         - text: "Leave"
           action: "leave"
@@ -426,6 +442,7 @@ npcs:
     size_multiplier: 6.0
     dialogue:
       greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
+      visited_message: "The Bone-Maw is silent now — only scorched bones and a cold draft remain."
       choice_prompt: "Enter the Bone-Maw?"
       choices:
         - text: "Enter the lair"
@@ -445,7 +462,7 @@ npcs:
           count_max: 1
       rewards:
         gold: 1500
-        experience: 3500
+        experience: 1500
         completion_message: "The Bone-Maw falls silent."
 
   dragon_cliffs_ember_lair:
@@ -458,6 +475,7 @@ npcs:
     size_multiplier: 6.0
     dialogue:
       greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
+      visited_message: "The Ember-Heart has cooled to black stone — the cavern lies dark and still."
       choice_prompt: "Enter the Ember-Heart?"
       choices:
         - text: "Enter the lair"
@@ -477,7 +495,7 @@ npcs:
           count_max: 1
       rewards:
         gold: 2000
-        experience: 4500
+        experience: 1500
         completion_message: "The Ember-Heart cools to black stone."
 
   abandoned_church:

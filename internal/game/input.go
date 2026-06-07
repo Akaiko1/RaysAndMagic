@@ -1889,12 +1889,12 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// Check if clicking on encounter choices (if NPC is encounter type)
 	if ih.game.dialogNPC != nil && npcHasChoiceDialog(ih.game.dialogNPC) {
 		npc := ih.game.dialogNPC
-		if npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0 {
-			// Skip if already visited and encounter is first-visit-only
-			if !(npc.Visited && npc.EncounterData != nil && npc.EncounterData.FirstVisitOnly) {
-				// Calculate position of choices (matching drawEncounterDialog exactly)
-				greeting := npc.DialogueData.Greeting
-				lines := wrapText(greeting, 70)
+		// Use the SAME state-filtered choices + body text as drawEncounterDialog so
+		// click positions line up with what's actually drawn.
+		choices := ih.game.visibleNPCChoices(npc)
+		if npc.DialogueData != nil && len(choices) > 0 {
+			{
+				lines := wrapText(ih.game.npcDialogueText(npc), 70)
 				choicesY := dialogY + 50 + len(lines)*16 + 20
 
 				// Add space for choice prompt if it exists
@@ -1902,7 +1902,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					choicesY += 20
 				}
 
-				for i := range npc.DialogueData.Choices {
+				for i := range choices {
 					choiceY := choicesY + i*25
 
 					// Check if mouse is over this choice entry (clickable from text start)
@@ -2283,13 +2283,19 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 // handleEncounterInput handles input for encounter NPCs
 func (ih *InputHandler) handleEncounterInput() {
 	npc := ih.game.dialogNPC
-	if npc.DialogueData == nil || len(npc.DialogueData.Choices) == 0 {
+	if npc == nil || npc.DialogueData == nil {
 		return
 	}
 
-	// Skip interaction if already visited and encounter is first-visit-only
-	if npc.Visited && npc.EncounterData != nil && npc.EncounterData.FirstVisitOnly {
+	// Only the choices valid in the NPC's current state. None → concluded /
+	// non-actionable; ESC leaves.
+	choices := ih.game.visibleNPCChoices(npc)
+	if len(choices) == 0 {
 		return
+	}
+	// State may have shrunk the list since the dialog opened — keep the cursor valid.
+	if ih.game.selectedChoice >= len(choices) {
+		ih.game.selectedChoice = len(choices) - 1
 	}
 
 	// Navigate choices with Up/Down arrows
@@ -2300,7 +2306,7 @@ func (ih *InputHandler) handleEncounterInput() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
-		if ih.game.selectedChoice < len(npc.DialogueData.Choices)-1 {
+		if ih.game.selectedChoice < len(choices)-1 {
 			ih.game.selectedChoice++
 		}
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
@@ -2313,7 +2319,7 @@ func (ih *InputHandler) handleEncounterInput() {
 	}
 
 	// Number key shortcuts (1-9)
-	for i := 0; i < len(npc.DialogueData.Choices) && i < 9; i++ {
+	for i := 0; i < len(choices) && i < 9; i++ {
 		var key ebiten.Key
 		switch i {
 		case 0:
@@ -2347,11 +2353,15 @@ func (ih *InputHandler) handleEncounterInput() {
 // executeEncounterChoice executes the selected encounter choice
 func (ih *InputHandler) executeEncounterChoice() {
 	npc := ih.game.dialogNPC
-	if npc.DialogueData == nil || ih.game.selectedChoice >= len(npc.DialogueData.Choices) {
+	if npc == nil || npc.DialogueData == nil {
+		return
+	}
+	choices := ih.game.visibleNPCChoices(npc)
+	if ih.game.selectedChoice >= len(choices) {
 		return
 	}
 
-	choice := npc.DialogueData.Choices[ih.game.selectedChoice]
+	choice := choices[ih.game.selectedChoice]
 
 	switch choice.Action {
 	case "leave":
@@ -2443,30 +2453,49 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
 }
 
-// handleTurnInQuest completes the Archmage trial at the tower and promotes a
-// compatible party member.
+// handleTurnInQuest turns a completed quest in at the NPC. The Archmage's Trial
+// is special (promotes a member instead of paying gold/XP); every other quest
+// claims its reward on the spot. Either way the NPC concludes (Visited) so it
+// stops re-offering.
 func (ih *InputHandler) handleTurnInQuest(questID string) {
 	g := ih.game
+	npc := g.dialogNPC // capture before clearing — we conclude it on success
 	g.dialogActive = false
 	g.dialogNPC = nil
-	if questID == "" || quests.GlobalQuestManager == nil {
+	if questID == "" || g.questManager == nil {
 		return
 	}
-	if g.party.HasLich() {
-		g.AddCombatMessage("The tower's wards reject the undead.")
+
+	if questID == "archmage_trial" {
+		if g.party.HasLich() {
+			g.AddCombatMessage("The tower's wards reject the undead.")
+			return
+		}
+		quest := g.questManager.GetQuest(questID)
+		if quest == nil || !quest.Completed {
+			g.AddCombatMessage("The Lich King still draws breath. Return when the deed is done.")
+			return
+		}
+		if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
+			g.AddCombatMessage("No one in your party can walk the Archmage's path.")
+			return
+		}
+		g.questManager.RemoveQuest(questID) // can't be turned in twice
+		if npc != nil {
+			npc.Visited = true
+		}
 		return
 	}
-	quest := quests.GlobalQuestManager.GetQuest(questID)
+
+	// Generic turn-in: must be done, then pay out and conclude the NPC.
+	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
-		g.AddCombatMessage("The Lich King still draws breath. Return when the deed is done.")
+		g.AddCombatMessage("That task isn't finished yet — return when it's done.")
 		return
 	}
-	if !g.promoteEligibleMember(character.PromotionArchmage, -1) {
-		g.AddCombatMessage("No one in your party can walk the Archmage's path.")
-		return
+	if g.claimQuestReward(questID) && npc != nil {
+		npc.Visited = true
 	}
-	// Remove the quest so the trial can't be turned in twice.
-	quests.GlobalQuestManager.RemoveQuest(questID)
 }
 
 // buildStatueChoices rebuilds a dragon statue's dialogue choices at open time:

@@ -528,47 +528,31 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 
 	// Draw encounter description
 	if npc.DialogueData != nil {
-		// Wrap long text
-		greeting := npc.DialogueData.Greeting
-		lines := ui.wrapText(greeting, 70)
+		// Body text is state-driven (offer greeting / in-progress / completed /
+		// concluded) — see npcDialogueText.
+		lines := ui.wrapText(ui.game.npcDialogueText(npc), 70)
 		for i, line := range lines {
 			ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+50+i*16)
 		}
 
-		// Draw choices if this is first visit or encounter is repeatable
-		if !npc.Visited || (npc.EncounterData != nil && !npc.EncounterData.FirstVisitOnly) {
-			choicesY := dialogY + 50 + len(lines)*16 + 20
-
+		// Only the choices valid in this state (give_quest while offering,
+		// turn_in_quest once completed, etc.) — same list the input handler acts on.
+		choices := ui.game.visibleNPCChoices(npc)
+		choicesY := dialogY + 50 + len(lines)*16 + 20
+		if len(choices) == 0 {
+			ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, choicesY)
+		} else {
 			if npc.DialogueData.ChoicePrompt != "" {
 				ebitenutil.DebugPrintAt(screen, npc.DialogueData.ChoicePrompt, dialogX+20, choicesY)
 				choicesY += 20
 			}
-
-			for i, choice := range npc.DialogueData.Choices {
+			for i, choice := range choices {
 				choiceY := choicesY + i*25
 				choiceText := fmt.Sprintf("%d. %s", i+1, choice.Text)
-
-				// Highlight selected choice
 				if i == ui.game.selectedChoice {
 					drawFilledRect(screen, dialogX+20, choiceY-2, dialogWidth-40, 20, color.RGBA{100, 100, 0, 128})
 				}
-
 				ebitenutil.DebugPrintAt(screen, choiceText, dialogX+25, choiceY)
-			}
-		} else {
-			// Already visited
-			visitedMessage := ""
-			if npc.DialogueData != nil {
-				visitedMessage = npc.DialogueData.VisitedMessage
-			}
-			if visitedMessage != "" {
-				lines := ui.wrapText(visitedMessage, 70)
-				for i, line := range lines {
-					ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+150+i*16)
-				}
-				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150+len(lines)*16+20)
-			} else {
-				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150)
 			}
 		}
 	}
@@ -1476,34 +1460,36 @@ func (ui *UISystem) characterCanLearnSpell(char *character.MMCharacter, spellDat
 	return canCharacterLearnNPCSpell(char, spellData)
 }
 
-// claimQuestReward claims the reward for a completed quest
+// claimQuestReward claims the reward for a completed quest (UI journal entry).
 func (ui *UISystem) claimQuestReward(questID string) {
-	if ui.game.questManager == nil {
-		return
-	}
+	ui.game.claimQuestReward(questID)
+}
 
-	rewards, err := ui.game.questManager.ClaimRewards(questID)
+// claimQuestReward claims a completed quest's reward: gold + shared XP, marking it
+// claimed. Single source of truth for both the quest journal (J) and an NPC
+// turn-in, so the two can't diverge. Returns true if a reward was actually paid.
+func (g *MMGame) claimQuestReward(questID string) bool {
+	if g.questManager == nil {
+		return false
+	}
+	rewards, err := g.questManager.ClaimRewards(questID)
 	if err != nil {
-		ui.game.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
-		return
+		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+		return false
 	}
-
-	// Award gold
 	if rewards.Gold > 0 {
-		ui.game.party.Gold += rewards.Gold
+		g.party.Gold += rewards.Gold
 	}
-
-	// Award experience via the single XP source so Learning bonuses and bench
-	// training apply (active party, reserve, and captives all share quest XP).
+	// Single XP source so Learning bonuses and bench training apply (active party,
+	// reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
-		ui.game.grantSharedXP(rewards.Experience)
+		g.grantSharedXP(rewards.Experience)
 	}
-
-	quest := ui.game.questManager.GetQuest(questID)
-	if quest != nil {
-		ui.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
+	if quest := g.questManager.GetQuest(questID); quest != nil {
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
 			quest.Definition.Name, rewards.Gold, rewards.Experience))
 	}
+	return true
 }
 
 // truncateName truncates a name to maxLen characters

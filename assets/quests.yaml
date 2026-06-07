@@ -46,7 +46,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 900
-      experience: 1800
+      experience: 800
 
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
@@ -57,7 +57,7 @@ quests:
     is_starting_quest: false
     rewards:
       gold: 1200
-      experience: 2400
+      experience: 1200
 
   # Main quest - victory condition
   dragon_slayer:
