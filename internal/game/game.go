@@ -17,6 +17,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -1036,16 +1037,90 @@ func (g *MMGame) rtCharReady(idx int) bool {
 	return m.CanAct() && m.RTCooldown <= 0
 }
 
-// advanceToNextReadyCharRT moves the selection to the next party member ready
-// to act in real time (off cooldown), wrapping around. If nobody else is ready
-// it leaves the selection where it is. This is what makes holding an attack key
-// fire the party in turn instead of one member machine-gunning.
-func (g *MMGame) advanceToNextReadyCharRT() {
+// rtActionKind is the real-time action a held key performs. The party cycle is
+// capability-aware per action: holding F only visits members who can cast,
+// holding C only members who can heal, holding R only members with a weapon.
+type rtActionKind int
+
+const (
+	rtActNone   rtActionKind = iota
+	rtActWeapon              // R: melee/ranged weapon
+	rtActSmart               // Space: slotted combat spell else weapon
+	rtActCast                // F: cast the slotted spell
+	rtActHeal                // C/H: cast the best known heal
+)
+
+// rtActionCapable reports whether a party member CAN perform a real-time action
+// right now (ignoring cooldown): alive, plus has the weapon / slotted spell /
+// known heal AND enough SP for it. Smart-attack always falls back to a weapon
+// swing, so everyone is "capable" of it.
+func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	if m == nil || !m.CanAct() {
+		return false
+	}
+	switch kind {
+	case rtActWeapon:
+		_, ok := m.Equipment[items.SlotMainHand]
+		return ok
+	case rtActCast:
+		spell, ok := m.Equipment[items.SlotSpell]
+		if !ok {
+			return false
+		}
+		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, spell.SpellCost)
+	case rtActHeal:
+		if g.combat == nil {
+			return false
+		}
+		id, ok := g.combat.bestKnownHealSpell(m)
+		if !ok {
+			return false
+		}
+		def, err := spells.GetSpellDefinitionByID(id)
+		return err == nil && m.SpellPoints >= g.combat.effectiveSpellCost(m, def.SpellPointsCost)
+	default: // rtActSmart
+		return true
+	}
+}
+
+// rtActionReady = capable of the action AND off cooldown.
+func (g *MMGame) rtActionReady(idx int, kind rtActionKind) bool {
+	return g.rtActionCapable(idx, kind) && g.party.Members[idx].RTCooldown <= 0
+}
+
+// nextReadyRTActor returns the next member (after the selection, wrapping) who is
+// ready to do `kind`, or -1 if none. Unlike advanceRTActor it never falls back to
+// an on-cooldown member — so callers can WAIT in place instead of churning the
+// selection frame while everyone capable is on cooldown.
+func (g *MMGame) nextReadyRTActor(kind rtActionKind) int {
 	n := len(g.party.Members)
 	for off := 1; off <= n; off++ {
-		idx := (g.selectedChar + off) % n
-		if g.rtCharReady(idx) {
-			g.selectedChar = idx
+		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
+			return i
+		}
+	}
+	return -1
+}
+
+// advanceRTActor hands real-time selection to the next member who can do `kind`:
+// first a ready (off-cooldown) one, else any capable one still on cooldown (so a
+// held key WAITS on a capable member instead of skipping to one who can't, or
+// sticking on the current incapable one). Leaves selection put if none capable.
+func (g *MMGame) advanceRTActor(kind rtActionKind) {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
+			g.selectedChar = i
+			return
+		}
+	}
+	for off := 1; off <= n; off++ {
+		if i := (g.selectedChar + off) % n; g.rtActionCapable(i, kind) {
+			g.selectedChar = i
 			return
 		}
 	}

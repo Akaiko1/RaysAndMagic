@@ -346,7 +346,8 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 	}
 	spellID, ok := cs.bestKnownHealSpell(caster)
 	if !ok {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s knows no healing spell.", caster.Name))
+		// Silent no-op: the C-key cycle only ever targets known healers, so this
+		// just guards stray callers — no chat spam.
 		return false, ""
 	}
 	def, err := spells.GetSpellDefinitionByID(spellID)

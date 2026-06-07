@@ -76,6 +76,7 @@ const rtActionStagger = 8
 // cycles. ~0.45s at 120 TPS.
 const rtHoldRepeatDelay = 54
 
+
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
@@ -866,74 +867,79 @@ func (ih *InputHandler) handleCombatInput() {
 	}
 	repeat := ih.attackHoldFrames >= rtHoldRepeatDelay
 
-	const (
-		actNone = iota
-		actWeapon
-		actSmart
-		actCast
-		actHeal
-	)
-	kind := actNone
+	kind := rtActNone
 	switch {
 	case rJust:
-		kind = actWeapon
+		kind = rtActWeapon
 	case spaceJust:
-		kind = actSmart
+		kind = rtActSmart
 	case fJust:
-		kind = actCast
+		kind = rtActCast
 	case cJust || hJust:
-		kind = actHeal
+		kind = rtActHeal
 	case repeat && rHeld:
-		kind = actWeapon
+		kind = rtActWeapon
 	case repeat && spaceHeld:
-		kind = actSmart
+		kind = rtActSmart
 	case repeat && fHeld:
-		kind = actCast
+		kind = rtActCast
 	case repeat && (cHeld || hHeld):
-		kind = actHeal
+		kind = rtActHeal
 	}
-	if kind == actNone {
+	if kind == rtActNone {
 		return
 	}
 
-	// If the selected member can no longer act (just died/KO'd), hand control to a
-	// living one. While cycling (hold), if the selected one is on cooldown jump to
-	// whoever IS ready — so a held key fires the party in turn, fastest most often.
+	// Off a corpse first, then onto a member who can actually do THIS action:
+	// holding F only visits casters, C only healers, R only the armed.
 	ih.game.ensureSelectedCanActRT()
-	if !ih.game.rtCharReady(ih.game.selectedChar) {
-		ih.game.advanceToNextReadyCharRT()
+	// (1) If the selected member can't do this action AT ALL, park on a capable
+	// one (preferring a ready one) — a single move so the waiting frame sits on a
+	// real actor, not a per-frame churn.
+	if !ih.game.rtActionCapable(ih.game.selectedChar, kind) {
+		ih.game.advanceRTActor(kind)
+	}
+	// (2) Selected is capable. If it's on cooldown, jump to another member who is
+	// ready RIGHT NOW; if nobody is ready, hold still and wait quietly — do NOT
+	// shuffle the selection among on-cooldown members (that was the jitter).
+	if !ih.game.rtActionReady(ih.game.selectedChar, kind) {
+		if i := ih.game.nextReadyRTActor(kind); i >= 0 {
+			ih.game.selectedChar = i
+		}
 	}
 
-	// Gate: short global stagger AND the selected character ready (off cooldown).
-	if ih.game.spellInputCooldown != 0 || !ih.game.rtCharReady(ih.game.selectedChar) {
+	// Gate: short global stagger AND the selected member ready+capable. A capable
+	// member on cooldown lands here and simply waits (no fire, no chat spam).
+	if ih.game.spellInputCooldown != 0 || !ih.game.rtActionReady(ih.game.selectedChar, kind) {
 		return
 	}
 	sel := ih.game.party.Members[ih.game.selectedChar]
 
 	switch kind {
-	case actWeapon:
+	case rtActWeapon:
 		ih.game.combat.EquipmentMeleeAttack()
-		ih.commitRTAction(ih.game.combat.WeaponCooldownFrames(sel))
-	case actSmart:
+		ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
+	case rtActSmart:
 		if cast, spellID := ih.game.combat.SmartAttack(); cast {
-			ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
 		} else {
-			ih.commitRTAction(ih.game.combat.WeaponCooldownFrames(sel))
+			ih.commitRTAction(rtActSmart, ih.game.combat.WeaponCooldownFrames(sel))
 		}
-	case actCast:
+	case rtActCast:
 		ih.castSlottedSpell(sel)
-	case actHeal:
+	case rtActHeal:
 		ih.castBestHeal(sel)
 	}
 }
 
 // commitRTAction puts the just-acted character on cooldown, applies the short
-// global stagger, and hands selection to the next ready member.
-func (ih *InputHandler) commitRTAction(cooldownFrames int) {
+// global stagger, and hands selection to the next member who can do the SAME
+// action (so a held key keeps cycling among capable members of that action).
+func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	sel := ih.game.party.Members[ih.game.selectedChar]
 	sel.RTCooldown = cooldownFrames
 	ih.game.spellInputCooldown = rtActionStagger
-	ih.game.advanceToNextReadyCharRT()
+	ih.game.advanceRTActor(kind)
 }
 
 // castSlottedSpell casts the selected character's slotted spell (F key). Heal
@@ -949,12 +955,12 @@ func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 		mouseX, mouseY := ebiten.CursorPosition()
 		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
 		if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
-			ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+			ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
 		}
 		return
 	}
 	if ih.game.combat.CastEquippedSpell() {
-		ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+		ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
 
@@ -967,7 +973,7 @@ func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
 		targetCharIndex = ih.game.selectedChar
 	}
 	if cast, spellID := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
-		ih.commitRTAction(ih.game.combat.SpellCooldownFrames(sel, spellID))
+		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
 
