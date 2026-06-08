@@ -1513,3 +1513,90 @@ func TestCombatBalance_LowLevelPartyVsForest(t *testing.T) {
 		})
 	}
 }
+
+// TestMonsterDamageVsArmorTiers reports, for EVERY current monster, the physical
+// melee damage it deals to a level-6 / 20-Endurance character wearing a full set
+// of each armor tier — leather, chain, plate. Each monster's min..max is run
+// through the real armor-reduction path (ApplyArmorDamageReduction = dmg - AC/2,
+// floored at 1). Output is a table (run with -run MonsterDamageVsArmorTiers -v);
+// it also asserts AC rises leather<chain<plate, heavier armor never takes MORE,
+// and the 1-damage floor holds.
+func TestMonsterDamageVsArmorTiers(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+
+	armorSlots := []items.EquipSlot{
+		items.SlotArmor, items.SlotHelmet, items.SlotBoots,
+		items.SlotCloak, items.SlotGauntlets, items.SlotBelt,
+	}
+	sets := []struct {
+		name   string
+		pieces map[items.EquipSlot]string
+	}{
+		{"leather", map[items.EquipSlot]string{items.SlotArmor: "leather_armor", items.SlotHelmet: "leather_helmet", items.SlotBoots: "leather_pants"}},
+		{"chain", map[items.EquipSlot]string{items.SlotArmor: "chain_armor", items.SlotHelmet: "chain_helmet", items.SlotBoots: "chain_pants"}},
+		{"plate", map[items.EquipSlot]string{items.SlotArmor: "iron_armor", items.SlotHelmet: "iron_helmet", items.SlotBoots: "iron_pants"}},
+	}
+
+	// A L6/20-END tank wearing ONLY the given set (other armor slots cleared so AC
+	// is purely that set).
+	newTank := func(pieces map[items.EquipSlot]string) *character.MMCharacter {
+		c := character.CreateCharacter("Tank", character.ClassKnight, cs.game.config)
+		c.Level = 6
+		c.Endurance = 20
+		for _, s := range armorSlots {
+			delete(c.Equipment, s)
+		}
+		for slot, key := range pieces {
+			c.Equipment[slot] = items.CreateItemFromYAML(key)
+		}
+		return c
+	}
+
+	tanks := map[string]*character.MMCharacter{}
+	ac := map[string]int{}
+	for _, s := range sets {
+		tanks[s.name] = newTank(s.pieces)
+		ac[s.name] = cs.CalculateTotalArmorClass(tanks[s.name])
+	}
+	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (reduction = AC/%d)",
+		ac["leather"], ac["chain"], ac["plate"], ArmorPhysicalReductionDivisor)
+	if !(ac["leather"] < ac["chain"] && ac["chain"] < ac["plate"]) {
+		t.Errorf("AC should rise leather<chain<plate, got %d/%d/%d", ac["leather"], ac["chain"], ac["plate"])
+	}
+
+	// Build every monster, then sort by level (then name) so the table reads from
+	// weakest to toughest.
+	mobs := make([]*monsterPkg.Monster3D, 0, len(monsterPkg.MonsterConfig.Monsters))
+	for k := range monsterPkg.MonsterConfig.Monsters {
+		mobs = append(mobs, monsterPkg.NewMonster3DFromConfig(0, 0, k, cs.game.config))
+	}
+	sort.Slice(mobs, func(i, j int) bool {
+		if mobs[i].Level != mobs[j].Level {
+			return mobs[i].Level < mobs[j].Level
+		}
+		return mobs[i].Name < mobs[j].Name
+	})
+
+	t.Logf("%-3s %-22s %-9s %-11s %-11s %-11s", "lvl", "monster", "raw", "leather", "chain", "plate")
+	rng := func(set string, m *monsterPkg.Monster3D) (int, int) {
+		return cs.ApplyArmorDamageReduction(m.DamageMin, tanks[set]), cs.ApplyArmorDamageReduction(m.DamageMax, tanks[set])
+	}
+	for _, m := range mobs {
+		lMin, lMax := rng("leather", m)
+		cMin, cMax := rng("chain", m)
+		pMin, pMax := rng("plate", m)
+		t.Logf("%-3d %-22s %-9s %-11s %-11s %-11s", m.Level, m.Name,
+			fmt.Sprintf("%d-%d", m.DamageMin, m.DamageMax),
+			fmt.Sprintf("%d-%d", lMin, lMax),
+			fmt.Sprintf("%d-%d", cMin, cMax),
+			fmt.Sprintf("%d-%d", pMin, pMax))
+		// Heavier armor must never take MORE damage; floor never below 1.
+		if lMax < cMax || cMax < pMax {
+			t.Errorf("%s: heavier armor took more (leather %d, chain %d, plate %d)", m.Name, lMax, cMax, pMax)
+		}
+		if pMin < 1 {
+			t.Errorf("%s: damage floor dropped below 1 (got %d)", m.Name, pMin)
+		}
+	}
+}

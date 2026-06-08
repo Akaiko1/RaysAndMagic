@@ -359,6 +359,18 @@ type GraphicsConfig struct {
 	Monster            MonsterRenderConfig  `yaml:"monster"`
 	NPC                NPCRenderConfig      `yaml:"npc"`
 	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
+	ColorKey           ColorKeyConfig       `yaml:"color_key"`
+}
+
+// ColorKeyConfig makes a key color (default magenta) transparent when a sprite is
+// loaded — cleans up stray magenta left by imperfect background removal in the
+// sprite pipeline. A pixel is keyed when each channel is within Tolerance of the
+// key color. Disabled unless Enabled is set.
+type ColorKeyConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
+	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the fully-transparent core (0 = exact)
+	Despill   bool   `yaml:"despill"`   // for magenta-tinted fringe pixels, subtract the magenta cast and keep the base tone (opaque) instead of erasing them
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the

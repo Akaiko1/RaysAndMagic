@@ -185,3 +185,12 @@ graphics:
     radius_tiles: 7        # only tiles within this many tiles of the player
     bubbles_per_edge: 60   # particle columns per walkable-facing edge (full border)
     alpha: 0.5             # base glow strength (0..1)
+
+  # Load-time color key: make stray magenta (left by imperfect sprite background
+  # removal) transparent when sprites load. A pixel is keyed when each RGB channel
+  # is within `tolerance` of `color`. color [0,0,0]/absent defaults to magenta.
+  color_key:
+    enabled: true
+    color: [255, 0, 255]   # magenta
+    tolerance: 60          # per-channel slack for the fully-transparent core
+    despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)

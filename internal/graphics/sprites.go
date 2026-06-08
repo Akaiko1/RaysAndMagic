@@ -3,6 +3,7 @@ package graphics
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	_ "image/png"
 	"os"
 	"strconv"
@@ -15,6 +16,81 @@ type SpriteManager struct {
 	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
 	animations       map[string]*SpriteAnimation
 	animationMissing map[string]bool
+
+	// Color key: when enabled, pixels within keyTol of (keyR,keyG,keyB) are made
+	// fully transparent at load time (cleans up stray magenta from imperfect sprite
+	// background removal). With keyDespill, magenta-tinted FRINGE pixels (outside
+	// the transparent core) instead have the magenta cast subtracted and keep their
+	// base tone opaque, so edges aren't eaten. Configured by the game via SetColorKey.
+	keyEnabled bool
+	keyR       uint8
+	keyG       uint8
+	keyB       uint8
+	keyTol     int
+	keyDespill bool
+}
+
+// SetColorKey enables/configures the load-time color key (see SpriteManager).
+// Must be called before sprites are first loaded to take effect on them.
+func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despill bool) {
+	sm.keyEnabled = enabled
+	sm.keyR, sm.keyG, sm.keyB = uint8(r), uint8(g), uint8(b)
+	sm.keyTol = tolerance
+	sm.keyDespill = despill
+}
+
+// applyColorKey returns a copy of src cleaned of the key color. Pixels within
+// keyTol of the key on every channel become fully transparent (the background
+// core). When keyDespill is set, magenta-tinted pixels OUTSIDE that core have the
+// magenta cast removed (R,B lowered to the green channel — the part the key can't
+// carry) and stay opaque, so anti-aliased edges keep their base tone instead of
+// being erased. Returns src unchanged when the key is off. Despill assumes a
+// magenta-style key (two high channels R,B and a low channel G).
+func (sm *SpriteManager) applyColorKey(src image.Image) image.Image {
+	if !sm.keyEnabled || src == nil {
+		return src
+	}
+	b := src.Bounds()
+	dst := image.NewNRGBA(b)
+	draw.Draw(dst, b, src, b.Min, draw.Src)
+	near := func(v, target uint8) bool {
+		d := int(v) - int(target)
+		if d < 0 {
+			d = -d
+		}
+		return d <= sm.keyTol
+	}
+	min2 := func(a, b uint8) uint8 {
+		if a < b {
+			return a
+		}
+		return b
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			p := dst.NRGBAAt(x, y)
+			if p.A == 0 {
+				continue
+			}
+			// Background core: very close to the key on all channels → erase.
+			if near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB) {
+				dst.SetNRGBA(x, y, color.NRGBA{})
+				continue
+			}
+			// Fringe despill: magenta excess = how much both R,B sit above G. When
+			// it clears the tolerance the pixel is magenta-tinted, so subtract that
+			// excess (R,B → G level), removing the cast but keeping the base tone.
+			if sm.keyDespill {
+				excess := int(min2(p.R, p.B)) - int(p.G)
+				if excess > sm.keyTol {
+					p.R = uint8(int(p.R) - excess)
+					p.B = uint8(int(p.B) - excess)
+					dst.SetNRGBA(x, y, p)
+				}
+			}
+		}
+	}
+	return dst
 }
 
 func NewSpriteManager() *SpriteManager {
@@ -189,6 +265,7 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 			defer file.Close()
 			img, _, err := image.Decode(file)
 			if err == nil {
+				img = sm.applyColorKey(img)
 				sm.sprites[name] = ebiten.NewImageFromImage(img)
 				// Cache sprite type for future placeholder requests
 				switch i {
@@ -225,6 +302,7 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 		if err != nil {
 			continue
 		}
+		img = sm.applyColorKey(img)
 
 		bounds := img.Bounds()
 		frameHeight := bounds.Dy()

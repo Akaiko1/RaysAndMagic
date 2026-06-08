@@ -412,6 +412,15 @@ type FirstPersonCamera struct {
 
 func NewMMGame(cfg *config.Config) *MMGame {
 	sprites := graphics.NewSpriteManager()
+	// Load-time color key: make stray magenta (from imperfect sprite background
+	// removal) transparent. Data-driven via config; [0,0,0]/absent key → magenta.
+	if ck := cfg.Graphics.ColorKey; ck.Enabled {
+		r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
+		if r == 0 && g == 0 && b == 0 {
+			r, g, b = 255, 0, 255 // default key = magenta
+		}
+		sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
+	}
 
 	// Get world from WorldManager instead of creating new one
 	currentWorld := world.GlobalWorldManager.GetCurrentWorld()

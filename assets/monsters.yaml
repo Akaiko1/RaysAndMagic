@@ -33,8 +33,8 @@ monsters:
     max_hit_points: 96
     armor_class: 8
     experience: 65
-    damage_min: 2
-    damage_max: 8
+    damage_min: 8
+    damage_max: 15
     attacks_per_round: 2
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
@@ -129,8 +129,8 @@ monsters:
     max_hit_points: 86
     armor_class: 7
     experience: 45
-    damage_min: 4
-    damage_max: 8
+    damage_min: 7
+    damage_max: 12
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
@@ -155,8 +155,8 @@ monsters:
     max_hit_points: 180
     armor_class: 10
     experience: 180
-    damage_min: 12
-    damage_max: 20
+    damage_min: 17
+    damage_max: 25
     poison_chance: 0.20
     poison_duration_seconds: 15
     alert_radius: 4
@@ -238,8 +238,8 @@ monsters:
     max_hit_points: 160
     armor_class: 10
     experience: 300
-    damage_min: 10
-    damage_max: 18
+    damage_min: 15
+    damage_max: 23
     poison_chance: 0.33
     poison_duration_seconds: 20
     alert_radius: 4
@@ -422,8 +422,8 @@ monsters:
     max_hit_points: 120
     armor_class: 9
     experience: 125
-    damage_min: 2
-    damage_max: 12
+    damage_min: 7
+    damage_max: 17
     alert_radius: 3  # 3 tiles (keen senses)
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
@@ -594,8 +594,8 @@ monsters:
     max_hit_points: 360
     armor_class: 10
     experience: 260
-    damage_min: 10
-    damage_max: 18
+    damage_min: 15
+    damage_max: 23
     alert_radius: 5
     attack_radius: 1
     projectile_spell: "lightning"
@@ -624,8 +624,8 @@ monsters:
     max_hit_points: 330
     armor_class: 11
     experience: 240
-    damage_min: 12
-    damage_max: 18
+    damage_min: 17
+    damage_max: 23
     attacks_per_round: 4
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -660,8 +660,8 @@ monsters:
     max_hit_points: 150
     armor_class: 11
     experience: 280
-    damage_min: 14
-    damage_max: 22
+    damage_min: 19
+    damage_max: 27
     perfect_dodge: 20
     alert_radius: 6
     attack_radius: 1
@@ -906,8 +906,8 @@ monsters:
     max_hit_points: 95
     armor_class: 6
     experience: 70
-    damage_min: 9
-    damage_max: 14
+    damage_min: 14
+    damage_max: 19
     alert_radius: 4
     attack_radius: 1
     speed: 1.9
@@ -928,8 +928,8 @@ monsters:
     armor_class: 7
     perfect_dodge: 18
     experience: 75
-    damage_min: 8
-    damage_max: 12
+    damage_min: 13
+    damage_max: 17
     alert_radius: 5
     attack_radius: 1
     speed: 2.3
