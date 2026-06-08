@@ -2585,10 +2585,10 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	m.EncounterRewards = &monster.EncounterRewards{QuestID: "dragon_slayer"}
 	g.registerSpawnedMonster(m)
 
+	// Mark spent (hide_when_visited makes it vanish from render + interaction).
+	// We keep the NPC in the world so its Visited=true is saved and the statue
+	// stays spent across reloads — dropping it from the world would lose that.
 	npc.Visited = true
-	if w := g.GetCurrentWorld(); w != nil {
-		w.RemoveNPC(npc)
-	}
 	g.AddCombatMessage(fmt.Sprintf("The %s Dragon erupts from the shattering statue!", s.Label))
 }
 

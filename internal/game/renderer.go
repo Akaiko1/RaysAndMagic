@@ -2276,6 +2276,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if npc.Sprite == "" || npc.Sprite == "none" {
 			continue
 		}
+		// Spent statues (hide_when_visited) vanish once used; kept in the world
+		// only so their Visited state persists across saves.
+		if npc.HideWhenVisited && npc.Visited {
+			continue
+		}
 		dx := npc.X - camX
 		dy := npc.Y - camY
 		distanceSq := dx*dx + dy*dy

@@ -141,6 +141,7 @@ npcs:
     render_type: "environment_sprite"
     transparent: true
     size_multiplier: 1.0
+    hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -160,6 +161,7 @@ npcs:
     render_type: "environment_sprite"
     transparent: true
     size_multiplier: 1.0
+    hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -179,6 +181,7 @@ npcs:
     render_type: "environment_sprite"
     transparent: true
     size_multiplier: 1.0
+    hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -198,6 +201,7 @@ npcs:
     render_type: "environment_sprite"
     transparent: true
     size_multiplier: 1.0
+    hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"

@@ -28,6 +28,7 @@ type NPCData struct {
 	SizeMultiplier   float64              `yaml:"size_multiplier,omitempty"`
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
+	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
@@ -228,6 +229,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SizeMultiplier:   data.SizeMultiplier,
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
+		HideWhenVisited:  data.HideWhenVisited,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 	}

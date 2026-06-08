@@ -577,6 +577,10 @@ func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
 	nearestDistance := float64(InteractionDistance)
 
 	for _, npc := range currentWorld.NPCs {
+		// Spent statues (hide_when_visited) are gone for all purposes once used.
+		if npc.HideWhenVisited && npc.Visited {
+			continue
+		}
 		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)
 
 		if dist <= nearestDistance {

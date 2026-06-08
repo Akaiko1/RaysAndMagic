@@ -415,3 +415,34 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 		t.Errorf("old monster should decode unbound, got %+v", s.Monsters)
 	}
 }
+
+// A spent hide_when_visited statue must vanish from interaction yet stay in the
+// world, so its Visited=true is captured by the save (NPC states only persist
+// NPCs still present). Dropping it from the world — the old RemoveNPC behaviour —
+// lost the spent state and resurrected the statue unspent on reload.
+func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	statue := &character.NPC{Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
+	w.NPCs = append(w.NPCs, statue)
+	game := newTestGame(cfg, w)
+
+	if game.GetNearestInteractableNPC() != statue {
+		t.Fatalf("unspent statue should be interactable")
+	}
+
+	statue.Visited = true // mirrors summonDragonFromStatue: mark spent, keep in world
+
+	if game.GetNearestInteractableNPC() != nil {
+		t.Errorf("spent hide_when_visited statue must not be interactable")
+	}
+	kept := false
+	for _, n := range w.NPCs {
+		if n == statue {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
+	}
+}
