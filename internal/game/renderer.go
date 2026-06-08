@@ -51,8 +51,8 @@ type floorTextureGroup struct {
 type Renderer struct {
 	game                     *MMGame
 	floorColorCache          map[[2]int]color.RGBA // Now world-level, static after init
-	whiteImg                 *ebiten.Image   // 1x1 white image for untextured polygons
-	renderedSpritesThisFrame map[[2]int]bool // Track which environment sprites have been rendered this frame
+	whiteImg                 *ebiten.Image         // 1x1 white image for untextured polygons
+	renderedSpritesThisFrame map[[2]int]bool       // Track which environment sprites have been rendered this frame
 	// GPU floor rendering — a Kage shader replaces the per-pixel CPU loop.
 	// floorColorMap is a worldW×worldH RGBA8 image with base tile colors.
 	// floorTextureIndexMap is a worldW×worldH RGBA8 image; R encodes
@@ -870,6 +870,10 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
 		r.drawImpassableTileAura(screen)
+		// Steam bubbles across every tile of an active Hot Steam zone.
+		r.drawSteamZoneBubbles(screen)
+		// Steam rising from every shut culvert valve's tile.
+		r.drawClosedValveSteam(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -1701,6 +1705,11 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	screen.DrawImage(src, opts)
 }
 
+// spellFxMinClusterSize is the floor (in screen px) for a spell projectile's
+// particle-cluster size, so distant/small bolts still render as a recognizable
+// puff instead of a single dot. Close bolts are far larger and unaffected.
+const spellFxMinClusterSize = 10.0
+
 type projectileFxProfile struct {
 	glowColor        [3]int
 	trailColor       [3]int
@@ -2182,7 +2191,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			}
 
 			distance := math.Sqrt(distanceSq)
-			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
 			}
@@ -2290,7 +2299,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		var visible bool
 
 		if npc.RenderType == "environment_sprite" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty, npc.SizeMultiplier)
 		} else {
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
 		}
@@ -2473,6 +2482,20 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	}
 
 	drawLeft := s.screenX - s.spriteSize/2
+	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
+	// place (amplitude decays with the timer). Reads as a struck shudder without
+	// moving the monster's actual position — replaces the old knockback.
+	if s.monster != nil && s.monster.HitTintFrames > 0 {
+		f := float64(s.monster.HitTintFrames) / float64(MonsterHitFlashFrames)
+		if f > 1 {
+			f = 1
+		}
+		dir := 1.0
+		if s.monster.HitTintFrames%2 == 0 {
+			dir = -1.0
+		}
+		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * float64(s.spriteSize))
+	}
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
 	// bar's top edge, raise the whole sprite so its bottom rests on the bar.
@@ -2498,7 +2521,20 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
 	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	br := float32(brightness)
+	rr, gg, bb := br, br, br
+	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
+	// over MonsterHitFlashFrames so the impact reads clearly.
+	if s.monster != nil && s.monster.HitTintFrames > 0 {
+		f := float32(s.monster.HitTintFrames) / float32(MonsterHitFlashFrames)
+		if f > 1 {
+			f = 1
+		}
+		rr = br + (1.7-br)*f
+		gg = br * (1 - 0.75*f)
+		bb = br * (1 - 0.75*f)
+	}
+	opts.ColorScale.Scale(rr, gg, bb, 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(s.sprite, opts)
@@ -2740,6 +2776,13 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
 // Density/length scale with `size`, so a fireball reads far bigger than a bolt.
 func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+	// Floor the cluster size so a bolt launched far from the camera (e.g. a bound
+	// lich shooting across the room) still reads as a particle puff rather than a
+	// lone dot. Party bolts spawn at the camera (size ≈ MaxSize) so they're well
+	// above this and unaffected; only distant/small projectiles get the lift.
+	if size < spellFxMinClusterSize {
+		size = spellFxMinClusterSize
+	}
 	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
 	sink := p.style == "shard" || p.style == "dark"
 	mirror := p.style == "arcane" // staff/book bolt: trail sweeps the other way (R→L)
@@ -2990,8 +3033,8 @@ func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float
 	var px, py, sz [n]float64
 	pos, prevR := 0.0, 0.0
 	for k := 0; k < n; k++ {
-		t := float64(k) / float64(n-1)  // 0 tip → 1 tail
-		s := head * (0.25 + 0.25*t)     // small squares; tip smallest, tail biggest
+		t := float64(k) / float64(n-1) // 0 tip → 1 tail
+		s := head * (0.25 + 0.25*t)    // small squares; tip smallest, tail biggest
 		rr := s * 0.5
 		if k > 0 {
 			pos += (prevR + rr) * 0.5 // strong overlap — a near-continuous line

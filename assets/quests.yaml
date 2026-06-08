@@ -37,6 +37,39 @@ quests:
       gold: 0
       experience: 0
 
+  dragon_cliffs_troll_cull:
+    name: "Cliffwatch Troll Cull"
+    description: "Maera Cliffwatch wants the mountain trolls thinned before they overrun the bridge approaches."
+    type: "kill"
+    target_monster: "mountain_troll"
+    target_count: 3
+    is_starting_quest: false
+    rewards:
+      gold: 900
+      experience: 800
+
+  culverts_valves:
+    name: "Stem the Flow"
+    description: "Old Sewerman Garran wants the seven sluice valves in the Seabright culverts shut to flush out the Golden Thief Bug's lair."
+    type: "interact"
+    target_monster: "valve"   # interaction tag matched by OnInteract
+    target_count: 7
+    is_starting_quest: false
+    rewards:
+      gold: 1500
+      experience: 700
+
+  dragon_cliffs_ember_rites:
+    name: "Ember Rites"
+    description: "Old Varric says the cliff mages have begun listening to something beneath the dragon bones. Slay two archmages to break the rite."
+    type: "kill"
+    target_monster: "archmage"
+    target_count: 2
+    is_starting_quest: false
+    rewards:
+      gold: 1200
+      experience: 1200
+
   # Main quest - victory condition
   dragon_slayer:
     name: "Dragon Slayer"

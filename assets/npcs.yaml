@@ -24,29 +24,25 @@ npcs:
       already_known: "%s already knows this spell."
       success: "The knowledge flows into %s's mind. Use it wisely!"
 
-    # Spells this NPC can teach
+    # Self & divine magic — every Body, Mind and Spirit spell. Each entry authors
+    # only its shop price; name/school/level/requirements are backfilled from
+    # spells.yaml (see backfillTraderSpells), so this stays in sync automatically.
     spells:
-      walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the party to walk across water surfaces for a limited time"
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
-
-      water_breathing:
-        name: "Water Breathing"
-        school: "water"
-        cost: 1500
-        description: "Allows underwater exploration for extended periods"
-        requirements:
-          min_level: 5
-          schools:
-            - school: "water"
-              min_level: 2
+      # Body
+      heal: { cost: 150 }
+      heal_other: { cost: 500 }
+      harm: { cost: 300 }
+      mass_heal: { cost: 800 }
+      # Mind
+      awaken: { cost: 300 }
+      mind_blast: { cost: 350 }
+      psychic_shock: { cost: 1200 }
+      charm: { cost: 1200 }
+      # Spirit
+      bless: { cost: 700 }
+      spirit_lash: { cost: 300 }
+      heroism: { cost: 900 }
+      raise_dead: { cost: 1500 }
 
   # Spell trader for testing
   mtrader0:
@@ -60,17 +56,10 @@ npcs:
       insufficient_gold: "You lack the gold required for this knowledge."
       already_known: "This character already knows that spell."
       success: "The magical knowledge has been imparted. Use it wisely!"
+    # Corner trader: sells only Walk on Water, at a flat 500 gold.
     spells:
       walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the caster to walk on water surfaces for a limited time."
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
+        cost: 500
 
   # Example of other NPC types for future expansion
   merchant_general:
@@ -151,7 +140,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -170,7 +159,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -189,7 +178,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -208,7 +197,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -227,9 +216,10 @@ npcs:
     sprite: "prison"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
+      visited_message: "The cages hang open and empty — the freed champions have gone to await you at the tavern."
       choice_prompt: "Free the prisoners?"
       choices:
         - text: "Break them out (fight the jailers)"
@@ -256,7 +246,7 @@ npcs:
     sprite: "tavern"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The keeper nods. 'Your benched companions rest here. Care to shuffle the party?'"
       choice_prompt: "Manage your roster?"
@@ -273,9 +263,12 @@ npcs:
     sprite: "mage_tower"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
+      active_message: "The voice stirs again: 'The Lich King still draws breath. Return when the deed is done.'"
+      completed_message: "The wards blaze bright: 'You have broken the Lich King. Step forward and be raised to Archmage.'"
+      visited_message: "The tower stands quiet now — an Archmage walks among you."
       choice_prompt: "The Mage Tower awaits."
       choices:
         - text: "Accept the trial (slay the Lich King)"
@@ -286,6 +279,116 @@ npcs:
           quest_id: "archmage_trial"
         - text: "Leave"
           action: "leave"
+
+  dragon_cliffs_ranger:
+    name: "Maera Cliffwatch"
+    type: "quest_giver"
+    description: "A wind-battered scout who watches the dragon cliffs for raiders and trolls"
+    sprite: "dragon_cliffs_ranger"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Keep low when the wind shifts. The trolls use the cliff mist as cover, and they are getting bold near the bridge stones."
+      active_message: "Still too many trolls on the ridge. Thin them out and the bridge approaches are ours again."
+      completed_message: "The bridge stones are quiet for the first time in weeks. You've earned your due — let me settle up."
+      visited_message: "The cliffs hold. Safe travels, friend."
+      choice_prompt: "Maera studies the ridgeline."
+      choices:
+        - text: "Ask about the troll raids"
+          action: "give_quest"
+          quest_id: "dragon_cliffs_troll_cull"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "dragon_cliffs_troll_cull"
+        - text: "Leave"
+          action: "leave"
+
+  dragon_cliffs_bone_hermit:
+    name: "Old Varric Bone-Speaker"
+    type: "quest_giver"
+    description: "A hermit draped in dragon teeth and old cliff charms"
+    sprite: "dragon_cliffs_bone_hermit"
+    size_multiplier: 4
+    dialogue:
+      greeting: "The bones remember flame. Something below the cliffs has taught the mountain mages to listen to it."
+      active_message: "The rite still hums in the rock. The mages yet breathe — silence them, and the bones will rest."
+      completed_message: "The humming has stopped. You broke the rite. Take what the bones owe you."
+      visited_message: "The dragon-bones are quiet at last. Go well."
+      choice_prompt: "The hermit taps his dragon-bone staff."
+      choices:
+        - text: "Ask about the ember rites"
+          action: "give_quest"
+          quest_id: "dragon_cliffs_ember_rites"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "dragon_cliffs_ember_rites"
+        - text: "Leave"
+          action: "leave"
+
+  dragon_cliffs_bone_lair:
+    name: "Bone-Maw Lair"
+    type: "encounter"
+    description: "A cliff cave framed by fossilized dragon jaws and scattered ribs"
+    sprite: "dragon_cliffs_bone_lair"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 1.0
+    dialogue:
+      greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
+      visited_message: "The Bone-Maw is silent now — only scorched bones and a cold draft remain."
+      choice_prompt: "Enter the Bone-Maw?"
+      choices:
+        - text: "Enter the lair"
+          action: "combat"
+        - text: "Back away"
+          action: "leave"
+    encounter:
+      type: "dragon_lair"
+      first_visit_only: true
+      start_message: "A green dragon coils out of the bone-strewn dark!"
+      quest_id: "dragon_cliffs_bone_lair"
+      quest_name: "Bone-Maw Lair"
+      quest_description: "Clear the bone-framed dragon lair in the Dragon Cliffs."
+      monsters:
+        - type: "dragon_green"
+          count_min: 1
+          count_max: 1
+      rewards:
+        gold: 1500
+        experience: 1500
+        completion_message: "The Bone-Maw falls silent."
+
+  dragon_cliffs_ember_lair:
+    name: "Ember-Heart Lair"
+    type: "encounter"
+    description: "A basalt dragon den split by glowing ember cracks"
+    sprite: "dragon_cliffs_ember_lair"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 1.0
+    dialogue:
+      greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
+      visited_message: "The Ember-Heart has cooled to black stone — the cavern lies dark and still."
+      choice_prompt: "Enter the Ember-Heart?"
+      choices:
+        - text: "Enter the lair"
+          action: "combat"
+        - text: "Back away"
+          action: "leave"
+    encounter:
+      type: "dragon_lair"
+      first_visit_only: true
+      start_message: "A red dragon erupts from the ember-lit cavern!"
+      quest_id: "dragon_cliffs_ember_lair"
+      quest_name: "Ember-Heart Lair"
+      quest_description: "Clear the burning dragon lair in the Dragon Cliffs."
+      monsters:
+        - type: "dragon_red"
+          count_min: 1
+          count_max: 1
+      rewards:
+        gold: 2000
+        experience: 1500
+        completion_message: "The Ember-Heart cools to black stone."
 
   abandoned_church:
     name: "Abandoned Church"
@@ -328,7 +431,7 @@ npcs:
     sprite: "pyramid_entrance"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
       choice_prompt: "What do you want to do?"
@@ -346,7 +449,7 @@ npcs:
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "Warm daylight spills down the sandstone stairs behind you."
       choice_prompt: "What do you want to do?"
@@ -364,7 +467,7 @@ npcs:
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "The stairs climb toward the upper chambers."
       choice_prompt: "What do you want to do?"
@@ -382,7 +485,7 @@ npcs:
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "The stairs descend into a colder, darker level of the pyramid."
       choice_prompt: "What do you want to do?"
@@ -400,7 +503,7 @@ npcs:
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
       choice_prompt: "What do you want to do?"
@@ -418,7 +521,7 @@ npcs:
     sprite: "lich_nexus_entrance"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
       choice_prompt: "What do you want to do?"
@@ -436,7 +539,7 @@ npcs:
     sprite: "lich_nexus_exit"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 1.0
     dialogue:
       greeting: "The portal flickers with a path away from the liches' hall."
       choice_prompt: "What do you want to do?"
@@ -454,7 +557,7 @@ npcs:
     sprite: "city_exterior"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch."
       choice_prompt: "What do you want to do?"
@@ -464,6 +567,141 @@ npcs:
           map: "city"
         - text: "Stay in the forest"
           action: "leave"
+
+  # --- Seabright Culverts (sewer dungeon) ---
+  culverts_entrance:
+    name: "Culvert Outflow"
+    type: "encounter"
+    description: "A great barred storm-drain venting into the harbor"
+    sprite: "culvert_outlet"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 1.0
+    dialogue:
+      greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
+      choice_prompt: "Descend into the culverts?"
+      choices:
+        - text: "Enter the culverts"
+          action: "enter_map"
+          map: "culverts"
+        - text: "Stay in the city"
+          action: "leave"
+
+  culverts_exit:
+    name: "Outflow Grate"
+    type: "encounter"
+    description: "The barred outflow back up to Seabright harbor"
+    sprite: "culvert_outlet"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 1.0
+    dialogue:
+      greeting: "Daylight filters down through the outflow grate — the way back up to Seabright."
+      choice_prompt: "Leave the culverts?"
+      choices:
+        - text: "Climb back to Seabright"
+          action: "enter_map"
+          map: "city"
+        - text: "Stay below"
+          action: "leave"
+
+  culverts_oldman:
+    name: "Sewerman Garran"
+    type: "quest_giver"
+    description: "A stooped old sewer-keeper who knows the culverts' every drip"
+    sprite: "dragon_cliffs_bone_hermit"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Mind the gold glint in the dark, traveler. The Golden Thief Bug hoards down here — but it won't stand and fight; it blinks away the moment you close in. Shut the seven sluice valves and the flood drains from its lair. Cornered in the dry, it'll finally turn on you."
+      active_message: "Valves still gushing. Seven of them — shut every one and the bug's lair drains dry."
+      completed_message: "The channels run dry; the Thief Bug's nowhere left to skitter. Here's for your trouble — now go corner the thing."
+      visited_message: "Dry as old bone down there now. Mind that bug's bite."
+      choice_prompt: "Garran leans on his hook-pole."
+      choices:
+        - text: "Ask about the Golden Thief Bug"
+          action: "give_quest"
+          quest_id: "culverts_valves"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "culverts_valves"
+        - text: "Leave"
+          action: "leave"
+
+  # Seven sluice valves. Distinct keys/names so each remembers being shut
+  # independently (NPC Visited is save-tracked by name). Dialogue is shared via a
+  # YAML anchor — it's a read-only template; only npc.Visited mutates at runtime.
+  culvert_valve_1:
+    name: "Sluice Valve I"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: &valve_dialogue
+      greeting: "A rust-caked sluice valve, half-open. Water roars through the channel below."
+      visited_message: "The valve is wrenched shut; the channel runs dry."
+      choice_prompt: "Close the valve?"
+      choices:
+        - text: "Heave the wheel shut"
+          action: "close_valve"
+          quest_id: "culverts_valves"
+        - text: "Leave it"
+          action: "leave"
+  culvert_valve_2:
+    name: "Sluice Valve II"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
+  culvert_valve_3:
+    name: "Sluice Valve III"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
+  culvert_valve_4:
+    name: "Sluice Valve IV"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
+  culvert_valve_5:
+    name: "Sluice Valve V"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
+  culvert_valve_6:
+    name: "Sluice Valve VI"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
+  culvert_valve_7:
+    name: "Sluice Valve VII"
+    type: "encounter"
+    sprite: "culvert_valve"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    steam_when_visited: true
+    dialogue: *valve_dialogue
 
   # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
   # nothing at all; ground_tile paints the portal-stream tile under the gate so
@@ -511,7 +749,7 @@ npcs:
     sprite: "city_gate"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 1.0
     dialogue:
       greeting: "The gate opens back onto the forest path."
       choice_prompt: "What do you want to do?"
@@ -585,72 +823,30 @@ npcs:
       insufficient_gold: "You need %d gold for this spell."
       already_known: "%s already knows this spell."
       success: "%s learned the spell."
+    # The elemental catalog: every Fire, Water, Air and Earth spell (no Light or
+    # Dark). Each entry authors only its shop price; name/school/level/requirements
+    # are backfilled from spells.yaml (see backfillTraderSpells).
     spells:
-      firebolt:
-        name: "Fire Bolt"
-        school: "fire"
-        cost: 300
-        description: "Launches a small, fast bolt of fire."
-        requirements:
-          schools:
-            - school: "fire"
-              min_level: 1
-      torch_light:
-        name: "Torch Light"
-        school: "fire"
-        cost: 150
-        description: "Creates a magical light that illuminates the surroundings."
-        requirements:
-          schools:
-            - school: "fire"
-              min_level: 1
-      ice_bolt:
-        name: "Ice Bolt"
-        school: "water"
-        cost: 350
-        description: "Launches a chilling bolt of ice."
-        requirements:
-          schools:
-            - school: "water"
-              min_level: 1
-      heal:
-        name: "Heal"
-        school: "body"
-        cost: 500
-        description: "Restores health to another party member."
-        requirements:
-          schools:
-            - school: "body"
-              min_level: 2
-      bless:
-        name: "Bless"
-        school: "spirit"
-        cost: 700
-        description: "Blesses the party with divine protection."
-        requirements:
-          schools:
-            - school: "spirit"
-              min_level: 2
-      walk_on_water:
-        name: "Walk on Water"
-        school: "water"
-        cost: 1000
-        description: "Allows the party to walk across water surfaces."
-        requirements:
-          min_level: 3
-          schools:
-            - school: "water"
-              min_level: 1
-      water_breathing:
-        name: "Water Breathing"
-        school: "water"
-        cost: 1500
-        description: "Allows underwater exploration for extended periods."
-        requirements:
-          min_level: 5
-          schools:
-            - school: "water"
-              min_level: 2
+      # Fire
+      fireball: { cost: 400 }
+      firebolt: { cost: 250 }
+      torch_light: { cost: 150 }
+      inferno: { cost: 2500 }
+      # Water
+      ice_bolt: { cost: 250 }
+      walk_on_water: { cost: 750 }
+      water_breathing: { cost: 800 }
+      hot_steam: { cost: 1500 }
+      # Air
+      sparks: { cost: 150 }
+      lightning: { cost: 600 }
+      wizard_eye: { cost: 700 }
+      starburst: { cost: 2000 }
+      # Earth
+      rock_blast: { cost: 350 }
+      deadly_swarm: { cost: 700 }
+      stun: { cost: 600 }
+      stone_skin: { cost: 500 }
 
   city_mastery_trainer:
     name: "Master Ilyra"

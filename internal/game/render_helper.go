@@ -479,7 +479,10 @@ func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance,
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
-func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D) (screenX, screenY, spriteSize int, visible bool) {
+func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeScale <= 0 {
+		sizeScale = 1
+	}
 	// Check if within view distance using Euclidean distance (for culling)
 	if distance > rh.game.camera.ViewDist || distance < 5.0 {
 		return 0, 0, 0, false
@@ -498,6 +501,7 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	if world.GlobalTileManager != nil {
 		heightMultiplier = world.GlobalTileManager.GetHeightMultiplier(tileType)
 	}
+	heightMultiplier *= sizeScale
 
 	// Calculate size using perpendicular distance for consistent floor alignment
 	spriteHeight := rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)

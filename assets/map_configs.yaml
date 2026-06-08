@@ -77,6 +77,14 @@ biomes:
         - "lich_nexus_floor_2"
         - "lich_nexus_floor_3"
 
+  culverts:
+    floor_texture_groups:
+      default:
+        - "culverts_floor_0"
+        - "culverts_floor_1"
+        - "culverts_floor_2"
+        - "culverts_floor_3"
+
   city:
     floor_texture_groups:
       default:
@@ -95,6 +103,34 @@ biomes:
       highlands_stream:
         - "highlands_stream_0"
         - "highlands_stream_1"
+
+  dragon_cliffs:
+    floor_texture_groups:
+      default:
+        - "dragon_cliffs_grass_0"
+        - "dragon_cliffs_grass_1"
+      basalt:
+        - "dragon_cliffs_basalt_0"
+        - "dragon_cliffs_basalt_1"
+      dragon_cliffs_stream:
+        - "dragon_cliffs_stream_0"
+        - "dragon_cliffs_stream_1"
+      # Bridge / chasm-edge / chasm-floor are split into explicit per-variant
+      # groups (each one texture) so the matching tile renders a fixed look the
+      # designer chose, rather than a random variant. See the v0/v1 tiles in
+      # tiles.yaml (letters M/N, E/J, C/F).
+      bridge_0:
+        - "dragon_cliffs_bridge_0"
+      bridge_1:
+        - "dragon_cliffs_bridge_1"
+      chasm_edge_0:
+        - "dragon_cliffs_chasm_edge_0"
+      chasm_edge_1:
+        - "dragon_cliffs_chasm_edge_1"
+      chasm_floor_0:
+        - "dragon_cliffs_chasm_floor_0"
+      chasm_floor_1:
+        - "dragon_cliffs_chasm_floor_1"
 
 maps:
   forest:
@@ -234,6 +270,14 @@ maps:
     sky_texture: "lich_nexus_panorama"
     default_floor_color: [32, 28, 42]
 
+  culverts:
+    name: "Seabright Culverts"
+    file: "culverts.map"
+    biome: "culverts"
+    sky_color: [20, 24, 26]
+    sky_texture: "culverts_panorama"
+    default_floor_color: [58, 54, 48]
+
   city:
     name: "Seabright"
     file: "city.map"
@@ -249,3 +293,11 @@ maps:
     sky_color: [150, 165, 180]          # Overcast highland sky
     sky_texture: "highlands_panorama"
     default_floor_color: [86, 110, 74]  # Muted highland grass
+
+  dragon_cliffs:
+    name: "Dragon Cliffs"
+    file: "dragon_cliffs.map"
+    biome: "dragon_cliffs"
+    sky_color: [86, 66, 72]             # Ashen, dragon-smoke sky
+    sky_texture: "dragon_cliffs_panorama"
+    default_floor_color: [92, 112, 64]  # Cliff grass

@@ -50,9 +50,9 @@ func (g *MMGame) ApplyTestArena() {
 	}
 	g.party.Gold += gold
 
-	g.completeTestEncounters() // shipwreck quest (gold + XP) + church chest reward
+	g.completeTestEncounters()   // shipwreck quest (gold + XP) + church chest reward
 	g.grantSharedXP(perMemberXP) // forest + church kill XP → natural level-ups
-	g.setupTestParty()          // pump stats / full heal on top of the earned level
+	g.setupTestParty()           // pump stats / full heal on top of the earned level
 
 	level := 0
 	if len(g.party.Members) > 0 && g.party.Members[0] != nil {
@@ -115,9 +115,28 @@ func (g *MMGame) setupTestParty() {
 		addMainDamageStat(m, pts) // remainder → primary damage stat
 		m.FreeStatPoints = 0
 
+		learnAllSchoolSpells(m) // every spell of each school the member already has
+
 		m.CalculateDerivedStats(g.config)
 		m.HitPoints = m.MaxHitPoints
 		m.SpellPoints = m.MaxSpellPoints
+	}
+}
+
+// learnAllSchoolSpells fills in every available spell of each magic school the
+// member already knows — a test-arena convenience so casters can exercise their
+// full kit without buying/levelling into spells. Monster-only spells are already
+// excluded by AvailableSpellIDs.
+func learnAllSchoolSpells(m *character.MMCharacter) {
+	for school, skill := range m.MagicSchools {
+		if skill == nil {
+			continue
+		}
+		ids, err := school.AvailableSpellIDs()
+		if err != nil {
+			continue
+		}
+		skill.KnownSpells = ids
 	}
 }
 

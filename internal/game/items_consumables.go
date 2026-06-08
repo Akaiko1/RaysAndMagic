@@ -107,6 +107,9 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 				ch.HitPoints = ch.MaxHitPoints
 			}
 			actual := ch.HitPoints - before
+			if actual > 0 {
+				g.TriggerPartyHeal(selectedChar) // rising green "+" overlay
+			}
 			// Potions do not remove Unconscious by themselves
 			g.party.RemoveItem(itemIndex)
 			g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, actual))

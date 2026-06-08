@@ -842,3 +842,49 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 
 	t.Logf("Monster moved from %.1f to %.1f (%.1f tiles)", initialX, m.X, (m.X-initialX)/64.0)
 }
+
+// A relentless boss (BossAggro) must path around a wall that forces a detour far
+// outside a normal mob's search window — otherwise, after a random blink lands it
+// across the map, it freezes and only "attacks" when you walk into melee. Guards
+// the wider window + higher node budget for BossAggro pursuers.
+func TestBossAggroPathsAroundLongDetour(t *testing.T) {
+	checker := NewMockCollisionChecker(tileSize)
+	// Wall at column 10 spanning rows -13..19 (covers a normal mob's whole ~±12-tile
+	// window around the straight start↔target line); the ONLY gap is row 20. Any
+	// crossing must detour ~20 tiles down — within a relentless boss's window, not a
+	// normal mob's.
+	for row := -13; row <= 19; row++ {
+		checker.BlockTile(10, row)
+	}
+	bossX, bossY := tileToWorldCenter(8, 0)
+	tgtX, tgtY := tileToWorldCenter(12, 0)
+	newMob := func() *Monster3D { return &Monster3D{X: bossX, Y: bossY, Speed: 1.5, AlertRadius: 384} }
+
+	// Regression guard: a normal mob's narrow window can't reach the detour gap.
+	if p := newMob().findPathToTarget(checker, tgtX, tgtY); len(p) != 0 {
+		t.Errorf("normal window unexpectedly spanned the detour (len %d) — test no longer guards the fix", len(p))
+	}
+	// The fix: a relentless boss widens window + node budget and finds the route.
+	boss := newMob()
+	boss.BossAggro = true
+	if p := boss.findPathToTarget(checker, tgtX, tgtY); len(p) == 0 {
+		t.Fatal("aggressive boss must path around the wall to keep pursuing, got no path")
+	}
+}
+
+// A monster in the attack state must resume pursuit the moment its target steps
+// beyond melee reach — not stand swinging at air for the whole cooldown (the
+// "dead zone" where the party out-reaches the mob but it never closes in).
+func TestAttacking_RepursuesWhenTargetLeavesReach(t *testing.T) {
+	inReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
+	inReach.updateAttacking(140, 100) // 40px < 64 reach
+	if inReach.State != StateAttacking {
+		t.Errorf("target in reach: should keep attacking, got %v", inReach.State)
+	}
+
+	outOfReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
+	outOfReach.updateAttacking(300, 100) // 200px > 64 reach
+	if outOfReach.State != StatePursuing {
+		t.Errorf("target out of reach: should resume pursuit, got %v", outOfReach.State)
+	}
+}

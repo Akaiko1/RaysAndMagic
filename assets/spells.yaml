@@ -22,6 +22,7 @@ spells:
     school: "fire"
     level: 1
     spell_points_cost: 4
+    cooldown_seconds: 1.5
     duration: 0                # 0 for instant spells
     aoe_radius_tiles: 2.0      # splash damages all monsters within 2 tiles of the hit
     projectile_size: 16
@@ -48,6 +49,7 @@ spells:
     school: "fire"
     level: 1
     spell_points_cost: 1
+    cooldown_seconds: 0.8
     duration: 0
     projectile_size: 10
     is_projectile: true
@@ -73,6 +75,7 @@ spells:
     school: "dark"
     level: 1
     spell_points_cost: 3
+    cooldown_seconds: 1.0
     duration: 0
     projectile_size: 12
     is_projectile: true
@@ -98,11 +101,13 @@ spells:
     school: "dark"
     level: 2
     spell_points_cost: 2
+    cooldown_seconds: 0.8
     duration: 0
     disintegrate_chance: 0.01
     projectile_size: 12
     is_projectile: true
     is_utility: false
+    monster_only: true          # alien projectile — never offered to the player (e.g. Lich Dark picks)
 
     # Projectile physics (tile-based units)
     physics:
@@ -124,6 +129,7 @@ spells:
     school: "water"
     level: 1
     spell_points_cost: 2
+    cooldown_seconds: 0.8
     duration: 0
     projectile_size: 12
     is_projectile: true
@@ -145,14 +151,21 @@ spells:
   lightning:
     # Basic spell properties
     name: "Lightning Bolt"
-    description: "Strikes the target with a bolt of lightning"
+    description: "Strikes the target with a bolt of lightning that may briefly stun it"
     school: "air"
     level: 2
     spell_points_cost: 8
+    cooldown_seconds: 1.2
     duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
+
+    # Stun-on-hit rider (like Psychic Shock): a jolt of lightning has a chance to
+    # briefly stun the struck monster. Shown in tooltips via SpellDefinition.EffectLines.
+    stun_chance: 0.20           # 20% chance to stun on hit
+    stun_duration_seconds: 2
+    stun_duration_turns: 1
 
     # Projectile physics (tile-based units)
     physics:
@@ -174,6 +187,7 @@ spells:
     school: "light"
     level: 4
     spell_points_cost: 8
+    cooldown_seconds: 1.5
     duration: 0
     projectile_size: 8
     is_projectile: true
@@ -201,6 +215,7 @@ spells:
     school: "dark"
     level: 5
     spell_points_cost: 20
+    cooldown_seconds: 4.0
     duration: 0
     is_projectile: false
     is_utility: true
@@ -216,6 +231,7 @@ spells:
     school: "dark"
     level: 5
     spell_points_cost: 10
+    cooldown_seconds: 2.5
     duration: 0
     projectile_size: 10
     is_projectile: true
@@ -242,6 +258,7 @@ spells:
     school: "light"
     level: 7
     spell_points_cost: 20
+    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -254,6 +271,7 @@ spells:
     school: "light"
     level: 8
     spell_points_cost: 18
+    cooldown_seconds: 5.0
     duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
@@ -267,13 +285,14 @@ spells:
     school: "dark"
     level: 6
     spell_points_cost: 8
+    cooldown_seconds: 2.0
     duration: 0
     projectile_size: 8
     is_projectile: true
     is_utility: false
     deals_no_damage: true          # the bind, not damage, is the effect
-    charm: true
-    charm_duration_seconds: 300    # 5 minutes (real-time)
+    bind_undead: true
+    bind_duration_seconds: 300     # 5 minutes (real-time)
 
     # Projectile physics (tile-based units)
     physics:
@@ -294,6 +313,7 @@ spells:
     school: "light"
     level: 7
     spell_points_cost: 16
+    cooldown_seconds: 5.0
     duration: 0
     is_projectile: false
     is_utility: true
@@ -307,6 +327,7 @@ spells:
     school: "body"
     level: 1
     spell_points_cost: 4
+    cooldown_seconds: 1.0
     duration: 0
     heal_amount: 15
     is_projectile: false
@@ -323,6 +344,7 @@ spells:
     school: "body"
     level: 2
     spell_points_cost: 4
+    cooldown_seconds: 1.2
     duration: 0
     heal_amount: 20
     is_projectile: false
@@ -339,6 +361,7 @@ spells:
     school: "fire"
     level: 1
     spell_points_cost: 1
+    cooldown_seconds: 2.0
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
@@ -355,6 +378,7 @@ spells:
     school: "spirit"
     level: 2
     spell_points_cost: 15
+    cooldown_seconds: 5.0
     duration: 300              # 5 minutes
     stat_bonus: 10             # +10 to all stats
     is_projectile: false
@@ -371,6 +395,7 @@ spells:
     school: "air"
     level: 4
     spell_points_cost: 8
+    cooldown_seconds: 2.5
     duration: 300              # 5 minutes
     vision_bonus: 100.0
     is_projectile: false
@@ -387,6 +412,7 @@ spells:
     school: "mind"
     level: 2
     spell_points_cost: 4
+    cooldown_seconds: 2.0
     duration: 0
     is_projectile: false
     is_utility: true
@@ -402,6 +428,7 @@ spells:
     school: "water"
     level: 3
     spell_points_cost: 6
+    cooldown_seconds: 2.5
     duration: 180              # 3 minutes
     is_projectile: false
     is_utility: true
@@ -418,6 +445,7 @@ spells:
     school: "water"
     level: 3
     spell_points_cost: 10
+    cooldown_seconds: 2.5
     duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
@@ -426,6 +454,311 @@ spells:
     message: "You can now breathe underwater!"
 
     # No physics or graphics needed - utility spell
+
+  # ===========================================================================
+  # NEW SPELLS — batch 1 (pure data-driven: damage / AoE-damage / AoE-stun)
+  # ===========================================================================
+
+  sparks:
+    name: "Sparks"
+    description: "A cheap, fast crackle of electricity"
+    school: "air"
+    level: 1
+    spell_points_cost: 2
+    cooldown_seconds: 0.8
+    duration: 0
+    projectile_size: 8
+    is_projectile: true
+    is_utility: false
+    physics:
+      speed_tiles: 18.0          # very fast
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 36
+      min_size: 2
+      base_size: 9
+      color: [200, 220, 255]   # pale electric blue
+
+  rock_blast:
+    name: "Rock Blast"
+    description: "Hurls a jagged chunk of stone"
+    school: "earth"
+    level: 2
+    spell_points_cost: 5
+    cooldown_seconds: 1.0
+    duration: 0
+    projectile_size: 12
+    is_projectile: true
+    is_utility: false
+    physics:
+      speed_tiles: 12.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 44
+      min_size: 3
+      base_size: 12
+      color: [150, 100, 50]    # earthy brown
+
+  deadly_swarm:
+    name: "Deadly Swarm"
+    description: "A biting swarm that bursts over a small area"
+    school: "earth"
+    level: 3
+    spell_points_cost: 7
+    cooldown_seconds: 1.5
+    duration: 0
+    projectile_size: 12
+    is_projectile: true
+    is_utility: false
+    aoe_radius_tiles: 2.0      # splash, like Fireball
+    physics:
+      speed_tiles: 9.0           # slow drifting swarm
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 46
+      min_size: 3
+      base_size: 13
+      color: [120, 140, 60]    # sickly green-brown
+
+  stun:
+    name: "Stun"
+    description: "A shockwave that stuns every foe within 3 tiles"
+    school: "earth"
+    level: 4
+    spell_points_cost: 12
+    cooldown_seconds: 3.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    # AoE-stun effect (no damage): cheaper, smaller version of Darkness.
+    stun_radius_tiles: 3.0
+    stun_duration_seconds: 4
+    stun_duration_turns: 2
+
+  harm:
+    name: "Harm"
+    description: "Concentrated body energy that wounds a foe"
+    school: "body"
+    level: 2
+    spell_points_cost: 6
+    cooldown_seconds: 1.0
+    duration: 0
+    projectile_size: 10
+    is_projectile: true
+    is_utility: false
+    physics:
+      speed_tiles: 12.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 11
+      color: [120, 230, 150]   # body green
+
+  mind_blast:
+    name: "Mind Blast"
+    description: "A lance of raw psychic force"
+    school: "mind"
+    level: 2
+    spell_points_cost: 5
+    cooldown_seconds: 1.0
+    duration: 0
+    projectile_size: 10
+    is_projectile: true
+    is_utility: false
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 11
+      color: [170, 190, 255]   # pale mind-blue
+
+  spirit_lash:
+    name: "Spirit Lash"
+    description: "A whip of spirit energy that scourges a foe"
+    school: "spirit"
+    level: 2
+    spell_points_cost: 6
+    cooldown_seconds: 1.0
+    duration: 0
+    projectile_size: 10
+    is_projectile: true
+    is_utility: false
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 40
+      min_size: 2
+      base_size: 11
+      color: [210, 185, 255]   # pale violet
+
+  # ===========================================================================
+  # NEW SPELLS — batch 2/3 (party buffs, heals, charm, nova, zone, VFX)
+  # ===========================================================================
+
+  stone_skin:
+    name: "Stone Skin"
+    description: "Hardens the party's skin to stone, reducing all incoming damage"
+    school: "earth"
+    level: 3
+    spell_points_cost: 10
+    cooldown_seconds: 5.0
+    duration: 300              # 5 minutes
+    is_projectile: false
+    is_utility: true
+    incoming_damage_reduction: 6
+    status_icon: "stone_skin"
+    message: "The party's skin hardens to stone!"
+
+  heroism:
+    name: "Heroism"
+    description: "Fills the party with valor, boosting the damage they deal"
+    school: "spirit"
+    level: 3
+    spell_points_cost: 12
+    cooldown_seconds: 5.0
+    duration: 300              # 5 minutes
+    is_projectile: false
+    is_utility: true
+    outgoing_damage_bonus: 10
+    status_icon: "heroism"
+    message: "The party is emboldened with heroism!"
+
+  raise_dead:
+    name: "Raise Dead"
+    description: "Restores a fallen ally (not eradicated) to 25% of their health"
+    school: "spirit"
+    level: 6
+    spell_points_cost: 14
+    cooldown_seconds: 4.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    revive_hp_pct: 25
+    message: "A fallen ally is dragged back from death!"
+
+  mass_heal:
+    name: "Mass Heal"
+    description: "A wave of healing that mends the whole party at once"
+    school: "body"
+    level: 4
+    spell_points_cost: 6
+    cooldown_seconds: 2.0
+    duration: 0
+    heal_amount: 10
+    heal_party: true
+    is_projectile: false
+    is_utility: true
+    message: "Healing light washes over the whole party!"
+
+  psychic_shock:
+    name: "Psychic Shock"
+    description: "A jolt of psychic force that wounds and may stun the target"
+    school: "mind"
+    level: 5
+    spell_points_cost: 10
+    cooldown_seconds: 2.0
+    duration: 0
+    projectile_size: 10
+    is_projectile: true
+    is_utility: false
+    stun_chance: 0.10           # 10% chance to stun on hit
+    stun_duration_seconds: 2
+    stun_duration_turns: 1
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 42
+      min_size: 2
+      base_size: 12
+      color: [190, 170, 255]   # violet-blue
+
+  charm:
+    name: "Charm"
+    description: "Beguiles a living foe so it stops attacking. Breaks on any hit it takes. No effect on undead."
+    school: "mind"
+    level: 5
+    spell_points_cost: 10
+    cooldown_seconds: 2.0
+    duration: 0
+    projectile_size: 8
+    is_projectile: true
+    is_utility: false
+    deals_no_damage: true        # the pacify, not damage, is the effect
+    pacify: true                 # living-only: target stops attacking; breaks on any hit
+    pacify_duration_seconds: 120 # 2 minutes
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 36
+      min_size: 2
+      base_size: 12
+      color: [255, 150, 220]   # rosy charm light
+
+  inferno:
+    name: "Inferno"
+    description: "Engulfs everything around the party in flame — friend and foe alike take heavy fire damage"
+    school: "fire"
+    level: 7
+    spell_points_cost: 15       # 45 damage (cost × 3) to all in radius, including the party
+    cooldown_seconds: 3.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    party_aoe_radius_tiles: 7.0
+    message: "Inferno erupts in a ring of fire!"
+
+  starburst:
+    name: "Starburst"
+    description: "A bolt that bursts into a rain of falling stars over a wide area"
+    school: "air"
+    level: 6
+    spell_points_cost: 14       # 42 damage, splashes the AoE
+    cooldown_seconds: 3.0
+    duration: 0
+    projectile_size: 12
+    is_projectile: true
+    is_utility: false
+    aoe_radius_tiles: 5.0
+    starburst_fx: true          # falling-star impact VFX in each tile of the blast
+    physics:
+      speed_tiles: 16.0
+      range_tiles: 9.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 46
+      min_size: 3
+      base_size: 13
+      color: [220, 235, 255]   # bright star-white
+
+  hot_steam:
+    name: "Hot Steam"
+    description: "Fills the area around the party with scalding steam that sears monsters over time"
+    school: "water"
+    level: 5
+    spell_points_cost: 35
+    cooldown_seconds: 3.0
+    duration: 120              # 2 minutes
+    is_projectile: false
+    is_utility: true
+    zone_radius_tiles: 3.0
+    zone_tick_damage: 3        # per tick, like a fire bolt
+    zone_tick_seconds: 3.0     # RT cadence (TB ticks once per turn)
+    status_icon: "hot_steam"
+    message: "Scalding steam billows around the party!"
 
 # =============================================================================
 # SPELL ADDING INSTRUCTIONS

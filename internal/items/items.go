@@ -214,6 +214,7 @@ type ItemDefinitionFromYAML struct {
 	SummonDistanceTiles       int
 	EquipSlot                 string
 	BonusMight                int
+	Resistances               map[string]int // per-school % damage resist (school→percent)
 	Value                     int
 	Revive                    bool
 	FullHeal                  bool
@@ -310,6 +311,11 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.BonusMight != 0 {
 		attrs["bonus_might"] = def.BonusMight
+	}
+	for school, pct := range def.Resistances {
+		if pct != 0 {
+			attrs["resist_"+strings.ToLower(strings.TrimSpace(school))] = pct
+		}
 	}
 	if def.Value != 0 {
 		attrs["value"] = def.Value

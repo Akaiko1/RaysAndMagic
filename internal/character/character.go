@@ -108,6 +108,13 @@ type MMCharacter struct {
 	// at party-turn start, decremented on each attack/spell, set to 0 on
 	// party movement (which immediately ends the round). Unused in real-time.
 	ActionsRemaining int
+
+	// RTCooldown is this character's remaining real-time action cooldown in
+	// frames. While > 0 the member is "busy" (grayed in the HUD, skipped by
+	// auto-select); set on each attack/cast from the weapon/spell cooldown and
+	// ticked down once per frame. Unused in turn-based mode (which uses
+	// ActionsRemaining instead).
+	RTCooldown int
 }
 
 // Turn-based action-slot thresholds on effective Speed. Single source shared by
@@ -272,6 +279,12 @@ func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
 			spells.SpellID("ice_bolt"),
 		},
 	}
+	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
+		Mastery: MasteryNovice,
+		KnownSpells: []spells.SpellID{
+			spells.SpellID("sparks"),
+		},
+	}
 
 	// Starting equipment - give Sorcerer FireBolt
 	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("magic_dagger")
@@ -303,7 +316,17 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 		Mastery: MasteryNovice,
 		KnownSpells: []spells.SpellID{
 			spells.SpellID("heal_other"), // Heal
+			spells.SpellID("harm"),       // offensive body magic
 		},
+	}
+	// Self-magic schools: Body (above), Mind, and Spirit (starts with Spirit Lash).
+	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
+		Mastery:     MasteryNovice,
+		KnownSpells: []spells.SpellID{spells.SpellID("mind_blast")},
+	}
+	c.MagicSchools[MagicSchoolSpirit] = &MagicSkill{
+		Mastery:     MasteryNovice,
+		KnownSpells: []spells.SpellID{spells.SpellID("spirit_lash")},
 	}
 
 	// Starting equipment - give Cleric Heal
@@ -395,6 +418,10 @@ func (c *MMCharacter) setupDruid(cfg *config.Config) {
 	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("awaken")},
+	}
+	c.MagicSchools[MagicSchoolEarth] = &MagicSkill{
+		Mastery:     MasteryNovice,
+		KnownSpells: []spells.SpellID{spells.SpellID("deadly_swarm")},
 	}
 
 	// Starting equipment - give Druid Awaken
@@ -629,22 +656,7 @@ func (c CharacterClass) String() string {
 
 // GetClassKey returns the lowercase class key used in config.
 func (c *MMCharacter) GetClassKey() string {
-	switch c.Class {
-	case ClassKnight:
-		return "knight"
-	case ClassPaladin:
-		return "paladin"
-	case ClassArcher:
-		return "archer"
-	case ClassCleric:
-		return "cleric"
-	case ClassSorcerer:
-		return "sorcerer"
-	case ClassDruid:
-		return "druid"
-	default:
-		return "unknown"
-	}
+	return c.Class.Key()
 }
 
 // ClassFromKey resolves a lowercase class key (knight/paladin/...) to its
@@ -801,6 +813,17 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		return items.Item{}, false, false
 	}
 
+	// Rings share two interchangeable slots, but equip_slot resolves every ring
+	// to SlotRing1. If that finger is taken, fall to the free SlotRing2 so a
+	// second ring can be worn — only overwrite SlotRing1 when both are full.
+	if slot == items.SlotRing1 {
+		if _, ring1Taken := c.Equipment[items.SlotRing1]; ring1Taken {
+			if _, ring2Taken := c.Equipment[items.SlotRing2]; !ring2Taken {
+				slot = items.SlotRing2
+			}
+		}
+	}
+
 	// Check if there's already an item equipped in this slot
 	if existingItem, exists := c.Equipment[slot]; exists {
 		previousItem = existingItem
@@ -922,6 +945,16 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 		}
 	}
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
+}
+
+// GearResistPct sums the character's % resistance to a damage school from equipped gear.
+func (c *MMCharacter) GearResistPct(school string) int {
+	key := "resist_" + strings.ToLower(strings.TrimSpace(school))
+	total := 0
+	for _, it := range c.Equipment {
+		total += it.Attributes[key]
+	}
+	return total
 }
 
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently

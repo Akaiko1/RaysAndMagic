@@ -119,6 +119,69 @@ func TestEquipReplacementReturnsPrevious(t *testing.T) {
 	}
 }
 
+// TestTwoRingsUseBothSlots: a second ring goes to SlotRing2 instead of
+// overwriting the first; a third ring (both fingers full) replaces SlotRing1.
+func TestTwoRingsUseBothSlots(t *testing.T) {
+	character := &MMCharacter{
+		Name:      "TestMage",
+		Equipment: make(map[items.EquipSlot]items.Item),
+	}
+
+	ring1 := items.CreateItemFromYAML("magic_ring")
+	if _, hadPrev, ok := character.EquipItem(ring1); !ok || hadPrev {
+		t.Fatalf("first ring should equip with no previous item")
+	}
+	ring2 := items.CreateItemFromYAML("magic_ring")
+	if _, hadPrev, ok := character.EquipItem(ring2); !ok || hadPrev {
+		t.Fatalf("second ring should equip into the free SlotRing2, not replace SlotRing1 (hadPrev=%v)", hadPrev)
+	}
+
+	if _, ok := character.Equipment[items.SlotRing1]; !ok {
+		t.Errorf("SlotRing1 should be occupied")
+	}
+	if _, ok := character.Equipment[items.SlotRing2]; !ok {
+		t.Errorf("SlotRing2 should be occupied by the second ring")
+	}
+
+	// Both fingers full → a third ring overwrites SlotRing1 and returns it.
+	ring3 := items.CreateItemFromYAML("magic_ring")
+	if _, hadPrev, ok := character.EquipItem(ring3); !ok || !hadPrev {
+		t.Errorf("third ring should replace SlotRing1 and return the previous item (ok=%v hadPrev=%v)", ok, hadPrev)
+	}
+}
+
+// TestTwoRingsStackBonuses: both worn rings contribute — magic_ring's
+// intellect/personality scaling-divisor bonuses sum across SlotRing1+SlotRing2,
+// so two rings double a single ring's bonus (calculateEquipmentBonuses ranges
+// the whole Equipment map, not per-slot).
+func TestTwoRingsStackBonuses(t *testing.T) {
+	newMage := func() *MMCharacter {
+		return &MMCharacter{
+			Name:        "TestMage",
+			Intellect:   30, // /6 → +5 spell-power per magic_ring
+			Personality: 32, // /8 → +4 per magic_ring
+			Equipment:   make(map[items.EquipSlot]items.Item),
+		}
+	}
+
+	one := newMage()
+	one.EquipItem(items.CreateItemFromYAML("magic_ring"))
+	_, int1, per1, _, _, _, _ := one.calculateEquipmentBonuses()
+
+	two := newMage()
+	two.EquipItem(items.CreateItemFromYAML("magic_ring"))
+	two.EquipItem(items.CreateItemFromYAML("magic_ring"))
+	_, int2, per2, _, _, _, _ := two.calculateEquipmentBonuses()
+
+	if int1 != 5 || per1 != 4 {
+		t.Fatalf("single ring bonus: got int=%d per=%d, want int=5 per=4", int1, per1)
+	}
+	if int2 != 2*int1 || per2 != 2*per1 {
+		t.Errorf("two rings should double the bonus: got int=%d per=%d, want int=%d per=%d",
+			int2, per2, 2*int1, 2*per1)
+	}
+}
+
 func TestUnequipReturnsItemAndClearsSlot(t *testing.T) {
 	character := &MMCharacter{
 		Name: "TestKnight",

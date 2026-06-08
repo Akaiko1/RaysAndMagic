@@ -3,22 +3,23 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
-	X, Y           float64
-	Name           string
-	Type           string
-	Description    string
-	Sprite         string
-	RenderType     string
-	Transparent    bool
-	GroundTile     string // optional tile key to paint under the NPC (e.g. a portal stream)
-	SizeMultiplier float64
-	MerchantStock  []*MerchantStockItem
-	SellAvailable  bool
-	SpellData      map[string]*NPCSpell
-	DialogueData   *NPCDialogue
-	EncounterData  *NPCEncounter
-	Summons        []*NPCSummon
-	Visited        bool
+	X, Y             float64
+	Name             string
+	Type             string
+	Description      string
+	Sprite           string
+	RenderType       string
+	Transparent      bool
+	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
+	SizeMultiplier   float64
+	MerchantStock    []*MerchantStockItem
+	SellAvailable    bool
+	SteamWhenVisited bool
+	SpellData        map[string]*NPCSpell
+	DialogueData     *NPCDialogue
+	EncounterData    *NPCEncounter
+	Summons          []*NPCSummon
+	Visited          bool
 }
 
 type MerchantStockItem struct {

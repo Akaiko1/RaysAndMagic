@@ -33,8 +33,8 @@ monsters:
     max_hit_points: 96
     armor_class: 8
     experience: 65
-    damage_min: 2
-    damage_max: 8
+    damage_min: 8
+    damage_max: 15
     attacks_per_round: 2
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
@@ -129,8 +129,8 @@ monsters:
     max_hit_points: 86
     armor_class: 7
     experience: 45
-    damage_min: 4
-    damage_max: 8
+    damage_min: 7
+    damage_max: 12
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
@@ -155,8 +155,8 @@ monsters:
     max_hit_points: 180
     armor_class: 10
     experience: 180
-    damage_min: 12
-    damage_max: 20
+    damage_min: 17
+    damage_max: 25
     poison_chance: 0.20
     poison_duration_seconds: 15
     alert_radius: 4
@@ -238,8 +238,8 @@ monsters:
     max_hit_points: 160
     armor_class: 10
     experience: 300
-    damage_min: 10
-    damage_max: 18
+    damage_min: 15
+    damage_max: 23
     poison_chance: 0.33
     poison_duration_seconds: 20
     alert_radius: 4
@@ -282,7 +282,7 @@ monsters:
     letter: "d"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_game: 12.0
     resistances:
       fire: 90
       physical: 50
@@ -318,7 +318,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_game: 12.0
     biomes: ["desert"]
     resistances:
       dark: 90
@@ -348,8 +348,8 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_game: 8.0
-    biomes: ["desert"]
+    size_game: 12.0
+    biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
       physical: 60
@@ -378,8 +378,8 @@ monsters:
     letter: "y"
     box_w: 48
     box_h: 48
-    size_game: 8.0
-    biomes: ["desert"]
+    size_game: 12.0
+    biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
       physical: 50
@@ -422,8 +422,8 @@ monsters:
     max_hit_points: 120
     armor_class: 9
     experience: 125
-    damage_min: 2
-    damage_max: 12
+    damage_min: 7
+    damage_max: 17
     alert_radius: 3  # 3 tiles (keen senses)
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
@@ -594,8 +594,8 @@ monsters:
     max_hit_points: 360
     armor_class: 10
     experience: 260
-    damage_min: 10
-    damage_max: 18
+    damage_min: 15
+    damage_max: 23
     alert_radius: 5
     attack_radius: 1
     projectile_spell: "lightning"
@@ -624,8 +624,8 @@ monsters:
     max_hit_points: 330
     armor_class: 11
     experience: 240
-    damage_min: 12
-    damage_max: 18
+    damage_min: 17
+    damage_max: 23
     attacks_per_round: 4
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -660,8 +660,8 @@ monsters:
     max_hit_points: 150
     armor_class: 11
     experience: 280
-    damage_min: 14
-    damage_max: 22
+    damage_min: 19
+    damage_max: 27
     perfect_dodge: 20
     alert_radius: 6
     attack_radius: 1
@@ -763,7 +763,7 @@ monsters:
     box_w: 48
     box_h: 48
     size_game: 12.0
-    biomes: ["highlands"]
+    biomes: ["highlands", "dragon_cliffs"]
     resistances:
       physical: 40
       fire: -25
@@ -795,7 +795,7 @@ monsters:
     box_w: 48
     box_h: 48
     size_game: 7.0
-    biomes: ["highlands"]
+    biomes: ["highlands", "dragon_cliffs"]
     resistances:
       fire: 50
       dark: 30
@@ -897,6 +897,111 @@ monsters:
       light: -50
     habitat_preferences:
       - "lich_nexus_floor"
+
+  # --- Culverts (Seabright sewers). Mobs tuned for party L5-8; the Golden Thief
+  # Bug is the boss (see ignores_armor / inferno_chance / teleport_* / passive_until_quest). ---
+  rat:
+    name: "Sewer Rat"
+    level: 5
+    max_hit_points: 95
+    armor_class: 6
+    experience: 70
+    damage_min: 14
+    damage_max: 19
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.9
+    gold_min: 2
+    gold_max: 10
+    sprite: "rat"
+    letter: "r"
+    box_w: 40
+    box_h: 40
+    size_game: 3.5
+    biomes: ["culverts"]
+    resistances: {}
+
+  bat:
+    name: "Cave Bat"
+    level: 5
+    max_hit_points: 72
+    armor_class: 7
+    perfect_dodge: 18
+    experience: 75
+    damage_min: 13
+    damage_max: 17
+    alert_radius: 5
+    attack_radius: 1
+    speed: 2.3
+    flying: true
+    gold_min: 1
+    gold_max: 6
+    sprite: "bat"
+    letter: "v"
+    box_w: 40
+    box_h: 40
+    size_game: 3.2
+    biomes: ["culverts"]
+    resistances: {}
+
+  thief_bug:
+    name: "Thief Bug"
+    level: 7
+    max_hit_points: 165
+    armor_class: 13
+    experience: 130
+    damage_min: 14
+    damage_max: 20
+    alert_radius: 4
+    attack_radius: 1
+    speed: 1.5
+    poison_chance: 0.12
+    poison_duration_seconds: 12
+    gold_min: 10
+    gold_max: 40
+    sprite: "thief_bug"
+    letter: "t"
+    box_w: 48
+    box_h: 48
+    size_game: 4.0
+    biomes: ["culverts"]
+    resistances:
+      physical: 15
+
+  golden_thief_bug:
+    name: "Golden Thief Bug"
+    level: 10
+    max_hit_points: 1200
+    armor_class: 18
+    perfect_dodge: 20
+    experience: 2000
+    damage_min: 10
+    damage_max: 18
+    alert_radius: 6
+    attack_radius: 1
+    speed: 1.8
+    attack_cooldown_multiplier: 0.5
+    attacks_per_round: 2
+    gold_min: 1500
+    gold_max: 3000
+    ignores_armor: true
+    inferno_chance: 0.10
+    teleport_at_hp: 300
+    teleport_chance: 0.10
+    passive_until_quest: "culverts_valves"
+    sprite: "golden_thief_bug"
+    letter: "y"
+    # Collision box must be < tile size (64): a 64px box centered on a tile spans a
+    # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide
+    # corridors, freezing the boss. 48 fits one tile; size_game keeps it big visually.
+    box_w: 48
+    box_h: 48
+    size_game: 5.5
+    biomes: ["culverts"]
+    resistances:
+      physical: 20
+      fire: 40
+      mind: 60
 
 # Damage type mappings for resistances
 damage_types:

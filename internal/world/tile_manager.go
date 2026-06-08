@@ -160,7 +160,6 @@ func (tm *TileManager) createTypeMapping() {
 		TileWater:            "water",
 		TileDeepWater:        "deep_water",
 		TileDoor:             "door",
-		TileStairs:           "stairs",
 		TileTree:             "tree",
 		TileAncientTree:      "ancient_tree",
 		TileThicket:          "thicket",

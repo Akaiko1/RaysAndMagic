@@ -166,3 +166,26 @@ func TestApplyTestArena(t *testing.T) {
 		t.Error("shipwreck_bandits quest was not registered")
 	}
 }
+
+// learnAllSchoolSpells (test-arena) gives a caster every available spell of each
+// magic school it already has.
+func TestLearnAllSchoolSpells_FillsEverySchool(t *testing.T) {
+	cfg := loadTestConfig(t)
+	c := character.CreateCharacter("Tester", character.ClassSorcerer, cfg)
+	if len(c.MagicSchools) == 0 {
+		t.Fatal("sorcerer should start with magic schools")
+	}
+	learnAllSchoolSpells(c)
+	for school, skill := range c.MagicSchools {
+		want, err := school.AvailableSpellIDs()
+		if err != nil {
+			t.Fatalf("available spells for %s: %v", school, err)
+		}
+		if len(want) == 0 {
+			t.Errorf("school %s has no available spells to learn", school)
+		}
+		if len(skill.KnownSpells) != len(want) {
+			t.Errorf("school %s: learned %d spells, want all %d", school, len(skill.KnownSpells), len(want))
+		}
+	}
+}

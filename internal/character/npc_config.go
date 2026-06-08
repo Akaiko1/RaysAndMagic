@@ -18,20 +18,21 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name           string               `yaml:"name"`
-	Type           string               `yaml:"type"`
-	Description    string               `yaml:"description"`
-	Sprite         string               `yaml:"sprite"`
-	RenderType     string               `yaml:"render_type,omitempty"`
-	Transparent    bool                 `yaml:"transparent,omitempty"`
-	GroundTile     string               `yaml:"ground_tile,omitempty"`
-	SizeMultiplier float64              `yaml:"size_multiplier,omitempty"`
-	SellAvailable  bool                 `yaml:"sell_available,omitempty"`
-	Dialogue       *NPCDialogue         `yaml:"dialogue"`
-	Spells         map[string]*NPCSpell `yaml:"spells,omitempty"`
-	Inventory      []*NPCItem           `yaml:"inventory,omitempty"`
-	Encounter      *NPCEncounter        `yaml:"encounter,omitempty"`
-	Summons        []*NPCSummon         `yaml:"summons,omitempty"`
+	Name             string               `yaml:"name"`
+	Type             string               `yaml:"type"`
+	Description      string               `yaml:"description"`
+	Sprite           string               `yaml:"sprite"`
+	RenderType       string               `yaml:"render_type,omitempty"`
+	Transparent      bool                 `yaml:"transparent,omitempty"`
+	GroundTile       string               `yaml:"ground_tile,omitempty"`
+	SizeMultiplier   float64              `yaml:"size_multiplier,omitempty"`
+	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
+	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
+	Dialogue         *NPCDialogue         `yaml:"dialogue"`
+	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
+	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
+	Encounter        *NPCEncounter        `yaml:"encounter,omitempty"`
+	Summons          []*NPCSummon         `yaml:"summons,omitempty"`
 }
 
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
@@ -44,12 +45,18 @@ type NPCSummon struct {
 
 // NPCDialogue represents the dialogue options for an NPC
 type NPCDialogue struct {
-	Greeting         string               `yaml:"greeting"`
-	Teaching         string               `yaml:"teaching,omitempty"`
-	InsufficientGold string               `yaml:"insufficient_gold,omitempty"`
-	AlreadyKnown     string               `yaml:"already_known,omitempty"`
-	Success          string               `yaml:"success,omitempty"`
-	VisitedMessage   string               `yaml:"visited_message,omitempty"`
+	Greeting         string `yaml:"greeting"`
+	Teaching         string `yaml:"teaching,omitempty"`
+	InsufficientGold string `yaml:"insufficient_gold,omitempty"`
+	AlreadyKnown     string `yaml:"already_known,omitempty"`
+	Success          string `yaml:"success,omitempty"`
+	VisitedMessage   string `yaml:"visited_message,omitempty"`
+	// Quest-state bodies for quest-giver NPCs: ActiveMessage shows while the
+	// linked quest is taken-but-not-done, CompletedMessage once it's done (turn-in
+	// available). The offer state uses Greeting; the concluded state uses
+	// VisitedMessage. See npc_dialogue.go.
+	ActiveMessage    string               `yaml:"active_message,omitempty"`
+	CompletedMessage string               `yaml:"completed_message,omitempty"`
 	ChoicePrompt     string               `yaml:"choice_prompt,omitempty"`
 	Choices          []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
@@ -132,6 +139,55 @@ func LoadNPCConfig(filename string) error {
 	}
 
 	NPCConfigInstance = &config
+	if err := backfillTraderSpells(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// backfillTraderSpells fills each spell_trader entry's intrinsic data (name,
+// school, level, description, min-level gate) from spells.yaml keyed by the entry
+// ID, so a catalog only authors the price. Cost stays per-entry (a shop property)
+// and is required (fail-fast). Spells must already be loaded.
+func backfillTraderSpells() error {
+	if NPCConfigInstance == nil {
+		return nil
+	}
+	for npcKey, npc := range NPCConfigInstance.NPCs {
+		if npc == nil || npc.Type != "spell_trader" {
+			continue
+		}
+		for id, sp := range npc.Spells {
+			if sp == nil {
+				sp = &NPCSpell{}
+				npc.Spells[id] = sp
+			}
+			if sp.Cost <= 0 {
+				return fmt.Errorf("spell_trader %q: spell %q must declare a positive cost", npcKey, id)
+			}
+			def, ok := config.GetSpellDefinition(id)
+			if !ok || def == nil {
+				continue // unknown spell ID → respect whatever the YAML gave
+			}
+			if sp.Name == "" {
+				sp.Name = def.Name
+			}
+			if sp.School == "" {
+				sp.School = def.School
+			}
+			if sp.Level == 0 {
+				sp.Level = def.Level
+			}
+			if sp.Description == "" {
+				sp.Description = def.Description
+			}
+			if sp.Requirements == nil {
+				// Gate purchase on the spell's own level; the school-open check is
+				// already enforced by canCharacterLearnNPCSpell.
+				sp.Requirements = &SpellRequirements{MinLevel: def.Level}
+			}
+		}
+	}
 	return nil
 }
 
@@ -160,19 +216,20 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	}
 
 	npc := &NPC{
-		X:              x,
-		Y:              y,
-		Name:           data.Name,
-		Type:           data.Type,
-		Description:    data.Description,
-		Sprite:         data.Sprite,
-		RenderType:     data.RenderType,
-		Transparent:    data.Transparent,
-		GroundTile:     data.GroundTile,
-		SizeMultiplier: data.SizeMultiplier,
-		SellAvailable:  data.SellAvailable,
-		DialogueData:   data.Dialogue,
-		Summons:        data.Summons,
+		X:                x,
+		Y:                y,
+		Name:             data.Name,
+		Type:             data.Type,
+		Description:      data.Description,
+		Sprite:           data.Sprite,
+		RenderType:       data.RenderType,
+		Transparent:      data.Transparent,
+		GroundTile:       data.GroundTile,
+		SizeMultiplier:   data.SizeMultiplier,
+		SellAvailable:    data.SellAvailable,
+		SteamWhenVisited: data.SteamWhenVisited,
+		DialogueData:     data.Dialogue,
+		Summons:          data.Summons,
 	}
 
 	// Set up type-specific data

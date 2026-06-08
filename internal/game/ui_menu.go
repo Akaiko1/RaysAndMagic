@@ -70,8 +70,8 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		tips := []string{
 			"Controls:",
 			"WASD: Move  QE: Strafe",
-			"Space: Attack  F: Cast  H: Heal",
-			"I: Inventory  C: Characters  M: Spellbook",
+			"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
+			"I: Inventory  P: Characters  M: Spellbook",
 			"1-4: Select",
 			"Tab: Toggle Mode (TB/RT)",
 		}

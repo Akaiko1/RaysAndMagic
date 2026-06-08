@@ -168,9 +168,55 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	}
 }
 
+// pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
+// and the flee cycle. Shared by bound undead and aggressive bosses.
+func (m *Monster3D) pursueRelentlessly(targetX, targetY float64) {
+	m.IsEngagingPlayer = true
+	if distance(m.X, m.Y, targetX, targetY) > m.GetAttackRangePixels() {
+		if m.State != StatePursuing {
+			m.State = StatePursuing
+			m.StateTimer = 0
+		}
+	} else if m.State != StateAttacking {
+		m.State = StateAttacking
+		m.StateTimer = 0
+	}
+}
+
 // updatePlayerEngagementWithVision handles player detection with line-of-sight checks
 // Trees and other opaque obstacles reduce detection radius
 func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
+	// A pacified (Charm) monster stands down — it never aggros or pursues the
+	// party, but it still idly wanders. Drop any aggressive state ONCE (so it
+	// stops chasing), then skip detection so it can't re-engage; the idle/patrol
+	// states below drive its wandering as normal. (Resetting the state every frame
+	// would freeze it — the idle→patrol timer could never elapse.)
+	if m.Pacified {
+		m.IsEngagingPlayer = false
+		switch m.State {
+		case StateAlert, StatePursuing, StateAttacking, StateFleeing:
+			m.State = StateIdle
+			m.StateTimer = 0
+		}
+		return
+	}
+
+	// A bound undead (Bind Undead) always pursues the target it was handed (its
+	// enemy, picked by the game's AI-target logic) regardless of normal detection
+	// range — it actively hunts, and never flees. It only enters its attack stance
+	// once within real attack range; beyond that it keeps closing. When it has no
+	// enemy the target is its own position, so this just parks it (dist 0).
+	if m.Bound {
+		m.pursueRelentlessly(playerX, playerY)
+		return
+	}
+
+	// Aggressive boss: pursue the party relentlessly (ignores detection range / LoS / flee).
+	if m.BossAggro {
+		m.pursueRelentlessly(playerX, playerY)
+		return
+	}
+
 	// Don't process engagement while fleeing - flee state takes priority
 	if m.State == StateFleeing {
 		return
@@ -385,6 +431,16 @@ func (m *Monster3D) clearMoveTarget() {
 	m.MoveTargetTileY = 0
 }
 
+// ResetPathfinding drops the cached A* path and move-target so the monster
+// repaths from its current position. Call after teleporting it (e.g. a boss blink).
+func (m *Monster3D) ResetPathfinding() {
+	m.PathTiles = nil
+	m.PathIndex = 0
+	m.PathTargetTileX = 0
+	m.PathTargetTileY = 0
+	m.clearMoveTarget()
+}
+
 func (m *Monster3D) hasMoveTarget(state MonsterState) bool {
 	return m.HasMoveTarget && m.MoveTargetState == state
 }
@@ -556,7 +612,22 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 		return true
 	}
 
-	// Path blocked - drop it and fall back to grid movement
+	// The diagonal step clips a wall corner (the box grazes the inside edge while
+	// rounding it). Instead of giving up and freezing, slide along whichever axis
+	// is still clear so the monster rounds the corner. This is the usual fix for
+	// pursuers sticking on corners; only if BOTH axes are blocked do we repath.
+	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		m.X = newX
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		m.Y = newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+
+	// Truly boxed in on both axes - drop the path and repath next tick.
 	m.PathTiles = nil
 	return false
 }
@@ -671,6 +742,10 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 		rangeTiles = 4
 	}
 	rangeTiles *= 2
+	if m.BossAggro {
+		// Boss pursues map-wide: widen the window to hold maze detours (48 covers a 50x50 map).
+		rangeTiles = 48
+	}
 
 	minX := mathutil.IntMin(start.X, targetTileX) - rangeTiles
 	maxX := mathutil.IntMax(start.X, targetTileX) + rangeTiles
@@ -749,7 +824,11 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 	ps.heap.push(gridNode{idx: startIdx, g: 0, f: heuristic(start)})
 
 	nodesSearched := 0
-	maxNodes := 500 // Reduced from 2000 - typical search area is ~200-400 tiles
+	maxNodes := 500 // typical mob search area is ~200-400 tiles
+	if m.BossAggro {
+		// Boss may path across a whole maze — well beyond a normal mob's budget.
+		maxNodes = 4000
+	}
 
 	for len(ps.heap.nodes) > 0 && nodesSearched < maxNodes {
 		current, ok := ps.heap.pop()
@@ -922,6 +1001,15 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 }
 
 func (m *Monster3D) updateAttacking(playerX, playerY float64) {
+	// Target stepped out of reach → resume the chase immediately instead of
+	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
+	// at <=0.9×range, so exiting at >range keeps a clean hysteresis band.)
+	if m.IsEngagingPlayer && distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() {
+		m.State = StatePursuing
+		m.StateTimer = 0
+		return
+	}
+
 	// Get AI config values
 	var attackCooldown int = 60 // Default value
 

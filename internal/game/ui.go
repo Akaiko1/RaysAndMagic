@@ -47,6 +47,7 @@ type UISystem struct {
 	inventoryContextY     int
 	inventoryContextIndex int
 	inventoryPage         int // current inventory grid page (0-based)
+	questPage             int // current quest log page (0-based)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string

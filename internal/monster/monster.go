@@ -112,28 +112,34 @@ type Monster3D struct {
 	HasMoveTarget   bool
 
 	// Tethering system - monsters stay within 3 tiles of spawn unless engaging player
-	SpawnX, SpawnY           float64 // Original spawn position
-	TetherRadius             float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
-	IsEngagingPlayer         bool    // True when actively pursuing/fighting player
-	WasAttacked              bool    // True when monster was hit - prevents disengagement
-	HitTintFrames            int     // Frames remaining for red hit tint
-	AttackAnimFrames         int     // Frames remaining for attack animation (TB mode)
-	StunTurnsRemaining       int     // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining      int     // Real-time stun duration in frames
-	Charmed                  bool    // Bound to the party (bind_undead): fights other monsters, ignores party
-	CharmFramesRemaining     int     // Real-time charm duration in frames (0 in TB = lasts the encounter)
-	CharmAttackCD            int     // RT cadence counter between charmed attacks
-	Flying                   bool    // Whether the monster should be rendered above ground
-	RangedAttackRange        float64 // Optional ranged attack range override (pixels)
-	AttacksPerRound          int     // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
-	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
-	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
-	FireburstChance          float64 // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin       int     // Fireburst damage min
-	FireburstDamageMax       int     // Fireburst damage max
-	PoisonChance             float64 // Chance to apply poison on hit
-	PoisonDurationSec        int     // Poison duration in seconds
+	SpawnX, SpawnY      float64 // Original spawn position
+	TetherRadius        float64 // Maximum distance from spawn point (default 4 tiles = 256 pixels)
+	IsEngagingPlayer    bool    // True when actively pursuing/fighting player
+	WasAttacked         bool    // True when monster was hit - prevents disengagement
+	HitTintFrames       int     // Frames remaining for red hit tint
+	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int     // Real-time stun duration in frames
+	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
+	Bound                    bool       // Bind Undead: under party control — hunts other monsters, ignores party
+	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
+	CrossfireCD              int        // RT cadence between this monster's monster-vs-monster attacks (bound↔enemy crossfire)
+	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundUndeadCache)
+	AITargetY                float64    // Per-frame pursuit target Y
+	AIFoe                    *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	Flying                   bool       // Whether the monster should be rendered above ground
+	RangedAttackRange        float64    // Optional ranged attack range override (pixels)
+	AttacksPerRound          int        // Turn-based melee attacks per monster round
+	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
+	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
+	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin       int        // Fireburst damage min
+	FireburstDamageMax       int        // Fireburst damage max
+	PoisonChance             float64    // Chance to apply poison on hit
+	PoisonDurationSec        int        // Poison duration in seconds
 
 	// Loot
 	Gold  int
@@ -155,6 +161,17 @@ type Monster3D struct {
 	PounceCooldownSeconds float64
 	PounceCDFrames        int // real-time cooldown countdown (frames)
 	PounceCDTurns         int // turn-based cooldown countdown (turns)
+
+	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
+	IgnoresArmor      bool    // melee bypasses the party's armor class
+	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
+	TeleportAtHP      int     // when HP <= this, may blink to a random walkable tile
+	TeleportChance    float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
+	PassiveUntilQuest string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
+	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
+	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter

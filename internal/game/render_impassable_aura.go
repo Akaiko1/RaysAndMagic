@@ -1,8 +1,6 @@
 package game
 
 import (
-	"math"
-
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -67,8 +65,12 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				continue
 			}
 			tile := r.game.world.Tiles[ty][tx]
-			if !isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile)) {
-				continue // trees, textured walls, floor-only: not ambiguous
+			showAura := isAuraBillboardRenderType(world.GlobalTileManager.GetRenderType(tile))
+			if td := world.GlobalTileManager.GetTileData(tile); td != nil && td.ImpassableAura {
+				showAura = true // floor pit (chasm): blocks but reads like ground
+			}
+			if !showAura {
+				continue // trees, textured walls, ordinary floors: not ambiguous
 			}
 			// Bubble colour = average of the tile's sprite texture (so it matches
 			// the rock/cliff), falling back to the tile's floor colour.
@@ -96,12 +98,11 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 // (tx,ty) and its walkable neighbour in direction d, then draws rising bubbles
 // at each sample.
 func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts float64, perEdge int, baseAlpha, maxDepth float64, rgb [3]int) {
-	horizon := float64(r.game.config.GetScreenHeight()) / 2
-
 	// The billboard sprite stands at the tile centre. Bubbles on the FAR side of
 	// that plane are hidden by the sprite (which doesn't write the depth buffer),
 	// so cull them geometrically against the centre's perpendicular depth.
 	_, centerDepth, centerOK := r.game.renderHelper.projectToScreenX((float64(tx)+0.5)*ts, (float64(ty)+0.5)*ts)
+	edgeKey := d[0]*2 + d[1]
 
 	for s := 0; s < perEdge; s++ {
 		// Fractional position along the edge (0..1), inset from the corners.
@@ -124,49 +125,27 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 			wx = (float64(tx) + f) * ts
 		}
 
-		screenX, depth, ok := r.game.renderHelper.projectToScreenX(wx, wy)
-		if !ok || depth < auraMinDepth || depth > maxDepth {
-			continue
-		}
-		// Hidden behind this tile's own billboard (far side of the centre plane).
-		if centerOK && depth > centerDepth {
-			continue
-		}
-		// Occlude behind walls using the wall depth buffer (same units).
-		if screenX >= 0 && screenX < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[screenX] {
-			continue
-		}
-
-		floorY := float64(r.game.renderHelper.calculateFloorScreenY(depth))
-		rise := (floorY - horizon) * auraRiseFraction // taller for near tiles
-		distFade := 1.0 - depth/maxDepth
-		if distFade <= 0 {
-			continue
-		}
-		size := math.Max(1.5, (floorY-horizon)*0.045)
-		edgeKey := d[0]*2 + d[1]
 		// Per-stream brightness so the wall of bubbles shimmers unevenly instead
 		// of being a flat band.
 		colBright := auraColBrightMin + (1.0-auraColBrightMin)*auraHash(tx, ty, edgeKey+100, s)
-
-		for b := 0; b < auraBubblesPerCol; b++ {
-			seed := auraHash(tx, ty, edgeKey, s*auraBubblesPerCol+b)
-			// Per-bubble rise speed so streams desync — random bubbling, not a
-			// single band marching upward in lockstep.
-			speedSeed := auraHash(tx, ty, edgeKey+200, s*auraBubblesPerCol+b)
-			period := auraRisePeriodTick * (auraSpeedJitterMin + (1.0-auraSpeedJitterMin)*2*speedSeed)
-			// Phase 0→1 = bottom→top; offset per bubble so the column is continuous.
-			phase := math.Mod(float64(r.game.frameCount)/period+seed, 1.0)
-			by := floorY - phase*rise
-			// Fade in at the bottom, out at the top, so bubbles pop and vanish softly.
-			alpha := baseAlpha * distFade * colBright * math.Sin(phase*math.Pi)
-			if alpha <= 0.01 {
-				continue
-			}
-			// Slight horizontal wobble keyed to the seed so bubbles aren't a rigid line.
-			bx := float64(screenX) + math.Sin((phase+seed)*2*math.Pi)*size*0.6
-			r.drawGlowRect(screen, bx, by, size, rgb, alpha, additiveGlowBlend)
-		}
+		r.emitBubbleColumn(screen, bubbleColumnFx{
+			wx: wx, wy: wy,
+			hx: tx, hy: ty, salt: edgeKey, hi: s,
+			maxDepth:     maxDepth,
+			riseFraction: auraRiseFraction,
+			baseAlpha:    baseAlpha,
+			colBright:    colBright,
+			perColumn:    auraBubblesPerCol,
+			periodTick:   auraRisePeriodTick,
+			jitterMin:    auraSpeedJitterMin,
+			jitterSpan:   (1.0 - auraSpeedJitterMin) * 2,
+			sizeFloor:    1.5,
+			sizeCoef:     0.045,
+			wobbleCoef:   0.6,
+			color:        rgb,
+			centerDepth:  centerDepth,
+			hasCenter:    centerOK,
+		})
 	}
 }
 

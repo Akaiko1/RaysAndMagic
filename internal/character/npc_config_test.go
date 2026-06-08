@@ -65,6 +65,61 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 	}
 }
 
+// Trader catalogs list only spell IDs; backfillTraderSpells must fill
+// name/school/level/cost/requirements from spells.yaml, and the learn gate's
+// min-level must equal the spell's own level (so it can't drift — this is the
+// structural fix for the old Water Breathing level mismatch).
+func TestBackfillTraderSpells(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
+		t.Fatalf("load npcs: %v", err)
+	}
+
+	get := func(npcKey, spellID string) *NPCSpell {
+		t.Helper()
+		npc, ok := NPCConfigInstance.NPCs[npcKey]
+		if !ok || npc.Spells == nil {
+			t.Fatalf("%s has no spells", npcKey)
+		}
+		sp := npc.Spells[spellID]
+		if sp == nil {
+			t.Fatalf("%s should sell %s", npcKey, spellID)
+		}
+		return sp
+	}
+
+	// Lake trader: a Body spell entry given as just an ID is fully backfilled.
+	heal := get("spell_trader_mage", "heal")
+	if heal.Name == "" || heal.School != "body" || heal.Level == 0 || heal.Cost <= 0 || heal.Requirements == nil {
+		t.Errorf("heal not backfilled: %+v", heal)
+	}
+
+	// Water Breathing's purchase gate equals its spell level (was a hardcoded 5).
+	wb := get("city_spell_shop", "water_breathing")
+	def, _ := config.GetSpellDefinition("water_breathing")
+	if wb.Requirements == nil || wb.Requirements.MinLevel != def.Level {
+		t.Errorf("water_breathing min-level should equal spell level %d, got %+v", def.Level, wb.Requirements)
+	}
+
+	// Corner trader: an explicit cost override is preserved (not replaced by the tier default).
+	wow := get("mtrader0", "walk_on_water")
+	if wow.Cost != 500 {
+		t.Errorf("corner walk_on_water cost should be 500, got %d", wow.Cost)
+	}
+	if len(NPCConfigInstance.NPCs["mtrader0"].Spells) != 1 {
+		t.Errorf("corner trader should sell exactly one spell, got %d", len(NPCConfigInstance.NPCs["mtrader0"].Spells))
+	}
+
+	// City sells elemental only — no Light/Dark.
+	for _, sp := range NPCConfigInstance.NPCs["city_spell_shop"].Spells {
+		if sp.School == "light" || sp.School == "dark" {
+			t.Errorf("city shop must not sell light/dark, found %q (%s)", sp.Name, sp.School)
+		}
+	}
+}
+
 func TestCreateNPCFromConfig_EncounterMessages(t *testing.T) {
 	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
 		t.Fatalf("load npcs: %v", err)

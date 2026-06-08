@@ -1,34 +1,32 @@
 package game
 
+import "ugataima/internal/character"
+
 // Balance constants are the single source of truth shared by combat formulas
 // and tooltip text. Touching a number here updates BOTH the gameplay
 // calculation and the description shown to the player — that's the whole
 // point. Do not introduce duplicate literals in combat code or UI strings;
 // reference these constants instead.
 
-// Mastery progression bonuses applied per mastery level.
-// Mastery values: Novice=0, Expert=1, Master=2, Grandmaster=3.
+// Skill-effect constants now live in the character package (so the map editor
+// shares them too — see character/catalog.go); these are thin re-exports so the
+// existing combat references keep compiling unchanged. The VALUE is defined once.
 const (
-	// MasteryWeaponTrueDamagePerTier is bonus TRUE damage added per weapon-mastery
-	// tier for the weapon's category skill. True damage bypasses the target's
-	// armor class AND lands even through a Perfect Dodge (only the dodged portion
-	// is the normal damage). Expert +3 / Master +6 / Grandmaster +9.
-	MasteryWeaponTrueDamagePerTier = 3
+	MasteryWeaponTrueDamagePerTier    = character.MasteryWeaponTrueDamagePerTier
+	WeaponGMCritBonus                 = character.WeaponGMCritBonus
+	MasteryArmorACPerLevel            = character.MasteryArmorACPerLevel
+	ArmorGMDodgeBonus                 = character.ArmorGMDodgeBonus
+	LearningXPPctPerTier              = character.LearningXPPctPerTier
+	LearningGMPartyXPPct              = character.LearningGMPartyXPPct
+	ArmsMasterDamagePerTier           = character.ArmsMasterDamagePerTier
+	ArmsMasterGMCritBonus             = character.ArmsMasterGMCritBonus
+	DisarmTrapDamageReductionPerTier  = character.DisarmTrapDamageReductionPerTier
+	MerchantPricePctPerTier           = character.MerchantPricePctPerTier
+	MeditationGMSpellCostReductionPct = character.MeditationGMSpellCostReductionPct
+)
 
-	// WeaponGMCritBonus is the extra crit chance (percent points) a Grandmaster
-	// gets with their mastered weapon. GM also makes the whole strike ignore the
-	// target's Perfect Dodge (see weaponMasteryStrike).
-	WeaponGMCritBonus = 7
-
-	// MasteryArmorACPerLevel is the bonus armor class added per armor-mastery
-	// level for the armor's category skill.
-	MasteryArmorACPerLevel = 2
-
-	// ArmorGMDodgeBonus is the extra Perfect Dodge chance (percent points) granted
-	// per Grandmaster-mastered armor type the character is wearing at least one
-	// piece of (e.g. GM Plate + plate worn → +5; also GM Shield + shield → +10).
-	ArmorGMDodgeBonus = 5
-
+// Game-only mastery constants (not needed by the editor) stay here.
+const (
 	// MagicGMResistPiercePct: a Grandmaster's spells ignore this percent of the
 	// target's resistance to that school's damage type.
 	MagicGMResistPiercePct = 50
@@ -42,31 +40,6 @@ const (
 	// Novice still gets a +10% duration bump; this asymmetry between
 	// damage (no Novice bonus) and duration (Novice bonus) is intentional.
 	MasterySpellEffectPerLevel = 5
-
-	// Misc-skill effects, scaled by mastery tier (Novice=0 → bonus from Expert up),
-	// mirroring the weapon/armor/magic mastery pattern.
-
-	// LearningXPPctPerTier: +% experience this character gains, per Learning tier.
-	LearningXPPctPerTier = 10
-	// LearningGMPartyXPPct: a Grandmaster "teacher" grants this extra % XP to the
-	// WHOLE party (every member), on top of their own per-tier bonus.
-	LearningGMPartyXPPct = 5
-	// ArmsMasterDamagePerTier: bonus damage with ANY weapon, per ArmsMaster tier
-	// (stacks on top of the weapon's own category mastery).
-	ArmsMasterDamagePerTier = 2
-	// ArmsMasterGMCritBonus: a Grandmaster Arms Master gets this extra crit chance
-	// (percent points) with ANY weapon.
-	ArmsMasterGMCritBonus = 5
-	// DisarmTrapDamageReductionPerTier: flat incoming-damage reduction per
-	// DisarmTrap tier. PLACEHOLDER — see TODO at usage; the real feature is
-	// disarming trap tiles, not a damage shield.
-	DisarmTrapDamageReductionPerTier = 1
-	// MerchantPricePctPerTier: % better buy AND sell prices, per the party's best
-	// Merchant tier (sell +this%, buy -this%).
-	MerchantPricePctPerTier = 5
-	// MeditationGMSpellCostReductionPct: a Grandmaster meditator pays this percent
-	// less spell points for every spell.
-	MeditationGMSpellCostReductionPct = 25
 )
 
 // Stat-to-damage scaling. A weapon's `bonus_stat` field selects which stat
@@ -161,6 +134,82 @@ const (
 	AttackCooldownMinFrames  = 15        // floor: ~0.125s at 120 TPS
 	AttackCooldownMaxFrames  = 90        // ceiling: ~0.75s at 120 TPS
 )
+
+// Real-time per-character cooldown model. In RT every character has their OWN
+// cooldown timer (frames); after acting they go gray and selection auto-advances
+// to the next ready member, so holding an attack key fires the party in turn
+// instead of one member machine-gunning. TB is unaffected (it uses action slots).
+const (
+	// RTBaseCooldownMult doubles the Speed-curve cooldown for weapon attacks in
+	// real time (the "×2 base" balance pass). Speed still scales the curve, so
+	// faster characters keep their cadence advantage proportionally.
+	RTBaseCooldownMult = 2.0
+	// RTCooldownMinFrames / RTCooldownMaxFrames are a safety clamp on the final
+	// per-character cooldown (weapon OR spell) so a stray multiplier can't
+	// produce a silly value. It is NOT the design range: weapons land ~0.15–1.8s
+	// and spells are authored 0.8–5s (×1.35 for slow casters ⇒ up to ~6.75s), so
+	// the cap is deliberately generous. 12 ≈ 0.1s, 900 = 7.5s at 120 TPS.
+	RTCooldownMinFrames = 12
+	RTCooldownMaxFrames = 900
+
+	// Spell cooldowns are authored in seconds per spell (spells.yaml
+	// `cooldown_seconds`); see SpellCooldownDefaultSecondsForLevel for the
+	// fallback when a spell omits it. The authored seconds are the cooldown at
+	// the reference Speed below; Speed scales it via spellCooldownSpeedFactor.
+	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
+	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: ×0.5 (never below half)
+	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: ×1.35
+)
+
+// Per-weapon-TYPE attack-cooldown multipliers are DATA, not code: they live in
+// weapons.yaml under `weapon_cooldown_multipliers`, keyed by the canonical
+// weapon-skill noun (sword/dagger/axe/spear/bow/mace/staff). A weapon resolves
+// to its skill via character.WeaponSkillForCategory (so "throwing" → dagger),
+// and a weapon may override its type with `cooldown_multiplier` (legendaries).
+// Read through config.WeaponCooldownMultiplierForSkill.
+
+// Monster target-selection rules (who in the party gets hit). The party is a
+// single blob, so this is damage distribution, not positioning. MELEE = random
+// living member (both modes). RANGED single-target = the TANK (party slot 0) in
+// real time; in turn-based it's the tank most of the time but sometimes a
+// back-liner. AoE always hits everyone. The "tank" is the fixed FRONT SLOT
+// (index 0), not the highest-Endurance member.
+const (
+	// RangedOffTankChance: in turn-based, a single-target ranged/projectile hit
+	// lands on a random NON-tank living member this often; otherwise on the tank.
+	RangedOffTankChance = 0.30
+)
+
+// BoundUndeadSeekTiles is how far a bound undead (bind_undead) hunts for an enemy
+// to walk toward — deliberately wider than a typical alert radius so it actively
+// seeks across the room rather than only engaging foes already on its doorstep.
+const BoundUndeadSeekTiles = 10.0
+
+// MonsterHitFlashFrames is how long a monster flashes red when hit. The shared
+// config `damage_blink_frames` (3) is far too brief to see; this dedicated value
+// (~0.1s at 120 TPS) makes the reaction read clearly.
+const MonsterHitFlashFrames = 12
+
+// MonsterHitShakeAmplitudeFrac is the peak left-right sprite jitter on hit, as a
+// fraction of the sprite's on-screen size. Driven by the same HitTintFrames timer
+// as the red flash and decaying with it, it makes a struck monster shudder in
+// place — replacing the old positional knockback (it stays put, just rattles).
+const MonsterHitShakeAmplitudeFrac = 0.0333
+
+// SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
+// treats an ally as wounded and auto-heals them (with a slotted heal) instead
+// of attacking. 0.9 = heal anyone at or below 90% HP; full-HP party → attack.
+const SmartHealWoundedPct = 0.9
+
+// SpellCooldownDefaultSecondsForLevel is the fallback spell cooldown (seconds)
+// when a spell omits `cooldown_seconds` in spells.yaml: 0.8s at L1 rising 0.1s
+// per level. Authored per-spell values (see spells.yaml) override this.
+func SpellCooldownDefaultSecondsForLevel(level int) float64 {
+	if level < 1 {
+		level = 1
+	}
+	return 0.8 + 0.1*float64(level-1)
+}
 
 // Sprite animation timing.
 const (

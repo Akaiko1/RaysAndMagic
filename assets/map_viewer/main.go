@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ugataima/internal/bridge"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
@@ -29,15 +31,33 @@ const (
 
 // Top-level pages within the viewer window.
 const (
-	pageMaps    = 0
-	pageContent = 1 // items + spells, grouped
+	pageMaps   = 0
+	pageItems  = 1 // weapons + items
+	pageSpells = 2 // spells grouped by school
+	pageChars  = 3 // playable characters with starting loadout
+	pageSkills = 4 // all skills with detailed descriptions
 )
+
+// pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
+var pageTabDefs = []struct {
+	page   int
+	label  string
+	hotkey string
+}{
+	{pageMaps, "Maps", "F1"},
+	{pageItems, "Items", "F2"},
+	{pageSpells, "Spells", "F3"},
+	{pageChars, "Characters", "F4"},
+	{pageSkills, "Skills", "F5"},
+}
 
 type mapInfo struct {
 	Key    string
 	Config *config.MapConfig
 	Data   *world.MapData
 	Err    error
+	Header []string // leading "#" comment lines, preserved across save
+	EOL    string   // original line ending ("\r\n" or "\n"), preserved across save
 }
 
 type viewer struct {
@@ -56,10 +76,11 @@ type viewer struct {
 	saveError      string
 	lastErr        string
 
-	// Content page state.
-	contentItems  []contentCard
-	contentScroll int
-	iconCache     map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
+	// Content page state: per-page card lists and independent scroll offsets.
+	pageCards   map[int][]contentCard
+	pageScroll  map[int]int
+	charDetails []charDetail // Characters page (custom full-detail renderer)
+	iconCache   map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
 }
 
 // contentCard, contentKind, and the cardX constants live in content_cards.go.
@@ -75,6 +96,7 @@ const (
 	brushNone brushKind = iota
 	brushTile
 	brushMonster
+	brushNPC
 	brushEraser
 )
 
@@ -84,6 +106,8 @@ type brush struct {
 	tileKey     string
 	monsterKey  string
 	monsterName string
+	npcKey      string
+	npcName     string
 }
 
 type legendEntry struct {
@@ -93,6 +117,8 @@ type legendEntry struct {
 	TileKey     string
 	MonsterKey  string
 	MonsterName string
+	NPCKey      string
+	NPCName     string
 	IsHeader    bool
 }
 
@@ -159,6 +185,16 @@ func main() {
 	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
 		log.Printf("Warning: failed to load spells.yaml: %v", err)
 	}
+	// NPC defs drive the Characters page blurbs and the placeable-NPC legend.
+	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
+		log.Printf("Warning: failed to load npcs.yaml: %v", err)
+	}
+
+	// The Characters page instantiates each class via CreateCharacter, which
+	// builds starting equipment through the item/weapon accessors — wire them up
+	// (same bridge the game uses) so equipment names resolve.
+	bridge.SetupItemBridge()
+	bridge.SetupWeaponBridge()
 
 	maps, err := loadMaps(cfg)
 	if err != nil {
@@ -174,8 +210,14 @@ func main() {
 		tileManager:   world.GlobalTileManager,
 		monsterCfg:    monsterCfg,
 		brush:         brush{kind: brushEraser},
-		contentItems:  buildContentCards(),
-		iconCache:     make(map[string]*ebiten.Image),
+		pageCards: map[int][]contentCard{
+			pageItems:  buildItemsCards(),
+			pageSpells: buildSpellCards(),
+			pageSkills: buildSkillCards(),
+		},
+		pageScroll:  map[int]int{},
+		charDetails: buildCharacterDetails(cfg),
+		iconCache:   make(map[string]*ebiten.Image),
 	}
 	// Legend is biome-scoped to the current map (universal tiles/monsters
 	// plus the map biome's own); rebuilt whenever the map changes.
@@ -204,12 +246,11 @@ func (v *viewer) Update() error {
 		return ebiten.Termination
 	}
 
-	// Top-page switching: F1=Maps, F2=Items&Spells.
-	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
-		v.page = pageMaps
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
-		v.page = pageContent
+	// Top-page switching via F1..F5 (Maps / Items / Spells / Characters / Skills).
+	for i, def := range pageTabDefs {
+		if inpututil.IsKeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
+			v.page = def.page
+		}
 	}
 
 	// Page-bar click works on both pages. Consume the click here if it
@@ -223,29 +264,35 @@ func (v *viewer) Update() error {
 		}
 	}
 
-	if v.page == pageContent {
+	if v.page != pageMaps {
+		scroll := v.pageScroll[v.page]
 		_, wheelY := ebiten.Wheel()
 		if wheelY != 0 {
-			v.contentScroll -= int(wheelY * 30)
+			scroll -= int(wheelY * 30)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) {
-			v.contentScroll += 200
+			scroll += 200
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
-			v.contentScroll -= 200
+			scroll -= 200
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
-			v.contentScroll += 40
+			scroll += 40
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
-			v.contentScroll -= 40
+			scroll -= 40
 		}
-		if v.contentScroll < 0 {
-			v.contentScroll = 0
+		if scroll < 0 {
+			scroll = 0
 		}
-		if max := v.maxContentScroll(); v.contentScroll > max {
-			v.contentScroll = max
+		maxScroll := v.maxContentScroll()
+		if v.page == pageChars {
+			maxScroll = v.maxCharactersScroll()
 		}
+		if scroll > maxScroll {
+			scroll = maxScroll
+		}
+		v.pageScroll[v.page] = scroll
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			v.handlePageBarClick()
 		}
@@ -323,7 +370,11 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	v.drawPageBar(screen)
 
-	if v.page == pageContent {
+	if v.page == pageChars {
+		v.drawCharactersPage(screen)
+		return
+	}
+	if v.page != pageMaps {
 		v.drawContentPage(screen)
 		return
 	}
@@ -350,8 +401,80 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	drawToolbar(screen, lay, v.brush)
 	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileDataByKey, v.tileSpriteThumbnail)
 
+	if !v.saveDialogOpen {
+		drawNPCHoverTooltip(screen, m, lay)
+	}
+
 	if v.saveDialogOpen {
 		drawSaveDialog(screen, v.savePath, v.saveError)
+	}
+}
+
+// drawNPCHoverTooltip shows who an `@` marker is when the mouse is over a tile
+// holding an NPC spawn — name/type/description pulled from the shared npcs.yaml
+// config (no hardcoded list), so it stays in sync with the game.
+func drawNPCHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
+	if lay.tileSize <= 0 || m.Data == nil {
+		return
+	}
+	mouseX, mouseY := ebiten.CursorPosition()
+	mapW := lay.worldW * lay.tileSize
+	mapH := lay.worldH * lay.tileSize
+	if !pointInRect(mouseX, mouseY, lay.originX, lay.originY, mapW, mapH) {
+		return
+	}
+	tileX := (mouseX - lay.originX) / lay.tileSize
+	tileY := (mouseY - lay.originY) / lay.tileSize
+
+	for _, npc := range m.Data.NPCSpawns {
+		if npc.X != tileX || npc.Y != tileY {
+			continue
+		}
+		lines := []string{"@  " + npc.NPCKey}
+		if character.NPCConfigInstance != nil {
+			if def, ok := character.NPCConfigInstance.NPCs[npc.NPCKey]; ok {
+				if def.Name != "" {
+					lines[0] = "@  " + def.Name
+				}
+				if def.Type != "" {
+					lines = append(lines, "  ["+def.Type+"]")
+				}
+				if def.Description != "" {
+					lines = append(lines, "")
+					lines = append(lines, wrapTooltipLines(def.Description, 64)...)
+				}
+			}
+		}
+
+		const lineH = 14
+		maxLineW := 0
+		for _, ln := range lines {
+			if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
+				maxLineW = w
+			}
+		}
+		boxW := maxLineW + 16
+		boxH := len(lines)*lineH + 12
+		boxX := mouseX + 16
+		boxY := mouseY + 12
+		if boxX+boxW > windowWidth-4 {
+			boxX = mouseX - boxW - 8
+		}
+		if boxX < 4 {
+			boxX = 4
+		}
+		if boxY+boxH > windowHeight-4 {
+			boxY = windowHeight - boxH - 4
+		}
+		if boxY < 4 {
+			boxY = 4
+		}
+		drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
+		drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{200, 180, 60, 255})
+		for i, ln := range lines {
+			ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
+		}
+		return
 	}
 }
 
@@ -752,6 +875,8 @@ func legendSwatchColor(entry legendEntry, tileDataByKey map[string]*config.TileD
 		return floorColor, true
 	case brushMonster:
 		return color.RGBA{200, 60, 60, 255}, true // monsters render as red markers on the map
+	case brushNPC:
+		return color.RGBA{255, 220, 0, 255}, true // NPCs render as yellow @ markers on the map
 	}
 	return color.RGBA{}, false
 }
@@ -805,6 +930,11 @@ func formatBrushLabel(b brush) string {
 			return fmt.Sprintf("Monster %s (%s)", b.letter, b.monsterKey)
 		}
 		return fmt.Sprintf("Monster %s", b.letter)
+	case brushNPC:
+		if b.npcName != "" {
+			return fmt.Sprintf("NPC @ (%s)", b.npcName)
+		}
+		return fmt.Sprintf("NPC @ (%s)", b.npcKey)
 	default:
 		return "None"
 	}
@@ -821,6 +951,8 @@ func brushMatchesEntry(b brush, entry legendEntry) bool {
 		return entry.Kind == brushTile && entry.Letter == b.letter && entry.TileKey == b.tileKey
 	case brushMonster:
 		return entry.Kind == brushMonster && entry.MonsterKey == b.monsterKey
+	case brushNPC:
+		return entry.Kind == brushNPC && entry.NPCKey == b.npcKey
 	default:
 		return false
 	}
@@ -881,9 +1013,16 @@ func (v *viewer) saveCurrentMap() error {
 		return fmt.Errorf("empty path")
 	}
 	m := v.maps[v.mapIndex]
-	lines, err := encodeMapLines(&m, v.tileManager)
+	gridLines, err := encodeMapLines(&m, v.tileManager)
 	if err != nil {
 		return err
+	}
+	// Preserve the original "#" comment header and line-ending style for a
+	// lossless round-trip.
+	lines := append(append([]string{}, m.Header...), gridLines...)
+	eol := m.EOL
+	if eol == "" {
+		eol = "\n"
 	}
 
 	path := v.savePath
@@ -896,7 +1035,7 @@ func (v *viewer) saveCurrentMap() error {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	return os.WriteFile(path, []byte(strings.Join(lines, eol)+eol), 0o644)
 }
 
 func drawSaveDialog(screen *ebiten.Image, path, errMsg string) {
@@ -928,6 +1067,8 @@ func brushFromEntry(entry legendEntry) brush {
 		return brush{kind: brushTile, letter: entry.Letter, tileKey: entry.TileKey}
 	case brushMonster:
 		return brush{kind: brushMonster, letter: entry.Letter, monsterKey: entry.MonsterKey, monsterName: entry.MonsterName}
+	case brushNPC:
+		return brush{kind: brushNPC, letter: "@", npcKey: entry.NPCKey, npcName: entry.NPCName}
 	default:
 		return brush{kind: brushNone}
 	}
@@ -988,6 +1129,16 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 				X:          tx,
 				Y:          ty,
 				MonsterKey: v.brush.monsterKey,
+			})
+		}
+	case brushNPC:
+		// NPC sits on empty ground; saved as an `@` bound to the npc key.
+		v.setTile(m, tx, ty, ".")
+		if v.brush.npcKey != "" {
+			m.Data.NPCSpawns = append(m.Data.NPCSpawns, world.NPCSpawn{
+				X:      tx,
+				Y:      ty,
+				NPCKey: v.brush.npcKey,
 			})
 		}
 	}
@@ -1167,7 +1318,9 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 
 		line := string(row)
 		if len(defs) > 0 {
-			line += "  > " + strings.Join(defs, ", ")
+			// Match the canonical format: two spaces, ">", then comma-joined defs
+			// (the ">" prefixes only the first def). Loader tolerates either way.
+			line += "  >" + strings.Join(defs, ", ")
 		}
 		lines = append(lines, line)
 	}
@@ -1289,6 +1442,29 @@ func getMapTileColor(tile world.TileType3D, floorColor color.RGBA, tm *world.Til
 	}
 }
 
+// readMapHeaderAndEOL reads a .map file's leading "#" comment block (the header)
+// and detects its line-ending style, so saving can preserve both. Defaults to
+// LF and no header if the file can't be read.
+func readMapHeaderAndEOL(path string) (header []string, eol string) {
+	eol = "\n"
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, eol
+	}
+	if strings.Contains(string(raw), "\r\n") {
+		eol = "\r\n"
+	}
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "#") {
+			header = append(header, line)
+			continue
+		}
+		break // header is the leading comment block only
+	}
+	return header, eol
+}
+
 func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 	wm := world.NewWorldManager(cfg)
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
@@ -1307,11 +1483,14 @@ func loadMaps(cfg *config.Config) ([]mapInfo, error) {
 		loader := world.NewMapLoaderWithBiome(cfg, mapCfg.Biome)
 		mapPath := filepath.Join("assets", mapCfg.File)
 		data, err := loader.LoadMap(mapPath)
+		header, eol := readMapHeaderAndEOL(mapPath)
 		maps = append(maps, mapInfo{
 			Key:    key,
 			Config: mapCfg,
 			Data:   data,
 			Err:    err,
+			Header: header,
+			EOL:    eol,
 		})
 	}
 
@@ -1456,6 +1635,33 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		entries = append(entries, emitBiomeScoped(monsterItems)...)
 	}
 
+	// Special NPCs (quest givers, encounters, merchants, portals, …) — every NPC
+	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
+	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
+	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, legendEntry{Text: "Special NPCs (@ -> key/name)", IsHeader: true})
+		npcKeys := make([]string, 0, len(character.NPCConfigInstance.NPCs))
+		for key := range character.NPCConfigInstance.NPCs {
+			npcKeys = append(npcKeys, key)
+		}
+		sort.Strings(npcKeys)
+		for _, key := range npcKeys {
+			data := character.NPCConfigInstance.NPCs[key]
+			name := key
+			if data != nil && data.Name != "" {
+				name = data.Name
+			}
+			entries = append(entries, legendEntry{
+				Text:    fmt.Sprintf("@  %s (%s)", key, name),
+				Kind:    brushNPC,
+				Letter:  "@",
+				NPCKey:  key,
+				NPCName: name,
+			})
+		}
+	}
+
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "Notes", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "+ = start position", IsHeader: true})
@@ -1482,6 +1688,29 @@ func colorFromRGB(rgb [3]int, a uint8) color.RGBA {
 
 func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
+}
+
+// drawImageScaled scales src into the w×h box at (x,y). Mirrors the game's
+// helper (ui_helpers.go): linear filtering when SHRINKING (mipmaps) so thin
+// baked-in details/frames aren't dropped, nearest when upscaling so pixel art
+// stays crisp. Used for sprite icons and portraits so the editor renders them
+// exactly like the game (no "squished"/clipped look from nearest downscaling).
+func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
+	if src == nil || w <= 0 || h <= 0 {
+		return
+	}
+	b := src.Bounds()
+	sw, sh := b.Dx(), b.Dy()
+	if sw <= 0 || sh <= 0 {
+		return
+	}
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(float64(w)/float64(sw), float64(h)/float64(sh))
+	opts.GeoM.Translate(float64(x), float64(y))
+	if w < sw || h < sh {
+		opts.Filter = ebiten.FilterLinear
+	}
+	dst.DrawImage(src, opts)
 }
 
 func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.RGBA) {

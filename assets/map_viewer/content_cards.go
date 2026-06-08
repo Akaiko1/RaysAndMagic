@@ -12,7 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/items"
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -39,16 +41,15 @@ const (
 	cardWeapon contentKind = iota
 	cardItem
 	cardSpell
+	cardSkill
 )
 
-// buildContentCards walks the loaded YAML configs and assembles a flat list
-// of cards grouped by section. Order of sections is fixed; within a section
-// cards are sorted by name. Runs once at startup.
-func buildContentCards() []contentCard {
+// buildItemsCards assembles the Items page: weapons (by category) followed by
+// items (armor/accessory/consumable/quest). Runs once at startup.
+func buildItemsCards() []contentCard {
 	var cards []contentCard
 	cards = append(cards, buildWeaponCards()...)
 	cards = append(cards, buildItemCards()...)
-	cards = append(cards, buildSpellCards()...)
 	return cards
 }
 
@@ -141,12 +142,14 @@ func buildItemCards() []contentCard {
 	return cards
 }
 
+// buildSpellCards groups spells BY SCHOOL (canonical order from the character
+// package), and within each school sorts by spell level then name. Battle and
+// utility spells are mixed together — the school is the only grouping.
 func buildSpellCards() []contentCard {
 	if config.GlobalSpells == nil {
 		return nil
 	}
-	battleBySchool := map[string][]string{}
-	utilityBySchool := map[string][]string{}
+	bySchool := map[string][]string{}
 	for key, def := range config.GlobalSpells.Spells {
 		if def == nil {
 			continue
@@ -155,33 +158,43 @@ func buildSpellCards() []contentCard {
 		if school == "" {
 			school = "spell"
 		}
-		if def.IsUtility {
-			utilityBySchool[school] = append(utilityBySchool[school], key)
-		} else {
-			battleBySchool[school] = append(battleBySchool[school], key)
-		}
+		bySchool[school] = append(bySchool[school], key)
 	}
-	emit := func(cards []contentCard, prefix string, group map[string][]string) []contentCard {
-		schools := make([]string, 0, len(group))
-		for s := range group {
-			schools = append(schools, s)
-		}
-		sort.Strings(schools)
-		for _, school := range schools {
-			keys := group[school]
-			sort.SliceStable(keys, func(i, j int) bool {
-				return config.GlobalSpells.Spells[keys[i]].Name < config.GlobalSpells.Spells[keys[j]].Name
-			})
-			section := prefix + " — " + titleCase(school)
-			for _, key := range keys {
-				cards = append(cards, spellCard(section, key, config.GlobalSpells.Spells[key]))
-			}
-		}
-		return cards
-	}
+
 	var cards []contentCard
-	cards = emit(cards, "Battle Spells", battleBySchool)
-	cards = emit(cards, "Utility Spells", utilityBySchool)
+	seen := map[string]bool{}
+	emitSchool := func(school string) {
+		keys := bySchool[school]
+		if len(keys) == 0 {
+			return
+		}
+		sort.SliceStable(keys, func(i, j int) bool {
+			a, b := config.GlobalSpells.Spells[keys[i]], config.GlobalSpells.Spells[keys[j]]
+			if a.Level != b.Level {
+				return a.Level < b.Level
+			}
+			return a.Name < b.Name
+		})
+		section := titleCase(school)
+		for _, key := range keys {
+			cards = append(cards, spellCard(section, key, config.GlobalSpells.Spells[key]))
+		}
+		seen[school] = true
+	}
+	// Canonical school order first, then any leftover schools alphabetically.
+	for _, s := range character.AllMagicSchools {
+		emitSchool(string(s))
+	}
+	rest := make([]string, 0)
+	for s := range bySchool {
+		if !seen[s] {
+			rest = append(rest, s)
+		}
+	}
+	sort.Strings(rest)
+	for _, s := range rest {
+		emitSchool(s)
+	}
 	return cards
 }
 
@@ -355,7 +368,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	// YAML field — so display the formula's output here, not whatever the
 	// designer wrote in a stale `damage:` line.
 	baseDamage := 0
-	if def.IsProjectile {
+	if def.IsProjectile && !def.DealsNoDamage { // no-damage projectiles (Charm/Disintegrate) deal nothing
 		baseDamage = def.SpellPointsCost * spells.SpellDamagePerSP
 	}
 
@@ -379,9 +392,6 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	if baseDamage > 0 {
 		rows = appendRow(rows, "Base damage", fmt.Sprintf("%d  (cost × %d)", baseDamage, spells.SpellDamagePerSP))
 	}
-	if def.AoeRadiusTiles > 0 {
-		rows = appendRow(rows, "AoE radius", fmt.Sprintf("%.1f tiles", def.AoeRadiusTiles))
-	}
 	if def.HealAmount > 0 {
 		rows = appendRow(rows, "Base healing", fmt.Sprintf("%d", def.HealAmount))
 	}
@@ -391,25 +401,15 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	if def.StatBonus > 0 {
 		rows = appendRow(rows, "Stat bonus", fmt.Sprintf("+%d to all stats", def.StatBonus))
 	}
-	if def.DisintegrateChance > 0 {
-		rows = appendRow(rows, "Disintegrate chance", fmt.Sprintf("%.0f%%", def.DisintegrateChance*100))
-	}
 	if def.IsProjectile {
 		rows = appendRow(rows, "Type", "Projectile (offensive)")
 	} else if def.IsUtility {
 		rows = appendRow(rows, "Type", "Utility")
 	}
-	if def.TargetSelf {
-		rows = appendRow(rows, "Target", "Self only")
-	}
-	if def.WaterWalk {
-		rows = appendRow(rows, "Effect", "Walk on water")
-	}
-	if def.WaterBreathing {
-		rows = appendRow(rows, "Effect", "Underwater breathing")
-	}
-	if def.Awaken {
-		rows = appendRow(rows, "Effect", "Awaken party")
+	// Character-independent mechanics — SAME source as the in-game tooltip
+	// (spells.EffectLines), so the editor can never drift to a stale/partial list.
+	if sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key)); err == nil {
+		rows = append(rows, sd.EffectLines()...)
 	}
 
 	return contentCard{
@@ -421,6 +421,60 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		description: def.Description,
 		tooltipRows: rows,
 	}
+}
+
+// --- Characters page ---------------------------------------------------------
+//
+// The class list, skill list, class blurbs and skill descriptions are NOT
+// duplicated here — they come from the shared `character` package
+// (PlayableClasses, AllSkills, CharacterClass.Blurb, SkillType.Description/
+// Category), so adding a class or skill to the game updates the editor too.
+
+// equipSlotOrder is the order starting equipment is listed on a character card.
+var equipSlotOrder = []struct {
+	slot  items.EquipSlot
+	label string
+}{
+	{items.SlotMainHand, "Weapon"},
+	{items.SlotSpell, "Spell"},
+	{items.SlotOffHand, "Off-hand"},
+	{items.SlotArmor, "Armor"},
+	{items.SlotHelmet, "Helmet"},
+	{items.SlotBoots, "Boots"},
+	{items.SlotGauntlets, "Gauntlets"},
+	{items.SlotBelt, "Belt"},
+	{items.SlotCloak, "Cloak"},
+	{items.SlotAmulet, "Amulet"},
+	{items.SlotRing1, "Ring"},
+	{items.SlotRing2, "Ring"},
+}
+
+func spellDisplayName(key string) string {
+	if config.GlobalSpells != nil {
+		if def, ok := config.GlobalSpells.Spells[key]; ok && def != nil && def.Name != "" {
+			return def.Name
+		}
+	}
+	return key
+}
+
+// --- Skills page -------------------------------------------------------------
+
+// buildSkillCards renders every skill straight from the shared character
+// catalog (character.AllSkills + SkillType.Category/Description), so the editor
+// never maintains its own copy of the list or the descriptions.
+func buildSkillCards() []contentCard {
+	var cards []contentCard
+	for _, st := range character.AllSkills {
+		cards = append(cards, contentCard{
+			kind:        cardSkill,
+			section:     st.Category() + " Skills",
+			key:         strings.ToLower(strings.ReplaceAll(st.String(), " ", "_")),
+			name:        st.String(),
+			description: st.Description(),
+		})
+	}
+	return cards
 }
 
 func appendRow(rows []string, label, value string) []string {
@@ -470,6 +524,11 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 // iconForCard loads the per-card sprite by naming convention
 // (assets/sprites/interface/icon_<kind>_<key>.png). Returns nil if no file.
 func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
+	// Skills have no art (the card renderer draws a placeholder box).
+	if c.kind == cardSkill {
+		return nil
+	}
+
 	var prefix string
 	switch c.kind {
 	case cardWeapon:

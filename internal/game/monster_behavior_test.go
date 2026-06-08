@@ -303,15 +303,18 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("day_of_the_gods cast failed")
 	}
-	if !game.dayGodsActive || game.dayGodsResistPct != 50 {
-		t.Fatalf("expected 50%% resist active, got active=%v pct=%d", game.dayGodsActive, game.dayGodsResistPct)
+	if got := game.combatBuffResistPct(); got != 50 {
+		t.Fatalf("expected 50%% resist active, got %d", got)
 	}
-	if got := game.combat.mitigateIncoming(100); got != 50 {
+	// Day of the Gods boosts every school's resist → 100 fire → 50 on a member.
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 50 {
 		t.Errorf("100 incoming with 50%% resist should be 50, got %d", got)
 	}
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
-	if want := def.Duration * game.config.GetTPS(); game.dayGodsDuration != want {
-		t.Errorf("duration frames: got %d, want %d (%ds × TPS)", game.dayGodsDuration, want, def.Duration)
+	buff, ok := game.combatBuffByID("day_of_the_gods")
+	if want := def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds × TPS)", buff.Frames, ok, want, def.Duration)
 	}
 }
 
@@ -322,13 +325,14 @@ func TestHourOfPower_DamageBuffs(t *testing.T) {
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if !game.hourPowerActive || game.hourPowerOutBonus != 15 || game.hourPowerInReduce != 5 {
-		t.Fatalf("hour_of_power: active=%v out=%d in=%d (want true/15/5)", game.hourPowerActive, game.hourPowerOutBonus, game.hourPowerInReduce)
+	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 15 || in != 5 {
+		t.Fatalf("hour_of_power: out=%d in=%d (want 15/5)", out, in)
 	}
-	if got := game.combat.mitigateIncoming(10); got != 5 {
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 5 {
 		t.Errorf("10 incoming -5 should be 5, got %d", got)
 	}
-	if got := game.combat.mitigateIncoming(3); got != 0 {
+	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 0 {
 		t.Errorf("3 incoming -5 should floor at 0, got %d", got)
 	}
 }
@@ -340,41 +344,69 @@ func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 → 50% reduction → 50 → flat -5 → 45
-	if got := game.combat.mitigateIncoming(100); got != 45 {
+	// 100 fire → 50% resist → 50 → flat -5 → 45
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 45 {
 		t.Errorf("100 with 50%% resist then -5 should be 45, got %d", got)
 	}
 }
 
 // Bind Undead only charms undead; the living are immune. Also checks the spell
 // is a no-damage charm in YAML.
-func TestBindUndead_CharmsUndeadOnly(t *testing.T) {
+func TestBindUndead_BindsUndeadOnly(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cfg := game.config
 	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	gob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 
-	game.combat.applyCharm(skel, 300, "Bind Undead")
-	game.combat.applyCharm(gob, 300, "Bind Undead")
+	// bind_undead: undead only, takes control to fight others.
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
+	game.combat.applyBindUndead(gob, 300, "Bind Undead")
 
-	if !skel.Charmed {
-		t.Errorf("undead skeleton should be charmed")
+	if !skel.Bound {
+		t.Errorf("undead skeleton should be bound")
 	}
-	if skel.CharmFramesRemaining != 300*cfg.GetTPS() {
-		t.Errorf("charm frames: got %d, want %d", skel.CharmFramesRemaining, 300*cfg.GetTPS())
+	if skel.BoundFramesRemaining != 300*cfg.GetTPS() {
+		t.Errorf("bind frames: got %d, want %d", skel.BoundFramesRemaining, 300*cfg.GetTPS())
 	}
-	if gob.Charmed {
-		t.Errorf("living goblin must NOT be charmable")
+	if gob.Bound {
+		t.Errorf("living goblin must NOT be bindable by bind_undead")
 	}
 
 	def, _ := spells.GetSpellDefinitionByID("bind_undead")
-	if !def.Charm || !def.DealsNoDamage {
-		t.Errorf("bind_undead should be a no-damage charm spell (charm=%v, noDmg=%v)", def.Charm, def.DealsNoDamage)
+	if !def.BindUndead || !def.DealsNoDamage {
+		t.Errorf("bind_undead should be a no-damage bind spell (bind=%v, noDmg=%v)", def.BindUndead, def.DealsNoDamage)
 	}
 }
 
-// A charmed undead attacks the nearest other monster and never the party.
-func TestBindUndead_CharmedFightsOtherMonsterNotParty(t *testing.T) {
+// Charm (living/pacify): only the LIVING are affected and they are pacified
+// (stop attacking); a pacified monster snaps free the instant it is hit.
+func TestCharm_PacifiesLivingAndBreaksOnHit(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
+	gob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
+
+	// Charm: undead immune, living pacified.
+	game.combat.applyPacify(skel, 120, "Charm")
+	game.combat.applyPacify(gob, 120, "Charm")
+
+	if skel.Pacified {
+		t.Errorf("undead skeleton must NOT be pacified by Charm")
+	}
+	if !gob.Pacified {
+		t.Fatalf("living goblin should be pacified, got pacified=%v", gob.Pacified)
+	}
+
+	// Any hit frees the pacified goblin.
+	game.combat.breakPacifyOnHit(gob)
+	if gob.Pacified {
+		t.Errorf("a hit should free the pacified goblin, got pacified=%v", gob.Pacified)
+	}
+}
+
+// A bound undead attacks the nearest other monster and never the party.
+func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	// Both monsters far from the player (out of vision), adjacent to each other.
@@ -383,17 +415,356 @@ func TestBindUndead_CharmedFightsOtherMonsterNotParty(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{skel, gob}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.combat.applyCharm(skel, 300, "Bind Undead")
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 	gobHP0 := gob.HitPoints
 	partyHP0 := partyHPSum(game)
 
+	game.refreshBoundUndeadCache() // mirrors updateExploration: sets AIFoe before the turn
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
-		t.Errorf("charmed skeleton should have struck the goblin (HP %d -> %d)", gobHP0, gob.HitPoints)
+		t.Errorf("bound skeleton should have struck the goblin (HP %d -> %d)", gobHP0, gob.HitPoints)
 	}
 	if partyHPSum(game) != partyHP0 {
-		t.Errorf("charmed undead must never damage the party")
+		t.Errorf("bound undead must never damage the party")
+	}
+}
+
+// alien_dark_bolt is a monster-only projectile (the alien's attack) and must
+// never appear in a player-learnable school list — e.g. the Lich Dark picks.
+func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
+	loadTestConfig(t)
+	dark, err := spells.GetSpellIDsBySchool("dark")
+	if err != nil {
+		t.Fatalf("dark school lookup: %v", err)
+	}
+	var hasBolt, hasAlien bool
+	for _, id := range dark {
+		switch id {
+		case spells.SpellID("darkbolt"):
+			hasBolt = true
+		case spells.SpellID("alien_dark_bolt"):
+			hasAlien = true
+		}
+	}
+	if hasAlien {
+		t.Errorf("alien_dark_bolt is monster_only and must not be a learnable Dark spell")
+	}
+	if !hasBolt {
+		t.Errorf("regular darkbolt should still be a learnable Dark spell")
+	}
+}
+
+// Real-time crossfire melee must connect even from a DIAGONAL tile (~1.41 tiles):
+// a bound undead and a mob diagonally adjacent should trade blows, not stand one
+// pixel out of reach forever (the can't-reach bug).
+func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 5, 5, ts) // far — the two monsters only see each other
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(float64(20)*ts+ts/2, float64(20)*ts+ts/2, "skeleton", cfg)
+	gob := monster.NewMonster3DFromConfig(float64(21)*ts+ts/2, float64(21)*ts+ts/2, "goblin", cfg) // diagonal neighbour
+	skel.MaxHitPoints, skel.HitPoints = 300, 300
+	gob.MaxHitPoints, gob.HitPoints = 300, 300
+	game.world.Monsters = []*monster.Monster3D{skel, gob}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
+
+	skelHP0, gobHP0 := skel.HitPoints, gob.HitPoints
+	game.refreshBoundUndeadCache()
+	game.combat.HandleMonsterInteractions()
+
+	if gob.HitPoints >= gobHP0 {
+		t.Errorf("bound undead should strike the diagonally-adjacent enemy (HP %d -> %d)", gobHP0, gob.HitPoints)
+	}
+	if skel.HitPoints >= skelHP0 {
+		t.Errorf("mob should strike the diagonally-adjacent bound undead (HP %d -> %d)", skelHP0, skel.HitPoints)
+	}
+}
+
+// monsterAITargetPoint redirects charmed monsters off the party: a pacified
+// charm holds position, a bound undead seeks the nearest enemy, and a normal mob
+// is lured at a bound undead nearer than the party (but chases the party when no
+// bound undead is around).
+func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	cfg := game.config
+	tc := func(tx, ty int) (float64, float64) { return float64(tx)*ts + ts/2, float64(ty)*ts + ts/2 }
+
+	sx, sy := tc(12, 10)
+	gx, gy := tc(13, 10)
+	px, py := tc(10, 12)
+	fx, fy := tc(10, 30) // far enemy, away from any bound undead
+
+	skel := monster.NewMonster3DFromConfig(sx, sy, "skeleton", cfg) // bound undead
+	gob := monster.NewMonster3DFromConfig(gx, gy, "goblin", cfg)    // enemy 1 tile from skel, 3 from party
+	paci := monster.NewMonster3DFromConfig(px, py, "goblin", cfg)   // pacified living
+	far := monster.NewMonster3DFromConfig(fx, fy, "goblin", cfg)    // far enemy, no undead nearby
+	game.world.Monsters = []*monster.Monster3D{skel, gob, paci, far}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.combat.applyBindUndead(skel, 300, "Bind Undead") // bound undead
+	game.combat.applyPacify(paci, 120, "Charm")           // pacified living
+	game.refreshBoundUndeadCache()
+
+	if tx, ty := game.combat.monsterAITargetPoint(paci); tx != paci.X || ty != paci.Y {
+		t.Errorf("pacified charm should hold position (%.0f,%.0f), got (%.0f,%.0f)", paci.X, paci.Y, tx, ty)
+	}
+	if tx, ty := game.combat.monsterAITargetPoint(skel); tx != gob.X || ty != gob.Y {
+		t.Errorf("bound undead should seek the enemy goblin (%.0f,%.0f), got (%.0f,%.0f)", gob.X, gob.Y, tx, ty)
+	}
+	if foe := game.combat.monsterAIFoeMonster(gob); foe != skel {
+		t.Errorf("a mob next to a bound undead should target it, got %v", foe)
+	}
+	if foe := game.combat.monsterAIFoeMonster(far); foe != nil {
+		t.Errorf("a mob with no bound undead near should target the party (nil foe), got %v", foe)
+	}
+	if tx, ty := game.combat.monsterAITargetPoint(far); tx != game.camera.X || ty != game.camera.Y {
+		t.Errorf("far mob should chase the party (%.0f,%.0f), got (%.0f,%.0f)", game.camera.X, game.camera.Y, tx, ty)
+	}
+}
+
+// A normal mob retaliates against a bound undead in its midst — they trade blows,
+// and the party is never touched.
+func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(float64(12)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
+	gob := monster.NewMonster3DFromConfig(float64(13)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg)
+	// Tough enough that one trade kills neither.
+	skel.MaxHitPoints, skel.HitPoints = 200, 200
+	gob.MaxHitPoints, gob.HitPoints = 200, 200
+	game.world.Monsters = []*monster.Monster3D{skel, gob}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
+	skelHP0, gobHP0, partyHP0 := skel.HitPoints, gob.HitPoints, partyHPSum(game)
+
+	game.refreshBoundUndeadCache()
+	runOneMonsterTurn(game, gl)
+
+	if gob.HitPoints >= gobHP0 {
+		t.Errorf("bound undead should have struck the mob (HP %d -> %d)", gobHP0, gob.HitPoints)
+	}
+	if skel.HitPoints >= skelHP0 {
+		t.Errorf("mob should have retaliated against the bound undead (HP %d -> %d)", skelHP0, skel.HitPoints)
+	}
+	if partyHPSum(game) != partyHP0 {
+		t.Errorf("neither combatant may touch the party")
+	}
+}
+
+// monsterStrikeMonster rewards the party only when an ENEMY falls — a bound ally
+// cut down by a mob yields nothing.
+func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cfg := game.config
+
+	// Bound undead slays an enemy → party gains XP.
+	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
+	enemy := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
+	enemy.HitPoints = 1
+	game.world.Monsters = []*monster.Monster3D{skel, enemy}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
+	xp0 := game.party.Members[0].Experience
+	game.combat.monsterStrikeMonster(skel, enemy)
+	if enemy.IsAlive() {
+		t.Fatalf("1-HP enemy should have died")
+	}
+	if game.party.Members[0].Experience <= xp0 {
+		t.Errorf("party should gain XP when a bound ally slays an enemy")
+	}
+
+	// A mob cuts down the bound undead → NO party XP (an ally died).
+	skel2 := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
+	skel2.HitPoints = 1
+	mob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
+	game.world.Monsters = []*monster.Monster3D{skel2, mob}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(skel2, 300, "Bind Undead")
+	xp1 := game.party.Members[0].Experience
+	game.combat.monsterStrikeMonster(mob, skel2)
+	if skel2.IsAlive() {
+		t.Fatalf("1-HP bound undead should have died")
+	}
+	if game.party.Members[0].Experience != xp1 {
+		t.Errorf("party must NOT gain XP when a bound ally is slain (was %d, now %d)", xp1, game.party.Members[0].Experience)
+	}
+}
+
+// A ranged bound undead (lich) looses a visible charmed-owned projectile at its
+// enemy instead of dealing instant damage; the bolt never threatens the party.
+func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	cfg := game.config
+	lich := monster.NewMonster3DFromConfig(float64(12)*ts+ts/2, float64(10)*ts+ts/2, "lich", cfg)
+	enemy := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg)
+	game.world.Monsters = []*monster.Monster3D{lich, enemy}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	if !lich.HasRangedAttack() {
+		t.Fatalf("lich should be a ranged attacker (projectile_spell in monsters.yaml)")
+	}
+	game.combat.applyBindUndead(lich, 300, "Bind Undead")
+
+	projCount := func() int { return len(game.magicProjectiles) + len(game.arrows) }
+	n0, enemyHP0, partyHP0 := projCount(), enemy.HitPoints, partyHPSum(game)
+
+	game.refreshBoundUndeadCache() // sets lich.AIFoe (= the enemy)
+	if !game.combat.boundAttackNearest(lich) {
+		t.Fatalf("bound lich should have acted against the enemy")
+	}
+	if projCount() != n0+1 {
+		t.Fatalf("bound lich should have fired exactly one projectile (was %d, now %d)", n0, projCount())
+	}
+	bolt := game.magicProjectiles[len(game.magicProjectiles)-1]
+	if bolt.Owner != ProjectileOwnerBoundUndead {
+		t.Errorf("lich bolt should be charmed-owned, got %v", bolt.Owner)
+	}
+	if bolt.VelX <= 0 {
+		t.Errorf("lich bolt should fly toward the enemy (+X), got VelX=%.2f", bolt.VelX)
+	}
+	if enemy.HitPoints != enemyHP0 {
+		t.Errorf("ranged bound undead must not deal instant damage; HP resolved on impact (%d -> %d)", enemyHP0, enemy.HitPoints)
+	}
+	// A charmed-owned bolt never damages the party.
+	game.combat.CheckProjectilePlayerCollisions()
+	if partyHPSum(game) != partyHP0 {
+		t.Errorf("charmed projectile must never damage the party")
+	}
+}
+
+// Crossfire symmetry: a ranged mob looses a visible bolt at the bound undead
+// (owner-tagged so it hits only the undead, never the party); the bolt resolves
+// as monster-vs-monster and grants NO party XP when a bound ally falls — but a
+// bound undead's bolt slaying an enemy DOES reward the party.
+func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	cfg := game.config
+
+	bandit := monster.NewMonster3DFromConfig(float64(12)*ts+ts/2, float64(10)*ts+ts/2, "bandit", cfg)
+	undead := monster.NewMonster3DFromConfig(float64(13)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
+	undead.MaxHitPoints, undead.HitPoints = 200, 200
+	game.world.Monsters = []*monster.Monster3D{bandit, undead}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(undead, 300, "Bind Undead")
+	if !bandit.HasRangedAttack() {
+		t.Fatalf("bandit should be a ranged mob")
+	}
+
+	// Mob fires an anti-undead bolt; it is tagged so it can only hit the undead.
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, undead, ProjectileOwnerMonsterAtBound) {
+		t.Fatalf("mob should have spawned a bolt")
+	}
+	bolt := &game.arrows[len(game.arrows)-1]
+	if bolt.Owner != ProjectileOwnerMonsterAtBound {
+		t.Errorf("mob bolt should be owner MonsterAtBound, got %v", bolt.Owner)
+	}
+
+	// Resolve the bolt on the bound undead → it takes damage, party gains NO XP.
+	xp0, undeadHP0 := game.party.Members[0].Experience, undead.HitPoints
+	game.combat.resolveMonsterProjectileVsMonster(bolt, "arrow", undead, bolt.ID)
+	if undead.HitPoints >= undeadHP0 {
+		t.Errorf("bound undead should take bolt damage (%d -> %d)", undeadHP0, undead.HitPoints)
+	}
+	if game.party.Members[0].Experience != xp0 {
+		t.Errorf("party must NOT gain XP for a bolt hitting a bound ally")
+	}
+
+	// A bound undead's bolt that slays an enemy DOES reward the party.
+	enemy := monster.NewMonster3DFromConfig(float64(20)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg)
+	enemy.HitPoints = 1
+	lich := monster.NewMonster3DFromConfig(float64(18)*ts+ts/2, float64(10)*ts+ts/2, "lich", cfg)
+	game.world.Monsters = append(game.world.Monsters, enemy, lich)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(lich, 300, "Bind Undead")
+	if !game.combat.spawnMonsterRangedAttackAtMonster(lich, enemy, ProjectileOwnerBoundUndead) {
+		t.Fatalf("lich should have spawned a bolt")
+	}
+	mbolt := &game.magicProjectiles[len(game.magicProjectiles)-1]
+	xp1 := game.party.Members[0].Experience
+	game.combat.resolveMonsterProjectileVsMonster(mbolt, "magic_projectile", enemy, mbolt.ID)
+	if enemy.IsAlive() {
+		t.Fatalf("1-HP enemy should die to the charmed bolt")
+	}
+	if game.party.Members[0].Experience <= xp1 {
+		t.Errorf("party should gain XP when a bound ally's bolt slays an enemy")
+	}
+}
+
+// In turn-based mode a bound undead actively HUNTS: it walks toward an enemy
+// that is out of reach and only strikes once it has closed to attack range
+// (no more hitting across the room, no standing still).
+func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 5, 5, ts) // far from the fight (>vision) so the enemy stays put
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(float64(10)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
+	enemy := monster.NewMonster3DFromConfig(float64(13)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg) // 3 tiles east
+	skel.MaxHitPoints, skel.HitPoints = 200, 200
+	enemy.MaxHitPoints, enemy.HitPoints = 200, 200
+	game.world.Monsters = []*monster.Monster3D{skel, enemy}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(skel, 300, "Bind Undead")
+	game.refreshBoundUndeadCache()
+
+	// Out of melee reach (3 tiles) → must NOT strike yet…
+	if game.combat.boundAttackNearest(skel) {
+		t.Errorf("bound melee undead should not strike from 3 tiles away")
+	}
+	// …but it should be seeking that enemy (its pursuit target is the enemy).
+	if tx, ty := game.combat.monsterAITargetPoint(skel); tx != enemy.X || ty != enemy.Y {
+		t.Errorf("bound undead should target the enemy to hunt it, got (%.0f,%.0f)", tx, ty)
+	}
+
+	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
+	for turn := 0; turn < 6; turn++ {
+		game.refreshBoundUndeadCache()
+		runOneMonsterTurn(game, gl)
+	}
+	if Distance(skel.X, skel.Y, enemy.X, enemy.Y) >= startDist {
+		t.Errorf("bound undead should have walked closer to the enemy (start %.0f)", startDist)
+	}
+	if enemy.HitPoints >= enemyHP0 {
+		t.Errorf("bound undead should have closed in and struck the enemy (HP still %d)", enemy.HitPoints)
+	}
+}
+
+// In real-time mode a bound undead also HUNTS: it walks toward an out-of-reach
+// enemy (overriding normal detection range) and only strikes once in range.
+func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 5, 5, ts) // far away — the bound undead, not the player, drives this
+	cfg := game.config
+	skel := monster.NewMonster3DFromConfig(float64(10)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
+	enemy := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg) // 4 tiles east, outside skel's alert radius
+	skel.MaxHitPoints, skel.HitPoints = 300, 300
+	enemy.MaxHitPoints, enemy.HitPoints = 300, 300
+	game.world.Monsters = []*monster.Monster3D{skel, enemy}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.combat.applyBindUndead(skel, 999, "Bind Undead")
+
+	mw := CreateMonsterWrapper(skel, game.collisionSystem, game)
+	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
+	for f := 0; f < 1500; f++ { // ~12s at 120 TPS — plenty to close 3 tiles and strike
+		game.refreshBoundUndeadCache()
+		mw.Update()
+		game.combat.HandleMonsterInteractions()
+		if enemy.HitPoints < enemyHP0 {
+			break
+		}
+	}
+	if Distance(skel.X, skel.Y, enemy.X, enemy.Y) >= startDist {
+		t.Errorf("bound undead should have walked closer in real time (start %.0f)", startDist)
+	}
+	if enemy.HitPoints >= enemyHP0 {
+		t.Errorf("bound undead should have hunted down and struck the enemy in real time")
 	}
 }
 
@@ -506,5 +877,31 @@ func TestRealTime_MeleeHitsAtExactlyOneTile(t *testing.T) {
 	game.combat.HandleMonsterInteractions()
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time melee should hit at exactly one tile (inclusive reach)")
+	}
+}
+
+// Switching modes clears per-character RT cooldowns so a cooldown set before a
+// turn-based fight doesn't gate RT actions afterwards.
+func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based
+	for _, m := range game.party.Members {
+		if m != nil {
+			m.RTCooldown = 600 // ~5s of frozen cooldown from a recent RT attack
+		}
+	}
+	game.spellInputCooldown = 50
+
+	game.ToggleTurnBasedMode() // TB → RT
+
+	if game.turnBasedMode {
+		t.Fatalf("expected real-time mode after the toggle")
+	}
+	for i, m := range game.party.Members {
+		if m != nil && m.RTCooldown != 0 {
+			t.Errorf("member %d RTCooldown should be cleared on mode switch, got %d", i, m.RTCooldown)
+		}
+	}
+	if game.spellInputCooldown != 0 {
+		t.Errorf("global input stagger should be cleared on mode switch, got %d", game.spellInputCooldown)
 	}
 }

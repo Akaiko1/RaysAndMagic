@@ -64,14 +64,14 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr
 
 // drawStatDistributionPopup draws the stat allocation popup for the selected character
 func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
-	// Bound to selectedChar so 1-4 keys / portrait clicks update the popup
-	// live. statPopupCharIdx is kept in sync at the open site (ui_hud.go) for
-	// any legacy reader; selectedChar is the source of truth here.
-	charIdx := ui.game.selectedChar
+	// Bound to statPopupCharIdx — the character whose "+" button was clicked
+	// (set at the open site in ui_hud.go). NOT selectedChar: in turn-based mode
+	// selectedChar tracks the active turn, so binding to it opened the wrong
+	// character's popup when you clicked "+" on someone who had already acted.
+	charIdx := ui.game.statPopupCharIdx
 	if charIdx < 0 || charIdx >= len(ui.game.party.Members) {
 		return
 	}
-	ui.game.statPopupCharIdx = charIdx
 	member := ui.game.party.Members[charIdx]
 
 	// Popup dimensions
@@ -528,47 +528,31 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 
 	// Draw encounter description
 	if npc.DialogueData != nil {
-		// Wrap long text
-		greeting := npc.DialogueData.Greeting
-		lines := ui.wrapText(greeting, 70)
+		// Body text is state-driven (offer greeting / in-progress / completed /
+		// concluded) — see npcDialogueText.
+		lines := ui.wrapText(ui.game.npcDialogueText(npc), 70)
 		for i, line := range lines {
 			ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+50+i*16)
 		}
 
-		// Draw choices if this is first visit or encounter is repeatable
-		if !npc.Visited || (npc.EncounterData != nil && !npc.EncounterData.FirstVisitOnly) {
-			choicesY := dialogY + 50 + len(lines)*16 + 20
-
+		// Only the choices valid in this state (give_quest while offering,
+		// turn_in_quest once completed, etc.) — same list the input handler acts on.
+		choices := ui.game.visibleNPCChoices(npc)
+		choicesY := dialogY + 50 + len(lines)*16 + 20
+		if len(choices) == 0 {
+			ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, choicesY)
+		} else {
 			if npc.DialogueData.ChoicePrompt != "" {
 				ebitenutil.DebugPrintAt(screen, npc.DialogueData.ChoicePrompt, dialogX+20, choicesY)
 				choicesY += 20
 			}
-
-			for i, choice := range npc.DialogueData.Choices {
+			for i, choice := range choices {
 				choiceY := choicesY + i*25
 				choiceText := fmt.Sprintf("%d. %s", i+1, choice.Text)
-
-				// Highlight selected choice
 				if i == ui.game.selectedChoice {
 					drawFilledRect(screen, dialogX+20, choiceY-2, dialogWidth-40, 20, color.RGBA{100, 100, 0, 128})
 				}
-
 				ebitenutil.DebugPrintAt(screen, choiceText, dialogX+25, choiceY)
-			}
-		} else {
-			// Already visited
-			visitedMessage := ""
-			if npc.DialogueData != nil {
-				visitedMessage = npc.DialogueData.VisitedMessage
-			}
-			if visitedMessage != "" {
-				lines := ui.wrapText(visitedMessage, 70)
-				for i, line := range lines {
-					ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+150+i*16)
-				}
-				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150+len(lines)*16+20)
-			} else {
-				ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, dialogY+150)
 			}
 		}
 	}
@@ -1295,8 +1279,35 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 	questY := contentY + 40
 	questHeight := 95 // Height of each quest entry (increased for wrapped text)
 	questWidth := 520
+	const questGap = 8
 
-	for _, quest := range allQuests {
+	// Paginate so a long quest log never spills past the panel. Reserve the
+	// bottom strip for the pager; fit as many whole entries as the panel allows.
+	const pagerH = 22
+	listTop := contentY + 40
+	listBottom := contentY + contentHeight - pagerH
+	pageSize := (listBottom - listTop) / (questHeight + questGap)
+	if pageSize < 1 {
+		pageSize = 1
+	}
+	totalPages := (len(allQuests) + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	// Clamp every frame so the page stays valid when quests are added/removed.
+	if ui.questPage >= totalPages {
+		ui.questPage = totalPages - 1
+	}
+	if ui.questPage < 0 {
+		ui.questPage = 0
+	}
+	pageStart := ui.questPage * pageSize
+	pageEnd := pageStart + pageSize
+	if pageEnd > len(allQuests) {
+		pageEnd = len(allQuests)
+	}
+
+	for _, quest := range allQuests[pageStart:pageEnd] {
 		// Draw quest background
 		// Different colors based on quest status
 		var bgColor color.RGBA
@@ -1335,8 +1346,9 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		// Bottom row: Progress on left, Rewards on right
 		bottomY := questY + 54
 
-		// Progress for kill quests
-		if quest.Definition.Type == "kill" {
+		// Progress for counted quests (kill / interact) — both advance a
+		// CurrentCount toward TargetCount, so they share the bar.
+		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 			progressText := quest.GetProgressString()
 			ebitenutil.DebugPrintAt(screen, progressText, panelX+30, bottomY)
 
@@ -1405,8 +1417,42 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			}
 		}
 
-		questY += questHeight + 8
+		questY += questHeight + questGap
 	}
+
+	ui.drawQuestPager(screen, panelX+20, contentY+contentHeight-pagerH, questWidth, totalPages)
+}
+
+// drawQuestPager draws "Page X/Y" plus prev/next buttons under the quest list
+// and handles their clicks. No-op when every quest fits on one page.
+func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages int) {
+	if totalPages <= 1 {
+		return
+	}
+	const btnW, btnH = 30, 18
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	drawBtn := func(bx int, label string, enabled bool) bool {
+		bg := color.RGBA{70, 50, 30, 210}
+		switch {
+		case !enabled:
+			bg = color.RGBA{45, 40, 38, 160}
+		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
+			bg = color.RGBA{120, 90, 50, 230}
+		}
+		drawFilledRect(screen, bx, y, btnW, btnH, bg)
+		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
+		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
+		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	}
+
+	if drawBtn(x, "<", ui.questPage > 0) {
+		ui.questPage--
+	}
+	if drawBtn(x+width-btnW, ">", ui.questPage < totalPages-1) {
+		ui.questPage++
+	}
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, btnH-2)
 }
 
 // characterKnowsSpell checks if a character already knows a spell
@@ -1415,34 +1461,36 @@ func (ui *UISystem) characterCanLearnSpell(char *character.MMCharacter, spellDat
 	return canCharacterLearnNPCSpell(char, spellData)
 }
 
-// claimQuestReward claims the reward for a completed quest
+// claimQuestReward claims the reward for a completed quest (UI journal entry).
 func (ui *UISystem) claimQuestReward(questID string) {
-	if ui.game.questManager == nil {
-		return
-	}
+	ui.game.claimQuestReward(questID)
+}
 
-	rewards, err := ui.game.questManager.ClaimRewards(questID)
+// claimQuestReward claims a completed quest's reward: gold + shared XP, marking it
+// claimed. Single source of truth for both the quest journal (J) and an NPC
+// turn-in, so the two can't diverge. Returns true if a reward was actually paid.
+func (g *MMGame) claimQuestReward(questID string) bool {
+	if g.questManager == nil {
+		return false
+	}
+	rewards, err := g.questManager.ClaimRewards(questID)
 	if err != nil {
-		ui.game.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
-		return
+		g.AddCombatMessage(fmt.Sprintf("Cannot claim reward: %s", err.Error()))
+		return false
 	}
-
-	// Award gold
 	if rewards.Gold > 0 {
-		ui.game.party.Gold += rewards.Gold
+		g.party.Gold += rewards.Gold
 	}
-
-	// Award experience via the single XP source so Learning bonuses and bench
-	// training apply (active party, reserve, and captives all share quest XP).
+	// Single XP source so Learning bonuses and bench training apply (active party,
+	// reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
-		ui.game.grantSharedXP(rewards.Experience)
+		g.grantSharedXP(rewards.Experience)
 	}
-
-	quest := ui.game.questManager.GetQuest(questID)
-	if quest != nil {
-		ui.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
+	if quest := g.questManager.GetQuest(questID); quest != nil {
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
 			quest.Definition.Name, rewards.Gold, rewards.Experience))
 	}
+	return true
 }
 
 // truncateName truncates a name to maxLen characters

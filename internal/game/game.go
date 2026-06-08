@@ -17,6 +17,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
+	"ugataima/internal/items"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -36,6 +37,12 @@ type ProjectileOwner int
 const (
 	ProjectileOwnerPlayer ProjectileOwner = iota
 	ProjectileOwnerMonster
+	// ProjectileOwnerBoundUndead is a bound undead's projectile: it damages enemy
+	// (non-controlled) monsters, but never the party or other controlled allies.
+	ProjectileOwnerBoundUndead
+	// ProjectileOwnerMonsterAtBound is an enemy mob's projectile aimed at a
+	// bound undead: it damages ONLY bound monsters (the undead), never the party.
+	ProjectileOwnerMonsterAtBound
 )
 
 // InteractionDistance is the max range (in world units, ~2 tiles) for the
@@ -107,6 +114,7 @@ type SpellHitParticle struct {
 	LifeTime         int     // Frames remaining
 	MaxLife          int     // Initial lifetime for alpha calculation
 	Size             int     // Particle size (shrinks over time)
+	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
 	Active           bool
 }
 
@@ -229,16 +237,19 @@ type MMGame struct {
 	blessDuration  int  // Remaining duration in frames
 	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
 
-	// Day of the Gods — party-wide % incoming-damage reduction
-	dayGodsActive    bool
-	dayGodsDuration  int // frames remaining
-	dayGodsResistPct int // % reduction applied to all incoming damage while active
+	// Stacking timed party combat buffs (Day of the Gods, Hour of Power, Stone
+	// Skin, Heroism, …) — see combat_buffs.go. Their ResistPct/OutBonus/InReduce
+	// sum across all active entries.
+	combatBuffs []TimedCombatBuff
 
-	// Hour of Power — party-wide outgoing-damage bonus + flat incoming reduction
-	hourPowerActive   bool
-	hourPowerDuration int // frames remaining
-	hourPowerOutBonus int // flat bonus added to all party outgoing damage
-	hourPowerInReduce int // flat reduction subtracted from incoming damage (floors at 0)
+	// Persistent damage zones (Hot Steam) — see combat_zones.go.
+	steamZones []SteamZone
+
+	// boundUndead caches the bound undead (bind_undead) present this frame so the
+	// per-monster AI-target lookup can let normal mobs turn on them without an
+	// O(n²) scan in the common (no-bind) case. Rebuilt each frame before the
+	// monster update; see refreshBoundUndeadCache.
+	boundUndead []*monster.Monster3D
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -274,8 +285,10 @@ type MMGame struct {
 	combatMessages []string
 	maxMessages    int
 
-	// Damage blink effects
-	damageBlinkTimers [4]int // One timer per party member (0-3)
+	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
+	// spark/heal. One table instead of four parallel arrays — see cardFx and
+	// triggerCardFx. Indexed [effect][memberIndex].
+	cardFxTimers [cardFxCount][4]int
 
 	// Multi-threading components
 	threading *threading.ThreadingComponents
@@ -399,6 +412,15 @@ type FirstPersonCamera struct {
 
 func NewMMGame(cfg *config.Config) *MMGame {
 	sprites := graphics.NewSpriteManager()
+	// Load-time color key: make stray magenta (from imperfect sprite background
+	// removal) transparent. Data-driven via config; [0,0,0]/absent key → magenta.
+	if ck := cfg.Graphics.ColorKey; ck.Enabled {
+		r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
+		if r == 0 && g == 0 && b == 0 {
+			r, g, b = 255, 0, 255 // default key = magenta
+		}
+		sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
+	}
 
 	// Get world from WorldManager instead of creating new one
 	currentWorld := world.GlobalWorldManager.GetCurrentWorld()
@@ -881,18 +903,67 @@ func (g *MMGame) GetCombatMessages() []string {
 	return g.combatMessages
 }
 
-// TriggerDamageBlink triggers the red blink effect for a specific character
-func (g *MMGame) TriggerDamageBlink(characterIndex int) {
-	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
-		g.damageBlinkTimers[characterIndex] = g.config.UI.DamageBlinkFrames
+// cardFx identifies a party-card overlay effect tracked per member in
+// cardFxTimers. Durations: blink uses the config value, the rest the consts.
+type cardFx int
+
+const (
+	fxBlink cardFx = iota // red damage flash (portrait tint)
+	fxFlame               // Inferno scorch flames
+	fxSpark               // whole-card red flash + spark burst on a hit
+	fxHeal                // rising green "+" on a heal
+	cardFxCount
+)
+
+// HitSparkFrames is how long the hit feedback (whole-card red flash + spark
+// burst) plays on a party card after the member takes a hit.
+const HitSparkFrames = 18
+
+// PartyFlameFrames is how long the Inferno flame overlay burns on a card.
+const PartyFlameFrames = 45
+
+// HealEffectFrames is how long the rising green "+" overlay plays on a card.
+const HealEffectFrames = 48
+
+// triggerCardFx lights one card overlay on one member for `frames` frames.
+func (g *MMGame) triggerCardFx(fx cardFx, characterIndex, frames int) {
+	if characterIndex >= 0 && characterIndex < len(g.cardFxTimers[fx]) {
+		g.cardFxTimers[fx][characterIndex] = frames
 	}
 }
 
-// UpdateDamageBlinkTimers decrements damage blink timers each frame
+// cardFxActive returns the remaining frames of a card overlay (0 = inactive).
+func (g *MMGame) cardFxActive(fx cardFx, characterIndex int) int {
+	if characterIndex >= 0 && characterIndex < len(g.cardFxTimers[fx]) {
+		return g.cardFxTimers[fx][characterIndex]
+	}
+	return 0
+}
+
+// TriggerDamageBlink triggers the red blink AND a spark burst on a character's
+// card — fired wherever a member takes a visible hit, so impacts read clearly.
+func (g *MMGame) TriggerDamageBlink(characterIndex int) {
+	g.triggerCardFx(fxBlink, characterIndex, g.config.UI.DamageBlinkFrames)
+	g.triggerCardFx(fxSpark, characterIndex, HitSparkFrames)
+}
+
+// TriggerPartyFlame lights the Inferno flame-particle overlay on a party card.
+func (g *MMGame) TriggerPartyFlame(characterIndex int) {
+	g.triggerCardFx(fxFlame, characterIndex, PartyFlameFrames)
+}
+
+// TriggerPartyHeal lights the rising green "+" overlay on a healed member's card.
+func (g *MMGame) TriggerPartyHeal(characterIndex int) {
+	g.triggerCardFx(fxHeal, characterIndex, HealEffectFrames)
+}
+
+// UpdateDamageBlinkTimers decrements every card-overlay timer each frame.
 func (g *MMGame) UpdateDamageBlinkTimers() {
-	for i := range g.damageBlinkTimers {
-		if g.damageBlinkTimers[i] > 0 {
-			g.damageBlinkTimers[i]--
+	for fx := range g.cardFxTimers {
+		for i := range g.cardFxTimers[fx] {
+			if g.cardFxTimers[fx][i] > 0 {
+				g.cardFxTimers[fx][i]--
+			}
 		}
 	}
 }
@@ -909,12 +980,37 @@ func (g *MMGame) UpdateMonsterHitTintTimers() {
 	}
 }
 
+// refreshBoundUndeadCache rebuilds the per-frame list of bound undead (bind_undead)
+// so the AI-target lookup can let normal mobs retaliate against them without an
+// O(n²) scan when none exist. Called once per frame before the monster update.
+func (g *MMGame) refreshBoundUndeadCache() {
+	g.boundUndead = g.boundUndead[:0]
+	for _, m := range g.world.Monsters {
+		if m != nil && m.Bound && m.IsAlive() {
+			g.boundUndead = append(g.boundUndead, m)
+		}
+	}
+	// Precompute each monster's foe + pursuit target ONCE per frame, single-threaded,
+	// so the parallel real-time update never scans other monsters' positions (which
+	// are being mutated concurrently) and no consumer recomputes the foe. The wrapper
+	// reads AITargetX/Y; combat reads AIFoe.
+	if g.combat == nil {
+		return
+	}
+	for _, m := range g.world.Monsters {
+		if m == nil {
+			continue
+		}
+		m.AIFoe = g.combat.monsterAIFoeMonster(m)
+		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
+		// Aggressive boss → relentless chase; evasive boss holds (handled by boss hook).
+		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m)
+	}
+}
+
 // IsCharacterBlinking returns true if a character should be rendered with red tint
 func (g *MMGame) IsCharacterBlinking(characterIndex int) bool {
-	if characterIndex >= 0 && characterIndex < len(g.damageBlinkTimers) {
-		return g.damageBlinkTimers[characterIndex] > 0
-	}
-	return false
+	return g.cardFxActive(fxBlink, characterIndex) > 0
 }
 
 // Getter methods for turn-based mode testing
@@ -973,6 +1069,137 @@ func (g *MMGame) advanceToNextEligibleChar() {
 	for off := 1; off <= n; off++ {
 		idx := (g.selectedChar + off) % n
 		if g.canSelectChar(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+}
+
+// rtCharReady reports whether a party member can act right now in real-time
+// combat: alive, conscious, and off cooldown. The real-time analogue of
+// canSelectChar (which is turn-based, gated by action slots).
+func (g *MMGame) rtCharReady(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	return m.CanAct() && m.RTCooldown <= 0
+}
+
+// rtActionKind is the real-time action a held key performs. The party cycle is
+// capability-aware per action: holding F only visits members who can cast,
+// holding C only members who can heal, holding R only members with a weapon.
+type rtActionKind int
+
+const (
+	rtActNone   rtActionKind = iota
+	rtActWeapon              // R: melee/ranged weapon
+	rtActSmart               // Space: slotted combat spell else weapon
+	rtActCast                // F: cast the slotted spell
+	rtActHeal                // C/H: cast the best known heal
+)
+
+// rtActionCapable reports whether a party member CAN perform a real-time action
+// right now (ignoring cooldown): alive, plus has the weapon / slotted spell /
+// known heal AND enough SP for it. Smart-attack always falls back to a weapon
+// swing, so everyone is "capable" of it.
+func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
+	if idx < 0 || idx >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[idx]
+	if m == nil || !m.CanAct() {
+		return false
+	}
+	switch kind {
+	case rtActWeapon:
+		_, ok := m.Equipment[items.SlotMainHand]
+		return ok
+	case rtActCast:
+		spell, ok := m.Equipment[items.SlotSpell]
+		if !ok {
+			return false
+		}
+		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, spell.SpellCost)
+	case rtActHeal:
+		if g.combat == nil {
+			return false
+		}
+		id, ok := g.combat.bestKnownHealSpell(m)
+		if !ok {
+			return false
+		}
+		def, err := spells.GetSpellDefinitionByID(id)
+		return err == nil && m.SpellPoints >= g.combat.effectiveSpellCost(m, def.SpellPointsCost)
+	default: // rtActSmart
+		return true
+	}
+}
+
+// rtActionReady = capable of the action AND off cooldown.
+func (g *MMGame) rtActionReady(idx int, kind rtActionKind) bool {
+	return g.rtActionCapable(idx, kind) && g.party.Members[idx].RTCooldown <= 0
+}
+
+// nextReadyRTActor returns the next member (after the selection, wrapping) who is
+// ready to do `kind`, or -1 if none. Unlike advanceRTActor it never falls back to
+// an on-cooldown member — so callers can WAIT in place instead of churning the
+// selection frame while everyone capable is on cooldown.
+func (g *MMGame) nextReadyRTActor(kind rtActionKind) int {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
+			return i
+		}
+	}
+	return -1
+}
+
+// advanceRTActor hands real-time selection to the next member who can do `kind`:
+// first a ready (off-cooldown) one, else any capable one still on cooldown (so a
+// held key WAITS on a capable member instead of skipping to one who can't, or
+// sticking on the current incapable one). Leaves selection put if none capable.
+func (g *MMGame) advanceRTActor(kind rtActionKind) {
+	n := len(g.party.Members)
+	for off := 1; off <= n; off++ {
+		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
+			g.selectedChar = i
+			return
+		}
+	}
+	for off := 1; off <= n; off++ {
+		if i := (g.selectedChar + off) % n; g.rtActionCapable(i, kind) {
+			g.selectedChar = i
+			return
+		}
+	}
+}
+
+// ensureSelectedCanActRT guarantees the real-time selection points at a member
+// who can still act (alive + conscious). If the current one was just killed/KO'd
+// it moves to the next ready member, or failing that any living member (who'll
+// act once their cooldown ends) — without this the party freezes on a corpse.
+func (g *MMGame) ensureSelectedCanActRT() {
+	if g.rtCharReady(g.selectedChar) {
+		return
+	}
+	cur := g.party.Members[g.selectedChar]
+	if cur != nil && cur.CanAct() {
+		return // alive, just on cooldown — leave selection put
+	}
+	n := len(g.party.Members)
+	// Prefer a member ready right now.
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if g.rtCharReady(idx) {
+			g.selectedChar = idx
+			return
+		}
+	}
+	// Otherwise any living member (still on cooldown — they'll fire when ready).
+	for off := 1; off <= n; off++ {
+		idx := (g.selectedChar + off) % n
+		if m := g.party.Members[idx]; m != nil && m.CanAct() {
 			g.selectedChar = idx
 			return
 		}
@@ -1056,6 +1283,16 @@ func (g *MMGame) consumeSelectedCharAction() {
 
 func (g *MMGame) ToggleTurnBasedMode() {
 	g.turnBasedMode = !g.turnBasedMode
+
+	// RT cooldowns only tick in real-time, so clear them on every switch — otherwise
+	// one frozen across a turn-based fight gates RT actions afterwards. Each mode
+	// starts ready.
+	for _, m := range g.party.Members {
+		if m != nil {
+			m.RTCooldown = 0
+		}
+	}
+	g.spellInputCooldown = 0
 
 	if g.turnBasedMode {
 		// Snap to tile center immediately
@@ -1207,8 +1444,14 @@ func (mw *MonsterWrapper) Update() {
 	playerX := mw.game.camera.X
 	playerY := mw.game.camera.Y
 
-	// Use collision-aware update with player position for tethering
-	mw.Monster.Update(mw.collisionSystem, playerX, playerY)
+	// AI pursuit/engagement target: normally the party, but charmed monsters are
+	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
+	// so they never chase the party. Precomputed single-threaded each frame in
+	// refreshBoundUndeadCache to keep this parallel update race-free.
+	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
+
+	// Use collision-aware update with the chosen AI target for tethering
+	mw.Monster.Update(mw.collisionSystem, targetX, targetY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 

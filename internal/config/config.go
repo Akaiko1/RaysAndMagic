@@ -221,11 +221,15 @@ type SpellSystemConfig struct {
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	// Basic spell properties
-	Name               string  `yaml:"name"`
-	Description        string  `yaml:"description"`
-	School             string  `yaml:"school"`
-	Level              int     `yaml:"level"`
-	SpellPointsCost    int     `yaml:"spell_points_cost"`
+	Name            string `yaml:"name"`
+	Description     string `yaml:"description"`
+	School          string `yaml:"school"`
+	Level           int    `yaml:"level"`
+	SpellPointsCost int    `yaml:"spell_points_cost"`
+	// CooldownSeconds is the real-time cast cooldown for this spell at the
+	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
+	// fall back to SpellCooldownDefaultSecondsForLevel(level).
+	CooldownSeconds    float64 `yaml:"cooldown_seconds,omitempty"`
 	Duration           int     `yaml:"duration"` // Duration in seconds (for buff spells)
 	DisintegrateChance float64 `yaml:"disintegrate_chance,omitempty"`
 	// AoeRadiusTiles, when > 0, makes a projectile spell splash damage to
@@ -238,6 +242,9 @@ type SpellDefinitionConfig struct {
 	IsProjectile   bool    `yaml:"is_projectile"`
 	IsUtility      bool    `yaml:"is_utility"`
 	StatusIcon     string  `yaml:"status_icon,omitempty"`
+	// MonsterOnly spells are cast by monsters (as projectile_spell) but never
+	// offered to the player — excluded from every learnable school list.
+	MonsterOnly bool `yaml:"monster_only,omitempty"`
 
 	// Damage-formula modifiers (data-driven; default behaviour when unset).
 	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost × SpellDamagePerSP × this (default 1)
@@ -260,16 +267,49 @@ type SpellDefinitionConfig struct {
 	OutgoingDamageBonus     int `yaml:"outgoing_damage_bonus,omitempty"`     // flat add to all party outgoing damage
 	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
 
-	// Charm (bind_undead): on hit, takes control of an UNDEAD target for the
-	// duration — it fights other monsters and ignores the party. No effect on
-	// non-undead. Dies (party XP, no loot) when the party leaves the map.
-	Charm                bool `yaml:"charm,omitempty"`
-	CharmDurationSeconds int  `yaml:"charm_duration_seconds,omitempty"`
+	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
+	// hunts other monsters and ignores the party. No effect on non-undead. Dies
+	// (party XP, no loot) when the party leaves the map.
+	BindUndead          bool `yaml:"bind_undead,omitempty"`
+	BindDurationSeconds int  `yaml:"bind_duration_seconds,omitempty"`
 
 	// Resurrect: restores a fallen ally (incl. eradicated, unlike a revival
 	// potion). FullHeal restores them to maximum HP.
 	Revive   bool `yaml:"revive,omitempty"`
 	FullHeal bool `yaml:"full_heal,omitempty"`
+	// Raise Dead: revives the first fallen ally (Unconscious/Dead, NOT eradicated)
+	// to this percentage of max HP. Distinct from Resurrect (Revive+FullHeal).
+	ReviveHpPct int `yaml:"revive_hp_pct,omitempty"`
+
+	// HealParty makes a heal_amount spell restore EVERY party member (Mass Heal),
+	// not just the caster/target.
+	HealParty bool `yaml:"heal_party,omitempty"`
+
+	// StunChance (0..1): on a projectile hit, chance to also stun the struck
+	// monster for StunDurationSeconds/Turns (Psychic Shock). Single-target.
+	StunChance float64 `yaml:"stun_chance,omitempty"`
+
+	// Charm: pacifies a LIVING target — it simply STOPS attacking (does not fight
+	// others) and breaks free on any hit it takes. Undead-only Bind Undead is the
+	// separate spell above; the two never mix.
+	Pacify                bool `yaml:"pacify,omitempty"`
+	PacifyDurationSeconds int  `yaml:"pacify_duration_seconds,omitempty"`
+
+	// PartyAoeRadiusTiles > 0 makes the spell an instant nova centered on the party
+	// that damages every monster AND every party member within the radius (Inferno).
+	// Damage = SpellPointsCost × SpellDamagePerSP.
+	PartyAoeRadiusTiles float64 `yaml:"party_aoe_radius_tiles,omitempty"`
+
+	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
+	// within the spell's AoE radius (Starburst). Purely visual; damage uses AoeRadiusTiles.
+	StarburstFx bool `yaml:"starburst_fx,omitempty"`
+
+	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
+	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
+	// ZoneTickDamage to monsters inside it — every turn in TB, every ZoneTickSeconds in RT.
+	ZoneRadiusTiles float64 `yaml:"zone_radius_tiles,omitempty"`
+	ZoneTickDamage  int     `yaml:"zone_tick_damage,omitempty"`
+	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
 	HealAmount  int     `yaml:"heal_amount,omitempty"`
@@ -309,8 +349,6 @@ type MonsterAIConfig struct {
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
-
-	PushbackDistance float64 `yaml:"pushback_distance"`
 }
 
 type GraphicsConfig struct {
@@ -321,6 +359,16 @@ type GraphicsConfig struct {
 	Monster            MonsterRenderConfig  `yaml:"monster"`
 	NPC                NPCRenderConfig      `yaml:"npc"`
 	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
+	ColorKey           ColorKeyConfig       `yaml:"color_key"`
+}
+
+// ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
+// clearing stray magenta from imperfect background removal.
+type ColorKeyConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
+	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
+	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
@@ -391,10 +439,15 @@ type TileData struct {
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
 	// bordering water — see the renderer.
-	FloorTextureGroup   string                 `yaml:"floor_texture_group,omitempty"`
-	WallColor           [3]int                 `yaml:"wall_color"`
-	Letter              string                 `yaml:"letter"`
-	Biomes              []string               `yaml:"biomes,omitempty"`
+	FloorTextureGroup string   `yaml:"floor_texture_group,omitempty"`
+	WallColor         [3]int   `yaml:"wall_color"`
+	Letter            string   `yaml:"letter"`
+	Biomes            []string `yaml:"biomes,omitempty"`
+	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
+	// (render_type floor_only) that blocks movement but reads like walkable
+	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura
+	// automatically; ordinary impassable floors (water) leave this false.
+	ImpassableAura      bool                   `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
@@ -475,6 +528,23 @@ type MapConfigs struct {
 // WeaponSystemConfig contains the complete weapon system configuration
 type WeaponSystemConfig struct {
 	Weapons map[string]*WeaponDefinitionConfig `yaml:"weapons"`
+	// WeaponCooldownMultipliers is the per-weapon-TYPE real-time attack-cooldown
+	// multiplier (1.0 = baseline sword), keyed by the canonical weapon-skill
+	// noun (sword/dagger/axe/spear/bow/mace/staff). Types not listed default to
+	// 1.0. A single weapon may override via its own `cooldown_multiplier`.
+	WeaponCooldownMultipliers map[string]float64 `yaml:"weapon_cooldown_multipliers"`
+}
+
+// WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
+// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown — so a
+// weapon whose category maps to no skill (e.g. the alien blaster) is neutral.
+func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
+	if GlobalWeapons != nil {
+		if m, ok := GlobalWeapons.WeaponCooldownMultipliers[skillNoun]; ok && m > 0 {
+			return m
+		}
+	}
+	return 1.0
 }
 
 // WeaponDefinitionConfig represents a complete weapon definition with embedded physics and graphics
@@ -502,6 +572,16 @@ type WeaponDefinitionConfig struct {
 	Rarity         string             `yaml:"rarity"`
 	Value          int                `yaml:"value,omitempty"`
 	BonusVs        map[string]float64 `yaml:"bonus_vs,omitempty"`
+	// CooldownMultiplier overrides the weapon's category attack-cooldown
+	// multiplier in real time (the per-skill defaults live in weapons.yaml
+	// `weapon_cooldown_multipliers`, read via WeaponCooldownMultiplierForSkill).
+	// Used for legendaries with a bespoke cadence (e.g. Bow of Hellfire = 1.7, slow).
+	// 0 = use the category default.
+	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
+	// SpellCooldownMultiplier, when > 0, scales the cooldown of EVERY spell the
+	// wielder casts while this weapon is in their main hand (e.g. Archmage
+	// Staff = 0.8 → −20% spell cooldown). 0 = no effect.
+	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
 	// plain arrow. Cosmetic only; damage stays weapon-based.
@@ -691,16 +771,16 @@ type ItemSystemConfig struct {
 }
 
 type ItemDefinitionConfig struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType   string `yaml:"armor_category,omitempty"`
-	Description string `yaml:"description"`          // Gameplay-neutral summary (optional)
-	Flavor      string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
-	EquipSlot   string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value       int    `yaml:"value,omitempty"`      // Gold value
-	Rarity      string `yaml:"rarity,omitempty"`
-	OpensMap     bool `yaml:"opens_map,omitempty"`      // Quest items that open the map overlay
-	PromotesLich bool `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Name         string `yaml:"name"`
+	Type         string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType    string `yaml:"armor_category,omitempty"`
+	Description  string `yaml:"description"`          // Gameplay-neutral summary (optional)
+	Flavor       string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
+	EquipSlot    string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value        int    `yaml:"value,omitempty"`      // Gold value
+	Rarity       string `yaml:"rarity,omitempty"`
+	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -713,6 +793,8 @@ type ItemDefinitionConfig struct {
 	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
+	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
+	Resistances map[string]int `yaml:"resistances,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`
@@ -928,7 +1010,7 @@ func GetSpellsBySchool(schoolKey string) []string {
 	}
 	var spells []string
 	for key, def := range GlobalSpells.Spells {
-		if def.School == schoolKey {
+		if def.School == schoolKey && !def.MonsterOnly {
 			spells = append(spells, key)
 		}
 	}

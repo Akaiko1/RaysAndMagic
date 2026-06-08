@@ -91,6 +91,10 @@ func (gl *GameLoop) updateExploration() {
 	// that hate a trait (hates.yaml) know whether to turn hostile on sight.
 	monster.PartyTraits["lich"] = gl.game.party.HasLich()
 
+	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
+	// retaliation) stays cheap when none exist — the overwhelmingly common case.
+	gl.game.refreshBoundUndeadCache()
+
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		gl.updateMonstersTurnBased()
@@ -180,7 +184,9 @@ func (gl *GameLoop) updateProjectilesParallel() {
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
-	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanMoveTo)
+	// Projectiles fly over floor-level obstacles (chasms, water) and only stop at
+	// solid walls — unlike entity movement, which uses CanMoveTo.
+	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanProjectileMoveTo)
 
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
@@ -341,11 +347,26 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.spellInputCooldown--
 	}
 
+	// Tick down each party member's real-time action cooldown. Off in
+	// turn-based mode (which gates on action slots, not frame cooldowns).
+	if !gl.game.turnBasedMode {
+		for _, m := range gl.game.party.Members {
+			if m != nil && m.RTCooldown > 0 {
+				m.RTCooldown--
+			}
+		}
+	}
+
 	// Tick every timed party buff and refresh its HUD status from ONE registry.
 	for _, b := range gl.game.timedBuffs() {
 		tickBuff(b.active, b.duration, b.onExpire)
 		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
+	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
+	// tick from their own list — see combat_buffs.go.
+	gl.game.tickCombatBuffs()
+	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
+	gl.updateSteamZonesRT()
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {
@@ -354,7 +375,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
-	gl.updateCharmedMonsters()
+	gl.updateControlledMonsters()
 }
 
 // timedBuff is one duration-based party buff: its active/duration pointers are
@@ -378,13 +399,6 @@ func (g *MMGame) timedBuffs() []timedBuff {
 		{"bless", &g.blessActive, &g.blessDuration, func() {
 			g.statBonus -= g.blessStatBonus
 			g.blessStatBonus = 0
-		}},
-		{"day_of_the_gods", &g.dayGodsActive, &g.dayGodsDuration, func() {
-			g.dayGodsResistPct = 0
-		}},
-		{"hour_of_power", &g.hourPowerActive, &g.hourPowerDuration, func() {
-			g.hourPowerOutBonus = 0
-			g.hourPowerInReduce = 0
 		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
@@ -413,20 +427,28 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 	return true
 }
 
-// updateCharmedMonsters ticks bind_undead charm timers in real-time. When a
-// charm expires the undead turns hostile again. (TB charm persists the encounter.)
-func (gl *GameLoop) updateCharmedMonsters() {
+// updateControlledMonsters ticks Bind Undead and Charm timers in real-time. When a
+// bind expires the undead turns hostile again; when a charm expires the living
+// mob re-aggros. (TB control persists the encounter — no real-frame countdown.)
+func (gl *GameLoop) updateControlledMonsters() {
 	if gl.game.world == nil {
 		return
 	}
 	for _, m := range gl.game.world.Monsters {
-		if !m.Charmed || m.CharmFramesRemaining <= 0 {
-			continue
+		if m.Bound && m.BoundFramesRemaining > 0 {
+			m.BoundFramesRemaining--
+			if m.BoundFramesRemaining == 0 {
+				m.Bound = false
+				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+			}
 		}
-		m.CharmFramesRemaining--
-		if m.CharmFramesRemaining == 0 {
-			m.Charmed = false
-			gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
+		if m.Pacified && m.PacifiedFramesRemaining > 0 {
+			m.PacifiedFramesRemaining--
+			if m.PacifiedFramesRemaining == 0 {
+				m.Pacified = false
+				m.WasAttacked = true // re-aggros when the charm wears off
+				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
+			}
 		}
 	}
 }

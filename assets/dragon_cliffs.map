@@ -1,0 +1,42 @@
+# Dragon Cliffs Map (biome: dragon_cliffs)
+# Symbols (assets/tiles.yaml, dragon_cliffs biome):
+#   . = cliff grass   V = scorched basalt   S = cold stream   H = heather (walk)
+#   M = bridge v0   N = bridge v1   E = chasm edge v0   J = chasm edge v1
+#   C = chasm bottom v0   F = chasm bottom v1 (impassable pits)
+#   % = cliff wall   # = basalt wall   B = ruin wall   = = slate wall
+#   T = wind pine   A = rock outcrop   R = boulder   D = dragon bones (solid)
+#   + = start   @ = bound NPC/stile (see >[...])
+# Monster spawns: e = dragon_green  y = dragon_gold  v = mountain_troll  z = archmage
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%..T....S..T................................%
+%....T..SS....................e.......D.....%
+%.T.....SS.VVVV...................z.@.z..H..%  > [npc:dragon_cliffs_bone_lair]
+%.......SD.VVVV...y.........H.....D...z.....%
+%..T..e.SS.VVVT...A...................D.....%
+%...H...SS.VVTA.R.....e.===.................%
+%....T..S..TTAA.........=D=..A...R....H.....%
+%.......SS.AAAA..T......===.............e...%
+%.T.....SS......H............R.BBB..........%
+%.....T.SA........D............B..y.........%
+%.......SS..e...SSS...........HBBB....A...T.%
+%.......SS.....SSR.......D....VVVVVVVV#VVVV.%
+%......RS.....SS..............VVVVVVVVVV#VV.%
+%...y...SS...SS...........H...VVV#VVVVVVVVV.%
+%..T....SSR.SS....H...........VVVVVVVVVVVVV.%
+%.......S..SSR................VVVVVV@VVVVVV.%  > [npc:dragon_cliffs_ember_lair]
+%.......SSSS.....vv...........VVVVVVVVVVVVV.%
+%.......SS.......vv...........VVV#VVVVVVeVV.%
+%.......S.....................VVVVVVVVVV#VV.%
+%EEEEEEEEEEEEEEEEEEEEMMEEEEEEEEEEEEEEEEEBBNBB
+%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
+%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
+%CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
+%%%%%%%%%%%%%%%%%%%%%MM%%%%%%%%%%%%%%%%%BBNBB
+%T.........................................T%
+%T...T..H....H....H.....................AT.T%
+%T.TT.........H.@..H..........H....HH......T%  > [npc:dragon_cliffs_ranger]
+%T......T.............@........H......RT...T%  > [stile:vteleporter]
+%T.....T....H....H..........@....H...H.....T%  > [npc:dragon_cliffs_bone_hermit]
+%T....R...T.......H...+........HH.....H..T.T%
+%T......TT.................................T%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

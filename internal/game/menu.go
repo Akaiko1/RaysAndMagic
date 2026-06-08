@@ -59,29 +59,24 @@ type GameSave struct {
 	TurnBasedSpRegenCount int  `json:"turn_based_sp_regen_count,omitempty"`
 
 	// Utility/buff state
-	TorchLightActive       bool    `json:"torch_light_active,omitempty"`
-	TorchLightDuration     int     `json:"torch_light_duration,omitempty"`
-	TorchLightRadius       float64 `json:"torch_light_radius,omitempty"`
-	WizardEyeActive        bool    `json:"wizard_eye_active,omitempty"`
-	WizardEyeDuration      int     `json:"wizard_eye_duration,omitempty"`
-	WalkOnWaterActive      bool    `json:"walk_on_water_active,omitempty"`
-	WalkOnWaterDuration    int     `json:"walk_on_water_duration,omitempty"`
-	BlessActive            bool    `json:"bless_active,omitempty"`
-	BlessDuration          int     `json:"bless_duration,omitempty"`
-	BlessStatBonus         int     `json:"bless_stat_bonus,omitempty"`
-	DayGodsActive          bool    `json:"day_gods_active,omitempty"`
-	DayGodsDuration        int     `json:"day_gods_duration,omitempty"`
-	DayGodsResistPct       int     `json:"day_gods_resist_pct,omitempty"`
-	HourPowerActive        bool    `json:"hour_power_active,omitempty"`
-	HourPowerDuration      int     `json:"hour_power_duration,omitempty"`
-	HourPowerOutBonus      int     `json:"hour_power_out_bonus,omitempty"`
-	HourPowerInReduce      int     `json:"hour_power_in_reduce,omitempty"`
-	WaterBreathingActive   bool    `json:"water_breathing_active,omitempty"`
-	WaterBreathingDuration int     `json:"water_breathing_duration,omitempty"`
-	UnderwaterReturnX      float64 `json:"underwater_return_x,omitempty"`
-	UnderwaterReturnY      float64 `json:"underwater_return_y,omitempty"`
-	UnderwaterReturnMap    string  `json:"underwater_return_map,omitempty"`
-	StatBonus              int     `json:"stat_bonus,omitempty"`
+	TorchLightActive       bool             `json:"torch_light_active,omitempty"`
+	TorchLightDuration     int              `json:"torch_light_duration,omitempty"`
+	TorchLightRadius       float64          `json:"torch_light_radius,omitempty"`
+	WizardEyeActive        bool             `json:"wizard_eye_active,omitempty"`
+	WizardEyeDuration      int              `json:"wizard_eye_duration,omitempty"`
+	WalkOnWaterActive      bool             `json:"walk_on_water_active,omitempty"`
+	WalkOnWaterDuration    int              `json:"walk_on_water_duration,omitempty"`
+	BlessActive            bool             `json:"bless_active,omitempty"`
+	BlessDuration          int              `json:"bless_duration,omitempty"`
+	BlessStatBonus         int              `json:"bless_stat_bonus,omitempty"`
+	CombatBuffs            []CombatBuffSave `json:"combat_buffs,omitempty"`
+	SteamZones             []SteamZoneSave  `json:"steam_zones,omitempty"`
+	WaterBreathingActive   bool             `json:"water_breathing_active,omitempty"`
+	WaterBreathingDuration int              `json:"water_breathing_duration,omitempty"`
+	UnderwaterReturnX      float64          `json:"underwater_return_x,omitempty"`
+	UnderwaterReturnY      float64          `json:"underwater_return_y,omitempty"`
+	UnderwaterReturnMap    string           `json:"underwater_return_map,omitempty"`
+	StatBonus              int              `json:"stat_bonus,omitempty"`
 
 	// MapReturnPoses remembers where the party entered each map via a gate, so a
 	// return trip drops them at the doorway rather than the map's spawn tile.
@@ -177,16 +172,18 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Key                  string               `json:"key"`
-	Name                 string               `json:"name"`
-	X                    float64              `json:"x"`
-	Y                    float64              `json:"y"`
-	HitPoints            int                  `json:"hit_points"`
-	Charmed              bool                 `json:"charmed,omitempty"`
-	CharmFramesRemaining int                  `json:"charm_frames_remaining,omitempty"`
-	IsEncounterMonster   bool                 `json:"is_encounter_monster,omitempty"`
-	EncounterID          int                  `json:"encounter_id,omitempty"`
-	EncounterRewards     *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	Key                     string               `json:"key"`
+	Name                    string               `json:"name"`
+	X                       float64              `json:"x"`
+	Y                       float64              `json:"y"`
+	HitPoints               int                  `json:"hit_points"`
+	Bound                   bool                 `json:"bound,omitempty"`
+	BoundFramesRemaining    int                  `json:"bound_frames_remaining,omitempty"`
+	Pacified                bool                 `json:"pacified,omitempty"`
+	PacifiedFramesRemaining int                  `json:"pacified_frames_remaining,omitempty"`
+	IsEncounterMonster      bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID             int                  `json:"encounter_id,omitempty"`
+	EncounterRewards        *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
 
 type EncounterRewardSave struct {
@@ -567,7 +564,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Charmed: mon.Charmed, CharmFramesRemaining: mon.CharmFramesRemaining}
+			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining, Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -677,13 +674,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		BlessActive:            g.blessActive,
 		BlessDuration:          g.blessDuration,
 		BlessStatBonus:         g.blessStatBonus,
-		DayGodsActive:          g.dayGodsActive,
-		DayGodsDuration:        g.dayGodsDuration,
-		DayGodsResistPct:       g.dayGodsResistPct,
-		HourPowerActive:        g.hourPowerActive,
-		HourPowerDuration:      g.hourPowerDuration,
-		HourPowerOutBonus:      g.hourPowerOutBonus,
-		HourPowerInReduce:      g.hourPowerInReduce,
+		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
+		SteamZones:             buildSteamZoneSaves(g.steamZones),
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
@@ -747,8 +739,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
 				m.HitPoints = ms.HitPoints
-				m.Charmed = ms.Charmed
-				m.CharmFramesRemaining = ms.CharmFramesRemaining
+				m.Bound = ms.Bound
+				m.BoundFramesRemaining = ms.BoundFramesRemaining
+				m.Pacified = ms.Pacified
+				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
@@ -823,13 +817,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.blessActive = save.BlessActive
 	g.blessDuration = save.BlessDuration
 	g.blessStatBonus = save.BlessStatBonus
-	g.dayGodsActive = save.DayGodsActive
-	g.dayGodsDuration = save.DayGodsDuration
-	g.dayGodsResistPct = save.DayGodsResistPct
-	g.hourPowerActive = save.HourPowerActive
-	g.hourPowerDuration = save.HourPowerDuration
-	g.hourPowerOutBonus = save.HourPowerOutBonus
-	g.hourPowerInReduce = save.HourPowerInReduce
+	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
+	g.steamZones = restoreSteamZones(save.SteamZones)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX

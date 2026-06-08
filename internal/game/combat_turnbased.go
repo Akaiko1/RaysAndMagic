@@ -19,6 +19,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
+	// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
+	gl.tickSteamZonesTB()
+
 	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
 	visionRange := tileSize * TurnBasedVisionRangeTiles
@@ -36,10 +39,16 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
-		// Charmed (bind_undead): fights the nearest other monster, never the
-		// party. Spends its whole turn on that, then yields.
-		if m.Charmed {
-			gl.combat.charmedAttackNearest(m)
+		// Pacified (Charm): holds position, never acts against the party.
+		if m.Pacified {
+			continue
+		}
+		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
+		// nearest one. Never acts against the party. Spends its whole turn here.
+		if m.Bound {
+			if !gl.combat.boundAttackNearest(m) {
+				gl.monsterMoveTurnBased(m) // no enemy in reach — close the distance
+			}
 			continue
 		}
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
@@ -61,6 +70,47 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// off-center spawns (e.g. encounter pirates) that would otherwise
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
+
+		// Boss specials (blink / Inferno); each TB turn is one action tick.
+		if gl.combat.isBoss(m) {
+			if gl.combat.updateBoss(m, true, true) {
+				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+				continue
+			}
+		}
+
+		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
+		// a bolt from within range, melee strike from an adjacent tile), else step
+		// toward it; never touch the party.
+		if foe := m.AIFoe; foe != nil && foe.IsAlive() {
+			mtx, mty := int(m.X/tileSize), int(m.Y/tileSize)
+			ftx, fty := int(foe.X/tileSize), int(foe.Y/tileSize)
+			adx, ady := mathutil.IntAbs(ftx-mtx), mathutil.IntAbs(fty-mty)
+			manh := adx + ady
+			chebyshev := adx
+			if ady > chebyshev {
+				chebyshev = ady
+			}
+			if m.HasRangedAttack() {
+				rangeTiles := int(m.GetAttackRangePixels() / tileSize)
+				if rangeTiles < 1 {
+					rangeTiles = 1
+				}
+				if manh >= 1 && manh <= rangeTiles {
+					gl.combat.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
+				} else {
+					gl.monsterMoveTurnBased(m)
+				}
+			} else if chebyshev == 1 {
+				// Monster-vs-monster melee allows a diagonal-adjacent strike (unlike
+				// the cardinal-only party rule) so crowded mobs can still connect.
+				gl.combat.monsterStrikeMonster(m, foe)
+			} else {
+				gl.monsterMoveTurnBased(m)
+			}
+			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			continue
+		}
 
 		// Work in tile space: monsters never enter the player's tile and only
 		// act from cardinally-aligned (N/S/E/W) tiles.
@@ -156,7 +206,9 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		target := gl.game.party.Members[targetIndex]
 
 		damage := monster.GetAttackDamage()
-		finalDamage := gl.combat.mitigateIncoming(gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target))
+		// Armour-piercing attackers (Golden Thief Bug) bypass armor class; resistances
+		// and buff mitigation still apply.
+		finalDamage := gl.combat.mitigateCharacterDamage(damage, "physical", target, monster.IgnoresArmor)
 
 		// Perfect Dodge: luck/5% roll to avoid all damage
 		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {
@@ -212,10 +264,12 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	tileSize := float64(gl.game.config.GetTileSize())
 
-	// Calculate grid deltas to player (tile-based)
+	// Step toward the monster's AI target (party by default; a charmed monster is
+	// redirected — bound undead toward its enemy, pacified toward itself = no move).
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	playerTileX, playerTileY := gl.game.GetPlayerTilePosition()
+	targetX, targetY := gl.combat.monsterAITargetPoint(monster)
+	playerTileX, playerTileY := int(targetX/tileSize), int(targetY/tileSize)
 
 	dxTiles := playerTileX - monsterTileX
 	dyTiles := playerTileY - monsterTileY
@@ -272,10 +326,11 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	gl.teleportMonsterTowardsPlayer(monster, tileSize)
 }
 
-// teleportMonsterTowardsPlayer finds the closest valid position towards the player and teleports there
+// teleportMonsterTowardsPlayer finds the closest valid position towards the
+// monster's AI target (party, or a charmed monster's redirected target) and
+// teleports there.
 func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
-	playerX := gl.game.camera.X
-	playerY := gl.game.camera.Y
+	playerX, playerY := gl.combat.monsterAITargetPoint(m)
 
 	// Check perpendicular adjacent tiles first, then diagonals as fallback
 	var bestX, bestY float64
