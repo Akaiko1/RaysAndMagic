@@ -425,6 +425,37 @@ func armorBonusParts(item items.Item) []string {
 	if v := item.Attributes["bonus_luck"]; v > 0 {
 		parts = append(parts, fmt.Sprintf("Luck +%d", v))
 	}
+	parts = append(parts, resistBonusParts(item)...)
+	return parts
+}
+
+// resistBonusParts lists an item's per-school damage resistances. When every
+// non-physical school shares one value it collapses to a single "all except
+// physical" line (e.g. the Golden Thief Bug Carapace); otherwise each school is
+// listed. Mirrors the monster per-element resist model.
+func resistBonusParts(item items.Item) []string {
+	nonPhysical := []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
+	allEqual, common := true, item.Attributes["resist_"+nonPhysical[0]]
+	for _, s := range nonPhysical {
+		if item.Attributes["resist_"+s] != common {
+			allEqual = false
+			break
+		}
+	}
+	if allEqual && common > 0 {
+		phys := item.Attributes["resist_physical"]
+		line := fmt.Sprintf("Resist +%d%% to all damage except physical", common)
+		if phys > 0 {
+			line = fmt.Sprintf("Resist +%d%% to all damage (+%d%% physical)", common, phys)
+		}
+		return []string{line}
+	}
+	var parts []string
+	for _, s := range append([]string{"physical"}, nonPhysical...) {
+		if v := item.Attributes["resist_"+s]; v > 0 {
+			parts = append(parts, fmt.Sprintf("%s%% %s resist", fmt.Sprintf("+%d", v), strings.Title(s)))
+		}
+	}
 	return parts
 }
 

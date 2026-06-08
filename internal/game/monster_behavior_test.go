@@ -306,7 +306,9 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	if got := game.combatBuffResistPct(); got != 50 {
 		t.Fatalf("expected 50%% resist active, got %d", got)
 	}
-	if got := game.combat.mitigateIncoming(100); got != 50 {
+	// Day of the Gods boosts every school's resist → 100 fire → 50 on a member.
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 50 {
 		t.Errorf("100 incoming with 50%% resist should be 50, got %d", got)
 	}
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
@@ -326,10 +328,11 @@ func TestHourOfPower_DamageBuffs(t *testing.T) {
 	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 15 || in != 5 {
 		t.Fatalf("hour_of_power: out=%d in=%d (want 15/5)", out, in)
 	}
-	if got := game.combat.mitigateIncoming(10); got != 5 {
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 5 {
 		t.Errorf("10 incoming -5 should be 5, got %d", got)
 	}
-	if got := game.combat.mitigateIncoming(3); got != 0 {
+	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 0 {
 		t.Errorf("3 incoming -5 should floor at 0, got %d", got)
 	}
 }
@@ -341,8 +344,9 @@ func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 → 50% reduction → 50 → flat -5 → 45
-	if got := game.combat.mitigateIncoming(100); got != 45 {
+	// 100 fire → 50% resist → 50 → flat -5 → 45
+	m := game.party.Members[0]
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 45 {
 		t.Errorf("100 with 50%% resist then -5 should be 45, got %d", got)
 	}
 }
@@ -873,5 +877,33 @@ func TestRealTime_MeleeHitsAtExactlyOneTile(t *testing.T) {
 	game.combat.HandleMonsterInteractions()
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time melee should hit at exactly one tile (inclusive reach)")
+	}
+}
+
+// Regression: a real-time per-character cooldown set just before switching to
+// turn-based must NOT carry over and gate RT actions (Space/R/F/C) for seconds
+// after switching back — toggling the mode clears RT cooldowns so each mode
+// starts ready. (Bug: "Space stops working after a TB fight, often point-blank".)
+func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based
+	for _, m := range game.party.Members {
+		if m != nil {
+			m.RTCooldown = 600 // ~5s of frozen cooldown from a recent RT attack
+		}
+	}
+	game.spellInputCooldown = 50
+
+	game.ToggleTurnBasedMode() // TB → RT
+
+	if game.turnBasedMode {
+		t.Fatalf("expected real-time mode after the toggle")
+	}
+	for i, m := range game.party.Members {
+		if m != nil && m.RTCooldown != 0 {
+			t.Errorf("member %d RTCooldown should be cleared on mode switch, got %d", i, m.RTCooldown)
+		}
+	}
+	if game.spellInputCooldown != 0 {
+		t.Errorf("global input stagger should be cleared on mode switch, got %d", game.spellInputCooldown)
 	}
 }

@@ -949,6 +949,19 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
 }
 
+// GearResistPct returns the character's % damage resistance for a damage school
+// (e.g. "fire", "physical") summed from equipped gear — the same per-element
+// resist model monsters use. Combat adds any party-wide resist buff on top and
+// caps the total. School is matched lowercase.
+func (c *MMCharacter) GearResistPct(school string) int {
+	key := "resist_" + strings.ToLower(strings.TrimSpace(school))
+	total := 0
+	for _, it := range c.Equipment {
+		total += it.Attributes[key]
+	}
+	return total
+}
+
 // updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
 func (c *MMCharacter) updateDerivedStatsForEquipment() {
 	// Save current values

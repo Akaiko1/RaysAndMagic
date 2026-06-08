@@ -34,6 +34,7 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		BonusAccuracy:             def.BonusAccuracy,
 		BonusSpeed:                def.BonusSpeed,
 		BonusLuck:                 def.BonusLuck,
+		Resistances:               def.Resistances,
 		HealBase:                  def.HealBase,
 		HealEnduranceDivisor:      def.HealEnduranceDivisor,
 		SummonDistanceTiles:       def.SummonDistanceTiles,

@@ -207,11 +207,9 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		target := gl.game.party.Members[targetIndex]
 
 		damage := monster.GetAttackDamage()
-		armored := damage // armour-piercing attackers (Golden Thief Bug) bypass armor class
-		if !monster.IgnoresArmor {
-			armored = gl.combat.applyArmorToCharacterIfPhysical(damage, "physical", target)
-		}
-		finalDamage := gl.combat.mitigateIncoming(armored)
+		// Armour-piercing attackers (Golden Thief Bug) bypass armor class; resistances
+		// and buff mitigation still apply.
+		finalDamage := gl.combat.mitigateCharacterDamage(damage, "physical", target, monster.IgnoresArmor)
 
 		// Perfect Dodge: luck/5% roll to avoid all damage
 		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {

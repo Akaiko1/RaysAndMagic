@@ -219,7 +219,7 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			// Elemental projectile — no AC reduction, no resistance (party has none defined).
 			dmg = m.GetAttackDamage()
 		} else {
-			dmg = cs.applyArmorToCharacterIfPhysical(m.GetAttackDamage(), "physical", target)
+			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, false)
 		}
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
@@ -1598,5 +1598,33 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		if pMin < 1 {
 			t.Errorf("%s: damage floor dropped below 1 (got %d)", m.Name, pMin)
 		}
+	}
+}
+
+// The Golden Thief Bug Carapace grants +100% resist to all non-physical schools
+// (full immunity) to its wearer, while physical damage still goes through armor.
+// Exercises the resist_nonphysical attribute end-to-end (config→bridge→item→
+// character) and the mitigateCharacterDamage chokepoint.
+func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	member := cs.game.party.Members[0]
+
+	// Baseline: no resist gear → non-physical passes through untouched.
+	if got := cs.mitigateCharacterDamage(40, "fire", member, false); got != 40 {
+		t.Errorf("no resist gear: fire 40 should pass, got %d", got)
+	}
+
+	member.Equipment[items.SlotArmor] = items.CreateItemFromYAML("golden_thiefbug_carapace")
+	if got := member.GearResistPct("fire"); got != 100 {
+		t.Fatalf("carapace must grant 100%% fire (per-element) resist, got %d", got)
+	}
+	for _, school := range []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "dark", "light"} {
+		if got := cs.mitigateCharacterDamage(40, school, member, false); got != 0 {
+			t.Errorf("%s 40 should be fully resisted by the carapace, got %d", school, got)
+		}
+	}
+	// Physical is NOT in the carapace's resistances → still reduced by armor only (>=1).
+	if got := cs.mitigateCharacterDamage(40, "physical", member, false); got < 1 {
+		t.Errorf("physical must still apply via armor, got %d", got)
 	}
 }

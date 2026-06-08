@@ -244,6 +244,48 @@ weapons:
       slash_width: 20
       slash_length: 80  # Long thrust line
 
+  # --- Culverts (Seabright sewers) spears ---
+  culvert_pike:
+    name: "Culvert Pike"
+    description: "A drain-cleaner's pole resharpened into a pike"
+    category: "spear"
+    damage: 9
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 9
+    rarity: "common"
+    value: 140
+    flavor: "A drain-cleaner's pole resharpened into a pike — rust and all."
+    melee:
+      arc_angle: 30
+      animation_frames: 12
+      hit_delay: 6
+    graphics:
+      slash_color: [120, 110, 70]
+      slash_width: 18
+      slash_length: 80
+
+  chitin_spear:
+    name: "Chitin Spear"
+    description: "A thief-bug's barbed foreleg lashed to a haft"
+    category: "spear"
+    damage: 13
+    range: 2
+    bonus_stat: "Might"
+    bonus_stat_secondary: "Speed"
+    crit_chance: 12
+    rarity: "uncommon"
+    value: 320
+    flavor: "A thief-bug's barbed foreleg, lashed to a haft and still twitching."
+    melee:
+      arc_angle: 30
+      animation_frames: 11
+      hit_delay: 5
+    graphics:
+      slash_color: [150, 130, 60]
+      slash_width: 18
+      slash_length: 84
+
   gold_sword:
     name: "Gold Sword"
     description: "A magnificent sword forged from pure gold"

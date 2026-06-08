@@ -110,7 +110,9 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 		if member == nil || member.HitPoints <= 0 {
 			continue
 		}
-		dmg := cs.mitigateIncoming(infernoDamage)
+		// Inferno is fire → the member's fire resistance applies (e.g. the boss's
+		// own Golden Thief Bug Carapace makes its wearer immune) + party buffs.
+		dmg := cs.mitigateCharacterDamage(infernoDamage, "fire", member, false)
 		member.HitPoints -= dmg
 		if member.HitPoints < 0 {
 			member.HitPoints = 0

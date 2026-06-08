@@ -795,6 +795,10 @@ type ItemDefinitionConfig struct {
 	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
+	// Per-school damage resistance the wearer gains (school → percent), mirroring
+	// the monster Resistances model. e.g. {fire: 100, mind: 100}. Physical is a
+	// valid key too (stacks AFTER armor).
+	Resistances map[string]int `yaml:"resistances,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`

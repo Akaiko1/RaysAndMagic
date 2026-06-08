@@ -1285,6 +1285,18 @@ func (g *MMGame) consumeSelectedCharAction() {
 func (g *MMGame) ToggleTurnBasedMode() {
 	g.turnBasedMode = !g.turnBasedMode
 
+	// Per-character RT cooldowns only tick down in real-time (see updateSpecialEffects),
+	// so one set just before entering TB would freeze for the whole turn-based fight and
+	// then keep gating RT actions (Space/R/F/C) for seconds after switching back — making
+	// inputs feel dead. The two tempos don't convert, so clear them on every switch: each
+	// mode starts ready. (spellInputCooldown is the small global input stagger.)
+	for _, m := range g.party.Members {
+		if m != nil {
+			m.RTCooldown = 0
+		}
+	}
+	g.spellInputCooldown = 0
+
 	if g.turnBasedMode {
 		// Snap to tile center immediately
 		g.snapToTileCenter()

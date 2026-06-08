@@ -1155,12 +1155,8 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	damage := monster.GetAttackDamage()
 
 	// Armour-piercing attackers (Golden Thief Bug) bypass the party's armor class;
-	// only the buff mitigation (Stone Skin etc.) still applies.
-	armored := damage
-	if !monster.IgnoresArmor {
-		armored = cs.applyArmorToCharacterIfPhysical(damage, "physical", currentChar)
-	}
-	finalDamage := cs.mitigateIncoming(armored)
+	// resistances and buff mitigation still apply.
+	finalDamage := cs.mitigateCharacterDamage(damage, "physical", currentChar, monster.IgnoresArmor)
 
 	// Perfect Dodge: luck/5% to avoid all damage
 	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
@@ -1221,7 +1217,8 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage > minDamage {
 			damage = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
-		damage = cs.mitigateIncoming(damage)
+		// Fireburst is fire → the struck member's resistances + party buffs apply.
+		damage = cs.mitigateCharacterDamage(damage, "fire", member, false)
 		member.HitPoints -= damage
 		if member.HitPoints < 0 {
 			member.HitPoints = 0
@@ -1621,7 +1618,7 @@ func (cs *CombatSystem) applyMonsterProjectileDamageToChar(currentChar *characte
 	if currentChar == nil {
 		return
 	}
-	finalDamage := cs.mitigateIncoming(cs.applyArmorToCharacterIfPhysical(damage, damageTypeStr, currentChar))
+	finalDamage := cs.mitigateCharacterDamage(damage, damageTypeStr, currentChar, false)
 
 	if sourceName == "" {
 		sourceName = "Monster"
@@ -2418,17 +2415,19 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		}
 	}
 
-	// The party is caught in the blast too — flat, equal damage (no mitigation).
+	// The party is caught in the blast too — flat damage, but each member's
+	// nonphysical resist still applies (Inferno is elemental).
 	for idx, member := range cs.game.party.Members {
 		if member == nil || member.HitPoints <= 0 {
 			continue
 		}
-		member.HitPoints -= dmg
+		mdmg := cs.mitigateCharacterDamage(dmg, damageTypeStr, member, false)
+		member.HitPoints -= mdmg
 		if member.HitPoints < 0 {
 			member.HitPoints = 0
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
-			member.Name, dmg, member.HitPoints, member.MaxHitPoints))
+			member.Name, mdmg, member.HitPoints, member.MaxHitPoints))
 		if member.HitPoints == 0 {
 			member.AddCondition(character.ConditionUnconscious)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
@@ -2807,25 +2806,6 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	return true
 }
 
-// mitigateIncoming reduces a single incoming-damage value by the party's active
-// defensive buffs: Day of the Gods (% reduction) then Hour of Power (flat),
-// floored at 0. Applied at every party damage-application site.
-func (cs *CombatSystem) mitigateIncoming(dmg int) int {
-	if dmg <= 0 {
-		return dmg
-	}
-	if pct := cs.game.combatBuffResistPct(); pct > 0 {
-		dmg = dmg * (100 - pct) / 100
-	}
-	if red := cs.game.combatBuffInReduce(); red > 0 {
-		dmg -= red
-	}
-	if dmg < 0 {
-		dmg = 0
-	}
-	return dmg
-}
-
 // applyBlessEffect applies the Bless spell effect consistently across all casting methods
 func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
 	// If Bless is already active, remove old bonus before applying new one
@@ -2904,9 +2884,45 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	return finalDamage
 }
 
-func (cs *CombatSystem) applyArmorToCharacterIfPhysical(damage int, damageTypeStr string, char *character.MMCharacter) int {
-	if isPhysicalDamageType(damageTypeStr) {
-		return cs.ApplyArmorDamageReduction(damage, char)
+// mitigateCharacterDamage is the single chokepoint for all damage dealt TO a party
+// member. In order: (1) physical damage is reduced by armor class (AC/divisor,
+// floored at 1); (2) the school's resistance — equipment per-element resist
+// (GearResistPct) PLUS the party-wide resist buff (Day of the Gods, which boosts
+// every school) — is applied as a percentage, same formula as monster resistances;
+// (3) the flat party reduction (Hour of Power / Stone Skin) is subtracted. Physical
+// floors at 1, other schools at 0 (so a 100% resist = full immunity). Armor-piercing
+// attackers bypass step 1 (callers guard on IgnoresArmor).
+func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
+	if damage <= 0 || char == nil {
+		return damage
+	}
+	school := strings.ToLower(strings.TrimSpace(damageTypeStr))
+	if school == "" {
+		school = "physical"
+	}
+	physical := school == "physical"
+
+	if physical && !ignoreArmor {
+		damage = cs.ApplyArmorDamageReduction(damage, char)
+	}
+	// Percentage resistance: per-element gear resist + the party-wide buff.
+	resist := char.GearResistPct(school) + cs.game.combatBuffResistPct()
+	if resist > 100 {
+		resist = 100
+	}
+	if resist > 0 {
+		damage = damage * (100 - resist) / 100
+	}
+	// Flat party damage reduction (Hour of Power / Stone Skin).
+	if red := cs.game.combatBuffInReduce(); red > 0 {
+		damage -= red
+	}
+	if physical {
+		if damage < 1 {
+			damage = 1
+		}
+	} else if damage < 0 {
+		damage = 0
 	}
 	return damage
 }

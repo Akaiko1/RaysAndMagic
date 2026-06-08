@@ -168,12 +168,12 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 }
 
 // Armour-piercing attackers bypass the party's armor class; the flag is parsed
-// and applyArmorToCharacterIfPhysical (the path the melee skips) does reduce.
+// and mitigateCharacterDamage (the path the melee skips) does reduce.
 func TestIgnoresArmor_FlagAndArmorPath(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	member := cs.game.party.Members[0]
-	reduced := cs.applyArmorToCharacterIfPhysical(100, "physical", member)
+	reduced := cs.mitigateCharacterDamage(100, "physical", member, false)
 	if reduced > 100 {
 		t.Errorf("armor path should never increase damage")
 	}

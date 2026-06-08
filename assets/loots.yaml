@@ -113,6 +113,54 @@ loots:
       key: "chain_pants"
       chance: 0.07
 
+  # Culverts (Seabright sewers) mobs.
+  rat:
+    - type: "weapon"
+      key: "culvert_pike"
+      chance: 0.06
+    - type: "item"
+      key: "ratskin_boots"
+      chance: 0.07
+    - type: "item"
+      key: "plague_rat_tail"
+      chance: 0.10
+
+  bat:
+    - type: "item"
+      key: "batwing_cloak"
+      chance: 0.06
+    - type: "item"
+      key: "sonar_pendant"
+      chance: 0.05
+    - type: "item"
+      key: "echo_membrane"
+      chance: 0.10
+
+  thief_bug:
+    - type: "item"
+      key: "ruby"
+      chance: 0.06
+    - type: "item"
+      key: "emerald"
+      chance: 0.05
+    - type: "weapon"
+      key: "chitin_spear"
+      chance: 0.06
+    - type: "item"
+      key: "thief_bug_card"
+      chance: 0.03
+
+  golden_thief_bug:
+    - type: "item"
+      key: "golden_thiefbug_carapace"
+      chance: 0.01
+    - type: "item"
+      key: "thief_king_signet"
+      chance: 0.10
+    - type: "item"
+      key: "diamond"
+      chance: 0.08
+
   # Pyramid dungeon mobs.
   mummy:
     - type: "item"
