@@ -637,12 +637,10 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 	arcAngleRad := float64(meleeConfig.ArcAngle) * math.Pi / 180.0
 	halfArc := arcAngleRad / 2.0
 
-	// Check all monsters
+	// Check all monsters. Stunned monsters are still valid melee targets — stun
+	// only suppresses their own turn.
 	for _, monster := range cs.game.world.Monsters {
 		if !monster.IsAlive() {
-			continue
-		}
-		if monster.StunFramesRemaining > 0 {
 			continue
 		}
 
@@ -1217,7 +1215,6 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage > minDamage {
 			damage = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
-		// Fireburst is fire → the struck member's resistances + party buffs apply.
 		damage = cs.mitigateCharacterDamage(damage, "fire", member, false)
 		member.HitPoints -= damage
 		if member.HitPoints < 0 {
@@ -2316,11 +2313,7 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	return 0
 }
 
-// spellBuffMagnitude scales a party-buff magnitude (Heroism's outgoing bonus,
-// Stone Skin's reduction, Day of the Gods' resist %) by the spell-mastery bonus,
-// the same +Mastery×5 model as Bless's stat bonus. A zero base stays zero (the
-// spell doesn't carry that effect). Single source of truth shared by combat
-// (tryCastPartyBuff) and the tooltip (getSpellMechanicsFromDefinition).
+// spellBuffMagnitude adds the spell-mastery bonus to a party-buff magnitude; a 0 base stays 0.
 func (cs *CombatSystem) spellBuffMagnitude(base int, spellID spells.SpellID, char *character.MMCharacter) int {
 	if base <= 0 {
 		return 0
@@ -2415,8 +2408,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		}
 	}
 
-	// The party is caught in the blast too — flat damage, but each member's
-	// nonphysical resist still applies (Inferno is elemental).
+	// The party is caught in the blast too (each member's resistances apply).
 	for idx, member := range cs.game.party.Members {
 		if member == nil || member.HitPoints <= 0 {
 			continue
@@ -2884,14 +2876,9 @@ func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MM
 	return finalDamage
 }
 
-// mitigateCharacterDamage is the single chokepoint for all damage dealt TO a party
-// member. In order: (1) physical damage is reduced by armor class (AC/divisor,
-// floored at 1); (2) the school's resistance — equipment per-element resist
-// (GearResistPct) PLUS the party-wide resist buff (Day of the Gods, which boosts
-// every school) — is applied as a percentage, same formula as monster resistances;
-// (3) the flat party reduction (Hour of Power / Stone Skin) is subtracted. Physical
-// floors at 1, other schools at 0 (so a 100% resist = full immunity). Armor-piercing
-// attackers bypass step 1 (callers guard on IgnoresArmor).
+// mitigateCharacterDamage reduces incoming damage to a party member: armor (physical
+// only, floored at 1), then the school's resistance % (gear + party resist buff),
+// then the flat party reduction. ignoreArmor skips the armor step (armor-piercing).
 func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
 	if damage <= 0 || char == nil {
 		return damage

@@ -201,9 +201,8 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ReviveHpPct > 0 {
 		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
 	}
-	// Party buffs: the numeric value is caster-dependent (scales with mastery, like
-	// Bless) and printed by the in-game tooltip; here (character-independent) we
-	// state only the effect + its scaling source so the map-editor card shows it.
+	// Party buffs: numeric value (mastery-scaled) is printed in-game; here we
+	// state the effect + scaling source for the character-independent editor card.
 	if d.ResistBuffPct > 0 {
 		out = append(out, fmt.Sprintf("Party %% damage resistance (scales with %s mastery)", d.School))
 	}

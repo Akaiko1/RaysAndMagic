@@ -362,15 +362,13 @@ type GraphicsConfig struct {
 	ColorKey           ColorKeyConfig       `yaml:"color_key"`
 }
 
-// ColorKeyConfig makes a key color (default magenta) transparent when a sprite is
-// loaded — cleans up stray magenta left by imperfect background removal in the
-// sprite pipeline. A pixel is keyed when each channel is within Tolerance of the
-// key color. Disabled unless Enabled is set.
+// ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
+// clearing stray magenta from imperfect background removal.
 type ColorKeyConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
-	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the fully-transparent core (0 = exact)
-	Despill   bool   `yaml:"despill"`   // for magenta-tinted fringe pixels, subtract the magenta cast and keep the base tone (opaque) instead of erasing them
+	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
+	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
@@ -795,9 +793,7 @@ type ItemDefinitionConfig struct {
 	BonusAccuracy             int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed                int `yaml:"bonus_speed,omitempty"`
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
-	// Per-school damage resistance the wearer gains (school → percent), mirroring
-	// the monster Resistances model. e.g. {fire: 100, mind: 100}. Physical is a
-	// valid key too (stacks AFTER armor).
+	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
 	Resistances map[string]int `yaml:"resistances,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`

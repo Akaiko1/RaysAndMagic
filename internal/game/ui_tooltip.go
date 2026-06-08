@@ -429,10 +429,8 @@ func armorBonusParts(item items.Item) []string {
 	return parts
 }
 
-// resistBonusParts lists an item's per-school damage resistances. When every
-// non-physical school shares one value it collapses to a single "all except
-// physical" line (e.g. the Golden Thief Bug Carapace); otherwise each school is
-// listed. Mirrors the monster per-element resist model.
+// resistBonusParts lists an item's per-school resistances, collapsing to one
+// "all except physical" line when every non-physical school shares a value.
 func resistBonusParts(item items.Item) []string {
 	nonPhysical := []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
 	allEqual, common := true, item.Attributes["resist_"+nonPhysical[0]]
@@ -818,8 +816,7 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 			details = append(details, fmt.Sprintf("Stat Bonus: +%d to all stats (whole party)", statBonus))
 		}
 	}
-	// Party-buff magnitudes scale with mastery (same helper combat applies in
-	// tryCastPartyBuff — SSoT), so the printed number is what you actually get.
+	// Party-buff magnitudes (mastery-scaled, matching combat).
 	if def.OutgoingDamageBonus > 0 && combatSystem != nil {
 		details = append(details, fmt.Sprintf("Party attacks deal +%d damage", combatSystem.spellBuffMagnitude(def.OutgoingDamageBonus, def.ID, char)))
 	}
@@ -831,8 +828,6 @@ func getSpellMechanicsFromDefinition(def spells.SpellDefinition, char *character
 	}
 	if def.Duration > 0 && combatSystem != nil {
 		if duration := combatSystem.CalculateSpellDurationSeconds(def.ID, char); duration > 0 {
-			// Duration is mastery-scaled for every timed spell — state the source so
-			// the player sees mastery matters (the number already reflects it).
 			scales := ""
 			if def.School != "" {
 				scales = fmt.Sprintf(" (scales with %s mastery)", def.School)

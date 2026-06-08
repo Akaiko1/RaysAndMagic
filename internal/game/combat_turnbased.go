@@ -71,8 +71,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
 
-		// Boss behaviour (Golden Thief Bug): evade-until-quest blink, low-HP blink,
-		// Inferno. Each monster turn is one action tick (ready + attackTick = true).
+		// Boss specials (blink / Inferno); each TB turn is one action tick.
 		if gl.combat.isBoss(m) {
 			if gl.combat.updateBoss(m, true, true) {
 				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)

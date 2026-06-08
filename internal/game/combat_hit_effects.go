@@ -192,6 +192,29 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 	g.spellHitEffects = append(g.spellHitEffects, effect)
 }
 
+// spawnBlinkLightColumn leaves a tall, slowly-fading pillar of light where a
+// monster blinked away.
+func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
+	g.hitEffectsMu.Lock()
+	defer g.hitEffectsMu.Unlock()
+	const n = 22
+	parts := make([]SpellHitParticle, n)
+	for i := 0; i < n; i++ {
+		life := 70 + rand.Intn(30)
+		parts[i] = SpellHitParticle{
+			X: x, Y: y,
+			OffsetX:  (rand.Float64() - 0.5) * 10,
+			OffsetY:  -rand.Float64() * 130,
+			VelX:     (rand.Float64() - 0.5) * 0.3,
+			VelY:     -(0.4 + rand.Float64()*0.7),
+			Gravity:  -0.01,
+			Color:    mixColor([3]int{255, 250, 210}, [3]int{255, 215, 120}, rand.Float64()),
+			LifeTime: life, MaxLife: life, Size: 6, Active: true,
+		}
+	}
+	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
+}
+
 // spawnImpactSparks throws a quick radial burst of bright white→gold sparks at
 // a world point — the weapon-hit feedback when the party strikes a monster.
 func (g *MMGame) spawnImpactSparks(x, y float64) {
@@ -205,10 +228,10 @@ func (g *MMGame) spawnImpactSparks(x, y float64) {
 		life := 11 + rand.Intn(7)
 		parts[i] = SpellHitParticle{
 			X: x, Y: y,
-			VelX:    math.Cos(ang) * sp,
-			VelY:    math.Sin(ang)*sp - 0.8, // slight upward bias
-			Gravity: 0.11,
-			Color:   mixColor([3]int{255, 255, 210}, [3]int{255, 200, 80}, rand.Float64()),
+			VelX:     math.Cos(ang) * sp,
+			VelY:     math.Sin(ang)*sp - 0.8, // slight upward bias
+			Gravity:  0.11,
+			Color:    mixColor([3]int{255, 255, 210}, [3]int{255, 200, 80}, rand.Float64()),
 			LifeTime: life, MaxLife: life, Size: 5, Active: true,
 		}
 	}

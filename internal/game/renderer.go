@@ -872,6 +872,8 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		r.drawImpassableTileAura(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
+		// Steam rising from every shut culvert valve's tile.
+		r.drawClosedValveSteam(screen)
 
 		// Draw fireballs and sword attacks
 		r.drawProjectiles(screen)
@@ -2189,7 +2191,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			}
 
 			distance := math.Sqrt(distanceSq)
-			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
 			}
@@ -2297,7 +2299,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		var visible bool
 
 		if npc.RenderType == "environment_sprite" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty, npc.SizeMultiplier)
 		} else {
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
 		}

@@ -1003,8 +1003,7 @@ func (g *MMGame) refreshBoundUndeadCache() {
 		}
 		m.AIFoe = g.combat.monsterAIFoeMonster(m)
 		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
-		// A boss past its quest gate chases the party relentlessly (no detection
-		// range / flee). Evasive bosses stay false: they hold + blink (boss hook).
+		// Aggressive boss → relentless chase; evasive boss holds (handled by boss hook).
 		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m)
 	}
 }
@@ -1285,11 +1284,9 @@ func (g *MMGame) consumeSelectedCharAction() {
 func (g *MMGame) ToggleTurnBasedMode() {
 	g.turnBasedMode = !g.turnBasedMode
 
-	// Per-character RT cooldowns only tick down in real-time (see updateSpecialEffects),
-	// so one set just before entering TB would freeze for the whole turn-based fight and
-	// then keep gating RT actions (Space/R/F/C) for seconds after switching back — making
-	// inputs feel dead. The two tempos don't convert, so clear them on every switch: each
-	// mode starts ready. (spellInputCooldown is the small global input stagger.)
+	// RT cooldowns only tick in real-time, so clear them on every switch — otherwise
+	// one frozen across a turn-based fight gates RT actions afterwards. Each mode
+	// starts ready.
 	for _, m := range g.party.Members {
 		if m != nil {
 			m.RTCooldown = 0

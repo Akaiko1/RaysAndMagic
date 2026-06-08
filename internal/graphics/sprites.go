@@ -17,11 +17,9 @@ type SpriteManager struct {
 	animations       map[string]*SpriteAnimation
 	animationMissing map[string]bool
 
-	// Color key: when enabled, pixels within keyTol of (keyR,keyG,keyB) are made
-	// fully transparent at load time (cleans up stray magenta from imperfect sprite
-	// background removal). With keyDespill, magenta-tinted FRINGE pixels (outside
-	// the transparent core) instead have the magenta cast subtracted and keep their
-	// base tone opaque, so edges aren't eaten. Configured by the game via SetColorKey.
+	// Load-time color key (configured via SetColorKey): pixels within keyTol of the
+	// key color become transparent; with keyDespill, tinted fringe pixels have the
+	// cast subtracted instead (kept opaque).
 	keyEnabled bool
 	keyR       uint8
 	keyG       uint8
@@ -39,13 +37,10 @@ func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despi
 	sm.keyDespill = despill
 }
 
-// applyColorKey returns a copy of src cleaned of the key color. Pixels within
-// keyTol of the key on every channel become fully transparent (the background
-// core). When keyDespill is set, magenta-tinted pixels OUTSIDE that core have the
-// magenta cast removed (R,B lowered to the green channel — the part the key can't
-// carry) and stay opaque, so anti-aliased edges keep their base tone instead of
-// being erased. Returns src unchanged when the key is off. Despill assumes a
-// magenta-style key (two high channels R,B and a low channel G).
+// applyColorKey returns a copy of src with the key color removed: pixels within
+// keyTol of the key go transparent; with keyDespill, tinted fringe pixels (R,B
+// above G) have that excess subtracted and stay opaque. Despill assumes a
+// magenta-style key (high R,B / low G). No-op when the key is off.
 func (sm *SpriteManager) applyColorKey(src image.Image) image.Image {
 	if !sm.keyEnabled || src == nil {
 		return src

@@ -140,7 +140,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -159,7 +159,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -178,7 +178,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -197,7 +197,7 @@ npcs:
     sprite: "dragon_statue"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
       choice_prompt: "Place a statuette?"
@@ -216,7 +216,7 @@ npcs:
     sprite: "prison"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 5.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
       visited_message: "The cages hang open and empty — the freed champions have gone to await you at the tavern."
@@ -246,7 +246,7 @@ npcs:
     sprite: "tavern"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The keeper nods. 'Your benched companions rest here. Care to shuffle the party?'"
       choice_prompt: "Manage your roster?"
@@ -263,7 +263,7 @@ npcs:
     sprite: "mage_tower"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
       active_message: "The voice stirs again: 'The Lich King still draws breath. Return when the deed is done.'"
@@ -331,7 +331,7 @@ npcs:
     sprite: "dragon_cliffs_bone_lair"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
       visited_message: "The Bone-Maw is silent now — only scorched bones and a cold draft remain."
@@ -364,7 +364,7 @@ npcs:
     sprite: "dragon_cliffs_ember_lair"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6.0
+    size_multiplier: 1.0
     dialogue:
       greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
       visited_message: "The Ember-Heart has cooled to black stone — the cavern lies dark and still."
@@ -431,7 +431,7 @@ npcs:
     sprite: "pyramid_entrance"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
       choice_prompt: "What do you want to do?"
@@ -449,7 +449,7 @@ npcs:
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "Warm daylight spills down the sandstone stairs behind you."
       choice_prompt: "What do you want to do?"
@@ -467,7 +467,7 @@ npcs:
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "The stairs climb toward the upper chambers."
       choice_prompt: "What do you want to do?"
@@ -485,7 +485,7 @@ npcs:
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "The stairs descend into a colder, darker level of the pyramid."
       choice_prompt: "What do you want to do?"
@@ -503,7 +503,7 @@ npcs:
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 3
+    size_multiplier: 1.0
     dialogue:
       greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
       choice_prompt: "What do you want to do?"
@@ -521,7 +521,7 @@ npcs:
     sprite: "lich_nexus_entrance"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
       choice_prompt: "What do you want to do?"
@@ -539,7 +539,7 @@ npcs:
     sprite: "lich_nexus_exit"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 1.0
     dialogue:
       greeting: "The portal flickers with a path away from the liches' hall."
       choice_prompt: "What do you want to do?"
@@ -557,7 +557,7 @@ npcs:
     sprite: "city_exterior"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch."
       choice_prompt: "What do you want to do?"
@@ -576,7 +576,7 @@ npcs:
     sprite: "culvert_outlet"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
       choice_prompt: "Descend into the culverts?"
@@ -594,7 +594,7 @@ npcs:
     sprite: "culvert_outlet"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 6
+    size_multiplier: 1.0
     dialogue:
       greeting: "Daylight filters down through the outflow grate — the way back up to Seabright."
       choice_prompt: "Leave the culverts?"
@@ -636,7 +636,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: &valve_dialogue
       greeting: "A rust-caked sluice valve, half-open. Water roars through the channel below."
       visited_message: "The valve is wrenched shut; the channel runs dry."
@@ -653,7 +654,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_3:
     name: "Sluice Valve III"
@@ -661,7 +663,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_4:
     name: "Sluice Valve IV"
@@ -669,7 +672,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_5:
     name: "Sluice Valve V"
@@ -677,7 +681,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_6:
     name: "Sluice Valve VI"
@@ -685,7 +690,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_7:
     name: "Sluice Valve VII"
@@ -693,7 +699,8 @@ npcs:
     sprite: "culvert_valve"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 0.5
+    steam_when_visited: true
     dialogue: *valve_dialogue
 
   # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
@@ -742,7 +749,7 @@ npcs:
     sprite: "city_gate"
     render_type: "environment_sprite"
     transparent: true
-    size_multiplier: 4
+    size_multiplier: 1.0
     dialogue:
       greeting: "The gate opens back onto the forest path."
       choice_prompt: "What do you want to do?"

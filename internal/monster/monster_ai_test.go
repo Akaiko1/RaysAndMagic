@@ -871,3 +871,20 @@ func TestBossAggroPathsAroundLongDetour(t *testing.T) {
 		t.Fatal("aggressive boss must path around the wall to keep pursuing, got no path")
 	}
 }
+
+// A monster in the attack state must resume pursuit the moment its target steps
+// beyond melee reach — not stand swinging at air for the whole cooldown (the
+// "dead zone" where the party out-reaches the mob but it never closes in).
+func TestAttacking_RepursuesWhenTargetLeavesReach(t *testing.T) {
+	inReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
+	inReach.updateAttacking(140, 100) // 40px < 64 reach
+	if inReach.State != StateAttacking {
+		t.Errorf("target in reach: should keep attacking, got %v", inReach.State)
+	}
+
+	outOfReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
+	outOfReach.updateAttacking(300, 100) // 200px > 64 reach
+	if outOfReach.State != StatePursuing {
+		t.Errorf("target out of reach: should resume pursuit, got %v", outOfReach.State)
+	}
+}

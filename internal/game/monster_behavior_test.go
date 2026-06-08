@@ -880,10 +880,8 @@ func TestRealTime_MeleeHitsAtExactlyOneTile(t *testing.T) {
 	}
 }
 
-// Regression: a real-time per-character cooldown set just before switching to
-// turn-based must NOT carry over and gate RT actions (Space/R/F/C) for seconds
-// after switching back — toggling the mode clears RT cooldowns so each mode
-// starts ready. (Bug: "Space stops working after a TB fight, often point-blank".)
+// Switching modes clears per-character RT cooldowns so a cooldown set before a
+// turn-based fight doesn't gate RT actions afterwards.
 func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based
 	for _, m := range game.party.Members {

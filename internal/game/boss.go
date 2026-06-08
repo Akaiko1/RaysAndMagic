@@ -40,19 +40,14 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 // skips the normal attack); false lets the normal melee/ranged attack proceed
 // (which honours IgnoresArmor).
 func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bool) bool {
-	// Track HP loss since the boss's previous tick. Unlike the hit flash (which
-	// decays in a few frames and won't survive to the boss's next turn-based turn),
-	// this latches a "hurt" debt that persists until a blink actually consumes it —
-	// so damage reliably triggers a teleport in both real-time and turn-based,
-	// regardless of which damage path landed the hit.
+	// Latch any HP loss since last tick so the evasive blink can fire when hit.
 	if m.BossLastHP > 0 && m.HitPoints < m.BossLastHP {
 		m.BossHurtPending = true
 	}
 	m.BossLastHP = m.HitPoints
 
 	if cs.bossEvasive(m) {
-		// Evasive: blink to a random tile when the party closes within 3 tiles OR
-		// when it owes a hurt-blink. Never attacks.
+		// Evasive: blink away when the party is within 3 tiles or it was just hit; never attacks.
 		near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= 3*float64(cs.game.config.GetTileSize())
 		if ready && (near || m.BossHurtPending) && cs.blinkMonsterRandom(m) {
 			m.BossCD = cs.game.config.GetTPS()
@@ -86,6 +81,7 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		return false
 	}
 	tile := float64(cs.game.config.GetTileSize())
+	fromX, fromY := m.X, m.Y
 	for try := 0; try < 40; try++ {
 		tx := rand.Intn(w.Width)
 		ty := rand.Intn(w.Height)
@@ -94,15 +90,14 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 			m.X, m.Y = cx, cy
 			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
 			m.ResetPathfinding() // drop stale waypoints from the old position
+			cs.game.spawnBlinkLightColumn(fromX, fromY)
 			return true
 		}
 	}
 	return false
 }
 
-// applyMonsterInferno is the Golden Thief Bug's Inferno: a fire nova that scorches
-// the whole party (flat damage, after defensive mitigation). Modeled on the
-// party's tryCastInferno but cast BY the monster, against the party.
+// applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	const infernoDamage = 28
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
@@ -110,8 +105,6 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 		if member == nil || member.HitPoints <= 0 {
 			continue
 		}
-		// Inferno is fire → the member's fire resistance applies (e.g. the boss's
-		// own Golden Thief Bug Carapace makes its wearer immune) + party buffs.
 		dmg := cs.mitigateCharacterDamage(infernoDamage, "fire", member, false)
 		member.HitPoints -= dmg
 		if member.HitPoints < 0 {

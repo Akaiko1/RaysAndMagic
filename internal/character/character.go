@@ -319,9 +319,7 @@ func (c *MMCharacter) setupCleric(cfg *config.Config) {
 			spells.SpellID("harm"),       // offensive body magic
 		},
 	}
-	// Clerics are the masters of self magic — open Mind and Spirit too (alongside
-	// Body) so they can learn/cast the full self-magic catalog (all of which scales
-	// with their high Personality). Spirit starts with Spirit Lash.
+	// Self-magic schools: Body (above), Mind, and Spirit (starts with Spirit Lash).
 	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
 		Mastery:     MasteryNovice,
 		KnownSpells: []spells.SpellID{spells.SpellID("mind_blast")},
@@ -949,10 +947,7 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
 }
 
-// GearResistPct returns the character's % damage resistance for a damage school
-// (e.g. "fire", "physical") summed from equipped gear — the same per-element
-// resist model monsters use. Combat adds any party-wide resist buff on top and
-// caps the total. School is matched lowercase.
+// GearResistPct sums the character's % resistance to a damage school from equipped gear.
 func (c *MMCharacter) GearResistPct(school string) int {
 	key := "resist_" + strings.ToLower(strings.TrimSpace(school))
 	total := 0
