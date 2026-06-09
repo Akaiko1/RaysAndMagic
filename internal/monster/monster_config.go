@@ -55,10 +55,13 @@ type MonsterDefinition struct {
 	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
 	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
 	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`       // melee bypasses party armor class
-	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`      // 0..1 chance per action to cast a party-nova Inferno
-	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`      // when HP <= this, may blink to a random tile
-	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`     // 0..1 chance per action to blink (only below TeleportAtHP)
-	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"` // while this quest is incomplete: only evades (blinks away when the party is near), never attacks; turns aggressive once complete
+	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
+	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
+	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile
+	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`       // 0..1 chance per action to blink (only below TeleportAtHP)
+	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete: only evades (blinks away when the party is near), never attacks; turns aggressive once complete
+	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // evasive phase: blink when the party is within this many tiles (required with passive_until_quest)
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with passive_until_quest)
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -108,6 +111,24 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	}
 
 	var conflicts []string
+	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
+	// phase without its trigger tuning) would silently fall back to zero in code.
+	for key, monster := range config.Monsters {
+		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
+		}
+		if monster.PassiveUntilQuest != "" {
+			if monster.EvadeRadiusTiles <= 0 {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no evade_radius_tiles", key))
+			}
+			if monster.BossCooldownSecs <= 0 {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no boss_cooldown_seconds", key))
+			}
+		}
+	}
 	for letter, monsterKeys := range universalLetters {
 		if len(monsterKeys) > 1 {
 			sort.Strings(monsterKeys)
@@ -296,9 +317,12 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	m.IgnoresArmor = def.IgnoresArmor
 	m.InfernoChance = def.InfernoChance
+	m.InfernoDamage = def.InfernoDamage
 	m.TeleportAtHP = def.TeleportAtHP
 	m.TeleportChance = def.TeleportChance
 	m.PassiveUntilQuest = def.PassiveUntilQuest
+	m.EvadeRadiusTiles = def.EvadeRadiusTiles
+	m.BossCooldownSecs = def.BossCooldownSecs
 
 	m.LightRadius = 0
 	m.LightIntensity = 0

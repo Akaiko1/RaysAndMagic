@@ -5,7 +5,8 @@ NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
 ## Overview
 - Placement uses `@` in the map grid plus a trailing `>[npc:key]` definition on the same line.
 - NPC sprites are looked up by name (no `.png` suffix).
-- NPC types supported: `spell_trader`, `merchant`, `encounter`.
+- NPC types supported: `spell_trader`, `merchant`, `encounter`, `quest_giver`
+  (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
 
 ## Step 1: Define the NPC
 Add an entry under `npcs:` in `assets/npcs.yaml`.
@@ -25,19 +26,16 @@ npcs:
       success: "The knowledge flows into {name}."
     spells:
       fireball:
-        name: "Fireball"     # must match spells.yaml name
-        school: "fire"
-        cost: 500
-        requirements:
-          min_level: 3
-          schools:
-            - school: "fire"
-              min_level: 1
+        cost: 500            # the ONLY required field per spell
 ```
 
 Notes:
-- `spells.*.name` must match the display name in `assets/spells.yaml`.
-- `requirements.min_level` and `requirements.schools` are enforced.
+- The YAML key (`fireball`) is the spells.yaml SpellID. A catalog entry only
+  authors the price: `name`, `school`, `level`, `description` and
+  `requirements` are backfilled from spells.yaml at load
+  (`backfillTraderSpells`); a missing `cost` fails the load.
+- Default requirement is the spell's own level; author an explicit
+  `requirements:` block (`min_level`, `schools` list) only to override it.
 - A character must already have the matching magic school to learn the spell.
 - Dialogue strings are used. You can use `{name}`, `{spell}`, `{cost}` or printf-style placeholders.
 

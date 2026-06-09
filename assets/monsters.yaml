@@ -986,9 +986,12 @@ monsters:
     gold_max: 3000
     ignores_armor: true
     inferno_chance: 0.10
+    inferno_damage: 28
     teleport_at_hp: 300
     teleport_chance: 0.10
     passive_until_quest: "culverts_valves"
+    evade_radius_tiles: 3
+    boss_cooldown_seconds: 1
     sprite: "golden_thief_bug"
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a

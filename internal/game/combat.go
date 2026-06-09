@@ -1174,11 +1174,8 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 		}
 
 		if monster.PoisonChance > 0 && rand.Float64() < monster.PoisonChance {
-			durationSec := monster.PoisonDurationSec
-			if durationSec <= 0 {
-				durationSec = 20
-			}
-			poisonFrames := cs.game.config.GetTPS() * durationSec
+			// poison_duration_seconds is guaranteed by load-time validation.
+			poisonFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
 			currentChar.ApplyPoison(poisonFrames)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", currentChar.Name))
 		}

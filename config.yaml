@@ -144,6 +144,17 @@ monster_ai:
   # AI frequency checks (in frames)
   path_check_frequency: 30      # Check for blocked paths every N frames
 
+  # Detection (distances in tiles, the rest are multipliers)
+  default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
+  alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
+  alert_los_blocked_multiplier: 0.5    # reduced detection through trees/walls
+  disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)
+  attack_enter_range_fraction: 0.9     # enter attack at <= range x this (exit at > range)
+
+  # Flee cycle: after N consecutive attacks, roll the chance to flee
+  flee_after_attacks: 5
+  flee_after_attacks_chance: 0.5
+
 # Graphics and rendering
 graphics:
   # Raycasting optimization - reduced for 60 FPS performance

@@ -243,22 +243,41 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		m.StateTimer = 0
 	}
 
-	// Get detection radius (use AlertRadius or default)
+	// Detection tuning from config (monster_ai section), with code fallbacks for
+	// configless contexts (tests). Distances are in tiles.
+	defaultRadiusTiles, outsideTetherMult, losBlockedMult, disengageMult := 4.0, 2.0, 0.5, 2.0
+	if m.config != nil {
+		ai := &m.config.MonsterAI
+		if ai.DefaultAlertRadiusTiles > 0 {
+			defaultRadiusTiles = ai.DefaultAlertRadiusTiles
+		}
+		if ai.AlertOutsideTetherMultiplier > 0 {
+			outsideTetherMult = ai.AlertOutsideTetherMultiplier
+		}
+		if ai.AlertLosBlockedMultiplier > 0 {
+			losBlockedMult = ai.AlertLosBlockedMultiplier
+		}
+		if ai.DisengageDistanceMultiplier > 0 {
+			disengageMult = ai.DisengageDistanceMultiplier
+		}
+	}
+
+	// Get detection radius (use AlertRadius or the configured default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
-		detectionRadius = 256.0 // 4 tiles default detection radius (4 * 64 pixels)
+		detectionRadius = defaultRadiusTiles * tileSize
 	}
 
 	// If outside tether, monster is more alert (was lured or is lost)
 	// This prevents them from immediately returning to spawn when switching from TB to RT mode
 	if !m.IsWithinTetherRadius() {
-		detectionRadius *= 2.0 // Double range when far from home
+		detectionRadius *= outsideTetherMult
 	}
 
-	// Check line of sight - if obstructed (trees, walls), halve detection radius
+	// Check line of sight - if obstructed (trees, walls), reduce detection radius
 	// Only apply penalty if we are inside our territory. If outside, we stay alert.
 	if m.IsWithinTetherRadius() && collisionChecker != nil && !collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
-		detectionRadius *= 0.5 // Trees block vision, reduce detection range
+		detectionRadius *= losBlockedMult
 	}
 
 	// Check if player is within detection range
@@ -270,7 +289,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 			m.StateTimer = 0
 			m.AttackCount = 0 // Reset attack counter for new engagement
 		}
-	} else if distanceToPlayer > detectionRadius*2 { // Hysteresis - lose engagement at double distance
+	} else if distanceToPlayer > detectionRadius*disengageMult { // Hysteresis - lose engagement further out
 		if m.IsEngagingPlayer && !m.WasAttacked {
 			// Stop engaging player - return to idle (only if not recently attacked)
 			m.IsEngagingPlayer = false
@@ -997,7 +1016,11 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 		// If close enough to attack, switch to attacking
 		// Use a slightly tighter radius to prevent shaking at the boundary
 		attackRange := m.GetAttackRangePixels()
-		if distanceToPlayer <= attackRange*0.9 {
+		enterFraction := 0.9
+		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
+			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
+		}
+		if distanceToPlayer <= attackRange*enterFraction {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
@@ -1043,8 +1066,18 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 		// Increment attack counter
 		m.AttackCount++
 
-		// After 5 attacks, 50% chance to flee for 7 seconds
-		if m.AttackCount >= 5 && rand.Float64() < 0.5 {
+		// After enough consecutive attacks, roll the configured chance to flee
+		fleeAfter, fleeChance := 5, 0.5
+		if m.config != nil {
+			ai := &m.config.MonsterAI
+			if ai.FleeAfterAttacks > 0 {
+				fleeAfter = ai.FleeAfterAttacks
+			}
+			if ai.FleeAfterAttacksChance > 0 {
+				fleeChance = ai.FleeAfterAttacksChance
+			}
+		}
+		if m.AttackCount >= fleeAfter && rand.Float64() < fleeChance {
 			// Start fleeing
 			m.State = StateFleeing
 			m.StateTimer = 0

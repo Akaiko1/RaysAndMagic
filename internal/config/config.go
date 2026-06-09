@@ -349,6 +349,17 @@ type MonsterAIConfig struct {
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
+
+	// Detection tuning. Distances are in tiles; the rest are multipliers.
+	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
+	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
+	AlertLosBlockedMultiplier    float64 `yaml:"alert_los_blocked_multiplier"`    // reduced detection through trees/walls
+	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection × this (hysteresis)
+	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at ≤ range × this (exit at > range)
+
+	// Flee cycle: after this many consecutive attacks, roll this chance to flee
+	FleeAfterAttacks       int     `yaml:"flee_after_attacks"`
+	FleeAfterAttacksChance float64 `yaml:"flee_after_attacks_chance"`
 }
 
 type GraphicsConfig struct {
