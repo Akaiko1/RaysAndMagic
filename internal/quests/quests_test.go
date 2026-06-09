@@ -528,3 +528,36 @@ func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 		t.Error("starting quest must survive the load")
 	}
 }
+
+// MarkCompleted brings an active kill quest to its done state so it can be turned
+// in — used when the targets were slain before the quest was taken, or fewer
+// existed than the quota.
+func TestQuestManager_MarkCompleted(t *testing.T) {
+	config := &QuestConfig{
+		Quests: map[string]*QuestDefinition{
+			"slay_boss": {
+				Name: "Slay the Boss", Type: QuestTypeKill, TargetMonster: "lich_king",
+				TargetCount: 1, IsStartingQuest: false,
+				Rewards: QuestRewards{Gold: 100, Experience: 200},
+			},
+		},
+	}
+	qm := NewQuestManager(config)
+	if err := qm.ActivateQuest("slay_boss"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	if _, err := qm.ClaimRewards("slay_boss"); err == nil {
+		t.Fatal("incomplete quest should not be claimable")
+	}
+
+	qm.MarkCompleted("slay_boss")
+
+	q := qm.GetQuest("slay_boss")
+	if q == nil || !q.Completed || q.Status != QuestStatusCompleted || q.CurrentCount != 1 {
+		t.Fatalf("quest should be fully completed, got %+v", q)
+	}
+	if _, err := qm.ClaimRewards("slay_boss"); err != nil {
+		t.Errorf("completed quest should be claimable, got %v", err)
+	}
+}

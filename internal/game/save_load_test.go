@@ -13,6 +13,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -444,5 +445,64 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	}
 	if !kept {
 		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
+	}
+}
+
+// creditClearedKillQuests completes a region kill quest when its target_map is
+// clear, even if the same monster type still lives on another map — so culling
+// the cliff trolls turns the quest in despite trolls roaming the highlands, and
+// a target slain before the quest was taken can still be credited.
+func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
+	cfg := loadTestConfig(t)
+	qcfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+
+	// NPC linked to the cliff troll cull (target_map: dragon_cliffs).
+	npc := &character.NPC{DialogueData: &character.NPCDialogue{
+		Choices: []*character.NPCDialogueChoice{
+			{Action: "turn_in_quest", QuestID: "dragon_cliffs_troll_cull"},
+		},
+	}}
+
+	setup := func(trollMap string) *MMGame {
+		cliffs := newTestWorld(cfg)
+		highlands := newTestWorld(cfg)
+		troll := monster.NewMonster3DFromConfig(64, 64, "mountain_troll", cfg)
+		switch trollMap {
+		case "dragon_cliffs":
+			cliffs.Monsters = append(cliffs.Monsters, troll)
+		case "highlands":
+			highlands.Monsters = append(highlands.Monsters, troll)
+		}
+		wm := world.NewWorldManager(cfg)
+		wm.LoadedMaps = map[string]*world.World3D{"dragon_cliffs": cliffs, "highlands": highlands}
+		wm.CurrentMapKey = "dragon_cliffs"
+		world.GlobalWorldManager = wm
+
+		g := newTestGame(cfg, cliffs)
+		g.questManager = quests.NewQuestManager(qcfg)
+		if err := g.questManager.ActivateQuest("dragon_cliffs_troll_cull"); err != nil {
+			t.Fatalf("activate: %v", err)
+		}
+		return g
+	}
+
+	old := world.GlobalWorldManager
+	defer func() { world.GlobalWorldManager = old }()
+
+	// Trolls only in the highlands: the cliff region is clear → quest completes.
+	g := setup("highlands")
+	g.creditClearedKillQuests(npc)
+	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || !q.Completed {
+		t.Errorf("quest should complete when its target_map is clear despite trolls elsewhere; got %+v", q)
+	}
+
+	// A living troll in the cliffs themselves must still block completion.
+	g = setup("dragon_cliffs")
+	g.creditClearedKillQuests(npc)
+	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || q.Completed {
+		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
 	}
 }

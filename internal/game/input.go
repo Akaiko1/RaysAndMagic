@@ -1549,6 +1549,10 @@ func (ih *InputHandler) handleNPCInteraction() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
 		return
 	}
+	// Credit any of this NPC's kill quests whose targets are already gone, so the
+	// turn-in option appears (e.g. the Lich King slain before the Archmage's Trial
+	// was taken, or the cliff trolls thinned below the quota).
+	ih.game.creditClearedKillQuests(npc)
 	ih.game.dialogActive = true
 	ih.game.dialogNPC = npc
 	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
@@ -2413,6 +2417,65 @@ func npcIsQuestGiver(npc *character.NPC) bool {
 		}
 	}
 	return false
+}
+
+// anyLivingMonsterOfType reports whether a living monster whose name maps to
+// target (the same name→key normalization quest kills use) exists. Dead monsters
+// are dropped from the world slice, so HP>0 means alive. targetMap scopes the
+// search to one map; empty scans every loaded map (suits a unique boss).
+func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
+	scan := func(w *world.World3D) bool {
+		if w == nil {
+			return false
+		}
+		for _, m := range w.Monsters {
+			if m == nil || m.HitPoints <= 0 {
+				continue
+			}
+			if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
+				return true
+			}
+		}
+		return false
+	}
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return scan(g.world)
+	}
+	if targetMap != "" {
+		return scan(wm.LoadedMaps[targetMap])
+	}
+	for _, w := range wm.LoadedMaps {
+		if scan(w) {
+			return true
+		}
+	}
+	return false
+}
+
+// creditClearedKillQuests completes any of the NPC's active kill quests whose
+// targets are all already dead — so a quest taken after its targets were slain
+// (or one whose remaining targets number fewer than its quota) can still be
+// turned in. Only kill quests with a target qualify; other types complete through
+// their own progress.
+func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
+	if npc == nil || npc.DialogueData == nil || g.questManager == nil {
+		return
+	}
+	for _, c := range npc.DialogueData.Choices {
+		if c == nil || c.QuestID == "" ||
+			(c.Action != "give_quest" && c.Action != "turn_in_quest") {
+			continue
+		}
+		q := g.questManager.GetQuest(c.QuestID)
+		if q == nil || q.Completed ||
+			q.Definition.Type != quests.QuestTypeKill || q.Definition.TargetMonster == "" {
+			continue
+		}
+		if !g.anyLivingMonsterOfType(q.Definition.TargetMonster, q.Definition.TargetMap) {
+			g.questManager.MarkCompleted(c.QuestID)
+		}
+	}
 }
 
 // handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).

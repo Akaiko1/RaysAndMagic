@@ -48,6 +48,11 @@ type QuestDefinition struct {
 	TargetMonster   string       `yaml:"target_monster"`
 	TargetCount     int          `yaml:"target_count"`
 	IsStartingQuest bool         `yaml:"is_starting_quest"`
+	// TargetMap scopes the "no living targets left → complete" check to one map,
+	// for region quests whose monster type also lives elsewhere (e.g. the cliff
+	// troll cull — trolls also roam the highlands). Empty = search every map,
+	// which suits unique bosses (the lone Lich King).
+	TargetMap string `yaml:"target_map,omitempty"`
 	Rewards         QuestRewards `yaml:"rewards"`
 	// Optional location marker for quest objectives (tile coordinates)
 	MarkerX   int    `yaml:"marker_x,omitempty"`   // X tile coordinate for quest marker
@@ -163,6 +168,20 @@ func (qm *QuestManager) ActivateQuest(questID string) error {
 	}
 
 	return nil
+}
+
+// MarkCompleted forces an active quest to its completed state — used when a kill
+// quest's targets are already gone (slain before the quest was taken, or fewer
+// existed than TargetCount), so it can still be turned in. No-op if not active.
+func (qm *QuestManager) MarkCompleted(questID string) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	if quest, ok := qm.activeQuests[questID]; ok {
+		quest.CurrentCount = quest.Definition.TargetCount
+		quest.Completed = true
+		quest.Status = QuestStatusCompleted
+	}
 }
 
 // OnMonsterKilled updates quest progress when a monster is killed
