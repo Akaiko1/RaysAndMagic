@@ -698,8 +698,10 @@ var LightCount float
 var Lights [16]vec4
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
-	px := dstPos.xy - imageDstOrigin()
-	samplePx := floor(px/2.0)*2.0 + vec2(1.0)
+	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
+	// floor loop; the floor is GPU-only now, so the half-resolution cost bought
+	// nothing.)
+	samplePx := dstPos.xy - imageDstOrigin()
 
 	p := samplePx.y - Horizon
 	if p < 0.5 {
@@ -737,21 +739,38 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 			ly += 1.0
 		}
 
-		// Nearest-texel sample matching CPU's int(localX * texWidth).
-		atlasX := atlasIndex*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
-		atlasY := floor(ly*TexTileSize.y) + 0.5
+		// Bilinear sample inside this texture's atlas cell, wrapping texel
+		// lookups within the cell so tiling stays seamless (same 4-tap pattern
+		// as the sky shader; Kage samples nearest-only natively).
+		fx := lx*TexTileSize.x - 0.5
+		fy := ly*TexTileSize.y - 0.5
+		bx := floor(fx)
+		by := floor(fy)
+		fracX := fx - bx
+		fracY := fy - by
+		x0 := mod(bx, TexTileSize.x)
+		x1 := mod(bx+1.0, TexTileSize.x)
+		y0 := mod(by, TexTileSize.y)
+		y1 := mod(by+1.0, TexTileSize.y)
+		cellX := atlasIndex * TexTileSize.x
 		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
 		// space; Ebitengine converts them to the target source internally.
-		texColor := imageSrc1UnsafeAt(imageSrc0Origin() + vec2(atlasX, atlasY))
+		base := imageSrc0Origin()
+		c00 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y0+0.5))
+		c10 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y0+0.5))
+		c01 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y1+0.5))
+		c11 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y1+0.5))
+		texColor := mix(mix(c00, c10, fracX), mix(c01, c11, fracX), fracY)
 
-		// The floor texture is high-frequency pixel art. In the far field one
-		// screen pixel spans many source texels, so nearest sampling aliases into
-		// long stripes. Fade texture detail out based on the horizontal texel
-		// footprint instead of pretending we have mipmaps.
+		// In the far field one screen pixel spans many source texels; without
+		// mipmaps that shimmers, so fade texture detail toward the tile's flat
+		// color by the horizontal texel footprint. Bilinear absorbs the first
+		// ~2 texels/pixel cleanly, so detail persists further than the old
+		// nearest-sample fade did.
 		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
 		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
 		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
-		textureWeight := 0.8 * (1.0 - smoothstep(1.5, 5.0, texelsPerPixel))
+		textureWeight := 0.8 * (1.0 - smoothstep(2.0, 6.0, texelsPerPixel))
 
 		rgb = texColor.rgb*textureWeight + rgb*(1.0-textureWeight)
 	}
