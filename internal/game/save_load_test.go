@@ -506,3 +506,64 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
 	}
 }
+
+// Hostility must survive save/load: a provoked monster (WasAttacked) stays
+// provoked, and an old save's quest-bearing encounter monster (no was_attacked
+// field — e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
+// mob without a QuestID keeps normal aggro.
+func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+
+	provoked := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	provoked.WasAttacked = true
+	calm := monster.NewMonster3DFromConfig(128, 64, "bandit", cfg)
+	chestBound := monster.NewMonster3DFromConfig(64, 128, "bandit", cfg)
+	chestBound.IsEncounterMonster = true
+	chestBound.EncounterRewards = &monster.EncounterRewards{Gold: 10} // clear-encounter style: no QuestID
+	worldSave.Monsters = []*monster.Monster3D{provoked, calm, chestBound}
+
+	save := game.buildSave(wmSave)
+
+	// Old-save migration case: a lair dragon saved before was_attacked existed.
+	save.MapMonsters["forest"] = append(save.MapMonsters["forest"], MonsterSave{
+		Key: "dragon_green", Name: "Dragon", X: 192, Y: 192, HitPoints: 1100,
+		IsEncounterMonster: true,
+		EncounterRewards:   &EncounterRewardSave{QuestID: "dragon_cliffs_bone_lair"},
+	})
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWM := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	defer func() { world.GlobalWorldManager = oldWM }()
+
+	loaded := newTestGame(cfg, worldLoad)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	byPos := map[[2]int]*monster.Monster3D{}
+	for _, m := range worldLoad.Monsters {
+		byPos[[2]int{int(m.X), int(m.Y)}] = m
+	}
+	if m := byPos[[2]int{64, 64}]; m == nil || !m.WasAttacked || !m.IsEngagingPlayer {
+		t.Errorf("provoked monster must stay hostile after load")
+	}
+	if m := byPos[[2]int{128, 64}]; m == nil || m.WasAttacked || m.IsEngagingPlayer {
+		t.Errorf("calm monster must stay calm after load")
+	}
+	if m := byPos[[2]int{64, 128}]; m == nil || m.WasAttacked || m.IsEngagingPlayer {
+		t.Errorf("chest-bound encounter mob (no QuestID) must keep normal aggro")
+	}
+	if m := byPos[[2]int{192, 192}]; m == nil || !m.WasAttacked || !m.IsEngagingPlayer {
+		t.Errorf("old-save lair dragon (QuestID, no was_attacked) must migrate to hostile")
+	}
+}

@@ -888,3 +888,55 @@ func TestAttacking_RepursuesWhenTargetLeavesReach(t *testing.T) {
 		t.Errorf("target out of reach: should resume pursuit, got %v", outOfReach.State)
 	}
 }
+
+// Engagement is a level, not an edge: a monster handed hostility directly
+// (encounter spawn, save restore) starts with IsEngagingPlayer=true and never
+// sees the false→true detection edge that normally sets StateAlert — it must
+// still snap out of idle/patrol into the combat loop instead of wandering
+// "engaged" forever (the lair-dragon-circling-the-party bug).
+func TestEngagedMonsterLeavesPatrolState(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0)
+	for _, start := range []MonsterState{StateIdle, StatePatrolling} {
+		m := &Monster3D{
+			ID: "lair_dragon", X: 64 * 4, Y: 64 * 4,
+			State: start, IsEngagingPlayer: true, WasAttacked: true,
+			AttackRadius: 128, AlertRadius: 320, Speed: 3.75,
+			SpawnX: 64 * 4, SpawnY: 64 * 4, TetherRadius: 64 * 20,
+		}
+		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4) // player 2 tiles away
+		if m.State != StateAlert {
+			t.Errorf("engaged monster in %v should snap to StateAlert, got %v", start, m.State)
+		}
+	}
+}
+
+// A ranged monster's pursuit goals must extend to its ranged range, not just its
+// melee AttackRadius — otherwise it closes to melee distance and, when those near
+// tiles are unreachable, orbits without ever stopping at firing range. A melee
+// monster (no projectile) is unchanged.
+func TestCollectGoalTiles_RangedReachWiderThanMelee(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0) // nothing blocked → every tile walkable
+	px, py := 64.0*8, 64.0*8
+
+	melee := &Monster3D{ID: "m", X: 64 * 4, Y: 64 * 8, AttackRadius: 64, config: &config.Config{}}
+	ranged := &Monster3D{ID: "r", X: 64 * 4, Y: 64 * 8, AttackRadius: 64,
+		RangedAttackRange: 192, ProjectileSpell: "darkbolt", config: &config.Config{}}
+
+	mg := melee.collectGoalTiles(checker, px, py)
+	rg := ranged.collectGoalTiles(checker, px, py)
+
+	if len(rg) <= len(mg) {
+		t.Fatalf("ranged goal ring should be wider than melee: ranged=%d melee=%d", len(rg), len(mg))
+	}
+
+	maxDist := 0.0
+	for _, g := range rg {
+		cx, cy := tileToWorldCenter(g.X, g.Y)
+		if d := distance(px, py, cx, cy); d > maxDist {
+			maxDist = d
+		}
+	}
+	if maxDist <= 64.0+0.1 {
+		t.Errorf("ranged goals should extend past the melee radius; maxDist=%.1f", maxDist)
+	}
+}

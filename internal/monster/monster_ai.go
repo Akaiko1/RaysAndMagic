@@ -235,6 +235,14 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
+	// A monster handed hostility directly (encounter spawn, save restore) never
+	// saw the !IsEngagingPlayer edge below, so it would idle/patrol forever while
+	// "engaged". Engagement is a level, not an edge: snap it into the combat loop.
+	if m.IsEngagingPlayer && (m.State == StateIdle || m.State == StatePatrolling) {
+		m.State = StateAlert
+		m.StateTimer = 0
+	}
+
 	// Get detection radius (use AlertRadius or default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
@@ -878,7 +886,14 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
 	targetTileX := int(targetX / tileSize)
 	targetTileY := int(targetY / tileSize)
-	radiusTiles := int(math.Ceil(m.AttackRadius / tileSize))
+	// Pursue to within the monster's actual attack reach — the ranged range for
+	// ranged attackers, melee AttackRadius otherwise (GetAttackRangePixels returns
+	// AttackRadius when there's no projectile, so melee behaviour is unchanged).
+	// Using only the melee radius made ranged mobs (e.g. dragons) path to melee
+	// distance; when those near tiles were unreachable (party blocking a bridge)
+	// they orbited without ever stopping at firing range.
+	reach := m.GetAttackRangePixels()
+	radiusTiles := int(math.Ceil(reach / tileSize))
 	if radiusTiles < 1 {
 		radiusTiles = 1
 	}
@@ -889,7 +904,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
 			centerX, centerY := tileToWorldCenter(tileX, tileY)
-			if distance(targetX, targetY, centerX, centerY) > m.AttackRadius+0.1 {
+			if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
 				continue
 			}
 			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
