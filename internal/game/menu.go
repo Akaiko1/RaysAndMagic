@@ -882,8 +882,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
 
-	// Restore quest progress
-	if g.questManager != nil && len(save.Quests) > 0 {
+	// Restore quest progress. Reset to the baseline (starting quests only) first
+	// so quests taken AFTER this save — and therefore absent from it — don't
+	// linger on the live manager; then lay the saved snapshot back on top.
+	if g.questManager != nil {
+		g.questManager.Reset()
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
 		}

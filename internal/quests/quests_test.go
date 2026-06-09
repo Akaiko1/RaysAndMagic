@@ -474,3 +474,57 @@ func TestQuestManager_RemoveQuest(t *testing.T) {
 		t.Error("Quest should have been removed")
 	}
 }
+
+// Regression: loading a save made BEFORE a quest was taken must not leave that
+// quest active. The load resets the manager to its baseline (starting quests)
+// then re-applies the saved snapshot; a quest absent from the snapshot — taken
+// only after that save — must be dropped, not carried over from the live state.
+func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
+	config := &QuestConfig{
+		Quests: map[string]*QuestDefinition{
+			"main_quest": {
+				Name: "Main", Type: QuestTypeKill, TargetMonster: "dragon",
+				TargetCount: 4, IsStartingQuest: true,
+			},
+			"side_quest": {
+				Name: "Side", Type: QuestTypeInteract, TargetMonster: "valve",
+				TargetCount: 7, IsStartingQuest: false,
+			},
+		},
+	}
+	qm := NewQuestManager(config)
+	qm.InitializeStartingQuests()
+
+	// Snapshot the save state now — before the side quest is ever taken.
+	type snap struct {
+		id      string
+		status  QuestStatus
+		count   int
+		claimed bool
+	}
+	var saved []snap
+	for _, q := range qm.GetAllQuests() {
+		saved = append(saved, snap{q.ID, q.Status, q.CurrentCount, q.RewardsClaimed})
+	}
+
+	// Player takes the side quest after that save.
+	if err := qm.ActivateQuest("side_quest"); err != nil {
+		t.Fatalf("activate side_quest: %v", err)
+	}
+	if qm.GetQuest("side_quest") == nil {
+		t.Fatal("side_quest should be active before the load")
+	}
+
+	// Load = reset to baseline, then re-apply the snapshot (mirrors applySave).
+	qm.Reset()
+	for _, s := range saved {
+		qm.RestoreQuestProgress(s.id, s.status, s.count, s.claimed)
+	}
+
+	if qm.GetQuest("side_quest") != nil {
+		t.Error("side_quest taken after the save must be gone after loading that save")
+	}
+	if qm.GetQuest("main_quest") == nil {
+		t.Error("starting quest must survive the load")
+	}
+}
