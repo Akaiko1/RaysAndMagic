@@ -610,6 +610,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 			MaxFrames:      maxFrames,
 			Active:         true,
 			Kind:           meleeFxKind(weaponDef),
+			Crit:           isCrit,
 		}
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)
 	}
@@ -731,10 +732,12 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = MonsterHitFlashFrames
-	// Impact feedback: spark burst at the monster. The monster stays put and the
-	// HitTintFrames timer also drives an in-place sprite shake (see renderer) — no
-	// positional knockback.
+	// Impact feedback: spark burst + light flash at the monster, plus a small
+	// damage-scaled view kick (well under a fireball's). The monster stays put
+	// and the HitTintFrames timer also drives an in-place sprite shake (see
+	// renderer) — no positional knockback.
 	cs.game.spawnImpactSparks(monster.X, monster.Y)
+	cs.game.addScreenShake(0.05*float64(finalDamage), 2.2)
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)

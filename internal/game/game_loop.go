@@ -195,8 +195,11 @@ func (gl *GameLoop) updateProjectilesParallel() {
 // removeDeadMonstersByID removes specific dead monsters by their IDs
 // This is O(n) where n = number of dead monsters, not O(m) where m = all monsters
 func (gl *GameLoop) removeDeadMonstersByID() {
-	// Build a set of dead monster IDs for O(1) lookup
-	deadSet := make(map[string]bool, len(gl.game.deadMonsterIDs))
+	// Build a set of dead monster IDs for O(1) lookup (map reused across frames)
+	deadSet := gl.game.reusableDeadSet
+	for k := range deadSet {
+		delete(deadSet, k)
+	}
 	for _, id := range gl.game.deadMonsterIDs {
 		deadSet[id] = true
 	}
@@ -345,6 +348,28 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// Update spellbook input cooldown
 	if gl.game.spellInputCooldown > 0 {
 		gl.game.spellInputCooldown--
+	}
+
+	// Screen shake decays exponentially toward rest.
+	if gl.game.screenShake > 0 {
+		gl.game.screenShake *= 0.88
+		if gl.game.screenShake < 0.05 {
+			gl.game.screenShake = 0
+		}
+	}
+
+	// Impact light flashes burn down and expire.
+	if len(gl.game.impactLights) > 0 {
+		gl.game.hitEffectsMu.Lock()
+		dst := gl.game.impactLights[:0]
+		for _, il := range gl.game.impactLights {
+			il.Life--
+			if il.Life > 0 {
+				dst = append(dst, il)
+			}
+		}
+		gl.game.impactLights = dst
+		gl.game.hitEffectsMu.Unlock()
 	}
 
 	// Tick down each party member's real-time action cooldown. Off in

@@ -70,6 +70,12 @@ type Renderer struct {
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
+	// Reusable uniforms map for the floor shader (values mutated in place).
+	floorUniforms map[string]any
+	// Shared DrawImageOptions for per-column/per-sprite draws (see sharedDrawOpts).
+	spriteOpts ebiten.DrawImageOptions
+	// Current map's ambient light level (1.0 = daylight), cached per frame.
+	ambientLight float64
 	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
 	standeeCoreCache map[standeeCoreKey]*ebiten.Image
 	// Reusable vertex/index buffers for batched standee surface draws.
@@ -304,8 +310,31 @@ func (r *Renderer) precomputeRayDirections() {
 	}
 }
 
+// sharedDrawOpts returns the renderer's reusable DrawImageOptions, fully reset.
+// Wall slices, trees and billboards draw hundreds of times per frame; a fresh
+// options struct per draw was pure allocator churn. Callers must finish their
+// DrawImage before any other code path grabs the shared struct.
+func (r *Renderer) sharedDrawOpts() *ebiten.DrawImageOptions {
+	o := &r.spriteOpts
+	o.GeoM.Reset()
+	o.ColorScale.Reset()
+	o.Blend = ebiten.Blend{}        // zero value = source-over
+	o.Filter = ebiten.FilterNearest // sites opt into linear for minification
+	return o
+}
+
 func (r *Renderer) updateActiveLights() {
 	r.activeLights = r.activeLights[:0]
+
+	// Cache the current map's ambient level for this frame: every brightness
+	// path multiplies by it, making dark maps (low ambient_light) genuinely
+	// dark until a torch / spell glow lifts them.
+	r.ambientLight = 1.0
+	if world.GlobalWorldManager != nil {
+		if mc := world.GlobalWorldManager.GetCurrentMapConfig(); mc != nil && mc.AmbientLight > 0 {
+			r.ambientLight = mc.AmbientLight
+		}
+	}
 
 	camX := r.game.camera.X
 	camY := r.game.camera.Y
@@ -347,11 +376,45 @@ func (r *Renderer) updateActiveLights() {
 	}
 
 	if r.game.torchLightActive && r.game.torchLightRadius > 0 {
+		// torchLightRadius is stored in TILES (TorchLightRadiusTiles); light
+		// sources work in world units — without the conversion the torch lit a
+		// 4-PIXEL circle (invisible; unnoticed until dark maps existed).
 		r.activeLights = append(r.activeLights, LightSource{
 			X:         camX,
 			Y:         camY,
-			Radius:    r.game.torchLightRadius,
-			Intensity: 0.25,
+			Radius:    r.game.torchLightRadius * float64(r.game.config.GetTileSize()),
+			Intensity: 0.55, // the party's main light in the dark; capped at 1 on bright maps
+		})
+	}
+
+	// Spell projectiles glow in flight: the floor shader pools light under
+	// them (and calculateBrightnessWithTorchLight lifts nearby sprites), so a
+	// fireball lights its way down a dark corridor.
+	tile := float64(r.game.config.GetTileSize())
+	for i := range r.game.magicProjectiles {
+		p := &r.game.magicProjectiles[i]
+		if !p.Active {
+			continue
+		}
+		radius := tile * 2.2
+		dx := p.X - camX
+		dy := p.Y - camY
+		if maxDist := viewDist + radius; dx*dx+dy*dy > maxDist*maxDist {
+			continue
+		}
+		r.activeLights = append(r.activeLights, LightSource{
+			X: p.X, Y: p.Y, Radius: radius, Intensity: 0.45,
+		})
+	}
+
+	// Impact flashes fade out with their remaining life.
+	for _, il := range r.game.impactLights {
+		if il.MaxLife <= 0 {
+			continue
+		}
+		f := float64(il.Life) / float64(il.MaxLife)
+		r.activeLights = append(r.activeLights, LightSource{
+			X: il.X, Y: il.Y, Radius: il.Radius, Intensity: il.Intensity * f,
 		})
 	}
 }
@@ -374,10 +437,14 @@ func (r *Renderer) applyLocalLight(brightness float64, sourceX, sourceY, worldX,
 
 // calculateBrightnessWithTorchLight calculates brightness with torch light effects
 func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance float64) float64 {
-	// Base brightness calculation
+	// Base brightness: distance falloff scaled by the map's ambient level
+	// (dark maps stay dark until a light source lifts them).
 	brightness := 1.0 - (distance / r.game.camera.ViewDist)
 	if brightness < r.game.config.Graphics.BrightnessMin {
 		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	if r.ambientLight > 0 {
+		brightness *= r.ambientLight
 	}
 
 	for _, light := range r.activeLights {
@@ -385,6 +452,28 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	}
 
 	return brightness
+}
+
+// wallPointBrightness lights one raycast-column surface (wall slice, tree,
+// raycast env sprite): it reconstructs the column's world point from the
+// cached ray direction (point = cam + ray·distance, the rays are built as
+// dir + plane·s so the ray parameter IS the perpendicular distance) and runs
+// the full light-aware brightness. Without this, dark maps would have lit
+// floors and pitch-black walls — the torch must land on walls too.
+func (r *Renderer) wallPointBrightness(screenX int, distance float64) float64 {
+	n := len(r.rayDirectionsX)
+	if n == 0 {
+		return r.calculateBrightnessWithTorchLight(r.game.camera.X, r.game.camera.Y, distance)
+	}
+	idx := screenX * n / r.game.config.GetScreenWidth()
+	if idx < 0 {
+		idx = 0
+	} else if idx >= n {
+		idx = n - 1
+	}
+	wx := r.game.camera.X + r.rayDirectionsX[idx]*distance
+	wy := r.game.camera.Y + r.rayDirectionsY[idx]*distance
+	return r.calculateBrightnessWithTorchLight(wx, wy, distance)
 }
 
 // applyTreeDepthShading adds extra depth contrast for tree-like sprites.
@@ -1319,24 +1408,43 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		lights[i] = 0
 	}
 
-	uniforms := map[string]any{
-		"CamPos":        []float32{float32(camX), float32(camY)},
-		"DirCos":        float32(cosA),
-		"DirSin":        float32(sinA),
-		"PlaneCos":      float32(planeX),
-		"PlaneSin":      float32(planeY),
-		"ScreenSize":    []float32{float32(screenWidth), float32(screenHeight)},
-		"Horizon":       float32(horizon),
-		"RowDistFactor": float32(0.5 * float64(screenHeight) * float64(tileSize)),
-		"TileSize":      float32(tileSize),
-		"WorldSize":     []float32{float32(worldW), float32(worldH)},
-		"ViewDist":      float32(r.game.camera.ViewDist),
-		"MinBrightness": float32(r.game.config.Graphics.BrightnessMin),
-		"TexCount":      float32(r.floorTexCount),
-		"TexTileSize":   []float32{float32(r.floorTexTileW), float32(r.floorTexTileH)},
-		"LightCount":    float32(lightCount),
-		"Lights":        lights,
+	// Reuse the uniforms map and its nested slices across frames — rebuilding
+	// a ~20-key map[string]any (plus five small slices) every frame was pure
+	// allocator churn in the hottest draw call.
+	if r.floorUniforms == nil {
+		r.floorUniforms = map[string]any{
+			"CamPos":      make([]float32, 2),
+			"ScreenSize":  make([]float32, 2),
+			"WorldSize":   make([]float32, 2),
+			"TexTileSize": make([]float32, 2),
+		}
 	}
+	uniforms := r.floorUniforms
+	setVec2 := func(key string, a, b float32) {
+		v := uniforms[key].([]float32)
+		v[0], v[1] = a, b
+	}
+	setVec2("CamPos", float32(camX), float32(camY))
+	setVec2("ScreenSize", float32(screenWidth), float32(screenHeight))
+	setVec2("WorldSize", float32(worldW), float32(worldH))
+	setVec2("TexTileSize", float32(r.floorTexTileW), float32(r.floorTexTileH))
+	uniforms["DirCos"] = float32(cosA)
+	uniforms["DirSin"] = float32(sinA)
+	uniforms["PlaneCos"] = float32(planeX)
+	uniforms["PlaneSin"] = float32(planeY)
+	uniforms["Horizon"] = float32(horizon)
+	uniforms["RowDistFactor"] = float32(0.5 * float64(screenHeight) * float64(tileSize))
+	uniforms["TileSize"] = float32(tileSize)
+	uniforms["ViewDist"] = float32(r.game.camera.ViewDist)
+	uniforms["MinBrightness"] = float32(r.game.config.Graphics.BrightnessMin)
+	ambient := r.ambientLight
+	if ambient <= 0 {
+		ambient = 1
+	}
+	uniforms["Ambient"] = float32(ambient)
+	uniforms["TexCount"] = float32(r.floorTexCount)
+	uniforms["LightCount"] = float32(lightCount)
+	uniforms["Lights"] = lights
 
 	x0 := float32(0)
 	x1 := float32(screenWidth)
@@ -1414,9 +1522,12 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	sprite := r.game.sprites.GetSprite(spriteName)
 
 	// Scale and draw the tree sprite
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
+	if scaleX < 1 || scaleY < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
@@ -1556,17 +1667,18 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	sprite := r.game.sprites.GetSprite(spriteName)
 
 	// Scale and draw the sprite
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
+	if scaleX < 1 || scaleY < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
-	// Apply distance shading
-	brightness := 1.0 - (distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
+	// Distance shading, light-aware: torch / spell glow reaches raycast sprites
+	// (and the map's ambient_light darkens them).
+	brightness := r.wallPointBrightness(x, distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	// Use composite mode to ensure opaque rendering
@@ -1651,7 +1763,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		return r.game.renderHelper.CreateBaseTexturedWallSlice(tileType, width, quantizedHeight, wallSide, textureCoord)
 	})
 
-	drawOptions := &ebiten.DrawImageOptions{}
+	drawOptions := r.sharedDrawOpts()
 	cachedHeight := wallSliceImage.Bounds().Dy()
 	if cachedHeight > 0 && wallHeight != cachedHeight {
 		scaleY := float64(wallHeight) / float64(cachedHeight)
@@ -1659,11 +1771,9 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	}
 	drawOptions.GeoM.Translate(float64(screenX), float64(wallTop))
 
-	// Apply distance-based color scaling at draw time for better cache efficiency
-	brightness := 1.0 - (distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
+	// Distance-based shading at draw time (cache stays brightness-agnostic),
+	// light-aware so torches land on walls — vital on dark (ambient_light) maps.
+	brightness := r.wallPointBrightness(screenX, distance)
 	drawOptions.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
 	screen.DrawImage(wallSliceImage, drawOptions)
@@ -1699,16 +1809,13 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	xScale := float64(width)
 	yScale := float64(wallHeight) / float64(spriteHeight)
 
-	brightness := 1.0 - (distance / r.game.camera.ViewDist)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
+	brightness := r.wallPointBrightness(screenX, distance)
 	if wallSide == 1 {
 		brightness *= 0.7
 	}
 
 	src := sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
 	opts.GeoM.Scale(xScale, yScale)
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
@@ -2453,7 +2560,10 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 	}
 	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
+	if scaleX < 1 || scaleY < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
@@ -2668,9 +2778,12 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	if scaleX < 1 || scaleY < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	}
 
 	if s.monsterFlip {
 		opts.GeoM.Scale(-scaleX, scaleY)
@@ -2737,9 +2850,12 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 	}
 
-	opts := &ebiten.DrawImageOptions{}
+	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
+	if scaleX < 1 || scaleY < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
@@ -2937,6 +3053,26 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		if magicProjectile.Crit {
 			critBoost = 1.2
 		}
+		// Ghost trail: fading copies along the recent flight path. Projectiles
+		// fly straight, so past positions are just position − velocity·k — no
+		// per-projectile history needed. Drawn before the body so they read as
+		// a wake behind it.
+		for gi := 1; gi <= 3; gi++ {
+			k := float64(gi) * 4
+			gproj, gok := r.projectMovingEntity(
+				magicProjectile.X-magicProjectile.VelX*k,
+				magicProjectile.Y-magicProjectile.VelY*k,
+				spellGraphicsConfig.BaseSize, spellGraphicsConfig.MinSize, spellGraphicsConfig.MaxSize)
+			if !gok {
+				continue
+			}
+			fade := 1.0 - float64(gi)*0.28
+			r.drawGlowSprite(screen,
+				float64(gproj.screenX), float64(gproj.screenY)+float64(gproj.size)/2,
+				float64(gproj.size)*fxProfile.glowScale*0.8*fade,
+				fxProfile.glowColor, 0.35*fade, glowBlend)
+		}
+
 		// Soft ambient glow under the projectile (all styles).
 		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
 		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
@@ -3092,7 +3228,7 @@ func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
 		// Draw attack using weapon-specific color from config
 		attackColor := weaponDef.Graphics.Color
 
-		opts := &ebiten.DrawImageOptions{}
+		opts := r.sharedDrawOpts()
 		opts.GeoM.Scale(float64(attackSize), float64(attackSize))
 		opts.GeoM.Translate(float64(screenX-attackSize/2), float64(screenY))
 		opts.ColorScale.Scale(
@@ -3189,47 +3325,131 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			continue
 		}
 
-		// Plain arrow: crisp element-coloured discs in a touching line, no glow.
-		r.drawArrowBolt(screen, centerX, centerY, float64(arrowSize), arrowScreenAngle, arrowColor, 1.0)
+		// Plain arrow: a fletched shaft with a triangular head, rotated along
+		// its on-screen flight direction, lobbed on a shallow arc so its
+		// profile shows in flight (a dead-straight arrow shot forward reads as
+		// just its tail). The arc is applied to both the current and the
+		// one-step-back sample, so the shaft angle follows the arc's tangent —
+		// the arrow noses up on the rise and tips down on the fall.
+		arcAmp := float64(arrowSize) * 1.3
+		maxLife := 1.0
+		if bowDef.Physics != nil {
+			maxLife = float64(bowDef.Physics.GetLifetimeFrames()) // arrows spawn with exactly this
+		}
+		flightT := func(lifeLeft float64) float64 {
+			t := 1 - lifeLeft/maxLife
+			return math.Min(math.Max(t, 0), 1)
+		}
+		tNow := flightT(float64(arrow.LifeTime))
+		tPrev := flightT(float64(arrow.LifeTime) + 3)
+		arcNow := arcAmp * 4 * tNow * (1 - tNow)
+		centerY -= arcNow
+
+		// Shaft angle from the projected flight delta — but only once the arrow
+		// is clear of the camera: right after launch the one-step-back sample
+		// sits at/behind the camera plane, where projections swing wildly and
+		// made the arrow tumble. The displayed angle is additionally eased
+		// per-arrow so a noisy frame can't flip the shaft.
+		target := arrowScreenAngle
+		camDx := arrow.X - r.game.camera.X
+		camDy := arrow.Y - r.game.camera.Y
+		if camDx*camDx+camDy*camDy > arrowAngleMinDist*arrowAngleMinDist {
+			if prev, pok := r.projectMovingEntity(arrow.X-arrow.VelX*3, arrow.Y-arrow.VelY*3,
+				bowDef.Graphics.BaseSize, bowDef.Graphics.MinSize, bowDef.Graphics.MaxSize); pok {
+				arcPrev := arcAmp * 4 * tPrev * (1 - tPrev)
+				pdx := centerX - float64(prev.screenX)
+				pdy := centerY - (float64(prev.screenY) + float64(prev.size)/2 - arcPrev)
+				if pdx*pdx+pdy*pdy > 4 {
+					target = math.Atan2(pdy, pdx)
+				}
+			}
+		}
+		ar := &r.game.arrows[idx]
+		if !ar.RenderAngleSet {
+			ar.RenderAngle = target
+			ar.RenderAngleSet = true
+		} else {
+			ar.RenderAngle = approachAngle(ar.RenderAngle, target, arrowAngleMaxStep)
+		}
+		angle := ar.RenderAngle
+		shaftLen := float64(arrowSize) * 1.7
+		for g := 2; g >= 1; g-- {
+			off := shaftLen * 0.5 * float64(g)
+			r.drawArrowQuad(screen,
+				centerX-math.Cos(angle)*off, centerY-math.Sin(angle)*off,
+				float64(arrowSize), angle, arrowColor, 0.4-0.16*float64(g))
+		}
+		r.drawArrowQuad(screen, centerX, centerY, float64(arrowSize), angle, arrowColor, 1.0)
 	}
 }
 
 // arrowScreenAngle is the fixed screen tilt arrows fly/stick at (up-left, R→L) —
-// same diagonal as the staff bolt — so the projectile reads side-on.
+// same diagonal as the staff bolt — used when the flight is head-on and has no
+// usable on-screen direction.
 const arrowScreenAngle = -2.7
 
-// arrowTrailCircles is the max number of trail circles behind the head (older
-// ones drop off), per the arrow spec.
-const arrowTrailCircles = 5
+// arrowAngleMinDist gates the projection-derived shaft angle: closer to the
+// camera than this (world units), projections of the one-step-back sample swing
+// wildly and the fixed tilt is used instead.
+const arrowAngleMinDist = 48.0
 
-// drawArrowBolt draws an arrow as a short line of 5 touching crisp squares in the
-// bow's element colour, along `angle`. Perspective: the leading tip is smallest
-// and each square toward the tail (nearer the camera) is slightly bigger. Drawn
-// source-over (no blur, no additive bloom) so the colour stays vivid.
-// `head` sizes the tail (largest) square; caller scales it by distance.
-func (r *Renderer) drawArrowBolt(screen *ebiten.Image, cx, cy, head, angle float64, color [3]int, alpha float64) {
-	if head < 2 || alpha <= 0 {
+// arrowAngleMaxStep caps how fast the displayed shaft angle may turn per frame
+// (radians) — the easing that keeps one noisy frame from flipping the arrow.
+const arrowAngleMaxStep = 0.12
+
+// drawArrowQuad draws an arrow the shape of a real one — shaft, triangular
+// steel head, two swept-back fletching triangles — rotated along `angle` (its
+// on-screen flight direction), in the bow's element colour. All five triangles
+// go out as ONE DrawTriangles on the white pixel, coloured per vertex; drawn
+// source-over (no bloom) so the colour stays vivid. `size` is the
+// distance-scaled base size; the arrow is ~1.7× as long.
+func (r *Renderer) drawArrowQuad(screen *ebiten.Image, cx, cy, size, angle float64, col [3]int, alpha float64) {
+	if size < 2 || alpha <= 0 {
 		return
 	}
 	ca, sa := math.Cos(angle), math.Sin(angle)
-	const n = arrowTrailCircles // 5 squares
-	var px, py, sz [n]float64
-	pos, prevR := 0.0, 0.0
-	for k := 0; k < n; k++ {
-		t := float64(k) / float64(n-1) // 0 tip → 1 tail
-		s := head * (0.25 + 0.25*t)    // small squares; tip smallest, tail biggest
-		rr := s * 0.5
-		if k > 0 {
-			pos += (prevR + rr) * 0.5 // strong overlap — a near-continuous line
-		}
-		px[k], py[k], sz[k] = cx-ca*pos, cy-sa*pos, s
-		prevR = rr
+	half := size * 0.85               // half length of the whole arrow
+	w := math.Max(0.8, size*0.10)     // half width of the shaft
+	headLen := size * 0.45            // arrowhead length
+	headW := math.Max(1.5, size*0.22) // arrowhead half width
+	flLen := size * 0.45              // fletching length along the shaft
+	flW := math.Max(1.2, size*0.26)   // fletching height off the shaft
+
+	steel := mixColor(col, [3]int{235, 235, 235}, 0.55)
+	feather := mixColor(col, [3]int{255, 255, 255}, 0.35)
+
+	a := float32(alpha)
+	verts := r.standeeVerts[:0]
+	idx := r.standeeIdx[:0]
+	vert := func(lx, ly float64, c [3]int) {
+		verts = append(verts, ebiten.Vertex{
+			DstX: float32(cx + lx*ca - ly*sa), DstY: float32(cy + lx*sa + ly*ca),
+			SrcX: 0.5, SrcY: 0.5,
+			ColorR: float32(c[0]) / 255 * a, ColorG: float32(c[1]) / 255 * a,
+			ColorB: float32(c[2]) / 255 * a, ColorA: a,
+		})
 	}
-	// Crisp source-over squares (no blur, no bloom) so the colour stays vivid.
-	// Back-to-front so the leading tip is on top.
-	for k := n - 1; k >= 0; k-- {
-		r.drawGlowRect(screen, px[k], py[k], sz[k], color, alpha, ebiten.BlendSourceOver)
+	tri := func(x0, y0, x1, y1, x2, y2 float64, c [3]int) {
+		base := uint16(len(verts))
+		vert(x0, y0, c)
+		vert(x1, y1, c)
+		vert(x2, y2, c)
+		idx = append(idx, base, base+1, base+2)
 	}
+
+	// Shaft: from the tail to the head's base.
+	shaftEnd := half - headLen
+	tri(-half, -w, shaftEnd, -w, shaftEnd, w, col)
+	tri(-half, -w, shaftEnd, w, -half, w, col)
+	// Triangular head.
+	tri(shaftEnd, -headW, half, 0, shaftEnd, headW, steel)
+	// Two fletching triangles swept back off the tail.
+	tri(-half+flLen, -w, -half, -w-flW, -half, -w, feather)
+	tri(-half+flLen, w, -half, w+flW, -half, w, feather)
+
+	screen.DrawTriangles(verts, idx, r.whiteImg, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendSourceOver})
+	r.standeeVerts = verts[:0]
+	r.standeeIdx = idx[:0]
 }
 
 // drawSlashEffects draws slash animations for melee weapons

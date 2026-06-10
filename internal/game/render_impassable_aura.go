@@ -72,6 +72,18 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 			if !showAura {
 				continue // trees, textured walls, ordinary floors: not ambiguous
 			}
+			// Interior tiles of a blocker cluster (all four neighbours also
+			// block) have no walkable-facing edge — skip before the colour work.
+			interior := true
+			for _, d := range dirs {
+				if !r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
+					interior = false
+					break
+				}
+			}
+			if interior {
+				continue
+			}
 			// Bubble colour = average of the tile's sprite texture (so it matches
 			// the rock/cliff), falling back to the tile's floor colour.
 			base, ok := r.auraTileColor(tile)

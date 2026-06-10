@@ -74,7 +74,11 @@ func TestSpellHitStyle(t *testing.T) {
 		"water":    "shard",
 		"dark":     "void",
 		"light":    "flash",
-		"earth":    "burst",
+		"air":      "static",
+		"earth":    "rubble",
+		"mind":     "spiral",
+		"spirit":   "soul",
+		"body":     "mend",
 		"physical": "burst",
 		"":         "burst",
 	}
@@ -85,9 +89,9 @@ func TestSpellHitStyle(t *testing.T) {
 	}
 }
 
-// TestCreateSpellHitEffect_StyleMotion: fire embers rise (gravity < 0), ice
-// shards fall (gravity > 0), and a plain burst has no gravity. All start at the
-// anchor with zero screen offset.
+// TestCreateSpellHitEffect_StyleMotion: gravity signs encode each school's
+// motion — fire embers and spirit wisps rise, ice shards and earth rubble fall,
+// a plain physical burst has none. All start at the anchor with zero offset.
 func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))
@@ -104,9 +108,9 @@ func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 			}
 			switch {
 			case wantSign < 0 && p.Gravity >= 0:
-				t.Errorf("%s: embers should rise (gravity<0), got %v", element, p.Gravity)
+				t.Errorf("%s: particles should rise (gravity<0), got %v", element, p.Gravity)
 			case wantSign > 0 && p.Gravity <= 0:
-				t.Errorf("%s: shards should fall (gravity>0), got %v", element, p.Gravity)
+				t.Errorf("%s: particles should fall (gravity>0), got %v", element, p.Gravity)
 			case wantSign == 0 && p.Gravity != 0:
 				t.Errorf("%s: burst should have no gravity, got %v", element, p.Gravity)
 			}
@@ -114,5 +118,32 @@ func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 	}
 	check("fire", -1)
 	check("water", 1)
-	check("earth", 0)
+	check("earth", 1)
+	check("spirit", -1)
+	check("physical", 0)
+}
+
+// Spell impacts now flash the world: CreateSpellHitEffect must leave a decaying
+// impact light at the burst point, and heavy spells must rattle the screen.
+func TestCreateSpellHitEffect_ImpactLightAndShake(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+
+	g.CreateSpellHitEffect(100, 200, "fire", 20, 4)
+	if len(g.impactLights) != 1 {
+		t.Fatalf("expected one impact light, got %d", len(g.impactLights))
+	}
+	il := g.impactLights[0]
+	if il.X != 100 || il.Y != 200 || il.Radius <= 0 || il.Intensity <= 0 || il.Life != il.MaxLife {
+		t.Errorf("impact light misconfigured: %+v", il)
+	}
+
+	g.screenShake = 0
+	g.CreateSpellHitEffectFromSpell(100, 200, "fireball")
+	if g.screenShake <= 0 {
+		t.Errorf("a fireball impact should set screen shake, got %v", g.screenShake)
+	}
+	if g.screenShake > screenShakeMaxAmp {
+		t.Errorf("shake must be capped at %v, got %v", screenShakeMaxAmp, g.screenShake)
+	}
 }

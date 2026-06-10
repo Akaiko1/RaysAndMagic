@@ -9,6 +9,10 @@ import (
 // ParallelRenderer handles multi-threaded rendering operations
 type ParallelRenderer struct {
 	workerPool *core.WorkerPool
+	// results is reused across frames (callers consume it before the next
+	// RenderRaycast call) — allocating numRays results per frame was steady
+	// GC churn for nothing.
+	results []RaycastResult
 }
 
 // RaycastResult holds the result of a raycast operation
@@ -28,8 +32,11 @@ func NewParallelRenderer() *ParallelRenderer {
 // RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
 // Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
 func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (float64, interface{})) []RaycastResult {
-	// Single allocation for results
-	results := make([]RaycastResult, numRays)
+	// Reuse the results buffer (grown once to the largest numRays seen).
+	if cap(pr.results) < numRays {
+		pr.results = make([]RaycastResult, numRays)
+	}
+	results := pr.results[:numRays]
 
 	// Very small workloads: process inline to avoid synchronization overhead
 	if numRays <= 8 {

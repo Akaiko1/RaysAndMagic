@@ -505,6 +505,10 @@ type MapConfig struct {
 	SkyColor          [3]int `yaml:"sky_color"`
 	SkyTexture        string `yaml:"sky_texture,omitempty"`
 	DefaultFloorColor [3]int `yaml:"default_floor_color"`
+	// AmbientLight scales the map's base (distance) brightness: 1.0 (or absent)
+	// = normal daylight, low values make a dungeon genuinely dark so torch
+	// light and spell glow become essential. Point lights add on top.
+	AmbientLight float64 `yaml:"ambient_light,omitempty"`
 	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`

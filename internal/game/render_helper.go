@@ -698,6 +698,7 @@ var TileSize float
 var WorldSize vec2
 var ViewDist float
 var MinBrightness float
+var Ambient float
 var TexCount float
 var TexTileSize vec2
 var LightCount float
@@ -799,6 +800,8 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	if brightness < MinBrightness {
 		brightness = MinBrightness
 	}
+	// Map ambient level: dark maps stay dark until point lights lift them.
+	brightness *= Ambient
 	for i := 0; i < 16; i++ {
 		if float(i) >= LightCount {
 			break

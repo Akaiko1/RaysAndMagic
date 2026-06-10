@@ -386,7 +386,20 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 		}
 		if len(idx) > 0 {
-			screen.DrawTriangles(verts, idx, sf.img, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendSourceOver})
+			// Filtering by actual scale, like the billboard path: linear
+			// (mipmapped) only when the token renders SMALLER than its texture —
+			// distant tokens dissolved into nearest-sample noise. Up close the
+			// columns are magnified and linear would smear the pixel art, so
+			// they stay nearest. Column slices sample texel centers, so level-0
+			// linear is bleed-free.
+			filter := ebiten.FilterNearest
+			if float64(centerSize) < texH {
+				filter = ebiten.FilterLinear
+			}
+			screen.DrawTriangles(verts, idx, sf.img, &ebiten.DrawTrianglesOptions{
+				Blend:  ebiten.BlendSourceOver,
+				Filter: filter,
+			})
 		}
 		r.standeeVerts = verts[:0]
 		r.standeeIdx = idx[:0]

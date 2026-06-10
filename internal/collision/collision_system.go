@@ -74,7 +74,15 @@ type TileChecker interface {
 	GetWorldBounds() (width, height int)
 }
 
-// CollisionSystem manages all collision detection in the game
+// CollisionSystem manages all collision detection in the game.
+//
+// CONCURRENCY CONTRACT (deliberately lock-free): the parallel entity updaters
+// call UpdateEntity/CanMoveTo* from worker goroutines. That is safe only while
+// (1) updates are stop-the-world — no other game mutation runs concurrently,
+// (2) each worker touches a DISJOINT set of entities (chunked partitioning),
+// and (3) the entities map itself is never mutated (Register/Unregister) inside
+// a parallel phase — concurrent map READS are fine, a write would race.
+// Breaking any of these requires adding a lock here first.
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity

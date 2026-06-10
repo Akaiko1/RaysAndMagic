@@ -277,6 +277,7 @@ maps:
     sky_color: [20, 24, 26]
     sky_texture: "culverts_panorama"
     default_floor_color: [58, 54, 48]
+    ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
 
   city:
     name: "Seabright"

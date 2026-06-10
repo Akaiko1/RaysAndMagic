@@ -87,6 +87,7 @@ type SlashEffect struct {
 	MaxFrames      int     // Total animation frames
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
+	Crit           bool   // critical swing: bigger, brighter, golden-edged
 }
 
 type Arrow struct {
@@ -102,6 +103,8 @@ type Arrow struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
+	RenderAngle        float64 // Render-only: smoothed on-screen shaft angle
+	RenderAngleSet     bool    // Render-only: RenderAngle initialised
 }
 
 // SpellHitParticle represents a single particle from a spell impact
@@ -214,6 +217,8 @@ type MMGame struct {
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
 	spellHitEffects      []SpellHitEffect
+	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
+	screenShake          float64       // camera shake amplitude in world units, decays each tick
 	hitEffectsMu         sync.Mutex
 
 	// Map overlay UI state
@@ -312,6 +317,7 @@ type MMGame struct {
 	reusableMonsterWrappers     []entities.MonsterUpdateInterface
 	reusableProjectileWrappers  []entities.ProjectileUpdateInterface
 	reusableEncounterRewardsMap map[*monster.EncounterRewards]int
+	reusableDeadSet             map[string]bool
 
 	// Dead monster IDs to remove - populated when monster dies, processed once per frame
 	deadMonsterIDs []string
@@ -504,6 +510,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
 		reusableProjectileWrappers:  make([]entities.ProjectileUpdateInterface, 0, 64),
 		reusableEncounterRewardsMap: make(map[*monster.EncounterRewards]int),
+		reusableDeadSet:             make(map[string]bool, 16),
 		deadMonsterIDs:              make([]string, 0, 16),
 
 		// Session timer for score calculation
@@ -780,6 +787,19 @@ func (g *MMGame) Update() error {
 }
 
 func (g *MMGame) Draw(screen *ebiten.Image) {
+	// Screen shake: nudge the camera sideways (perpendicular to the view) for
+	// this frame only — the whole raycast scene shifts coherently, and the
+	// camera is restored before any game logic can observe it.
+	if g.screenShake > 0 && g.camera != nil {
+		ox := -math.Sin(g.camera.Angle) * g.screenShake
+		oy := math.Cos(g.camera.Angle) * g.screenShake
+		if g.frameCount%2 == 0 {
+			ox, oy = -ox, -oy
+		}
+		g.camera.X += ox
+		g.camera.Y += oy
+		defer func(x, y float64) { g.camera.X, g.camera.Y = x, y }(g.camera.X-ox, g.camera.Y-oy)
+	}
 	g.gameLoop.Draw(screen)
 }
 
