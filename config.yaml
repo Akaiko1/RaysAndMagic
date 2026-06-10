@@ -175,7 +175,19 @@ graphics:
   # Distance effects
   brightness_min: 0.3
 
-  # Monster rendering
+  # Board-game standees: monsters, NPCs and scenery render as thick wooden
+  # tokens standing in the world (monsters turn with their travel direction)
+  # instead of camera-facing billboards.
+  standee:
+    enabled: true
+    thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
+    turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
+    npc_spin_deg_per_sec: 12    # showcase spin of NPC/NPC-like tokens (0 = off); scenery never spins
+    env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
+    min_view_angle_deg: 22      # monster tokens never come closer than this to edge-on (0 = off)
+
+  # Monster rendering (max_sprite_size bounds combat collision scaling only;
+  # rendering is uncapped so sprites don't sink at close range)
   monster:
     max_sprite_size: 60
     min_sprite_size: 8
@@ -183,7 +195,6 @@ graphics:
 
   # NPC rendering (larger than monsters for better visibility)
   npc:
-    max_sprite_size: 120
     min_sprite_size: 16
     size_distance_multiplier: 150
 

@@ -118,6 +118,9 @@ type Monster3D struct {
 	WasAttacked         bool    // True when monster was hit - prevents disengagement
 	HitTintFrames       int     // Frames remaining for red hit tint
 	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
+	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
+	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:

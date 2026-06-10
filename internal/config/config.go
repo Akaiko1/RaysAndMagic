@@ -371,6 +371,34 @@ type GraphicsConfig struct {
 	NPC                NPCRenderConfig      `yaml:"npc"`
 	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
 	ColorKey           ColorKeyConfig       `yaml:"color_key"`
+	// Standee renders monsters, NPCs and scenery objects as flat two-sided
+	// tokens standing in the world (board-game standees) instead of
+	// camera-facing billboards. Monsters turn with their travel direction.
+	Standee StandeeConfig `yaml:"standee"`
+}
+
+// StandeeConfig tunes the board-game standee rendering mode.
+type StandeeConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// ThicknessTiles is the token slab's thickness in tiles: the gap between
+	// the front and back sticker faces, with the core layer visible between
+	// them at viewing angles.
+	ThicknessTiles float64 `yaml:"thickness_tiles"`
+	// TurnSpeedDegPerSec caps how fast a monster token turns toward its travel
+	// direction (degrees per second), so tokens swivel smoothly instead of
+	// snapping.
+	TurnSpeedDegPerSec float64 `yaml:"turn_speed_deg_per_sec"`
+	// NPCSpinDegPerSec slowly spins NPC tokens (people, statues, valves,
+	// buildings) in place, showcase-style; 0 disables. Scenery tile tokens
+	// (grass, trees, rocks) never spin.
+	NPCSpinDegPerSec float64 `yaml:"npc_spin_deg_per_sec"`
+	// EnvFaceDegPerSec makes scenery tile tokens (grass, ferns, rocks) slowly
+	// turn to face the camera at this rate; 0 keeps them at a fixed diagonal.
+	EnvFaceDegPerSec float64 `yaml:"env_face_deg_per_sec"`
+	// MinViewAngleDeg keeps a monster token's plane at least this far from the
+	// camera's sight line, so a monster crossing the view never degenerates
+	// into an invisible edge-on sliver. 0 disables the clamp.
+	MinViewAngleDeg float64 `yaml:"min_view_angle_deg"`
 }
 
 // ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
@@ -406,13 +434,15 @@ type SpriteConfig struct {
 }
 
 type MonsterRenderConfig struct {
+	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
+	// (projectile hits); rendering is uncapped — a render-side pixel cap makes
+	// sprites sink at close range as the floor anchor outgrows the capped size.
 	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
 }
 
 type NPCRenderConfig struct {
-	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
 }

@@ -70,6 +70,17 @@ type Renderer struct {
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
+	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
+	standeeCoreCache map[standeeCoreKey]*ebiten.Image
+	// Reusable vertex/index buffers for batched standee surface draws.
+	standeeVerts []ebiten.Vertex
+	standeeIdx   []uint16
+	// Eased facing of scenery tokens (they slowly turn toward the camera),
+	// keyed by tile — environment sprites have no entity struct to carry it.
+	standeeEnvYaw map[[2]int]standeeEnvYawState
+	// Same for animated NPC tokens (people turn to face the party; static
+	// objects keep the showcase spin instead). NPC pointers are stable.
+	standeeNPCYaw map[*character.NPC]standeeEnvYawState
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
 	// Cached tile light sources (world-space)
@@ -1361,12 +1372,11 @@ func (r *Renderer) ensureFloorShader() (*ebiten.Shader, error) {
 func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
 	screenHeight := r.game.config.GetScreenHeight()
 
-	// Minimum distance to prevent extreme scaling and floor projection going off-screen.
-	// At tileSize/2 distance, the tree fills most of the screen properly.
-	// Below this, the floor projection formula breaks down.
-	minDist := float64(r.game.config.GetTileSize()) / 2
-	if distance < minDist {
-		distance = minDist
+	// Division guard only (collision keeps the camera farther out). A larger
+	// clamp freezes the projection for near rays and creases against the
+	// still-perspective far ones — same fix as walls.
+	if distance < 1.0 {
+		distance = 1.0
 	}
 
 	// Calculate tree height and position
@@ -1376,10 +1386,10 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 		spriteHeight = 8
 	}
 
-	// Cap sprite height to prevent extreme values at very close distances
-	// (4x screen height allows tree to extend well off-screen while staying reasonable)
-	if spriteHeight > screenHeight*4 {
-		spriteHeight = screenHeight * 4
+	// Sanity bound, reachable only inside the epsilon above; the GPU clips
+	// off-screen geometry, so huge heights cost nothing.
+	if spriteHeight > screenHeight*64 {
+		spriteHeight = screenHeight * 64
 	}
 
 	spriteWidth := int(float64(spriteHeight) * r.game.config.Graphics.Sprite.TreeWidthMultiplier)
@@ -2023,32 +2033,55 @@ func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool
 	spriteName := mon.GetSpriteType()
 	anim, flip := r.getMonsterWalkAnimation(spriteName, mon)
 	if anim != nil && len(anim.Frames) > 0 {
-		tps := r.game.config.GetTPS()
-		if tps <= 0 {
-			tps = 60
-		}
-		const animFPS = 8
-		ticksPerFrame := tps / animFPS
-		if ticksPerFrame < 1 {
-			ticksPerFrame = 1
-		}
-		animWindow := int64(ticksPerFrame * len(anim.Frames))
-		if animWindow < 1 {
-			animWindow = 1
-		}
-		if r.shouldAnimateMonster(mon) {
-			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-			return anim.Frames[frame], flip
-		}
-		if r.game.turnBasedMode && mon.LastMoveTick > 0 {
-			if r.game.frameCount-mon.LastMoveTick <= animWindow {
-				frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-				return anim.Frames[frame], flip
-			}
-		}
-		return anim.Frames[0], flip
+		return r.monsterAnimFrameImage(anim, mon), flip
 	}
 	return r.game.sprites.GetSprite(spriteName), false
+}
+
+// monsterAnimFrameImage picks the animation frame for the monster's current
+// motion state: cycling while it moves (and briefly after a TB step), the rest
+// pose otherwise.
+func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
+	tps := r.game.config.GetTPS()
+	if tps <= 0 {
+		tps = 60
+	}
+	const animFPS = 8
+	ticksPerFrame := tps / animFPS
+	if ticksPerFrame < 1 {
+		ticksPerFrame = 1
+	}
+	animWindow := int64(ticksPerFrame * len(anim.Frames))
+	if animWindow < 1 {
+		animWindow = 1
+	}
+	if r.shouldAnimateMonster(mon) {
+		frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
+		return anim.Frames[frame]
+	}
+	if r.game.turnBasedMode && mon.LastMoveTick > 0 {
+		if r.game.frameCount-mon.LastMoveTick <= animWindow {
+			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
+			return anim.Frames[frame]
+		}
+	}
+	return anim.Frames[0]
+}
+
+// getMonsterStandeeSprite returns the current walk frame from a fixed,
+// world-deterministic animation set plus whether that art is drawn facing
+// left. Picking walking_l vs walking_r by screen slide is the billboard
+// path's trick; a standee uses ONE art set and mirrors by world heading,
+// otherwise the two independent flips combine into backwards walking.
+func (r *Renderer) getMonsterStandeeSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
+	name := mon.GetSpriteType()
+	if anim := r.game.sprites.GetAnimation(name, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+		return r.monsterAnimFrameImage(anim, mon), false
+	}
+	if anim := r.game.sprites.GetAnimation(name, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+		return r.monsterAnimFrameImage(anim, mon), true
+	}
+	return r.game.sprites.GetSprite(name), false
 }
 
 func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
@@ -2476,6 +2509,41 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
 	b := float32(brightness)
 
+	// Standee mode: scenery tokens slowly turn to face the camera (a lazy
+	// billboard — the turn rate makes them feel like propped-up cutouts being
+	// nudged, not glued to the view). Rate 0 = fixed diagonal.
+	if r.game.config.Graphics.Standee.Enabled {
+		yaw := standeeStaticYaw
+		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 {
+			target := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
+			tileKey := [2]int{s.tileX, s.tileY}
+			if r.standeeEnvYaw == nil {
+				r.standeeEnvYaw = make(map[[2]int]standeeEnvYawState)
+			}
+			st, seen := r.standeeEnvYaw[tileKey]
+			tps := r.game.config.GetTPS()
+			dt := r.game.frameCount - st.tick
+			if !seen || dt > int64(tps) {
+				st.yaw = target // first sighting (or long unseen): face the camera at once
+			} else if dt > 0 {
+				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
+				st.yaw = approachAngle(st.yaw, target, maxStep)
+			}
+			st.tick = r.game.frameCount
+			r.standeeEnvYaw[tileKey] = st
+			yaw = st.yaw
+		}
+		name := ""
+		if world.GlobalTileManager != nil {
+			name = world.GlobalTileManager.GetSprite(s.tileType)
+		}
+		key := standeeCoreKey{name: "tile:" + name, bounds: s.sprite.Bounds()}
+		if r.drawStandeeSprite(screen, s.sprite, key, worldX, worldY, yaw,
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false) {
+			return
+		}
+	}
+
 	drawLeft := s.screenX - s.spriteSize/2
 	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 }
@@ -2512,18 +2580,6 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	opts := &ebiten.DrawImageOptions{}
-	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
-	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-
-	if s.monsterFlip {
-		opts.GeoM.Scale(-scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
-	} else {
-		opts.GeoM.Scale(scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
-	}
-
 	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
 	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
 	br := float32(brightness)
@@ -2539,6 +2595,91 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
 	}
+
+	// Standee mode: the monster is a wooden token whose face turns with its
+	// travel direction (yaw = Direction + 90° puts the slab across it). The
+	// displayed yaw eases toward the heading at the configured turn speed so
+	// the token swivels instead of snapping.
+	if r.game.config.Graphics.Standee.Enabled {
+		m := s.monster
+		target := m.Direction + math.Pi/2
+		// Readability clamp: a monster crossing the view would turn its slab
+		// edge-on to the camera and vanish into a sliver — keep the plane a
+		// minimum angle away from the sight line. Clamping the TARGET (before
+		// easing) keeps the correction itself smooth.
+		if minDeg := r.game.config.Graphics.Standee.MinViewAngleDeg; minDeg > 0 {
+			viewAngle := math.Atan2(m.Y-r.game.camera.Y, m.X-r.game.camera.X)
+			target = clampYawFromEdgeOn(target, viewAngle, minDeg*math.Pi/180)
+		}
+		if m.StandeeYawTick == 0 {
+			m.StandeeYaw = target // first sighting: face the heading immediately
+		} else if dt := r.game.frameCount - m.StandeeYawTick; dt > 0 {
+			turn := r.game.config.Graphics.Standee.TurnSpeedDegPerSec
+			if turn <= 0 {
+				turn = standeeTurnDefault
+			}
+			maxStep := turn * math.Pi / 180 * float64(dt) / float64(r.game.config.GetTPS())
+			m.StandeeYaw = approachAngle(m.StandeeYaw, target, maxStep)
+		}
+		m.StandeeYawTick = r.game.frameCount
+
+		// World-deterministic art: one animation set, flipped so the figure
+		// faces its heading as it slides across the screen. The flip compares
+		// the token's on-screen U direction with the heading's on-screen
+		// direction; held while the heading points at/away from the camera
+		// (|dDot| small) so it can't flicker mid-charge.
+		sprite, artFacesLeft := r.getMonsterStandeeSprite(m)
+		if sprite == nil {
+			sprite = s.sprite
+		}
+		camRightX := -math.Sin(r.game.camera.Angle)
+		camRightY := math.Cos(r.game.camera.Angle)
+		sDot := math.Cos(m.StandeeYaw)*camRightX + math.Sin(m.StandeeYaw)*camRightY
+		dDot := math.Cos(m.Direction)*camRightX + math.Sin(m.Direction)*camRightY
+		if math.Abs(dDot) > 0.1 {
+			m.StandeeMirror = ((sDot > 0) != (dDot > 0)) != artFacesLeft
+		}
+
+		// Hit shake, standee edition: rattle the token along its own axis in
+		// world space (same amplitude/phase as the billboard's screen shake).
+		entX, entY := m.X, m.Y
+		if m.HitTintFrames > 0 {
+			f := float64(m.HitTintFrames) / float64(MonsterHitFlashFrames)
+			if f > 1 {
+				f = 1
+			}
+			dir := 1.0
+			if m.HitTintFrames%2 == 0 {
+				dir = -1.0
+			}
+			halfFovTan := math.Tan(r.game.camera.FOV / 2)
+			worldLen := float64(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
+			off := dir * f * MonsterHitShakeAmplitudeFrac * worldLen
+			entX += math.Cos(m.StandeeYaw) * off
+			entY += math.Sin(m.StandeeYaw) * off
+		}
+
+		// Monster animation frames are load-time images with identical bounds;
+		// the pointer (stable for them) is what tells frames apart in the cache.
+		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
+		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
+			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror) {
+			return
+		}
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
+	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+
+	if s.monsterFlip {
+		opts.GeoM.Scale(-scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
+	} else {
+		opts.GeoM.Scale(scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+	}
+
 	opts.ColorScale.Scale(rr, gg, bb, 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
@@ -2554,18 +2695,55 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
+	distance := math.Sqrt(math.Pow(s.npc.X-r.game.camera.X, 2) + math.Pow(s.npc.Y-r.game.camera.Y, 2))
+	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
+	if brightness < r.game.config.Graphics.BrightnessMin {
+		brightness = r.game.config.Graphics.BrightnessMin
+	}
+	br := float32(brightness)
+
+	// Standee mode: animated NPCs (people) slowly turn to face the party, like
+	// figures attending to a visitor; static objects (statues, valves,
+	// buildings) spin slowly in place, showcase-style, with the spin phase
+	// hashed from position so neighbours don't rotate in lockstep.
+	if r.game.config.Graphics.Standee.Enabled {
+		yaw := standeeStaticYaw
+		animated := frameW != s.sprite.Bounds().Dx() // a frame was cut from a sheet
+		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; animated && speed > 0 {
+			target := math.Atan2(r.game.camera.Y-s.npc.Y, r.game.camera.X-s.npc.X) + math.Pi/2
+			if r.standeeNPCYaw == nil {
+				r.standeeNPCYaw = make(map[*character.NPC]standeeEnvYawState)
+			}
+			st, seen := r.standeeNPCYaw[s.npc]
+			tps := r.game.config.GetTPS()
+			dt := r.game.frameCount - st.tick
+			if !seen || dt > int64(tps) {
+				st.yaw = target // first sighting (or long unseen): face the party at once
+			} else if dt > 0 {
+				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
+				st.yaw = approachAngle(st.yaw, target, maxStep)
+			}
+			st.tick = r.game.frameCount
+			r.standeeNPCYaw[s.npc] = st
+			yaw = st.yaw
+		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !animated && spin != 0 {
+			phase := auraHash(int(s.npc.X), int(s.npc.Y), 0, 0) * 2 * math.Pi
+			yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		}
+		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false) {
+			return
+		}
+	}
+
 	opts := &ebiten.DrawImageOptions{}
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
-	distance := math.Sqrt(math.Pow(s.npc.X-r.game.camera.X, 2) + math.Pow(s.npc.Y-r.game.camera.Y, 2))
-	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
-	if brightness < r.game.config.Graphics.BrightnessMin {
-		brightness = r.game.config.Graphics.BrightnessMin
-	}
-	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
+	opts.ColorScale.Scale(br, br, br, 1.0)
 	opts.Blend = ebiten.BlendSourceOver
 
 	screen.DrawImage(sprite, opts)
