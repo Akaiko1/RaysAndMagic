@@ -150,8 +150,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
 	}
-	if loaded.torchLightRadius != game.torchLightRadius {
-		t.Fatalf("torchLightRadius: got %v want %v", loaded.torchLightRadius, game.torchLightRadius)
+	// The radius deliberately does NOT round-trip: on load an active torch
+	// adopts the current balance constant, so old saves pick up retunes.
+	if loaded.torchLightRadius != TorchLightRadiusTiles {
+		t.Fatalf("torchLightRadius: got %v want balance constant %v", loaded.torchLightRadius, TorchLightRadiusTiles)
 	}
 	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
 		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)

@@ -81,6 +81,9 @@ type Renderer struct {
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
+	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
+	// world change alongside the other per-map caches.
+	wallTorches []wallTorchPoint
 	// Eased facing of scenery tokens (they slowly turn toward the camera),
 	// keyed by tile — environment sprites have no entity struct to carry it.
 	standeeEnvYaw map[[2]int]standeeEnvYawState
@@ -249,6 +252,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	r.transparentSpritesCache = cache
 	r.tileLightCache = lights
+	r.buildWallTorches()
 }
 
 func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX, tileY int) string {
@@ -383,7 +387,7 @@ func (r *Renderer) updateActiveLights() {
 			X:         camX,
 			Y:         camY,
 			Radius:    r.game.torchLightRadius * float64(r.game.config.GetTileSize()),
-			Intensity: 0.55, // the party's main light in the dark; capped at 1 on bright maps
+			Intensity: 1.0, // restores full daylight at the player; capped at 1 everywhere
 		})
 	}
 
@@ -415,6 +419,32 @@ func (r *Renderer) updateActiveLights() {
 		f := float64(il.Life) / float64(il.MaxLife)
 		r.activeLights = append(r.activeLights, LightSource{
 			X: il.X, Y: il.Y, Radius: il.Radius, Intensity: il.Intensity * f,
+		})
+	}
+
+	// Wall torches: flickering corner lights (map flag wall_torches).
+	torchRadius := wallTorchLightRadiusTiles * tile
+	for _, tp := range r.wallTorches {
+		dx := tp.X - camX
+		dy := tp.Y - camY
+		if maxDist := viewDist + torchRadius; dx*dx+dy*dy > maxDist*maxDist {
+			continue
+		}
+		r.activeLights = append(r.activeLights, LightSource{
+			X: tp.X, Y: tp.Y, Radius: torchRadius,
+			Intensity: wallTorchLightIntensity * wallTorchFlicker(tp.seed, r.game.frameCount),
+		})
+	}
+
+	// The floor shader takes at most maxFloorShaderLights; with torch-lined
+	// halls the list can exceed that, and blind truncation would drop the
+	// NEAREST lights as easily as the farthest. Keep the closest ones first.
+	if len(r.activeLights) > maxFloorShaderLights {
+		sort.Slice(r.activeLights, func(i, j int) bool {
+			a, b := r.activeLights[i], r.activeLights[j]
+			da := (a.X-camX)*(a.X-camX) + (a.Y-camY)*(a.Y-camY)
+			db := (b.X-camX)*(b.X-camX) + (b.Y-camY)*(b.Y-camY)
+			return da < db
 		})
 	}
 }
@@ -1346,7 +1376,10 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	}
 }
 
-const maxFloorShaderLights = 16
+// maxFloorShaderLights must match the Lights array length in floorShaderSrc.
+// 16 starved torch-lined maps (distant pools popped in only at point-blank);
+// the shader's squared-distance early-out makes 32 affordable.
+const maxFloorShaderLights = 32
 
 // drawSimpleFloorCeiling renders the perspective floor entirely on the GPU
 // via a Kage shader (see floorShaderSrc). Per-fragment work: reverse-project
@@ -1525,8 +1558,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 1 || scaleY < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	if scaleX < 0.5 || scaleY < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
+		// linear there reads as smeared (city houses at mid distance).
+		opts.Filter = ebiten.FilterLinear
 	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
@@ -1670,8 +1706,11 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 1 || scaleY < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	if scaleX < 0.5 || scaleY < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
+		// linear there reads as smeared (city houses at mid distance).
+		opts.Filter = ebiten.FilterLinear
 	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
@@ -2246,6 +2285,7 @@ const (
 	SpriteTypeMonster
 	SpriteTypeNPC
 	SpriteTypeGroundContainer
+	SpriteTypeWallTorch
 )
 
 // UnifiedSpriteRenderData holds data for rendering any sprite type in a unified sorted pass
@@ -2506,6 +2546,28 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
+	// 6. Collect wall torches so their flames depth-sort against billboards
+	// and standees (the effects pass only tests the WALL depth buffer, which
+	// let flames shine through trees and tokens).
+	for ti := range r.wallTorches {
+		tp := &r.wallTorches[ti]
+		dx := tp.X - camX
+		dy := tp.Y - camY
+		distanceSq := dx*dx + dy*dy
+		if distanceSq > viewDistSq {
+			continue
+		}
+		depthPerp := dx*camDirX + dy*camDirY
+		if depthPerp <= 0 {
+			continue
+		}
+		sprites = append(sprites, UnifiedSpriteRenderData{
+			spriteType: SpriteTypeWallTorch,
+			depthPerp:  depthPerp,
+			tileX:      ti, // index into r.wallTorches
+		})
+	}
+
 	// Sort all sprites by depth (back to front)
 	sort.Slice(sprites, func(i, j int) bool {
 		return sprites[i].depthPerp > sprites[j].depthPerp
@@ -2525,6 +2587,10 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			r.drawUnifiedMonsterSprite(screen, s)
 		case SpriteTypeNPC:
 			r.drawUnifiedNPCSprite(screen, s)
+		case SpriteTypeWallTorch:
+			if s.tileX >= 0 && s.tileX < len(r.wallTorches) {
+				r.drawWallTorchFlame(screen, r.wallTorches[s.tileX])
+			}
 		case SpriteTypeGroundContainer:
 			r.drawUnifiedGroundContainerSprite(screen, s)
 		}
@@ -2561,8 +2627,11 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
 	opts := r.sharedDrawOpts()
-	if scaleX < 1 || scaleY < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	if scaleX < 0.5 || scaleY < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
+		// linear there reads as smeared (city houses at mid distance).
+		opts.Filter = ebiten.FilterLinear
 	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
@@ -2781,8 +2850,11 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-	if scaleX < 1 || scaleY < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	if scaleX < 0.5 || scaleY < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
+		// linear there reads as smeared (city houses at mid distance).
+		opts.Filter = ebiten.FilterLinear
 	}
 
 	if s.monsterFlip {
@@ -2853,8 +2925,11 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
-	if scaleX < 1 || scaleY < 1 {
-		opts.Filter = ebiten.FilterLinear // mipmapped shrink — no nearest mush at range
+	if scaleX < 0.5 || scaleY < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
+		// linear there reads as smeared (city houses at mid distance).
+		opts.Filter = ebiten.FilterLinear
 	}
 	opts.GeoM.Scale(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))

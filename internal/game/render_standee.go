@@ -393,7 +393,7 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 			// they stay nearest. Column slices sample texel centers, so level-0
 			// linear is bleed-free.
 			filter := ebiten.FilterNearest
-			if float64(centerSize) < texH {
+			if float64(centerSize) < texH*0.5 {
 				filter = ebiten.FilterLinear
 			}
 			screen.DrawTriangles(verts, idx, sf.img, &ebiten.DrawTrianglesOptions{

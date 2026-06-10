@@ -509,6 +509,10 @@ type MapConfig struct {
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.
 	AmbientLight float64 `yaml:"ambient_light,omitempty"`
+	// WallTorches places a flickering torch (particle flame + point light) at
+	// every inner wall corner of the map — the classic dungeon/temple dressing
+	// for dark maps.
+	WallTorches bool `yaml:"wall_torches,omitempty"`
 	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`

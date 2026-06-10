@@ -119,7 +119,7 @@ const (
 	// TorchLightRadiusTiles: the lit-area radius granted by the torch_light
 	// utility spell. Tuning this changes how far the player can see in dark
 	// biomes.
-	TorchLightRadiusTiles = 4.0
+	TorchLightRadiusTiles = 7.0
 )
 
 // Speed-stat → action cooldown curve. Cooldown in frames is a linear function

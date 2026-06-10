@@ -818,8 +818,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
+	// Radius always follows the balance constant — old saves froze whatever
+	// value was current when they were written (e.g. 4 tiles before the buff).
 	g.torchLightRadius = save.TorchLightRadius
-	if g.torchLightActive && g.torchLightRadius == 0 {
+	if g.torchLightActive {
 		g.torchLightRadius = TorchLightRadiusTiles
 	}
 	g.wizardEyeActive = save.WizardEyeActive
@@ -867,10 +869,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore ground containers (loot bags + treasure chests).
 	g.groundContainers = make([]GroundContainer, 0, len(save.GroundContainers))
 	for _, c := range save.GroundContainers {
+		mapKey := c.MapKey
+		if mapKey == "" {
+			// Legacy saves: loot bags were stored without a map and leaked onto
+			// every map. Pin them to the map the save was made on — imperfect for
+			// bags dropped elsewhere, but they stop following the party around.
+			mapKey = save.MapKey
+		}
 		restored := GroundContainer{
 			Kind:           ContainerKind(c.Kind),
 			ID:             c.ID,
-			MapKey:         c.MapKey,
+			MapKey:         mapKey,
 			X:              c.X,
 			Y:              c.Y,
 			Gold:           c.Gold,

@@ -702,7 +702,7 @@ var Ambient float
 var TexCount float
 var TexTileSize vec2
 var LightCount float
-var Lights [16]vec4
+var Lights [32]vec4
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
@@ -802,16 +802,19 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	}
 	// Map ambient level: dark maps stay dark until point lights lift them.
 	brightness *= Ambient
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 32; i++ {
 		if float(i) >= LightCount {
 			break
 		}
 		L := Lights[i]
 		ldx := floorX - L.x
 		ldy := floorY - L.y
-		d := sqrt(ldx*ldx + ldy*ldy)
-		if d < L.z {
-			falloff := 1.0 - d/L.z
+		// Squared-distance early-out: most pixels are outside most lights, and
+		// an unconditional sqrt per light per pixel was the frame-rate cost of
+		// torch-lined maps.
+		d2 := ldx*ldx + ldy*ldy
+		if d2 < L.z*L.z {
+			falloff := 1.0 - sqrt(d2)/L.z
 			brightness += L.w * falloff
 		}
 	}

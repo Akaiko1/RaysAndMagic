@@ -194,6 +194,8 @@ maps:
     sky_color: [35, 35, 45]
     sky_texture: "church_panorama"
     default_floor_color: [55, 50, 45]
+    ambient_light: 0.35   # candle-dark nave; corner torches carry the light
+    wall_torches: true    # flickering torch at every inner wall corner
     clear_encounter:
       rewards:
         completion_message: "The last skeleton collapses. A sealed chest appears at the end of the corridor."
