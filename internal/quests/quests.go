@@ -40,15 +40,32 @@ type QuestRewards struct {
 	// Future: Items []string `yaml:"items"`
 }
 
+// QuestTileChange swaps one map tile when its quest completes (e.g. a bridge
+// appearing over water). Tile is a tiles.yaml key; coordinates are tiles.
+type QuestTileChange struct {
+	Map  string `yaml:"map"`
+	X    int    `yaml:"x"`
+	Y    int    `yaml:"y"`
+	Tile string `yaml:"tile"`
+}
+
 // QuestDefinition is the YAML configuration for a quest
 type QuestDefinition struct {
-	Name            string       `yaml:"name"`
-	Description     string       `yaml:"description"`
-	Type            QuestType    `yaml:"type"`
-	TargetMonster   string       `yaml:"target_monster"`
-	TargetCount     int          `yaml:"target_count"`
-	IsStartingQuest bool         `yaml:"is_starting_quest"`
-	Rewards         QuestRewards `yaml:"rewards"`
+	Name            string    `yaml:"name"`
+	Description     string    `yaml:"description"`
+	Type            QuestType `yaml:"type"`
+	TargetMonster   string    `yaml:"target_monster"`
+	TargetCount     int       `yaml:"target_count"`
+	IsStartingQuest bool      `yaml:"is_starting_quest"`
+	// TargetMap scopes the "no living targets left → complete" check to one map,
+	// for region quests whose monster type also lives elsewhere (e.g. the cliff
+	// troll cull — trolls also roam the highlands). Empty = search every map,
+	// which suits unique bosses (the lone Lich King).
+	TargetMap string       `yaml:"target_map,omitempty"`
+	Rewards   QuestRewards `yaml:"rewards"`
+	// OnCompleteTiles are applied to the world the moment the quest completes
+	// (and re-applied on save load), independent of turn-in.
+	OnCompleteTiles []QuestTileChange `yaml:"on_complete_tiles,omitempty"`
 	// Optional location marker for quest objectives (tile coordinates)
 	MarkerX   int    `yaml:"marker_x,omitempty"`   // X tile coordinate for quest marker
 	MarkerY   int    `yaml:"marker_y,omitempty"`   // Y tile coordinate for quest marker
@@ -165,23 +182,40 @@ func (qm *QuestManager) ActivateQuest(questID string) error {
 	return nil
 }
 
-// OnMonsterKilled updates quest progress when a monster is killed
-// Returns a list of quests that were completed by this kill
-func (qm *QuestManager) OnMonsterKilled(monsterType string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeKill, monsterType)
+// MarkCompleted forces an active quest to its completed state — used when a kill
+// quest's targets are already gone (slain before the quest was taken, or fewer
+// existed than TargetCount), so it can still be turned in. No-op if not active.
+func (qm *QuestManager) MarkCompleted(questID string) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	if quest, ok := qm.activeQuests[questID]; ok {
+		quest.CurrentCount = quest.Definition.TargetCount
+		quest.Completed = true
+		quest.Status = QuestStatusCompleted
+	}
+}
+
+// OnMonsterKilled updates quest progress when a monster is killed. mapKey is
+// the map the kill happened on: a quest with TargetMap set only counts kills
+// there (forest wolves don't advance on a city wolf). Empty mapKey counts
+// everywhere (callers without map context).
+// Returns a list of quests that were completed by this kill.
+func (qm *QuestManager) OnMonsterKilled(monsterType, mapKey string) []*Quest {
+	return qm.advanceCountedQuests(QuestTypeKill, monsterType, mapKey)
 }
 
 // OnInteract advances active interact-quests whose tag (TargetMonster) matches —
 // e.g. closing a valve calls OnInteract("valve"). Mirrors OnMonsterKilled: bumps
 // CurrentCount and completes at TargetCount. Returns the quests that completed.
 func (qm *QuestManager) OnInteract(tag string) []*Quest {
-	return qm.advanceCountedQuests(QuestTypeInteract, tag)
+	return qm.advanceCountedQuests(QuestTypeInteract, tag, "")
 }
 
 // advanceCountedQuests bumps CurrentCount on every active quest of the given type
 // whose TargetMonster tag matches, completing it at TargetCount. Shared by the
 // kill and interact progress hooks (OnMonsterKilled / OnInteract).
-func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag string) []*Quest {
+func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey string) []*Quest {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -191,6 +225,9 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag string) []*Que
 			continue
 		}
 		if quest.Definition.TargetMonster != tag {
+			continue
+		}
+		if quest.Definition.TargetMap != "" && mapKey != "" && quest.Definition.TargetMap != mapKey {
 			continue
 		}
 		quest.CurrentCount++
@@ -263,6 +300,12 @@ func (qm *QuestManager) GetAllQuests() []*Quest {
 		quests = append(quests, quest)
 	}
 	return quests
+}
+
+// Definitions returns every quest definition in the loaded config, keyed by
+// quest ID — including quests not yet activated (for load-time validation).
+func (qm *QuestManager) Definitions() map[string]*QuestDefinition {
+	return qm.config.Quests
 }
 
 // GetQuest returns a specific quest by ID

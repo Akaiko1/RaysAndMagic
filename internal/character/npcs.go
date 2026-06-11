@@ -15,6 +15,7 @@ type NPC struct {
 	MerchantStock    []*MerchantStockItem
 	SellAvailable    bool
 	SteamWhenVisited bool
+	HideWhenVisited  bool
 	SpellData        map[string]*NPCSpell
 	DialogueData     *NPCDialogue
 	EncounterData    *NPCEncounter

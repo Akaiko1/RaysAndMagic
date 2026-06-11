@@ -74,7 +74,15 @@ type TileChecker interface {
 	GetWorldBounds() (width, height int)
 }
 
-// CollisionSystem manages all collision detection in the game
+// CollisionSystem manages all collision detection in the game.
+//
+// CONCURRENCY CONTRACT (deliberately lock-free): the parallel entity updaters
+// call UpdateEntity/CanMoveTo* from worker goroutines. That is safe only while
+// (1) updates are stop-the-world — no other game mutation runs concurrently,
+// (2) each worker touches a DISJOINT set of entities (chunked partitioning),
+// and (3) the entities map itself is never mutated (Register/Unregister) inside
+// a parallel phase — concurrent map READS are fine, a write would race.
+// Breaking any of these requires adding a lock here first.
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity
@@ -256,6 +264,19 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 		return moving.CollisionType == CollisionTypeMonster && other.CollisionType == CollisionTypeMonster
 	}
 	return false
+}
+
+// CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
+// Used by the monster separation pass: two overlapping monsters veto each
+// other's every move through the normal check, so pushing them apart must
+// consult terrain alone.
+func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+	entity, exists := cs.entities[entityID]
+	if !exists {
+		return false
+	}
+	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
 }
 
 // GetCollisions returns all current collisions between entities

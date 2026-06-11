@@ -33,6 +33,9 @@ const (
 type UISystem struct {
 	game                *MMGame
 	justOpenedStatPopup bool
+	// cardPortraitCache holds portraits pre-fit to the party card's recess
+	// (cover-scaled, corners bevel-cut); keyed by name|w|h so resizes rebuild.
+	cardPortraitCache map[string]*ebiten.Image
 	// statHoldStat is the name of the stat whose +button the user is
 	// currently holding the mouse on. Empty means no hold in progress.
 	// Single clicks go through consumeLeftClickIn; hold-to-repeat kicks in
@@ -46,8 +49,10 @@ type UISystem struct {
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
-	inventoryPage         int // current inventory grid page (0-based)
-	questPage             int // current quest log page (0-based)
+	inventoryPage         int    // current inventory grid page (0-based)
+	questPage             int    // current quest log page (0-based)
+	campNotice            string // result line under the Camp button
+	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string

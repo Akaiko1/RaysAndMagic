@@ -21,13 +21,19 @@ tiles:
     transparent: true
     walkable: true
     height_multiplier: 1.2
-    sprite: "crystal"
+    sprite: "moss_rock"    # must exist in assets/sprites/environment/
     render_type: "environment_sprite"
     floor_color: [150, 100, 255]
     letter: "X"
 ```
 
 Sprite files live in `assets/sprites/environment/` (no `.png` suffix in YAML).
+A missing sprite does NOT error — it renders as a placeholder image, so verify
+the file exists.
+
+Advanced optional fields: `impassable_aura` (rising-bubble hint on blockers),
+`light` (`enabled`, `radius_tiles`, `intensity` — the tile lights the scene),
+`floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
 Use the `letter` in the map ASCII grid:

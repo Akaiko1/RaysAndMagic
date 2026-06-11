@@ -43,6 +43,7 @@ quests:
     type: "kill"
     target_monster: "mountain_troll"
     target_count: 3
+    target_map: "dragon_cliffs"   # cull the cliff trolls; trolls also roam the highlands
     is_starting_quest: false
     rewards:
       gold: 900
@@ -59,12 +60,31 @@ quests:
       gold: 1500
       experience: 700
 
+  # Aldric's wolf cull: completes when NO living wolf remains on the forest map
+  # (extermination check), not just at the kill quota. Completion swaps the two
+  # water tiles east of the lake trader for bridge planks.
+  forest_wolf_cull:
+    name: "Wolves of the Lakeshore"
+    description: "Mystic Trader Aldric will lay a bridge to his colleague on the lake once every wolf in the Elvish Forest is dead."
+    type: "kill"
+    target_monster: "wolf"
+    target_count: 18
+    target_map: "forest"
+    is_starting_quest: false
+    rewards:
+      gold: 600
+      experience: 700
+    on_complete_tiles:
+      - { map: forest, x: 22, y: 24, tile: quest_bridge }
+      - { map: forest, x: 23, y: 24, tile: quest_bridge }
+
   dragon_cliffs_ember_rites:
     name: "Ember Rites"
     description: "Old Varric says the cliff mages have begun listening to something beneath the dragon bones. Slay two archmages to break the rite."
     type: "kill"
     target_monster: "archmage"
     target_count: 2
+    target_map: "dragon_cliffs"   # break the cliff rite; archmages also dwell in the highlands
     is_starting_quest: false
     rewards:
       gold: 1200

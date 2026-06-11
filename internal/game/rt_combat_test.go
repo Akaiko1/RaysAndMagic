@@ -153,6 +153,103 @@ func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
 	}
 }
 
+// TestSmartAttack_BookHealWithoutQuickSlot: a healer with an EMPTY quick slot
+// still auto-triages — Space finds the strongest heal in the spellbook when
+// anyone in the party (not just the caster) is wounded.
+func TestSmartAttack_BookHealWithoutQuickSlot(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = false
+	members := g.party.Members
+	if len(members) < 3 {
+		t.Skip("need >=3 party members")
+	}
+	cleric := members[2] // Celestine knows heal_other from the class kit
+	g.selectedChar = 2
+	delete(cleric.Equipment, items.SlotSpell) // no quick-slotted spell at all
+	cleric.SpellPoints, cleric.MaxSpellPoints = 50, 50
+	for _, m := range members {
+		m.HitPoints = m.MaxHitPoints
+	}
+	hurt := members[0] // someone OTHER than the caster
+	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
+	before := hurt.HitPoints
+
+	cast, id := cs.SmartAttack()
+	if !cast || id != spells.SpellID("heal_other") {
+		t.Fatalf("expected book heal_other on the wounded ally, got cast=%v id=%q", cast, id)
+	}
+	if hurt.HitPoints <= before {
+		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
+	}
+}
+
+// TestSmartAttack_BookHealOverOffensiveQuickSlot: a healer keeping a COMBAT
+// spell in the quick slot still heals first — the book heal outranks the
+// slotted offensive spell while an ally is wounded.
+func TestSmartAttack_BookHealOverOffensiveQuickSlot(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = false
+	members := g.party.Members
+	if len(members) < 3 {
+		t.Skip("need >=3 party members")
+	}
+	cleric := members[2]
+	g.selectedChar = 2
+	if spellItem, err := spells.CreateSpellItem(spells.SpellID("harm")); err == nil {
+		cleric.Equipment[items.SlotSpell] = spellItem
+	} else {
+		t.Fatalf("create harm spell item: %v", err)
+	}
+	cleric.SpellPoints, cleric.MaxSpellPoints = 50, 50
+	for _, m := range members {
+		m.HitPoints = m.MaxHitPoints
+	}
+	hurt := members[1]
+	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
+	before := hurt.HitPoints
+
+	cast, id := cs.SmartAttack()
+	if !cast || id != spells.SpellID("heal_other") {
+		t.Fatalf("expected the book heal to outrank the slotted combat spell, got cast=%v id=%q", cast, id)
+	}
+	if hurt.HitPoints <= before {
+		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
+	}
+}
+
+// TestSmartAttack_QuickSlottedHealPreferred: when the quick slot holds a heal,
+// it wins over the book pick (here Mass Heal from the slot vs heal_other in
+// the book).
+func TestSmartAttack_QuickSlottedHealPreferred(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = false
+	members := g.party.Members
+	if len(members) < 3 {
+		t.Skip("need >=3 party members")
+	}
+	cleric := members[2]
+	g.selectedChar = 2
+	if spellItem, err := spells.CreateSpellItem(spells.SpellID("mass_heal")); err == nil {
+		cleric.Equipment[items.SlotSpell] = spellItem
+	} else {
+		t.Fatalf("create mass_heal spell item: %v", err)
+	}
+	cleric.SpellPoints, cleric.MaxSpellPoints = 80, 80
+	for _, m := range members {
+		m.HitPoints = m.MaxHitPoints
+	}
+	hurt := members[1]
+	hurt.HitPoints = hurt.MaxHitPoints * 30 / 100
+
+	cast, id := cs.SmartAttack()
+	if !cast || id != spells.SpellID("mass_heal") {
+		t.Fatalf("expected the quick-slotted heal to be preferred over the book heal, got cast=%v id=%q", cast, id)
+	}
+}
+
 // TestRTCycle_CapabilityAware: holding F cycles only casters, C only healers,
 // R only the armed — incapable members are skipped, and a capable member on
 // cooldown is WAITED on (selection lands there) rather than jumping to an
@@ -172,9 +269,9 @@ func TestRTCycle_CapabilityAware(t *testing.T) {
 		c.HitPoints, c.MaxHitPoints = 50, 50
 		c.RTCooldown = 0
 	}
-	m[0].Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword") // only armed
+	m[0].Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")                                                       // only armed
 	m[1].Equipment[items.SlotSpell] = items.Item{Type: items.ItemBattleSpell, SpellEffect: items.SpellEffect("fireball"), SpellCost: 4} // only caster
-	m[2].MagicSchools[character.MagicSchoolBody] = &character.MagicSkill{KnownSpells: []spells.SpellID{"heal"}}                          // only healer
+	m[2].MagicSchools[character.MagicSchoolBody] = &character.MagicSkill{KnownSpells: []spells.SpellID{"heal"}}                         // only healer
 
 	check := func(kind rtActionKind, from, want int, msg string) {
 		g.selectedChar = from

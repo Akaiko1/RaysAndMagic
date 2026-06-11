@@ -83,6 +83,75 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 	return d.Greeting
 }
 
+// Encounter-style dialogue body layout (shared by the renderer and the mouse
+// handler so click targets always match the drawn rows).
+const (
+	dialogueBodyTextY    = 50 // body text offset from the dialog top
+	dialogueLineHeight   = 16
+	dialogueChoiceRowH   = 25
+	dialogueChoiceHitH   = 20
+	dialogueWrapColumns  = 70
+	dialoguePromptHeight = 20
+
+	// The standard centered NPC dialog box. Renderer and every mouse handler
+	// must use npcDialogLayout — a hardcoded copy that drifts desyncs click
+	// rects from drawn pixels.
+	npcDialogWidth  = 600
+	npcDialogHeight = 400
+)
+
+// npcDialogRect is the screen rect of the standard centered NPC dialog.
+type npcDialogRect struct{ x, y, w, h int }
+
+func npcDialogLayout(g *MMGame) npcDialogRect {
+	return npcDialogRect{
+		x: (g.config.GetScreenWidth() - npcDialogWidth) / 2,
+		y: (g.config.GetScreenHeight() - npcDialogHeight) / 2,
+		w: npcDialogWidth,
+		h: npcDialogHeight,
+	}
+}
+
+// npcDialogKind classifies which dialog UI/input an NPC gets. The input
+// dispatcher, the dialog renderer and the HUD interaction prompt all switch on
+// THIS, so the priority order (a spell trader with quest choices is still a
+// spell trader — choices live on its Quests tab) can never drift between them.
+type npcDialogKind int
+
+const (
+	dialogKindGeneric npcDialogKind = iota
+	dialogKindSpellTrader
+	dialogKindSkillTrainer
+	dialogKindChoices
+	dialogKindMerchant
+)
+
+func npcDialogKindFor(npc *character.NPC) npcDialogKind {
+	switch {
+	case npcHasSpellTrading(npc):
+		return dialogKindSpellTrader
+	case npcHasSkillTraining(npc):
+		return dialogKindSkillTrainer
+	case npcHasChoiceDialog(npc):
+		return dialogKindChoices
+	case npcHasMerchant(npc):
+		return dialogKindMerchant
+	default:
+		return dialogKindGeneric
+	}
+}
+
+// dialogueChoiceRect returns the screen rect of the i-th visible choice row in
+// an encounter-style dialogue (the same rect the renderer highlights).
+func (g *MMGame) dialogueChoiceRect(npc *character.NPC, i, dialogX, dialogY, dialogWidth int) (x, y, w, h int) {
+	lines := wrapText(g.npcDialogueText(npc), dialogueWrapColumns)
+	choicesY := dialogY + dialogueBodyTextY + len(lines)*dialogueLineHeight + 20
+	if npc.DialogueData != nil && npc.DialogueData.ChoicePrompt != "" {
+		choicesY += dialoguePromptHeight
+	}
+	return dialogX + 20, choicesY + i*dialogueChoiceRowH - 2, dialogWidth - 40, dialogueChoiceHitH
+}
+
 // visibleNPCChoices filters the NPC's choices to those valid in its current
 // state: give_quest only when offering, turn_in_quest only when the quest is
 // completed, every other action whenever the NPC is still actionable. The

@@ -11,6 +11,10 @@ import (
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
 	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
+	// CanOccupyTilesWithHabitat is the tile-only variant: terrain rules apply,
+	// entity bodies are ignored. Used where an entity veto would be wrong
+	// (e.g. the A* start tile the monster is already standing in).
+	CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -235,22 +239,49 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	// Get detection radius (use AlertRadius or default)
+	// A monster handed hostility directly (encounter spawn, save restore) never
+	// saw the !IsEngagingPlayer edge below, so it would idle/patrol forever while
+	// "engaged". Engagement is a level, not an edge: snap it into the combat loop.
+	if m.IsEngagingPlayer && (m.State == StateIdle || m.State == StatePatrolling) {
+		m.State = StateAlert
+		m.StateTimer = 0
+	}
+
+	// Detection tuning from config (monster_ai section), with code fallbacks for
+	// configless contexts (tests). Distances are in tiles.
+	defaultRadiusTiles, outsideTetherMult, losBlockedMult, disengageMult := 4.0, 2.0, 0.5, 2.0
+	if m.config != nil {
+		ai := &m.config.MonsterAI
+		if ai.DefaultAlertRadiusTiles > 0 {
+			defaultRadiusTiles = ai.DefaultAlertRadiusTiles
+		}
+		if ai.AlertOutsideTetherMultiplier > 0 {
+			outsideTetherMult = ai.AlertOutsideTetherMultiplier
+		}
+		if ai.AlertLosBlockedMultiplier > 0 {
+			losBlockedMult = ai.AlertLosBlockedMultiplier
+		}
+		if ai.DisengageDistanceMultiplier > 0 {
+			disengageMult = ai.DisengageDistanceMultiplier
+		}
+	}
+
+	// Get detection radius (use AlertRadius or the configured default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
-		detectionRadius = 256.0 // 4 tiles default detection radius (4 * 64 pixels)
+		detectionRadius = defaultRadiusTiles * tileSize
 	}
 
 	// If outside tether, monster is more alert (was lured or is lost)
 	// This prevents them from immediately returning to spawn when switching from TB to RT mode
 	if !m.IsWithinTetherRadius() {
-		detectionRadius *= 2.0 // Double range when far from home
+		detectionRadius *= outsideTetherMult
 	}
 
-	// Check line of sight - if obstructed (trees, walls), halve detection radius
+	// Check line of sight - if obstructed (trees, walls), reduce detection radius
 	// Only apply penalty if we are inside our territory. If outside, we stay alert.
 	if m.IsWithinTetherRadius() && collisionChecker != nil && !collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
-		detectionRadius *= 0.5 // Trees block vision, reduce detection range
+		detectionRadius *= losBlockedMult
 	}
 
 	// Check if player is within detection range
@@ -262,7 +293,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 			m.StateTimer = 0
 			m.AttackCount = 0 // Reset attack counter for new engagement
 		}
-	} else if distanceToPlayer > detectionRadius*2 { // Hysteresis - lose engagement at double distance
+	} else if distanceToPlayer > detectionRadius*disengageMult { // Hysteresis - lose engagement further out
 		if m.IsEngagingPlayer && !m.WasAttacked {
 			// Stop engaging player - return to idle (only if not recently attacked)
 			m.IsEngagingPlayer = false
@@ -414,8 +445,66 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		return
 	}
 
+	// Final approach: steer straight at the target. A*'s goals are TILE
+	// CENTERS within attack reach, and that ring can be empty — an off-center
+	// player puts adjacent centers just past reach while their own tile center
+	// is blocked by the player's body — leaving a melee monster frozen a few
+	// pixels out of range. A direct collision-checked step has no such
+	// quantization; walls still win, and we fall through to A* when blocked.
+	if distanceToPlayer <= tileSize*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
+		return
+	}
+
+	// Stall watchdog: the cached path is only recomputed when the target tile
+	// changes, so a route that an engaged packmate now bodily blocks (wedged
+	// behind it in a one-tile corridor) is micro-danced on forever. No net
+	// progress in half a second → drop the path and replan against current
+	// entity positions: flank if a route exists, else wait for the gap.
+	m.stallTimer++
+	if m.stallTimer >= 60 {
+		if distance(m.X, m.Y, m.stallAnchorX, m.stallAnchorY) < 2 {
+			m.ResetPathfinding()
+		}
+		m.stallAnchorX, m.stallAnchorY = m.X, m.Y
+		m.stallTimer = 0
+	}
+
 	// Use A* pathfinding toward the player
 	m.followPathToTarget(collisionChecker, playerX, playerY)
+}
+
+// stepToward takes one collision-checked step straight toward (tx, ty) at the
+// monster's pursuit speed, sliding along whichever axis stays clear when the
+// diagonal grazes an obstacle. Returns false when fully blocked.
+func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64) bool {
+	dx := tx - m.X
+	dy := ty - m.Y
+	dist := math.Hypot(dx, dy)
+	if dist < 1e-6 {
+		return false
+	}
+	step := m.speedPerTick()
+	if dist < step {
+		step = dist
+	}
+	newX := m.X + dx/dist*step
+	newY := m.Y + dy/dist*step
+	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+		m.X, m.Y = newX, newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		m.X = newX
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		m.Y = newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	return false
 }
 
 func (m *Monster3D) setMoveTarget(state MonsterState, tileX, tileY int) {
@@ -438,6 +527,7 @@ func (m *Monster3D) ResetPathfinding() {
 	m.PathIndex = 0
 	m.PathTargetTileX = 0
 	m.PathTargetTileY = 0
+	m.LastPathCalcTick = 0 // also lifts the failed-search retry gate
 	m.clearMoveTarget()
 }
 
@@ -541,6 +631,19 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	targetChanged := m.PathTargetTileX != targetTileX || m.PathTargetTileY != targetTileY
 	if targetChanged {
 		shouldRepath = true
+	}
+
+	// A failed search (boxed in: previous A* toward this same target found no
+	// path) retries at pathCheckFrequency, not every tick — otherwise a wedged
+	// pursuer reruns a full A* 120x/s for as long as it stays blocked.
+	if shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 {
+		pathCheckFrequency := 30
+		if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
+			pathCheckFrequency = m.config.MonsterAI.PathCheckFrequency
+		}
+		if !m.canRepath(pathCheckFrequency) {
+			return false
+		}
 	}
 
 	if shouldRepath {
@@ -802,8 +905,15 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 		}
 	}
 
-	if !ps.goal[startIdx] && !m.isPassableTile(collisionChecker, start) {
-		return nil
+	// The start tile is checked terrain-only: the monster already stands there,
+	// and an entity check would let an interlocked engaged neighbor (two mobs
+	// aggroed in the same tile — each covering the shared tile center) abort
+	// every path attempt, freezing both in place.
+	if !ps.goal[startIdx] {
+		startCX, startCY := tileToWorldCenter(start.X, start.Y)
+		if !collisionChecker.CanOccupyTilesWithHabitat(m.ID, startCX, startCY, m.HabitatPrefs, m.Flying) {
+			return nil
+		}
 	}
 
 	heuristic := func(c TileCoord) float64 {
@@ -878,7 +988,14 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
 	targetTileX := int(targetX / tileSize)
 	targetTileY := int(targetY / tileSize)
-	radiusTiles := int(math.Ceil(m.AttackRadius / tileSize))
+	// Pursue to within the monster's actual attack reach — the ranged range for
+	// ranged attackers, melee AttackRadius otherwise (GetAttackRangePixels returns
+	// AttackRadius when there's no projectile, so melee behaviour is unchanged).
+	// Using only the melee radius made ranged mobs (e.g. dragons) path to melee
+	// distance; when those near tiles were unreachable (party blocking a bridge)
+	// they orbited without ever stopping at firing range.
+	reach := m.GetAttackRangePixels()
+	radiusTiles := int(math.Ceil(reach / tileSize))
 	if radiusTiles < 1 {
 		radiusTiles = 1
 	}
@@ -889,7 +1006,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
 			centerX, centerY := tileToWorldCenter(tileX, tileY)
-			if distance(targetX, targetY, centerX, centerY) > m.AttackRadius+0.1 {
+			if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
 				continue
 			}
 			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
@@ -982,7 +1099,11 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 		// If close enough to attack, switch to attacking
 		// Use a slightly tighter radius to prevent shaking at the boundary
 		attackRange := m.GetAttackRangePixels()
-		if distanceToPlayer <= attackRange*0.9 {
+		enterFraction := 0.9
+		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
+			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
+		}
+		if distanceToPlayer <= attackRange*enterFraction {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
@@ -1028,8 +1149,18 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 		// Increment attack counter
 		m.AttackCount++
 
-		// After 5 attacks, 50% chance to flee for 7 seconds
-		if m.AttackCount >= 5 && rand.Float64() < 0.5 {
+		// After enough consecutive attacks, roll the configured chance to flee
+		fleeAfter, fleeChance := 5, 0.5
+		if m.config != nil {
+			ai := &m.config.MonsterAI
+			if ai.FleeAfterAttacks > 0 {
+				fleeAfter = ai.FleeAfterAttacks
+			}
+			if ai.FleeAfterAttacksChance > 0 {
+				fleeChance = ai.FleeAfterAttacksChance
+			}
+		}
+		if m.AttackCount >= fleeAfter && rand.Float64() < fleeChance {
 			// Start fleeing
 			m.State = StateFleeing
 			m.StateTimer = 0

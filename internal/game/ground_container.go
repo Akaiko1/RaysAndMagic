@@ -130,6 +130,7 @@ func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int, size
 	}
 	g.addGroundContainer(GroundContainer{
 		Kind:           ContainerKindLootBag,
+		MapKey:         currentMapKey(), // bags belong to the map they dropped on
 		X:              x,
 		Y:              y,
 		Gold:           gold,

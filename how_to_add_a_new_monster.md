@@ -21,7 +21,6 @@ monsters:
     max_hit_points: 95
     armor_class: 11
     experience: 350
-    attack_bonus: 5
     damage_min: 4
     damage_max: 20
     alert_radius: 3        # tiles
@@ -30,8 +29,8 @@ monsters:
     gold_min: 25
     gold_max: 80
     sprite: "goblin"       # assets/sprites/mobs/goblin.png
-    letter: "v"            # must be lowercase and unique (t is taken by treant)
-    box_w: 40
+    letter: "a"            # lowercase, unique in its biome scope (see "Biome restriction")
+    box_w: 40              # keep < 64 (tile size) or it can't fit 1-wide corridors
     box_h: 40
     size_game: 2.0
     resistances: {}
@@ -83,6 +82,20 @@ Supported fields (from `monsters.yaml`):
 - `fireburst_chance`, `fireburst_damage_min`, `fireburst_damage_max`
 - `poison_chance`, `poison_duration_seconds`
 - `flying`
+- `passive_until_attacked` (won't aggro until struck)
+- `pounce_range_tiles`, `pounce_cooldown_seconds` (leap to melee from range, e.g. puma)
+- `attack_cooldown_multiplier`, `attacks_per_round`
+
+### Boss kit (all data-driven; see golden_thief_bug)
+- `ignores_armor` — melee bypasses party armor class
+- `inferno_chance` + `inferno_damage` — party-wide fire nova
+- `teleport_at_hp` + `teleport_chance` — low-HP blink to a random tile
+- `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` —
+  evades (blinks away, never attacks) until the named quest completes
+
+Paired boss fields are validated at load: a chance without its magnitude (or an
+evasive phase without its tuning) fails startup. Beware: any OTHER unknown YAML
+field is silently ignored — a typo won't error, the feature just won't work.
 
 ## Step 5: Add loot
 Loot is controlled by `assets/loots.yaml` using the monster key.

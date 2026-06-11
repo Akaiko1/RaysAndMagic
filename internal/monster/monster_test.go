@@ -4,6 +4,37 @@ import (
 	"testing"
 )
 
+// Boss flags travel in pairs (chance + magnitude, evasive phase + tuning);
+// load-time validation must reject a half-configured boss instead of letting
+// the missing half silently zero out in code.
+func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
+	cases := []struct {
+		name    string
+		def     MonsterDefinition
+		wantErr bool
+	}{
+		{"inferno chance without damage", MonsterDefinition{InfernoChance: 0.1}, true},
+		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
+		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
+		{"evasive without radius", MonsterDefinition{PassiveUntilQuest: "q", BossCooldownSecs: 1}, true},
+		{"evasive without cooldown", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
+		{"fully configured boss", MonsterDefinition{
+			InfernoChance: 0.1, InfernoDamage: 28,
+			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
+		}, false},
+	}
+	for _, tc := range cases {
+		cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"boss": tc.def}}
+		err := validateMonsterConfiguration(cfg)
+		if tc.wantErr && err == nil {
+			t.Errorf("%s: expected validation error, got nil", tc.name)
+		}
+		if !tc.wantErr && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+	}
+}
+
 func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 	// This assumes TestMain loads the config and 'goblin' exists in monsters.yaml
 	defer func() {

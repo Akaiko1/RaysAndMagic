@@ -181,6 +181,7 @@ type MonsterSave struct {
 	BoundFramesRemaining    int                  `json:"bound_frames_remaining,omitempty"`
 	Pacified                bool                 `json:"pacified,omitempty"`
 	PacifiedFramesRemaining int                  `json:"pacified_frames_remaining,omitempty"`
+	WasAttacked             bool                 `json:"was_attacked,omitempty"`
 	IsEncounterMonster      bool                 `json:"is_encounter_monster,omitempty"`
 	EncounterID             int                  `json:"encounter_id,omitempty"`
 	EncounterRewards        *EncounterRewardSave `json:"encounter_rewards,omitempty"`
@@ -564,7 +565,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining, Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining}
+			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining, Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining, WasAttacked: mon.WasAttacked}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -743,6 +744,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				// A provoked monster (struck, or spawned hostile by an encounter the
+				// player opened) never stands down live — restore that hostility, or a
+				// lair dragon "forgets" the fight after a reload and idles point-blank.
+				// A quest-bearing encounter monster only exists because the player
+				// started that fight (lair/shipwreck/statue), so it counts as provoked
+				// even when the flag is absent (saves predating was_attacked).
+				// Chest-bound clear-encounter mobs carry no QuestID: normal aggro.
+				hostile := ms.WasAttacked ||
+					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
+				m.WasAttacked = hostile
+				m.IsEngagingPlayer = hostile
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
@@ -806,8 +818,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
+	// Radius always follows the balance constant — old saves froze whatever
+	// value was current when they were written (e.g. 4 tiles before the buff).
 	g.torchLightRadius = save.TorchLightRadius
-	if g.torchLightActive && g.torchLightRadius == 0 {
+	if g.torchLightActive {
 		g.torchLightRadius = TorchLightRadiusTiles
 	}
 	g.wizardEyeActive = save.WizardEyeActive
@@ -855,10 +869,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore ground containers (loot bags + treasure chests).
 	g.groundContainers = make([]GroundContainer, 0, len(save.GroundContainers))
 	for _, c := range save.GroundContainers {
+		mapKey := c.MapKey
+		if mapKey == "" {
+			// Legacy saves: loot bags were stored without a map and leaked onto
+			// every map. Pin them to the map the save was made on — imperfect for
+			// bags dropped elsewhere, but they stop following the party around.
+			mapKey = save.MapKey
+		}
 		restored := GroundContainer{
 			Kind:           ContainerKind(c.Kind),
 			ID:             c.ID,
-			MapKey:         c.MapKey,
+			MapKey:         mapKey,
 			X:              c.X,
 			Y:              c.Y,
 			Gold:           c.Gold,
@@ -882,11 +903,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
 
-	// Restore quest progress
-	if g.questManager != nil && len(save.Quests) > 0 {
+	// Restore quest progress. Reset to the baseline (starting quests only) first
+	// so quests taken AFTER this save — and therefore absent from it — don't
+	// linger on the live manager; then lay the saved snapshot back on top.
+	if g.questManager != nil {
+		g.questManager.Reset()
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
 		}
+		// Re-apply world changes of completed quests — maps reload pristine from
+		// disk, so e.g. the wolf-cull bridge must be laid again.
+		g.applyCompletedQuestTiles()
 	}
 
 	// Restore played time by adjusting session start

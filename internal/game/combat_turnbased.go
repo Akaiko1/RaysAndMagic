@@ -97,6 +97,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 					rangeTiles = 1
 				}
 				if manh >= 1 && manh <= rangeTiles {
+					m.AttackAnimFrames = MonsterAttackAnimFrames
 					gl.combat.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
 				} else {
 					gl.monsterMoveTurnBased(m)
@@ -104,6 +105,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			} else if chebyshev == 1 {
 				// Monster-vs-monster melee allows a diagonal-adjacent strike (unlike
 				// the cardinal-only party rule) so crowded mobs can still connect.
+				m.AttackAnimFrames = MonsterAttackAnimFrames
 				gl.combat.monsterStrikeMonster(m, foe)
 			} else {
 				gl.monsterMoveTurnBased(m)
@@ -185,8 +187,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
-	const attackAnimFrames = 8
-	monster.AttackAnimFrames = attackAnimFrames
+	monster.AttackAnimFrames = MonsterAttackAnimFrames
 	monster.LastMoveTick = gl.game.frameCount
 
 	if monster.HasRangedAttack() {

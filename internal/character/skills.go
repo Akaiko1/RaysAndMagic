@@ -142,6 +142,53 @@ func (s *Skill) IncreaseMastery() bool {
 	return true
 }
 
+// SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)
+// to its SkillType. Returns false for an unknown key.
+func SkillTypeFromKey(key string) (SkillType, bool) {
+	switch key {
+	case "sword":
+		return SkillSword, true
+	case "dagger":
+		return SkillDagger, true
+	case "axe":
+		return SkillAxe, true
+	case "spear":
+		return SkillSpear, true
+	case "bow":
+		return SkillBow, true
+	case "mace":
+		return SkillMace, true
+	case "staff":
+		return SkillStaff, true
+	case "leather":
+		return SkillLeather, true
+	case "chain":
+		return SkillChain, true
+	case "plate":
+		return SkillPlate, true
+	case "shield":
+		return SkillShield, true
+	case "bodybuilding":
+		return SkillBodybuilding, true
+	case "meditation":
+		return SkillMeditation, true
+	case "merchant":
+		return SkillMerchant, true
+	case "repair":
+		return SkillRepair, true
+	case "identify_item":
+		return SkillIdentifyItem, true
+	case "disarm_trap":
+		return SkillDisarmTrap, true
+	case "learning":
+		return SkillLearning, true
+	case "arms_master":
+		return SkillArmsMaster, true
+	default:
+		return 0, false
+	}
+}
+
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
 // SkillType that gates wielding/proficiency bonuses. The "blaster" category
 // returns (0, false) because it's universally usable — callers handle that

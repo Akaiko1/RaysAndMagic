@@ -104,6 +104,13 @@ type Monster3D struct {
 	PathTargetTileY  int
 	LastPathCalcTick int
 	pathScratch      pathScratch
+	// Pursuit stall detection: a cached path is only recomputed when the target
+	// tile changes, so a path that became unwalkable (an engaged packmate now
+	// blocks the corridor) is followed forever. Track net progress and drop the
+	// path when pursuing goes nowhere, forcing A* against current positions.
+	stallAnchorX float64
+	stallAnchorY float64
+	stallTimer   int
 
 	// RT movement target selection for non-pursuit movement (patrol/flee)
 	MoveTargetTileX int
@@ -118,6 +125,9 @@ type Monster3D struct {
 	WasAttacked         bool    // True when monster was hit - prevents disengagement
 	HitTintFrames       int     // Frames remaining for red hit tint
 	AttackAnimFrames    int     // Frames remaining for attack animation (TB mode)
+	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
+	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
+	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
@@ -165,9 +175,12 @@ type Monster3D struct {
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
 	IgnoresArmor      bool    // melee bypasses the party's armor class
 	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
+	InfernoDamage     int     // fire damage of that nova, pre-mitigation
 	TeleportAtHP      int     // when HP <= this, may blink to a random walkable tile
 	TeleportChance    float64 // 0..1 chance per action to blink (only at/below TeleportAtHP)
 	PassiveUntilQuest string  // while this quest is incomplete: only evades (blinks away when the party is near), never attacks
+	EvadeRadiusTiles  float64 // evasive phase: blink when the party is within this many tiles
+	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
 	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised

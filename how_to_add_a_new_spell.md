@@ -17,14 +17,11 @@ spells:
     description: "Launches a shard of ice"
     school: "water"
     level: 2
-    spell_points_cost: 6
+    spell_points_cost: 6   # damage derives from this: cost × 3 (SpellDamagePerSP)
     duration: 0
-    damage: 15
     projectile_size: 12
-    disintegrate_chance: 0.0
     is_projectile: true
     is_utility: false
-    visual_effect: "ice_shard"
 
     physics:
       speed_tiles: 10.0
@@ -48,29 +45,37 @@ spells:
     level: 3
     spell_points_cost: 8
     duration: 0
-    damage: 0
     heal_amount: 35
     is_projectile: false
     is_utility: true
-    visual_effect: "greater_heal"
     target_self: true
     message: "Powerful healing energy flows through you!"
 ```
 
+## Damage model
+
+There is no `damage` field. A projectile spell's base damage is
+`spell_points_cost × 3` (`spells.SpellDamagePerSP`), optionally scaled by
+`damage_cost_multiplier` and boosted by Intellect (plus Personality when
+`scales_with_personality` is set). `deals_no_damage: true` makes a projectile
+purely a status carrier.
+
 ## Supported projectile fields
-- `damage`, `projectile_size`, `disintegrate_chance`
+
+- `projectile_size`, `cooldown_seconds`
 - `aoe_radius_tiles` (splash radius; 0 = single-target, >0 splashes all monsters within N tiles)
+- damage tuning: `damage_cost_multiplier`, `scales_with_personality`, `deals_no_damage`
+- riders: `stun_chance` + `stun_duration_seconds`/`stun_duration_turns` (Lightning, Psychic Shock), `disintegrate_chance` (instakill roll), `bind_undead` + `bind_duration_seconds`, `pacify` + `pacify_duration_seconds` (Charm), `starburst_fx`
 - `physics` (`speed_tiles`, `range_tiles`, `collision_size_tiles`), `graphics`
 
 ## Supported utility fields
-- `heal_amount`
-- `stat_bonus`
-- `water_walk`
-- `water_breathing`
-- `vision_bonus` (see note below)
-- `awaken` (flag exists but no effect yet)
-- `message`
-- `status_icon` (HUD icon for active utility spells)
+
+- healing: `heal_amount`, `heal_party` (Mass Heal), `revive` + `full_heal` (Resurrect), `revive_hp_pct` (Raise Dead)
+- party buffs: `stat_bonus`, `resist_buff_pct`, `outgoing_damage_bonus`, `incoming_damage_reduction`, `duration`
+- AoE: `stun_radius_tiles` + `stun_duration_seconds`/`stun_duration_turns` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
+- world: `water_walk`, `water_breathing`, `vision_bonus` (see note below), `awaken`
+- presentation: `message`, `status_icon` (HUD icon for active utility spells)
+- unknown fields are silently ignored by the YAML loader — typos won't error, they just do nothing
 
 ### Vision bonus note
 The `vision_bonus` value is read for any utility spell, but the gameplay
@@ -79,7 +84,9 @@ range) is dispatched by SpellID in `internal/game/combat.go`. New vision
 spells still require code there.
 
 ### Quick-heal note
-The quick-heal (H key) targets only `heal` and `heal_other`. If you add new heal IDs and want H targeting, update `internal/game/input.go`.
+The quick-heal key (C, or legacy H) is data-driven: any spell with
+`heal_amount > 0` or `heal_party: true` qualifies automatically
+(`SpellDefinition.IsHeal`); the best known one is picked. No code changes needed.
 
 ## Step 2: Grant the spell to players
 Choose one (or more):
@@ -88,9 +95,11 @@ Choose one (or more):
 - Add to a spell trader in `assets/npcs.yaml`.
 
 ## Spell trader requirements
-NPC spell requirements are enforced. The structure is `min_level` plus an
-optional `schools` list. A character must already have the spell's magic
-school (and the school's level must meet `min_level`) to learn from an NPC.
+A trader catalog entry only needs `cost: N` — name, school, level, description
+and requirements are backfilled from spells.yaml at load
+(`backfillTraderSpells`; a missing `cost` fails the load). When `requirements`
+is omitted it defaults to the spell's own `level` as `min_level`. Author an
+explicit block only to override that:
 
 ```yaml
 requirements:
@@ -99,6 +108,9 @@ requirements:
     - school: "water"
       min_level: 1
 ```
+
+A character must already have the spell's school open (and meet `min_level`)
+to learn from an NPC.
 
 ## Testing checklist
 - YAML loads without errors.

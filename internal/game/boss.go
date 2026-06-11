@@ -47,10 +47,10 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	m.BossLastHP = m.HitPoints
 
 	if cs.bossEvasive(m) {
-		// Evasive: blink away when the party is within 3 tiles or it was just hit; never attacks.
-		near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= 3*float64(cs.game.config.GetTileSize())
+		// Evasive: blink away when the party closes in or it was just hit; never attacks.
+		near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= m.EvadeRadiusTiles*float64(cs.game.config.GetTileSize())
 		if ready && (near || m.BossHurtPending) && cs.blinkMonsterRandom(m) {
-			m.BossCD = cs.game.config.GetTPS()
+			m.BossCD = int(m.BossCooldownSecs * float64(cs.game.config.GetTPS()))
 			m.BossHurtPending = false
 			cs.game.AddCombatMessage(fmt.Sprintf("%s skitters away into the dark!", m.Name))
 		}
@@ -99,13 +99,12 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
-	const infernoDamage = 28
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
 	for idx, member := range cs.game.party.Members {
 		if member == nil || member.HitPoints <= 0 {
 			continue
 		}
-		dmg := cs.mitigateCharacterDamage(infernoDamage, "fire", member, false)
+		dmg := cs.mitigateCharacterDamage(m.InfernoDamage, "fire", member, false)
 		member.HitPoints -= dmg
 		if member.HitPoints < 0 {
 			member.HitPoints = 0

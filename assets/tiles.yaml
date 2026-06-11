@@ -649,6 +649,21 @@ tiles:
   # designer places a specific look deliberately. Variant 0 keeps the original
   # letter (and is what's already on the map); variant 1 is a new letter with a
   # distinct floor_color so the two read apart in the editor legend.
+  # Quest-spawned bridge planks (applied via quests.yaml on_complete_tiles —
+  # never placed by map letter, hence no letter).
+  quest_bridge:
+    name: "Wooden Bridge"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [96, 72, 48]
+    floor_near_color: [124, 94, 62]
+    floor_texture_group: "quest_bridge"
+    biomes: ["forest"]
+
   dragon_cliffs_bridge:
     name: "Cliff Bridge (v0)"
     solid: false

@@ -95,6 +95,17 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	// uniformly; positions anchor around the (already-lowered) cx, cy.
 	h := screenH * meleeSizeScale
 
+	// Critical swing: a quarter bigger, hotter, with a golden leading edge and a
+	// denser spark shower — the crit reads from the swing itself, not just the
+	// damage number.
+	sparkCount := 14
+	if s.Crit {
+		h *= 1.25
+		fade = math.Min(1, fade*1.15)
+		edge = [3]int{255, 235, 170}
+		sparkCount = 22
+	}
+
 	// --- Thrust kinds: dagger (short/quick) and spear (long/lean) ---
 	if s.Kind == "stab" || s.Kind == "lunge" {
 		reach := h * 0.18
@@ -121,7 +132,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		// Bright tip flash + sparks while extending.
 		r.drawGlowSprite(screen, tipX, tipY, thick*1.7, edge, fade*0.9, additiveGlowBlend)
 		if sweepT < 1 {
-			for k := 0; k < 10; k++ {
+			for k := 0; k < sparkCount-4; k++ {
 				ang := auraHash(seed, k, 1, fc) * 2 * math.Pi
 				rr := auraHash(seed, k, 2, fc) * thick * 1.6
 				r.drawGlowRect(screen, tipX+math.Cos(ang)*rr, tipY+math.Sin(ang)*rr, math.Max(2, thick*0.4), edge, fade*0.85, additiveGlowBlend)
@@ -176,7 +187,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	tipX := pivotX + math.Cos(curTheta)*R
 	tipY := pivotY + math.Sin(curTheta)*R
 	if sweepT < 1 {
-		for k := 0; k < 14; k++ {
+		for k := 0; k < sparkCount; k++ {
 			ang := auraHash(seed, k, 3, fc) * 2 * math.Pi
 			rr := auraHash(seed, k, 4, fc) * thick * 1.7
 			r.drawGlowRect(screen, tipX+math.Cos(ang)*rr, tipY+math.Sin(ang)*rr, math.Max(2, thick*0.3), edge, fade*0.9, additiveGlowBlend)

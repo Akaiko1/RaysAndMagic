@@ -33,13 +33,14 @@ func (rh *RenderingHelper) CalculateWallDimensions(distance float64) (wallHeight
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	// Clamp to a sane minimum: below ~half a tile the projection formula sends
-	// wallTop far past the bottom of the screen and the wall vanishes (same bug
-	// trees used to have when the camera pressed against them). tileSize/2 keeps
-	// the wall on-screen while the player can still bump right up to it.
-	minDist := float64(rh.game.config.GetTileSize()) / 2
-	if distance < minDist {
-		distance = minDist
+	// Division guard only — collision keeps the camera farther away than this.
+	// The wall's vanish-at-point-blank bug came from CAPPING the height while
+	// the floor anchor kept growing (the capped top sank below the screen);
+	// with the height uncapped the projection stays correct at any range, and
+	// any distance clamp larger than an epsilon would flatten near columns
+	// into a visible crease against the still-perspective far ones.
+	if distance < 1.0 {
+		distance = 1.0
 	}
 
 	// Calculate base wall height on screen
@@ -48,8 +49,10 @@ func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMul
 	// Apply height multiplier
 	wallHeight = int(baseHeight * heightMultiplier)
 
-	if wallHeight > rh.game.config.GetScreenHeight()*2 {
-		wallHeight = rh.game.config.GetScreenHeight() * 2 // Allow tall walls to extend off-screen
+	// Sanity bound, reachable only inside the 1-unit epsilon above: GPU clips
+	// off-screen geometry, so huge-but-finite heights cost nothing.
+	if maxH := rh.game.config.GetScreenHeight() * 64; wallHeight > maxH {
+		wallHeight = maxH
 	}
 	if wallHeight < 1 {
 		wallHeight = 1
@@ -472,10 +475,9 @@ func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance,
 	if sizeMultiplier <= 0 {
 		sizeMultiplier = 1
 	}
-	maxSize := int(float64(rh.game.config.Graphics.NPC.MaxSpriteSize) * sizeMultiplier)
 	minSize := rh.game.config.Graphics.NPC.MinSpriteSize
 	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, maxSize, minSize, effectiveMultiplier)
+	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, minSize, effectiveMultiplier)
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
@@ -505,8 +507,10 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 
 	// Calculate size using perpendicular distance for consistent floor alignment
 	spriteHeight := rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	if spriteHeight > rh.game.config.GetScreenHeight() {
-		spriteHeight = rh.game.config.GetScreenHeight()
+	// Sanity bound only — a playable-range pixel cap makes the sprite sink at
+	// close range (capped size vs an anchor still growing ~1/d).
+	if maxS := rh.game.config.GetScreenHeight() * 64; spriteHeight > maxS {
+		spriteHeight = maxS
 	}
 	if spriteHeight < 8 {
 		spriteHeight = 8
@@ -525,18 +529,15 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	return screenX, screenY, spriteHeight, true
 }
 
-// calculateBoundedSpriteMetrics projects an entity and sizes its sprite within
-// caller-supplied per-instance bounds.
+// calculateBoundedSpriteMetrics projects an entity and sizes its sprite with a
+// caller-supplied minimum (far-away sprites stay readable). NPCs use this path
+// because they carry a per-NPC `size_multiplier` scaling both the projection
+// coefficient and the minimum together (so a "size 4" NPC reads as a tall
+// building, not the same size as a "size 1" NPC).
 //
-// Use this when each entity has its own min/max screen size in pixels — i.e.,
-// the entity should NEVER grow beyond `maxSize` or shrink below `minSize`
-// regardless of how close/far it is. NPCs use this path because they carry a
-// per-NPC `size_multiplier` that scales both the projection coefficient and
-// the size bounds together (so a "size 4" NPC reads as a tall building, not
-// the same size as a "size 1" NPC at close range).
-//
-// For the alternative (entity is screen-relative and grows freely until it
-// fills the viewport), see calculateScreenCappedSpriteMetrics.
+// There is deliberately NO maximum at playable range: a screen-pixel cap makes
+// the sprite SINK as the camera closes in — the floor anchor keeps growing
+// ~1/d while the capped size stops, dragging the top below the viewport.
 //
 // Math notes:
 //   - Screen X is projected via projectToScreenX (camera plane math)
@@ -544,7 +545,7 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 //     would create fisheye distortion at screen edges
 //   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
 //     so sprites appear grounded rather than floating
-func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, maxSize, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
+func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
 	// Check if within view distance using Euclidean distance (for culling only)
 	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
 	minDistance := 5.0
@@ -565,8 +566,9 @@ func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, dista
 	// Calculate sprite size using the same scaling model as environment sprites.
 	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
 	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	if spriteSize > maxSize {
-		spriteSize = maxSize
+	// Numeric sanity bound only (see doc comment) — GPU clips oversize sprites.
+	if maxS := rh.game.config.GetScreenHeight() * 64; spriteSize > maxS {
+		spriteSize = maxS
 	}
 	if spriteSize < minSize {
 		spriteSize = minSize
@@ -615,10 +617,14 @@ func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, 
 		return 0, 0, 0, false
 	}
 
-	// Calculate sprite size using the same model as environment sprites
+	// Calculate sprite size using the same model as environment sprites.
+	// Numeric sanity bound only: any screen-pixel cap reachable at playable
+	// range makes the sprite SINK as the camera closes in — the floor anchor
+	// keeps growing ~1/d while the capped size stops, dragging the top below
+	// the viewport. The GPU clips oversized sprites for free.
 	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	if spriteSize > rh.game.config.GetScreenHeight() {
-		spriteSize = rh.game.config.GetScreenHeight()
+	if maxS := rh.game.config.GetScreenHeight() * 64; spriteSize > maxS {
+		spriteSize = maxS
 	}
 	if spriteSize < 8 {
 		spriteSize = 8
@@ -692,14 +698,17 @@ var TileSize float
 var WorldSize vec2
 var ViewDist float
 var MinBrightness float
+var Ambient float
 var TexCount float
 var TexTileSize vec2
 var LightCount float
-var Lights [16]vec4
+var Lights [32]vec4
 
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
-	px := dstPos.xy - imageDstOrigin()
-	samplePx := floor(px/2.0)*2.0 + vec2(1.0)
+	// Per-pixel sampling. (A legacy 2x2 block quantization matched the old CPU
+	// floor loop; the floor is GPU-only now, so the half-resolution cost bought
+	// nothing.)
+	samplePx := dstPos.xy - imageDstOrigin()
 
 	p := samplePx.y - Horizon
 	if p < 0.5 {
@@ -737,21 +746,49 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 			ly += 1.0
 		}
 
-		// Nearest-texel sample matching CPU's int(localX * texWidth).
-		atlasX := atlasIndex*TexTileSize.x + floor(lx*TexTileSize.x) + 0.5
-		atlasY := floor(ly*TexTileSize.y) + 0.5
-		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
-		// space; Ebitengine converts them to the target source internally.
-		texColor := imageSrc1UnsafeAt(imageSrc0Origin() + vec2(atlasX, atlasY))
-
-		// The floor texture is high-frequency pixel art. In the far field one
-		// screen pixel spans many source texels, so nearest sampling aliases into
-		// long stripes. Fade texture detail out based on the horizontal texel
-		// footprint instead of pretending we have mipmaps.
+		// Texel footprint of one screen pixel (horizontal), used both for the
+		// sharp-bilinear band below and the far-field detail fade.
 		planeLen := sqrt(PlaneCos*PlaneCos + PlaneSin*PlaneSin)
 		worldPerPixel := rowDist * planeLen * 2.0 / ScreenSize.x
 		texelsPerPixel := worldPerPixel * TexTileSize.x / TileSize
-		textureWeight := 0.8 * (1.0 - smoothstep(1.5, 5.0, texelsPerPixel))
+
+		// Sharp-bilinear sample inside this texture's atlas cell, wrapping
+		// texel lookups within the cell so tiling stays seamless (4-tap mix as
+		// in the sky shader; Kage samples nearest-only natively). Plain
+		// bilinear smears magnified pixel art, so when one texel spans several
+		// screen pixels the interpolation is squeezed into a ~1-pixel band at
+		// texel seams — crisp texels, antialiased edges — and relaxes back to
+		// ordinary bilinear by the 1:1 footprint.
+		fx := lx*TexTileSize.x - 0.5
+		fy := ly*TexTileSize.y - 0.5
+		bx := floor(fx)
+		by := floor(fy)
+		sharp := 1.0
+		if texelsPerPixel < 1.0 {
+			sharp = 1.0 / texelsPerPixel
+		}
+		fracX := clamp((fx-bx-0.5)*sharp+0.5, 0.0, 1.0)
+		fracY := clamp((fy-by-0.5)*sharp+0.5, 0.0, 1.0)
+		x0 := mod(bx, TexTileSize.x)
+		x1 := mod(bx+1.0, TexTileSize.x)
+		y0 := mod(by, TexTileSize.y)
+		y1 := mod(by+1.0, TexTileSize.y)
+		cellX := atlasIndex * TexTileSize.x
+		// imageSrcNUnsafeAt for N>=1 expects coordinates in source-0 texture
+		// space; Ebitengine converts them to the target source internally.
+		base := imageSrc0Origin()
+		c00 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y0+0.5))
+		c10 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y0+0.5))
+		c01 := imageSrc1UnsafeAt(base + vec2(cellX+x0+0.5, y1+0.5))
+		c11 := imageSrc1UnsafeAt(base + vec2(cellX+x1+0.5, y1+0.5))
+		texColor := mix(mix(c00, c10, fracX), mix(c01, c11, fracX), fracY)
+
+		// In the far field one screen pixel spans many source texels; without
+		// mipmaps that shimmers, so fade texture detail toward the tile's flat
+		// color by the horizontal texel footprint. Bilinear absorbs the first
+		// ~2 texels/pixel cleanly, so detail persists further than the old
+		// nearest-sample fade did.
+		textureWeight := 0.8 * (1.0 - smoothstep(2.0, 6.0, texelsPerPixel))
 
 		rgb = texColor.rgb*textureWeight + rgb*(1.0-textureWeight)
 	}
@@ -763,16 +800,21 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	if brightness < MinBrightness {
 		brightness = MinBrightness
 	}
-	for i := 0; i < 16; i++ {
+	// Map ambient level: dark maps stay dark until point lights lift them.
+	brightness *= Ambient
+	for i := 0; i < 32; i++ {
 		if float(i) >= LightCount {
 			break
 		}
 		L := Lights[i]
 		ldx := floorX - L.x
 		ldy := floorY - L.y
-		d := sqrt(ldx*ldx + ldy*ldy)
-		if d < L.z {
-			falloff := 1.0 - d/L.z
+		// Squared-distance early-out: most pixels are outside most lights, and
+		// an unconditional sqrt per light per pixel was the frame-rate cost of
+		// torch-lined maps.
+		d2 := ldx*ldx + ldy*ldy
+		if d2 < L.z*L.z {
+			falloff := 1.0 - sqrt(d2)/L.z
 			brightness += L.w * falloff
 		}
 	}

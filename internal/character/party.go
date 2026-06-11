@@ -47,7 +47,6 @@ func (p *Party) SwapActiveReserve(activeIdx, reserveIdx int) bool {
 	return true
 }
 
-
 // Fallback rosters used when config.yaml omits the lists (keeps older/minimal
 // configs and tests working). The canonical roster lives in config.yaml.
 var defaultStartingParty = []config.RosterEntry{
@@ -63,13 +62,19 @@ var defaultCaptives = []config.RosterEntry{
 }
 
 // createRosterCharacter builds a roster hero from a config entry, or nil on an
-// unknown class key.
+// unknown class key. A race entry shifts the class base stats additively
+// (human/empty = baseline) and re-derives HP/SP.
 func createRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacter {
 	class, ok := ClassFromKey(e.Class)
 	if !ok {
 		return nil
 	}
-	return CreateCharacter(e.Name, class, cfg)
+	c := CreateCharacter(e.Name, class, cfg)
+	if e.Race != "" {
+		c.ApplyRace(e.Race, cfg)
+		c.CalculateDerivedStats(cfg)
+	}
+	return c
 }
 
 func NewParty(cfg *config.Config) *Party {
@@ -99,6 +104,13 @@ func NewParty(cfg *config.Config) *Party {
 	for _, e := range captives {
 		if c := createRosterCharacter(e, cfg); c != nil {
 			party.Captive = append(party.Captive, c)
+		}
+	}
+	// Tavern recruits start benched in the reserve — available at the tavern
+	// from the very first visit.
+	for _, e := range cfg.Characters.TavernRecruits {
+		if c := createRosterCharacter(e, cfg); c != nil {
+			party.Reserve = append(party.Reserve, c)
 		}
 	}
 

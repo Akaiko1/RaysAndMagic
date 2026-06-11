@@ -42,7 +42,7 @@ ui:
 characters:
   # Starting party gold and food
   starting_gold: 500
-  starting_food: 50
+  starting_food: 5
 
   # Stat calculation multipliers
   hit_points:
@@ -62,6 +62,8 @@ characters:
       accuracy: 12
       speed: 10
       luck: 10
+      skills: [sword, spear, leather, chain, plate, shield, bodybuilding]
+      main_hand: iron_sword
 
     sorcerer:
       might: 8
@@ -71,6 +73,13 @@ characters:
       accuracy: 10
       speed: 10
       luck: 12
+      skills: [dagger, staff, leather, meditation, learning]
+      magic:
+        - { school: fire,  spells: [torch_light, firebolt] }
+        - { school: water, spells: [ice_bolt] }
+        - { school: air,   spells: [sparks] }
+      main_hand: magic_dagger
+      quick_spell: firebolt
 
     cleric:
       might: 10
@@ -80,6 +89,13 @@ characters:
       accuracy: 8
       speed: 10
       luck: 10
+      skills: [mace, chain, shield, meditation, learning]
+      magic:
+        - { school: body,   spells: [heal_other, harm] }
+        - { school: mind,   spells: [mind_blast] }
+        - { school: spirit, spells: [spirit_lash] }
+      main_hand: holy_mace
+      quick_spell: heal_other
 
     archer:
       might: 12
@@ -89,6 +105,11 @@ characters:
       accuracy: 15
       speed: 12
       luck: 10
+      skills: [bow, leather, dagger, disarm_trap, bodybuilding]
+      magic:
+        - { school: air, spells: [wizard_eye] }
+      main_hand: hunting_bow
+      quick_spell: wizard_eye
 
     paladin:
       might: 13
@@ -98,6 +119,8 @@ characters:
       accuracy: 10
       speed: 10
       luck: 11
+      skills: [axe, sword, chain, shield, bodybuilding]
+      main_hand: steel_axe
 
     druid:
       might: 10
@@ -107,6 +130,22 @@ characters:
       accuracy: 10
       speed: 11
       luck: 11
+      skills: [staff, leather, meditation, bodybuilding, learning]
+      magic:
+        - { school: water, spells: [ice_bolt] }
+        - { school: mind,  spells: [awaken] }
+        - { school: earth, spells: [deadly_swarm] }
+      main_hand: oak_staff
+      quick_spell: awaken
+
+  # Race stat modifiers, ADDITIVE over class base stats. The classic roster is
+  # human (baseline, no modifiers).
+  races:
+    human: {}
+    half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
+    halfling:  { accuracy: 2, speed: 2, luck: 2, might: -3, endurance: -1 }
+    dark_elf:  { intellect: 2, speed: 2, accuracy: 1, might: -2, endurance: -2, luck: -1 }
+    celestial: { personality: 3, intellect: 1, luck: 1, might: -2, endurance: -2 }
 
   # Starting roster (data-driven). class is a class key; name is the display
   # name and (lowercased) the portrait sprite key — falls back to the class
@@ -121,6 +160,13 @@ characters:
   captives:
     - { name: Auberon, class: paladin }
     - { name: Mirelle, class: druid }
+  # The second hero set: benched at the tavern from the very start of a new
+  # game — same classes as the starting party, stats shifted by race.
+  tavern_recruits:
+    - { name: Grikka,  class: knight,   race: half_orc }
+    - { name: Vaelith, class: sorcerer, race: dark_elf }
+    - { name: Auralis, class: cleric,   race: celestial }
+    - { name: Brinna,  class: archer,   race: halfling }
 
 
 # Monster stats and AI
@@ -144,6 +190,17 @@ monster_ai:
   # AI frequency checks (in frames)
   path_check_frequency: 30      # Check for blocked paths every N frames
 
+  # Detection (distances in tiles, the rest are multipliers)
+  default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
+  alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
+  alert_los_blocked_multiplier: 0.5    # reduced detection through trees/walls
+  disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)
+  attack_enter_range_fraction: 0.9     # enter attack at <= range x this (exit at > range)
+
+  # Flee cycle: after N consecutive attacks, roll the chance to flee
+  flee_after_attacks: 5
+  flee_after_attacks_chance: 0.5
+
 # Graphics and rendering
 graphics:
   # Raycasting optimization - reduced for 60 FPS performance
@@ -164,7 +221,19 @@ graphics:
   # Distance effects
   brightness_min: 0.3
 
-  # Monster rendering
+  # Board-game standees: monsters, NPCs and scenery render as thick wooden
+  # tokens standing in the world (monsters turn with their travel direction)
+  # instead of camera-facing billboards.
+  standee:
+    enabled: true
+    thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
+    turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
+    npc_spin_deg_per_sec: 12    # showcase spin of NPC/NPC-like tokens (0 = off); scenery never spins
+    env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
+    min_view_angle_deg: 22      # monster tokens never come closer than this to edge-on (0 = off)
+
+  # Monster rendering (max_sprite_size bounds combat collision scaling only;
+  # rendering is uncapped so sprites don't sink at close range)
   monster:
     max_sprite_size: 60
     min_sprite_size: 8
@@ -172,7 +241,6 @@ graphics:
 
   # NPC rendering (larger than monsters for better visibility)
   npc:
-    max_sprite_size: 120
     min_sprite_size: 16
     size_distance_multiplier: 150
 

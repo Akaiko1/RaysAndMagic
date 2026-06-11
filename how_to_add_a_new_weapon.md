@@ -81,6 +81,9 @@ weapons:
 - `disintegrate_chance`
 - `aoe_radius_tiles` (splash radius; hits all monsters within N tiles)
 - `crit_chance`, `value`, `rarity`
+- `cooldown_multiplier` (overrides the category's attack-speed multiplier, e.g. Bow of Hellfire 1.7)
+- `spell_cooldown_multiplier` (scales the wielder's spell cooldowns, e.g. Archmage Staff 0.8)
+- `projectile_school` (renders the projectile as that school's spell orb instead of an arrow)
 
 These non-base effects surface in tooltips via `WeaponDefinitionConfig.EffectLines`
 (single source of truth — add a new effect there and every tooltip/card picks

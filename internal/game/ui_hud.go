@@ -17,6 +17,78 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// Portrait recess of party_member_panel.png in panel-source pixels (256×100),
+// measured off the art: the inner dark box of the left frame, whose corners are
+// trimmed at 45° by panelRecessCut pixels.
+const (
+	panelRecessX0  = 16.0
+	panelRecessY0  = 19.0
+	panelRecessX1  = 65.0
+	panelRecessY1  = 77.0
+	panelRecessCut = 5.0
+)
+
+// hudWhiteImg is a 1×1 opaque source for triangle fills (corner bevel cuts).
+var hudWhiteImg = func() *ebiten.Image {
+	img := ebiten.NewImage(1, 1)
+	img.Fill(color.White)
+	return img
+}()
+
+// cardPortrait returns the portrait pre-fit to the party card's recess: cover-
+// scaled (fills the frame, overflow cropped), linearly filtered, with the four
+// corners bevel-cut to match the frame's trims. Cached per name and size.
+func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	key := fmt.Sprintf("%s|%dx%d", name, w, h)
+	if img, ok := ui.cardPortraitCache[key]; ok {
+		return img
+	}
+	src := ui.game.sprites.GetSprite(name)
+	if src == nil {
+		return nil
+	}
+	img := ebiten.NewImage(w, h)
+	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
+	scale := math.Max(float64(w)/float64(sw), float64(h)/float64(sh)) // cover-fit
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(scale, scale)
+	opts.GeoM.Translate((float64(w)-float64(sw)*scale)/2, (float64(h)-float64(sh)*scale)/2)
+	if scale < 1 {
+		opts.Filter = ebiten.FilterLinear // mipmapped shrink, no nearest mush
+	}
+	img.DrawImage(src, opts)
+
+	// Bevel the corners: erase a 45° triangle in each.
+	if cut > 0 {
+		c := float32(cut)
+		fw, fh := float32(w), float32(h)
+		corners := [4][6]float32{
+			{0, 0, c, 0, 0, c},               // top-left
+			{fw, 0, fw - c, 0, fw, c},        // top-right
+			{0, fh, c, fh, 0, fh - c},        // bottom-left
+			{fw, fh, fw - c, fh, fw, fh - c}, // bottom-right
+		}
+		for _, t := range corners {
+			verts := []ebiten.Vertex{
+				{DstX: t[0], DstY: t[1], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
+				{DstX: t[2], DstY: t[3], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
+				{DstX: t[4], DstY: t[5], SrcX: 0.5, SrcY: 0.5, ColorA: 1},
+			}
+			img.DrawTriangles(verts, []uint16{0, 1, 2}, hudWhiteImg,
+				&ebiten.DrawTrianglesOptions{Blend: ebiten.BlendClear})
+		}
+	}
+
+	if ui.cardPortraitCache == nil {
+		ui.cardPortraitCache = make(map[string]*ebiten.Image)
+	}
+	ui.cardPortraitCache[key] = img
+	return img
+}
+
 // drawGameplayUI draws core gameplay UI elements
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
@@ -79,36 +151,30 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
 		}
 
-		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich variant).
+		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich
+		// variant). Fitted exactly into the panel's left recess (measured off
+		// party_member_panel.png) and bevel-cut at the corners to match the
+		// frame's 45° corner trims.
 		portraitName := ui.game.portraitSpriteName(member)
-		portrait := ui.game.sprites.GetSprite(portraitName)
+		portraitColWidth := 82 // text columns start after the portrait recess
 
-		// Portrait dimensions aligned to the left recess in party_member_panel.png.
-		portraitSize := 45
-		portraitX := x + 18
-		portraitY := startY + 24
-		portraitColWidth := 82 // Match the left portrait recess in party_member_panel.png
+		panelScaleX := float64(portraitWidth) / float64(panel.Bounds().Dx())
+		panelScaleY := float64(portraitHeight) / float64(panel.Bounds().Dy())
+		px := x + int(panelRecessX0*panelScaleX+0.5)
+		py := startY + int(panelRecessY0*panelScaleY+0.5)
+		pw := int((panelRecessX1-panelRecessX0+1)*panelScaleX + 0.5)
+		ph := int((panelRecessY1-panelRecessY0+1)*panelScaleY + 0.5)
+		cut := int(panelRecessCut*math.Min(panelScaleX, panelScaleY) + 0.5)
 
-		// Scale and draw portrait
 		portraitOpts := &ebiten.DrawImageOptions{}
-		scaleX := float64(portraitColWidth-10) / float64(portrait.Bounds().Dx())
-		scaleY := float64(portraitSize) / float64(portrait.Bounds().Dy())
-		scale := math.Min(scaleX, scaleY) // Maintain aspect ratio
-
-		portraitOpts.GeoM.Scale(scale, scale)
-		portraitOpts.GeoM.Translate(float64(portraitX), float64(portraitY))
-		// Bilinear (with mipmaps) when shrinking keeps the portrait crisp instead
-		// of the nearest-neighbour mush the default filter gives on downscale.
-		if scale < 1 {
-			portraitOpts.Filter = ebiten.FilterLinear
-		}
-
+		portraitOpts.GeoM.Translate(float64(px), float64(py))
 		// Apply red tint if character is blinking from damage
 		if ui.game.IsCharacterBlinking(i) {
 			portraitOpts.ColorScale.Scale(1.5, 0.5, 0.5, 1.0) // Red tint: more red, less green/blue
 		}
-
-		screen.DrawImage(portrait, portraitOpts)
+		if card := ui.cardPortrait(portraitName, pw, ph, cut); card != nil {
+			screen.DrawImage(card, portraitOpts)
+		}
 
 		// Darken overlay if unconscious
 		isUnconscious := false
@@ -227,7 +293,7 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 	const n = 14
 	for k := 0; k < n; k++ {
 		phase := float64((f*2+k*53)%60) / 60.0 // 0..1 rising cycle, staggered per tongue
-		rise := 1.0 - phase                     // brightness/heat fade as it climbs
+		rise := 1.0 - phase                    // brightness/heat fade as it climbs
 		a := uint8(220 * rise * intensity)
 		if a < 8 {
 			continue
@@ -249,7 +315,7 @@ func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx in
 		return
 	}
 	intensity := float64(t) / float64(HitSparkFrames) // 1 → 0 fade
-	prog := 1.0 - intensity                            // 0 → 1 as sparks fly out
+	prog := 1.0 - intensity                           // 0 → 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
 	vector.FillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
@@ -292,14 +358,14 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 		}
 		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(ph*6+float64(k))*4
 		py := float64(startY+h) - 6 - ph*(float64(h)-10) // rise from bottom toward top
-		a := uint8(235 * (1 - ph))                        // evaporate as it climbs
+		a := uint8(235 * (1 - ph))                       // evaporate as it climbs
 		if a < 12 {
 			continue
 		}
 		col := color.RGBA{90, 230, 110, a}
-		arm := float32(4)                  // half-length of the plus arms
-		th := float32(2)                   // arm thickness
-		cx, cy := float32(px), float32(py) // centre
+		arm := float32(4)                                               // half-length of the plus arms
+		th := float32(2)                                                // arm thickness
+		cx, cy := float32(px), float32(py)                              // centre
 		vector.FillRect(screen, cx-arm, cy-th/2, arm*2, th, col, false) // horizontal bar
 		vector.FillRect(screen, cx-th/2, cy-arm, th, arm*2, col, false) // vertical bar
 	}
@@ -817,14 +883,14 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 
 	// Create interaction message based on NPC capabilities
 	var message string
-	switch {
-	case npcHasChoiceDialog(nearestNPC):
-		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
-	case npcHasSpellTrading(nearestNPC):
+	switch npcDialogKindFor(nearestNPC) {
+	case dialogKindSpellTrader:
 		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
-	case npcHasSkillTraining(nearestNPC):
+	case dialogKindChoices:
+		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
+	case dialogKindSkillTrainer:
 		message = fmt.Sprintf("Press T to train with %s", nearestNPC.Name)
-	case npcHasMerchant(nearestNPC):
+	case dialogKindMerchant:
 		message = fmt.Sprintf("Press T to trade with %s", nearestNPC.Name)
 	default:
 		message = fmt.Sprintf("Press T to talk to %s", nearestNPC.Name)

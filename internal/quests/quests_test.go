@@ -85,7 +85,7 @@ func TestQuestManager_OnMonsterKilled(t *testing.T) {
 
 	// Kill 4 goblins - quest should not complete
 	for i := 0; i < 4; i++ {
-		completed := qm.OnMonsterKilled("goblin")
+		completed := qm.OnMonsterKilled("goblin", "")
 		if len(completed) != 0 {
 			t.Errorf("Quest should not complete after %d kills", i+1)
 		}
@@ -97,7 +97,7 @@ func TestQuestManager_OnMonsterKilled(t *testing.T) {
 	}
 
 	// Kill 5th goblin - quest should complete
-	completed := qm.OnMonsterKilled("goblin")
+	completed := qm.OnMonsterKilled("goblin", "")
 	if len(completed) != 1 {
 		t.Fatalf("Expected 1 completed quest, got %d", len(completed))
 	}
@@ -133,7 +133,7 @@ func TestQuestManager_OnMonsterKilled_WrongMonster(t *testing.T) {
 	qm.InitializeStartingQuests()
 
 	// Kill wolves - should not affect goblin quest
-	completed := qm.OnMonsterKilled("wolf")
+	completed := qm.OnMonsterKilled("wolf", "")
 	if len(completed) != 0 {
 		t.Error("Killing wolf should not complete goblin quest")
 	}
@@ -169,8 +169,8 @@ func TestQuestManager_ClaimRewards(t *testing.T) {
 	}
 
 	// Complete the quest
-	qm.OnMonsterKilled("goblin")
-	qm.OnMonsterKilled("goblin")
+	qm.OnMonsterKilled("goblin", "")
+	qm.OnMonsterKilled("goblin", "")
 
 	// Claim rewards - should succeed
 	rewards, err := qm.ClaimRewards("goblin_hunt")
@@ -319,7 +319,7 @@ func TestQuestManager_GetCompletedQuests(t *testing.T) {
 	}
 
 	// Complete quest1
-	qm.OnMonsterKilled("goblin")
+	qm.OnMonsterKilled("goblin", "")
 
 	completed = qm.GetCompletedQuests()
 	if len(completed) != 1 {
@@ -472,5 +472,92 @@ func TestQuestManager_RemoveQuest(t *testing.T) {
 	quest = qm.GetQuest("bandit_camp")
 	if quest != nil {
 		t.Error("Quest should have been removed")
+	}
+}
+
+// Regression: loading a save made BEFORE a quest was taken must not leave that
+// quest active. The load resets the manager to its baseline (starting quests)
+// then re-applies the saved snapshot; a quest absent from the snapshot — taken
+// only after that save — must be dropped, not carried over from the live state.
+func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
+	config := &QuestConfig{
+		Quests: map[string]*QuestDefinition{
+			"main_quest": {
+				Name: "Main", Type: QuestTypeKill, TargetMonster: "dragon",
+				TargetCount: 4, IsStartingQuest: true,
+			},
+			"side_quest": {
+				Name: "Side", Type: QuestTypeInteract, TargetMonster: "valve",
+				TargetCount: 7, IsStartingQuest: false,
+			},
+		},
+	}
+	qm := NewQuestManager(config)
+	qm.InitializeStartingQuests()
+
+	// Snapshot the save state now — before the side quest is ever taken.
+	type snap struct {
+		id      string
+		status  QuestStatus
+		count   int
+		claimed bool
+	}
+	var saved []snap
+	for _, q := range qm.GetAllQuests() {
+		saved = append(saved, snap{q.ID, q.Status, q.CurrentCount, q.RewardsClaimed})
+	}
+
+	// Player takes the side quest after that save.
+	if err := qm.ActivateQuest("side_quest"); err != nil {
+		t.Fatalf("activate side_quest: %v", err)
+	}
+	if qm.GetQuest("side_quest") == nil {
+		t.Fatal("side_quest should be active before the load")
+	}
+
+	// Load = reset to baseline, then re-apply the snapshot (mirrors applySave).
+	qm.Reset()
+	for _, s := range saved {
+		qm.RestoreQuestProgress(s.id, s.status, s.count, s.claimed)
+	}
+
+	if qm.GetQuest("side_quest") != nil {
+		t.Error("side_quest taken after the save must be gone after loading that save")
+	}
+	if qm.GetQuest("main_quest") == nil {
+		t.Error("starting quest must survive the load")
+	}
+}
+
+// MarkCompleted brings an active kill quest to its done state so it can be turned
+// in — used when the targets were slain before the quest was taken, or fewer
+// existed than the quota.
+func TestQuestManager_MarkCompleted(t *testing.T) {
+	config := &QuestConfig{
+		Quests: map[string]*QuestDefinition{
+			"slay_boss": {
+				Name: "Slay the Boss", Type: QuestTypeKill, TargetMonster: "lich_king",
+				TargetCount: 1, IsStartingQuest: false,
+				Rewards: QuestRewards{Gold: 100, Experience: 200},
+			},
+		},
+	}
+	qm := NewQuestManager(config)
+	if err := qm.ActivateQuest("slay_boss"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	if _, err := qm.ClaimRewards("slay_boss"); err == nil {
+		t.Fatal("incomplete quest should not be claimable")
+	}
+
+	qm.MarkCompleted("slay_boss")
+
+	q := qm.GetQuest("slay_boss")
+	if q == nil || !q.Completed || q.Status != QuestStatusCompleted || q.CurrentCount != 1 {
+		t.Fatalf("quest should be fully completed, got %+v", q)
+	}
+	if _, err := qm.ClaimRewards("slay_boss"); err != nil {
+		t.Errorf("completed quest should be claimable, got %v", err)
 	}
 }

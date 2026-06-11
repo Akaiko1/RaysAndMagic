@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -149,8 +151,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
 	}
-	if loaded.torchLightRadius != game.torchLightRadius {
-		t.Fatalf("torchLightRadius: got %v want %v", loaded.torchLightRadius, game.torchLightRadius)
+	// The radius deliberately does NOT round-trip: on load an active torch
+	// adopts the current balance constant, so old saves pick up retunes.
+	if loaded.torchLightRadius != TorchLightRadiusTiles {
+		t.Fatalf("torchLightRadius: got %v want balance constant %v", loaded.torchLightRadius, TorchLightRadiusTiles)
 	}
 	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
 		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)
@@ -413,5 +417,232 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 	}
 	if len(s.Monsters) != 1 || s.Monsters[0].Bound || s.Monsters[0].BoundFramesRemaining != 0 {
 		t.Errorf("old monster should decode unbound, got %+v", s.Monsters)
+	}
+}
+
+// A spent hide_when_visited statue must vanish from interaction yet stay in the
+// world, so its Visited=true is captured by the save (NPC states only persist
+// NPCs still present). Dropping it from the world — the old RemoveNPC behaviour —
+// lost the spent state and resurrected the statue unspent on reload.
+func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	statue := &character.NPC{Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
+	w.NPCs = append(w.NPCs, statue)
+	game := newTestGame(cfg, w)
+
+	if game.GetNearestInteractableNPC() != statue {
+		t.Fatalf("unspent statue should be interactable")
+	}
+
+	statue.Visited = true // mirrors summonDragonFromStatue: mark spent, keep in world
+
+	if game.GetNearestInteractableNPC() != nil {
+		t.Errorf("spent hide_when_visited statue must not be interactable")
+	}
+	kept := false
+	for _, n := range w.NPCs {
+		if n == statue {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
+	}
+}
+
+// Overlapping monsters must be pushed apart by the separation pass (engaged
+// pairs that overlap veto each other's every normal move and would otherwise
+// stay glued forever).
+func TestSeparateOverlappingMonsters(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	gl := &GameLoop{game: g}
+
+	// Park the player away from the pair — pushes refuse to land on the player.
+	g.camera.X, g.camera.Y = 8, 8
+	g.collisionSystem.UpdateEntity("player", 8, 8)
+	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
+	b := monster.NewMonster3DFromConfig(66, 64, "goblin", cfg) // almost fully stacked
+	a.IsEngagingPlayer = true                                  // calm pairs pass through by design; engaged ones glue
+	w.Monsters = []*monster.Monster3D{a, b}
+	g.registerSpawnedMonster(a)
+	g.registerSpawnedMonster(b)
+
+	aw, _ := a.GetSize()
+	bw, _ := b.GetSize()
+	need := (aw + bw) / 2
+	for i := 0; i < 240; i++ {
+		gl.separateOverlappingMonsters()
+		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
+			return // separated
+		}
+	}
+	t.Fatalf("monsters still overlapping after separation pass: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
+		a.X, a.Y, b.X, b.Y, need)
+}
+
+// In a one-wide corridor (trees above and below) the least-penetration push is
+// blocked on both sides — the pair must fall back to separating ALONG the
+// corridor instead of staying glued (the goblins-stuck-between-trees bug).
+func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := world.NewWorld3D(cfg)
+	w.Width, w.Height = 7, 3
+	w.Tiles = make([][]world.TileType3D, w.Height)
+	for y := 0; y < w.Height; y++ {
+		w.Tiles[y] = make([]world.TileType3D, w.Width)
+		for x := 0; x < w.Width; x++ {
+			if y == 1 {
+				w.Tiles[y][x] = world.TileEmpty // the corridor
+			} else {
+				w.Tiles[y][x] = world.TileTree
+			}
+		}
+	}
+	g := newTestGame(cfg, w)
+	gl := &GameLoop{game: g}
+
+	// Stacked mid-corridor, offset slightly along Y so the LEAST penetration
+	// axis is the blocked cross-corridor one.
+	a := monster.NewMonster3DFromConfig(64*3+32, 96, "goblin", cfg)
+	b := monster.NewMonster3DFromConfig(64*3+34, 90, "goblin", cfg)
+	a.IsEngagingPlayer = true
+	b.IsEngagingPlayer = true
+	w.Monsters = []*monster.Monster3D{a, b}
+	g.registerSpawnedMonster(a)
+	g.registerSpawnedMonster(b)
+
+	aw, _ := a.GetSize()
+	bw, _ := b.GetSize()
+	need := (aw + bw) / 2
+	for i := 0; i < 300; i++ {
+		gl.separateOverlappingMonsters()
+		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
+			return // separated along the corridor
+		}
+	}
+	t.Fatalf("corridor pair still glued: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
+		a.X, a.Y, b.X, b.Y, need)
+}
+
+// creditClearedKillQuests completes a region kill quest when its target_map is
+// clear, even if the same monster type still lives on another map — so culling
+// the cliff trolls turns the quest in despite trolls roaming the highlands, and
+// a target slain before the quest was taken can still be credited.
+func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
+	cfg := loadTestConfig(t)
+	qcfg, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+
+	// NPC linked to the cliff troll cull (target_map: dragon_cliffs).
+	npc := &character.NPC{DialogueData: &character.NPCDialogue{
+		Choices: []*character.NPCDialogueChoice{
+			{Action: "turn_in_quest", QuestID: "dragon_cliffs_troll_cull"},
+		},
+	}}
+
+	setup := func(trollMap string) *MMGame {
+		cliffs := newTestWorld(cfg)
+		highlands := newTestWorld(cfg)
+		troll := monster.NewMonster3DFromConfig(64, 64, "mountain_troll", cfg)
+		switch trollMap {
+		case "dragon_cliffs":
+			cliffs.Monsters = append(cliffs.Monsters, troll)
+		case "highlands":
+			highlands.Monsters = append(highlands.Monsters, troll)
+		}
+		wm := world.NewWorldManager(cfg)
+		wm.LoadedMaps = map[string]*world.World3D{"dragon_cliffs": cliffs, "highlands": highlands}
+		wm.CurrentMapKey = "dragon_cliffs"
+		world.GlobalWorldManager = wm
+
+		g := newTestGame(cfg, cliffs)
+		g.questManager = quests.NewQuestManager(qcfg)
+		if err := g.questManager.ActivateQuest("dragon_cliffs_troll_cull"); err != nil {
+			t.Fatalf("activate: %v", err)
+		}
+		return g
+	}
+
+	old := world.GlobalWorldManager
+	defer func() { world.GlobalWorldManager = old }()
+
+	// Trolls only in the highlands: the cliff region is clear → quest completes.
+	g := setup("highlands")
+	g.creditClearedKillQuests(npc)
+	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || !q.Completed {
+		t.Errorf("quest should complete when its target_map is clear despite trolls elsewhere; got %+v", q)
+	}
+
+	// A living troll in the cliffs themselves must still block completion.
+	g = setup("dragon_cliffs")
+	g.creditClearedKillQuests(npc)
+	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || q.Completed {
+		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
+	}
+}
+
+// Hostility must survive save/load: a provoked monster (WasAttacked) stays
+// provoked, and an old save's quest-bearing encounter monster (no was_attacked
+// field — e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
+// mob without a QuestID keeps normal aggro.
+func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+
+	provoked := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+	provoked.WasAttacked = true
+	calm := monster.NewMonster3DFromConfig(128, 64, "bandit", cfg)
+	chestBound := monster.NewMonster3DFromConfig(64, 128, "bandit", cfg)
+	chestBound.IsEncounterMonster = true
+	chestBound.EncounterRewards = &monster.EncounterRewards{Gold: 10} // clear-encounter style: no QuestID
+	worldSave.Monsters = []*monster.Monster3D{provoked, calm, chestBound}
+
+	save := game.buildSave(wmSave)
+
+	// Old-save migration case: a lair dragon saved before was_attacked existed.
+	save.MapMonsters["forest"] = append(save.MapMonsters["forest"], MonsterSave{
+		Key: "dragon_green", Name: "Dragon", X: 192, Y: 192, HitPoints: 1100,
+		IsEncounterMonster: true,
+		EncounterRewards:   &EncounterRewardSave{QuestID: "dragon_cliffs_bone_lair"},
+	})
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWM := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	defer func() { world.GlobalWorldManager = oldWM }()
+
+	loaded := newTestGame(cfg, worldLoad)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	byPos := map[[2]int]*monster.Monster3D{}
+	for _, m := range worldLoad.Monsters {
+		byPos[[2]int{int(m.X), int(m.Y)}] = m
+	}
+	if m := byPos[[2]int{64, 64}]; m == nil || !m.WasAttacked || !m.IsEngagingPlayer {
+		t.Errorf("provoked monster must stay hostile after load")
+	}
+	if m := byPos[[2]int{128, 64}]; m == nil || m.WasAttacked || m.IsEngagingPlayer {
+		t.Errorf("calm monster must stay calm after load")
+	}
+	if m := byPos[[2]int{64, 128}]; m == nil || m.WasAttacked || m.IsEngagingPlayer {
+		t.Errorf("chest-bound encounter mob (no QuestID) must keep normal aggro")
+	}
+	if m := byPos[[2]int{192, 192}]; m == nil || !m.WasAttacked || !m.IsEngagingPlayer {
+		t.Errorf("old-save lair dragon (QuestID, no was_attacked) must migrate to hostile")
 	}
 }

@@ -81,25 +81,66 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	}
 
 	g.CreateSpellHitEffect(x, y, element, particleCount, particleSize)
+
+	// Heavy spells rattle the view: shake amplitude follows the same damage +
+	// blast levers as the particles, so a bolt barely taps and a fireball kicks.
+	g.addScreenShake(0.10*float64(damage)+radiusTiles, screenShakeMaxAmp)
 }
 
-// spellHitStyle maps a damage element to an impact particle behaviour:
-// fire → rising embers, water → falling ice shards, everything else → a plain
-// radial burst. Keyed by school so it generalizes beyond the named spells.
+// screenShakeMaxAmp caps the camera shake in world units (~1/12 tile).
+const screenShakeMaxAmp = 5.0
+
+// addScreenShake raises the camera shake to amp (never lowers it), bounded by
+// the given cap so stacked hits can't wind the view up indefinitely.
+func (g *MMGame) addScreenShake(amp, maxAmp float64) {
+	if amp > maxAmp {
+		amp = maxAmp
+	}
+	if amp > g.screenShake {
+		g.screenShake = amp
+	}
+}
+
+// spellHitStyle maps a damage element to an impact particle behaviour, so each
+// school reads distinct by MOTION, not just colour. Keyed by school so it
+// generalizes beyond the named spells; unknown elements fall back to a plain
+// radial burst.
 func spellHitStyle(element string) string {
 	switch strings.ToLower(element) {
 	case "fire":
-		return "ember"
+		return "ember" // rising hot embers
 	case "water":
-		return "shard"
+		return "shard" // sharp shards that fall and linger
 	case "dark":
-		return "void"
+		return "void" // slow creeping motes that sink
 	case "light":
-		return "flash"
+		return "flash" // fast radiant flare, quick pop
+	case "air":
+		return "static" // air school is lightning/sparks: fast erratic crackle
+	case "earth":
+		return "rubble" // heavy chunks, strong drop
+	case "mind":
+		return "spiral" // tangential swirl
+	case "spirit":
+		return "soul" // slow rising wisps, long-lived
+	case "body":
+		return "mend" // gentle drifting sparkles
 	default:
 		return "burst"
 	}
 }
+
+// ImpactLight is a short-lived point light left where a spell lands — fed into
+// the floor shader and sprite brightness, so impacts visibly flash the world.
+type ImpactLight struct {
+	X, Y          float64
+	Radius        float64
+	Intensity     float64
+	Life, MaxLife int
+}
+
+// impactLightFrames is how long an impact flash lasts (intensity decays with life).
+const impactLightFrames = 20
 
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
 func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int) {
@@ -117,6 +158,14 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 	if particleSize <= 0 {
 		particleSize = SpellParticleSize
 	}
+
+	// Impact flash: a light pool under the burst, sized with the burst itself.
+	g.impactLights = append(g.impactLights, ImpactLight{
+		X: x, Y: y,
+		Radius:    float64(g.config.GetTileSize()) * (1.8 + 0.02*float64(particleCount)),
+		Intensity: 0.7,
+		Life:      impactLightFrames, MaxLife: impactLightFrames,
+	})
 	style := spellHitStyle(element)
 	// Bigger spells (larger particleSize, set from damage+radius) throw their
 	// burst WIDER, not just denser — a fireball blast dwarfs a bolt's.
@@ -162,6 +211,32 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 			vy *= 1.5
 			life -= 4
 			tint = mixColor(baseColor, [3]int{255, 255, 235}, rand.Float64()*0.6)
+		case "static": // air = lightning/sparks: jagged electric crackle, gone in a snap
+			vx *= 1.4 + rand.Float64()*1.4 // wildly uneven speeds → spiky, not a round star
+			vy *= 1.4 + rand.Float64()*1.4
+			life -= 6
+			tint = mixColor(baseColor, [3]int{255, 255, 255}, rand.Float64()*0.7)
+		case "rubble": // earth: heavy chunks thrown low, dropping hard
+			vx *= 1.1
+			vy = vy*0.5 + 0.4
+			grav = 0.22
+			life += 4
+			tint = mixColor(baseColor, [3]int{170, 140, 90}, rand.Float64()*0.5)
+		case "spiral": // mind: tangential swirl instead of a radial burst
+			vx, vy = -vy*1.2, vx*1.2
+			life += 4
+			tint = mixColor(baseColor, [3]int{210, 230, 255}, rand.Float64()*0.5)
+		case "soul": // spirit: slow wisps that float up and linger
+			vx *= 0.5
+			vy = vy*0.4 - (0.5 + rand.Float64()*0.8)
+			grav = -0.02
+			life += 12
+			tint = mixColor(baseColor, [3]int{235, 225, 255}, rand.Float64()*0.6)
+		case "mend": // body: gentle sparkles drifting upward, soft and brief
+			vx *= 0.6
+			vy = vy*0.5 - (0.3 + rand.Float64()*0.5)
+			grav = -0.01
+			tint = mixColor(baseColor, [3]int{220, 255, 220}, rand.Float64()*0.5)
 		}
 
 		particleColor := [3]int{
@@ -220,6 +295,15 @@ func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
 func (g *MMGame) spawnImpactSparks(x, y float64) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
+
+	// A short flash at the struck target (smaller and briefer than a spell's),
+	// so melee hits light the world too.
+	g.impactLights = append(g.impactLights, ImpactLight{
+		X: x, Y: y,
+		Radius:    float64(g.config.GetTileSize()) * 1.2,
+		Intensity: 0.5,
+		Life:      impactLightFrames * 2 / 3, MaxLife: impactLightFrames * 2 / 3,
+	})
 	const n = 14
 	parts := make([]SpellHitParticle, n)
 	for i := 0; i < n; i++ {

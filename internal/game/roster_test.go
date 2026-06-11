@@ -17,15 +17,16 @@ func TestSwapRosterMember_PreservesState(t *testing.T) {
 	bench := character.CreateCharacter("Auberon", character.ClassPaladin, cfg)
 	bench.Level = 9
 	g.party.Recruit(bench)
+	benchIdx := len(g.party.Reserve) - 1 // after the tavern recruits
 	active1 := g.party.Members[1]
 
-	if !g.swapRosterMember(1, 0) {
+	if !g.swapRosterMember(1, benchIdx) {
 		t.Fatal("swap failed")
 	}
 	if g.party.Members[1] != bench {
 		t.Error("reserve hero should now occupy active slot 1")
 	}
-	if g.party.Reserve[0] != active1 {
+	if g.party.Reserve[benchIdx] != active1 {
 		t.Error("former active member should now be in reserve")
 	}
 	if g.party.Members[1].Level != 9 {
@@ -65,9 +66,10 @@ func TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut(t *testing.T) {
 	bench.Level = 5
 	bench.OwedLevelChoices = []int{3} // owes the L3 sorcerer choice
 	g.party.Recruit(bench)
+	benchIdx := len(g.party.Reserve) - 1 // after the tavern recruits
 
 	// Swap in → owed choice should queue for the new active slot.
-	g.swapRosterMember(0, 0)
+	g.swapRosterMember(0, benchIdx)
 	if !g.hasLevelUpChoiceForChar(0) {
 		t.Fatal("owed L3 choice should be queued after swap-in")
 	}
@@ -75,8 +77,9 @@ func TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut(t *testing.T) {
 		t.Errorf("owed list should be drained after swap-in, got %v", bench.OwedLevelChoices)
 	}
 
-	// Swap back out (the original member is now reserve[0]) → un-consumed choice re-banks.
-	g.swapRosterMember(0, 0)
+	// Swap back out (the original member now sits in bench's old slot) →
+	// un-consumed choice re-banks.
+	g.swapRosterMember(0, benchIdx)
 	if g.hasLevelUpChoiceForChar(0) {
 		t.Error("queue should not reference the benched hero after swap-out")
 	}
@@ -106,9 +109,10 @@ func TestCaptivesTrainAndFree(t *testing.T) {
 	}
 
 	freed := cs.game.party.FreeCaptives()
-	if len(freed) != 2 || len(cs.game.party.Captive) != 0 || len(cs.game.party.Reserve) != 2 {
-		t.Errorf("after FreeCaptives: freed=%d captive=%d reserve=%d, want 2/0/2",
-			len(freed), len(cs.game.party.Captive), len(cs.game.party.Reserve))
+	wantReserve := len(cs.game.config.Characters.TavernRecruits) + 2
+	if len(freed) != 2 || len(cs.game.party.Captive) != 0 || len(cs.game.party.Reserve) != wantReserve {
+		t.Errorf("after FreeCaptives: freed=%d captive=%d reserve=%d, want 2/0/%d",
+			len(freed), len(cs.game.party.Captive), len(cs.game.party.Reserve), wantReserve)
 	}
 }
 
@@ -148,8 +152,17 @@ func TestSaveLoad_PersistsReserveAndCaptive(t *testing.T) {
 		t.Fatalf("apply save: %v", err)
 	}
 
-	if len(loaded.party.Reserve) != 1 || loaded.party.Reserve[0].Name != "Benchy" {
-		t.Errorf("reserve not restored: %+v", loaded.party.Reserve)
+	if len(loaded.party.Reserve) != len(game.party.Reserve) {
+		t.Errorf("reserve count = %d, want %d", len(loaded.party.Reserve), len(game.party.Reserve))
+	}
+	foundBenchy := false
+	for _, r := range loaded.party.Reserve {
+		if r.Name == "Benchy" {
+			foundBenchy = true
+		}
+	}
+	if !foundBenchy {
+		t.Errorf("reserve not restored (Benchy missing): %d heroes", len(loaded.party.Reserve))
 	}
 	if len(loaded.party.Captive) != len(game.party.Captive) {
 		t.Fatalf("captive count = %d, want %d", len(loaded.party.Captive), len(game.party.Captive))

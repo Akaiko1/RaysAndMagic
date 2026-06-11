@@ -179,6 +179,7 @@ func (ih *InputHandler) HandleInput() {
 				ih.game.dialogActive = false
 				ih.game.dialogNPC = nil
 				ih.game.skillTrainerPopup = false
+				ih.game.dialogTab = 0 // never leak the Quests tab into the next dialog
 			}
 			return
 		}
@@ -1549,8 +1550,14 @@ func (ih *InputHandler) handleNPCInteraction() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
 		return
 	}
+	// Credit any of this NPC's kill quests whose targets are already gone, so the
+	// turn-in option appears (e.g. the Lich King slain before the Archmage's Trial
+	// was taken, or the cliff trolls thinned below the quota).
+	ih.game.creditClearedKillQuests(npc)
+	ih.game.applyCompletedQuestTiles() // dialogue-time credit can complete a world-changing quest
 	ih.game.dialogActive = true
 	ih.game.dialogNPC = npc
+	ih.game.dialogTab = 0           // spell traders with quests open on the Spells tab
 	ih.buildStatueChoices(npc)      // statues offer held statuettes as choices
 	ih.game.selectedCharIdx = 0     // Default to first character
 	ih.game.dialogSelectedChar = 0  // Ensure dialog selection is also set
@@ -1592,12 +1599,12 @@ func (ih *InputHandler) handleDialogInput() {
 
 	// Handle different NPC capabilities
 	if ih.game.dialogNPC != nil {
-		switch {
-		case npcHasSpellTrading(ih.game.dialogNPC):
+		switch npcDialogKindFor(ih.game.dialogNPC) {
+		case dialogKindSpellTrader:
 			ih.handleSpellTraderInput()
-		case npcHasSkillTraining(ih.game.dialogNPC):
+		case dialogKindSkillTrainer:
 			ih.handleSkillTrainerInput()
-		case npcHasChoiceDialog(ih.game.dialogNPC):
+		case dialogKindChoices:
 			ih.handleEncounterInput()
 		}
 	}
@@ -1756,16 +1763,17 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Calculate dialog coordinates (same as in UI)
-	screenWidth := ih.game.config.GetScreenWidth()
-	screenHeight := ih.game.config.GetScreenHeight()
-	dialogWidth := 600
-	dialogHeight := 400
-	dialogX := (screenWidth - dialogWidth) / 2
-	dialogY := (screenHeight - dialogHeight) / 2
+	// Dialog coordinates (single source: npcDialogLayout, same as the UI)
+	dlg := npcDialogLayout(ih.game)
+	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
 
 	// Spell trader — portrait strip + icon grid.
 	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
+		// On the Quests tab the shop widgets aren't drawn — don't let their
+		// hidden rects swallow clicks meant for the quest choices/tabs.
+		if ih.game.dialogTab == 1 && npcHasChoiceDialog(ih.game.dialogNPC) {
+			return
+		}
 		for i := range ih.game.party.Members {
 			x, y, w, h := spellTraderPortraitRect(dialogX, dialogY, i)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
@@ -1777,8 +1785,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		for i, spellKey := range spellKeys {
 			x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
-				if ih.dialogDoubleClick(i) {
+				if ih.dialogDoubleClick("trader_spell", i) {
 					ih.purchaseSelectedSpell()
+					ih.resetDialogDoubleClick()
 				} else {
 					ih.game.dialogSelectedSpell = i
 					ih.game.selectedSpellKey = spellKey
@@ -1802,8 +1811,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 				x, y, w, h := skillTrainerOptionRect(px, py, i)
 				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 					ih.game.dialogSelectedSpell = i
-					if ih.dialogDoubleClick(i) {
+					if ih.dialogDoubleClick("trainer_option", i) {
 						ih.purchaseSelectedTraining()
+						ih.resetDialogDoubleClick()
 					}
 					return
 				}
@@ -1833,14 +1843,14 @@ func (ih *InputHandler) handleDialogMouseInput() {
 
 	// Check if clicking to buy/sell items (if NPC is merchant)
 	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
-		_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(screenWidth, screenHeight)
+		_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ih.game.config.GetScreenWidth(), ih.game.config.GetScreenHeight())
 		maxItems := 12
 
 		// Buy from merchant (left list)
 		for i := 0; i < len(ih.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
 			y := listY + i*rowH
 			if ih.game.consumeLeftClickIn(leftX-2, y-2, leftX+colW+1, y-2+rowH+1) {
-				if ih.dialogDoubleClick(i) {
+				if ih.dialogDoubleClick("merchant_buy", i) {
 					entry := ih.game.dialogNPC.MerchantStock[i]
 					if entry.Quantity <= 0 {
 						ih.game.AddCombatMessage("That item is sold out.")
@@ -1855,6 +1865,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					ih.game.party.AddItem(entry.Item)
 					entry.Quantity--
 					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
+					ih.resetDialogDoubleClick()
 					return
 				}
 				return
@@ -1866,7 +1877,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
 				y := listY + i*rowH
 				if ih.game.consumeLeftClickIn(rightX-2, y-2, rightX+colW+1, y-2+rowH+1) {
-					if ih.dialogDoubleClick(i) {
+					if ih.dialogDoubleClick("merchant_sell", i) {
 						item := ih.game.party.Inventory[i]
 						base := item.Attributes["value"]
 						if base <= 0 {
@@ -1877,6 +1888,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 						ih.game.party.Gold += price
 						ih.game.party.RemoveItem(i)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
+						ih.resetDialogDoubleClick()
 						return
 					}
 					return
@@ -1886,58 +1898,33 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Check if clicking on encounter choices (if NPC is encounter type)
-	if ih.game.dialogNPC != nil && npcHasChoiceDialog(ih.game.dialogNPC) {
-		npc := ih.game.dialogNPC
-		// Use the SAME state-filtered choices + body text as drawEncounterDialog so
-		// click positions line up with what's actually drawn.
-		choices := ih.game.visibleNPCChoices(npc)
-		if npc.DialogueData != nil && len(choices) > 0 {
-			{
-				lines := wrapText(ih.game.npcDialogueText(npc), 70)
-				choicesY := dialogY + 50 + len(lines)*16 + 20
-
-				// Add space for choice prompt if it exists
-				if npc.DialogueData.ChoicePrompt != "" {
-					choicesY += 20
-				}
-
-				for i := range choices {
-					choiceY := choicesY + i*25
-
-					// Check if mouse is over this choice entry (clickable from text start)
-					if ih.game.consumeLeftClickIn(dialogX-20, choiceY-2, dialogX+dialogWidth+1, choiceY+22+1) {
-
-						// Check for double-click to execute choice immediately (neutral tracking)
-						currentTime := time.Now().UnixMilli()
-						delta := currentTime - ih.game.dialogLastClickTime
-						doubleClick := ih.game.selectedChoice == i &&
-							delta < doubleClickWindowMs
-						if doubleClick {
-							// Double-click detected - execute the choice
-							ih.executeEncounterChoice()
-						} else {
-							// Single click - just select the choice
-							ih.game.selectedChoice = i
-						}
-
-						// Update click tracking
-						ih.game.dialogLastClickTime = currentTime
-						return
-					}
-				}
-			}
-		}
-	}
+	// Encounter choices are handled in handleEncounterInput (shared
+	// dialogueChoiceRect geometry; works for plain encounters AND the spell
+	// trader's Quests tab).
 }
 
-func (ih *InputHandler) dialogDoubleClick(index int) bool {
+// dialogDoubleClick reports whether this click completes a double-click on the
+// same list entry. zone keys the tracker per list (buy/sell/spell/...), so two
+// fast clicks on the same index of DIFFERENT lists never count.
+func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 	currentTime := time.Now().UnixMilli()
 	delta := currentTime - ih.game.dialogLastClickTime
-	doubleClick := ih.game.dialogLastClickedIdx == index && delta < doubleClickWindowMs
+	doubleClick := ih.game.dialogLastClickZone == zone &&
+		ih.game.dialogLastClickedIdx == index && delta < doubleClickWindowMs
 	ih.game.dialogLastClickTime = currentTime
 	ih.game.dialogLastClickedIdx = index
+	ih.game.dialogLastClickZone = zone
 	return doubleClick
+}
+
+// resetDialogDoubleClick clears the tracker after a completed action, so a
+// follow-up click can't pair with the consumed one — crucial when the action
+// shifted the list (selling removes the row; the next row slides under the
+// cursor and a stray click would sell it too).
+func (ih *InputHandler) resetDialogDoubleClick() {
+	ih.game.dialogLastClickTime = 0
+	ih.game.dialogLastClickedIdx = -1
+	ih.game.dialogLastClickZone = ""
 }
 
 // toggleTurnBasedMode switches between real-time and turn-based modes
@@ -2191,6 +2178,19 @@ func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) 
 
 // handleSpellTraderInput handles input for spell trader NPCs
 func (ih *InputHandler) handleSpellTraderInput() {
+	// Quest-giving traders (e.g. Aldric) carry a second "Quests" tab; Tab
+	// switches, and on that tab the encounter-style choice input takes over.
+	if npcHasChoiceDialog(ih.game.dialogNPC) {
+		if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+			ih.game.dialogTab = 1 - ih.game.dialogTab
+			ih.game.selectedChoice = 0
+		}
+		if ih.game.dialogTab == 1 {
+			ih.handleEncounterInput()
+			return
+		}
+	}
+
 	spellKeys := npcSpellKeys(ih.game.dialogNPC)
 
 	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
@@ -2298,6 +2298,21 @@ func (ih *InputHandler) handleEncounterInput() {
 		ih.game.selectedChoice = len(choices) - 1
 	}
 
+	// Mouse: clicking a choice row selects it; a second click on the same row
+	// (double-click, like every other dialog list) executes it.
+	dlg := npcDialogLayout(ih.game)
+	for i := range choices {
+		x, y, w, h := ih.game.dialogueChoiceRect(npc, i, dlg.x, dlg.y, dlg.w)
+		if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+			ih.game.selectedChoice = i
+			if ih.dialogDoubleClick("encounter_choice", i) {
+				ih.executeEncounterChoice()
+				ih.resetDialogDoubleClick()
+			}
+			return
+		}
+	}
+
 	// Navigate choices with Up/Down arrows
 	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		if ih.game.selectedChoice > 0 {
@@ -2385,6 +2400,12 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "close_valve":
 		ih.handleCloseValve(choice.QuestID)
 
+	case "tavern_rest":
+		ih.handleTavernRest(choice)
+
+	case "buy_food":
+		ih.handleBuyFood(choice)
+
 	case "summon_dragon":
 		ih.summonDragonFromStatue(npc, choice.SummonIndex)
 
@@ -2413,6 +2434,78 @@ func npcIsQuestGiver(npc *character.NPC) bool {
 		}
 	}
 	return false
+}
+
+// anyLivingMonsterOfType reports whether a living monster whose name maps to
+// target (the same name→key normalization quest kills use) exists. Dead monsters
+// are dropped from the world slice, so HP>0 means alive. targetMap scopes the
+// search to one map; empty scans every loaded map (suits a unique boss).
+func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
+	scan := func(w *world.World3D) bool {
+		if w == nil {
+			return false
+		}
+		for _, m := range w.Monsters {
+			if m == nil || m.HitPoints <= 0 {
+				continue
+			}
+			if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
+				return true
+			}
+		}
+		return false
+	}
+	wm := world.GlobalWorldManager
+	if wm == nil {
+		return scan(g.world)
+	}
+	if targetMap != "" {
+		return scan(wm.LoadedMaps[targetMap])
+	}
+	for _, w := range wm.LoadedMaps {
+		if scan(w) {
+			return true
+		}
+	}
+	return false
+}
+
+// creditQuestIfCleared marks an active kill quest completed when none of its
+// targets remain alive — a quest taken (or held) after the killing was already
+// done can be turned in instead of showing 0/N forever. Returns whether it
+// completed the quest just now.
+func (g *MMGame) creditQuestIfCleared(questID string) bool {
+	if g.questManager == nil {
+		return false
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Completed ||
+		q.Definition.Type != quests.QuestTypeKill || q.Definition.TargetMonster == "" {
+		return false
+	}
+	if g.anyLivingMonsterOfType(q.Definition.TargetMonster, q.Definition.TargetMap) {
+		return false
+	}
+	g.questManager.MarkCompleted(questID)
+	return true
+}
+
+// creditClearedKillQuests completes any of the NPC's active kill quests whose
+// targets are all already dead — so a quest taken after its targets were slain
+// (or one whose remaining targets number fewer than its quota) can still be
+// turned in. Only kill quests with a target qualify; other types complete through
+// their own progress.
+func (g *MMGame) creditClearedKillQuests(npc *character.NPC) {
+	if npc == nil || npc.DialogueData == nil || g.questManager == nil {
+		return
+	}
+	for _, c := range npc.DialogueData.Choices {
+		if c == nil || c.QuestID == "" ||
+			(c.Action != "give_quest" && c.Action != "turn_in_quest") {
+			continue
+		}
+		g.creditQuestIfCleared(c.QuestID)
+	}
 }
 
 // handleGiveQuest activates a quest offered by an NPC (e.g. the Archmage trial).
@@ -2454,6 +2547,14 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 		name = q.Definition.Name
 	}
 	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
+
+	// Targets already wiped out before the quest was taken? Credit it on the
+	// spot (and apply any world changes) instead of showing 0/N until the next
+	// chat — the journal should never say "0/18" on a finished job.
+	if g.creditQuestIfCleared(questID) {
+		g.applyCompletedQuestTiles()
+		g.AddCombatMessage(fmt.Sprintf("'%s' is already done! Return to claim your reward.", name))
+	}
 }
 
 // handleTurnInQuest turns a completed quest in at the NPC. The Archmage's Trial
@@ -2525,6 +2626,34 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	}
 }
 
+// handleTavernRest charges the room price and fully restores the party (the
+// dead stay dead), then closes the dialog — the night passes.
+func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
+	g := ih.game
+	if g.party.Gold < choice.Cost {
+		g.AddCombatMessage(fmt.Sprintf("A night here costs %d gold - you cannot afford it.", choice.Cost))
+		return
+	}
+	g.party.Gold -= choice.Cost
+	g.restParty()
+	g.dialogActive = false
+	g.dialogNPC = nil
+	g.AddCombatMessage(fmt.Sprintf("The party sleeps soundly (-%d gold). HP and spell points restored.", choice.Cost))
+}
+
+// handleBuyFood sells Amount food for Cost gold; the dialog stays open so the
+// player can stock up or rest afterwards.
+func (ih *InputHandler) handleBuyFood(choice *character.NPCDialogueChoice) {
+	g := ih.game
+	if g.party.Gold < choice.Cost {
+		g.AddCombatMessage(fmt.Sprintf("Rations cost %d gold - you cannot afford them.", choice.Cost))
+		return
+	}
+	g.party.Gold -= choice.Cost
+	g.party.Food += choice.Amount
+	g.AddCombatMessage(fmt.Sprintf("Bought %d rations for %d gold (food: %d).", choice.Amount, choice.Cost, g.party.Food))
+}
+
 // buildStatueChoices rebuilds a dragon statue's dialogue choices at open time:
 // one "summon" option per dragon statuette the party currently holds (unless the
 // statue is spent), plus a trailing Leave. No-op for non-statue NPCs.
@@ -2585,10 +2714,10 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 	m.EncounterRewards = &monster.EncounterRewards{QuestID: "dragon_slayer"}
 	g.registerSpawnedMonster(m)
 
+	// Mark spent (hide_when_visited makes it vanish from render + interaction).
+	// We keep the NPC in the world so its Visited=true is saved and the statue
+	// stays spent across reloads — dropping it from the world would lose that.
 	npc.Visited = true
-	if w := g.GetCurrentWorld(); w != nil {
-		w.RemoveNPC(npc)
-	}
 	g.AddCombatMessage(fmt.Sprintf("The %s Dragon erupts from the shattering statue!", s.Label))
 }
 

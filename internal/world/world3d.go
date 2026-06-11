@@ -454,17 +454,6 @@ func (w *World3D) loadNPCsFromMapData(npcSpawns []NPCSpawn) {
 	}
 }
 
-// RemoveNPC drops an NPC from the world (e.g. a dragon statue after it's used).
-// NPCs aren't registered with the collision system, so no deregistration needed.
-func (w *World3D) RemoveNPC(target *character.NPC) {
-	for i, n := range w.NPCs {
-		if n == target {
-			w.NPCs = append(w.NPCs[:i], w.NPCs[i+1:]...)
-			return
-		}
-	}
-}
-
 func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 	return float64(tileX)*tileSize + tileSize/2, float64(tileY)*tileSize + tileSize/2
 }

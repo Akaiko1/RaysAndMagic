@@ -177,21 +177,41 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
-	StartingGold  int                   `yaml:"starting_gold"`
-	StartingFood  int                   `yaml:"starting_food"`
-	HitPoints     HitPointsConfig       `yaml:"hit_points"`
-	SpellPoints   SpellPointsConfig     `yaml:"spell_points"`
-	Classes       map[string]ClassStats `yaml:"classes"`
-	StartingParty []RosterEntry         `yaml:"starting_party,omitempty"`
-	Captives      []RosterEntry         `yaml:"captives,omitempty"`
+	StartingGold int                   `yaml:"starting_gold"`
+	StartingFood int                   `yaml:"starting_food"`
+	HitPoints    HitPointsConfig       `yaml:"hit_points"`
+	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
+	Classes      map[string]ClassStats `yaml:"classes"`
+	// Races holds additive stat modifiers applied on top of class base stats
+	// (the classic roster is human = no modifiers).
+	Races         map[string]RaceStats `yaml:"races,omitempty"`
+	StartingParty []RosterEntry        `yaml:"starting_party,omitempty"`
+	Captives      []RosterEntry        `yaml:"captives,omitempty"`
+	// TavernRecruits are benched heroes available at the tavern from the very
+	// start of a new game (they join the reserve roster).
+	TavernRecruits []RosterEntry `yaml:"tavern_recruits,omitempty"`
 }
 
-// RosterEntry defines one starting hero (active party or imprisoned captive).
-// Class is a class key (knight/paladin/...); Name is the display name (and,
-// lowercased, the portrait sprite key — falls back to the class sprite).
+// RosterEntry defines one starting hero (active party, imprisoned captive, or
+// tavern recruit). Class is a class key (knight/paladin/...); Name is the
+// display name (and, lowercased, the portrait sprite key — falls back to the
+// class sprite); Race (optional) keys characters.races stat modifiers — empty
+// means human/baseline.
 type RosterEntry struct {
 	Name  string `yaml:"name"`
 	Class string `yaml:"class"`
+	Race  string `yaml:"race,omitempty"`
+}
+
+// RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
+type RaceStats struct {
+	Might       int `yaml:"might,omitempty"`
+	Intellect   int `yaml:"intellect,omitempty"`
+	Personality int `yaml:"personality,omitempty"`
+	Endurance   int `yaml:"endurance,omitempty"`
+	Accuracy    int `yaml:"accuracy,omitempty"`
+	Speed       int `yaml:"speed,omitempty"`
+	Luck        int `yaml:"luck,omitempty"`
 }
 
 type HitPointsConfig struct {
@@ -203,6 +223,12 @@ type SpellPointsConfig struct {
 	LevelMultiplier int `yaml:"level_multiplier"`
 }
 
+// ClassMagicEntry is one starting magic school with its known spells.
+type ClassMagicEntry struct {
+	School string   `yaml:"school"`
+	Spells []string `yaml:"spells"`
+}
+
 type ClassStats struct {
 	Might       int `yaml:"might"`
 	Intellect   int `yaml:"intellect"`
@@ -211,6 +237,12 @@ type ClassStats struct {
 	Accuracy    int `yaml:"accuracy"`
 	Speed       int `yaml:"speed"`
 	Luck        int `yaml:"luck"`
+	// Starting kit (skills/magic/equipment), data-driven — used to live as
+	// per-class Go setup functions.
+	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
+	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
+	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
+	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
 }
 
 // SpellSystemConfig contains the complete unified spell system configuration
@@ -349,6 +381,17 @@ type MonsterAIConfig struct {
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
+
+	// Detection tuning. Distances are in tiles; the rest are multipliers.
+	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
+	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
+	AlertLosBlockedMultiplier    float64 `yaml:"alert_los_blocked_multiplier"`    // reduced detection through trees/walls
+	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection × this (hysteresis)
+	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at ≤ range × this (exit at > range)
+
+	// Flee cycle: after this many consecutive attacks, roll this chance to flee
+	FleeAfterAttacks       int     `yaml:"flee_after_attacks"`
+	FleeAfterAttacksChance float64 `yaml:"flee_after_attacks_chance"`
 }
 
 type GraphicsConfig struct {
@@ -360,6 +403,34 @@ type GraphicsConfig struct {
 	NPC                NPCRenderConfig      `yaml:"npc"`
 	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
 	ColorKey           ColorKeyConfig       `yaml:"color_key"`
+	// Standee renders monsters, NPCs and scenery objects as flat two-sided
+	// tokens standing in the world (board-game standees) instead of
+	// camera-facing billboards. Monsters turn with their travel direction.
+	Standee StandeeConfig `yaml:"standee"`
+}
+
+// StandeeConfig tunes the board-game standee rendering mode.
+type StandeeConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// ThicknessTiles is the token slab's thickness in tiles: the gap between
+	// the front and back sticker faces, with the core layer visible between
+	// them at viewing angles.
+	ThicknessTiles float64 `yaml:"thickness_tiles"`
+	// TurnSpeedDegPerSec caps how fast a monster token turns toward its travel
+	// direction (degrees per second), so tokens swivel smoothly instead of
+	// snapping.
+	TurnSpeedDegPerSec float64 `yaml:"turn_speed_deg_per_sec"`
+	// NPCSpinDegPerSec slowly spins NPC tokens (people, statues, valves,
+	// buildings) in place, showcase-style; 0 disables. Scenery tile tokens
+	// (grass, trees, rocks) never spin.
+	NPCSpinDegPerSec float64 `yaml:"npc_spin_deg_per_sec"`
+	// EnvFaceDegPerSec makes scenery tile tokens (grass, ferns, rocks) slowly
+	// turn to face the camera at this rate; 0 keeps them at a fixed diagonal.
+	EnvFaceDegPerSec float64 `yaml:"env_face_deg_per_sec"`
+	// MinViewAngleDeg keeps a monster token's plane at least this far from the
+	// camera's sight line, so a monster crossing the view never degenerates
+	// into an invisible edge-on sliver. 0 disables the clamp.
+	MinViewAngleDeg float64 `yaml:"min_view_angle_deg"`
 }
 
 // ColorKeyConfig makes a key color (default magenta) transparent at sprite load,
@@ -395,13 +466,15 @@ type SpriteConfig struct {
 }
 
 type MonsterRenderConfig struct {
+	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
+	// (projectile hits); rendering is uncapped — a render-side pixel cap makes
+	// sprites sink at close range as the floor anchor outgrows the capped size.
 	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
 }
 
 type NPCRenderConfig struct {
-	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
 	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
 }
@@ -464,6 +537,14 @@ type MapConfig struct {
 	SkyColor          [3]int `yaml:"sky_color"`
 	SkyTexture        string `yaml:"sky_texture,omitempty"`
 	DefaultFloorColor [3]int `yaml:"default_floor_color"`
+	// AmbientLight scales the map's base (distance) brightness: 1.0 (or absent)
+	// = normal daylight, low values make a dungeon genuinely dark so torch
+	// light and spell glow become essential. Point lights add on top.
+	AmbientLight float64 `yaml:"ambient_light,omitempty"`
+	// WallTorches places a flickering torch (particle flame + point light) at
+	// every inner wall corner of the map — the classic dungeon/temple dressing
+	// for dark maps.
+	WallTorches bool `yaml:"wall_torches,omitempty"`
 	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
