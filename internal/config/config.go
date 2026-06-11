@@ -801,10 +801,23 @@ func setupWeaponAccessor() {
 	// For now we'll define this in a separate function
 }
 
+// validWeaponBonusStats are the stat names a weapon may scale its damage with
+// (combat resolves them by name; a typo would silently scale from Might).
+var validWeaponBonusStats = map[string]bool{
+	"Might": true, "Intellect": true, "Personality": true,
+	"Endurance": true, "Accuracy": true, "Speed": true, "Luck": true,
+}
+
 func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 	for key, def := range cfg.Weapons {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
+		}
+		if def.BonusStat != "" && !validWeaponBonusStats[def.BonusStat] {
+			return fmt.Errorf("weapon '%s' has unknown bonus_stat %q", key, def.BonusStat)
+		}
+		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
+			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
 		}
 		if isProjectileWeapon(def) {
 			if def.Physics == nil {

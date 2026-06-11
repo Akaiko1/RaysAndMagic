@@ -2220,34 +2220,19 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	// ArmsMaster: general weapon expertise — flat bonus with ANY weapon.
 	baseDamage += character.ArmsMasterTier() * ArmsMasterDamagePerTier
 
-	// Get effective stats including any stat bonuses (Bless, Day of Gods, etc.)
-	might, intellect, _, _, accuracy, _, _ := character.GetEffectiveStats(cs.game.statBonus)
-
-	// Get the appropriate stat bonus based on weapon's primary bonus stat
-	var primaryStatBonus int
-	switch weaponDef.BonusStat {
-	case "Might":
-		primaryStatBonus = might / WeaponPrimaryStatDivisor
-	case "Accuracy":
-		primaryStatBonus = accuracy / WeaponPrimaryStatDivisor
-	case "Intellect":
-		primaryStatBonus = intellect / WeaponPrimaryStatDivisor
-	default:
-		// Fallback to Might for weapons without bonus stat specified
-		primaryStatBonus = might / WeaponPrimaryStatDivisor
+	// Stat scaling resolves through the SAME stat-by-name lookup the tooltip
+	// uses (getEffectiveStatValue, all seven stats) — a hand-rolled switch here
+	// once silently mapped Speed weapons to Might while the tooltip said
+	// "Scales with Speed". Stat names are validated at weapons.yaml load.
+	primaryStat := weaponDef.BonusStat
+	if primaryStat == "" {
+		primaryStat = "Might" // default for weapons without bonus stat specified
 	}
+	primaryStatBonus := getEffectiveStatValue(primaryStat, character, cs) / WeaponPrimaryStatDivisor
 
-	// Add secondary stat bonus if weapon has dual scaling
 	var secondaryStatBonus int
 	if weaponDef.BonusStatSecondary != "" {
-		switch weaponDef.BonusStatSecondary {
-		case "Might":
-			secondaryStatBonus = might / WeaponSecondaryStatDivisor
-		case "Accuracy":
-			secondaryStatBonus = accuracy / WeaponSecondaryStatDivisor
-		case "Intellect":
-			secondaryStatBonus = intellect / WeaponSecondaryStatDivisor
-		}
+		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, character, cs) / WeaponSecondaryStatDivisor
 	}
 
 	totalStatBonus := primaryStatBonus + secondaryStatBonus
