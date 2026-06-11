@@ -54,6 +54,10 @@ func (m *MockCollisionChecker) CanMoveToWithHabitat(entityID string, x, y float6
 	return m.CanMoveTo(entityID, x, y)
 }
 
+func (m *MockCollisionChecker) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+	return m.CanMoveTo(entityID, x, y) // the mock has no entities, tiles only
+}
+
 func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
 }
@@ -886,6 +890,38 @@ func TestAttacking_RepursuesWhenTargetLeavesReach(t *testing.T) {
 	outOfReach.updateAttacking(300, 100) // 200px > 64 reach
 	if outOfReach.State != StatePursuing {
 		t.Errorf("target out of reach: should resume pursuit, got %v", outOfReach.State)
+	}
+}
+
+// Final-approach steering: within 1.5 tiles a melee pursuer walks STRAIGHT at
+// the target instead of relying on A*'s tile-center goals — an off-center
+// player can leave that goal ring empty, freezing the monster just out of
+// reach (the lone-goblin-that-couldn't-attack bug).
+func TestPursuit_FinalApproachClosesIn(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0)
+	m := &Monster3D{
+		ID: "gob", X: 96 + 90, Y: 96, // 90px out, attack range 64
+		State: StatePursuing, IsEngagingPlayer: true, WasAttacked: true,
+		AttackRadius: 64, Speed: 1.5,
+		SpawnX: 96 + 90, SpawnY: 96, TetherRadius: 64 * 20,
+	}
+	for i := 0; i < 300 && m.State != StateAttacking; i++ {
+		m.updatePursuing(checker, 96, 96)
+	}
+	if m.State != StateAttacking {
+		t.Fatalf("pursuer should close the last half-tile and attack; stuck at dist=%.1f state=%v",
+			distance(m.X, m.Y, 96, 96), m.State)
+	}
+
+	// Blocked straight line: stepToward must refuse (wall column in between),
+	// not teleport through.
+	blocked := NewMockCollisionChecker(64.0)
+	for ty := 0; ty < 4; ty++ {
+		blocked.BlockTile(2, ty)
+	}
+	wallM := &Monster3D{ID: "gob2", X: 64*3 + 10, Y: 96, Speed: 1.5}
+	if wallM.stepToward(blocked, 96, 96) {
+		t.Errorf("stepToward must not pass through a wall column")
 	}
 }
 

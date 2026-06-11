@@ -54,7 +54,7 @@ type MonsterDefinition struct {
 	PounceCooldownSeconds float64             `yaml:"pounce_cooldown_seconds"`
 	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
 	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
-	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`       // melee bypasses party armor class
+	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee bypasses party armor class
 	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
 	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile

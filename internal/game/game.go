@@ -190,8 +190,9 @@ type MMGame struct {
 	lastSchoolClickedIdx int   // Index of last clicked school header
 
 	// Double-click support for dialogs (neutral)
-	dialogLastClickTime  int64 // Time of last dialog list click in milliseconds
-	dialogLastClickedIdx int   // Index of last clicked dialog list entry
+	dialogLastClickTime  int64  // Time of last dialog list click in milliseconds
+	dialogLastClickedIdx int    // Index of last clicked dialog list entry
+	dialogLastClickZone  string // Which dialog list was clicked (buy/sell/spell/...) — a double-click never spans lists
 
 	// Double-click support for utility spell icons (dispelling)
 	lastUtilitySpellClickTime int64  // Time of last utility spell icon click in milliseconds
@@ -280,6 +281,7 @@ type MMGame struct {
 	skillTrainerPopup   bool           // Skill trainer: per-character mastery popup open
 	selectedSpellKey    string         // Selected spell key for learning
 	selectedChoice      int            // Selected choice in encounter dialogs
+	dialogTab           int            // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
 
 	// Spellbook UI
 	selectedSchool     int
@@ -538,6 +540,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Connect global quest manager
 	game.questManager = quests.GlobalQuestManager
+	if err := validateQuestTileChanges(game.questManager); err != nil {
+		panic(err)
+	}
 
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()

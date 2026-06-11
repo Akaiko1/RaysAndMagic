@@ -20,6 +20,9 @@ biomes:
       forest_stream:
         - "forest_stream_0"
         - "forest_stream_1"
+      # Quest bridge planks (wolf cull opens a bridge to the lake trader)
+      quest_bridge:
+        - "quest_bridge_0"
       clearing:
         - "clearing_grass_0"
         - "clearing_grass_1"
@@ -280,6 +283,7 @@ maps:
     sky_texture: "culverts_panorama"
     default_floor_color: [58, 54, 48]
     ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
+    wall_torches: true   # flickering torches at inner wall corners light the maze
 
   city:
     name: "Seabright"

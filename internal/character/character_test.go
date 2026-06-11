@@ -136,8 +136,15 @@ func TestCharacterSkills(t *testing.T) {
 	cfg := &config.Config{
 		Characters: config.CharacterConfig{
 			Classes: map[string]config.ClassStats{
-				"knight":   {Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11},
-				"sorcerer": {Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13},
+				"knight": {
+					Might: 18, Intellect: 10, Personality: 12, Endurance: 16, Accuracy: 14, Speed: 13, Luck: 11,
+					Skills: []string{"sword", "chain", "shield", "bodybuilding"},
+				},
+				"sorcerer": {
+					Might: 8, Intellect: 18, Personality: 16, Endurance: 10, Accuracy: 12, Speed: 14, Luck: 13,
+					Skills: []string{"dagger", "leather", "meditation"},
+					Magic:  []config.ClassMagicEntry{{School: "fire", Spells: []string{"firebolt"}}},
+				},
 			},
 			HitPoints:   config.HitPointsConfig{EnduranceMultiplier: 3, LevelMultiplier: 2},
 			SpellPoints: config.SpellPointsConfig{LevelMultiplier: 2},

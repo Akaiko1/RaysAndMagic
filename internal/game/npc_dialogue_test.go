@@ -85,7 +85,7 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 
 	// 3) Done, not turned in → completed: turn_in available, offer gone.
 	for i := 0; i < 3; i++ {
-		g.questManager.OnMonsterKilled("mountain_troll")
+		g.questManager.OnMonsterKilled("mountain_troll", "")
 	}
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
@@ -106,7 +106,7 @@ func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 
 	g.questManager.ActivateQuest(qid)
 	for i := 0; i < 3; i++ {
-		g.questManager.OnMonsterKilled("mountain_troll")
+		g.questManager.OnMonsterKilled("mountain_troll", "")
 	}
 
 	goldBefore := g.party.Gold
@@ -159,7 +159,7 @@ func TestVisibleNPCChoices_TurnInHiddenUntilComplete(t *testing.T) {
 		t.Error("neither turn_in nor give_quest should show while the quest is active")
 	}
 	for i := 0; i < 2; i++ {
-		g.questManager.OnMonsterKilled("archmage")
+		g.questManager.OnMonsterKilled("archmage", "")
 	}
 	if !hasAction("turn_in_quest") || hasAction("give_quest") {
 		t.Error("completed state should show turn_in only (no re-offer)")

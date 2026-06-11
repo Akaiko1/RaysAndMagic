@@ -11,6 +11,10 @@ import (
 type CollisionChecker interface {
 	CanMoveTo(entityID string, x, y float64) bool
 	CanMoveToWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
+	// CanOccupyTilesWithHabitat is the tile-only variant: terrain rules apply,
+	// entity bodies are ignored. Used where an entity veto would be wrong
+	// (e.g. the A* start tile the monster is already standing in).
+	CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool
 	CheckLineOfSight(x1, y1, x2, y2 float64) bool
 }
 
@@ -441,8 +445,66 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		return
 	}
 
+	// Final approach: steer straight at the target. A*'s goals are TILE
+	// CENTERS within attack reach, and that ring can be empty — an off-center
+	// player puts adjacent centers just past reach while their own tile center
+	// is blocked by the player's body — leaving a melee monster frozen a few
+	// pixels out of range. A direct collision-checked step has no such
+	// quantization; walls still win, and we fall through to A* when blocked.
+	if distanceToPlayer <= tileSize*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
+		return
+	}
+
+	// Stall watchdog: the cached path is only recomputed when the target tile
+	// changes, so a route that an engaged packmate now bodily blocks (wedged
+	// behind it in a one-tile corridor) is micro-danced on forever. No net
+	// progress in half a second → drop the path and replan against current
+	// entity positions: flank if a route exists, else wait for the gap.
+	m.stallTimer++
+	if m.stallTimer >= 60 {
+		if distance(m.X, m.Y, m.stallAnchorX, m.stallAnchorY) < 2 {
+			m.ResetPathfinding()
+		}
+		m.stallAnchorX, m.stallAnchorY = m.X, m.Y
+		m.stallTimer = 0
+	}
+
 	// Use A* pathfinding toward the player
 	m.followPathToTarget(collisionChecker, playerX, playerY)
+}
+
+// stepToward takes one collision-checked step straight toward (tx, ty) at the
+// monster's pursuit speed, sliding along whichever axis stays clear when the
+// diagonal grazes an obstacle. Returns false when fully blocked.
+func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64) bool {
+	dx := tx - m.X
+	dy := ty - m.Y
+	dist := math.Hypot(dx, dy)
+	if dist < 1e-6 {
+		return false
+	}
+	step := m.speedPerTick()
+	if dist < step {
+		step = dist
+	}
+	newX := m.X + dx/dist*step
+	newY := m.Y + dy/dist*step
+	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+		m.X, m.Y = newX, newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+		m.X = newX
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+		m.Y = newY
+		m.Direction = math.Atan2(dy, dx)
+		return true
+	}
+	return false
 }
 
 func (m *Monster3D) setMoveTarget(state MonsterState, tileX, tileY int) {
@@ -465,6 +527,7 @@ func (m *Monster3D) ResetPathfinding() {
 	m.PathIndex = 0
 	m.PathTargetTileX = 0
 	m.PathTargetTileY = 0
+	m.LastPathCalcTick = 0 // also lifts the failed-search retry gate
 	m.clearMoveTarget()
 }
 
@@ -568,6 +631,19 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	targetChanged := m.PathTargetTileX != targetTileX || m.PathTargetTileY != targetTileY
 	if targetChanged {
 		shouldRepath = true
+	}
+
+	// A failed search (boxed in: previous A* toward this same target found no
+	// path) retries at pathCheckFrequency, not every tick — otherwise a wedged
+	// pursuer reruns a full A* 120x/s for as long as it stays blocked.
+	if shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 {
+		pathCheckFrequency := 30
+		if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
+			pathCheckFrequency = m.config.MonsterAI.PathCheckFrequency
+		}
+		if !m.canRepath(pathCheckFrequency) {
+			return false
+		}
 	}
 
 	if shouldRepath {
@@ -829,8 +905,15 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 		}
 	}
 
-	if !ps.goal[startIdx] && !m.isPassableTile(collisionChecker, start) {
-		return nil
+	// The start tile is checked terrain-only: the monster already stands there,
+	// and an entity check would let an interlocked engaged neighbor (two mobs
+	// aggroed in the same tile — each covering the shared tile center) abort
+	// every path attempt, freezing both in place.
+	if !ps.goal[startIdx] {
+		startCX, startCY := tileToWorldCenter(start.X, start.Y)
+		if !collisionChecker.CanOccupyTilesWithHabitat(m.ID, startCX, startCY, m.HabitatPrefs, m.Flying) {
+			return nil
+		}
 	}
 
 	heuristic := func(c TileCoord) float64 {

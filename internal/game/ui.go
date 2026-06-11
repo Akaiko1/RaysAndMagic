@@ -49,8 +49,10 @@ type UISystem struct {
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
-	inventoryPage         int // current inventory grid page (0-based)
-	questPage             int // current quest log page (0-based)
+	inventoryPage         int    // current inventory grid page (0-based)
+	questPage             int    // current quest log page (0-based)
+	campNotice            string // result line under the Camp button
+	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
 	lastEquipClickTime    time.Time
 	lastClickedSlot       items.EquipSlot
 	tooltipLines          []string

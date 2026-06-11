@@ -2201,15 +2201,14 @@ func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *mo
 	if animWindow < 1 {
 		animWindow = 1
 	}
-	if r.shouldAnimateMonster(mon) {
-		frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-		return anim.Frames[frame]
-	}
-	if r.game.turnBasedMode && mon.LastMoveTick > 0 {
-		if r.game.frameCount-mon.LastMoveTick <= animWindow {
-			frame := int((r.game.frameCount / int64(ticksPerFrame)) % int64(len(anim.Frames)))
-			return anim.Frames[frame]
-		}
+	// Cycle while moving, while striking (both modes set AttackAnimFrames at
+	// the attack moment — otherwise attackers froze on the rest pose), or
+	// briefly after a TB step.
+	cycling := r.shouldAnimateMonster(mon) ||
+		mon.AttackAnimFrames > 0 ||
+		(r.game.turnBasedMode && mon.LastMoveTick > 0 && r.game.frameCount-mon.LastMoveTick <= animWindow)
+	if cycling {
+		return anim.Frames[int((r.game.frameCount/int64(ticksPerFrame))%int64(len(anim.Frames)))]
 	}
 	return anim.Frames[0]
 }
@@ -2712,10 +2711,11 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 			r.standeeEnvYaw[tileKey] = st
 			yaw = st.yaw
 		}
-		name := ""
-		if world.GlobalTileManager != nil {
-			name = world.GlobalTileManager.GetSprite(s.tileType)
-		}
+		// Key the silhouette by the tile's RESOLVED sprite variant (grass0/1/...),
+		// not the base name: variants share dimensions, and a base-name key let
+		// whichever variant rendered first stamp its wood slab onto all of them
+		// (short grass tuft wearing the tall variant's silhouette).
+		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
 		key := standeeCoreKey{name: "tile:" + name, bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, worldX, worldY, yaw,
 			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false) {

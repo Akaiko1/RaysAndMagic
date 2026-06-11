@@ -911,6 +911,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
 		}
+		// Re-apply world changes of completed quests — maps reload pristine from
+		// disk, so e.g. the wolf-cull bridge must be laid again.
+		g.applyCompletedQuestTiles()
 	}
 
 	// Restore played time by adjusting session start

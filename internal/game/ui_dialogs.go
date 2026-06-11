@@ -486,11 +486,9 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	screenWidth := ui.game.config.GetScreenWidth()
 	screenHeight := ui.game.config.GetScreenHeight()
 
-	// Dialog dimensions
-	dialogWidth := 600
-	dialogHeight := 400
-	dialogX := (screenWidth - dialogWidth) / 2
-	dialogY := (screenHeight - dialogHeight) / 2
+	// Dialog dimensions (single source: npcDialogLayout)
+	dlg := npcDialogLayout(ui.game)
+	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
 
 	// Draw semi-transparent overlay
 	drawFilledRect(screen, 0, 0, screenWidth, screenHeight, color.RGBA{0, 0, 0, 128})
@@ -504,14 +502,14 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	drawRectBorder(screen, dialogX, dialogY, dialogWidth, dialogHeight, borderThickness, borderColor)
 
 	// Handle different NPC capabilities (data-driven)
-	switch {
-	case npcHasChoiceDialog(ui.game.dialogNPC):
-		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
-	case npcHasSpellTrading(ui.game.dialogNPC):
+	switch npcDialogKindFor(ui.game.dialogNPC) {
+	case dialogKindSpellTrader:
 		ui.drawSpellTraderDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
-	case npcHasSkillTraining(ui.game.dialogNPC):
+	case dialogKindChoices:
+		ui.drawEncounterDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindSkillTrainer:
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
-	case npcHasMerchant(ui.game.dialogNPC):
+	case dialogKindMerchant:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
@@ -526,35 +524,41 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 	titleText := npc.Name
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
 
-	// Draw encounter description
-	if npc.DialogueData != nil {
-		// Body text is state-driven (offer greeting / in-progress / completed /
-		// concluded) — see npcDialogueText.
-		lines := ui.wrapText(ui.game.npcDialogueText(npc), 70)
-		for i, line := range lines {
-			ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+50+i*16)
-		}
+	ui.drawDialogueChoicesBody(screen, npc, dialogX, dialogY+50, dialogWidth)
+}
 
-		// Only the choices valid in this state (give_quest while offering,
-		// turn_in_quest once completed, etc.) — same list the input handler acts on.
-		choices := ui.game.visibleNPCChoices(npc)
-		choicesY := dialogY + 50 + len(lines)*16 + 20
-		if len(choices) == 0 {
-			ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, choicesY)
-		} else {
-			if npc.DialogueData.ChoicePrompt != "" {
-				ebitenutil.DebugPrintAt(screen, npc.DialogueData.ChoicePrompt, dialogX+20, choicesY)
-				choicesY += 20
-			}
-			for i, choice := range choices {
-				choiceY := choicesY + i*25
-				choiceText := fmt.Sprintf("%d. %s", i+1, choice.Text)
-				if i == ui.game.selectedChoice {
-					drawFilledRect(screen, dialogX+20, choiceY-2, dialogWidth-40, 20, color.RGBA{100, 100, 0, 128})
-				}
-				ebitenutil.DebugPrintAt(screen, choiceText, dialogX+25, choiceY)
-			}
+// drawDialogueChoicesBody renders the state-driven dialogue text and the
+// currently valid choices — shared by encounter dialogs and the spell trader's
+// Quests tab so both stay aligned with the input handler's choice list.
+func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character.NPC, dialogX, textY, dialogWidth int) {
+	if npc.DialogueData == nil {
+		return
+	}
+	// Body text is state-driven (offer greeting / in-progress / completed /
+	// concluded) — see npcDialogueText.
+	lines := ui.wrapText(ui.game.npcDialogueText(npc), dialogueWrapColumns)
+	for i, line := range lines {
+		ebitenutil.DebugPrintAt(screen, line, dialogX+20, textY+i*dialogueLineHeight)
+	}
+
+	// Only the choices valid in this state (give_quest while offering,
+	// turn_in_quest once completed, etc.) — same list the input handler acts on.
+	choices := ui.game.visibleNPCChoices(npc)
+	if len(choices) == 0 {
+		ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+		return
+	}
+	if npc.DialogueData.ChoicePrompt != "" {
+		ebitenutil.DebugPrintAt(screen, npc.DialogueData.ChoicePrompt, dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+	}
+	dialogY := textY - dialogueBodyTextY
+	for i, choice := range choices {
+		x, y, w, h := ui.game.dialogueChoiceRect(npc, i, dialogX, dialogY, dialogWidth)
+		choiceText := fmt.Sprintf("%d. %s", i+1, choice.Text)
+		if i == ui.game.selectedChoice {
+			drawFilledRect(screen, x, y, w, h, color.RGBA{100, 100, 0, 128})
 		}
+		ebitenutil.DebugPrintAt(screen, choiceText, x+5, y+2)
 	}
 }
 
@@ -597,6 +601,33 @@ func spellTraderIconRect(dialogX, dialogY, i int) (x, y, w, h int) {
 func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+
+	// Quest-giving traders carry a second tab: clickable folder tabs along the
+	// dialog's top edge (same sprites as the party menu); Tab key also switches
+	// (see handleSpellTraderInput).
+	if npcHasChoiceDialog(ui.game.dialogNPC) {
+		const tabW, tabH = 110, 32
+		tabY := dialogY - tabH + 4 // tucked into the panel edge like folder tabs
+		for i, label := range [...]string{"Spells (Tab)", "Quests (Tab)"} {
+			tabX := dialogX + 16 + i*(tabW+6)
+			// Plain rect placeholders until the dedicated tab sprites land.
+			fill := color.RGBA{30, 30, 45, 255}
+			if ui.game.dialogTab == i {
+				fill = color.RGBA{70, 70, 100, 255}
+			}
+			drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
+			drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
+			drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
+			if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
+				ui.game.dialogTab = i
+				ui.game.selectedChoice = 0
+			}
+		}
+		if ui.game.dialogTab == 1 {
+			ui.drawDialogueChoicesBody(screen, ui.game.dialogNPC, dialogX, dialogY+50, dialogWidth)
+			return
+		}
+	}
 
 	greetingText := "Welcome! I can teach you powerful spells for gold."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {

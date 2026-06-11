@@ -104,6 +104,13 @@ type Monster3D struct {
 	PathTargetTileY  int
 	LastPathCalcTick int
 	pathScratch      pathScratch
+	// Pursuit stall detection: a cached path is only recomputed when the target
+	// tile changes, so a path that became unwalkable (an engaged packmate now
+	// blocks the corridor) is followed forever. Track net progress and drop the
+	// path when pursuing goes nowhere, forcing A* against current positions.
+	stallAnchorX float64
+	stallAnchorY float64
+	stallTimer   int
 
 	// RT movement target selection for non-pursuit movement (patrol/flee)
 	MoveTargetTileX int

@@ -11,7 +11,9 @@ type ParallelRenderer struct {
 	workerPool *core.WorkerPool
 	// results is reused across frames (callers consume it before the next
 	// RenderRaycast call) — allocating numRays results per frame was steady
-	// GC churn for nothing.
+	// GC churn for nothing. mu serializes RenderRaycast calls so the shared
+	// buffer is safe even with concurrent callers.
+	mu      sync.Mutex
 	results []RaycastResult
 }
 
@@ -32,6 +34,9 @@ func NewParallelRenderer() *ParallelRenderer {
 // RenderRaycast performs parallel raycasting optimized for 60 FPS with minimal allocations.
 // Always uses the worker pool to avoid goroutine creation/destruction overhead every frame.
 func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (float64, interface{})) []RaycastResult {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
 	// Reuse the results buffer (grown once to the largest numRays seen).
 	if cap(pr.results) < numRays {
 		pr.results = make([]RaycastResult, numRays)

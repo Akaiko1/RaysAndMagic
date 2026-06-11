@@ -203,29 +203,23 @@ func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMC
 		Conditions:   make([]Condition, 0),
 	}
 
-	// Set base attributes based on class
-	switch class {
-	case ClassKnight:
-		char.setupKnight(cfg)
-	case ClassPaladin:
-		char.setupPaladin(cfg)
-	case ClassArcher:
-		char.setupArcher(cfg)
-	case ClassCleric:
-		char.setupCleric(cfg)
-	case ClassSorcerer:
-		char.setupSorcerer(cfg)
-	case ClassDruid:
-		char.setupDruid(cfg)
-	}
+	char.applyClassKit(cfg)
 
 	char.CalculateDerivedStats(cfg)
 	return char
 }
 
-func (c *MMCharacter) setupKnight(cfg *config.Config) {
-	// Knights: High might and endurance, masters of weapons and armor
-	stats := cfg.Characters.Classes["knight"]
+// applyClassKit applies the YAML class kit (config.yaml characters.classes):
+// base attributes, starting skills, magic schools with known spells, main-hand
+// weapon and quick-slot spell. Unknown keys panic at character creation —
+// content bugs must surface immediately, not as a silently gimped hero.
+func (c *MMCharacter) applyClassKit(cfg *config.Config) {
+	key := c.Class.Key()
+	stats, ok := cfg.Characters.Classes[key]
+	if !ok {
+		panic(fmt.Sprintf("class %q missing from config.yaml characters.classes", key))
+	}
+
 	c.Might = stats.Might
 	c.Intellect = stats.Intellect
 	c.Personality = stats.Personality
@@ -234,201 +228,63 @@ func (c *MMCharacter) setupKnight(cfg *config.Config) {
 	c.Speed = stats.Speed
 	c.Luck = stats.Luck
 
-	// Starting skills
-	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillSpear] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillPlate] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
-
-	// Starting equipment - YAML weapons only
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
-}
-
-func (c *MMCharacter) setupSorcerer(cfg *config.Config) {
-	// Sorcerers: High intellect, masters of elemental magic
-	stats := cfg.Characters.Classes["sorcerer"]
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
-
-	// Starting skills
-	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
-
-	// Starting magic - give Sorcerer fire and water spells
-	c.MagicSchools[MagicSchoolFire] = &MagicSkill{
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("torch_light"),
-			spells.SpellID("firebolt"),
-		},
-	}
-	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("ice_bolt"),
-		},
-	}
-	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("sparks"),
-		},
+	for _, sk := range stats.Skills {
+		st, ok := SkillTypeFromKey(sk)
+		if !ok {
+			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
+		}
+		c.Skills[st] = &Skill{Mastery: MasteryNovice}
 	}
 
-	// Starting equipment - give Sorcerer FireBolt
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("magic_dagger")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("firebolt")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
+	for _, entry := range stats.Magic {
+		school := MagicSchoolID(entry.School)
+		if !isKnownMagicSchool(school) {
+			panic(fmt.Sprintf("class %q: unknown magic school %q in config.yaml", key, entry.School))
+		}
+		known := make([]spells.SpellID, len(entry.Spells))
+		for i, sp := range entry.Spells {
+			known[i] = spells.SpellID(sp)
+		}
+		c.MagicSchools[school] = &MagicSkill{Mastery: MasteryNovice, KnownSpells: known}
+	}
+
+	if stats.MainHand != "" {
+		c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(stats.MainHand)
+	}
+	if stats.QuickSpell != "" {
+		if spellItem, err := spells.CreateSpellItem(spells.SpellID(stats.QuickSpell)); err == nil {
+			c.Equipment[items.SlotSpell] = spellItem
+		}
 	}
 }
 
-func (c *MMCharacter) setupCleric(cfg *config.Config) {
-	// Clerics: High personality, masters of self magic
-	stats := cfg.Characters.Classes["cleric"]
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
-
-	// Starting skills
-	c.Skills[SkillMace] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
-
-	// Starting magic - give Cleric healing spells and spirit magic
-	c.MagicSchools[MagicSchoolBody] = &MagicSkill{
-		Mastery: MasteryNovice,
-		KnownSpells: []spells.SpellID{
-			spells.SpellID("heal_other"), // Heal
-			spells.SpellID("harm"),       // offensive body magic
-		},
+func isKnownMagicSchool(id MagicSchoolID) bool {
+	for _, s := range AllMagicSchools {
+		if s == id {
+			return true
+		}
 	}
-	// Self-magic schools: Body (above), Mind, and Spirit (starts with Spirit Lash).
-	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("mind_blast")},
-	}
-	c.MagicSchools[MagicSchoolSpirit] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("spirit_lash")},
-	}
-
-	// Starting equipment - give Cleric Heal
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("holy_mace")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("heal_other")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
-	}
+	return false
 }
 
-func (c *MMCharacter) setupArcher(cfg *config.Config) {
-	// Archers: High accuracy, bow masters with some elemental magic
-	stats := cfg.Characters.Classes["archer"]
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
-
-	// Starting skills
-	c.Skills[SkillBow] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillDagger] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillDisarmTrap] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
-
-	// Starting magic - give Archer Wizard's Eye
-	c.MagicSchools[MagicSchoolAir] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("wizard_eye")},
+// ApplyRace shifts base attributes by the race's additive modifiers
+// (config.yaml characters.races; human is the empty baseline). Call before
+// CalculateDerivedStats so HP/SP reflect the shifted stats.
+func (c *MMCharacter) ApplyRace(race string, cfg *config.Config) {
+	if race == "" {
+		return
 	}
-
-	// Starting equipment - give Archer Wizard's Eye
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("hunting_bow")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("wizard_eye")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
+	mods, ok := cfg.Characters.Races[race]
+	if !ok {
+		panic(fmt.Sprintf("race %q missing from config.yaml characters.races", race))
 	}
-}
-
-func (c *MMCharacter) setupPaladin(cfg *config.Config) {
-	// Paladins: Balanced fighter/cleric hybrid
-	stats := cfg.Characters.Classes["paladin"]
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
-
-	// Starting skills — paladins wield axes and swords, wear chain, bear shields,
-	// and train their bodies for the front line.
-	c.Skills[SkillAxe] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillSword] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillChain] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillShield] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
-
-	// No starting magic — the paladin can choose to learn Heal Other at level 3.
-
-	// Starting equipment — a heavy steel axe.
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("steel_axe")
-}
-
-func (c *MMCharacter) setupDruid(cfg *config.Config) {
-	// Druids: Nature-focused hybrid of sorcerer/cleric
-	stats := cfg.Characters.Classes["druid"]
-	c.Might = stats.Might
-	c.Intellect = stats.Intellect
-	c.Personality = stats.Personality
-	c.Endurance = stats.Endurance
-	c.Accuracy = stats.Accuracy
-	c.Speed = stats.Speed
-	c.Luck = stats.Luck
-
-	// Starting skills — wilderness hardiness and nature lore round out the druid.
-	c.Skills[SkillStaff] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLeather] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillMeditation] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillBodybuilding] = &Skill{Mastery: MasteryNovice}
-	c.Skills[SkillLearning] = &Skill{Mastery: MasteryNovice}
-
-	// Starting magic - give Druid water and mind magic
-	c.MagicSchools[MagicSchoolWater] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("ice_bolt")},
-	}
-	c.MagicSchools[MagicSchoolMind] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("awaken")},
-	}
-	c.MagicSchools[MagicSchoolEarth] = &MagicSkill{
-		Mastery:     MasteryNovice,
-		KnownSpells: []spells.SpellID{spells.SpellID("deadly_swarm")},
-	}
-
-	// Starting equipment - give Druid Awaken
-	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("oak_staff")
-	if spellItem, err := spells.CreateSpellItem(spells.SpellID("awaken")); err == nil {
-		c.Equipment[items.SlotSpell] = spellItem
-	}
+	c.Might += mods.Might
+	c.Intellect += mods.Intellect
+	c.Personality += mods.Personality
+	c.Endurance += mods.Endurance
+	c.Accuracy += mods.Accuracy
+	c.Speed += mods.Speed
+	c.Luck += mods.Luck
 }
 
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {

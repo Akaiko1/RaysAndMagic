@@ -266,6 +266,19 @@ func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 	return false
 }
 
+// CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
+// Used by the monster separation pass: two overlapping monsters veto each
+// other's every move through the normal check, so pushing them apart must
+// consult terrain alone.
+func (cs *CollisionSystem) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
+	entity, exists := cs.entities[entityID]
+	if !exists {
+		return false
+	}
+	tempBox := NewBoundingBox(x, y, entity.BoundingBox.Width, entity.BoundingBox.Height)
+	return cs.canMoveToWorldPositionWithHabitat(tempBox, habitatPrefs, flying)
+}
+
 // GetCollisions returns all current collisions between entities
 func (cs *CollisionSystem) GetCollisions() []CollisionPair {
 	var collisions []CollisionPair

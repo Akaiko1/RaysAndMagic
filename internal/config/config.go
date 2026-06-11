@@ -177,21 +177,41 @@ type UIConfig struct {
 }
 
 type CharacterConfig struct {
-	StartingGold  int                   `yaml:"starting_gold"`
-	StartingFood  int                   `yaml:"starting_food"`
-	HitPoints     HitPointsConfig       `yaml:"hit_points"`
-	SpellPoints   SpellPointsConfig     `yaml:"spell_points"`
-	Classes       map[string]ClassStats `yaml:"classes"`
-	StartingParty []RosterEntry         `yaml:"starting_party,omitempty"`
-	Captives      []RosterEntry         `yaml:"captives,omitempty"`
+	StartingGold int                   `yaml:"starting_gold"`
+	StartingFood int                   `yaml:"starting_food"`
+	HitPoints    HitPointsConfig       `yaml:"hit_points"`
+	SpellPoints  SpellPointsConfig     `yaml:"spell_points"`
+	Classes      map[string]ClassStats `yaml:"classes"`
+	// Races holds additive stat modifiers applied on top of class base stats
+	// (the classic roster is human = no modifiers).
+	Races         map[string]RaceStats `yaml:"races,omitempty"`
+	StartingParty []RosterEntry        `yaml:"starting_party,omitempty"`
+	Captives      []RosterEntry        `yaml:"captives,omitempty"`
+	// TavernRecruits are benched heroes available at the tavern from the very
+	// start of a new game (they join the reserve roster).
+	TavernRecruits []RosterEntry `yaml:"tavern_recruits,omitempty"`
 }
 
-// RosterEntry defines one starting hero (active party or imprisoned captive).
-// Class is a class key (knight/paladin/...); Name is the display name (and,
-// lowercased, the portrait sprite key — falls back to the class sprite).
+// RosterEntry defines one starting hero (active party, imprisoned captive, or
+// tavern recruit). Class is a class key (knight/paladin/...); Name is the
+// display name (and, lowercased, the portrait sprite key — falls back to the
+// class sprite); Race (optional) keys characters.races stat modifiers — empty
+// means human/baseline.
 type RosterEntry struct {
 	Name  string `yaml:"name"`
 	Class string `yaml:"class"`
+	Race  string `yaml:"race,omitempty"`
+}
+
+// RaceStats are ADDITIVE stat modifiers a race applies over class base stats.
+type RaceStats struct {
+	Might       int `yaml:"might,omitempty"`
+	Intellect   int `yaml:"intellect,omitempty"`
+	Personality int `yaml:"personality,omitempty"`
+	Endurance   int `yaml:"endurance,omitempty"`
+	Accuracy    int `yaml:"accuracy,omitempty"`
+	Speed       int `yaml:"speed,omitempty"`
+	Luck        int `yaml:"luck,omitempty"`
 }
 
 type HitPointsConfig struct {
@@ -203,6 +223,12 @@ type SpellPointsConfig struct {
 	LevelMultiplier int `yaml:"level_multiplier"`
 }
 
+// ClassMagicEntry is one starting magic school with its known spells.
+type ClassMagicEntry struct {
+	School string   `yaml:"school"`
+	Spells []string `yaml:"spells"`
+}
+
 type ClassStats struct {
 	Might       int `yaml:"might"`
 	Intellect   int `yaml:"intellect"`
@@ -211,6 +237,12 @@ type ClassStats struct {
 	Accuracy    int `yaml:"accuracy"`
 	Speed       int `yaml:"speed"`
 	Luck        int `yaml:"luck"`
+	// Starting kit (skills/magic/equipment), data-driven — used to live as
+	// per-class Go setup functions.
+	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
+	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
+	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
+	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
 }
 
 // SpellSystemConfig contains the complete unified spell system configuration

@@ -34,7 +34,6 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
-
 // partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
 // horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
 // Portrait width comes from UIConfig (not derived from screen width) so going
@@ -60,8 +59,8 @@ func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 }
 
 func merchantDialogLayout(screenW, screenH int) (dialogX, dialogY, dialogW, dialogH, listY, leftX, rightX, colW, rowH int) {
-	dialogW = 600
-	dialogH = 400
+	dialogW = npcDialogWidth
+	dialogH = npcDialogHeight
 	dialogX = (screenW - dialogW) / 2
 	dialogY = (screenH - dialogH) / 2
 	rowH = UIRowSpacing

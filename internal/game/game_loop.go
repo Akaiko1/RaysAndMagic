@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"time"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -105,6 +106,13 @@ func (gl *GameLoop) updateExploration() {
 		})
 	}
 
+	// Gently push overlapping monsters apart. Overlap is reachable two ways:
+	// non-engaged monsters deliberately pass through each other (pathfinding
+	// deadlock prevention), and the parallel update can move two monsters into
+	// the same spot in one tick. Once engaged while overlapped they deadlock —
+	// each vetoes the other's every move — so resolve it here instead.
+	gl.separateOverlappingMonsters()
+
 	// Update monster hit tint timers
 	gl.game.UpdateMonsterHitTintTimers()
 
@@ -190,6 +198,97 @@ func (gl *GameLoop) updateProjectilesParallel() {
 
 	// Remove inactive projectiles
 	gl.game.RemoveInactiveEntities()
+}
+
+// separateOverlappingMonsters softly resolves monster-monster overlap: each
+// overlapping pair is pushed apart a few pixels per tick along their least
+// penetrated axis, so glued pairs un-merge smoothly instead of teleporting
+// (the old unstuck ring-search) or freezing (engaged-while-overlapped pairs
+// veto each other's every normal move). Terrain still wins: a push that would
+// enter a blocked tile is skipped for that monster.
+func (gl *GameLoop) separateOverlappingMonsters() {
+	monsters := gl.game.world.Monsters
+	if len(monsters) < 2 || gl.game.collisionSystem == nil {
+		return
+	}
+	const pushPerTick = 2.0
+	// Mirror of the collision rule: two CALM monsters pass through each other
+	// by design (pathfinding deadlock prevention) — separating them turned
+	// every crossing into a push-fight (measured: 1850 one-tick shove episodes
+	// per 2 sim-minutes on the forest map). Only pairs where at least one side
+	// is engaged actually collide, and only those can glue.
+	engaged := func(m *monster.Monster3D) bool {
+		return m.IsEngagingPlayer || m.State == monster.StateAttacking
+	}
+	// Tile-checked half-push; also refuses to shove a monster into the PLAYER's
+	// box — entity collision is deliberately skipped (the overlapped partner
+	// would veto every push), but landing on the player would deadlock the
+	// monster against player collision instead.
+	camX, camY := gl.game.camera.X, gl.game.camera.Y
+	pushOne := func(m *monster.Monster3D, px, py float64) bool {
+		nx, ny := m.X+px, m.Y+py
+		mw, mh := m.GetSize()
+		if math.Abs(nx-camX) < mw/2+8 && math.Abs(ny-camY) < mh/2+8 {
+			return false
+		}
+		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+			return false
+		}
+		m.X, m.Y = nx, ny
+		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+		return true
+	}
+	for i := 0; i < len(monsters); i++ {
+		a := monsters[i]
+		if !a.IsAlive() {
+			continue
+		}
+		aw, ah := a.GetSize()
+		for j := i + 1; j < len(monsters); j++ {
+			b := monsters[j]
+			if !b.IsAlive() {
+				continue
+			}
+			if !engaged(a) && !engaged(b) {
+				continue // calm pair: pass-through is intended, no shoving
+			}
+			bw, bh := b.GetSize()
+			dx := b.X - a.X
+			dy := b.Y - a.Y
+			sepX := (aw+bw)/2 - math.Abs(dx)
+			sepY := (ah+bh)/2 - math.Abs(dy)
+			if sepX <= 0 || sepY <= 0 {
+				continue // no overlap
+			}
+			// Signed pushes per axis (b gets the positive direction); perfectly
+			// stacked pairs get a deterministic tiebreak.
+			sx := pushPerTick
+			if dx < 0 || (dx == 0 && i%2 == 0) {
+				sx = -sx
+			}
+			sy := pushPerTick
+			if dy < 0 || (dy == 0 && i%2 == 0) {
+				sy = -sy
+			}
+			// Prefer the axis of least penetration (standard AABB resolve), but
+			// fall back to the other one when terrain blocks it: in a one-wide
+			// gap between trees the cross-corridor push hits a trunk on both
+			// sides, and the pair could only ever separate ALONG the corridor.
+			var prim, sec [2]float64
+			if sepX < sepY {
+				prim, sec = [2]float64{sx, 0}, [2]float64{0, sy}
+			} else {
+				prim, sec = [2]float64{0, sy}, [2]float64{sx, 0}
+			}
+			// a moves opposite to b.
+			if !pushOne(a, -prim[0], -prim[1]) {
+				pushOne(a, -sec[0], -sec[1])
+			}
+			if !pushOne(b, prim[0], prim[1]) {
+				pushOne(b, sec[0], sec[1])
+			}
+		}
+	}
 }
 
 // removeDeadMonstersByID removes specific dead monsters by their IDs

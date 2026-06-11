@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -448,6 +449,82 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	if !kept {
 		t.Errorf("spent statue must stay in the world so its Visited state reaches the save")
 	}
+}
+
+// Overlapping monsters must be pushed apart by the separation pass (engaged
+// pairs that overlap veto each other's every normal move and would otherwise
+// stay glued forever).
+func TestSeparateOverlappingMonsters(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	gl := &GameLoop{game: g}
+
+	// Park the player away from the pair — pushes refuse to land on the player.
+	g.camera.X, g.camera.Y = 8, 8
+	g.collisionSystem.UpdateEntity("player", 8, 8)
+	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
+	b := monster.NewMonster3DFromConfig(66, 64, "goblin", cfg) // almost fully stacked
+	a.IsEngagingPlayer = true                                  // calm pairs pass through by design; engaged ones glue
+	w.Monsters = []*monster.Monster3D{a, b}
+	g.registerSpawnedMonster(a)
+	g.registerSpawnedMonster(b)
+
+	aw, _ := a.GetSize()
+	bw, _ := b.GetSize()
+	need := (aw + bw) / 2
+	for i := 0; i < 240; i++ {
+		gl.separateOverlappingMonsters()
+		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
+			return // separated
+		}
+	}
+	t.Fatalf("monsters still overlapping after separation pass: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
+		a.X, a.Y, b.X, b.Y, need)
+}
+
+// In a one-wide corridor (trees above and below) the least-penetration push is
+// blocked on both sides — the pair must fall back to separating ALONG the
+// corridor instead of staying glued (the goblins-stuck-between-trees bug).
+func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
+	cfg := loadTestConfig(t)
+	w := world.NewWorld3D(cfg)
+	w.Width, w.Height = 7, 3
+	w.Tiles = make([][]world.TileType3D, w.Height)
+	for y := 0; y < w.Height; y++ {
+		w.Tiles[y] = make([]world.TileType3D, w.Width)
+		for x := 0; x < w.Width; x++ {
+			if y == 1 {
+				w.Tiles[y][x] = world.TileEmpty // the corridor
+			} else {
+				w.Tiles[y][x] = world.TileTree
+			}
+		}
+	}
+	g := newTestGame(cfg, w)
+	gl := &GameLoop{game: g}
+
+	// Stacked mid-corridor, offset slightly along Y so the LEAST penetration
+	// axis is the blocked cross-corridor one.
+	a := monster.NewMonster3DFromConfig(64*3+32, 96, "goblin", cfg)
+	b := monster.NewMonster3DFromConfig(64*3+34, 90, "goblin", cfg)
+	a.IsEngagingPlayer = true
+	b.IsEngagingPlayer = true
+	w.Monsters = []*monster.Monster3D{a, b}
+	g.registerSpawnedMonster(a)
+	g.registerSpawnedMonster(b)
+
+	aw, _ := a.GetSize()
+	bw, _ := b.GetSize()
+	need := (aw + bw) / 2
+	for i := 0; i < 300; i++ {
+		gl.separateOverlappingMonsters()
+		if math.Abs(b.X-a.X) >= need || math.Abs(b.Y-a.Y) >= need {
+			return // separated along the corridor
+		}
+	}
+	t.Fatalf("corridor pair still glued: a=(%.0f,%.0f) b=(%.0f,%.0f) need %.0f",
+		a.X, a.Y, b.X, b.Y, need)
 }
 
 // creditClearedKillQuests completes a region kill quest when its target_map is

@@ -68,6 +68,10 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	// Cost/Amount parameterize purchase-style actions: tavern_rest charges Cost
+	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
+	Cost   int `yaml:"cost,omitempty"`
+	Amount int `yaml:"amount,omitempty"`
 	// SummonIndex is set at runtime (not from YAML) when statue summon choices
 	// are built from the held statuettes; it indexes NPC.Summons.
 	SummonIndex int `yaml:"-"`
@@ -142,6 +146,35 @@ func LoadNPCConfig(filename string) error {
 	NPCConfigInstance = &config
 	if err := backfillTraderSpells(); err != nil {
 		return err
+	}
+	if err := validatePricedChoices(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePricedChoices fails fast on purchase-style dialogue choices missing
+// their price data (a free rest / zero-food ration is a content bug).
+func validatePricedChoices() error {
+	for npcKey, npc := range NPCConfigInstance.NPCs {
+		if npc.Dialogue == nil {
+			continue
+		}
+		for _, c := range npc.Dialogue.Choices {
+			if c == nil {
+				continue
+			}
+			switch c.Action {
+			case "tavern_rest":
+				if c.Cost <= 0 {
+					return fmt.Errorf("npc %q: tavern_rest choice requires cost > 0", npcKey)
+				}
+			case "buy_food":
+				if c.Cost <= 0 || c.Amount <= 0 {
+					return fmt.Errorf("npc %q: buy_food choice requires cost > 0 and amount > 0", npcKey)
+				}
+			}
+		}
 	}
 	return nil
 }

@@ -354,11 +354,23 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 	if err != nil {
 		return false, ""
 	}
+	if cs.castKnownHealOn(spellID, def, targetIndex) {
+		return true, spellID
+	}
+	return false, ""
+}
+
+// castKnownHealOn pays for and casts a known (book) heal on a resolved party
+// target. Party heals restore everyone; self-only heals always land on the
+// caster; an out-of-range target falls back to the caster. Callers resolve def
+// once and pass it in.
+func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.SpellDefinition, targetIndex int) bool {
+	caster := cs.game.party.Members[cs.game.selectedChar]
 	spellCost := cs.effectiveSpellCost(caster, def.SpellPointsCost)
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
 			caster.Name, def.Name, caster.SpellPoints, spellCost))
-		return false, ""
+		return false
 	}
 
 	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
@@ -369,7 +381,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 		n := cs.healWholeParty(healAmount)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s, healing %d allies for %d HP!",
 			caster.Name, def.Name, n, healAmount))
-		return true, spellID
+		return true
 	}
 
 	// Single-target heal. Self-only heals (TargetSelf) always land on the caster.
@@ -382,7 +394,7 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 	target := cs.game.party.Members[targetIndex]
 	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
-		return false, ""
+		return false
 	}
 
 	caster.SpellPoints -= spellCost
@@ -392,61 +404,78 @@ func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.Spel
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s heals %s for %d HP with %s!", caster.Name, target.Name, healAmount, def.Name))
 	}
-	return true, spellID
+	return true
 }
 
 // SmartAttack is the Space-key "smart attack" (both modes). Priority:
-//  1. A HEAL slotted + a wounded ally present → cast it on the MOST wounded
-//     (a healer with First Aid/Heal auto-triages instead of meleeing).
-//  2. An OFFENSIVE spell slotted + enough SP → cast it.
+//  1. ANYONE in the party is wounded and the caster has a heal (spellbook or
+//     quick slot) → cast it on the MOST wounded. The quick-slotted heal is
+//     preferred; otherwise the strongest book heal. Healers can keep a combat
+//     spell in the quick slot and still auto-triage.
+//  2. No one wounded → cast the quick-slotted offensive spell when payable.
 //  3. Otherwise swing the equipped weapon.
 //
 // Returns whether a spell was cast (and which) so the caller can pick the right
 // cooldown; a false return means a weapon attack happened.
 func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
+
+	if healID, def, target, ok := cs.smartHealPlan(caster); ok {
+		if caster.SpellPoints >= cs.effectiveSpellCost(caster, def.SpellPointsCost) &&
+			cs.castKnownHealOn(healID, def, target) {
+			return true, healID
+		}
+		// Can't pay / can't land it → fall through to attack.
+	}
+
 	if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
 		spellID := spells.SpellID(spell.SpellEffect)
 		def, err := spells.GetSpellDefinitionByID(spellID)
 		canPay := caster.SpellPoints >= cs.effectiveSpellCost(caster, spell.SpellCost)
-		switch {
-		case err == nil && def.IsHeal():
-			// A heal is slotted: if an ally is wounded and we can pay, heal the
-			// most-wounded instead of attacking. Party heals (Mass Heal) cast on
-			// the whole party; single heals target the wounded ally.
-			if target := cs.mostWoundedHealTarget(spell); target >= 0 && canPay {
-				if def.HealParty {
-					if cs.CastEquippedSpell() {
-						return true, spellID
-					}
-				} else if cs.CastEquippedHealOnTarget(target) {
-					return true, spellID
-				}
-			}
-			// No one worth healing → fall through to a weapon swing.
-		case err == nil && def.IsOffensive():
-			if canPay && cs.CastEquippedSpell() {
-				return true, spellID
-			}
+		if err == nil && def.IsOffensive() && canPay && cs.CastEquippedSpell() {
+			return true, spellID
 		}
 	}
+
 	cs.EquipmentMeleeAttack()
 	return false, ""
 }
 
+// smartHealPlan decides which heal Space should cast and on whom: the
+// quick-slotted heal if it can serve a wounded ally, else the strongest book
+// heal. ok=false when no one is wounded enough or no usable heal exists.
+func (cs *CombatSystem) smartHealPlan(caster *character.MMCharacter) (spells.SpellID, spells.SpellDefinition, int, bool) {
+	candidates := make([]spells.SpellID, 0, 2)
+	if spell, hasSpell := caster.Equipment[items.SlotSpell]; hasSpell {
+		candidates = append(candidates, spells.SpellID(spell.SpellEffect))
+	}
+	if bookID, known := cs.bestKnownHealSpell(caster); known {
+		candidates = append(candidates, bookID)
+	}
+	for _, id := range candidates {
+		def, err := spells.GetSpellDefinitionByID(id)
+		if err != nil || !def.IsHeal() {
+			continue
+		}
+		if target := cs.mostWoundedHealTarget(def); target >= 0 {
+			return id, def, target, true
+		}
+	}
+	return "", spells.SpellDefinition{}, -1, false
+}
+
 // mostWoundedHealTarget returns the party index of the most-wounded ally a
-// slotted heal should target (lowest HP fraction, below SmartHealWoundedPct),
-// or -1 if no one is hurt enough. A self-only heal (First Aid) only ever
-// considers the caster; an other-target heal considers the whole party. Dead/KO
-// members are skipped (heals don't revive).
-func (cs *CombatSystem) mostWoundedHealTarget(spell items.Item) int {
-	selfOnly := spell.SpellEffect == items.SpellEffectHealSelf
+// heal should target (lowest HP fraction, below SmartHealWoundedPct), or -1
+// if no one is hurt enough. A self-only heal (First Aid) only ever considers
+// the caster; an other-target heal considers the whole party. Dead/KO members
+// are skipped (heals don't revive).
+func (cs *CombatSystem) mostWoundedHealTarget(def spells.SpellDefinition) int {
 	best, bestFrac := -1, SmartHealWoundedPct
 	for i, m := range cs.game.party.Members {
 		if m == nil || !m.CanAct() || m.MaxHitPoints <= 0 {
 			continue
 		}
-		if selfOnly && i != cs.game.selectedChar {
+		if def.TargetSelf && i != cs.game.selectedChar {
 			continue
 		}
 		frac := float64(m.HitPoints) / float64(m.MaxHitPoints)
@@ -1048,6 +1077,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.CrossfireCD > 0 {
 				monster.CrossfireCD--
 			} else if Distance(monster.X, monster.Y, foe.X, foe.Y) <= cs.monsterVsMonsterReach(monster) {
+				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
 				} else {
@@ -1102,6 +1132,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		if monster.State == monsterPkg.StateAttacking && dist <= attackRange {
 			// Only attack once per attacking state (no separate cooldown needed)
 			if monster.StateTimer == 1 { // Attack on first frame of attacking state
+				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttack(monster)
 				} else {
@@ -1138,7 +1169,7 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	}
 	m.X, m.Y = bestX, bestY
 	cs.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
-	m.AttackAnimFrames = 8 // brief leap/strike animation
+	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
 	return Distance(playerX, playerY, bestX, bestY), true
 }
 
@@ -2122,12 +2153,18 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 		}
 	}
 
-	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType)
+	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType, currentMapKey())
 
 	// Notify player of quest completions
 	for _, quest := range completedQuests {
 		cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", quest.Definition.Name))
 	}
+
+	// Map-scoped kill quests also complete the moment the map is cleared of
+	// targets (counter notwithstanding), and completions may change the world
+	// (e.g. the wolf-cull bridge).
+	cs.game.completeExterminationQuests(monsterType)
+	cs.game.applyCompletedQuestTiles()
 }
 
 // checkLevelUp checks if a character should level up and applies level up benefits
@@ -2723,6 +2760,7 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit
 	// is resolved on impact in CheckProjectileMonsterCollisions. Melee ones strike
 	// directly.
+	m.AttackAnimFrames = MonsterAttackAnimFrames
 	if m.HasRangedAttack() {
 		cs.spawnMonsterRangedAttackAtMonster(m, target, ProjectileOwnerBoundUndead)
 	} else {

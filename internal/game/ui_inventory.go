@@ -126,6 +126,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		}
 	}
 	ui.drawInventoryPager(screen, gridX, gridY+gridSize+6, gridSize, totalPages)
+	ui.drawCampButton(screen, gridX, gridY+gridSize+30, gridSize)
 
 	if tooltip != "" && tooltipHasItem {
 		lines := strings.Split(tooltip, "\n")
@@ -851,4 +852,37 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// drawCampButton renders the Camp button under the inventory grid: spend
+// CampFoodCost food to fully restore the party in the field — unless enemies
+// are within CampEnemyRadiusTiles (TryCamp refuses). The result line stays
+// visible under the button.
+func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {
+	const btnW, btnH = 120, 26
+	btnX := gridX + (gridW-btnW)/2
+	mouseX, mouseY := ebiten.CursorPosition()
+	hover := isMouseHoveringBox(mouseX, mouseY, btnX, y, btnX+btnW, y+btnH)
+
+	fill := color.RGBA{30, 45, 30, 255}
+	if hover {
+		fill = color.RGBA{50, 75, 50, 255}
+	}
+	drawFilledRect(screen, btnX, y, btnW, btnH, fill)
+	drawRectBorder(screen, btnX, y, btnW, btnH, 2, color.RGBA{100, 120, 100, 255})
+	drawCenteredDebugText(screen, fmt.Sprintf("Camp (-%d food)", CampFoodCost), btnX, y, btnW, btnH)
+
+	if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() &&
+		ui.game.consumeLeftClickIn(btnX, y, btnX+btnW, y+btnH) {
+		ui.campNotice, ui.campNoticeOK = ui.game.TryCamp()
+	}
+
+	if ui.campNotice != "" {
+		clr := color.RGBA{210, 90, 80, 255}
+		if ui.campNoticeOK {
+			clr = color.RGBA{120, 210, 120, 255}
+		}
+		noticeX := gridX + (gridW-debugTextWidth(ui.campNotice))/2
+		drawDebugTextColored(screen, ui.campNotice, noticeX, y+btnH+6, clr)
+	}
 }

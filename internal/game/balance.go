@@ -120,6 +120,11 @@ const (
 	// utility spell. Tuning this changes how far the player can see in dark
 	// biomes.
 	TorchLightRadiusTiles = 7.0
+
+	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
+	// and is refused while any living monster is within CampEnemyRadiusTiles.
+	CampFoodCost         = 1
+	CampEnemyRadiusTiles = 5.0
 )
 
 // Speed-stat → action cooldown curve. Cooldown in frames is a linear function
@@ -189,6 +194,10 @@ const BoundUndeadSeekTiles = 10.0
 // config `damage_blink_frames` (3) is far too brief to see; this dedicated value
 // (~0.1s at 120 TPS) makes the reaction read clearly.
 const MonsterHitFlashFrames = 12
+
+// MonsterAttackAnimFrames: how long a striking monster plays its movement
+// cycle (a readable lunge) — without it attackers froze on the rest pose.
+const MonsterAttackAnimFrames = 18
 
 // MonsterHitShakeAmplitudeFrac is the peak left-right sprite jitter on hit, as a
 // fraction of the sprite's on-screen size. Driven by the same HitTintFrames timer
