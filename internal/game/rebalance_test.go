@@ -22,17 +22,17 @@ func TestWeaponMasteryStrike_TrueDamageAndDodge(t *testing.T) {
 	m := cs.game.party.Members[0]
 
 	delete(m.Skills, character.SkillSword)
-	if td, ignore := cs.weaponMasteryStrike(weaponDef); td != 0 || ignore {
+	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 0 || ignore {
 		t.Errorf("no skill → (%d,%v), want (0,false)", td, ignore)
 	}
 
 	m.Skills[character.SkillSword] = expertSkill() // tier 1
-	if td, ignore := cs.weaponMasteryStrike(weaponDef); td != MasteryWeaponTrueDamagePerTier || ignore {
+	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != MasteryWeaponTrueDamagePerTier || ignore {
 		t.Errorf("Expert → (%d,%v), want (%d,false)", td, ignore, MasteryWeaponTrueDamagePerTier)
 	}
 
 	m.Skills[character.SkillSword] = gmSkill() // tier 3
-	if td, ignore := cs.weaponMasteryStrike(weaponDef); td != 3*MasteryWeaponTrueDamagePerTier || !ignore {
+	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 3*MasteryWeaponTrueDamagePerTier || !ignore {
 		t.Errorf("GM → (%d,%v), want (%d,true)", td, ignore, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }
@@ -90,15 +90,15 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 	m := cs.game.party.Members[0]
 
 	delete(m.MagicSchools, character.MagicSchoolFire)
-	if p := cs.spellResistPierce("fireball"); p != 0 {
+	if p := cs.spellResistPierce(m, "fireball"); p != 0 {
 		t.Fatalf("no Fire school → pierce %d, want 0", p)
 	}
 	m.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryMaster} // tier 2, not GM
-	if p := cs.spellResistPierce("fireball"); p != 0 {
+	if p := cs.spellResistPierce(m, "fireball"); p != 0 {
 		t.Errorf("Master Fire → pierce %d, want 0 (GM only)", p)
 	}
 	m.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
-	if p := cs.spellResistPierce("fireball"); p != MagicGMResistPiercePct {
+	if p := cs.spellResistPierce(m, "fireball"); p != MagicGMResistPiercePct {
 		t.Errorf("GM Fire → pierce %d, want %d", p, MagicGMResistPiercePct)
 	}
 }

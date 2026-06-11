@@ -128,8 +128,13 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 				if world.GlobalWorldManager != nil {
 					cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
 				}
-			case "bless":
-				cs.applyBlessEffect(result.Duration, result.StatBonus)
+			}
+
+			// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID —
+			// any spell authored with a bonus block applies it; different buff
+			// spells stack, recasting one refreshes it.
+			if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
+				cs.applyStatBuffSpell(spellID, result.Duration, cs.spellStatBuffBonuses(spellID, caster))
 			}
 
 			cs.game.setUtilityStatus(spellID, result.Duration)
@@ -139,7 +144,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	}
 
 	// For projectile spells, create a projectile using effective intellect (includes Bless bonus)
-	effectiveIntellect := caster.GetEffectiveIntellect(cs.game.statBonus)
+	effectiveIntellect := caster.GetEffectiveIntellect()
 	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
@@ -173,6 +178,7 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	// Create magic projectile with proper type information
 	magicProjectile := MagicProjectile{
 		ID:                 cs.game.GenerateProjectileID(string(spellID)),
+		Attacker:           cs.activeAttacker(),
 		X:                  projectile.X,
 		Y:                  projectile.Y,
 		VelX:               projectile.VelX,
@@ -415,8 +421,10 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 //  2. No one wounded → cast the quick-slotted offensive spell when payable.
 //  3. Otherwise swing the equipped weapon.
 //
-// Returns whether a spell was cast (and which) so the caller can pick the right
-// cooldown; a false return means a weapon attack happened.
+// Returns (acted, castSpellID): acted is false when NOTHING happened (no
+// wounded+heal, no castable quick spell, no weapon) so turn-based slots aren't
+// burned; castSpellID is non-empty when a spell was cast (RT picks the spell
+// cooldown from it, else the weapon cooldown).
 func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
@@ -437,8 +445,7 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 		}
 	}
 
-	cs.EquipmentMeleeAttack()
-	return false, ""
+	return cs.EquipmentMeleeAttack(), ""
 }
 
 // smartHealPlan decides which heal Space should cast and on whom: the
@@ -487,18 +494,21 @@ func (cs *CombatSystem) mostWoundedHealTarget(def spells.SpellDefinition) int {
 }
 
 // EquipmentMeleeAttack performs a melee attack using equipped weapon
-func (cs *CombatSystem) EquipmentMeleeAttack() {
+// EquipmentMeleeAttack swings the equipped weapon; reports whether an attack
+// actually happened (no weapon / incapacitated → false, so turn-based action
+// slots aren't burned on a no-op).
+func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 
 	// Unconscious characters cannot attack
 	if attacker.IsIncapacitated() {
-		return
+		return false
 	}
 
 	// Check if character has a weapon equipped
 	weapon, hasWeapon := attacker.Equipment[items.SlotMainHand]
 	if !hasWeapon {
-		return // No weapon equipped
+		return false // No weapon equipped
 	}
 
 	// Calculate damage using centralized function
@@ -506,7 +516,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
-		return // Weapon not found, skip attack
+		return false // Weapon not found, skip attack
 	}
 
 	// Ranged dispatch by `range` field (in display tiles). Anything > 3
@@ -514,8 +524,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 	// range ≥ 4 to count as ranged (otherwise they fall into melee).
 	// For ranged: roll crit and apply doubling inside createArrowAttack only.
 	if weaponDef.Range > 3 {
-		cs.createArrowAttack(totalDamage)
-		return
+		return cs.createArrowAttack(totalDamage)
 	}
 	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 	if isCrit {
@@ -524,10 +533,13 @@ func (cs *CombatSystem) EquipmentMeleeAttack() {
 
 	// Create instant melee attack for close-range weapons
 	cs.createMeleeAttack(weapon, totalDamage, isCrit)
+	return true
 }
 
-// createArrowAttack creates a projectile arrow attack
-func (cs *CombatSystem) createArrowAttack(damage int) {
+// createArrowAttack creates a projectile arrow attack; reports whether an
+// arrow actually left the bow (max-projectiles cap / missing physics → false,
+// so the attempt doesn't cost an action).
+func (cs *CombatSystem) createArrowAttack(damage int) bool {
 	// Find the equipped projectile-weapon's YAML key. Range>3 = ranged
 	// (matches the dispatch gate in EquipmentMeleeAttack).
 	attacker := cs.game.party.Members[cs.game.selectedChar]
@@ -553,14 +565,14 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 		// If we've reached the limit, don't create a new arrow
 		if activeArrowsFromBow >= equippedDef.MaxProjectiles {
-			return
+			return false
 		}
 	}
 
 	weaponDef, exists := config.GetWeaponDefinition(bowKey)
 	if !exists || weaponDef == nil || weaponDef.Physics == nil {
 		fmt.Printf("[WARN] projectile weapon '%s' is missing physics in weapons.yaml\n", bowKey)
-		return
+		return false
 	}
 
 	tileSize := cs.game.config.GetTileSize()
@@ -581,6 +593,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 
 	arrow := Arrow{
 		ID:                 cs.game.GenerateProjectileID("arrow"),
+		Attacker:           cs.activeAttacker(),
 		X:                  cs.game.camera.X,
 		Y:                  cs.game.camera.Y,
 		VelX:               math.Cos(cs.game.camera.Angle) * arrowSpeed,
@@ -600,6 +613,7 @@ func (cs *CombatSystem) createArrowAttack(damage int) {
 	// Register arrow with collision system using weapon-specific collision size
 	arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 	cs.game.collisionSystem.RegisterEntity(arrowEntity)
+	return true
 }
 
 // createMeleeAttack creates an instant melee attack with proper arc-based hit detection
@@ -735,8 +749,18 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
-	trueDmg, ignoreDodge := cs.weaponMasteryStrike(weaponDef)
-	attackerName := cs.game.party.Members[cs.game.selectedChar].Name
+
+	// Party buffs (Hour of Power, Heroism, …) boost melee exactly like
+	// projectiles — same flat outgoing-damage line as the impact path.
+	if damage > 0 {
+		damage += cs.game.combatBuffOutBonus()
+	}
+	attacker := cs.activeAttacker() // melee resolves the same frame it swings
+	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
+	attackerName := "The party"
+	if attacker != nil {
+		attackerName = attacker.Name
+	}
 
 	// Check monster perfect dodge. A Grandmaster ignores it entirely; otherwise
 	// the normal hit is avoided but weapon-mastery TRUE damage still lands.
@@ -881,7 +905,7 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 
 	if selectedSpellDef.IsProjectile {
 		// Handle projectile spells dynamically using effective intellect (includes Bless bonus)
-		effectiveIntellect := currentChar.GetEffectiveIntellect(cs.game.statBonus)
+		effectiveIntellect := currentChar.GetEffectiveIntellect()
 		projectile, err := castingSystem.CreateProjectile(selectedSpellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
@@ -908,6 +932,7 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 		// Create magic projectile using unified system
 		magicProjectile := MagicProjectile{
 			ID:                 cs.game.GenerateProjectileID(string(selectedSpellID)),
+			Attacker:           cs.activeAttacker(),
 			X:                  projectile.X,
 			Y:                  projectile.Y,
 			VelX:               projectile.VelX,
@@ -999,8 +1024,8 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 			}
 
 			// Apply stat bonus effects
-			if result.StatBonus > 0 {
-				cs.applyBlessEffect(result.Duration, result.StatBonus)
+			if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
+				cs.applyStatBuffSpell(selectedSpellID, result.Duration, cs.spellStatBuffBonuses(selectedSpellID, currentChar))
 			}
 
 			cs.game.setUtilityStatus(selectedSpellID, result.Duration)
@@ -1840,13 +1865,29 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		damage += cs.game.combatBuffOutBonus()
 	}
 
+	// Resolve the attacker the projectile was fired by (stamped at spawn) —
+	// selection may have auto-advanced (or the roster swapped) while it flew.
+	var attacker *character.MMCharacter
+	switch pr := projectile.(type) {
+	case *MagicProjectile:
+		attacker = pr.Attacker
+	case *Arrow:
+		attacker = pr.Attacker
+	case *MeleeAttack:
+		attacker = cs.activeAttacker() // melee resolves the same frame it swings
+	}
+	attackerName := "The party"
+	if attacker != nil {
+		attackerName = attacker.Name
+	}
+
 	// Weapon-mastery TRUE damage / dodge-ignore (physical weapons only; spells
 	// leave these zero/false). Spell schools instead pierce resistance at GM.
-	trueDmg, ignoreDodge := cs.weaponMasteryStrike(weaponDef)
+	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
 	resistPierce := 0
 	if isSpell {
 		if mp, ok := projectile.(*MagicProjectile); ok {
-			resistPierce = cs.spellResistPierce(mp.SpellType)
+			resistPierce = cs.spellResistPierce(attacker, mp.SpellType)
 		}
 	}
 
@@ -1855,7 +1896,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// TRUE damage still lands.
 	if monster.PerfectDodge > 0 && !ignoreDodge && rand.Intn(100) < monster.PerfectDodge {
 		if trueDmg > 0 {
-			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, cs.game.party.Members[cs.game.selectedChar].Name)
+			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, attackerName)
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s dodges the %s!", monster.Name, weaponName))
 		}
@@ -1894,7 +1935,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 		cs.awardExperienceAndGold(monster)
 
-		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
 		return
@@ -1945,7 +1985,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		if isCrit {
 			prefix = "Critical! "
 		}
-		attackerName := cs.game.party.Members[cs.game.selectedChar].Name
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
 			prefix, attackerName, monster.Name, actualDamage))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
@@ -2228,11 +2267,11 @@ func (cs *CombatSystem) CalculateWeaponDamage(weapon items.Item, character *char
 	if primaryStat == "" {
 		primaryStat = "Might" // default for weapons without bonus stat specified
 	}
-	primaryStatBonus := getEffectiveStatValue(primaryStat, character, cs) / WeaponPrimaryStatDivisor
+	primaryStatBonus := getEffectiveStatValue(primaryStat, character) / WeaponPrimaryStatDivisor
 
 	var secondaryStatBonus int
 	if weaponDef.BonusStatSecondary != "" {
-		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, character, cs) / WeaponSecondaryStatDivisor
+		secondaryStatBonus = getEffectiveStatValue(weaponDef.BonusStatSecondary, character) / WeaponSecondaryStatDivisor
 	}
 
 	totalStatBonus := primaryStatBonus + secondaryStatBonus
@@ -2252,16 +2291,12 @@ func (cs *CombatSystem) activeAttacker() *character.MMCharacter {
 	return cs.game.party.Members[cs.game.selectedChar]
 }
 
-// weaponMasteryStrike returns the TRUE-damage bonus and dodge-ignore flag for the
-// active attacker wielding the given weapon. True damage bypasses the target's
-// armor class and lands even through a Perfect Dodge; a Grandmaster (tier 3)
-// makes the WHOLE strike ignore the target's Perfect Dodge.
-func (cs *CombatSystem) weaponMasteryStrike(weaponDef *config.WeaponDefinitionConfig) (trueDmg int, ignoreDodge bool) {
-	if weaponDef == nil {
-		return 0, false
-	}
-	attacker := cs.activeAttacker()
-	if attacker == nil {
+// weaponMasteryStrike returns the TRUE-damage bonus and dodge-ignore flag for
+// the given attacker wielding the given weapon. True damage bypasses the
+// target's armor class and lands even through a Perfect Dodge; a Grandmaster
+// (tier 3) makes the WHOLE strike ignore the target's Perfect Dodge.
+func (cs *CombatSystem) weaponMasteryStrike(attacker *character.MMCharacter, weaponDef *config.WeaponDefinitionConfig) (trueDmg int, ignoreDodge bool) {
+	if weaponDef == nil || attacker == nil {
 		return 0, false
 	}
 	skillType, ok := character.WeaponSkillForCategory(strings.ToLower(weaponDef.Category))
@@ -2272,11 +2307,10 @@ func (cs *CombatSystem) weaponMasteryStrike(weaponDef *config.WeaponDefinitionCo
 	return tier * MasteryWeaponTrueDamagePerTier, tier >= int(character.MasteryGrandMaster)
 }
 
-// spellResistPierce returns the resistance-pierce percent for the active caster's
-// spell: MagicGMResistPiercePct if they are Grandmaster in that spell's school,
-// else 0.
-func (cs *CombatSystem) spellResistPierce(spellType string) int {
-	caster := cs.activeAttacker()
+// spellResistPierce returns the resistance-pierce percent for the given
+// caster's spell: MagicGMResistPiercePct if they are Grandmaster in that
+// spell's school, else 0.
+func (cs *CombatSystem) spellResistPierce(caster *character.MMCharacter, spellType string) int {
 	if caster == nil {
 		return 0
 	}
@@ -2303,7 +2337,7 @@ func (cs *CombatSystem) effectiveSpellCost(caster *character.MMCharacter, baseCo
 // CalculateElementalSpellDamage calculates damage for fire/air/water/earth spells
 func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *character.MMCharacter) (int, int, int) {
 	baseDamage := spellPoints * spells.SpellDamagePerSP
-	intellectBonus := char.GetEffectiveIntellect(cs.game.statBonus) / spells.SpellIntellectDivisor
+	intellectBonus := char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
 	totalDamage := baseDamage + intellectBonus
 	return baseDamage, intellectBonus, totalDamage
 }
@@ -2316,7 +2350,7 @@ func (cs *CombatSystem) CalculateElementalSpellDamage(spellPoints int, char *cha
 func (cs *CombatSystem) CalculateSteamZoneTickDamage(def spells.SpellDefinition, char *character.MMCharacter) int {
 	tick := def.ZoneTickDamage
 	if char != nil {
-		tick += char.GetEffectiveIntellect(cs.game.statBonus) / spells.SpellIntellectDivisor
+		tick += char.GetEffectiveIntellect() / spells.SpellIntellectDivisor
 		tick += cs.spellMasteryBonus(char, def.ID)
 	}
 	return tick
@@ -2346,7 +2380,7 @@ func (cs *CombatSystem) spellBuffMagnitude(base int, spellID spells.SpellID, cha
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
-	return char.GetEffectiveLuck(cs.game.statBonus) / LuckToCritDivisor
+	return char.GetEffectiveLuck() / LuckToCritDivisor
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
@@ -2821,16 +2855,25 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	return true
 }
 
-// applyBlessEffect applies the Bless spell effect consistently across all casting methods
-func (cs *CombatSystem) applyBlessEffect(duration, statBonus int) {
-	// If Bless is already active, remove old bonus before applying new one
-	if cs.game.blessActive {
-		cs.game.statBonus -= cs.game.blessStatBonus
+// spellStatBuffBonuses resolves the stat-buff block a cast of spellID grants:
+// a per-stat `stat_bonuses:` map is authored absolute; the uniform
+// `stat_bonus: N` is mastery-scaled via CalculateSpellStatBonus — the SAME
+// function the tooltip quotes, so cast and tooltip can't drift.
+func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *character.MMCharacter) character.StatBonuses {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return character.StatBonuses{}
 	}
-	cs.game.blessActive = true
-	cs.game.blessDuration = duration
-	cs.game.blessStatBonus = statBonus // Store the bonus for proper removal later
-	cs.game.statBonus += statBonus     // ADD to total stat bonus
+	if len(def.StatBonuses) > 0 {
+		return character.StatBonusesFromMap(def.StatBonuses)
+	}
+	return character.UniformStatBonuses(cs.CalculateSpellStatBonus(spellID, caster))
+}
+
+// applyStatBuffSpell registers a stat-buff spell in the timed registry:
+// different spells stack, recasting the same one refreshes it.
+func (cs *CombatSystem) applyStatBuffSpell(spellID spells.SpellID, duration int, bonuses character.StatBonuses) {
+	cs.game.addStatBuff(TimedStatBuff{SpellID: string(spellID), Frames: duration, Bonuses: bonuses})
 }
 
 // RollPerfectDodge returns whether the character performs a perfect dodge and the chance used.
@@ -2865,7 +2908,7 @@ func (cs *CombatSystem) armorGMDodgeBonus(chr *character.MMCharacter) int {
 
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck(cs.game.statBonus)/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
+	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
 	if chance < 0 {
 		chance = 0
 	}

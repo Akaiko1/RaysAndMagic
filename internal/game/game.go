@@ -54,7 +54,8 @@ type MagicProjectile struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	LifeTime           int // Frames remaining
+	Attacker           *character.MMCharacter // caster (nil = monster/none) — mastery/pierce resolve from HIM at impact; a pointer survives roster swaps mid-flight
+	LifeTime           int                    // Frames remaining
 	Active             bool
 	SpellType          string // Type of spell for visual differentiation
 	Size               int    // Projectile size
@@ -95,7 +96,8 @@ type Arrow struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	LifeTime           int // Frames remaining
+	Attacker           *character.MMCharacter // shooter (nil = monster/none)
+	LifeTime           int                    // Frames remaining
 	Active             bool
 	BowKey             string // YAML key of the bow used to fire this arrow
 	DamageType         string // Damage element type ("physical", "dark", etc.)
@@ -239,9 +241,10 @@ type MMGame struct {
 	walkOnWaterDuration int  // Remaining duration in frames
 
 	// Bless effect
-	blessActive    bool // Whether bless is currently active
-	blessDuration  int  // Remaining duration in frames
-	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
+	// statBuffs is the registry of active stat-buff spells (Bless, …): different
+	// spells stack, recasting one refreshes it. g.statBonuses is DERIVED as
+	// their sum via recomputeStatBonuses — never mutate it directly.
+	statBuffs []TimedStatBuff
 
 	// Stacking timed party combat buffs (Day of the Gods, Hour of Power, Stone
 	// Skin, Heroism, …) — see combat_buffs.go. Their ResistPct/OutBonus/InReduce
@@ -270,7 +273,12 @@ type MMGame struct {
 	mapReturnPoses map[string]MapPose
 
 	// Generic stat bonus system (for Bless, Day of Gods, Hour of Power, etc.)
-	statBonus int // Total stat bonus from all active effects
+	// statBonuses aggregates every active stat-buff spell per stat (today only
+	// Bless contributes, uniformly). Any change MUST go through
+	// applyPartyStatBonuses so members' BuffBonuses and MaxHP/MaxSP follow.
+	// NOTE: saves persist the legacy uniform int (bless-only); a future
+	// per-stat buff spell needs a per-stat save field.
+	statBonuses character.StatBonuses
 
 	// Dialog system
 	dialogActive        bool           // Whether a dialog is currently open
@@ -1242,7 +1250,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 func (g *MMGame) startPartyTurn() {
 	for _, m := range g.party.Members {
 		if m.CanAct() {
-			m.ActionsRemaining = m.ActionSlotsForTurn(g.statBonus)
+			m.ActionsRemaining = m.ActionSlotsForTurn()
 		} else {
 			m.ActionsRemaining = 0
 		}
@@ -1262,7 +1270,7 @@ func (g *MMGame) endPartyTurn() {
 	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
 		g.turnBasedSpRegenCount = 0
 		for _, member := range g.party.Members {
-			member.RegenerateSpellPoints(g.statBonus)
+			member.RegenerateSpellPoints()
 		}
 	}
 

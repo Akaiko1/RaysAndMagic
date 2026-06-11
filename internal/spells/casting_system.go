@@ -133,6 +133,9 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID, casterPersonality in
 	if def.StatBonus > 0 {
 		result.StatBonus = def.StatBonus
 	}
+	if len(def.StatBonuses) > 0 {
+		result.StatBonuses = def.StatBonuses
+	}
 
 	if def.Awaken {
 		result.Awaken = true
@@ -158,6 +161,7 @@ type UtilitySpellResult struct {
 	HealAmount     int
 	TargetSelf     bool
 	StatBonus      int
+	StatBonuses    map[string]int
 	VisionBonus    float64
 	Duration       int // In frames
 	Awaken         bool

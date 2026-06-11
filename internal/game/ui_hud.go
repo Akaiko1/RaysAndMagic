@@ -552,10 +552,11 @@ func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 			ui.game.waterBreathingDuration = 0 // Let updateWaterBreathingEffect handle cleanup (including underwater return)
 			ui.game.AddCombatMessage("Water Breathing dispelled!")
 		}
-	case "bless":
-		if ui.game.blessActive {
-			ui.game.blessDuration = 0 // Let updateBlessEffect handle cleanup
-			ui.game.AddCombatMessage("Bless dispelled!")
+	default:
+		// Stat-buff spells (Bless, …) live in the timed registry: dispel by id.
+		if _, ok := ui.game.statBuffByID(string(spellID)); ok {
+			ui.game.removeStatBuff(string(spellID))
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellID))
 		}
 	}
 }

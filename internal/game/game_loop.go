@@ -80,7 +80,7 @@ func (gl *GameLoop) updateExploration() {
 	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
-	gl.game.party.UpdateWithMode(gl.game.turnBasedMode, gl.game.statBonus)
+	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
@@ -489,6 +489,7 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
 	// tick from their own list — see combat_buffs.go.
 	gl.game.tickCombatBuffs()
+	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
 	gl.updateSteamZonesRT()
 
@@ -520,10 +521,6 @@ func (g *MMGame) timedBuffs() []timedBuff {
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
 		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
-		{"bless", &g.blessActive, &g.blessDuration, func() {
-			g.statBonus -= g.blessStatBonus
-			g.blessStatBonus = 0
-		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
 			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {

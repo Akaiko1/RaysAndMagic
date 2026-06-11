@@ -51,3 +51,17 @@ func (g *MMGame) TryCamp() (string, bool) {
 	g.restParty()
 	return "The party rests. HP and spell points fully restored.", true
 }
+
+// applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto
+// every active member and re-derives MaxHP/MaxSP preserving current values.
+// MUST be called after every change to g.statBonuses — it is what makes buffs
+// behave like real stats everywhere (combat formulas AND HP/SP maxima).
+func (g *MMGame) applyPartyStatBonuses() {
+	for _, m := range g.party.Members {
+		if m == nil {
+			continue
+		}
+		m.BuffBonuses = g.statBonuses
+		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
+}

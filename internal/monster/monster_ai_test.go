@@ -976,3 +976,67 @@ func TestCollectGoalTiles_RangedReachWiderThanMelee(t *testing.T) {
 		t.Errorf("ranged goals should extend past the melee radius; maxDist=%.1f", maxDist)
 	}
 }
+
+// After fleeing runs its course the monster RECONSIDERS: party still within
+// the engagement-hysteresis radius → back to the fight; party gone → wander
+// home. It must never stand dazed waiting to be hit.
+func TestFleeEnds_ReengagesOrWanders(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0)
+
+	mk := func() *Monster3D {
+		return &Monster3D{
+			ID: "flee_test", X: 320, Y: 320, Speed: 1.5,
+			AlertRadius: 3 * 64, SpawnX: 320, SpawnY: 320, TetherRadius: 4 * 64,
+			HitPoints: 10, MaxHitPoints: 10,
+			State: StateFleeing, StateTimer: 1000, // beyond any flee duration
+		}
+	}
+
+	// Party 4 tiles away (< alert 3t × disengage 2.0 = 6t) → rejoin the fight.
+	m := mk()
+	m.updateFleeing(checker, 320+4*64, 320)
+	if m.State != StateAlert || !m.IsEngagingPlayer {
+		t.Errorf("party near: state=%v engaged=%v, want Alert+engaged", m.State, m.IsEngagingPlayer)
+	}
+
+	// Party 10 tiles away (beyond 6t) → wander, stay disengaged.
+	m = mk()
+	m.updateFleeing(checker, 320+10*64, 320)
+	if m.State != StatePatrolling || m.IsEngagingPlayer {
+		t.Errorf("party gone: state=%v engaged=%v, want Patrolling+disengaged", m.State, m.IsEngagingPlayer)
+	}
+}
+
+// A cornered fleer (every escape tile blocked) must still exit the flee state
+// by timeout — the old loop picked its OWN tile as the flee target, hit the
+// "already there" early-return every tick, never reached the timeout, and
+// stood blind forever (detection is off while fleeing).
+func TestFlee_CorneredStillTimesOut(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0)
+	for dx := -8; dx <= 8; dx++ {
+		for dy := -8; dy <= 8; dy++ {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			checker.BlockTile(5+dx, 5+dy)
+		}
+	}
+	m := &Monster3D{
+		ID: "cornered", X: 5*64 + 32, Y: 5*64 + 32, Speed: 1.5,
+		AlertRadius: 3 * 64, SpawnX: 5*64 + 32, SpawnY: 5*64 + 32,
+		HitPoints: 10, MaxHitPoints: 10,
+		State: StateFleeing, StateTimer: 0,
+	}
+	playerX, playerY := m.X+2*64, m.Y // party right next to it
+
+	for i := 0; i < 400 && m.State == StateFleeing; i++ {
+		m.StateTimer++ // Update() does this in the real loop
+		m.updateFleeing(checker, playerX, playerY)
+	}
+	if m.State == StateFleeing {
+		t.Fatal("cornered monster stuck in StateFleeing past the timeout")
+	}
+	if m.State != StateAlert || !m.IsEngagingPlayer {
+		t.Errorf("party at 2 tiles: state=%v engaged=%v, want Alert+engaged", m.State, m.IsEngagingPlayer)
+	}
+}

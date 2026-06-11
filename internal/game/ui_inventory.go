@@ -389,17 +389,20 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	// Stats — 2 columns
 	drawDebugTextColored(screen, "STATS", scrollTextX, scrollTextY+60, mutedTextColor)
 	statY := scrollTextY + 76
+	// Combat runs on EFFECTIVE stats — show them, with the gear/buff delta in
+	// brackets so the player sees both ("Might: 18 (+3)").
+	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
 	statLines := []struct {
-		name  string
-		value int
+		name      string
+		base, eff int
 	}{
-		{"Might", member.Might},
-		{"Intellect", member.Intellect},
-		{"Personality", member.Personality},
-		{"Endurance", member.Endurance},
-		{"Accuracy", member.Accuracy},
-		{"Speed", member.Speed},
-		{"Luck", member.Luck},
+		{"Might", member.Might, effMight},
+		{"Intellect", member.Intellect, effInt},
+		{"Personality", member.Personality, effPers},
+		{"Endurance", member.Endurance, effEnd},
+		{"Accuracy", member.Accuracy, effAcc},
+		{"Speed", member.Speed, effSpeed},
+		{"Luck", member.Luck, effLuck},
 	}
 	for i, stat := range statLines {
 		x := col1X
@@ -407,7 +410,15 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			x = col2X
 		}
 		y := statY + (i%statRows)*rowH
-		drawDebugTextColored(screen, fmt.Sprintf("%s: %d", stat.name, stat.value), x, y, textColor)
+		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
+		drawDebugTextColored(screen, line, x, y, textColor)
+		if delta := stat.eff - stat.base; delta != 0 {
+			clr := color.RGBA{130, 210, 130, 255} // bonus green
+			if delta < 0 {
+				clr = color.RGBA{215, 120, 110, 255} // debuff red
+			}
+			drawDebugTextColored(screen, fmt.Sprintf(" (%+d)", delta), x+debugTextWidth(line), y, clr)
+		}
 		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
 			tooltip = statTooltipText(stat.name)
 			tooltipX = mouseX + 16

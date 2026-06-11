@@ -125,7 +125,7 @@ func TestTurnBasedRegenCapsAtMax(t *testing.T) {
 
 func TestTurnBasedRegenUsesEffectivePersonalityViaStatBonus(t *testing.T) {
 	g := turnBasedRegenSetup(t)
-	g.statBonus = 20 // Bless adds +20 to all stats → Personality 10 → effective 30 → regen 4
+	g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(20)}) // Personality 10 → effective 30 → regen 4
 
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
 		g.endPartyTurn()

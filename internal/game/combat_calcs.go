@@ -32,16 +32,16 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
 	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic —
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
-	scalingStat := char.GetEffectiveIntellect(cs.game.statBonus)
+	scalingStat := char.GetEffectiveIntellect()
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && spellScalesWithPersonality(def.School) {
-		scalingStat = char.GetEffectivePersonality(cs.game.statBonus)
+		scalingStat = char.GetEffectivePersonality()
 	}
 	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
 	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
 	// Personality/divisor term on top of the primary term. Both combat and the
 	// tooltip call this function, so the displayed number matches what's dealt.
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.ScalesWithPersonality {
-		perBonus := char.GetEffectivePersonality(cs.game.statBonus) / spells.SpellIntellectDivisor
+		perBonus := char.GetEffectivePersonality() / spells.SpellIntellectDivisor
 		intellectBonus += perBonus
 		totalDamage += perBonus
 	}
@@ -59,7 +59,7 @@ func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *char
 	if cs == nil || cs.game == nil || char == nil {
 		return 0, 0, 0
 	}
-	effectivePersonality := char.GetEffectivePersonality(cs.game.statBonus)
+	effectivePersonality := char.GetEffectivePersonality()
 	baseHeal, personalityBonus, totalHeal := spells.CalculateHealingAmountByID(spellID, effectivePersonality)
 	masteryBonus := cs.spellMasteryBonus(char, spellID)
 	if masteryBonus > 0 {
@@ -149,11 +149,16 @@ func (cs *CombatSystem) CalculateArmorClassContribution(item items.Item, char *c
 	if cs == nil || cs.game == nil || char == nil {
 		return 0
 	}
+	return cs.armorClassContributionWithEnd(item, char, char.GetEffectiveEndurance())
+}
+
+// armorClassContributionWithEnd is the precomputed-endurance variant: the
+// per-hit total loops every slot, and effective Endurance (a full equipment
+// scan) is identical for all of them — compute it once, not per piece.
+func (cs *CombatSystem) armorClassContributionWithEnd(item items.Item, char *character.MMCharacter, effectiveEndurance int) int {
 	baseArmor := item.Attributes["armor_class_base"]
 	baseArmor += cs.armorMasteryBonus(char, item)
-	enduranceDiv := item.Attributes["endurance_scaling_divisor"]
-	if enduranceDiv > 0 {
-		effectiveEndurance := char.GetEffectiveEndurance(cs.game.statBonus)
+	if enduranceDiv := item.Attributes["endurance_scaling_divisor"]; enduranceDiv > 0 {
 		baseArmor += effectiveEndurance / enduranceDiv
 	}
 	return baseArmor
@@ -165,6 +170,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 		return 0
 	}
 	total := 0
+	effEnd := char.GetEffectiveEndurance() // one equipment scan for all slots
 	armorSlots := []items.EquipSlot{
 		items.SlotArmor,
 		items.SlotHelmet,
@@ -172,10 +178,11 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 		items.SlotCloak,
 		items.SlotGauntlets,
 		items.SlotBelt,
+		items.SlotOffHand, // shields carry armor_class_base too
 	}
 	for _, slot := range armorSlots {
 		if armorPiece, hasArmor := char.Equipment[slot]; hasArmor {
-			total += cs.CalculateArmorClassContribution(armorPiece, char)
+			total += cs.armorClassContributionWithEnd(armorPiece, char, effEnd)
 		}
 	}
 	return total
@@ -198,7 +205,7 @@ func (cs *CombatSystem) CalculateActionCooldownFrames(char *character.MMCharacte
 	if cs.game.turnBasedMode {
 		return inputDebounceCooldown
 	}
-	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	speed := char.GetEffectiveSpeed()
 	return calculateSpeedActionCooldownFrames(speed)
 }
 
@@ -233,7 +240,7 @@ func (cs *CombatSystem) WeaponCooldownFrames(char *character.MMCharacter) int {
 	if cs == nil || cs.game == nil || char == nil {
 		return RTCooldownMinFrames
 	}
-	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	speed := char.GetEffectiveSpeed()
 	base := float64(calculateSpeedActionCooldownFrames(speed)) * RTBaseCooldownMult
 	mult := 1.0
 	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
@@ -287,7 +294,7 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 	} else {
 		seconds = SpellCooldownDefaultSecondsForLevel(1)
 	}
-	speed := char.GetEffectiveSpeed(cs.game.statBonus)
+	speed := char.GetEffectiveSpeed()
 	frames := seconds * float64(cs.game.config.GetTPS()) * spellCooldownSpeedFactor(speed)
 	// Equipped-weapon spell-cooldown modifier (caster staff perk).
 	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {

@@ -185,7 +185,7 @@ monster_ai:
   flee_speed_multiplier: 1.5    # Speed multiplier when fleeing
 
   # Vision and pathfinding
-  flee_vision_distance: 60.0    # Vision distance when fleeing (shorter, panicking)
+  flee_distance_tiles: 4        # How far a fleeing monster runs before reconsidering
 
   # AI frequency checks (in frames)
   path_check_frequency: 30      # Check for blocked paths every N frames

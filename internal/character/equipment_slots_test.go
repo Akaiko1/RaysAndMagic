@@ -71,7 +71,7 @@ func TestEquipmentStatBonusesFromYAML(t *testing.T) {
 	magicRing := items.CreateItemFromYAML("magic_ring")
 	character.EquipItem(magicRing)
 
-	_, intellect, personality, endurance, _, _, _ := character.GetEffectiveStats(0)
+	_, intellect, personality, endurance, _, _, _ := character.GetEffectiveStats()
 
 	wantInt := 30 + (30 / 6) // 35
 	wantPer := 25 + (25 / 8) // 28

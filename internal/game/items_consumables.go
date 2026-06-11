@@ -100,7 +100,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	if base, okBase := item.Attributes["heal_base"]; okBase {
 		if div, okDiv := item.Attributes["heal_endurance_divisor"]; okDiv && base > 0 && div > 0 {
 			ch := g.party.Members[selectedChar]
-			healAmount := base + (ch.Endurance / div)
+			healAmount := base + (ch.GetEffectiveEndurance() / div)
 			before := ch.HitPoints
 			ch.HitPoints += healAmount
 			if ch.HitPoints > ch.MaxHitPoints {

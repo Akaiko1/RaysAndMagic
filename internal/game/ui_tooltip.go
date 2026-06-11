@@ -263,9 +263,9 @@ func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSyste
 		}
 		secondary = def.BonusStatSecondary
 	}
-	primaryValue := getEffectiveStatValue(primary, char, combatSystem)
+	primaryValue := getEffectiveStatValue(primary, char)
 	if secondary != "" {
-		secondaryValue := getEffectiveStatValue(secondary, char, combatSystem)
+		secondaryValue := getEffectiveStatValue(secondary, char)
 		return fmt.Sprintf("Scales with %s/%d (Effective: %d) + %s/%d (Effective: %d)",
 			primary, WeaponPrimaryStatDivisor, primaryValue,
 			secondary, WeaponSecondaryStatDivisor, secondaryValue)
@@ -274,8 +274,8 @@ func weaponScalingLine(item items.Item, char *character.MMCharacter, combatSyste
 		primary, WeaponPrimaryStatDivisor, primaryValue)
 }
 
-func getEffectiveStatValue(statName string, char *character.MMCharacter, combatSystem *CombatSystem) int {
-	might, intellect, personality, endurance, accuracy, speed, luck := char.GetEffectiveStats(combatSystem.game.statBonus)
+func getEffectiveStatValue(statName string, char *character.MMCharacter) int {
+	might, intellect, personality, endurance, accuracy, speed, luck := char.GetEffectiveStats()
 	switch statName {
 	case "Might":
 		return might
@@ -390,11 +390,13 @@ func getAccessorySummary(item items.Item) string {
 	perDiv := item.Attributes["personality_scaling_divisor"]
 
 	parts := armorBonusParts(item)
+	// Scaling divisors are STAT bonuses (computed from the base stat) — they
+	// feed everything the stat feeds: spell power/healing AND MaxSP.
 	if intDiv > 0 {
-		parts = append(parts, fmt.Sprintf("Spell Power +Intellect/%d", intDiv))
+		parts = append(parts, fmt.Sprintf("Intellect +base/%d", intDiv))
 	}
 	if perDiv > 0 {
-		parts = append(parts, fmt.Sprintf("Spell Points +Personality/%d", perDiv))
+		parts = append(parts, fmt.Sprintf("Personality +base/%d", perDiv))
 	}
 	if len(parts) == 0 {
 		return "An accessory with minor benefits"

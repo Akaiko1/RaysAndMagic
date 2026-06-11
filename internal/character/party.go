@@ -149,9 +149,9 @@ func (p *Party) Update() {
 }
 
 // UpdateWithMode updates the party with knowledge of the current game mode
-func (p *Party) UpdateWithMode(turnBasedMode bool, statBonus int) {
+func (p *Party) UpdateWithMode(turnBasedMode bool) {
 	for _, member := range p.Members {
-		member.UpdateWithMode(turnBasedMode, statBonus)
+		member.UpdateWithMode(turnBasedMode)
 	}
 }
 

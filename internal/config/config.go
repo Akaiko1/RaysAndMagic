@@ -344,9 +344,14 @@ type SpellDefinitionConfig struct {
 	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
-	HealAmount  int     `yaml:"heal_amount,omitempty"`
-	StatBonus   int     `yaml:"stat_bonus,omitempty"`
-	VisionBonus float64 `yaml:"vision_bonus,omitempty"`
+	HealAmount int `yaml:"heal_amount,omitempty"`
+	StatBonus  int `yaml:"stat_bonus,omitempty"`
+	// StatBonuses is the per-stat alternative to the uniform stat_bonus
+	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
+	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
+	// with stat_bonus; validated at load.
+	StatBonuses map[string]int `yaml:"stat_bonuses,omitempty"`
+	VisionBonus float64        `yaml:"vision_bonus,omitempty"`
 
 	// Effect configuration
 	TargetSelf     bool   `yaml:"target_self,omitempty"`
@@ -377,7 +382,7 @@ type MonsterAIConfig struct {
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
 
 	// Vision distance used while fleeing
-	FleeVisionDistance float64 `yaml:"flee_vision_distance"`
+	FleeDistanceTiles  float64 `yaml:"flee_distance_tiles"`
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
@@ -740,11 +745,34 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSpellStatBonuses(&spellConfig); err != nil {
+		return nil, err
+	}
 
 	// Set global spell config for easy access
 	GlobalSpells = &spellConfig
 
 	return &spellConfig, nil
+}
+
+// validateSpellStatBonuses fails fast on malformed stat-buff authoring: a
+// per-stat map with an unknown stat name, or a spell mixing the uniform
+// stat_bonus with the per-stat stat_bonuses.
+func validateSpellStatBonuses(cfg *SpellSystemConfig) error {
+	for id, def := range cfg.Spells {
+		if len(def.StatBonuses) == 0 {
+			continue
+		}
+		if def.StatBonus > 0 {
+			return fmt.Errorf("spell '%s': stat_bonus and stat_bonuses are mutually exclusive", id)
+		}
+		for key := range def.StatBonuses {
+			if !IsStatName(key) {
+				return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+			}
+		}
+	}
+	return nil
 }
 
 // MustLoadSpellConfig loads the spell configuration and panics on error
@@ -801,12 +829,31 @@ func setupWeaponAccessor() {
 	// For now we'll define this in a separate function
 }
 
-// validWeaponBonusStats are the stat names a weapon may scale its damage with
-// (combat resolves them by name; a typo would silently scale from Might).
-var validWeaponBonusStats = map[string]bool{
-	"Might": true, "Intellect": true, "Personality": true,
-	"Endurance": true, "Accuracy": true, "Speed": true, "Luck": true,
+// StatNames is THE canonical, ordered list of the seven character stats
+// (lowercase — the YAML key convention). Validators, save serialization and
+// tooltip ordering all derive from it: adding a stat means extending this
+// list plus the StatBonuses struct/field mapping in the character package.
+var StatNames = [...]string{"might", "intellect", "personality", "endurance", "accuracy", "speed", "luck"}
+
+// IsStatName reports whether s is a canonical lowercase stat name.
+func IsStatName(s string) bool {
+	for _, n := range StatNames {
+		if n == s {
+			return true
+		}
+	}
+	return false
 }
+
+// validWeaponBonusStats: weapons.yaml authors Title-case stat names
+// ("Might"); derived from the canonical list at init.
+var validWeaponBonusStats = func() map[string]bool {
+	m := make(map[string]bool, len(StatNames))
+	for _, n := range StatNames {
+		m[strings.ToUpper(n[:1])+n[1:]] = true
+	}
+	return m
+}()
 
 func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 	for key, def := range cfg.Weapons {
@@ -923,8 +970,18 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 }
 
 // validateItemConfig enforces per-type required attributes for consumables
+// validEquipSlots are the equip_slot names items.yaml may use — a typo would
+// otherwise silently route the item to the armor slot.
+var validEquipSlots = map[string]bool{
+	"armor": true, "helmet": true, "boots": true, "cloak": true,
+	"gauntlets": true, "belt": true, "amulet": true, "ring": true, "offhand": true,
+}
+
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
+		if def.EquipSlot != "" && !validEquipSlots[def.EquipSlot] {
+			return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
+		}
 		switch def.Type {
 		case "consumable":
 			// If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)

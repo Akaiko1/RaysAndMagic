@@ -163,6 +163,14 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	if !g.party.SwapActiveReserve(activeIdx, reserveIdx) {
 		return false
 	}
+	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
+	// current bonuses, the benched one sheds them — otherwise a swap freezes a
+	// buff on the bench forever (or the newcomer fights unbuffed).
+	incoming := g.party.Members[activeIdx]
+	incoming.BuffBonuses = g.statBonuses
+	incoming.RecalculateMaxStatsKeepingCurrent(g.config)
+	outgoing.BuffBonuses = character.StatBonuses{}
+	outgoing.RecalculateMaxStatsKeepingCurrent(g.config)
 	g.drainOwedChoices(activeIdx)
 	return true
 }
@@ -589,7 +597,7 @@ func (g *MMGame) trainSkill(char *character.MMCharacter, skillType character.Ski
 	if !upgradeSkillMastery(char, skillType) {
 		return false
 	}
-	char.RecalculateMaxStatsKeepingCurrent(g.config)
+	char.RecalculateMaxStatsGrantingGain(g.config)
 	return true
 }
 

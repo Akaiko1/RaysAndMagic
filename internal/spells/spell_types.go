@@ -2,6 +2,7 @@ package spells
 
 import (
 	"fmt"
+	"strings"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -30,7 +31,8 @@ type SpellDefinition struct {
 	IsProjectile       bool
 	IsUtility          bool
 	StatusIcon         string
-	StatBonus          int // Stat bonus for buff spells like Bless
+	StatBonus          int            // Uniform stat bonus for buff spells like Bless
+	StatBonuses        map[string]int // Per-stat alternative (lowercase stat keys)
 	// Damage-formula modifiers (default behaviour when zero/false)
 	DamageCostMultiplier  int  // base = cost × SpellDamagePerSP × this (default 1)
 	ScalesWithPersonality bool // also add Personality/divisor to spell damage
@@ -93,6 +95,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		IsUtility:               configDef.IsUtility,
 		StatusIcon:              configDef.StatusIcon,
 		StatBonus:               configDef.StatBonus,
+		StatBonuses:             configDef.StatBonuses,
 		DamageCostMultiplier:    configDef.DamageCostMultiplier,
 		ScalesWithPersonality:   configDef.ScalesWithPersonality,
 		StunRadiusTiles:         configDef.StunRadiusTiles,
@@ -240,6 +243,15 @@ func (d SpellDefinition) EffectLines() []string {
 	}
 	if d.StatBonus > 0 {
 		out = append(out, fmt.Sprintf("Bonus scales with %s mastery", d.School))
+	}
+	if len(d.StatBonuses) > 0 {
+		// Per-stat buffs are authored absolute (no mastery scaling) — the exact
+		// numbers are character-independent, so they belong in this shared SSoT.
+		for _, key := range config.StatNames {
+			if v, ok := d.StatBonuses[key]; ok && v != 0 {
+				out = append(out, fmt.Sprintf("%+d %s (whole party)", v, strings.ToUpper(key[:1])+key[1:]))
+			}
+		}
 	}
 	return out
 }

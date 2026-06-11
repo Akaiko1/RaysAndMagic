@@ -297,15 +297,13 @@ func (ih *InputHandler) restartNewGame() {
 	g.wizardEyeDuration = 0
 	g.walkOnWaterActive = false
 	g.walkOnWaterDuration = 0
-	g.blessActive = false
-	g.blessDuration = 0
-	g.blessStatBonus = 0
+	g.statBuffs = nil
 	g.waterBreathingActive = false
 	g.waterBreathingDuration = 0
 	g.underwaterReturnX = 0
 	g.underwaterReturnY = 0
 	g.underwaterReturnMap = ""
-	g.statBonus = 0
+	g.statBonuses = character.StatBonuses{}
 
 	// Reset turn-based state
 	g.turnBasedMode = false
@@ -917,13 +915,24 @@ func (ih *InputHandler) handleCombatInput() {
 
 	switch kind {
 	case rtActWeapon:
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
-	case rtActSmart:
-		if cast, spellID := ih.game.combat.SmartAttack(); cast {
-			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
+		if ih.game.combat.EquipmentMeleeAttack() {
+			ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
 		} else {
+			// No weapon after all (capability raced an unequip): pass the turn
+			// on without a cooldown so a held key doesn't stick here.
+			ih.game.advanceRTActor(rtActWeapon)
+		}
+	case rtActSmart:
+		acted, spellID := ih.game.combat.SmartAttack()
+		switch {
+		case spellID != "":
+			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
+		case acted:
 			ih.commitRTAction(rtActSmart, ih.game.combat.WeaponCooldownFrames(sel))
+		default:
+			// Nothing this hero could do (no weapon, no castable spell, no one
+			// to heal): hand the selection on instead of looping on them.
+			ih.game.advanceRTActor(rtActSmart)
 		}
 	case rtActCast:
 		ih.castSlottedSpell(sel)
@@ -2015,15 +2024,17 @@ func (ih *InputHandler) handleTurnBasedInput() {
 
 	switch {
 	case ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR): // melee/ranged weapon attack
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.consumeSelectedCharAction()
+		if ih.game.combat.EquipmentMeleeAttack() {
+			ih.game.consumeSelectedCharAction()
+		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
-		ih.game.combat.SmartAttack()
-		ih.game.consumeSelectedCharAction()
+		if acted, _ := ih.game.combat.SmartAttack(); acted {
+			ih.game.consumeSelectedCharAction()
+		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
 		spell, hasSpell := selected.Equipment[items.SlotSpell]

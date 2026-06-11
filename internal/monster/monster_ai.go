@@ -587,8 +587,8 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 	}
 
 	fleeDistance := tileSize * 4
-	if m.config != nil && m.config.MonsterAI.FleeVisionDistance > 0 {
-		fleeDistance = m.config.MonsterAI.FleeVisionDistance
+	if m.config != nil && m.config.MonsterAI.FleeDistanceTiles > 0 {
+		fleeDistance = m.config.MonsterAI.FleeDistanceTiles * tileSize
 	}
 
 	dx := m.X - playerX
@@ -609,6 +609,11 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 		targetY := m.Y + math.Sin(angle)*fleeDistance
 		tileX := worldToTile(targetX)
 		tileY := worldToTile(targetY)
+		if m.isAtTile(tileX, tileY) {
+			// The own tile is never a flee target: "reaching" it instantly
+			// re-looped the picker forever (and skipped the flee timeout).
+			continue
+		}
 		centerX, centerY := tileToWorldCenter(tileX, tileY)
 		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 			return TileCoord{X: tileX, Y: tileY}, true
@@ -1191,14 +1196,39 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, pl
 		return
 	}
 
+	// Flee is over — reconsider instead of standing dazed: the party still in
+	// reach (the same hysteresis radius that keeps engagement alive) → rejoin
+	// the fight; party gone → wander home. This check runs FIRST: the movement
+	// code below has early returns, and detection is fully disabled while
+	// fleeing — a skipped timeout meant a permanently blind, frozen monster.
+	if m.StateTimer > fleeDuration {
+		m.clearMoveTarget()
+		m.StateTimer = 0
+
+		detectionRadius := m.AlertRadius
+		if detectionRadius <= 0 {
+			detectionRadius = 4.0 * tileSize
+		}
+		disengageMult := 2.0
+		if m.config != nil && m.config.MonsterAI.DisengageDistanceMultiplier > 0 {
+			disengageMult = m.config.MonsterAI.DisengageDistanceMultiplier
+		}
+		if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
+			m.IsEngagingPlayer = true
+			m.State = StateAlert
+		} else {
+			m.State = StatePatrolling
+			m.Direction = m.GetDirectionToSpawn()
+		}
+		return
+	}
+
 	// Reset RT target when state changes
 	if m.MoveTargetState != StateFleeing {
 		m.clearMoveTarget()
 	}
 
-	shouldPickNewTarget := !m.hasMoveTarget(StateFleeing)
-
-	if shouldPickNewTarget {
+	if !m.hasMoveTarget(StateFleeing) {
 		if target, ok := m.pickFleeTarget(collisionChecker, playerX, playerY); ok {
 			m.setMoveTarget(StateFleeing, target.X, target.Y)
 		}
@@ -1213,12 +1243,6 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, pl
 		if !m.followPathToTile(collisionChecker, target.X, target.Y) {
 			m.clearMoveTarget()
 		}
-	}
-
-	// Stop fleeing after a while
-	if m.StateTimer > fleeDuration {
-		m.State = StateIdle
-		m.StateTimer = 0
 	}
 }
 

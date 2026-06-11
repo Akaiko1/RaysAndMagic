@@ -67,6 +67,12 @@ type MMCharacter struct {
 	SpellPoints    int
 	MaxSpellPoints int
 
+	// BuffBonuses is the aggregate of active temporary stat buffs (Bless, ...),
+	// pushed by the game whenever a buff is applied/expires/loads. Effective
+	// stats AND derived MaxHP/MaxSP read it, so buffs behave like real stats.
+	// Runtime-only: rebuilt from buff state on load, never saved per character.
+	BuffBonuses StatBonuses
+
 	// Primary attributes
 	Might       int // Physical strength and melee damage
 	Intellect   int // Spell points and spell damage
@@ -126,9 +132,9 @@ const (
 
 // ActionSlotsForTurn returns the number of attack/spell slots this character
 // gets per turn-based round, based on effective Speed (see the threshold
-// constants above). statBonus is the global Bless-style stat buff (0 if none).
-func (c *MMCharacter) ActionSlotsForTurn(statBonus int) int {
-	speed := c.GetEffectiveSpeed(statBonus)
+// constants above; buffs flow in via BuffBonuses).
+func (c *MMCharacter) ActionSlotsForTurn() int {
+	speed := c.GetEffectiveSpeed()
 	switch {
 	case speed > SpeedActionSlot3Threshold:
 		return 3
@@ -287,32 +293,69 @@ func (c *MMCharacter) ApplyRace(race string, cfg *config.Config) {
 	c.Luck += mods.Luck
 }
 
-func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
-	// Calculate hit points (Endurance based) + Bodybuilding bonus
-	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
-	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
-	c.HitPoints = c.MaxHitPoints
+// derivedStatMultipliers returns the HP/SP formula multipliers, falling back to
+// the shipped config.yaml values when no config is reachable (equip paths in
+// minimal tests).
+func derivedStatMultipliers(cfg *config.Config) (endurMult, levelHPMult, levelSPMult int) {
+	if cfg == nil {
+		cfg = config.GlobalConfig
+	}
+	if cfg == nil {
+		return 2, 3, 2
+	}
+	return cfg.Characters.HitPoints.EnduranceMultiplier,
+		cfg.Characters.HitPoints.LevelMultiplier,
+		cfg.Characters.SpellPoints.LevelMultiplier
+}
 
-	// Calculate spell points (Intellect + Personality based + equipment bonuses)
-	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
+// recomputeMaxFromEffective derives MaxHP/MaxSP from the EFFECTIVE stats
+// (base + equipment + buffs) — the single formula every recalc path shares:
+//
+//	MaxHP = effEndurance×endurMult + Level×levelHPMult (+ Bodybuilding)
+//	MaxSP = effIntellect + effPersonality + Level×levelSPMult
+func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
+	endurMult, levelHPMult, levelSPMult := derivedStatMultipliers(cfg)
+	_, effInt, effPers, effEnd, _, _, _ := c.GetEffectiveStats()
+	baseMaxHP := effEnd*endurMult + c.Level*levelHPMult
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
+	c.MaxSpellPoints = effInt + effPers + c.Level*levelSPMult
+}
+
+// CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current
+// HP/SP — character creation and level-up only. Everything else (equip, stat
+// spend, buff change) goes through RecalculateMaxStatsKeepingCurrent.
+func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
+	c.recomputeMaxFromEffective(cfg)
+	c.HitPoints = c.MaxHitPoints
 	c.SpellPoints = c.MaxSpellPoints
 }
 
-// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP after a stat change
-// (e.g. spending a single stat point) WITHOUT fully healing: any increase in a
-// max is added to the current value and current is capped at the new max, so a
-// hurt character only gains the stat's bonus, not a free full heal. Use this
-// instead of CalculateDerivedStats, which fully restores (intended only at
-// character creation and on level-up).
+// RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for REVERSIBLE
+// stat changes (equip/unequip, buff apply/expire): the maxima move, the
+// CURRENT values never grow — only get capped. Granting current on a gain
+// here would be a pump: equip +End (+HP granted) → unequip (cap can't take it
+// back) → repeat until full. Irreversible gains (spending a stat point,
+// training Bodybuilding) go through RecalculateMaxStatsGrantingGain.
 func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
+	c.recomputeMaxFromEffective(cfg)
+
+	if c.HitPoints > c.MaxHitPoints {
+		c.HitPoints = c.MaxHitPoints
+	}
+	if c.SpellPoints > c.MaxSpellPoints {
+		c.SpellPoints = c.MaxSpellPoints
+	}
+}
+
+// RecalculateMaxStatsGrantingGain is the IRREVERSIBLE-change variant: a max
+// increase is also added to the current value (spending an Endurance point
+// immediately gives its HP). Never use for equip/buff changes — those can be
+// reverted and would pump current HP/SP through cycles.
+func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	oldMaxHP := c.MaxHitPoints
 	oldMaxSP := c.MaxSpellPoints
 
-	baseMaxHP := c.Endurance*cfg.Characters.HitPoints.EnduranceMultiplier + c.Level*cfg.Characters.HitPoints.LevelMultiplier
-	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
-	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	c.MaxSpellPoints = c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*cfg.Characters.SpellPoints.LevelMultiplier
+	c.recomputeMaxFromEffective(cfg)
 
 	if c.MaxHitPoints > oldMaxHP {
 		c.HitPoints += c.MaxHitPoints - oldMaxHP
@@ -329,11 +372,11 @@ func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
 }
 
 func (c *MMCharacter) Update() {
-	c.UpdateWithStatBonus(0)
+	c.updateRegenAndPoison()
 }
 
 // UpdateWithMode updates the character with knowledge of the current game mode
-func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, statBonus int) {
+func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 	// Skip timer-based regeneration in turn-based mode
 	if turnBasedMode {
 		tps := config.GetTargetTPS()
@@ -345,11 +388,12 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool, statBonus int) {
 	}
 
 	// Use normal timer-based regeneration in real-time mode
-	c.UpdateWithStatBonus(statBonus)
+	c.updateRegenAndPoison()
 }
 
-// UpdateWithStatBonus updates the character and applies stat-based regen using the provided bonus.
-func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
+// updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
+// via BuffBonuses).
+func (c *MMCharacter) updateRegenAndPoison() {
 	tps := config.GetTargetTPS()
 	if tps <= 0 {
 		tps = 60
@@ -363,14 +407,14 @@ func (c *MMCharacter) UpdateWithStatBonus(statBonus int) {
 	// Regenerate spell points on a fixed cadence.
 	c.spellRegenTimer++
 	if c.spellRegenTimer >= ManaRegenIntervalFrames {
-		c.RegenerateSpellPoints(statBonus)
+		c.RegenerateSpellPoints()
 		c.spellRegenTimer = 0 // Reset timer
 	}
 }
 
 // CalculateManaRegenAmount returns SP regen per tick based on effective Personality.
-func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
-	effectivePersonality := c.GetEffectivePersonality(statBonus)
+func (c *MMCharacter) CalculateManaRegenAmount() int {
+	effectivePersonality := c.GetEffectivePersonality()
 	// Meditation speeds recovery: extra SP per regen tick per mastery tier.
 	regen := 1 + (effectivePersonality / ManaRegenPersonalityDivisor) + c.SkillTier(SkillMeditation)*MeditationRegenPerTier
 	if regen < 1 {
@@ -383,14 +427,14 @@ func (c *MMCharacter) CalculateManaRegenAmount(statBonus int) int {
 // at MaxSpellPoints. No-op for KO/unconscious characters and for those
 // already at max SP. Used by both the real-time tick timer and the
 // turn-based round counter so both paths share the same skip/cap rules.
-func (c *MMCharacter) RegenerateSpellPoints(statBonus int) {
+func (c *MMCharacter) RegenerateSpellPoints() {
 	if !c.CanAct() {
 		return
 	}
 	if c.SpellPoints >= c.MaxSpellPoints {
 		return
 	}
-	c.SpellPoints += c.CalculateManaRegenAmount(statBonus)
+	c.SpellPoints += c.CalculateManaRegenAmount()
 	if c.SpellPoints > c.MaxSpellPoints {
 		c.SpellPoints = c.MaxSpellPoints
 	}
@@ -709,59 +753,60 @@ func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
 }
 
 // GetEffectiveStats returns character stats with any active bonuses applied (spells + equipment)
-func (c *MMCharacter) GetEffectiveStats(statBonus int) (might, intellect, personality, endurance, accuracy, speed, luck int) {
-	// Calculate equipment bonuses (YAML-driven)
+func (c *MMCharacter) GetEffectiveStats() (might, intellect, personality, endurance, accuracy, speed, luck int) {
+	// Calculate equipment bonuses (YAML-driven); buffs come from BuffBonuses
+	// (pushed by the game when spells like Bless apply/expire).
 	eqMight, eqIntellect, eqPersonality, eqEndurance, eqAccuracy, eqSpeed, eqLuck := c.calculateEquipmentBonuses()
 
-	return c.Might + statBonus + eqMight,
-		c.Intellect + statBonus + eqIntellect,
-		c.Personality + statBonus + eqPersonality,
-		c.Endurance + statBonus + eqEndurance,
-		c.Accuracy + statBonus + eqAccuracy,
-		c.Speed + statBonus + eqSpeed,
-		c.Luck + statBonus + eqLuck
+	return c.Might + c.BuffBonuses.Might + eqMight,
+		c.Intellect + c.BuffBonuses.Intellect + eqIntellect,
+		c.Personality + c.BuffBonuses.Personality + eqPersonality,
+		c.Endurance + c.BuffBonuses.Endurance + eqEndurance,
+		c.Accuracy + c.BuffBonuses.Accuracy + eqAccuracy,
+		c.Speed + c.BuffBonuses.Speed + eqSpeed,
+		c.Luck + c.BuffBonuses.Luck + eqLuck
 }
 
 // GetEffectiveMight returns effective Might with bonuses applied
-func (c *MMCharacter) GetEffectiveMight(statBonus int) int {
+func (c *MMCharacter) GetEffectiveMight() int {
 	eqBonus, _, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Might + statBonus + eqBonus
+	return c.Might + c.BuffBonuses.Might + eqBonus
 }
 
 // GetEffectiveIntellect returns effective Intellect with bonuses applied
-func (c *MMCharacter) GetEffectiveIntellect(statBonus int) int {
+func (c *MMCharacter) GetEffectiveIntellect() int {
 	_, eqBonus, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Intellect + statBonus + eqBonus
+	return c.Intellect + c.BuffBonuses.Intellect + eqBonus
 }
 
 // GetEffectivePersonality returns effective Personality with bonuses applied
-func (c *MMCharacter) GetEffectivePersonality(statBonus int) int {
+func (c *MMCharacter) GetEffectivePersonality() int {
 	_, _, eqBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Personality + statBonus + eqBonus
+	return c.Personality + c.BuffBonuses.Personality + eqBonus
 }
 
 // GetEffectiveEndurance returns effective Endurance with bonuses applied
-func (c *MMCharacter) GetEffectiveEndurance(statBonus int) int {
+func (c *MMCharacter) GetEffectiveEndurance() int {
 	_, _, _, eqBonus, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Endurance + statBonus + eqBonus
+	return c.Endurance + c.BuffBonuses.Endurance + eqBonus
 }
 
 // GetEffectiveAccuracy returns effective Accuracy with bonuses applied
-func (c *MMCharacter) GetEffectiveAccuracy(statBonus int) int {
+func (c *MMCharacter) GetEffectiveAccuracy() int {
 	_, _, _, _, eqBonus, _, _ := c.calculateEquipmentBonuses()
-	return c.Accuracy + statBonus + eqBonus
+	return c.Accuracy + c.BuffBonuses.Accuracy + eqBonus
 }
 
 // GetEffectiveSpeed returns effective Speed with bonuses applied
-func (c *MMCharacter) GetEffectiveSpeed(statBonus int) int {
+func (c *MMCharacter) GetEffectiveSpeed() int {
 	_, _, _, _, _, eqBonus, _ := c.calculateEquipmentBonuses()
-	return c.Speed + statBonus + eqBonus
+	return c.Speed + c.BuffBonuses.Speed + eqBonus
 }
 
 // GetEffectiveLuck returns effective Luck with bonuses applied
-func (c *MMCharacter) GetEffectiveLuck(statBonus int) int {
+func (c *MMCharacter) GetEffectiveLuck() int {
 	_, _, _, _, _, _, eqBonus := c.calculateEquipmentBonuses()
-	return c.Luck + statBonus + eqBonus
+	return c.Luck + c.BuffBonuses.Luck + eqBonus
 }
 
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)
@@ -774,9 +819,10 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 		if div := it.Attributes["personality_scaling_divisor"]; div > 0 {
 			personalityBonus += c.Personality / div
 		}
-		if div := it.Attributes["endurance_scaling_divisor"]; div > 0 {
-			enduranceBonus += c.Endurance / div
-		}
+		// endurance_scaling_divisor is deliberately NOT a stat bonus: it is the
+		// armor piece's AC formula input (AC = base + effective End / divisor,
+		// see CalculateArmorClassContribution). Feeding it back into Endurance
+		// made every armor piece inflate every other piece's AC.
 		// Flat bonuses
 		if bonus := it.Attributes["bonus_might"]; bonus > 0 {
 			mightBonus += bonus
@@ -813,28 +859,10 @@ func (c *MMCharacter) GearResistPct(school string) int {
 	return total
 }
 
-// updateDerivedStatsForEquipment recalculates max SP while preserving current SP intelligently
+// updateDerivedStatsForEquipment re-derives MaxHP/MaxSP after an equip change,
+// preserving current HP/SP (gain is added, loss only caps — no free healing).
+// Same formula as every other recalc path: effective stats drive both maxima,
+// so endurance/intellect gear finally shows up in HP/SP.
 func (c *MMCharacter) updateDerivedStatsForEquipment() {
-	// Save current values
-	oldMaxSP := c.MaxSpellPoints
-	currentSP := c.SpellPoints
-
-	// Recalculate max SP with equipment bonuses
-	_, _, equipmentPersonalityBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	newMaxSP := c.Intellect + c.Personality + equipmentPersonalityBonus + c.Level*2 // Level multiplier from config
-	c.MaxSpellPoints = newMaxSP
-
-	// Smart SP update: if we gained max SP, grant the bonus to current SP too
-	if newMaxSP > oldMaxSP {
-		spBonus := newMaxSP - oldMaxSP
-		c.SpellPoints = currentSP + spBonus
-		// Cap at new maximum
-		if c.SpellPoints > c.MaxSpellPoints {
-			c.SpellPoints = c.MaxSpellPoints
-		}
-	}
-	// If we lost max SP (unequipping), just cap current SP at new max
-	if c.SpellPoints > c.MaxSpellPoints {
-		c.SpellPoints = c.MaxSpellPoints
-	}
+	c.RecalculateMaxStatsKeepingCurrent(nil) // nil → config.GlobalConfig / defaults
 }
