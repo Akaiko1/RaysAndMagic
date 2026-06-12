@@ -225,6 +225,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 			target.AddCondition(character.ConditionUnconscious)
 		}
 		gl.game.TriggerDamageBlink(targetIndex)
+		gl.combat.tryApplyMonsterPoison(monster, target)
 
 		suffix := ""
 		if attacks > 1 {

@@ -103,6 +103,10 @@ const (
 
 // Combat reach distances in tiles. Multiplied by tile size at call time.
 const (
+	// TurnBasedInputCooldownSeconds throttles party move/rotate repeats in
+	// turn-based mode (frames are derived from TPS at the call site).
+	TurnBasedInputCooldownSeconds = 0.15
+
 	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
 	// trigger reaches when starting / entering turn-based mode.
 	TurnBasedVisionRangeTiles = 6.0

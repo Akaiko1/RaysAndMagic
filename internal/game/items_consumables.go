@@ -100,6 +100,12 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	if base, okBase := item.Attributes["heal_base"]; okBase {
 		if div, okDiv := item.Attributes["heal_endurance_divisor"]; okDiv && base > 0 && div > 0 {
 			ch := g.party.Members[selectedChar]
+			if ch.HasCondition(character.ConditionUnconscious) {
+				// Plain heals never revive: raising HP above 0 while Unconscious
+				// would let a follow-up Heal clear the condition without revival magic.
+				g.AddCombatMessage(fmt.Sprintf("%s is unconscious and needs revival, not a potion.", ch.Name))
+				return false
+			}
 			if ch.HitPoints >= ch.MaxHitPoints {
 				// Nothing to heal: keep the potion instead of wasting it.
 				g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))

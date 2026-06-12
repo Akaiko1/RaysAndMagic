@@ -220,7 +220,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 		// Initialize tethering system
 		SpawnX:           x,
 		SpawnY:           y,
-		TetherRadius:     256.0, // 4 tiles * 64 pixels per tile
+		TetherRadius:     4 * tileSize, // 4 tiles
 		IsEngagingPlayer: false,
 	}
 

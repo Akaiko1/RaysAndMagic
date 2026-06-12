@@ -282,11 +282,49 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 	return rewards
 }
 
-// NPCSave tracks persistent NPC flags across maps
+// NPCSave tracks persistent NPC flags across maps. Identity is MapKey + spawn
+// coordinates (deterministic from the map file) — display names can repeat on
+// one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
+// coordinates fall back to name matching on restore.
 type NPCSave struct {
-	MapKey  string `json:"map_key"`
-	Name    string `json:"name"`
-	Visited bool   `json:"visited"`
+	MapKey  string  `json:"map_key"`
+	Name    string  `json:"name"`
+	X       float64 `json:"x,omitempty"`
+	Y       float64 `json:"y,omitempty"`
+	Visited bool    `json:"visited"`
+	// Remaining merchant quantities, aligned with the YAML stock order.
+	StockQuantities []int `json:"stock_quantities,omitempty"`
+}
+
+// clearTransientCombatState drops every in-flight transient tied to the
+// CURRENT world: projectiles, swings, VFX and pending deaths. Must run on any
+// world swap (map switch, save load) or leftovers keep updating against the
+// new map and can hit monsters there.
+func (g *MMGame) clearTransientCombatState() {
+	g.projectileMutex.Lock()
+	if g.collisionSystem != nil {
+		// applySave rebuilds the collision system anyway; switchToMap keeps it,
+		// so stale projectile entities must be dropped explicitly.
+		for i := range g.magicProjectiles {
+			g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
+		}
+		for i := range g.arrows {
+			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
+		}
+		for i := range g.meleeAttacks {
+			g.collisionSystem.UnregisterEntity(g.meleeAttacks[i].ID)
+		}
+	}
+	g.magicProjectiles = g.magicProjectiles[:0]
+	g.arrows = g.arrows[:0]
+	g.meleeAttacks = g.meleeAttacks[:0]
+	g.projectileMutex.Unlock()
+	g.slashEffects = g.slashEffects[:0]
+	g.hitEffectsMu.Lock()
+	g.spellHitEffects = g.spellHitEffects[:0]
+	g.impactLights = g.impactLights[:0]
+	g.hitEffectsMu.Unlock()
+	g.deadMonsterIDs = g.deadMonsterIDs[:0]
 }
 
 // SaveSummary is lightweight info used for menu display
@@ -643,7 +681,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if wm != nil {
 		for mapKey, w := range wm.LoadedMaps {
 			for _, npc := range w.NPCs {
-				nstates = append(nstates, NPCSave{MapKey: mapKey, Name: npc.Name, Visited: npc.Visited})
+				ns := NPCSave{MapKey: mapKey, Name: npc.Name, X: npc.X, Y: npc.Y, Visited: npc.Visited}
+				if len(npc.MerchantStock) > 0 {
+					ns.StockQuantities = make([]int, len(npc.MerchantStock))
+					for i, entry := range npc.MerchantStock {
+						ns.StockQuantities[i] = entry.Quantity
+					}
+				}
+				nstates = append(nstates, ns)
 			}
 		}
 	}
@@ -735,19 +780,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Update world reference and visuals
 	g.world = wm.GetCurrentWorld()
 
-	// Drop every in-flight transient from the PRE-load timeline: projectiles,
-	// swings, VFX and pending deaths belong to the world being replaced. Their
-	// collision entities vanish with the collision-system rebuild below.
-	g.projectileMutex.Lock()
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.arrows = g.arrows[:0]
-	g.meleeAttacks = g.meleeAttacks[:0]
-	g.projectileMutex.Unlock()
-	g.slashEffects = g.slashEffects[:0]
-	g.hitEffectsMu.Lock()
-	g.spellHitEffects = g.spellHitEffects[:0]
-	g.hitEffectsMu.Unlock()
-	g.deadMonsterIDs = g.deadMonsterIDs[:0]
+	g.clearTransientCombatState()
 
 	g.UpdateSkyAndGroundColors()
 	g.collisionSystem.UpdateTileChecker(g.world)
@@ -863,13 +896,29 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		}
 	}
 
-	// Restore NPC visited flags across maps
+	// Restore NPC state across maps (visited flags + merchant stock)
 	if wm != nil {
 		for _, ns := range save.NPCStates {
-			if w, ok := wm.LoadedMaps[ns.MapKey]; ok {
-				for _, npc := range w.NPCs {
-					if npc.Name == ns.Name {
-						npc.Visited = ns.Visited
+			w, ok := wm.LoadedMaps[ns.MapKey]
+			if !ok {
+				continue
+			}
+			for _, npc := range w.NPCs {
+				// Coordinate match when the save has them; legacy saves
+				// (X==Y==0) fall back to the old name match.
+				if ns.X != 0 || ns.Y != 0 {
+					if npc.X != ns.X || npc.Y != ns.Y || npc.Name != ns.Name {
+						continue
+					}
+				} else if npc.Name != ns.Name {
+					continue
+				}
+				npc.Visited = ns.Visited
+				// Stock layout comes from YAML; apply saved quantities only
+				// while the lengths agree (a YAML edit invalidates the save).
+				if len(ns.StockQuantities) == len(npc.MerchantStock) {
+					for i, q := range ns.StockQuantities {
+						npc.MerchantStock[i].Quantity = q
 					}
 				}
 			}

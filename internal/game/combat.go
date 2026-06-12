@@ -34,175 +34,23 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 		return false
 	}
 
-	// Check if character has a spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
 		return false // No spell equipped
 	}
-
-	// Check spell points (use spell cost for spells)
-	var spellCost int
-	if spell.Type == items.ItemBattleSpell || spell.Type == items.ItemUtilitySpell {
-		spellCost = cs.effectiveSpellCost(caster, spell.SpellCost)
-	} else {
-		// This shouldn't happen - SlotSpell should only contain spells
-		return false
+	if spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell {
+		return false // SlotSpell should only contain spells
 	}
-
-	if caster.SpellPoints < spellCost {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			caster.Name, caster.SpellPoints, spellCost))
-		return false
-	}
-
-	// Cast the equipped spell
-	caster.SpellPoints -= spellCost
 
 	spellID := spells.SpellID(spell.SpellEffect)
-
-	// Check if this is a utility spell (non-projectile)
-	castingSystem := spells.NewCastingSystem(cs.game.config)
 	spellDef, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
 		return false
 	}
-	// Data-driven effect spells (AoE stun, party buffs, resurrect) — no
-	// projectile, no direct damage.
-	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
-		return true
-	}
-	if spellDef.IsUtility {
-		// Handle utility spells (like Torch Light)
-		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Intellect)
-		if err != nil {
-			cs.game.AddCombatMessage("Spell failed: " + err.Error())
-			return false
-		}
 
-		// Apply the utility spell effects to the game
-		if result.Success {
-			// Normalize core spell values through centralized calculators.
-			if spellDef.HealAmount > 0 {
-				_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
-				result.HealAmount = totalHeal
-			}
-			if spellDef.StatBonus > 0 {
-				result.StatBonus = cs.CalculateSpellStatBonus(spellID, caster)
-			}
-			if spellDef.Duration > 0 {
-				result.Duration = cs.CalculateSpellDurationFrames(spellID, caster)
-			}
-			// Add combat message
-			cs.game.AddCombatMessage(result.Message)
-
-			// Apply healing effects for heal spells
-			if result.HealAmount > 0 {
-				if spellDef.HealParty {
-					// Mass Heal: restore every party member.
-					cs.healWholeParty(result.HealAmount)
-				} else {
-					// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
-					cs.healMember(cs.game.selectedChar, result.HealAmount)
-				}
-			}
-
-			// Apply utility spell effects dynamically based on spell ID
-			switch string(spellID) {
-			case "torch_light":
-				cs.game.torchLightActive = true
-				cs.game.torchLightDuration = result.Duration
-				cs.game.torchLightRadius = TorchLightRadiusTiles
-			case "wizard_eye":
-				cs.game.wizardEyeActive = true
-				cs.game.wizardEyeDuration = result.Duration
-			case "walk_on_water":
-				cs.game.walkOnWaterActive = true
-				cs.game.walkOnWaterDuration = result.Duration
-			case "water_breathing":
-				cs.game.waterBreathingActive = true
-				cs.game.waterBreathingDuration = result.Duration
-				// Store current position and map for return teleportation when effect expires
-				cs.game.underwaterReturnX = cs.game.camera.X
-				cs.game.underwaterReturnY = cs.game.camera.Y
-				if world.GlobalWorldManager != nil {
-					cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-				}
-			}
-
-			// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID —
-			// any spell authored with a bonus block applies it; different buff
-			// spells stack, recasting one refreshes it.
-			if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
-				cs.applyStatBuffSpell(spellID, result.Duration, cs.spellStatBuffBonuses(spellID, caster))
-			}
-
-			cs.game.setUtilityStatus(spellID, result.Duration)
-			return true
-		}
-		return false
-	}
-
-	// For projectile spells, create a projectile using effective intellect (includes Bless bonus)
-	effectiveIntellect := caster.GetEffectiveIntellect()
-	projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
-	if err != nil {
-		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return false
-	}
-	// Override damage with centralized calculation (includes mastery bonus).
-	if _, _, totalDamage := cs.CalculateSpellDamage(spellID, caster); totalDamage > 0 {
-		projectile.Damage = totalDamage
-	}
-	if spellDef.DealsNoDamage {
-		projectile.Damage = 0 // Disintegrate: only the instakill roll matters
-	}
-
-	// Get spell-specific config dynamically
-	spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
-	if err != nil {
-		cs.game.AddCombatMessage("Spell config error: " + err.Error())
-		return false
-	}
-	disintegrateChance := 0.0
-	if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
-		disintegrateChance = spellDefConfig.DisintegrateChance
-	}
-
-	// Determine critical hit for spells based on Luck only (no base crit for spells)
-	isCrit, _ := cs.RollCriticalChance(0, caster)
-	if isCrit {
-		projectile.Damage *= CritDamageMultiplier
-	}
-
-	// Create magic projectile with proper type information
-	magicProjectile := MagicProjectile{
-		ID:                 cs.game.GenerateProjectileID(string(spellID)),
-		Attacker:           cs.activeAttacker(),
-		X:                  projectile.X,
-		Y:                  projectile.Y,
-		VelX:               projectile.VelX,
-		VelY:               projectile.VelY,
-		Damage:             projectile.Damage,
-		LifeTime:           projectile.LifeTime,
-		Active:             projectile.Active,
-		SpellType:          string(spellID),
-		Size:               projectile.Size,
-		Crit:               isCrit,
-		DisintegrateChance: disintegrateChance,
-		Owner:              ProjectileOwnerPlayer,
-	}
-	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
-
-	// Register with collision system
-	tileSize := cs.game.config.GetTileSize()
-	collisionSize := spellConfig.GetCollisionSizePixels(tileSize) // Use spell-specific collision size in tiles
-	projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
-	cs.game.collisionSystem.RegisterEntity(projectileEntity)
-
-	// Note: Combat message for spell casting is now only generated when projectile hits a target
-	// This prevents spam of "X casts Y!" messages for attacks that miss
-	return true
+	// Quick-cast stays quiet on launch; the hit itself reports (anti-spam).
+	return cs.castResolvedSpell(spellID, spellDef, caster, cs.effectiveSpellCost(caster, spell.SpellCost), false)
 }
 
 // CastEquippedHealOnTarget casts heal using equipped spell on specified party member
@@ -886,54 +734,65 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 		return false
 	}
 
-	// Check spell points
-	spellCost := cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost)
-	if currentChar.SpellPoints < spellCost {
+	return cs.castResolvedSpell(selectedSpellID, selectedSpellDef, currentChar,
+		cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost), true)
+}
+
+// castResolvedSpell is the ONE cast path behind both the equipped quick-slot
+// and the spellbook: SP gate, special effects, projectile spawn and utility
+// application all live here so the two entry points cannot drift. announce
+// controls the "Casting X!" launch message (quick-cast stays quiet).
+func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool) bool {
+	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			currentChar.Name, currentChar.SpellPoints, spellCost))
+			caster.Name, caster.SpellPoints, spellCost))
 		return false
 	}
+	caster.SpellPoints -= spellCost
 
-	// Cast the spell
-	currentChar.SpellPoints -= spellCost
-
-	// Data-driven effect spells (AoE stun, party buffs, resurrect).
-	if cs.tryCastSpecialEffect(selectedSpellID, selectedSpellDef, currentChar) {
+	// Data-driven effect spells (AoE stun, party buffs, resurrect) — no
+	// projectile, no direct damage.
+	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
 		return true
 	}
 
-	// Dynamic spell casting - no more hardcoded switches!
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 
-	if selectedSpellDef.IsProjectile {
-		// Handle projectile spells dynamically using effective intellect (includes Bless bonus)
-		effectiveIntellect := currentChar.GetEffectiveIntellect()
-		projectile, err := castingSystem.CreateProjectile(selectedSpellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
+	if spellDef.IsProjectile {
+		effectiveIntellect := caster.GetEffectiveIntellect()
+		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return false
 		}
 		// Override damage with centralized calculation (includes mastery bonus).
-		if _, _, totalDamage := cs.CalculateSpellDamage(selectedSpellID, currentChar); totalDamage > 0 {
+		if _, _, totalDamage := cs.CalculateSpellDamage(spellID, caster); totalDamage > 0 {
 			projectile.Damage = totalDamage
 		}
-		if selectedSpellDef.DealsNoDamage {
+		if spellDef.DealsNoDamage {
 			projectile.Damage = 0 // Disintegrate: only the instakill roll matters
 		}
 
-		// Determine critical hit for spells based on Luck only (no base crit for spells)
-		isCrit, _ := cs.RollCriticalChance(0, currentChar)
-		if isCrit {
-			projectile.Damage *= CritDamageMultiplier
+		// Resolve spell config before spawning anything so a config error
+		// can't leave a projectile without a collision entity.
+		spellConfig, err := cs.game.config.GetSpellConfig(string(spellID))
+		if err != nil {
+			cs.game.AddCombatMessage("Spell config error: " + err.Error())
+			return false
 		}
 		disintegrateChance := 0.0
-		if spellDefConfig, exists := config.GetSpellDefinition(string(selectedSpellID)); exists && spellDefConfig != nil {
+		if spellDefConfig, exists := config.GetSpellDefinition(string(spellID)); exists && spellDefConfig != nil {
 			disintegrateChance = spellDefConfig.DisintegrateChance
 		}
 
-		// Create magic projectile using unified system
+		// Critical hit for spells is based on Luck only (no base crit for spells)
+		isCrit, _ := cs.RollCriticalChance(0, caster)
+		if isCrit {
+			projectile.Damage *= CritDamageMultiplier
+		}
+
 		magicProjectile := MagicProjectile{
-			ID:                 cs.game.GenerateProjectileID(string(selectedSpellID)),
+			ID:                 cs.game.GenerateProjectileID(string(spellID)),
 			Attacker:           cs.activeAttacker(),
 			X:                  projectile.X,
 			Y:                  projectile.Y,
@@ -942,98 +801,100 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 			Damage:             projectile.Damage,
 			LifeTime:           projectile.LifeTime,
 			Active:             projectile.Active,
-			SpellType:          string(selectedSpellID),
+			SpellType:          string(spellID),
+			Size:               projectile.Size,
 			Crit:               isCrit,
 			DisintegrateChance: disintegrateChance,
 			Owner:              ProjectileOwnerPlayer,
 		}
 		cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
 
-		// Register projectile with collision system using dynamic config
-		spellConfig, err := cs.game.config.GetSpellConfig(string(selectedSpellID))
-		if err != nil {
-			cs.game.AddCombatMessage("Spell config error: " + err.Error())
-			return false
-		}
 		tileSize := cs.game.config.GetTileSize()
 		collisionSize := spellConfig.GetCollisionSizePixels(tileSize)
 		projectileEntity := collision.NewEntity(magicProjectile.ID, magicProjectile.X, magicProjectile.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
 		cs.game.collisionSystem.RegisterEntity(projectileEntity)
 
-		// Add message based on spell definition
-		cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", selectedSpellDef.Name))
+		if announce {
+			cs.game.AddCombatMessage(fmt.Sprintf("Casting %s!", spellDef.Name))
+		}
+		return true
+	}
 
-	} else if selectedSpellDef.IsUtility {
-		// Handle utility spells using centralized system
-		result, err := castingSystem.ApplyUtilitySpell(selectedSpellID, currentChar.Personality)
+	if spellDef.IsUtility {
+		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Personality)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return false
 		}
-
-		if result.Success {
-			// Normalize core spell values through centralized calculators.
-			if selectedSpellDef.HealAmount > 0 {
-				_, _, totalHeal := cs.CalculateSpellHealing(selectedSpellID, currentChar)
-				result.HealAmount = totalHeal
-			}
-			if selectedSpellDef.StatBonus > 0 {
-				result.StatBonus = cs.CalculateSpellStatBonus(selectedSpellID, currentChar)
-			}
-			if selectedSpellDef.Duration > 0 {
-				result.Duration = cs.CalculateSpellDurationFrames(selectedSpellID, currentChar)
-			}
-
-			// Apply effects based on spell result
-			cs.game.AddCombatMessage(result.Message)
-
-			// Apply healing
-			if result.HealAmount > 0 {
-				if selectedSpellDef.HealParty {
-					cs.healWholeParty(result.HealAmount)
-				} else {
-					cs.healMember(cs.game.selectedChar, result.HealAmount)
-				}
-			}
-
-			// Apply vision effects
-			if result.VisionBonus > 0 {
-				switch string(selectedSpellID) {
-				case "torch_light":
-					cs.game.torchLightActive = true
-					cs.game.torchLightDuration = result.Duration
-					cs.game.torchLightRadius = TorchLightRadiusTiles
-				case "wizard_eye":
-					cs.game.wizardEyeActive = true
-					cs.game.wizardEyeDuration = result.Duration
-				}
-			}
-
-			// Apply movement effects
-			if result.WaterWalk {
-				cs.game.walkOnWaterActive = true
-				cs.game.walkOnWaterDuration = result.Duration
-			}
-			if result.WaterBreathing {
-				cs.game.waterBreathingActive = true
-				cs.game.waterBreathingDuration = result.Duration
-				// Store current position and map for return teleportation when effect expires
-				cs.game.underwaterReturnX = cs.game.camera.X
-				cs.game.underwaterReturnY = cs.game.camera.Y
-				if world.GlobalWorldManager != nil {
-					cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
-				}
-			}
-
-			// Apply stat bonus effects
-			if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
-				cs.applyStatBuffSpell(selectedSpellID, result.Duration, cs.spellStatBuffBonuses(selectedSpellID, currentChar))
-			}
-
-			cs.game.setUtilityStatus(selectedSpellID, result.Duration)
+		if !result.Success {
+			return false
 		}
+
+		// Normalize core spell values through centralized calculators.
+		if spellDef.HealAmount > 0 {
+			_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
+			result.HealAmount = totalHeal
+		}
+		if spellDef.StatBonus > 0 {
+			result.StatBonus = cs.CalculateSpellStatBonus(spellID, caster)
+		}
+		if spellDef.Duration > 0 {
+			result.Duration = cs.CalculateSpellDurationFrames(spellID, caster)
+		}
+		cs.game.AddCombatMessage(result.Message)
+
+		// Apply healing
+		if result.HealAmount > 0 {
+			if spellDef.HealParty {
+				// Mass Heal: restore every party member.
+				cs.healWholeParty(result.HealAmount)
+			} else {
+				// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
+				cs.healMember(cs.game.selectedChar, result.HealAmount)
+			}
+		}
+
+		// Apply vision effects
+		if result.VisionBonus > 0 {
+			switch string(spellID) {
+			case "torch_light":
+				cs.game.torchLightActive = true
+				cs.game.torchLightDuration = result.Duration
+				cs.game.torchLightRadius = TorchLightRadiusTiles
+			case "wizard_eye":
+				cs.game.wizardEyeActive = true
+				cs.game.wizardEyeDuration = result.Duration
+			}
+		}
+
+		// Apply movement effects
+		if result.WaterWalk {
+			cs.game.walkOnWaterActive = true
+			cs.game.walkOnWaterDuration = result.Duration
+		}
+		if result.WaterBreathing {
+			cs.game.waterBreathingActive = true
+			cs.game.waterBreathingDuration = result.Duration
+			// Store current position and map for return teleportation when effect expires
+			cs.game.underwaterReturnX = cs.game.camera.X
+			cs.game.underwaterReturnY = cs.game.camera.Y
+			if world.GlobalWorldManager != nil {
+				cs.game.underwaterReturnMap = world.GlobalWorldManager.CurrentMapKey
+			}
+		}
+
+		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID —
+		// any spell authored with a bonus block applies it; different buff
+		// spells stack, recasting one refreshes it.
+		if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
+			cs.applyStatBuffSpell(spellID, result.Duration, cs.spellStatBuffBonuses(spellID, caster))
+		}
+
+		cs.game.setUtilityStatus(spellID, result.Duration)
+		return true
 	}
-	return true
+
+	return false
 }
 
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
@@ -1235,12 +1096,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
 		}
 
-		if monster.PoisonChance > 0 && rand.Float64() < monster.PoisonChance {
-			// poison_duration_seconds is guaranteed by load-time validation.
-			poisonFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
-			currentChar.ApplyPoison(poisonFrames)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", currentChar.Name))
-		}
+		cs.tryApplyMonsterPoison(monster, currentChar)
 	} else {
 		// Announce dodge and skip damage blink below
 		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
@@ -1252,6 +1108,18 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	cs.game.TriggerDamageBlink(targetIndex)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
+}
+
+// tryApplyMonsterPoison rolls the attacker's PoisonChance against a character
+// that just took a hit. Shared by the RT and TB melee paths.
+func (cs *CombatSystem) tryApplyMonsterPoison(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
+	if monster.PoisonChance <= 0 || rand.Float64() >= monster.PoisonChance {
+		return
+	}
+	// poison_duration_seconds is guaranteed by load-time validation.
+	poisonFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
+	target.ApplyPoison(poisonFrames)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", target.Name))
 }
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {

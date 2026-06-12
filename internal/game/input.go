@@ -1260,6 +1260,7 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update world reference and collision system
 	oldWorld := ih.game.world
 	ih.game.world = ih.game.GetCurrentWorld()
+	ih.game.clearTransientCombatState()
 	if ih.game.collisionSystem != nil {
 		ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
 		// Unregister old world monsters
@@ -1992,7 +1993,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if moved {
-			ih.game.turnBasedMoveCooldown = 18 // 0.3 second at 60 FPS
+			ih.game.turnBasedMoveCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
 		}
 	}
 
@@ -2010,7 +2011,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if rotated {
-			ih.game.turnBasedRotCooldown = 18 // 0.3 second at 60 FPS
+			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
 		}
 	}
 

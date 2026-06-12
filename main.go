@@ -56,6 +56,7 @@ func main() {
 	}
 
 	// Load monster configuration (needed before world loading)
+	monster.SetTileSize(cfg.GetTileSize())
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
 	// Load aggro relationships (which party traits enrage passive monsters)

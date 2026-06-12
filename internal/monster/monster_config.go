@@ -261,9 +261,9 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Experience = def.Experience
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
-	// Convert tile-based radii to pixels (1 tile = 64 pixels)
-	m.AlertRadius = def.AlertRadius * 64.0
-	m.AttackRadius = def.AttackRadius * 64.0
+	// Convert tile-based radii to pixels (package tileSize, set from config)
+	m.AlertRadius = def.AlertRadius * tileSize
+	m.AttackRadius = def.AttackRadius * tileSize
 	m.Speed = def.Speed
 
 	// Set random gold within range
@@ -294,7 +294,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.PassiveUntilAttacked = def.PassiveUntilHit
 	m.HatesTraits = HatesTable[m.Key] // party traits that enrage this passive monster (hates.yaml)
 	if def.RangedAttackRange > 0 {
-		m.RangedAttackRange = def.RangedAttackRange * 64.0
+		m.RangedAttackRange = def.RangedAttackRange * tileSize
 	}
 	if def.FireburstChance > 0 {
 		m.FireburstChance = def.FireburstChance
@@ -312,7 +312,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.PoisonDurationSec = def.PoisonDurationSec
 	}
 	if def.PounceRangeTiles > 0 {
-		m.PounceRangePixels = def.PounceRangeTiles * 64.0
+		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
 	m.IgnoresArmor = def.IgnoresArmor
@@ -327,7 +327,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.LightRadius = 0
 	m.LightIntensity = 0
 	if def.Light != nil && def.Light.Enabled {
-		m.LightRadius = def.Light.RadiusTiles * 64.0
+		m.LightRadius = def.Light.RadiusTiles * tileSize
 		m.LightIntensity = def.Light.Intensity
 	}
 }
