@@ -531,36 +531,26 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 
 // dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
 func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
-	switch string(spellID) {
-	case "torch_light":
-		if ui.game.torchLightActive {
-			ui.game.torchLightDuration = 0 // Let updateTorchLightEffect handle cleanup
-			ui.game.AddCombatMessage("Torch Light dispelled!")
+	// Flag effects (torch / wizard eye / water): zero the duration and let the
+	// next tick expire it naturally — onExpire side effects (e.g. the
+	// underwater return teleport) fire exactly as on a normal timeout.
+	for _, b := range ui.game.timedBuffs() {
+		if b.id != spellID {
+			continue
 		}
-	case "wizard_eye":
-		if ui.game.wizardEyeActive {
-			ui.game.wizardEyeDuration = 0 // Let updateWizardEyeEffect handle cleanup
-			ui.game.AddCombatMessage("Wizard Eye dispelled!")
+		if *b.active {
+			*b.duration = 0
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
 		}
-	case "walk_on_water":
-		if ui.game.walkOnWaterActive {
-			ui.game.walkOnWaterDuration = 0 // Let updateWalkOnWaterEffect handle cleanup
-			ui.game.AddCombatMessage("Walk on Water dispelled!")
-		}
-	case "water_breathing":
-		if ui.game.waterBreathingActive {
-			ui.game.waterBreathingDuration = 0 // Let updateWaterBreathingEffect handle cleanup (including underwater return)
-			ui.game.AddCombatMessage("Water Breathing dispelled!")
-		}
-	default:
-		// Registry buffs (stat AND combat) dispel by spell id.
-		if _, ok := ui.game.statBuffByID(string(spellID)); ok {
-			ui.game.removeStatBuff(string(spellID))
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellID))
-		} else if _, ok := ui.game.combatBuffByID(string(spellID)); ok {
-			ui.game.removeCombatBuff(string(spellID))
-			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellID))
-		}
+		return
+	}
+	// Registry buffs (stat AND combat) dispel by spell id.
+	if _, ok := ui.game.statBuffByID(string(spellID)); ok {
+		ui.game.removeStatBuff(string(spellID))
+		ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
+	} else if _, ok := ui.game.combatBuffByID(string(spellID)); ok {
+		ui.game.removeCombatBuff(string(spellID))
+		ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellDisplayName(spellID)))
 	}
 }
 

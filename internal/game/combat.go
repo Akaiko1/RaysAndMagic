@@ -100,64 +100,23 @@ func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 		return false
 	}
 
-	// Check if character has a heal spell equipped
 	spell, hasSpell := caster.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return false // No spell equipped
+		return false
 	}
-
 	// Allow both heal-type spells for targeting
 	if spell.SpellEffect != items.SpellEffectHealSelf && spell.SpellEffect != items.SpellEffectHealOther {
-		return false // Not a heal spell
-	}
-
-	spellIDStr := string(spell.SpellEffect)
-	if spellIDStr == "" {
-		return false
-	}
-	spellID := spells.SpellID(spellIDStr)
-
-	// Check spell points (use spell cost for utility spells)
-	spellCost := cs.effectiveSpellCost(caster, spell.SpellCost)
-	if caster.SpellPoints < spellCost {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
-			caster.Name, caster.SpellPoints, spellCost))
 		return false
 	}
 
-	// For First Aid (SpellEffectHealSelf), only allow self-targeting
-	if spell.SpellEffect == items.SpellEffectHealSelf && targetIndex != cs.game.selectedChar {
-		return false // First Aid can only target self
-	}
-
-	// Check if target index is valid
-	if targetIndex < 0 || targetIndex >= len(cs.game.party.Members) {
+	spellID := spells.SpellID(spell.SpellEffect)
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
 		return false
 	}
-
-	target := cs.game.party.Members[targetIndex]
-
-	// Heal must not revive characters at 0 HP / Dead.
-	if target.HitPoints <= 0 || target.HasCondition(character.ConditionDead) || target.HasCondition(character.ConditionEradicated) {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s cannot be healed from 0 HP.", target.Name))
-		return false
-	}
-
-	// Cast heal on target
-	caster.SpellPoints -= spellCost
-	// Calculate heal amount using centralized spell formula
-	_, _, healAmount := cs.CalculateSpellHealing(spellID, caster)
-	cs.healMember(targetIndex, healAmount)
-
-	// Print feedback message
-	if targetIndex == cs.game.selectedChar {
-		message := fmt.Sprintf("%s healed themselves for %d HP with %s!", caster.Name, healAmount, spell.Name)
-		cs.game.AddCombatMessage(message)
-	} else {
-		message := fmt.Sprintf("%s healed %s for %d HP with %s!", caster.Name, target.Name, healAmount, spell.Name)
-		cs.game.AddCombatMessage(message)
-	}
-	return true
+	// SP gate, target resolution (self-only heals redirect to the caster),
+	// 0-HP refusal, cost and messages all live in the ONE heal cast path.
+	return cs.castKnownHealOn(spellID, def, targetIndex)
 }
 
 // bestKnownHealSpell returns the most powerful heal spell the caster knows
@@ -759,16 +718,15 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 
 	if spellDef.IsProjectile {
-		effectiveIntellect := caster.GetEffectiveIntellect()
-		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle, effectiveIntellect)
+		projectile, err := castingSystem.CreateProjectile(spellID, cs.game.camera.X, cs.game.camera.Y, cs.game.camera.Angle)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return false
 		}
-		// Override damage with centralized calculation (includes mastery bonus).
-		if _, _, totalDamage := cs.CalculateSpellDamage(spellID, caster); totalDamage > 0 {
-			projectile.Damage = totalDamage
-		}
+		// CreateProjectile carries physics only; damage is authored HERE
+		// (effective stats + mastery), once.
+		_, _, totalDamage := cs.CalculateSpellDamage(spellID, caster)
+		projectile.Damage = totalDamage
 		if spellDef.DealsNoDamage {
 			projectile.Damage = 0 // Disintegrate: only the instakill roll matters
 		}
@@ -821,7 +779,9 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 	}
 
 	if spellDef.IsUtility {
-		result, err := castingSystem.ApplyUtilitySpell(spellID, caster.Personality)
+		// ApplyUtilitySpell resolves flags + message only; every NUMBER
+		// (heal total, duration, stat bonuses) is computed here, once.
+		result, err := castingSystem.ApplyUtilitySpell(spellID)
 		if err != nil {
 			cs.game.AddCombatMessage("Spell failed: " + err.Error())
 			return false
@@ -830,27 +790,21 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			return false
 		}
 
-		// Normalize core spell values through centralized calculators.
-		if spellDef.HealAmount > 0 {
-			_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
-			result.HealAmount = totalHeal
-		}
-		if spellDef.StatBonus > 0 {
-			result.StatBonus = cs.CalculateSpellStatBonus(spellID, caster)
-		}
+		duration := 0
 		if spellDef.Duration > 0 {
-			result.Duration = cs.CalculateSpellDurationFrames(spellID, caster)
+			duration = cs.CalculateSpellDurationFrames(spellID, caster)
 		}
 		cs.game.AddCombatMessage(result.Message)
 
 		// Apply healing
-		if result.HealAmount > 0 {
+		if spellDef.HealAmount > 0 {
+			_, _, totalHeal := cs.CalculateSpellHealing(spellID, caster)
 			if spellDef.HealParty {
 				// Mass Heal: restore every party member.
-				cs.healWholeParty(result.HealAmount)
+				cs.healWholeParty(totalHeal)
 			} else {
 				// Fallback self-heal (mouse-targeted heals go via CastEquippedHealOnTarget).
-				cs.healMember(cs.game.selectedChar, result.HealAmount)
+				cs.healMember(cs.game.selectedChar, totalHeal)
 			}
 		}
 
@@ -859,22 +813,22 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			switch string(spellID) {
 			case "torch_light":
 				cs.game.torchLightActive = true
-				cs.game.torchLightDuration = result.Duration
+				cs.game.torchLightDuration = duration
 				cs.game.torchLightRadius = TorchLightRadiusTiles
 			case "wizard_eye":
 				cs.game.wizardEyeActive = true
-				cs.game.wizardEyeDuration = result.Duration
+				cs.game.wizardEyeDuration = duration
 			}
 		}
 
 		// Apply movement effects
 		if result.WaterWalk {
 			cs.game.walkOnWaterActive = true
-			cs.game.walkOnWaterDuration = result.Duration
+			cs.game.walkOnWaterDuration = duration
 		}
 		if result.WaterBreathing {
 			cs.game.waterBreathingActive = true
-			cs.game.waterBreathingDuration = result.Duration
+			cs.game.waterBreathingDuration = duration
 			// Store current position and map for return teleportation when effect expires
 			cs.game.underwaterReturnX = cs.game.camera.X
 			cs.game.underwaterReturnY = cs.game.camera.Y
@@ -886,11 +840,11 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID —
 		// any spell authored with a bonus block applies it; different buff
 		// spells stack, recasting one refreshes it.
-		if result.StatBonus > 0 || len(result.StatBonuses) > 0 {
-			cs.applyStatBuffSpell(spellID, result.Duration, cs.spellStatBuffBonuses(spellID, caster))
+		if spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0 {
+			cs.applyStatBuffSpell(spellID, duration, cs.spellStatBuffBonuses(spellID, caster))
 		}
 
-		cs.game.setUtilityStatus(spellID, result.Duration)
+		cs.game.setUtilityStatus(spellID, duration)
 		return true
 	}
 
@@ -1294,7 +1248,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3D, spellID spells.SpellID, targetX, targetY float64, owner ProjectileOwner) {
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
-	projectile, err := castingSystem.CreateProjectile(spellID, monster.X, monster.Y, angle, 0)
+	projectile, err := castingSystem.CreateProjectile(spellID, monster.X, monster.Y, angle)
 	if err != nil {
 		return
 	}

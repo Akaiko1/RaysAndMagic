@@ -542,24 +542,7 @@ func skillTypeFromKey(key string) (character.SkillType, bool) {
 }
 
 func addSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {
-	def, err := spells.GetSpellDefinitionByID(spellID)
-	if err != nil {
-		return false
-	}
-	school := character.MagicSchoolID(def.School)
-	if char.MagicSchools[school] == nil {
-		char.MagicSchools[school] = &character.MagicSkill{
-			Mastery:     character.MasteryNovice,
-			KnownSpells: make([]spells.SpellID, 0),
-		}
-	}
-	for _, existing := range char.MagicSchools[school].KnownSpells {
-		if existing == spellID {
-			return false
-		}
-	}
-	char.MagicSchools[school].KnownSpells = append(char.MagicSchools[school].KnownSpells, spellID)
-	return true
+	return char.LearnSpell(spellID)
 }
 
 func characterKnowsSpellByID(char *character.MMCharacter, spellID spells.SpellID) bool {

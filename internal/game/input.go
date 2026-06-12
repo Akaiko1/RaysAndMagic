@@ -285,20 +285,8 @@ func (ih *InputHandler) restartNewGame() {
 	g.saveRenameInput = ""
 	g.exitRequested = false
 
-	// Reset utility effects and bonuses
-	g.torchLightActive = false
-	g.torchLightDuration = 0
-	g.torchLightRadius = 0
-	g.wizardEyeActive = false
-	g.wizardEyeDuration = 0
-	g.walkOnWaterActive = false
-	g.walkOnWaterDuration = 0
-	g.resetTimedEffects() // stat buffs (+aggregate), combat buffs, steam zones
-	g.waterBreathingActive = false
-	g.waterBreathingDuration = 0
-	g.underwaterReturnX = 0
-	g.underwaterReturnY = 0
-	g.underwaterReturnMap = ""
+	// Reset every timed effect family (buffs, zones, utility flags)
+	g.resetTimedEffects()
 
 	// Reset turn-based state
 	g.turnBasedMode = false
@@ -1740,38 +1728,17 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	ih.game.AddCombatMessage(msg)
 }
 
-// characterKnowsSpell checks if a character already knows a spell
-// addSpellToCharacter adds a spell to a character's spellbook; reports whether
-// the spellbook actually changed (false: unresolvable spell or already known —
-// the caller must not charge for it). The school is only opened once the spell
-// is known to resolve, so a failure can't leave an empty school behind.
+// addSpellToCharacter teaches a shop spell; reports whether the spellbook
+// actually changed (false: unresolvable spell or already known — the caller
+// must not charge for it). Resolution and learning go through the ONE path
+// (LearnSpell), which also picks the school from spells.yaml rather than the
+// trader catalog.
 func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) bool {
-	targetSchool := character.MagicSchoolID(spellData.School)
-
-	// Convert spell name to SpellID using centralized mapping
 	spellIDToAdd, err := spells.GetSpellIDByName(spellData.Name)
 	if err != nil {
 		return false // Spell not found
 	}
-
-	// Ensure the character has the magic school
-	if char.MagicSchools[targetSchool] == nil {
-		char.MagicSchools[targetSchool] = &character.MagicSkill{
-			Mastery:     character.MasteryNovice,
-			KnownSpells: make([]spells.SpellID, 0),
-		}
-	}
-
-	// Check if character already has this spell
-	for _, existingSpell := range char.MagicSchools[targetSchool].KnownSpells {
-		if existingSpell == spellIDToAdd {
-			return false // Already knows this spell
-		}
-	}
-
-	// Add the spell ID to the school
-	char.MagicSchools[targetSchool].KnownSpells = append(char.MagicSchools[targetSchool].KnownSpells, spellIDToAdd)
-	return true
+	return char.LearnSpell(spellIDToAdd)
 }
 
 // handleDialogMouseInput handles mouse input in dialog mode

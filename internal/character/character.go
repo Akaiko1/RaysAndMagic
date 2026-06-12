@@ -626,6 +626,31 @@ func (c *MMCharacter) GetAvailableSchools() []MagicSchoolID {
 }
 
 // GetSpellsForSchool returns the spell IDs for a specific magic school
+// LearnSpell adds a spell to the school its DEFINITION declares (spells.yaml
+// is the source of truth, not the caller), opening that school at Novice if
+// needed. Reports whether the spellbook changed (false: unknown spell or
+// already known) — the ONE learn path for level-ups, promotions and shops.
+func (c *MMCharacter) LearnSpell(spellID spells.SpellID) bool {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return false
+	}
+	school := MagicSchoolID(def.School)
+	if c.MagicSchools[school] == nil {
+		c.MagicSchools[school] = &MagicSkill{
+			Mastery:     MasteryNovice,
+			KnownSpells: make([]spells.SpellID, 0),
+		}
+	}
+	for _, existing := range c.MagicSchools[school].KnownSpells {
+		if existing == spellID {
+			return false
+		}
+	}
+	c.MagicSchools[school].KnownSpells = append(c.MagicSchools[school].KnownSpells, spellID)
+	return true
+}
+
 func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID {
 	if magicSkill, exists := c.MagicSchools[school]; exists {
 		return magicSkill.KnownSpells

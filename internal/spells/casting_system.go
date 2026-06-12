@@ -64,14 +64,15 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 	return
 }
 
-func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, angle float64, casterIntellect int) (ProjectileData, error) {
+// CreateProjectile builds the PHYSICS of a spell projectile (velocity,
+// lifetime, size). Damage is authored by the caller (CombatSystem owns every
+// number: stats, mastery, crits; monsters use their own attack damage) — this
+// layer deliberately computes none.
+func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, angle float64) (ProjectileData, error) {
 	def, err := GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return ProjectileData{}, err
 	}
-
-	// Use centralized damage calculation
-	_, _, damage := CalculateSpellDamageByID(spellID, casterIntellect)
 
 	// Get physics config (tile-based)
 	physics, err := cs.config.GetSpellConfig(string(spellID))
@@ -91,7 +92,6 @@ func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, ang
 		Y:        casterY,
 		VelX:     math.Cos(angle) * velocity,
 		VelY:     math.Sin(angle) * velocity,
-		Damage:   damage,
 		LifeTime: lifetime,
 		Active:   true,
 		SpellID:  spellID,
@@ -99,72 +99,28 @@ func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, ang
 	}, nil
 }
 
-// ApplyUtilitySpell applies utility spell effects using YAML configuration
-func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID, casterPersonality int) (UtilitySpellResult, error) {
+// ApplyUtilitySpell resolves the EFFECT FLAGS of a utility spell from YAML
+// (vision/water flags + cast message). All numbers — heal totals, durations,
+// stat bonuses — are computed by CombatSystem (stats, mastery), never here.
+func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID) (UtilitySpellResult, error) {
 	def, err := GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return UtilitySpellResult{}, err
 	}
-
-	// Dynamic utility spell effect application based on YAML properties
-	result := UtilitySpellResult{
-		Success: true,
-		Message: def.Message, // Use message from YAML
-	}
-
-	tps := config.GetTargetTPS()
-
-	// Apply effects directly from YAML configuration - no hardcoded logic!
-	if def.Duration > 0 {
-		result.Duration = def.Duration * tps // Convert to frames
-	}
-
-	if def.HealAmount > 0 {
-		// Calculate actual healing based on caster stats
-		_, _, healAmount := CalculateHealingAmountByID(spellID, casterPersonality)
-		result.HealAmount = healAmount
-		result.TargetSelf = def.TargetSelf
-	}
-
-	if def.VisionBonus > 0 {
-		result.VisionBonus = def.VisionBonus
-	}
-
-	if def.StatBonus > 0 {
-		result.StatBonus = def.StatBonus
-	}
-	if len(def.StatBonuses) > 0 {
-		result.StatBonuses = def.StatBonuses
-	}
-
-	if def.Awaken {
-		result.Awaken = true
-	}
-
-	if def.WaterWalk {
-		result.WaterWalk = true
-		result.Duration = def.Duration * tps // Convert to frames
-	}
-
-	if def.WaterBreathing {
-		result.WaterBreathing = true
-		result.Duration = def.Duration * tps // Convert to frames
-	}
-
-	return result, nil
+	return UtilitySpellResult{
+		Success:        true,
+		Message:        def.Message,
+		VisionBonus:    def.VisionBonus,
+		WaterWalk:      def.WaterWalk,
+		WaterBreathing: def.WaterBreathing,
+	}, nil
 }
 
 // UtilitySpellResult represents the result of casting a utility spell
 type UtilitySpellResult struct {
 	Success        bool
 	Message        string
-	HealAmount     int
-	TargetSelf     bool
-	StatBonus      int
-	StatBonuses    map[string]int
 	VisionBonus    float64
-	Duration       int // In frames
-	Awaken         bool
 	WaterWalk      bool
 	WaterBreathing bool
 }

@@ -430,17 +430,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	skillY := statY + statRows*rowH + 12
 	drawDebugTextColored(screen, "SKILLS", col1X, skillY, mutedTextColor)
 	skillY += rowH + 2
-	skillOrder := []character.SkillType{
-		character.SkillSword, character.SkillDagger, character.SkillAxe,
-		character.SkillSpear, character.SkillBow, character.SkillMace,
-		character.SkillStaff, character.SkillLeather, character.SkillChain,
-		character.SkillPlate, character.SkillShield, character.SkillBodybuilding,
-		character.SkillMeditation, character.SkillMerchant, character.SkillRepair,
-		character.SkillIdentifyItem, character.SkillDisarmTrap, character.SkillLearning,
-		character.SkillArmsMaster,
-	}
 	skillIdx := 0
-	for _, st := range skillOrder {
+	for _, st := range character.AllSkills {
 		if skillIdx >= skillRows*2 {
 			break // ran out of column space; rest is hidden
 		}
