@@ -1526,6 +1526,12 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	if len(schools) == 0 {
 		return
 	}
+	// The school list is PER CHARACTER: switching members (keys 1-4, mouse)
+	// can shrink it under a stale index — clamp before any schools[...] access.
+	if ih.game.selectedSchool >= len(schools) || ih.game.selectedSchool < 0 {
+		ih.game.selectedSchool = 0
+		ih.game.selectedSpell = -1
+	}
 
 	// Navigation: step one spell per key press so the user can't overshoot.
 	// No cooldown needed — IsKeyJustPressed already debounces to one step per press.
@@ -1719,11 +1725,13 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		return
 	}
 
-	// Purchase the spell
+	// Teach FIRST, charge after: a spell that fails to resolve must not eat
+	// the gold (and must not leave an empty school behind).
+	if !ih.addSpellToCharacter(selectedChar, spellData) {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot be taught right now.", spellData.Name))
+		return
+	}
 	ih.game.party.Gold -= spellData.Cost
-
-	// Add spell to character's spellbook
-	ih.addSpellToCharacter(selectedChar, spellData)
 
 	msg := fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)
 	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.Success != "" {
@@ -1737,9 +1745,18 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 }
 
 // characterKnowsSpell checks if a character already knows a spell
-// addSpellToCharacter adds a spell to a character's spellbook
-func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) {
+// addSpellToCharacter adds a spell to a character's spellbook; reports whether
+// the spellbook actually changed (false: unresolvable spell or already known —
+// the caller must not charge for it). The school is only opened once the spell
+// is known to resolve, so a failure can't leave an empty school behind.
+func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) bool {
 	targetSchool := character.MagicSchoolID(spellData.School)
+
+	// Convert spell name to SpellID using centralized mapping
+	spellIDToAdd, err := spells.GetSpellIDByName(spellData.Name)
+	if err != nil {
+		return false // Spell not found
+	}
 
 	// Ensure the character has the magic school
 	if char.MagicSchools[targetSchool] == nil {
@@ -1749,21 +1766,16 @@ func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellDa
 		}
 	}
 
-	// Convert spell name to SpellID using centralized mapping
-	spellIDToAdd, err := spells.GetSpellIDByName(spellData.Name)
-	if err != nil {
-		return // Spell not found
-	}
-
 	// Check if character already has this spell
 	for _, existingSpell := range char.MagicSchools[targetSchool].KnownSpells {
 		if existingSpell == spellIDToAdd {
-			return // Already knows this spell
+			return false // Already knows this spell
 		}
 	}
 
 	// Add the spell ID to the school
 	char.MagicSchools[targetSchool].KnownSpells = append(char.MagicSchools[targetSchool].KnownSpells, spellIDToAdd)
+	return true
 }
 
 // handleDialogMouseInput handles mouse input in dialog mode

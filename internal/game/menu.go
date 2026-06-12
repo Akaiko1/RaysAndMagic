@@ -130,6 +130,9 @@ type CharacterSave struct {
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
+	// RTCooldown preserves the real-time action cooldown — reload must not
+	// reset the party's swing timers mid-fight.
+	RTCooldown int `json:"rt_cooldown,omitempty"`
 }
 
 type SkillEntry struct {
@@ -174,19 +177,29 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Key                     string               `json:"key"`
-	Name                    string               `json:"name"`
-	X                       float64              `json:"x"`
-	Y                       float64              `json:"y"`
-	HitPoints               int                  `json:"hit_points"`
-	Bound                   bool                 `json:"bound,omitempty"`
-	BoundFramesRemaining    int                  `json:"bound_frames_remaining,omitempty"`
-	Pacified                bool                 `json:"pacified,omitempty"`
-	PacifiedFramesRemaining int                  `json:"pacified_frames_remaining,omitempty"`
-	WasAttacked             bool                 `json:"was_attacked,omitempty"`
-	IsEncounterMonster      bool                 `json:"is_encounter_monster,omitempty"`
-	EncounterID             int                  `json:"encounter_id,omitempty"`
-	EncounterRewards        *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	Key                     string  `json:"key"`
+	Name                    string  `json:"name"`
+	X                       float64 `json:"x"`
+	Y                       float64 `json:"y"`
+	HitPoints               int     `json:"hit_points"`
+	Bound                   bool    `json:"bound,omitempty"`
+	BoundFramesRemaining    int     `json:"bound_frames_remaining,omitempty"`
+	Pacified                bool    `json:"pacified,omitempty"`
+	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
+	WasAttacked             bool    `json:"was_attacked,omitempty"`
+	// Mid-combat cooldowns: reload must not strip a player-applied stun or
+	// reset the monster's special-attack cadence.
+	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
+	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
+	BossCD              int                  `json:"boss_cd,omitempty"`
+	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
+	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
+	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
+	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID         int                  `json:"encounter_id,omitempty"`
+	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
 
 type EncounterRewardSave struct {
@@ -461,6 +474,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
+	m.RTCooldown = cs.RTCooldown
 	return m
 }
 
@@ -510,6 +524,7 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
+	cs.RTCooldown = m.RTCooldown
 	return cs
 }
 
@@ -568,7 +583,20 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining, Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining, WasAttacked: mon.WasAttacked}
+			saveEntry := MonsterSave{
+				Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
+				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
+				WasAttacked:         mon.WasAttacked,
+				StunFramesRemaining: mon.StunFramesRemaining,
+				StunTurnsRemaining:  mon.StunTurnsRemaining,
+				PounceCDFrames:      mon.PounceCDFrames,
+				PounceCDTurns:       mon.PounceCDTurns,
+				BossCD:              mon.BossCD,
+				BossHurtPending:     mon.BossHurtPending,
+				BossLastHP:          mon.BossLastHP,
+				CrossfireCD:         mon.CrossfireCD,
+			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -706,6 +734,21 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	// Update world reference and visuals
 	g.world = wm.GetCurrentWorld()
+
+	// Drop every in-flight transient from the PRE-load timeline: projectiles,
+	// swings, VFX and pending deaths belong to the world being replaced. Their
+	// collision entities vanish with the collision-system rebuild below.
+	g.projectileMutex.Lock()
+	g.magicProjectiles = g.magicProjectiles[:0]
+	g.arrows = g.arrows[:0]
+	g.meleeAttacks = g.meleeAttacks[:0]
+	g.projectileMutex.Unlock()
+	g.slashEffects = g.slashEffects[:0]
+	g.hitEffectsMu.Lock()
+	g.spellHitEffects = g.spellHitEffects[:0]
+	g.hitEffectsMu.Unlock()
+	g.deadMonsterIDs = g.deadMonsterIDs[:0]
+
 	g.UpdateSkyAndGroundColors()
 	g.collisionSystem.UpdateTileChecker(g.world)
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
@@ -763,6 +806,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				m.StunFramesRemaining = ms.StunFramesRemaining
+				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.PounceCDFrames = ms.PounceCDFrames
+				m.PounceCDTurns = ms.PounceCDTurns
+				m.BossCD = ms.BossCD
+				m.BossHurtPending = ms.BossHurtPending
+				m.BossLastHP = ms.BossLastHP
+				m.CrossfireCD = ms.CrossfireCD
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live — restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -857,7 +908,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		}}
 	}
 	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
-	g.steamZones = restoreSteamZones(save.SteamZones)
+	g.steamZones = restoreSteamZones(save.SteamZones, save.MapKey)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX

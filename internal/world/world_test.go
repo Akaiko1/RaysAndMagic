@@ -21,6 +21,9 @@ func TestWorldGeneration(t *testing.T) {
 	}
 
 	// Load NPC configuration for world tests
+	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
+		t.Fatalf("Failed to load spell config: %v", err)
+	}
 	err = character.LoadNPCConfig("../../assets/npcs.yaml")
 	if err != nil {
 		t.Fatalf("Failed to load NPC config: %v", err)
@@ -130,6 +133,9 @@ func TestWorldMovement(t *testing.T) {
 	}
 
 	// Load NPC configuration for world tests
+	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
+		t.Fatalf("Failed to load spell config: %v", err)
+	}
 	err = character.LoadNPCConfig("../../assets/npcs.yaml")
 	if err != nil {
 		t.Fatalf("Failed to load NPC config: %v", err)
@@ -181,6 +187,9 @@ func TestWorldMonsters(t *testing.T) {
 	}
 
 	// Load NPC configuration for world tests
+	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
+		t.Fatalf("Failed to load spell config: %v", err)
+	}
 	err = character.LoadNPCConfig("../../assets/npcs.yaml")
 	if err != nil {
 		t.Fatalf("Failed to load NPC config: %v", err)

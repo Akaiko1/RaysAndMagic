@@ -382,7 +382,7 @@ type MonsterAIConfig struct {
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
 
 	// Vision distance used while fleeing
-	FleeDistanceTiles  float64 `yaml:"flee_distance_tiles"`
+	FleeDistanceTiles float64 `yaml:"flee_distance_tiles"`
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`

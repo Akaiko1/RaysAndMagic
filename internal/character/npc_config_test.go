@@ -13,6 +13,9 @@ func TestCreateNPCFromConfig_MerchantStock(t *testing.T) {
 	if _, err := config.LoadWeaponConfig(filepath.Join("..", "..", "assets", "weapons.yaml")); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
 	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
 		t.Fatalf("load npcs: %v", err)
 	}
@@ -48,6 +51,9 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 	}
 	if _, err := config.LoadWeaponConfig(filepath.Join("..", "..", "assets", "weapons.yaml")); err != nil {
 		t.Fatalf("load weapons: %v", err)
+	}
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
 	}
 	if err := LoadNPCConfig(filepath.Join("..", "..", "assets", "npcs.yaml")); err != nil {
 		t.Fatalf("load npcs: %v", err)

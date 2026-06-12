@@ -864,7 +864,9 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 	if currentChar.IsIncapacitated() {
 		return false
 	}
-	schools := currentChar.GetAvailableSchools()
+	// SAME filtered list the spellbook UI numbers (schools with spells only) —
+	// indexing the full school list desynced selection when a school was empty.
+	schools := spellbookSchoolsWithSpells(currentChar)
 
 	if cs.game.selectedSchool >= len(schools) {
 		return false
@@ -1037,7 +1039,8 @@ func (cs *CombatSystem) CastSelectedSpell() bool {
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
 func (cs *CombatSystem) EquipSelectedSpell() {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
-	schools := currentChar.GetAvailableSchools()
+	// Same filtered list the spellbook UI numbers — see CastSelectedSpell.
+	schools := spellbookSchoolsWithSpells(currentChar)
 
 	if cs.game.selectedSchool >= len(schools) {
 		return

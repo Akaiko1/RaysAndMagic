@@ -14,6 +14,7 @@ import (
 // and once per monster turn in turn-based.
 type SteamZone struct {
 	SpellID        string
+	MapKey         string  // map the zone was cast on — it never follows the party
 	X, Y           float64 // world center (fixed at cast)
 	Radius         float64 // pixels
 	FramesLeft     int     // total lifetime remaining (frames)
@@ -39,6 +40,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.steamZones = append(cs.game.steamZones, SteamZone{
 		SpellID:        string(spellID),
+		MapKey:         currentMapKey(),
 		X:              cs.game.camera.X,
 		Y:              cs.game.camera.Y,
 		Radius:         def.ZoneRadiusTiles * tile,
@@ -55,6 +57,11 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 // it, with a small steam puff on each victim.
 func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	if z.TickDamage <= 0 {
+		return
+	}
+	// A zone lives on the map it was cast on: same coordinates on another map
+	// would scald that map's monsters out of thin air.
+	if z.MapKey != "" && z.MapKey != currentMapKey() {
 		return
 	}
 	dmgType := convertToMonsterDamageType("water")
@@ -154,12 +161,14 @@ func (g *MMGame) appendSteamPuffLocked(x, y float64, count int) {
 // SteamZoneSave is the JSON form of a SteamZone for save files.
 type SteamZoneSave struct {
 	SpellID        string  `json:"spell_id"`
+	MapKey         string  `json:"map_key,omitempty"`
 	X              float64 `json:"x"`
 	Y              float64 `json:"y"`
 	Radius         float64 `json:"radius"`
 	FramesLeft     int     `json:"frames_left"`
 	TickDamage     int     `json:"tick_damage"`
 	IntervalFrames int     `json:"interval_frames"`
+	TickCounter    int     `json:"tick_counter,omitempty"`
 }
 
 func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
@@ -168,20 +177,27 @@ func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
 	}
 	out := make([]SteamZoneSave, len(zones))
 	for i, z := range zones {
-		out[i] = SteamZoneSave{z.SpellID, z.X, z.Y, z.Radius, z.FramesLeft, z.TickDamage, z.IntervalFrames}
+		out[i] = SteamZoneSave{z.SpellID, z.MapKey, z.X, z.Y, z.Radius, z.FramesLeft, z.TickDamage, z.IntervalFrames, z.tickCounter}
 	}
 	return out
 }
 
-func restoreSteamZones(saves []SteamZoneSave) []SteamZone {
+// restoreSteamZones rebuilds zones from a save; legacy entries without a map
+// are pinned to the map the save was made on (same migration as loot bags).
+func restoreSteamZones(saves []SteamZoneSave, saveMapKey string) []SteamZone {
 	if len(saves) == 0 {
 		return nil
 	}
 	out := make([]SteamZone, len(saves))
 	for i, s := range saves {
+		mapKey := s.MapKey
+		if mapKey == "" {
+			mapKey = saveMapKey
+		}
 		out[i] = SteamZone{
-			SpellID: s.SpellID, X: s.X, Y: s.Y, Radius: s.Radius,
+			SpellID: s.SpellID, MapKey: mapKey, X: s.X, Y: s.Y, Radius: s.Radius,
 			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, IntervalFrames: s.IntervalFrames,
+			tickCounter: s.TickCounter,
 		}
 	}
 	return out
