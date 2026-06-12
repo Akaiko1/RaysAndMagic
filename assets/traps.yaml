@@ -1,0 +1,55 @@
+# Trap definitions (thief trap book). Damage traps scale with the owner's
+# Intellect+Accuracy and Trapper mastery; duration traps gain turns/seconds
+# from Trapper mastery. element picks the particle colour/shape family;
+# border_color tints the armed tile's edge glow.
+traps:
+  cleave_trap:
+    name: "Cleave Trap"
+    description: "Scything blades tear into everything around the trap"
+    icon: "icon_trap_cleave_trap"
+    level: 1
+    sp_cost: 6
+    cooldown_seconds: 3.0
+    lifetime_seconds: 40
+    element: "physical"
+    damage_base: 14
+    aoe_radius_tiles: 2.0
+    border_color: [200, 205, 215]
+
+  bear_trap:
+    name: "Bear Trap"
+    description: "Iron jaws clamp the victim's legs, pinning it in place"
+    icon: "icon_trap_bear_trap"
+    level: 2
+    sp_cost: 8
+    cooldown_seconds: 3.0
+    lifetime_seconds: 40
+    element: "earth"
+    root_turns: 2
+    root_seconds: 10
+    border_color: [165, 115, 55]
+
+  stasis_trap:
+    name: "Stasis Trap"
+    description: "A snare of frozen time - whoever steps in simply stops"
+    icon: "icon_trap_stasis_trap"
+    level: 4
+    sp_cost: 12
+    cooldown_seconds: 4.0
+    lifetime_seconds: 40
+    element: "mind"
+    stun_turns: 2
+    stun_seconds: 10
+    border_color: [175, 110, 225]
+
+  blast_trap:
+    name: "Blast Trap"
+    description: "Erupts in a pillar of flame under the victim's feet"
+    icon: "icon_trap_blast_trap"
+    level: 6
+    sp_cost: 14
+    cooldown_seconds: 4.0
+    lifetime_seconds: 40
+    element: "fire"
+    damage_base: 26
+    border_color: [240, 130, 40]

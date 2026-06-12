@@ -11,10 +11,10 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Party-buff magnitudes (Heroism/Stone Skin/Day of the Gods) scale with the
-// spell-mastery bonus — the SAME helper combat applies in tryCastPartyBuff and
-// the tooltip prints in getSpellMechanicsFromDefinition (combat=tooltip SSoT).
-func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
+// Party-buff magnitudes (Heroism/Stone Skin/Day of the Gods) are FLAT by
+// balance decision — mastery scales ONLY the duration. Combat applies the raw
+// YAML values; EffectLines quotes the same numbers (combat=tooltip SSoT).
+func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cs := game.combat
 	cleric := character.CreateCharacter("Cle", character.ClassCleric, game.config)
@@ -22,20 +22,48 @@ func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
 	if spirit == nil {
 		t.Fatal("cleric should start with the spirit school")
 	}
+	def, err := spells.GetSpellDefinitionByID("heroism")
+	if err != nil {
+		t.Fatalf("heroism def: %v", err)
+	}
 
-	// Heroism is spirit-school; Novice (tier 0) → base, no bonus.
-	spirit.Mastery = character.MasteryNovice
-	if got := cs.spellBuffMagnitude(10, "heroism", cleric); got != 10 {
-		t.Errorf("novice: want base 10, got %d", got)
+	castAt := func(m character.SkillMastery) TimedCombatBuff {
+		spirit.Mastery = m
+		if !cs.tryCastPartyBuff("heroism", def, cleric) {
+			t.Fatalf("heroism must cast as a party buff")
+		}
+		b, ok := game.combatBuffByID("heroism")
+		if !ok {
+			t.Fatalf("buff not registered")
+		}
+		return b
 	}
-	// Master (tier 2) → base + 2×MasterySpellEffectPerLevel.
-	spirit.Mastery = character.MasteryMaster
-	if want, got := 10+2*MasterySpellEffectPerLevel, cs.spellBuffMagnitude(10, "heroism", cleric); got != want {
-		t.Errorf("master: want %d, got %d", want, got)
+
+	tests := []struct {
+		name        string
+		mastery     character.SkillMastery
+		durationPct int
+	}{
+		{name: "novice", mastery: character.MasteryNovice, durationPct: 100},
+		{name: "expert", mastery: character.MasteryExpert, durationPct: 120},
+		{name: "master", mastery: character.MasteryMaster, durationPct: 140},
+		{name: "grandmaster", mastery: character.MasteryGrandMaster, durationPct: 160},
 	}
-	// A zero base (spell lacks that effect) stays zero regardless of mastery.
-	if got := cs.spellBuffMagnitude(0, "heroism", cleric); got != 0 {
-		t.Errorf("zero base must stay zero, got %d", got)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buff := castAt(tt.mastery)
+			if buff.OutBonus != def.OutgoingDamageBonus {
+				t.Errorf("magnitude must be flat YAML value %d, got %d",
+					def.OutgoingDamageBonus, buff.OutBonus)
+			}
+
+			wantFrames := def.Duration * tt.durationPct / 100 * game.config.GetTPS()
+			if buff.Frames != wantFrames {
+				t.Errorf("duration at %s mastery = %d frames, want %d",
+					tt.name, buff.Frames, wantFrames)
+			}
+		})
 	}
 }
 

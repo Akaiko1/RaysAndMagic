@@ -494,6 +494,8 @@ func (gl *GameLoop) updateSpecialEffects() {
 	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
 	gl.updateSteamZonesRT()
+	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.
+	gl.updateTraps()
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {

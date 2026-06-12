@@ -38,6 +38,12 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	if !hasSpell {
 		return false // No spell equipped
 	}
+	if spell.Type == items.ItemTrap {
+		// Thief quick slot: F arms the slotted trap exactly like a quick
+		// spell — explicit cast, so refusal messages stay on.
+		_, placed := cs.tryPlaceQuickTrap(caster, true)
+		return placed
+	}
 	if spell.Type != items.ItemBattleSpell && spell.Type != items.ItemUtilitySpell {
 		return false // SlotSpell should only contain spells
 	}
@@ -250,6 +256,13 @@ func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 		if err == nil && def.IsOffensive() && canPay && cs.CastEquippedSpell() {
 			return true, spellID
 		}
+	}
+
+	// Trap book (thief): Space arms the slotted trap before falling back to
+	// the weapon. Silent on refusal (no SP / limit / no room) — quick spells
+	// fall through to the weapon just as quietly via their canPay pre-check.
+	if trapKey, placed := cs.tryPlaceQuickTrap(caster, false); placed {
+		return true, spells.SpellID(trapKey)
 	}
 
 	return cs.EquipmentMeleeAttack(), ""
@@ -592,6 +605,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	monster.HitTintFrames = MonsterHitFlashFrames
+	cs.trySleightOfHand(attacker, monster)
 	// Impact feedback: spark burst + light flash at the monster, plus a small
 	// damage-scaled view kick (well under a fireball's). The monster stays put
 	// and the HitTintFrames timer also drives an in-place sprite shake (see
@@ -808,16 +822,18 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			}
 		}
 
-		// Apply vision effects
-		if result.VisionBonus > 0 {
+		// Apply vision effects — the RADIUS comes from spells.yaml
+		// (vision_radius_tiles), not a hardcoded constant.
+		if result.VisionRadiusTiles > 0 {
 			switch string(spellID) {
 			case "torch_light":
 				cs.game.torchLightActive = true
 				cs.game.torchLightDuration = duration
-				cs.game.torchLightRadius = TorchLightRadiusTiles
+				cs.game.torchLightRadius = result.VisionRadiusTiles
 			case "wizard_eye":
 				cs.game.wizardEyeActive = true
 				cs.game.wizardEyeDuration = duration
+				cs.game.wizardEyeRadiusTiles = result.VisionRadiusTiles
 			}
 		}
 
@@ -1062,6 +1078,45 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 	cs.game.TriggerDamageBlink(targetIndex)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
+}
+
+// sleightChancePct is the pickpocket chance for a melee hit: skill level×10%
+// (Novice/Expert/Master/GM → 10/20/30/40; SkillTier is 0-based, hence the +1).
+// 0 without the skill. The SAME function the skill tooltip quotes.
+func sleightChancePct(attacker *character.MMCharacter) int {
+	if attacker == nil || !attacker.HasSkill(character.SkillSleightOfHand) {
+		return 0
+	}
+	return (attacker.SkillTier(character.SkillSleightOfHand) + 1) * character.SleightChancePctPerTier
+}
+
+// trySleightOfHand rolls the attacker's pickpocket on a melee hit (skill
+// level×10% chance); success marks the monster Pilfered (one pick per victim)
+// and rolls its loot table — stolen items go to the inventory, a missed loot
+// roll pays consolation gold (level-gated). Constants live in
+// character/catalog.go so the skill tooltip quotes the same numbers.
+func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monster *monsterPkg.Monster3D) {
+	if attacker == nil || monster.Pilfered || !monster.IsAlive() {
+		return
+	}
+	chance := sleightChancePct(attacker)
+	if chance <= 0 || rand.Intn(100) >= chance {
+		return
+	}
+	monster.Pilfered = true
+	if stolen := cs.checkMonsterLootDrop(monster); len(stolen) > 0 {
+		for _, it := range stolen {
+			cs.game.party.AddItem(it)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s picks %s's pocket: %s!", attacker.Name, monster.Name, it.Name))
+		}
+		return
+	}
+	gold := character.SleightGoldLow
+	if monster.Level > character.SleightHighLevelThreshold {
+		gold = character.SleightGoldHighLevel
+	}
+	cs.game.party.Gold += gold
+	cs.game.AddCombatMessage(fmt.Sprintf("%s lifts %d gold off %s!", attacker.Name, gold, monster.Name))
 }
 
 // tryApplyMonsterPoison rolls the attacker's PoisonChance against a character
@@ -2194,14 +2249,6 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	return 0
 }
 
-// spellBuffMagnitude adds the spell-mastery bonus to a party-buff magnitude; a 0 base stays 0.
-func (cs *CombatSystem) spellBuffMagnitude(base int, spellID spells.SpellID, char *character.MMCharacter) int {
-	if base <= 0 {
-		return 0
-	}
-	return base + cs.spellMasteryBonus(char, spellID)
-}
-
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
 	// Use effective Luck so Bless/stat bonuses influence crit chance
@@ -2667,16 +2714,16 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 {
 		return false
 	}
-	// Mastery scales both magnitude and duration (same +Mastery×5 model as Bless),
-	// so combat matches the in-game tooltip — getSpellMechanicsFromDefinition reads
-	// the exact same helpers.
+	// Magnitudes are FLAT (balance decision: mastery scales only the duration,
+	// never the buff strength); EffectLines quotes the same YAML values, so
+	// combat and tooltips agree by construction.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(TimedCombatBuff{
 		SpellID:   string(spellID),
 		Frames:    frames,
-		OutBonus:  cs.spellBuffMagnitude(def.OutgoingDamageBonus, spellID, caster),
-		InReduce:  cs.spellBuffMagnitude(def.IncomingDamageReduction, spellID, caster),
-		ResistPct: cs.spellBuffMagnitude(def.ResistBuffPct, spellID, caster),
+		OutBonus:  def.OutgoingDamageBonus,
+		InReduce:  def.IncomingDamageReduction,
+		ResistPct: def.ResistBuffPct,
 	})
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)
@@ -2684,9 +2731,9 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 }
 
 // spellStatBuffBonuses resolves the stat-buff block a cast of spellID grants:
-// a per-stat `stat_bonuses:` map is authored absolute; the uniform
-// `stat_bonus: N` is mastery-scaled via CalculateSpellStatBonus — the SAME
-// function the tooltip quotes, so cast and tooltip can't drift.
+// both the per-stat `stat_bonuses:` map and the uniform `stat_bonus: N` are
+// FLAT as authored (mastery scales only duration) — the SAME values
+// EffectLines quotes, so cast and tooltip can't drift.
 func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *character.MMCharacter) character.StatBonuses {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {

@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"log"
@@ -331,6 +330,10 @@ func itemTooltipIconName(item items.Item) string {
 		if item.SpellEffect != "" {
 			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
 		}
+	case items.ItemTrap:
+		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
+			return def.Icon
+		}
 	}
 	_, key, ok := config.GetItemDefinitionByName(item.Name)
 	if ok && key != "" {
@@ -455,30 +458,10 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
-// Stat tooltips include the scaling divisors used in combat formulas so the
-// description never drifts from the actual numbers — see balance.go. The
-// "weapons that scale with X" phrasing matches what `bonus_stat` actually
-// gates in weapons.yaml (any weapon can pick any stat).
+// statTooltipText quotes the canonical stat description from the character
+// catalog — one source for the in-game tooltip and the map editor.
 func statTooltipText(stat string) string {
-	switch strings.ToLower(stat) {
-	case "might":
-		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
-	case "intellect":
-		return fmt.Sprintf("Adds Intellect/%d to weapons that scale with Intellect; also adds to max spell points.", WeaponPrimaryStatDivisor)
-	case "personality":
-		return "Adds to max spell points and increases SP regen rate."
-	case "endurance":
-		return "Increases max HP and armor-class scaling on equipped armor."
-	case "accuracy":
-		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
-	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
-			character.SpeedActionSlot2Threshold, character.SpeedActionSlot3Threshold)
-	case "luck":
-		return "Improves critical chance and dodges."
-	default:
-		return ""
-	}
+	return character.StatDescription(stat)
 }
 
 // masteryTooltipTextForSkill returns the canonical skill description. The text
@@ -490,7 +473,7 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 }
 
 func magicMasteryTooltipText() string {
-	return fmt.Sprintf("Magic Mastery: +%d to base spell effects per mastery level.", MasterySpellEffectPerLevel)
+	return character.MagicMasteryDescription()
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

@@ -73,6 +73,7 @@ type GameSave struct {
 	BlessBonusesPerStat    map[string]int   `json:"bless_bonuses_per_stat,omitempty"`
 	CombatBuffs            []CombatBuffSave `json:"combat_buffs,omitempty"`
 	SteamZones             []SteamZoneSave  `json:"steam_zones,omitempty"`
+	Traps                  []TrapSave       `json:"traps,omitempty"`
 	WaterBreathingActive   bool             `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int              `json:"water_breathing_duration,omitempty"`
 	UnderwaterReturnX      float64          `json:"underwater_return_x,omitempty"`
@@ -191,6 +192,9 @@ type MonsterSave struct {
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
+	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
+	Pilfered            bool                 `json:"pilfered,omitempty"`
 	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
 	BossCD              int                  `json:"boss_cd,omitempty"`
@@ -422,6 +426,14 @@ func normalizeItemFromConfig(item *items.Item) {
 	if item == nil {
 		return
 	}
+	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
+	// reach saved slots), keyed by SpellEffect.
+	if item.Type == items.ItemTrap {
+		if fresh, ok := config.TrapItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
 	switch item.Type {
 	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket:
 	default:
@@ -628,6 +640,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				WasAttacked:         mon.WasAttacked,
 				StunFramesRemaining: mon.StunFramesRemaining,
 				StunTurnsRemaining:  mon.StunTurnsRemaining,
+				RootFramesRemaining: mon.RootFramesRemaining,
+				RootTurnsRemaining:  mon.RootTurnsRemaining,
+				Pilfered:            mon.Pilfered,
 				PounceCDFrames:      mon.PounceCDFrames,
 				PounceCDTurns:       mon.PounceCDTurns,
 				BossCD:              mon.BossCD,
@@ -759,6 +774,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		StatBonus:              g.statBonuses.Might,
 		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
 		SteamZones:             buildSteamZoneSaves(g.steamZones),
+		Traps:                  buildTrapSaves(g.traps),
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
@@ -841,6 +857,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.RootFramesRemaining = ms.RootFramesRemaining
+				m.RootTurnsRemaining = ms.RootTurnsRemaining
+				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
 				m.BossCD = ms.BossCD
@@ -937,14 +956,23 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
-	// Radius always follows the balance constant — old saves froze whatever
-	// value was current when they were written (e.g. 4 tiles before the buff).
+	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) —
+	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive {
-		g.torchLightRadius = TorchLightRadiusTiles
+		if def, err := spells.GetSpellDefinitionByID("torch_light"); err == nil && def.VisionRadiusTiles > 0 {
+			g.torchLightRadius = def.VisionRadiusTiles
+		}
 	}
 	g.wizardEyeActive = save.WizardEyeActive
 	g.wizardEyeDuration = save.WizardEyeDuration
+	// Same anti-freeze rule as the torch: an active eye adopts the CURRENT
+	// spells.yaml radius instead of a stale or missing saved value.
+	if g.wizardEyeActive {
+		if def, err := spells.GetSpellDefinitionByID("wizard_eye"); err == nil && def.VisionRadiusTiles > 0 {
+			g.wizardEyeRadiusTiles = def.VisionRadiusTiles
+		}
+	}
 	g.walkOnWaterActive = save.WalkOnWaterActive
 	g.walkOnWaterDuration = save.WalkOnWaterDuration
 	g.statBuffs = restoreStatBuffs(save.StatBuffs)
@@ -958,6 +986,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
 	g.steamZones = restoreSteamZones(save.SteamZones, save.MapKey)
+	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX

@@ -23,6 +23,16 @@ import (
 // Luck: +N)" using character context, while the map-viewer card shows
 // the raw "Crit Chance: X%". Listing crit here too would render it
 // twice in every in-game tooltip.
+// cooldownMultLine renders a cooldown multiplier as a ±% line ("Spell cooldown
+// −20%"); 0 (unset) and exactly 1.0 produce nothing.
+func cooldownMultLine(label string, mult float64) string {
+	if mult <= 0 || mult == 1.0 {
+		return ""
+	}
+	pct := (mult - 1.0) * 100
+	return fmt.Sprintf("%s %+.0f%%", label, pct)
+}
+
 func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w == nil {
 		return nil
@@ -46,6 +56,12 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	}
 	if w.MaxProjectiles > 0 {
 		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
+	}
+	// Attack-speed lines live in character.WeaponCombatLines (the category→
+	// skill mapping needed for the default multiplier lives there); only the
+	// spell-cooldown perk is computable at this layer.
+	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
+		lines = append(lines, line)
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -244,7 +260,9 @@ type ClassStats struct {
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
 	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
 	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
+	Armor      string            `yaml:"armor,omitempty"`       // items.yaml key worn at start
 	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
+	QuickTrap  string            `yaml:"quick_trap,omitempty"`  // traps.yaml key pre-selected in the trap book
 }
 
 // SpellSystemConfig contains the complete unified spell system configuration
@@ -352,8 +370,8 @@ type SpellDefinitionConfig struct {
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
 	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
 	// with stat_bonus; validated at load.
-	StatBonuses map[string]int `yaml:"stat_bonuses,omitempty"`
-	VisionBonus float64        `yaml:"vision_bonus,omitempty"`
+	StatBonuses       map[string]int `yaml:"stat_bonuses,omitempty"`
+	VisionRadiusTiles float64        `yaml:"vision_radius_tiles,omitempty"`
 
 	// Effect configuration
 	TargetSelf     bool   `yaml:"target_self,omitempty"`

@@ -19,6 +19,7 @@ type SteamZone struct {
 	Radius         float64 // pixels
 	FramesLeft     int     // total lifetime remaining (frames)
 	TickDamage     int
+	ResistPierce   int // snapshotted from the caster's school mastery
 	IntervalFrames int // RT damage cadence
 	tickCounter    int // frames since last RT tick
 }
@@ -38,7 +39,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
 	// in-game tooltip — same source of truth as every other timed spell.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
-	cs.game.steamZones = append(cs.game.steamZones, SteamZone{
+	newZone := SteamZone{
 		SpellID:        string(spellID),
 		MapKey:         currentMapKey(),
 		X:              cs.game.camera.X,
@@ -46,8 +47,26 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 		Radius:         def.ZoneRadiusTiles * tile,
 		FramesLeft:     frames,
 		TickDamage:     cs.CalculateSteamZoneTickDamage(def, caster),
+		ResistPierce:   cs.spellResistPierce(caster, string(spellID)),
 		IntervalFrames: interval,
-	})
+	}
+
+	// Separate zones are allowed, but overlapping copies of the same spell
+	// replace one another so a single area cannot multiply its damage.
+	zones := cs.game.steamZones
+	w := 0
+	for i := range zones {
+		z := zones[i]
+		sameArea := z.SpellID == newZone.SpellID &&
+			z.MapKey == newZone.MapKey &&
+			Distance(z.X, z.Y, newZone.X, newZone.Y) < z.Radius+newZone.Radius
+		if sameArea {
+			continue
+		}
+		zones[w] = z
+		w++
+	}
+	cs.game.steamZones = append(zones[:w], newZone)
 	cs.game.AddCombatMessage(def.Message)
 	cs.game.setUtilityStatus(spellID, frames)
 	return true
@@ -72,16 +91,12 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
 			continue
 		}
-		m.TakeDamageResist(z.TickDamage, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
+		m.TakeDamageResist(z.TickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
 		cs.game.spawnSteamPuff(m.X, m.Y)
-		if !m.IsAlive() {
-			cs.game.collisionSystem.UnregisterEntity(m.ID)
-			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			cs.awardExperienceAndGold(m)
-		}
+		cs.finishIndirectKill(m)
 	}
 }
 
@@ -93,15 +108,23 @@ func (gl *GameLoop) updateSteamZonesRT() {
 	if len(zones) == 0 {
 		return
 	}
+	// Several zones can share one spell id (recasts at different spots), but
+	// the HUD has ONE status per id — aggregate to the LONGEST-lived survivor,
+	// and clear an id only when its last zone expired (per-zone updates let a
+	// short zone wipe the icon of a longer one, order-dependent).
+	maxLeft := map[string]int{}
+	expired := map[string]bool{}
 	w := 0
 	for i := range zones {
 		z := &zones[i]
 		z.FramesLeft--
 		if z.FramesLeft <= 0 {
-			gl.game.updateUtilityStatus(spells.SpellID(z.SpellID), 0, false)
+			expired[z.SpellID] = true
 			continue
 		}
-		gl.game.updateUtilityStatus(spells.SpellID(z.SpellID), z.FramesLeft, true)
+		if z.FramesLeft > maxLeft[z.SpellID] {
+			maxLeft[z.SpellID] = z.FramesLeft
+		}
 
 		if !gl.game.turnBasedMode {
 			z.tickCounter++
@@ -116,6 +139,14 @@ func (gl *GameLoop) updateSteamZonesRT() {
 		w++
 	}
 	gl.game.steamZones = zones[:w]
+	for id, left := range maxLeft {
+		gl.game.updateUtilityStatus(spells.SpellID(id), left, true)
+	}
+	for id := range expired {
+		if maxLeft[id] == 0 {
+			gl.game.updateUtilityStatus(spells.SpellID(id), 0, false)
+		}
+	}
 }
 
 // tickSteamZonesTB applies one steam damage tick per zone — called once per
@@ -167,6 +198,7 @@ type SteamZoneSave struct {
 	Radius         float64 `json:"radius"`
 	FramesLeft     int     `json:"frames_left"`
 	TickDamage     int     `json:"tick_damage"`
+	ResistPierce   int     `json:"resist_pierce,omitempty"`
 	IntervalFrames int     `json:"interval_frames"`
 	TickCounter    int     `json:"tick_counter,omitempty"`
 }
@@ -177,7 +209,11 @@ func buildSteamZoneSaves(zones []SteamZone) []SteamZoneSave {
 	}
 	out := make([]SteamZoneSave, len(zones))
 	for i, z := range zones {
-		out[i] = SteamZoneSave{z.SpellID, z.MapKey, z.X, z.Y, z.Radius, z.FramesLeft, z.TickDamage, z.IntervalFrames, z.tickCounter}
+		out[i] = SteamZoneSave{
+			SpellID: z.SpellID, MapKey: z.MapKey, X: z.X, Y: z.Y, Radius: z.Radius,
+			FramesLeft: z.FramesLeft, TickDamage: z.TickDamage, ResistPierce: z.ResistPierce,
+			IntervalFrames: z.IntervalFrames, TickCounter: z.tickCounter,
+		}
 	}
 	return out
 }
@@ -196,8 +232,8 @@ func restoreSteamZones(saves []SteamZoneSave, saveMapKey string) []SteamZone {
 		}
 		out[i] = SteamZone{
 			SpellID: s.SpellID, MapKey: mapKey, X: s.X, Y: s.Y, Radius: s.Radius,
-			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, IntervalFrames: s.IntervalFrames,
-			tickCounter: s.TickCounter,
+			FramesLeft: s.FramesLeft, TickDamage: s.TickDamage, ResistPierce: s.ResistPierce,
+			IntervalFrames: s.IntervalFrames, tickCounter: s.TickCounter,
 		}
 	}
 	return out

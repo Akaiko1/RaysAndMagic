@@ -233,8 +233,9 @@ type MMGame struct {
 	torchLightRadius   float64 // Radius of the light effect
 
 	// Wizard Eye effect
-	wizardEyeActive   bool // Whether wizard eye is currently active
-	wizardEyeDuration int  // Remaining duration in frames
+	wizardEyeActive      bool    // Whether wizard eye is currently active
+	wizardEyeRadiusTiles float64 // radar reach from spells.yaml (vision_radius_tiles)
+	wizardEyeDuration    int     // Remaining duration in frames
 
 	// Walk on Water effect
 	walkOnWaterActive   bool // Whether walk on water is currently active
@@ -252,7 +253,9 @@ type MMGame struct {
 	combatBuffs []TimedCombatBuff
 
 	// Persistent damage zones (Hot Steam) — see combat_zones.go.
-	steamZones []SteamZone
+	steamZones   []SteamZone
+	traps        []PlacedTrap // armed thief traps (map-scoped, persisted)
+	selectedTrap int          // trap-book browse index (selection ≠ equipped quick trap)
 
 	// boundUndead caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
@@ -1157,7 +1160,15 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 		if !ok {
 			return false
 		}
-		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, spell.SpellCost)
+		cost := spell.SpellCost
+		// Traps: the live traps.yaml cost is the truth (a rebalance must not
+		// be fooled by the SpellCost frozen into an old save's slot item).
+		if spell.Type == items.ItemTrap {
+			if def, defOk := config.GetTrapDefinition(string(spell.SpellEffect)); defOk {
+				cost = def.SPCost
+			}
+		}
+		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, cost)
 	case rtActHeal:
 		if g.combat == nil {
 			return false

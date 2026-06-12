@@ -8,6 +8,7 @@ import (
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -248,6 +249,7 @@ func (ih *InputHandler) restartNewGame() {
 	// projectile collision entities and drops impact lights)
 	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
+	g.traps = nil
 	g.combatMessages = g.combatMessages[:0]
 	g.cardFxTimers = [cardFxCount][4]int{}
 
@@ -878,6 +880,12 @@ func (ih *InputHandler) handleCombatInput() {
 	// one (preferring a ready one) — a single move so the waiting frame sits on a
 	// real actor, not a per-frame churn.
 	if !ih.game.rtActionCapable(ih.game.selectedChar, kind) {
+		// Explicit F with nothing castable: say WHY once per fresh press (the
+		// TB path announces through the cast itself; holds stay silent so a
+		// held key can't spam). Space keeps its silent weapon fallback.
+		if kind == rtActCast && fJust {
+			ih.announceCastShortfall(ih.game.selectedChar)
+		}
 		ih.game.advanceRTActor(kind)
 	}
 	// (2) Selected is capable. If it's on cooldown, jump to another member who is
@@ -937,6 +945,34 @@ func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 // castSlottedSpell casts the selected character's slotted spell (F key). Heal
 // spells are aimed with the mouse; everything else casts directly. Applies the
 // real-time cooldown only if the cast actually fired.
+// announceCastShortfall explains a refused explicit cast (F) for the member
+// the player had selected: not enough SP for the slotted spell/trap. Uses the
+// LIVE trap cost (saved items may carry stale SpellCost).
+func (ih *InputHandler) announceCastShortfall(idx int) {
+	if idx < 0 || idx >= len(ih.game.party.Members) {
+		return
+	}
+	m := ih.game.party.Members[idx]
+	if m == nil || !m.CanAct() {
+		return
+	}
+	slot, ok := m.Equipment[items.SlotSpell]
+	if !ok {
+		return
+	}
+	cost := slot.SpellCost
+	if slot.Type == items.ItemTrap {
+		if def, defOk := config.GetTrapDefinition(string(slot.SpellEffect)); defOk {
+			cost = def.SPCost
+		}
+	}
+	cost = ih.game.combat.effectiveSpellCost(m, cost)
+	if m.SpellPoints < cost {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
+			m.Name, slot.Name, m.SpellPoints, cost))
+	}
+}
+
 func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 	spell, hasSpell := sel.Equipment[items.SlotSpell]
 	if !hasSpell {
@@ -1505,11 +1541,36 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 // handleSpellbookNavigation handles navigation within the spellbook tab
 func (ih *InputHandler) handleSpellbookNavigation() {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
-	schools := spellbookSchoolsWithSpells(currentChar)
 
+	// Trap book (thief): spell-like controls — Up/Down browse, Enter/F equips
+	// the selection into the quick slot. MUST run before the magic-school
+	// checks: a trapper has no schools and would bail out early.
+	if hasTrapBook(currentChar) {
+		keys := availableTraps(currentChar)
+		if len(keys) == 0 {
+			return
+		}
+		if ih.game.selectedTrap >= len(keys) || ih.game.selectedTrap < 0 {
+			ih.game.selectedTrap = 0
+		}
+		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) || ih.wKeyTracker.IsKeyJustPressed(ebiten.KeyW) {
+			ih.game.selectedTrap = (ih.game.selectedTrap - 1 + len(keys)) % len(keys)
+		}
+		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) || ih.sKeyTracker.IsKeyJustPressed(ebiten.KeyS) {
+			ih.game.selectedTrap = (ih.game.selectedTrap + 1) % len(keys)
+		}
+		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
+			equipTrap(currentChar, keys[ih.game.selectedTrap])
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		}
+		return
+	}
+
+	schools := spellbookSchoolsWithSpells(currentChar)
 	if len(schools) == 0 {
 		return
 	}
+
 	// The school list is PER CHARACTER: switching members (keys 1-4, mouse)
 	// can shrink it under a stale index — clamp before any schools[...] access.
 	if ih.game.selectedSchool >= len(schools) || ih.game.selectedSchool < 0 {

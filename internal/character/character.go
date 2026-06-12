@@ -40,6 +40,12 @@ func (c *MMCharacter) bodybuildingBonusHP(baseMaxHP int) int {
 // SkillTier returns a character's mastery level for a skill as an int
 // (Novice=0, Expert=1, Master=2, Grandmaster=3), or 0 if they lack the skill.
 // Used to scale skill effects, mirroring weapon/armor/magic mastery bonuses.
+// HasSkill reports whether the character has opened a skill (any mastery).
+func (c *MMCharacter) HasSkill(skill SkillType) bool {
+	_, ok := c.Skills[skill]
+	return ok
+}
+
 func (c *MMCharacter) SkillTier(skill SkillType) int {
 	if s, ok := c.Skills[skill]; ok && s != nil {
 		return int(s.Mastery)
@@ -169,6 +175,7 @@ const (
 	ClassCleric
 	ClassSorcerer
 	ClassDruid
+	ClassThief
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -256,6 +263,19 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 
 	if stats.MainHand != "" {
 		c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(stats.MainHand)
+	}
+	if stats.Armor != "" {
+		c.Equipment[items.SlotArmor] = items.CreateItemFromYAML(stats.Armor)
+	}
+	if stats.QuickTrap != "" {
+		// The starting trap occupies the SAME quick slot as quick spells.
+		// Fail fast on a bad key, but only when traps.yaml is loaded —
+		// config-less unit tests build parties without the trap catalog.
+		if it, ok := config.TrapItem(stats.QuickTrap); ok {
+			c.Equipment[items.SlotSpell] = it
+		} else if config.GlobalTrapConfig != nil {
+			panic(fmt.Sprintf("class %q: unknown quick_trap %q in config.yaml", key, stats.QuickTrap))
+		}
 	}
 	if stats.QuickSpell != "" {
 		if spellItem, err := spells.CreateSpellItem(spells.SpellID(stats.QuickSpell)); err == nil {
@@ -549,6 +569,8 @@ func (c CharacterClass) String() string {
 		return "Sorcerer"
 	case ClassDruid:
 		return "Druid"
+	case ClassThief:
+		return "Thief"
 	default:
 		return "Unknown"
 	}
@@ -575,6 +597,8 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassSorcerer, true
 	case "druid":
 		return ClassDruid, true
+	case "thief":
+		return ClassThief, true
 	default:
 		return 0, false
 	}

@@ -500,6 +500,11 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 // drawSpellbookContent draws the spellbook tab content
 func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
+	// Trappers (thief) carry a trap book instead of a magic spellbook.
+	if hasTrapBook(currentChar) {
+		ui.drawTrapBookContent(screen, panelX, contentY, contentHeight)
+		return
+	}
 	schools := spellbookSchoolsWithSpells(currentChar)
 
 	// Validate and fix selected school index if it's out of bounds

@@ -2,6 +2,7 @@ package monster
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -116,6 +117,15 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	for key, monster := range config.Monsters {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		if monster.AttacksPerRound > 1 {
+			expectedMultiplier := 1.0 / float64(monster.AttacksPerRound)
+			if math.Abs(monster.AttackCooldownMult-expectedMultiplier) > 0.000001 {
+				conflicts = append(conflicts, fmt.Sprintf(
+					"Monster '%s' has attacks_per_round %d but attack_cooldown_multiplier %.6g; expected %.6g",
+					key, monster.AttacksPerRound, monster.AttackCooldownMult, expectedMultiplier,
+				))
+			}
 		}
 		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))

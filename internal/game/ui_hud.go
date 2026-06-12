@@ -693,7 +693,11 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 	// Convert tile distance to pixel distance
 	tileSize := float64(ui.game.config.GetTileSize())
-	maxRadarRange := 10.0 * tileSize // 10 tiles range
+	radarTiles := ui.game.wizardEyeRadiusTiles
+	if radarTiles <= 0 {
+		radarTiles = 10 // legacy saves activated the eye before the radius was stored
+	}
+	maxRadarRange := radarTiles * tileSize
 
 	// Check each monster for distance from player
 	for _, monster := range ui.game.world.Monsters {
@@ -707,7 +711,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 		dist := dx*dx + dy*dy // Use squared distance to avoid sqrt
 		maxRangeSq := maxRadarRange * maxRadarRange
 
-		// Only show enemies within 10 tiles
+		// Only show enemies within the radar radius
 		if dist <= maxRangeSq {
 			// Calculate angle from player to monster
 			angle := math.Atan2(dy, dx)

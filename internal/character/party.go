@@ -64,6 +64,13 @@ var defaultCaptives = []config.RosterEntry{
 // createRosterCharacter builds a roster hero from a config entry, or nil on an
 // unknown class key. A race entry shifts the class base stats additively
 // (human/empty = baseline) and re-derives HP/SP.
+// CreateRosterCharacter builds a hero from a config roster entry (class kit +
+// race modifiers) — the SAME path NewParty uses; exported so the map editor
+// renders the real shipped roster, not per-class approximations.
+func CreateRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacter {
+	return createRosterCharacter(e, cfg)
+}
+
 func createRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacter {
 	class, ok := ClassFromKey(e.Class)
 	if !ok {

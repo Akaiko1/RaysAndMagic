@@ -78,12 +78,12 @@ func (cs *CombatSystem) CalculateSpellDurationSeconds(spellID spells.SpellID, ch
 	if def.Duration <= 0 {
 		return 0
 	}
-	seconds := def.Duration + cs.spellMasteryBonus(char, spellID)
+	seconds := def.Duration
 	if char != nil && def.School != "" {
 		school := character.MagicSchoolID(def.School)
 		if skill, exists := char.MagicSchools[school]; exists && skill != nil {
-			multiplier := 1.0 + float64(skill.Level())*SpellSchoolLevelDurationBonus
-			seconds = int(float64(seconds) * multiplier)
+			bonusPct := int(skill.Mastery) * SpellMasteryDurationBonusPct
+			seconds = seconds * (100 + bonusPct) / 100
 		}
 	}
 	return seconds
@@ -105,36 +105,40 @@ func (cs *CombatSystem) CalculateSpellDurationFrames(spellID spells.SpellID, cha
 	return seconds * tps
 }
 
-// CalculateSpellStatBonus returns the spell's stat bonus with mastery applied (e.g., Bless).
+// CalculateSpellStatBonus returns the spell's stat bonus (e.g., Bless). FLAT
+// by balance decision: mastery scales only the DURATION of buffs, never their
+// magnitude (mastery-scaled +stats snowballed too hard).
 func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *character.MMCharacter) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return 0
 	}
-	if def.StatBonus <= 0 {
-		return 0
-	}
-	return def.StatBonus + cs.spellMasteryBonus(char, spellID)
+	return def.StatBonus
 }
 
 // CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
-func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
-	baseCrit := 0
-	gmWeaponBonus := 0
+// WeaponCritBreakdown decomposes the weapon crit chance into its components —
+// the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
+// can't drift from the rolled total.
+func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, gmWeapon, gmArms int) {
 	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
 		baseCrit = def.CritChance
 		// Grandmaster in this weapon's category: extra crit with it.
 		if st, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok &&
 			char != nil && char.SkillTier(st) >= int(character.MasteryGrandMaster) {
-			gmWeaponBonus = WeaponGMCritBonus
+			gmWeapon = WeaponGMCritBonus
 		}
 	}
 	// Grandmaster Arms Master: extra crit with ANY weapon.
-	armsBonus := 0
 	if char != nil && char.SkillTier(character.SkillArmsMaster) >= int(character.MasteryGrandMaster) {
-		armsBonus = ArmsMasterGMCritBonus
+		gmArms = ArmsMasterGMCritBonus
 	}
-	total := baseCrit + cs.CalculateCriticalChance(char) + gmWeaponBonus + armsBonus
+	return baseCrit, cs.CalculateCriticalChance(char), gmWeapon, gmArms
+}
+
+func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
+	baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
+	total := baseCrit + luck + gmWeapon + gmArms
 	if total < 0 {
 		return 0
 	}
@@ -237,14 +241,27 @@ func clampRTCooldown(frames int) int {
 // per-weapon `cooldown_multiplier` override for legendaries). Unarmed = sword
 // baseline. Speed still drives the underlying curve.
 func (cs *CombatSystem) WeaponCooldownFrames(char *character.MMCharacter) int {
+	weaponName := ""
+	if char != nil {
+		if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
+			weaponName = weapon.Name
+		}
+	}
+	return cs.WeaponCooldownFramesFor(char, weaponName)
+}
+
+// WeaponCooldownFramesFor computes the real-time cooldown for a SPECIFIC
+// weapon (tooltips hover unequipped weapons too) — the ONE formula combat and
+// every tooltip share. Empty name = unarmed (sword baseline).
+func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weaponName string) int {
 	if cs == nil || cs.game == nil || char == nil {
 		return RTCooldownMinFrames
 	}
 	speed := char.GetEffectiveSpeed()
 	base := float64(calculateSpeedActionCooldownFrames(speed)) * RTBaseCooldownMult
 	mult := 1.0
-	if weapon, ok := char.Equipment[items.SlotMainHand]; ok {
-		if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil {
+	if weaponName != "" {
+		if def, _, found := config.GetWeaponDefinitionByName(weaponName); found && def != nil {
 			switch {
 			case def.CooldownMultiplier > 0:
 				mult = def.CooldownMultiplier // legendary / per-weapon override
@@ -286,7 +303,10 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 		return RTCooldownMinFrames
 	}
 	seconds := 0.0
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+	if trapDef, ok := config.GetTrapDefinition(string(spellID)); ok {
+		// SmartAttack returns trap keys through the same cast-ID channel.
+		seconds = trapDef.CooldownSeconds
+	} else if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
 		seconds = def.CooldownSeconds
 		if seconds <= 0 {
 			seconds = SpellCooldownDefaultSecondsForLevel(def.Level)

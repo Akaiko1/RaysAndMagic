@@ -140,6 +140,19 @@ characters:
 
   # Race stat modifiers, ADDITIVE over class base stats. The classic roster is
   # human (baseline, no modifiers).
+    thief:
+      might: 10
+      intellect: 12
+      personality: 8
+      endurance: 10
+      accuracy: 15
+      speed: 13
+      luck: 12
+      skills: [dagger, leather, trapper, sleight_of_hand, meditation, disarm_trap]
+      main_hand: magic_dagger
+      armor: leather_armor
+      quick_trap: cleave_trap
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -163,6 +176,7 @@ characters:
   # The second hero set: benched at the tavern from the very start of a new
   # game — same classes as the starting party, stats shifted by race.
   tavern_recruits:
+    - { name: Nyra,    class: thief,    race: dark_elf }
     - { name: Grikka,  class: knight,   race: half_orc }
     - { name: Vaelith, class: sorcerer, race: dark_elf }
     - { name: Auralis, class: cleric,   race: celestial }

@@ -138,9 +138,20 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 
 // Update runs the monster AI with collision checking and player position for engagement detection
 func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
+	// RT roots run on frames; a TB-turn hold left over from a mode switch
+	// must not keep gating pounce here.
+	m.rootHeldThisTurn = false
 	if m.StunFramesRemaining > 0 {
 		m.StunFramesRemaining--
 		return
+	}
+	// Rooted (bear trap): the FULL update runs — detection, state machine,
+	// attack cadence — but any displacement it produced is undone, so the
+	// monster fights from where it stands without being stunned.
+	if m.RootFramesRemaining > 0 {
+		m.RootFramesRemaining--
+		px, py := m.X, m.Y
+		defer func() { m.X, m.Y = px, py }()
 	}
 
 	m.StateTimer++

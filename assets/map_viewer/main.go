@@ -79,7 +79,7 @@ type viewer struct {
 	// Content page state: per-page card lists and independent scroll offsets.
 	pageCards   map[int][]contentCard
 	pageScroll  map[int]int
-	charDetails []charDetail // Characters page (custom full-detail renderer)
+	charDetails []charDetail             // Characters page (custom full-detail renderer)
 	iconCache   map[string]*ebiten.Image // key: "<kind>:<itemKey>"; nil value = "no icon on disk"
 }
 
@@ -181,6 +181,9 @@ func main() {
 	}
 	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
 		log.Printf("Warning: failed to load weapons.yaml: %v", err)
+	}
+	if _, err := config.LoadTrapConfig("assets/traps.yaml"); err != nil {
+		log.Printf("Warning: Failed to load trap config: %v", err)
 	}
 	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
 		log.Printf("Warning: failed to load spells.yaml: %v", err)

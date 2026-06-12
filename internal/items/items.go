@@ -22,6 +22,35 @@ const (
 	SlotSpell // Unified spell slot for any spell
 )
 
+// DisplayName is the player-facing slot label (item cards, tooltips).
+func (s EquipSlot) DisplayName() string {
+	switch s {
+	case SlotMainHand:
+		return "Main Hand"
+	case SlotOffHand:
+		return "Off-Hand"
+	case SlotArmor:
+		return "Armor"
+	case SlotHelmet:
+		return "Helmet"
+	case SlotBoots:
+		return "Boots"
+	case SlotCloak:
+		return "Cloak"
+	case SlotGauntlets:
+		return "Gauntlets"
+	case SlotBelt:
+		return "Belt"
+	case SlotAmulet:
+		return "Amulet"
+	case SlotRing1, SlotRing2:
+		return "Ring"
+	case SlotSpell:
+		return "Quick Slot"
+	}
+	return "Gear"
+}
+
 type Item struct {
 	Name        string
 	Type        ItemType
@@ -47,6 +76,10 @@ const (
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 	ItemTrinket      // Collectible cards/curios — non-equippable, discardable, sellable.
+	// ItemTrap MUST stay at the END: saves serialize Type as an int, so
+	// inserting mid-enum re-types every item after the insertion point
+	// (trinkets were briefly read back as traps).
+	ItemTrap // Thief traps (quick-slot devices armed with Space/F)
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -66,6 +99,8 @@ func (t ItemType) String() string {
 		return "Battle Spell"
 	case ItemUtilitySpell:
 		return "Utility Spell"
+	case ItemTrap:
+		return "Trap"
 	case ItemTrinket:
 		return "Trinket"
 	default:

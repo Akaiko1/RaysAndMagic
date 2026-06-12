@@ -108,21 +108,21 @@ func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID) (UtilitySpellResult,
 		return UtilitySpellResult{}, err
 	}
 	return UtilitySpellResult{
-		Success:        true,
-		Message:        def.Message,
-		VisionBonus:    def.VisionBonus,
-		WaterWalk:      def.WaterWalk,
-		WaterBreathing: def.WaterBreathing,
+		Success:           true,
+		Message:           def.Message,
+		VisionRadiusTiles: def.VisionRadiusTiles,
+		WaterWalk:         def.WaterWalk,
+		WaterBreathing:    def.WaterBreathing,
 	}, nil
 }
 
 // UtilitySpellResult represents the result of casting a utility spell
 type UtilitySpellResult struct {
-	Success        bool
-	Message        string
-	VisionBonus    float64
-	WaterWalk      bool
-	WaterBreathing bool
+	Success           bool
+	Message           string
+	VisionRadiusTiles float64
+	WaterWalk         bool
+	WaterBreathing    bool
 }
 
 // GetProjectileColor returns the color for a projectile based on spell ID

@@ -56,6 +56,7 @@ func main() {
 	}
 
 	// Load monster configuration (needed before world loading)
+	config.MustLoadTrapConfig("assets/traps.yaml")
 	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
 	// Load aggro relationships (which party traits enrage passive monsters)

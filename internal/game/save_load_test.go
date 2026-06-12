@@ -40,6 +40,9 @@ func loadTestConfig(t *testing.T) *config.Config {
 	// happened to run first and set these global accessors.
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
+	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
+		t.Fatalf("load traps: %v", err)
+	}
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	return cfg
 }
@@ -148,9 +151,14 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
 	}
 	// The radius deliberately does NOT round-trip: on load an active torch
-	// adopts the current balance constant, so old saves pick up retunes.
-	if loaded.torchLightRadius != TorchLightRadiusTiles {
-		t.Fatalf("torchLightRadius: got %v want balance constant %v", loaded.torchLightRadius, TorchLightRadiusTiles)
+	// adopts the CURRENT spells.yaml vision_radius_tiles, so old saves pick
+	// up retunes.
+	torchDef, err := spells.GetSpellDefinitionByID("torch_light")
+	if err != nil {
+		t.Fatalf("torch_light def: %v", err)
+	}
+	if loaded.torchLightRadius != torchDef.VisionRadiusTiles {
+		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.VisionRadiusTiles)
 	}
 	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
 		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)

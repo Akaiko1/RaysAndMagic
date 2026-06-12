@@ -103,6 +103,16 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 	}
 }
 
+func TestMagicMasteryTooltip_CitesGMResistPierce(t *testing.T) {
+	tip := magicMasteryTooltipText()
+	if !strings.Contains(tip, fmt.Sprintf("%d%%", MagicGMResistPiercePct)) {
+		t.Errorf("magic mastery tooltip %q should cite GM resist pierce %d%%", tip, MagicGMResistPiercePct)
+	}
+	if !strings.Contains(tip, "except Inferno") {
+		t.Errorf("magic mastery tooltip should document the Inferno exception: %q", tip)
+	}
+}
+
 // TestSkillTooltips_CiteGMConstants: every GM capstone's tooltip cites the real
 // constant, so the capstone text can't lie or drift from the mechanic.
 func TestSkillTooltips_CiteGMConstants(t *testing.T) {

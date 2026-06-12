@@ -130,6 +130,10 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
+	RootTurnsRemaining  int     // TB root (bear trap): can't move, CAN attack
+	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
+	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)
+	Pilfered            bool    // Sleight of Hand already succeeded on this monster
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
 	Bound                    bool       // Bind Undead: under party control — hunts other monsters, ignores party
 	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
@@ -299,8 +303,25 @@ func (m *Monster3D) HasRangedAttack() bool {
 }
 
 // CanPounce reports whether the monster has the leap ability configured.
+// TickRootTurn consumes one TB turn of a root effect; the monster stays
+// pinned for the WHOLE turn it started rooted (RootHeld), so an adjacent
+// rooted monster that only attacks still burns its root down each turn.
+func (m *Monster3D) TickRootTurn() {
+	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
+	if m.RootTurnsRemaining > 0 {
+		m.RootTurnsRemaining--
+	}
+}
+
+// RootHeld reports whether this turn's movement is pinned by a root.
+func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
+
 func (m *Monster3D) CanPounce() bool {
-	return m.PounceRangePixels > 0
+	// A rooted monster is pinned to its tile — the leap is a movement.
+	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has
+	// already decremented the counter to 0 but the pin lasts the whole turn.
+	return m.PounceRangePixels > 0 && m.RootFramesRemaining <= 0 &&
+		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.

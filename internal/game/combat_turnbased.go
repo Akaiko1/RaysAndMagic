@@ -39,6 +39,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
+		// Root (bear trap) burns one turn per monster TURN — whether it moves
+		// or stands adjacent and attacks (root pins movement, not actions).
+		// MUST tick before the Pacified/Bound branches: a bound undead still
+		// moves through monsterMoveTurnBased and its root must hold and decay.
+		m.TickRootTurn()
+
 		// Pacified (Charm): holds position, never acts against the party.
 		if m.Pacified {
 			continue
@@ -51,6 +57,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			continue
 		}
+
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
@@ -183,6 +190,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 	}
 
+	// Monsters finished moving: spring any traps they stepped onto.
+	gl.combat.sweepTrapTriggers()
+
 	// Mark monster turn as processed before ending turn
 	gl.game.monsterTurnResolved = true
 
@@ -270,6 +280,11 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 
 // monsterMoveTurnBased handles a monster move in turn-based mode
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
+	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
+	// lives in TickRootTurn (root != stun — attacks still happen).
+	if monster.RootHeld() {
+		return
+	}
 	tileSize := float64(gl.game.config.GetTileSize())
 
 	// Step toward the monster's AI target (party by default; a charmed monster is

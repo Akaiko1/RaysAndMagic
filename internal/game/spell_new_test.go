@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 )
 
@@ -88,6 +89,34 @@ func TestInferno_DamagesMobsAndParty(t *testing.T) {
 	}
 }
 
+func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	equipSpellAndPrepareCaster(t, game.combat, "inferno", 100, 30)
+	caster := game.party.Members[0]
+	caster.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	caster.Equipment[items.SlotRing1] = items.Item{
+		Type:       items.ItemAccessory,
+		Attributes: map[string]int{"resist_fire": 50},
+	}
+	caster.MaxHitPoints, caster.HitPoints = 1000, 1000
+
+	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.Resistances[monster.DamageFire] = 60
+	game.world.Monsters = []*monster.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("inferno cast failed")
+	}
+	if got, want := 1000-m.HitPoints, 18; got != want {
+		t.Errorf("GM Inferno damage through 60%% fire resist = %d, want %d (no GM pierce)", got, want)
+	}
+	if got, want := 1000-caster.HitPoints, 22; got != want {
+		t.Errorf("Inferno self-damage through 50%% fire resist = %d, want %d", got, want)
+	}
+}
+
 // Stone Skin, Heroism and Hour of Power must STACK — the refactored buff list
 // sums their bonuses instead of clobbering a single slot.
 func TestPartyBuffs_Stack(t *testing.T) {
@@ -135,5 +164,56 @@ func TestHotSteam_DamagesInTurnBased(t *testing.T) {
 
 	if mon.HitPoints >= 200 {
 		t.Errorf("hot_steam should damage the monster in TB (hp still %d)", mon.HitPoints)
+	}
+}
+
+func TestHotSteam_GMPiercesResistance(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 7, 7)
+	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
+	caster := game.party.Members[0]
+	caster.MagicSchools[character.MagicSchoolWater] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+
+	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.Resistances[monster.DamageWater] = 60
+	game.world.Monsters = []*monster.Monster3D{m}
+
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("hot_steam cast failed")
+	}
+	z := &game.steamZones[0]
+	if z.ResistPierce != MagicGMResistPiercePct {
+		t.Fatalf("Hot Steam stored resist pierce %d, want %d", z.ResistPierce, MagicGMResistPiercePct)
+	}
+	game.combat.damageSteamZoneOnce(z)
+	want := z.TickDamage * 70 / 100 // 60% resistance becomes 30% after 50% pierce.
+	if got := 1000 - m.HitPoints; got != want {
+		t.Errorf("GM Hot Steam damage through 60%% water resist = %d, want %d", got, want)
+	}
+}
+
+func TestHotSteam_OverlappingZonesReplaceButSeparateZonesRemain(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 20, 20)
+	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 1000, 30)
+
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("first hot_steam cast failed")
+	}
+	radius := game.steamZones[0].Radius
+
+	game.camera.X += radius
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("overlapping hot_steam cast failed")
+	}
+	if got := len(game.steamZones); got != 1 {
+		t.Fatalf("overlapping Hot Steam zones = %d, want 1 replacement", got)
+	}
+
+	game.camera.X += radius * 3
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("separate hot_steam cast failed")
+	}
+	if got := len(game.steamZones); got != 2 {
+		t.Fatalf("separate Hot Steam zones = %d, want 2", got)
 	}
 }
