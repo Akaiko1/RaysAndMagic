@@ -2,7 +2,6 @@ package game
 
 import (
 	"ugataima/internal/character"
-	"ugataima/internal/spells"
 )
 
 // TimedStatBuff is one active, timed party STAT buff (Bless, and any spell
@@ -17,17 +16,12 @@ type TimedStatBuff struct {
 	Bonuses character.StatBonuses
 }
 
+func (b TimedStatBuff) buffSpellID() string { return b.SpellID }
+
 // addStatBuff activates a stat buff (same-spell recast refreshes) and pushes
 // the new aggregate onto the party.
 func (g *MMGame) addStatBuff(b TimedStatBuff) {
-	for i := range g.statBuffs {
-		if g.statBuffs[i].SpellID == b.SpellID {
-			g.statBuffs[i] = b
-			g.recomputeStatBonuses()
-			return
-		}
-	}
-	g.statBuffs = append(g.statBuffs, b)
+	g.statBuffs = upsertBuff(g.statBuffs, b)
 	g.recomputeStatBonuses()
 }
 
@@ -47,24 +41,8 @@ func (g *MMGame) recomputeStatBonuses() {
 // and drops expired ones (re-deriving the aggregate). Called once per frame
 // next to tickCombatBuffs.
 func (g *MMGame) tickStatBuffs() {
-	if len(g.statBuffs) == 0 {
-		return
-	}
-	w := 0
-	expired := false
-	for i := range g.statBuffs {
-		g.statBuffs[i].Frames--
-		b := g.statBuffs[i]
-		if b.Frames > 0 {
-			g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
-			g.statBuffs[w] = b
-			w++
-		} else {
-			g.updateUtilityStatus(spells.SpellID(b.SpellID), 0, false)
-			expired = true
-		}
-	}
-	g.statBuffs = g.statBuffs[:w]
+	var expired bool
+	g.statBuffs, expired = tickBuffList(g, g.statBuffs, func(b *TimedStatBuff) *int { return &b.Frames })
 	if expired {
 		g.recomputeStatBonuses()
 	}
@@ -73,24 +51,15 @@ func (g *MMGame) tickStatBuffs() {
 // removeStatBuff drops a stat buff by spell id (dispel) and re-derives the
 // aggregate. No-op if absent.
 func (g *MMGame) removeStatBuff(spellID string) {
-	for i := range g.statBuffs {
-		if g.statBuffs[i].SpellID == spellID {
-			g.statBuffs = append(g.statBuffs[:i], g.statBuffs[i+1:]...)
-			g.updateUtilityStatus(spells.SpellID(spellID), 0, false)
-			g.recomputeStatBonuses()
-			return
-		}
+	var removed bool
+	if g.statBuffs, removed = removeBuffByID(g, g.statBuffs, spellID); removed {
+		g.recomputeStatBonuses()
 	}
 }
 
 // statBuffByID returns the active stat buff for a spell, if any (tests/UI).
 func (g *MMGame) statBuffByID(spellID string) (TimedStatBuff, bool) {
-	for i := range g.statBuffs {
-		if g.statBuffs[i].SpellID == spellID {
-			return g.statBuffs[i], true
-		}
-	}
-	return TimedStatBuff{}, false
+	return buffByID(g.statBuffs, spellID)
 }
 
 // StatBuffSave is the JSON form of a TimedStatBuff for save files.

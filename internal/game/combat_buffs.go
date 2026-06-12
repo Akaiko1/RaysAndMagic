@@ -1,7 +1,5 @@
 package game
 
-import "ugataima/internal/spells"
-
 // TimedCombatBuff is one active, timed party combat buff. Multiple buffs STACK
 // additively (Day of the Gods, Hour of Power, Stone Skin, Heroism, …): their
 // ResistPct / OutBonus / InReduce sum across all active entries. This replaces
@@ -15,16 +13,16 @@ type TimedCombatBuff struct {
 	ResistPct int    // % reduction of incoming damage (applied before InReduce)
 }
 
-// addCombatBuff activates a buff, replacing any existing one from the same spell
-// (recast refreshes duration/values rather than stacking duplicate entries).
+func (b TimedCombatBuff) buffSpellID() string { return b.SpellID }
+
+// addCombatBuff activates a buff (same-spell recast refreshes).
 func (g *MMGame) addCombatBuff(b TimedCombatBuff) {
-	for i := range g.combatBuffs {
-		if g.combatBuffs[i].SpellID == b.SpellID {
-			g.combatBuffs[i] = b
-			return
-		}
-	}
-	g.combatBuffs = append(g.combatBuffs, b)
+	g.combatBuffs = upsertBuff(g.combatBuffs, b)
+}
+
+// removeCombatBuff drops a combat buff by spell id (dispel). No-op if absent.
+func (g *MMGame) removeCombatBuff(spellID string) {
+	g.combatBuffs, _ = removeBuffByID(g, g.combatBuffs, spellID)
 }
 
 // combatBuffOutBonus sums the flat outgoing-damage bonus from all active buffs.
@@ -60,12 +58,7 @@ func (g *MMGame) combatBuffResistPct() int {
 
 // combatBuffByID returns the active buff for a spell, if any (used by tests/UI).
 func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
-	for i := range g.combatBuffs {
-		if g.combatBuffs[i].SpellID == spellID {
-			return g.combatBuffs[i], true
-		}
-	}
-	return TimedCombatBuff{}, false
+	return buffByID(g.combatBuffs, spellID)
 }
 
 // CombatBuffSave is the JSON form of a TimedCombatBuff for save files.
@@ -104,20 +97,5 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 // tickCombatBuffs decrements every active buff, refreshes its HUD status, and
 // drops the expired ones. Called once per frame from updateSpecialEffects.
 func (g *MMGame) tickCombatBuffs() {
-	if len(g.combatBuffs) == 0 {
-		return
-	}
-	w := 0
-	for i := range g.combatBuffs {
-		g.combatBuffs[i].Frames--
-		b := g.combatBuffs[i]
-		if b.Frames > 0 {
-			g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
-			g.combatBuffs[w] = b
-			w++
-		} else {
-			g.updateUtilityStatus(spells.SpellID(b.SpellID), 0, false)
-		}
-	}
-	g.combatBuffs = g.combatBuffs[:w]
+	g.combatBuffs, _ = tickBuffList(g, g.combatBuffs, func(b *TimedCombatBuff) *int { return &b.Frames })
 }

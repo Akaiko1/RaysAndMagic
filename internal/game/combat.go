@@ -2279,6 +2279,9 @@ func (cs *CombatSystem) RollWeaponCriticalChance(weapon items.Item, chr *charact
 // monsterImmuneToDisintegrate reports whether a monster cannot be instakilled by
 // any disintegrate effect (spell or weapon proc). Driven entirely by the
 // monster's `type` (data) — undead and dragons are immune.
+// Bosses (incl. quest-gated evasive ones) are deliberately NOT immune: winning
+// the 15% Disintegrate lottery against the Golden Thief Bug before the valve
+// quest is an accepted jackpot, not a bug.
 func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 	if m == nil {
 		return false

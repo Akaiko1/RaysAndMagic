@@ -553,9 +553,12 @@ func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 			ui.game.AddCombatMessage("Water Breathing dispelled!")
 		}
 	default:
-		// Stat-buff spells (Bless, …) live in the timed registry: dispel by id.
+		// Registry buffs (stat AND combat) dispel by spell id.
 		if _, ok := ui.game.statBuffByID(string(spellID)); ok {
 			ui.game.removeStatBuff(string(spellID))
+			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellID))
+		} else if _, ok := ui.game.combatBuffByID(string(spellID)); ok {
+			ui.game.removeCombatBuff(string(spellID))
 			ui.game.AddCombatMessage(fmt.Sprintf("%s dispelled!", spellID))
 		}
 	}

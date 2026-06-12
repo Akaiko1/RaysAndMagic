@@ -15,6 +15,20 @@ type MockCollisionChecker struct {
 	lastX, lastY float64 // Last position checked
 }
 
+// Test-only tile conversions at the engine default tile size (test monsters
+// carry no config, so Monster3D.tileSize() resolves to the same value).
+func worldToTile(pos float64) int {
+	return int(math.Floor(pos / defaultTileSize))
+}
+
+func tileToWorldCenter(tileX, tileY int) (float64, float64) {
+	return float64(tileX)*defaultTileSize + defaultTileSize/2, float64(tileY)*defaultTileSize + defaultTileSize/2
+}
+
+func worldToTileCenter(x, y float64) (float64, float64) {
+	return tileToWorldCenter(worldToTile(x), worldToTile(y))
+}
+
 func NewMockCollisionChecker(tileSize float64) *MockCollisionChecker {
 	return &MockCollisionChecker{
 		blockedTiles: make(map[[2]int]bool),
@@ -852,7 +866,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 // across the map, it freezes and only "attacks" when you walk into melee. Guards
 // the wider window + higher node budget for BossAggro pursuers.
 func TestBossAggroPathsAroundLongDetour(t *testing.T) {
-	checker := NewMockCollisionChecker(tileSize)
+	checker := NewMockCollisionChecker(defaultTileSize)
 	// Wall at column 10 spanning rows -13..19 (covers a normal mob's whole ~±12-tile
 	// window around the straight start↔target line); the ONLY gap is row 20. Any
 	// crossing must detour ~20 tiles down — within a relentless boss's window, not a

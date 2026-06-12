@@ -117,6 +117,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
+		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
+		}
+		if monster.TeleportAtHP > 0 && monster.TeleportChance <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_at_hp but no teleport_chance", key))
+		}
 		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
 		}
@@ -261,7 +267,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Experience = def.Experience
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
-	// Convert tile-based radii to pixels (package tileSize, set from config)
+	// Convert tile-based radii to pixels
+	tileSize := m.tileSize()
 	m.AlertRadius = def.AlertRadius * tileSize
 	m.AttackRadius = def.AttackRadius * tileSize
 	m.Speed = def.Speed

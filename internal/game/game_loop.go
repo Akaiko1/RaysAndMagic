@@ -98,6 +98,8 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
+		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
+		gl.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()
 	} else {
 		// Update monsters in parallel with performance monitoring

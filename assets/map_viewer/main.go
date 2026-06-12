@@ -172,7 +172,6 @@ func main() {
 		log.Printf("Warning: Failed to load special tile config: %v", err)
 	}
 
-	monster.SetTileSize(cfg.GetTileSize())
 	monsterCfg := monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
 	// Content tab needs item / weapon / spell defs. These are optional — if a

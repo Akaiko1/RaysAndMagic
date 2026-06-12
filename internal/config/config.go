@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"ugataima/internal/items"
+	"ugataima/internal/stats"
 
 	"gopkg.in/yaml.v3"
 )
@@ -830,20 +832,12 @@ func setupWeaponAccessor() {
 }
 
 // StatNames is THE canonical, ordered list of the seven character stats
-// (lowercase — the YAML key convention). Validators, save serialization and
-// tooltip ordering all derive from it: adding a stat means extending this
-// list plus the StatBonuses struct/field mapping in the character package.
-var StatNames = [...]string{"might", "intellect", "personality", "endurance", "accuracy", "speed", "luck"}
+// (lowercase — the YAML key convention), DERIVED from the StatBonuses struct
+// in internal/stats. Adding a stat = adding one struct field there.
+var StatNames = stats.Names
 
 // IsStatName reports whether s is a canonical lowercase stat name.
-func IsStatName(s string) bool {
-	for _, n := range StatNames {
-		if n == s {
-			return true
-		}
-	}
-	return false
-}
+func IsStatName(s string) bool { return stats.IsName(s) }
 
 // validWeaponBonusStats: weapons.yaml authors Title-case stat names
 // ("Might"); derived from the canonical list at init.
@@ -969,18 +963,15 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 	return cfg
 }
 
-// validateItemConfig enforces per-type required attributes for consumables
-// validEquipSlots are the equip_slot names items.yaml may use — a typo would
-// otherwise silently route the item to the armor slot.
-var validEquipSlots = map[string]bool{
-	"armor": true, "helmet": true, "boots": true, "cloak": true,
-	"gauntlets": true, "belt": true, "amulet": true, "ring": true, "offhand": true,
-}
-
+// validateItemConfig enforces per-type required attributes for consumables.
+// equip_slot names validate against the ONE mapping in the items package — a
+// typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
-		if def.EquipSlot != "" && !validEquipSlots[def.EquipSlot] {
-			return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
+		if def.EquipSlot != "" {
+			if _, ok := items.EquipSlotFromName(def.EquipSlot); !ok {
+				return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
+			}
 		}
 		switch def.Type {
 		case "consumable":

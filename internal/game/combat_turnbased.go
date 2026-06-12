@@ -71,14 +71,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
 
-		// Boss specials (blink / Inferno); each TB turn is one action tick.
-		if gl.combat.isBoss(m) {
-			if gl.combat.updateBoss(m, true, true) {
-				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
-				continue
-			}
-		}
-
 		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
 		// a bolt from within range, melee strike from an adjacent tile), else step
 		// toward it; never touch the party.
@@ -112,6 +104,20 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
+		}
+
+		// Boss specials (blink / Inferno); each TB turn is one action tick.
+		// Runs AFTER the bound-undead check (matching RT order): a boss lured
+		// at a bound foe spends its turn on that fight, not on party novas.
+		// DESIGN: specials are rolled BEFORE range/movement checks, so in TB an
+		// aggressive boss may cast Inferno or its low-HP blink from across the
+		// room instead of closing in. RT gates these to the attack moment; the
+		// asymmetry is intentional TB flavor — do not "fix" toward RT.
+		if gl.combat.isBoss(m) {
+			if gl.combat.updateBoss(m, m.BossCD == 0, true) {
+				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+				continue
+			}
 		}
 
 		// Work in tile space: monsters never enter the player's tile and only

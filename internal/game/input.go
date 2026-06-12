@@ -244,14 +244,10 @@ func (ih *InputHandler) restartNewGame() {
 	g.showHighScores = false
 	g.frameCount = 0
 
-	// Clear combat/projectile state
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.meleeAttacks = g.meleeAttacks[:0]
-	g.arrows = g.arrows[:0]
+	// Clear combat/projectile state (shared cleaner: also unregisters
+	// projectile collision entities and drops impact lights)
+	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
-	g.slashEffects = g.slashEffects[:0]
-	g.spellHitEffects = g.spellHitEffects[:0]
-	g.deadMonsterIDs = g.deadMonsterIDs[:0]
 	g.combatMessages = g.combatMessages[:0]
 	g.cardFxTimers = [cardFxCount][4]int{}
 
@@ -297,13 +293,12 @@ func (ih *InputHandler) restartNewGame() {
 	g.wizardEyeDuration = 0
 	g.walkOnWaterActive = false
 	g.walkOnWaterDuration = 0
-	g.statBuffs = nil
+	g.resetTimedEffects() // stat buffs (+aggregate), combat buffs, steam zones
 	g.waterBreathingActive = false
 	g.waterBreathingDuration = 0
 	g.underwaterReturnX = 0
 	g.underwaterReturnY = 0
 	g.underwaterReturnMap = ""
-	g.statBonuses = character.StatBonuses{}
 
 	// Reset turn-based state
 	g.turnBasedMode = false

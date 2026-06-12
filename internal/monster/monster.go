@@ -199,6 +199,10 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	if MonsterConfig == nil {
 		panic("Monster configuration not loaded. Call monster.MustLoadMonsterConfig() first.")
 	}
+	ts := defaultTileSize
+	if cfg != nil && cfg.GetTileSize() > 0 {
+		ts = cfg.GetTileSize()
+	}
 
 	def, err := MonsterConfig.GetMonsterByKey(monsterKey)
 	if err != nil {
@@ -220,7 +224,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 		// Initialize tethering system
 		SpawnX:           x,
 		SpawnY:           y,
-		TetherRadius:     4 * tileSize, // 4 tiles
+		TetherRadius:     4 * ts, // 4 tiles
 		IsEngagingPlayer: false,
 	}
 
@@ -311,7 +315,7 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 		return m.RangedAttackRange
 	}
 
-	tileSize := m.config.GetTileSize()
+	tileSize := m.tileSize()
 
 	if m.ProjectileSpell != "" {
 		if physics, err := m.config.GetSpellConfig(m.ProjectileSpell); err == nil && physics != nil {

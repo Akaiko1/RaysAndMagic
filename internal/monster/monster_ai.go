@@ -269,7 +269,7 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// Get detection radius (use AlertRadius or the configured default)
 	detectionRadius := m.AlertRadius
 	if detectionRadius <= 0 {
-		detectionRadius = defaultRadiusTiles * tileSize
+		detectionRadius = defaultRadiusTiles * m.tileSize()
 	}
 
 	// If outside tether, monster is more alert (was lured or is lost)
@@ -359,8 +359,8 @@ func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, playerX,
 
 	// Check if outside tether - return to spawn using pathfinding
 	if !m.IsWithinTetherRadius() {
-		spawnTileX := worldToTile(m.SpawnX)
-		spawnTileY := worldToTile(m.SpawnY)
+		spawnTileX := m.worldToTile(m.SpawnX)
+		spawnTileY := m.worldToTile(m.SpawnY)
 		m.setMoveTarget(StatePatrolling, spawnTileX, spawnTileY)
 		if !m.followPathToTile(collisionChecker, spawnTileX, spawnTileY) {
 			m.clearMoveTarget()
@@ -405,9 +405,9 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dir
 		return false
 	}
 
-	currentCenterX, currentCenterY := worldToTileCenter(m.X, m.Y)
-	targetX := currentCenterX + float64(dirX)*tileSize
-	targetY := currentCenterY + float64(dirY)*tileSize
+	currentCenterX, currentCenterY := m.worldToTileCenter(m.X, m.Y)
+	targetX := currentCenterX + float64(dirX)*m.tileSize()
+	targetY := currentCenterY + float64(dirY)*m.tileSize()
 
 	if !collisionChecker.CanMoveToWithHabitat(m.ID, targetX, targetY, m.HabitatPrefs, m.Flying) {
 		return false
@@ -451,7 +451,7 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// is blocked by the player's body — leaving a melee monster frozen a few
 	// pixels out of range. A direct collision-checked step has no such
 	// quantization; walls still win, and we fall through to A* when blocked.
-	if distanceToPlayer <= tileSize*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
+	if distanceToPlayer <= m.tileSize()*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
 		return
 	}
 
@@ -540,7 +540,7 @@ func (m *Monster3D) currentMoveTarget() TileCoord {
 }
 
 func (m *Monster3D) isAtTile(tileX, tileY int) bool {
-	return worldToTile(m.X) == tileX && worldToTile(m.Y) == tileY
+	return m.worldToTile(m.X) == tileX && m.worldToTile(m.Y) == tileY
 }
 
 func (m *Monster3D) pickPatrolTarget(collisionChecker CollisionChecker) (TileCoord, bool) {
@@ -548,13 +548,13 @@ func (m *Monster3D) pickPatrolTarget(collisionChecker CollisionChecker) (TileCoo
 		return TileCoord{}, false
 	}
 
-	tileRadius := int(math.Ceil(m.TetherRadius / tileSize))
+	tileRadius := int(math.Ceil(m.TetherRadius / m.tileSize()))
 	if tileRadius < 1 {
 		tileRadius = 1
 	}
 
-	spawnTileX := worldToTile(m.SpawnX)
-	spawnTileY := worldToTile(m.SpawnY)
+	spawnTileX := m.worldToTile(m.SpawnX)
+	spawnTileY := m.worldToTile(m.SpawnY)
 
 	const attempts = 20
 	for i := 0; i < attempts; i++ {
@@ -565,7 +565,7 @@ func (m *Monster3D) pickPatrolTarget(collisionChecker CollisionChecker) (TileCoo
 		}
 		tileX := spawnTileX + dx
 		tileY := spawnTileY + dy
-		centerX, centerY := tileToWorldCenter(tileX, tileY)
+		centerX, centerY := m.tileToWorldCenter(tileX, tileY)
 		if distance(centerX, centerY, m.SpawnX, m.SpawnY) > m.TetherRadius {
 			continue
 		}
@@ -586,9 +586,9 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 		return TileCoord{}, false
 	}
 
-	fleeDistance := tileSize * 4
+	fleeDistance := m.tileSize() * 4
 	if m.config != nil && m.config.MonsterAI.FleeDistanceTiles > 0 {
-		fleeDistance = m.config.MonsterAI.FleeDistanceTiles * tileSize
+		fleeDistance = m.config.MonsterAI.FleeDistanceTiles * m.tileSize()
 	}
 
 	dx := m.X - playerX
@@ -607,14 +607,14 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 		angle := math.Atan2(dy, dx) + angleOffset
 		targetX := m.X + math.Cos(angle)*fleeDistance
 		targetY := m.Y + math.Sin(angle)*fleeDistance
-		tileX := worldToTile(targetX)
-		tileY := worldToTile(targetY)
+		tileX := m.worldToTile(targetX)
+		tileY := m.worldToTile(targetY)
 		if m.isAtTile(tileX, tileY) {
 			// The own tile is never a flee target: "reaching" it instantly
 			// re-looped the picker forever (and skipped the flee timeout).
 			continue
 		}
-		centerX, centerY := tileToWorldCenter(tileX, tileY)
+		centerX, centerY := m.tileToWorldCenter(tileX, tileY)
 		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 			return TileCoord{X: tileX, Y: tileY}, true
 		}
@@ -629,8 +629,8 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 		return false
 	}
 
-	targetTileX := worldToTile(targetX)
-	targetTileY := worldToTile(targetY)
+	targetTileX := m.worldToTile(targetX)
+	targetTileY := m.worldToTile(targetY)
 
 	shouldRepath := len(m.PathTiles) == 0 || m.PathIndex >= len(m.PathTiles)
 	targetChanged := m.PathTargetTileX != targetTileX || m.PathTargetTileY != targetTileY
@@ -663,8 +663,8 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 		return false
 	}
 
-	currentTileX := worldToTile(m.X)
-	currentTileY := worldToTile(m.Y)
+	currentTileX := m.worldToTile(m.X)
+	currentTileY := m.worldToTile(m.Y)
 
 	if m.PathIndex == 0 {
 		if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
@@ -688,7 +688,7 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	}
 
 	next := m.PathTiles[m.PathIndex]
-	targetCenterX, targetCenterY := tileToWorldCenter(next.X, next.Y)
+	targetCenterX, targetCenterY := m.tileToWorldCenter(next.X, next.Y)
 
 	dx := targetCenterX - m.X
 	dy := targetCenterY - m.Y
@@ -769,8 +769,8 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return false
 	}
 
-	currentTileX := worldToTile(m.X)
-	currentTileY := worldToTile(m.Y)
+	currentTileX := m.worldToTile(m.X)
+	currentTileY := m.worldToTile(m.Y)
 
 	if m.PathIndex == 0 {
 		if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
@@ -799,7 +799,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	}
 
 	next := m.PathTiles[m.PathIndex]
-	targetCenterX, targetCenterY := tileToWorldCenter(next.X, next.Y)
+	targetCenterX, targetCenterY := m.tileToWorldCenter(next.X, next.Y)
 
 	dx := targetCenterX - m.X
 	dy := targetCenterY - m.Y
@@ -836,16 +836,16 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 }
 
 func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
-	start := TileCoord{X: worldToTile(m.X), Y: worldToTile(m.Y)}
-	targetTileX := worldToTile(targetX)
-	targetTileY := worldToTile(targetY)
+	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
+	targetTileX := m.worldToTile(targetX)
+	targetTileY := m.worldToTile(targetY)
 
 	goals := m.collectGoalTiles(collisionChecker, targetX, targetY)
 	if len(goals) == 0 {
 		return nil
 	}
 
-	rangeTiles := int(math.Ceil(m.AlertRadius / tileSize))
+	rangeTiles := int(math.Ceil(m.AlertRadius / m.tileSize()))
 	if rangeTiles < 4 {
 		rangeTiles = 4
 	}
@@ -864,7 +864,7 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 }
 
 func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) []TileCoord {
-	start := TileCoord{X: worldToTile(m.X), Y: worldToTile(m.Y)}
+	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
 	goal := TileCoord{X: targetTileX, Y: targetTileY}
 
 	if !m.isPassableTile(collisionChecker, goal) {
@@ -915,7 +915,7 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 	// aggroed in the same tile — each covering the shared tile center) abort
 	// every path attempt, freezing both in place.
 	if !ps.goal[startIdx] {
-		startCX, startCY := tileToWorldCenter(start.X, start.Y)
+		startCX, startCY := m.tileToWorldCenter(start.X, start.Y)
 		if !collisionChecker.CanOccupyTilesWithHabitat(m.ID, startCX, startCY, m.HabitatPrefs, m.Flying) {
 			return nil
 		}
@@ -991,8 +991,8 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 }
 
 func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX, targetY float64) []TileCoord {
-	targetTileX := int(targetX / tileSize)
-	targetTileY := int(targetY / tileSize)
+	targetTileX := int(targetX / m.tileSize())
+	targetTileY := int(targetY / m.tileSize())
 	// Pursue to within the monster's actual attack reach — the ranged range for
 	// ranged attackers, melee AttackRadius otherwise (GetAttackRangePixels returns
 	// AttackRadius when there's no projectile, so melee behaviour is unchanged).
@@ -1000,7 +1000,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	// distance; when those near tiles were unreachable (party blocking a bridge)
 	// they orbited without ever stopping at firing range.
 	reach := m.GetAttackRangePixels()
-	radiusTiles := int(math.Ceil(reach / tileSize))
+	radiusTiles := int(math.Ceil(reach / m.tileSize()))
 	if radiusTiles < 1 {
 		radiusTiles = 1
 	}
@@ -1010,7 +1010,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 		for dx := -radiusTiles; dx <= radiusTiles; dx++ {
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
-			centerX, centerY := tileToWorldCenter(tileX, tileY)
+			centerX, centerY := m.tileToWorldCenter(tileX, tileY)
 			if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
 				continue
 			}
@@ -1024,7 +1024,7 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 }
 
 func (m *Monster3D) isPassableTile(collisionChecker CollisionChecker, tile TileCoord) bool {
-	centerX, centerY := tileToWorldCenter(tile.X, tile.Y)
+	centerX, centerY := m.tileToWorldCenter(tile.X, tile.Y)
 	return collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying)
 }
 
@@ -1207,7 +1207,7 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, pl
 
 		detectionRadius := m.AlertRadius
 		if detectionRadius <= 0 {
-			detectionRadius = 4.0 * tileSize
+			detectionRadius = 4.0 * m.tileSize()
 		}
 		disengageMult := 2.0
 		if m.config != nil && m.config.MonsterAI.DisengageDistanceMultiplier > 0 {

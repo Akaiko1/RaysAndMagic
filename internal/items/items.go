@@ -349,28 +349,31 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}, nil
 }
 
+// equipSlotByName is the ONE equip_slot name → slot mapping. Config validation
+// (validateItemConfig) checks names against it too, so a YAML typo fails at
+// load instead of silently routing to the armor slot.
+var equipSlotByName = map[string]EquipSlot{
+	"armor":     SlotArmor,
+	"helmet":    SlotHelmet,
+	"boots":     SlotBoots,
+	"cloak":     SlotCloak,
+	"gauntlets": SlotGauntlets,
+	"belt":      SlotBelt,
+	"amulet":    SlotAmulet,
+	"ring":      SlotRing1, // default to first ring slot
+	"offhand":   SlotOffHand,
+}
+
+// EquipSlotFromName resolves an equip_slot name; ok=false for unknown names.
+func EquipSlotFromName(name string) (EquipSlot, bool) {
+	slot, ok := equipSlotByName[name]
+	return slot, ok
+}
+
 // mapEquipSlotStringToCode converts equip_slot string to EquipSlot constant
 func mapEquipSlotStringToCode(slotStr string) EquipSlot {
-	switch slotStr {
-	case "armor":
-		return SlotArmor
-	case "helmet":
-		return SlotHelmet
-	case "boots":
-		return SlotBoots
-	case "cloak":
-		return SlotCloak
-	case "gauntlets":
-		return SlotGauntlets
-	case "belt":
-		return SlotBelt
-	case "amulet":
-		return SlotAmulet
-	case "ring":
-		return SlotRing1 // Default to first ring slot
-	case "offhand":
-		return SlotOffHand
-	default:
-		return SlotArmor // Default fallback for armor-type items
+	if slot, ok := equipSlotByName[slotStr]; ok {
+		return slot
 	}
+	return SlotArmor // unreachable for YAML items: load-time validation rejects unknown names
 }
