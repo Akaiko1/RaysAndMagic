@@ -71,9 +71,9 @@ func TestMeditation_SpeedsManaRegen(t *testing.T) {
 	cfg := loadTestConfig(t)
 	c := character.CreateCharacter("Monk", character.ClassCleric, cfg)
 	delete(c.Skills, character.SkillMeditation)
-	without := c.CalculateManaRegenAmount(0)
+	without := c.CalculateManaRegenAmount()
 	c.Skills[character.SkillMeditation] = expertSkill()
-	with := c.CalculateManaRegenAmount(0)
+	with := c.CalculateManaRegenAmount()
 	if with-without != character.MeditationRegenPerTier {
 		t.Errorf("Meditation regen delta = %d, want %d", with-without, character.MeditationRegenPerTier)
 	}

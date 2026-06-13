@@ -16,6 +16,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/stats"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -33,6 +34,10 @@ type contentCard struct {
 	description string
 	flavor      string
 	tooltipRows []string // pre-formatted "Label: value" rows
+
+	// icon overrides the icon_<kind>_<key>.png naming convention (traps ship
+	// their sprite name in traps.yaml).
+	icon string
 }
 
 type contentKind int
@@ -195,6 +200,33 @@ func buildSpellCards() []contentCard {
 	for _, s := range rest {
 		emitSchool(s)
 	}
+	cards = append(cards, buildTrapCards()...)
+	return cards
+}
+
+// buildTrapCards lists the thief traps under their own section. Mechanics rows
+// come from config.TrapDefinitionConfig.EffectLines — the SAME source as the
+// in-game trap-book tooltip, so the editor can't drift.
+func buildTrapCards() []contentCard {
+	var cards []contentCard
+	for _, key := range config.TrapKeysOrdered() {
+		def, ok := config.GetTrapDefinition(key)
+		if !ok {
+			continue
+		}
+		rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
+		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner, character.ArmorPhysicalReductionDivisor), true)...)
+		cards = append(cards, contentCard{
+			kind:        cardSpell,
+			section:     "Traps (Thief)",
+			key:         key,
+			name:        def.Name,
+			subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
+			description: def.Description,
+			tooltipRows: rows,
+			icon:        def.Icon,
+		})
+	}
 	return cards
 }
 
@@ -206,22 +238,10 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	if def.BonusStat != "" {
 		subtitle += "  +" + def.BonusStat
 	}
-	var rows []string
-	rows = appendRow(rows, "Damage", fmt.Sprintf("%d", def.Damage))
-	rows = appendRow(rows, "Range", fmt.Sprintf("%d tiles", def.Range))
-	rows = appendRow(rows, "Bonus stat", def.BonusStat)
-	rows = appendRow(rows, "Bonus stat (2nd)", def.BonusStatSecondary)
-	if def.CritChance > 0 {
-		rows = appendRow(rows, "Crit Chance", fmt.Sprintf("%d%%", def.CritChance))
-	}
-	// All non-base special effects come from the canonical formatter on
-	// the config type, so this card stays in sync with the in-game
-	// tooltip whenever a new effect field is added. CritChance is a base
-	// attribute rendered above; the in-game tooltip renders its own
-	// personalized crit line, hence the split (see EffectLines doc).
-	for _, line := range def.EffectLines() {
-		rows = append(rows, line)
-	}
+	// Unified template (shared engine in character/cardtemplate.go): the
+	// editor shows the character-independent variant — formulas in place of
+	// personal numbers — in the same section order as the in-game tooltip.
+	rows := character.RenderCardLines(character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -239,61 +259,43 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	}
 }
 
-func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard {
-	subtitle := itemSubtitle(def)
-
-	var rows []string
-	rows = appendRow(rows, "Type", titleCase(def.Type))
-	if def.ArmorType != "" {
-		rows = appendRow(rows, "Armor category", titleCase(def.ArmorType))
-	}
-	if def.EquipSlot != "" {
-		rows = appendRow(rows, "Equip slot", titleCase(def.EquipSlot))
-	}
-	if def.ArmorClassBase > 0 {
-		rows = appendRow(rows, "Armor class base", fmt.Sprintf("%d", def.ArmorClassBase))
-	}
-	if def.EnduranceScalingDivisor > 0 {
-		rows = appendRow(rows, "Endurance scaling", fmt.Sprintf("+1 per %d Endurance", def.EnduranceScalingDivisor))
-	}
-	if def.IntellectScalingDivisor > 0 {
-		rows = appendRow(rows, "Spell power", fmt.Sprintf("+Intellect/%d", def.IntellectScalingDivisor))
-	}
-	if def.PersonalityScalingDivisor > 0 {
-		rows = appendRow(rows, "Spell points", fmt.Sprintf("+Personality/%d", def.PersonalityScalingDivisor))
-	}
-	bonusStats := []struct {
-		label string
-		val   int
-	}{
-		{"Might bonus", def.BonusMight},
-		{"Intellect bonus", def.BonusIntellect},
-		{"Personality bonus", def.BonusPersonality},
-		{"Endurance bonus", def.BonusEndurance},
-		{"Accuracy bonus", def.BonusAccuracy},
-		{"Speed bonus", def.BonusSpeed},
-		{"Luck bonus", def.BonusLuck},
-	}
-	for _, b := range bonusStats {
-		if b.val > 0 {
-			rows = appendRow(rows, b.label, fmt.Sprintf("+%d", b.val))
+// wearableKindLabel names a wearable by its SLOT (Belt / Amulet / Cloak / …),
+// matching the in-game tooltip's itemKindLabel — "Accessory" says nothing
+// about where the piece goes.
+func wearableKindLabel(def *config.ItemDefinitionConfig) string {
+	t := strings.ToLower(strings.TrimSpace(def.Type))
+	if t == "armor" || t == "accessory" {
+		if slot, ok := items.EquipSlotFromName(def.EquipSlot); ok {
+			return slot.DisplayName()
+		}
+		if t == "accessory" {
+			return items.SlotRing1.DisplayName()
 		}
 	}
-	if def.HealBase > 0 {
-		rows = appendRow(rows, "Heal base", fmt.Sprintf("%d HP", def.HealBase))
+	return titleCase(def.Type)
+}
+
+func sortedKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	if def.HealEnduranceDivisor > 0 {
-		rows = appendRow(rows, "Heal scaling", fmt.Sprintf("+Endurance/%d", def.HealEnduranceDivisor))
+	sort.Strings(keys)
+	return keys
+}
+
+func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard {
+	subtitle := itemSubtitle(def)
+	kind := wearableKindLabel(def)
+	if strings.ToLower(def.Type) == "accessory" {
+		// Surface the slot on the card itself, not only in the tooltip.
+		subtitle = strings.TrimSpace(kind + "  " + subtitle)
 	}
-	if def.SummonDistanceTiles > 0 {
-		rows = appendRow(rows, "Summon distance", fmt.Sprintf("%d tiles", def.SummonDistanceTiles))
-	}
-	if def.Revive {
-		rows = appendRow(rows, "Effect", "Revive from Dead/Unconscious")
-	}
-	if def.FullHeal {
-		rows = appendRow(rows, "Effect", "Full HP restore")
-	}
+
+	rows := []string{"Type: " + kind}
+	// Unified template (character/cardtemplate.go) — same sections as the
+	// in-game tooltip, character-independent variant.
+	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def, character.ArmorPhysicalReductionDivisor), true)...)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -351,10 +353,13 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 			}
 		}
 		if def.IntellectScalingDivisor > 0 {
-			parts = append(parts, fmt.Sprintf("SpellPwr +Int/%d", def.IntellectScalingDivisor))
+			parts = append(parts, fmt.Sprintf("+Int/%d Intellect", def.IntellectScalingDivisor))
 		}
 		if def.PersonalityScalingDivisor > 0 {
-			parts = append(parts, fmt.Sprintf("SP +Per/%d", def.PersonalityScalingDivisor))
+			parts = append(parts, fmt.Sprintf("+Per/%d Personality", def.PersonalityScalingDivisor))
+		}
+		for _, school := range sortedKeys(def.Resistances) {
+			parts = append(parts, fmt.Sprintf("%d%% %s resist", def.Resistances[school], titleCase(school)))
 		}
 		return strings.Join(parts, "  ")
 	case "quest":
@@ -364,12 +369,39 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 }
 
 func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCard {
-	// Base damage is derived from cost (cost × SpellDamagePerSP), not from a
-	// YAML field — so display the formula's output here, not whatever the
-	// designer wrote in a stale `damage:` line.
+	sd, sdErr := spells.GetSpellDefinitionByID(spells.SpellID(key))
+
+	// Monster-only spells are cast with the monster's own attack damage (no SP /
+	// Intellect / mastery / crit), so the player-formula card would lie — render
+	// the dedicated monster card instead.
+	if def.MonsterOnly {
+		subtitle := fmt.Sprintf("MONSTER ONLY  %s  Lvl %d", titleCase(def.School), def.Level)
+		if def.AoeRadiusTiles > 0 {
+			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
+		}
+		var rows []string
+		rows = appendRow(rows, "School", titleCase(def.School))
+		if sdErr == nil {
+			rows = append(rows, character.RenderCardLines(character.MonsterSpellCardSections(def, sd), true)...)
+		}
+		return contentCard{
+			kind:        cardSpell,
+			section:     section,
+			key:         key,
+			name:        def.Name,
+			subtitle:    subtitle,
+			description: def.Description,
+			tooltipRows: rows,
+		}
+	}
+
+	// Base damage comes from the SAME formula combat uses (cost ×
+	// SpellDamagePerSP × damage_cost_multiplier) — intellect 0 isolates the
+	// character-independent base. A hand-rolled cost×N here ignored the
+	// multiplier (Ray of Light showed half its real base).
 	baseDamage := 0
 	if def.IsProjectile && !def.DealsNoDamage { // no-damage projectiles (Charm/Disintegrate) deal nothing
-		baseDamage = def.SpellPointsCost * spells.SpellDamagePerSP
+		baseDamage, _, _ = spells.CalculateSpellDamageByID(spells.SpellID(key), 0)
 	}
 
 	subtitle := fmt.Sprintf("SP %d  Lvl %d", def.SpellPointsCost, def.Level)
@@ -385,31 +417,12 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		subtitle += fmt.Sprintf("  %ds", def.Duration)
 	}
 
+	// Unified template (character/cardtemplate.go) — same sections as the
+	// in-game tooltip, character-independent variant (formulas, not numbers).
 	var rows []string
 	rows = appendRow(rows, "School", titleCase(def.School))
-	rows = appendRow(rows, "Level", fmt.Sprintf("%d", def.Level))
-	rows = appendRow(rows, "Spell points", fmt.Sprintf("%d", def.SpellPointsCost))
-	if baseDamage > 0 {
-		rows = appendRow(rows, "Base damage", fmt.Sprintf("%d  (cost × %d)", baseDamage, spells.SpellDamagePerSP))
-	}
-	if def.HealAmount > 0 {
-		rows = appendRow(rows, "Base healing", fmt.Sprintf("%d", def.HealAmount))
-	}
-	if def.Duration > 0 {
-		rows = appendRow(rows, "Duration", fmt.Sprintf("%d seconds", def.Duration))
-	}
-	if def.StatBonus > 0 {
-		rows = appendRow(rows, "Stat bonus", fmt.Sprintf("+%d to all stats", def.StatBonus))
-	}
-	if def.IsProjectile {
-		rows = appendRow(rows, "Type", "Projectile (offensive)")
-	} else if def.IsUtility {
-		rows = appendRow(rows, "Type", "Utility")
-	}
-	// Character-independent mechanics — SAME source as the in-game tooltip
-	// (spells.EffectLines), so the editor can never drift to a stale/partial list.
-	if sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key)); err == nil {
-		rows = append(rows, sd.EffectLines()...)
+	if sdErr == nil {
+		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor), true)...)
 	}
 
 	return contentCard{
@@ -472,6 +485,24 @@ func buildSkillCards() []contentCard {
 			key:         strings.ToLower(strings.ReplaceAll(st.String(), " ", "_")),
 			name:        st.String(),
 			description: st.Description(),
+		})
+	}
+	// Magic mastery + primary stats come from the same catalog texts the
+	// in-game tooltips quote (character.MagicMasteryDescription/StatDescription).
+	cards = append(cards, contentCard{
+		kind:        cardSkill,
+		section:     "Magic",
+		key:         "magic_mastery",
+		name:        "Magic Mastery",
+		description: character.MagicMasteryDescription(),
+	})
+	for _, statName := range stats.Names {
+		cards = append(cards, contentCard{
+			kind:        cardSkill,
+			section:     "Stats",
+			key:         statName,
+			name:        titleCase(statName),
+			description: character.StatDescription(statName),
 		})
 	}
 	return cards
@@ -538,11 +569,15 @@ func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	case cardSpell:
 		prefix = "spell"
 	}
+	fileBase := "icon_" + prefix + "_" + c.key
+	if c.icon != "" {
+		fileBase = c.icon // explicit sprite name (traps)
+	}
 	cacheKey := prefix + ":" + c.key
 	if img, ok := v.iconCache[cacheKey]; ok {
 		return img // may be nil — "we already checked, no file"
 	}
-	path := filepath.Join("assets", "sprites", "interface", "icon_"+prefix+"_"+c.key+".png")
+	path := filepath.Join("assets", "sprites", "interface", fileBase+".png")
 	img, _, err := ebitenutil.NewImageFromFile(path)
 	if err != nil {
 		v.iconCache[cacheKey] = nil

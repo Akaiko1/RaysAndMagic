@@ -34,6 +34,13 @@ import (
 
 type ProjectileOwner int
 
+type combatLogEntry struct {
+	Text  string
+	Color color.Color
+}
+
+const maxCombatLogHistory = 500
+
 const (
 	ProjectileOwnerPlayer ProjectileOwner = iota
 	ProjectileOwnerMonster
@@ -54,7 +61,8 @@ type MagicProjectile struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	LifeTime           int // Frames remaining
+	Attacker           *character.MMCharacter // caster (nil = monster/none) — mastery/pierce resolve from HIM at impact; a pointer survives roster swaps mid-flight
+	LifeTime           int                    // Frames remaining
 	Active             bool
 	SpellType          string // Type of spell for visual differentiation
 	Size               int    // Projectile size
@@ -95,7 +103,8 @@ type Arrow struct {
 	X, Y               float64 // Current position
 	VelX, VelY         float64 // Velocity
 	Damage             int
-	LifeTime           int // Frames remaining
+	Attacker           *character.MMCharacter // shooter (nil = monster/none)
+	LifeTime           int                    // Frames remaining
 	Active             bool
 	BowKey             string // YAML key of the bow used to fire this arrow
 	DamageType         string // Damage element type ("physical", "dark", etc.)
@@ -231,17 +240,19 @@ type MMGame struct {
 	torchLightRadius   float64 // Radius of the light effect
 
 	// Wizard Eye effect
-	wizardEyeActive   bool // Whether wizard eye is currently active
-	wizardEyeDuration int  // Remaining duration in frames
+	wizardEyeActive      bool    // Whether wizard eye is currently active
+	wizardEyeRadiusTiles float64 // radar reach from spells.yaml (vision_radius_tiles)
+	wizardEyeDuration    int     // Remaining duration in frames
 
 	// Walk on Water effect
 	walkOnWaterActive   bool // Whether walk on water is currently active
 	walkOnWaterDuration int  // Remaining duration in frames
 
 	// Bless effect
-	blessActive    bool // Whether bless is currently active
-	blessDuration  int  // Remaining duration in frames
-	blessStatBonus int  // The stat bonus applied by this Bless cast (for proper removal)
+	// statBuffs is the registry of active stat-buff spells (Bless, …): different
+	// spells stack, recasting one refreshes it. g.statBonuses is DERIVED as
+	// their sum via recomputeStatBonuses — never mutate it directly.
+	statBuffs []TimedStatBuff
 
 	// Stacking timed party combat buffs (Day of the Gods, Hour of Power, Stone
 	// Skin, Heroism, …) — see combat_buffs.go. Their ResistPct/OutBonus/InReduce
@@ -249,7 +260,9 @@ type MMGame struct {
 	combatBuffs []TimedCombatBuff
 
 	// Persistent damage zones (Hot Steam) — see combat_zones.go.
-	steamZones []SteamZone
+	steamZones   []SteamZone
+	traps        []PlacedTrap // armed thief traps (map-scoped, persisted)
+	selectedTrap int          // trap-book browse index (selection ≠ equipped quick trap)
 
 	// boundUndead caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
@@ -270,7 +283,12 @@ type MMGame struct {
 	mapReturnPoses map[string]MapPose
 
 	// Generic stat bonus system (for Bless, Day of Gods, Hour of Power, etc.)
-	statBonus int // Total stat bonus from all active effects
+	// statBonuses aggregates every active stat-buff spell per stat (today only
+	// Bless contributes, uniformly). Any change MUST go through
+	// applyPartyStatBonuses so members' BuffBonuses and MaxHP/MaxSP follow.
+	// NOTE: saves persist the legacy uniform int (bless-only); a future
+	// per-stat buff spell needs a per-stat save field.
+	statBonuses character.StatBonuses
 
 	// Dialog system
 	dialogActive        bool           // Whether a dialog is currently open
@@ -288,9 +306,15 @@ type MMGame struct {
 	selectedSpell      int
 	spellInputCooldown int
 
-	// Combat messages
-	combatMessages []string
-	maxMessages    int
+	// Combat log: one ordered list of (text, color) entries. The HUD shows the
+	// last maxMessages of them; the scrollable overlay shows up to
+	// maxCombatLogHistory. (Replaces the old combatMessages/combatMessageColors
+	// parallel arrays that had to be kept in lockstep.)
+	combatLogHistory   []combatLogEntry
+	combatLogOpen      bool
+	combatLogScroll    int
+	lastCombatLogClick int64
+	maxMessages        int
 
 	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
 	// spark/heal. One table instead of four parallel arrays — see cardFx and
@@ -495,7 +519,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		selectedSpell:         0,
 		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
-		combatMessages:        make([]string, 0),
+		combatLogHistory:      make([]combatLogEntry, 0),
 		maxMessages:           4, // Show last 4 messages
 
 		// Dialog system initialization
@@ -886,11 +910,16 @@ func (g *MMGame) checkVictory() {
 
 // AddCombatMessage adds a combat message to the message queue
 func (g *MMGame) AddCombatMessage(message string) {
-	g.combatMessages = append(g.combatMessages, message)
+	g.AddColoredCombatMessage(message, color.White)
+}
 
-	// Keep only the last maxMessages
-	if len(g.combatMessages) > g.maxMessages {
-		g.combatMessages = g.combatMessages[len(g.combatMessages)-g.maxMessages:]
+// AddColoredCombatMessage appends a combat-log entry with an explicit display
+// color. The HUD slice is derived on demand (GetCombatMessages), so text and
+// color can never fall out of sync.
+func (g *MMGame) AddColoredCombatMessage(message string, messageColor color.Color) {
+	g.combatLogHistory = append(g.combatLogHistory, combatLogEntry{Text: message, Color: messageColor})
+	if len(g.combatLogHistory) > maxCombatLogHistory {
+		g.combatLogHistory = g.combatLogHistory[len(g.combatLogHistory)-maxCombatLogHistory:]
 	}
 }
 
@@ -927,9 +956,35 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	return true
 }
 
-// GetCombatMessages returns the current combat messages
+// hudLog returns the tail of the combat log shown on the HUD (last maxMessages
+// entries). GetCombatMessages and GetCombatMessageColor both index into it, so
+// the row text and its color always come from the same entry.
+func (g *MMGame) hudLog() []combatLogEntry {
+	n := g.maxMessages
+	if n <= 0 || n > len(g.combatLogHistory) {
+		n = len(g.combatLogHistory)
+	}
+	return g.combatLogHistory[len(g.combatLogHistory)-n:]
+}
+
+// GetCombatMessages returns the HUD combat-message texts (most recent last).
 func (g *MMGame) GetCombatMessages() []string {
-	return g.combatMessages
+	hud := g.hudLog()
+	out := make([]string, len(hud))
+	for i, e := range hud {
+		out[i] = e.Text
+	}
+	return out
+}
+
+// GetCombatMessageColor returns the display color for HUD row index (aligned with
+// GetCombatMessages).
+func (g *MMGame) GetCombatMessageColor(index int) color.Color {
+	hud := g.hudLog()
+	if index < 0 || index >= len(hud) {
+		return color.White
+	}
+	return hud[index].Color
 }
 
 // cardFx identifies a party-card overlay effect tracked per member in
@@ -1149,7 +1204,15 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 		if !ok {
 			return false
 		}
-		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, spell.SpellCost)
+		cost := spell.SpellCost
+		// Traps: the live traps.yaml cost is the truth (a rebalance must not
+		// be fooled by the SpellCost frozen into an old save's slot item).
+		if spell.Type == items.ItemTrap {
+			if def, defOk := config.GetTrapDefinition(string(spell.SpellEffect)); defOk {
+				cost = def.SPCost
+			}
+		}
+		return g.combat == nil || m.SpellPoints >= g.combat.effectiveSpellCost(m, cost)
 	case rtActHeal:
 		if g.combat == nil {
 			return false
@@ -1242,7 +1305,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 func (g *MMGame) startPartyTurn() {
 	for _, m := range g.party.Members {
 		if m.CanAct() {
-			m.ActionsRemaining = m.ActionSlotsForTurn(g.statBonus)
+			m.ActionsRemaining = m.ActionSlotsForTurn()
 		} else {
 			m.ActionsRemaining = 0
 		}
@@ -1262,7 +1325,7 @@ func (g *MMGame) endPartyTurn() {
 	if g.turnBasedSpRegenCount >= TurnBasedSpRegenEveryNRounds {
 		g.turnBasedSpRegenCount = 0
 		for _, member := range g.party.Members {
-			member.RegenerateSpellPoints(g.statBonus)
+			member.RegenerateSpellPoints()
 		}
 	}
 

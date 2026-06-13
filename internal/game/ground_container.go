@@ -337,7 +337,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	case c.Kind == ContainerKindLootBag && len(c.Items) == 0 && c.Gold > 0:
 		g.AddCombatMessage(fmt.Sprintf("Picked up %d gold.", c.Gold))
 	case c.Kind == ContainerKindLootBag && len(c.Items) == 1 && c.Gold <= 0:
-		g.AddCombatMessage(fmt.Sprintf("Picked up %s.", c.Items[0].Name))
+		g.AddColoredCombatMessage(fmt.Sprintf("Picked up %s.", c.Items[0].Name), lootMessageColor(c.Items))
 	default:
 		parts := make([]string, 0, len(c.Items)+1)
 		if c.Gold > 0 {
@@ -346,7 +346,12 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		for _, it := range c.Items {
 			parts = append(parts, it.Name)
 		}
-		g.AddCombatMessage(fmt.Sprintf("%s: %s.", defaults.openMessage, strings.Join(parts, ", ")))
+		message := fmt.Sprintf("%s: %s.", defaults.openMessage, strings.Join(parts, ", "))
+		if len(c.Items) > 0 {
+			g.AddColoredCombatMessage(message, lootMessageColor(c.Items))
+		} else {
+			g.AddCombatMessage(message)
+		}
 	}
 
 	g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)

@@ -140,7 +140,7 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 			member.FreeStatPoints--
 			// Recompute HP/SP caps for the raised stat WITHOUT full-healing:
 			// spending a point grants only that stat's bonus, not a free heal.
-			member.RecalculateMaxStatsKeepingCurrent(ui.game.config)
+			member.RecalculateMaxStatsGrantingGain(ui.game.config)
 		}
 	}
 
@@ -443,7 +443,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			var tooltip string
 			switch strings.ToLower(option.choice.Type) {
 			case "spell":
-				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat)
+				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat, tooltipDetailHeld())
 			case "weapon_mastery", "armor_mastery":
 				tooltip = masteryTooltipTextForSkill(option.skillType)
 			case "magic_mastery":

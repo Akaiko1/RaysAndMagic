@@ -167,10 +167,9 @@ func TestLevelUpSystem(t *testing.T) {
 
 		// Create a minimal game instance to test turn-based mode
 		fullGame := &MMGame{
-			config:         cfg,
-			combatMessages: make([]string, 0),
-			maxMessages:    3,
-			turnBasedMode:  true, // Set turn-based mode
+			config:        cfg,
+			maxMessages:   3,
+			turnBasedMode: true, // Set turn-based mode
 		}
 
 		// Create combat system for the full game
@@ -180,7 +179,7 @@ func TestLevelUpSystem(t *testing.T) {
 		testChar.Experience = 100
 
 		// Capture initial combat messages count
-		initialMessageCount := len(fullGame.combatMessages)
+		initialMessageCount := len(fullGame.GetCombatMessages())
 
 		// Call checkLevelUp
 		fullCombatSystem.checkLevelUp(testChar)
@@ -196,22 +195,23 @@ func TestLevelUpSystem(t *testing.T) {
 		}
 
 		// Verify combat message was added
-		if len(fullGame.combatMessages) <= initialMessageCount {
+		msgs := fullGame.GetCombatMessages()
+		if len(msgs) <= initialMessageCount {
 			t.Error("Expected level up combat message to be added in turn-based mode")
 		}
 
 		// Check if the message contains level up information
 		found := false
-		for _, msg := range fullGame.combatMessages {
+		for _, msg := range msgs {
 			if strings.Contains(msg, "reached level") && strings.Contains(msg, "stat points") {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("Level up message not found in combat messages: %v", fullGame.combatMessages)
+			t.Errorf("Level up message not found in combat messages: %v", msgs)
 		}
 
-		t.Logf("Turn-based level up successful. Messages: %v", fullGame.combatMessages)
+		t.Logf("Turn-based level up successful. Messages: %v", msgs)
 	})
 }

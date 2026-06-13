@@ -35,6 +35,33 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 	}
 }
 
+func TestValidateMonsterConfiguration_AttackCadenceMatchesModes(t *testing.T) {
+	tests := []struct {
+		name    string
+		def     MonsterDefinition
+		wantErr bool
+	}{
+		{name: "default single attack", def: MonsterDefinition{}},
+		{name: "two attacks with half cooldown", def: MonsterDefinition{AttacksPerRound: 2, AttackCooldownMult: 0.5}},
+		{name: "four attacks with quarter cooldown", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.25}},
+		{name: "two attacks missing multiplier", def: MonsterDefinition{AttacksPerRound: 2}, wantErr: true},
+		{name: "four attacks with half cooldown", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.5}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"monster": tt.def}}
+			err := validateMonsterConfiguration(cfg)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 	// This assumes TestMain loads the config and 'goblin' exists in monsters.yaml
 	defer func() {
@@ -76,7 +103,7 @@ func TestWaterMonsterBehaviorConfig(t *testing.T) {
 	if got := octopus.GetTurnBasedAttackCount(); got != 4 {
 		t.Fatalf("expected octopus to attack 4 times in turn-based mode, got %d", got)
 	}
-	if octopus.AttackCooldownMultiplier != 0.5 {
-		t.Fatalf("expected octopus real-time cooldown multiplier 0.5, got %v", octopus.AttackCooldownMultiplier)
+	if octopus.AttackCooldownMultiplier != 0.25 {
+		t.Fatalf("expected octopus real-time cooldown multiplier 0.25, got %v", octopus.AttackCooldownMultiplier)
 	}
 }

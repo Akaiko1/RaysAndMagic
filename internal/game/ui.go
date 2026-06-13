@@ -51,6 +51,7 @@ type UISystem struct {
 	inventoryContextIndex int
 	inventoryPage         int    // current inventory grid page (0-based)
 	questPage             int    // current quest log page (0-based)
+	characterPage         int    // current character-info page (0-based)
 	campNotice            string // result line under the Camp button
 	campNoticeOK          bool   // colors the notice green (rested) or red (refused)
 	lastEquipClickTime    time.Time
@@ -127,6 +128,10 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw overlay interfaces (menus and dialogs)
 	ui.drawOverlayInterfaces(screen)
 
+	if ui.game.combatLogOpen {
+		ui.drawCombatLogOverlay(screen)
+	}
+
 	// Draw Victory overlay if active
 	if ui.game.gameVictory && !ui.game.showHighScores {
 		ui.drawVictoryOverlay(screen)
@@ -168,10 +173,23 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// states (stat popup, revival picker, fullscreen map) still suppress.
 	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen {
 		screenW := screen.Bounds().Dx()
-		mainW, _ := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
-		drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, ui.tooltipY, ui.game.sprites)
+		screenH := screen.Bounds().Dy()
+		mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
+
+		// Resolve the vertical flip ONCE against the TALLER of the two cards so
+		// the main and comparison boxes always share a top edge (a tall full
+		// card flipping above the cursor while a short compare card stayed
+		// below was the misalignment bug).
+		y := ui.tooltipY
 		if ui.tooltipCompareLines != nil {
-			compareW, _ := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
+			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
+			h := mainH
+			if compareH > h {
+				h = compareH
+			}
+			y = flipTooltipY(ui.tooltipY, h, screenH)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
+
 			compareX := ui.tooltipX - tooltipCompareGap - compareW
 			if compareX < 0 {
 				compareX = ui.tooltipX + mainW + tooltipCompareGap
@@ -182,7 +200,10 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 			if compareX < 0 {
 				compareX = 0
 			}
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, ui.tooltipY, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, y, ui.game.sprites)
+		} else {
+			y = flipTooltipY(ui.tooltipY, mainH, screenH)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
 		}
 	}
 }

@@ -144,9 +144,9 @@ func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
 		m.HitPoints = m.MaxHitPoints
 	}
 	spBefore := caster.SpellPoints
-	cast, _ = cs.SmartAttack()
-	if cast {
-		t.Errorf("smart-attack healed a full-HP party; should have attacked")
+	_, spellID := cs.SmartAttack() // acted=true (weapon swing), but no SPELL may fire
+	if spellID != "" {
+		t.Errorf("smart-attack cast %q on a full-HP party; should have attacked with the weapon", spellID)
 	}
 	if caster.SpellPoints != spBefore {
 		t.Errorf("smart-attack spent SP with no wounded ally (%d -> %d)", spBefore, caster.SpellPoints)

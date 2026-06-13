@@ -819,8 +819,8 @@ func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 	c := game.party.Members[0]
 	c.Intellect = 60
 	c.Personality = 40
-	baseInt := c.GetEffectiveIntellect(0)
-	basePer := c.GetEffectivePersonality(0)
+	baseInt := c.GetEffectiveIntellect()
+	basePer := c.GetEffectivePersonality()
 
 	ring := items.CreateItemFromYAML("magic_ring")
 	if ring.Attributes["intellect_scaling_divisor"] != 6 || ring.Attributes["personality_scaling_divisor"] != 8 {
@@ -830,10 +830,10 @@ func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 		t.Fatalf("could not equip magic_ring")
 	}
 
-	if got, want := c.GetEffectiveIntellect(0), baseInt+c.Intellect/6; got != want {
+	if got, want := c.GetEffectiveIntellect(), baseInt+c.Intellect/6; got != want {
 		t.Errorf("effective Intellect with ring: got %d, want %d (+Int/6)", got, want)
 	}
-	if got, want := c.GetEffectivePersonality(0), basePer+c.Personality/8; got != want {
+	if got, want := c.GetEffectivePersonality(), basePer+c.Personality/8; got != want {
 		t.Errorf("effective Personality with ring: got %d, want %d (+Per/8)", got, want)
 	}
 }

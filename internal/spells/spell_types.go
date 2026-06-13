@@ -2,6 +2,7 @@ package spells
 
 import (
 	"fmt"
+	"strings"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 )
@@ -30,7 +31,8 @@ type SpellDefinition struct {
 	IsProjectile       bool
 	IsUtility          bool
 	StatusIcon         string
-	StatBonus          int // Stat bonus for buff spells like Bless
+	StatBonus          int            // Uniform stat bonus for buff spells like Bless
+	StatBonuses        map[string]int // Per-stat alternative (lowercase stat keys)
 	// Damage-formula modifiers (default behaviour when zero/false)
 	DamageCostMultiplier  int  // base = cost × SpellDamagePerSP × this (default 1)
 	ScalesWithPersonality bool // also add Personality/divisor to spell damage
@@ -61,13 +63,13 @@ type SpellDefinition struct {
 	ZoneTickDamage  int
 	ZoneTickSeconds float64
 	// Effect configuration
-	HealAmount     int     // For healing spells
-	VisionBonus    float64 // For vision enhancement spells
-	TargetSelf     bool    // Whether spell targets self or others
-	Awaken         bool    // For awaken spell
-	WaterWalk      bool    // For water walking spell
-	WaterBreathing bool    // For water breathing spell
-	Message        string  // Effect message to display
+	HealAmount        int     // For healing spells
+	VisionRadiusTiles float64 // vision spells: torch glow / wizard-eye radar radius (tiles)
+	TargetSelf        bool    // Whether spell targets self or others
+	Awaken            bool    // For awaken spell
+	WaterWalk         bool    // For water walking spell
+	WaterBreathing    bool    // For water breathing spell
+	Message           string  // Effect message to display
 }
 
 // GetSpellDefinitionByID retrieves spell definition from YAML config
@@ -93,6 +95,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		IsUtility:               configDef.IsUtility,
 		StatusIcon:              configDef.StatusIcon,
 		StatBonus:               configDef.StatBonus,
+		StatBonuses:             configDef.StatBonuses,
 		DamageCostMultiplier:    configDef.DamageCostMultiplier,
 		ScalesWithPersonality:   configDef.ScalesWithPersonality,
 		StunRadiusTiles:         configDef.StunRadiusTiles,
@@ -117,13 +120,13 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		ZoneTickDamage:          configDef.ZoneTickDamage,
 		ZoneTickSeconds:         configDef.ZoneTickSeconds,
 		// Effect configuration from YAML
-		HealAmount:     configDef.HealAmount,
-		VisionBonus:    configDef.VisionBonus,
-		TargetSelf:     configDef.TargetSelf,
-		Awaken:         configDef.Awaken,
-		WaterWalk:      configDef.WaterWalk,
-		WaterBreathing: configDef.WaterBreathing,
-		Message:        configDef.Message,
+		HealAmount:        configDef.HealAmount,
+		VisionRadiusTiles: configDef.VisionRadiusTiles,
+		TargetSelf:        configDef.TargetSelf,
+		Awaken:            configDef.Awaken,
+		WaterWalk:         configDef.WaterWalk,
+		WaterBreathing:    configDef.WaterBreathing,
+		Message:           configDef.Message,
 	}, nil
 }
 
@@ -157,17 +160,17 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("AoE radius: %.1f tiles (splashes nearby monsters)", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit", d.DisintegrateChance*100))
+		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit (undead and dragons immune)", d.DisintegrateChance*100))
 	}
 	if d.StunChance > 0 {
 		line := fmt.Sprintf("Stun chance: %.0f%% on hit", d.StunChance*100)
 		if d.StunDurationSeconds > 0 {
-			line += fmt.Sprintf(" (%ds)", d.StunDurationSeconds)
+			line += fmt.Sprintf(" (%ds / %d TB turns)", d.StunDurationSeconds, d.StunDurationTurns)
 		}
 		out = append(out, line)
 	}
 	if d.StunRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds", d.StunRadiusTiles, d.StunDurationSeconds))
+		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds / %d TB turns", d.StunRadiusTiles, d.StunDurationSeconds, d.StunDurationTurns))
 	}
 	if d.BindUndead {
 		out = append(out, fmt.Sprintf("Binds an undead target for %ds (it fights other monsters for you)", d.BindDurationSeconds))
@@ -179,9 +182,10 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage — your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
 	}
 	if d.ZoneRadiusTiles > 0 {
-		// Tick damage is caster-scaled (Intellect + mastery) — shown by the in-game
-		// tooltip; here (character-independent) we list only radius and cadence.
-		out = append(out, fmt.Sprintf("Leaves a %.1f-tile zone, searing everything inside every %.0fs", d.ZoneRadiusTiles, d.ZoneTickSeconds))
+		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
+		// section (and filtered out of EFFECTS), so this summary line states only
+		// who it hits — monsters, never the party.
+		out = append(out, "Leaves a lingering zone that scalds any monster inside (your party is unharmed)")
 	}
 	switch {
 	case d.HealParty:
@@ -201,19 +205,19 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ReviveHpPct > 0 {
 		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
 	}
-	// Party buffs: numeric value (mastery-scaled) is printed in-game; here we
-	// state the effect + scaling source for the character-independent editor card.
+	// Party-buff magnitudes are FLAT (mastery scales only duration), so the
+	// exact numbers are character-independent and live in this shared SSoT.
 	if d.ResistBuffPct > 0 {
-		out = append(out, fmt.Sprintf("Party %% damage resistance (scales with %s mastery)", d.School))
+		out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
 	}
 	if d.OutgoingDamageBonus > 0 {
-		out = append(out, fmt.Sprintf("Party flat attack bonus (scales with %s mastery)", d.School))
+		out = append(out, fmt.Sprintf("Party attacks deal +%d damage", d.OutgoingDamageBonus))
 	}
 	if d.IncomingDamageReduction > 0 {
-		out = append(out, fmt.Sprintf("Party flat damage reduction (scales with %s mastery)", d.School))
+		out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
 	}
-	if d.VisionBonus > 0 {
-		out = append(out, "Extends the party's sight radius")
+	if d.VisionRadiusTiles > 0 {
+		out = append(out, fmt.Sprintf("Sight/radar radius: %.0f tiles", d.VisionRadiusTiles))
 	}
 	if d.WaterWalk {
 		out = append(out, "Allows the party to walk on water")
@@ -239,7 +243,17 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Healing scales with Personality & %s mastery", d.School))
 	}
 	if d.StatBonus > 0 {
-		out = append(out, fmt.Sprintf("Bonus scales with %s mastery", d.School))
+		// Flat by balance decision — mastery scales only the duration.
+		out = append(out, fmt.Sprintf("+%d to all stats (whole party)", d.StatBonus))
+	}
+	if len(d.StatBonuses) > 0 {
+		// Per-stat buffs are authored absolute (no mastery scaling) — the exact
+		// numbers are character-independent, so they belong in this shared SSoT.
+		for _, key := range config.StatNames {
+			if v, ok := d.StatBonuses[key]; ok && v != 0 {
+				out = append(out, fmt.Sprintf("%+d %s (whole party)", v, strings.ToUpper(key[:1])+key[1:]))
+			}
+		}
 	}
 	return out
 }

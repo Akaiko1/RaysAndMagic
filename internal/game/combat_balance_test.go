@@ -279,7 +279,7 @@ func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*m
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn(cs.game.statBonus)
+			slots := c.ActionSlotsForTurn()
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {
@@ -322,12 +322,17 @@ func simulateFight(t *testing.T, cs *CombatSystem, party []*character.MMCharacte
 	var totalRoundsWin, wins, wipes int
 	var sumHPLeft float64
 
+	cs.game.statBuffs = nil
 	if blessActive {
-		cs.game.statBonus = 10 // Novice-tier Bless from spells.yaml.
+		// Novice-tier Bless from spells.yaml, effectively permanent for the sim.
+		cs.game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(10)})
 	} else {
-		cs.game.statBonus = 0
+		cs.game.recomputeStatBonuses()
 	}
-	defer func() { cs.game.statBonus = 0 }()
+	defer func() {
+		cs.game.statBuffs = nil
+		cs.game.recomputeStatBonuses()
+	}()
 
 	rand.Seed(42)
 	for trial := 0; trial < trials; trial++ {
@@ -374,8 +379,10 @@ func TestCombatBalance_RosterDerivedStats(t *testing.T) {
 		name   string
 		hp, sp int
 	}{
+		// MaxSP includes EFFECTIVE Intellect+Personality (equipment counts):
+		// Lysander's magic_ring (+Int via intellect_scaling_divisor) now adds SP.
 		{"Gareth", 65, 30},
-		{"Lysander", 45, 45},
+		{"Lysander", 45, 48},
 		{"Celestine", 45, 48},
 		{"Silvelyn", 45, 35},
 	}
@@ -1059,7 +1066,7 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn(cs.game.statBonus)
+			slots := c.ActionSlotsForTurn()
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {
@@ -1263,7 +1270,7 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 		}
 
 		// Bless (Cleric pre-cast) per caller: 10 = +10 all stats, 0 = none.
-		cs.game.statBonus = statBonus
+		cs.game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(statBonus)})
 		resetPartyForSim(party)
 
 		if traceThis {
@@ -1307,7 +1314,8 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 			}
 		}
 	}
-	cs.game.statBonus = 0
+	cs.game.statBuffs = nil
+	cs.game.recomputeStatBonuses()
 
 	avgRoundsWin := 0.0
 	if wins > 0 {

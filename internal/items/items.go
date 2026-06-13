@@ -22,6 +22,35 @@ const (
 	SlotSpell // Unified spell slot for any spell
 )
 
+// DisplayName is the player-facing slot label (item cards, tooltips).
+func (s EquipSlot) DisplayName() string {
+	switch s {
+	case SlotMainHand:
+		return "Main Hand"
+	case SlotOffHand:
+		return "Off-Hand"
+	case SlotArmor:
+		return "Armor"
+	case SlotHelmet:
+		return "Helmet"
+	case SlotBoots:
+		return "Boots"
+	case SlotCloak:
+		return "Cloak"
+	case SlotGauntlets:
+		return "Gauntlets"
+	case SlotBelt:
+		return "Belt"
+	case SlotAmulet:
+		return "Amulet"
+	case SlotRing1, SlotRing2:
+		return "Ring"
+	case SlotSpell:
+		return "Quick Slot"
+	}
+	return "Gear"
+}
+
 type Item struct {
 	Name        string
 	Type        ItemType
@@ -47,6 +76,10 @@ const (
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
 	ItemTrinket      // Collectible cards/curios — non-equippable, discardable, sellable.
+	// ItemTrap MUST stay at the END: saves serialize Type as an int, so
+	// inserting mid-enum re-types every item after the insertion point
+	// (trinkets were briefly read back as traps).
+	ItemTrap // Thief traps (quick-slot devices armed with Space/F)
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -66,6 +99,8 @@ func (t ItemType) String() string {
 		return "Battle Spell"
 	case ItemUtilitySpell:
 		return "Utility Spell"
+	case ItemTrap:
+		return "Trap"
 	case ItemTrinket:
 		return "Trinket"
 	default:
@@ -349,28 +384,31 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}, nil
 }
 
+// equipSlotByName is the ONE equip_slot name → slot mapping. Config validation
+// (validateItemConfig) checks names against it too, so a YAML typo fails at
+// load instead of silently routing to the armor slot.
+var equipSlotByName = map[string]EquipSlot{
+	"armor":     SlotArmor,
+	"helmet":    SlotHelmet,
+	"boots":     SlotBoots,
+	"cloak":     SlotCloak,
+	"gauntlets": SlotGauntlets,
+	"belt":      SlotBelt,
+	"amulet":    SlotAmulet,
+	"ring":      SlotRing1, // default to first ring slot
+	"offhand":   SlotOffHand,
+}
+
+// EquipSlotFromName resolves an equip_slot name; ok=false for unknown names.
+func EquipSlotFromName(name string) (EquipSlot, bool) {
+	slot, ok := equipSlotByName[name]
+	return slot, ok
+}
+
 // mapEquipSlotStringToCode converts equip_slot string to EquipSlot constant
 func mapEquipSlotStringToCode(slotStr string) EquipSlot {
-	switch slotStr {
-	case "armor":
-		return SlotArmor
-	case "helmet":
-		return SlotHelmet
-	case "boots":
-		return SlotBoots
-	case "cloak":
-		return SlotCloak
-	case "gauntlets":
-		return SlotGauntlets
-	case "belt":
-		return SlotBelt
-	case "amulet":
-		return SlotAmulet
-	case "ring":
-		return SlotRing1 // Default to first ring slot
-	case "offhand":
-		return SlotOffHand
-	default:
-		return SlotArmor // Default fallback for armor-type items
+	if slot, ok := equipSlotByName[slotStr]; ok {
+		return slot
 	}
+	return SlotArmor // unreachable for YAML items: load-time validation rejects unknown names
 }

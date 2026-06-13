@@ -38,6 +38,12 @@ const (
 	SkillDisarmTrap
 	SkillLearning
 	SkillArmsMaster
+	// SkillTrapper: thief trap mastery — +damage per tier for damage traps,
+	// +1 turn / +5 sec per tier for duration traps (constants in catalog.go).
+	SkillTrapper
+	// SkillSleightOfHand: on melee hits, 10%/tier chance to pick the victim's
+	// pocket — rolls its loot table, consolation gold on a miss.
+	SkillSleightOfHand
 )
 
 // String returns the display name of the skill (Stringer interface).
@@ -81,6 +87,10 @@ func (s SkillType) String() string {
 		return "Learning"
 	case SkillArmsMaster:
 		return "Arms Master"
+	case SkillTrapper:
+		return "Trapper"
+	case SkillSleightOfHand:
+		return "Sleight of Hand"
 	default:
 		return "Unknown"
 	}
@@ -184,6 +194,10 @@ func SkillTypeFromKey(key string) (SkillType, bool) {
 		return SkillLearning, true
 	case "arms_master":
 		return SkillArmsMaster, true
+	case "trapper":
+		return SkillTrapper, true
+	case "sleight_of_hand":
+		return SkillSleightOfHand, true
 	default:
 		return 0, false
 	}

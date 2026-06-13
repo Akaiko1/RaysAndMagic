@@ -130,6 +130,10 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
+	RootTurnsRemaining  int     // TB root (bear trap): can't move, CAN attack
+	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
+	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)
+	Pilfered            bool    // Sleight of Hand already succeeded on this monster
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
 	Bound                    bool       // Bind Undead: under party control — hunts other monsters, ignores party
 	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
@@ -145,6 +149,7 @@ type Monster3D struct {
 	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
 	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
 	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
+	AttackCDFrames           int        // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
 	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int        // Fireburst damage min
 	FireburstDamageMax       int        // Fireburst damage max
@@ -199,6 +204,10 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	if MonsterConfig == nil {
 		panic("Monster configuration not loaded. Call monster.MustLoadMonsterConfig() first.")
 	}
+	ts := defaultTileSize
+	if cfg != nil && cfg.GetTileSize() > 0 {
+		ts = cfg.GetTileSize()
+	}
 
 	def, err := MonsterConfig.GetMonsterByKey(monsterKey)
 	if err != nil {
@@ -220,7 +229,7 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 		// Initialize tethering system
 		SpawnX:           x,
 		SpawnY:           y,
-		TetherRadius:     256.0, // 4 tiles * 64 pixels per tile
+		TetherRadius:     4 * ts, // 4 tiles
 		IsEngagingPlayer: false,
 	}
 
@@ -295,8 +304,25 @@ func (m *Monster3D) HasRangedAttack() bool {
 }
 
 // CanPounce reports whether the monster has the leap ability configured.
+// TickRootTurn consumes one TB turn of a root effect; the monster stays
+// pinned for the WHOLE turn it started rooted (RootHeld), so an adjacent
+// rooted monster that only attacks still burns its root down each turn.
+func (m *Monster3D) TickRootTurn() {
+	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
+	if m.RootTurnsRemaining > 0 {
+		m.RootTurnsRemaining--
+	}
+}
+
+// RootHeld reports whether this turn's movement is pinned by a root.
+func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
+
 func (m *Monster3D) CanPounce() bool {
-	return m.PounceRangePixels > 0
+	// A rooted monster is pinned to its tile — the leap is a movement.
+	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has
+	// already decremented the counter to 0 but the pin lasts the whole turn.
+	return m.PounceRangePixels > 0 && m.RootFramesRemaining <= 0 &&
+		m.RootTurnsRemaining <= 0 && !m.rootHeldThisTurn
 }
 
 // GetAttackRangePixels returns the effective attack range in pixels.
@@ -311,7 +337,7 @@ func (m *Monster3D) GetAttackRangePixels() float64 {
 		return m.RangedAttackRange
 	}
 
-	tileSize := m.config.GetTileSize()
+	tileSize := m.tileSize()
 
 	if m.ProjectileSpell != "" {
 		if physics, err := m.config.GetSpellConfig(m.ProjectileSpell); err == nil && physics != nil {

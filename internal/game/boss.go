@@ -73,6 +73,33 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
 }
 
+// tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based
+// mode, mirroring the RT cadence. Without it the hurt-blink waits for the
+// monster turn, so a full party round of focused hits could kill the boss
+// before it ever dodged. Aggressive-phase specials still fire only on the
+// boss's own TB turn.
+func (cs *CombatSystem) tickEvasiveBossesTB() {
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	for _, m := range w.Monsters {
+		if m == nil || !m.IsAlive() || !cs.isBoss(m) || !cs.bossEvasive(m) {
+			continue
+		}
+		// Crowd control suppresses the blink like any other action: TB stun
+		// (turns) and RT stun carry-over (frames), Charm, Bind.
+		if m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0 || m.Pacified || m.Bound {
+			continue
+		}
+		ready := m.BossCD == 0
+		if m.BossCD > 0 {
+			m.BossCD--
+		}
+		cs.updateBoss(m, ready, false)
+	}
+}
+
 // blinkMonsterRandom teleports the monster to a random walkable tile of the
 // current map (re-registering collision). Returns false if no spot was found.
 func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {

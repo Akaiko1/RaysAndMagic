@@ -58,7 +58,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
 			if isHovering {
-				tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+				tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
@@ -117,7 +117,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			ui.inventoryContextIndex = idx
 		}
 		if isHovering {
-			tooltip = GetItemTooltip(item, currentChar, ui.game.combat)
+			tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
 			compareTooltip = GetItemComparisonTooltip(item, currentChar, ui.game.combat)
 			tooltipItem = item
 			tooltipHasItem = true
@@ -359,6 +359,13 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.ClassDisplayName(), member.Level)
 	drawDebugTextColored(screen, header, scrollTextX, scrollTextY, textColor)
 
+	if ui.characterPage == 1 {
+		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, textColor, mutedTextColor)
+		ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+		ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
+		return
+	}
+
 	// Core info
 	drawDebugTextColored(screen, fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), scrollTextX, scrollTextY+22, textColor)
 	drawDebugTextColored(screen, fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), scrollTextX+190, scrollTextY+22, textColor)
@@ -389,17 +396,20 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	// Stats — 2 columns
 	drawDebugTextColored(screen, "STATS", scrollTextX, scrollTextY+60, mutedTextColor)
 	statY := scrollTextY + 76
+	// Combat runs on EFFECTIVE stats — show them, with the gear/buff delta in
+	// brackets so the player sees both ("Might: 18 (+3)").
+	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
 	statLines := []struct {
-		name  string
-		value int
+		name      string
+		base, eff int
 	}{
-		{"Might", member.Might},
-		{"Intellect", member.Intellect},
-		{"Personality", member.Personality},
-		{"Endurance", member.Endurance},
-		{"Accuracy", member.Accuracy},
-		{"Speed", member.Speed},
-		{"Luck", member.Luck},
+		{"Might", member.Might, effMight},
+		{"Intellect", member.Intellect, effInt},
+		{"Personality", member.Personality, effPers},
+		{"Endurance", member.Endurance, effEnd},
+		{"Accuracy", member.Accuracy, effAcc},
+		{"Speed", member.Speed, effSpeed},
+		{"Luck", member.Luck, effLuck},
 	}
 	for i, stat := range statLines {
 		x := col1X
@@ -407,7 +417,15 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			x = col2X
 		}
 		y := statY + (i%statRows)*rowH
-		drawDebugTextColored(screen, fmt.Sprintf("%s: %d", stat.name, stat.value), x, y, textColor)
+		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
+		drawDebugTextColored(screen, line, x, y, textColor)
+		if delta := stat.eff - stat.base; delta != 0 {
+			clr := color.RGBA{130, 210, 130, 255} // bonus green
+			if delta < 0 {
+				clr = color.RGBA{215, 120, 110, 255} // debuff red
+			}
+			drawDebugTextColored(screen, fmt.Sprintf(" (%+d)", delta), x+debugTextWidth(line), y, clr)
+		}
 		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
 			tooltip = statTooltipText(stat.name)
 			tooltipX = mouseX + 16
@@ -419,17 +437,8 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	skillY := statY + statRows*rowH + 12
 	drawDebugTextColored(screen, "SKILLS", col1X, skillY, mutedTextColor)
 	skillY += rowH + 2
-	skillOrder := []character.SkillType{
-		character.SkillSword, character.SkillDagger, character.SkillAxe,
-		character.SkillSpear, character.SkillBow, character.SkillMace,
-		character.SkillStaff, character.SkillLeather, character.SkillChain,
-		character.SkillPlate, character.SkillShield, character.SkillBodybuilding,
-		character.SkillMeditation, character.SkillMerchant, character.SkillRepair,
-		character.SkillIdentifyItem, character.SkillDisarmTrap, character.SkillLearning,
-		character.SkillArmsMaster,
-	}
 	skillIdx := 0
-	for _, st := range skillOrder {
+	for _, st := range character.AllSkills {
 		if skillIdx >= skillRows*2 {
 			break // ran out of column space; rest is hidden
 		}
@@ -488,16 +497,92 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-20)
+	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+	ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
 
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
 	}
 }
 
+func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *character.MMCharacter, x, y int, textColor, headingColor color.Color) {
+	if member == nil {
+		return
+	}
+
+	// Physical mitigation is a PIPELINE, not a single number: combat subtracts the
+	// flat armor+skill, THEN applies resistance %, THEN the flat buff (and floors
+	// at 1). Show the steps in that order; the breakdown comes from CombatSystem so
+	// it can't drift from mitigateCharacterDamage.
+	m := ui.game.combat.PhysicalMitigationBreakdown(member)
+
+	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
+	lines := []string{
+		fmt.Sprintf("Attack bonus: +%d damage", ui.game.combatBuffOutBonus()),
+		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
+		fmt.Sprintf("1. Armor reduction: -%d flat (before resist)", m.ArmorFlat),
+		fmt.Sprintf("2. Skill reduction: -%d flat (before resist)", m.SkillFlat),
+		fmt.Sprintf("3. Physical resistance: -%d%% (after flat)", m.ResistPct),
+		fmt.Sprintf("4. Flat buff reduction: -%d (after resist)", m.FlatBuff),
+	}
+	for i, line := range lines {
+		drawDebugTextColored(screen, line, x, y+50+i*16, textColor)
+	}
+
+	drawDebugTextColored(screen, "RESISTANCES", x, y+158, headingColor)
+	buffResist := ui.game.combatBuffResistPct()
+	schools := []string{"physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark"}
+	const colGap = 190
+	for i, school := range schools {
+		total := member.GearResistPct(school) + buffResist
+		if total > 100 {
+			total = 100
+		}
+		colX := x
+		if i >= 5 {
+			colX += colGap
+		}
+		rowY := y + 178 + (i%5)*18
+		drawDebugTextColored(screen, fmt.Sprintf("%s: %d%%", strings.Title(school), total), colX, rowY, textColor)
+	}
+	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
+}
+
+func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
+	const btnW, btnH = 30, 18
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	drawBtn := func(bx int, label string, enabled bool) bool {
+		bg := color.RGBA{70, 50, 30, 210}
+		switch {
+		case !enabled:
+			bg = color.RGBA{45, 40, 38, 160}
+		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
+			bg = color.RGBA{120, 90, 50, 230}
+		}
+		drawFilledRect(screen, bx, y, btnW, btnH, bg)
+		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
+		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
+		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	}
+
+	if drawBtn(x, "<", ui.characterPage > 0) {
+		ui.characterPage--
+	}
+	if drawBtn(x+width-btnW, ">", ui.characterPage < 1) {
+		ui.characterPage++
+	}
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, btnH-2)
+}
+
 // drawSpellbookContent draws the spellbook tab content
 func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
+	// Trappers (thief) carry a trap book instead of a magic spellbook.
+	if hasTrapBook(currentChar) {
+		ui.drawTrapBookContent(screen, panelX, contentY, contentHeight)
+		return
+	}
 	schools := spellbookSchoolsWithSpells(currentChar)
 
 	// Validate and fix selected school index if it's out of bounds
@@ -618,7 +703,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
 
 			if isHovering {
-				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat)
+				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
 				spellCompareTooltip = GetSpellComparisonTooltip(spellID, currentChar, ui.game.combat)
 				spellTooltipID = spellID
 				tooltipX = mouseX + 16

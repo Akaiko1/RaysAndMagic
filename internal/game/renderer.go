@@ -1000,6 +1000,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
 		r.drawImpassableTileAura(screen)
+		r.drawTrapTileBorders(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
 		// Steam rising from every shut culvert valve's tile.

@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"log"
@@ -186,12 +185,34 @@ func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 // position. Lines that don't fit between the tooltip's x position and the
 // right screen edge are word-wrapped onto multiple rows; the colors slice
 // (if provided) is expanded so each wrapped row keeps its original color.
+// flipTooltipY keeps a tooltip box on screen vertically. y arrives as
+// cursorY+8 (below the cursor); if a box of bgHeight would run off the bottom,
+// flip it ABOVE the cursor, clamping to the top if it's taller than that space
+// too. The caller resolves this ONCE for side-by-side cards (main + compare)
+// so they share a top edge instead of flipping independently.
+func flipTooltipY(y, bgHeight, screenH int) int {
+	if y+bgHeight > screenH {
+		y = y - bgHeight - 16 // y-8 = cursor, then an 8px gap above it
+		if y < 0 {
+			y = 0
+		}
+	}
+	return y
+}
+
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y int, sprites *graphics.SpriteManager) {
 	screenW := screen.Bounds().Dx()
 
 	hasIcon := iconName != "" && sprites != nil
 	lines, colors = wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
 	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
+
+	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
+	// defensive top clamp only.
+	if y < 0 {
+		y = 0
+	}
+
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
 	textX := x + 6
 	if hasIcon {
@@ -331,6 +352,10 @@ func itemTooltipIconName(item items.Item) string {
 		if item.SpellEffect != "" {
 			return spellTooltipIconName(spells.SpellID(item.SpellEffect))
 		}
+	case items.ItemTrap:
+		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
+			return def.Icon
+		}
 	}
 	_, key, ok := config.GetItemDefinitionByName(item.Name)
 	if ok && key != "" {
@@ -422,6 +447,20 @@ func rarityColor(rarity string) color.Color {
 	}
 }
 
+var (
+	combatMessageGold   = color.RGBA{255, 215, 0, 255}
+	combatMessagePurple = color.RGBA{190, 100, 255, 255}
+)
+
+func lootMessageColor(drops []items.Item) color.Color {
+	for _, item := range drops {
+		if strings.EqualFold(item.Rarity, "legendary") {
+			return rarityColor("legendary")
+		}
+	}
+	return combatMessageGold
+}
+
 func (ui *UISystem) itemRarity(item items.Item) string {
 	if item.Rarity != "" {
 		return item.Rarity
@@ -455,30 +494,10 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 	return mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2
 }
 
-// Stat tooltips include the scaling divisors used in combat formulas so the
-// description never drifts from the actual numbers — see balance.go. The
-// "weapons that scale with X" phrasing matches what `bonus_stat` actually
-// gates in weapons.yaml (any weapon can pick any stat).
+// statTooltipText quotes the canonical stat description from the character
+// catalog — one source for the in-game tooltip and the map editor.
 func statTooltipText(stat string) string {
-	switch strings.ToLower(stat) {
-	case "might":
-		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
-	case "intellect":
-		return fmt.Sprintf("Adds Intellect/%d to weapons that scale with Intellect; also adds to max spell points.", WeaponPrimaryStatDivisor)
-	case "personality":
-		return "Adds to max spell points and increases SP regen rate."
-	case "endurance":
-		return "Increases max HP and armor-class scaling on equipped armor."
-	case "accuracy":
-		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy.", WeaponPrimaryStatDivisor)
-	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
-			character.SpeedActionSlot2Threshold, character.SpeedActionSlot3Threshold)
-	case "luck":
-		return "Improves critical chance and dodges."
-	default:
-		return ""
-	}
+	return character.StatDescription(stat)
 }
 
 // masteryTooltipTextForSkill returns the canonical skill description. The text
@@ -490,7 +509,7 @@ func masteryTooltipTextForSkill(skill character.SkillType) string {
 }
 
 func magicMasteryTooltipText() string {
-	return fmt.Sprintf("Magic Mastery: +%d to base spell effects per mastery level.", MasterySpellEffectPerLevel)
+	return character.MagicMasteryDescription()
 }
 
 // drawUIBackground draws a colored background rectangle for UI elements (DRY helper)

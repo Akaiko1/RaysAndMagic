@@ -59,105 +59,125 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 	}
 	cols := charTextCols()
 	var out []charDetail
-	for _, class := range character.PlayableClasses {
-		key := class.Key()
-		ch := character.CreateCharacter(character.DefaultCharacterName(class), class, cfg)
-		if ch == nil {
-			continue
-		}
-		// Portrait art is keyed by the canonical hero name (gareth, lysander, …)
-		// with a class-key fallback (paladin, druid) — same resolution the game uses.
-		d := charDetail{portrait: strings.ToLower(character.DefaultCharacterName(class)), portraitKey: key}
-		txt := func(s string) { d.rows = append(d.rows, panelRow{text: s}) }
-		hdr := func(s string) { d.rows = append(d.rows, panelRow{text: s, header: true}) }
-
-		hdr(titleCase(key))
-		for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
-			txt(ln)
-		}
-		txt("")
-		txt(fmt.Sprintf("HP %d    SP %d    Level %d", ch.MaxHitPoints, ch.MaxSpellPoints, ch.Level))
-		txt(fmt.Sprintf("Might %d   Intellect %d   Personality %d   Endurance %d",
-			ch.Might, ch.Intellect, ch.Personality, ch.Endurance))
-		txt(fmt.Sprintf("Accuracy %d   Speed %d   Luck %d", ch.Accuracy, ch.Speed, ch.Luck))
-
-		// Skills (comma-joined, wrapped).
-		var skills []string
-		for _, st := range character.AllSkills {
-			if sk, ok := ch.Skills[st]; ok && sk != nil {
-				skills = append(skills, fmt.Sprintf("%s (%s)", st.String(), sk.Mastery.String()))
-			}
-		}
-		txt("")
-		hdr("Skills")
-		if len(skills) == 0 {
-			txt("(none)")
-		}
-		for _, ln := range wrapTooltipLines(strings.Join(skills, ",  "), cols) {
-			txt(ln)
-		}
-
-		// Magic schools the character can use, then the starting spells (with
-		// icons) grouped by school.
-		schools := ch.GetAvailableSchools()
-		spellRows := []panelRow{}
-		for _, school := range schools {
-			ms := ch.MagicSchools[school]
-			if ms == nil {
+	// One card per SHIPPED hero (starting party, captives, tavern recruits),
+	// built through the SAME roster path the game uses (class kit + race
+	// modifiers) — per-class approximations hid the recruits and their races.
+	groups := []struct {
+		label   string
+		entries []config.RosterEntry
+	}{
+		{"Starting Party", cfg.Characters.StartingParty},
+		{"Captive", cfg.Characters.Captives},
+		{"Tavern Recruit", cfg.Characters.TavernRecruits},
+	}
+	for _, grp := range groups {
+		for _, e := range grp.entries {
+			ch := character.CreateRosterCharacter(e, cfg)
+			if ch == nil {
 				continue
 			}
-			for _, sid := range ms.KnownSpells {
-				spellRows = append(spellRows, panelRow{
-					hasIcon: true, iconKind: cardSpell, iconKey: string(sid),
-					text: fmt.Sprintf("%s — %s", school.DisplayName(), spellDisplayName(string(sid))),
-				})
+			class, _ := character.ClassFromKey(e.Class)
+			key := e.Class
+			// Portrait art is keyed by the lowercased hero name with a
+			// class-key fallback — same resolution the game uses.
+			d := charDetail{portrait: strings.ToLower(e.Name), portraitKey: key}
+			txt := func(s string) { d.rows = append(d.rows, panelRow{text: s}) }
+			hdr := func(s string) { d.rows = append(d.rows, panelRow{text: s, header: true}) }
+
+			race := e.Race
+			if race == "" {
+				race = "human"
 			}
-		}
-		if len(schools) > 0 {
-			schoolNames := make([]string, 0, len(schools))
-			for _, s := range schools {
-				schoolNames = append(schoolNames, s.DisplayName())
-			}
+			hdr(fmt.Sprintf("%s — %s", e.Name, titleCase(key)))
+			txt(fmt.Sprintf("%s   ·   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
 			txt("")
-			hdr("Magic schools")
-			for _, ln := range wrapTooltipLines(strings.Join(schoolNames, ",  "), cols) {
+			for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
 				txt(ln)
 			}
-		}
-		if len(spellRows) > 0 {
 			txt("")
-			hdr("Starting spells")
-			d.rows = append(d.rows, spellRows...)
-		}
+			txt(fmt.Sprintf("HP %d    SP %d    Level %d", ch.MaxHitPoints, ch.MaxSpellPoints, ch.Level))
+			txt(fmt.Sprintf("Might %d   Intellect %d   Personality %d   Endurance %d",
+				ch.Might, ch.Intellect, ch.Personality, ch.Endurance))
+			txt(fmt.Sprintf("Accuracy %d   Speed %d   Luck %d", ch.Accuracy, ch.Speed, ch.Luck))
 
-		// Starting equipment (with icons). The equipped spell slot is skipped —
-		// it just duplicates a spell already listed under "Starting spells".
-		equipRows := []panelRow{}
-		for _, s := range equipSlotOrder {
-			if s.slot == items.SlotSpell {
-				continue
+			// Skills (comma-joined, wrapped).
+			var skills []string
+			for _, st := range character.AllSkills {
+				if sk, ok := ch.Skills[st]; ok && sk != nil {
+					skills = append(skills, fmt.Sprintf("%s (%s)", st.String(), sk.Mastery.String()))
+				}
 			}
-			it, ok := ch.Equipment[s.slot]
-			if !ok || it.Name == "" {
-				continue
+			txt("")
+			hdr("Skills")
+			if len(skills) == 0 {
+				txt("(none)")
 			}
-			kind, key := cardItem, itemKeyByName(it.Name)
-			if s.slot == items.SlotMainHand {
-				kind, key = cardWeapon, weaponKeyByName(it.Name)
+			for _, ln := range wrapTooltipLines(strings.Join(skills, ",  "), cols) {
+				txt(ln)
 			}
-			equipRows = append(equipRows, panelRow{
-				hasIcon: true, iconKind: kind, iconKey: key,
-				text: fmt.Sprintf("%s — %s", s.label, it.Name),
-			})
-		}
-		txt("")
-		hdr("Starting equipment")
-		if len(equipRows) == 0 {
-			txt("(none)")
-		}
-		d.rows = append(d.rows, equipRows...)
 
-		out = append(out, d)
+			// Magic schools the character can use, then the starting spells (with
+			// icons) grouped by school.
+			schools := ch.GetAvailableSchools()
+			spellRows := []panelRow{}
+			for _, school := range schools {
+				ms := ch.MagicSchools[school]
+				if ms == nil {
+					continue
+				}
+				for _, sid := range ms.KnownSpells {
+					spellRows = append(spellRows, panelRow{
+						hasIcon: true, iconKind: cardSpell, iconKey: string(sid),
+						text: fmt.Sprintf("%s — %s", school.DisplayName(), spellDisplayName(string(sid))),
+					})
+				}
+			}
+			if len(schools) > 0 {
+				schoolNames := make([]string, 0, len(schools))
+				for _, s := range schools {
+					schoolNames = append(schoolNames, s.DisplayName())
+				}
+				txt("")
+				hdr("Magic schools")
+				for _, ln := range wrapTooltipLines(strings.Join(schoolNames, ",  "), cols) {
+					txt(ln)
+				}
+			}
+			if len(spellRows) > 0 {
+				txt("")
+				hdr("Starting spells")
+				d.rows = append(d.rows, spellRows...)
+			}
+
+			// Starting equipment (with icons). The equipped spell slot is skipped —
+			// it just duplicates a spell already listed under "Starting spells".
+			equipRows := []panelRow{}
+			for _, s := range equipSlotOrder {
+				if s.slot == items.SlotSpell {
+					continue
+				}
+				it, ok := ch.Equipment[s.slot]
+				if !ok || it.Name == "" {
+					continue
+				}
+				kind, key := cardItem, itemKeyByName(it.Name)
+				if s.slot == items.SlotMainHand {
+					kind, key = cardWeapon, weaponKeyByName(it.Name)
+				}
+				equipRows = append(equipRows, panelRow{
+					hasIcon: true, iconKind: kind, iconKey: key,
+					text: fmt.Sprintf("%s — %s", s.label, it.Name),
+				})
+			}
+			txt("")
+			hdr("Starting equipment")
+			if len(equipRows) == 0 {
+				txt("(none)")
+			}
+			d.rows = append(d.rows, equipRows...)
+
+			out = append(out, d)
+		}
 	}
 	return out
 }

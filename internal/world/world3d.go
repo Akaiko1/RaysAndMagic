@@ -110,8 +110,9 @@ func (w *World3D) loadFromMapFile() {
 // "floor_only") are ground-level, so a bolt sails across them; only solid
 // wall/billboard tiles stop it. Player/monster movement still uses CanMoveTo.
 func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
-	tileX := int(x / 64)
-	tileY := int(y / 64)
+	tileSize := w.config.GetTileSize()
+	tileX := int(x / tileSize)
+	tileY := int(y / tileSize)
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return false // out of bounds blocks
 	}
@@ -128,8 +129,9 @@ func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
 
 // CanMoveTo checks if the player can move to the specified position
 func (w *World3D) CanMoveTo(x, y float64) bool {
-	tileX := int(x / 64)
-	tileY := int(y / 64)
+	tileSize := w.config.GetTileSize()
+	tileX := int(x / tileSize)
+	tileY := int(y / tileSize)
 
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return false
@@ -462,8 +464,7 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 	for _, spawn := range monsterSpawns {
 		// Convert tile coordinates to world coordinates (spawn at tile center)
-		worldX := float64(spawn.X*64) + 32 // 64 is tile size, +32 for center
-		worldY := float64(spawn.Y*64) + 32
+		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
 
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)

@@ -36,6 +36,7 @@ monsters:
     damage_min: 8
     damage_max: 15
     attacks_per_round: 2
+    attack_cooldown_multiplier: 0.5
     alert_radius: 5
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
@@ -187,6 +188,7 @@ monsters:
     damage_min: 24
     damage_max: 38
     attacks_per_round: 2
+    attack_cooldown_multiplier: 0.5
     alert_radius: 5
     attack_radius: 1
     speed: 1.4
@@ -627,7 +629,7 @@ monsters:
     damage_min: 17
     damage_max: 23
     attacks_per_round: 4
-    attack_cooldown_multiplier: 0.5
+    attack_cooldown_multiplier: 0.25
     alert_radius: 5
     attack_radius: 1
     speed: 1.5

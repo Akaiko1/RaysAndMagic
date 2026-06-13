@@ -366,7 +366,7 @@ spells:
     is_projectile: false
     is_utility: true
     status_icon: "torch"
-    vision_bonus: 50.0
+    vision_radius_tiles: 7   # torch glow radius
     message: "A magical light illuminates the area!"
 
     # No physics or graphics needed - utility spell
@@ -397,7 +397,7 @@ spells:
     spell_points_cost: 8
     cooldown_seconds: 2.5
     duration: 300              # 5 minutes
-    vision_bonus: 100.0
+    vision_radius_tiles: 10  # wizard-eye radar radius
     is_projectile: false
     is_utility: true
     status_icon: "eye"

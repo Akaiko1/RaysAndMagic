@@ -1,6 +1,9 @@
 package game
 
-import "ugataima/internal/character"
+import (
+	"ugataima/internal/character"
+	"ugataima/internal/spells"
+)
 
 // Balance constants are the single source of truth shared by combat formulas
 // and tooltip text. Touching a number here updates BOTH the gameplay
@@ -27,37 +30,29 @@ const (
 
 // Game-only mastery constants (not needed by the editor) stay here.
 const (
-	// MagicGMResistPiercePct: a Grandmaster's spells ignore this percent of the
-	// target's resistance to that school's damage type.
-	MagicGMResistPiercePct = 50
-
-	// MasterySpellEffectPerLevel is the bonus added to a spell's effect
-	// (damage, healing, duration in seconds, stat bonus) per magic-school
-	// mastery tier ABOVE Novice. Applied as `skill.Mastery × this` where
-	// Mastery is 0/1/2/3 for Novice/Expert/Master/Grandmaster — so a Novice
-	// caster gets +0 here. The duration calculation also multiplies by
-	// SpellSchoolLevelDurationBonus, which uses `skill.Level()` (1..4), so
-	// Novice still gets a +10% duration bump; this asymmetry between
-	// damage (no Novice bonus) and duration (Novice bonus) is intentional.
-	MasterySpellEffectPerLevel = 5
+	// Canonical values live in character/catalog.go (shared with tooltips and
+	// the map editor); these are package-local aliases.
+	MagicGMResistPiercePct     = character.MagicGMResistPiercePct
+	MasterySpellEffectPerLevel = character.MasterySpellEffectPerLevel
 )
 
 // Stat-to-damage scaling. A weapon's `bonus_stat` field selects which stat
 // scales its damage; the value is divided by these divisors.
 const (
 	// WeaponPrimaryStatDivisor: primary stat bonus = stat / divisor.
-	WeaponPrimaryStatDivisor = 3
+	WeaponPrimaryStatDivisor = character.WeaponPrimaryStatDivisor
 
 	// WeaponSecondaryStatDivisor: weaker secondary scaling for weapons that
 	// list a `bonus_stat_secondary`.
-	WeaponSecondaryStatDivisor = 4
+	WeaponSecondaryStatDivisor = character.WeaponSecondaryStatDivisor
 )
 
 // Defense and progression.
 const (
 	// ArmorPhysicalReductionDivisor: physical damage reduction = AC / divisor.
 	// Quoted in armor tooltips, applied in ApplyArmorDamageReduction.
-	ArmorPhysicalReductionDivisor = 2
+	// Canonical value in character/catalog.go (cards quote it too).
+	ArmorPhysicalReductionDivisor = character.ArmorPhysicalReductionDivisor
 
 	// StatPointsPerLevel is granted on each level-up. Mentioned in the
 	// level-up combat message and applied in checkLevelUp.
@@ -76,33 +71,29 @@ const (
 	// padded with random upgrades of skills the character already owns.
 	MinLevelUpOptions = 4
 
-	// LuckToCritDivisor: Luck/divisor adds to a character's critical chance
-	// (in percent points), on top of the weapon's base crit_chance.
-	LuckToCritDivisor = 4
+	// LuckToCritDivisor lives in character/catalog.go (cards quote it too).
+	LuckToCritDivisor = character.LuckToCritDivisor
 
 	// LuckToDodgeDivisor: Luck/divisor sets the perfect-dodge chance in
 	// percent points.
 	LuckToDodgeDivisor = 5
 
-	// CritDamageMultiplier multiplies final damage on a critical hit.
-	// Applied identically to weapon swings, melee, and ranged.
-	CritDamageMultiplier = 2
+	// CritDamageMultiplier lives in character/catalog.go (cards quote it too).
+	CritDamageMultiplier = character.CritDamageMultiplier
 
-	// ArmorPierceRangedChancePct: a ranged hit has this percent chance to
-	// bypass armor entirely (treated as armor=0 for that strike).
-	ArmorPierceRangedChancePct = 33
+	// ArmorPierceRangedChancePct lives in character/catalog.go (tooltip SSoT).
+	ArmorPierceRangedChancePct = character.ArmorPierceRangedChancePct
 
-	// SpellSchoolLevelDurationBonus: per skill LEVEL of the spell's school,
-	// duration is scaled by (1 + level * bonus). 0.1 → +10% per level.
-	// Note level here is `skill.Level()` (1..4 for Novice..Grandmaster), so
-	// Novice already enjoys +10%. Damage scaling, by contrast, uses Mastery
-	// (0..3) and so deliberately gives Novice no damage bonus. See
-	// MasterySpellEffectPerLevel for the full rationale.
-	SpellSchoolLevelDurationBonus = 0.1
+	// SpellMasteryDurationBonusPct lives in character/catalog.go (tooltip SSoT).
+	SpellMasteryDurationBonusPct = character.SpellMasteryDurationBonusPct
 )
 
 // Combat reach distances in tiles. Multiplied by tile size at call time.
 const (
+	// TurnBasedInputCooldownSeconds throttles party move/rotate repeats in
+	// turn-based mode (frames are derived from TPS at the call site).
+	TurnBasedInputCooldownSeconds = 0.15
+
 	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
 	// trigger reaches when starting / entering turn-based mode.
 	TurnBasedVisionRangeTiles = 6.0
@@ -115,11 +106,6 @@ const (
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = 3
-
-	// TorchLightRadiusTiles: the lit-area radius granted by the torch_light
-	// utility spell. Tuning this changes how far the player can see in dark
-	// biomes.
-	TorchLightRadiusTiles = 7.0
 
 	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
@@ -210,15 +196,9 @@ const MonsterHitShakeAmplitudeFrac = 0.0333
 // of attacking. 0.9 = heal anyone at or below 90% HP; full-HP party → attack.
 const SmartHealWoundedPct = 0.9
 
-// SpellCooldownDefaultSecondsForLevel is the fallback spell cooldown (seconds)
-// when a spell omits `cooldown_seconds` in spells.yaml: 0.8s at L1 rising 0.1s
-// per level. Authored per-spell values (see spells.yaml) override this.
-func SpellCooldownDefaultSecondsForLevel(level int) float64 {
-	if level < 1 {
-		level = 1
-	}
-	return 0.8 + 0.1*float64(level-1)
-}
+// SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
+// quotes the same default); this alias keeps game-side call sites unchanged.
+var SpellCooldownDefaultSecondsForLevel = spells.SpellCooldownDefaultSecondsForLevel
 
 // Sprite animation timing.
 const (

@@ -75,12 +75,12 @@ func (gl *GameLoop) updateExploration() {
 	gl.inputHandler.HandleInput()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
-	gl.game.party.UpdateWithMode(gl.game.turnBasedMode, gl.game.statBonus)
+	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
@@ -98,6 +98,8 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
+		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
+		gl.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()
 	} else {
 		// Update monsters in parallel with performance monitoring
@@ -489,8 +491,11 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
 	// tick from their own list — see combat_buffs.go.
 	gl.game.tickCombatBuffs()
+	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
 	gl.updateSteamZonesRT()
+	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.
+	gl.updateTraps()
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {
@@ -520,10 +525,6 @@ func (g *MMGame) timedBuffs() []timedBuff {
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
 		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
-		{"bless", &g.blessActive, &g.blessDuration, func() {
-			g.statBonus -= g.blessStatBonus
-			g.blessStatBonus = 0
-		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
 			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {

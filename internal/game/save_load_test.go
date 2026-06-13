@@ -40,6 +40,9 @@ func loadTestConfig(t *testing.T) *config.Config {
 	// happened to run first and set these global accessors.
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
+	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
+		t.Fatalf("load traps: %v", err)
+	}
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	return cfg
 }
@@ -100,16 +103,12 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.wizardEyeDuration = 45
 	game.walkOnWaterActive = true
 	game.walkOnWaterDuration = 33
-	game.blessActive = true
-	game.blessDuration = 60
-	game.blessStatBonus = 2
+	game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 60, Bonuses: character.UniformStatBonuses(2)})
 	game.waterBreathingActive = true
 	game.waterBreathingDuration = 25
 	game.underwaterReturnX = 96
 	game.underwaterReturnY = 128
 	game.underwaterReturnMap = "forest"
-	game.statBonus = 2
-
 	save := game.buildSave(wmSave)
 
 	wmLoad := world.NewWorldManager(cfg)
@@ -152,9 +151,14 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 		t.Fatalf("torchLight: got %v/%d want %v/%d", loaded.torchLightActive, loaded.torchLightDuration, game.torchLightActive, game.torchLightDuration)
 	}
 	// The radius deliberately does NOT round-trip: on load an active torch
-	// adopts the current balance constant, so old saves pick up retunes.
-	if loaded.torchLightRadius != TorchLightRadiusTiles {
-		t.Fatalf("torchLightRadius: got %v want balance constant %v", loaded.torchLightRadius, TorchLightRadiusTiles)
+	// adopts the CURRENT spells.yaml vision_radius_tiles, so old saves pick
+	// up retunes.
+	torchDef, err := spells.GetSpellDefinitionByID("torch_light")
+	if err != nil {
+		t.Fatalf("torch_light def: %v", err)
+	}
+	if loaded.torchLightRadius != torchDef.VisionRadiusTiles {
+		t.Fatalf("torchLightRadius: got %v want spells.yaml value %v", loaded.torchLightRadius, torchDef.VisionRadiusTiles)
 	}
 	if loaded.wizardEyeActive != game.wizardEyeActive || loaded.wizardEyeDuration != game.wizardEyeDuration {
 		t.Fatalf("wizardEye: got %v/%d want %v/%d", loaded.wizardEyeActive, loaded.wizardEyeDuration, game.wizardEyeActive, game.wizardEyeDuration)
@@ -162,8 +166,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.walkOnWaterActive != game.walkOnWaterActive || loaded.walkOnWaterDuration != game.walkOnWaterDuration {
 		t.Fatalf("walkOnWater: got %v/%d want %v/%d", loaded.walkOnWaterActive, loaded.walkOnWaterDuration, game.walkOnWaterActive, game.walkOnWaterDuration)
 	}
-	if loaded.blessActive != game.blessActive || loaded.blessDuration != game.blessDuration || loaded.blessStatBonus != game.blessStatBonus {
-		t.Fatalf("bless: got %v/%d/%d want %v/%d/%d", loaded.blessActive, loaded.blessDuration, loaded.blessStatBonus, game.blessActive, game.blessDuration, game.blessStatBonus)
+	loadedBless, ok := loaded.statBuffByID("bless")
+	wantBless, _ := game.statBuffByID("bless")
+	if !ok || loadedBless != wantBless {
+		t.Fatalf("bless buff: got %+v (ok=%v) want %+v", loadedBless, ok, wantBless)
 	}
 	if loaded.waterBreathingActive != game.waterBreathingActive || loaded.waterBreathingDuration != game.waterBreathingDuration {
 		t.Fatalf("waterBreathing: got %v/%d want %v/%d", loaded.waterBreathingActive, loaded.waterBreathingDuration, game.waterBreathingActive, game.waterBreathingDuration)
@@ -171,8 +177,8 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if loaded.underwaterReturnX != game.underwaterReturnX || loaded.underwaterReturnY != game.underwaterReturnY || loaded.underwaterReturnMap != game.underwaterReturnMap {
 		t.Fatalf("underwaterReturn: got %.0f/%.0f/%s want %.0f/%.0f/%s", loaded.underwaterReturnX, loaded.underwaterReturnY, loaded.underwaterReturnMap, game.underwaterReturnX, game.underwaterReturnY, game.underwaterReturnMap)
 	}
-	if loaded.statBonus != game.statBonus {
-		t.Fatalf("statBonus: got %d want %d", loaded.statBonus, game.statBonus)
+	if loaded.statBonuses != game.statBonuses {
+		t.Fatalf("statBonuses: got %+v want %+v", loaded.statBonuses, game.statBonuses)
 	}
 
 	if loaded.utilitySpellStatuses == nil {
@@ -181,9 +187,10 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("torch_light")]; !ok || status.Duration != loaded.torchLightDuration {
 		t.Fatalf("utility torch_light missing or duration mismatch")
 	}
-	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != loaded.blessDuration {
-		t.Fatalf("utility bless missing or duration mismatch")
+	if status, ok := loaded.utilitySpellStatuses[spells.SpellID("bless")]; !ok || status.Duration != wantBless.Frames {
+		t.Fatalf("utility bless icon missing right after load (ok=%v)", ok)
 	}
+
 }
 
 func TestApplySaveMigratesSkillLevelToMastery(t *testing.T) {

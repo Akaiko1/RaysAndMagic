@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"ugataima/internal/items"
+	"ugataima/internal/stats"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +23,16 @@ import (
 // Luck: +N)" using character context, while the map-viewer card shows
 // the raw "Crit Chance: X%". Listing crit here too would render it
 // twice in every in-game tooltip.
+// cooldownMultLine renders a cooldown multiplier as a ±% line ("Spell cooldown
+// −20%"); 0 (unset) and exactly 1.0 produce nothing.
+func cooldownMultLine(label string, mult float64) string {
+	if mult <= 0 || mult == 1.0 {
+		return ""
+	}
+	pct := (mult - 1.0) * 100
+	return fmt.Sprintf("%s %+.0f%%", label, pct)
+}
+
 func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w == nil {
 		return nil
@@ -34,16 +46,23 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		if turns <= 0 {
 			turns = 1
 		}
-		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", w.StunChance*100, turns))
+		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns × TPS frames).
+		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", w.DisintegrateChance*100))
+		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", w.DisintegrateChance*100))
 	}
 	if w.AoeRadiusTiles > 0 {
 		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", w.AoeRadiusTiles))
 	}
 	if w.MaxProjectiles > 0 {
 		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
+	}
+	// Attack-speed lines live in character.WeaponCombatLines (the category→
+	// skill mapping needed for the default multiplier lives there); only the
+	// spell-cooldown perk is computable at this layer.
+	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
+		lines = append(lines, line)
 	}
 	if len(w.BonusVs) > 0 {
 		keys := make([]string, 0, len(w.BonusVs))
@@ -242,7 +261,9 @@ type ClassStats struct {
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
 	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
 	MainHand   string            `yaml:"main_hand,omitempty"`   // weapons.yaml key equipped at start
+	Armor      string            `yaml:"armor,omitempty"`       // items.yaml key worn at start
 	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
+	QuickTrap  string            `yaml:"quick_trap,omitempty"`  // traps.yaml key pre-selected in the trap book
 }
 
 // SpellSystemConfig contains the complete unified spell system configuration
@@ -344,9 +365,14 @@ type SpellDefinitionConfig struct {
 	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
-	HealAmount  int     `yaml:"heal_amount,omitempty"`
-	StatBonus   int     `yaml:"stat_bonus,omitempty"`
-	VisionBonus float64 `yaml:"vision_bonus,omitempty"`
+	HealAmount int `yaml:"heal_amount,omitempty"`
+	StatBonus  int `yaml:"stat_bonus,omitempty"`
+	// StatBonuses is the per-stat alternative to the uniform stat_bonus
+	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
+	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
+	// with stat_bonus; validated at load.
+	StatBonuses       map[string]int `yaml:"stat_bonuses,omitempty"`
+	VisionRadiusTiles float64        `yaml:"vision_radius_tiles,omitempty"`
 
 	// Effect configuration
 	TargetSelf     bool   `yaml:"target_self,omitempty"`
@@ -377,7 +403,7 @@ type MonsterAIConfig struct {
 	FleeSpeedMultiplier   float64 `yaml:"flee_speed_multiplier"`
 
 	// Vision distance used while fleeing
-	FleeVisionDistance float64 `yaml:"flee_vision_distance"`
+	FleeDistanceTiles float64 `yaml:"flee_distance_tiles"`
 
 	// AI frequency check (in frames)
 	PathCheckFrequency int `yaml:"path_check_frequency"`
@@ -740,11 +766,34 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSpellStatBonuses(&spellConfig); err != nil {
+		return nil, err
+	}
 
 	// Set global spell config for easy access
 	GlobalSpells = &spellConfig
 
 	return &spellConfig, nil
+}
+
+// validateSpellStatBonuses fails fast on malformed stat-buff authoring: a
+// per-stat map with an unknown stat name, or a spell mixing the uniform
+// stat_bonus with the per-stat stat_bonuses.
+func validateSpellStatBonuses(cfg *SpellSystemConfig) error {
+	for id, def := range cfg.Spells {
+		if len(def.StatBonuses) == 0 {
+			continue
+		}
+		if def.StatBonus > 0 {
+			return fmt.Errorf("spell '%s': stat_bonus and stat_bonuses are mutually exclusive", id)
+		}
+		for key := range def.StatBonuses {
+			if !IsStatName(key) {
+				return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+			}
+		}
+	}
+	return nil
 }
 
 // MustLoadSpellConfig loads the spell configuration and panics on error
@@ -801,10 +850,34 @@ func setupWeaponAccessor() {
 	// For now we'll define this in a separate function
 }
 
+// StatNames is THE canonical, ordered list of the seven character stats
+// (lowercase — the YAML key convention), DERIVED from the StatBonuses struct
+// in internal/stats. Adding a stat = adding one struct field there.
+var StatNames = stats.Names
+
+// IsStatName reports whether s is a canonical lowercase stat name.
+func IsStatName(s string) bool { return stats.IsName(s) }
+
+// validWeaponBonusStats: weapons.yaml authors Title-case stat names
+// ("Might"); derived from the canonical list at init.
+var validWeaponBonusStats = func() map[string]bool {
+	m := make(map[string]bool, len(StatNames))
+	for _, n := range StatNames {
+		m[strings.ToUpper(n[:1])+n[1:]] = true
+	}
+	return m
+}()
+
 func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 	for key, def := range cfg.Weapons {
 		if def == nil {
 			return fmt.Errorf("weapon '%s' has empty definition", key)
+		}
+		if def.BonusStat != "" && !validWeaponBonusStats[def.BonusStat] {
+			return fmt.Errorf("weapon '%s' has unknown bonus_stat %q", key, def.BonusStat)
+		}
+		if def.BonusStatSecondary != "" && !validWeaponBonusStats[def.BonusStatSecondary] {
+			return fmt.Errorf("weapon '%s' has unknown bonus_stat_secondary %q", key, def.BonusStatSecondary)
 		}
 		if isProjectileWeapon(def) {
 			if def.Physics == nil {
@@ -909,9 +982,16 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 	return cfg
 }
 
-// validateItemConfig enforces per-type required attributes for consumables
+// validateItemConfig enforces per-type required attributes for consumables.
+// equip_slot names validate against the ONE mapping in the items package — a
+// typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
+		if def.EquipSlot != "" {
+			if _, ok := items.EquipSlotFromName(def.EquipSlot); !ok {
+				return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
+			}
+		}
 		switch def.Type {
 		case "consumable":
 			// If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)

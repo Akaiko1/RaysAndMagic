@@ -14,12 +14,15 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
+	// Completeness check = the FULL (Shift-held) view: the Base→Stat→Mastery
+	// decomposition and the universal RULES are detail-only, hidden in the
+	// default compact tooltip.
 	lines := func(id string) string {
 		def, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
 		if err != nil {
 			t.Fatalf("%s: %v", id, err)
 		}
-		return strings.Join(getSpellMechanicsFromDefinition(def, char, cs), "\n")
+		return buildSpellTooltipUnified(def, char, cs, true)
 	}
 
 	mustContain := []struct{ id, want string }{
@@ -35,13 +38,17 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"charm", "Pacifies"},
 		{"charm", "120s"},
 		{"bind_undead", "undead target for 300s"},
-		{"hot_steam", "Zone Damage:"},
-		{"hot_steam", "searing everything inside every 3s"},
-		// Scaling source is now stated (SSoT — shows in the map editor too).
-		{"firebolt", "Damage scales with Intellect & fire mastery"},
-		{"psychic_shock", "Damage scales with Personality & mind mastery"}, // self-magic school → Personality
-		{"hot_steam", "Tick damage scales with Intellect & water mastery"},
-		{"heal", "Healing scales with Personality & body mastery"},
+		{"hot_steam", "DAMAGE PER TICK"},
+		// Cadence lives in the structured ZONE section; the prose line states only
+		// who it hits (monsters, not the party).
+		{"hot_steam", "RT: one tick every 3s"},
+		{"hot_steam", "scalds any monster inside (your party is unharmed)"},
+		// Scaling is now a structured decomposition line ("Stat (value /
+		// divisor): +N") instead of a prose "scales with" sentence.
+		{"firebolt", "Intellect ("},
+		{"psychic_shock", "Personality ("}, // self-magic school → Personality
+		{"hot_steam", "Intellect ("},
+		{"heal", "Personality ("},
 		{"inferno", "within 7.0 tiles for 45 damage"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},
 		{"resurrect", "full HP"},

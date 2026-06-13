@@ -42,7 +42,7 @@ func TestCreateProjectileUsesPhysicsConfig(t *testing.T) {
 		t.Fatalf("get fireball physics: %v", err)
 	}
 
-	projectile, err := NewCastingSystem(cfg).CreateProjectile("fireball", 10, 20, 0, 10)
+	projectile, err := NewCastingSystem(cfg).CreateProjectile("fireball", 10, 20, 0)
 	if err != nil {
 		t.Fatalf("create projectile: %v", err)
 	}

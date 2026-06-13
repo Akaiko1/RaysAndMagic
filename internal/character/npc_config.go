@@ -201,7 +201,7 @@ func backfillTraderSpells() error {
 			}
 			def, ok := config.GetSpellDefinition(id)
 			if !ok || def == nil {
-				continue // unknown spell ID → respect whatever the YAML gave
+				return fmt.Errorf("spell_trader %q: spell %q is not defined in spells.yaml", npcKey, id)
 			}
 			if sp.Name == "" {
 				sp.Name = def.Name

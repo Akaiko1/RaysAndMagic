@@ -2,6 +2,7 @@ package monster
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -116,6 +117,21 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	for key, monster := range config.Monsters {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		if monster.AttacksPerRound > 1 {
+			expectedMultiplier := 1.0 / float64(monster.AttacksPerRound)
+			if math.Abs(monster.AttackCooldownMult-expectedMultiplier) > 0.000001 {
+				conflicts = append(conflicts, fmt.Sprintf(
+					"Monster '%s' has attacks_per_round %d but attack_cooldown_multiplier %.6g; expected %.6g",
+					key, monster.AttacksPerRound, monster.AttackCooldownMult, expectedMultiplier,
+				))
+			}
+		}
+		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
+		}
+		if monster.TeleportAtHP > 0 && monster.TeleportChance <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_at_hp but no teleport_chance", key))
 		}
 		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
@@ -261,9 +277,10 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Experience = def.Experience
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
-	// Convert tile-based radii to pixels (1 tile = 64 pixels)
-	m.AlertRadius = def.AlertRadius * 64.0
-	m.AttackRadius = def.AttackRadius * 64.0
+	// Convert tile-based radii to pixels
+	tileSize := m.tileSize()
+	m.AlertRadius = def.AlertRadius * tileSize
+	m.AttackRadius = def.AttackRadius * tileSize
 	m.Speed = def.Speed
 
 	// Set random gold within range
@@ -294,7 +311,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.PassiveUntilAttacked = def.PassiveUntilHit
 	m.HatesTraits = HatesTable[m.Key] // party traits that enrage this passive monster (hates.yaml)
 	if def.RangedAttackRange > 0 {
-		m.RangedAttackRange = def.RangedAttackRange * 64.0
+		m.RangedAttackRange = def.RangedAttackRange * tileSize
 	}
 	if def.FireburstChance > 0 {
 		m.FireburstChance = def.FireburstChance
@@ -312,7 +329,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.PoisonDurationSec = def.PoisonDurationSec
 	}
 	if def.PounceRangeTiles > 0 {
-		m.PounceRangePixels = def.PounceRangeTiles * 64.0
+		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
 	m.IgnoresArmor = def.IgnoresArmor
@@ -327,7 +344,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.LightRadius = 0
 	m.LightIntensity = 0
 	if def.Light != nil && def.Light.Enabled {
-		m.LightRadius = def.Light.RadiusTiles * 64.0
+		m.LightRadius = def.Light.RadiusTiles * tileSize
 		m.LightIntensity = def.Light.Intensity
 	}
 }

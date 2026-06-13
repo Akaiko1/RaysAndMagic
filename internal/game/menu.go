@@ -69,8 +69,11 @@ type GameSave struct {
 	BlessActive            bool             `json:"bless_active,omitempty"`
 	BlessDuration          int              `json:"bless_duration,omitempty"`
 	BlessStatBonus         int              `json:"bless_stat_bonus,omitempty"`
+	StatBuffs              []StatBuffSave   `json:"stat_buffs,omitempty"`
+	BlessBonusesPerStat    map[string]int   `json:"bless_bonuses_per_stat,omitempty"`
 	CombatBuffs            []CombatBuffSave `json:"combat_buffs,omitempty"`
 	SteamZones             []SteamZoneSave  `json:"steam_zones,omitempty"`
+	Traps                  []TrapSave       `json:"traps,omitempty"`
 	WaterBreathingActive   bool             `json:"water_breathing_active,omitempty"`
 	WaterBreathingDuration int              `json:"water_breathing_duration,omitempty"`
 	UnderwaterReturnX      float64          `json:"underwater_return_x,omitempty"`
@@ -128,6 +131,9 @@ type CharacterSave struct {
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
+	// RTCooldown preserves the real-time action cooldown — reload must not
+	// reset the party's swing timers mid-fight.
+	RTCooldown int `json:"rt_cooldown,omitempty"`
 }
 
 type SkillEntry struct {
@@ -172,19 +178,32 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
-	Key                     string               `json:"key"`
-	Name                    string               `json:"name"`
-	X                       float64              `json:"x"`
-	Y                       float64              `json:"y"`
-	HitPoints               int                  `json:"hit_points"`
-	Bound                   bool                 `json:"bound,omitempty"`
-	BoundFramesRemaining    int                  `json:"bound_frames_remaining,omitempty"`
-	Pacified                bool                 `json:"pacified,omitempty"`
-	PacifiedFramesRemaining int                  `json:"pacified_frames_remaining,omitempty"`
-	WasAttacked             bool                 `json:"was_attacked,omitempty"`
-	IsEncounterMonster      bool                 `json:"is_encounter_monster,omitempty"`
-	EncounterID             int                  `json:"encounter_id,omitempty"`
-	EncounterRewards        *EncounterRewardSave `json:"encounter_rewards,omitempty"`
+	Key                     string  `json:"key"`
+	Name                    string  `json:"name"`
+	X                       float64 `json:"x"`
+	Y                       float64 `json:"y"`
+	HitPoints               int     `json:"hit_points"`
+	Bound                   bool    `json:"bound,omitempty"`
+	BoundFramesRemaining    int     `json:"bound_frames_remaining,omitempty"`
+	Pacified                bool    `json:"pacified,omitempty"`
+	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
+	WasAttacked             bool    `json:"was_attacked,omitempty"`
+	// Mid-combat cooldowns: reload must not strip a player-applied stun or
+	// reset the monster's special-attack cadence.
+	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
+	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
+	Pilfered            bool                 `json:"pilfered,omitempty"`
+	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
+	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
+	BossCD              int                  `json:"boss_cd,omitempty"`
+	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
+	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
+	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
+	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
+	EncounterID         int                  `json:"encounter_id,omitempty"`
+	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
 
 type EncounterRewardSave struct {
@@ -267,11 +286,49 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 	return rewards
 }
 
-// NPCSave tracks persistent NPC flags across maps
+// NPCSave tracks persistent NPC flags across maps. Identity is MapKey + spawn
+// coordinates (deterministic from the map file) — display names can repeat on
+// one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
+// coordinates fall back to name matching on restore.
 type NPCSave struct {
-	MapKey  string `json:"map_key"`
-	Name    string `json:"name"`
-	Visited bool   `json:"visited"`
+	MapKey  string  `json:"map_key"`
+	Name    string  `json:"name"`
+	X       float64 `json:"x,omitempty"`
+	Y       float64 `json:"y,omitempty"`
+	Visited bool    `json:"visited"`
+	// Remaining merchant quantities, aligned with the YAML stock order.
+	StockQuantities []int `json:"stock_quantities,omitempty"`
+}
+
+// clearTransientCombatState drops every in-flight transient tied to the
+// CURRENT world: projectiles, swings, VFX and pending deaths. Must run on any
+// world swap (map switch, save load) or leftovers keep updating against the
+// new map and can hit monsters there.
+func (g *MMGame) clearTransientCombatState() {
+	g.projectileMutex.Lock()
+	if g.collisionSystem != nil {
+		// applySave rebuilds the collision system anyway; switchToMap keeps it,
+		// so stale projectile entities must be dropped explicitly.
+		for i := range g.magicProjectiles {
+			g.collisionSystem.UnregisterEntity(g.magicProjectiles[i].ID)
+		}
+		for i := range g.arrows {
+			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
+		}
+		for i := range g.meleeAttacks {
+			g.collisionSystem.UnregisterEntity(g.meleeAttacks[i].ID)
+		}
+	}
+	g.magicProjectiles = g.magicProjectiles[:0]
+	g.arrows = g.arrows[:0]
+	g.meleeAttacks = g.meleeAttacks[:0]
+	g.projectileMutex.Unlock()
+	g.slashEffects = g.slashEffects[:0]
+	g.hitEffectsMu.Lock()
+	g.spellHitEffects = g.spellHitEffects[:0]
+	g.impactLights = g.impactLights[:0]
+	g.hitEffectsMu.Unlock()
+	g.deadMonsterIDs = g.deadMonsterIDs[:0]
 }
 
 // SaveSummary is lightweight info used for menu display
@@ -369,6 +426,14 @@ func normalizeItemFromConfig(item *items.Item) {
 	if item == nil {
 		return
 	}
+	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
+	// reach saved slots), keyed by SpellEffect.
+	if item.Type == items.ItemTrap {
+		if fresh, ok := config.TrapItem(string(item.SpellEffect)); ok {
+			*item = fresh
+		}
+		return
+	}
 	switch item.Type {
 	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket:
 	default:
@@ -382,17 +447,15 @@ func normalizeItemFromConfig(item *items.Item) {
 	if err != nil {
 		return
 	}
-	if item.Attributes == nil {
-		item.Attributes = make(map[string]int)
-	}
+	// The YAML definition is the single source of an item's attributes: ADOPT
+	// it wholesale, so rebalanced (or removed) values reach items saved before
+	// the change. Items carry no instance state in Attributes — merging only
+	// missing keys left old saves frozen on their original balance forever.
+	item.Attributes = make(map[string]int, len(template.Attributes))
 	for k, v := range template.Attributes {
-		if _, exists := item.Attributes[k]; !exists {
-			item.Attributes[k] = v
-		}
+		item.Attributes[k] = v
 	}
-	if item.ArmorCategory == "" {
-		item.ArmorCategory = template.ArmorCategory
-	}
+	item.ArmorCategory = template.ArmorCategory
 	if item.Description == "" {
 		item.Description = template.Description
 	}
@@ -461,6 +524,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
+	m.RTCooldown = cs.RTCooldown
 	return m
 }
 
@@ -510,11 +574,15 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
+	cs.RTCooldown = m.RTCooldown
 	return cs
 }
 
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
+	// Legacy bless_* fields mirror the registry's bless entry so an older
+	// binary can still read this save.
+	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
 		Gold:      g.party.Gold,
@@ -565,7 +633,23 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// Save the monster's own key (always set) — a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
-			saveEntry := MonsterSave{Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints, Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining, Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining, WasAttacked: mon.WasAttacked}
+			saveEntry := MonsterSave{
+				Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
+				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
+				WasAttacked:         mon.WasAttacked,
+				StunFramesRemaining: mon.StunFramesRemaining,
+				StunTurnsRemaining:  mon.StunTurnsRemaining,
+				RootFramesRemaining: mon.RootFramesRemaining,
+				RootTurnsRemaining:  mon.RootTurnsRemaining,
+				Pilfered:            mon.Pilfered,
+				PounceCDFrames:      mon.PounceCDFrames,
+				PounceCDTurns:       mon.PounceCDTurns,
+				BossCD:              mon.BossCD,
+				BossHurtPending:     mon.BossHurtPending,
+				BossLastHP:          mon.BossLastHP,
+				CrossfireCD:         mon.CrossfireCD,
+			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
 				if id, ok := encounterIDs[mon.EncounterRewards]; ok {
@@ -612,7 +696,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if wm != nil {
 		for mapKey, w := range wm.LoadedMaps {
 			for _, npc := range w.NPCs {
-				nstates = append(nstates, NPCSave{MapKey: mapKey, Name: npc.Name, Visited: npc.Visited})
+				ns := NPCSave{MapKey: mapKey, Name: npc.Name, X: npc.X, Y: npc.Y, Visited: npc.Visited}
+				if len(npc.MerchantStock) > 0 {
+					ns.StockQuantities = make([]int, len(npc.MerchantStock))
+					for i, entry := range npc.MerchantStock {
+						ns.StockQuantities[i] = entry.Quantity
+					}
+				}
+				nstates = append(nstates, ns)
 			}
 		}
 	}
@@ -645,45 +736,52 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
-		MapKey:                 wm.CurrentMapKey,
-		PlayerX:                g.camera.X,
-		PlayerY:                g.camera.Y,
-		PlayerAngle:            g.camera.Angle,
-		TurnBased:              g.turnBasedMode,
-		SavedAt:                time.Now().Format(time.RFC3339),
-		Party:                  ps,
-		Monsters:               ms,
-		MapMonsters:            mapMonsters,
-		NPCStates:              nstates,
-		Quests:                 questSaves,
-		GroundContainers:       groundContainerSaves,
-		PendingLevelUpChoices:  pendingChoices,
-		PlayedTimeNs:           playedTime.Nanoseconds(),
-		CurrentTurn:            g.currentTurn,
-		PartyActionsUsed:       g.partyActionsUsed,
-		TurnBasedMoveCooldown:  g.turnBasedMoveCooldown,
-		TurnBasedRotCooldown:   g.turnBasedRotCooldown,
-		MonsterTurnResolved:    g.monsterTurnResolved,
-		TurnBasedSpRegenCount:  g.turnBasedSpRegenCount,
-		TorchLightActive:       g.torchLightActive,
-		TorchLightDuration:     g.torchLightDuration,
-		TorchLightRadius:       g.torchLightRadius,
-		WizardEyeActive:        g.wizardEyeActive,
-		WizardEyeDuration:      g.wizardEyeDuration,
-		WalkOnWaterActive:      g.walkOnWaterActive,
-		WalkOnWaterDuration:    g.walkOnWaterDuration,
-		BlessActive:            g.blessActive,
-		BlessDuration:          g.blessDuration,
-		BlessStatBonus:         g.blessStatBonus,
+		MapKey:                wm.CurrentMapKey,
+		PlayerX:               g.camera.X,
+		PlayerY:               g.camera.Y,
+		PlayerAngle:           g.camera.Angle,
+		TurnBased:             g.turnBasedMode,
+		SavedAt:               time.Now().Format(time.RFC3339),
+		Party:                 ps,
+		Monsters:              ms,
+		MapMonsters:           mapMonsters,
+		NPCStates:             nstates,
+		Quests:                questSaves,
+		GroundContainers:      groundContainerSaves,
+		PendingLevelUpChoices: pendingChoices,
+		PlayedTimeNs:          playedTime.Nanoseconds(),
+		CurrentTurn:           g.currentTurn,
+		PartyActionsUsed:      g.partyActionsUsed,
+		TurnBasedMoveCooldown: g.turnBasedMoveCooldown,
+		TurnBasedRotCooldown:  g.turnBasedRotCooldown,
+		MonsterTurnResolved:   g.monsterTurnResolved,
+		TurnBasedSpRegenCount: g.turnBasedSpRegenCount,
+		TorchLightActive:      g.torchLightActive,
+		TorchLightDuration:    g.torchLightDuration,
+		TorchLightRadius:      g.torchLightRadius,
+		WizardEyeActive:       g.wizardEyeActive,
+		WizardEyeDuration:     g.wizardEyeDuration,
+		WalkOnWaterActive:     g.walkOnWaterActive,
+		WalkOnWaterDuration:   g.walkOnWaterDuration,
+		StatBuffs:             buildStatBuffSaves(g.statBuffs),
+		BlessActive:           legacyBless.Frames > 0,
+		BlessDuration:         legacyBless.Frames,
+		BlessStatBonus:        legacyBless.Bonuses.Might,
+		BlessBonusesPerStat:   statBonusesToMap(legacyBless.Bonuses),
+		// Write-only legacy: an OLD binary reads stat_bonus on load (its expiry
+		// math subtracts bless_stat_bonus from it); the new binary derives the
+		// aggregate from stat_buffs and never reads this back.
+		StatBonus:              g.statBonuses.Might,
 		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
 		SteamZones:             buildSteamZoneSaves(g.steamZones),
+		Traps:                  buildTrapSaves(g.traps),
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
 		UnderwaterReturnX:      g.underwaterReturnX,
 		UnderwaterReturnY:      g.underwaterReturnY,
 		UnderwaterReturnMap:    g.underwaterReturnMap,
-		StatBonus:              g.statBonus,
-		MapReturnPoses:         g.mapReturnPoses,
+
+		MapReturnPoses: g.mapReturnPoses,
 	}
 }
 
@@ -697,6 +795,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	// Update world reference and visuals
 	g.world = wm.GetCurrentWorld()
+
+	g.clearTransientCombatState()
+
+	// A loaded game starts with a clean combat log — the previous slot's history
+	// must not bleed into it (clearTransientCombatState runs on every map switch
+	// too, so the log reset lives here, on the load path, not in it).
+	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogScroll = 0
+	g.combatLogOpen = false
+
 	g.UpdateSkyAndGroundColors()
 	g.collisionSystem.UpdateTileChecker(g.world)
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {
@@ -724,6 +832,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, cs := range save.Party.Captive {
 		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
 	}
+	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too —
+	// a save written before a formula/balance change would otherwise keep
+	// stale maxima until the hero is swapped in or trained. (Active members
+	// get theirs via applyPartyStatBonuses below; bench carries no buffs.)
+	for _, m := range g.party.Reserve {
+		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
+	for _, m := range g.party.Captive {
+		m.RecalculateMaxStatsKeepingCurrent(g.config)
+	}
 
 	// Restore monsters (all loaded maps)
 	if wm != nil {
@@ -744,6 +862,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				m.StunFramesRemaining = ms.StunFramesRemaining
+				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.RootFramesRemaining = ms.RootFramesRemaining
+				m.RootTurnsRemaining = ms.RootTurnsRemaining
+				m.Pilfered = ms.Pilfered
+				m.PounceCDFrames = ms.PounceCDFrames
+				m.PounceCDTurns = ms.PounceCDTurns
+				m.BossCD = ms.BossCD
+				m.BossHurtPending = ms.BossHurtPending
+				m.BossLastHP = ms.BossLastHP
+				m.CrossfireCD = ms.CrossfireCD
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live — restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -793,13 +922,29 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		}
 	}
 
-	// Restore NPC visited flags across maps
+	// Restore NPC state across maps (visited flags + merchant stock)
 	if wm != nil {
 		for _, ns := range save.NPCStates {
-			if w, ok := wm.LoadedMaps[ns.MapKey]; ok {
-				for _, npc := range w.NPCs {
-					if npc.Name == ns.Name {
-						npc.Visited = ns.Visited
+			w, ok := wm.LoadedMaps[ns.MapKey]
+			if !ok {
+				continue
+			}
+			for _, npc := range w.NPCs {
+				// Coordinate match when the save has them; legacy saves
+				// (X==Y==0) fall back to the old name match.
+				if ns.X != 0 || ns.Y != 0 {
+					if npc.X != ns.X || npc.Y != ns.Y || npc.Name != ns.Name {
+						continue
+					}
+				} else if npc.Name != ns.Name {
+					continue
+				}
+				npc.Visited = ns.Visited
+				// Stock layout comes from YAML; apply saved quantities only
+				// while the lengths agree (a YAML edit invalidates the save).
+				if len(ns.StockQuantities) == len(npc.MerchantStock) {
+					for i, q := range ns.StockQuantities {
+						npc.MerchantStock[i].Quantity = q
 					}
 				}
 			}
@@ -818,27 +963,46 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
-	// Radius always follows the balance constant — old saves froze whatever
-	// value was current when they were written (e.g. 4 tiles before the buff).
+	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) —
+	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive {
-		g.torchLightRadius = TorchLightRadiusTiles
+		if def, err := spells.GetSpellDefinitionByID("torch_light"); err == nil && def.VisionRadiusTiles > 0 {
+			g.torchLightRadius = def.VisionRadiusTiles
+		}
 	}
 	g.wizardEyeActive = save.WizardEyeActive
 	g.wizardEyeDuration = save.WizardEyeDuration
+	// Same anti-freeze rule as the torch: an active eye adopts the CURRENT
+	// spells.yaml radius instead of a stale or missing saved value.
+	if g.wizardEyeActive {
+		if def, err := spells.GetSpellDefinitionByID("wizard_eye"); err == nil && def.VisionRadiusTiles > 0 {
+			g.wizardEyeRadiusTiles = def.VisionRadiusTiles
+		}
+	}
 	g.walkOnWaterActive = save.WalkOnWaterActive
 	g.walkOnWaterDuration = save.WalkOnWaterDuration
-	g.blessActive = save.BlessActive
-	g.blessDuration = save.BlessDuration
-	g.blessStatBonus = save.BlessStatBonus
+	g.statBuffs = restoreStatBuffs(save.StatBuffs)
+	if len(g.statBuffs) == 0 && save.BlessActive && save.BlessDuration > 0 {
+		// Pre-registry save: bless lived in dedicated fields.
+		g.statBuffs = []TimedStatBuff{{
+			SpellID: "bless",
+			Frames:  save.BlessDuration,
+			Bonuses: statBonusesFromSave(save.BlessBonusesPerStat, save.BlessStatBonus),
+		}}
+	}
 	g.combatBuffs = restoreCombatBuffs(save.CombatBuffs)
-	g.steamZones = restoreSteamZones(save.SteamZones)
+	g.steamZones = restoreSteamZones(save.SteamZones, save.MapKey)
+	g.traps = restoreTraps(save.Traps, g.party)
 	g.waterBreathingActive = save.WaterBreathingActive
 	g.waterBreathingDuration = save.WaterBreathingDuration
 	g.underwaterReturnX = save.UnderwaterReturnX
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
-	g.statBonus = save.StatBonus
+	// The aggregate is DERIVED from the restored registry (never trusted from
+	// the save) — a drifted legacy save can't turn a buff expiry into a
+	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
+	g.recomputeStatBonuses()
 	g.mapReturnPoses = save.MapReturnPoses
 	if g.mapReturnPoses == nil {
 		g.mapReturnPoses = make(map[string]MapPose)
@@ -902,6 +1066,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, b := range g.timedBuffs() {
 		g.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
+	// Registry buffs (stat + combat) show their timers immediately too, not
+	// only after the first tick refreshes them.
+	for _, b := range g.statBuffs {
+		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
+	}
+	for _, b := range g.combatBuffs {
+		g.updateUtilityStatus(spells.SpellID(b.SpellID), b.Frames, true)
+	}
 
 	// Restore quest progress. Reset to the baseline (starting quests only) first
 	// so quests taken AFTER this save — and therefore absent from it — don't
@@ -934,4 +1106,28 @@ func findMonsterKeyByName(name string) string {
 		}
 	}
 	return ""
+}
+
+// statBonusesToMap serializes a StatBonuses block for saves (nonzero entries
+// only, lowercase keys — same shape spells.yaml authors).
+func statBonusesToMap(b character.StatBonuses) map[string]int {
+	if b.IsZero() {
+		return nil
+	}
+	m := map[string]int{}
+	for _, key := range config.StatNames {
+		if v := b.ValueByName(key); v != 0 {
+			m[key] = v
+		}
+	}
+	return m
+}
+
+// statBonusesFromSave restores a bonus block: per-stat map when present,
+// otherwise the legacy uniform int (pre-per-stat saves).
+func statBonusesFromSave(perStat map[string]int, legacy int) character.StatBonuses {
+	if len(perStat) > 0 {
+		return character.StatBonusesFromMap(perStat)
+	}
+	return character.UniformStatBonuses(legacy)
 }

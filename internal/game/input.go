@@ -8,6 +8,7 @@ import (
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
+	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -121,6 +122,11 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	if ih.game.combatLogOpen {
+		ih.handleCombatLogInput()
+		return
+	}
+
 	// Handle level-up choice overlay
 	if ih.game.currentLevelUpChoice() != nil {
 		ih.handleLevelUpChoiceInput()
@@ -215,6 +221,10 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	if ih.handleCombatLogOpenInput() {
+		return
+	}
+
 	// Handle normal gameplay input
 	if ih.game.turnBasedMode {
 		ih.handleTurnBasedInput()
@@ -244,15 +254,14 @@ func (ih *InputHandler) restartNewGame() {
 	g.showHighScores = false
 	g.frameCount = 0
 
-	// Clear combat/projectile state
-	g.magicProjectiles = g.magicProjectiles[:0]
-	g.meleeAttacks = g.meleeAttacks[:0]
-	g.arrows = g.arrows[:0]
+	// Clear combat/projectile state (shared cleaner: also unregisters
+	// projectile collision entities and drops impact lights)
+	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
-	g.slashEffects = g.slashEffects[:0]
-	g.spellHitEffects = g.spellHitEffects[:0]
-	g.deadMonsterIDs = g.deadMonsterIDs[:0]
-	g.combatMessages = g.combatMessages[:0]
+	g.traps = nil
+	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogOpen = false
+	g.combatLogScroll = 0
 	g.cardFxTimers = [cardFxCount][4]int{}
 
 	// Reset spell/UI selections and cooldowns
@@ -289,23 +298,8 @@ func (ih *InputHandler) restartNewGame() {
 	g.saveRenameInput = ""
 	g.exitRequested = false
 
-	// Reset utility effects and bonuses
-	g.torchLightActive = false
-	g.torchLightDuration = 0
-	g.torchLightRadius = 0
-	g.wizardEyeActive = false
-	g.wizardEyeDuration = 0
-	g.walkOnWaterActive = false
-	g.walkOnWaterDuration = 0
-	g.blessActive = false
-	g.blessDuration = 0
-	g.blessStatBonus = 0
-	g.waterBreathingActive = false
-	g.waterBreathingDuration = 0
-	g.underwaterReturnX = 0
-	g.underwaterReturnY = 0
-	g.underwaterReturnMap = ""
-	g.statBonus = 0
+	// Reset every timed effect family (buffs, zones, utility flags)
+	g.resetTimedEffects()
 
 	// Reset turn-based state
 	g.turnBasedMode = false
@@ -897,6 +891,12 @@ func (ih *InputHandler) handleCombatInput() {
 	// one (preferring a ready one) — a single move so the waiting frame sits on a
 	// real actor, not a per-frame churn.
 	if !ih.game.rtActionCapable(ih.game.selectedChar, kind) {
+		// Explicit F with nothing castable: say WHY once per fresh press (the
+		// TB path announces through the cast itself; holds stay silent so a
+		// held key can't spam). Space keeps its silent weapon fallback.
+		if kind == rtActCast && fJust {
+			ih.announceCastShortfall(ih.game.selectedChar)
+		}
 		ih.game.advanceRTActor(kind)
 	}
 	// (2) Selected is capable. If it's on cooldown, jump to another member who is
@@ -917,13 +917,24 @@ func (ih *InputHandler) handleCombatInput() {
 
 	switch kind {
 	case rtActWeapon:
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
-	case rtActSmart:
-		if cast, spellID := ih.game.combat.SmartAttack(); cast {
-			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
+		if ih.game.combat.EquipmentMeleeAttack() {
+			ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
 		} else {
+			// No weapon after all (capability raced an unequip): pass the turn
+			// on without a cooldown so a held key doesn't stick here.
+			ih.game.advanceRTActor(rtActWeapon)
+		}
+	case rtActSmart:
+		acted, spellID := ih.game.combat.SmartAttack()
+		switch {
+		case spellID != "":
+			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
+		case acted:
 			ih.commitRTAction(rtActSmart, ih.game.combat.WeaponCooldownFrames(sel))
+		default:
+			// Nothing this hero could do (no weapon, no castable spell, no one
+			// to heal): hand the selection on instead of looping on them.
+			ih.game.advanceRTActor(rtActSmart)
 		}
 	case rtActCast:
 		ih.castSlottedSpell(sel)
@@ -945,6 +956,34 @@ func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 // castSlottedSpell casts the selected character's slotted spell (F key). Heal
 // spells are aimed with the mouse; everything else casts directly. Applies the
 // real-time cooldown only if the cast actually fired.
+// announceCastShortfall explains a refused explicit cast (F) for the member
+// the player had selected: not enough SP for the slotted spell/trap. Uses the
+// LIVE trap cost (saved items may carry stale SpellCost).
+func (ih *InputHandler) announceCastShortfall(idx int) {
+	if idx < 0 || idx >= len(ih.game.party.Members) {
+		return
+	}
+	m := ih.game.party.Members[idx]
+	if m == nil || !m.CanAct() {
+		return
+	}
+	slot, ok := m.Equipment[items.SlotSpell]
+	if !ok {
+		return
+	}
+	cost := slot.SpellCost
+	if slot.Type == items.ItemTrap {
+		if def, defOk := config.GetTrapDefinition(string(slot.SpellEffect)); defOk {
+			cost = def.SPCost
+		}
+	}
+	cost = ih.game.combat.effectiveSpellCost(m, cost)
+	if m.SpellPoints < cost {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s's %s fizzles! (Not enough SP: %d/%d)",
+			m.Name, slot.Name, m.SpellPoints, cost))
+	}
+}
+
 func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
 	spell, hasSpell := sel.Equipment[items.SlotSpell]
 	if !hasSpell {
@@ -1251,6 +1290,7 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update world reference and collision system
 	oldWorld := ih.game.world
 	ih.game.world = ih.game.GetCurrentWorld()
+	ih.game.clearTransientCombatState()
 	if ih.game.collisionSystem != nil {
 		ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
 		// Unregister old world monsters
@@ -1444,6 +1484,21 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 				return -1
 			}
 		}
+		if charIndex == 0 {
+			hasFreeStats := false
+			for _, partyMember := range ih.game.party.Members {
+				if partyMember != nil && partyMember.FreeStatPoints > 0 {
+					hasFreeStats = true
+					break
+				}
+			}
+			autoBtnX := baseLeft + 72
+			autoBtnY := startY + portraitHeight - 28
+			if hasFreeStats && mouseX >= autoBtnX && mouseX < autoBtnX+58 &&
+				mouseY >= autoBtnY && mouseY < autoBtnY+24 {
+				return -1
+			}
+		}
 		if ih.game.hasLevelUpChoiceForChar(charIndex) {
 			x := baseLeft + charIndex*portraitWidth
 			caretX := x + portraitWidth - 28
@@ -1512,10 +1567,41 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 // handleSpellbookNavigation handles navigation within the spellbook tab
 func (ih *InputHandler) handleSpellbookNavigation() {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
-	schools := spellbookSchoolsWithSpells(currentChar)
 
+	// Trap book (thief): spell-like controls — Up/Down browse, Enter/F equips
+	// the selection into the quick slot. MUST run before the magic-school
+	// checks: a trapper has no schools and would bail out early.
+	if hasTrapBook(currentChar) {
+		keys := availableTraps(currentChar)
+		if len(keys) == 0 {
+			return
+		}
+		if ih.game.selectedTrap >= len(keys) || ih.game.selectedTrap < 0 {
+			ih.game.selectedTrap = 0
+		}
+		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) || ih.wKeyTracker.IsKeyJustPressed(ebiten.KeyW) {
+			ih.game.selectedTrap = (ih.game.selectedTrap - 1 + len(keys)) % len(keys)
+		}
+		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) || ih.sKeyTracker.IsKeyJustPressed(ebiten.KeyS) {
+			ih.game.selectedTrap = (ih.game.selectedTrap + 1) % len(keys)
+		}
+		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
+			equipTrap(currentChar, keys[ih.game.selectedTrap])
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		}
+		return
+	}
+
+	schools := spellbookSchoolsWithSpells(currentChar)
 	if len(schools) == 0 {
 		return
+	}
+
+	// The school list is PER CHARACTER: switching members (keys 1-4, mouse)
+	// can shrink it under a stale index — clamp before any schools[...] access.
+	if ih.game.selectedSchool >= len(schools) || ih.game.selectedSchool < 0 {
+		ih.game.selectedSchool = 0
+		ih.game.selectedSpell = -1
 	}
 
 	// Navigation: step one spell per key press so the user can't overshoot.
@@ -1710,11 +1796,13 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		return
 	}
 
-	// Purchase the spell
+	// Teach FIRST, charge after: a spell that fails to resolve must not eat
+	// the gold (and must not leave an empty school behind).
+	if !ih.addSpellToCharacter(selectedChar, spellData) {
+		ih.game.AddCombatMessage(fmt.Sprintf("%s cannot be taught right now.", spellData.Name))
+		return
+	}
 	ih.game.party.Gold -= spellData.Cost
-
-	// Add spell to character's spellbook
-	ih.addSpellToCharacter(selectedChar, spellData)
 
 	msg := fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)
 	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.Success != "" {
@@ -1727,34 +1815,17 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	ih.game.AddCombatMessage(msg)
 }
 
-// characterKnowsSpell checks if a character already knows a spell
-// addSpellToCharacter adds a spell to a character's spellbook
-func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) {
-	targetSchool := character.MagicSchoolID(spellData.School)
-
-	// Ensure the character has the magic school
-	if char.MagicSchools[targetSchool] == nil {
-		char.MagicSchools[targetSchool] = &character.MagicSkill{
-			Mastery:     character.MasteryNovice,
-			KnownSpells: make([]spells.SpellID, 0),
-		}
-	}
-
-	// Convert spell name to SpellID using centralized mapping
+// addSpellToCharacter teaches a shop spell; reports whether the spellbook
+// actually changed (false: unresolvable spell or already known — the caller
+// must not charge for it). Resolution and learning go through the ONE path
+// (LearnSpell), which also picks the school from spells.yaml rather than the
+// trader catalog.
+func (ih *InputHandler) addSpellToCharacter(char *character.MMCharacter, spellData *character.NPCSpell) bool {
 	spellIDToAdd, err := spells.GetSpellIDByName(spellData.Name)
 	if err != nil {
-		return // Spell not found
+		return false // Spell not found
 	}
-
-	// Check if character already has this spell
-	for _, existingSpell := range char.MagicSchools[targetSchool].KnownSpells {
-		if existingSpell == spellIDToAdd {
-			return // Already knows this spell
-		}
-	}
-
-	// Add the spell ID to the school
-	char.MagicSchools[targetSchool].KnownSpells = append(char.MagicSchools[targetSchool].KnownSpells, spellIDToAdd)
+	return char.LearnSpell(spellIDToAdd)
 }
 
 // handleDialogMouseInput handles mouse input in dialog mode
@@ -1971,7 +2042,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if moved {
-			ih.game.turnBasedMoveCooldown = 18 // 0.3 second at 60 FPS
+			ih.game.turnBasedMoveCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
 		}
 	}
 
@@ -1989,7 +2060,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 
 		if rotated {
-			ih.game.turnBasedRotCooldown = 18 // 0.3 second at 60 FPS
+			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
 		}
 	}
 
@@ -2015,15 +2086,17 @@ func (ih *InputHandler) handleTurnBasedInput() {
 
 	switch {
 	case ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR): // melee/ranged weapon attack
-		ih.game.combat.EquipmentMeleeAttack()
-		ih.game.consumeSelectedCharAction()
+		if ih.game.combat.EquipmentMeleeAttack() {
+			ih.game.consumeSelectedCharAction()
+		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
-		ih.game.combat.SmartAttack()
-		ih.game.consumeSelectedCharAction()
+		if acted, _ := ih.game.combat.SmartAttack(); acted {
+			ih.game.consumeSelectedCharAction()
+		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
 		spell, hasSpell := selected.Equipment[items.SlotSpell]

@@ -133,8 +133,8 @@ func TestRayOfLight_DamageScalesWithCostAndBothStats(t *testing.T) {
 	base, statBonus, total := cs.CalculateSpellDamage(def.ID, caster)
 
 	wantBase := def.SpellPointsCost * spells.SpellDamagePerSP * 2
-	wantStat := caster.GetEffectiveIntellect(0)/spells.SpellIntellectDivisor +
-		caster.GetEffectivePersonality(0)/spells.SpellIntellectDivisor
+	wantStat := caster.GetEffectiveIntellect()/spells.SpellIntellectDivisor +
+		caster.GetEffectivePersonality()/spells.SpellIntellectDivisor
 	wantTotal := wantBase + wantStat
 
 	if base != wantBase {
@@ -163,7 +163,7 @@ func TestNormalSpell_UnaffectedByRayOfLightFields(t *testing.T) {
 	if want := def.SpellPointsCost * spells.SpellDamagePerSP; base != want {
 		t.Errorf("fireball base changed: got %d, want %d (cost × perSP, multiplier defaults to 1)", base, want)
 	}
-	if want := caster.GetEffectiveIntellect(0) / spells.SpellIntellectDivisor; statBonus != want {
+	if want := caster.GetEffectiveIntellect() / spells.SpellIntellectDivisor; statBonus != want {
 		t.Errorf("fireball stat bonus should be Intellect-only: got %d, want %d (Personality must NOT contribute)", statBonus, want)
 	}
 }

@@ -109,8 +109,8 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 					t.Errorf("party-nova did not damage the monster")
 				}
 			case def.ResistBuffPct > 0 || def.OutgoingDamageBonus > 0 || def.IncomingDamageReduction > 0 || def.StatBonus > 0:
-				if len(game.combatBuffs) == 0 && game.statBonus <= 0 {
-					t.Errorf("no buff applied (combatBuffs=%d statBonus=%d)", len(game.combatBuffs), game.statBonus)
+				if len(game.combatBuffs) == 0 && game.statBonuses.IsZero() {
+					t.Errorf("no buff applied (combatBuffs=%d statBonuses=%+v)", len(game.combatBuffs), game.statBonuses)
 				}
 			case def.IsProjectile:
 				if len(game.magicProjectiles)+len(game.arrows) <= projBefore {

@@ -39,6 +39,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
+		// Root (bear trap) burns one turn per monster TURN — whether it moves
+		// or stands adjacent and attacks (root pins movement, not actions).
+		// MUST tick before the Pacified/Bound branches: a bound undead still
+		// moves through monsterMoveTurnBased and its root must hold and decay.
+		m.TickRootTurn()
+
 		// Pacified (Charm): holds position, never acts against the party.
 		if m.Pacified {
 			continue
@@ -51,6 +57,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			continue
 		}
+
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
@@ -70,14 +77,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// off-center spawns (e.g. encounter pirates) that would otherwise
 		// stand/attack between tiles.
 		gl.centerMonsterOnTile(m, tileSize)
-
-		// Boss specials (blink / Inferno); each TB turn is one action tick.
-		if gl.combat.isBoss(m) {
-			if gl.combat.updateBoss(m, true, true) {
-				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
-				continue
-			}
-		}
 
 		// Lured at a bound undead instead of the party: attack it (ranged mobs loose
 		// a bolt from within range, melee strike from an adjacent tile), else step
@@ -112,6 +111,20 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
+		}
+
+		// Boss specials (blink / Inferno); each TB turn is one action tick.
+		// Runs AFTER the bound-undead check (matching RT order): a boss lured
+		// at a bound foe spends its turn on that fight, not on party novas.
+		// DESIGN: specials are rolled BEFORE range/movement checks, so in TB an
+		// aggressive boss may cast Inferno or its low-HP blink from across the
+		// room instead of closing in. RT gates these to the attack moment; the
+		// asymmetry is intentional TB flavor — do not "fix" toward RT.
+		if gl.combat.isBoss(m) {
+			if gl.combat.updateBoss(m, m.BossCD == 0, true) {
+				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+				continue
+			}
 		}
 
 		// Work in tile space: monsters never enter the player's tile and only
@@ -177,6 +190,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 	}
 
+	// Monsters finished moving: spring any traps they stepped onto.
+	gl.combat.sweepTrapTriggers()
+
 	// Mark monster turn as processed before ending turn
 	gl.game.monsterTurnResolved = true
 
@@ -225,6 +241,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 			target.AddCondition(character.ConditionUnconscious)
 		}
 		gl.game.TriggerDamageBlink(targetIndex)
+		gl.combat.tryApplyMonsterPoison(monster, target)
 
 		suffix := ""
 		if attacks > 1 {
@@ -263,6 +280,11 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 
 // monsterMoveTurnBased handles a monster move in turn-based mode
 func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
+	// Rooted (bear trap): pinned for the whole turn; the per-turn countdown
+	// lives in TickRootTurn (root != stun — attacks still happen).
+	if monster.RootHeld() {
+		return
+	}
 	tileSize := float64(gl.game.config.GetTileSize())
 
 	// Step toward the monster's AI target (party by default; a charmed monster is

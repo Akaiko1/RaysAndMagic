@@ -34,8 +34,7 @@ func (w *World3D) PlaceMonsterByLetter(x, y float64, letter string) error {
 	}
 
 	// Create monster at tile center to avoid getting stuck
-	spawnX := x*64 + 32
-	spawnY := y*64 + 32
+	spawnX, spawnY := tileCenterFromTile(tileX, tileY, w.config.GetTileSize())
 	m := monster.NewMonster3DFromConfig(spawnX, spawnY, monsterKey, w.config)
 	w.Monsters = append(w.Monsters, m)
 

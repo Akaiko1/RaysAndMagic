@@ -270,12 +270,12 @@ npcs:
       choices:
         - text: "Manage roster"
           action: "open_roster"
-        - text: "Rest the night (20 gold)"
+        - text: "Rest the night (200 gold)"
           action: "tavern_rest"
-          cost: 20
-        - text: "Buy rations (+5 food, 10 gold)"
+          cost: 200
+        - text: "Buy rations (+5 food, 1000 gold)"
           action: "buy_food"
-          cost: 10
+          cost: 1000
           amount: 5
         - text: "Leave"
           action: "leave"

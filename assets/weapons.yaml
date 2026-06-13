@@ -38,6 +38,7 @@ weapons:
     damage: 4
     range: 1  # 1 tile reach for dagger
     bonus_stat: "Accuracy"
+    bonus_stat_secondary: "Intellect"
     crit_chance: 15
     rarity: "uncommon"
     value: 120
