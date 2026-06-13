@@ -232,6 +232,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 			mob.DamageMin, mob.DamageMax = raw, raw
 			mob.State = monsterPkg.StateAttacking
 			mob.StateTimer = 1
+			mob.AttackCDFrames = 0 // force a fresh hit each iteration — this test measures mitigation, not cadence
 			target.HitPoints = 1000
 
 			cs.HandleMonsterInteractions()

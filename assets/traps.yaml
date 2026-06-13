@@ -25,8 +25,8 @@ traps:
     cooldown_seconds: 3.0
     lifetime_seconds: 40
     element: "earth"
-    root_turns: 2
-    root_seconds: 10
+    root_turns: 1
+    root_seconds: 2
     border_color: [165, 115, 55]
 
   stasis_trap:
@@ -38,8 +38,8 @@ traps:
     cooldown_seconds: 4.0
     lifetime_seconds: 40
     element: "mind"
-    stun_turns: 2
-    stun_seconds: 10
+    stun_turns: 1
+    stun_seconds: 2
     border_color: [175, 110, 225]
 
   blast_trap:

@@ -798,6 +798,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	g.clearTransientCombatState()
 
+	// A loaded game starts with a clean combat log — the previous slot's history
+	// must not bleed into it (clearTransientCombatState runs on every map switch
+	// too, so the log reset lives here, on the load path, not in it).
+	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogScroll = 0
+	g.combatLogOpen = false
+
 	g.UpdateSkyAndGroundColors()
 	g.collisionSystem.UpdateTileChecker(g.world)
 	if g.gameLoop != nil && g.gameLoop.renderer != nil {

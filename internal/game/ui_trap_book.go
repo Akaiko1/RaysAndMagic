@@ -163,7 +163,7 @@ func (ui *UISystem) drawTrapCard(screen *ebiten.Image, x, y, w, h, iconSize int,
 // trapTooltip renders the unified template card for a trap (the same builder
 // the quick-slot hover uses).
 func trapTooltip(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem) string {
-	out := buildTrapTooltipUnified(key, def, char, cs)
+	out := buildTrapTooltipUnified(key, def, char, cs, tooltipDetailHeld())
 	if def.Description != "" {
 		out += "\n\n\"" + def.Description + "\""
 	}

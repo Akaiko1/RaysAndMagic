@@ -160,7 +160,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("AoE radius: %.1f tiles (splashes nearby monsters)", d.AoeRadiusTiles))
 	}
 	if d.DisintegrateChance > 0 {
-		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit", d.DisintegrateChance*100))
+		out = append(out, fmt.Sprintf("Disintegrate: %.0f%% chance to instantly kill on hit (undead and dragons immune)", d.DisintegrateChance*100))
 	}
 	if d.StunChance > 0 {
 		line := fmt.Sprintf("Stun chance: %.0f%% on hit", d.StunChance*100)
@@ -182,9 +182,10 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage — your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
 	}
 	if d.ZoneRadiusTiles > 0 {
-		// Tick damage is caster-scaled (Intellect + mastery) — shown by the in-game
-		// tooltip; here (character-independent) we list only radius and cadence.
-		out = append(out, fmt.Sprintf("Leaves a %.1f-tile zone, searing everything inside every %.0fs (turn-based: once per round)", d.ZoneRadiusTiles, d.ZoneTickSeconds))
+		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
+		// section (and filtered out of EFFECTS), so this summary line states only
+		// who it hits — monsters, never the party.
+		out = append(out, "Leaves a lingering zone that scalds any monster inside (your party is unharmed)")
 	}
 	switch {
 	case d.HealParty:

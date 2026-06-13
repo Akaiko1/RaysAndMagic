@@ -149,6 +149,7 @@ type Monster3D struct {
 	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
 	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
 	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
+	AttackCDFrames           int        // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
 	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int        // Fireburst damage min
 	FireburstDamageMax       int        // Fireburst damage max

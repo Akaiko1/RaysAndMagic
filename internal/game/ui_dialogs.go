@@ -443,7 +443,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			var tooltip string
 			switch strings.ToLower(option.choice.Type) {
 			case "spell":
-				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat)
+				tooltip = GetSpellTooltip(option.spellID, member, ui.game.combat, tooltipDetailHeld())
 			case "weapon_mastery", "armor_mastery":
 				tooltip = masteryTooltipTextForSkill(option.skillType)
 			case "magic_mastery":

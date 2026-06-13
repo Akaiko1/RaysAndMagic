@@ -46,10 +46,11 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		if turns <= 0 {
 			turns = 1
 		}
-		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%d turns)", w.StunChance*100, turns))
+		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns × TPS frames).
+		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
-		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%%", w.DisintegrateChance*100))
+		lines = append(lines, fmt.Sprintf("Disintegrate Chance: %.0f%% (undead and dragons immune)", w.DisintegrateChance*100))
 	}
 	if w.AoeRadiusTiles > 0 {
 		lines = append(lines, fmt.Sprintf("AoE radius: %.1f tiles (splashes all nearby monsters)", w.AoeRadiusTiles))

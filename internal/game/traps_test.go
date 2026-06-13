@@ -216,6 +216,28 @@ func TestSleightOfHand_PaysGoldOnce(t *testing.T) {
 	if gotGold != 0 && gotGold != character.SleightGoldLow {
 		t.Errorf("low-level victim pays %d gold, got %d", character.SleightGoldLow, gotGold)
 	}
+	msgs := g.GetCombatMessages()
+	if len(msgs) < 2 {
+		t.Fatalf("sleight messages = %v, want attempt and outcome", msgs)
+	}
+	if !strings.Contains(msgs[0], "tries to pick") {
+		t.Fatalf("first sleight message = %q, want attempt", msgs[0])
+	}
+	if got := g.GetCombatMessageColor(0); !sameColor(got, combatMessagePurple) {
+		t.Fatalf("attempt color = %v, want purple", got)
+	}
+	outcomeIndex := len(msgs) - 1
+	outcomeColor := g.GetCombatMessageColor(outcomeIndex)
+	if gotGold > 0 {
+		if !sameColor(outcomeColor, combatMessagePurple) {
+			t.Fatalf("consolation-gold color = %v, want purple", outcomeColor)
+		}
+	} else {
+		stolen := g.party.Inventory[len(g.party.Inventory)-1:]
+		if want := lootMessageColor(stolen); !sameColor(outcomeColor, want) {
+			t.Fatalf("stolen-item color = %v, want %v", outcomeColor, want)
+		}
+	}
 
 	// Already pilfered: nothing more to take.
 	goldAfter := g.party.Gold
@@ -253,7 +275,7 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 			g, thief := newThiefTestGame(t)
 			tc.prep(g, thief)
 			spBefore := thief.SpellPoints
-			msgsBefore := len(g.combatMessages)
+			msgsBefore := len(g.GetCombatMessages())
 
 			acted, castID := g.combat.SmartAttack()
 
@@ -266,7 +288,7 @@ func TestSmartAttack_TrapFallbackIsSilent(t *testing.T) {
 			if thief.SpellPoints != spBefore {
 				t.Errorf("silent fallback must not spend SP: %d -> %d", spBefore, thief.SpellPoints)
 			}
-			for _, m := range g.combatMessages[msgsBefore:] {
+			for _, m := range g.GetCombatMessages()[msgsBefore:] {
 				low := strings.ToLower(m)
 				if strings.Contains(low, "fizzles") || strings.Contains(low, "traps armed") {
 					t.Errorf("Space fallback must be silent, got message %q", m)
@@ -281,12 +303,12 @@ func TestExplicitF_TrapRefusalAnnounces(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	thief.SpellPoints = 0
 	g.selectedChar = 0
-	msgsBefore := len(g.combatMessages)
+	msgsBefore := len(g.GetCombatMessages())
 	if g.combat.CastEquippedSpell() {
 		t.Fatal("cast must fail without SP")
 	}
 	found := false
-	for _, m := range g.combatMessages[msgsBefore:] {
+	for _, m := range g.GetCombatMessages()[msgsBefore:] {
 		if strings.Contains(strings.ToLower(m), "fizzles") {
 			found = true
 		}

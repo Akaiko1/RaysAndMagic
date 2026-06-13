@@ -122,6 +122,11 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	if ih.game.combatLogOpen {
+		ih.handleCombatLogInput()
+		return
+	}
+
 	// Handle level-up choice overlay
 	if ih.game.currentLevelUpChoice() != nil {
 		ih.handleLevelUpChoiceInput()
@@ -216,6 +221,10 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	if ih.handleCombatLogOpenInput() {
+		return
+	}
+
 	// Handle normal gameplay input
 	if ih.game.turnBasedMode {
 		ih.handleTurnBasedInput()
@@ -250,7 +259,9 @@ func (ih *InputHandler) restartNewGame() {
 	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
 	g.traps = nil
-	g.combatMessages = g.combatMessages[:0]
+	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogOpen = false
+	g.combatLogScroll = 0
 	g.cardFxTimers = [cardFxCount][4]int{}
 
 	// Reset spell/UI selections and cooldowns
@@ -1470,6 +1481,21 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 			// If clicking on + button area, don't select character
 			if mouseX >= plusBtnX && mouseX < plusBtnX+plusBtnW &&
 				mouseY >= plusBtnY && mouseY < plusBtnY+plusBtnH {
+				return -1
+			}
+		}
+		if charIndex == 0 {
+			hasFreeStats := false
+			for _, partyMember := range ih.game.party.Members {
+				if partyMember != nil && partyMember.FreeStatPoints > 0 {
+					hasFreeStats = true
+					break
+				}
+			}
+			autoBtnX := baseLeft + 72
+			autoBtnY := startY + portraitHeight - 28
+			if hasFreeStats && mouseX >= autoBtnX && mouseX < autoBtnX+58 &&
+				mouseY >= autoBtnY && mouseY < autoBtnY+24 {
 				return -1
 			}
 		}

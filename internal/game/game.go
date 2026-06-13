@@ -34,6 +34,13 @@ import (
 
 type ProjectileOwner int
 
+type combatLogEntry struct {
+	Text  string
+	Color color.Color
+}
+
+const maxCombatLogHistory = 500
+
 const (
 	ProjectileOwnerPlayer ProjectileOwner = iota
 	ProjectileOwnerMonster
@@ -299,9 +306,15 @@ type MMGame struct {
 	selectedSpell      int
 	spellInputCooldown int
 
-	// Combat messages
-	combatMessages []string
-	maxMessages    int
+	// Combat log: one ordered list of (text, color) entries. The HUD shows the
+	// last maxMessages of them; the scrollable overlay shows up to
+	// maxCombatLogHistory. (Replaces the old combatMessages/combatMessageColors
+	// parallel arrays that had to be kept in lockstep.)
+	combatLogHistory   []combatLogEntry
+	combatLogOpen      bool
+	combatLogScroll    int
+	lastCombatLogClick int64
+	maxMessages        int
 
 	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
 	// spark/heal. One table instead of four parallel arrays — see cardFx and
@@ -506,7 +519,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		selectedSpell:         0,
 		collapsedSpellSchools: make(map[character.MagicSchoolID]bool),
 		utilitySpellStatuses:  make(map[spells.SpellID]*UtilitySpellStatus),
-		combatMessages:        make([]string, 0),
+		combatLogHistory:      make([]combatLogEntry, 0),
 		maxMessages:           4, // Show last 4 messages
 
 		// Dialog system initialization
@@ -897,11 +910,16 @@ func (g *MMGame) checkVictory() {
 
 // AddCombatMessage adds a combat message to the message queue
 func (g *MMGame) AddCombatMessage(message string) {
-	g.combatMessages = append(g.combatMessages, message)
+	g.AddColoredCombatMessage(message, color.White)
+}
 
-	// Keep only the last maxMessages
-	if len(g.combatMessages) > g.maxMessages {
-		g.combatMessages = g.combatMessages[len(g.combatMessages)-g.maxMessages:]
+// AddColoredCombatMessage appends a combat-log entry with an explicit display
+// color. The HUD slice is derived on demand (GetCombatMessages), so text and
+// color can never fall out of sync.
+func (g *MMGame) AddColoredCombatMessage(message string, messageColor color.Color) {
+	g.combatLogHistory = append(g.combatLogHistory, combatLogEntry{Text: message, Color: messageColor})
+	if len(g.combatLogHistory) > maxCombatLogHistory {
+		g.combatLogHistory = g.combatLogHistory[len(g.combatLogHistory)-maxCombatLogHistory:]
 	}
 }
 
@@ -938,9 +956,35 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	return true
 }
 
-// GetCombatMessages returns the current combat messages
+// hudLog returns the tail of the combat log shown on the HUD (last maxMessages
+// entries). GetCombatMessages and GetCombatMessageColor both index into it, so
+// the row text and its color always come from the same entry.
+func (g *MMGame) hudLog() []combatLogEntry {
+	n := g.maxMessages
+	if n <= 0 || n > len(g.combatLogHistory) {
+		n = len(g.combatLogHistory)
+	}
+	return g.combatLogHistory[len(g.combatLogHistory)-n:]
+}
+
+// GetCombatMessages returns the HUD combat-message texts (most recent last).
 func (g *MMGame) GetCombatMessages() []string {
-	return g.combatMessages
+	hud := g.hudLog()
+	out := make([]string, len(hud))
+	for i, e := range hud {
+		out[i] = e.Text
+	}
+	return out
+}
+
+// GetCombatMessageColor returns the display color for HUD row index (aligned with
+// GetCombatMessages).
+func (g *MMGame) GetCombatMessageColor(index int) color.Color {
+	hud := g.hudLog()
+	if index < 0 || index >= len(hud) {
+		return color.White
+	}
+	return hud[index].Color
 }
 
 // cardFx identifies a party-card overlay effect tracked per member in

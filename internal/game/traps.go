@@ -81,7 +81,7 @@ func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacte
 	turns, seconds = baseTurns, baseSeconds
 	if owner != nil {
 		tier := owner.SkillTier(character.SkillTrapper)
-		turns += tier * character.TrapperTurnsPerTier
+		turns += character.TrapperTurnBonus(tier)
 		seconds += tier * character.TrapperSecondsPerTier
 	}
 	return turns, seconds

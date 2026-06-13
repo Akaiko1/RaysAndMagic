@@ -913,6 +913,14 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			continue
 		}
 
+		// Tick the persistent attack cooldown every frame, BEFORE any state checks,
+		// so it counts down even while the monster is pursuing/alert. This is what
+		// stops a kiting player (stepping in and out of range) from resetting the
+		// attack cadence: the AI state can churn, but the cooldown can't be skipped.
+		if monster.AttackCDFrames > 0 {
+			monster.AttackCDFrames--
+		}
+
 		// Pacified (Charm): stands and does nothing, never attacks the party.
 		if monster.Pacified {
 			continue
@@ -989,8 +997,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// Inclusive (<=) so a mob sitting exactly one tile away (e.g. a puma that
 		// just pounced onto an adjacent tile) still lands its hit.
 		if monster.State == monsterPkg.StateAttacking && dist <= attackRange {
-			// Only attack once per attacking state (no separate cooldown needed)
-			if monster.StateTimer == 1 { // Attack on first frame of attacking state
+			// Fire on the first frame of the attacking state, but only if the
+			// persistent attack cooldown has elapsed — re-entering the attacking
+			// state (e.g. after chasing a kiting player back into range) no longer
+			// grants a free hit. On a hit, arm the cooldown for the next interval.
+			if monster.StateTimer == 1 && monster.AttackCDFrames == 0 {
+				monster.AttackCDFrames = monster.AttackCooldownFrames()
 				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttack(monster)
@@ -1104,10 +1116,17 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 		return
 	}
 	monster.Pilfered = true
+	cs.game.AddColoredCombatMessage(
+		fmt.Sprintf("%s tries to pick %s's pocket!", attacker.Name, monster.Name),
+		combatMessagePurple,
+	)
 	if stolen := cs.checkMonsterLootDrop(monster); len(stolen) > 0 {
 		for _, it := range stolen {
 			cs.game.party.AddItem(it)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s picks %s's pocket: %s!", attacker.Name, monster.Name, it.Name))
+			cs.game.AddColoredCombatMessage(
+				fmt.Sprintf("%s picks %s's pocket: %s!", attacker.Name, monster.Name, it.Name),
+				lootMessageColor([]items.Item{it}),
+			)
 		}
 		return
 	}
@@ -1116,7 +1135,10 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 		gold = character.SleightGoldHighLevel
 	}
 	cs.game.party.Gold += gold
-	cs.game.AddCombatMessage(fmt.Sprintf("%s lifts %d gold off %s!", attacker.Name, gold, monster.Name))
+	cs.game.AddColoredCombatMessage(
+		fmt.Sprintf("%s finds no item and lifts %d gold off %s instead!", attacker.Name, gold, monster.Name),
+		combatMessagePurple,
+	)
 }
 
 // tryApplyMonsterPoison rolls the attacker's PoisonChance against a character
@@ -1890,12 +1912,13 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 }
 
-// applyAoeSplash deals the primary attack's base damage to every OTHER alive
-// monster within radiusTiles of the primary target. Each splash victim
-// applies its own armor reduction. No crit, no disintegrate, no stun on
-// splash — those belong to the primary hit only. Drives Fireball-style AoE
-// from a single YAML field (`aoe_radius_tiles`), shared between spells and
-// weapon projectiles (e.g. Bow of Hellfire).
+// applyAoeSplash deals the primary attack's damage to every OTHER alive monster
+// within radiusTiles of the primary target. The `damage` passed in is the
+// primary's already-resolved hit — so if the primary CRIT, that crit-boosted
+// number splashes too (the splash rolls no SEPARATE crit/disintegrate/stun of
+// its own). Each splash victim applies its own armor reduction. Drives
+// Fireball-style AoE from a single YAML field (`aoe_radius_tiles`), shared
+// between spells and weapon projectiles (e.g. Bow of Hellfire).
 func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64, resistPierce int) {
 	if center == nil || radiusTiles <= 0 {
 		return
@@ -2853,6 +2876,39 @@ func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string
 		damage = 0
 	}
 	return damage
+}
+
+// PhysicalMitigation is the breakdown of how an incoming PHYSICAL hit is reduced,
+// in the exact order mitigateCharacterDamage applies it. There is no single
+// "total reduction" number — the percentage step and the min-1 floor make the
+// result depend on the incoming hit — so the UI renders the pipeline, not a sum.
+type PhysicalMitigation struct {
+	ArmorClass int // total AC across equipped armor
+	ArmorFlat  int // flat pre-resist reduction from armor: AC / ArmorPhysicalReductionDivisor
+	SkillFlat  int // flat pre-resist reduction from DisarmTrap tier
+	ResistPct  int // physical resistance % applied AFTER the flat step (gear + party buff, capped 100)
+	FlatBuff   int // flat reduction applied AFTER the resistance step (Hour of Power / Stone Skin)
+}
+
+// PhysicalMitigationBreakdown decomposes physical mitigation for the character
+// sheet, reading the SAME pieces mitigateCharacterDamage uses so the UI can't
+// drift from combat. Order matches combat: (armor+skill flat) → resist % → flat buff.
+func (cs *CombatSystem) PhysicalMitigationBreakdown(char *character.MMCharacter) PhysicalMitigation {
+	if cs == nil || char == nil {
+		return PhysicalMitigation{}
+	}
+	ac := cs.CalculateTotalArmorClass(char)
+	resist := char.GearResistPct("physical") + cs.game.combatBuffResistPct()
+	if resist > 100 {
+		resist = 100
+	}
+	return PhysicalMitigation{
+		ArmorClass: ac,
+		ArmorFlat:  ac / ArmorPhysicalReductionDivisor,
+		SkillFlat:  char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier,
+		ResistPct:  resist,
+		FlatBuff:   cs.game.combatBuffInReduce(),
+	}
 }
 
 func isPhysicalDamageType(damageTypeStr string) bool {

@@ -71,17 +71,15 @@ const (
 	// padded with random upgrades of skills the character already owns.
 	MinLevelUpOptions = 4
 
-	// LuckToCritDivisor: Luck/divisor adds to a character's critical chance
-	// (in percent points), on top of the weapon's base crit_chance.
-	LuckToCritDivisor = 4
+	// LuckToCritDivisor lives in character/catalog.go (cards quote it too).
+	LuckToCritDivisor = character.LuckToCritDivisor
 
 	// LuckToDodgeDivisor: Luck/divisor sets the perfect-dodge chance in
 	// percent points.
 	LuckToDodgeDivisor = 5
 
-	// CritDamageMultiplier multiplies final damage on a critical hit.
-	// Applied identically to weapon swings, melee, and ranged.
-	CritDamageMultiplier = 2
+	// CritDamageMultiplier lives in character/catalog.go (cards quote it too).
+	CritDamageMultiplier = character.CritDamageMultiplier
 
 	// ArmorPierceRangedChancePct lives in character/catalog.go (tooltip SSoT).
 	ArmorPierceRangedChancePct = character.ArmorPierceRangedChancePct

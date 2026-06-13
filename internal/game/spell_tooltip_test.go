@@ -14,11 +14,15 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
+	// Completeness check = the FULL (Shift-held) view: the Base→Stat→Mastery
+	// decomposition and the universal RULES are detail-only, hidden in the
+	// default compact tooltip.
 	lines := func(id string) string {
-		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(id)); err != nil {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
+		if err != nil {
 			t.Fatalf("%s: %v", id, err)
 		}
-		return GetSpellTooltip(spells.SpellID(id), char, cs)
+		return buildSpellTooltipUnified(def, char, cs, true)
 	}
 
 	mustContain := []struct{ id, want string }{
@@ -35,7 +39,10 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"charm", "120s"},
 		{"bind_undead", "undead target for 300s"},
 		{"hot_steam", "DAMAGE PER TICK"},
-		{"hot_steam", "searing everything inside every 3s"},
+		// Cadence lives in the structured ZONE section; the prose line states only
+		// who it hits (monsters, not the party).
+		{"hot_steam", "RT: one tick every 3s"},
+		{"hot_steam", "scalds any monster inside (your party is unharmed)"},
 		// Scaling is now a structured decomposition line ("Stat (value /
 		// divisor): +N") instead of a prose "scales with" sentence.
 		{"firebolt", "Intellect ("},

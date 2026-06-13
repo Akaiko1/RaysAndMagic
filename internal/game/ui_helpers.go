@@ -185,12 +185,34 @@ func tooltipBoxSizeWithIcon(lines []string, hasIcon bool) (int, int) {
 // position. Lines that don't fit between the tooltip's x position and the
 // right screen edge are word-wrapped onto multiple rows; the colors slice
 // (if provided) is expanded so each wrapped row keeps its original color.
+// flipTooltipY keeps a tooltip box on screen vertically. y arrives as
+// cursorY+8 (below the cursor); if a box of bgHeight would run off the bottom,
+// flip it ABOVE the cursor, clamping to the top if it's taller than that space
+// too. The caller resolves this ONCE for side-by-side cards (main + compare)
+// so they share a top edge instead of flipping independently.
+func flipTooltipY(y, bgHeight, screenH int) int {
+	if y+bgHeight > screenH {
+		y = y - bgHeight - 16 // y-8 = cursor, then an 8px gap above it
+		if y < 0 {
+			y = 0
+		}
+	}
+	return y
+}
+
 func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y int, sprites *graphics.SpriteManager) {
 	screenW := screen.Bounds().Dx()
 
 	hasIcon := iconName != "" && sprites != nil
 	lines, colors = wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
 	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
+
+	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
+	// defensive top clamp only.
+	if y < 0 {
+		y = 0
+	}
+
 	drawFilledRect(screen, x, y, bgWidth, bgHeight, color.RGBA{30, 30, 60, 255})
 	textX := x + 6
 	if hasIcon {
@@ -423,6 +445,20 @@ func rarityColor(rarity string) color.Color {
 	default:
 		return color.White // Common/default
 	}
+}
+
+var (
+	combatMessageGold   = color.RGBA{255, 215, 0, 255}
+	combatMessagePurple = color.RGBA{190, 100, 255, 255}
+)
+
+func lootMessageColor(drops []items.Item) color.Color {
+	for _, item := range drops {
+		if strings.EqualFold(item.Rarity, "legendary") {
+			return rarityColor("legendary")
+		}
+	}
+	return combatMessageGold
 }
 
 func (ui *UISystem) itemRarity(item items.Item) string {

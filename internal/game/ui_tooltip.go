@@ -7,30 +7,40 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // GetItemTooltip returns a comprehensive tooltip string for any item type.
 // It collects fields in a simple map and glues them together in a stable order
 // to keep the function compact and easy to extend.
-func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+// tooltipDetailHeld reports whether the player is holding Shift to expand a
+// tooltip to its full Base→Stat→Mastery breakdown + universal RULES.
+func tooltipDetailHeld() bool {
+	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+}
+
+func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
 	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
-		return buildSpellItemTooltipFromDefinition(item, char, combatSystem)
+		return buildSpellItemTooltipFromDefinition(item, char, combatSystem, full)
 	}
 
 	// Every category renders through the unified template (=== Name ===,
-	// Category · Rarity, decomposed sections, RULES); value and flavor trail.
+	// Category · Rarity, sections, RULES). Compact by default; the UI passes
+	// full=true (Shift held) to reveal the Base→Stat→Mastery decomposition +
+	// universal RULES (keeps tall cards on screen). Pure formatter — no input read.
 	var core string
 	switch item.Type {
 	case items.ItemTrap:
 		if def, ok := config.GetTrapDefinition(string(item.SpellEffect)); ok {
-			core = buildTrapTooltipUnified(string(item.SpellEffect), def, char, combatSystem)
+			core = buildTrapTooltipUnified(string(item.SpellEffect), def, char, combatSystem, full)
 		}
 	case items.ItemWeapon:
-		core = buildWeaponTooltipUnified(item, char, combatSystem)
+		core = buildWeaponTooltipUnified(item, char, combatSystem, full)
 	case items.ItemArmor, items.ItemAccessory:
-		core = buildArmorTooltipUnified(item, char, combatSystem)
+		core = buildArmorTooltipUnified(item, char, combatSystem, full)
 	case items.ItemConsumable:
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Double-click to use", "Single use"})
+		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Double-click to use", "Single use"}, full)
 	case items.ItemQuest:
 		// Only ACTIVATABLE quest items get a usage hint — plain story tokens
 		// (statuettes etc.) just sit in the inventory.
@@ -38,9 +48,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && def != nil && (def.OpensMap || def.PromotesLich) {
 			usage = append([]string{"Double-click to use"}, usage...)
 		}
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", usage)
+		core = buildSimpleItemTooltipUnified(item, "EFFECT", usage, full)
 	case items.ItemTrinket:
-		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"})
+		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {
 		core = fmt.Sprintf("=== %s ===\n%s", item.Name, itemKindLabel(item))
@@ -141,7 +151,7 @@ func GetSpellComparisonTooltip(spellID spells.SpellID, char *character.MMCharact
 	return joinTooltipLines(buildSpellComparisonLinesByID(spellID, equippedID, char, combatSystem))
 }
 
-func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem) string {
+func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
 	if char == nil || combatSystem == nil {
 		return ""
 	}
@@ -165,7 +175,7 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 		return joinTooltipLines(lines)
 	}
 
-	tooltip := GetSpellTooltip(spellID, char, combatSystem)
+	tooltip := GetSpellTooltip(spellID, char, combatSystem, full)
 	lines := strings.Split(tooltip, "\n")
 
 	if val, ok := item.Attributes["value"]; ok && val > 0 {
@@ -212,8 +222,9 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 	if !hasReq {
 		return ""
 	}
+	display := strings.Title(skillName)
 	if char == nil {
-		return fmt.Sprintf("Requires: %s Skill", skillName)
+		return fmt.Sprintf("Requires: %s Skill", display)
 	}
 	hasSkill := false
 	switch strings.ToLower(skillName) {
@@ -227,9 +238,9 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 		_, hasSkill = char.Skills[character.SkillShield]
 	}
 	if hasSkill {
-		return fmt.Sprintf("Requires: %s Skill", skillName)
+		return fmt.Sprintf("Requires: %s Skill", display)
 	}
-	return fmt.Sprintf("Requires: %s Skill (Missing)", skillName)
+	return fmt.Sprintf("Requires: %s Skill (Missing)", display)
 }
 
 func armorCategoryString(item items.Item) string {
@@ -489,12 +500,12 @@ func spellEffectsSummary(def spells.SpellDefinition) string {
 }
 
 // GetSpellTooltip returns a comprehensive tooltip for spells in the spellbook using centralized spell definitions
-func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem) string {
+func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return fmt.Sprintf("=== Unknown Spell (%s) ===", spellID)
 	}
-	out := buildSpellTooltipUnified(def, char, combatSystem)
+	out := buildSpellTooltipUnified(def, char, combatSystem, full)
 	if def.Description != "" {
 		out += "\n\n\"" + def.Description + "\""
 	}

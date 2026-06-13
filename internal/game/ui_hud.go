@@ -261,6 +261,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 				ui.game.statPopupCharIdx = i
 				ui.justOpenedStatPopup = true
 			}
+
 		}
 
 		// Draw ^ indicator for pending skill/spell choice
@@ -275,6 +276,25 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if ui.game.consumeLeftClickIn(caretX, caretY, caretX+caretW, caretY+caretH) {
 				ui.game.openLevelUpChoiceForChar(i)
 			}
+		}
+	}
+
+	hasFreeStats := false
+	for _, member := range ui.game.party.Members {
+		if member != nil && member.FreeStatPoints > 0 {
+			hasFreeStats = true
+			break
+		}
+	}
+	if hasFreeStats {
+		autoBtnX := baseLeft + 72
+		autoBtnY := startY + portraitHeight - 28
+		autoBtnW, autoBtnH := 58, 24
+		mouseX, mouseY := ebiten.CursorPosition()
+		autoHover := isMouseHoveringBox(mouseX, mouseY, autoBtnX, autoBtnY, autoBtnX+autoBtnW, autoBtnY+autoBtnH)
+		ui.drawAutoStatButton(screen, autoBtnX, autoBtnY, autoBtnW, autoBtnH, autoHover)
+		if ui.game.consumeLeftClickIn(autoBtnX, autoBtnY, autoBtnX+autoBtnW, autoBtnY+autoBtnH) {
+			autoDistributePartyStatPoints(ui.game.party.Members, ui.game.config)
 		}
 	}
 }
@@ -401,6 +421,17 @@ func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, po
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", x+2, y+2, w-4, h-4)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
+}
+
+func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
+	bg := color.RGBA{55, 95, 135, 210}
+	if isHover {
+		bg = color.RGBA{75, 135, 185, 230}
+	}
+	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), bg, false)
+	drawRectBorder(screen, x, y, w, h, 1, color.RGBA{130, 180, 220, 230})
+	ui.drawInterfaceIcon(screen, "icon_stat_up", x+3, y+4, 16, 16)
+	drawDebugTextColored(screen, "AUTO", x+22, y+7, color.White)
 }
 
 // drawSkillPointIndicator draws the ^ button for pending skill/spell choices.
@@ -743,7 +774,7 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 	}
 }
 
-// drawCombatMessages draws the last 3 combat messages in the bottom-right corner above the party
+// drawCombatMessages draws the compact recent-message log above the party.
 func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	messages := ui.game.GetCombatMessages()
 	if len(messages) == 0 {
@@ -768,8 +799,76 @@ func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	// Draw messages from top to bottom (most recent at bottom)
 	for i, message := range messages {
 		textY := startY + (i * messageSpacing)
-		ebitenutil.DebugPrintAt(screen, message, startX, textY)
+		drawDebugTextColored(screen, message, startX, textY, ui.game.GetCombatMessageColor(i))
 	}
+}
+
+func combatMessageArea(g *MMGame) (x, y, w, h int) {
+	count := len(g.GetCombatMessages())
+	if count == 0 {
+		return 0, 0, 0, 0
+	}
+	const messageSpacing = 18
+	w = 400
+	x = g.config.GetScreenWidth() - w - 15
+	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - 85
+	h = count*messageSpacing + 10
+	return
+}
+
+func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {
+	w, h = 700, 640
+	x = (g.config.GetScreenWidth() - w) / 2
+	y = (g.config.GetScreenHeight() - h) / 2
+	return
+}
+
+func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
+	x, y, w, h := combatLogPanelLayout(ui.game)
+	drawFilledRect(screen, 0, 0, ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight(), color.RGBA{0, 0, 0, 150})
+	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), x, y, w, h, menuPanelFrameSlice)
+	drawCenteredDebugText(screen, "GAME LOG", x, y+18, w, 20)
+
+	closeX, closeY := x+w-30, y+8
+	mouseX, mouseY := ebiten.CursorPosition()
+	closeColor := color.RGBA{100, 100, 100, 180}
+	if isMouseHoveringBox(mouseX, mouseY, closeX, closeY, closeX+20, closeY+20) {
+		closeColor = color.RGBA{170, 60, 60, 220}
+	}
+	drawFilledRect(screen, closeX, closeY, 20, 20, closeColor)
+	ui.drawInterfaceIcon(screen, "icon_close", closeX, closeY, 20, 20)
+
+	contentX, contentY := x+28, y+54
+	contentW, contentH := w-72, h-88
+	drawFilledRect(screen, contentX, contentY, contentW, contentH, color.RGBA{8, 8, 18, 210})
+	drawRectBorder(screen, contentX, contentY, contentW, contentH, 1, color.RGBA{100, 100, 145, 220})
+
+	maxChars := (contentW - 24) / debugTextCharWidth
+	rowY := contentY + contentH - 22
+	entryIndex := len(ui.game.combatLogHistory) - 1 - ui.game.combatLogScroll
+	for entryIndex >= 0 && rowY >= contentY+8 {
+		entry := ui.game.combatLogHistory[entryIndex]
+		lines := wrapText(entry.Text, maxChars)
+		for i := len(lines) - 1; i >= 0 && rowY >= contentY+8; i-- {
+			drawDebugTextColored(screen, lines[i], contentX+10, rowY, entry.Color)
+			rowY -= 16
+		}
+		rowY -= 4
+		entryIndex--
+	}
+
+	buttonX := x + w - 36
+	for _, btn := range []struct {
+		y     int
+		label string
+	}{
+		{contentY + 8, "^"},
+		{contentY + contentH - 30, "v"},
+	} {
+		drawFilledRect(screen, buttonX, btn.y, 22, 22, color.RGBA{65, 65, 95, 220})
+		drawCenteredDebugText(screen, btn.label, buttonX, btn.y+2, 22, 18)
+	}
+	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }
 
 // drawTurnBasedStatus displays the current game mode and turn state

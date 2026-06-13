@@ -39,15 +39,21 @@ const (
 	ArmsMasterDamagePerTier = 2
 	// ArmsMasterGMCritBonus: extra crit % a GM Arms Master gets with ANY weapon.
 	ArmsMasterGMCritBonus = 5
+	// LuckToCritDivisor: Luck/this adds to critical chance (percent points), on
+	// top of the weapon's base crit_chance.
+	LuckToCritDivisor = 4
+	// CritDamageMultiplier multiplies final damage on a critical hit (weapon,
+	// melee, ranged, and spells alike).
+	CritDamageMultiplier = 2
 	// DisarmTrapDamageReductionPerTier: flat incoming-damage reduction per tier
 	// (PLACEHOLDER until trap tiles exist).
 	DisarmTrapDamageReductionPerTier = 1
 	// TrapperDamagePerTier: bonus damage of damage traps per Trapper tier.
 	TrapperDamagePerTier = 5
-	// TrapperTurnsPerTier / TrapperSecondsPerTier: extra duration of control
-	// traps (stun/root) per Trapper tier, in TB turns / RT seconds.
-	TrapperTurnsPerTier   = 1
-	TrapperSecondsPerTier = 5
+	// TrapperSecondsPerTier: extra RT seconds of control (stun/root) per Trapper
+	// tier — linear (base 2 → 2/4/6/8). TB turns scale separately and
+	// NON-linearly; see TrapperTurnBonus.
+	TrapperSecondsPerTier = 2
 	// TrapStatScalingDivisor: trap damage gains (Intellect+Accuracy)/this.
 	TrapStatScalingDivisor = 3
 	// SleightChancePctPerTier: pickpocket chance per Sleight of Hand tier on
@@ -82,6 +88,17 @@ const (
 	// Merchant tier.
 	MerchantPricePctPerTier = 5
 )
+
+// TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
+// given Trapper tier, on top of its 1-turn base: Novice/Expert +0, Master +1,
+// Grandmaster +2 (so the total reads 1/1/2/3 turns). Deliberately NON-linear,
+// unlike the RT-seconds scaling (TrapperSecondsPerTier).
+func TrapperTurnBonus(tier int) int {
+	if tier <= int(MasteryExpert) {
+		return 0
+	}
+	return tier - int(MasteryExpert)
+}
 
 // PlayableClasses is every playable class in canonical (enum) order.
 var PlayableClasses = []CharacterClass{
@@ -197,7 +214,15 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 		}
 	}
 	if mult > 0 && mult != 1.0 {
-		out = append(out, fmt.Sprintf("Attack cooldown %+.0f%%", (mult-1.0)*100))
+		// Show the raw multiplier + how it compares to the baseline weapon
+		// (a sword, x1.00) — "+10%" alone read as "vs my current weapon" or
+		// "+10% of 1s". The actual cooldown in seconds is shown alongside.
+		d := mult - 1.0
+		rel := "slower"
+		if d < 0 {
+			d, rel = -d, "faster"
+		}
+		out = append(out, fmt.Sprintf("Attack cooldown x%.2f (%d%% %s than standard)", mult, int(d*100+0.5), rel))
 	}
 	if def.Physics != nil && (def.DamageType == "" || def.DamageType == "physical") {
 		out = append(out, fmt.Sprintf("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct))
@@ -277,8 +302,9 @@ func (s SkillType) Description() string {
 			"(placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
 	case SkillTrapper:
 		return fmt.Sprintf("Trapper: traps deal +%d damage per mastery level; control traps "+
-			"last +%d turn / +%d sec per level. Trap damage scales with Intellect and Accuracy.",
-			TrapperDamagePerTier, TrapperTurnsPerTier, TrapperSecondsPerTier)
+			"last +%d RT sec per level and up to +%d TB turns at Grandmaster. "+
+			"Trap damage scales with Intellect and Accuracy.",
+			TrapperDamagePerTier, TrapperSecondsPerTier, TrapperTurnBonus(int(MasteryGrandMaster)))
 	case SkillSleightOfHand:
 		return fmt.Sprintf("Sleight of Hand: %d-%d%% chance (by mastery, Novice included) to pick a pocket "+
 			"on each melee hit — rolls the victim's loot; a missed loot roll pays %d gold (level %d+ foes) or %d gold.",

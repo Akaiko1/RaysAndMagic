@@ -215,7 +215,7 @@ func buildTrapCards() []contentCard {
 			continue
 		}
 		rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
-		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner, character.ArmorPhysicalReductionDivisor))...)
+		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner, character.ArmorPhysicalReductionDivisor), true)...)
 		cards = append(cards, contentCard{
 			kind:        cardSpell,
 			section:     "Traps (Thief)",
@@ -241,7 +241,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	// Unified template (shared engine in character/cardtemplate.go): the
 	// editor shows the character-independent variant — formulas in place of
 	// personal numbers — in the same section order as the in-game tooltip.
-	rows := character.RenderCardLines(character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor))
+	rows := character.RenderCardLines(character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -295,7 +295,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 	rows := []string{"Type: " + kind}
 	// Unified template (character/cardtemplate.go) — same sections as the
 	// in-game tooltip, character-independent variant.
-	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def, character.ArmorPhysicalReductionDivisor))...)
+	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def, character.ArmorPhysicalReductionDivisor), true)...)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -369,6 +369,32 @@ func itemSubtitle(def *config.ItemDefinitionConfig) string {
 }
 
 func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCard {
+	sd, sdErr := spells.GetSpellDefinitionByID(spells.SpellID(key))
+
+	// Monster-only spells are cast with the monster's own attack damage (no SP /
+	// Intellect / mastery / crit), so the player-formula card would lie — render
+	// the dedicated monster card instead.
+	if def.MonsterOnly {
+		subtitle := fmt.Sprintf("MONSTER ONLY  %s  Lvl %d", titleCase(def.School), def.Level)
+		if def.AoeRadiusTiles > 0 {
+			subtitle += fmt.Sprintf("  AoE %.0ft", def.AoeRadiusTiles)
+		}
+		var rows []string
+		rows = appendRow(rows, "School", titleCase(def.School))
+		if sdErr == nil {
+			rows = append(rows, character.RenderCardLines(character.MonsterSpellCardSections(def, sd), true)...)
+		}
+		return contentCard{
+			kind:        cardSpell,
+			section:     section,
+			key:         key,
+			name:        def.Name,
+			subtitle:    subtitle,
+			description: def.Description,
+			tooltipRows: rows,
+		}
+	}
+
 	// Base damage comes from the SAME formula combat uses (cost ×
 	// SpellDamagePerSP × damage_cost_multiplier) — intellect 0 isolates the
 	// character-independent base. A hand-rolled cost×N here ignored the
@@ -379,9 +405,6 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	}
 
 	subtitle := fmt.Sprintf("SP %d  Lvl %d", def.SpellPointsCost, def.Level)
-	if def.MonsterOnly {
-		subtitle = "MONSTER ONLY  " + subtitle
-	}
 	switch {
 	case baseDamage > 0:
 		subtitle += fmt.Sprintf("  Dmg %d", baseDamage)
@@ -398,8 +421,8 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	// in-game tooltip, character-independent variant (formulas, not numbers).
 	var rows []string
 	rows = appendRow(rows, "School", titleCase(def.School))
-	if sd, err := spells.GetSpellDefinitionByID(spells.SpellID(key)); err == nil {
-		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor))...)
+	if sdErr == nil {
+		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor), true)...)
 	}
 
 	return contentCard{

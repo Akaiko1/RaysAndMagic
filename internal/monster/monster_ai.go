@@ -1137,6 +1137,23 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 	}
 }
 
+// AttackCooldownFrames is the real-time minimum interval between this monster's
+// attacks (config base × its per-monster multiplier, ≥1). Single source for both
+// the attacking-state dwell and the persistent AttackCDFrames gate in combat.
+func (m *Monster3D) AttackCooldownFrames() int {
+	cd := 60
+	if m.config != nil {
+		cd = m.config.MonsterAI.AttackCooldown
+	}
+	if m.AttackCooldownMultiplier > 0 {
+		cd = int(math.Round(float64(cd) * m.AttackCooldownMultiplier))
+	}
+	if cd < 1 {
+		cd = 1
+	}
+	return cd
+}
+
 func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 	// Target stepped out of reach → resume the chase immediately instead of
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
@@ -1147,21 +1164,8 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 		return
 	}
 
-	// Get AI config values
-	var attackCooldown int = 60 // Default value
-
-	if m.config != nil {
-		attackCooldown = m.config.MonsterAI.AttackCooldown
-	}
-	if m.AttackCooldownMultiplier > 0 {
-		attackCooldown = int(math.Round(float64(attackCooldown) * m.AttackCooldownMultiplier))
-		if attackCooldown < 1 {
-			attackCooldown = 1
-		}
-	}
-
 	// Attack delay from config
-	if m.StateTimer > attackCooldown {
+	if m.StateTimer > m.AttackCooldownFrames() {
 		// Increment attack counter
 		m.AttackCount++
 

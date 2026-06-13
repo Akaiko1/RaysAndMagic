@@ -17,7 +17,7 @@ func TestTooltip_WeaponCooldownMatchesCombat(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	weapon := thief.Equipment[items.SlotMainHand] // magic dagger
 	wantFrames := g.combat.WeaponCooldownFramesFor(thief, weapon.Name)
-	tip := GetItemTooltip(weapon, thief, g.combat)
+	tip := GetItemTooltip(weapon, thief, g.combat, false)
 	if !strings.Contains(tip, "Cooldown: "+cooldownSeconds(g.combat, wantFrames)) {
 		t.Errorf("weapon tooltip must quote combat cooldown %d frames; got:\n%s", wantFrames, tip)
 	}
@@ -34,7 +34,7 @@ func TestTooltip_SpellCooldownMatchesCombat(t *testing.T) {
 	g.party.Members[0] = caster
 
 	wantFrames := g.combat.SpellCooldownFrames(caster, "firebolt")
-	tip := GetSpellTooltip("firebolt", caster, g.combat)
+	tip := GetSpellTooltip("firebolt", caster, g.combat, false)
 	if !strings.Contains(tip, "Cooldown: "+cooldownSeconds(g.combat, wantFrames)) {
 		t.Errorf("spell tooltip must quote combat cooldown %d frames; got:\n%s", wantFrames, tip)
 	}
