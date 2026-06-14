@@ -288,6 +288,7 @@ npcs:
     render_type: "environment_sprite"
     transparent: true
     size_multiplier: 1.0
+    rejects_lich: true
     dialogue:
       greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
       active_message: "The voice stirs again: 'The Lich King still draws breath. Return when the deed is done.'"

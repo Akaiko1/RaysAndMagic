@@ -21,9 +21,6 @@ type statMeta struct {
 	Ptr  *int
 }
 
-// MaxStatValue is the maximum base stat value a character can have
-const MaxStatValue = 99
-
 // statHoldInitialDelay — frames the user has to hold the mouse on a +button
 // before hold-to-repeat starts firing. Configured for the game's 120 TPS so
 // ~340 ms keeps single clicks pure (no accidental double-spend) while a

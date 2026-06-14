@@ -54,6 +54,11 @@ const (
 	// Canonical value in character/catalog.go (cards quote it too).
 	ArmorPhysicalReductionDivisor = character.ArmorPhysicalReductionDivisor
 
+	// MaxStatValue is the cap a character's base stat can reach (the stat +button
+	// and AUTO distribution both stop here). A mechanics constant, kept out of the
+	// UI files that happen to render it.
+	MaxStatValue = 99
+
 	// StatPointsPerLevel is granted on each level-up. Mentioned in the
 	// level-up combat message and applied in checkLevelUp.
 	StatPointsPerLevel = 5

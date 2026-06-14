@@ -1630,9 +1630,10 @@ func (ih *InputHandler) handleNPCInteraction() {
 	if npc == nil {
 		return
 	}
-	// A Lich in the party can't even speak with quest-giving wards (the Mage
-	// Tower). The wards reject the undead outright.
-	if npcIsQuestGiver(npc) && ih.game.party.HasLich() {
+	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
+	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
+	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
+	if npc.RejectsLich && ih.game.party.HasLich() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
 		return
 	}
@@ -2493,20 +2494,6 @@ func (ih *InputHandler) executeEncounterChoice() {
 		ih.game.dialogActive = false
 		ih.game.dialogNPC = nil
 	}
-}
-
-// npcIsQuestGiver reports whether an NPC offers any give_quest/turn_in_quest
-// choice — used to reject Lich party members from those NPCs (the Mage Tower).
-func npcIsQuestGiver(npc *character.NPC) bool {
-	if npc == nil || npc.DialogueData == nil {
-		return false
-	}
-	for _, c := range npc.DialogueData.Choices {
-		if c.Action == "give_quest" || c.Action == "turn_in_quest" {
-			return true
-		}
-	}
-	return false
 }
 
 // anyLivingMonsterOfType reports whether a living monster whose name maps to

@@ -757,10 +757,14 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			disintegrateChance = spellDefConfig.DisintegrateChance
 		}
 
-		// Critical hit for spells is based on Luck only (no base crit for spells)
-		isCrit, _ := cs.RollCriticalChance(0, caster)
-		if isCrit {
-			projectile.Damage *= CritDamageMultiplier
+		// Critical hit for spells is Luck-based (no base crit). No-damage spells
+		// (Disintegrate) can't crit — matches their "Cannot critically hit" rule.
+		isCrit := false
+		if !spellDef.DealsNoDamage {
+			if c, _ := cs.RollCriticalChance(0, caster); c {
+				isCrit = true
+				projectile.Damage *= CritDamageMultiplier
+			}
 		}
 
 		magicProjectile := MagicProjectile{
@@ -1697,6 +1701,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	var bindSeconds int
 	var isPacifySpell bool
 	var pacifySeconds int
+	var dealsNoDamage bool
 	var stunChance float64
 	var stunSeconds int
 	var stunTurns int
@@ -1720,6 +1725,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		bindSeconds = spellDef.BindDurationSeconds
 		isPacifySpell = spellDef.Pacify
 		pacifySeconds = spellDef.PacifyDurationSeconds
+		dealsNoDamage = spellDef.DealsNoDamage
 		stunChance = spellDef.StunChance
 		stunSeconds = spellDef.StunDurationSeconds
 		stunTurns = spellDef.StunDurationTurns
@@ -1839,6 +1845,28 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+		return
+	}
+
+	// A no-damage projectile (Disintegrate) that DIDN'T trigger its instakill — or
+	// struck an immune target (undead/dragon) — deals nothing but is still a HIT:
+	// run the same impact-FX and aggro/pacify/pack bookkeeping a real hit does
+	// (TakeDamageResist(0) still sets WasAttacked + engages, so passive mobs aggro)
+	// and report "no effect" instead of falling into the damage path, which would
+	// spam "hit for 0 damage" with a bogus "Critical!" (the spell can't crit).
+	// Bind/Charm are handled earlier; this is the Disintegrate case.
+	if dealsNoDamage {
+		if mp, ok := projectile.(*MagicProjectile); ok {
+			cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+		} else {
+			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		}
+		monster.TakeDamageResist(0, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+		monster.HitTintFrames = MonsterHitFlashFrames
+		cs.breakPacifyOnHit(monster)         // a hit still frees a Charmed monster
+		cs.engageTurnBasedPackOnHit(monster) // and still pulls its TB pack into the fight
+		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
+		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
 	}
 

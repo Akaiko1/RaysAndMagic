@@ -29,6 +29,7 @@ type NPCData struct {
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	RejectsLich      bool                 `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
@@ -263,6 +264,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
+		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 	}
