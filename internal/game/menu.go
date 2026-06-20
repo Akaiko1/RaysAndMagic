@@ -178,6 +178,7 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	ID                      string  `json:"id,omitempty"`
 	Key                     string  `json:"key"`
 	Name                    string  `json:"name"`
 	X                       float64 `json:"x"`
@@ -200,6 +201,8 @@ type MonsterSave struct {
 	BossCD              int                  `json:"boss_cd,omitempty"`
 	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
+	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
+	SummonedBy          string               `json:"summoned_by,omitempty"`
 	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
@@ -634,7 +637,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
 			saveEntry := MonsterSave{
-				Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				WasAttacked:         mon.WasAttacked,
@@ -648,6 +651,8 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossCD:              mon.BossCD,
 				BossHurtPending:     mon.BossHurtPending,
 				BossLastHP:          mon.BossLastHP,
+				SummonFirstDone:     mon.SummonFirstDone,
+				SummonedBy:          mon.SummonedBy,
 				CrossfireCD:         mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
@@ -846,7 +851,28 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore monsters (all loaded maps)
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
+		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
+		// radius) never legitimately moves while its quest is unfinished — it holds
+		// its map spawn. Saves written before the dormant-freeze fix captured it
+		// wandered off (e.g. the Samurai Warlord drifted off his throne), so on
+		// restore we snap any still-sealed boss back to its map spawn. Idempotent
+		// for correct saves (saved position already IS the spawn); once the quest
+		// completes the boss has gone aggressive and may have moved, so it keeps
+		// its saved position.
+		completedQuests := make(map[string]bool)
+		for _, q := range save.Quests {
+			if q.Status == string(quests.QuestStatusCompleted) {
+				completedQuests[q.ID] = true
+			}
+		}
 		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
+			sealedSpawn := make(map[string][2]float64)
+			for _, fresh := range w.Monsters {
+				if fresh != nil && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
+					!completedQuests[fresh.PassiveUntilQuest] {
+					sealedSpawn[fresh.Key] = [2]float64{fresh.X, fresh.Y}
+				}
+			}
 			w.Monsters = make([]*monster.Monster3D, 0, len(monsters))
 			for _, ms := range monsters {
 				key := ms.Key
@@ -856,7 +882,21 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				if key == "" {
 					continue
 				}
-				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
+				x, y := ms.X, ms.Y
+				if sp, ok := sealedSpawn[key]; ok {
+					x, y = sp[0], sp[1] // sealed boss → back to its throne
+				}
+				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
+				if ms.ID != "" {
+					m.ID = ms.ID
+				}
+				// Seal a dormant boss immediately. refreshBoundUndeadCache recomputes
+				// BossDormant every frame, but that runs AFTER input — so without this a
+				// player action on the first frame after load could damage a still-sealed
+				// boss before the flag is set. Uses the same completed-quest set as the
+				// throne snap-back above.
+				m.BossDormant = m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
+					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
@@ -872,6 +912,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossCD = ms.BossCD
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
+				m.SummonFirstDone = ms.SummonFirstDone
+				m.SummonedBy = ms.SummonedBy
 				m.CrossfireCD = ms.CrossfireCD
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live — restore that hostility, or a

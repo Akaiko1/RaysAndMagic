@@ -1008,6 +1008,143 @@ monsters:
       fire: 40
       mind: 60
 
+  # --- Japanese Castle (eastern islands) mobs (L12-18) ---
+  ashigaru_firelock:
+    name: "Ashigaru Arquebusier"
+    level: 12
+    max_hit_points: 420
+    armor_class: 13
+    experience: 900
+    damage_min: 22
+    damage_max: 34
+    projectile_weapon: "tanegashima"
+    ranged_attack_range: 6
+    alert_radius: 8
+    attack_radius: 6
+    speed: 1.3
+    gold_min: 80
+    gold_max: 180
+    sprite: "ashigaru_firelock"
+    letter: "a"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["japanese_castle"]
+    resistances:
+      physical: 10
+
+  ronin_marksman:
+    name: "Ronin Marksman"
+    level: 15
+    max_hit_points: 640
+    armor_class: 16
+    perfect_dodge: 5
+    experience: 1400
+    damage_min: 30
+    damage_max: 46
+    projectile_weapon: "tanegashima"
+    ranged_attack_range: 7
+    alert_radius: 9
+    attack_radius: 7
+    speed: 1.4
+    gold_min: 220
+    gold_max: 450
+    sprite: "ashigaru_firelock"
+    letter: "m"
+    box_w: 48
+    box_h: 48
+    size_game: 7.0
+    biomes: ["japanese_castle"]
+    tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
+    resistances:
+      physical: 15
+
+  ningyo:
+    name: "Miyabi Ningyo"
+    level: 13
+    max_hit_points: 500
+    armor_class: 13
+    perfect_dodge: 15
+    experience: 1000
+    damage_min: 22
+    damage_max: 36
+    attack_radius: 1
+    alert_radius: 7
+    speed: 1.7
+    gold_min: 120
+    gold_max: 280
+    sprite: "ningyo"
+    letter: "n"
+    box_w: 48
+    box_h: 48
+    size_game: 6.5
+    biomes: ["japanese_castle"]
+    resistances:
+      mind: 30
+      dark: 20
+
+  vengeful_ningyo:
+    name: "Vengeful Ningyo"
+    level: 16
+    max_hit_points: 740
+    armor_class: 16
+    perfect_dodge: 20
+    experience: 1500
+    damage_min: 32
+    damage_max: 48
+    attack_radius: 1
+    alert_radius: 8
+    speed: 1.9
+    gold_min: 260
+    gold_max: 560
+    sprite: "ningyo"
+    letter: "e"
+    box_w: 48
+    box_h: 48
+    size_game: 7.5
+    biomes: ["japanese_castle"]
+    tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
+    resistances:
+      mind: 40
+      dark: 30
+
+  # Boss: dormant on the throne (visible, inert) until the castle_armory quest
+  # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
+  old_samurai:
+    name: "Samurai Warlord"
+    level: 17
+    max_hit_points: 1600
+    armor_class: 18
+    perfect_dodge: 10
+    experience: 3500
+    damage_min: 30
+    damage_max: 48
+    attack_radius: 1
+    alert_radius: 9
+    speed: 1.6
+    gold_min: 4000
+    gold_max: 6000
+    ignores_armor: true
+    passive_until_quest: "castle_armory"
+    summon_chance: 0.18
+    summon_first_guaranteed: true
+    summon_monsters: ["ashigaru_firelock", "ningyo"]
+    summon_count: 2
+    summon_max: 4
+    enrage_at_hp: 480
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    sprite: "old_samurai"
+    letter: "s"
+    box_w: 48
+    box_h: 48
+    size_game: 7.5
+    biomes: ["japanese_castle"]
+    resistances:
+      physical: 20
+      dark: 30
+      mind: 40
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0

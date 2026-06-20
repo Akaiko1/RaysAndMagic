@@ -1034,12 +1034,30 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 
 type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
+	// Named weighted pools (distinct from the per-monster Loots lists above):
+	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
+	// containers (sword racks) that grant a random ZONE item, never a unique —
+	// uniques are simply not listed, so they can't leak in.
+	WeightedLootTables map[string]*WeightedLootTable `yaml:"loot_tables"`
 }
 
 type LootEntry struct {
 	Type   string  `yaml:"type"` // weapon|item
 	Key    string  `yaml:"key"`
 	Chance float64 `yaml:"chance"`
+}
+
+type WeightedLootTable struct {
+	Rolls   int                 `yaml:"rolls"`
+	GoldMin int                 `yaml:"gold_min,omitempty"`
+	GoldMax int                 `yaml:"gold_max,omitempty"`
+	Entries []WeightedLootEntry `yaml:"entries"`
+}
+
+type WeightedLootEntry struct {
+	Type   string `yaml:"type"` // weapon|item
+	Key    string `yaml:"key"`
+	Weight int    `yaml:"weight"`
 }
 
 func LoadLootTables(filename string) (*LootTablesConfig, error) {
@@ -1051,8 +1069,62 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := yaml.Unmarshal(data, &loots); err != nil {
 		return nil, err
 	}
+	if err := validateWeightedLootTables(&loots); err != nil {
+		return nil, err // don't publish invalid data to the process global
+	}
 	GlobalLoots = &loots
 	return &loots, nil
+}
+
+// validateWeightedLootTables fail-fast checks every named pool: positive rolls,
+// a sane gold range, and that each entry's key resolves to a real weapon/item.
+// Weapons and items are loaded before loot tables (see main.go), so the lookups
+// are valid here.
+func validateWeightedLootTables(lt *LootTablesConfig) error {
+	for name, t := range lt.WeightedLootTables {
+		if t == nil {
+			return fmt.Errorf("loot_table %q is empty", name)
+		}
+		if t.Rolls < 1 {
+			return fmt.Errorf("loot_table %q: rolls must be >= 1", name)
+		}
+		if t.GoldMax < t.GoldMin {
+			return fmt.Errorf("loot_table %q: gold_max < gold_min", name)
+		}
+		if len(t.Entries) == 0 {
+			return fmt.Errorf("loot_table %q: no entries", name)
+		}
+		for _, e := range t.Entries {
+			if e.Weight <= 0 {
+				return fmt.Errorf("loot_table %q: entry %q weight must be > 0", name, e.Key)
+			}
+			switch e.Type {
+			case "weapon":
+				if GlobalWeapons == nil {
+					return fmt.Errorf("loot_table %q: weapons not loaded for entry %q", name, e.Key)
+				}
+				if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
+					return fmt.Errorf("loot_table %q: unknown weapon key %q", name, e.Key)
+				}
+			case "item":
+				if _, ok := GetItemDefinition(e.Key); !ok {
+					return fmt.Errorf("loot_table %q: unknown item key %q", name, e.Key)
+				}
+			default:
+				return fmt.Errorf("loot_table %q: entry %q has bad type %q (want weapon|item)", name, e.Key, e.Type)
+			}
+		}
+	}
+	return nil
+}
+
+// GetWeightedLootTable returns a named weighted pool, ok=false if absent.
+func GetWeightedLootTable(name string) (*WeightedLootTable, bool) {
+	if GlobalLoots == nil {
+		return nil, false
+	}
+	t, ok := GlobalLoots.WeightedLootTables[name]
+	return t, ok && t != nil
 }
 
 func MustLoadLootTables(filename string) *LootTablesConfig {

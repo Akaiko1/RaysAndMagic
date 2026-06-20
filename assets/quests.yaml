@@ -60,6 +60,17 @@ quests:
       gold: 1500
       experience: 700
 
+  castle_armory:
+    name: "The Warlord's Armoury"
+    description: "An old retainer at the eastern castle bids you strip the five katana racks hidden behind the keep's shoji screens. Only when the castle's own steel is taken will the sealed Samurai Warlord stir to face you."
+    type: "interact"
+    target_monster: "sword_rack"   # interaction tag matched by OnInteract
+    target_count: 5
+    is_starting_quest: false
+    rewards:
+      gold: 2500
+      experience: 1600
+
   # Aldric's wolf cull: completes when NO living wolf remains on the forest map
   # (extermination check), not just at the kill quota. Completion swaps the two
   # water tiles east of the lake trader for bridge planks.

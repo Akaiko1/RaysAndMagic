@@ -549,6 +549,223 @@ weapons:
       slash_width: 52
       slash_length: 70
 
+  # --- Japanese Castle (eastern islands) — uniques (boss drops) ---
+  muramasa:
+    name: "Muramasa, the Thirsting Edge"
+    description: "A cursed katana that grows keener with every life it takes"
+    category: "sword"
+    cooldown_multiplier: 0.85
+    damage: 12
+    range: 1
+    bonus_stat: "Might"
+    bonus_stat_secondary: "Speed"
+    crit_chance: 22
+    rarity: "legendary"
+    value: 1600
+    flavor: "Forged to cut; the blade thirsts even sheathed."
+    melee:
+      arc_angle: 70
+      animation_frames: 7
+      hit_delay: 2
+    graphics:
+      slash_color: [200, 40, 40]
+      slash_width: 36
+      slash_length: 56
+
+  tonbogiri:
+    name: "Tonbogiri, the Dragonfly Spear"
+    description: "A legendary spear so keen a dragonfly landing on it was cut in two"
+    category: "spear"
+    damage: 13
+    range: 2
+    bonus_stat: "Might"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 16
+    aoe_radius_tiles: 1.5
+    rarity: "legendary"
+    value: 1700
+    flavor: "A dragonfly that lit upon the point fell to the ground in two."
+    melee:
+      arc_angle: 40
+      animation_frames: 11
+      hit_delay: 5
+    graphics:
+      slash_color: [120, 200, 140]
+      slash_width: 22
+      slash_length: 88
+
+  kage_kunai:
+    name: "Kage-kunai, the Twin Shadows"
+    description: "Paired shadow-forged blades that strike between heartbeats"
+    category: "dagger"
+    cooldown_multiplier: 0.55
+    damage: 9
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 26
+    disintegrate_chance: 0.03
+    rarity: "legendary"
+    value: 1500
+    damage_type: "dark"
+    flavor: "A shadow with two edges."
+    melee:
+      arc_angle: 40
+      animation_frames: 5
+      hit_delay: 1
+    graphics:
+      slash_color: [120, 60, 180]
+      slash_width: 22
+      slash_length: 34
+
+  inazuma_matchlock:
+    name: "Inazuma Tanegashima"
+    description: "A heavy matchlock that fires a single thunderous ball"
+    category: "blaster"
+    cooldown_multiplier: 1.7
+    damage: 14
+    range: 7
+    bonus_stat: "Accuracy"
+    crit_chance: 18
+    rarity: "legendary"
+    value: 1800
+    damage_type: "physical"
+    flavor: "Thunder caught in an iron tube."
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.6
+    graphics:
+      max_size: 26
+      min_size: 4
+      base_size: 14
+      color: [255, 230, 120]
+
+  # --- Japanese Castle — common zone weapons (mob drops + sword racks) ---
+  katana:
+    name: "Katana"
+    description: "A curved single-edged sword of folded steel"
+    category: "sword"
+    damage: 9
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 14
+    rarity: "uncommon"
+    value: 240
+    flavor: "One curve, one purpose."
+    melee:
+      arc_angle: 65
+      animation_frames: 8
+      hit_delay: 2
+    graphics:
+      slash_color: [220, 230, 235]
+      slash_width: 34
+      slash_length: 52
+
+  wakizashi:
+    name: "Wakizashi"
+    description: "A short companion blade, quick to draw"
+    category: "dagger"
+    damage: 6
+    range: 1
+    bonus_stat: "Speed"
+    crit_chance: 16
+    rarity: "uncommon"
+    value: 180
+    flavor: "The honour-blade; never far from its bearer's side."
+    melee:
+      arc_angle: 45
+      animation_frames: 6
+      hit_delay: 1
+    graphics:
+      slash_color: [220, 225, 230]
+      slash_width: 24
+      slash_length: 36
+
+  yari:
+    name: "Yari"
+    description: "A straight-bladed thrusting spear of the ashigaru"
+    category: "spear"
+    damage: 8
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 10
+    rarity: "common"
+    value: 160
+    flavor: "The footman's reach; plain, straight, and certain."
+    melee:
+      arc_angle: 30
+      animation_frames: 12
+      hit_delay: 6
+    graphics:
+      slash_color: [180, 180, 190]
+      slash_width: 18
+      slash_length: 82
+
+  naginata:
+    name: "Naginata"
+    description: "A curved glaive-blade on a long haft, sweeping wide"
+    category: "spear"
+    damage: 11
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 12
+    rarity: "uncommon"
+    value: 300
+    flavor: "A moon's edge on a pole; it reaps a wide circle."
+    melee:
+      arc_angle: 55
+      animation_frames: 13
+      hit_delay: 6
+    graphics:
+      slash_color: [200, 210, 200]
+      slash_width: 30
+      slash_length: 78
+
+  tanegashima:
+    name: "Tanegashima Matchlock"
+    description: "A smoothbore matchlock gun, loud and hard-hitting"
+    category: "blaster"
+    damage: 11
+    range: 6
+    bonus_stat: "Accuracy"
+    crit_chance: 12
+    rarity: "uncommon"
+    value: 320
+    damage_type: "physical"
+    flavor: "Smoke, thunder, and a hole where the armour was."
+    physics:
+      speed_tiles: 13.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.5
+    graphics:
+      max_size: 22
+      min_size: 3
+      base_size: 12
+      color: [240, 220, 150]
+
+  kanabo:
+    name: "Kanabo"
+    description: "A studded iron war-club that shatters guard and bone"
+    category: "mace"
+    damage: 12
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 9
+    stun_chance: 0.05
+    stun_turns: 3
+    rarity: "uncommon"
+    value: 280
+    flavor: "An oni's argument, studded with iron."
+    melee:
+      arc_angle: 90
+      animation_frames: 11
+      hit_delay: 4
+    graphics:
+      slash_color: [170, 150, 120]
+      slash_width: 42
+      slash_length: 56
+
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
 # skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a

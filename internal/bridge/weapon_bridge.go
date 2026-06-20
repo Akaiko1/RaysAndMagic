@@ -8,6 +8,12 @@ import (
 // SetupWeaponBridge configures the weapon accessor bridge
 func SetupWeaponBridge() {
 	items.GlobalWeaponAccessor = getWeaponFromConfig
+	// Resolve display name -> YAML key through the config's O(1) name index, so
+	// flavor-named weapons (commas, macrons, "of the ...") map to the right key.
+	items.GlobalWeaponKeyByName = func(name string) (string, bool) {
+		_, key, ok := config.GetWeaponDefinitionByName(name)
+		return key, ok
+	}
 }
 
 // getWeaponFromConfig retrieves weapon definition from config

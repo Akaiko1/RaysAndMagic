@@ -367,7 +367,10 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	itemEffects := weaponEffectsSummary(item)
 	eqEffects := weaponEffectsSummary(equipped)
 	if itemEffects != "" || eqEffects != "" {
-		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+		// Two lines, not one "X vs Y": the effect summaries are verbose, and a single
+		// combined line ran 200+ chars wide (it spanned the screen and buried the card).
+		lines = append(lines, fmt.Sprintf("Effects (this): %s", effectOrNone(itemEffects)))
+		lines = append(lines, fmt.Sprintf("Effects (equipped): %s", effectOrNone(eqEffects)))
 	}
 
 	return lines

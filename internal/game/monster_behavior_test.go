@@ -171,6 +171,19 @@ func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
 	}
 }
 
+func TestTurnBased_RangedAttackCountUsesCooldownMultiplier(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	archer := spawnMonsterAtTile(game, "elf_archer", 13, 10, ts) // same row, 3 tiles (range 5)
+	archer.AttackCooldownMultiplier = 0.6
+
+	runOneMonsterTurn(game, gl)
+
+	if got := len(game.arrows); got != 2 {
+		t.Fatalf("turn-based ranged attack count = %d projectiles, want 2", got)
+	}
+}
+
 // A pouncing monster (puma) leaps onto a cardinally-adjacent tile — never onto
 // the player's tile — and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {

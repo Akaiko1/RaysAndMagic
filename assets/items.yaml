@@ -602,3 +602,133 @@ items:
       spirit: 100
       light: 100
       dark: 100
+
+  # --- Japanese Castle (eastern islands) loot ---
+  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate ⇒ gates on
+  # plate skill; flat AC + heavy stat block + partial undead/fire/mind resists.
+  onryo_lamellar:
+    name: "Onryo Lamellar"
+    type: "armor"
+    armor_category: "plate"
+    description: "The warlord's cursed lamellar, bound to a vengeful spirit"
+    flavor: "Plate that death itself could not make the warlord set down."
+    equip_slot: "armor"
+    armor_class_base: 8
+    bonus_might: 10
+    bonus_endurance: 10
+    rarity: "legendary"
+    value: 5000
+    resistances:
+      dark: 50
+      fire: 50
+      mind: 50
+
+  o_yoroi:
+    name: "O-yoroi Lamellar"
+    type: "armor"
+    armor_category: "plate"
+    description: "Silk-laced lamellar plate of a mounted samurai"
+    flavor: "Iron scales laced in silk; they clatter like distant rain."
+    equip_slot: "armor"
+    armor_class_base: 5
+    endurance_scaling_divisor: 4
+    rarity: "uncommon"
+    value: 400
+
+  kabuto:
+    name: "Kabuto"
+    type: "armor"
+    armor_category: "plate"
+    description: "A crested samurai war-helm with an iron face-guard"
+    flavor: "Its iron crest throws a long shadow across the eyes."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 5
+    rarity: "uncommon"
+    value: 200
+
+  silk_hakama:
+    name: "Silk Hakama"
+    type: "armor"
+    armor_category: "cloth"
+    description: "Wide pleated silk trousers that flow with every step"
+    flavor: "Pleated silk that whispers; the feet beneath it do not."
+    equip_slot: "boots"
+    armor_class_base: 1
+    bonus_speed: 6
+    rarity: "uncommon"
+    value: 180
+
+  haori_cloak:
+    name: "Haori Cloak"
+    type: "accessory"
+    description: "A crested half-coat worn over the shoulders"
+    flavor: "A clan crest at the back; it carries an old, steadying pride."
+    equip_slot: "cloak"
+    bonus_endurance: 5
+    bonus_speed: 4
+    rarity: "uncommon"
+    value: 280
+
+  jade_netsuke:
+    name: "Jade Netsuke"
+    type: "accessory"
+    description: "A carved jade toggle-charm on a silk cord"
+    flavor: "Cool jade worn smooth by a courtier's restless thumb."
+    equip_slot: "amulet"
+    bonus_personality: 8
+    bonus_luck: 6
+    rarity: "rare"
+    value: 360
+
+  onmyoji_talisman:
+    name: "Onmyoji Talisman"
+    type: "accessory"
+    description: "An inked paper ward that focuses arcane will"
+    flavor: "A folded ofuda; the ink still hums where the brush pressed hard."
+    equip_slot: "ring"
+    intellect_scaling_divisor: 6
+    rarity: "uncommon"
+    value: 260
+
+  ashigaru_matchcord:
+    name: "Ashigaru Matchcord"
+    type: "trinket"
+    description: "A coil of tarred match-cord and a spent firelock, sold by weight"
+    flavor: "Tarred cord and a rusted lock — alchemists pay by the coil."
+    rarity: "uncommon"
+    value: 150
+
+  lacquered_comb:
+    name: "Lacquered Comb"
+    type: "trinket"
+    description: "A courtesan's lacquer comb of bone and mother-of-pearl"
+    flavor: "Black lacquer and pearl; it still smells faintly of plum oil."
+    rarity: "uncommon"
+    value: 160
+
+  samurai_card:
+    name: "Samurai Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a horned warlord beneath a tattered banner."
+    rarity: "rare"
+    value: 500
+
+  ningyo_card:
+    name: "Ningyo Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a fan-dancer whose lower half fades to mist."
+    rarity: "rare"
+    value: 500
+
+  sake_flask:
+    name: "Sake Flask"
+    type: "consumable"
+    description: "A warm flask of rice wine that restores vigor"
+    flavor: "Warm rice wine; courage returns with the second cup."
+    heal_base: 30
+    heal_endurance_divisor: 4
+    rarity: "common"
+    value: 60

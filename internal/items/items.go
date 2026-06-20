@@ -214,13 +214,24 @@ func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 // GlobalWeaponAccessor is set by the config module to provide weapon access
 var GlobalWeaponAccessor func(string) (*WeaponDefinitionFromYAML, bool)
 
-// GetWeaponKeyByName returns the YAML weapon key for a given weapon name
+// GlobalWeaponKeyByName is set by the config bridge to resolve a weapon's display
+// name to its YAML key via the real name index — handles flavor names the naive
+// transform below can't (e.g. "Kage-kunai, the Twin Shadows" -> "kage_kunai",
+// "Kanabo" -> "kanabo"). Unset in isolated tests, where the fallback applies.
+var GlobalWeaponKeyByName func(string) (string, bool)
 
-// GetWeaponKeyByName dynamically converts a display name to a YAML weapon key.
-// Example: "Steel Axe" -> "steel_axe"
+// GetWeaponKeyByName returns the YAML weapon key for a display name. Prefers the
+// exact config name index (punctuation/flavor-name safe); falls back to a
+// lower+underscore transform only when the bridge is unset or the name is unknown.
+// The fallback is why a weapon whose display name isn't its key-with-spaces (a
+// comma or an "of the ...") was previously unequippable — now resolved.
 func GetWeaponKeyByName(name string) string {
-	key := strings.ToLower(strings.ReplaceAll(name, " ", "_"))
-	return key
+	if GlobalWeaponKeyByName != nil {
+		if key, ok := GlobalWeaponKeyByName(name); ok {
+			return key
+		}
+	}
+	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
 }
 
 // ------- Non-weapon items from YAML -------

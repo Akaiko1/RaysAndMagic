@@ -653,3 +653,122 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 		t.Errorf("old-save lair dragon (QuestID, no was_attacked) must migrate to hostile")
 	}
 }
+
+// A sealed boss (passive-until-quest, no evade radius) that wandered off its
+// throne in a pre-fix save must snap back to its MAP spawn on load while its
+// quest is unfinished — the saved (wandered) position is discarded. Once the
+// quest completes the boss has gone aggressive and may have legitimately moved,
+// so it keeps its saved position. Regression for save 1, where the Samurai
+// Warlord was baked in mid-castle far from his throne.
+func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const throneX, throneY = 100.0, 100.0   // fresh map spawn (the throne)
+	const wanderX, wanderY = 1500.0, 1500.0 // where the buggy save captured him
+
+	restoreBoss := func(status quests.QuestStatus) *monster.Monster3D {
+		// Save side: a valid party serialized via buildSave; boss overridden below.
+		wmSave := world.NewWorldManager(cfg)
+		gSave := newTestGame(cfg, newTestWorld(cfg))
+		wmSave.LoadedMaps = map[string]*world.World3D{"japanese_castle": gSave.world}
+		wmSave.CurrentMapKey = "japanese_castle"
+		save := gSave.buildSave(wmSave)
+		save.MapKey = "japanese_castle"
+		save.Monsters = nil
+		save.MapMonsters = map[string][]MonsterSave{
+			"japanese_castle": {{Key: "old_samurai", X: wanderX, Y: wanderY, HitPoints: 1600}},
+		}
+		save.Quests = []QuestSave{{ID: "castle_armory", Status: string(status)}}
+
+		// Load side: SwitchToMap is skipped (same key), so this freshly-spawned
+		// boss on the throne is the spawn the migration captures.
+		wmLoad := world.NewWorldManager(cfg)
+		worldLoad := newTestWorld(cfg)
+		worldLoad.Monsters = []*monster.Monster3D{
+			monster.NewMonster3DFromConfig(throneX, throneY, "old_samurai", cfg),
+		}
+		wmLoad.LoadedMaps = map[string]*world.World3D{"japanese_castle": worldLoad}
+		wmLoad.CurrentMapKey = "japanese_castle"
+		oldWM := world.GlobalWorldManager
+		world.GlobalWorldManager = wmLoad
+		defer func() { world.GlobalWorldManager = oldWM }()
+
+		loaded := newTestGame(cfg, worldLoad)
+		if err := loaded.applySave(wmLoad, &save); err != nil {
+			t.Fatalf("apply save: %v", err)
+		}
+		for _, m := range worldLoad.Monsters {
+			if m.Key == "old_samurai" {
+				return m
+			}
+		}
+		t.Fatal("samurai missing after restore")
+		return nil
+	}
+
+	if b := restoreBoss(quests.QuestStatusActive); b.X != throneX || b.Y != throneY {
+		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
+	} else if !b.BossDormant {
+		// Set at restore time, not waiting for refreshBoundUndeadCache (which runs
+		// after input) — else a first-frame player action could damage the sealed boss.
+		t.Error("sealed boss must be flagged BossDormant immediately on load")
+	}
+	if b := restoreBoss(quests.QuestStatusCompleted); b.X != wanderX || b.Y != wanderY {
+		t.Errorf("unsealed boss must keep its saved position (%.0f,%.0f), got (%.0f,%.0f)", wanderX, wanderY, b.X, b.Y)
+	} else if b.BossDormant {
+		t.Error("a boss whose quest is complete must not be flagged dormant on load")
+	}
+}
+
+func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorld(cfg)
+	boss := monster.NewMonster3DFromConfig(64, 64, "old_samurai", cfg)
+	add := monster.NewMonster3DFromConfig(128, 64, "ashigaru_firelock", cfg)
+	if boss == nil || add == nil {
+		t.Fatal("japanese castle boss/add configs must load")
+	}
+	boss.SummonFirstDone = true
+	add.SummonedBy = boss.ID
+	add.IsEngagingPlayer = true
+	add.WasAttacked = true
+	wSave.Monsters = []*monster.Monster3D{boss, add}
+
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"japanese_castle": wSave}
+	wmSave.CurrentMapKey = "japanese_castle"
+	gSave := newTestGame(cfg, wSave)
+	save := gSave.buildSave(wmSave)
+	save.MapKey = "japanese_castle"
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"japanese_castle": wLoad}
+	wmLoad.CurrentMapKey = "japanese_castle"
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	foundBoss := false
+	foundAdd := false
+	for _, m := range wLoad.Monsters {
+		if m.Key == "old_samurai" {
+			foundBoss = true
+			if !m.SummonFirstDone {
+				t.Fatal("boss SummonFirstDone must survive save/load")
+			}
+		}
+		if m.Key == "ashigaru_firelock" {
+			foundAdd = true
+			if m.SummonedBy != boss.ID {
+				t.Fatalf("summoned add SummonedBy = %q, want %q", m.SummonedBy, boss.ID)
+			}
+		}
+	}
+	if !foundBoss {
+		t.Fatal("boss missing after load")
+	}
+	if !foundAdd {
+		t.Fatal("summoned add missing after load")
+	}
+}

@@ -85,7 +85,9 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	}
 	dmgType := convertToMonsterDamageType("water")
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		// A sealed (dormant) boss is invulnerable and inert — the zone neither
+		// scalds nor wakes it.
+		if m == nil || !m.IsAlive() || m.BossDormant {
 			continue
 		}
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {

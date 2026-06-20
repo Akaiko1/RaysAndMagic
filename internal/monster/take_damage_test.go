@@ -27,3 +27,58 @@ func TestTakeDamageResist_Pierce(t *testing.T) {
 		t.Errorf("pierce vs no-resistance = %d, want 100", d)
 	}
 }
+
+// A sealed (dormant) boss absorbs all damage and does not aggro; clearing the
+// flag (its quest unseals it) restores normal damage + engagement.
+func TestDormantBossInvulnerable(t *testing.T) {
+	m := &Monster3D{HitPoints: 1600, MaxHitPoints: 1600, BossDormant: true}
+	if got := m.TakeDamage(500, DamagePhysical, 99, 99); got != 0 {
+		t.Errorf("sealed boss took %d damage, want 0", got)
+	}
+	if m.HitPoints != 1600 {
+		t.Errorf("sealed boss HP = %d, want 1600 (untouched)", m.HitPoints)
+	}
+	if m.WasAttacked || m.IsEngagingPlayer {
+		t.Error("sealed boss must not aggro when struck")
+	}
+
+	m.BossDormant = false
+	if got := m.TakeDamage(500, DamagePhysical, 99, 99); got != 500 {
+		t.Errorf("unsealed boss took %d damage, want 500", got)
+	}
+	if !m.IsEngagingPlayer {
+		t.Error("unsealed boss must aggro when struck")
+	}
+}
+
+// RT/TB parity: an enraged monster whose RT cooldown drops (enrage_cooldown_mult)
+// gets proportionally more turn-based swings. The samurai's 0.6 mult is < 1 → 2
+// swings while enraged (HP ≤ enrage threshold), 1 otherwise.
+func TestEnrageScalesTurnBasedAttacks(t *testing.T) {
+	// Threshold buckets the multiplier maps to (mirrors the in-game rule).
+	for _, c := range []struct {
+		mult float64
+		want int
+	}{{0, 1}, {1.0, 1}, {0.9, 2}, {0.6, 2}, {0.5, 2}, {0.49, 4}, {0.25, 4}, {0.2, 8}} {
+		if got := tbAttacksForCooldownMult(c.mult); got != c.want {
+			t.Errorf("tbAttacksForCooldownMult(%.2f) = %d, want %d", c.mult, got, c.want)
+		}
+	}
+
+	fast := &Monster3D{AttackCooldownMultiplier: 0.6}
+	if got := fast.GetTurnBasedAttackCount(); got != 2 {
+		t.Errorf("cooldown-only TB attacks = %d, want 2", got)
+	}
+
+	m := &Monster3D{
+		HitPoints: 1600, MaxHitPoints: 1600,
+		AttacksPerRound: 1, EnrageAtHP: 480, EnrageCooldownMult: 0.6,
+	}
+	if got := m.GetTurnBasedAttackCount(); got != 1 {
+		t.Errorf("healthy boss TB attacks = %d, want 1", got)
+	}
+	m.HitPoints = 400 // ≤ 480 → enraged
+	if got := m.GetTurnBasedAttackCount(); got != 2 {
+		t.Errorf("enraged boss TB attacks = %d, want 2 (cooldown 0.6 < 1)", got)
+	}
+}

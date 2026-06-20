@@ -291,3 +291,146 @@ loots:
     - type: "item"
       key: "golden_armor"
       chance: 0.06
+
+  # --- Japanese Castle (eastern islands) mobs (L12-18) ---
+  ashigaru_firelock:
+    - type: "weapon"
+      key: "tanegashima"
+      chance: 0.06
+    - type: "item"
+      key: "ashigaru_matchcord"
+      chance: 0.12
+    - type: "item"
+      key: "kabuto"
+      chance: 0.05
+    - type: "weapon"
+      key: "yari"
+      chance: 0.05
+
+  ronin_marksman:
+    - type: "weapon"
+      key: "tanegashima"
+      chance: 0.08
+    - type: "item"
+      key: "silk_hakama"
+      chance: 0.06
+    - type: "item"
+      key: "ruby"
+      chance: 0.06
+    - type: "weapon"
+      key: "naginata"
+      chance: 0.05
+
+  ningyo:
+    - type: "item"
+      key: "jade_netsuke"
+      chance: 0.05
+    - type: "item"
+      key: "lacquered_comb"
+      chance: 0.12
+    - type: "item"
+      key: "ningyo_card"
+      chance: 0.03
+    - type: "item"
+      key: "haori_cloak"
+      chance: 0.05
+
+  vengeful_ningyo:
+    - type: "item"
+      key: "onmyoji_talisman"
+      chance: 0.06
+    - type: "item"
+      key: "emerald"
+      chance: 0.06
+    - type: "item"
+      key: "jade_netsuke"
+      chance: 0.05
+    - type: "weapon"
+      key: "katana"
+      chance: 0.05
+
+  old_samurai:
+    - type: "weapon"
+      key: "muramasa"
+      chance: 0.08
+    - type: "weapon"
+      key: "tonbogiri"
+      chance: 0.08
+    - type: "weapon"
+      key: "kage_kunai"
+      chance: 0.08
+    - type: "weapon"
+      key: "inazuma_matchlock"
+      chance: 0.05
+    - type: "item"
+      key: "onryo_lamellar"
+      chance: 0.05
+    - type: "item"
+      key: "samurai_card"
+      chance: 0.12
+    - type: "item"
+      key: "diamond"
+      chance: 0.10
+    - type: "item"
+      key: "o_yoroi"
+      chance: 0.15
+
+# Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
+# one random ZONE item + a little gold, never a unique (uniques aren't listed).
+loot_tables:
+  castle_armory:
+    rolls: 1
+    gold_min: 40
+    gold_max: 120
+    entries:
+      - type: "item"
+        key: "sake_flask"
+        weight: 12
+      - type: "weapon"
+        key: "katana"
+        weight: 10
+      - type: "weapon"
+        key: "yari"
+        weight: 10
+      - type: "weapon"
+        key: "wakizashi"
+        weight: 8
+      - type: "weapon"
+        key: "tanegashima"
+        weight: 8
+      - type: "weapon"
+        key: "naginata"
+        weight: 6
+      - type: "weapon"
+        key: "kanabo"
+        weight: 6
+      - type: "item"
+        key: "o_yoroi"
+        weight: 6
+      - type: "item"
+        key: "kabuto"
+        weight: 8
+      - type: "item"
+        key: "jade_netsuke"
+        weight: 5
+      - type: "item"
+        key: "onmyoji_talisman"
+        weight: 6
+      - type: "item"
+        key: "silk_hakama"
+        weight: 8
+      - type: "item"
+        key: "haori_cloak"
+        weight: 6
+      - type: "item"
+        key: "ashigaru_matchcord"
+        weight: 8
+      - type: "item"
+        key: "lacquered_comb"
+        weight: 8
+      - type: "item"
+        key: "ruby"
+        weight: 3
+      - type: "item"
+        key: "emerald"
+        weight: 3

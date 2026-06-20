@@ -2,11 +2,13 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 
 	"ugataima/internal/character"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/world"
 )
 
 // Boss behaviour for the Golden Thief Bug (data-driven via monsters.yaml flags:
@@ -16,7 +18,8 @@ import (
 
 // isBoss reports whether a monster carries any special boss behaviour flag.
 func (cs *CombatSystem) isBoss(m *monsterPkg.Monster3D) bool {
-	return m != nil && (m.PassiveUntilQuest != "" || m.InfernoChance > 0 || m.TeleportChance > 0)
+	return m != nil && (m.PassiveUntilQuest != "" || m.InfernoChance > 0 ||
+		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0)
 }
 
 // bossEvasive reports whether the boss is in its evasive phase: it has a
@@ -47,16 +50,28 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	m.BossLastHP = m.HitPoints
 
 	if cs.bossEvasive(m) {
-		// Evasive: blink away when the party closes in or it was just hit; never attacks.
-		near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= m.EvadeRadiusTiles*float64(cs.game.config.GetTileSize())
-		if ready && (near || m.BossHurtPending) && cs.blinkMonsterRandom(m) {
-			m.BossCD = int(m.BossCooldownSecs * float64(cs.game.config.GetTPS()))
-			m.BossHurtPending = false
-			cs.game.AddCombatMessage(fmt.Sprintf("%s skitters away into the dark!", m.Name))
+		// Quest unfinished → the boss never attacks. An evasive boss
+		// (evade_radius_tiles set) blinks away when crowded or hit; a dormant boss
+		// (no evade radius — e.g. the sealed Samurai Warlord) just holds its ground
+		// until the quest completes, then turns aggressive.
+		if m.EvadeRadiusTiles > 0 {
+			near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= m.EvadeRadiusTiles*float64(cs.game.config.GetTileSize())
+			if ready && (near || m.BossHurtPending) && cs.blinkMonsterRandom(m) {
+				m.BossCD = int(m.BossCooldownSecs * float64(cs.game.config.GetTPS()))
+				m.BossHurtPending = false
+				cs.game.AddCombatMessage(fmt.Sprintf("%s skitters away into the dark!", m.Name))
+			}
 		}
 		return true
 	}
-	// Aggressive: special actions fire only at the attack moment.
+	// Aggressive. Enrage is a passive HP-threshold state announced once here; its
+	// mechanical effect (harder/faster hits) is applied live in
+	// GetAttackDamage/AttackCooldownFrames, so it is save-safe.
+	if m.EnrageAtHP > 0 && !m.Enraged && m.IsEnraged() {
+		m.Enraged = true
+		cs.game.AddCombatMessage(fmt.Sprintf("%s flies into a furious rage!", m.Name))
+	}
+	// Special actions fire only at the attack moment.
 	if !attackTick {
 		return false
 	}
@@ -70,7 +85,145 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 		cs.applyMonsterInferno(m)
 		return true
 	}
+	if len(m.SummonMonsters) > 0 {
+		guaranteed := m.SummonFirstGuaranteed && !m.SummonFirstDone
+		if guaranteed || (m.SummonChance > 0 && rand.Float64() < m.SummonChance) {
+			if cs.summonBossAdds(m) {
+				m.SummonFirstDone = true
+				return true
+			}
+		}
+	}
 	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
+}
+
+// summonBossAdds rallies the boss's adds (war-banner): up to SummonCount monsters
+// from SummonMonsters spawned ~2 tiles out on walkable tiles, hostile on arrival.
+// Honours SummonMax (live summons of THIS boss). Returns true if any spawned.
+func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
+	if len(m.SummonMonsters) == 0 {
+		return false
+	}
+	liveSummons := cs.countLiveSummons(m)
+	if m.SummonMax > 0 && liveSummons >= m.SummonMax {
+		return false
+	}
+	n := m.SummonCount
+	if n < 1 {
+		n = 1
+	}
+	if m.SummonMax > 0 && liveSummons+n > m.SummonMax {
+		n = m.SummonMax - liveSummons
+	}
+	tile := float64(cs.game.config.GetTileSize())
+	spawned := 0
+	maxAttempts := n * 12
+	if maxAttempts < 12 {
+		maxAttempts = 12
+	}
+	for attempts := 0; spawned < n && attempts < maxAttempts; attempts++ {
+		key := m.SummonMonsters[rand.Intn(len(m.SummonMonsters))]
+		angle := rand.Float64() * 2 * math.Pi
+		tx := m.X + math.Cos(angle)*2*tile
+		ty := m.Y + math.Sin(angle)*2*tile
+		sx, sy, ok := cs.findNearestSummonTile(tx, ty, 10)
+		if !ok {
+			continue
+		}
+		add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
+		if add == nil {
+			continue
+		}
+		add.IsEngagingPlayer = true // summons wake hostile
+		add.WasAttacked = true
+		add.SummonedBy = m.ID
+		cs.game.registerSpawnedMonster(add)
+		cs.game.updateMonsterCollisionEngagement(add, cs.game.camera.X, cs.game.camera.Y)
+		spawned++
+	}
+	if spawned == 0 {
+		return false
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner — retainers rush to its side!", m.Name))
+	return true
+}
+
+func (cs *CombatSystem) findNearestSummonTile(targetX, targetY float64, maxRadius int) (float64, float64, bool) {
+	w := cs.game.GetCurrentWorld()
+	if w == nil || world.GlobalTileManager == nil {
+		return 0, 0, false
+	}
+	tile := float64(cs.game.config.GetTileSize())
+	targetTX := int(targetX / tile)
+	targetTY := int(targetY / tile)
+
+	for radius := 0; radius < maxRadius; radius++ {
+		for dx := -radius; dx <= radius; dx++ {
+			for dy := -radius; dy <= radius; dy++ {
+				adx, ady := dx, dy
+				if adx < 0 {
+					adx = -adx
+				}
+				if ady < 0 {
+					ady = -ady
+				}
+				if adx != radius && ady != radius {
+					continue
+				}
+				tx := targetTX + dx
+				ty := targetTY + dy
+				if tx < 0 || tx >= w.Width || ty < 0 || ty >= w.Height {
+					continue
+				}
+				if !world.GlobalTileManager.IsWalkable(w.Tiles[ty][tx]) {
+					continue
+				}
+				x, y := TileCenterFromTile(tx, ty, tile)
+				if cs.summonSpawnOccupied(x, y) {
+					continue
+				}
+				return x, y, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func (cs *CombatSystem) summonSpawnOccupied(x, y float64) bool {
+	tile := float64(cs.game.config.GetTileSize())
+	tx, ty := int(x/tile), int(y/tile)
+	ptx, pty := cs.game.GetPlayerTilePosition()
+	if tx == ptx && ty == pty {
+		return true
+	}
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return false
+	}
+	for _, o := range w.Monsters {
+		if o == nil || !o.IsAlive() {
+			continue
+		}
+		if int(o.X/tile) == tx && int(o.Y/tile) == ty {
+			return true
+		}
+	}
+	return false
+}
+
+// countLiveSummons counts living monsters this boss has summoned (for SummonMax).
+func (cs *CombatSystem) countLiveSummons(m *monsterPkg.Monster3D) int {
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return 0
+	}
+	n := 0
+	for _, o := range w.Monsters {
+		if o != nil && o.IsAlive() && o.SummonedBy == m.ID {
+			n++
+		}
+	}
+	return n
 }
 
 // tickEvasiveBossesTB runs the evasive-phase reaction every frame in turn-based

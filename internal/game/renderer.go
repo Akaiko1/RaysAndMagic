@@ -1000,6 +1000,9 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
 		r.drawImpassableTileAura(screen)
+		// Grey smoke wreath around a sealed (dormant) boss — invulnerable until
+		// its quest unseals it.
+		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
@@ -2774,6 +2777,14 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		rr = br + (1.7-br)*f
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
+	}
+	// Elite/variant tint: a persistent colour cast distinguishes a champion from
+	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
+	// both standee and billboard paths below), so it reads at a glance — no new art.
+	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
+		rr *= s.monster.TintR
+		gg *= s.monster.TintG
+		bb *= s.monster.TintB
 	}
 
 	// Standee mode: the monster is a wooden token whose face turns with its

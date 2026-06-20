@@ -2474,6 +2474,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "close_valve":
 		ih.handleCloseValve(choice.QuestID)
 
+	case "take_swords":
+		ih.handleOpenSwordRack(choice.QuestID)
+
 	case "tavern_rest":
 		ih.handleTavernRest(choice)
 
@@ -2683,6 +2686,54 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	g.AddCombatMessage(fmt.Sprintf("You heave the valve shut. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
+	}
+}
+
+// handleOpenSwordRack loots a katana rack hidden behind a shoji: rolls the zone
+// loot table into the party (random zone gear + a little gold, never a unique),
+// advances the interact-quest, and marks the rack Visited so it can't be
+// re-looted. Gating on an ACTIVE quest avoids consuming a rack that wouldn't
+// count (no soft-lock). Gathering all of them completes castle_armory, which
+// wakes the dormant Samurai Warlord (passive_until_quest).
+func (ih *InputHandler) handleOpenSwordRack(questID string) {
+	g := ih.game
+	npc := g.dialogNPC
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if g.questManager == nil || npc == nil {
+		return
+	}
+	if npc.Visited {
+		g.AddCombatMessage("The rack stands empty.")
+		return
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Status != quests.QuestStatusActive {
+		g.AddCombatMessage("No reason to disturb the armoury yet.")
+		return
+	}
+	npc.Visited = true
+	loot, gold := rollWeightedLootTable("castle_armory")
+	for _, it := range loot {
+		g.party.AddItem(it)
+	}
+	if gold > 0 {
+		g.party.Gold += gold
+	}
+	parts := make([]string, 0, len(loot)+1)
+	if gold > 0 {
+		parts = append(parts, fmt.Sprintf("%d gold", gold))
+	}
+	for _, it := range loot {
+		parts = append(parts, it.Name)
+	}
+	if len(parts) > 0 {
+		g.AddCombatMessage(fmt.Sprintf("You take from the rack: %s.", strings.Join(parts, ", ")))
+	}
+	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
+	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
+	for _, cq := range completed {
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep — the Warlord wakes.", cq.Definition.Name))
 	}
 }
 

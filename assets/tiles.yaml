@@ -304,6 +304,149 @@ tiles:
     letter: "="
     biomes: ["culverts"]
 
+  # --- Japanese Castle (eastern islands) ---
+  # Four floors painted by distinct letters: . cobble (courtyard), , wood (halls),
+  # : tatami (rooms), ; garden (blossom earth). Walls reuse %, #, B, = (biome-scoped).
+  japanese_castle_cobble:
+    name: "Castle Cobblestone"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [78, 78, 84]
+    floor_near_color: [118, 118, 126]
+    floor_texture_group: "cobble"
+    letter: "."
+    biomes: ["japanese_castle"]
+
+  japanese_castle_wood:
+    name: "Castle Wood Floor"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [66, 48, 32]
+    floor_near_color: [108, 82, 54]
+    floor_texture_group: "wood"
+    letter: ","
+    biomes: ["japanese_castle"]
+
+  japanese_castle_tatami:
+    name: "Castle Tatami"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [150, 130, 82]
+    floor_near_color: [196, 176, 120]
+    floor_texture_group: "tatami"
+    letter: ":"
+    biomes: ["japanese_castle"]
+
+  japanese_castle_garden:
+    name: "Castle Garden Earth"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [66, 56, 46]
+    floor_near_color: [104, 90, 74]
+    floor_texture_group: "garden"
+    letter: ";"
+    biomes: ["japanese_castle"]
+
+  japanese_castle_wall:
+    name: "Castle Wall (Plaster)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "japanese_castle_wall_0"
+    render_type: "textured_wall"
+    wall_color: [120, 110, 96]
+    letter: "%"
+    biomes: ["japanese_castle"]
+
+  japanese_castle_wall_1:
+    name: "Castle Wall (Red Gate)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "japanese_castle_wall_1"
+    render_type: "textured_wall"
+    wall_color: [120, 42, 40]
+    letter: "#"
+    biomes: ["japanese_castle"]
+
+  japanese_castle_wall_2:
+    name: "Castle Wall (Lantern Lattice)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "japanese_castle_wall_2"
+    render_type: "textured_wall"
+    wall_color: [96, 74, 52]
+    letter: "B"
+    biomes: ["japanese_castle"]
+
+  japanese_castle_wall_3:
+    name: "Castle Wall (Mossy Stone)"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "japanese_castle_wall_3"
+    render_type: "textured_wall"
+    wall_color: [80, 84, 76]
+    letter: "="
+    biomes: ["japanese_castle"]
+
+  # Castle decor billboards (solid, see-through). L lantern, Y bonsai, H shoji
+  # screen. Shoji are placed in front of rack alcoves to occlude them from the
+  # room (the racks are "hidden behind the screens"); the alcove is entered around.
+  castle_lantern:
+    name: "Stone Lantern"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.3
+    sprite: "stone_lantern"
+    render_type: "environment_sprite"
+    letter: "L"
+    biomes: ["japanese_castle"]
+
+  castle_bonsai:
+    name: "Bonsai"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "bonsai_tree"
+    render_type: "environment_sprite"
+    letter: "Y"
+    biomes: ["japanese_castle"]
+
+  castle_shoji:
+    name: "Shoji Screen"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.4
+    sprite: "shoji_screen"
+    render_type: "environment_sprite"
+    letter: "H"
+    biomes: ["japanese_castle"]
+
   city_floor:
     name: "City Cobblestone"
     solid: false

@@ -2,7 +2,6 @@ package monster
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -60,9 +59,22 @@ type MonsterDefinition struct {
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
 	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile
 	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`       // 0..1 chance per action to blink (only below TeleportAtHP)
-	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete: only evades (blinks away when the party is near), never attacks; turns aggressive once complete
-	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // evasive phase: blink when the party is within this many tiles (required with passive_until_quest)
-	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with passive_until_quest)
+	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
+	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with evade_radius_tiles)
+	// Summon: an aggressive boss rallies adds on its action.
+	SummonChance          float64  `yaml:"summon_chance,omitempty"`           // 0..1 chance per action to summon (needs summon_monsters)
+	SummonFirstGuaranteed bool     `yaml:"summon_first_guaranteed,omitempty"` // first successful summon ignores summon_chance; refill uses chance
+	SummonMonsters        []string `yaml:"summon_monsters,omitempty"`         // monster keys to pick from
+	SummonCount           int      `yaml:"summon_count,omitempty"`            // adds per summon (default 1)
+	SummonMax             int      `yaml:"summon_max,omitempty"`              // cap on simultaneously-live summons (0 = uncapped)
+	// Enrage: at/below enrage_at_hp the boss hits harder/faster (at least one mult).
+	EnrageAtHP         int     `yaml:"enrage_at_hp,omitempty"`
+	EnrageDamageMult   float64 `yaml:"enrage_damage_mult,omitempty"`
+	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
+	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
+	// or variant apart from a base mob that shares its sprite.
+	TintColor []float64 `yaml:"tint_color,omitempty"`
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -118,15 +130,6 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
-		if monster.AttacksPerRound > 1 {
-			expectedMultiplier := 1.0 / float64(monster.AttacksPerRound)
-			if math.Abs(monster.AttackCooldownMult-expectedMultiplier) > 0.000001 {
-				conflicts = append(conflicts, fmt.Sprintf(
-					"Monster '%s' has attacks_per_round %d but attack_cooldown_multiplier %.6g; expected %.6g",
-					key, monster.AttacksPerRound, monster.AttackCooldownMult, expectedMultiplier,
-				))
-			}
-		}
 		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
 		}
@@ -136,13 +139,20 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
 		}
-		if monster.PassiveUntilQuest != "" {
-			if monster.EvadeRadiusTiles <= 0 {
-				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no evade_radius_tiles", key))
-			}
-			if monster.BossCooldownSecs <= 0 {
-				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no boss_cooldown_seconds", key))
-			}
+		// An evasive boss (blinks away while its quest is unfinished) needs a blink
+		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
+		// just holds until the quest completes, so it needs neither.
+		if monster.EvadeRadiusTiles > 0 && monster.BossCooldownSecs <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has evade_radius_tiles but no boss_cooldown_seconds", key))
+		}
+		if monster.SummonChance > 0 && len(monster.SummonMonsters) == 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has summon_chance but no summon_monsters", key))
+		}
+		if monster.EnrageAtHP > 0 && monster.EnrageDamageMult <= 0 && monster.EnrageCooldownMult <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has enrage_at_hp but neither enrage_damage_mult nor enrage_cooldown_mult", key))
+		}
+		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
 		}
 	}
 	for letter, monsterKeys := range universalLetters {
@@ -340,6 +350,19 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.PassiveUntilQuest = def.PassiveUntilQuest
 	m.EvadeRadiusTiles = def.EvadeRadiusTiles
 	m.BossCooldownSecs = def.BossCooldownSecs
+	m.SummonChance = def.SummonChance
+	m.SummonFirstGuaranteed = def.SummonFirstGuaranteed
+	m.SummonMonsters = def.SummonMonsters
+	m.SummonCount = def.SummonCount
+	m.SummonMax = def.SummonMax
+	m.EnrageAtHP = def.EnrageAtHP
+	m.EnrageDamageMult = def.EnrageDamageMult
+	m.EnrageCooldownMult = def.EnrageCooldownMult
+	if len(def.TintColor) == 3 {
+		m.TintR = float32(def.TintColor[0])
+		m.TintG = float32(def.TintColor[1])
+		m.TintB = float32(def.TintColor[2])
+	}
 
 	m.LightRadius = 0
 	m.LightIntensity = 0

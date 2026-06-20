@@ -698,6 +698,43 @@ func TestMonsterEngagesWhenHitFromLongRange(t *testing.T) {
 	}
 }
 
+// A sealed/dormant boss (BossDormant set) is fully inert: even with the party
+// point-blank it never moves, never patrols, never engages — it holds its throne.
+// Clearing the flag (its quest unseals it) lets the normal AI run again.
+// Regression: the sealed Samurai Warlord wandered off his throne because
+// updateBoss froze only his ATTACK while the separate movement path kept
+// patrolling him away — the attack-only test stayed green through the bug.
+func TestDormantBossHoldsPosition(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0) // nothing blocked → free to wander if not frozen
+	m := createTestMonster(320.0, 320.0)
+	m.BossDormant = true
+	playerX, playerY := 384.0, 320.0 // one tile east, well inside alert radius
+
+	for i := 0; i < 600; i++ {
+		m.Update(checker, playerX, playerY)
+	}
+	if m.X != 320.0 || m.Y != 320.0 {
+		t.Errorf("dormant boss moved to (%.1f,%.1f); must hold spawn (320,320)", m.X, m.Y)
+	}
+	if m.StateTimer != 0 {
+		t.Errorf("dormant boss ran its AI (StateTimer=%d); Update must early-return", m.StateTimer)
+	}
+	if m.State != StateIdle || m.IsEngagingPlayer {
+		t.Errorf("dormant boss changed state (state=%v engaging=%v); must stay inert", m.State, m.IsEngagingPlayer)
+	}
+
+	// Unseal (quest complete → flag cleared): the AI body runs again. An engaged
+	// boss sitting in idle must now snap out of it (cf. TestEngagedMonsterLeavesPatrolState),
+	// which it can only do if Update no longer early-returns.
+	m.BossDormant = false
+	m.IsEngagingPlayer = true
+	m.WasAttacked = true
+	m.Update(checker, playerX, playerY)
+	if m.State == StateIdle {
+		t.Error("once unsealed, Update must run the AI again (engaged boss should leave idle)")
+	}
+}
+
 // TestMonsterStaysEngagedAfterBeingHit tests that monster doesn't disengage after being hit
 func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 	m := createTestMonster(100.0, 100.0)

@@ -206,12 +206,14 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	monster.AttackAnimFrames = MonsterAttackAnimFrames
 	monster.LastMoveTick = gl.game.frameCount
 
+	attacks := monster.GetTurnBasedAttackCount()
 	if monster.HasRangedAttack() {
-		gl.game.combat.spawnMonsterRangedAttack(monster)
+		for hit := 0; hit < attacks; hit++ {
+			gl.game.combat.spawnMonsterRangedAttack(monster)
+		}
 		return
 	}
 
-	attacks := monster.GetTurnBasedAttackCount()
 	for hit := 0; hit < attacks; hit++ {
 		// Re-filter every iteration: a previous attack may have just KO'd
 		// the only remaining target, in which case the rest are no-ops.
@@ -377,10 +379,17 @@ func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize 
 }
 
 func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playerX, playerY float64, offsets [][2]int, bestDist float64) (float64, float64, float64) {
+	ptx, pty := gl.game.GetPlayerTilePosition()
 	bestX, bestY := m.X, m.Y
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
+		// Never teleport onto the player's tile: the player collision entity is
+		// non-solid, so CanMoveToWithHabitat would otherwise allow a mob to stand
+		// inside the party — the blocked-diagonal fallback's offsets can include it.
+		if int(testX/tileSize) == ptx && int(testY/tileSize) == pty {
+			continue
+		}
 		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {
 			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
 			if dist < bestDist {

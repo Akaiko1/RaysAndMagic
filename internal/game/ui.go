@@ -174,36 +174,32 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
-		mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
+		hasIcon := ui.tooltipIcon != ""
 
-		// Resolve the vertical flip ONCE against the TALLER of the two cards so
-		// the main and comparison boxes always share a top edge (a tall full
-		// card flipping above the cursor while a short compare card stayed
-		// below was the misalignment bug).
-		y := ui.tooltipY
-		if ui.tooltipCompareLines != nil {
-			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
+		if ui.tooltipCompareLines == nil {
+			_, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, screenW)
+			y := flipTooltipY(ui.tooltipY, mainH, screenH)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
+		} else {
+			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
+			// the pair always fits, then place the comparison flush to the right of
+			// the main and shift the pair left to stay on screen. Sizing and drawing
+			// use the same column width (cardCap) so the measured and painted boxes
+			// match; the flip is resolved once against the taller card so they share
+			// a top edge.
+			gap := tooltipCompareGap
+			cardCap := screenW/2 - gap
+			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap)
+			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap)
 			h := mainH
 			if compareH > h {
 				h = compareH
 			}
-			y = flipTooltipY(ui.tooltipY, h, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
+			y := flipTooltipY(ui.tooltipY, h, screenH)
 
-			compareX := ui.tooltipX - tooltipCompareGap - compareW
-			if compareX < 0 {
-				compareX = ui.tooltipX + mainW + tooltipCompareGap
-			}
-			if compareX+compareW > screenW {
-				compareX = screenW - compareW
-			}
-			if compareX < 0 {
-				compareX = 0
-			}
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, y, ui.game.sprites)
-		} else {
-			y = flipTooltipY(ui.tooltipY, mainH, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
+			mainX, compareX := tooltipPairX(ui.tooltipX, mainW, compareW, gap, screenW)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, y, compareX+cardCap, ui.game.sprites)
 		}
 	}
 }

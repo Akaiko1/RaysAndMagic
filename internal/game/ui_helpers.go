@@ -200,11 +200,12 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 	return y
 }
 
-func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y int, sprites *graphics.SpriteManager) {
-	screenW := screen.Bounds().Dx()
-
+// maxRight bounds word-wrapping: lines wrap to fit between x and maxRight. Callers
+// pass the screen width for a lone tooltip, or a tighter column edge so two
+// side-by-side cards (item + its comparison) each wrap within their own column.
+func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
-	lines, colors = wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
+	lines, colors = wrapTooltipLines(lines, colors, x, maxRight, tooltipTextOffset(hasIcon))
 	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
 
 	// y is already resolved on-screen by the caller (flipTooltipY). Keep a
@@ -281,6 +282,22 @@ func tooltipTextOffset(hasIcon bool) int {
 func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool, x, screenW int) (int, int) {
 	wrapped, _ := wrapTooltipLines(lines, colors, x, screenW, tooltipTextOffset(hasIcon))
 	return tooltipBoxSizeWithIcon(wrapped, hasIcon)
+}
+
+// tooltipPairX positions two side-by-side hover cards (main + comparison) near
+// cursorX, shifting the pair left so it stays within screenW. The comparison sits
+// flush to the right of the main (compareX = mainX + mainW + gap), so the two
+// columns can never overlap — unlike the old "place compare by its unwrapped width
+// then clamp to the screen edge", which buried the main under a very wide compare.
+func tooltipPairX(cursorX, mainW, compareW, gap, screenW int) (mainX, compareX int) {
+	mainX = cursorX
+	if mainX+mainW+gap+compareW > screenW {
+		mainX = screenW - (mainW + gap + compareW)
+	}
+	if mainX < 0 {
+		mainX = 0
+	}
+	return mainX, mainX + mainW + gap
 }
 
 func (ui *UISystem) queueTooltip(lines []string, x, y int) {

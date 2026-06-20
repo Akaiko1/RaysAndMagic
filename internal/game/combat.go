@@ -566,6 +566,9 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 }
 
 func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, damage int, weaponName string, isCrit bool) {
+	if cs.absorbIfSealed(monster) {
+		return
+	}
 	weaponDef := lookupWeaponConfigByName(weaponName)
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
@@ -658,6 +661,9 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 	for _, m := range cs.game.world.Monsters {
 		if !m.IsAlive() {
 			continue
+		}
+		if m.BossDormant {
+			continue // a sealed boss never pack-aggros
 		}
 		if m.Key != hitKey {
 			continue
@@ -1768,6 +1774,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		}
 	}
 
+	// A sealed (dormant) boss absorbs the projectile — no damage, control effect,
+	// or aggro — until its quest unseals it. The projectile is already consumed by
+	// the switch above; drop its collision entity and stop here.
+	if cs.absorbIfSealed(monster) {
+		cs.game.collisionSystem.UnregisterEntity(entityID)
+		return
+	}
+
 	// Party buffs (Hour of Power, Heroism, …): flat bonus to all party outgoing damage.
 	if damage > 0 {
 		damage += cs.game.combatBuffOutBonus()
@@ -1957,7 +1971,9 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 	cx, cy := center.X, center.Y
 
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || m == center || !m.IsAlive() {
+		// A sealed (dormant) boss is invulnerable and inert: skip it entirely so
+		// splash deals no damage AND triggers no hit-flash / pack-aggro / message.
+		if m == nil || m == center || !m.IsAlive() || m.BossDormant {
 			continue
 		}
 		dx := m.X - cx
@@ -2338,7 +2354,22 @@ func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 	if m == nil {
 		return false
 	}
-	return m.MonsterType == "undead" || m.MonsterType == "dragon"
+	// A sealed (dormant) boss can't be instakilled while invulnerable.
+	return m.MonsterType == "undead" || m.MonsterType == "dragon" || m.BossDormant
+}
+
+// absorbIfSealed reports whether the monster is a sealed (dormant) boss and, if
+// so, plays the muted "blow absorbed" beat (impact spark + one message). A sealed
+// boss is invulnerable until its quest unseals it; player damage hubs call this
+// and return early. TakeDamageResist returning 0 is the backstop for any path
+// that doesn't pre-check (AoE splash, mastery, monster-vs-monster).
+func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
+	if m == nil || !m.BossDormant {
+		return false
+	}
+	cs.game.spawnImpactSparks(m.X, m.Y)
+	cs.game.AddCombatMessage(fmt.Sprintf("The seal holds — %s is impervious.", m.Name))
+	return true
 }
 
 // tryCastSpecialEffect runs the data-driven "effect spell" dispatchers in order
@@ -2371,9 +2402,10 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
 
-	// Monsters in range.
+	// Monsters in range. A sealed (dormant) boss is invulnerable and inert —
+	// skip it so the nova neither damages nor wakes it.
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || Distance(cx, cy, m.X, m.Y) > radius {
+		if m == nil || !m.IsAlive() || m.BossDormant || Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
 		reduced := applyArmorReductionIfPhysical(dmg, damageTypeStr, m.ArmorClass, false)

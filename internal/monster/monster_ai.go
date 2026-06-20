@@ -138,6 +138,13 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 
 // Update runs the monster AI with collision checking and player position for engagement detection
 func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
+	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
+	// its throne until its quest unseals it. The RT attack loop already no-ops via
+	// updateBoss; without this the patrol state would still drift the boss off its
+	// spawn tile. Flag is set single-threaded in refreshBoundUndeadCache.
+	if m.BossDormant {
+		return
+	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
@@ -1148,10 +1155,30 @@ func (m *Monster3D) AttackCooldownFrames() int {
 	if m.AttackCooldownMultiplier > 0 {
 		cd = int(math.Round(float64(cd) * m.AttackCooldownMultiplier))
 	}
+	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
+		cd = int(math.Round(float64(cd) * m.EnrageCooldownMult))
+	}
 	if cd < 1 {
 		cd = 1
 	}
 	return cd
+}
+
+// tbAttacksForCooldownMult maps a real-time attack-cooldown multiplier to the
+// turn-based swing count that keeps the two modes at parity: a faster RT cadence
+// (mult < 1) grants proportionally more TB swings. Power-of-two buckets so the
+// count stays integer — mult >= 1 → 1, [0.5,1) → 2, [0.25,0.5) → 4, … (capped at
+// 8). Used both for cooldown-only static configs and dynamic enrage multipliers.
+func tbAttacksForCooldownMult(mult float64) int {
+	if mult <= 0 {
+		return 1
+	}
+	n := 1
+	for mult < 1.0 && n < 8 {
+		n *= 2
+		mult *= 2
+	}
+	return n
 }
 
 func (m *Monster3D) updateAttacking(playerX, playerY float64) {

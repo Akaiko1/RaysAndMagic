@@ -1089,6 +1089,10 @@ func (g *MMGame) refreshBoundUndeadCache() {
 		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
 		// Aggressive boss → relentless chase; evasive boss holds (handled by boss hook).
 		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m)
+		// Sealed boss (passive-until-quest, no evade radius) → freeze on its spawn
+		// until the quest unseals it. An evasive boss WITH an evade radius still
+		// skitters and blinks, so it is excluded.
+		m.BossDormant = g.combat.isBoss(m) && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
 	}
 }
 

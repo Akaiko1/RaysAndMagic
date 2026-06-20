@@ -88,6 +88,20 @@ biomes:
         - "culverts_floor_2"
         - "culverts_floor_3"
 
+  # Each castle floor is its OWN single-texture group so the map can paint floors
+  # deliberately by tile letter (cobble courtyard / wood halls / tatami rooms /
+  # blossom garden), not the random-from-group variety the other biomes use.
+  japanese_castle:
+    floor_texture_groups:
+      cobble:
+        - "japanese_castle_floor_0"
+      wood:
+        - "japanese_castle_floor_1"
+      tatami:
+        - "japanese_castle_floor_2"
+      garden:
+        - "japanese_castle_floor_3"
+
   city:
     floor_texture_groups:
       default:
@@ -284,6 +298,16 @@ maps:
     default_floor_color: [58, 54, 48]
     ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
     wall_torches: true   # flickering torches at inner wall corners light the maze
+
+  japanese_castle:
+    name: "Eastern Isle Castle"
+    file: "japanese_castle.map"
+    biome: "japanese_castle"
+    sky_color: [18, 22, 40]              # moonlit night
+    sky_texture: "japanese_castle_panorama"
+    default_floor_color: [70, 64, 56]
+    ambient_light: 0.5   # moonlit courtyard; lantern glow carries the halls
+    wall_torches: true   # paper lanterns flicker at inner wall corners
 
   city:
     name: "Seabright"

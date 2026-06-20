@@ -584,12 +584,15 @@ npcs:
     transparent: true
     size_multiplier: 1.0
     dialogue:
-      greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch."
+      greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch — and at the harbor, an eastbound ship takes on water for the far isles."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter Seabright"
           action: "enter_map"
           map: "city"
+        - text: "Sail to the eastern islands"
+          action: "enter_map"
+          map: "japanese_castle"
         - text: "Stay in the forest"
           action: "leave"
 
@@ -727,6 +730,101 @@ npcs:
     size_multiplier: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
+
+  # --- Eastern Isle Castle (japanese_castle) ---
+  japanese_castle_exit:
+    name: "Moored Ship"
+    type: "encounter"
+    description: "The ship that bore you east, waiting at the castle dock"
+    sprite: "forest_gate"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 4.0
+    dialogue:
+      greeting: "Your ship rocks at the dock, ready to bear you back across the eastern sea to the forest road."
+      choice_prompt: "Set sail for home?"
+      choices:
+        - text: "Sail back to the mainland"
+          action: "enter_map"
+          map: "forest"
+        - text: "Stay ashore"
+          action: "leave"
+
+  castle_oldman:
+    name: "Old Retainer Shozo"
+    type: "quest_giver"
+    description: "A bent old retainer who kept these walls long after his lord fell"
+    sprite: "dragon_cliffs_bone_hermit"
+    size_multiplier: 4
+    dialogue:
+      greeting: "I have kept this castle since my lord fell to the eastern blade. He sits sealed in the keep above — the Samurai Warlord — and he will not wake for trespassers. But strip the five katana racks his guard hid behind the shoji screens, take up the castle's own steel, and his pride will not abide it. He will rise. Then you may end him."
+      active_message: "Five racks, hidden behind the paper screens in the halls above. Bare them all, and the Warlord wakes."
+      completed_message: "The racks stand empty and the keep has stirred — I feel him moving above. Here is the castle's old reward. Now go; he is waiting."
+      visited_message: "He is awake now. The rest is steel and fortune."
+      choice_prompt: "The old retainer bows stiffly."
+      choices:
+        - text: "Ask about the keep"
+          action: "give_quest"
+          quest_id: "castle_armory"
+        - text: "Claim your reward"
+          action: "turn_in_quest"
+          quest_id: "castle_armory"
+        - text: "Leave"
+          action: "leave"
+
+  # Five katana racks behind shoji screens. Distinct keys/names so each remembers
+  # being looted independently (NPC Visited is save-tracked). Dialogue shared via a
+  # YAML anchor — read-only template; only npc.Visited mutates at runtime. Looting
+  # rolls the castle_armory loot table (zone gear, never a unique) into the party.
+  sword_rack_1:
+    name: "Katana Rack"
+    type: "encounter"
+    sprite: "sword_rack"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    dialogue: &rack_dialogue
+      greeting: "A lacquered rack of katana and castle gear, half-hidden behind a paper screen."
+      visited_message: "The rack stands stripped and bare."
+      choice_prompt: "Take the castle's arms?"
+      choices:
+        - text: "Take from the rack"
+          action: "take_swords"
+          quest_id: "castle_armory"
+        - text: "Leave it"
+          action: "leave"
+  sword_rack_2:
+    name: "Katana Rack"
+    type: "encounter"
+    sprite: "sword_rack"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    dialogue: *rack_dialogue
+  sword_rack_3:
+    name: "Katana Rack"
+    type: "encounter"
+    sprite: "sword_rack"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    dialogue: *rack_dialogue
+  sword_rack_4:
+    name: "Katana Rack"
+    type: "encounter"
+    sprite: "sword_rack"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    dialogue: *rack_dialogue
+  sword_rack_5:
+    name: "Katana Rack"
+    type: "encounter"
+    sprite: "sword_rack"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 0.5
+    dialogue: *rack_dialogue
 
   # Invisible gate NPCs for the forest↔highlands portal. sprite "" renders
   # nothing at all; ground_tile paints the portal-stream tile under the gate so

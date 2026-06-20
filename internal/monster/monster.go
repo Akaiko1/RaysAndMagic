@@ -188,8 +188,27 @@ type Monster3D struct {
 	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
+	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn — no detection or wandering until its quest unseals it (set by refreshBoundUndeadCache)
 	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
 	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	// Summon (war-banner): on its action an aggressive boss may rally adds.
+	SummonChance          float64  // 0..1 chance per action to summon
+	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance
+	SummonFirstDone       bool     // save-backed latch once the guaranteed summon has happened
+	SummonMonsters        []string // monster keys to pick from when summoning
+	SummonCount           int      // adds spawned per summon (default 1)
+	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
+	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
+	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
+	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is
+	// save-safe (no mutated stats stored); Enraged is only the one-shot announce latch.
+	EnrageAtHP         int
+	EnrageDamageMult   float64
+	EnrageCooldownMult float64
+	Enraged            bool
+	// Visual tint: a persistent RGB cast multiplied into the lit sprite, marking a
+	// variant apart when it shares a base mob's sprite (e.g. an elite). All-zero = none.
+	TintR, TintG, TintB float32
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -248,6 +267,13 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playe
 // of the target's resistance to damageType is ignored before reduction. Used by
 // Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
 func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
+	// A sealed (dormant) boss is invulnerable until its quest unseals it: absorb
+	// all damage from every source and don't aggro. BossDormant is set per-frame
+	// in the game's pre-pass; this is the backstop for damage paths that don't
+	// pre-check it (AoE splash, mastery true-damage, monster-vs-monster).
+	if m.BossDormant {
+		return 0
+	}
 	// Apply resistance (reduced by any piercing)
 	if resistance, exists := m.Resistances[damageType]; exists {
 		if resistPiercePct > 0 {
@@ -286,17 +312,36 @@ func (m *Monster3D) IsAlive() bool {
 }
 
 func (m *Monster3D) GetAttackDamage() int {
-	if m.DamageMin >= m.DamageMax {
-		return m.DamageMin
+	dmg := m.DamageMin
+	if m.DamageMax > m.DamageMin {
+		dmg += rand.Intn(m.DamageMax - m.DamageMin + 1)
 	}
-	return m.DamageMin + rand.Intn(m.DamageMax-m.DamageMin+1)
+	if m.IsEnraged() && m.EnrageDamageMult > 0 {
+		dmg = int(float64(dmg) * m.EnrageDamageMult)
+	}
+	return dmg
+}
+
+// IsEnraged reports whether the boss is at/below its enrage HP threshold. Derived
+// live from HP (not a stored flag) so enrage survives save/load without mutating
+// stats; the EnrageDamageMult/EnrageCooldownMult are applied wherever this is true.
+func (m *Monster3D) IsEnraged() bool {
+	return m.EnrageAtHP > 0 && m.HitPoints > 0 && m.HitPoints <= m.EnrageAtHP
 }
 
 func (m *Monster3D) GetTurnBasedAttackCount() int {
-	if m.AttacksPerRound < 1 {
-		return 1
+	n := m.AttacksPerRound
+	if n < 1 {
+		n = tbAttacksForCooldownMult(m.AttackCooldownMultiplier)
 	}
-	return m.AttacksPerRound
+	// RT/TB parity: cooldown speedups that make the monster strike faster in real
+	// time grant proportionally more turn-based swings. If AttacksPerRound is set,
+	// it is the explicit base; otherwise derive the base from the static cooldown
+	// multiplier. Enrage is a dynamic multiplier on top.
+	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
+		n *= tbAttacksForCooldownMult(m.EnrageCooldownMult)
+	}
+	return n
 }
 
 func (m *Monster3D) HasRangedAttack() bool {

@@ -245,6 +245,57 @@ func fixedItemRewards(keys []string) []items.Item {
 	return fixedRewards(keys, items.TryCreateItemFromYAML, "fixedItemRewards")
 }
 
+// rollWeightedLootTable rolls a named weighted pool: `Rolls` weighted picks (with
+// replacement) plus gold in [GoldMin,GoldMax]. Zone containers (sword racks) use
+// this for "one random zone item, never a unique" — uniques aren't in the pool,
+// unlike randomWeaponRewards which draws from ALL weapons. Keys are validated at
+// load (config.validateWeightedLootTables), so creation failures here are unexpected.
+func rollWeightedLootTable(name string) ([]items.Item, int) {
+	t, ok := config.GetWeightedLootTable(name)
+	if !ok {
+		fmt.Printf("[WARN] rollWeightedLootTable: unknown table %q\n", name)
+		return nil, 0
+	}
+	total := 0
+	for _, e := range t.Entries {
+		total += e.Weight
+	}
+	out := make([]items.Item, 0, t.Rolls)
+	for r := 0; r < t.Rolls && total > 0; r++ {
+		pick := rand.Intn(total)
+		var chosen *config.WeightedLootEntry
+		for i := range t.Entries {
+			if pick -= t.Entries[i].Weight; pick < 0 {
+				chosen = &t.Entries[i]
+				break
+			}
+		}
+		if chosen == nil {
+			continue
+		}
+		var it items.Item
+		var err error
+		switch chosen.Type {
+		case "weapon":
+			it, err = items.TryCreateWeaponFromYAML(chosen.Key)
+		case "item":
+			it, err = items.TryCreateItemFromYAML(chosen.Key)
+		default:
+			continue
+		}
+		if err != nil {
+			fmt.Printf("[WARN] rollWeightedLootTable %q: %v\n", name, err)
+			continue
+		}
+		out = append(out, it)
+	}
+	gold := t.GoldMin
+	if t.GoldMax > t.GoldMin {
+		gold += rand.Intn(t.GoldMax - t.GoldMin + 1)
+	}
+	return out, gold
+}
+
 // tryPickupNearestGroundContainer triggers pickup on the closest container in
 // range. Returns true if a pickup occurred. Replaces the two separate
 // tryPickupNearestLootBag / tryOpenNearestTreasureChest helpers.
