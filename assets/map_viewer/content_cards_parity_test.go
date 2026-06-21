@@ -66,6 +66,21 @@ func TestEditorCardsWired(t *testing.T) {
 		t.Fatalf("checked %d weapons, expected %d", wProcessed, len(config.GlobalWeapons.Weapons))
 	}
 
+	if def, ok := config.GetWeaponDefinition("tonbogiri"); ok && def != nil {
+		c, ok := weaponCards["tonbogiri"]
+		if !ok {
+			t.Fatalf("tonbogiri: no editor card built")
+		}
+		if def.Flavor == "" {
+			t.Fatalf("tonbogiri flavor was not loaded")
+		}
+		if c.flavor != def.Flavor {
+			t.Fatalf("tonbogiri card flavor = %q, want %q", c.flavor, def.Flavor)
+		}
+	} else {
+		t.Fatalf("tonbogiri missing from weapons.yaml")
+	}
+
 	// Spells: same, picking the shared builder the wrapper should use (monster-only
 	// spells render MonsterSpellCardSections, not the player formula).
 	spellCards := index(buildSpellCards()) // includes trap cards; we only look up spell keys

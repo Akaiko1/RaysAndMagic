@@ -20,11 +20,6 @@ var (
 			return &MagicProjectileWrapper{}
 		},
 	}
-	meleeAttackWrapperPool = sync.Pool{
-		New: func() interface{} {
-			return &MeleeAttackWrapper{}
-		},
-	}
 	arrowWrapperPool = sync.Pool{
 		New: func() interface{} {
 			return &ArrowWrapper{}
@@ -38,16 +33,6 @@ var (
 func CreateMagicProjectileWrapper(magicProjectile *MagicProjectile, collisionSystem *collision.CollisionSystem, projectileID string, game *MMGame) entities.ProjectileUpdateInterface {
 	wrapper := magicProjectileWrapperPool.Get().(*MagicProjectileWrapper)
 	wrapper.MagicProjectile = magicProjectile
-	wrapper.collisionSystem = collisionSystem
-	wrapper.projectileID = projectileID
-	wrapper.game = game
-	return wrapper
-}
-
-// CreateMeleeAttackWrapper creates a wrapper for melee attack entities using pool
-func CreateMeleeAttackWrapper(attack *MeleeAttack, collisionSystem *collision.CollisionSystem, projectileID string, game *MMGame) entities.ProjectileUpdateInterface {
-	wrapper := meleeAttackWrapperPool.Get().(*MeleeAttackWrapper)
-	wrapper.MeleeAttack = attack
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
 	wrapper.game = game
@@ -85,7 +70,7 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 	g.reusableProjectileWrappers = g.reusableProjectileWrappers[:0]
 
 	// Ensure capacity is sufficient
-	totalCount := len(g.magicProjectiles) + len(g.meleeAttacks) + len(g.arrows)
+	totalCount := len(g.magicProjectiles) + len(g.arrows)
 	if cap(g.reusableProjectileWrappers) < totalCount {
 		g.reusableProjectileWrappers = make([]entities.ProjectileUpdateInterface, 0, totalCount)
 	}
@@ -94,12 +79,6 @@ func (g *MMGame) ConvertProjectilesToWrappers() []entities.ProjectileUpdateInter
 	for i := range g.magicProjectiles {
 		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
 			CreateMagicProjectileWrapper(&g.magicProjectiles[i], g.collisionSystem, g.magicProjectiles[i].ID, g))
-	}
-
-	// Convert melee attacks
-	for i := range g.meleeAttacks {
-		g.reusableProjectileWrappers = append(g.reusableProjectileWrappers,
-			CreateMeleeAttackWrapper(&g.meleeAttacks[i], g.collisionSystem, g.meleeAttacks[i].ID, g))
 	}
 
 	// Convert arrows
@@ -139,8 +118,6 @@ func recycleProjectileWrapper(wrapper entities.ProjectileUpdateInterface) {
 	switch w := wrapper.(type) {
 	case *MagicProjectileWrapper:
 		magicProjectileWrapperPool.Put(w)
-	case *MeleeAttackWrapper:
-		meleeAttackWrapperPool.Put(w)
 	case *ArrowWrapper:
 		arrowWrapperPool.Put(w)
 	}
@@ -162,20 +139,6 @@ func (g *MMGame) RemoveInactiveEntities() {
 		}
 	}
 	g.magicProjectiles = g.magicProjectiles[:writeIdx]
-
-	// Remove inactive melee attacks using in-place filtering
-	writeIdx = 0
-	for readIdx := range g.meleeAttacks {
-		if g.meleeAttacks[readIdx].Active && g.meleeAttacks[readIdx].LifeTime > 0 {
-			if writeIdx != readIdx {
-				g.meleeAttacks[writeIdx] = g.meleeAttacks[readIdx]
-			}
-			writeIdx++
-		} else {
-			g.collisionSystem.UnregisterEntity(g.meleeAttacks[readIdx].ID)
-		}
-	}
-	g.meleeAttacks = g.meleeAttacks[:writeIdx]
 
 	// Remove inactive arrows using in-place filtering
 	writeIdx = 0

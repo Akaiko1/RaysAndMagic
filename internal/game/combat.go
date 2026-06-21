@@ -619,6 +619,9 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
 	}
+	if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
+		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, weaponDef.AoeRadiusTiles, 0)
+	}
 
 	// Add combat message
 	if monster.IsAlive() {
@@ -1440,12 +1443,6 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			projectiles = append(projectiles, projectileInfo{cs.game.magicProjectiles[i].ID, &cs.game.magicProjectiles[i], "magic_projectile", cs.game.magicProjectiles[i].Owner})
 		}
 	}
-	for i := range cs.game.meleeAttacks {
-		if cs.game.meleeAttacks[i].Active && cs.game.meleeAttacks[i].LifeTime > 0 {
-			projectiles = append(projectiles, projectileInfo{cs.game.meleeAttacks[i].ID, &cs.game.meleeAttacks[i], "melee", ProjectileOwnerPlayer})
-		}
-	}
-
 	// Check each projectile against each monster using perspective-scaled collision
 	for _, proj := range projectiles {
 		var hitMonster *monsterPkg.Monster3D
@@ -1631,13 +1628,6 @@ func (cs *CombatSystem) getProjectileGraphicsInfo(projectile interface{}, projec
 			return 0, 0, 0, false
 		}
 		return float64(cfg.BaseSize), cfg.MinSize, cfg.MaxSize, true
-	case "melee":
-		meleeAttack := projectile.(*MeleeAttack)
-		weaponDef := lookupWeaponConfigByName(meleeAttack.WeaponName)
-		if weaponDef == nil || weaponDef.Graphics == nil {
-			return 0, 0, 0, false
-		}
-		return float64(weaponDef.Graphics.BaseSize), weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize, true
 	case "arrow":
 		arrow := projectile.(*Arrow)
 		weaponDef := lookupWeaponConfigByKey(arrow.BowKey)
@@ -1654,9 +1644,6 @@ func (cs *CombatSystem) getProjectilePosition(projectile interface{}, projectile
 	switch projectileType {
 	case "magic_projectile":
 		p := projectile.(*MagicProjectile)
-		return p.X, p.Y
-	case "melee":
-		p := projectile.(*MeleeAttack)
 		return p.X, p.Y
 	case "arrow":
 		p := projectile.(*Arrow)
@@ -1739,18 +1726,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		mp.Active = false
 		isSpell = true
 
-	case "melee":
-		ma := projectile.(*MeleeAttack)
-		if !ma.Active || ma.LifeTime <= 0 {
-			return
-		}
-		damage, isCrit = ma.Damage, ma.Crit
-		weaponName = ma.WeaponName
-		weaponDef = lookupWeaponConfigByName(weaponName)
-		damageTypeStr = weaponDamageTypeStr(weaponDef)
-		damageType = convertToMonsterDamageType(damageTypeStr)
-		ma.Active = false
-
 	case "arrow":
 		ar := projectile.(*Arrow)
 		if !ar.Active || ar.LifeTime <= 0 {
@@ -1772,6 +1747,8 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 				}
 			}
 		}
+	default:
+		return
 	}
 
 	// A sealed (dormant) boss absorbs the projectile — no damage, control effect,
@@ -1795,8 +1772,6 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attacker = pr.Attacker
 	case *Arrow:
 		attacker = pr.Attacker
-	case *MeleeAttack:
-		attacker = cs.activeAttacker() // melee resolves the same frame it swings
 	}
 	attackerName := "The party"
 	if attacker != nil {

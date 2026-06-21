@@ -659,6 +659,7 @@ type WeaponDefinitionConfig struct {
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
+	Flavor             string  `yaml:"flavor,omitempty"`
 	Category           string  `yaml:"category"`
 	Damage             int     `yaml:"damage"`
 	Range              int     `yaml:"range"` // Range in tiles (for melee reach)

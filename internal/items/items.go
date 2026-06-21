@@ -172,10 +172,15 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		return Item{}, fmt.Errorf("weapon '%s' not found in weapons.yaml", weaponKey)
 	}
 
+	desc := weaponDef.Description
+	if weaponDef.Flavor != "" {
+		desc = weaponDef.Flavor
+	}
+
 	it := Item{
 		Name:        weaponDef.Name,
 		Type:        ItemWeapon,
-		Description: weaponDef.Description,
+		Description: desc,
 		Rarity:      weaponDef.Rarity,
 		Attributes:  make(map[string]int),
 	}
@@ -200,6 +205,7 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*WeaponDefinitionFromYAML,
 type WeaponDefinitionFromYAML struct {
 	Name        string
 	Description string
+	Flavor      string
 	Category    string
 	Rarity      string
 	Value       int

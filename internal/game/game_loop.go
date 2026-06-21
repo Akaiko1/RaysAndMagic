@@ -437,7 +437,7 @@ func (gl *GameLoop) updateSlashEffects() {
 // updatePerformanceMetrics updates game-specific performance metrics
 func (gl *GameLoop) updatePerformanceMetrics() {
 	monstersUpdated := uint64(len(gl.game.world.Monsters))
-	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.meleeAttacks))
+	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.arrows))
 	collisionsDetected := uint64(0) // Could be updated by collision detection system
 
 	gl.game.threading.PerformanceMonitor.UpdateGameMetrics(monstersUpdated, projectilesActive, collisionsDetected)
@@ -609,7 +609,7 @@ func (gl *GameLoop) returnFromUnderwater() {
 
 // hasActiveProjectiles checks if there are any active projectiles to update
 func (gl *GameLoop) hasActiveProjectiles() bool {
-	return len(gl.game.magicProjectiles) > 0 || len(gl.game.meleeAttacks) > 0 || len(gl.game.arrows) > 0
+	return len(gl.game.magicProjectiles) > 0 || len(gl.game.arrows) > 0
 }
 
 // isEncounterMonster checks if a monster is part of an encounter with rewards

@@ -319,13 +319,9 @@ func (g *MMGame) clearTransientCombatState() {
 		for i := range g.arrows {
 			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
 		}
-		for i := range g.meleeAttacks {
-			g.collisionSystem.UnregisterEntity(g.meleeAttacks[i].ID)
-		}
 	}
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.arrows = g.arrows[:0]
-	g.meleeAttacks = g.meleeAttacks[:0]
 	g.projectileMutex.Unlock()
 	g.slashEffects = g.slashEffects[:0]
 	g.hitEffectsMu.Lock()

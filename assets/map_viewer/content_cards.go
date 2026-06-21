@@ -255,6 +255,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 		name:        def.Name,
 		subtitle:    subtitle,
 		description: def.Description,
+		flavor:      def.Flavor,
 		tooltipRows: rows,
 	}
 }

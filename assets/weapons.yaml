@@ -581,7 +581,7 @@ weapons:
     bonus_stat: "Might"
     bonus_stat_secondary: "Accuracy"
     crit_chance: 16
-    aoe_radius_tiles: 1.5
+    aoe_radius_tiles: 2.0
     rarity: "legendary"
     value: 1700
     flavor: "A dragonfly that lit upon the point fell to the ground in two."

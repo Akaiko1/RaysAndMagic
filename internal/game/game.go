@@ -73,17 +73,6 @@ type MagicProjectile struct {
 	AoE                bool // monster projectile: on hit, splash damage to the whole party
 }
 
-type MeleeAttack struct {
-	ID         string  // Unique identifier
-	X, Y       float64 // Current position
-	VelX, VelY float64 // Velocity
-	Damage     int
-	LifeTime   int // Frames remaining
-	Active     bool
-	WeaponName string // Name of weapon used for combat messages
-	Crit       bool   // Critical hit flag
-}
-
 // SlashEffect represents a visual melee swing (a per-weapon pixel-particle
 // flourish; see drawMeleeParticles).
 type SlashEffect struct {
@@ -216,7 +205,6 @@ type MMGame struct {
 
 	// Combat effects
 	magicProjectiles []MagicProjectile
-	meleeAttacks     []MeleeAttack
 	arrows           []Arrow
 	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
 
@@ -504,7 +492,6 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		skyImg:           skyImg,
 		groundImg:        groundImg,
 		magicProjectiles: make([]MagicProjectile, 0),
-		meleeAttacks:     make([]MeleeAttack, 0),
 		arrows:           make([]Arrow, 0),
 		slashEffects:     make([]SlashEffect, 0),
 		spellHitEffects:  make([]SpellHitEffect, 0),
@@ -1875,60 +1862,4 @@ func (mpw *MagicProjectileWrapper) GetLifetime() int {
 
 func (mpw *MagicProjectileWrapper) SetLifetime(lifetime int) {
 	mpw.MagicProjectile.LifeTime = lifetime
-}
-
-// MeleeAttackWrapper implements entities.ProjectileUpdateInterface
-type MeleeAttackWrapper struct {
-	MeleeAttack     *MeleeAttack
-	collisionSystem *collision.CollisionSystem
-	projectileID    string
-	game            *MMGame
-}
-
-func (mw *MeleeAttackWrapper) Update() {
-	mw.MeleeAttack.LifeTime--
-	if mw.MeleeAttack.LifeTime <= 0 {
-		mw.MeleeAttack.Active = false
-	}
-}
-
-func (mw *MeleeAttackWrapper) IsActive() bool {
-	return mw.MeleeAttack.Active && mw.MeleeAttack.LifeTime > 0
-}
-
-func (mw *MeleeAttackWrapper) GetPosition() (float64, float64) {
-	return mw.MeleeAttack.X, mw.MeleeAttack.Y
-}
-
-func (mw *MeleeAttackWrapper) SetPosition(x, y float64) {
-	mw.MeleeAttack.X = x
-	mw.MeleeAttack.Y = y
-	// Update collision system position
-	if mw.collisionSystem != nil {
-		mw.collisionSystem.UpdateEntity(mw.projectileID, x, y)
-	}
-}
-
-func (mw *MeleeAttackWrapper) GetVelocity() (float64, float64) {
-	return mw.MeleeAttack.VelX, mw.MeleeAttack.VelY
-}
-
-func (mw *MeleeAttackWrapper) SetVelocity(vx, vy float64) {
-	mw.MeleeAttack.VelX = vx
-	mw.MeleeAttack.VelY = vy
-}
-
-func (mw *MeleeAttackWrapper) OnCollision(hitX, hitY float64) {
-	if mw.MeleeAttack == nil {
-		return
-	}
-	mw.MeleeAttack.Active = false
-}
-
-func (mw *MeleeAttackWrapper) GetLifetime() int {
-	return mw.MeleeAttack.LifeTime
-}
-
-func (mw *MeleeAttackWrapper) SetLifetime(lifetime int) {
-	mw.MeleeAttack.LifeTime = lifetime
 }

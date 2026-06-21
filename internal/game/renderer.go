@@ -2954,16 +2954,16 @@ func selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.
 	return sprite.SubImage(rect).(*ebiten.Image), h, h
 }
 
-// drawProjectiles draws magic projectiles, sword attacks, and arrows
+// drawProjectiles draws moving spell and weapon projectiles. Melee swings render
+// through slashEffects, not this projectile pass.
 func (r *Renderer) drawProjectiles(screen *ebiten.Image) {
 	r.drawMagicProjectiles(screen)
-	r.drawMeleeAttacks(screen)
 	r.drawArrows(screen)
 }
 
 // projectileProjection bundles the camera-space projection of a point-like
-// moving entity (magic projectile, melee swing, arrow). Returned by
-// projectMovingEntity when the entity passes range / FOV / depth-buffer culls.
+// moving projectile. Returned by projectMovingEntity when the entity passes
+// range / FOV / depth-buffer culls.
 type projectileProjection struct {
 	screenX int
 	screenY int
@@ -3234,80 +3234,6 @@ func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dir
 		col := mixColor(hot, core, edge)
 		flick := 0.65 + 0.35*auraHash(id, k, 5, int(fc))
 		r.drawGlowSprite(screen, px, py, qs, col, (0.85-0.4*edge)*flick*critBoost, additiveGlowBlend)
-	}
-}
-
-// drawMeleeAttacks draws all active melee attacks
-func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
-	for _, attack := range r.game.meleeAttacks {
-		if !attack.Active {
-			continue
-		}
-
-		weaponDef := lookupWeaponConfigByName(attack.WeaponName)
-		if weaponDef == nil || weaponDef.Graphics == nil {
-			continue // Skip rendering if weapon config missing
-		}
-
-		proj, ok := r.projectMovingEntity(attack.X, attack.Y,
-			weaponDef.Graphics.BaseSize, weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize)
-		if !ok {
-			continue
-		}
-		screenX := proj.screenX
-		screenY := proj.screenY
-		attackSize := proj.size
-
-		// Draw collision box if enabled (draw first, so it's behind the attack)
-		if r.game.showCollisionBoxes {
-			// Get world-space collision box dimensions
-			var worldColW, worldColH float64
-			if r.game.collisionSystem != nil {
-				// Use unique ID for direct lookup
-				if entity := r.game.collisionSystem.GetEntityByID(attack.ID); entity != nil && entity.BoundingBox != nil {
-					worldColW = entity.BoundingBox.Width
-					worldColH = entity.BoundingBox.Height
-				} else {
-					worldColW, worldColH = float64(weaponDef.Graphics.BaseSize), float64(weaponDef.Graphics.BaseSize)
-				}
-			} else {
-				worldColW, worldColH = float64(weaponDef.Graphics.BaseSize), float64(weaponDef.Graphics.BaseSize)
-			}
-			// Apply the same distance-based scaling as the attack visual
-			scaleFactor := float64(attackSize) / float64(weaponDef.Graphics.BaseSize)
-			screenColW := int(worldColW * scaleFactor)
-			screenColH := int(worldColH * scaleFactor)
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (attackSize-screenColH)/2
-				boxColor := color.RGBA{255, 255, 0, 120} // Yellow, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
-		}
-
-		// Draw attack using weapon-specific color from config
-		attackColor := weaponDef.Graphics.Color
-
-		opts := r.sharedDrawOpts()
-		opts.GeoM.Scale(float64(attackSize), float64(attackSize))
-		opts.GeoM.Translate(float64(screenX-attackSize/2), float64(screenY))
-		opts.ColorScale.Scale(
-			float32(attackColor[0])/255,
-			float32(attackColor[1])/255,
-			float32(attackColor[2])/255,
-			1,
-		)
-		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 

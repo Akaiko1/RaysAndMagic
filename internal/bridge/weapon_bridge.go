@@ -26,6 +26,7 @@ func getWeaponFromConfig(weaponKey string) (*items.WeaponDefinitionFromYAML, boo
 	return &items.WeaponDefinitionFromYAML{
 		Name:        weaponDef.Name,
 		Description: weaponDef.Description,
+		Flavor:      weaponDef.Flavor,
 		Category:    weaponDef.Category,
 		Rarity:      weaponDef.Rarity,
 		Value:       weaponDef.Value,
