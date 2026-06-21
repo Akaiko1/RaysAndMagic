@@ -2323,16 +2323,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	camX := r.game.camera.X
 	camY := r.game.camera.Y
 	camAngle := r.game.camera.Angle
-	fov := r.game.camera.FOV
 	viewDistSq := r.game.camera.ViewDist * r.game.camera.ViewDist
 
 	// Precompute camera direction for camera-space depth calculations
 	camDirX := math.Cos(camAngle)
 	camDirY := math.Sin(camAngle)
-
-	// Precompute frustum culling values
-	halfFOV := fov / 2
-	fovMargin := halfFOV + 0.1
 
 	// Get player's current tile for sprite culling
 	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
@@ -2358,18 +2353,6 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 			depthPerp := dx*camDirX + dy*camDirY
 			if depthPerp <= 0 {
-				continue
-			}
-
-			entityAngle := math.Atan2(dy, dx)
-			angleDiff := entityAngle - camAngle
-			for angleDiff > math.Pi {
-				angleDiff -= 2 * math.Pi
-			}
-			for angleDiff < -math.Pi {
-				angleDiff += 2 * math.Pi
-			}
-			if math.Abs(angleDiff) > fovMargin {
 				continue
 			}
 
