@@ -48,7 +48,7 @@ spells:
     description: "Launches a small, fast bolt of fire"
     school: "fire"
     level: 1
-    spell_points_cost: 1
+    spell_points_cost: 3
     cooldown_seconds: 0.8
     duration: 0
     projectile_size: 10

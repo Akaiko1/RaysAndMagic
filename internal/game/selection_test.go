@@ -40,6 +40,15 @@ func TestEnsureSelectedCharCanAct_NoopWhenSelectedIsAlive(t *testing.T) {
 	}
 }
 
+func TestEnsureSelectedCharCanAct_KeepsExhaustedLivingSelectedForUI(t *testing.T) {
+	g := selectionTestGame(t)
+	g.party.Members[0].ActionsRemaining = 0
+	g.ensureSelectedCharCanAct()
+	if g.selectedChar != 0 {
+		t.Errorf("selectedChar moved off exhausted living member: %d, want 0", g.selectedChar)
+	}
+}
+
 func TestEnsureSelectedCharCanAct_AdvancesWhenSelectedIsDead(t *testing.T) {
 	g := selectionTestGame(t)
 	g.party.Members[0].HitPoints = 0
@@ -144,5 +153,53 @@ func TestConsumeSelectedCharAction_NoopInRealTime(t *testing.T) {
 	g.consumeSelectedCharAction()
 	if got := g.party.Members[0].ActionsRemaining; got != before {
 		t.Errorf("ActionsRemaining changed in real-time mode: %d -> %d", before, got)
+	}
+}
+
+func TestStartPartyTurn_AssignsSpeedBonusActionsByFastestMember(t *testing.T) {
+	g := selectionTestGame(t)
+	speeds := []int{10, 26, 20, 18}
+	for i, speed := range speeds {
+		g.party.Members[i].Speed = speed
+		g.party.Members[i].ActionsRemaining = 0
+	}
+
+	g.startPartyTurn()
+
+	got := []int{
+		g.party.Members[0].ActionsRemaining,
+		g.party.Members[1].ActionsRemaining,
+		g.party.Members[2].ActionsRemaining,
+		g.party.Members[3].ActionsRemaining,
+	}
+	want := []int{1, 2, 1, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("slot %d actions=%d, want %d (all actions=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestStartPartyTurn_TwoSpeedBonusesGoToTwoFastestTieBySlot(t *testing.T) {
+	g := selectionTestGame(t)
+	speeds := []int{51, 30, 51, 10}
+	for i, speed := range speeds {
+		g.party.Members[i].Speed = speed
+		g.party.Members[i].ActionsRemaining = 0
+	}
+
+	g.startPartyTurn()
+
+	got := []int{
+		g.party.Members[0].ActionsRemaining,
+		g.party.Members[1].ActionsRemaining,
+		g.party.Members[2].ActionsRemaining,
+		g.party.Members[3].ActionsRemaining,
+	}
+	want := []int{2, 1, 2, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("slot %d actions=%d, want %d (all actions=%v)", i, got[i], want[i], got)
+		}
 	}
 }

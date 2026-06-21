@@ -91,8 +91,9 @@ func TestBless_SwellsAndShrinksMaxima(t *testing.T) {
 	if char.MaxHitPoints != maxHPBefore+10*endurMult {
 		t.Errorf("blessed MaxHP = %d, want %d", char.MaxHitPoints, maxHPBefore+10*endurMult)
 	}
-	if char.MaxSpellPoints != maxSPBefore+20 { // +10 Int +10 Pers
-		t.Errorf("blessed MaxSP = %d, want %d", char.MaxSpellPoints, maxSPBefore+20)
+	wantSP := maxSPBefore + 10 + 10/character.MaxSPPersonalityDivisor
+	if char.MaxSpellPoints != wantSP {
+		t.Errorf("blessed MaxSP = %d, want %d", char.MaxSpellPoints, wantSP)
 	}
 
 	// Expire through the registry tick (the real path).

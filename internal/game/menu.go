@@ -57,6 +57,7 @@ type GameSave struct {
 	TurnBasedRotCooldown  int  `json:"turn_based_rot_cooldown,omitempty"`
 	MonsterTurnResolved   bool `json:"monster_turn_resolved,omitempty"`
 	TurnBasedSpRegenCount int  `json:"turn_based_sp_regen_count,omitempty"`
+	ExtraMonsterAction    bool `json:"extra_monster_action,omitempty"`
 
 	// Utility/buff state
 	TorchLightActive       bool             `json:"torch_light_active,omitempty"`
@@ -761,6 +762,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		TurnBasedRotCooldown:  g.turnBasedRotCooldown,
 		MonsterTurnResolved:   g.monsterTurnResolved,
 		TurnBasedSpRegenCount: g.turnBasedSpRegenCount,
+		ExtraMonsterAction:    g.turnBasedExtraMonsterAction,
 		TorchLightActive:      g.torchLightActive,
 		TorchLightDuration:    g.torchLightDuration,
 		TorchLightRadius:      g.torchLightRadius,
@@ -1001,6 +1003,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved
 	g.turnBasedSpRegenCount = save.TurnBasedSpRegenCount
+	g.turnBasedExtraMonsterAction = save.ExtraMonsterAction
 
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive

@@ -384,6 +384,15 @@ type MMGame struct {
 	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
 	monsterTurnResolved   bool // Whether monster turn already processed this round
 	turnBasedSpRegenCount int  // Counter for turn-based SP regeneration (every 5 turns)
+	// turnBasedExtraMonsterAction grants the next monster turn one extra action
+	// pass when the party attacks/casts first and then retreats in the same TB
+	// round. This closes infinite shoot-and-step-back kiting without forbidding
+	// tactical retreats outright.
+	turnBasedExtraMonsterAction bool
+	turnBasedMonsterPassesLeft  int
+	turnBasedMonsterPassDelay   int
+	turnBasedMonsterStatusTick  bool
+	turnBasedMonsterStunned     map[*monster.Monster3D]bool
 
 	// Main menu (ESC)
 	mainMenuOpen      bool
@@ -1114,10 +1123,10 @@ func (g *MMGame) GetPartyActionsUsed() int {
 	return g.partyActionsUsed
 }
 
-// canSelectChar reports whether the player can switch selection to the given
-// party index in turn-based mode: the character must still be able to act
-// (alive + conscious) AND have at least one action slot left. In real-time
-// mode every index is selectable — callers gate this with turnBasedMode.
+// canSelectChar reports whether the party member can spend a turn-based action
+// right now: alive + conscious and at least one action slot left. Manual UI
+// selection is looser; exhausted living members can still be selected for stats
+// and inventory.
 func (g *MMGame) canSelectChar(idx int) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
 		return false
@@ -1302,20 +1311,51 @@ func (g *MMGame) ensureSelectedCanActRT() {
 	}
 }
 
-// startPartyTurn resets ActionsRemaining for every able-bodied party member
-// based on their effective Speed and snaps selectedChar to the first one.
-// Called when entering turn-based mode and at the end of each monster turn.
-// KO members get 0 slots — they skip the round entirely.
+// startPartyTurn resets ActionsRemaining for every able-bodied party member,
+// then grants a small party-wide pool of Speed bonus actions to the fastest
+// living members (tie-break: lower party slot). Called when entering
+// turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	for _, m := range g.party.Members {
 		if m.CanAct() {
-			m.ActionsRemaining = m.ActionSlotsForTurn()
+			m.ActionsRemaining = 1
 		} else {
 			m.ActionsRemaining = 0
 		}
 	}
+	g.assignTurnBasedSpeedBonusActions()
 	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
 		g.selectedChar = idx
+	}
+}
+
+func (g *MMGame) assignTurnBasedSpeedBonusActions() {
+	bonusActions := 0
+	for _, m := range g.party.Members {
+		if m != nil && m.CanAct() {
+			if tier := m.SpeedBonusActionTier(); tier > bonusActions {
+				bonusActions = tier
+			}
+		}
+	}
+	for bonusActions > 0 {
+		bestIdx := -1
+		bestSpeed := -1
+		for i, m := range g.party.Members {
+			if m == nil || !m.CanAct() || m.ActionsRemaining > 1 {
+				continue
+			}
+			speed := m.GetEffectiveSpeed()
+			if speed > bestSpeed {
+				bestIdx = i
+				bestSpeed = speed
+			}
+		}
+		if bestIdx < 0 {
+			return
+		}
+		g.party.Members[bestIdx].ActionsRemaining++
+		bonusActions--
 	}
 }
 
@@ -1337,6 +1377,19 @@ func (g *MMGame) endPartyTurn() {
 	g.monsterTurnResolved = false
 }
 
+// endPartyTurnAfterMovement spends every remaining party action and ends the
+// turn. Moving after at least one attack/cast grants monsters an extra action
+// pass as anti-kiting pressure; opening the round with movement remains normal.
+func (g *MMGame) endPartyTurnAfterMovement() {
+	if g.partyActionsUsed > 0 {
+		g.turnBasedExtraMonsterAction = true
+	}
+	for _, m := range g.party.Members {
+		m.ActionsRemaining = 0
+	}
+	g.endPartyTurn()
+}
+
 // ensureSelectedCharCanAct auto-advances selectedChar to the next eligible
 // member when the current one can no longer act. Necessary because a party
 // member can become KO mid-party-turn from sources outside the action loop:
@@ -1347,6 +1400,11 @@ func (g *MMGame) endPartyTurn() {
 func (g *MMGame) ensureSelectedCharCanAct() {
 	if !g.turnBasedMode {
 		return
+	}
+	if g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
+		if m := g.party.Members[g.selectedChar]; m != nil && m.CanAct() {
+			return
+		}
 	}
 	if g.canSelectChar(g.selectedChar) {
 		return
@@ -1367,6 +1425,7 @@ func (g *MMGame) consumeSelectedCharAction() {
 	selected := g.party.Members[g.selectedChar]
 	if selected.ActionsRemaining > 0 {
 		selected.ActionsRemaining--
+		g.partyActionsUsed++
 	}
 	if selected.ActionsRemaining == 0 {
 		if g.partyAllExhausted() {
@@ -1406,9 +1465,19 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.turnBasedMoveCooldown = 0
 		g.turnBasedRotCooldown = 0
 		g.monsterTurnResolved = false
+		g.turnBasedExtraMonsterAction = false
+		g.turnBasedMonsterPassesLeft = 0
+		g.turnBasedMonsterPassDelay = 0
+		g.turnBasedMonsterStatusTick = false
+		g.turnBasedMonsterStunned = nil
 		g.startPartyTurn()
 		g.AddCombatMessage("Turn-based mode activated!")
 	} else {
+		g.turnBasedExtraMonsterAction = false
+		g.turnBasedMonsterPassesLeft = 0
+		g.turnBasedMonsterPassDelay = 0
+		g.turnBasedMonsterStatusTick = false
+		g.turnBasedMonsterStunned = nil
 		g.AddCombatMessage("Real-time mode activated!")
 	}
 }

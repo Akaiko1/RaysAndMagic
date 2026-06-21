@@ -112,6 +112,10 @@ const (
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = 3
 
+	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
+	// monster action pass and the anti-kite extra pass.
+	TurnBasedExtraMonsterActionDelaySeconds = 0.18
+
 	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
 	CampFoodCost         = 1

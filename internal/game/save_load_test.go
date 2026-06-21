@@ -95,6 +95,7 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.turnBasedRotCooldown = 9
 	game.monsterTurnResolved = true
 	game.turnBasedSpRegenCount = 4
+	game.turnBasedExtraMonsterAction = true
 
 	game.torchLightActive = true
 	game.torchLightDuration = 120
@@ -145,6 +146,9 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	}
 	if loaded.turnBasedSpRegenCount != game.turnBasedSpRegenCount {
 		t.Fatalf("turnBasedSpRegenCount: got %d want %d", loaded.turnBasedSpRegenCount, game.turnBasedSpRegenCount)
+	}
+	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
+		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)
 	}
 
 	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {

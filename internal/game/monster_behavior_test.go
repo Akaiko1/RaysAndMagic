@@ -72,6 +72,87 @@ func monsterTileCoords(m *monster.Monster3D, ts float64) (int, int) {
 	return int(m.X / ts), int(m.Y / ts)
 }
 
+func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 20, 20)
+	game.currentTurn = 0
+	for _, m := range game.party.Members {
+		m.ActionsRemaining = 1
+	}
+
+	game.consumeSelectedCharAction()
+	if !game.turnBasedMode || game.partyActionsUsed != 1 {
+		t.Fatalf("test setup failed: turnBased=%v partyActionsUsed=%d", game.turnBasedMode, game.partyActionsUsed)
+	}
+
+	game.endPartyTurnAfterMovement()
+
+	if !game.turnBasedExtraMonsterAction {
+		t.Fatalf("moving after spending a TB action must grant monsters an extra action pass")
+	}
+	if game.currentTurn != 1 {
+		t.Fatalf("currentTurn=%d, want monster turn", game.currentTurn)
+	}
+	for i, m := range game.party.Members {
+		if m.ActionsRemaining != 0 {
+			t.Fatalf("member %d ActionsRemaining=%d, want 0 after movement", i, m.ActionsRemaining)
+		}
+	}
+}
+
+func TestTurnBased_ExtraMonsterActionMovesTwiceAndResets(t *testing.T) {
+	run := func(extra bool) (int, bool) {
+		game, gl, ts := tbBehaviorGame(t, 20, 20)
+		placePlayerAtTile(game, 10, 10, ts)
+		m := spawnMonsterAtTile(game, "goblin", 10, 7, ts)
+		game.turnBasedExtraMonsterAction = extra
+
+		runOneMonsterTurn(game, gl)
+
+		_, my := monsterTileCoords(m, ts)
+		return my, game.turnBasedExtraMonsterAction
+	}
+
+	normalY, normalExtra := run(false)
+	if normalY != 8 {
+		t.Fatalf("normal monster turn moved to y=%d, want 8 (one tile)", normalY)
+	}
+	if normalExtra {
+		t.Fatalf("normal monster turn should not set extra action flag")
+	}
+
+	game, gl, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := spawnMonsterAtTile(game, "goblin", 10, 7, ts)
+	game.turnBasedExtraMonsterAction = true
+
+	runOneMonsterTurn(game, gl)
+	_, firstPassY := monsterTileCoords(m, ts)
+	if firstPassY != 8 {
+		t.Fatalf("first pass moved to y=%d, want 8 before the delayed extra pass", firstPassY)
+	}
+	if game.currentTurn != 1 {
+		t.Fatalf("currentTurn=%d, want monster turn while waiting for delayed extra pass", game.currentTurn)
+	}
+	if game.turnBasedMonsterPassDelay <= 0 {
+		t.Fatalf("turnBasedMonsterPassDelay=%d, want visible delay before extra pass", game.turnBasedMonsterPassDelay)
+	}
+
+	for frames := 0; game.currentTurn == 1 && frames < 120; frames++ {
+		runOneMonsterTurn(game, gl)
+	}
+	if game.currentTurn != 0 {
+		t.Fatalf("monster turn did not finish after delayed extra pass")
+	}
+
+	_, finalY := monsterTileCoords(m, ts)
+	if finalY != 9 {
+		t.Fatalf("extra monster turn moved to y=%d, want 9 after two tile actions", finalY)
+	}
+	if game.turnBasedExtraMonsterAction {
+		t.Fatalf("extra monster action flag must reset after the monster turn consumes it")
+	}
+}
+
 // Melee monsters approach one tile per turn, only ever strike from a
 // cardinally-adjacent tile (Manhattan distance 1), and never step onto the
 // player's own tile.

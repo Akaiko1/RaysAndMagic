@@ -28,7 +28,7 @@ movement:
 # Camera/3D rendering settings
 camera:
   field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
-  view_distance: 1600          # 10 * tile_size
+  view_distance: 3200          # 50 * tile_size
 
 # UI settings
 ui:

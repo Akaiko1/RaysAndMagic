@@ -557,9 +557,9 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 	cs.engageTurnBasedPackOnHit(monster)
 	if !monster.IsAlive() {
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.awardExperienceAndGold(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's mastery pierces %s's dodge for %d true damage and kills it!", attackerName, monster.Name, actual))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	} else {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges, but %s's mastery lands %d true damage! (HP: %d/%d)", monster.Name, attackerName, actual, monster.HitPoints, monster.MaxHitPoints))
 	}
@@ -641,10 +641,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
 
 		// Award experience and gold using centralized function
-		cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.awardExperienceAndGold(monster)
 
 		// Add experience/gold award message
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	}
 }
 
@@ -1855,10 +1855,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.engageTurnBasedPackOnHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.awardExperienceAndGold(monster)
 
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 		return
 	}
 
@@ -1924,14 +1924,14 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	if !monster.IsAlive() {
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.awardExperienceAndGold(monster)
 		prefix := ""
 		if isCrit {
 			prefix = "Critical! "
 		}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
 			prefix, attackerName, monster.Name, actualDamage))
-		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", monster.Experience))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	} else {
 		prefix := ""
 		if isCrit {
@@ -1990,8 +1990,8 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 
 		if !m.IsAlive() {
 			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			cs.awardExperienceAndGold(m)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", weaponName, m.Name, m.Experience))
+			xpAwarded := cs.awardExperienceAndGold(m)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", weaponName, m.Name, xpAwarded))
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d %s damage.", weaponName, m.Name, actual, damageTypeStr))
 		}
@@ -2098,10 +2098,22 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 	return scaledProjBox.Intersects(scaledMonsterBox)
 }
 
-// awardExperienceAndGold gives experience and gold to the party when a monster is killed
-func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
+// awardExperienceAndGold gives experience and gold to the party when a monster is killed.
+// Boss summons keep their regular drops/gold/quest behavior, but grant no XP.
+func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) int {
+	if monster == nil || cs.game.party == nil || len(cs.game.party.Members) == 0 {
+		return 0
+	}
+
+	xpAwarded := monster.Experience
+	if monster.SummonedBy != "" {
+		xpAwarded = 0
+	}
+
 	// Each living hero — active, reserve, or captive — gets the per-member share.
-	cs.game.grantSharedXP(monster.Experience / len(cs.game.party.Members))
+	if xpAwarded > 0 {
+		cs.game.grantSharedXP(xpAwarded / len(cs.game.party.Members))
+	}
 
 	// Check for loot drops
 	drops := cs.checkMonsterLootDrop(monster)
@@ -2117,6 +2129,8 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) {
 		}
 		cs.game.addLootBagDrop(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
 	}
+
+	return xpAwarded
 }
 
 // updateQuestProgress updates quest progress when a monster is killed
@@ -2417,8 +2431,8 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		if !m.IsAlive() {
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
 			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			cs.awardExperienceAndGold(m)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, m.Experience))
+			xpAwarded := cs.awardExperienceAndGold(m)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, xpAwarded))
 		}
 	}
 
@@ -2749,7 +2763,7 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 // awardExperienceOnly grants the party a monster's XP with NO gold or loot — used
 // when a bound (charmed) monster perishes as the party leaves the map.
 func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
-	if len(cs.game.party.Members) == 0 {
+	if monster == nil || monster.SummonedBy != "" || cs.game.party == nil || len(cs.game.party.Members) == 0 {
 		return
 	}
 	// Same per-member share as awardExperienceAndGold, but no gold/loot. Routed

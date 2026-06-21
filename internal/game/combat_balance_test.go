@@ -28,7 +28,7 @@ import (
 )
 
 // balanceRosterEntry is one character in the balance baseline party.
-// MaxHP and MaxSP are derived (HP=End*2+Lvl*3; SP=Int+Per+equipPersBonus+Lvl*2)
+// MaxHP and MaxSP are derived (HP=End*2+Lvl*3; SP=Int+Per/3+Lvl*2)
 // so we don't pin them here — CalculateDerivedStats reconstructs them after
 // equipment is applied.
 type balanceRosterEntry struct {
@@ -267,6 +267,40 @@ func allMonstersDead(monsters []*monsterPkg.Monster3D) bool {
 	return true
 }
 
+func turnBasedActionSlotsForParty(party []*character.MMCharacter) map[*character.MMCharacter]int {
+	slots := make(map[*character.MMCharacter]int, len(party))
+	bonusActions := 0
+	for _, c := range party {
+		if !c.CanAct() {
+			continue
+		}
+		slots[c] = 1
+		if tier := c.SpeedBonusActionTier(); tier > bonusActions {
+			bonusActions = tier
+		}
+	}
+	for bonusActions > 0 {
+		var best *character.MMCharacter
+		bestSpeed := -1
+		for _, c := range party {
+			if !c.CanAct() || slots[c] == 0 || slots[c] > 1 {
+				continue
+			}
+			speed := c.GetEffectiveSpeed()
+			if speed > bestSpeed {
+				best = c
+				bestSpeed = speed
+			}
+		}
+		if best == nil {
+			return slots
+		}
+		slots[best]++
+		bonusActions--
+	}
+	return slots
+}
+
 // runOneFight runs a single combat between party and monsters; both slices
 // are mutated. Returns whether the monsters were all killed, whether the
 // party was wiped, and how many rounds elapsed.
@@ -275,11 +309,12 @@ func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*m
 	for ; rounds < maxRounds; rounds++ {
 		// Party turn — each char uses their action slots on the
 		// lowest-HP alive monster (focus-fire).
+		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn()
+			slots := actionSlots[c]
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {
@@ -379,12 +414,12 @@ func TestCombatBalance_RosterDerivedStats(t *testing.T) {
 		name   string
 		hp, sp int
 	}{
-		// MaxSP includes EFFECTIVE Intellect+Personality (equipment counts):
+		// MaxSP includes EFFECTIVE Intellect+Personality/3 (equipment counts):
 		// Lysander's magic_ring (+Int via intellect_scaling_divisor) now adds SP.
-		{"Gareth", 65, 30},
-		{"Lysander", 45, 48},
-		{"Celestine", 45, 48},
-		{"Silvelyn", 45, 35},
+		{"Gareth", 65, 23},
+		{"Lysander", 45, 39},
+		{"Celestine", 45, 30},
+		{"Silvelyn", 45, 28},
 	}
 	for i, want := range expected {
 		got := party[i]
@@ -1062,11 +1097,12 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 		tryUsePotions(cs)
 		// Party turn — each char uses their action slots on the
 		// lowest-HP alive monster.
+		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn()
+			slots := actionSlots[c]
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {

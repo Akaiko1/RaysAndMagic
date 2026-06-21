@@ -14,6 +14,7 @@ import (
 const (
 	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
+	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
 	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
 	MeditationRegenPerTier = 3
@@ -116,9 +117,10 @@ type MMCharacter struct {
 	OwedLevelChoices []int
 
 	// ActionsRemaining tracks how many attack/spell actions this character
-	// has left in the current turn-based round. Refilled by ActionSlotsForTurn
-	// at party-turn start, decremented on each attack/spell, set to 0 on
-	// party movement (which immediately ends the round). Unused in real-time.
+	// has left in the current turn-based round. Refilled at party-turn start
+	// (1 base action plus any party-wide Speed bonus assigned to this member),
+	// decremented on each attack/spell, set to 0 on party movement (which
+	// immediately ends the round). Unused in real-time.
 	ActionsRemaining int
 
 	// RTCooldown is this character's remaining real-time action cooldown in
@@ -129,25 +131,24 @@ type MMCharacter struct {
 	RTCooldown int
 }
 
-// Turn-based action-slot thresholds on effective Speed. Single source shared by
-// ActionSlotsForTurn (mechanic) and the Speed stat tooltip (description).
+// Turn-based party bonus-action thresholds on effective Speed. Single source
+// shared by MMGame.startPartyTurn (mechanic) and the Speed stat tooltip.
 const (
-	SpeedActionSlot2Threshold = 25 // Speed > this → 2 actions/turn
-	SpeedActionSlot3Threshold = 50 // Speed > this → 3 actions/turn
+	SpeedBonusAction1Threshold = 25 // Any living Speed > this → +1 party bonus action
+	SpeedBonusAction2Threshold = 50 // Any living Speed > this → +2 party bonus actions
 )
 
-// ActionSlotsForTurn returns the number of attack/spell slots this character
-// gets per turn-based round, based on effective Speed (see the threshold
-// constants above; buffs flow in via BuffBonuses).
-func (c *MMCharacter) ActionSlotsForTurn() int {
+// SpeedBonusActionTier returns how many party-wide bonus action slots this
+// character unlocks if they are the fastest living member this turn.
+func (c *MMCharacter) SpeedBonusActionTier() int {
 	speed := c.GetEffectiveSpeed()
 	switch {
-	case speed > SpeedActionSlot3Threshold:
-		return 3
-	case speed > SpeedActionSlot2Threshold:
+	case speed > SpeedBonusAction2Threshold:
 		return 2
-	default:
+	case speed > SpeedBonusAction1Threshold:
 		return 1
+	default:
+		return 0
 	}
 }
 
@@ -332,13 +333,13 @@ func derivedStatMultipliers(cfg *config.Config) (endurMult, levelHPMult, levelSP
 // (base + equipment + buffs) — the single formula every recalc path shares:
 //
 //	MaxHP = effEndurance×endurMult + Level×levelHPMult (+ Bodybuilding)
-//	MaxSP = effIntellect + effPersonality + Level×levelSPMult
+//	MaxSP = effIntellect + effPersonality/MaxSPPersonalityDivisor + Level×levelSPMult
 func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 	endurMult, levelHPMult, levelSPMult := derivedStatMultipliers(cfg)
 	_, effInt, effPers, effEnd, _, _, _ := c.GetEffectiveStats()
 	baseMaxHP := effEnd*endurMult + c.Level*levelHPMult
 	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
-	c.MaxSpellPoints = effInt + effPers + c.Level*levelSPMult
+	c.MaxSpellPoints = effInt + effPers/MaxSPPersonalityDivisor + c.Level*levelSPMult
 }
 
 // CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current

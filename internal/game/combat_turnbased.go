@@ -9,8 +9,10 @@ import (
 	"ugataima/internal/monster"
 )
 
-// updateMonstersTurnBased handles monster updates in turn-based mode
-// This function only executes ONCE per monster turn (when monsterTurnResolved is false)
+// updateMonstersTurnBased handles monster updates in turn-based mode.
+// A monster turn usually gives every participating monster one action pass.
+// If the party attacked/cast and then retreated in the previous party turn,
+// monsters get a second action pass as catch-up pressure.
 func (gl *GameLoop) updateMonstersTurnBased() {
 	if gl.game.currentTurn != 1 { // Not monster turn
 		return
@@ -19,9 +21,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
-	// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
-	gl.tickSteamZonesTB()
-
 	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
 	visionRange := tileSize * TurnBasedVisionRangeTiles
@@ -29,13 +28,39 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	// Cache player position for the loop
 	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
 
-	// Process each monster's turn (only those in vision range)
+	if gl.game.turnBasedMonsterPassesLeft <= 0 {
+		// Persistent damage zones (Hot Steam) sear once per monster turn in TB.
+		gl.tickSteamZonesTB()
+
+		gl.game.turnBasedMonsterPassesLeft = 1
+		if gl.game.turnBasedExtraMonsterAction {
+			gl.game.turnBasedMonsterPassesLeft = 2
+			gl.game.turnBasedExtraMonsterAction = false
+		}
+		gl.game.turnBasedMonsterStatusTick = false
+		gl.game.turnBasedMonsterStunned = make(map[*monster.Monster3D]bool)
+	}
+
+	if gl.game.turnBasedMonsterPassDelay > 0 {
+		gl.game.turnBasedMonsterPassDelay--
+		return
+	}
+
+	tickTurnStatuses := !gl.game.turnBasedMonsterStatusTick
+	gl.game.turnBasedMonsterStatusTick = true
+
+	// Process each monster's turn (only those in vision range).
 	for _, m := range gl.game.world.Monsters {
 		if !m.IsAlive() {
 			continue
 		}
-		if m.StunTurnsRemaining > 0 {
+		if gl.game.turnBasedMonsterStunned[m] {
+			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			continue
+		}
+		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			m.StunTurnsRemaining--
+			gl.game.turnBasedMonsterStunned[m] = true
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
@@ -43,7 +68,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// or stands adjacent and attacks (root pins movement, not actions).
 		// MUST tick before the Pacified/Bound branches: a bound undead still
 		// moves through monsterMoveTurnBased and its root must hold and decay.
-		m.TickRootTurn()
+		if tickTurnStatuses {
+			m.TickRootTurn()
+		}
 
 		// Pacified (Charm): holds position, never acts against the party.
 		if m.Pacified {
@@ -192,6 +219,19 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 	// Monsters finished moving: spring any traps they stepped onto.
 	gl.combat.sweepTrapTriggers()
+
+	gl.game.turnBasedMonsterPassesLeft--
+	if gl.game.turnBasedMonsterPassesLeft > 0 {
+		gl.game.turnBasedMonsterPassDelay = int(TurnBasedExtraMonsterActionDelaySeconds * float64(gl.game.config.GetTPS()))
+		if gl.game.turnBasedMonsterPassDelay < 1 {
+			gl.game.turnBasedMonsterPassDelay = 1
+		}
+		return
+	}
+
+	gl.game.turnBasedMonsterPassDelay = 0
+	gl.game.turnBasedMonsterStatusTick = false
+	gl.game.turnBasedMonsterStunned = nil
 
 	// Mark monster turn as processed before ending turn
 	gl.game.monsterTurnResolved = true
@@ -406,6 +446,10 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 func (gl *GameLoop) endMonsterTurn() {
 	gl.game.currentTurn = 0 // Party turn
 	gl.game.partyActionsUsed = 0
+	gl.game.turnBasedMonsterPassesLeft = 0
+	gl.game.turnBasedMonsterPassDelay = 0
+	gl.game.turnBasedMonsterStatusTick = false
+	gl.game.turnBasedMonsterStunned = nil
 	gl.game.startPartyTurn()
 	gl.game.monsterTurnResolved = true
 	// Don't spam combat log with turn messages

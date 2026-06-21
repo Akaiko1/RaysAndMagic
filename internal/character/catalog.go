@@ -173,23 +173,23 @@ func DefaultCharacterName(c CharacterClass) string {
 func StatDescription(stat string) string {
 	switch strings.ToLower(stat) {
 	case "might":
-		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
+		return "Improves damage for weapons that scale from Might."
 	case "intellect":
 		return fmt.Sprintf("Drives elemental spell damage (Intellect/%d) and trap damage (+(Int+Acc)/%d); "+
-			"adds to max spell points and to weapons that scale with Intellect.",
+			"adds to max spell points. Improves damage for weapons that scale from Intellect.",
 			spells.SpellIntellectDivisor, TrapStatScalingDivisor)
 	case "personality":
 		return fmt.Sprintf("Drives self-magic (Body/Mind/Spirit) damage (Personality/%d) and ALL healing "+
-			"(Personality/%d); adds to max spell points and SP regen.",
-			spells.SpellIntellectDivisor, spells.HealingPersonalityDivisor)
+			"(Personality/%d); adds Personality/%d to max spell points and improves SP regen.",
+			spells.SpellIntellectDivisor, spells.HealingPersonalityDivisor, MaxSPPersonalityDivisor)
 	case "endurance":
 		return "Increases max HP, armor-class scaling on equipped armor, and potion healing."
 	case "accuracy":
-		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy; "+
-			"feeds trap damage (+(Int+Acc)/%d).", WeaponPrimaryStatDivisor, TrapStatScalingDivisor)
+		return fmt.Sprintf("Improves damage for weapons that scale from Accuracy; "+
+			"feeds trap damage (+(Int+Acc)/%d).", TrapStatScalingDivisor)
 	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
-			SpeedActionSlot2Threshold, SpeedActionSlot3Threshold)
+		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode the fastest living party member grants party bonus actions (Speed >%d → +1, >%d → +2). Improves damage for weapons that scale from Speed.",
+			SpeedBonusAction1Threshold, SpeedBonusAction2Threshold)
 	case "luck":
 		return "Improves critical chance and Perfect Dodge."
 	default:

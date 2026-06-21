@@ -1017,8 +1017,8 @@ func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
 }
 
 // handleCharacterSelectionInput processes party character selection via 1-4
-// keys. In turn-based mode, characters that have already spent all their
-// action slots this round (or are KO) are not selectable.
+// keys. Selection is a UI/inventory focus, not permission to act: turn-based
+// action keys still gate on canSelectChar before attacking/casting.
 func (ih *InputHandler) handleCharacterSelectionInput() {
 	target := -1
 	switch {
@@ -1032,9 +1032,6 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 		target = 3
 	}
 	if target < 0 || target >= len(ih.game.party.Members) {
-		return
-	}
-	if ih.game.turnBasedMode && !ih.game.canSelectChar(target) {
 		return
 	}
 	ih.game.selectedChar = target
@@ -1418,16 +1415,12 @@ func (ih *InputHandler) handleMouseInput() {
 	// per-character cooldown + auto-advance, instead of a separate path here.
 
 	// Handle party character selection clicks (works both in and out of menu).
-	// In turn-based mode, skip portraits whose owner can't act this round
-	// (KO or already spent all their slots).
+	// Selection is allowed even when the member is out of TB actions; combat
+	// actions remain gated separately.
 	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
 		if targetCharIndex >= 0 {
-			if ih.game.turnBasedMode && !ih.game.canSelectChar(targetCharIndex) {
-				// Eat the click anyway so we don't fall through to other
-				// handlers thinking the click is unused.
-				ih.game.consumeLeftClick()
-			} else if ih.game.consumeLeftClick() {
+			if ih.game.consumeLeftClick() {
 				ih.game.selectedChar = targetCharIndex
 			}
 		}
@@ -2066,12 +2059,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	if moved {
-		// Movement is a party-wide commitment: it spends EVERY remaining
-		// action slot and ends the round immediately.
-		for _, m := range ih.game.party.Members {
-			m.ActionsRemaining = 0
-		}
-		ih.game.endPartyTurn()
+		ih.game.endPartyTurnAfterMovement()
 		return
 	}
 
