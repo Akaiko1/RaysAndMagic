@@ -1645,6 +1645,8 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.selectedSpellKey = ""   // No spell selected initially
 	ih.game.skillTrainerPopup = false
 	ih.game.selectedChoice = 0 // Reset encounter choice selection
+	ih.game.merchantBuyPage = 0
+	ih.game.merchantSellPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1906,17 +1908,26 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Check if clicking to buy/sell items (if NPC is merchant)
+	// Buy/sell clicks on the merchant icon grids. Cell rects + page state are
+	// shared with the renderer (merchantGridLayout/merchantCellRect); the pager
+	// buttons are consumed in the draw pass, so a click that misses every cell
+	// here falls through to flip the page. idx (absolute list position) keys the
+	// double-click so the same item keeps its identity across pages.
 	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
-		_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ih.game.config.GetScreenWidth(), ih.game.config.GetScreenHeight())
-		maxItems := 12
+		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
 
-		// Buy from merchant (left list)
-		for i := 0; i < len(ih.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
-			y := listY + i*rowH
-			if ih.game.consumeLeftClickIn(leftX-2, y-2, leftX+colW+1, y-2+rowH+1) {
-				if ih.dialogDoubleClick("merchant_buy", i) {
-					entry := ih.game.dialogNPC.MerchantStock[i]
+		// Buy from merchant (left grid).
+		stock := ih.game.dialogNPC.MerchantStock
+		buyStart := ih.game.merchantBuyPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := buyStart + slot
+			if idx >= len(stock) {
+				break
+			}
+			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("merchant_buy", idx) {
+					entry := stock[idx]
 					if entry.Quantity <= 0 {
 						ih.game.AddCombatMessage("That item is sold out.")
 						return
@@ -1931,19 +1942,24 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					entry.Quantity--
 					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
 					ih.resetDialogDoubleClick()
-					return
 				}
 				return
 			}
 		}
 
-		// Sell to merchant (right list)
+		// Sell to merchant (right grid).
 		if ih.game.dialogNPC.SellAvailable {
-			for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
-				y := listY + i*rowH
-				if ih.game.consumeLeftClickIn(rightX-2, y-2, rightX+colW+1, y-2+rowH+1) {
-					if ih.dialogDoubleClick("merchant_sell", i) {
-						item := ih.game.party.Inventory[i]
+			inv := ih.game.party.Inventory
+			sellStart := ih.game.merchantSellPage * merchantPageSize
+			for slot := 0; slot < merchantPageSize; slot++ {
+				idx := sellStart + slot
+				if idx >= len(inv) {
+					break
+				}
+				x, y, w, h := merchantCellRect(rightX, gridTop, slot)
+				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+					if ih.dialogDoubleClick("merchant_sell", idx) {
+						item := inv[idx]
 						base := item.Attributes["value"]
 						if base <= 0 {
 							ih.game.AddCombatMessage("This item has no value.")
@@ -1951,10 +1967,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 						}
 						price := ih.game.merchantSellPrice(base) // Merchant skill markup
 						ih.game.party.Gold += price
-						ih.game.party.RemoveItem(i)
+						ih.game.party.RemoveItem(idx)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 						ih.resetDialogDoubleClick()
-						return
 					}
 					return
 				}
@@ -1987,9 +2002,17 @@ func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 // shifted the list (selling removes the row; the next row slides under the
 // cursor and a stray click would sell it too).
 func (ih *InputHandler) resetDialogDoubleClick() {
-	ih.game.dialogLastClickTime = 0
-	ih.game.dialogLastClickedIdx = -1
-	ih.game.dialogLastClickZone = ""
+	ih.game.resetDialogClickTracker()
+}
+
+// resetDialogClickTracker clears the dialog double-click tracker. Shared with
+// the renderer so a merchant page flip (consumed in the Draw pass) also breaks
+// the chain — otherwise click-item → flip page → click same index could pair as
+// a double-click buy/sell despite the navigation in between.
+func (g *MMGame) resetDialogClickTracker() {
+	g.dialogLastClickTime = 0
+	g.dialogLastClickedIdx = -1
+	g.dialogLastClickZone = ""
 }
 
 // toggleTurnBasedMode switches between real-time and turn-based modes

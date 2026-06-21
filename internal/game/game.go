@@ -288,6 +288,8 @@ type MMGame struct {
 	selectedSpellKey    string         // Selected spell key for learning
 	selectedChoice      int            // Selected choice in encounter dialogs
 	dialogTab           int            // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
+	merchantBuyPage     int            // Merchant buy-grid page (0-based); read by both renderer and input
+	merchantSellPage    int            // Merchant sell-grid page (0-based)
 
 	// Spellbook UI
 	selectedSchool     int

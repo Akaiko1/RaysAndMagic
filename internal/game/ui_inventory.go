@@ -69,19 +69,10 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
 	pageSize := len(inventoryGridSlots)
-	totalItems := len(ui.game.party.Inventory)
-	totalPages := (totalItems + pageSize - 1) / pageSize
-	if totalPages < 1 {
-		totalPages = 1
-	}
-	// Clamp the page every frame so it stays valid when the inventory shrinks
+	totalPages := pageCount(len(ui.game.party.Inventory), pageSize)
+	// Clamp every frame so the page stays valid when the inventory shrinks
 	// (equip/discard) out from under the current page.
-	if ui.inventoryPage >= totalPages {
-		ui.inventoryPage = totalPages - 1
-	}
-	if ui.inventoryPage < 0 {
-		ui.inventoryPage = 0
-	}
+	clampPage(&ui.inventoryPage, totalPages)
 	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
 		idx := pageStart + slot
@@ -144,16 +135,29 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
 }
 
-// drawInventoryPager draws the "Page X/Y" indicator plus prev/next buttons
-// under the inventory grid and handles their clicks. It's a no-op when the
-// whole inventory fits on a single page (nothing to flip through).
+// drawInventoryPager draws the inventory grid's pager. It's a no-op when the
+// whole inventory fits on a single page (nothing to flip through). Flipping the
+// page breaks any in-flight double-click chain so navigating away and clicking
+// the same absolute index doesn't read as a double-click equip/use.
 func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, totalPages int) {
+	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
+	if ui.drawPager(screen, gridX, y, gridW, &ui.inventoryPage, totalPages, clickable) {
+		ui.lastClickedItem = -1
+		ui.lastClickTime = time.Time{}
+	}
+}
+
+// drawPager renders a "< Page x/y >" strip with prev/next buttons spanning width
+// w at (x,y), flipping *page on click. Shared by the inventory and merchant
+// grids. No-op for a single page. Click handling lives here (Draw phase) like
+// the rest of the icon-grid widgets. Returns true if the page changed this frame
+// so callers can break any double-click chain that a page flip interrupted.
+func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, totalPages int, clickable bool) bool {
 	if totalPages <= 1 {
-		return
+		return false
 	}
 	const btnW, btnH = 30, 18
 	mouseX, mouseY := ebiten.CursorPosition()
-	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
 
 	drawBtn := func(bx int, label string, enabled bool) bool {
 		bg := color.RGBA{70, 50, 30, 210}
@@ -169,13 +173,17 @@ func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, to
 		return enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
 	}
 
-	if drawBtn(gridX, "<", ui.inventoryPage > 0) {
-		ui.inventoryPage--
+	changed := false
+	if drawBtn(x, "<", *page > 0) {
+		*page--
+		changed = true
 	}
-	if drawBtn(gridX+gridW-btnW, ">", ui.inventoryPage < totalPages-1) {
-		ui.inventoryPage++
+	if drawBtn(x+w-btnW, ">", *page < totalPages-1) {
+		*page++
+		changed = true
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.inventoryPage+1, totalPages), gridX, y+2, gridW, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
+	return changed
 }
 
 const (

@@ -8,6 +8,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/highscore"
+	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
@@ -852,82 +853,122 @@ func (g *MMGame) merchantSellPrice(base int) int {
 	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
 }
 
-// drawMerchantDialog draws a buy/sell UI for merchant NPCs
+// drawMerchantDialog draws an icon-based buy/sell UI: a paginated stock grid on
+// the left, the party's inventory grid on the right, with a full item card on
+// hover. Click geometry is shared with the input handler via merchantGridLayout
+// / merchantCellRect, and the pager flips the page state on MMGame so both sides
+// agree.
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
-	// Title and greeting
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
 	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
 	greeting := "Bring your wares. I pay fair coin."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
+	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+46)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
 
-	// Gold
-	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-	ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
+	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
+	mouseX, mouseY := ebiten.CursorPosition()
 
-	_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
+	// Headers + faint divider between the two halves.
+	ebitenutil.DebugPrintAt(screen, "For Sale", leftX, gridTop-18)
+	ebitenutil.DebugPrintAt(screen, "Your Items", rightX, gridTop-18)
+	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-12, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
 
-	// Headers
-	ebitenutil.DebugPrintAt(screen, "For Sale:", leftX, listY-20)
-	ebitenutil.DebugPrintAt(screen, "Your Items:", rightX, listY-20)
+	var tooltipItem items.Item
+	var tooltipHasItem bool
 
-	// Merchant stock list
-	maxItems := 12
-	if len(ui.game.dialogNPC.MerchantStock) == 0 {
-		ebitenutil.DebugPrintAt(screen, "(No stock for sale)", leftX, listY)
+	// Buy grid (left): merchant stock.
+	stock := ui.game.dialogNPC.MerchantStock
+	buyPages := pageCount(len(stock), merchantPageSize)
+	clampPage(&ui.game.merchantBuyPage, buyPages)
+	if len(stock) == 0 {
+		ebitenutil.DebugPrintAt(screen, "(No stock for sale)", leftX, gridTop)
 	} else {
-		for i := 0; i < len(ui.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
-			entry := ui.game.dialogNPC.MerchantStock[i]
-			item := entry.Item
-			y := listY + i*rowH
-			stockLabel := fmt.Sprintf("%2d. %s", i+1, item.Name)
-			if entry.Quantity <= 0 {
-				stockLabel += " (Sold Out)"
+		start := ui.game.merchantBuyPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := start + slot
+			if idx >= len(stock) {
+				break
 			}
-			priceLabel := fmt.Sprintf("  %4d gold", ui.game.merchantBuyPrice(entry.Cost))
-
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= leftX-2 && mouseX <= leftX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
-			if isHover {
-				ui.drawUIBackground(screen, leftX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+			entry := stock[idx]
+			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
+			soldOut := entry.Quantity <= 0
+			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				tooltipItem = entry.Item
+				tooltipHasItem = true
 			}
-			drawColoredTextSegments(screen, leftX, y, []coloredTextSegment{
-				{text: stockLabel, color: ui.itemRarityColor(item)},
-				{text: priceLabel, color: color.White},
-			})
+			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
+			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
+			if soldOut {
+				priceText = "sold out"
+			}
+			drawCenteredDebugText(screen, priceText, x-6, y+h, w+12, merchantPriceH)
 		}
 	}
+	pagerChanged := ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true)
 
-	// Player inventory list (sell side)
+	// Sell grid (right): party inventory.
 	if !ui.game.dialogNPC.SellAvailable {
-		ebitenutil.DebugPrintAt(screen, "(Not buying goods)", rightX, listY)
+		ebitenutil.DebugPrintAt(screen, "(Not buying goods)", rightX, gridTop)
 	} else {
-		for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
-			item := ui.game.party.Inventory[i]
-			y := listY + i*rowH
-			price := ui.game.merchantSellPrice(item.Attributes["value"])
-			prefix := fmt.Sprintf("%2d. ", i+1)
-			nameField := fmt.Sprintf("%-18s", item.Name)
-			suffix := fmt.Sprintf("  %4d gold", price)
-
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= rightX-2 && mouseX <= rightX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
-			if isHover {
-				ui.drawUIBackground(screen, rightX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+		inv := ui.game.party.Inventory
+		sellPages := pageCount(len(inv), merchantPageSize)
+		clampPage(&ui.game.merchantSellPage, sellPages)
+		start := ui.game.merchantSellPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := start + slot
+			if idx >= len(inv) {
+				break
 			}
-			drawColoredTextSegments(screen, rightX, y, []coloredTextSegment{
-				{text: prefix, color: color.White},
-				{text: nameField, color: ui.itemRarityColor(item)},
-				{text: suffix, color: color.White},
-			})
+			item := inv[idx]
+			x, y, w, h := merchantCellRect(rightX, gridTop, slot)
+			value := item.Attributes["value"]
+			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				tooltipItem = item
+				tooltipHasItem = true
+			}
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, value > 0)
+			priceText := "no value"
+			if value > 0 {
+				priceText = fmt.Sprintf("%d g", ui.game.merchantSellPrice(value))
+			}
+			drawCenteredDebugText(screen, priceText, x-6, y+h, w+12, merchantPriceH)
+		}
+		if ui.drawPager(screen, rightX, pagerY, merchantGridW, &ui.game.merchantSellPage, sellPages, true) {
+			pagerChanged = true
+		}
+	}
+	// A page flip is a navigation action between item clicks — break any in-flight
+	// double-click so the same absolute index across pages can't buy/sell by surprise.
+	if pagerChanged {
+		ui.game.resetDialogClickTracker()
+	}
+
+	// Full item card on hover, floating at the cursor (drawn over everything via
+	// the queued tooltip pass). selectedChar is bounds-guarded — a stale index
+	// (party shrank) must not panic on this per-frame hover path. We resolve to a
+	// real member (clamping a stale index) so the formatter never sees a nil char.
+	if tooltipHasItem {
+		members := ui.game.party.Members
+		idx := ui.game.selectedChar
+		if idx < 0 || idx >= len(members) {
+			idx = 0
+		}
+		if idx < len(members) && members[idx] != nil {
+			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
+			if tip != "" {
+				lines := strings.Split(tip, "\n")
+				ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), mouseX+16, mouseY+8)
+			}
 		}
 	}
 
-	// Instructions
-	instructionsY := dialogY + dialogHeight - 60
-	ebitenutil.DebugPrintAt(screen, "Double-click left list: Buy  |  Double-click right list: Sell", dialogX+20, instructionsY)
+	instructionsY := dialogY + dialogHeight - 38
+	ebitenutil.DebugPrintAt(screen, "Hover: details  |  Double-click: buy (left) / sell (right)", dialogX+20, instructionsY)
 	ebitenutil.DebugPrintAt(screen, "ESC: Close", dialogX+20, instructionsY+15)
 }
 

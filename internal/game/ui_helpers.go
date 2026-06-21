@@ -57,17 +57,61 @@ func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 	return wrapText(text, maxWidth)
 }
 
-func merchantDialogLayout(screenW, screenH int) (dialogX, dialogY, dialogW, dialogH, listY, leftX, rightX, colW, rowH int) {
-	dialogW = npcDialogWidth
-	dialogH = npcDialogHeight
-	dialogX = (screenW - dialogW) / 2
-	dialogY = (screenH - dialogH) / 2
-	rowH = UIRowSpacing
-	listY = dialogY + 120
-	colW = dialogW/2 - 40
-	leftX = dialogX + 20
-	rightX = dialogX + dialogW/2 + 10
+// Merchant buy/sell grid geometry. Two side-by-side icon grids (buy left, sell
+// right), each merchantGridCols×merchantGridRows, mirroring the inventory grid.
+const (
+	merchantGridCols = 4
+	merchantGridRows = 3
+	merchantPageSize = merchantGridCols * merchantGridRows
+	merchantIconSize = 46
+	merchantIconGapX = 10
+	merchantRowGap   = 10
+	merchantPriceH   = 14 // price line drawn under each icon
+	merchantGridW    = merchantGridCols*merchantIconSize + (merchantGridCols-1)*merchantIconGapX
+)
+
+// merchantGridLayout returns the two grid origins, the grid top, and the pager
+// row Y. Single source for both the renderer and the click handler so cell rects
+// never drift from drawn pixels.
+func merchantGridLayout(dialogX, dialogY int) (leftX, rightX, gridTop, pagerY int) {
+	leftX = dialogX + 40
+	rightX = dialogX + npcDialogWidth/2 + 26
+	gridTop = dialogY + 92
+	stride := merchantIconSize + merchantPriceH + merchantRowGap
+	pagerY = gridTop + merchantGridRows*stride + 2
 	return
+}
+
+// merchantCellRect returns the icon rect for slot (0..merchantPageSize-1) in a
+// grid based at baseX/gridTop.
+func merchantCellRect(baseX, gridTop, slot int) (x, y, w, h int) {
+	col := slot % merchantGridCols
+	row := slot / merchantGridCols
+	stride := merchantIconSize + merchantPriceH + merchantRowGap
+	x = baseX + col*(merchantIconSize+merchantIconGapX)
+	y = gridTop + row*stride
+	return x, y, merchantIconSize, merchantIconSize
+}
+
+// pageCount returns the number of pages needed for n items at pageSize per page
+// (minimum 1, so an empty list still has a valid page 0).
+func pageCount(n, pageSize int) int {
+	p := (n + pageSize - 1) / pageSize
+	if p < 1 {
+		p = 1
+	}
+	return p
+}
+
+// clampPage keeps *page within [0, total-1] — call every frame so a page stays
+// valid when its backing list shrinks (item bought/sold/equipped) underneath it.
+func clampPage(page *int, total int) {
+	if *page >= total {
+		*page = total - 1
+	}
+	if *page < 0 {
+		*page = 0
+	}
 }
 
 func drawFilledRect(dst *ebiten.Image, x, y, w, h int, clr color.Color) {
