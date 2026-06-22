@@ -1044,6 +1044,8 @@ monsters:
     experience: 1400
     damage_min: 30
     damage_max: 46
+    piercing_shot_chance: 0.25
+    piercing_shot_targets: 2
     projectile_weapon: "tanegashima"
     ranged_attack_range: 7
     alert_radius: 9
@@ -1099,6 +1101,9 @@ monsters:
     experience: 1500
     damage_min: 32
     damage_max: 48
+    ally_heal_chance: 0.15
+    ally_heal_amount: 200
+    ally_heal_radius_tiles: 2.0
     attack_radius: 1
     alert_radius: 8
     speed: 1.9

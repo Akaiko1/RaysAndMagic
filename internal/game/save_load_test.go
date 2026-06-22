@@ -776,3 +776,62 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 		t.Fatal("summoned add missing after load")
 	}
 }
+
+func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorld(cfg)
+	wSave.Monsters = []*monster.Monster3D{
+		monster.NewMonster3DFromConfig(64, 64, "ashigaru_firelock", cfg),
+		monster.NewMonster3DFromConfig(96, 64, "ronin_marksman", cfg),
+		monster.NewMonster3DFromConfig(128, 64, "ningyo", cfg),
+		monster.NewMonster3DFromConfig(192, 64, "vengeful_ningyo", cfg),
+	}
+
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"japanese_castle": wSave}
+	wmSave.CurrentMapKey = "japanese_castle"
+	gSave := newTestGame(cfg, wSave)
+	save := gSave.buildSave(wmSave)
+	save.MapKey = "japanese_castle"
+
+	wLoad := newTestWorld(cfg)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"japanese_castle": wLoad}
+	wmLoad.CurrentMapKey = "japanese_castle"
+	gLoad := newTestGame(cfg, wLoad)
+	if err := gLoad.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	byKey := map[string]*monster.Monster3D{}
+	for _, m := range wLoad.Monsters {
+		byKey[m.Key] = m
+	}
+	ashigaru := byKey["ashigaru_firelock"]
+	if ashigaru == nil {
+		t.Fatal("ashigaru missing after load")
+	}
+	if ashigaru.PiercingShotChance != 0.50 || ashigaru.PiercingShotTargets != 2 {
+		t.Fatalf("ashigaru specials after load = chance %.2f targets %d, want 0.50/2",
+			ashigaru.PiercingShotChance, ashigaru.PiercingShotTargets)
+	}
+	ronin := byKey["ronin_marksman"]
+	if ronin == nil {
+		t.Fatal("ronin missing after load")
+	}
+	if ronin.PiercingShotChance != 0.25 || ronin.PiercingShotTargets != 2 {
+		t.Fatalf("ronin specials after load = chance %.2f targets %d, want 0.25/2",
+			ronin.PiercingShotChance, ronin.PiercingShotTargets)
+	}
+
+	for _, key := range []string{"ningyo", "vengeful_ningyo"} {
+		m := byKey[key]
+		if m == nil {
+			t.Fatalf("%s missing after load", key)
+		}
+		if m.AllyHealChance != 0.15 || m.AllyHealAmount != 200 || m.AllyHealRadiusPixels <= 0 {
+			t.Fatalf("%s heal special after load = chance %.2f amount %d radius %.1f, want 0.15/200/>0",
+				key, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels)
+		}
+	}
+}
