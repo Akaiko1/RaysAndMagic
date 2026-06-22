@@ -12,41 +12,46 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Name               string            `yaml:"name"`
-	Type               string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
-	Level              int               `yaml:"level"`
-	MaxHitPoints       int               `yaml:"max_hit_points"`
-	ArmorClass         int               `yaml:"armor_class"`
-	PerfectDodge       int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
-	Experience         int               `yaml:"experience"`
-	DamageMin          int               `yaml:"damage_min"`
-	DamageMax          int               `yaml:"damage_max"`
-	AlertRadius        float64           `yaml:"alert_radius"`
-	AttackRadius       float64           `yaml:"attack_radius"`
-	Speed              float64           `yaml:"speed"`
-	GoldMin            int               `yaml:"gold_min"`
-	GoldMax            int               `yaml:"gold_max"`
-	Sprite             string            `yaml:"sprite"`
-	Letter             string            `yaml:"letter"`
-	Biomes             []string          `yaml:"biomes,omitempty"`
-	BoxW               float64           `yaml:"box_w"`
-	BoxH               float64           `yaml:"box_h"`
-	SizeGame           float64           `yaml:"size_game"`
-	Resistances        map[string]int    `yaml:"resistances"`
-	HabitatPrefs       []string          `yaml:"habitat_preferences"`
-	HabitatNear        []HabitatNearRule `yaml:"habitat_near"`
-	ProjectileSpell    string            `yaml:"projectile_spell"`
-	ProjectileWeapon   string            `yaml:"projectile_weapon"`
-	Flying             bool              `yaml:"flying"`
-	RangedAttackRange  float64           `yaml:"ranged_attack_range"`
-	AttacksPerRound    int               `yaml:"attacks_per_round"`
-	AttackCooldownMult float64           `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit    bool              `yaml:"passive_until_attacked"`
-	FireburstChance    float64           `yaml:"fireburst_chance"`
-	FireburstDamageMin int               `yaml:"fireburst_damage_min"`
-	FireburstDamageMax int               `yaml:"fireburst_damage_max"`
-	PoisonChance       float64           `yaml:"poison_chance"`
-	PoisonDurationSec  int               `yaml:"poison_duration_seconds"`
+	Name                string            `yaml:"name"`
+	Type                string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
+	Level               int               `yaml:"level"`
+	MaxHitPoints        int               `yaml:"max_hit_points"`
+	ArmorClass          int               `yaml:"armor_class"`
+	PerfectDodge        int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
+	Experience          int               `yaml:"experience"`
+	DamageMin           int               `yaml:"damage_min"`
+	DamageMax           int               `yaml:"damage_max"`
+	AlertRadius         float64           `yaml:"alert_radius"`
+	AttackRadius        float64           `yaml:"attack_radius"`
+	Speed               float64           `yaml:"speed"`
+	GoldMin             int               `yaml:"gold_min"`
+	GoldMax             int               `yaml:"gold_max"`
+	Sprite              string            `yaml:"sprite"`
+	Letter              string            `yaml:"letter"`
+	Biomes              []string          `yaml:"biomes,omitempty"`
+	BoxW                float64           `yaml:"box_w"`
+	BoxH                float64           `yaml:"box_h"`
+	SizeGame            float64           `yaml:"size_game"`
+	Resistances         map[string]int    `yaml:"resistances"`
+	HabitatPrefs        []string          `yaml:"habitat_preferences"`
+	HabitatNear         []HabitatNearRule `yaml:"habitat_near"`
+	ProjectileSpell     string            `yaml:"projectile_spell"`
+	ProjectileWeapon    string            `yaml:"projectile_weapon"`
+	Flying              bool              `yaml:"flying"`
+	RangedAttackRange   float64           `yaml:"ranged_attack_range"`
+	AttacksPerRound     int               `yaml:"attacks_per_round"`
+	AttackCooldownMult  float64           `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit     bool              `yaml:"passive_until_attacked"`
+	FireburstChance     float64           `yaml:"fireburst_chance"`
+	FireburstDamageMin  int               `yaml:"fireburst_damage_min"`
+	FireburstDamageMax  int               `yaml:"fireburst_damage_max"`
+	PiercingShotChance  float64           `yaml:"piercing_shot_chance,omitempty"`
+	PiercingShotTargets int               `yaml:"piercing_shot_targets,omitempty"`
+	AllyHealChance      float64           `yaml:"ally_heal_chance,omitempty"`
+	AllyHealAmount      int               `yaml:"ally_heal_amount,omitempty"`
+	AllyHealRadius      float64           `yaml:"ally_heal_radius_tiles,omitempty"`
+	PoisonChance        float64           `yaml:"poison_chance"`
+	PoisonDurationSec   int               `yaml:"poison_duration_seconds"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
@@ -129,6 +134,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	for key, monster := range config.Monsters {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
+		}
+		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets < 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative piercing_shot_targets", key))
+		}
+		if monster.AllyHealChance > 0 && monster.AllyHealAmount <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ally_heal_chance but no ally_heal_amount", key))
 		}
 		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
@@ -331,6 +342,13 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	}
 	if def.FireburstDamageMax > 0 {
 		m.FireburstDamageMax = def.FireburstDamageMax
+	}
+	m.PiercingShotChance = def.PiercingShotChance
+	m.PiercingShotTargets = def.PiercingShotTargets
+	m.AllyHealChance = def.AllyHealChance
+	m.AllyHealAmount = def.AllyHealAmount
+	if def.AllyHealRadius > 0 {
+		m.AllyHealRadiusPixels = def.AllyHealRadius * tileSize
 	}
 	if def.PoisonChance > 0 {
 		m.PoisonChance = def.PoisonChance

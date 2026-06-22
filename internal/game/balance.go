@@ -202,8 +202,8 @@ const MonsterHitShakeAmplitudeFrac = 0.0333
 
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
-// of attacking. 0.9 = heal anyone at or below 90% HP; full-HP party → attack.
-const SmartHealWoundedPct = 0.9
+// of attacking. 0.6 = heal anyone at or below 60% HP; healthier party → attack.
+const SmartHealWoundedPct = 0.6
 
 // SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
 // quotes the same default); this alias keeps game-side call sites unchanged.

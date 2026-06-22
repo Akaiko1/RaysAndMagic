@@ -174,9 +174,21 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 			if def.IsUtility {
 				if hurt := lowestHurtAlly(party); hurt != nil {
 					_, _, heal := cs.CalculateSpellHealing(spellID, char)
-					hurt.HitPoints += heal
-					if hurt.HitPoints > hurt.MaxHitPoints {
-						hurt.HitPoints = hurt.MaxHitPoints
+					if def.HealParty {
+						for _, ally := range party {
+							if !ally.CanAct() || ally.HitPoints >= ally.MaxHitPoints {
+								continue
+							}
+							ally.HitPoints += heal
+							if ally.HitPoints > ally.MaxHitPoints {
+								ally.HitPoints = ally.MaxHitPoints
+							}
+						}
+					} else {
+						hurt.HitPoints += heal
+						if hurt.HitPoints > hurt.MaxHitPoints {
+							hurt.HitPoints = hurt.MaxHitPoints
+						}
 					}
 					char.SpellPoints -= def.SpellPointsCost
 					return
@@ -201,9 +213,79 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	target.TakeDamage(dmg, monsterPkg.DamagePhysical, 0, 0)
 }
 
-func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter) {
+func trySimMonsterAllyHeal(m *monsterPkg.Monster3D, monsters []*monsterPkg.Monster3D, cfg *config.Config) bool {
+	if m.AllyHealChance <= 0 || m.AllyHealAmount <= 0 || rand.Float64() >= m.AllyHealChance {
+		return false
+	}
+	radius := m.AllyHealRadiusPixels
+	if radius <= 0 {
+		radius = 2 * float64(cfg.GetTileSize())
+	}
+	var target *monsterPkg.Monster3D
+	for _, candidate := range monsters {
+		if candidate == nil || !candidate.IsAlive() || candidate.HitPoints >= candidate.MaxHitPoints {
+			continue
+		}
+		if candidate.Bound != m.Bound {
+			continue
+		}
+		if candidate != m && Distance(m.X, m.Y, candidate.X, candidate.Y) > radius {
+			continue
+		}
+		if target == nil || candidate.HitPoints*target.MaxHitPoints < target.HitPoints*candidate.MaxHitPoints {
+			target = candidate
+		}
+	}
+	if target == nil {
+		return false
+	}
+	target.HitPoints += m.AllyHealAmount
+	if target.HitPoints > target.MaxHitPoints {
+		target.HitPoints = target.MaxHitPoints
+	}
+	return true
+}
+
+func trySimMonsterPiercingShot(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter) bool {
+	if m.PiercingShotChance <= 0 || rand.Float64() >= m.PiercingShotChance {
+		return false
+	}
+	alive := make([]*character.MMCharacter, 0, len(party))
+	for _, c := range party {
+		if c.CanAct() {
+			alive = append(alive, c)
+		}
+	}
+	if len(alive) == 0 {
+		return false
+	}
+	targets := m.PiercingShotTargets
+	if targets <= 0 {
+		targets = 2
+	}
+	if targets > len(alive) {
+		targets = len(alive)
+	}
+	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
+	for _, target := range alive[:targets] {
+		dmg := cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, true)
+		target.HitPoints -= dmg
+		if target.HitPoints < 0 {
+			target.HitPoints = 0
+		}
+		if target.HitPoints == 0 {
+			target.AddCondition(character.ConditionUnconscious)
+		}
+	}
+	return true
+}
+
+func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter, monsters []*monsterPkg.Monster3D) {
 	attacks := m.GetTurnBasedAttackCount()
 	for i := 0; i < attacks; i++ {
+		if trySimMonsterAllyHeal(m, monsters, cs.game.config) || trySimMonsterPiercingShot(cs, m, party) {
+			continue
+		}
 		alive := make([]*character.MMCharacter, 0, len(party))
 		for _, c := range party {
 			if c.CanAct() {
@@ -219,7 +301,7 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			// Elemental projectile — no AC reduction, no resistance (party has none defined).
 			dmg = m.GetAttackDamage()
 		} else {
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, false)
+			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, m.IgnoresArmor)
 		}
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
@@ -233,6 +315,46 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			target.AddCondition(character.ConditionUnconscious)
 		}
 	}
+}
+
+func liveSummonsForBoss(monsters []*monsterPkg.Monster3D, boss *monsterPkg.Monster3D) int {
+	count := 0
+	for _, m := range monsters {
+		if m != nil && m.IsAlive() && m.SummonedBy == boss.ID {
+			count++
+		}
+	}
+	return count
+}
+
+func trySimBossSummon(monsters *[]*monsterPkg.Monster3D, boss *monsterPkg.Monster3D, cfg *config.Config) {
+	if boss == nil || !boss.IsAlive() || len(boss.SummonMonsters) == 0 {
+		return
+	}
+	guaranteed := boss.SummonFirstGuaranteed && !boss.SummonFirstDone
+	if !guaranteed && (boss.SummonChance <= 0 || rand.Float64() >= boss.SummonChance) {
+		return
+	}
+	live := liveSummonsForBoss(*monsters, boss)
+	if boss.SummonMax > 0 && live >= boss.SummonMax {
+		return
+	}
+	count := boss.SummonCount
+	if count <= 0 {
+		count = 1
+	}
+	if boss.SummonMax > 0 && live+count > boss.SummonMax {
+		count = boss.SummonMax - live
+	}
+	for i := 0; i < count; i++ {
+		key := boss.SummonMonsters[rand.Intn(len(boss.SummonMonsters))]
+		add := monsterPkg.NewMonster3DFromConfig(0, 0, key, cfg)
+		add.WasAttacked = true
+		add.IsEngagingPlayer = true
+		add.SummonedBy = boss.ID
+		*monsters = append(*monsters, add)
+	}
+	boss.SummonFirstDone = true
 }
 
 type simResult struct {
@@ -336,7 +458,8 @@ func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*m
 			if !m.IsAlive() {
 				continue
 			}
-			monsterActOnce(cs, m, party)
+			trySimBossSummon(&monsters, m, cs.game.config)
+			monsterActOnce(cs, m, party, monsters)
 			if partyAllDown(party) {
 				break
 			}
@@ -531,6 +654,230 @@ func logFightTable(t *testing.T, cs *CombatSystem, party []*character.MMCharacte
 				sc.label, blessLbl, r.winPct, r.wipePct, rounds, r.avgHPLeft)
 		}
 	}
+}
+
+func mustEquipItemKey(t *testing.T, c *character.MMCharacter, key string) {
+	t.Helper()
+	it := items.CreateItemFromYAML(key)
+	if _, _, ok := c.EquipItem(it); !ok {
+		t.Fatalf("%s: failed to equip %s", c.Name, key)
+	}
+}
+
+func mustEquipWeaponKey(t *testing.T, c *character.MMCharacter, key string) {
+	t.Helper()
+	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
+}
+
+func mustEquipSpellID(t *testing.T, c *character.MMCharacter, spellID spells.SpellID) {
+	t.Helper()
+	if !characterKnowsSpellByID(c, spellID) && !addSpellByID(c, spellID) {
+		t.Fatalf("%s: failed to add spell %s", c.Name, spellID)
+	}
+	sp, err := spells.CreateSpellItem(spellID)
+	if err != nil {
+		t.Fatalf("%s: create spell %s: %v", c.Name, spellID, err)
+	}
+	c.Equipment[items.SlotSpell] = sp
+}
+
+// buildCastleEntryL10Party models a fixed level-10 party entering the Japanese
+// castle with late midgame gear, but before any castle/rack/boss loot. Keeping it
+// deterministic makes the castle balance table easier to compare across changes.
+func buildCastleEntryL10Party(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	party := buildDefaultParty(t, cs, 10)
+	cs.game.party.Members = party
+
+	mustEquipWeaponKey(t, party[0], "silver_sword")
+	mustEquipItemKey(t, party[0], "iron_armor")
+	mustEquipItemKey(t, party[0], "iron_helmet")
+	mustEquipItemKey(t, party[0], "iron_pants")
+	mustEquipItemKey(t, party[0], "bearpaw_gauntlets")
+	mustEquipItemKey(t, party[0], "belt_of_strength")
+	mustEquipItemKey(t, party[0], "direpelt_cloak")
+
+	mustEquipWeaponKey(t, party[1], "battle_staff")
+	mustEquipSpellID(t, party[1], "fireball")
+	mustEquipSpellID(t, party[1], "darkbolt")
+	mustEquipSpellID(t, party[1], "ice_bolt")
+	mustEquipItemKey(t, party[1], "wizard_robe")
+	mustEquipItemKey(t, party[1], "magic_ring")
+	mustEquipItemKey(t, party[1], "serpentscale_gauntlets")
+
+	mustEquipWeaponKey(t, party[2], "steel_mace")
+	mustEquipSpellID(t, party[2], "heal")
+	mustEquipItemKey(t, party[2], "chain_armor")
+	mustEquipItemKey(t, party[2], "chain_helmet")
+	mustEquipItemKey(t, party[2], "chain_pants")
+	mustEquipItemKey(t, party[2], "tideclasp_gauntlets")
+	mustEquipItemKey(t, party[2], "scarab_amulet")
+
+	mustEquipWeaponKey(t, party[3], "elven_bow")
+	mustEquipItemKey(t, party[3], "leather_armor")
+	mustEquipItemKey(t, party[3], "leather_helmet")
+	mustEquipItemKey(t, party[3], "leather_pants")
+	mustEquipItemKey(t, party[3], "belt_of_speed")
+	mustEquipItemKey(t, party[3], "puma_claw")
+	mustEquipItemKey(t, party[3], "batwing_cloak")
+
+	for _, c := range party {
+		c.CalculateDerivedStats(cs.game.config)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+	}
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
+// buildCastleVeteranL17Party models a higher-level party returning to the castle
+// with common castle gear and late-zone tools, but without Samurai boss uniques.
+func buildCastleVeteranL17Party(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	party := buildDefaultParty(t, cs, 17)
+	cs.game.party.Members = party
+
+	mustEquipWeaponKey(t, party[0], "katana")
+	mustEquipItemKey(t, party[0], "o_yoroi")
+	mustEquipItemKey(t, party[0], "kabuto")
+	mustEquipItemKey(t, party[0], "silk_hakama")
+	mustEquipItemKey(t, party[0], "bearpaw_gauntlets")
+	mustEquipItemKey(t, party[0], "belt_of_strength")
+	mustEquipItemKey(t, party[0], "haori_cloak")
+	mustEquipItemKey(t, party[0], "jade_netsuke")
+
+	mustEquipWeaponKey(t, party[1], "archmage_staff")
+	mustEquipSpellID(t, party[1], "fireball")
+	mustEquipSpellID(t, party[1], "darkbolt")
+	mustEquipSpellID(t, party[1], "ice_bolt")
+	mustEquipSpellID(t, party[1], "lightning")
+	mustEquipSpellID(t, party[1], "disintegrate")
+	mustEquipSpellID(t, party[1], "inferno")
+	mustEquipSpellID(t, party[1], "starburst")
+	mustEquipSpellID(t, party[1], "hot_steam")
+	mustEquipItemKey(t, party[1], "archmage_robe")
+	mustEquipItemKey(t, party[1], "serpentscale_gauntlets")
+	mustEquipItemKey(t, party[1], "haori_cloak")
+	mustEquipItemKey(t, party[1], "onmyoji_talisman")
+	mustEquipItemKey(t, party[1], "jade_netsuke")
+
+	mustEquipWeaponKey(t, party[2], "kanabo")
+	mustEquipSpellID(t, party[2], "heal")
+	mustEquipSpellID(t, party[2], "heal_other")
+	mustEquipSpellID(t, party[2], "mass_heal")
+	mustEquipItemKey(t, party[2], "chain_armor")
+	mustEquipItemKey(t, party[2], "chain_helmet")
+	mustEquipItemKey(t, party[2], "chain_pants")
+	mustEquipItemKey(t, party[2], "tideclasp_gauntlets")
+	mustEquipItemKey(t, party[2], "haori_cloak")
+	mustEquipItemKey(t, party[2], "jade_netsuke")
+	mustEquipItemKey(t, party[2], "magic_ring")
+
+	mustEquipWeaponKey(t, party[3], "tanegashima")
+	mustEquipItemKey(t, party[3], "leather_armor")
+	mustEquipItemKey(t, party[3], "leather_helmet")
+	mustEquipItemKey(t, party[3], "silk_hakama")
+	mustEquipItemKey(t, party[3], "serpentscale_gauntlets")
+	mustEquipItemKey(t, party[3], "belt_of_speed")
+	mustEquipItemKey(t, party[3], "haori_cloak")
+	mustEquipItemKey(t, party[3], "accuracy_talisman")
+
+	for _, c := range party {
+		c.CalculateDerivedStats(cs.game.config)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+	}
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
+func runFixedPartySim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string, statBonus int, trials int) {
+	t.Helper()
+	var wins, wipes int
+	var sumRoundsWin int
+	var sumHPLeft, sumEnemyHPLeftOnWipe float64
+	var sumLevel float64
+	var enemyMaxHPSum int
+
+	for trial := 0; trial < trials; trial++ {
+		party := build(t, cs)
+		monsters := make([]*monsterPkg.Monster3D, 0, len(monsterKeys))
+		for _, key := range monsterKeys {
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config)
+			m.WasAttacked = true
+			m.IsEngagingPlayer = true
+			monsters = append(monsters, m)
+		}
+		for _, c := range party {
+			if c.Class == character.ClassSorcerer {
+				equipBestOffensiveSpellVs(c, monsters[0])
+			}
+		}
+
+		cs.game.statBuffs = nil
+		cs.game.recomputeStatBonuses()
+		if statBonus > 0 {
+			cs.game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(statBonus)})
+		}
+		resetPartyForSim(party)
+
+		killed, wiped, rounds := runOneFightWithPotions(cs, party, monsters)
+		if killed {
+			wins++
+			sumRoundsWin += rounds
+		}
+		if wiped {
+			wipes++
+			remHP := 0
+			totalMax := 0
+			for _, m := range monsters {
+				remHP += m.HitPoints
+				totalMax += m.MaxHitPoints
+			}
+			if totalMax > 0 {
+				sumEnemyHPLeftOnWipe += float64(remHP) / float64(totalMax)
+			}
+		}
+		sumHPLeft += partyHPRatio(party)
+		levelSum := 0
+		for _, c := range party {
+			levelSum += c.Level
+		}
+		sumLevel += float64(levelSum) / float64(len(party))
+		if trial == 0 {
+			for _, m := range monsters {
+				enemyMaxHPSum += m.MaxHitPoints
+			}
+		}
+	}
+	cs.game.statBuffs = nil
+	cs.game.recomputeStatBonuses()
+
+	avgRoundsWin := 0.0
+	if wins > 0 {
+		avgRoundsWin = float64(sumRoundsWin) / float64(wins)
+	}
+	t.Logf("%s — %d trials, fixed party", label, trials)
+	t.Logf("  avg party level: %.1f", sumLevel/float64(trials))
+	t.Logf("  wins:  %d/%d  (%.0f%%)", wins, trials, float64(wins)*100/float64(trials))
+	t.Logf("  wipes: %d/%d  (%.0f%%)", wipes, trials, float64(wipes)*100/float64(trials))
+	if unresolved := trials - wins - wipes; unresolved > 0 {
+		t.Logf("  unresolved: %d/%d  (%.0f%%)", unresolved, trials, float64(unresolved)*100/float64(trials))
+	}
+	if wins > 0 {
+		t.Logf("  avg rounds to kill all enemies: %.1f", avgRoundsWin)
+	}
+	if wipes > 0 {
+		t.Logf("  avg enemy HP remaining on wipe: %.0f%% (of %d base total)",
+			sumEnemyHPLeftOnWipe*100/float64(wipes), enemyMaxHPSum)
+	}
+	t.Logf("  avg party HP left: %.0f%%", sumHPLeft*100/float64(trials))
 }
 
 // TestCombatBalance_L5PartyVsMonsters runs the baseline L5 party against
@@ -1123,7 +1470,8 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 			if !m.IsAlive() {
 				continue
 			}
-			monsterActOnce(cs, m, party)
+			trySimBossSummon(&monsters, m, cs.game.config)
+			monsterActOnce(cs, m, party, monsters)
 			if partyAllDown(party) {
 				break
 			}
@@ -1503,6 +1851,54 @@ func TestCombatBalance_HighlandsPartyVs2Mobs(t *testing.T) {
 		pair := []string{key, key}
 		runEndgameSim(t, cs, buildHighlandsReadyParty, pair, "Highlands party vs 2x "+key+" (no Bless)", 0, false)
 		runEndgameSim(t, cs, buildHighlandsReadyParty, pair, "Highlands party vs 2x "+key+" (Bless +10)", 10, false)
+	}
+}
+
+// TestCombatBalance_CastleEntryL10PartyVsCastleMobs uses a deterministic level
+// 10 party with late-midgame gear (no castle loot) to benchmark the Japanese
+// castle's normal mobs, elite pairs, and Samurai Warlord with real summon/enrage
+// fields represented by the simulator.
+func TestCombatBalance_CastleEntryL10PartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(42)
+
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleEntryL10Party, sc.monsters, "Castle-entry L10 party vs "+sc.label+" (no Bless)", 0, 50)
+		runFixedPartySim(t, cs, buildCastleEntryL10Party, sc.monsters, "Castle-entry L10 party vs "+sc.label+" (Bless +10)", 10, 50)
+	}
+}
+
+func castleMobScenarios() []fightScenario {
+	return []fightScenario{
+		{label: "ashigaru", monsters: []string{"ashigaru_firelock"}},
+		{label: "ningyo", monsters: []string{"ningyo"}},
+		{label: "ronin", monsters: []string{"ronin_marksman"}},
+		{label: "vengeful", monsters: []string{"vengeful_ningyo"}},
+		{label: "2x ashigaru", monsters: []string{"ashigaru_firelock", "ashigaru_firelock"}},
+		{label: "2x ningyo", monsters: []string{"ningyo", "ningyo"}},
+		{label: "ronin+vengeful", monsters: []string{"ronin_marksman", "vengeful_ningyo"}},
+		{label: "samurai", monsters: []string{"old_samurai"}},
+	}
+}
+
+// TestCombatBalance_CastleVeteranL17PartyVsCastleMobs benchmarks the same
+// castle scenarios against a fixed level-17 party with common castle/late-zone
+// gear, without Samurai boss uniques.
+func TestCombatBalance_CastleVeteranL17PartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(43)
+
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Castle-veteran L17 party vs "+sc.label+" (no Bless)", 0, 50)
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Castle-veteran L17 party vs "+sc.label+" (Bless +10)", 10, 50)
 	}
 }
 

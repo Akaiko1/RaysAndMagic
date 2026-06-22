@@ -335,6 +335,86 @@ func TestBossFirstSummonGuaranteedThenUsesChance(t *testing.T) {
 	}
 }
 
+func TestAshigaruPiercingShotHitsTwoLivingPartyMembers(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	for _, member := range cs.game.party.Members {
+		member.MaxHitPoints = 100
+		member.HitPoints = 100
+		member.Luck = 0
+	}
+
+	ashigaru := &monsterPkg.Monster3D{
+		Name:                "Ashigaru Arquebusier",
+		HitPoints:           100,
+		MaxHitPoints:        100,
+		DamageMin:           20,
+		DamageMax:           20,
+		PiercingShotChance:  1,
+		PiercingShotTargets: 2,
+	}
+
+	if !cs.tryMonsterPiercingShot(ashigaru) {
+		t.Fatal("piercing shot should fire at 100% chance")
+	}
+
+	hit := 0
+	for _, member := range cs.game.party.Members {
+		switch member.HitPoints {
+		case 80:
+			hit++
+		case 100:
+		default:
+			t.Fatalf("unexpected party HP after piercing shot: %d", member.HitPoints)
+		}
+	}
+	if hit != 2 {
+		t.Fatalf("piercing shot hit %d members, want 2", hit)
+	}
+}
+
+func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	tile := float64(cs.game.config.GetTileSize())
+	healer := &monsterPkg.Monster3D{
+		Name:                 "Miyabi Ningyo",
+		X:                    0,
+		Y:                    0,
+		HitPoints:            100,
+		MaxHitPoints:         500,
+		AllyHealChance:       1,
+		AllyHealAmount:       200,
+		AllyHealRadiusPixels: 2 * tile,
+	}
+	near := &monsterPkg.Monster3D{
+		Name:         "Nearby Ally",
+		X:            tile,
+		Y:            0,
+		HitPoints:    50,
+		MaxHitPoints: 500,
+	}
+	far := &monsterPkg.Monster3D{
+		Name:         "Far Ally",
+		X:            5 * tile,
+		Y:            0,
+		HitPoints:    1,
+		MaxHitPoints: 500,
+	}
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{healer, near, far}
+
+	if !cs.tryMonsterAllyHeal(healer) {
+		t.Fatal("ally heal should cast at 100% chance with a wounded target nearby")
+	}
+	if near.HitPoints != 250 {
+		t.Fatalf("near ally HP = %d, want 250", near.HitPoints)
+	}
+	if healer.HitPoints != 100 {
+		t.Fatalf("healer HP = %d, want unchanged 100", healer.HitPoints)
+	}
+	if far.HitPoints != 1 {
+		t.Fatalf("far ally HP = %d, want unchanged 1", far.HitPoints)
+	}
+}
+
 // Regression: a weapon's display name must resolve to its YAML key via the real
 // name index, not a naive lower+underscore transform — otherwise flavor-named
 // weapons (commas, "of the ...") fail CanEquipWeaponByName and are

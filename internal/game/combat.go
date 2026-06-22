@@ -1058,6 +1058,9 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
+	if cs.tryMonsterSpecialAbility(monster) {
+		return
+	}
 	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
 		cs.applyMonsterFireburst(monster)
 		return
@@ -1218,11 +1221,128 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
+	if cs.tryMonsterSpecialAbility(monster) {
+		return
+	}
+	cs.spawnMonsterRangedAttackNormal(monster)
+}
+
+func (cs *CombatSystem) spawnMonsterRangedAttackNormal(monster *monsterPkg.Monster3D) {
 	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
 		cs.applyMonsterFireburst(monster)
 		return
 	}
 	cs.spawnMonsterRangedAttackAt(monster, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster)
+}
+
+func (cs *CombatSystem) tryMonsterSpecialAbility(monster *monsterPkg.Monster3D) bool {
+	if monster == nil || !monster.IsAlive() {
+		return false
+	}
+	if cs.tryMonsterAllyHeal(monster) {
+		return true
+	}
+	if cs.tryMonsterPiercingShot(monster) {
+		return true
+	}
+	return false
+}
+
+func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bool {
+	if monster.PiercingShotChance <= 0 || rand.Float64() >= monster.PiercingShotChance {
+		return false
+	}
+	alive := alivePartyIndices(cs.game.party.Members)
+	if len(alive) == 0 {
+		return false
+	}
+	targets := monster.PiercingShotTargets
+	if targets <= 0 {
+		targets = 2
+	}
+	if targets > len(alive) {
+		targets = len(alive)
+	}
+	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
+
+	cs.game.AddCombatMessage(fmt.Sprintf("%s fires a Piercing Shot!", monster.Name))
+	for _, targetIndex := range alive[:targets] {
+		target := cs.game.party.Members[targetIndex]
+		damage := monster.GetAttackDamage()
+		finalDamage := cs.mitigateCharacterDamage(damage, "physical", target, true)
+		if dodged, _ := cs.RollPerfectDodge(target); dodged {
+			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's Piercing Shot!", target.Name, monster.Name))
+			continue
+		}
+		target.HitPoints -= finalDamage
+		if target.HitPoints < 0 {
+			target.HitPoints = 0
+		}
+		if target.HitPoints == 0 {
+			target.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+		}
+		cs.game.TriggerDamageBlink(targetIndex)
+		cs.game.AddCombatMessage(fmt.Sprintf("Piercing Shot hits %s for %d damage! (HP: %d/%d)",
+			target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
+	}
+	return true
+}
+
+func (cs *CombatSystem) tryMonsterAllyHeal(monster *monsterPkg.Monster3D) bool {
+	if monster.AllyHealChance <= 0 || monster.AllyHealAmount <= 0 || rand.Float64() >= monster.AllyHealChance {
+		return false
+	}
+	target := cs.pickMonsterAllyHealTarget(monster)
+	if target == nil {
+		return false
+	}
+	before := target.HitPoints
+	target.HitPoints += monster.AllyHealAmount
+	if target.HitPoints > target.MaxHitPoints {
+		target.HitPoints = target.MaxHitPoints
+	}
+	actual := target.HitPoints - before
+	if actual <= 0 {
+		return false
+	}
+	if target == monster {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s mends itself for %d HP! (HP: %d/%d)",
+			monster.Name, actual, target.HitPoints, target.MaxHitPoints))
+	} else {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s mends %s for %d HP! (HP: %d/%d)",
+			monster.Name, target.Name, actual, target.HitPoints, target.MaxHitPoints))
+	}
+	return true
+}
+
+func (cs *CombatSystem) pickMonsterAllyHealTarget(healer *monsterPkg.Monster3D) *monsterPkg.Monster3D {
+	if cs.game == nil || cs.game.world == nil {
+		return nil
+	}
+	radius := healer.AllyHealRadiusPixels
+	if radius <= 0 {
+		radius = 2 * float64(cs.game.config.GetTileSize())
+	}
+	bestFrac := math.MaxFloat64
+	var best *monsterPkg.Monster3D
+	for _, candidate := range cs.game.world.Monsters {
+		if candidate == nil || !candidate.IsAlive() || candidate.HitPoints >= candidate.MaxHitPoints {
+			continue
+		}
+		if candidate.Bound != healer.Bound {
+			continue
+		}
+		if candidate != healer && Distance(healer.X, healer.Y, candidate.X, candidate.Y) > radius {
+			continue
+		}
+		frac := float64(candidate.HitPoints) / float64(candidate.MaxHitPoints)
+		if frac < bestFrac {
+			bestFrac = frac
+			best = candidate
+		}
+	}
+	return best
 }
 
 // spawnMonsterRangedAttackAt fires monster's projectile toward a world point with

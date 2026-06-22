@@ -326,7 +326,7 @@ spells:
     description: "Restores health to the caster"
     school: "body"
     level: 1
-    spell_points_cost: 4
+    spell_points_cost: 8
     cooldown_seconds: 1.0
     duration: 0
     heal_amount: 15
@@ -343,7 +343,7 @@ spells:
     description: "Restores health to another party member"
     school: "body"
     level: 2
-    spell_points_cost: 4
+    spell_points_cost: 8
     cooldown_seconds: 1.2
     duration: 0
     heal_amount: 20
@@ -651,7 +651,7 @@ spells:
     description: "A wave of healing that mends the whole party at once"
     school: "body"
     level: 4
-    spell_points_cost: 6
+    spell_points_cost: 15
     cooldown_seconds: 2.0
     duration: 0
     heal_amount: 10

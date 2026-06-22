@@ -153,6 +153,11 @@ type Monster3D struct {
 	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int        // Fireburst damage min
 	FireburstDamageMax       int        // Fireburst damage max
+	PiercingShotChance       float64    // Chance to fire an armor-piercing shot at multiple party members
+	PiercingShotTargets      int        // Number of party members hit by Piercing Shot (default 2)
+	AllyHealChance           float64    // Chance to heal self or a nearby allied monster instead of attacking
+	AllyHealAmount           int        // HP restored by the ally heal special
+	AllyHealRadiusPixels     float64    // Radius for ally heal target search
 	PoisonChance             float64    // Chance to apply poison on hit
 	PoisonDurationSec        int        // Poison duration in seconds
 

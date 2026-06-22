@@ -247,14 +247,15 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 	monster.LastMoveTick = gl.game.frameCount
 
 	attacks := monster.GetTurnBasedAttackCount()
-	if monster.HasRangedAttack() {
-		for hit := 0; hit < attacks; hit++ {
-			gl.game.combat.spawnMonsterRangedAttack(monster)
-		}
-		return
-	}
-
 	for hit := 0; hit < attacks; hit++ {
+		if gl.game.combat.tryMonsterSpecialAbility(monster) {
+			continue
+		}
+		if monster.HasRangedAttack() {
+			gl.game.combat.spawnMonsterRangedAttackNormal(monster)
+			continue
+		}
+
 		// Re-filter every iteration: a previous attack may have just KO'd
 		// the only remaining target, in which case the rest are no-ops.
 		alive := alivePartyIndices(gl.game.party.Members)
