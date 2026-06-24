@@ -218,7 +218,7 @@ monster_ai:
 # Graphics and rendering
 graphics:
   # Raycasting optimization - reduced for 60 FPS performance
-  rays_per_screen_width: 4  # ScreenWidth / 4 rays (256 rays instead of 512)
+  rays_per_screen_width: 1  # One ray per screen pixel: best wall quality, most expensive
 
   # Colors (RGB values)
   colors:
