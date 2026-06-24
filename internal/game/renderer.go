@@ -2313,6 +2313,22 @@ type UnifiedSpriteRenderData struct {
 	groundContainer *GroundContainer
 }
 
+// Near-tree LOD. A tree is collected once PER screen column it covers (treeHits),
+// and each of those redraws the ENTIRE tree sprite (drawTreeSprite isn't a 1px
+// slice). At 1 ray/pixel a point-blank tree spans the whole screen → that many
+// full-sprite redraws → the FPS cliff when pressed into a forest tree. For trees
+// within nearTreeLODTiles we keep only 1 of every `stride` columns. A FIXED stride
+// isn't enough at point-blank (1-in-4 of ~1920 columns is still ~480 full-screen
+// draws), so the stride GROWS as distance shrinks (∝ nearTreeDist/distance): the
+// columns a tree covers scale ~1/distance, so this keeps the kept-column count —
+// and thus the draw count — roughly flat all the way in. Each kept draw is still
+// the whole sprite, so the tree looks the same. Far trees stay at full density.
+const (
+	nearTreeLODTiles     = 3  // apply the thinning only within this many tiles
+	nearTreeLODStride    = 4  // base stride at the near edge (nearTreeLODTiles out)
+	nearTreeLODMaxStride = 32 // clamp: point-blank keeps ~screenWidth/this columns
+)
+
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
 // and renders them sorted by depth for proper transparency and occlusion.
 func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
@@ -2381,8 +2397,29 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 	}
 
-	// 2. Add tree hits collected during raycasting
+	// 2. Add tree hits collected during raycasting. Near trees are thinned with a
+	// distance-adaptive stride (see the nearTreeLOD note above): the closer the
+	// tree, the more columns it covers and the harder we thin, so the draw count
+	// stays bounded even pressed point-blank into it. Far trees keep every column.
+	nearTreeDist := float64(nearTreeLODTiles) * float64(r.game.config.GetTileSize())
 	for _, tree := range r.treeHits {
+		if tree.distance <= nearTreeDist {
+			stride := nearTreeLODStride
+			if tree.distance > 1 {
+				// ∝ 1/distance; == nearTreeLODStride at the near edge, grows as you close in.
+				if s := int(float64(nearTreeLODStride) * nearTreeDist / tree.distance); s > stride {
+					stride = s
+				}
+			} else {
+				stride = nearTreeLODMaxStride // point-blank (distance ~0): max thinning
+			}
+			if stride > nearTreeLODMaxStride {
+				stride = nearTreeLODMaxStride
+			}
+			if tree.screenX%stride != 0 {
+				continue
+			}
+		}
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeTree,
 			screenX:    tree.screenX,

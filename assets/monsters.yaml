@@ -1101,6 +1101,8 @@ monsters:
     experience: 1500
     damage_min: 32
     damage_max: 48
+    attacks_per_round: 2          # elite inherits the base ningyo's double strike
+    attack_cooldown_multiplier: 0.6
     ally_heal_chance: 0.15
     ally_heal_amount: 200
     ally_heal_radius_tiles: 2.0
