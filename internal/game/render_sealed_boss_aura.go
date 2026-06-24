@@ -20,10 +20,14 @@ const (
 	sealedAuraPeriodTick  = 110.0
 )
 
-var sealedAuraColor = [3]int{172, 176, 190} // cool spectral grey
+var sealedAuraColor = [3]int{172, 176, 190} // cool spectral grey (sealed/dormant boss)
+var wardAuraColor = [3]int{214, 168, 72}    // amber ritual glow (idol-warded boss + its idols)
 
-// drawSealedBossAura wreathes every dormant boss in rising grey smoke. Drawn
-// after walls/sprites so the wall depth buffer occludes it correctly.
+// drawSealedBossAura wreathes invulnerable bosses in rising "smoke": a dormant
+// boss in cool grey (sealed until its quest), and an idol-warded boss plus each
+// of its live idols in amber — so the protective link reads at a glance and the
+// glow clears the instant the idols fall. Drawn after walls/sprites so the wall
+// depth buffer occludes it correctly.
 func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 	if r.game.world == nil {
 		return
@@ -32,7 +36,16 @@ func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 	maxDepth := sealedAuraRadiusTiles * ts
 	ring := sealedAuraRingTiles * ts
 	for _, m := range r.game.world.Monsters {
-		if m == nil || !m.BossDormant || !m.IsAlive() {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		auraColor := sealedAuraColor
+		switch {
+		case m.BossDormant:
+			auraColor = sealedAuraColor
+		case m.BossWarded || m.WarlordIdol:
+			auraColor = wardAuraColor
+		default:
 			continue
 		}
 		tx, ty := int(m.X/ts), int(m.Y/ts)
@@ -57,7 +70,7 @@ func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 				sizeFloor:    2.0,
 				sizeCoef:     0.06,
 				wobbleCoef:   0.7,
-				color:        sealedAuraColor,
+				color:        auraColor,
 				centerDepth:  centerDepth,
 				hasCenter:    centerOK,
 			})

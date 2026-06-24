@@ -1902,6 +1902,59 @@ func TestCombatBalance_CastleVeteranL17PartyVsCastleMobs(t *testing.T) {
 	}
 }
 
+func jungleMobScenarios() []fightScenario {
+	return []fightScenario{
+		{label: "ocelot", monsters: []string{"ocelot"}},
+		{label: "jungle_goblin", monsters: []string{"jungle_goblin"}},
+		{label: "masked_huntress", monsters: []string{"masked_huntress"}},
+		{label: "serpent_dancer", monsters: []string{"masked_serpent_dancer"}},
+		{label: "masked_hexer", monsters: []string{"masked_hexer_girl"}},
+		{label: "gorilla_titan", monsters: []string{"gorilla_titan"}},
+		{label: "2x ocelot", monsters: []string{"ocelot", "ocelot"}},
+		{label: "2x goblin", monsters: []string{"jungle_goblin", "jungle_goblin"}},
+		{label: "huntress+dancer", monsters: []string{"masked_huntress", "masked_serpent_dancer"}},
+		{label: "warlord+4 idols", monsters: []string{"jungle_idol", "jungle_idol", "jungle_idol", "jungle_idol", "orc_hero_boss"}},
+	}
+}
+
+// TestCombatBalance_JungleL8PartyVsMobs — a LOW (L8) starter party wandering into
+// the L18-24 jungle. It SHOULD struggle/wipe on the zone's mobs; if it facerolls
+// ocelots/goblins while they pay big XP, the trash is undertuned (farmable). Note
+// the sim doesn't model the warlord's idol-ward (BossWarded is set only by the
+// live per-frame pre-pass), so the boss row reflects raw HP/damage, not the gate.
+func TestCombatBalance_JungleL8PartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(42)
+	buildL8 := func(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+		cs.game.party = character.NewParty(cs.game.config)
+		party := buildDefaultParty(t, cs, 8)
+		cs.game.party.Members = party
+		return party
+	}
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildL8, sc.monsters, "Jungle L8 party vs "+sc.label, 0, 50)
+	}
+}
+
+// TestCombatBalance_JungleVeteranPartyVsMobs — a well-geared L17 veteran (the
+// castle-veteran loadout, the kind of party that would actually attempt the
+// jungle) vs the same scenarios, as the at-level reference.
+func TestCombatBalance_JungleVeteranPartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(43)
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Jungle L17-veteran party vs "+sc.label, 0, 50)
+	}
+}
+
 // TestCombatBalance_FullClearCasterSpeedPartyVsDragon — party clears
 // forest + church + water (everything except dragon), then fights the
 // dragon. Stat strategy: only Sorcerer/Archer invest Spd→16; Knight

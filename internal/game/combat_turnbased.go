@@ -72,6 +72,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			m.TickRootTurn()
 		}
 
+		// Match real-time AI: sealed bosses, warded warlords, and ward idols are
+		// inert in TB too. They hold their placed tile and never spend the monster
+		// turn moving or attacking while the seal/ward condition is active.
+		if m.BossDormant || m.BossWarded || m.WarlordIdol {
+			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			continue
+		}
+
 		// Pacified (Charm): holds position, never acts against the party.
 		if m.Pacified {
 			continue

@@ -723,6 +723,57 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 	}
 }
 
+// TestSaveLoad_IdolWardSetOnRestore guards the idol-ward immediate-init: a warded
+// boss must be flagged BossWarded the instant a save loads (refreshBoundUndeadCache
+// runs AFTER input, so without the restore-time pass a first-frame player action
+// could damage a still-warded warlord). And with no live idol it must NOT be warded.
+func TestSaveLoad_IdolWardSetOnRestore(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	restore := func(idolAlive bool) *monster.Monster3D {
+		wSave := newTestWorld(cfg)
+		boss := monster.NewMonster3DFromConfig(64, 64, "orc_hero_boss", cfg)
+		idol := monster.NewMonster3DFromConfig(128, 64, "jungle_idol", cfg)
+		if boss == nil || idol == nil {
+			t.Fatal("deep_jungle boss/idol configs must load")
+		}
+		if !idolAlive {
+			idol.HitPoints = 0
+		}
+		wSave.Monsters = []*monster.Monster3D{boss, idol}
+		wmSave := world.NewWorldManager(cfg)
+		wmSave.LoadedMaps = map[string]*world.World3D{"deep_jungle": wSave}
+		wmSave.CurrentMapKey = "deep_jungle"
+		save := newTestGame(cfg, wSave).buildSave(wmSave)
+		save.MapKey = "deep_jungle"
+
+		wLoad := newTestWorld(cfg)
+		wmLoad := world.NewWorldManager(cfg)
+		wmLoad.LoadedMaps = map[string]*world.World3D{"deep_jungle": wLoad}
+		wmLoad.CurrentMapKey = "deep_jungle"
+		oldWM := world.GlobalWorldManager
+		world.GlobalWorldManager = wmLoad
+		defer func() { world.GlobalWorldManager = oldWM }()
+		if err := newTestGame(cfg, wLoad).applySave(wmLoad, &save); err != nil {
+			t.Fatalf("apply save: %v", err)
+		}
+		for _, m := range wLoad.Monsters {
+			if m.Key == "orc_hero_boss" {
+				return m
+			}
+		}
+		t.Fatal("warlord missing after restore")
+		return nil
+	}
+
+	if b := restore(true); !b.BossWarded {
+		t.Error("warlord must be flagged BossWarded immediately on load while an idol lives")
+	}
+	if b := restore(false); b.BossWarded {
+		t.Error("warlord must NOT be warded on load when no idol lives")
+	}
+}
+
 func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 	cfg := loadTestConfig(t)
 	wSave := newTestWorld(cfg)

@@ -142,7 +142,10 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// its throne until its quest unseals it. The RT attack loop already no-ops via
 	// updateBoss; without this the patrol state would still drift the boss off its
 	// spawn tile. Flag is set single-threaded in refreshBoundUndeadCache.
-	if m.BossDormant {
+	// A warlord idol is likewise immobile — it stands where placed and never moves.
+	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
+	// without this it would chase the party clear across the map at load.
+	if m.BossDormant || m.WarlordIdol || m.BossWarded {
 		return
 	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch

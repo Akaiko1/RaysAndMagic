@@ -584,7 +584,7 @@ npcs:
     transparent: true
     size_multiplier: 1.0
     dialogue:
-      greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch — and at the harbor, an eastbound ship takes on water for the far isles."
+      greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch — an eastbound ship takes on water for the far isles, and at a muddy slip a shallow-draught riverboat hires crew to push up the green river into the deep jungle."
       choice_prompt: "What do you want to do?"
       choices:
         - text: "Enter Seabright"
@@ -593,6 +593,9 @@ npcs:
         - text: "Sail to the eastern islands"
           action: "enter_map"
           map: "japanese_castle"
+        - text: "Take the riverboat up the river into the deep jungle"
+          action: "enter_map"
+          map: "deep_jungle"
         - text: "Stay in the forest"
           action: "leave"
 
@@ -979,3 +982,24 @@ npcs:
     size_multiplier: 4
     dialogue:
       greeting: "I train discipline, not wishes. Pick a character and a known mastery to improve."
+
+  # --- Deep Jungle (deep_jungle) ---
+  # Pure-wilderness zone: the only NPC is the canoe back to Seabright at the
+  # landing. Reuses the vine-arch object sprite as the riverside gateway.
+  deep_jungle_exit:
+    name: "Moored Riverboat"
+    type: "encounter"
+    description: "The shallow-draught riverboat that bore you upriver, tied at the landing"
+    sprite: "deep_jungle_arch"
+    render_type: "environment_sprite"
+    transparent: true
+    size_multiplier: 1.0
+    dialogue:
+      greeting: "The riverboat rocks against the muddy landing, ready to carry you back down the green river to Seabright."
+      choice_prompt: "Cast off downriver?"
+      choices:
+        - text: "Ride the river back to Seabright"
+          action: "enter_map"
+          map: "city"
+        - text: "Stay in the jungle"
+          action: "leave"

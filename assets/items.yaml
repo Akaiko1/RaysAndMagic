@@ -732,3 +732,167 @@ items:
     heal_endurance_divisor: 4
     rarity: "common"
     value: 60
+
+  # --- Deep Jungle (Amazon) loot ---
+  jaguar_pelt_jerkin:
+    name: "Jaguar-Pelt Jerkin"
+    type: "armor"
+    armor_category: "leather"
+    description: "Supple spotted hide cut for a hunter who must move fast"
+    flavor: "Light as the cat it came from, and twice as quiet."
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 4
+    bonus_speed: 8
+    rarity: "rare"
+    value: 600
+
+  feathered_headdress:
+    name: "Plumed Headdress"
+    type: "armor"
+    armor_category: "cloth"
+    description: "A shaman's crown of macaw feathers and jade beads"
+    flavor: "The feathers stir when a spell is near, like a thing still alive."
+    equip_slot: "helmet"
+    armor_class_base: 2
+    bonus_intellect: 10
+    bonus_personality: 6
+    rarity: "rare"
+    value: 520
+
+  vinewoven_cloak:
+    name: "Vine-Woven Cloak"
+    type: "accessory"
+    description: "A mantle of living creeper that turns thorn and venom"
+    flavor: "It drinks the rain and shrugs off the jungle's poisons."
+    equip_slot: "cloak"
+    bonus_endurance: 6
+    rarity: "uncommon"
+    value: 400
+    resistances:
+      body: 30
+      earth: 30
+
+  serpent_idol_amulet:
+    name: "Serpent Idol Amulet"
+    type: "accessory"
+    description: "A coiled serpent of green stone that focuses arcane will"
+    flavor: "Its stone eyes hold a spark that answers your own."
+    equip_slot: "amulet"
+    intellect_scaling_divisor: 6
+    bonus_personality: 5
+    rarity: "rare"
+    value: 650
+
+  warlords_signet:
+    name: "Warlord's Signet"
+    type: "accessory"
+    description: "A heavy iron ring stamped with the lost city's mark"
+    flavor: "Whoever wears it speaks, and the jungle listens."
+    equip_slot: "ring"
+    bonus_might: 12
+    bonus_endurance: 8
+    rarity: "legendary"
+    value: 2500
+
+  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate ⇒
+  # gates on plate skill; flat AC + stat block + heavy dark/earth/body resists.
+  mantle_of_the_idol_king:
+    name: "Mantle of the Idol-King"
+    type: "armor"
+    armor_category: "plate"
+    description: "A warlord's mantle of beaten idol-bronze and jaguar pelt"
+    flavor: "Cast from a god's broken face; it remembers being worshipped."
+    equip_slot: "armor"
+    armor_class_base: 10
+    bonus_might: 8
+    bonus_endurance: 8
+    rarity: "legendary"
+    value: 8000
+    resistances:
+      dark: 60
+      earth: 60
+      body: 60
+
+  ocelot_pelt:
+    name: "Ocelot Pelt"
+    type: "trinket"
+    description: "A spotted jungle-cat hide, sold by weight to furriers"
+    flavor: "Rosettes like coins; furriers pay nearly as much."
+    rarity: "common"
+    value: 130
+
+  serpent_skin:
+    name: "Serpent Skin"
+    type: "trinket"
+    description: "A long shed snakeskin prized by alchemists"
+    flavor: "Whole and unbroken — the alchemists like that."
+    rarity: "common"
+    value: 150
+
+  tribal_mask:
+    name: "Tribal Mask"
+    type: "trinket"
+    description: "A carved ritual mask of the masked tribe"
+    flavor: "The carver gave it an expression you can't quite name."
+    rarity: "uncommon"
+    value: 180
+
+  gorilla_heart:
+    name: "Titan's Heart"
+    type: "trinket"
+    description: "The still-warm heart of a gorilla titan, heavy as a melon"
+    flavor: "It takes two hands to lift, and alchemists pay for the weight."
+    rarity: "uncommon"
+    value: 460
+
+  golden_idol:
+    name: "Golden Idol"
+    type: "trinket"
+    description: "A small solid-gold idol from the lost city's hoard"
+    flavor: "Heavier than it looks, and worth a small fortune in any port."
+    rarity: "legendary"
+    value: 1300
+
+  ocelot_card:
+    name: "Ocelot Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a spotted cat mid-pounce, claws spread."
+    rarity: "rare"
+    value: 500
+
+  gorilla_titan_card:
+    name: "Gorilla Titan Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a great ape, fists raised over a flattened glade."
+    rarity: "rare"
+    value: 500
+
+  masked_huntress_card:
+    name: "Masked Huntress Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a masked stalker, blowgun to her lips."
+    rarity: "rare"
+    value: 500
+
+  orc_warlord_card:
+    name: "Orc Warlord Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a tusked warlord crowned in idol-bronze."
+    rarity: "rare"
+    value: 500
+
+  antivenom:
+    name: "Antivenom"
+    type: "consumable"
+    description: "A bitter draught that purges venom from the blood"
+    flavor: "Tastes of rot and roots — and stops the burning in your veins."
+    cure_poison: true
+    heal_base: 10
+    heal_endurance_divisor: 6
+    rarity: "common"
+    value: 45

@@ -230,6 +230,7 @@ type TreasureChestRewardSave struct {
 	Items             []string `json:"items,omitempty"`
 	Weapons           []string `json:"weapons,omitempty"`
 	Gold              int      `json:"gold,omitempty"`
+	LootTable         string   `json:"loot_table,omitempty"`
 	CompletionMessage string   `json:"completion_message,omitempty"`
 }
 
@@ -248,6 +249,7 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		Items:             append([]string(nil), reward.Items...),
 		Weapons:           append([]string(nil), reward.Weapons...),
 		Gold:              reward.Gold,
+		LootTable:         reward.LootTable,
 		CompletionMessage: reward.CompletionMessage,
 	}
 }
@@ -267,6 +269,7 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		Items:             append([]string(nil), save.Items...),
 		Weapons:           append([]string(nil), save.Weapons...),
 		Gold:              save.Gold,
+		LootTable:         save.LootTable,
 		CompletionMessage: save.CompletionMessage,
 	}
 }
@@ -939,6 +942,24 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					}
 				}
 				w.Monsters = append(w.Monsters, m)
+			}
+			// Idol-ward immediately at restore. Unlike BossDormant (per-monster
+			// above), it's cross-monster — it counts the live idols on THIS map — so
+			// it must run after the loop. Same first-frame reason: refreshBoundUndead-
+			// Cache recomputes it every frame but runs AFTER input, so without this the
+			// warded boss would be hittable on the first frame after a load.
+			liveIdols := 0
+			for _, mm := range w.Monsters {
+				if mm != nil && mm.WarlordIdol && mm.IsAlive() {
+					liveIdols++
+				}
+			}
+			if liveIdols > 0 {
+				for _, mm := range w.Monsters {
+					if mm != nil && mm.WardedByIdols {
+						mm.BossWarded = true
+					}
+				}
 			}
 		}
 

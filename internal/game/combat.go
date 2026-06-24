@@ -2066,9 +2066,9 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 	cx, cy := center.X, center.Y
 
 	for _, m := range cs.game.world.Monsters {
-		// A sealed (dormant) boss is invulnerable and inert: skip it entirely so
-		// splash deals no damage AND triggers no hit-flash / pack-aggro / message.
-		if m == nil || m == center || !m.IsAlive() || m.BossDormant {
+		// An invulnerable boss (sealed or idol-warded) takes no splash and triggers
+		// no hit-flash / pack-aggro / message: skip it entirely.
+		if m == nil || m == center || !m.IsAlive() || bossInvulnerable(m) {
 			continue
 		}
 		dx := m.X - cx
@@ -2463,22 +2463,37 @@ func monsterImmuneToDisintegrate(m *monsterPkg.Monster3D) bool {
 	if m == nil {
 		return false
 	}
-	// A sealed (dormant) boss can't be instakilled while invulnerable.
-	return m.MonsterType == "undead" || m.MonsterType == "dragon" || m.BossDormant
+	// An invulnerable boss (sealed or idol-warded) can't be instakilled.
+	return m.MonsterType == "undead" || m.MonsterType == "dragon" || bossInvulnerable(m)
 }
 
-// absorbIfSealed reports whether the monster is a sealed (dormant) boss and, if
-// so, plays the muted "blow absorbed" beat (impact spark + one message). A sealed
-// boss is invulnerable until its quest unseals it; player damage hubs call this
-// and return early. TakeDamageResist returning 0 is the backstop for any path
-// that doesn't pre-check (AoE splash, mastery, monster-vs-monster).
+// bossInvulnerable reports whether a boss is currently immune to ALL damage: a
+// sealed (dormant) boss until its quest unseals it, or an idol-warded boss until
+// its idols fall. Every indirect-damage path (AoE splash, inferno, zones, traps)
+// skips such a monster so it takes no damage and triggers no side effects.
+func bossInvulnerable(m *monsterPkg.Monster3D) bool {
+	return m != nil && (m.BossDormant || m.BossWarded)
+}
+
+// absorbIfSealed reports whether the monster is an invulnerable boss and, if so,
+// plays the muted "blow absorbed" beat (impact spark + one message). Player damage
+// hubs call this and return early; TakeDamageResist returning 0 is the backstop
+// for paths that don't pre-check (AoE splash, mastery, monster-vs-monster).
 func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
-	if m == nil || !m.BossDormant {
+	if m == nil {
 		return false
 	}
-	cs.game.spawnImpactSparks(m.X, m.Y)
-	cs.game.AddCombatMessage(fmt.Sprintf("The seal holds — %s is impervious.", m.Name))
-	return true
+	switch {
+	case m.BossDormant:
+		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.game.AddCombatMessage(fmt.Sprintf("The seal holds — %s is impervious.", m.Name))
+		return true
+	case m.BossWarded:
+		cs.game.spawnImpactSparks(m.X, m.Y)
+		cs.game.AddCombatMessage(fmt.Sprintf("The idols' ward holds — %s is impervious. Shatter the idols!", m.Name))
+		return true
+	}
+	return false
 }
 
 // tryCastSpecialEffect runs the data-driven "effect spell" dispatchers in order
@@ -2514,7 +2529,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 	// Monsters in range. A sealed (dormant) boss is invulnerable and inert —
 	// skip it so the nova neither damages nor wakes it.
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() || m.BossDormant || Distance(cx, cy, m.X, m.Y) > radius {
+		if m == nil || !m.IsAlive() || bossInvulnerable(m) || Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
 		reduced := applyArmorReductionIfPhysical(dmg, damageTypeStr, m.ArmorClass, false)

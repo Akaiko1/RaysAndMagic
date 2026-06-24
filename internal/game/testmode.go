@@ -250,6 +250,13 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 	for _, it := range fixedItemRewards(c.Items) {
 		g.party.AddItem(it)
 	}
+	if c.LootTable != "" {
+		poolItems, poolGold := rollWeightedLootTable(c.LootTable)
+		g.party.Gold += poolGold
+		for _, it := range poolItems {
+			g.party.AddItem(it)
+		}
+	}
 }
 
 // clearMapAndTally empties a loaded map's monster list and returns the

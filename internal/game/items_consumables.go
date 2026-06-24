@@ -96,6 +96,35 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		}
 	}
 
+	// Cure-poison consumable (antivenom). Checked before the heal branch so a
+	// poisoned-but-full-HP character can still be cured (the heal branch refuses
+	// at full HP). Applies any minor heal the item also carries.
+	if item.Attributes["cure_poison"] > 0 {
+		ch := g.party.Members[selectedChar]
+		if !ch.HasCondition(character.ConditionPoisoned) {
+			g.AddCombatMessage(fmt.Sprintf("%s isn't poisoned.", ch.Name))
+			return false
+		}
+		ch.RemoveCondition(character.ConditionPoisoned)
+		if base := item.Attributes["heal_base"]; base > 0 && !ch.HasCondition(character.ConditionUnconscious) {
+			heal := base
+			if div := item.Attributes["heal_endurance_divisor"]; div > 0 {
+				heal = base + (ch.GetEffectiveEndurance() / div)
+			}
+			before := ch.HitPoints
+			ch.HitPoints += heal
+			if ch.HitPoints > ch.MaxHitPoints {
+				ch.HitPoints = ch.MaxHitPoints
+			}
+			if ch.HitPoints > before {
+				g.TriggerPartyHeal(selectedChar)
+			}
+		}
+		g.party.RemoveItem(itemIndex)
+		g.AddCombatMessage(fmt.Sprintf("%s drinks %s — the venom subsides.", ch.Name, item.Name))
+		return true
+	}
+
 	// Healing consumable
 	if base, okBase := item.Attributes["heal_base"]; okBase {
 		if div, okDiv := item.Attributes["heal_endurance_divisor"]; okDiv && base > 0 && div > 0 {

@@ -375,6 +375,104 @@ loots:
       key: "o_yoroi"
       chance: 0.15
 
+  # --- Deep Jungle (Amazon) drops ---
+  ocelot:
+    - type: "item"
+      key: "ocelot_pelt"
+      chance: 0.18
+    - type: "item"
+      key: "ocelot_card"
+      chance: 0.03
+
+  jungle_goblin:
+    - type: "weapon"
+      key: "jungle_machete"
+      chance: 0.04
+
+  masked_huntress:
+    - type: "weapon"
+      key: "blowgun"
+      chance: 0.05
+    - type: "item"
+      key: "tribal_mask"
+      chance: 0.12
+    - type: "item"
+      key: "emerald"
+      chance: 0.04
+    - type: "item"
+      key: "masked_huntress_card"
+      chance: 0.03
+
+  masked_serpent_dancer:
+    - type: "item"
+      key: "serpent_skin"
+      chance: 0.15
+    - type: "item"
+      key: "vinewoven_cloak"
+      chance: 0.05
+    - type: "weapon"
+      key: "serpent_fang"
+      chance: 0.02
+
+  masked_hexer_girl:
+    - type: "item"
+      key: "serpent_idol_amulet"
+      chance: 0.05
+    - type: "item"
+      key: "feathered_headdress"
+      chance: 0.05
+    - type: "item"
+      key: "tribal_mask"
+      chance: 0.10
+    - type: "item"
+      key: "emerald"
+      chance: 0.05
+
+  gorilla_titan:
+    - type: "item"
+      key: "gorilla_heart"
+      chance: 0.30
+    - type: "item"
+      key: "jaguar_pelt_jerkin"
+      chance: 0.10
+    - type: "weapon"
+      key: "obsidian_spear"
+      chance: 0.08
+    - type: "item"
+      key: "ruby"
+      chance: 0.10
+    - type: "item"
+      key: "gorilla_titan_card"
+      chance: 0.05
+
+  jungle_idol:
+    - type: "weapon"
+      key: "bone_warclub"
+      chance: 0.10
+    - type: "item"
+      key: "emerald"
+      chance: 0.08
+
+  orc_hero_boss:
+    - type: "item"
+      key: "mantle_of_the_idol_king"
+      chance: 0.60
+    - type: "item"
+      key: "warlords_signet"
+      chance: 0.50
+    - type: "weapon"
+      key: "idol_breakers_maul"
+      chance: 0.40
+    - type: "item"
+      key: "golden_idol"
+      chance: 0.50
+    - type: "item"
+      key: "diamond"
+      chance: 0.50
+    - type: "item"
+      key: "orc_warlord_card"
+      chance: 0.10
+
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:
@@ -434,3 +532,41 @@ loot_tables:
       - type: "item"
         key: "emerald"
         weight: 3
+
+  # Lost-city treasury, rolled by the deep_jungle boss-clear chest (loot_table).
+  # ZONE gear + gold only — no uniques listed, so legendaries can't leak.
+  lost_city_cache:
+    rolls: 3
+    gold_min: 400
+    gold_max: 900
+    entries:
+      - type: "weapon"
+        key: "jungle_machete"
+        weight: 10
+      - type: "weapon"
+        key: "obsidian_spear"
+        weight: 10
+      - type: "weapon"
+        key: "bone_warclub"
+        weight: 10
+      - type: "weapon"
+        key: "blowgun"
+        weight: 8
+      - type: "item"
+        key: "vinewoven_cloak"
+        weight: 8
+      - type: "item"
+        key: "jaguar_pelt_jerkin"
+        weight: 6
+      - type: "item"
+        key: "feathered_headdress"
+        weight: 6
+      - type: "item"
+        key: "serpent_idol_amulet"
+        weight: 5
+      - type: "item"
+        key: "tribal_mask"
+        weight: 12
+      - type: "item"
+        key: "emerald"
+        weight: 6

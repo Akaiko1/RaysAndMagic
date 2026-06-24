@@ -312,6 +312,7 @@ func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapK
 		Items:             append([]string(nil), chestCfg.Items...),
 		Weapons:           append([]string(nil), chestCfg.Weapons...),
 		Gold:              chestCfg.Gold,
+		LootTable:         chestCfg.LootTable,
 		CompletionMessage: chestCfg.CompletionMessage,
 	}
 }

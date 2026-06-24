@@ -77,6 +77,10 @@ type MonsterDefinition struct {
 	EnrageAtHP         int     `yaml:"enrage_at_hp,omitempty"`
 	EnrageDamageMult   float64 `yaml:"enrage_damage_mult,omitempty"`
 	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
+	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
+	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
+	WardedByIdols bool `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
+	WarlordIdol   bool `yaml:"warlord_idol,omitempty"`    // this monster is a ward idol
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
@@ -376,6 +380,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.EnrageAtHP = def.EnrageAtHP
 	m.EnrageDamageMult = def.EnrageDamageMult
 	m.EnrageCooldownMult = def.EnrageCooldownMult
+	m.WardedByIdols = def.WardedByIdols
+	m.WarlordIdol = def.WarlordIdol
 	if len(def.TintColor) == 3 {
 		m.TintR = float32(def.TintColor[0])
 		m.TintG = float32(def.TintColor[1])

@@ -270,6 +270,7 @@ type ItemDefinitionFromYAML struct {
 	Value                     int
 	Revive                    bool
 	FullHeal                  bool
+	CurePoison                bool
 	OpensMap                  bool
 	PromotesLich              bool
 }
@@ -383,6 +384,9 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.FullHeal {
 		attrs["full_heal"] = 1
+	}
+	if def.CurePoison {
+		attrs["cure_poison"] = 1
 	}
 
 	// Prefer flavor text if provided, else use description

@@ -1157,6 +1157,226 @@ monsters:
       dark: 30
       mind: 40
 
+  # ---- Deep Jungle (Amazon) zone, party L18-24 ----
+  ocelot:
+    name: "Ocelot"
+    level: 18
+    max_hit_points: 640
+    armor_class: 16
+    perfect_dodge: 15
+    experience: 700
+    damage_min: 32
+    damage_max: 48
+    attack_radius: 1
+    alert_radius: 8
+    speed: 2.2
+    pounce_range_tiles: 4
+    pounce_cooldown_seconds: 5
+    gold_min: 30
+    gold_max: 110
+    sprite: "ocelot"
+    letter: "o"
+    box_w: 40
+    box_h: 40
+    size_game: 4.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+
+  jungle_goblin:
+    name: "Jungle Goblin"
+    level: 18
+    max_hit_points: 760
+    armor_class: 15
+    experience: 800
+    damage_min: 32
+    damage_max: 50
+    attack_radius: 1
+    alert_radius: 6
+    speed: 1.5
+    gold_min: 30
+    gold_max: 90
+    sprite: "jungle_goblin"
+    letter: "j"
+    box_w: 44
+    box_h: 44
+    size_game: 5.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+
+  masked_huntress:
+    name: "Masked Huntress"
+    level: 20
+    max_hit_points: 800
+    armor_class: 16
+    perfect_dodge: 10
+    experience: 1100
+    damage_min: 30
+    damage_max: 46
+    projectile_weapon: "blowgun"
+    ranged_attack_range: 6
+    attack_radius: 5
+    alert_radius: 8
+    speed: 1.6
+    poison_chance: 0.3
+    poison_duration_seconds: 6
+    gold_min: 60
+    gold_max: 160
+    sprite: "masked_huntress"
+    letter: "h"
+    box_w: 46
+    box_h: 46
+    size_game: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+      body: 30
+
+  masked_serpent_dancer:
+    name: "Masked Serpent Dancer"
+    level: 21
+    max_hit_points: 720
+    armor_class: 17
+    perfect_dodge: 25
+    experience: 1300
+    damage_min: 30
+    damage_max: 46
+    attack_radius: 1
+    alert_radius: 7
+    speed: 1.9
+    poison_chance: 0.4
+    poison_duration_seconds: 8
+    gold_min: 80
+    gold_max: 180
+    sprite: "masked_serpent_dancer"
+    letter: "d"
+    box_w: 46
+    box_h: 46
+    size_game: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 15
+      body: 50
+
+  masked_hexer_girl:
+    name: "Masked Hexer"
+    level: 22
+    max_hit_points: 780
+    armor_class: 16
+    perfect_dodge: 10
+    experience: 1700
+    damage_min: 22
+    damage_max: 34
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 6
+    attack_radius: 5
+    alert_radius: 8
+    speed: 1.5
+    ally_heal_chance: 0.25
+    ally_heal_amount: 80
+    ally_heal_radius_tiles: 5
+    gold_min: 100
+    gold_max: 220
+    sprite: "masked_hexer_girl"
+    letter: "x"
+    box_w: 46
+    box_h: 46
+    size_game: 6.0
+    biomes: ["jungle"]
+    resistances:
+      fire: 40
+      mind: 50
+      dark: 40
+
+  # Elite: huge territorial ape guarding the oxbow grove. Ground-pound shockwave.
+  gorilla_titan:
+    name: "Gorilla Titan"
+    level: 23
+    max_hit_points: 1700
+    armor_class: 19
+    experience: 2600
+    damage_min: 34
+    damage_max: 52
+    attack_radius: 1
+    alert_radius: 6
+    speed: 1.5
+    pounce_range_tiles: 3
+    pounce_cooldown_seconds: 6
+    fireburst_chance: 0.15
+    fireburst_damage_min: 30
+    fireburst_damage_max: 50
+    gold_min: 300
+    gold_max: 700
+    sprite: "gorilla_titan"
+    letter: "g"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 30
+
+  # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
+  # (warlord_idol) lives — break all idols and he ACTIVATES as a normal aggressive
+  # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
+  # enrage_at_hp once active (enrage is HP-driven, not the ward).
+  orc_hero_boss:
+    name: "Orc Warlord"
+    level: 24
+    max_hit_points: 2400
+    armor_class: 20
+    perfect_dodge: 5
+    experience: 4200
+    damage_min: 36
+    damage_max: 56
+    attack_radius: 1
+    alert_radius: 10
+    speed: 1.7
+    ignores_armor: true
+    warded_by_idols: true
+    enrage_at_hp: 800
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    gold_min: 5000
+    gold_max: 8000
+    sprite: "orc_warlord"
+    letter: "w"
+    box_w: 48
+    box_h: 48
+    size_game: 8.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 25
+      dark: 30
+      earth: 30
+
+  # Plaza idol: immobile, never attacks; while any idol lives the warlord is
+  # warded (invulnerable + rooted, holds the plaza). Break all to drop his ward.
+  jungle_idol:
+    name: "Warlord Idol"
+    level: 20
+    max_hit_points: 500
+    armor_class: 18
+    experience: 300
+    damage_min: 0
+    damage_max: 0
+    attack_radius: 0
+    alert_radius: 0
+    speed: 0
+    warlord_idol: true
+    gold_min: 0
+    gold_max: 0
+    sprite: "deep_jungle_idol"
+    letter: "i"
+    box_w: 48
+    box_h: 48
+    size_game: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 20
+      mind: 50
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0

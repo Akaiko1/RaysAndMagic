@@ -31,6 +31,7 @@ type TreasureChestReward struct {
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`
 	Gold              int      `yaml:"gold,omitempty"`
+	LootTable         string   `yaml:"loot_table,omitempty"`
 	CompletionMessage string   `yaml:"completion_message,omitempty"`
 }
 
@@ -194,6 +195,12 @@ type Monster3D struct {
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
 	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn — no detection or wandering until its quest unseals it (set by refreshBoundUndeadCache)
+	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
+	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
+	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
+	WardedByIdols bool // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol   bool // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	BossWarded    bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
 	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
 	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.
@@ -272,11 +279,11 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playe
 // of the target's resistance to damageType is ignored before reduction. Used by
 // Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
 func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
-	// A sealed (dormant) boss is invulnerable until its quest unseals it: absorb
-	// all damage from every source and don't aggro. BossDormant is set per-frame
-	// in the game's pre-pass; this is the backstop for damage paths that don't
-	// pre-check it (AoE splash, mastery true-damage, monster-vs-monster).
-	if m.BossDormant {
+	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
+	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
+	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
+	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
+	if m.BossDormant || m.BossWarded {
 		return 0
 	}
 	// Apply resistance (reduced by any piercing)

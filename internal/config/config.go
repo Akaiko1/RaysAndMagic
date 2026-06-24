@@ -624,6 +624,7 @@ type MapTreasureChestRewardConfig struct {
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`
 	Gold              int      `yaml:"gold,omitempty"`
+	LootTable         string   `yaml:"loot_table,omitempty"` // roll a named weighted pool (loots.yaml loot_tables) into the chest
 	CompletionMessage string   `yaml:"completion_message,omitempty"`
 }
 
@@ -956,6 +957,7 @@ type ItemDefinitionConfig struct {
 	SummonDistanceTiles  int  `yaml:"summon_distance_tiles,omitempty"`
 	Revive               bool `yaml:"revive,omitempty"`
 	FullHeal             bool `yaml:"full_heal,omitempty"`
+	CurePoison           bool `yaml:"cure_poison,omitempty"` // clears the Poisoned condition on use
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {

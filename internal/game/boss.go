@@ -19,7 +19,7 @@ import (
 // isBoss reports whether a monster carries any special boss behaviour flag.
 func (cs *CombatSystem) isBoss(m *monsterPkg.Monster3D) bool {
 	return m != nil && (m.PassiveUntilQuest != "" || m.InfernoChance > 0 ||
-		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0)
+		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0 || m.WardedByIdols)
 }
 
 // bossEvasive reports whether the boss is in its evasive phase: it has a

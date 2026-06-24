@@ -315,8 +315,8 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
 func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
-	if m.BossDormant {
-		return // sealed boss is invulnerable and inert — no trap damage, FX, or aggro
+	if bossInvulnerable(m) {
+		return // invulnerable boss (sealed or idol-warded) — no trap damage, FX, or aggro
 	}
 	// Physical traps respect monster armor like any other physical hit;
 	// elemental payloads go through resistances only.

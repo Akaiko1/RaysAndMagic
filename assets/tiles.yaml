@@ -124,7 +124,7 @@ tiles:
     render_type: "environment_sprite"
     wall_color: [96, 128, 56]  # Palm-frond green
     letter: "P"
-    biomes: ["desert"]
+    biomes: ["desert", "jungle"]  # reused along jungle riverbanks (letter P)
 
   # Water biome variants
   coral_reef:
@@ -446,6 +446,129 @@ tiles:
     render_type: "environment_sprite"
     letter: "H"
     biomes: ["japanese_castle"]
+
+  # ---- Deep Jungle (Amazon) zone ----
+  # Floors: terra-firme is the universal "." (jungle default group). These two
+  # add the deliberate looks — mossy ruin flagstone for the lost-city plaza, and
+  # wet flooded ground for the várzea floodplain. The river itself reuses the
+  # universal water/deep_water tiles (W/Q, impassable); S is a walkable ford.
+  jungle_ruin_floor:
+    name: "Mossy Flagstone"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [70, 80, 58]
+    floor_near_color: [108, 118, 88]
+    floor_texture_group: "ruin"
+    letter: ":"
+    biomes: ["jungle"]
+
+  jungle_varzea_floor:
+    name: "Flooded Floodplain"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [48, 78, 58]
+    floor_near_color: [92, 120, 92]
+    floor_texture_group: "varzea"
+    letter: ","
+    biomes: ["jungle"]
+
+  jungle_ford:
+    name: "River Ford"
+    solid: false
+    transparent: true
+    walkable: true
+    height_multiplier: 1.0
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [0, 120, 110]
+    floor_near_color: [205, 175, 149]
+    floor_texture_group: "jungle_ford"
+    letter: "S"
+    biomes: ["jungle"]
+
+  # Jungle walls (biome-scoped — override the universal wall/rock letters on
+  # jungle maps): # dense foliage, R Maya carved-stone ruin, T buttress trunks,
+  # K dark cliff with waterfalls.
+  jungle_wall_foliage:
+    name: "Dense Foliage"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_wall_0"
+    render_type: "textured_wall"
+    wall_color: [38, 76, 38]
+    letter: "#"
+    biomes: ["jungle"]
+
+  jungle_wall_ruin:
+    name: "Carved Ruin Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_wall_1"
+    render_type: "textured_wall"
+    wall_color: [96, 96, 78]
+    letter: "R"
+    biomes: ["jungle"]
+
+  jungle_wall_trunk:
+    name: "Buttress Trunks"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_wall_2"
+    render_type: "textured_wall"
+    wall_color: [92, 70, 48]
+    letter: "T"
+    biomes: ["jungle"]
+
+  jungle_wall_cliff:
+    name: "Waterfall Cliff"
+    solid: true
+    transparent: false
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_wall_3"
+    render_type: "textured_wall"
+    wall_color: [70, 76, 80]
+    letter: "K"
+    biomes: ["jungle"]
+
+  # Jungle decor billboards (solid, see-through). G fern clump, O fallen log.
+  jungle_fern:
+    name: "Fern Clump"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_fern"
+    render_type: "environment_sprite"
+    wall_color: [50, 110, 45]
+    letter: "G"
+    biomes: ["jungle"]
+
+  jungle_log:
+    name: "Fallen Log"
+    solid: true
+    transparent: true
+    walkable: false
+    height_multiplier: 1.0
+    sprite: "deep_jungle_log"
+    render_type: "environment_sprite"
+    wall_color: [92, 70, 46]
+    letter: "O"
+    biomes: ["jungle"]
 
   city_floor:
     name: "City Cobblestone"

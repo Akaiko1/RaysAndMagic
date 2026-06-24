@@ -766,6 +766,136 @@ weapons:
       slash_width: 42
       slash_length: 56
 
+  # --- Deep Jungle (Amazon) zone weapons ---
+  jungle_machete:
+    name: "Machete"
+    description: "A heavy chopping blade for hacking through undergrowth and bone"
+    category: "sword"
+    cooldown_multiplier: 0.85
+    damage: 12
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 12
+    rarity: "uncommon"
+    value: 320
+    flavor: "It clears a path through anything — vines, or men."
+    melee:
+      arc_angle: 70
+      animation_frames: 7
+      hit_delay: 2
+    graphics:
+      slash_color: [200, 210, 180]
+      slash_width: 32
+      slash_length: 54
+
+  obsidian_spear:
+    name: "Obsidian Spear"
+    description: "A long shaft tipped with knapped volcanic glass"
+    category: "spear"
+    damage: 13
+    range: 2
+    bonus_stat: "Might"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 10
+    rarity: "uncommon"
+    value: 420
+    flavor: "Glass older than the jungle, and just as patient."
+    melee:
+      arc_angle: 40
+      animation_frames: 9
+      hit_delay: 4
+    graphics:
+      slash_color: [80, 70, 90]
+      slash_width: 20
+      slash_length: 84
+
+  bone_warclub:
+    name: "Bone War-Club"
+    description: "A heavy club studded with sharpened tusks and teeth"
+    category: "mace"
+    damage: 14
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 18
+    rarity: "uncommon"
+    value: 380
+    flavor: "Every tooth in it belonged to something that lost."
+    melee:
+      arc_angle: 85
+      animation_frames: 10
+      hit_delay: 4
+    graphics:
+      slash_color: [210, 200, 170]
+      slash_width: 40
+      slash_length: 52
+
+  blowgun:
+    name: "Blowgun"
+    description: "A long reed that spits poisoned darts in near silence"
+    category: "bow"
+    damage: 9
+    range: 7
+    bonus_stat: "Accuracy"
+    crit_chance: 12
+    max_projectiles: 2
+    rarity: "uncommon"
+    value: 360
+    flavor: "A breath, a hiss — and the canopy goes quiet."
+    physics:
+      speed_tiles: 11.0
+      range_tiles: 7.0
+      collision_size_tiles: 0.4
+    graphics:
+      max_size: 24
+      min_size: 2
+      base_size: 8
+      color: [120, 170, 90]
+
+  serpent_fang:
+    name: "Serpent-Fang"
+    description: "Twin curved fangs that find the gap in any guard"
+    category: "dagger"
+    cooldown_multiplier: 0.6
+    damage: 11
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 24
+    disintegrate_chance: 0.03
+    rarity: "rare"
+    value: 900
+    flavor: "It bites where armor forgets to."
+    melee:
+      arc_angle: 45
+      animation_frames: 5
+      hit_delay: 1
+    graphics:
+      slash_color: [140, 200, 120]
+      slash_width: 22
+      slash_length: 40
+
+  idol_breakers_maul:
+    name: "Idol-Breaker, the Warlord's Maul"
+    description: "The warlord's great maul, hafted to shatter stone idols and ribs alike"
+    category: "mace"
+    damage: 14
+    range: 1
+    bonus_stat: "Might"
+    bonus_stat_secondary: "Endurance"
+    crit_chance: 20
+    aoe_radius_tiles: 1.5
+    rarity: "legendary"
+    value: 3000
+    flavor: "Stone gods and standing men fall to the same swing."
+    melee:
+      arc_angle: 95
+      animation_frames: 12
+      hit_delay: 5
+    graphics:
+      slash_color: [220, 180, 90]
+      slash_width: 46
+      slash_length: 58
+
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
 # skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a

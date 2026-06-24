@@ -159,7 +159,13 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	chestItems := randomWeaponRewards(reward.RandomWeaponCount)
 	chestItems = append(chestItems, fixedWeaponRewards(reward.Weapons)...)
 	chestItems = append(chestItems, fixedItemRewards(reward.Items)...)
-	if len(chestItems) == 0 && reward.Gold <= 0 {
+	chestGold := reward.Gold
+	if reward.LootTable != "" {
+		poolItems, poolGold := rollWeightedLootTable(reward.LootTable)
+		chestItems = append(chestItems, poolItems...)
+		chestGold += poolGold
+	}
+	if len(chestItems) == 0 && chestGold <= 0 {
 		return
 	}
 
@@ -169,7 +175,7 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 		MapKey:         chestMap,
 		X:              x,
 		Y:              y,
-		Gold:           reward.Gold,
+		Gold:           chestGold,
 		Items:          chestItems,
 		Sprite:         reward.Sprite,
 		SizeMultiplier: reward.SizeMultiplier,

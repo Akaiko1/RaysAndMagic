@@ -149,6 +149,31 @@ biomes:
       chasm_floor_1:
         - "dragon_cliffs_chasm_floor_1"
 
+  # Amazon-style jungle: dense leaf-litter floor (own art), the river reuses the
+  # universal water tiles for its impassable channel/oxbow, walkable fords reuse
+  # the forest_stream texture, and the renderer auto-selects "beach" for the
+  # sandy banks bordering water.
+  jungle:
+    floor_texture_groups:
+      # Terra-firme upland: earthy leaf-litter + vine-mat, mixed for organic variety.
+      default:
+        - "deep_jungle_floor_0"
+        - "deep_jungle_floor_3"
+      # Mossy carved flagstone — the lost-city plaza/causeways (tile letter ':').
+      ruin:
+        - "deep_jungle_floor_1"
+      # Wet flooded floodplain ground — várzea (tile letter ',').
+      varzea:
+        - "deep_jungle_floor_2"
+      water:
+        - "water_0"
+        - "water_1"
+      beach:
+        - "beach_sand_0"
+        - "beach_sand_1"
+      jungle_ford:
+        - "dragon_cliffs_bridge_1"
+
 maps:
   forest:
     name: "Elvish Forest"
@@ -332,3 +357,29 @@ maps:
     sky_color: [86, 66, 72]             # Ashen, dragon-smoke sky
     sky_texture: "dragon_cliffs_panorama"
     default_floor_color: [92, 112, 64]  # Cliff grass
+
+  deep_jungle:
+    name: "Deep Jungle"
+    file: "deep_jungle.map"
+    biome: "jungle"
+    sky_color: [54, 84, 64]             # Humid green canopy haze
+    sky_texture: "deep_jungle_panorama"
+    default_floor_color: [34, 78, 40]   # Dark jungle green
+    ambient_light: 1.0   # full daylight; no ambient darkening
+    # Slay the warlord (only possible once his idols are broken) → the lost
+    # city's treasury opens in the plaza. Zone gear + gold only; his uniques
+    # drop from the boss itself (loots.yaml), so none can leak here.
+    clear_encounter:
+      monsters:
+        - type: "orc_hero_boss"
+          count: 1
+      rewards:
+        completion_message: "The warlord falls. A flagstone grinds aside — the lost city's treasury lies open."
+        treasure_chest:
+          id: "lost_city_treasury"
+          map: "deep_jungle"
+          tile_x: 38
+          tile_y: 13
+          sprite: "chest"
+          size_multiplier: 5.0
+          loot_table: "lost_city_cache"   # 3 rolls of zone gear + 400-900 gold

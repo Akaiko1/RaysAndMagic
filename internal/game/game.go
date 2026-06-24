@@ -1079,14 +1079,32 @@ func (g *MMGame) refreshBoundUndeadCache() {
 	if g.combat == nil {
 		return
 	}
+	// Count the live ward idols on this map once. While >=1 stands, every
+	// WardedByIdols boss here is invulnerable and rooted (it holds its plaza);
+	// enrage stays HP-driven and only applies after the ward drops. The link is
+	// type-scoped (idols aren't bound to a specific boss) — fine while a map has a
+	// single warded boss, which is all the content has. Recomputed per frame ⇒ no
+	// save state, self-heals on reload.
+	liveIdols := 0
+	for _, m := range g.world.Monsters {
+		if m != nil && m.WarlordIdol && m.IsAlive() {
+			liveIdols++
+		}
+	}
 	for _, m := range g.world.Monsters {
 		if m == nil {
 			continue
 		}
 		m.AIFoe = g.combat.monsterAIFoeMonster(m)
 		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
-		// Aggressive boss → relentless chase; evasive boss holds (handled by boss hook).
-		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m)
+		// Idol-warded boss: invulnerable AND HOLDS its plaza (its idols' power roots
+		// it in place) until every idol is broken — then it activates as a normal
+		// aggressive boss. Computed first so it can gate BossAggro/freeze below.
+		// Without this hold an aggressive boss beelines across the whole map to the
+		// party at the landing the instant the map loads.
+		m.BossWarded = m.WardedByIdols && liveIdols > 0
+		// Aggressive boss → relentless chase; evasive/dormant/warded bosses hold.
+		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m) && !m.BossWarded
 		// Sealed boss (passive-until-quest, no evade radius) → freeze on its spawn
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
