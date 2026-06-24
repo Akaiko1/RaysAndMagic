@@ -293,7 +293,34 @@ func (tm *TileManager) GetHeightMultiplier(tileType TileType3D) float64 {
 	if data == nil {
 		return 1.0 // Default height
 	}
+	if data.WallHeightMultiplier > 0 {
+		return data.WallHeightMultiplier
+	}
+	if data.HeightMultiplier <= 0 {
+		return 1.0
+	}
 	return data.HeightMultiplier
+}
+
+// GetSizeMultiplier returns the visual sprite scale for billboard-style tiles.
+// size_multiplier is the canonical content key. height_multiplier remains as a
+// fallback for older tile YAML where billboard scale and wall height shared one
+// field.
+func (tm *TileManager) GetSizeMultiplier(tileType TileType3D) float64 {
+	data := tm.GetTileData(tileType)
+	if data == nil {
+		return 1.0
+	}
+	if data.SizeMultiplier > 0 {
+		return data.SizeMultiplier
+	}
+	switch data.RenderType {
+	case "tree_sprite", "environment_sprite", "flooring_object":
+		if data.HeightMultiplier > 0 {
+			return data.HeightMultiplier
+		}
+	}
+	return 1.0
 }
 
 // GetSprite returns the sprite name for a tile type
@@ -391,6 +418,18 @@ func (tm *TileManager) SetTileProperty(tileType TileType3D, property string, val
 			data.HeightMultiplier = val
 		} else {
 			return fmt.Errorf("height_multiplier property requires float64 value")
+		}
+	case "wall_height_multiplier":
+		if val, ok := value.(float64); ok {
+			data.WallHeightMultiplier = val
+		} else {
+			return fmt.Errorf("wall_height_multiplier property requires float64 value")
+		}
+	case "size_multiplier":
+		if val, ok := value.(float64); ok {
+			data.SizeMultiplier = val
+		} else {
+			return fmt.Errorf("size_multiplier property requires float64 value")
 		}
 	case "sprite":
 		if val, ok := value.(string); ok {

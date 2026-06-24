@@ -31,6 +31,7 @@ type MonsterDefinition struct {
 	Biomes              []string          `yaml:"biomes,omitempty"`
 	BoxW                float64           `yaml:"box_w"`
 	BoxH                float64           `yaml:"box_h"`
+	SizeMultiplier      float64           `yaml:"size_multiplier,omitempty"`
 	SizeGame            float64           `yaml:"size_game"`
 	Resistances         map[string]int    `yaml:"resistances"`
 	HabitatPrefs        []string          `yaml:"habitat_preferences"`
@@ -406,10 +407,15 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 	return def.BoxW, def.BoxH
 }
 
-// GetSizeGameMultiplier returns the visual size multiplier from config
+// GetSizeGameMultiplier returns the visual size multiplier from config.
+// size_multiplier is the canonical YAML key; size_game is accepted for
+// backward compatibility with older content.
 func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
-	if def.SizeGame == 0 {
-		return 1.0 // Default multiplier if not set
+	if def.SizeMultiplier > 0 {
+		return def.SizeMultiplier
 	}
-	return def.SizeGame
+	if def.SizeGame > 0 {
+		return def.SizeGame
+	}
+	return 1.0
 }

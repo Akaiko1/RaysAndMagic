@@ -1526,7 +1526,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	// Calculate tree height and position
 	// distance is already perpendicular distance from the raycast
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	if world.GlobalTileManager != nil {
+		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+	}
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
 	if spriteHeight < 8 {
 		spriteHeight = 8
 	}
@@ -1558,17 +1562,9 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	sprite := r.game.sprites.GetSprite(spriteName)
 
-	// Scale and draw the tree sprite
-	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
 	// Apply distance shading with torch light effects
@@ -1666,7 +1662,11 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	if world.GlobalTileManager != nil {
+		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+	}
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
 	}
@@ -1706,17 +1706,9 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	}
 	sprite := r.game.sprites.GetSprite(spriteName)
 
-	// Scale and draw the sprite
-	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
 	// Distance shading, light-aware: torch / spell glow reaches raycast sprites
@@ -2640,6 +2632,17 @@ func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
 	return false
 }
 
+func (r *Renderer) scaledWorldSpriteOpts(scaleX, scaleY float64) *ebiten.DrawImageOptions {
+	opts := r.sharedDrawOpts()
+	if math.Abs(scaleX) < 0.5 || math.Abs(scaleY) < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5-1.0 band stays nearest.
+		opts.Filter = ebiten.FilterLinear
+	}
+	opts.GeoM.Scale(scaleX, scaleY)
+	return opts
+}
+
 // drawTintedSprite draws a sprite scaled to spriteSize at (drawLeft, screenY)
 // with the given RGBA tint applied via ColorScale. Used for both the
 // brightness pass and the hover-highlight overlay.
@@ -2649,14 +2652,7 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 	}
 	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
-	opts := r.sharedDrawOpts()
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
 	opts.Blend = ebiten.BlendSourceOver
@@ -2879,28 +2875,21 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-
 	if s.monsterFlip {
-		opts.GeoM.Scale(-scaleX, scaleY)
+		opts := r.scaledWorldSpriteOpts(-scaleX, scaleY)
 		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
+		opts.ColorScale.Scale(rr, gg, bb, 1.0)
+		opts.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, opts)
 	} else {
-		opts.GeoM.Scale(scaleX, scaleY)
+		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+		opts.ColorScale.Scale(rr, gg, bb, 1.0)
+		opts.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, opts)
 	}
-
-	opts.ColorScale.Scale(rr, gg, bb, 1.0)
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(s.sprite, opts)
 }
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
@@ -2954,16 +2943,9 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 	}
 
-	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
 	opts.ColorScale.Scale(br, br, br, 1.0)

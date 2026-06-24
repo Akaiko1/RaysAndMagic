@@ -41,7 +41,7 @@ var groundContainerDefaults = map[ContainerKind]containerKindDefaults{
 	},
 	ContainerKindTreasureChest: {
 		sprite:         "chest",
-		sizeMultiplier: 3.0, // matches a "big" loot bag (mid-tier monster ~size_game 6)
+		sizeMultiplier: 3.0, // matches a "big" loot bag (mid-tier monster ~size_multiplier 6)
 		openMessage:    "Opened chest",
 		emptyMessage:   "The chest is empty.",
 	},

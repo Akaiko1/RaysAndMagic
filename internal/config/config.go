@@ -523,16 +523,20 @@ type TileLightConfig struct {
 }
 
 type TileData struct {
-	Name             string  `yaml:"name"`
-	Type             string  `yaml:"type,omitempty"`
-	Solid            bool    `yaml:"solid"`
-	Transparent      bool    `yaml:"transparent"`
-	Walkable         bool    `yaml:"walkable"`
-	HeightMultiplier float64 `yaml:"height_multiplier"`
-	Sprite           string  `yaml:"sprite"`
-	RenderType       string  `yaml:"render_type"`
-	FloorColor       [3]int  `yaml:"floor_color"`
-	FloorNearColor   [3]int  `yaml:"floor_near_color"`
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type,omitempty"`
+	Solid       bool   `yaml:"solid"`
+	Transparent bool   `yaml:"transparent"`
+	Walkable    bool   `yaml:"walkable"`
+	// WallHeightMultiplier affects vertical textured-wall rendering only.
+	// HeightMultiplier is a legacy fallback for old tile YAML.
+	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
+	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
+	SizeMultiplier       float64 `yaml:"size_multiplier,omitempty"`
+	Sprite               string  `yaml:"sprite"`
+	RenderType           string  `yaml:"render_type"`
+	FloorColor           [3]int  `yaml:"floor_color"`
+	FloorNearColor       [3]int  `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Empty = no texture overlay (renderer falls back to base

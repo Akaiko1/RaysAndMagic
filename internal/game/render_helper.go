@@ -498,10 +498,10 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 		return 0, 0, 0, false
 	}
 
-	// Get height multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
+	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
 	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		heightMultiplier = world.GlobalTileManager.GetHeightMultiplier(tileType)
+		heightMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
 	}
 	heightMultiplier *= sizeScale
 

@@ -5,7 +5,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [60, 180, 60]  # Green grass
@@ -17,7 +16,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: ""
     render_type: "textured_wall"
     wall_color: [64, 64, 64]  # Gray stone wall
@@ -28,7 +27,6 @@ tiles:
     solid: false
     transparent: true
     walkable: false
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [100, 150, 255]  # Blue water
@@ -41,7 +39,6 @@ tiles:
     solid: false
     transparent: true
     walkable: false
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [30, 80, 180]  # Darker blue deep water
@@ -54,7 +51,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false  # Can be changed to true when opened
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "forest_gate"
     render_type: "textured_wall"
     wall_color: [139, 69, 19]  # Brown wooden door
@@ -66,7 +63,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 2.0
+    size_multiplier: 2.0
     sprite: "tree"
     render_type: "tree_sprite"
     wall_color: [101, 67, 33]  # Brown tree bark
@@ -79,7 +76,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 2.0
+    size_multiplier: 2.0
     sprite: "ancient_tree"
     render_type: "tree_sprite"
     wall_color: [69, 39, 19]  # Darker brown ancient bark
@@ -93,7 +90,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.5
+    size_multiplier: 1.5
     sprite: "sand_dune"
     render_type: "tree_sprite"
     wall_color: [238, 203, 173]  # Sandy brown
@@ -106,7 +103,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 2.0
+    size_multiplier: 2.0
     sprite: "large_dune"
     render_type: "tree_sprite"
     wall_color: [222, 184, 135]  # Burlywood
@@ -119,7 +116,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "palm"
     render_type: "environment_sprite"
     wall_color: [96, 128, 56]  # Palm-frond green
@@ -132,7 +129,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.8
+    size_multiplier: 1.8
     sprite: "coral_reef"
     render_type: "tree_sprite"
     wall_color: [255, 127, 80]  # Coral orange
@@ -145,7 +142,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 2.2
+    size_multiplier: 2.2
     sprite: "large_coral"
     render_type: "tree_sprite"
     wall_color: [220, 20, 60]  # Crimson coral
@@ -158,7 +155,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 0.8
+    wall_height_multiplier: 0.8
     sprite: "thicket"
     render_type: "textured_wall"
     wall_color: [34, 80, 34]  # Dark green thicket
@@ -169,7 +166,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [74, 68, 61]
@@ -183,7 +179,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "church_wall"
     render_type: "textured_wall"
     wall_color: [72, 72, 72]
@@ -195,7 +191,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [154, 125, 76]
@@ -209,7 +204,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "pyramid_wall"
     render_type: "textured_wall"
     wall_color: [128, 94, 52]
@@ -221,7 +216,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [32, 28, 42]
@@ -235,7 +229,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "lich_nexus_wall"
     render_type: "textured_wall"
     wall_color: [28, 24, 36]
@@ -247,7 +241,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [58, 54, 48]
@@ -261,7 +254,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "culverts_wall_0"
     render_type: "textured_wall"
     wall_color: [44, 44, 52]
@@ -273,7 +266,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "culverts_wall_1"
     render_type: "textured_wall"
     wall_color: [50, 46, 50]
@@ -285,7 +278,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "culverts_wall_2"
     render_type: "textured_wall"
     wall_color: [42, 48, 46]
@@ -297,7 +290,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "culverts_wall_3"
     render_type: "textured_wall"
     wall_color: [48, 44, 40]
@@ -312,7 +305,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [78, 78, 84]
@@ -326,7 +318,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [66, 48, 32]
@@ -340,7 +331,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [150, 130, 82]
@@ -354,7 +344,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [66, 56, 46]
@@ -368,7 +357,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_0"
     render_type: "textured_wall"
     wall_color: [120, 110, 96]
@@ -380,7 +369,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_1"
     render_type: "textured_wall"
     wall_color: [120, 42, 40]
@@ -392,7 +381,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_2"
     render_type: "textured_wall"
     wall_color: [96, 74, 52]
@@ -404,7 +393,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "japanese_castle_wall_3"
     render_type: "textured_wall"
     wall_color: [80, 84, 76]
@@ -419,7 +408,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.3
+    size_multiplier: 1.3
     sprite: "stone_lantern"
     render_type: "environment_sprite"
     letter: "L"
@@ -430,7 +419,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "bonsai_tree"
     render_type: "environment_sprite"
     letter: "Y"
@@ -441,7 +430,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.4
+    size_multiplier: 1.4
     sprite: "shoji_screen"
     render_type: "environment_sprite"
     letter: "H"
@@ -457,7 +446,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [70, 80, 58]
@@ -471,7 +459,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [48, 78, 58]
@@ -485,7 +472,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [0, 120, 110]
@@ -502,7 +488,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_0"
     render_type: "textured_wall"
     wall_color: [38, 76, 38]
@@ -514,7 +500,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_1"
     render_type: "textured_wall"
     wall_color: [96, 96, 78]
@@ -526,7 +512,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_2"
     render_type: "textured_wall"
     wall_color: [92, 70, 48]
@@ -538,7 +524,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "deep_jungle_wall_3"
     render_type: "textured_wall"
     wall_color: [70, 76, 80]
@@ -551,7 +537,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "deep_jungle_fern"
     render_type: "environment_sprite"
     wall_color: [50, 110, 45]
@@ -563,7 +549,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "deep_jungle_log"
     render_type: "environment_sprite"
     wall_color: [92, 70, 46]
@@ -575,7 +561,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [108, 102, 88]
@@ -589,7 +574,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_wall"
     render_type: "textured_wall"
     wall_color: [110, 104, 94]
@@ -601,7 +586,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_0"
     render_type: "textured_wall"
     wall_color: [124, 96, 66]
@@ -613,7 +598,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_1"
     render_type: "textured_wall"
     wall_color: [150, 128, 96]
@@ -625,7 +610,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_2"
     render_type: "textured_wall"
     wall_color: [120, 118, 112]
@@ -637,7 +622,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_3"
     render_type: "textured_wall"
     wall_color: [130, 70, 46]
@@ -649,7 +634,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_4"
     render_type: "textured_wall"
     wall_color: [132, 102, 70]
@@ -661,7 +646,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_house_5"
     render_type: "textured_wall"
     wall_color: [90, 116, 72]
@@ -673,7 +658,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_shop_weapon"
     render_type: "textured_wall"
     wall_color: [110, 88, 70]
@@ -686,7 +671,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_shop_potions"
     render_type: "textured_wall"
     wall_color: [96, 70, 110]
@@ -698,7 +683,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_shop_spells"
     render_type: "textured_wall"
     wall_color: [64, 96, 112]
@@ -710,7 +695,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_shop_trainer"
     render_type: "textured_wall"
     wall_color: [80, 110, 70]
@@ -722,7 +707,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "city_gate"
     render_type: "textured_wall"
     wall_color: [120, 115, 106]
@@ -734,7 +719,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.2
+    size_multiplier: 1.2
     sprite: "city_fountain"
     render_type: "environment_sprite"
     wall_color: [120, 120, 110]
@@ -747,7 +732,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [88, 150, 48]
@@ -761,7 +745,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.2
+    wall_height_multiplier: 1.2
     sprite: "highlands_cliff_wall"
     render_type: "textured_wall"
     wall_color: [82, 86, 80]
@@ -773,7 +757,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "highlands_granite_wall"
     render_type: "textured_wall"
     wall_color: [118, 122, 118]
@@ -785,7 +769,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "highlands_ruin_wall"
     render_type: "textured_wall"
     wall_color: [96, 98, 88]
@@ -797,7 +781,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 0.7
+    wall_height_multiplier: 0.7
     sprite: "highlands_slate_wall"
     render_type: "textured_wall"
     wall_color: [74, 78, 74]
@@ -809,7 +793,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 2.0
+    size_multiplier: 2.0
     sprite: "highlands_pine"
     render_type: "environment_sprite"
     wall_color: [64, 92, 38]
@@ -822,7 +806,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.6
+    size_multiplier: 1.6
     sprite: "highlands_rock_outcrop"
     render_type: "environment_sprite"
     wall_color: [124, 122, 112]
@@ -835,7 +819,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "highlands_boulder"
     render_type: "environment_sprite"
     wall_color: [116, 116, 104]
@@ -847,7 +831,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "highlands_heather"
     render_type: "environment_sprite"
     floor_near_color: [116, 158, 64]
@@ -859,7 +843,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [54, 136, 144]
@@ -873,7 +856,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [92, 112, 64]
@@ -887,7 +869,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [54, 50, 44]
@@ -901,7 +882,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [64, 124, 132]
@@ -922,7 +902,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [96, 72, 48]
@@ -935,7 +914,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [92, 70, 48]
@@ -949,7 +927,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [126, 96, 58]
@@ -963,7 +940,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [78, 76, 70]
@@ -977,7 +953,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [112, 104, 88]
@@ -991,7 +966,6 @@ tiles:
     solid: false
     transparent: true
     walkable: false
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [28, 38, 48]
@@ -1006,7 +980,6 @@ tiles:
     solid: false
     transparent: true
     walkable: false
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [44, 58, 70]
@@ -1021,7 +994,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.25
+    wall_height_multiplier: 1.25
     sprite: "dragon_cliffs_cliff_wall"
     render_type: "textured_wall"
     wall_color: [78, 82, 78]
@@ -1033,7 +1006,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.1
+    wall_height_multiplier: 1.1
     sprite: "dragon_cliffs_basalt_wall"
     render_type: "textured_wall"
     wall_color: [46, 44, 42]
@@ -1045,7 +1018,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_ruin_wall"
     render_type: "textured_wall"
     wall_color: [88, 88, 78]
@@ -1057,7 +1030,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 0.75
+    wall_height_multiplier: 0.75
     sprite: "dragon_cliffs_slate_wall"
     render_type: "textured_wall"
     wall_color: [56, 58, 60]
@@ -1069,7 +1042,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 2.0
+    size_multiplier: 2.0
     sprite: "dragon_cliffs_wind_pine"
     render_type: "environment_sprite"
     wall_color: [62, 88, 48]
@@ -1082,7 +1055,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.6
+    size_multiplier: 1.6
     sprite: "dragon_cliffs_boulder"
     render_type: "environment_sprite"
     wall_color: [112, 112, 104]
@@ -1095,7 +1068,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "dragon_cliffs_boulder"
     render_type: "environment_sprite"
     wall_color: [108, 108, 100]
@@ -1107,7 +1080,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "dragon_cliffs_heather"
     render_type: "environment_sprite"
     floor_near_color: [118, 118, 64]
@@ -1119,7 +1092,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.35
+    size_multiplier: 1.35
     sprite: "dragon_cliffs_dragon_bones"
     render_type: "environment_sprite"
     wall_color: [178, 158, 132]
@@ -1135,7 +1108,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.6
+    size_multiplier: 1.6
     sprite: "highlands_rock_outcrop"
     render_type: "environment_sprite"
     wall_color: [124, 122, 112]
@@ -1148,7 +1121,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [54, 136, 144]
@@ -1162,7 +1134,7 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "moss_rock"
     render_type: "environment_sprite"
     wall_color: [105, 105, 105]  # Gray rock
@@ -1174,7 +1146,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "mushroom_ring"
     render_type: "environment_sprite"
     letter: "M"
@@ -1184,7 +1156,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [0, 139, 139]  # Teal water
@@ -1197,7 +1168,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "fern_patch"
     render_type: "environment_sprite"
     letter: "P"
@@ -1207,7 +1178,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "firefly_swarm"
     render_type: "environment_sprite"
     alpha_from_brightness: 0.85
@@ -1222,7 +1193,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
+    size_multiplier: 1.0
     sprite: "grass"
     render_type: "environment_sprite"
     floor_color: [95, 220, 65]  # Bright salad-green clearing floor
@@ -1236,7 +1207,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [255, 0, 0]  # Bright red for spawn point
@@ -1248,7 +1218,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 0.5
+    wall_height_multiplier: 0.5
     sprite: "low_wall"
     render_type: "textured_wall"
     wall_color: [120, 120, 120]  # Light gray low wall
@@ -1259,7 +1229,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.5
+    wall_height_multiplier: 1.5
     sprite: "high_wall"
     render_type: "textured_wall"
     wall_color: [40, 40, 40]  # Dark gray high wall

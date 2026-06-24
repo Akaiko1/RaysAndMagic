@@ -20,7 +20,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.2
+    size_multiplier: 1.2
     sprite: "moss_rock"    # must exist in assets/sprites/environment/
     render_type: "environment_sprite"
     floor_color: [150, 100, 255]
@@ -89,7 +89,9 @@ is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
 ## Supported fields
 Core fields are fully supported:
 - `solid`, `transparent`, `walkable`
-- `height_multiplier`, `sprite`, `render_type`
+- `wall_height_multiplier` for `textured_wall`
+- `size_multiplier` for `tree_sprite`, `environment_sprite`, and `flooring_object`
+- `sprite`, `render_type`
 - `floor_color`, `floor_near_color`, `wall_color`
 - `floor_texture_group` (selects a biome floor-texture group; see above)
 - `letter`, `biomes`
