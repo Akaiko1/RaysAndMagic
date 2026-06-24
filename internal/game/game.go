@@ -219,6 +219,18 @@ type MMGame struct {
 	screenShake          float64       // camera shake amplitude in world units, decays each tick
 	hitEffectsMu         sync.Mutex
 
+	// Smooth turn-based rotation: logic snaps camera.Angle 90° instantly (no
+	// gameplay change), but the RENDER uses viewAngleRender, which eases toward it
+	// over viewTurnFramesLeft frames so a TB turn glides instead of popping. While
+	// the ease runs, the scene (rendered to sceneBuf) is drawn through a horizontal
+	// directional-blur shader whose length tracks the turn speed — camera motion
+	// blur, the standard post-process for a yaw turn (the scene pans horizontally).
+	viewAngleRender    float64
+	viewTurnFramesLeft int
+	sceneBuf           *ebiten.Image  // offscreen 3D scene (blur shader source)
+	blurShader         *ebiten.Shader // lazily compiled horizontal motion blur
+	turnBlurWarm       bool           // first draw prewarms shader/buffer before the first real turn
+
 	// Map overlay UI state
 	mapOverlayOpen bool
 
@@ -813,7 +825,99 @@ func (g *MMGame) Update() error {
 	return nil
 }
 
+const (
+	// A turn-based 90° turn eases over this long (then lands exactly). This is
+	// intentionally long enough to read the diagonal sector while turning, so a
+	// monster can't be skipped just because the camera snaps between cardinals.
+	turnViewSeconds = 0.25
+	// Horizontal motion-blur length as a FRACTION of the per-frame view pan. The
+	// raw per-frame pan during a fast turn is huge, so a small fraction reads as a
+	// SLIGHT smear (full would be mush). Kept subtle because TB turning is a
+	// look-around aid: the diagonal sector must stay readable while moving.
+	turnBlurStrength = 0.06
+	// Upper bound on the blur half-length in pixels — never smear into mush.
+	turnBlurMaxPixels = 120.0
+)
+
+// turnBlurPixels is the horizontal motion-blur half-length (pixels) for this
+// frame: ~the distance the view pans per frame during the turn, scaled down to a
+// slight smear and capped. 0 outside a turn.
+// screenWidth is the ACTUAL draw-target width (the scene buffer), not the config
+// width — they can differ, and the pan-to-pixels mapping must match what's drawn.
+func (g *MMGame) turnBlurPixels(screenWidth int) float64 {
+	if g.viewTurnFramesLeft <= 0 || g.camera == nil || g.camera.FOV <= 0 || turnBlurStrength <= 0 {
+		return 0
+	}
+	stepRad := (math.Pi / 2) / float64(g.turnViewFrames()) // per-frame yaw step
+	panPx := stepRad / g.camera.FOV * float64(screenWidth)
+	if blur := panPx * turnBlurStrength; blur < turnBlurMaxPixels {
+		return blur
+	}
+	return turnBlurMaxPixels
+}
+
+// ensureBlurShader lazily compiles the horizontal motion-blur shader.
+func (g *MMGame) ensureBlurShader() (*ebiten.Shader, error) {
+	if g.blurShader != nil {
+		return g.blurShader, nil
+	}
+	s, err := ebiten.NewShader([]byte(turnBlurShaderSrc))
+	if err != nil {
+		return nil, err
+	}
+	g.blurShader = s
+	return s, nil
+}
+
+func (g *MMGame) ensureTurnSceneBuffer(bounds image.Rectangle) *ebiten.Image {
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return nil
+	}
+	if g.sceneBuf == nil || g.sceneBuf.Bounds() != bounds {
+		g.sceneBuf = ebiten.NewImage(bounds.Dx(), bounds.Dy())
+	}
+	return g.sceneBuf
+}
+
+// turnViewFrames is how many frames a 90° TB turn eases over at the current TPS.
+func (g *MMGame) turnViewFrames() int {
+	if n := int(turnViewSeconds * float64(g.config.GetTPS())); n > 1 {
+		return n
+	}
+	return 1
+}
+
+// advanceViewTurn eases the rendered view angle toward the logical camera angle.
+// During a TB turn (viewTurnFramesLeft > 0) it moves at most one step per frame so
+// the scene glides; otherwise it tracks the angle exactly — real-time rotation,
+// teleports and loads must snap, never animate. Call once per frame.
+func (g *MMGame) advanceViewTurn() {
+	if g.camera == nil {
+		return
+	}
+	if g.viewTurnFramesLeft > 0 {
+		step := (math.Pi / 2) / float64(g.turnViewFrames())
+		g.viewAngleRender = approachAngle(g.viewAngleRender, g.camera.Angle, step)
+		g.viewTurnFramesLeft--
+		if g.viewTurnFramesLeft == 0 {
+			g.viewAngleRender = g.camera.Angle // land exactly on the target
+		}
+	} else {
+		g.viewAngleRender = g.camera.Angle
+	}
+}
+
 func (g *MMGame) Draw(screen *ebiten.Image) {
+	// Render at the eased view angle so a turn-based turn glides. Logic keeps the
+	// snapped camera.Angle (set in Update); restore it right after Draw so nothing
+	// observes the display angle. In real time viewAngleRender == camera.Angle, so
+	// this is a no-op.
+	if g.camera != nil {
+		logicalAngle := g.camera.Angle
+		g.camera.Angle = g.viewAngleRender
+		defer func() { g.camera.Angle = logicalAngle }()
+	}
+
 	// Screen shake: nudge the camera sideways (perpendicular to the view) for
 	// this frame only — the whole raycast scene shifts coherently, and the
 	// camera is restored before any game logic can observe it.

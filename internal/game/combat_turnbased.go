@@ -352,7 +352,26 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		return // Already at player position
 	}
 
-	// Move 1 tile in a perpendicular (cardinal) direction towards the player
+	// A* FIRST — match the real-time AI, which is pure A*. Trying the naive cardinal
+	// step first (below) looks like progress but oscillates when the route runs
+	// PERPENDICULAR to it: a mob across a river from an offset party shuffles along
+	// its own bank (each bank step counts as "toward the party" on one axis) and
+	// never commits to the path down to the ford — so it could be ranged down for
+	// free. A* always finds the crossing here, so follow it; the greedy/perpendicular/
+	// teleport steps below are only a fallback for when A* finds no path at all.
+	if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
+		wx, wy := TileCenterFromTile(nx, ny, tileSize)
+		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, wx, wy, monster.HabitatPrefs, monster.Flying) {
+			monster.X = wx
+			monster.Y = wy
+			gl.game.collisionSystem.UpdateEntity(monster.ID, wx, wy)
+			monster.LastMoveTick = gl.game.frameCount
+			return
+		}
+	}
+
+	// Fallback (A* found no path / its next tile is transiently occupied): step one
+	// tile in the dominant cardinal direction towards the player.
 	stepX, stepY := 0, 0
 	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
 		stepX = mathutil.IntSign(dxTiles)

@@ -830,6 +830,33 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // manual bilinear filtering and X-axis wrap. Doing this in a custom shader
 // lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
 // (which break batching and force the source out of the texture atlas).
+// turnBlurShaderSrc is a horizontal directional blur — camera motion blur for a
+// yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
+// averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
+// scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
+const turnBlurShaderSrc = `//kage:unit pixels
+
+package main
+
+var BlurPx float
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	size := imageSrc0Size()
+	origin := imageSrc0Origin()
+	local := srcPos - origin
+	sy := clamp(local.y, 0.5, size.y-0.5)
+
+	const taps = 13
+	sum := vec4(0.0)
+	for i := 0; i < taps; i++ {
+		t := (float(i)/float(taps-1))*2.0 - 1.0 // -1 .. +1
+		sx := clamp(local.x+t*BlurPx, 0.5, size.x-0.5)
+		sum += imageSrc0UnsafeAt(origin + vec2(sx, sy))
+	}
+	return (sum / float(taps)) * color
+}
+`
+
 const skyShaderSrc = `//kage:unit pixels
 
 package main

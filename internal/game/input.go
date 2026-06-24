@@ -2034,6 +2034,13 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		ih.game.turnBasedRotCooldown--
 	}
 
+	// A TB rotation is an inspection sweep through the diagonal sector, not just a
+	// cosmetic snap. While the rendered view is still turning, ignore party actions
+	// so the player actually gets those intermediate frames before acting again.
+	if ih.game.viewTurnFramesLeft > 0 {
+		return
+	}
+
 	// Each alive+conscious character has Speed-derived attack slots
 	// (ActionsRemaining). Round ends when all are 0 OR the party moves.
 	if ih.game.partyAllExhausted() {
@@ -2078,6 +2085,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 
 		if rotated {
 			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
+			return
 		}
 	}
 
@@ -2248,6 +2256,10 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	for ih.game.camera.Angle >= 2*math.Pi {
 		ih.game.camera.Angle -= 2 * math.Pi
 	}
+
+	// The logical angle snapped above (gameplay reads it immediately); ease the
+	// RENDERED view toward it over the next frames so the turn glides (advanceViewTurn).
+	ih.game.viewTurnFramesLeft = ih.game.turnViewFrames()
 }
 
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {

@@ -74,6 +74,10 @@ func (gl *GameLoop) updateExploration() {
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
+	// Ease the rendered view angle toward the (snapped) camera angle — smooth TB
+	// turns. No-op in real time. Cheap; fine to run before the pause check.
+	gl.game.advanceViewTurn()
+
 	// Pause gameplay updates while menus/panels are open
 	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
@@ -158,10 +162,57 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
 
-	// Render the 3D first-person view
-	gl.renderer.RenderFirstPersonView(screen)
+	// Render the 3D scene, then composite to the screen. During a turn-based turn
+	// the scene goes through a horizontal motion-blur shader (camera blur — the
+	// view pans sideways) whose length tracks the turn speed; otherwise it's a
+	// straight blit. Either way the UI is drawn last, directly to the screen, so it
+	// never blurs.
+	g := gl.game
+	screenBounds := screen.Bounds()
+	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
+	if blurPx >= 0.75 {
+		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
+			if shader, err := g.ensureBlurShader(); err == nil {
+				scene.Clear()
+				gl.renderer.RenderFirstPersonView(scene)
+				b := scene.Bounds()
+				op := &ebiten.DrawRectShaderOptions{}
+				op.Images[0] = scene
+				op.Uniforms = map[string]any{"BlurPx": float32(blurPx)}
+				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+			} else {
+				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile — no blur
+			}
+		} else {
+			gl.renderer.RenderFirstPersonView(screen)
+		}
+	} else if turnBlurStrength > 0 && !g.turnBlurWarm {
+		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
+			if shader, err := g.ensureBlurShader(); err == nil {
+				// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
+				// visually identical blit, but it creates the scene buffer and lets
+				// Ebiten/Metal compile the shader pipeline before the first TB turn.
+				scene.Clear()
+				gl.renderer.RenderFirstPersonView(scene)
+				b := scene.Bounds()
+				op := &ebiten.DrawRectShaderOptions{}
+				op.Images[0] = scene
+				op.Uniforms = map[string]any{"BlurPx": float32(0)}
+				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+				g.turnBlurWarm = true
+			} else {
+				g.turnBlurWarm = true
+				gl.renderer.RenderFirstPersonView(screen)
+			}
+		} else {
+			g.turnBlurWarm = true
+			gl.renderer.RenderFirstPersonView(screen)
+		}
+	} else {
+		gl.renderer.RenderFirstPersonView(screen)
+	}
 
-	// Draw UI elements
+	// Draw UI elements (straight to the screen — never blurred)
 	gl.ui.Draw(screen)
 }
 

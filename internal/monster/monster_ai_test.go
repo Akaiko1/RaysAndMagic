@@ -76,6 +76,54 @@ func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
 }
 
+// TestNextPathStepTile_RoutesAroundBarrier guards the turn-based fix: a mob
+// separated from the party by a long barrier (a river) with a single gap (the
+// bridge/ford) must ROUTE through the gap, not oscillate at the bank. Stepping
+// one A* tile per "turn" must reach the target instead of getting stuck — which
+// is what let the player range a stranded gorilla down for free.
+func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	// Vertical wall at column 3 (rows 0..8) with one gap at row 4 = the bridge.
+	for y := 0; y <= 8; y++ {
+		if y == 4 {
+			continue
+		}
+		checker.BlockTile(3, y)
+	}
+	sx, sy := tileToWorldCenter(1, 2)
+	m := &Monster3D{X: sx, Y: sy, Speed: 1.5}
+	targetX, targetY := tileToWorldCenter(5, 2)
+	tgtTX, tgtTY := worldToTile(targetX), worldToTile(targetY)
+
+	manhattan := func() int {
+		dx := worldToTile(m.X) - tgtTX
+		dy := worldToTile(m.Y) - tgtTY
+		return int(math.Abs(float64(dx)) + math.Abs(float64(dy)))
+	}
+
+	const maxSteps = 40
+	steps := 0
+	for ; steps < maxSteps && manhattan() > 1; steps++ {
+		nx, ny, ok := m.NextPathStepTile(checker, targetX, targetY)
+		if !ok {
+			t.Fatalf("step %d: no A* path to the target across the barrier", steps)
+		}
+		curTX, curTY := worldToTile(m.X), worldToTile(m.Y)
+		if d := math.Abs(float64(nx-curTX)) + math.Abs(float64(ny-curTY)); d != 1 {
+			t.Fatalf("step %d: non-cardinal step from (%d,%d) to (%d,%d)", steps, curTX, curTY, nx, ny)
+		}
+		wx, wy := tileToWorldCenter(nx, ny)
+		if !checker.CanMoveToWithHabitat("m", wx, wy, nil, false) {
+			t.Fatalf("step %d: routed into a blocked tile (%d,%d)", steps, nx, ny)
+		}
+		m.X, m.Y = wx, wy
+	}
+	if manhattan() > 1 {
+		t.Fatalf("monster never reached the target (stuck/oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
+	}
+	t.Logf("reached target-adjacent in %d steps via the gap", steps)
+}
+
 // TestMonsterPathMovementBasic tests that a monster can move in open terrain using pathfinding
 func TestMonsterPathMovementBasic(t *testing.T) {
 	// Create a monster at tile center (32, 32) - center of tile (0, 0)

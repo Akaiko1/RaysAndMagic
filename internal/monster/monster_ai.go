@@ -884,6 +884,19 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
 }
 
+// NextPathStepTile returns the next cardinal tile this monster should step to en
+// route to (targetX,targetY) via the same A* the real-time AI uses, plus ok=true.
+// ok=false means it's already adjacent or no path exists. Turn-based movement uses
+// this so mobs route around barriers (across a bridge/ford) instead of oscillating
+// at the edge — where they could otherwise be safely ranged down.
+func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX, targetY float64) (tileX, tileY int, ok bool) {
+	path := m.findPathToTarget(collisionChecker, targetX, targetY)
+	if len(path) < 2 {
+		return 0, 0, false // path[0] is the current tile; need at least one step
+	}
+	return path[1].X, path[1].Y, true
+}
+
 func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) []TileCoord {
 	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
 	goal := TileCoord{X: targetTileX, Y: targetTileY}
