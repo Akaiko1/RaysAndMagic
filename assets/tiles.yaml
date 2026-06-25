@@ -64,7 +64,7 @@ tiles:
     transparent: false
     walkable: false
     size_multiplier: 2.0
-    sprite: "tree"
+    sprite: "forest_oak"
     render_type: "tree_sprite"
     wall_color: [101, 67, 33]  # Brown tree bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
@@ -77,7 +77,7 @@ tiles:
     transparent: false
     walkable: false
     size_multiplier: 2.0
-    sprite: "ancient_tree"
+    sprite: "old_platan"
     render_type: "tree_sprite"
     wall_color: [69, 39, 19]  # Darker brown ancient bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
@@ -160,6 +160,20 @@ tiles:
     render_type: "textured_wall"
     wall_color: [34, 80, 34]  # Dark green thicket
     letter: "%"
+
+  # Off-map backdrop: GetTileAt returns this for out-of-bounds instead of the
+  # (empty-sprite, gray, per-frame-regenerated) stone wall. Rendered as a normal
+  # textured wall (like thicket) so the sprite is cached — no lag — and shows a
+  # sea horizon behind the map's tree/dune border. Not placeable (no letter).
+  seaview:
+    name: "Sea View"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "seaview"
+    render_type: "textured_wall"
+    wall_color: [70, 130, 170]  # Sea blue fallback
 
   church_floor:
     name: "Abandoned Church Floor"

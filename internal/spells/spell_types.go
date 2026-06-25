@@ -42,9 +42,10 @@ type SpellDefinition struct {
 	StunDurationTurns   int
 	DealsNoDamage       bool // zero direct damage (Disintegrate: only the instakill roll matters)
 	// Party combat buffs (duration seconds)
-	ResistBuffPct           int // Day of the Gods: % incoming damage reduction
-	OutgoingDamageBonus     int // Hour of Power: flat outgoing damage bonus
-	IncomingDamageReduction int // Hour of Power: flat incoming damage reduction
+	ResistBuffPct                      int // Day of the Gods: % incoming damage reduction
+	OutgoingDamageBonus                int // Hour of Power: flat outgoing damage bonus
+	IncomingDamageReduction            int // base flat incoming damage reduction
+	IncomingDamageReductionGrandmaster int // optional GM-scaled flat reduction cap
 	// Bind Undead and Charm are two DISTINCT control spells (never mixed):
 	BindUndead            bool    // Bind Undead: take control of an UNDEAD target — it hunts other monsters for you
 	BindDurationSeconds   int     // Bind Undead duration (RT seconds)
@@ -80,45 +81,46 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}
 
 	return SpellDefinition{
-		ID:                      spellID,
-		Name:                    configDef.Name,
-		Description:             configDef.Description,
-		School:                  configDef.School,
-		Level:                   configDef.Level,
-		SpellPointsCost:         configDef.SpellPointsCost,
-		CooldownSeconds:         configDef.CooldownSeconds,
-		Duration:                configDef.Duration,
-		DisintegrateChance:      configDef.DisintegrateChance,
-		AoeRadiusTiles:          configDef.AoeRadiusTiles,
-		ProjectileSize:          configDef.ProjectileSize,
-		IsProjectile:            configDef.IsProjectile,
-		IsUtility:               configDef.IsUtility,
-		StatusIcon:              configDef.StatusIcon,
-		StatBonus:               configDef.StatBonus,
-		StatBonuses:             configDef.StatBonuses,
-		DamageCostMultiplier:    configDef.DamageCostMultiplier,
-		ScalesWithPersonality:   configDef.ScalesWithPersonality,
-		StunRadiusTiles:         configDef.StunRadiusTiles,
-		StunDurationSeconds:     configDef.StunDurationSeconds,
-		StunDurationTurns:       configDef.StunDurationTurns,
-		DealsNoDamage:           configDef.DealsNoDamage,
-		ResistBuffPct:           configDef.ResistBuffPct,
-		OutgoingDamageBonus:     configDef.OutgoingDamageBonus,
-		IncomingDamageReduction: configDef.IncomingDamageReduction,
-		BindUndead:              configDef.BindUndead,
-		BindDurationSeconds:     configDef.BindDurationSeconds,
-		Pacify:                  configDef.Pacify,
-		PacifyDurationSeconds:   configDef.PacifyDurationSeconds,
-		Revive:                  configDef.Revive,
-		FullHeal:                configDef.FullHeal,
-		ReviveHpPct:             configDef.ReviveHpPct,
-		HealParty:               configDef.HealParty,
-		StunChance:              configDef.StunChance,
-		PartyAoeRadiusTiles:     configDef.PartyAoeRadiusTiles,
-		StarburstFx:             configDef.StarburstFx,
-		ZoneRadiusTiles:         configDef.ZoneRadiusTiles,
-		ZoneTickDamage:          configDef.ZoneTickDamage,
-		ZoneTickSeconds:         configDef.ZoneTickSeconds,
+		ID:                                 spellID,
+		Name:                               configDef.Name,
+		Description:                        configDef.Description,
+		School:                             configDef.School,
+		Level:                              configDef.Level,
+		SpellPointsCost:                    configDef.SpellPointsCost,
+		CooldownSeconds:                    configDef.CooldownSeconds,
+		Duration:                           configDef.Duration,
+		DisintegrateChance:                 configDef.DisintegrateChance,
+		AoeRadiusTiles:                     configDef.AoeRadiusTiles,
+		ProjectileSize:                     configDef.ProjectileSize,
+		IsProjectile:                       configDef.IsProjectile,
+		IsUtility:                          configDef.IsUtility,
+		StatusIcon:                         configDef.StatusIcon,
+		StatBonus:                          configDef.StatBonus,
+		StatBonuses:                        configDef.StatBonuses,
+		DamageCostMultiplier:               configDef.DamageCostMultiplier,
+		ScalesWithPersonality:              configDef.ScalesWithPersonality,
+		StunRadiusTiles:                    configDef.StunRadiusTiles,
+		StunDurationSeconds:                configDef.StunDurationSeconds,
+		StunDurationTurns:                  configDef.StunDurationTurns,
+		DealsNoDamage:                      configDef.DealsNoDamage,
+		ResistBuffPct:                      configDef.ResistBuffPct,
+		OutgoingDamageBonus:                configDef.OutgoingDamageBonus,
+		IncomingDamageReduction:            configDef.IncomingDamageReduction,
+		IncomingDamageReductionGrandmaster: configDef.IncomingDamageReductionGrandmaster,
+		BindUndead:                         configDef.BindUndead,
+		BindDurationSeconds:                configDef.BindDurationSeconds,
+		Pacify:                             configDef.Pacify,
+		PacifyDurationSeconds:              configDef.PacifyDurationSeconds,
+		Revive:                             configDef.Revive,
+		FullHeal:                           configDef.FullHeal,
+		ReviveHpPct:                        configDef.ReviveHpPct,
+		HealParty:                          configDef.HealParty,
+		StunChance:                         configDef.StunChance,
+		PartyAoeRadiusTiles:                configDef.PartyAoeRadiusTiles,
+		StarburstFx:                        configDef.StarburstFx,
+		ZoneRadiusTiles:                    configDef.ZoneRadiusTiles,
+		ZoneTickDamage:                     configDef.ZoneTickDamage,
+		ZoneTickSeconds:                    configDef.ZoneTickSeconds,
 		// Effect configuration from YAML
 		HealAmount:        configDef.HealAmount,
 		VisionRadiusTiles: configDef.VisionRadiusTiles,
@@ -205,8 +207,6 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ReviveHpPct > 0 {
 		out = append(out, fmt.Sprintf("Revives a fallen ally to %d%% HP", d.ReviveHpPct))
 	}
-	// Party-buff magnitudes are FLAT (mastery scales only duration), so the
-	// exact numbers are character-independent and live in this shared SSoT.
 	if d.ResistBuffPct > 0 {
 		out = append(out, fmt.Sprintf("Party takes %d%% less damage", d.ResistBuffPct))
 	}
@@ -214,7 +214,11 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Party attacks deal +%d damage", d.OutgoingDamageBonus))
 	}
 	if d.IncomingDamageReduction > 0 {
-		out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
+		if d.IncomingDamageReductionGrandmaster > d.IncomingDamageReduction {
+			out = append(out, fmt.Sprintf("Party takes -%d to -%d damage per hit by mastery", d.IncomingDamageReduction, d.IncomingDamageReductionGrandmaster))
+		} else {
+			out = append(out, fmt.Sprintf("Party takes -%d damage per hit", d.IncomingDamageReduction))
+		}
 	}
 	if d.VisionRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Sight/radar radius: %.0f tiles", d.VisionRadiusTiles))

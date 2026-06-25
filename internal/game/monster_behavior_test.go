@@ -265,6 +265,39 @@ func TestTurnBased_RangedAttackCountUsesCooldownMultiplier(t *testing.T) {
 	}
 }
 
+func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+
+	// First archer already owns the east firing lane. The second starts diagonal:
+	// generic circular-range pathing may pick diagonal "in range" goals where TB
+	// ranged still cannot shoot. It should instead path to another row/column lane.
+	first := monster.NewMonster3DFromConfig(13*ts+ts/2, 10*ts+ts/2, "elf_archer", game.config)
+	second := monster.NewMonster3DFromConfig(13*ts+ts/2, 12*ts+ts/2, "elf_archer", game.config)
+	for _, m := range []*monster.Monster3D{first, second} {
+		m.IsEngagingPlayer = true
+		m.WasAttacked = true
+		m.RangedAttackRange = 5 * ts
+	}
+	game.world.Monsters = []*monster.Monster3D{first, second}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	for turn := 0; turn < 4; turn++ {
+		runOneMonsterTurn(game, gl)
+	}
+
+	sx, sy := monsterTileCoords(second, ts)
+	if sx != 10 && sy != 10 {
+		t.Fatalf("second archer should take a row/column firing lane, got tile (%d,%d)", sx, sy)
+	}
+	if sx == 13 && sy == 10 {
+		t.Fatalf("second archer moved into the first archer's occupied firing tile")
+	}
+	if len(game.arrows) < 5 {
+		t.Fatalf("expected both archers to be firing after repositioning, got %d arrows", len(game.arrows))
+	}
+}
+
 // A pouncing monster (puma) leaps onto a cardinally-adjacent tile — never onto
 // the player's tile — and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {

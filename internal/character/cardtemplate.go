@@ -387,7 +387,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	switch {
 	case sd.PartyAoeRadiusTiles > 0:
 		rules.Add("Fixed damage: no stat or mastery scaling")
-		rules.Add("No GM resistance penetration")
+		rules.Add("%s: no GM resistance penetration", def.Name)
 		rules.Add("Enemy %s Resistance reduces damage", school)
 		rules.Add("Party %s Resistance reduces self-damage", school)
 		rules.Add("Cannot critically hit")

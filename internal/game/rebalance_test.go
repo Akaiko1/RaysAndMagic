@@ -108,8 +108,11 @@ func TestMagicMasteryTooltip_CitesGMResistPierce(t *testing.T) {
 	if !strings.Contains(tip, fmt.Sprintf("%d%%", MagicGMResistPiercePct)) {
 		t.Errorf("magic mastery tooltip %q should cite GM resist pierce %d%%", tip, MagicGMResistPiercePct)
 	}
-	if !strings.Contains(tip, "except Inferno") {
-		t.Errorf("magic mastery tooltip should document the Inferno exception: %q", tip)
+	if strings.Contains(tip, "Inferno") {
+		t.Errorf("magic mastery tooltip should not mention Inferno globally: %q", tip)
+	}
+	if !strings.Contains(tip, "projectile and zone spells") {
+		t.Errorf("magic mastery tooltip should scope GM pierce to projectile/zone spells: %q", tip)
 	}
 }
 

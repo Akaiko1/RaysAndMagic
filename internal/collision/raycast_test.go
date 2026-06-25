@@ -143,21 +143,37 @@ func TestCastRay_OutOfBounds(t *testing.T) {
 	}
 }
 
-func TestCastRay_StartInOpaqueile(t *testing.T) {
+// TestCastRay_SightSeesOutOfOpaqueStartTile guards the flying-ranged-mob fix: an
+// observer perched on an opaque tile (a flying mob on a solid-but-transparent
+// sprite, e.g. boulder/canopy) must still have line of sight OUT of its own
+// tile. The start tile's opacity is ignored for sight; opacity DOWNSTREAM still
+// blocks. Movement, by contrast, is still blocked by an impassable start tile.
+func TestCastRay_SightSeesOutOfOpaqueStartTile(t *testing.T) {
 	checker := newMockTileChecker(10, 10)
 	cs := NewCollisionSystem(checker, 64.0)
 
-	// Set starting tile as opaque
+	// Observer stands on an opaque tile, clear path to the target.
 	checker.setOpaque(0, 0, true)
 
 	x1, y1 := 32.0, 32.0 // Center of tile (0,0)
 	x2, y2 := 192.0, 32.0
 
-	hit, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if !hasHit {
-		t.Errorf("Expected immediate hit when starting in opaque tile")
-	} else if hit.Dist != 0 {
-		t.Errorf("Expected distance 0 for immediate hit, got %f", hit.Dist)
+	if _, hasHit := cs.CastRay(x1, y1, x2, y2, true); hasHit {
+		t.Errorf("Expected clear sight out of an opaque start tile, got a hit")
+	}
+
+	// An opaque tile further along the ray still blocks sight.
+	checker.setOpaque(2, 0, true)
+	if hit, hasHit := cs.CastRay(x1, y1, x2, y2, true); !hasHit {
+		t.Errorf("Expected downstream opaque tile to block sight")
+	} else if hit.TileX != 2 || hit.TileY != 0 {
+		t.Errorf("Expected block at tile (2,0), got (%d,%d)", hit.TileX, hit.TileY)
+	}
+
+	// Movement is still blocked when the start tile is impassable.
+	checker.setBlocking(0, 0, true)
+	if hit, hasHit := cs.CastRay(x1, y1, x2, y2, false); !hasHit || hit.Dist != 0 {
+		t.Errorf("Expected immediate movement hit on impassable start tile")
 	}
 }
 
@@ -174,13 +190,18 @@ func TestCastRay_ZeroDistance(t *testing.T) {
 		t.Errorf("Expected no hit for zero distance ray in clear tile")
 	}
 
-	// Set the tile as opaque and test again
+	// A sight ray sees its own tile even when opaque (observer sees out of it).
 	checker.setOpaque(0, 0, true)
-	hit, hasHit := cs.CastRay(x1, y1, x2, y2, true)
-	if !hasHit {
-		t.Errorf("Expected hit for zero distance ray in opaque tile")
+	if _, hasHit := cs.CastRay(x1, y1, x2, y2, true); hasHit {
+		t.Errorf("Expected no sight hit for zero distance ray in own (opaque) tile")
+	}
+
+	// Movement, however, is blocked by an impassable tile at zero distance.
+	checker.setBlocking(0, 0, true)
+	if hit, hasHit := cs.CastRay(x1, y1, x2, y2, false); !hasHit {
+		t.Errorf("Expected movement hit for zero distance ray in blocking tile")
 	} else if hit.Dist != 0 {
-		t.Errorf("Expected distance 0 for immediate hit in opaque tile, got %f", hit.Dist)
+		t.Errorf("Expected distance 0 for immediate hit in blocking tile, got %f", hit.Dist)
 	}
 }
 

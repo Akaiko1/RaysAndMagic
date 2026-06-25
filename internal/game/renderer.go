@@ -92,6 +92,10 @@ type Renderer struct {
 	standeeNPCYaw map[*character.NPC]standeeEnvYawState
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
+	// treeTilesCache lists every tree tile (one entry per tile) for the
+	// crossed-standee billboard mode (config.Graphics.TreesAsBillboards). Built
+	// alongside transparentSpritesCache; unused in the per-column tree mode.
+	treeTilesCache []TransparentSpriteData
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -196,11 +200,13 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
+		r.treeTilesCache = nil
 		r.tileLightCache = nil
 		return
 	}
 
 	var cache []TransparentSpriteData
+	var treeCache []TransparentSpriteData
 	var lights []LightSource
 	worldWidth := r.game.GetCurrentWorld().Width
 	worldHeight := r.game.GetCurrentWorld().Height
@@ -228,6 +234,14 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				}
 			}
 
+			// Tree tiles: cache one entry per tile for the crossed-standee mode.
+			if world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+				treeCache = append(treeCache, TransparentSpriteData{
+					tileX: tileX, tileY: tileY, worldX: worldX, worldY: worldY,
+					tileType: tileType, spriteName: world.GlobalTileManager.GetSprite(tileType),
+				})
+			}
+
 			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
 			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
 				world.GlobalTileManager.IsTransparent(tileType) {
@@ -251,6 +265,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	}
 
 	r.transparentSpritesCache = cache
+	r.treeTilesCache = treeCache
 	r.tileLightCache = lights
 	r.buildWallTorches()
 }
@@ -1183,6 +1198,15 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 
 		// If we hit an empty tile, we can just continue
 		if tileType == world.TileEmpty {
+			continue
+		}
+
+		// Crossed-standee tree mode: tree tiles don't block the ray and aren't
+		// drawn per-column here — they render as two crossed standees in the
+		// sprite pass (drawCrossedTreeStandees), so the forest shows through the
+		// gaps between the planes. Skip the tile entirely.
+		if r.game.config.Graphics.TreesAsBillboards && world.GlobalTileManager != nil &&
+			world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
 			continue
 		}
 
@@ -2421,6 +2445,43 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	}
 	r.treeHits = r.treeHits[:0]
 
+	// 2b. Crossed-standee trees (one entry per tree TILE). In this mode the DDA
+	// skipped tree tiles, so treeHits is empty; trees are drawn as two crossed
+	// standees, depth-sorted with everything else.
+	if r.game.config.Graphics.TreesAsBillboards {
+		for i := range r.treeTilesCache {
+			td := &r.treeTilesCache[i]
+			dx := td.worldX - camX
+			dy := td.worldY - camY
+			distanceSq := dx*dx + dy*dy
+			// No NEAR cull (unlike other standees): a tree must stay visible when
+			// the player walks right up to it. Only the far view-distance cull
+			// applies; depthPerp<=0 drops trees behind the camera.
+			if distanceSq > viewDistSq {
+				continue
+			}
+			depthPerp := dx*camDirX + dy*camDirY
+			if depthPerp <= 0 {
+				continue
+			}
+			distance := math.Sqrt(distanceSq)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(td.worldX, td.worldY, distance, td.tileType, 1.0)
+			if !visible {
+				continue
+			}
+			sprites = append(sprites, UnifiedSpriteRenderData{
+				spriteType: SpriteTypeTree,
+				screenX:    screenX,
+				screenY:    screenY,
+				spriteSize: spriteSize,
+				depthPerp:  depthPerp,
+				tileX:      td.tileX,
+				tileY:      td.tileY,
+				tileType:   td.tileType,
+			})
+		}
+	}
+
 	// 3. Collect monsters
 	for _, mon := range r.game.GetCurrentWorld().Monsters {
 		if !mon.IsAlive() {
@@ -2597,7 +2658,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		case SpriteTypeEnvironment:
 			r.drawUnifiedEnvironmentSprite(screen, s)
 		case SpriteTypeTree:
-			r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+			if r.game.config.Graphics.TreesAsBillboards {
+				r.drawCrossedTreeStandees(screen, s)
+			} else {
+				r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+			}
 		case SpriteTypeMonster:
 			r.drawUnifiedMonsterSprite(screen, s)
 		case SpriteTypeNPC:
@@ -2738,7 +2803,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
 		key := standeeCoreKey{name: "tile:" + name, bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, worldX, worldY, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0, -1, -1, -1) {
 			return
 		}
 	}
@@ -2870,7 +2935,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the pointer (stable for them) is what tells frames apart in the cache.
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
-			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror) {
+			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0, -1, -1, -1) {
 			return
 		}
 	}
@@ -2938,7 +3003,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1) {
 			return
 		}
 	}

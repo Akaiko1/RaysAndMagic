@@ -164,7 +164,16 @@ func (w *World3D) GetTileAt(x, y float64) TileType3D {
 	tileY := int(y / tileSize)
 
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
-		return TileWall // Treat out-of-bounds as walls
+		// Off-map backdrop: render the sea-view wall (cached sprite) rather than
+		// the empty-sprite stone wall, whose per-column gray placeholder is the
+		// laggy gray border seen once trees stopped blocking rays. Concurrent map
+		// reads are safe (keyToType is fixed after load).
+		if GlobalTileManager != nil {
+			if t, ok := GlobalTileManager.GetTileTypeFromKey("seaview"); ok {
+				return t
+			}
+		}
+		return TileWall
 	}
 
 	return w.Tiles[tileY][tileX]

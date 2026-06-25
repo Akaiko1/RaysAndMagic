@@ -897,6 +897,54 @@ func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX,
 	return path[1].X, path[1].Y, true
 }
 
+// NextPathStepTileToAny returns the next cardinal tile toward one of the given
+// goal tiles. It is used by callers with mode-specific goals, e.g. turn-based
+// ranged monsters that need a row/column firing lane rather than any tile inside
+// their circular projectile range.
+func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord) (tileX, tileY int, ok bool) {
+	if collisionChecker == nil || len(goals) == 0 {
+		return 0, 0, false
+	}
+	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
+
+	minGoalX, maxGoalX := goals[0].X, goals[0].X
+	minGoalY, maxGoalY := goals[0].Y, goals[0].Y
+	for _, goal := range goals[1:] {
+		if goal.X < minGoalX {
+			minGoalX = goal.X
+		}
+		if goal.X > maxGoalX {
+			maxGoalX = goal.X
+		}
+		if goal.Y < minGoalY {
+			minGoalY = goal.Y
+		}
+		if goal.Y > maxGoalY {
+			maxGoalY = goal.Y
+		}
+	}
+
+	rangeTiles := int(math.Ceil(m.AlertRadius / m.tileSize()))
+	if rangeTiles < 4 {
+		rangeTiles = 4
+	}
+	rangeTiles *= 2
+	if m.BossAggro {
+		rangeTiles = 48
+	}
+
+	minX := mathutil.IntMin(start.X, minGoalX) - rangeTiles
+	maxX := mathutil.IntMax(start.X, maxGoalX) + rangeTiles
+	minY := mathutil.IntMin(start.Y, minGoalY) - rangeTiles
+	maxY := mathutil.IntMax(start.Y, maxGoalY) + rangeTiles
+
+	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	if len(path) < 2 {
+		return 0, 0, false
+	}
+	return path[1].X, path[1].Y, true
+}
+
 func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) []TileCoord {
 	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
 	goal := TileCoord{X: targetTileX, Y: targetTileY}

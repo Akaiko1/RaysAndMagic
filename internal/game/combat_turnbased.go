@@ -197,7 +197,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 		if m.HasRangedAttack() {
 			// Ranged: only fire when on the player's row or column (never
-			// diagonal) and within range; otherwise step toward the player.
+			// diagonal), within range, AND with a clear line of sight; otherwise
+			// step toward the player. The LOS check stops a wasted shot into a wall
+			// — without it a ranged mob holds at range and plinks the wall forever
+			// while the party hides round a corner regening mana. No LOS → it A*-s
+			// toward the party (monsterMoveTurnBased) to round the corner instead.
 			rangeTiles := int(m.GetAttackRangePixels() / tileSize)
 			if rangeTiles < 1 {
 				rangeTiles = 1
@@ -207,10 +211,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			if dxT == 0 {
 				axisDist = adY
 			}
-			if aligned && axisDist >= 1 && axisDist <= rangeTiles {
+			hasLOS := gl.game.collisionSystem == nil ||
+				gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+			if aligned && axisDist >= 1 && axisDist <= rangeTiles && hasLOS {
 				gl.monsterAttackTurnBased(m)
 			} else {
-				gl.monsterMoveTurnBased(m)
+				gl.monsterMoveRangedTurnBased(m, rangeTiles)
 			}
 		} else {
 			// Melee: attack only from a cardinally-adjacent tile (Manhattan 1);
@@ -444,6 +450,69 @@ func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize 
 		m.LastMoveTick = gl.game.frameCount
 	}
 	// If no valid position found, monster stays put (loses turn)
+}
+
+// monsterMoveRangedTurnBased moves a ranged monster toward an actual turn-based
+// firing lane: a free tile on the party's row or column, within range and with
+// line of sight. The generic monster A* uses circular attack reach, which is
+// correct for RT ranged mobs but bad for TB: it can pick a diagonal in-range
+// tile where the monster still cannot shoot, causing archers to shuffle around
+// other archers instead of taking a second firing position.
+func (gl *GameLoop) monsterMoveRangedTurnBased(m *monster.Monster3D, rangeTiles int) {
+	if m == nil {
+		return
+	}
+	if gl.game == nil || gl.game.collisionSystem == nil {
+		gl.monsterMoveTurnBased(m)
+		return
+	}
+	goals := gl.turnBasedRangedGoalTiles(m, rangeTiles)
+	if len(goals) > 0 {
+		tileSize := float64(gl.game.config.GetTileSize())
+		if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+			wx, wy := TileCenterFromTile(nx, ny, tileSize)
+			if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+				m.X = wx
+				m.Y = wy
+				gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
+				m.LastMoveTick = gl.game.frameCount
+				return
+			}
+		}
+	}
+	gl.monsterMoveTurnBased(m)
+}
+
+func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D, rangeTiles int) []monster.TileCoord {
+	if m == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return nil
+	}
+	if rangeTiles < 1 {
+		rangeTiles = 1
+	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	ptx, pty := gl.game.GetPlayerTilePosition()
+	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
+
+	goals := make([]monster.TileCoord, 0, rangeTiles*4)
+	addGoal := func(tx, ty int) {
+		wx, wy := TileCenterFromTile(tx, ty, tileSize)
+		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+			return
+		}
+		if !gl.game.collisionSystem.CheckLineOfSight(wx, wy, playerX, playerY) {
+			return
+		}
+		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
+	}
+
+	for d := 1; d <= rangeTiles; d++ {
+		addGoal(ptx+d, pty)
+		addGoal(ptx-d, pty)
+		addGoal(ptx, pty+d)
+		addGoal(ptx, pty-d)
+	}
+	return goals
 }
 
 func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playerX, playerY float64, offsets [][2]int, bestDist float64) (float64, float64, float64) {

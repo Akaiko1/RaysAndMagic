@@ -2914,22 +2914,49 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 	return true
 }
 
+func spellMasteryTierForSchool(caster *character.MMCharacter, schoolID string) int {
+	if caster == nil || schoolID == "" {
+		return 0
+	}
+	school := character.MagicSchoolID(schoolID)
+	if skill, ok := caster.MagicSchools[school]; ok && skill != nil {
+		return int(skill.Mastery)
+	}
+	return 0
+}
+
+func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character.MMCharacter) int {
+	base := def.IncomingDamageReduction
+	max := def.IncomingDamageReductionGrandmaster
+	if base <= 0 || max <= base {
+		return base
+	}
+	tier := spellMasteryTierForSchool(caster, def.School)
+	gmTier := int(character.MasteryGrandMaster)
+	if tier <= 0 || gmTier <= 0 {
+		return base
+	}
+	if tier > gmTier {
+		tier = gmTier
+	}
+	return base + (max-base)*tier/gmTier
+}
+
 // tryCastPartyBuff handles party combat-buff spells (Day of the Gods, Hour of
-// Power). If the spell carries any party-buff field it activates the buff for
-// `duration` seconds and returns true. Shared by both cast paths.
+// Power, Stone Skin). If the spell carries any party-buff field it activates the
+// buff for `duration` seconds and returns true. Shared by both cast paths.
 func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 {
 		return false
 	}
-	// Magnitudes are FLAT (balance decision: mastery scales only the duration,
-	// never the buff strength); EffectLines quotes the same YAML values, so
-	// combat and tooltips agree by construction.
+	// Most party-buff magnitudes are flat. Spells may opt into a mastery-scaled
+	// incoming flat reduction with incoming_damage_reduction_grandmaster.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(TimedCombatBuff{
 		SpellID:   string(spellID),
 		Frames:    frames,
 		OutBonus:  def.OutgoingDamageBonus,
-		InReduce:  def.IncomingDamageReduction,
+		InReduce:  scaledIncomingDamageReduction(def, caster),
 		ResistPct: def.ResistBuffPct,
 	})
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))

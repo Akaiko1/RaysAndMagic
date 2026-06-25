@@ -616,6 +616,7 @@ spells:
     is_projectile: false
     is_utility: true
     incoming_damage_reduction: 6
+    incoming_damage_reduction_grandmaster: 18
     status_icon: "stone_skin"
     message: "The party's skin hardens to stone!"
 

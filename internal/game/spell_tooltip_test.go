@@ -27,7 +27,8 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 
 	mustContain := []struct{ id, want string }{
 		{"psychic_shock", "Stun chance: 10%"},
-		{"stone_skin", "Party takes -6 damage per hit"},
+		{"stone_skin", "Party takes -6 to -18 damage per hit by mastery"},
+		{"stone_skin", "Current reduction: -6 per hit"},
 		{"heroism", "Party attacks deal +10 damage"},
 		{"day_of_the_gods", "Party takes 50% less damage"},
 		{"hour_of_power", "Party attacks deal +15 damage"},

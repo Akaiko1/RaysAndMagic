@@ -283,6 +283,12 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	if data == nil {
 		return false // Default to transparent (not opaque) for unknown tiles
 	}
+	if data.Solid {
+		switch data.RenderType {
+		case "tree_sprite", "environment_sprite", "flooring_object":
+			return true
+		}
+	}
 	// Opaque means NOT transparent
 	return !data.Transparent
 }

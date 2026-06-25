@@ -467,6 +467,10 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	for _, ln := range character.FilteredSpellEffectLines(def) {
 		effects.Add("%s", ln)
 	}
+	if def.IncomingDamageReductionGrandmaster > def.IncomingDamageReduction && def.IncomingDamageReduction > 0 {
+		current := scaledIncomingDamageReduction(def, char)
+		effects.Add("Current reduction: -%d per hit", current)
+	}
 	// Duration decomposed: base → mastery % → current.
 	if def.Duration > 0 && cs != nil {
 		current := cs.CalculateSpellDurationSeconds(def.ID, char)
@@ -481,7 +485,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	switch {
 	case def.PartyAoeRadiusTiles > 0:
 		rules.AddDetail("Fixed damage: no stat or mastery scaling")
-		rules.AddDetail("No GM resistance penetration")
+		rules.AddDetail("%s: no GM resistance penetration", def.Name)
 		rules.AddDetail("Enemy %s Resistance reduces damage", formatSchoolName(def.School))
 		rules.AddDetail("Party %s Resistance reduces self-damage", formatSchoolName(def.School))
 		rules.AddDetail("Cannot critically hit")

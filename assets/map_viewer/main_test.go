@@ -112,14 +112,11 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	}
 	want := map[string]string{
 		"psychic_shock": "Stun chance: 10%",
-		// Party-buff magnitudes are FLAT (mastery scales only duration), so the
-		// shared EffectLines SSoT prints the exact numbers in both the editor
-		// card and the in-game tooltip.
-		"stone_skin": "Party takes -6 damage per hit",
-		"heroism":    "Party attacks deal +10 damage",
-		"charm":      "Pacifies",
-		"stun":       "Stuns every monster within 3.0 tiles",
-		"raise_dead": "Revives a fallen ally to 25% HP",
+		"stone_skin":    "Party takes -6 to -18 damage per hit by mastery",
+		"heroism":       "Party attacks deal +10 damage",
+		"charm":         "Pacifies",
+		"stun":          "Stuns every monster within 3.0 tiles",
+		"raise_dead":    "Revives a fallen ally to 25% HP",
 	}
 	for key, sub := range want {
 		if got := rowsFor(key); !strings.Contains(got, sub) {

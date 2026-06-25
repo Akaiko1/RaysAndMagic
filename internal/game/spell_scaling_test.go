@@ -11,9 +11,8 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Party-buff magnitudes (Heroism/Stone Skin/Day of the Gods) are FLAT by
-// balance decision — mastery scales ONLY the duration. Combat applies the raw
-// YAML values; EffectLines quotes the same numbers (combat=tooltip SSoT).
+// Most party-buff magnitudes are flat by balance decision, and mastery scales
+// duration. Stone Skin additionally opts into a mastery-scaled flat reduction.
 func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cs := game.combat
@@ -62,6 +61,47 @@ func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
 			if buff.Frames != wantFrames {
 				t.Errorf("duration at %s mastery = %d frames, want %d",
 					tt.name, buff.Frames, wantFrames)
+			}
+		})
+	}
+}
+
+func TestStoneSkinReductionScalesWithMastery(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cs := game.combat
+	druid := character.CreateCharacter("Dru", character.ClassDruid, game.config)
+	earth := druid.MagicSchools[character.MagicSchoolEarth]
+	if earth == nil {
+		t.Fatal("druid should start with the earth school")
+	}
+	def, err := spells.GetSpellDefinitionByID("stone_skin")
+	if err != nil {
+		t.Fatalf("stone_skin def: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		mastery character.SkillMastery
+		want    int
+	}{
+		{name: "novice", mastery: character.MasteryNovice, want: 6},
+		{name: "expert", mastery: character.MasteryExpert, want: 10},
+		{name: "master", mastery: character.MasteryMaster, want: 14},
+		{name: "grandmaster", mastery: character.MasteryGrandMaster, want: 18},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			earth.Mastery = tt.mastery
+			if !cs.tryCastPartyBuff("stone_skin", def, druid) {
+				t.Fatal("stone_skin must cast as a party buff")
+			}
+			buff, ok := game.combatBuffByID("stone_skin")
+			if !ok {
+				t.Fatal("stone_skin buff not registered")
+			}
+			if buff.InReduce != tt.want {
+				t.Errorf("Stone Skin reduction at %s = %d, want %d", tt.name, buff.InReduce, tt.want)
 			}
 		})
 	}

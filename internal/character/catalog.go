@@ -235,7 +235,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 func MagicMasteryDescription() string {
 	return fmt.Sprintf(
 		"Magic Mastery: +%d%% spell duration and +%d damage/healing per mastery tier above Novice. "+
-			"Grandmaster: ignores %d%% of enemy resistance with spells (except Inferno).",
+			"Grandmaster: projectile and zone spells ignore %d%% of enemy resistance.",
 		SpellMasteryDurationBonusPct, MasterySpellEffectPerLevel, MagicGMResistPiercePct)
 }
 

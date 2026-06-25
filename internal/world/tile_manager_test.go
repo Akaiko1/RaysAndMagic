@@ -205,6 +205,71 @@ func TestTileWallHeightMultiplierFallback(t *testing.T) {
 	}
 }
 
+func TestTileOpaqueTreatsSolidSpritesAsSightBlockers(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"solid_palm": {
+			Name:        "Solid Palm",
+			Solid:       true,
+			Transparent: true,
+			Walkable:    false,
+			RenderType:  "environment_sprite",
+		},
+		"walkable_fern": {
+			Name:        "Walkable Fern",
+			Solid:       false,
+			Transparent: true,
+			Walkable:    true,
+			RenderType:  "environment_sprite",
+		},
+		"ground_hazard": {
+			Name:        "Ground Hazard",
+			Solid:       true,
+			Transparent: true,
+			Walkable:    false,
+			RenderType:  "floor_only",
+		},
+		"stone_wall": {
+			Name:        "Stone Wall",
+			Solid:       true,
+			Transparent: false,
+			Walkable:    false,
+			RenderType:  "textured_wall",
+		},
+	}
+	tm.createTypeMapping()
+
+	solidPalm, ok := tm.GetTileTypeFromKey("solid_palm")
+	if !ok {
+		t.Fatal("solid_palm type missing")
+	}
+	walkableFern, ok := tm.GetTileTypeFromKey("walkable_fern")
+	if !ok {
+		t.Fatal("walkable_fern type missing")
+	}
+	groundHazard, ok := tm.GetTileTypeFromKey("ground_hazard")
+	if !ok {
+		t.Fatal("ground_hazard type missing")
+	}
+	stoneWall, ok := tm.GetTileTypeFromKey("stone_wall")
+	if !ok {
+		t.Fatal("stone_wall type missing")
+	}
+
+	if !tm.IsOpaque(solidPalm) {
+		t.Fatalf("expected a solid transparent environment sprite to block line of sight")
+	}
+	if tm.IsOpaque(walkableFern) {
+		t.Fatalf("expected a non-solid environment sprite to remain see-through")
+	}
+	if tm.IsOpaque(groundHazard) {
+		t.Fatalf("expected floor-only blockers to stay see-through for line of sight")
+	}
+	if !tm.IsOpaque(stoneWall) {
+		t.Fatalf("expected non-transparent walls to block line of sight")
+	}
+}
+
 func TestTileManagerFallback(t *testing.T) {
 	// Test behavior when tile manager is not initialized
 	originalManager := GlobalTileManager

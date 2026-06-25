@@ -316,9 +316,10 @@ type SpellDefinitionConfig struct {
 
 	// Party combat buffs (applied for `duration` seconds). Day of the Gods sets
 	// ResistBuffPct; Hour of Power sets OutgoingDamageBonus + IncomingDamageReduction.
-	ResistBuffPct           int `yaml:"resist_buff_pct,omitempty"`           // % reduction of all incoming party damage
-	OutgoingDamageBonus     int `yaml:"outgoing_damage_bonus,omitempty"`     // flat add to all party outgoing damage
-	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
+	ResistBuffPct                      int `yaml:"resist_buff_pct,omitempty"`                       // % reduction of all incoming party damage
+	OutgoingDamageBonus                int `yaml:"outgoing_damage_bonus,omitempty"`                 // flat add to all party outgoing damage
+	IncomingDamageReduction            int `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
+	IncomingDamageReductionGrandmaster int `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
 	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
 	// hunts other monsters and ignores the party. No effect on non-undead. Dies
@@ -433,6 +434,12 @@ type GraphicsConfig struct {
 	// tokens standing in the world (board-game standees) instead of
 	// camera-facing billboards. Monsters turn with their travel direction.
 	Standee StandeeConfig `yaml:"standee"`
+
+	// TreesAsBillboards renders tree tiles as two crossed full-tile billboards
+	// (a "+" from above, double-sided) instead of the per-column full-sprite
+	// draw. Each screen ray that crosses either center-plane of a tree tile
+	// draws a textured vertical slice; see drawTreeBillboardSlice.
+	TreesAsBillboards bool `yaml:"trees_as_billboards"`
 }
 
 // StandeeConfig tunes the board-game standee rendering mode.
@@ -740,6 +747,9 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	var config Config
+	// Defaults applied before unmarshal so an absent key keeps the default while a
+	// present key overrides it (bool can't otherwise distinguish unset from false).
+	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err

@@ -176,6 +176,7 @@ func isSectionHeader(ln string) bool {
 func isStyleDivergent(line string) bool {
 	return strings.HasPrefix(line, "Base Duration:") ||
 		strings.HasPrefix(line, "Current Duration:") ||
+		strings.HasPrefix(line, "Current reduction:") ||
 		strings.HasPrefix(line, "Mastery:") || // editor "Mastery: +20% duration per tier"
 		strings.Contains(line, " Mastery — ") // game "<School> Mastery — Tier: +N%"
 }
