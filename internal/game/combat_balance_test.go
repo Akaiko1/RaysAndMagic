@@ -797,6 +797,69 @@ func buildCastleVeteranL17Party(t *testing.T, cs *CombatSystem) []*character.MMC
 	return party
 }
 
+// buildRealPlayParty reconstructs the EXACT party from save1 — the author's real
+// playthrough: same classes, levels, BASE stats (gear bonuses apply on top, as
+// in-game), gear and spell books. Gives the zone tables a real progression party
+// alongside the synthetic entry/veteran loadouts. Silvelyn's wizard_eye is a
+// vision utility, kept in her book but NOT her active spell slot, so the sim fires
+// her bow each round instead of "casting" a no-op heal (how she actually fights).
+// Lysander's active spell is left to equipBestOffensiveSpellVs (runFixedPartySim
+// re-picks the best offensive spell he knows per fight, as in real play).
+func buildRealPlayParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	cfg := cs.game.config
+
+	type member struct {
+		name                                                            string
+		class                                                           character.CharacterClass
+		level                                                           int
+		might, intellect, personality, endurance, accuracy, speed, luck int
+		weapon                                                          string
+		gear                                                            []string
+		known                                                           []spells.SpellID
+		equipSpell                                                      spells.SpellID
+	}
+	roster := []member{
+		{"Gareth", character.ClassKnight, 13, 56, 10, 10, 28, 12, 16, 10,
+			"tonbogiri", []string{"iron_armor", "chain_pants", "iron_helmet"}, nil, ""},
+		{"Lysander", character.ClassSorcerer, 14, 8, 66, 12, 16, 10, 16, 12,
+			"battle_staff", []string{"direpelt_cloak", "leather_armor", "leather_pants", "sonar_pendant", "magic_ring"},
+			[]spells.SpellID{"torch_light", "firebolt", "ice_bolt", "hot_steam", "sparks", "starburst", "day_of_the_gods", "ray_of_light"}, ""},
+		{"Celestine", character.ClassCleric, 13, 10, 12, 59, 22, 8, 16, 10,
+			"holy_mace", []string{"chain_armor"},
+			[]spells.SpellID{"heal_other", "harm", "mind_blast", "spirit_lash", "bless", "heroism"}, "mass_heal"},
+		{"Silvelyn", character.ClassArcher, 13, 12, 26, 10, 18, 47, 16, 10,
+			"elven_bow", []string{"ratskin_boots"}, []spells.SpellID{"wizard_eye"}, ""},
+	}
+	party := make([]*character.MMCharacter, 0, len(roster))
+	for _, m := range roster {
+		c := character.CreateCharacter(m.name, m.class, cfg)
+		c.Level = m.level
+		c.Might, c.Intellect, c.Personality, c.Endurance = m.might, m.intellect, m.personality, m.endurance
+		c.Accuracy, c.Speed, c.Luck = m.accuracy, m.speed, m.luck
+		mustEquipWeaponKey(t, c, m.weapon)
+		for _, k := range m.gear {
+			mustEquipItemKey(t, c, k)
+		}
+		for _, sid := range m.known {
+			addSpellByID(c, sid)
+		}
+		if m.equipSpell != "" {
+			mustEquipSpellID(t, c, m.equipSpell)
+		}
+		c.CalculateDerivedStats(cfg)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+		party = append(party, c)
+	}
+	cs.game.party.Members = party
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
 func runFixedPartySim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string, statBonus int, trials int) {
 	t.Helper()
 	var wins, wipes int
@@ -1902,6 +1965,21 @@ func TestCombatBalance_CastleVeteranL17PartyVsCastleMobs(t *testing.T) {
 	}
 }
 
+// TestCombatBalance_CastleRealPlayPartyVsCastleMobs runs the actual save1 party
+// (the author's real progression: L13-14, mixed real gear/spells) against the
+// Japanese castle's mobs, elite pairs, and the Samurai Warlord.
+func TestCombatBalance_CastleRealPlayPartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(45)
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildRealPlayParty, sc.monsters, "Castle Real play party vs "+sc.label, 0, 50)
+	}
+}
+
 func jungleMobScenarios() []fightScenario {
 	return []fightScenario{
 		{label: "ocelot", monsters: []string{"ocelot"}},
@@ -1952,6 +2030,20 @@ func TestCombatBalance_JungleVeteranPartyVsMobs(t *testing.T) {
 	rand.Seed(43)
 	for _, sc := range jungleMobScenarios() {
 		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Jungle L17-veteran party vs "+sc.label, 0, 50)
+	}
+}
+
+// TestCombatBalance_JungleRealPlayPartyVsMobs runs the actual save1 party (the
+// author's real progression: L13-14, mixed real gear/spells) against the jungle.
+func TestCombatBalance_JungleRealPlayPartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(44)
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildRealPlayParty, sc.monsters, "Jungle Real play party vs "+sc.label, 0, 50)
 	}
 }
 

@@ -22,6 +22,14 @@ func (cs *CombatSystem) isBoss(m *monsterPkg.Monster3D) bool {
 		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0 || m.WardedByIdols)
 }
 
+// bossDisabled reports whether crowd control should suppress a boss action:
+// stun (either mode), charm, or bind. The RT/TB monster loops already skip
+// disabled monsters before reaching updateBoss; this guards the few paths that
+// don't (and documents intent).
+func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
+	return m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0 || m.Pacified || m.Bound
+}
+
 // bossEvasive reports whether the boss is in its evasive phase: it has a
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
 // never attacks or chases — it only blinks away when the party closes in.
@@ -71,7 +79,29 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 		m.Enraged = true
 		cs.game.AddCombatMessage(fmt.Sprintf("%s flies into a furious rage!", m.Name))
 	}
-	// Special actions fire only at the attack moment.
+	// Summon fires on the melee attack moment OR when the boss TAKES DAMAGE while
+	// able to act. The hurt-provoke is the RT anti-kite: a boss being shot from
+	// range still rallies adds instead of standing helpless, so it can't be safely
+	// kited down. (In TB attackTick is already always true, so this adds nothing
+	// there.) CC is filtered by the caller loops; bossDisabled is belt-and-
+	// suspenders. One roll per damage event — BossHurtPending is latched from the
+	// HP delta at the top of this func and consumed here. Skip the roll entirely at
+	// the SummonMax cap (a passed roll would spawn nothing and fall through anyway).
+	hurtProvoke := m.BossHurtPending && !cs.bossDisabled(m)
+	m.BossHurtPending = false
+	if (attackTick || hurtProvoke) && len(m.SummonMonsters) > 0 &&
+		(m.SummonMax <= 0 || cs.countLiveSummons(m) < m.SummonMax) {
+		guaranteed := m.SummonFirstGuaranteed && !m.SummonFirstDone
+		if guaranteed || (m.SummonChance > 0 && rand.Float64() < m.SummonChance) {
+			if cs.summonBossAdds(m) {
+				m.SummonFirstDone = true
+				return true
+			}
+		}
+	}
+
+	// The remaining specials (low-HP blink, Inferno) still fire only at the melee
+	// attack moment.
 	if !attackTick {
 		return false
 	}
@@ -84,15 +114,6 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	if m.InfernoChance > 0 && rand.Float64() < m.InfernoChance {
 		cs.applyMonsterInferno(m)
 		return true
-	}
-	if len(m.SummonMonsters) > 0 {
-		guaranteed := m.SummonFirstGuaranteed && !m.SummonFirstDone
-		if guaranteed || (m.SummonChance > 0 && rand.Float64() < m.SummonChance) {
-			if cs.summonBossAdds(m) {
-				m.SummonFirstDone = true
-				return true
-			}
-		}
 	}
 	return false // proceed to the normal attack (armor-piercing if IgnoresArmor)
 }
@@ -240,9 +261,8 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 		if m == nil || !m.IsAlive() || !cs.isBoss(m) || !cs.bossEvasive(m) {
 			continue
 		}
-		// Crowd control suppresses the blink like any other action: TB stun
-		// (turns) and RT stun carry-over (frames), Charm, Bind.
-		if m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0 || m.Pacified || m.Bound {
+		// Crowd control suppresses the blink like any other action.
+		if cs.bossDisabled(m) {
 			continue
 		}
 		ready := m.BossCD == 0

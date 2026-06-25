@@ -58,6 +58,18 @@ func (gl *GameLoop) Update() error {
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
 
+	// Top-level screens replace the gameplay loop entirely. Their click handling
+	// lives in the matching Draw call (roster-screen convention); update only
+	// processes keyboard/back navigation here.
+	switch gl.game.appScreen {
+	case AppScreenMainMenu:
+		gl.game.updateEntryMenu()
+		return nil
+	case AppScreenPartyCreate:
+		gl.game.updatePartyCreate()
+		return nil
+	}
+
 	gl.updateExploration()
 
 	return nil
@@ -161,6 +173,16 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	// Clear with forest background color
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
+
+	// Top-level menu screens render instead of the 3D scene + gameplay UI.
+	switch gl.game.appScreen {
+	case AppScreenMainMenu:
+		gl.ui.drawEntryMenuScreen(screen)
+		return
+	case AppScreenPartyCreate:
+		gl.ui.drawPartyCreateScreen(screen)
+		return
+	}
 
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
 	// the scene goes through a horizontal motion-blur shader (camera blur — the

@@ -645,8 +645,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		} else if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 160, 200})
 		}
-		portrait := ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member))
-		drawImageScaled(screen, portrait, x, y, w, h)
+		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
 		drawCenteredDebugText(screen, label, x-8, y+h+2, w+16, debugTextCharHeight)
 	}
@@ -774,7 +773,7 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		if hover && !ui.game.skillTrainerPopup {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
 		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member)), x, y, w, h)
+		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
 		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+20, w+16, debugTextCharHeight)
 	}

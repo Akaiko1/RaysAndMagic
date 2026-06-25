@@ -8,12 +8,12 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/stats"
@@ -542,8 +542,7 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 	if img, ok := v.iconCache[cacheKey]; ok {
 		return img // may be nil — already checked, no file
 	}
-	for _, dir := range []string{"environment", "mobs", "characters", "interface"} {
-		path := filepath.Join("assets", "sprites", dir, sprite+".png")
+	if path, ok := graphics.ResolveSpritePath(sprite); ok {
 		if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
 			v.iconCache[cacheKey] = img
 			return img
@@ -554,7 +553,8 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 }
 
 // iconForCard loads the per-card sprite by naming convention
-// (assets/sprites/interface/icon_<kind>_<key>.png). Returns nil if no file.
+// (icon_<kind>_<key>), resolved anywhere under assets/sprites via the shared
+// index. Returns nil if no file.
 func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	// Skills have no art (the card renderer draws a placeholder box).
 	if c.kind == cardSkill {
@@ -578,7 +578,11 @@ func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	if img, ok := v.iconCache[cacheKey]; ok {
 		return img // may be nil — "we already checked, no file"
 	}
-	path := filepath.Join("assets", "sprites", "interface", fileBase+".png")
+	path, ok := graphics.ResolveSpritePath(fileBase)
+	if !ok {
+		v.iconCache[cacheKey] = nil
+		return nil
+	}
 	img, _, err := ebitenutil.NewImageFromFile(path)
 	if err != nil {
 		v.iconCache[cacheKey] = nil

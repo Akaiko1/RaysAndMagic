@@ -237,11 +237,17 @@ func (ih *InputHandler) HandleInput() {
 	ih.handleMouseInput()
 }
 
-// restartNewGame resets party and state for a fresh start
+// restartNewGame resets to a fresh game with the default config roster (used by
+// the game-over screen's New Game shortcut).
 func (ih *InputHandler) restartNewGame() {
-	g := ih.game
-	// Recreate party
-	g.party = character.NewParty(g.config)
+	ih.game.startNewGameWithParty(character.NewParty(ih.game.config))
+}
+
+// startNewGameWithParty resets all world/combat/UI state for a fresh game and
+// drops the player into gameplay with the given party. Shared by restartNewGame
+// (default roster) and the party-creation screen (player-picked roster).
+func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	g.party = party
 	g.selectedChar = 0
 
 	// Reset victory/high score state and session timer
@@ -362,6 +368,9 @@ func (ih *InputHandler) restartNewGame() {
 			g.gameLoop.renderer.buildTransparentSpriteCache()
 		}
 	}
+
+	// Hand control to the gameplay loop.
+	g.appScreen = AppScreenInGame
 }
 
 // handleVictoryInput processes input on the victory screen

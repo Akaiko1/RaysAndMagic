@@ -1169,6 +1169,8 @@ monsters:
     experience: 700
     damage_min: 32
     damage_max: 48
+    attacks_per_round: 2          # fast predator: rapid claw swipes (tier L18-24 cadence)
+    attack_cooldown_multiplier: 0.6
     attack_radius: 1
     alert_radius: 8
     speed: 2.2
@@ -1191,8 +1193,8 @@ monsters:
     max_hit_points: 760
     armor_class: 15
     experience: 800
-    damage_min: 32
-    damage_max: 50
+    damage_min: 40
+    damage_max: 60
     attack_radius: 1
     alert_radius: 6
     speed: 1.5
@@ -1214,8 +1216,8 @@ monsters:
     armor_class: 16
     perfect_dodge: 10
     experience: 1100
-    damage_min: 30
-    damage_max: 46
+    damage_min: 36
+    damage_max: 54
     projectile_weapon: "blowgun"
     ranged_attack_range: 6
     attack_radius: 5
@@ -1244,6 +1246,8 @@ monsters:
     experience: 1300
     damage_min: 30
     damage_max: 46
+    attacks_per_round: 2          # whirling blades
+    attack_cooldown_multiplier: 0.7
     attack_radius: 1
     alert_radius: 7
     speed: 1.9
@@ -1268,8 +1272,8 @@ monsters:
     armor_class: 16
     perfect_dodge: 10
     experience: 1700
-    damage_min: 22
-    damage_max: 34
+    damage_min: 30
+    damage_max: 46
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     attack_radius: 5

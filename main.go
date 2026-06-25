@@ -42,6 +42,11 @@ func main() {
 	// Load level-up choices
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
+	// Load achievement definitions (optional — stubbed feature, non-fatal).
+	if _, err := config.LoadAchievementConfig("assets/achievements.yaml"); err != nil {
+		log.Printf("Warning: Failed to load achievements config: %v", err)
+	}
+
 	// Setup bridges to avoid circular imports
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()

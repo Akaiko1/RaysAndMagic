@@ -418,6 +418,14 @@ type MMGame struct {
 	showHighScores    bool
 	victoryNameInput  string
 	victoryScoreSaved bool
+
+	// Top-level screen state (entry menu / party creation / gameplay). See
+	// AppScreen. The entry menu and party-creation screens live in
+	// screen_entry.go and screen_party_create.go.
+	appScreen          AppScreen
+	entryMenuMode      EntryMenuMode
+	achievementsScroll int               // achievements list scroll offset (rows)
+	partyCreate        *partyCreateState // built lazily on entering AppScreenPartyCreate
 }
 
 type GameState int
@@ -425,6 +433,28 @@ type GameState int
 const (
 	GameStateExploration GameState = iota
 	GameStateTurnBased
+)
+
+// AppScreen is the top-level screen the game is showing. It gates the whole
+// update/draw cycle: the gameplay loop only runs in AppScreenInGame; the entry
+// menu and party-creation screens replace it entirely. Its zero value is the
+// entry menu, so a fresh MMGame boots to the menu.
+type AppScreen int
+
+const (
+	AppScreenMainMenu    AppScreen = iota // entry/title menu (Start, Load, Scores, Achievements)
+	AppScreenPartyCreate                  // pick the starting party of 4
+	AppScreenInGame                       // normal gameplay (the rest of this engine)
+)
+
+// EntryMenuMode is the sub-screen shown within AppScreenMainMenu.
+type EntryMenuMode int
+
+const (
+	EntryMenuRoot EntryMenuMode = iota
+	EntryMenuLoad
+	EntryMenuScores
+	EntryMenuAchievements
 )
 
 // MainMenuMode represents sub-modes of the ESC menu

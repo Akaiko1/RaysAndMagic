@@ -17,6 +17,18 @@ func TestJungleIconsResolve(t *testing.T) {
 	newTestCombatSystemWithConfig(t) // loads weapons+items configs, sets up both bridges
 
 	iconDir := filepath.Join("..", "..", "assets", "sprites", "interface")
+	// Icons live in subfolders (items/, weapons/, ...); resolve by basename
+	// anywhere under interface/, mirroring the sprite loader's recursive index.
+	iconOnDisk := func(name string) bool {
+		found := false
+		_ = filepath.WalkDir(iconDir, func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() == name+".png" {
+				found = true
+			}
+			return nil
+		})
+		return found
+	}
 	weapons := []string{"jungle_machete", "obsidian_spear", "bone_warclub", "blowgun", "serpent_fang", "idol_breakers_maul"}
 	itemKeys := []string{
 		"jaguar_pelt_jerkin", "feathered_headdress", "vinewoven_cloak", "serpent_idol_amulet",
@@ -31,8 +43,8 @@ func TestJungleIconsResolve(t *testing.T) {
 			t.Errorf("%q: itemTooltipIconName = %q, want %q (name→key drift)", item.Name, got, want)
 			return
 		}
-		if _, err := os.Stat(filepath.Join(iconDir, want+".png")); err != nil {
-			t.Errorf("%q: icon %s.png not found on disk", item.Name, want)
+		if !iconOnDisk(want) {
+			t.Errorf("%q: icon %s.png not found under %s", item.Name, want, iconDir)
 		}
 	}
 

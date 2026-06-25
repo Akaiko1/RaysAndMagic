@@ -39,6 +39,8 @@ func (g *MMGame) ApplyTestArena() {
 	if g == nil || g.party == nil {
 		return
 	}
+	// Skip the entry/party-creation menus and drop straight into gameplay.
+	g.appScreen = AppScreenInGame
 	// Clear the two locations: per monster, roll its loot exactly as the live
 	// kill path does, and tally the per-member XP share and the gold it carries
 	// (same split the live kill path uses) as the monsters are removed.

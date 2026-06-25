@@ -5,8 +5,13 @@ import (
 	"image/color"
 	"image/draw"
 	_ "image/png"
+	"io/fs"
+	"log"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -16,6 +21,13 @@ type SpriteManager struct {
 	spriteTypeCache  map[string]string // Cache sprite types to avoid repeated file checks
 	animations       map[string]*SpriteAnimation
 	animationMissing map[string]bool
+
+	// spritePaths maps a sprite basename (no extension) to its PNG path, built
+	// once by walking the sprite roots recursively (see ensureIndex). Lets
+	// sprites live in any subfolder layout — lookup is by name, not location.
+	// spriteDirType records the originating root's placeholder type.
+	spritePaths   map[string]string
+	spriteDirType map[string]string
 
 	// Load-time color key (configured via SetColorKey): pixels within keyTol of the
 	// key color become transparent; with keyDespill, tinted fringe pixels have the
@@ -97,6 +109,84 @@ func NewSpriteManager() *SpriteManager {
 	}
 }
 
+// spriteBaseDirs are the roots indexed by basename (recursively). Each maps to
+// the placeholder type used when a named sprite is missing. floor/ and sky/ are
+// loaded separately via resolveNamedPNG and intentionally omitted here.
+var spriteBaseDirs = []struct{ dir, typ string }{
+	{"assets/sprites/mobs", "npc_mob"},
+	{"assets/sprites/characters", "npc_mob"},
+	{"assets/sprites/environment", "environment"},
+	{"assets/sprites/interface", "interface"},
+}
+
+// isIgnoredSpriteDir reports folders excluded from the sprite index: archives
+// (any case) and any name starting with "_" or "." — a convention to park
+// unused/duplicate art in the tree without it shadowing live sprites.
+func isIgnoredSpriteDir(name string) bool {
+	return strings.EqualFold(name, "archive") ||
+		strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".")
+}
+
+// buildSpriteIndex walks the sprite roots recursively (skipping ignored dirs)
+// and returns basename→path and basename→placeholder-type maps. Sprites may
+// therefore be grouped into arbitrary subfolders; basenames must be unique
+// across the whole tree (duplicates are logged and the first, by root order,
+// wins). Shared by SpriteManager.ensureIndex and the package-level resolver.
+func buildSpriteIndex() (paths, dirType map[string]string) {
+	paths = make(map[string]string)
+	dirType = make(map[string]string)
+	for _, root := range spriteBaseDirs {
+		_ = filepath.WalkDir(root.dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // missing root (e.g. tests run outside the repo) — skip
+			}
+			if d.IsDir() {
+				if isIgnoredSpriteDir(d.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if filepath.Ext(path) != ".png" {
+				return nil
+			}
+			base := strings.TrimSuffix(d.Name(), ".png")
+			if existing, dup := paths[base]; dup {
+				log.Printf("sprite index: duplicate basename %q (%q vs %q); keeping %q", base, existing, path, existing)
+				return nil
+			}
+			paths[base] = path
+			dirType[base] = root.typ
+			return nil
+		})
+	}
+	return paths, dirType
+}
+
+// ensureIndex lazily builds this manager's basename→path index.
+func (sm *SpriteManager) ensureIndex() {
+	if sm == nil || sm.spritePaths != nil {
+		return
+	}
+	sm.spritePaths, sm.spriteDirType = buildSpriteIndex()
+}
+
+var (
+	sharedIndexOnce   sync.Once
+	sharedSpritePaths map[string]string
+)
+
+// ResolveSpritePath returns the on-disk PNG path for a sprite basename, found
+// anywhere under the sprite roots (recursive; archive/_-prefixed dirs excluded).
+// The index is built once and shared. ok=false if no such sprite exists. Lets
+// external tools (e.g. the map editor) resolve sprites by name, layout-agnostic.
+func ResolveSpritePath(name string) (string, bool) {
+	sharedIndexOnce.Do(func() {
+		sharedSpritePaths, _ = buildSpriteIndex()
+	})
+	p, ok := sharedSpritePaths[name]
+	return p, ok
+}
+
 type SpriteAnimation struct {
 	Frames      []*ebiten.Image
 	FrameWidth  int
@@ -142,30 +232,12 @@ func (sm *SpriteManager) getCachedSpriteType(name string) string {
 	return spriteType
 }
 
-// determineSpritePaths determines the sprite type by checking which path would be tried first
+// determineSpritePaths returns the placeholder type for a name from the index.
 func (sm *SpriteManager) determineSpritePaths(name string) string {
-	searchPaths := []string{
-		"assets/sprites/mobs/" + name + ".png",        // Monsters
-		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
-		"assets/sprites/environment/" + name + ".png", // Environment objects
-		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
+	sm.ensureIndex()
+	if t, ok := sm.spriteDirType[name]; ok {
+		return t
 	}
-
-	// Check if any path exists (for loaded sprites) or determine most likely type
-	for i, spritePath := range searchPaths {
-		if _, err := os.Stat(spritePath); err == nil {
-			switch i {
-			case 0, 1: // mobs or characters path
-				return "npc_mob"
-			case 2: // environment path
-				return "environment"
-			case 3: // interface path
-				return "interface"
-			}
-		}
-	}
-
-	// If no file exists, default to gray
 	return "unknown"
 }
 
@@ -214,18 +286,12 @@ func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
 }
 
 func (sm *SpriteManager) spriteExists(name string) bool {
-	searchPaths := []string{
-		"assets/sprites/mobs/" + name + ".png",
-		"assets/sprites/characters/" + name + ".png",
-		"assets/sprites/environment/" + name + ".png",
-		"assets/sprites/interface/" + name + ".png",
+	if sm == nil {
+		return false
 	}
-	for _, spritePath := range searchPaths {
-		if _, err := os.Stat(spritePath); err == nil {
-			return true
-		}
-	}
-	return false
+	sm.ensureIndex()
+	_, ok := sm.spritePaths[name]
+	return ok
 }
 
 func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
@@ -244,33 +310,17 @@ func (sm *SpriteManager) GetAnimation(name, animType string) *SpriteAnimation {
 	return nil
 }
 
-// loadSpriteIfExists attempts to load a sprite from common locations
+// loadSpriteIfExists attempts to load a sprite by basename from the index.
 func (sm *SpriteManager) loadSpriteIfExists(name string) {
-	// Search paths in order of priority
-	searchPaths := []string{
-		"assets/sprites/mobs/" + name + ".png",        // Monsters
-		"assets/sprites/characters/" + name + ".png",  // NPCs and characters
-		"assets/sprites/environment/" + name + ".png", // Environment objects
-		"assets/sprites/interface/" + name + ".png",   // UI/interface sprites
-	}
-
-	for i, spritePath := range searchPaths {
-		file, err := os.Open(spritePath)
-		if err == nil {
+	sm.ensureIndex()
+	spritePath, ok := sm.spritePaths[name]
+	if ok {
+		if file, err := os.Open(spritePath); err == nil {
 			defer file.Close()
-			img, _, err := image.Decode(file)
-			if err == nil {
+			if img, _, err := image.Decode(file); err == nil {
 				img = sm.applyColorKey(img)
 				sm.sprites[name] = ebiten.NewImageFromImage(img)
-				// Cache sprite type for future placeholder requests
-				switch i {
-				case 0, 1: // mobs or characters path
-					sm.spriteTypeCache[name] = "npc_mob"
-				case 2: // environment path
-					sm.spriteTypeCache[name] = "environment"
-				case 3: // interface path
-					sm.spriteTypeCache[name] = "interface"
-				}
+				sm.spriteTypeCache[name] = sm.spriteDirType[name]
 				return
 			}
 		}
@@ -281,21 +331,18 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 }
 
 func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
-	searchPaths := []string{
-		"assets/sprites/mobs/" + name + "_" + animType + ".png",       // Monsters
-		"assets/sprites/characters/" + name + "_" + animType + ".png", // NPCs and characters
-	}
-
-	for _, spritePath := range searchPaths {
+	sm.ensureIndex()
+	spritePath, ok := sm.spritePaths[name+"_"+animType]
+	if ok {
 		file, err := os.Open(spritePath)
 		if err != nil {
-			continue
+			return
 		}
 		defer file.Close()
 
 		img, _, err := image.Decode(file)
 		if err != nil {
-			continue
+			return
 		}
 		img = sm.applyColorKey(img)
 
