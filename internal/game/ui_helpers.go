@@ -487,14 +487,17 @@ func drawCenteredTextWithShadow(screen *ebiten.Image, text string, x, y, w, h in
 	drawDebugTextColored(screen, text, drawX, drawY, fg)
 }
 
-// drawDebugTextShadowed draws left-aligned colored text with a soft drop shadow
-// one pixel down-right, lifting it off textured backgrounds (e.g. the parchment
-// character sheet). The shadow is warm-dark and translucent to suit the palette.
+// drawDebugTextShadowed draws left-aligned colored text wrapped in a dark
+// outline so light body text stays legible over textured backgrounds (e.g. the
+// parchment character sheet) — same treatment as the party-screen hero names.
 func drawDebugTextShadowed(screen *ebiten.Image, text string, x, y int, fg color.Color) {
 	if text == "" {
 		return
 	}
-	drawDebugTextColored(screen, text, x+1, y+1, color.RGBA{35, 18, 8, 150})
+	outline := color.RGBA{0, 0, 0, 235}
+	for _, d := range [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}} {
+		drawDebugTextColored(screen, text, x+d[0], y+d[1], outline)
+	}
 	drawDebugTextColored(screen, text, x, y, fg)
 }
 

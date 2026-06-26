@@ -10,9 +10,9 @@ import (
 )
 
 // These tests cover the turn-based / real-time monster movement and attack
-// rules: tile-centering, cardinal-only melee that never enters the player's
-// tile, ranged firing only when row/column-aligned, the 1-tile real-time melee
-// reach, and the puma pounce landing on an adjacent tile (not on the player).
+// rules: tile-centering, adjacent melee that never enters the player's tile,
+// ranged firing only when row/column-aligned, the 1-tile real-time melee reach,
+// and the puma pounce landing on an adjacent tile (not on the player).
 
 func absI(n int) int {
 	if n < 0 {
@@ -153,10 +153,9 @@ func TestTurnBased_ExtraMonsterActionMovesTwiceAndResets(t *testing.T) {
 	}
 }
 
-// Melee monsters approach one tile per turn, only ever strike from a
-// cardinally-adjacent tile (Manhattan distance 1), and never step onto the
-// player's own tile.
-func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
+// Melee monsters approach one tile per turn, strike from any adjacent tile
+// (including diagonals), and never step onto the player's own tile.
+func TestTurnBased_MeleeOnlyHitsFromAdjacent(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
 	placePlayerAtTile(game, ptx, pty, ts)
@@ -173,8 +172,9 @@ func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
 		}
 		if partyHPSum(game) < hpBefore {
 			everHit = true
-			if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-				t.Fatalf("turn %d: melee hit from a non-cardinal-adjacent tile (Manhattan %d)", turn, man)
+			dx, dy := absI(tx-ptx), absI(ty-pty)
+			if dx > 1 || dy > 1 || dx+dy == 0 {
+				t.Fatalf("turn %d: melee hit from a non-adjacent tile (dx=%d dy=%d)", turn, dx, dy)
 			}
 		}
 	}
@@ -183,9 +183,9 @@ func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
 	}
 }
 
-// A melee monster diagonally adjacent to the player must NOT attack; it should
-// reposition onto a cardinally-adjacent tile instead.
-func TestTurnBased_MeleeDoesNotAttackDiagonally(t *testing.T) {
+// A melee monster diagonally adjacent to the player can attack; diagonal contact
+// counts as point-blank so packs can surround the party.
+func TestTurnBased_MeleeAttacksDiagonally(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	m := spawnMonsterAtTile(game, "goblin", 11, 11, ts) // diagonal neighbour
@@ -193,12 +193,12 @@ func TestTurnBased_MeleeDoesNotAttackDiagonally(t *testing.T) {
 	hp0 := partyHPSum(game)
 	runOneMonsterTurn(game, gl)
 
-	if partyHPSum(game) < hp0 {
-		t.Fatalf("melee monster attacked from a diagonal tile")
-	}
 	tx, ty := monsterTileCoords(m, ts)
-	if man := absI(tx-10) + absI(ty-10); man != 1 {
-		t.Fatalf("expected diagonal monster to reposition to a cardinal-adjacent tile, Manhattan=%d", man)
+	if dx, dy := absI(tx-10), absI(ty-10); dx != 1 || dy != 1 {
+		t.Fatalf("expected diagonal monster to stay diagonally adjacent, got dx=%d dy=%d", dx, dy)
+	}
+	if partyHPSum(game) >= hp0 {
+		t.Fatalf("melee monster should attack from a diagonal tile")
 	}
 }
 
@@ -298,8 +298,8 @@ func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *t
 	}
 }
 
-// A pouncing monster (puma) leaps onto a cardinally-adjacent tile — never onto
-// the player's tile — and strikes. Turn-based path.
+// A pouncing monster (puma) leaps onto an adjacent tile — never onto the
+// player's tile — and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
@@ -313,16 +313,16 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	if tx == ptx && ty == pty {
 		t.Fatalf("puma pounced onto the player's tile")
 	}
-	if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-		t.Fatalf("puma should land on a cardinally-adjacent tile, Manhattan=%d", man)
+	dx, dy := absI(tx-ptx), absI(ty-pty)
+	if dx > 1 || dy > 1 || dx+dy == 0 {
+		t.Fatalf("puma should land on an adjacent tile, dx=%d dy=%d", dx, dy)
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("puma pounce should strike the party")
 	}
 }
 
-// Real-time pounce lands on a cardinally-adjacent tile (not the player's) and
-// deals damage.
+// Real-time pounce lands on an adjacent tile (not the player's) and deals damage.
 func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
@@ -337,8 +337,9 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	if tx == ptx && ty == pty {
 		t.Fatalf("real-time puma pounced onto the player's tile")
 	}
-	if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-		t.Fatalf("real-time puma should land cardinally adjacent, Manhattan=%d", man)
+	dx, dy := absI(tx-ptx), absI(ty-pty)
+	if dx > 1 || dy > 1 || dx+dy == 0 {
+		t.Fatalf("real-time puma should land adjacent, dx=%d dy=%d", dx, dy)
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time puma pounce should strike the party")
@@ -1004,6 +1005,21 @@ func TestRealTime_MeleeHitsAtExactlyOneTile(t *testing.T) {
 	game.combat.HandleMonsterInteractions()
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time melee should hit at exactly one tile (inclusive reach)")
+	}
+}
+
+func TestRealTime_MeleeHitsFromDiagonalAdjacentTile(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 10, 10, ts)
+	m := spawnMonsterAtTile(game, "goblin", 11, 11, ts)
+	m.State = monster.StateAttacking
+	m.StateTimer = 1
+
+	hp0 := partyHPSum(game)
+	game.combat.HandleMonsterInteractions()
+	if partyHPSum(game) >= hp0 {
+		t.Fatalf("real-time melee should hit from a diagonal adjacent tile")
 	}
 }
 

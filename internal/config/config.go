@@ -163,9 +163,13 @@ func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float
 	return collisionTiles * tileSize
 }
 
-// MeleeAttackConfig for instant melee weapons
+// MeleeAttackConfig for instant melee weapons. ArcType is the discrete swing
+// shape (1-4): 1 strikes only straight ahead, 2 front + one flank, 3 front + both
+// diagonals, 4 front + diagonals + both sides. Combined with Range (tiles, with
+// diagonals counting as one step) it defines how many surrounding foes a swing
+// catches — e.g. arc 3 at range 2 sweeps a 90° cone two ranks deep.
 type MeleeAttackConfig struct {
-	ArcAngle        int `yaml:"arc_angle"`        // Swing arc in degrees
+	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
 	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
 	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
@@ -708,7 +712,8 @@ type WeaponDefinitionConfig struct {
 	BonusStat          string  `yaml:"bonus_stat"`
 	BonusStatSecondary string  `yaml:"bonus_stat_secondary"`
 	DamageType         string  `yaml:"damage_type"`
-	MaxProjectiles     int     `yaml:"max_projectiles"`
+	MaxProjectiles     int     `yaml:"max_projectiles"`  // cap on this weapon's projectiles in flight at once
+	Volley             int     `yaml:"volley,omitempty"` // projectiles loosed per shot in a small fan (default 1)
 	CritChance         int     `yaml:"crit_chance"`
 	StunChance         float64 `yaml:"stun_chance"`
 	StunTurns          int     `yaml:"stun_turns"`
@@ -933,6 +938,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			}
 			if def.Melee == nil {
 				return fmt.Errorf("melee weapon '%s' missing melee configuration", key)
+			}
+			if def.Melee.ArcType < 1 || def.Melee.ArcType > 4 {
+				return fmt.Errorf("melee weapon '%s' has invalid arc_type %d (must be 1-4)", key, def.Melee.ArcType)
 			}
 			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
 				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)

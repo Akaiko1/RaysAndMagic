@@ -169,6 +169,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if def.MaxProjectiles > 0 {
 		attack.AddDetail("Maximum Projectiles: %d", def.MaxProjectiles)
 	}
+	if def.Volley > 1 {
+		attack.AddDetail("Volley: %d per shot", def.Volley)
+	}
 
 	dmg := ttSection{Title: "DAMAGE"}
 	armsBonus := 0

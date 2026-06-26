@@ -360,10 +360,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
 	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
 
-	// Text colors tuned for the parchment scroll: near-black body for readable
-	// values, deep maroon for section headers so they stand out from the body.
-	textColor := color.RGBA{16, 8, 4, 255}
-	mutedTextColor := color.RGBA{96, 32, 20, 255}
+	// Light text over a dark outline (drawDebugTextShadowed): white body for
+	// readable values, warm gold for section headers so they stand out.
+	textColor := color.RGBA{240, 240, 240, 255}
+	mutedTextColor := color.RGBA{235, 200, 120, 255}
 	scrollTextX := scrollX + 26
 	scrollTextY := scrollY + 18
 

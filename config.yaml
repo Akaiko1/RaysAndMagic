@@ -27,7 +27,7 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
+  field_of_view: 1.570796327  # pi/2 (90 degrees; shows the three front-adjacent tiles)
   view_distance: 3200          # 50 * tile_size
 
 # UI settings
@@ -119,9 +119,12 @@ characters:
       accuracy: 10
       speed: 10
       luck: 11
-      skills: [axe, sword, chain, shield, bodybuilding, meditation]
+      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation]
+      magic:
+        - { school: body, spells: [heal] }
       main_hand: bronze_labrys
       armor: chain_helmet
+      quick_spell: heal
 
     druid:
       might: 10
@@ -228,10 +231,10 @@ graphics:
     forest_bg: [34, 139, 34]  # Forest background
 
   # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
-  # diagonal plane (~4x fewer draws for distant trees; their cross is sub-pixel
-  # anyway). Trees only. <=0 disables the LOD (always full crossed standee).
+  # camera-facing plane (~4x fewer draws for distant trees; their cross is
+  # sub-pixel anyway). Trees only. <=0 disables the LOD (always full crossed standee).
   trees_as_billboards: true
-  tree_standee_lod_tiles: 7
+  tree_standee_lod_tiles: 15
 
   # Sprite sizes
   sprite:

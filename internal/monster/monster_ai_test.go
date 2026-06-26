@@ -95,15 +95,20 @@ func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
 	targetX, targetY := tileToWorldCenter(5, 2)
 	tgtTX, tgtTY := worldToTile(targetX), worldToTile(targetY)
 
-	manhattan := func() int {
+	chebyshev := func() int {
 		dx := worldToTile(m.X) - tgtTX
 		dy := worldToTile(m.Y) - tgtTY
-		return int(math.Abs(float64(dx)) + math.Abs(float64(dy)))
+		adx := int(math.Abs(float64(dx)))
+		ady := int(math.Abs(float64(dy)))
+		if ady > adx {
+			return ady
+		}
+		return adx
 	}
 
 	const maxSteps = 40
 	steps := 0
-	for ; steps < maxSteps && manhattan() > 1; steps++ {
+	for ; steps < maxSteps && chebyshev() > 1; steps++ {
 		nx, ny, ok := m.NextPathStepTile(checker, targetX, targetY)
 		if !ok {
 			t.Fatalf("step %d: no A* path to the target across the barrier", steps)
@@ -118,8 +123,8 @@ func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
 		}
 		m.X, m.Y = wx, wy
 	}
-	if manhattan() > 1 {
-		t.Fatalf("monster never reached the target (stuck/oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
+	if chebyshev() > 1 {
+		t.Fatalf("monster never reached the target (stuck/oscillating at the bank); final Chebyshev=%d after %d steps", chebyshev(), steps)
 	}
 	t.Logf("reached target-adjacent in %d steps via the gap", steps)
 }

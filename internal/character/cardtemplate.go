@@ -102,14 +102,51 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	return line
 }
 
-// MeleeSwingArcLine describes a melee weapon's swing arc. A swing strikes EVERY
-// enemy inside the cone, so the arc width is as decision-relevant as the reach.
-// Returns "" for projectile weapons (Physics set) or weapons with no arc.
+// MeleeSwingArcLine describes a melee weapon's swing shape and reach. A swing
+// strikes EVERY enemy inside the cone, so the arc width is as decision-relevant
+// as the reach. Returns "" for projectile weapons (Physics set) or no melee.
 func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
-	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcAngle <= 0 {
+	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcType <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("Swing Arc: %d° (hits every enemy in the cone)", def.Melee.ArcAngle)
+	var shape string
+	switch def.Melee.ArcType {
+	case 1:
+		shape = "Strikes straight ahead"
+	case 2:
+		shape = "Strikes the front and one flank"
+	case 3:
+		shape = "Strikes the front and both diagonals"
+	case 4:
+		shape = "Strikes the front, both diagonals and both sides"
+	default:
+		return ""
+	}
+	reach := "reaches all adjacent tiles (diagonals included)"
+	if def.Range >= 2 {
+		reach = fmt.Sprintf("reaches %d tiles deep in the cone (diagonals included)", def.Range)
+	}
+	return fmt.Sprintf("%s; %s", shape, reach)
+}
+
+// MeleeArcShortLabel is the compact arc descriptor used in comparison tooltips
+// (e.g. "front+diagonals"). Returns "" for projectile weapons or no melee.
+func MeleeArcShortLabel(def *config.WeaponDefinitionConfig) string {
+	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcType <= 0 {
+		return ""
+	}
+	switch def.Melee.ArcType {
+	case 1:
+		return "front"
+	case 2:
+		return "front+flank"
+	case 3:
+		return "front+diagonals"
+	case 4:
+		return "front+diagonals+sides"
+	default:
+		return ""
+	}
 }
 
 // ProjectileHitboxLine reports a projectile's collision footprint in tiles — its
@@ -232,6 +269,9 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig, armorDivisor int) []
 	}
 	if def.MaxProjectiles > 0 {
 		attack.Add("Maximum Projectiles: %d", def.MaxProjectiles)
+	}
+	if def.Volley > 1 {
+		attack.Add("Volley: %d per shot", def.Volley)
 	}
 	for _, ln := range WeaponCombatLines(def) {
 		if strings.HasPrefix(ln, "Attack cooldown") {

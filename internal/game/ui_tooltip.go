@@ -315,6 +315,17 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", itemRange, eqRange, itemRange-eqRange))
 	}
 
+	itemArc, eqArc := "", ""
+	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		itemArc = character.MeleeArcShortLabel(def)
+	}
+	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok {
+		eqArc = character.MeleeArcShortLabel(def)
+	}
+	if itemArc != "" || eqArc != "" {
+		lines = append(lines, fmt.Sprintf("Swing: %s vs %s", effectOrNone(itemArc), effectOrNone(eqArc)))
+	}
+
 	itemCrit := combatSystem.CalculateWeaponCritChance(item, char)
 	eqCrit := combatSystem.CalculateWeaponCritChance(equipped, char)
 	if itemCrit > 0 || eqCrit > 0 {

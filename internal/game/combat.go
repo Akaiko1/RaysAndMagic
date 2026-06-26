@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/mathutil"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
@@ -402,33 +403,43 @@ func (cs *CombatSystem) createArrowAttack(damage int) bool {
 		damageType = equippedDef.DamageType
 	}
 
-	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
-	if isCrit {
-		damage *= CritDamageMultiplier
+	// Volley: a weapon may loose several projectiles per shot in a small fan
+	// (e.g. the blowgun fires 2 darts). Each projectile rolls its own crit.
+	volley := 1
+	if equippedDef != nil && equippedDef.Volley > 1 {
+		volley = equippedDef.Volley
 	}
-
-	arrow := Arrow{
-		ID:                 cs.game.GenerateProjectileID("arrow"),
-		Attacker:           cs.activeAttacker(),
-		X:                  cs.game.camera.X,
-		Y:                  cs.game.camera.Y,
-		VelX:               math.Cos(cs.game.camera.Angle) * arrowSpeed,
-		VelY:               math.Sin(cs.game.camera.Angle) * arrowSpeed,
-		Damage:             damage,
-		LifeTime:           arrowLifetime,
-		Active:             true,
-		BowKey:             bowKey,
-		DamageType:         damageType,
-		Crit:               isCrit,
-		DisintegrateChance: weaponDef.DisintegrateChance,
-		Owner:              ProjectileOwnerPlayer,
+	const volleySpreadRad = 6.0 * math.Pi / 180.0 // ~6° between adjacent projectiles
+	for i := 0; i < volley; i++ {
+		ang := cs.game.camera.Angle
+		if volley > 1 {
+			ang += (float64(i) - float64(volley-1)/2.0) * volleySpreadRad
+		}
+		isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
+		dmg := damage
+		if isCrit {
+			dmg *= CritDamageMultiplier
+		}
+		arrow := Arrow{
+			ID:                 cs.game.GenerateProjectileID("arrow"),
+			Attacker:           cs.activeAttacker(),
+			X:                  cs.game.camera.X,
+			Y:                  cs.game.camera.Y,
+			VelX:               math.Cos(ang) * arrowSpeed,
+			VelY:               math.Sin(ang) * arrowSpeed,
+			Damage:             dmg,
+			LifeTime:           arrowLifetime,
+			Active:             true,
+			BowKey:             bowKey,
+			DamageType:         damageType,
+			Crit:               isCrit,
+			DisintegrateChance: weaponDef.DisintegrateChance,
+			Owner:              ProjectileOwnerPlayer,
+		}
+		cs.game.arrows = append(cs.game.arrows, arrow)
+		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
+		cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	}
-
-	cs.game.arrows = append(cs.game.arrows, arrow)
-
-	// Register arrow with collision system using weapon-specific collision size
-	arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
-	cs.game.collisionSystem.RegisterEntity(arrowEntity)
 	return true
 }
 
@@ -478,66 +489,114 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
 }
 
-// performMeleeHitDetection checks for monsters in the weapon's swing arc and applies damage
+// Melee swing cone half-angles (radians) per discrete arc type. Front is a thin
+// sliver (arc 1), wing reaches the ±45° diagonals (arcs 2/3), flank reaches the
+// ±90° sides (arc 4). The tiny epsilon keeps the exactly-45°/90° diagonal and
+// side tiles inside the cone despite float rounding.
+const (
+	meleeArcFront = 22.5 * math.Pi / 180.0
+	meleeArcWing  = 45.0*math.Pi/180.0 + 1e-6
+	meleeArcFlank = 90.0*math.Pi/180.0 + 1e-6
+)
+
+// performMeleeHitDetection applies the swing to every monster inside the weapon's
+// arc. Reach is measured in TILE steps (Chebyshev: a diagonal neighbour is one
+// step), so range 1 covers all 8 adjacent tiles and range 2 reaches two tiles in
+// every direction including diagonals. Direction follows the camera continuously.
+//
+// Arc types (counts are for range 1, aligned to an axis):
+//
+//	1 — straight ahead only (1 foe; a range-2 weapon pierces the line two deep)
+//	2 — front + ONE flank (2 foes; the side with a foe, random when both have one)
+//	3 — front + both diagonals (3 foes; range 2 sweeps 3+5=8)
+//	4 — front + diagonals + both sides (5 foes)
 func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) {
 	playerX := cs.game.camera.X
 	playerY := cs.game.camera.Y
 	playerAngle := cs.game.camera.Angle
-
-	// Convert range from tiles to pixels
 	tileSize := float64(cs.game.config.GetTileSize())
+
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
-	weaponRange := 1
-	if weaponDef != nil {
-		weaponRange = weaponDef.Range
+	rangeTiles := 1
+	if weaponDef != nil && weaponDef.Range > 0 {
+		rangeTiles = weaponDef.Range
 	}
-	attackRange := float64(weaponRange) * tileSize
+	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
 
-	// Convert arc angle from degrees to radians
-	arcAngleRad := float64(meleeConfig.ArcAngle) * math.Pi / 180.0
-	halfArc := arcAngleRad / 2.0
-
-	// Check all monsters. Stunned monsters are still valid melee targets — stun
-	// only suppresses their own turn.
+	// Candidates: alive monsters within tile reach, with their signed angle off
+	// the player's facing. Stunned monsters are still valid targets (stun only
+	// suppresses their own turn).
+	type meleeCand struct {
+		m   *monsterPkg.Monster3D
+		ang float64
+	}
+	var cands []meleeCand
 	for _, monster := range cs.game.world.Monsters {
 		if !monster.IsAlive() {
 			continue
 		}
-
-		// Calculate distance and angle to monster center
-		dx := monster.X - playerX
-		dy := monster.Y - playerY
-		distanceToCenter := Distance(playerX, playerY, monster.X, monster.Y)
-
-		// Get monster collision box size
-		monsterWidth, monsterHeight := monster.GetSize()
-
-		// Calculate distance to edge of collision box (closest approach)
-		// For rectangular collision boxes, we need to account for the collision radius
-		collisionRadius := math.Max(monsterWidth, monsterHeight) / 2.0
-		distanceToEdge := distanceToCenter - collisionRadius
-
-		// Check if monster collision box edge is within weapon range
-		if distanceToEdge > attackRange {
+		mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
+		cheb := mathutil.IntAbs(mtx - ptx)
+		if dy := mathutil.IntAbs(mty - pty); dy > cheb {
+			cheb = dy
+		}
+		if cheb == 0 || cheb > rangeTiles {
 			continue
 		}
-
-		// Calculate angle to monster
-		monsterAngle := math.Atan2(dy, dx)
-
-		// Normalize angle difference
-		angleDiff := monsterAngle - playerAngle
-		for angleDiff > math.Pi {
-			angleDiff -= 2 * math.Pi
+		ang := math.Atan2(monster.Y-playerY, monster.X-playerX) - playerAngle
+		for ang > math.Pi {
+			ang -= 2 * math.Pi
 		}
-		for angleDiff < -math.Pi {
-			angleDiff += 2 * math.Pi
+		for ang < -math.Pi {
+			ang += 2 * math.Pi
 		}
+		cands = append(cands, meleeCand{monster, ang})
+	}
 
-		// Check if monster is within swing arc
-		if math.Abs(angleDiff) <= halfArc {
-			// Hit! Apply damage immediately
-			cs.ApplyDamageToMonster(monster, damage, weapon.Name, isCrit)
+	hit := func(m *monsterPkg.Monster3D) { cs.ApplyDamageToMonster(m, damage, weapon.Name, isCrit) }
+
+	switch meleeConfig.ArcType {
+	case 2:
+		// Front always; then ONE diagonal flank — the side that has a foe, random
+		// when both do.
+		var left, right []*monsterPkg.Monster3D
+		for _, c := range cands {
+			a := math.Abs(c.ang)
+			switch {
+			case a <= meleeArcFront:
+				hit(c.m)
+			case a > meleeArcWing:
+				// out of the swing
+			case c.ang < 0:
+				left = append(left, c.m)
+			default:
+				right = append(right, c.m)
+			}
+		}
+		side := left
+		switch {
+		case len(left) > 0 && len(right) > 0:
+			if rand.Intn(2) == 0 {
+				side = right
+			}
+		case len(right) > 0:
+			side = right
+		}
+		for _, m := range side {
+			hit(m)
+		}
+	default:
+		halfArc := meleeArcFront // arc 1
+		switch meleeConfig.ArcType {
+		case 3:
+			halfArc = meleeArcWing
+		case 4:
+			halfArc = meleeArcFlank
+		}
+		for _, c := range cands {
+			if math.Abs(c.ang) <= halfArc {
+				hit(c.m)
+			}
 		}
 	}
 }
@@ -1004,8 +1063,10 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		// If monster is in attacking state and within attack range, perform attack.
 		// Inclusive (<=) so a mob sitting exactly one tile away (e.g. a puma that
-		// just pounced onto an adjacent tile) still lands its hit.
-		if monster.State == monsterPkg.StateAttacking && dist <= attackRange {
+		// just pounced onto an adjacent tile) still lands its hit. Melee monsters
+		// also count diagonally-adjacent tiles as point-blank so they can surround
+		// the party instead of queueing only on N/S/E/W.
+		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
 			// Fire on the first frame of the attacking state, but only if the
 			// persistent attack cooldown has elapsed — re-entering the attacking
 			// state (e.g. after chasing a kiting player back into range) no longer
@@ -1024,15 +1085,18 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 }
 
 // executePounce leaps a pouncing monster onto the nearest walkable tile
-// directly N/S/E/W of the player — never inside the player's own tile (where
-// the sprite would vanish) and never diagonally. Returns the new
+// adjacent to the player — never inside the player's own tile (where the sprite
+// would vanish). Diagonal-adjacent tiles are valid melee contact. Returns the new
 // center-to-center distance and whether a landing tile was found; callers must
 // only resolve the strike when landed is true. Shared by RT and TB pounce hooks.
 func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) (float64, bool) {
 	tileSize := float64(cs.game.config.GetTileSize())
 	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
 
-	cands := [4][2]int{{ptx + 1, pty}, {ptx - 1, pty}, {ptx, pty + 1}, {ptx, pty - 1}}
+	cands := [8][2]int{
+		{ptx + 1, pty}, {ptx - 1, pty}, {ptx, pty + 1}, {ptx, pty - 1},
+		{ptx + 1, pty + 1}, {ptx + 1, pty - 1}, {ptx - 1, pty + 1}, {ptx - 1, pty - 1},
+	}
 	bestX, bestY, bestD := m.X, m.Y, math.MaxFloat64
 	found := false
 	for _, c := range cands {
@@ -1051,6 +1115,39 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	cs.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
 	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
 	return Distance(playerX, playerY, bestX, bestY), true
+}
+
+func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dist, attackRange float64) bool {
+	if monster == nil {
+		return false
+	}
+	if dist <= attackRange {
+		return true
+	}
+	if monster.HasRangedAttack() {
+		return false
+	}
+	return cs.monsterMeleeAdjacentToParty(monster)
+}
+
+func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3D) bool {
+	if monster == nil || cs == nil || cs.game == nil {
+		return false
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return false
+	}
+	mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
+	ptx, pty := cs.game.GetPlayerTilePosition()
+	dx, dy := mathutil.IntAbs(mtx-ptx), mathutil.IntAbs(mty-pty)
+	if dx == 0 && dy == 0 {
+		return false
+	}
+	if dx > 1 || dy > 1 {
+		return false
+	}
+	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, cs.game.camera.X, cs.game.camera.Y)
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {

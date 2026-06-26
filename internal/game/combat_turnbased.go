@@ -137,8 +137,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 					gl.monsterMoveTurnBased(m)
 				}
 			} else if chebyshev == 1 {
-				// Monster-vs-monster melee allows a diagonal-adjacent strike (unlike
-				// the cardinal-only party rule) so crowded mobs can still connect.
+				// Monster-vs-monster melee uses the same adjacent-tile contact as
+				// party melee so crowded mobs can still connect.
 				m.AttackAnimFrames = MonsterAttackAnimFrames
 				gl.game.combat.monsterStrikeMonster(m, foe)
 			} else {
@@ -162,8 +162,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		// Work in tile space: monsters never enter the player's tile and only
-		// act from cardinally-aligned (N/S/E/W) tiles.
+		// Work in tile space: monsters never enter the player's tile. Melee can
+		// attack from any adjacent tile (including diagonals); ranged attackers
+		// still need a row/column firing lane.
 		mtx, mty := int(m.X/tileSize), int(m.Y/tileSize)
 		ptx, pty := gl.game.GetPlayerTilePosition()
 		dxT, dyT := ptx-mtx, pty-mty
@@ -175,9 +176,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			adY = -adY
 		}
 		manhattan := adX + adY
+		chebyshev := adX
+		if adY > chebyshev {
+			chebyshev = adY
+		}
 
-		// Pounce: from 2+ tiles away (within pounce range) leap onto a
-		// cardinally-adjacent tile and strike. Brief turn cooldown.
+		// Pounce: from 2+ tiles away (within pounce range) leap onto an adjacent
+		// tile and strike. Brief turn cooldown.
 		if m.CanPounce() {
 			if m.PounceCDTurns > 0 {
 				m.PounceCDTurns--
@@ -219,9 +224,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				gl.monsterMoveRangedTurnBased(m, rangeTiles)
 			}
 		} else {
-			// Melee: attack only from a cardinally-adjacent tile (Manhattan 1);
+			// Melee: attack from any adjacent tile (including diagonals);
 			// otherwise step one tile toward the player (never onto their tile).
-			if manhattan == 1 {
+			if chebyshev == 1 && manhattan > 0 &&
+				(gl.game.collisionSystem == nil || gl.game.collisionSystem.CheckLineOfSight(m.X, m.Y, playerX, playerY)) {
 				gl.monsterAttackTurnBased(m)
 			} else {
 				gl.monsterMoveTurnBased(m)

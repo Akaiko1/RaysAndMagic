@@ -2128,20 +2128,20 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 180, 220}, 0.35)
 			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 200, 230}, 0.25)
 		}
-		// Projectile school wins over the stat tint, giving staves/books a
-		// distinct magical hue.
-		switch strings.ToLower(weaponDef.ProjectileSchool) {
-		case "dark":
-			profile.glowColor = [3]int{170, 90, 220}
-			profile.trailColor = [3]int{210, 140, 255}
-			profile.sparkColor = [3]int{210, 160, 255}
+		// A projectile_school turns the shot into a glowing spell-ORB (not a plain
+		// arrow), tinted to its magic element — staves/books fire magic charges,
+		// not arrows. The "arcane" style name is just the orb body renderer
+		// (pixel-particle, mirrored R→L), independent of the element.
+		if school := strings.ToLower(weaponDef.ProjectileSchool); school != "" {
+			c, ok := ElementColors[school]
+			if !ok {
+				c = ElementColors["arcane"]
+			}
+			profile.glowColor = mixColor(c, [3]int{255, 255, 255}, 0.25)
+			profile.trailColor = mixColor(c, [3]int{255, 255, 255}, 0.45)
+			profile.sparkColor = mixColor(c, [3]int{255, 255, 255}, 0.55)
 			profile.spark = true
-		case "arcane":
-			profile.glowColor = [3]int{150, 190, 255}
-			profile.trailColor = [3]int{210, 230, 255}
-			profile.sparkColor = [3]int{220, 235, 255}
-			profile.spark = true
-			profile.style = "arcane" // pixel-particle body + trail, mirrored (R→L)
+			profile.style = "arcane"
 		}
 	}
 	return profile

@@ -23,10 +23,11 @@ func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
 	}
 	full := GetItemTooltip(mace, thief, g.combat, true)
 
-	// Swing arc is a core melee differentiator → visible without Shift.
+	// Swing arc is a core melee differentiator → visible without Shift. The steel
+	// mace is arc type 2 (front + one flank).
 	compact := GetItemTooltip(mace, thief, g.combat, false)
-	if !strings.Contains(compact, "Swing Arc: 90°") {
-		t.Errorf("mace must show its 90° swing arc:\n%s", compact)
+	if !strings.Contains(compact, "front and one flank") {
+		t.Errorf("mace must show its swing arc shape:\n%s", compact)
 	}
 	// Cooldown distinguishes real-time seconds from the turn-based action.
 	for _, want := range []string{"RT Cooldown:", "TB: 1 action"} {

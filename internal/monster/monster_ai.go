@@ -193,11 +193,33 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	}
 }
 
+// meleeTileAdjacent reports whether a MELEE attacker stands on any of the 8 tiles
+// around the target. A diagonal neighbour is ~1.41 tiles away — just past the
+// 1-tile pixel attack range — so the pixel checks alone leave a melee monster
+// pursuing forever at a diagonal (walk animation looping in place). This stable,
+// binary tile test lets it commit to attacking. LoS is re-checked when damage is
+// applied (HandleMonsterInteractions / TB attack), so a wall-corner diagonal
+// still deals no damage. Ranged attackers use pixel range only.
+func (m *Monster3D) meleeTileAdjacent(targetX, targetY float64) bool {
+	if m.HasRangedAttack() {
+		return false
+	}
+	ts := m.tileSize()
+	if ts <= 0 {
+		return false
+	}
+	dx := mathutil.IntAbs(int(m.X/ts) - int(targetX/ts))
+	dy := mathutil.IntAbs(int(m.Y/ts) - int(targetY/ts))
+	return dx <= 1 && dy <= 1 && (dx != 0 || dy != 0)
+}
+
 // pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
 // and the flee cycle. Shared by bound undead and aggressive bosses.
 func (m *Monster3D) pursueRelentlessly(targetX, targetY float64) {
 	m.IsEngagingPlayer = true
-	if distance(m.X, m.Y, targetX, targetY) > m.GetAttackRangePixels() {
+	inReach := distance(m.X, m.Y, targetX, targetY) <= m.GetAttackRangePixels() ||
+		m.meleeTileAdjacent(targetX, targetY)
+	if !inReach {
 		if m.State != StatePursuing {
 			m.State = StatePursuing
 			m.StateTimer = 0
@@ -454,8 +476,9 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 	attackRange := m.GetAttackRangePixels()
 
-	// Check if close enough to attack
-	if distanceToPlayer <= attackRange {
+	// Check if close enough to attack (pixel range, or melee tile-adjacency so a
+	// diagonal neighbour commits instead of pursuing in place).
+	if distanceToPlayer <= attackRange || m.meleeTileAdjacent(playerX, playerY) {
 		m.State = StateAttacking
 		m.StateTimer = 0
 		return
@@ -1076,12 +1099,14 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	targetTileX := int(targetX / m.tileSize())
 	targetTileY := int(targetY / m.tileSize())
 	// Pursue to within the monster's actual attack reach — the ranged range for
-	// ranged attackers, melee AttackRadius otherwise (GetAttackRangePixels returns
-	// AttackRadius when there's no projectile, so melee behaviour is unchanged).
+	// ranged attackers, melee AttackRadius otherwise. Melee treats the 8 tiles
+	// around the party as valid contact so mobs can surround instead of queueing
+	// only on N/S/E/W.
 	// Using only the melee radius made ranged mobs (e.g. dragons) path to melee
 	// distance; when those near tiles were unreachable (party blocking a bridge)
 	// they orbited without ever stopping at firing range.
 	reach := m.GetAttackRangePixels()
+	melee := !m.HasRangedAttack()
 	radiusTiles := int(math.Ceil(reach / m.tileSize()))
 	if radiusTiles < 1 {
 		radiusTiles = 1
@@ -1093,8 +1118,19 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
 			centerX, centerY := m.tileToWorldCenter(tileX, tileY)
-			if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
-				continue
+			if melee {
+				adx, ady := mathutil.IntAbs(dx), mathutil.IntAbs(dy)
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				adjacent := adx <= 1 && ady <= 1
+				if !adjacent && distance(targetX, targetY, centerX, centerY) > reach+0.1 {
+					continue
+				}
+			} else {
+				if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
+					continue
+				}
 			}
 			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 				goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1190,7 +1226,7 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
 			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
 		}
-		if distanceToPlayer <= attackRange*enterFraction {
+		if distanceToPlayer <= attackRange*enterFraction || m.meleeTileAdjacent(playerX, playerY) {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
@@ -1249,7 +1285,8 @@ func (m *Monster3D) updateAttacking(playerX, playerY float64) {
 	// Target stepped out of reach → resume the chase immediately instead of
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
 	// at <=0.9×range, so exiting at >range keeps a clean hysteresis band.)
-	if m.IsEngagingPlayer && distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() {
+	if m.IsEngagingPlayer && distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() &&
+		!m.meleeTileAdjacent(playerX, playerY) {
 		m.State = StatePursuing
 		m.StateTimer = 0
 		return

@@ -543,10 +543,12 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	diag := tileSize * math.Sqrt2
 
 	// Distance LOD (trees only): beyond the threshold the crossed pair's parallax
-	// is sub-pixel, so collapse to a SINGLE diagonal standee — ~4× fewer draws,
-	// same silhouette (one of the two planes), keeps per-column wall occlusion.
+	// is sub-pixel, so collapse to a SINGLE camera-facing plane — ~4× fewer draws,
+	// full silhouette from any angle. Static (no easing): trees don't sway, they
+	// just present face-on to the camera this frame.
 	if lod := r.game.config.Graphics.TreeStandeeLODTiles; lod > 0 && distance > lod*tileSize {
-		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, yawA, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, -1, -1)
+		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
+		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, -1, -1)
 		return
 	}
 
