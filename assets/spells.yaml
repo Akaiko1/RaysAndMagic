@@ -254,7 +254,7 @@ spells:
 
   day_of_the_gods:
     name: "Day of the Gods"
-    description: "Blesses the party with +50% resistance to all damage for 5 minutes"
+    description: "Blesses the party with scaling resistance to all damage for 5 minutes"
     school: "light"
     level: 7
     spell_points_cost: 20
@@ -262,12 +262,13 @@ spells:
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
-    resist_buff_pct: 50        # -50% to all incoming party damage while active
+    resist_buff_pct: 10
+    resist_buff_pct_grandmaster: 30
     status_icon: "day_of_the_gods"   # HUD: status_day_of_the_gods if present, else the spell icon
 
   hour_of_power:
     name: "Hour of Power"
-    description: "For 10 minutes the party deals +15 damage and takes 5 less from every hit"
+    description: "For 10 minutes the party deals more damage and takes less from every hit"
     school: "light"
     level: 8
     spell_points_cost: 18
@@ -275,8 +276,10 @@ spells:
     duration: 600              # 10 minutes
     is_projectile: false
     is_utility: true
-    outgoing_damage_bonus: 15
-    incoming_damage_reduction: 5
+    outgoing_damage_bonus: 5
+    outgoing_damage_bonus_grandmaster: 15
+    incoming_damage_reduction: 1
+    incoming_damage_reduction_grandmaster: 5
     status_icon: "hour_of_power"   # HUD: status_hour_of_power if present, else the spell icon
 
   bind_undead:
@@ -374,13 +377,14 @@ spells:
   bless:
     # Basic spell properties
     name: "Bless"
-    description: "Blesses the party with divine protection (+10 to all stats)"
+    description: "Blesses the party with divine protection"
     school: "spirit"
     level: 2
     spell_points_cost: 15
     cooldown_seconds: 5.0
     duration: 300              # 5 minutes
-    stat_bonus: 10             # +10 to all stats
+    stat_bonus: 5
+    stat_bonus_grandmaster: 10
     is_projectile: false
     is_utility: true
     status_icon: "bless"
@@ -615,14 +619,14 @@ spells:
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
-    incoming_damage_reduction: 6
-    incoming_damage_reduction_grandmaster: 18
+    incoming_damage_reduction: 4
+    incoming_damage_reduction_grandmaster: 10
     status_icon: "stone_skin"
     message: "The party's skin hardens to stone!"
 
   heroism:
     name: "Heroism"
-    description: "Fills the party with valor, boosting the damage they deal"
+    description: "Fills the party with valor, boosting physical attacks"
     school: "spirit"
     level: 3
     spell_points_cost: 12
@@ -630,7 +634,9 @@ spells:
     duration: 300              # 5 minutes
     is_projectile: false
     is_utility: true
-    outgoing_damage_bonus: 10
+    outgoing_damage_bonus: 3
+    outgoing_damage_bonus_grandmaster: 10
+    outgoing_damage_type: "physical"
     status_icon: "heroism"
     message: "The party is emboldened with heroism!"
 

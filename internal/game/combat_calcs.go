@@ -108,15 +108,14 @@ func (cs *CombatSystem) CalculateSpellDurationFrames(spellID spells.SpellID, cha
 	return seconds * tps
 }
 
-// CalculateSpellStatBonus returns the spell's stat bonus (e.g., Bless). FLAT
-// by balance decision: mastery scales only the DURATION of buffs, never their
-// magnitude (mastery-scaled +stats snowballed too hard).
+// CalculateSpellStatBonus returns the spell's uniform stat bonus (e.g. Bless),
+// including optional spell-school mastery scaling.
 func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *character.MMCharacter) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return 0
 	}
-	return def.StatBonus
+	return scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
 }
 
 // CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].

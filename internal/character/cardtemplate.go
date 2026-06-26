@@ -409,7 +409,11 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		rules.Add("No effect on undead")
 	}
 	if sd.StatBonus > 0 || len(sd.StatBonuses) > 0 {
-		rules.Add("Mastery increases duration, not the bonus")
+		if sd.StatBonusGrandmaster > sd.StatBonus {
+			rules.Add("Mastery increases duration and the bonus")
+		} else {
+			rules.Add("Mastery increases duration, not the bonus")
+		}
 		rules.Add("Recasting refreshes the effect")
 	}
 	if sd.ZoneRadiusTiles > 0 {

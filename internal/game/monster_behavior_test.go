@@ -422,21 +422,21 @@ func TestDisintegrate_ImmunityAndConfig(t *testing.T) {
 	}
 }
 
-// Day of the Gods grants the party a 50% incoming-damage reduction for its
-// (YAML-driven) duration.
+// Day of the Gods grants the party a mastery-scaled incoming-damage reduction
+// for its YAML-driven duration.
 func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("day_of_the_gods cast failed")
 	}
-	if got := game.combatBuffResistPct(); got != 50 {
-		t.Fatalf("expected 50%% resist active, got %d", got)
+	if got := game.combatBuffResistPct(); got != 10 {
+		t.Fatalf("expected 10%% resist active, got %d", got)
 	}
-	// Day of the Gods boosts every school's resist → 100 fire → 50 on a member.
+	// Day of the Gods boosts every school's resist → 100 fire → 90 at Novice.
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 50 {
-		t.Errorf("100 incoming with 50%% resist should be 50, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 90 {
+		t.Errorf("100 incoming with 10%% resist should be 90, got %d", got)
 	}
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
 	buff, ok := game.combatBuffByID("day_of_the_gods")
@@ -445,36 +445,36 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	}
 }
 
-// Hour of Power: +15 outgoing damage and -5 incoming (floored at 0).
+// Hour of Power: +5 outgoing damage and -1 incoming at Novice.
 func TestHourOfPower_DamageBuffs(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 15 || in != 5 {
-		t.Fatalf("hour_of_power: out=%d in=%d (want 15/5)", out, in)
+	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 5 || in != 1 {
+		t.Fatalf("hour_of_power: out=%d in=%d (want 5/1)", out, in)
 	}
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 5 {
-		t.Errorf("10 incoming -5 should be 5, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 9 {
+		t.Errorf("10 incoming -1 should be 9, got %d", got)
 	}
-	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 0 {
-		t.Errorf("3 incoming -5 should floor at 0, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 2 {
+		t.Errorf("3 incoming -1 should be 2, got %d", got)
 	}
 }
 
-// Both party buffs stack on incoming damage: % reduction first, then the flat -5.
+// Both party buffs stack on incoming damage: % reduction first, then flat reduction.
 func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 fire → 50% resist → 50 → flat -5 → 45
+	// 100 fire → 10% resist → 90 → flat -1 → 89
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 45 {
-		t.Errorf("100 with 50%% resist then -5 should be 45, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 89 {
+		t.Errorf("100 with 10%% resist then -1 should be 89, got %d", got)
 	}
 }
 

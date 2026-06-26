@@ -314,12 +314,15 @@ type SpellDefinitionConfig struct {
 	// whose only effect is its disintegrate_chance instakill roll on hit).
 	DealsNoDamage bool `yaml:"deals_no_damage,omitempty"`
 
-	// Party combat buffs (applied for `duration` seconds). Day of the Gods sets
-	// ResistBuffPct; Hour of Power sets OutgoingDamageBonus + IncomingDamageReduction.
-	ResistBuffPct                      int `yaml:"resist_buff_pct,omitempty"`                       // % reduction of all incoming party damage
-	OutgoingDamageBonus                int `yaml:"outgoing_damage_bonus,omitempty"`                 // flat add to all party outgoing damage
-	IncomingDamageReduction            int `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
-	IncomingDamageReductionGrandmaster int `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
+	// Party combat buffs (applied for `duration` seconds). Optional Grandmaster
+	// fields make the magnitude scale linearly by spell-school mastery.
+	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of all incoming party damage
+	ResistBuffPctGrandmaster           int    `yaml:"resist_buff_pct_grandmaster,omitempty"`           // optional GM-scaled % reduction cap
+	OutgoingDamageBonus                int    `yaml:"outgoing_damage_bonus,omitempty"`                 // base flat add to party outgoing damage
+	OutgoingDamageBonusGrandmaster     int    `yaml:"outgoing_damage_bonus_grandmaster,omitempty"`     // optional GM-scaled outgoing damage cap
+	OutgoingDamageType                 string `yaml:"outgoing_damage_type,omitempty"`                  // empty/"all" applies to all damage; "physical" only to weapon/arrow damage
+	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
+	IncomingDamageReductionGrandmaster int    `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
 	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
 	// hunts other monsters and ignores the party. No effect on non-undead. Dies
@@ -366,8 +369,9 @@ type SpellDefinitionConfig struct {
 	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
-	HealAmount int `yaml:"heal_amount,omitempty"`
-	StatBonus  int `yaml:"stat_bonus,omitempty"`
+	HealAmount           int `yaml:"heal_amount,omitempty"`
+	StatBonus            int `yaml:"stat_bonus,omitempty"`
+	StatBonusGrandmaster int `yaml:"stat_bonus_grandmaster,omitempty"`
 	// StatBonuses is the per-stat alternative to the uniform stat_bonus
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
 	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
@@ -809,7 +813,7 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSpellStatBonuses(&spellConfig); err != nil {
+	if err := validateSpellAuthoring(&spellConfig); err != nil {
 		return nil, err
 	}
 
@@ -819,21 +823,24 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	return &spellConfig, nil
 }
 
-// validateSpellStatBonuses fails fast on malformed stat-buff authoring: a
-// per-stat map with an unknown stat name, or a spell mixing the uniform
-// stat_bonus with the per-stat stat_bonuses.
-func validateSpellStatBonuses(cfg *SpellSystemConfig) error {
+// validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
+// buff shapes or unknown typed-buff filters.
+func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
-		if len(def.StatBonuses) == 0 {
-			continue
-		}
-		if def.StatBonus != 0 {
-			return fmt.Errorf("spell '%s': stat_bonus and stat_bonuses are mutually exclusive", id)
-		}
-		for key := range def.StatBonuses {
-			if !IsStatName(key) {
-				return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+		if len(def.StatBonuses) > 0 {
+			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
+				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
 			}
+			for key := range def.StatBonuses {
+				if !IsStatName(key) {
+					return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+				}
+			}
+		}
+		switch strings.TrimSpace(def.OutgoingDamageType) {
+		case "", "all", "physical":
+		default:
+			return fmt.Errorf("spell '%s': unsupported outgoing_damage_type %q", id, def.OutgoingDamageType)
 		}
 	}
 	return nil

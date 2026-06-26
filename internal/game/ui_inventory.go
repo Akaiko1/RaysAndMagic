@@ -532,7 +532,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 
 	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
 	lines := []string{
-		fmt.Sprintf("Attack bonus: +%d damage", ui.game.combatBuffOutBonus()),
+		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType("physical")),
 		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
 		fmt.Sprintf("1. Armor reduction: -%d flat (before resist)", m.ArmorFlat),
 		fmt.Sprintf("2. Skill reduction: -%d flat (before resist)", m.SkillFlat),

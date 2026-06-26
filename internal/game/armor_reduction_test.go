@@ -201,8 +201,8 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 		if tc.stoneSkin {
 			cast(t, cs, "stone_skin")
 			buff, ok := game.combatBuffByID("stone_skin")
-			if !ok || buff.InReduce != 6 {
-				t.Fatalf("Stone Skin cast registered %+v (ok=%v), want incoming reduction 6", buff, ok)
+			if !ok || buff.InReduce != 4 {
+				t.Fatalf("Stone Skin cast registered %+v (ok=%v), want incoming reduction 4", buff, ok)
 			}
 		}
 
@@ -260,7 +260,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 		for raw := 24; raw <= 38; raw++ {
 			want := raw - got.armorClass/ArmorPhysicalReductionDivisor
 			if tc.stoneSkin {
-				want -= 6
+				want -= 4
 			}
 			if want < 1 {
 				want = 1
@@ -283,8 +283,8 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 			results["full chain"].armorClass,
 			results["full plate"].armorClass)
 	}
-	if results["full plate + bless"].effectiveEnd != results["full plate"].effectiveEnd+10 {
-		t.Errorf("Bless did not add 10 effective Endurance: plate=%d blessed=%d",
+	if results["full plate + bless"].effectiveEnd != results["full plate"].effectiveEnd+5 {
+		t.Errorf("Bless did not add 5 effective Endurance: plate=%d blessed=%d",
 			results["full plate"].effectiveEnd, results["full plate + bless"].effectiveEnd)
 	}
 	if results["full plate + bless"].armorClass <= results["full plate"].armorClass {

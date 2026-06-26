@@ -83,7 +83,9 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	if z.MapKey != "" && z.MapKey != currentMapKey() {
 		return
 	}
-	dmgType := convertToMonsterDamageType("water")
+	damageTypeStr := "water"
+	tickDamage := z.TickDamage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+	dmgType := convertToMonsterDamageType(damageTypeStr)
 	for _, m := range cs.game.world.Monsters {
 		// An invulnerable boss (sealed or idol-warded) is unscathed by the zone.
 		if m == nil || !m.IsAlive() || bossInvulnerable(m) {
@@ -92,7 +94,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
 			continue
 		}
-		m.TakeDamageResist(z.TickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
+		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)

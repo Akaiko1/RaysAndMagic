@@ -197,10 +197,10 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 			dmg.AddDetail("%s Mastery — %s: +%d True", skill.String(), tierName, trueDmg)
 		}
 	}
-	// Active party buffs (Heroism, Hour of Power, …) add a flat bonus to every
-	// outgoing hit AFTER crit doubling (combat.go applyProjectileDamage), so the
-	// live starting damage is higher than the gear/stat total alone.
-	outBonus := cs.game.combatBuffOutBonus()
+	// Active party buffs add a flat bonus after crit doubling; filter by the
+	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
+	// e.g. Heroism (physical) does not boost a light/fire weapon.
+	outBonus := cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
 	if outBonus > 0 {
 		dmg.AddDetail("Active party buff: +%d", outBonus)
 	}
@@ -398,8 +398,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		if mastery > 0 {
 			dmg.AddDetail("%s Mastery — %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
-		// Active party buffs (Heroism, …) add a flat bonus after crit doubling.
-		outBonus := cs.game.combatBuffOutBonus()
+		// Active party buffs add a flat bonus after crit doubling; Heroism is
+		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
+		outBonus := cs.game.combatBuffOutBonusForDamageType(def.School)
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d", outBonus)
 		}
@@ -469,6 +470,22 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	for _, ln := range character.FilteredSpellEffectLines(def) {
 		effects.Add("%s", ln)
 	}
+	if def.StatBonusGrandmaster > def.StatBonus && def.StatBonus > 0 {
+		current := scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
+		effects.Add("Current stat bonus: +%d", current)
+	}
+	if def.ResistBuffPctGrandmaster > def.ResistBuffPct && def.ResistBuffPct > 0 {
+		current := scaledSpellMasteryValue(def, char, def.ResistBuffPct, def.ResistBuffPctGrandmaster)
+		effects.Add("Current resistance: -%d%% incoming", current)
+	}
+	if def.OutgoingDamageBonusGrandmaster > def.OutgoingDamageBonus && def.OutgoingDamageBonus > 0 {
+		current := scaledSpellMasteryValue(def, char, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
+		target := "damage"
+		if def.OutgoingDamageType == "physical" {
+			target = "physical damage"
+		}
+		effects.Add("Current %s bonus: +%d", target, current)
+	}
 	if def.IncomingDamageReductionGrandmaster > def.IncomingDamageReduction && def.IncomingDamageReduction > 0 {
 		current := scaledIncomingDamageReduction(def, char)
 		effects.Add("Current reduction: -%d per hit", current)
@@ -511,7 +528,11 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		rules.AddDetail("No effect on undead")
 	}
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
-		rules.AddDetail("Mastery increases duration, not the bonus")
+		if def.StatBonusGrandmaster > def.StatBonus {
+			rules.AddDetail("Mastery increases duration and the bonus")
+		} else {
+			rules.AddDetail("Mastery increases duration, not the bonus")
+		}
 		rules.AddDetail("Recasting refreshes the effect")
 	}
 	if def.ZoneRadiusTiles > 0 {

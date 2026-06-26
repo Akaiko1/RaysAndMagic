@@ -112,8 +112,8 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	}
 	want := map[string]string{
 		"psychic_shock": "Stun chance: 10%",
-		"stone_skin":    "Party takes -6 to -18 damage per hit by mastery",
-		"heroism":       "Party attacks deal +10 damage",
+		"stone_skin":    "Party takes -4 to -10 damage per hit by mastery",
+		"heroism":       "Party physical attacks deal +3 to +10 damage by mastery",
 		"charm":         "Pacifies",
 		"stun":          "Stuns every monster within 3.0 tiles",
 		"raise_dead":    "Revives a fallen ally to 25% HP",

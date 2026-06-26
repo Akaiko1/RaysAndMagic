@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 )
 
 // Raise Dead restores a fallen (non-eradicated) ally to 25% of max HP and clears
@@ -117,6 +118,40 @@ func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
 	}
 }
 
+func TestInferno_OutgoingBuffAppliesOnlyToMonsters(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	equipSpellAndPrepareCaster(t, game.combat, "inferno", 100, 30)
+	def, err := spells.GetSpellDefinitionByID("inferno")
+	if err != nil {
+		t.Fatalf("inferno def: %v", err)
+	}
+	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+
+	for _, member := range game.party.Members {
+		member.MaxHitPoints, member.HitPoints = 1000, 1000
+	}
+	caster := game.party.Members[0]
+	casterHP0 := caster.HitPoints
+
+	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.Resistances[monster.DamageFire] = 0
+	game.world.Monsters = []*monster.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("inferno cast failed")
+	}
+
+	baseDamage := def.SpellPointsCost * spells.SpellDamagePerSP
+	if got, want := 1000-m.HitPoints, baseDamage+5; got != want {
+		t.Errorf("Inferno monster damage with Hour of Power = %d, want %d", got, want)
+	}
+	if got, want := casterHP0-caster.HitPoints, baseDamage; got != want {
+		t.Errorf("Inferno self-damage should not use outgoing bonus = %d, want %d", got, want)
+	}
+}
+
 // Stone Skin, Heroism and Hour of Power must STACK — the refactored buff list
 // sums their bonuses instead of clobbering a single slot.
 func TestPartyBuffs_Stack(t *testing.T) {
@@ -127,12 +162,12 @@ func TestPartyBuffs_Stack(t *testing.T) {
 			t.Fatalf("%s cast failed", id)
 		}
 	}
-	// Hour of Power +15 out / -5 in, Stone Skin -6 in, Heroism +10 out.
-	if out := game.combatBuffOutBonus(); out != 25 {
-		t.Errorf("outgoing bonus should stack to 25, got %d", out)
+	// Hour of Power +5 out / -1 in, Stone Skin -4 in, Heroism +3 physical out at Novice.
+	if out := game.combatBuffOutBonus(); out != 8 {
+		t.Errorf("outgoing bonus should stack to 8, got %d", out)
 	}
-	if in := game.combatBuffInReduce(); in != 11 {
-		t.Errorf("incoming reduction should stack to 11, got %d", in)
+	if in := game.combatBuffInReduce(); in != 5 {
+		t.Errorf("incoming reduction should stack to 5, got %d", in)
 	}
 	if n := len(game.combatBuffs); n != 3 {
 		t.Errorf("expected 3 distinct active buffs, got %d", n)
@@ -189,6 +224,27 @@ func TestHotSteam_GMPiercesResistance(t *testing.T) {
 	want := z.TickDamage * 70 / 100 // 60% resistance becomes 30% after 50% pierce.
 	if got := 1000 - m.HitPoints; got != want {
 		t.Errorf("GM Hot Steam damage through 60%% water resist = %d, want %d", got, want)
+	}
+}
+
+func TestHotSteam_OutgoingBuffAppliesToZoneTicks(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 7, 7)
+	equipSpellAndPrepareCaster(t, game.combat, "hot_steam", 100, 30)
+	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+
+	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
+	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.Resistances[monster.DamageWater] = 0
+	game.world.Monsters = []*monster.Monster3D{m}
+
+	if !game.combat.CastEquippedSpell() {
+		t.Fatal("hot_steam cast failed")
+	}
+	z := &game.steamZones[0]
+	game.combat.damageSteamZoneOnce(z)
+
+	if got, want := 1000-m.HitPoints, z.TickDamage+5; got != want {
+		t.Errorf("Hot Steam tick damage with Hour of Power = %d, want %d", got, want)
 	}
 }
 

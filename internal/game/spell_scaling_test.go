@@ -11,9 +11,7 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Most party-buff magnitudes are flat by balance decision, and mastery scales
-// duration. Stone Skin additionally opts into a mastery-scaled flat reduction.
-func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
+func TestHeroismDamageBonusScalesWithMastery(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cs := game.combat
 	cleric := character.CreateCharacter("Cle", character.ClassCleric, game.config)
@@ -42,19 +40,23 @@ func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
 		name        string
 		mastery     character.SkillMastery
 		durationPct int
+		wantBonus   int
 	}{
-		{name: "novice", mastery: character.MasteryNovice, durationPct: 100},
-		{name: "expert", mastery: character.MasteryExpert, durationPct: 120},
-		{name: "master", mastery: character.MasteryMaster, durationPct: 140},
-		{name: "grandmaster", mastery: character.MasteryGrandMaster, durationPct: 160},
+		{name: "novice", mastery: character.MasteryNovice, durationPct: 100, wantBonus: 3},
+		{name: "expert", mastery: character.MasteryExpert, durationPct: 120, wantBonus: 5},
+		{name: "master", mastery: character.MasteryMaster, durationPct: 140, wantBonus: 7},
+		{name: "grandmaster", mastery: character.MasteryGrandMaster, durationPct: 160, wantBonus: 10},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buff := castAt(tt.mastery)
-			if buff.OutBonus != def.OutgoingDamageBonus {
-				t.Errorf("magnitude must be flat YAML value %d, got %d",
-					def.OutgoingDamageBonus, buff.OutBonus)
+			if buff.OutBonus != tt.wantBonus {
+				t.Errorf("Heroism bonus at %s mastery = %d, want %d",
+					tt.name, buff.OutBonus, tt.wantBonus)
+			}
+			if buff.OutDamageType != "physical" {
+				t.Errorf("Heroism OutDamageType = %q, want physical", buff.OutDamageType)
 			}
 
 			wantFrames := def.Duration * tt.durationPct / 100 * game.config.GetTPS()
@@ -63,6 +65,22 @@ func TestPartyBuffMagnitudeIsFlat_DurationScales(t *testing.T) {
 					tt.name, buff.Frames, wantFrames)
 			}
 		})
+	}
+}
+
+func TestOutgoingDamageBonusFiltersByDamageType(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	game.addCombatBuff(TimedCombatBuff{SpellID: "heroism", Frames: 600, OutBonus: 3, OutDamageType: "physical"})
+	game.addCombatBuff(TimedCombatBuff{SpellID: "hour_of_power", Frames: 600, OutBonus: 5})
+
+	if got := game.combatBuffOutBonusForDamageType("physical"); got != 8 {
+		t.Errorf("physical outgoing bonus = %d, want 8", got)
+	}
+	if got := game.combatBuffOutBonusForDamageType("fire"); got != 5 {
+		t.Errorf("fire outgoing bonus = %d, want 5", got)
+	}
+	if got := game.combatBuffOutBonus(); got != 8 {
+		t.Errorf("aggregate outgoing bonus = %d, want 8", got)
 	}
 }
 
@@ -84,10 +102,10 @@ func TestStoneSkinReductionScalesWithMastery(t *testing.T) {
 		mastery character.SkillMastery
 		want    int
 	}{
-		{name: "novice", mastery: character.MasteryNovice, want: 6},
-		{name: "expert", mastery: character.MasteryExpert, want: 10},
-		{name: "master", mastery: character.MasteryMaster, want: 14},
-		{name: "grandmaster", mastery: character.MasteryGrandMaster, want: 18},
+		{name: "novice", mastery: character.MasteryNovice, want: 4},
+		{name: "expert", mastery: character.MasteryExpert, want: 6},
+		{name: "master", mastery: character.MasteryMaster, want: 8},
+		{name: "grandmaster", mastery: character.MasteryGrandMaster, want: 10},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +120,83 @@ func TestStoneSkinReductionScalesWithMastery(t *testing.T) {
 			}
 			if buff.InReduce != tt.want {
 				t.Errorf("Stone Skin reduction at %s = %d, want %d", tt.name, buff.InReduce, tt.want)
+			}
+		})
+	}
+}
+
+func TestPartyBuffMagnitudeScalesWithMastery(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cs := game.combat
+	caster := character.CreateCharacter("Light", character.ClassCleric, game.config)
+	light := &character.MagicSkill{Mastery: character.MasteryNovice}
+	caster.MagicSchools[character.MagicSchoolLight] = light
+
+	tests := []struct {
+		name       string
+		spellID    spells.SpellID
+		mastery    character.SkillMastery
+		wantOut    int
+		wantIn     int
+		wantResist int
+	}{
+		{name: "day novice", spellID: "day_of_the_gods", mastery: character.MasteryNovice, wantResist: 10},
+		{name: "day expert", spellID: "day_of_the_gods", mastery: character.MasteryExpert, wantResist: 16},
+		{name: "day master", spellID: "day_of_the_gods", mastery: character.MasteryMaster, wantResist: 23},
+		{name: "day grandmaster", spellID: "day_of_the_gods", mastery: character.MasteryGrandMaster, wantResist: 30},
+		{name: "hour novice", spellID: "hour_of_power", mastery: character.MasteryNovice, wantOut: 5, wantIn: 1},
+		{name: "hour expert", spellID: "hour_of_power", mastery: character.MasteryExpert, wantOut: 8, wantIn: 2},
+		{name: "hour master", spellID: "hour_of_power", mastery: character.MasteryMaster, wantOut: 11, wantIn: 3},
+		{name: "hour grandmaster", spellID: "hour_of_power", mastery: character.MasteryGrandMaster, wantOut: 15, wantIn: 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			light.Mastery = tt.mastery
+			def, err := spells.GetSpellDefinitionByID(tt.spellID)
+			if err != nil {
+				t.Fatalf("%s def: %v", tt.spellID, err)
+			}
+			if !cs.tryCastPartyBuff(tt.spellID, def, caster) {
+				t.Fatalf("%s must cast as a party buff", tt.spellID)
+			}
+			buff, ok := game.combatBuffByID(string(tt.spellID))
+			if !ok {
+				t.Fatalf("%s buff not registered", tt.spellID)
+			}
+			if buff.OutBonus != tt.wantOut || buff.InReduce != tt.wantIn || buff.ResistPct != tt.wantResist {
+				t.Errorf("%s at %s: out/in/resist = %d/%d/%d, want %d/%d/%d",
+					tt.spellID, tt.name, buff.OutBonus, buff.InReduce, buff.ResistPct, tt.wantOut, tt.wantIn, tt.wantResist)
+			}
+		})
+	}
+}
+
+func TestBlessStatBonusScalesWithMastery(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	cs := game.combat
+	cleric := character.CreateCharacter("Cle", character.ClassCleric, game.config)
+	spirit := cleric.MagicSchools[character.MagicSchoolSpirit]
+	if spirit == nil {
+		t.Fatal("cleric should start with the spirit school")
+	}
+
+	tests := []struct {
+		name    string
+		mastery character.SkillMastery
+		want    int
+	}{
+		{name: "novice", mastery: character.MasteryNovice, want: 5},
+		{name: "expert", mastery: character.MasteryExpert, want: 6},
+		{name: "master", mastery: character.MasteryMaster, want: 8},
+		{name: "grandmaster", mastery: character.MasteryGrandMaster, want: 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spirit.Mastery = tt.mastery
+			if got := cs.CalculateSpellStatBonus("bless", cleric); got != tt.want {
+				t.Errorf("Bless stat bonus at %s = %d, want %d", tt.name, got, tt.want)
 			}
 		})
 	}

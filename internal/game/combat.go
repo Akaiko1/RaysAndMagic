@@ -569,10 +569,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	damageTypeStr := weaponDamageTypeStr(weaponDef)
 	damageType := convertToMonsterDamageType(damageTypeStr)
 
-	// Party buffs (Hour of Power, Heroism, …) boost melee exactly like
-	// projectiles — same flat outgoing-damage line as the impact path.
+	// Party buffs boost melee exactly like projectiles, filtered by damage type
+	// (Heroism applies only to physical; Hour of Power applies to all).
 	if damage > 0 {
-		damage += cs.game.combatBuffOutBonus()
+		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	}
 	attacker := cs.activeAttacker() // melee resolves the same frame it swings
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
@@ -1851,9 +1851,10 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		return
 	}
 
-	// Party buffs (Hour of Power, Heroism, …): flat bonus to all party outgoing damage.
+	// Party buffs: flat bonus to party outgoing damage, filtered by damage type
+	// (Heroism applies only to physical; Hour of Power applies to all).
 	if damage > 0 {
-		damage += cs.game.combatBuffOutBonus()
+		damage += cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 	}
 
 	// Resolve the attacker the projectile was fired by (stamped at spawn) —
@@ -2495,6 +2496,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 	cx, cy := cs.game.camera.X, cs.game.camera.Y
 	damageTypeStr := normalizeDamageTypeStr(def.School)
 	damageType := convertToMonsterDamageType(damageTypeStr)
+	monsterDmg := dmg + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
 
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
 
@@ -2504,7 +2506,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		if m == nil || !m.IsAlive() || bossInvulnerable(m) || Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
-		reduced := applyArmorReductionIfPhysical(dmg, damageTypeStr, m.ArmorClass, false)
+		reduced := applyArmorReductionIfPhysical(monsterDmg, damageTypeStr, m.ArmorClass, false)
 		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
@@ -2897,9 +2899,7 @@ func spellMasteryTierForSchool(caster *character.MMCharacter, schoolID string) i
 	return 0
 }
 
-func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character.MMCharacter) int {
-	base := def.IncomingDamageReduction
-	max := def.IncomingDamageReductionGrandmaster
+func scaledSpellMasteryValue(def spells.SpellDefinition, caster *character.MMCharacter, base, max int) int {
 	if base <= 0 || max <= base {
 		return base
 	}
@@ -2914,6 +2914,10 @@ func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character
 	return base + (max-base)*tier/gmTier
 }
 
+func scaledIncomingDamageReduction(def spells.SpellDefinition, caster *character.MMCharacter) int {
+	return scaledSpellMasteryValue(def, caster, def.IncomingDamageReduction, def.IncomingDamageReductionGrandmaster)
+}
+
 // tryCastPartyBuff handles party combat-buff spells (Day of the Gods, Hour of
 // Power, Stone Skin). If the spell carries any party-buff field it activates the
 // buff for `duration` seconds and returns true. Shared by both cast paths.
@@ -2921,15 +2925,16 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 	if def.ResistBuffPct <= 0 && def.OutgoingDamageBonus <= 0 && def.IncomingDamageReduction <= 0 {
 		return false
 	}
-	// Most party-buff magnitudes are flat. Spells may opt into a mastery-scaled
-	// incoming flat reduction with incoming_damage_reduction_grandmaster.
+	// Party-buff magnitudes may opt into mastery scaling with *_grandmaster
+	// caps; spells without a cap stay flat at their authored base value.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	cs.game.addCombatBuff(TimedCombatBuff{
-		SpellID:   string(spellID),
-		Frames:    frames,
-		OutBonus:  def.OutgoingDamageBonus,
-		InReduce:  scaledIncomingDamageReduction(def, caster),
-		ResistPct: def.ResistBuffPct,
+		SpellID:       string(spellID),
+		Frames:        frames,
+		OutBonus:      scaledSpellMasteryValue(def, caster, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster),
+		OutDamageType: def.OutgoingDamageType,
+		InReduce:      scaledIncomingDamageReduction(def, caster),
+		ResistPct:     scaledSpellMasteryValue(def, caster, def.ResistBuffPct, def.ResistBuffPctGrandmaster),
 	})
 	cs.game.AddCombatMessage(fmt.Sprintf("%s empowers the party!", def.Name))
 	cs.game.setUtilityStatus(spellID, frames)
@@ -2937,9 +2942,8 @@ func (cs *CombatSystem) tryCastPartyBuff(spellID spells.SpellID, def spells.Spel
 }
 
 // spellStatBuffBonuses resolves the stat-buff block a cast of spellID grants:
-// both the per-stat `stat_bonuses:` map and the uniform `stat_bonus: N` are
-// FLAT as authored (mastery scales only duration) — the SAME values
-// EffectLines quotes, so cast and tooltip can't drift.
+// per-stat `stat_bonuses:` maps are authored absolute; uniform `stat_bonus`
+// may opt into mastery scaling with stat_bonus_grandmaster.
 func (cs *CombatSystem) spellStatBuffBonuses(spellID spells.SpellID, caster *character.MMCharacter) character.StatBonuses {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
