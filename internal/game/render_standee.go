@@ -624,7 +624,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		}
 	}
 	r.treeArms = arms[:0]
-	r.standeeSurfaces = slabs[0].surfaces[:0]   // reclaim backing arrays (caps grow)
+	r.standeeSurfaces = slabs[0].surfaces[:0] // reclaim backing arrays (caps grow)
 	r.standeeSurfacesB = slabs[1].surfaces[:0]
 }
 

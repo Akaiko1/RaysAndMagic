@@ -35,7 +35,7 @@ func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
 	for _, c := range game.party.Members {
 		c.Luck = 0
 	}
-	gl := &GameLoop{game: game, combat: game.combat}
+	gl := &GameLoop{game: game}
 	return game, gl, float64(cfg.GetTileSize())
 }
 

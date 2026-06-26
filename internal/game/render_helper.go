@@ -26,11 +26,6 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	}
 }
 
-// CalculateWallDimensions calculates wall height and position for rendering
-func (rh *RenderingHelper) CalculateWallDimensions(distance float64) (wallHeight, wallTop int) {
-	return rh.CalculateWallDimensionsWithHeight(distance, 1.0)
-}
-
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
 	// Division guard only — collision keeps the camera farther away than this.
@@ -149,22 +144,6 @@ func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX i
 	screenW := rh.game.config.GetScreenWidth()
 	screenX = int(float64(screenW) / 2 * (1 + transformX/transformY))
 	return screenX, transformY, true
-}
-
-// CreateWallSlice creates a cached wall slice image with proper shading
-func (rh *RenderingHelper) CreateWallSlice(tileType world.TileType3D, distance float64, width, height int) *ebiten.Image {
-	return rh.CreateWallSliceWithSide(tileType, distance, width, height, 0)
-}
-
-// CreateWallSliceWithSide creates a cached wall slice image with side-based shading and basic texturing
-func (rh *RenderingHelper) CreateWallSliceWithSide(tileType world.TileType3D, distance float64, width, height, side int) *ebiten.Image {
-	return rh.CreateTexturedWallSlice(tileType, distance, width, height, side, 0.0)
-}
-
-// CreateTexturedWallSlice creates a wall slice with texture mapping and proper shading.
-// This combines distance-based lighting, side-based shading, and procedural texture patterns.
-func (rh *RenderingHelper) CreateTexturedWallSlice(tileType world.TileType3D, distance float64, width, height, wallSide int, textureCoord float64) *ebiten.Image {
-	return rh.CreateBaseTexturedWallSlice(tileType, width, height, wallSide, textureCoord)
 }
 
 // CreateBaseTexturedWallSlice creates a wall slice with base colors and textures but without distance-based shading.

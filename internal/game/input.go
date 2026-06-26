@@ -46,7 +46,6 @@ type InputHandler struct {
 	hKeyTracker          keytracker.KeyStateTracker
 	rKeyTracker          keytracker.KeyStateTracker
 	cKeyTracker          keytracker.KeyStateTracker
-	pKeyTracker          keytracker.KeyStateTracker
 	attackHoldFrames     int // frames an RT attack key has been held (tap vs hold-repeat)
 	menuKeyTracker       keytracker.KeyStateTracker
 	inventoryKeyTracker  keytracker.KeyStateTracker
@@ -420,6 +419,9 @@ func (ih *InputHandler) handleVictoryNameInput() {
 	// Get input characters
 	inputChars := ebiten.AppendInputChars(nil)
 	for _, char := range inputChars {
+		if char == '\n' || char == '\r' || char == '\t' {
+			continue // same control-char guard as handleSaveRenameInput
+		}
 		if len(ih.game.victoryNameInput) < 20 {
 			ih.game.victoryNameInput += string(char)
 		}
@@ -1312,10 +1314,6 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update visual systems
 	ih.game.UpdateSkyAndGroundColors()
 	if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-		if mapConfig != nil {
-			fmt.Printf("Switched to %s map with %s colors: %v\n", targetMapKey, mapConfig.Biome, mapConfig.DefaultFloorColor)
-		}
 		// Refresh renderer caches that depend on world tiles
 		ih.game.gameLoop.renderer.precomputeFloorColorCache()
 		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
@@ -2136,9 +2134,11 @@ func (ih *InputHandler) handleTurnBasedInput() {
 				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
-		} else if ih.game.combat.CastEquippedSpell() {
-			ih.game.consumeSelectedCharAction()
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
+		} else {
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.consumeSelectedCharAction()
+			}
+			ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 		}
 	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
 		mouseX, mouseY := ebiten.CursorPosition()
@@ -3000,7 +3000,6 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				monster.WasAttacked = true
 				monster.IsEngagingPlayer = true
 				ih.game.registerSpawnedMonster(monster)
-				fmt.Printf("Spawned %s at walkable position (%.1f, %.1f) with AI enabled\n", monsterDef.Type, spawnX, spawnY)
 			}
 		}
 	}
@@ -3023,7 +3022,9 @@ func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64,
 		candidateX := npcX + offsetX
 		candidateY := npcY + offsetY
 
-		// Only return if the exact candidate position is walkable
+		// Only return if the exact candidate position is walkable. Uses raw tile
+		// walkability (not the player's CanMoveTo) on purpose: a spawn must land on
+		// terrain-walkable ground regardless of the player's transient walk-on-water.
 		if ih.isPositionWalkable(candidateX, candidateY) {
 			return candidateX, candidateY
 		}
@@ -3034,21 +3035,21 @@ func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64,
 	return 0, 0 // Return invalid coordinates
 }
 
-// isPositionWalkable checks if a specific position is walkable (DRY helper)
+// isPositionWalkable reports whether a world position sits on a terrain-walkable
+// tile. Deliberately a raw tile-walkability check (not the player's CanMoveTo):
+// encounter spawns must land on ground that is walkable on its own, independent
+// of the player's transient walk-on-water / water-breathing buffs.
 func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	worldInst := ih.game.GetCurrentWorld()
 	if worldInst == nil {
 		return false
 	}
-
-	tileSize := float64(ih.game.config.GetTileSize())
-	// Treat negative positions as out of bounds
 	if x < 0 || y < 0 {
-		return false
+		return false // negative positions are out of bounds
 	}
+	tileSize := float64(ih.game.config.GetTileSize())
 	tileX := int(x / tileSize)
 	tileY := int(y / tileSize)
-
 	if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
 		tile := worldInst.Tiles[tileY][tileX]
 		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)

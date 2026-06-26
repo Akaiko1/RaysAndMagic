@@ -16,26 +16,20 @@ import (
 type GameLoop struct {
 	game               *MMGame
 	inputHandler       *InputHandler
-	combat             *CombatSystem
 	ui                 *UISystem
 	renderer           *Renderer
 	lastUpdateDuration time.Duration
 	lastDrawDuration   time.Duration
 }
 
-// NewGameLoop creates a new game loop manager
+// NewGameLoop creates a new game loop manager. Combat is shared via
+// game.combat (a stateless back-pointer holder) — no second instance.
 func NewGameLoop(game *MMGame) *GameLoop {
-	inputHandler := NewInputHandler(game)
-	combat := NewCombatSystem(game)
-	ui := NewUISystem(game)
-	renderer := NewRenderer(game)
-
 	return &GameLoop{
 		game:         game,
-		inputHandler: inputHandler,
-		combat:       combat,
-		ui:           ui,
-		renderer:     renderer,
+		inputHandler: NewInputHandler(game),
+		ui:           NewUISystem(game),
+		renderer:     NewRenderer(game),
 	}
 }
 
@@ -115,7 +109,7 @@ func (gl *GameLoop) updateExploration() {
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
-		gl.combat.tickEvasiveBossesTB()
+		gl.game.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()
 	} else {
 		// Update monsters in parallel with performance monitoring
@@ -136,7 +130,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Handle combat interactions (only in real-time mode)
 	if !gl.game.turnBasedMode {
-		gl.combat.HandleMonsterInteractions()
+		gl.game.combat.HandleMonsterInteractions()
 	}
 
 	// Update projectiles - skip if no active projectiles to save CPU
@@ -262,8 +256,8 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	defer gl.game.projectileMutex.Unlock()
 
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
-	gl.combat.CheckProjectilePlayerCollisions()
-	gl.combat.CheckProjectileMonsterCollisions()
+	gl.game.combat.CheckProjectilePlayerCollisions()
+	gl.game.combat.CheckProjectileMonsterCollisions()
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()

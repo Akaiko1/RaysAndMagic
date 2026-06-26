@@ -149,24 +149,6 @@ func (c CharacterClass) Blurb() string {
 	}
 }
 
-// DefaultCharacterName returns the canonical hero name for a class (used to pick
-// its portrait art), falling back to the class key. Sourced from the default
-// rosters so it never drifts from the shipped portraits.
-func DefaultCharacterName(c CharacterClass) string {
-	key := c.Key()
-	for _, e := range defaultStartingParty {
-		if e.Class == key {
-			return e.Name
-		}
-	}
-	for _, e := range defaultCaptives {
-		if e.Class == key {
-			return e.Name
-		}
-	}
-	return key
-}
-
 // StatDescription is the canonical player-facing explanation of a primary
 // stat — quoted by the in-game stat tooltip AND the map editor, built from the
 // same balance constants combat uses.

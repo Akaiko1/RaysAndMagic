@@ -31,7 +31,8 @@ func TestMeleeFxKind(t *testing.T) {
 // TestSeedFromID: stable, non-negative, and varies by input so each slash's
 // particle pattern differs without per-frame randomness.
 func TestSeedFromID(t *testing.T) {
-	if seedFromID("slash_7") != seedFromID("slash_7") {
+	first, second := seedFromID("slash_7"), seedFromID("slash_7")
+	if first != second {
 		t.Error("seedFromID must be deterministic")
 	}
 	if seedFromID("slash_7") == seedFromID("slash_8") {

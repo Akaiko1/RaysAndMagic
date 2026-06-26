@@ -59,10 +59,6 @@ func (cs *CombatSystem) CastEquippedSpell() bool {
 	return cs.castResolvedSpell(spellID, spellDef, caster, cs.effectiveSpellCost(caster, spell.SpellCost), false)
 }
 
-// CastEquippedHealOnTarget casts heal using equipped spell on specified party member
-// healWholeParty restores `amount` HP to every CONSCIOUS party member (Mass
-// Heal). Like single-target heal, it will not revive the dead/eradicated.
-// Returns the number of members healed.
 // healMember is the single source for applying a heal to ONE party member: add
 // HP, clamp to max, clear Unconscious when revived above 0, and flash the green
 // "+" overlay. Every single-target heal path funnels through here so the clamp /
@@ -1066,46 +1062,69 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, d
 		return
 	}
 
-	// Melee hits a random living party member (both RT and TB).
+	// Melee hits a random living party member (both RT and TB) through the shared
+	// monster→character choke point (dodge, KO, blink, poison rider). Armour-
+	// piercing attackers (Golden Thief Bug) bypass the party's armor class;
+	// resistances and buff mitigation still apply.
 	currentChar := cs.randomLivingMember()
 	if currentChar == nil {
 		return
 	}
-	damage := monster.GetAttackDamage()
-
-	// Armour-piercing attackers (Golden Thief Bug) bypass the party's armor class;
-	// resistances and buff mitigation still apply.
-	finalDamage := cs.mitigateCharacterDamage(damage, "physical", currentChar, monster.IgnoresArmor)
-
-	// Perfect Dodge: luck/5% to avoid all damage
-	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
-		currentChar.HitPoints -= finalDamage
-		if currentChar.HitPoints < 0 {
-			currentChar.HitPoints = 0
-		}
-
-		// Add combat message for monster attack
-		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
-			monster.Name, currentChar.Name, finalDamage,
-			currentChar.HitPoints, currentChar.MaxHitPoints))
-
-		if currentChar.HitPoints == 0 {
-			currentChar.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
-		}
-
-		cs.tryApplyMonsterPoison(monster, currentChar)
-	} else {
-		// Announce dodge and skip damage blink below
-		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, monster.Name))
-		return
-	}
-
-	// Trigger damage blink effect for the character that was hit
-	targetIndex := cs.findCharacterIndex(currentChar)
-	cs.game.TriggerDamageBlink(targetIndex)
+	cs.monsterHitCharacter(monster, currentChar, monster.Name, monster.GetAttackDamage(), "physical", monster.IgnoresArmor, 0)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
+}
+
+// monsterHitCharacter is the one choke point for "a monster damages a
+// character" (melee, piercing shot, projectile): perfect-dodge roll, optional
+// disintegrate, mitigation + HP application, KO, and the hit/blink feedback.
+// The on-hit poison rider fires only when monster != nil — so melee and piercing
+// poison, but a sourceless PROJECTILE does not: monster projectiles carry only a
+// SourceName, not a back-reference to the attacker, so a ranged poisonous monster
+// (e.g. masked_huntress) can't poison via its projectile. Wiring a source-monster
+// ref onto MagicProjectile/Arrow would close that gap if ranged poison is wanted.
+// disintegrateChance > 0 enables the eradicate roll (projectiles only). Returns
+// true if the hit landed (false on a perfect dodge).
+func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, damage int, damageType string, ignoresArmor bool, disintegrateChance float64) bool {
+	if target == nil {
+		return false
+	}
+	if sourceName == "" {
+		sourceName = "Monster"
+	}
+	targetIndex := cs.findCharacterIndex(target)
+
+	// Perfect Dodge: luck/5% to avoid all damage
+	if dodged, _ := cs.RollPerfectDodge(target); dodged {
+		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
+		return false
+	}
+
+	if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
+		target.HitPoints = 0
+		target.Conditions = []character.Condition{character.ConditionEradicated}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", target.Name, sourceName))
+		cs.game.TriggerDamageBlink(targetIndex)
+		return true
+	}
+
+	finalDamage := cs.mitigateCharacterDamage(damage, damageType, target, ignoresArmor)
+	target.HitPoints -= finalDamage
+	if target.HitPoints < 0 {
+		target.HitPoints = 0
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
+		sourceName, target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
+	if target.HitPoints == 0 {
+		target.AddCondition(character.ConditionUnconscious)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+	}
+	cs.game.TriggerDamageBlink(targetIndex)
+
+	if monster != nil {
+		cs.tryApplyMonsterPoison(monster, target)
+	}
+	return true
 }
 
 // sleightChancePct is the pickpocket chance for a melee hit: skill level×10%
@@ -1173,7 +1192,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
 
 	for idx, member := range cs.game.party.Members {
-		if member.HitPoints <= 0 {
+		if member == nil || member.HitPoints <= 0 {
 			continue
 		}
 
@@ -1268,23 +1287,9 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 	cs.game.AddCombatMessage(fmt.Sprintf("%s fires a Piercing Shot!", monster.Name))
 	for _, targetIndex := range alive[:targets] {
 		target := cs.game.party.Members[targetIndex]
-		damage := monster.GetAttackDamage()
-		finalDamage := cs.mitigateCharacterDamage(damage, "physical", target, true)
-		if dodged, _ := cs.RollPerfectDodge(target); dodged {
-			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's Piercing Shot!", target.Name, monster.Name))
-			continue
-		}
-		target.HitPoints -= finalDamage
-		if target.HitPoints < 0 {
-			target.HitPoints = 0
-		}
-		if target.HitPoints == 0 {
-			target.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
-		}
-		cs.game.TriggerDamageBlink(targetIndex)
-		cs.game.AddCombatMessage(fmt.Sprintf("Piercing Shot hits %s for %d damage! (HP: %d/%d)",
-			target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
+		// Piercing Shot ignores armor; the shared choke point applies the poison
+		// rider (a poisonous monster now poisons via Piercing Shot, like melee).
+		cs.monsterHitCharacter(monster, target, "Piercing Shot", monster.GetAttackDamage(), "physical", true, 0)
 	}
 	return true
 }
@@ -1700,42 +1705,9 @@ func (cs *CombatSystem) applyMonsterProjectileDamageToChar(currentChar *characte
 	if currentChar == nil {
 		return
 	}
-	finalDamage := cs.mitigateCharacterDamage(damage, damageTypeStr, currentChar, false)
-
-	if sourceName == "" {
-		sourceName = "Monster"
-	}
-
-	if dodged, _ := cs.RollPerfectDodge(currentChar); !dodged {
-		if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
-			currentChar.HitPoints = 0
-			currentChar.Conditions = []character.Condition{character.ConditionEradicated}
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", currentChar.Name, sourceName))
-			targetIndex := cs.findCharacterIndex(currentChar)
-			cs.game.TriggerDamageBlink(targetIndex)
-			return
-		}
-		currentChar.HitPoints -= finalDamage
-		if currentChar.HitPoints < 0 {
-			currentChar.HitPoints = 0
-		}
-
-		// Add combat message for monster projectile attack
-		cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
-			sourceName, currentChar.Name, finalDamage,
-			currentChar.HitPoints, currentChar.MaxHitPoints))
-
-		if currentChar.HitPoints == 0 {
-			currentChar.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", currentChar.Name))
-		}
-	} else {
-		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", currentChar.Name, sourceName))
-		return
-	}
-
-	targetIndex := cs.findCharacterIndex(currentChar)
-	cs.game.TriggerDamageBlink(targetIndex)
+	// Sourceless projectile (monster=nil → no poison rider); the disintegrate
+	// roll runs inside the shared choke point.
+	cs.monsterHitCharacter(nil, currentChar, sourceName, damage, damageTypeStr, false, disintegrateChance)
 }
 
 // getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
@@ -2826,13 +2798,13 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 		return // already slain this frame — no double damage/reward
 	}
 	dmg := attacker.GetAttackDamage()
-	target.TakeDamage(dmg, monsterPkg.DamagePhysical, attacker.X, attacker.Y)
+	actual := target.TakeDamage(dmg, monsterPkg.DamagePhysical, attacker.X, attacker.Y)
 	target.HitTintFrames = MonsterHitFlashFrames
 	verb := "strikes"
 	if attacker.Bound {
 		verb = "(bound) strikes"
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, dmg))
+	cs.game.AddCombatMessage(fmt.Sprintf("%s %s %s for %d!", attacker.Name, verb, target.Name, actual))
 	if target.IsAlive() {
 		return
 	}

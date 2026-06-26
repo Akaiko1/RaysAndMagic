@@ -39,7 +39,7 @@ func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		auraColor := sealedAuraColor
+		var auraColor [3]int
 		switch {
 		case m.BossDormant:
 			auraColor = sealedAuraColor

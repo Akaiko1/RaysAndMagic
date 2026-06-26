@@ -827,7 +827,7 @@ func validateSpellStatBonuses(cfg *SpellSystemConfig) error {
 		if len(def.StatBonuses) == 0 {
 			continue
 		}
-		if def.StatBonus > 0 {
+		if def.StatBonus != 0 {
 			return fmt.Errorf("spell '%s': stat_bonus and stat_bonuses are mutually exclusive", id)
 		}
 		for key := range def.StatBonuses {
@@ -875,9 +875,6 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 		weaponKeyByName[def.Name] = key
 	}
 
-	// Set up weapon accessor for items package to avoid circular imports
-	setupWeaponAccessor()
-
 	return &weaponConfig, nil
 }
 
@@ -886,12 +883,6 @@ var (
 	weaponDefByName map[string]*WeaponDefinitionConfig
 	weaponKeyByName map[string]string
 )
-
-// setupWeaponAccessor configures the global weapon accessor for items package
-func setupWeaponAccessor() {
-	// This will be imported by items package
-	// For now we'll define this in a separate function
-}
 
 // StatNames is THE canonical, ordered list of the seven character stats
 // (lowercase — the YAML key convention), DERIVED from the StatBonuses struct
@@ -1151,6 +1142,9 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 					return fmt.Errorf("loot_table %q: unknown weapon key %q", name, e.Key)
 				}
 			case "item":
+				if GlobalItems == nil {
+					return fmt.Errorf("loot_table %q: items not loaded for entry %q", name, e.Key)
+				}
 				if _, ok := GetItemDefinition(e.Key); !ok {
 					return fmt.Errorf("loot_table %q: unknown item key %q", name, e.Key)
 				}
@@ -1291,6 +1285,9 @@ func GetSpellsBySchool(schoolKey string) []string {
 			spells = append(spells, key)
 		}
 	}
+	// Deterministic order: map iteration is random, and this list flows into the
+	// level-up spell picker, which would otherwise reshuffle every run.
+	sort.Strings(spells)
 	return spells
 }
 

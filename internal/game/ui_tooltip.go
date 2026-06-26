@@ -218,69 +218,26 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 	if category == "cloth" {
 		return "Requires: None"
 	}
-	skillName, hasReq := armorRequiredSkillName(item)
-	if !hasReq {
+	// Category → required skill via the character package's authoritative map.
+	skill, ok := character.ArmorSkillForCategory(category)
+	if !ok {
 		return ""
 	}
-	display := strings.Title(skillName)
+	display := strings.ToUpper(category[:1]) + category[1:]
 	if char == nil {
 		return fmt.Sprintf("Requires: %s Skill", display)
 	}
-	hasSkill := false
-	switch strings.ToLower(skillName) {
-	case "leather":
-		_, hasSkill = char.Skills[character.SkillLeather]
-	case "chain":
-		_, hasSkill = char.Skills[character.SkillChain]
-	case "plate":
-		_, hasSkill = char.Skills[character.SkillPlate]
-	case "shield":
-		_, hasSkill = char.Skills[character.SkillShield]
-	}
-	if hasSkill {
+	if _, hasSkill := char.Skills[skill]; hasSkill {
 		return fmt.Sprintf("Requires: %s Skill", display)
 	}
 	return fmt.Sprintf("Requires: %s Skill (Missing)", display)
-}
-
-func armorCategoryString(item items.Item) string {
-	category := strings.ToLower(item.ArmorCategory)
-	switch category {
-	case "leather":
-		return "leather"
-	case "chain":
-		return "chain"
-	case "plate":
-		return "plate"
-	case "shield":
-		return "shield"
-	case "cloth":
-		return "cloth"
-	default:
-		return ""
-	}
-}
-
-func armorRequiredSkillName(item items.Item) (string, bool) {
-	category := armorCategoryString(item)
-	if category == "" {
-		return "", false
-	}
-	return category, true
 }
 
 // getConsumableTooltip returns consumable-specific tooltip information
 
 // joinTooltipLines joins tooltip lines with newlines
 func joinTooltipLines(lines []string) string {
-	result := ""
-	for i, line := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += line
-	}
-	return result
+	return strings.Join(lines, "\n")
 }
 
 // armorBonusParts lists flat stat bonuses + resistances via the config-level

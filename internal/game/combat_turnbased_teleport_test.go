@@ -24,7 +24,7 @@ func TestTBTeleportFallbackSkipsPlayerTile(t *testing.T) {
 	m := monster.NewMonster3DFromConfig(mx, my, "goblin", cfg)
 	game.registerSpawnedMonster(m)
 
-	gl := &GameLoop{game: game, combat: game.combat}
+	gl := &GameLoop{game: game}
 	diag := [][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}} // (1,1) → the player tile, and the closest
 	const sentinel = 1e18
 	bx, by, bd := gl.pickBestTeleportOffset(m, tile, game.camera.X, game.camera.Y, diag, sentinel)

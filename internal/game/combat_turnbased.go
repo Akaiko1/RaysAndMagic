@@ -87,7 +87,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
 		// nearest one. Never acts against the party. Spends its whole turn here.
 		if m.Bound {
-			if !gl.combat.boundAttackNearest(m) {
+			if !gl.game.combat.boundAttackNearest(m) {
 				gl.monsterMoveTurnBased(m) // no enemy in reach — close the distance
 			}
 			continue
@@ -132,7 +132,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				}
 				if manh >= 1 && manh <= rangeTiles {
 					m.AttackAnimFrames = MonsterAttackAnimFrames
-					gl.combat.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
+					gl.game.combat.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
 				} else {
 					gl.monsterMoveTurnBased(m)
 				}
@@ -140,7 +140,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				// Monster-vs-monster melee allows a diagonal-adjacent strike (unlike
 				// the cardinal-only party rule) so crowded mobs can still connect.
 				m.AttackAnimFrames = MonsterAttackAnimFrames
-				gl.combat.monsterStrikeMonster(m, foe)
+				gl.game.combat.monsterStrikeMonster(m, foe)
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}
@@ -155,8 +155,8 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// aggressive boss may cast Inferno or its low-HP blink from across the
 		// room instead of closing in. RT gates these to the attack moment; the
 		// asymmetry is intentional TB flavor — do not "fix" toward RT.
-		if gl.combat.isBoss(m) {
-			if gl.combat.updateBoss(m, m.BossCD == 0, true) {
+		if gl.game.combat.isBoss(m) {
+			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
 				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 				continue
 			}
@@ -184,7 +184,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			pounceTiles := int(m.PounceRangePixels / tileSize)
 			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles {
-				if _, landed := gl.combat.executePounce(m, playerX, playerY); landed {
+				if _, landed := gl.game.combat.executePounce(m, playerX, playerY); landed {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
 					m.PounceCDTurns = 2
@@ -232,7 +232,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 	}
 
 	// Monsters finished moving: spring any traps they stepped onto.
-	gl.combat.sweepTrapTriggers()
+	gl.game.combat.sweepTrapTriggers()
 
 	gl.game.turnBasedMonsterPassesLeft--
 	if gl.game.turnBasedMonsterPassesLeft > 0 {
@@ -282,10 +282,10 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		damage := monster.GetAttackDamage()
 		// Armour-piercing attackers (Golden Thief Bug) bypass armor class; resistances
 		// and buff mitigation still apply.
-		finalDamage := gl.combat.mitigateCharacterDamage(damage, "physical", target, monster.IgnoresArmor)
+		finalDamage := gl.game.combat.mitigateCharacterDamage(damage, "physical", target, monster.IgnoresArmor)
 
 		// Perfect Dodge: luck/5% roll to avoid all damage
-		if dodged, _ := gl.combat.RollPerfectDodge(target); dodged {
+		if dodged, _ := gl.game.combat.RollPerfectDodge(target); dodged {
 			gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
 			continue
 		}
@@ -298,7 +298,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 			target.AddCondition(character.ConditionUnconscious)
 		}
 		gl.game.TriggerDamageBlink(targetIndex)
-		gl.combat.tryApplyMonsterPoison(monster, target)
+		gl.game.combat.tryApplyMonsterPoison(monster, target)
 
 		suffix := ""
 		if attacks > 1 {
@@ -348,7 +348,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// redirected — bound undead toward its enemy, pacified toward itself = no move).
 	monsterTileX := int(monster.X / tileSize)
 	monsterTileY := int(monster.Y / tileSize)
-	targetX, targetY := gl.combat.monsterAITargetPoint(monster)
+	targetX, targetY := gl.game.combat.monsterAITargetPoint(monster)
 	playerTileX, playerTileY := int(targetX/tileSize), int(targetY/tileSize)
 
 	dxTiles := playerTileX - monsterTileX
@@ -429,7 +429,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 // monster's AI target (party, or a charmed monster's redirected target) and
 // teleports there.
 func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
-	playerX, playerY := gl.combat.monsterAITargetPoint(m)
+	playerX, playerY := gl.game.combat.monsterAITargetPoint(m)
 
 	// Check perpendicular adjacent tiles first, then diagonals as fallback
 	var bestX, bestY float64

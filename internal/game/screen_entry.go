@@ -34,15 +34,17 @@ type entryButton struct {
 	action func(g *MMGame)
 }
 
-func entryButtons() []entryButton {
-	return []entryButton{
-		{"start", "Start Game", func(g *MMGame) { g.enterPartyCreate() }},
-		{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
-		{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
-		{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
-		{"quit", "Quit", func(g *MMGame) { g.exitRequested = true }},
-	}
+// entryButtonDefs is built once at startup — the action closures take *MMGame as
+// a parameter (capture-free), so the slice is safe to share across frames.
+var entryButtonDefs = []entryButton{
+	{"start", "Start Game", func(g *MMGame) { g.enterPartyCreate() }},
+	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
+	{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
+	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
+	{"quit", "Quit", func(g *MMGame) { g.exitRequested = true }},
 }
+
+func entryButtons() []entryButton { return entryButtonDefs }
 
 // updateEntryMenu handles keyboard/back navigation for the entry menu. Mouse
 // interaction is handled in drawEntryMenuScreen (roster-screen convention).

@@ -287,6 +287,12 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		}
 	}
 
+	// A sealed / idol-warded boss is immune to indirect damage (gated inside
+	// applyTrapDamage) — and to its control riders too. Skip stun/root for it.
+	if bossInvulnerable(victim) {
+		return
+	}
+
 	turnsStun, secsStun := trapControlDuration(def.StunTurns, def.StunSeconds, t.Owner)
 	if def.StunTurns > 0 {
 		if cs.game.turnBasedMode {
@@ -375,7 +381,7 @@ func (gl *GameLoop) updateTraps() {
 	}
 	g.traps = g.traps[:w]
 	if !g.turnBasedMode {
-		gl.combat.sweepTrapTriggers()
+		gl.game.combat.sweepTrapTriggers()
 	}
 }
 

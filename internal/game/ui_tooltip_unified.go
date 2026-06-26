@@ -390,7 +390,9 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			}
 		}
 		statContribDetail(&dmg, primaryStat, primaryValue, spells.SpellIntellectDivisor)
-		if def.ScalesWithPersonality && char != nil {
+		// Non-self magic only: self magic already shows Personality as its primary
+		// stat above (mirrors the guard in CalculateSpellDamage).
+		if def.ScalesWithPersonality && char != nil && !spellScalesWithPersonality(def.School) {
 			statContribDetail(&dmg, "Personality", char.GetEffectivePersonality(), spells.SpellIntellectDivisor)
 		}
 		if mastery > 0 {

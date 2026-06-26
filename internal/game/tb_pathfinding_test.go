@@ -55,7 +55,7 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 	w.Monsters = append(w.Monsters, mob)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(mob.ID, mob.X, mob.Y, 32, 32, collision.CollisionTypeMonster, false))
 
-	gl := &GameLoop{game: g, combat: g.combat}
+	gl := &GameLoop{game: g}
 
 	worldTile := func(p float64) int { return int(p / tile) }
 	ptx, pty := worldTile(g.camera.X), worldTile(g.camera.Y)
@@ -137,7 +137,7 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 	w.Monsters = append(w.Monsters, mob)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(mob.ID, mob.X, mob.Y, 32, 32, collision.CollisionTypeMonster, false))
 
-	gl := &GameLoop{game: g, combat: g.combat}
+	gl := &GameLoop{game: g}
 	worldTile := func(p float64) int { return int(p / tile) }
 	ptx, pty := worldTile(g.camera.X), worldTile(g.camera.Y)
 	manhattan := func() int {

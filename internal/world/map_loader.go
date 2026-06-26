@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"ugataima/internal/monster"
-	"unicode/utf8"
 )
 
 // MapLoader handles loading world maps from files
@@ -90,19 +89,6 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		npcSpawns = append(npcSpawns, lineNPCs...)
 		specialTileSpawns = append(specialTileSpawns, lineSpecialTiles...)
 		lines = append(lines, parsedLine)
-
-		// Debug output: print the loaded line, its symbol count, and counts of '.' and 'T'
-		dotCount := 0
-		tCount := 0
-		for _, r := range parsedLine {
-			switch r {
-			case '.':
-				dotCount++
-			case 'T':
-				tCount++
-			}
-		}
-		fmt.Printf("[MapLoader] Loaded line %d: '%s' (symbols: %d, .: %d, T: %d)\n", len(lines), parsedLine, utf8.RuneCountInString(parsedLine), dotCount, tCount)
 	}
 
 	if err := scanner.Err(); err != nil {

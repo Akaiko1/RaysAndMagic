@@ -253,7 +253,7 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 			Gravity:  grav,
 			Color:    particleColor,
 			LifeTime: life,
-			MaxLife:  SpellParticleLife,
+			MaxLife:  life, // fade ratio uses LifeTime/MaxLife — must match the per-particle life
 			Size:     particleSize,
 			Active:   true,
 		}

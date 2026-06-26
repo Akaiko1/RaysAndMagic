@@ -79,7 +79,7 @@ func addMainDamageStat(c *character.MMCharacter, v int) {
 		c.Intellect += v
 	case character.ClassCleric:
 		c.Personality += v
-	case character.ClassArcher:
+	case character.ClassArcher, character.ClassThief:
 		c.Accuracy += v
 	default: // Knight, Paladin — melee weapon scaling on Might
 		c.Might += v

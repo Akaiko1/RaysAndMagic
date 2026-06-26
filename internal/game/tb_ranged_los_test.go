@@ -44,7 +44,7 @@ func TestTurnBasedRangedRequiresLineOfSight(t *testing.T) {
 		game.monsterTurnResolved = false
 		game.frameCount = 1
 
-		gl := &GameLoop{game: game, combat: game.combat}
+		gl := &GameLoop{game: game}
 		ox, oy := m.X, m.Y
 		gl.updateMonstersTurnBased()
 		return m.X != ox || m.Y != oy, len(game.arrows)

@@ -32,15 +32,18 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
 	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic —
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
+	def, defErr := spells.GetSpellDefinitionByID(spellID)
+	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
 	scalingStat := char.GetEffectiveIntellect()
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && spellScalesWithPersonality(def.School) {
+	if selfMagic {
 		scalingStat = char.GetEffectivePersonality()
 	}
 	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
 	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
-	// Personality/divisor term on top of the primary term. Both combat and the
-	// tooltip call this function, so the displayed number matches what's dealt.
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.ScalesWithPersonality {
+	// Personality/divisor term on top of the primary term — but ONLY for non-self
+	// magic, else Personality (already the primary stat for self magic) is counted
+	// twice. The tooltip applies the same guard so the displayed number matches.
+	if defErr == nil && def.ScalesWithPersonality && !selfMagic {
 		perBonus := char.GetEffectivePersonality() / spells.SpellIntellectDivisor
 		intellectBonus += perBonus
 		totalDamage += perBonus

@@ -585,20 +585,13 @@ func (r *Renderer) precomputeFloorColorCache() {
 	// Get map-specific default floor color
 	var defaultFloorColor [3]int
 	if world.GlobalWorldManager != nil {
-		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-		currentMapKey := world.GlobalWorldManager.CurrentMapKey
-		fmt.Printf("[FloorCache] CurrentMapKey: %s\n", currentMapKey)
-
-		if mapConfig != nil {
+		if mapConfig := world.GlobalWorldManager.GetCurrentMapConfig(); mapConfig != nil {
 			defaultFloorColor = mapConfig.DefaultFloorColor
-			fmt.Printf("[FloorCache] Using map config - Biome: %s, FloorColor: %v\n", mapConfig.Biome, defaultFloorColor)
 		} else {
 			defaultFloorColor = [3]int{60, 180, 60} // Fallback green
-			fmt.Printf("[FloorCache] No map config found, using fallback green\n")
 		}
 	} else {
 		defaultFloorColor = [3]int{60, 180, 60} // Fallback green
-		fmt.Printf("[FloorCache] No WorldManager, using fallback green\n")
 	}
 
 	defaultMapFloor := color.RGBA{uint8(defaultFloorColor[0]), uint8(defaultFloorColor[1]), uint8(defaultFloorColor[2]), 255}
@@ -1654,9 +1647,9 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
-	// Apply distance shading with torch light effects
-	// For tree sprites, use camera position as approximation
-	brightness := r.calculateBrightnessWithTorchLight(r.game.camera.X, r.game.camera.Y, distance)
+	// Light the tree at its own column world point (not the camera), so torches
+	// and spell glows reach it like any other raycast surface.
+	brightness := r.wallPointBrightness(x, distance)
 	brightness = r.applyTreeDepthShading(brightness, distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
@@ -2842,7 +2835,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
-	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	distance := Distance(worldX, worldY, r.game.camera.X, r.game.camera.Y)
 	if isFireflySwarmTile(s.tileType) {
 		r.drawFireflySwarmEffect(screen, s, distance)
 		return
@@ -2925,7 +2918,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
+	distance := Distance(s.monster.X, s.monster.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
 	br := float32(brightness)
 	rr, gg, bb := br, br, br
@@ -3047,7 +3040,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
-	distance := math.Sqrt(math.Pow(s.npc.X-r.game.camera.X, 2) + math.Pow(s.npc.Y-r.game.camera.Y, 2))
+	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
 	if brightness < r.game.config.Graphics.BrightnessMin {
 		brightness = r.game.config.Graphics.BrightnessMin

@@ -230,6 +230,7 @@ graphics:
   # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
   # diagonal plane (~4x fewer draws for distant trees; their cross is sub-pixel
   # anyway). Trees only. <=0 disables the LOD (always full crossed standee).
+  trees_as_billboards: true
   tree_standee_lod_tiles: 7
 
   # Sprite sizes

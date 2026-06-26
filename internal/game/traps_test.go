@@ -119,7 +119,7 @@ func TestTrapDamage_ScalesWithStatsAndMastery(t *testing.T) {
 func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	g.turnBasedMode = true
-	gl := &GameLoop{game: g, combat: g.combat}
+	gl := &GameLoop{game: g}
 	thief.Level = 10 // unlock everything
 
 	if !equipTrap(thief, "stasis_trap") {

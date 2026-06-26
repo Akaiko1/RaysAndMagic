@@ -131,7 +131,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 			z.tickCounter++
 			if z.tickCounter >= z.IntervalFrames {
 				z.tickCounter = 0
-				gl.combat.damageSteamZoneOnce(z)
+				gl.game.combat.damageSteamZoneOnce(z)
 			}
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
@@ -154,7 +154,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 // monster turn in turn-based combat.
 func (gl *GameLoop) tickSteamZonesTB() {
 	for i := range gl.game.steamZones {
-		gl.combat.damageSteamZoneOnce(&gl.game.steamZones[i])
+		gl.game.combat.damageSteamZoneOnce(&gl.game.steamZones[i])
 	}
 }
 

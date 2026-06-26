@@ -12,21 +12,10 @@ import (
 const doubleClickWindowMs = 700
 const doubleClickWindow = doubleClickWindowMs * time.Millisecond
 
-// UI Color constants for DRY code
-var (
-	UIColorSelectedCharacter = color.RGBA{0, 100, 200, 128}  // Blue background for selected character
-	UIColorKnowsSpell        = color.RGBA{100, 100, 100, 64} // Gray background for known spells
-	UIColorCanLearn          = color.RGBA{0, 150, 0, 64}     // Green background for learnable spells
-	UIColorCannotLearn       = color.RGBA{150, 0, 0, 64}     // Red background for non-learnable spells
-	UIColorSpellSelection    = color.RGBA{0, 150, 0, 128}    // Green background for selected spell
-)
-
 // UI Dimension constants
 const (
-	UICharacterBackgroundWidth = 300
-	UISpellBackgroundWidth     = 350
-	UIRowHeight                = 20
-	UIRowSpacing               = 25
+	UIRowHeight  = 20
+	UIRowSpacing = 25
 )
 
 // UISystem handles all user interface rendering and logic
