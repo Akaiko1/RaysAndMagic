@@ -154,6 +154,8 @@ biomes:
   # the forest_stream texture, and the renderer auto-selects "beach" for the
   # sandy banks bordering water.
   jungle:
+    # Off-map backdrop: dense jungle foliage wall instead of the global seaview.
+    out_of_bounds_tile: "jungle_wall_foliage"
     floor_texture_groups:
       # Terra-firme upland: earthy leaf-litter + vine-mat, mixed for organic variety.
       default:
@@ -182,6 +184,11 @@ maps:
     sky_color: [135, 206, 235]        # Light blue sky
     sky_texture: "forest_panorama"
     default_floor_color: [60, 180, 60]  # Green grass
+    canopy_shade:
+      min_ambient: 0.7
+      radius_tiles: 3.0
+      start_density: 2
+      full_density: 8
 
   desert:
     name: "Scorching Desert"

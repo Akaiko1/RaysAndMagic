@@ -38,6 +38,30 @@ type SpriteManager struct {
 	keyB       uint8
 	keyTol     int
 	keyDespill bool
+	// Sprites whose interior magenta is real art: despill only their edge fringe
+	// (within keyEdgeRadius px of a transparent pixel), not the whole body.
+	keyEdgeOnly   map[string]bool
+	keyEdgeRadius int
+}
+
+// despillHueFloor is the magenta-excess (min(R,B)−G) below which a kept pixel is
+// left alone. Deliberately low (aggressive): project art reserves any magenta
+// hue for removable background/fringe, so even faint casts are subtracted.
+const despillHueFloor = 8
+
+// despillEdgeRadiusDefault is the fringe band (px from a transparent edge) used
+// for edge-only despill sprites when the config leaves the radius unset.
+const despillEdgeRadiusDefault = 3
+
+// SetDespillEdgeOnly marks sprites (by name; animation sheets as
+// "<name>_<animType>") whose interior magenta must be preserved — despill on
+// them is restricted to within `radius` px of a transparent edge.
+func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
+	sm.keyEdgeOnly = make(map[string]bool, len(names))
+	for _, n := range names {
+		sm.keyEdgeOnly[n] = true
+	}
+	sm.keyEdgeRadius = radius
 }
 
 // SetColorKey enables/configures the load-time color key (see SpriteManager).
@@ -50,14 +74,19 @@ func (sm *SpriteManager) SetColorKey(enabled bool, r, g, b, tolerance int, despi
 }
 
 // applyColorKey returns a copy of src with the key color removed: pixels within
-// keyTol of the key go transparent; with keyDespill, tinted fringe pixels (R,B
-// above G) have that excess subtracted and stay opaque. Despill assumes a
-// magenta-style key (high R,B / low G). No-op when the key is off.
-func (sm *SpriteManager) applyColorKey(src image.Image) image.Image {
+// keyTol of the key go transparent; with keyDespill, every remaining magenta-hue
+// pixel (R and B above G) has that excess subtracted and stays opaque. Despill
+// assumes a magenta-style key (high R,B / low G). No-op when the key is off.
+//
+// For names in keyEdgeOnly (intentional magenta art), despill is restricted to
+// the fringe band within keyEdgeRadius px of a transparent edge, leaving the
+// interior purple/magenta untouched.
+func (sm *SpriteManager) applyColorKey(name string, src image.Image) image.Image {
 	if !sm.keyEnabled || src == nil {
 		return src
 	}
 	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
 	dst := image.NewNRGBA(b)
 	draw.Draw(dst, b, src, b.Min, draw.Src)
 	near := func(v, target uint8) bool {
@@ -73,28 +102,72 @@ func (sm *SpriteManager) applyColorKey(src image.Image) image.Image {
 		}
 		return b
 	}
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			p := dst.NRGBAAt(x, y)
+	isKey := func(p color.NRGBA) bool {
+		return near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB)
+	}
+
+	edgeOnly := sm.keyEdgeOnly[name]
+	// Transparency mask, needed only when despill is limited to the fringe band.
+	var trans []bool
+	if edgeOnly {
+		trans = make([]bool, w*h)
+	}
+
+	// Pass 1: erase the key core (and record transparency for edge-only despill).
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := dst.NRGBAAt(b.Min.X+x, b.Min.Y+y)
+			keyed := p.A != 0 && isKey(p)
+			if edgeOnly {
+				trans[y*w+x] = p.A == 0 || keyed
+			}
+			if keyed {
+				dst.SetNRGBA(b.Min.X+x, b.Min.Y+y, color.NRGBA{})
+			}
+		}
+	}
+	if !sm.keyDespill {
+		return dst
+	}
+
+	radius := sm.keyEdgeRadius
+	if radius <= 0 {
+		radius = despillEdgeRadiusDefault
+	}
+	nearEdge := func(x, y int) bool {
+		for dy := -radius; dy <= radius; dy++ {
+			for dx := -radius; dx <= radius; dx++ {
+				nx, ny := x+dx, y+dy
+				if nx < 0 || ny < 0 || nx >= w || ny >= h {
+					return true // image border is an edge
+				}
+				if trans[ny*w+nx] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// Pass 2: despill kept pixels. Edge-only sprites despill the fringe band only,
+	// so their intentional interior magenta survives.
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			px, py := b.Min.X+x, b.Min.Y+y
+			p := dst.NRGBAAt(px, py)
 			if p.A == 0 {
 				continue
 			}
-			// Background core: very close to the key on all channels → erase.
-			if near(p.R, sm.keyR) && near(p.G, sm.keyG) && near(p.B, sm.keyB) {
-				dst.SetNRGBA(x, y, color.NRGBA{})
+			excess := int(min2(p.R, p.B)) - int(p.G)
+			if excess <= despillHueFloor {
 				continue
 			}
-			// Fringe despill: magenta excess = how much both R,B sit above G. When
-			// it clears the tolerance the pixel is magenta-tinted, so subtract that
-			// excess (R,B → G level), removing the cast but keeping the base tone.
-			if sm.keyDespill {
-				excess := int(min2(p.R, p.B)) - int(p.G)
-				if excess > sm.keyTol {
-					p.R = uint8(int(p.R) - excess)
-					p.B = uint8(int(p.B) - excess)
-					dst.SetNRGBA(x, y, p)
-				}
+			if edgeOnly && !nearEdge(x, y) {
+				continue
 			}
+			p.R = uint8(int(p.R) - excess)
+			p.B = uint8(int(p.B) - excess)
+			dst.SetNRGBA(px, py, p)
 		}
 	}
 	return dst
@@ -318,7 +391,7 @@ func (sm *SpriteManager) loadSpriteIfExists(name string) {
 		if file, err := os.Open(spritePath); err == nil {
 			defer file.Close()
 			if img, _, err := image.Decode(file); err == nil {
-				img = sm.applyColorKey(img)
+				img = sm.applyColorKey(name, img)
 				sm.sprites[name] = ebiten.NewImageFromImage(img)
 				sm.spriteTypeCache[name] = sm.spriteDirType[name]
 				return
@@ -344,7 +417,7 @@ func (sm *SpriteManager) loadAnimationIfExists(name, animType string) {
 		if err != nil {
 			return
 		}
-		img = sm.applyColorKey(img)
+		img = sm.applyColorKey(name+"_"+animType, img)
 
 		bounds := img.Bounds()
 		frameHeight := bounds.Dy()

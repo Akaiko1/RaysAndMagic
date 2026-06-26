@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
-	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -60,7 +60,20 @@ type partyCreateState struct {
 	drag         *pcHero
 	dragFromSlot int // origin slot index, or -1
 	dragFromPool int // origin pool index, or -1
+
+	// Pending press: a left-press records the candidate hero + origin and selects
+	// it immediately (detail panel). The drag only begins once the cursor moves
+	// past pcDragThreshold while held — a press/release within the threshold is a
+	// plain click (selection only, no move).
+	pending     *pcHero
+	pendingSlot int
+	pendingPool int
+	pressX      int
+	pressY      int
 }
+
+// pcDragThreshold is the cursor travel (px) that turns a held press into a drag.
+const pcDragThreshold = 6
 
 // pcLayout is the computed geometry of the screen, shared by update and draw.
 type pcLayout struct {
@@ -111,6 +124,21 @@ func (pc *partyCreateState) clearDrag() {
 	pc.drag = nil
 	pc.dragFromSlot = -1
 	pc.dragFromPool = -1
+}
+
+// beginPending records a candidate for a possible drag and selects it now.
+func (pc *partyCreateState) beginPending(hero *pcHero, fromSlot, fromPool, x, y int) {
+	pc.pending = hero
+	pc.pendingSlot = fromSlot
+	pc.pendingPool = fromPool
+	pc.pressX, pc.pressY = x, y
+	pc.detail = hero // click selects immediately
+}
+
+func (pc *partyCreateState) clearPending() {
+	pc.pending = nil
+	pc.pendingSlot = -1
+	pc.pendingPool = -1
 }
 
 func (pc *partyCreateState) filledSlots() int {
@@ -181,6 +209,10 @@ func (g *MMGame) updatePartyCreate() {
 			pc.clearDrag()
 			return
 		}
+		if pc.pending != nil {
+			pc.clearPending()
+			return
+		}
 		backOut()
 		return
 	}
@@ -204,11 +236,28 @@ func (g *MMGame) updatePartyCreate() {
 		return
 	}
 
+	// A press is pending: promote to a drag once the cursor moves past the
+	// threshold; a release before then was just a click (already selected).
+	if pc.pending != nil {
+		if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+			pc.clearPending()
+			return
+		}
+		dx, dy := mouseX-pc.pressX, mouseY-pc.pressY
+		if dx*dx+dy*dy >= pcDragThreshold*pcDragThreshold {
+			pc.drag = pc.pending
+			pc.dragFromSlot = pc.pendingSlot
+			pc.dragFromPool = pc.pendingPool
+			pc.clearPending()
+		}
+		return
+	}
+
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return
 	}
 
-	// Buttons take priority over starting a drag.
+	// Buttons take priority over selecting/dragging a hero.
 	if pc.filledSlots() == 4 && lay.begin.contains(mouseX, mouseY) {
 		g.beginAdventure(pc)
 		return
@@ -218,23 +267,16 @@ func (g *MMGame) updatePartyCreate() {
 		return
 	}
 
-	// Grab from a slot.
+	// Press on a slot/pool hero: select it and arm a possible drag.
 	for i := 0; i < 4; i++ {
 		if pc.slots[i] != nil && lay.slots[i].contains(mouseX, mouseY) {
-			pc.drag = pc.slots[i]
-			pc.dragFromSlot = i
-			pc.dragFromPool = -1
-			pc.detail = pc.drag
+			pc.beginPending(pc.slots[i], i, -1, mouseX, mouseY)
 			return
 		}
 	}
-	// Grab from the pool.
 	for i, hero := range pc.pool {
 		if lay.pool[i].contains(mouseX, mouseY) {
-			pc.drag = hero
-			pc.dragFromSlot = -1
-			pc.dragFromPool = i
-			pc.detail = hero
+			pc.beginPending(hero, -1, i, mouseX, mouseY)
 			return
 		}
 	}
@@ -280,43 +322,20 @@ func (pc *partyCreateState) removeFromPool(idx int) {
 // beginAdventure assigns leftovers to jail/tavern per the config-captive rule
 // and starts a new game with the chosen party.
 func (g *MMGame) beginAdventure(pc *partyCreateState) {
-	var active, jail, reserve []*character.MMCharacter
+	var active []*character.MMCharacter
 	for _, s := range pc.slots {
 		if s != nil {
 			active = append(active, s.char)
 		}
 	}
 
-	leftover := make([]*pcHero, len(pc.pool))
-	copy(leftover, pc.pool)
-	used := make([]bool, len(leftover))
-
-	// Prefer config-flagged captives for the jail, then fill to jailTarget from
-	// the front of the remaining leftovers so the prison always holds the
-	// configured number (keeps the rescue narrative intact).
-	for i, hero := range leftover {
-		if len(jail) >= pc.jailTarget {
-			break
-		}
-		if hero.captiveFlag {
-			jail = append(jail, hero.char)
-			used[i] = true
-		}
+	// The jail/reserve split (captives-first, fill to jailTarget) is a domain
+	// rule — delegate it to the character package; the UI only maps its heroes.
+	leftovers := make([]character.LeftoverHero, 0, len(pc.pool))
+	for _, h := range pc.pool {
+		leftovers = append(leftovers, character.LeftoverHero{Char: h.char, Captive: h.captiveFlag})
 	}
-	for i, hero := range leftover {
-		if len(jail) >= pc.jailTarget {
-			break
-		}
-		if !used[i] {
-			jail = append(jail, hero.char)
-			used[i] = true
-		}
-	}
-	for i, hero := range leftover {
-		if !used[i] {
-			reserve = append(reserve, hero.char)
-		}
-	}
+	jail, reserve := character.PartitionLeftovers(leftovers, pc.jailTarget)
 
 	party := character.NewPartyFromGroups(g.config, active, jail, reserve)
 	g.partyCreate = nil
@@ -336,7 +355,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	ui.drawScreenBackdrop(screen, w, h, "screen_party_create_bg")
-	ebitenutil.DebugPrintAt(screen, "Assemble Your Party — drag four heroes into the slots", 24, 16)
+	ebitenutil.DebugPrintAt(screen, "To pick a hero, drag it into a party slot below", 24, 16)
 
 	ui.drawHeroDetailPanel(screen, pc.detail, lay.detail)
 
@@ -414,12 +433,14 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 	portH := r.h - 40
 	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char), r.x+14, r.y+14, r.w-28, portH-10)
 
-	drawCenteredDebugText(screen, hero.char.Name, r.x, r.y+portH-8, r.w, 14)
+	// Names sit over the portrait art — draw with a dark outline so they stay
+	// readable regardless of the portrait behind them.
+	drawCenteredTextWithShadow(screen, hero.char.Name, r.x, r.y+portH-8, r.w, 14, color.RGBA{240, 240, 250, 255})
 	sub := hero.char.Class.String()
 	if hero.entry.Race != "" {
-		sub = titleCase(hero.entry.Race) + " " + sub
+		sub = humanizeKey(hero.entry.Race) + " " + sub
 	}
-	drawCenteredDebugText(screen, sub, r.x, r.y+portH+6, r.w, 14)
+	drawCenteredTextWithShadow(screen, sub, r.x, r.y+portH+6, r.w, 14, color.RGBA{205, 205, 220, 255})
 
 	if selected {
 		drawRectBorder(screen, r.x+3, r.y+3, r.w-6, r.h-6, 2, color.RGBA{220, 225, 255, 255})
@@ -439,16 +460,39 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	// tall hero art crops minimally; inset to clear the ornate frame border.
 	portW := panel.w - 44
 	portH := portW * 5 / 4
-	if max := panel.h - 250; portH > max && max > 0 {
+	// Cap the portrait low so the stat/skill/magic sheet below always has room;
+	// skill-heavy heroes (clerics, paladins) otherwise overflow the panel.
+	if max := panel.h - 320; portH > max && max > 0 {
 		portH = max
 	}
 	ui.drawPortraitCover(screen, ui.game.bigPortraitName(c), panel.x+22, panel.y+22, portW, portH)
 
 	tx := panel.x + 24
-	ty := panel.y + portH + 34
+	ty := panel.y + portH + 30
+	contentBottom := panel.y + panel.h - 12
 	line := func(s string, col color.Color) {
+		if ty+debugTextCharHeight > contentBottom {
+			return // never draw past the panel — clip instead of overflowing
+		}
 		drawDebugTextColored(screen, s, tx, ty, col)
 		ty += 16
+	}
+	// Text right edge mirrors the left inset (tx = panel.x+24). wrapTokens packs
+	// tokens so the DRAWN string (prefix + content) fits, measuring the prefix the
+	// caller adds — otherwise lists run past the frame's right border.
+	maxLineW := panel.w - 48
+	wrapTokens := func(prefix, cont string, tokens []string, col color.Color) {
+		budget := maxLineW - debugTextWidth(cont)
+		if pb := maxLineW - debugTextWidth(prefix); pb < budget {
+			budget = pb
+		}
+		for i, ln := range wrapToWidth(tokens, budget) {
+			if i == 0 {
+				line(prefix+ln, col)
+			} else {
+				line(cont+ln, col)
+			}
+		}
 	}
 	white := color.RGBA{220, 220, 230, 255}
 	gold := color.RGBA{220, 200, 140, 255}
@@ -456,7 +500,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 
 	race := "Human"
 	if hero.entry.Race != "" {
-		race = titleCase(hero.entry.Race)
+		race = humanizeKey(hero.entry.Race)
 	}
 	line(fmt.Sprintf("%s — %s %s", c.Name, race, c.Class.String()), gold)
 	line(fmt.Sprintf("Level %d   HP %d/%d   SP %d/%d", c.Level, c.HitPoints, c.MaxHitPoints, c.SpellPoints, c.MaxSpellPoints), white)
@@ -469,11 +513,10 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	ty += 4
 
 	line("Equipment:", gold)
-	if it, ok := c.Equipment[items.SlotMainHand]; ok {
-		line("  "+it.Name, grey)
-	}
-	if it, ok := c.Equipment[items.SlotArmor]; ok {
-		line("  "+it.Name, grey)
+	for _, slot := range items.DisplayEquipSlots {
+		if it, ok := c.Equipment[slot]; ok {
+			line("  "+it.Name, grey)
+		}
 	}
 	ty += 4
 
@@ -484,21 +527,37 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 		}
 		sort.Strings(names)
 		line("Skills:", gold)
-		for _, n := range wrapToWidth(names, panel.w-28) {
-			line("  "+n, grey)
-		}
+		wrapTokens("  ", "  ", names, grey)
 	}
 
-	var schools []string
+	hasMagic := false
 	for _, id := range character.AllMagicSchools {
-		if ms, ok := c.MagicSchools[id]; ok {
-			schools = append(schools, fmt.Sprintf("%s:%d", titleCase(string(id)), len(ms.KnownSpells)))
+		if _, ok := c.MagicSchools[id]; ok {
+			hasMagic = true
+			break
 		}
 	}
-	if len(schools) > 0 {
-		line("Magic (school:spells):", gold)
-		for _, n := range wrapToWidth(schools, panel.w-28) {
-			line("  "+n, grey)
+	if hasMagic {
+		line("Magic:", gold)
+		for _, id := range character.AllMagicSchools {
+			ms, ok := c.MagicSchools[id]
+			if !ok {
+				continue
+			}
+			label := humanizeKey(string(id))
+			if len(ms.KnownSpells) == 0 {
+				line("  "+label, grey)
+				continue
+			}
+			var spellNames []string
+			for _, sid := range ms.KnownSpells {
+				if def, err := spells.GetSpellDefinitionByID(sid); err == nil && def.Name != "" {
+					spellNames = append(spellNames, def.Name)
+				} else {
+					spellNames = append(spellNames, humanizeKey(string(sid)))
+				}
+			}
+			wrapTokens("  "+label+": ", "      ", spellNames, grey)
 		}
 	}
 }
@@ -524,11 +583,4 @@ func wrapToWidth(tokens []string, maxPx int) []string {
 		lines = append(lines, cur)
 	}
 	return lines
-}
-
-func titleCase(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }

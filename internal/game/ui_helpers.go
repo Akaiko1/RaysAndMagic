@@ -447,15 +447,55 @@ func debugTextWidth(text string) int {
 	return utf8.RuneCountInString(text) * debugTextCharWidth
 }
 
+// humanizeKey turns a snake/kebab content key into a display label:
+// "dark_elf" → "Dark Elf". Shared UI helper for races, schools, etc.
+func humanizeKey(s string) string {
+	s = strings.ReplaceAll(s, "_", " ")
+	s = strings.ReplaceAll(s, "-", " ")
+	parts := strings.Fields(s)
+	for i, p := range parts {
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+// centeredTextPos is the top-left pixel at which `text` renders centered in the
+// box (x,y,w,h) for the debug font — shared by every centered-text drawer.
+func centeredTextPos(text string, x, y, w, h int) (int, int) {
+	return x + (w-debugTextWidth(text))/2, y + (h-debugTextCharHeight)/2
+}
+
 func drawCenteredDebugText(screen *ebiten.Image, text string, x, y, w, h int) {
 	if text == "" {
 		return
 	}
-	textW := debugTextWidth(text)
-	textH := debugTextCharHeight
-	drawX := x + (w-textW)/2
-	drawY := y + (h-textH)/2
+	drawX, drawY := centeredTextPos(text, x, y, w, h)
 	ebitenutil.DebugPrintAt(screen, text, drawX, drawY)
+}
+
+// drawCenteredTextWithShadow centers text in the box and lays a dark outline
+// behind it so light text stays legible over busy art (e.g. hero portraits).
+func drawCenteredTextWithShadow(screen *ebiten.Image, text string, x, y, w, h int, fg color.Color) {
+	if text == "" {
+		return
+	}
+	drawX, drawY := centeredTextPos(text, x, y, w, h)
+	shadow := color.RGBA{0, 0, 0, 235}
+	for _, d := range [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}} {
+		drawDebugTextColored(screen, text, drawX+d[0], drawY+d[1], shadow)
+	}
+	drawDebugTextColored(screen, text, drawX, drawY, fg)
+}
+
+// drawDebugTextShadowed draws left-aligned colored text with a soft drop shadow
+// one pixel down-right, lifting it off textured backgrounds (e.g. the parchment
+// character sheet). The shadow is warm-dark and translucent to suit the palette.
+func drawDebugTextShadowed(screen *ebiten.Image, text string, x, y int, fg color.Color) {
+	if text == "" {
+		return
+	}
+	drawDebugTextColored(screen, text, x+1, y+1, color.RGBA{35, 18, 8, 150})
+	drawDebugTextColored(screen, text, x, y, fg)
 }
 
 func ensureDebugTextScratch(width, height int) {

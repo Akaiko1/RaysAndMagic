@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
@@ -33,6 +34,8 @@ type LightSource struct {
 	Y         float64
 	Radius    float64
 	Intensity float64
+	Seed      int
+	Firefly   bool
 }
 
 type floorTexture struct {
@@ -67,6 +70,12 @@ type Renderer struct {
 	floorTexTileW        int
 	floorTexTileH        int
 	floorTexturesKey     string // biome the floor textures were loaded for (cache key)
+	canopyShadeFactors   []float64
+	canopyShadeW         int
+	canopyShadeH         int
+	canopyViewerAmbient  float64
+	canopyViewerFrame    int64
+	canopyViewerReady    bool
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
@@ -81,6 +90,20 @@ type Renderer struct {
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
+	// Reusable slab-surface buffers (A/B keep both crossed-tree slabs live for
+	// the interleaved arm draw) and the crossed-tree arm scratch list.
+	standeeSurfaces  []standeeSurface
+	standeeSurfacesB []standeeSurface
+	treeArms         []treeArm
+
+	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
+	statTreesDrawn   int
+	statStandeeCalls int
+	statAuraTiles    int
+	// Per-frame sprite-pass sub-phase timings (ms) for the perf overlay.
+	statFloorMs   float64
+	statWallsMs   float64
+	statSpritesMs float64
 	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
 	// world change alongside the other per-map caches.
 	wallTorches []wallTorchPoint
@@ -202,6 +225,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 		r.transparentSpritesCache = nil
 		r.treeTilesCache = nil
 		r.tileLightCache = nil
+		r.clearCanopyShadeCache()
 		return
 	}
 
@@ -225,12 +249,17 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				radius := tileData.Light.RadiusTiles * tileSize
 				intensity := tileData.Light.Intensity
 				if radius > 0 && intensity > 0 {
-					lights = append(lights, LightSource{
+					light := LightSource{
 						X:         worldX,
 						Y:         worldY,
 						Radius:    radius,
 						Intensity: intensity,
-					})
+					}
+					if isFireflySwarmTile(tileType) {
+						light.Seed = fireflySwarmSeed(tileX, tileY)
+						light.Firefly = true
+					}
+					lights = append(lights, light)
 				}
 			}
 
@@ -267,6 +296,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	r.transparentSpritesCache = cache
 	r.treeTilesCache = treeCache
 	r.tileLightCache = lights
+	r.buildCanopyShadeCache()
 	r.buildWallTorches()
 }
 
@@ -363,6 +393,9 @@ func (r *Renderer) updateActiveLights() {
 		radius := light.Radius
 		if radius <= 0 || light.Intensity <= 0 {
 			continue
+		}
+		if light.Firefly {
+			light.Intensity *= fireflySwarmFlicker(light.Seed, r.game.frameCount)
 		}
 		maxDist := viewDist + radius
 		dx := light.X - camX
@@ -488,9 +521,7 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	if brightness < r.game.config.Graphics.BrightnessMin {
 		brightness = r.game.config.Graphics.BrightnessMin
 	}
-	if r.ambientLight > 0 {
-		brightness *= r.ambientLight
-	}
+	brightness *= r.localAmbientAt(worldX, worldY)
 
 	for _, light := range r.activeLights {
 		brightness = r.applyLocalLight(brightness, light.X, light.Y, worldX, worldY, light.Radius, light.Intensity)
@@ -965,8 +996,17 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Clear depth buffer for this frame - optimized with slice header manipulation
 	viewDist := r.game.camera.ViewDist
 	depthBuf := r.game.depthBuffer
+	wallTopBuf := r.game.wallTopBuffer
 	for i := range depthBuf {
 		depthBuf[i] = viewDist
+		// Default wall top = 0 (screen top) = "occlude fully". This is the
+		// fail-SAFE default: any opaque depth-writer that doesn't record a real
+		// wall top leaves a sprite behind it fully clipped (the old behavior),
+		// never drawn through. Only a floor-anchored wall lowers it to reveal a
+		// taller sprite's canopy above the wall.
+		if i < len(wallTopBuf) {
+			wallTopBuf[i] = 0
+		}
 	}
 
 	// Calculate ray parameters first
@@ -1003,14 +1043,21 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer.EndRaycast()
 
 	// Draw simple floor and ceiling before walls/trees so trees are visible above floor
+	r.statTreesDrawn, r.statStandeeCalls, r.statAuraTiles = 0, 0, 0
 	r.game.threading.PerformanceMonitor.ProfiledFunction("sprite_render", func() {
+		tf := time.Now()
 		r.drawSimpleFloorCeiling(screen)
+		r.statFloorMs = float64(time.Since(tf).Microseconds()) / 1000.0
 
 		// Render the results and update depth buffer
+		tw := time.Now()
 		r.renderRaycastResults(screen, results)
+		r.statWallsMs = float64(time.Since(tw).Microseconds()) / 1000.0
 
 		// Draw all sprites (trees, ferns, monsters, NPCs) sorted by depth
+		ts := time.Now()
 		r.drawAllSpritesSorted(screen)
+		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
 
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
@@ -1289,6 +1336,23 @@ type treeHitData struct {
 // renderRaycastResults processes and renders the results from parallel raycasting.
 // Each result contains distance and hit information for one vertical screen column.
 // Tree sprites are collected and rendered in the unified sprite pass for proper transparency.
+// writeWallColumns records an opaque wall hit across its screen columns into
+// BOTH the depth buffer and the wall-top buffer (screen-Y of the wall's top), so
+// a tall sprite (tree standee) behind this wall clips at the wall's top edge and
+// still renders the canopy that rises above it. This is the single place an
+// opaque wall's occlusion is recorded — keeping both writes together prevents
+// the buffers from drifting out of sync.
+func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileType world.TileType3D) {
+	_, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, world.GetTileHeight(tileType))
+	for dx := 0; dx < width; dx++ {
+		x := screenX + dx
+		if x >= 0 && x < len(r.game.depthBuffer) {
+			r.game.depthBuffer[x] = distance
+			r.game.wallTopBuffer[x] = wallTop
+		}
+	}
+}
+
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
@@ -1316,13 +1380,10 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			for i := len(hitData.Hits) - 1; i >= 0; i-- {
 				hit := hitData.Hits[i]
 
-				// Update depth buffer only with solid objects
+				// Record depth + wall-top for solid objects (tall sprites clip on
+				// the wall's top edge so their canopy shows above shorter walls).
 				if !hit.IsTransparent {
-					for dx := 0; dx < currentRayWidth; dx++ {
-						if screenX+dx < len(r.game.depthBuffer) {
-							r.game.depthBuffer[screenX+dx] = hit.Distance
-						}
-					}
+					r.writeWallColumns(screenX, currentRayWidth, hit.Distance, hit.TileType)
 				}
 
 				// Collect tree hits for later sorted rendering
@@ -1342,12 +1403,8 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			// This case should ideally not be hit with the new system, but as a fallback:
 			hitInfo := hitData
 
-			// Update depth buffer for proper sprite occlusion
-			for dx := 0; dx < currentRayWidth; dx++ {
-				if screenX+dx < len(r.game.depthBuffer) {
-					r.game.depthBuffer[screenX+dx] = rayResult.Distance
-				}
-			}
+			// Record depth + wall-top for proper sprite occlusion.
+			r.writeWallColumns(screenX, currentRayWidth, rayResult.Distance, hitInfo.TileType)
 
 			// Collect tree hits for later sorted rendering
 			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == "tree_sprite" {
@@ -1446,6 +1503,11 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 
 	worldW := r.floorColorMap.Bounds().Dx()
 	worldH := r.floorColorMap.Bounds().Dy()
+	if len(r.canopyShadeFactors) == 0 ||
+		r.canopyShadeW != worldW ||
+		r.canopyShadeH != worldH {
+		r.buildCanopyShadeCache()
+	}
 
 	texAtlas := r.floorTexAtlas
 	if texAtlas == nil {
@@ -1503,6 +1565,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		ambient = 1
 	}
 	uniforms["Ambient"] = float32(ambient)
+	uniforms["ViewerAmbient"] = float32(r.viewerAmbient())
 	uniforms["TexCount"] = float32(r.floorTexCount)
 	uniforms["LightCount"] = float32(lightCount)
 	uniforms["Lights"] = lights
@@ -1717,6 +1780,13 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
 			if distance < r.game.depthBuffer[px] {
 				r.game.depthBuffer[px] = distance
+				// Opaque billboard: fully occlude a standee behind it (wall top 0).
+				// These sprites are screen-CENTERED, not floor-anchored, so their
+				// top is not a valid clip line; full-occlude matches the prior
+				// behavior and overrides any stale wall top from this column.
+				if px < len(r.game.wallTopBuffer) {
+					r.game.wallTopBuffer[px] = 0
+				}
 			}
 		}
 	}
@@ -2394,9 +2464,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			sprite := r.getProcessedSpriteByName(spriteData.tileType, spriteData.spriteName)
-			if sprite == nil {
-				continue
+			var sprite *ebiten.Image
+			if !isFireflySwarmTile(spriteData.tileType) {
+				sprite = r.getProcessedSpriteByName(spriteData.tileType, spriteData.spriteName)
+				if sprite == nil {
+					continue
+				}
 			}
 
 			sprites = append(sprites, UnifiedSpriteRenderData{
@@ -2658,6 +2731,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		case SpriteTypeEnvironment:
 			r.drawUnifiedEnvironmentSprite(screen, s)
 		case SpriteTypeTree:
+			r.statTreesDrawn++
 			if r.game.config.Graphics.TreesAsBillboards {
 				r.drawCrossedTreeStandees(screen, s)
 			} else {
@@ -2769,6 +2843,13 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
 	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	if isFireflySwarmTile(s.tileType) {
+		r.drawFireflySwarmEffect(screen, s, distance)
+		return
+	}
+	if s.sprite == nil {
+		return
+	}
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
 	b := float32(brightness)
 

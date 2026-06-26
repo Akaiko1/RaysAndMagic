@@ -699,6 +699,7 @@ var WorldSize vec2
 var ViewDist float
 var MinBrightness float
 var Ambient float
+var ViewerAmbient float
 var TexCount float
 var TexTileSize vec2
 var LightCount float
@@ -801,7 +802,11 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		brightness = MinBrightness
 	}
 	// Map ambient level: dark maps stay dark until point lights lift them.
-	brightness *= Ambient
+	localAmbient := Ambient
+	if ViewerAmbient > 0.0 && ViewerAmbient < localAmbient {
+		localAmbient = ViewerAmbient
+	}
+	brightness *= localAmbient
 	for i := 0; i < 32; i++ {
 		if float(i) >= LightCount {
 			break

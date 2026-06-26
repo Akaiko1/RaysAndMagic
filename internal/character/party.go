@@ -99,6 +99,41 @@ func StartingRoster(cfg *config.Config) (active, captives, recruits []config.Ros
 	return active, captives, cfg.Characters.TavernRecruits
 }
 
+// LeftoverHero is a benched hero awaiting assignment to the jail or the tavern
+// reserve, with whether the roster flagged it a captive.
+type LeftoverHero struct {
+	Char    *MMCharacter
+	Captive bool
+}
+
+// PartitionLeftovers splits benched heroes into the mountain prison (jail) and
+// the tavern reserve. Config-flagged captives fill the jail first, then
+// non-captives top it up to jailTarget so the prison always holds the configured
+// number (preserving the rescue narrative); everyone else joins the reserve.
+// Input order is preserved within each group.
+func PartitionLeftovers(leftovers []LeftoverHero, jailTarget int) (jail, reserve []*MMCharacter) {
+	used := make([]bool, len(leftovers))
+	take := func(wantCaptive bool) {
+		for i, h := range leftovers {
+			if len(jail) >= jailTarget {
+				return
+			}
+			if !used[i] && (!wantCaptive || h.Captive) {
+				jail = append(jail, h.Char)
+				used[i] = true
+			}
+		}
+	}
+	take(true)  // captives first
+	take(false) // then fill to jailTarget from the front
+	for i, h := range leftovers {
+		if !used[i] {
+			reserve = append(reserve, h.Char)
+		}
+	}
+	return jail, reserve
+}
+
 // newPartyBase allocates a party with the configured starting gold/food and an
 // empty inventory — the shared shell for every new-game constructor.
 func newPartyBase(cfg *config.Config) *Party {

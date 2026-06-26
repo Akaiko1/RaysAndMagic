@@ -22,6 +22,14 @@ const (
 	SlotSpell // Unified spell slot for any spell
 )
 
+// DisplayEquipSlots is the canonical render order of wearable equipment slots
+// (excludes the spell slot). UI panels iterate this so adding a slot surfaces it
+// everywhere without re-encoding the order per screen.
+var DisplayEquipSlots = []EquipSlot{
+	SlotMainHand, SlotOffHand, SlotArmor, SlotHelmet, SlotBoots,
+	SlotCloak, SlotGauntlets, SlotBelt, SlotAmulet, SlotRing1, SlotRing2,
+}
+
 // DisplayName is the player-facing slot label (item cards, tooltips).
 func (s EquipSlot) DisplayName() string {
 	switch s {
@@ -63,6 +71,16 @@ type Item struct {
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+}
+
+// PreferredSlot resolves where this item equips from its equip_slot attribute,
+// falling back to the given slot when unset. Single source for the
+// equip_slot→slot mapping (used by EquipItem and the class-kit loader).
+func (it Item) PreferredSlot(fallback EquipSlot) EquipSlot {
+	if code, ok := it.Attributes["equip_slot"]; ok {
+		return EquipSlot(code)
+	}
+	return fallback
 }
 
 type ItemType int

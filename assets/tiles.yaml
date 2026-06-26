@@ -545,6 +545,35 @@ tiles:
     letter: "K"
     biomes: ["jungle"]
 
+  # Jungle tree billboards: tall two-tile tree_sprites (crossed-standee render).
+  # NEW tiles with their own letters so the old trunk wall (T) and desert palm
+  # (P) stay placeable in the editor; the deep_jungle map uses V/Y in their place.
+  jungle_vine_tree:
+    name: "Strangler Vine Tree"
+    solid: true
+    transparent: false        # dense canopy: blocks sight, like the trunk wall it replaces
+    walkable: false
+    size_multiplier: 2.0
+    sprite: "tropical_vine_tree"
+    render_type: "tree_sprite"
+    wall_color: [92, 70, 48]
+    floor_near_color: [20, 70, 30]
+    letter: "V"
+    biomes: ["jungle"]
+
+  jungle_palm:
+    name: "Jungle Palms"
+    solid: true
+    transparent: true         # see-through like the desert palm — scattered decor, not a sight wall
+    walkable: false
+    size_multiplier: 2.0
+    sprite: "three_intertwined_palms"
+    render_type: "tree_sprite"
+    wall_color: [96, 128, 56]
+    floor_near_color: [20, 70, 30]
+    letter: "Y"
+    biomes: ["jungle"]
+
   # Jungle decor billboards (solid, see-through). G fern clump, O fallen log.
   jungle_fern:
     name: "Fern Clump"

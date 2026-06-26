@@ -334,6 +334,10 @@ type MMGame struct {
 
 	// Depth buffer for proper 3D rendering (distance per screen column)
 	depthBuffer []float64
+	// wallTopBuffer is the screen-Y of the nearest solid wall's TOP per column
+	// (parallel to depthBuffer). Lets tall sprites (tree standees) render the
+	// part that rises ABOVE a shorter wall instead of being culled whole-column.
+	wallTopBuffer []int
 
 	// Systems
 	gameLoop        *GameLoop
@@ -493,6 +497,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 			r, g, b = 255, 0, 255 // default key = magenta
 		}
 		sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
+		// Sprites whose interior magenta is intentional art: despill edges only.
+		sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
 	}
 
 	// Get world from WorldManager instead of creating new one
@@ -570,7 +576,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		threading: threadingComponents,
 
 		// Initialize depth buffer for proper 3D rendering
-		depthBuffer: make([]float64, cfg.GetScreenWidth()),
+		depthBuffer:   make([]float64, cfg.GetScreenWidth()),
+		wallTopBuffer: make([]int, cfg.GetScreenWidth()),
 
 		// Pre-allocate reusable slices to reduce GC pressure
 		reusableMonsterWrappers:     make([]entities.MonsterUpdateInterface, 0, 64),
@@ -991,6 +998,7 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 	g.config.Display.ScreenHeight = screenHeight
 
 	g.depthBuffer = make([]float64, screenWidth)
+	g.wallTopBuffer = make([]int, screenWidth)
 	g.skyImg = ebiten.NewImage(screenWidth, screenHeight/2)
 	g.groundImg = ebiten.NewImage(screenWidth, screenHeight/2)
 	g.UpdateSkyAndGroundColors()

@@ -1,56 +1,57 @@
 # Deep Jungle (biome: jungle) — 50x50, Amazon river-threaded wilderness
 # River Q splits south (várzea , + landing +) from north (terra-firme . + lost city)
 # Cross at fords S only. Tiles: . terra-firme , várzea : plaza/ruin S ford Q water
-#   # foliage R ruin T trunk K cliff (walls) | P palm G fern O log (decor)
+#   walls: # foliage R ruin K cliff | trees: V vine-tree (2-tile, blocks sight) Y palms (2-tile, see-through) | decor: G fern O log
+#   (old T trunk-wall & P desert-palm tiles still exist for the editor, just unused here)
 # Monsters: o ocelot j goblin h huntress d serpent_dancer x hexer g gorilla w warlord i idol
 # NPCs: deep_jungle_exit (riverboat back to Seabright). + = landing.
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TKKKKKKKKKKKKKOKTKK##KKKKKKKK#KOKKKRRRRRRR#GKKKKKT
-T...P..........#.O...#.....#..OG.RRRQQQQQRRR.....T
-T........O#.....................RRQQRRRRRQQRR....T
-T................O........O....RQQRR..:..RRQQR...T
-T....................O........RRQR.x::::::.RQRR..T
-T..T..#..T.........h...:::.P..RQR.::::h::::.RQR.PT
-TG........d#...G...O..:...:..RRQR::i:::::i::RQRR.T
-T.......#.T........O.T:h:.:..RQR.:::::::::::.RQR.T
-T..O.#.......:::#T....:P..:#ORQR.:::::::::::.RQR.T
-T...........:...:#.....:::..::::::::::w::::::RQR.T
-T.......x..:.#...:#.........PRQR.:::::::::::.RQR.T
-T........P.:.x:..:...........RQR.:::::::::::.RQR.T
-TP....G....:.....:.........h.RRQR::i:::::i::RQRR.T
-T.....#.....:...:........P..O.RQR#:::d:x:::.RQR..T
-T............:::O.........O...RRQ:.:::::::.RQRR..T
-T...#...O..Ph.........x........R:QRR..:..RRQQR##.T
-T.........#.G.#......P.O.......:RRQQRR:RRQQRR....T
-T..........P....T..........G.j...RRRQQ:QQRRR.....T
-T............O.....P......T........RRR:RRR.......T
-T...P.....T.....d.......G.............:........T.T
-T.....jG............#..G....P....................T
-T.............#.......P.....QQQQ.o............TO.T
-T.........................SQQQQQQ................T
-T......Go...........#.....SQQQQQQQ....O.P..j.....T
-T............P....GT...#.QSQQQQQQQQ......P.......T
-T..............G.#......QQS.....QQQQ.............T
-T.#........G...##......QQQS......QQQQ......#.....T
-T...P...T..O.........TQQQ.S.....T.QQQQ........#..T
-TQ..............O..QQQQQ........P...QQQ..S#...#..T
-TQ#G.......OPQQQQQQQQQQ..T..........TQQQQSQQQQ...T
-TQQ..T.#.S.QQQQQQQQQQQ...........G...OQQQSQQQQQQQT
-TQQQQ....SQQQQQQQQQQQ.T.....#..#.......QQSQQQQQQQT
-T.QQQQQQQSQQQ.QQQQQ.....#O....#..........SQQQQQQQT
-T.QQQQQQQSQ..............#.P.......O.....S,...QQQT
-T..QQQQQQS......,....T,....P.,..P...,..P..G......T
-T.P.,QQ..S,,P..,..##.#,..T..,...,....#..Q...o.,..T
-T....,,,..#,,,,P,..,.,.,.,..,.,.P.,j.QQQQQQQ.....T
-T,...P.P..,...,...,,..,#..,...o#,.,,QQQQQQQQQ.,,.T
-T#,..,,...,,P..,.,..,,j,,....,.,..,,QQQQ.QQQQ.,.,T
-T,..GT...,.o.P,,,.,.,,.,,..,.,..,,..QQQ..OQQQT...T
-T.,P.,,,...,..,,..P...,..,.,,.,,.,.QQQ.Og..QQQ,..T
-T,,,,,,,.T.,.,,,.,.,.,...P,,,,,.,,.,QQQ...QQQ,..OT
-TP,,.,,.,..,,P,,.Oo,,,,.,,,#,,,O..,,QQQQ.QQQQ..,,T
-T,,,,,,,,,,,,,,P,.,.,.,,,,,,,,,,,,,,QQQQSQQQQ,,P,T
-T..,@,,,,,,,P,j,...,,,.,,,,.P,.,,.,,,QQQSQQQ,P,,,T  >[npc:deep_jungle_exit]
-T,,,,,,,,,,,P,..,,,,P.,,,,.,,,,,,P,,,,,,S,,,P,,.,T
-T..,,+,,,,,,,,,,P,,,,.,,,,,,.,,,.P,,,,,,,,,.,,,P,T
-T..,,,,,,,,,,,,,,,PP,,,,,,,,,,,,,,,,,#P.,P,,,,,,,T
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+VKKKKKKKKKKKKKOKVKK##KKKKKKKK#KOKKKRRRRRRR#GKKKKKV
+V...Y..........#.O...#.....#..OG.RRRQQQQQRRR.....V
+V........O#.....................RRQQRRRRRQQRR....V
+V................O........O....RQQRR..:..RRQQR...V
+V....................O........RRQR.x::::::.RQRR..V
+V..V..#..V.........h...:::.Y..RQR.::::h::::.RQR.YV
+VG........d#...G...O..:...:..RRQR::i:::::i::RQRR.V
+V.......#.V........O.V:h:.:..RQR.:::::::::::.RQR.V
+V..O.#.......:::#V....:Y..:#ORQR.:::::::::::.RQR.V
+V...........:...:#.....:::..::::::::::w::::::RQR.V
+V.......x..:.#...:#.........YRQR.:::::::::::.RQR.V
+V........Y.:.x:..:...........RQR.:::::::::::.RQR.V
+VY....G....:.....:.........h.RRQR::i:::::i::RQRR.V
+V.....#.....:...:........Y..O.RQR#:::d:x:::.RQR..V
+V............:::O.........O...RRQ:.:::::::.RQRR..V
+V...#...O..Yh.........x........R:QRR..:..RRQQR##.V
+V.........#.G.#......Y.O.......:RRQQRR:RRQQRR....V
+V..........Y....V..........G.j...RRRQQ:QQRRR.....V
+V............O.....Y......V........RRR:RRR.......V
+V...Y.....V.....d.......G.............:........V.V
+V.....jG............#..G....Y....................V
+V.............#.......Y.....QQQQ.o............VO.V
+V.........................SQQQQQQ................V
+V......Go...........#.....SQQQQQQQ....O.Y..j.....V
+V............Y....GV...#.QSQQQQQQQQ......Y.......V
+V..............G.#......QQS.....QQQQ.............V
+V.#........G...##......QQQS......QQQQ......#.....V
+V...Y...V..O.........VQQQ.S.....V.QQQQ........#..V
+VQ..............O..QQQQQ........Y...QQQ..S#...#..V
+VQ#G.......OYQQQQQQQQQQ..V..........VQQQQSQQQQ...V
+VQQ..V.#.S.QQQQQQQQQQQ...........G...OQQQSQQQQQQQV
+VQQQQ....SQQQQQQQQQQQ.V.....#..#.......QQSQQQQQQQV
+V.QQQQQQQSQQQ.QQQQQ.....#O....#..........SQQQQQQQV
+V.QQQQQQQSQ..............#.Y.......O.....S,...QQQV
+V..QQQQQQS......,....V,....Y.,..Y...,..Y..G......V
+V.Y.,QQ..S,,Y..,..##.#,..V..,...,....#..Q...o.,..V
+V....,,,..#,,,,Y,..,.,.,.,..,.,.Y.,j.QQQQQQQ.....V
+V,...Y.Y..,...,...,,..,#..,...o#,.,,QQQQQQQQQ.,,.V
+V#,..,,...,,Y..,.,..,,j,,....,.,..,,QQQQ.QQQQ.,.,V
+V,..GV...,.o.Y,,,.,.,,.,,..,.,..,,..QQQ..OQQQV...V
+V.,Y.,,,...,..,,..Y...,..,.,,.,,.,.QQQ.Og..QQQ,..V
+V,,,,,,,.V.,.,,,.,.,.,...Y,,,,,.,,.,QQQ...QQQ,..OV
+VY,,.,,.,..,,Y,,.Oo,,,,.,,,#,,,O..,,QQQQ.QQQQ..,,V
+V,,,,,,,,,,,,,,Y,.,.,.,,,,,,,,,,,,,,QQQQSQQQQ,,Y,V
+V..,@,,,,,,,Y,j,...,,,.,,,,.Y,.,,.,,,QQQSQQQ,Y,,,V  >[npc:deep_jungle_exit]
+V,,,,,,,,,,,Y,..,,,,Y.,,,,.,,,,,,Y,,,,,,S,,,Y,,.,V
+V..,,+,,,,,,,,,,Y,,,,.,,,,,,.,,,.Y,,,,,,,,,.,,,Y,V
+V..,,,,,,,,,,,,,,,YY,,,,,,,,,,,,,,,,,#Y.,Y,,,,,,,V
+VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV

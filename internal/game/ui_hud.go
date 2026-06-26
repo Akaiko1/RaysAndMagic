@@ -938,6 +938,24 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 		fmt.Sprintf("TPS: %.1f", tps),
 	}
 
+	// Perf diagnostics: raycast vs sprite cost split, plus the per-frame draw
+	// counters that localize a frame-time spike (open-corridor rays vs tree
+	// standees vs impassable-aura tiles).
+	if ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
+		r := ui.game.gameLoop.renderer
+		stats := ui.game.threading.PerformanceMonitor.GetDetailedStats()
+		lines = append(lines,
+			fmt.Sprintf("ray: %.2fms", getPerfFloat(stats, "last_raycast_time_ms")),
+			fmt.Sprintf("spr: %.2fms", getPerfFloat(stats, "last_sprite_render_time_ms")),
+			fmt.Sprintf("  floor: %.2fms", r.statFloorMs),
+			fmt.Sprintf("  walls: %.2fms", r.statWallsMs),
+			fmt.Sprintf("  sprites: %.2fms", r.statSpritesMs),
+			fmt.Sprintf("trees: %d", r.statTreesDrawn),
+			fmt.Sprintf("standee dc: %d", r.statStandeeCalls),
+			fmt.Sprintf("aura: %d", r.statAuraTiles),
+		)
+	}
+
 	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
 	_ = compassX

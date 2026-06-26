@@ -266,7 +266,10 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(stats.MainHand)
 	}
 	if stats.Armor != "" {
-		c.Equipment[items.SlotArmor] = items.CreateItemFromYAML(stats.Armor)
+		// Route by the item's own equip_slot so a helmet/boots/etc. lands in its
+		// real slot (the field name is historical); body armor stays in SlotArmor.
+		it := items.CreateItemFromYAML(stats.Armor)
+		c.Equipment[it.PreferredSlot(items.SlotArmor)] = it
 	}
 	if stats.QuickTrap != "" {
 		// The starting trap occupies the SAME quick slot as quick spells.
@@ -746,19 +749,9 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		if !c.CanEquipArmor(item) {
 			return items.Item{}, false, false
 		}
-		// Use equip_slot attribute if defined, otherwise default to armor slot
-		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
-			slot = items.EquipSlot(equipSlotCode)
-		} else {
-			slot = items.SlotArmor
-		}
+		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
-		// Use equip_slot attribute if defined, otherwise default to ring slot 1
-		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
-			slot = items.EquipSlot(equipSlotCode)
-		} else {
-			slot = items.SlotRing1
-		}
+		slot = item.PreferredSlot(items.SlotRing1)
 	default:
 		return items.Item{}, false, false
 	}

@@ -334,6 +334,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	var tooltip string
 	var tooltipX, tooltipY int
 
+	// All character-sheet text gets a drop shadow so it lifts off the parchment.
+	// A local closure shadows the package draw so every call below is covered.
+	drawDebugTextColored := drawDebugTextShadowed
+
 	// Character layout — centre the portrait+scroll block within the 700-wide panel.
 	const (
 		portraitSize = 180
@@ -517,6 +521,8 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	if member == nil {
 		return
 	}
+	// Drop shadow on all sheet text (see drawCharactersContent).
+	drawDebugTextColored := drawDebugTextShadowed
 
 	// Physical mitigation is a PIPELINE, not a single number: combat subtracts the
 	// flat armor+skill, THEN applies resistance %, THEN the flat buff (and floors

@@ -440,6 +440,12 @@ type GraphicsConfig struct {
 	// draw. Each screen ray that crosses either center-plane of a tree tile
 	// draws a textured vertical slice; see drawTreeBillboardSlice.
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
+
+	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
+	// standee degrades to a single (non-crossed) standee plane — ~4× fewer draws
+	// for distant trees whose cross is sub-pixel anyway. <=0 disables the LOD
+	// (always full crossed standee). Trees only; other standees are unaffected.
+	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
 }
 
 // StandeeConfig tunes the board-game standee rendering mode.
@@ -473,6 +479,12 @@ type ColorKeyConfig struct {
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
+	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
+	// "<name>_<animType>") whose interior magenta is intentional art. For these,
+	// despill runs ONLY within EdgeDespillRadius px of a transparent edge — the
+	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
+	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
+	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 → default
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
@@ -578,6 +590,9 @@ type MapConfig struct {
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.
 	AmbientLight float64 `yaml:"ambient_light,omitempty"`
+	// CanopyShade locally lowers ambient light where tree_sprite tiles are dense.
+	// It keeps open areas at normal map ambient while making forests feel shaded.
+	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
 	// WallTorches places a flickering torch (particle flame + point light) at
 	// every inner wall corner of the map — the classic dungeon/temple dressing
 	// for dark maps.
@@ -592,12 +607,23 @@ type MapConfig struct {
 	ClearEncounters []MapClearEncounterConfig `yaml:"clear_encounters,omitempty"`
 }
 
+type MapCanopyShadeConfig struct {
+	MinAmbient   float64 `yaml:"min_ambient,omitempty"`
+	RadiusTiles  float64 `yaml:"radius_tiles,omitempty"`
+	StartDensity int     `yaml:"start_density,omitempty"`
+	FullDensity  int     `yaml:"full_density,omitempty"`
+}
+
 // BiomeConfig holds the data-driven appearance shared by every map of a
 // biome. Floor textures live here (keyed by group name; tiles select a
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
 	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
+	// this biome (the off-map backdrop wall). Empty → the global "seaview"
+	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
+	OutOfBoundsTile string `yaml:"out_of_bounds_tile,omitempty"`
 }
 
 type MapClearEncounterConfig struct {
@@ -750,6 +776,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
+	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to a single plane
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
