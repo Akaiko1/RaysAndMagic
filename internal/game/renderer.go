@@ -2384,8 +2384,10 @@ type UnifiedSpriteRenderData struct {
 	tileY    int
 	tileType world.TileType3D
 	// Monster specific
-	monster     *monster.Monster3D
-	monsterFlip bool
+	monster        *monster.Monster3D
+	monsterFlip    bool
+	monsterRenderX float64
+	monsterRenderY float64
 	// NPC specific
 	npc *character.NPC
 	// Ground container (loot bag / treasure chest) specific
@@ -2407,6 +2409,68 @@ const (
 	nearTreeLODStride    = 4  // base stride at the near edge (nearTreeLODTiles out)
 	nearTreeLODMaxStride = 32 // clamp: point-blank keeps ~screenWidth/this columns
 )
+
+const (
+	tbFrontDiagonalMonsterForwardTiles = 1.05
+	tbFrontDiagonalMonsterLateralTiles = 0.28
+)
+
+func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float64) {
+	if mon == nil || r == nil || r.game == nil || !r.game.turnBasedMode || mon.HasRangedAttack() {
+		if mon == nil {
+			return 0, 0
+		}
+		return mon.X, mon.Y
+	}
+	if r.game.combat == nil || !r.game.combat.monsterMeleeAdjacentToParty(mon) {
+		return mon.X, mon.Y
+	}
+
+	tileSize := float64(r.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return mon.X, mon.Y
+	}
+	ptx, pty := r.game.GetPlayerTilePosition()
+	mtx, mty := int(mon.X/tileSize), int(mon.Y/tileSize)
+	mdx, mdy := mtx-ptx, mty-pty
+	if mdx == 0 || mdy == 0 {
+		return mon.X, mon.Y
+	}
+
+	fx, fy := cardinalForwardFromAngle(r.game.camera.Angle)
+	rx, ry := -fy, fx
+	side := 0
+	for _, s := range [2]int{-1, 1} {
+		if mdx == fx+s*rx && mdy == fy+s*ry {
+			side = s
+			break
+		}
+	}
+	if side == 0 {
+		return mon.X, mon.Y
+	}
+
+	fakeX := r.game.camera.X + float64(fx)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(side*rx)*tbFrontDiagonalMonsterLateralTiles*tileSize
+	fakeY := r.game.camera.Y + float64(fy)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(side*ry)*tbFrontDiagonalMonsterLateralTiles*tileSize
+	if r.game.collisionSystem != nil && !r.game.collisionSystem.CheckLineOfSight(r.game.camera.X, r.game.camera.Y, fakeX, fakeY) {
+		return mon.X, mon.Y
+	}
+	return fakeX, fakeY
+}
+
+func cardinalForwardFromAngle(angle float64) (int, int) {
+	c, s := math.Cos(angle), math.Sin(angle)
+	if math.Abs(c) >= math.Abs(s) {
+		if c < 0 {
+			return -1, 0
+		}
+		return 1, 0
+	}
+	if s < 0 {
+		return 0, -1
+	}
+	return 0, 1
+}
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
 // and renders them sorted by depth for proper transparency and occlusion.
@@ -2554,8 +2618,10 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 
-		dx := mon.X - camX
-		dy := mon.Y - camY
+		renderX, renderY := r.monsterVisualPosition(mon)
+
+		dx := renderX - camX
+		dy := renderY - camY
 		distanceSq := dx*dx + dy*dy
 
 		if distanceSq > viewDistSq {
@@ -2569,7 +2635,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 		distance := math.Sqrt(distanceSq)
 		sizeMultiplier := mon.GetSizeGameMultiplier()
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(mon.X, mon.Y, distance, sizeMultiplier)
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeMultiplier)
 		if visible && mon.Flying {
 			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
 		}
@@ -2580,14 +2646,16 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		sprite, flip := r.getMonsterSprite(mon)
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
-			spriteType:  SpriteTypeMonster,
-			screenX:     screenX,
-			screenY:     screenY,
-			spriteSize:  spriteSize,
-			depthPerp:   depthPerp,
-			sprite:      sprite,
-			monster:     mon,
-			monsterFlip: flip,
+			spriteType:     SpriteTypeMonster,
+			screenX:        screenX,
+			screenY:        screenY,
+			spriteSize:     spriteSize,
+			depthPerp:      depthPerp,
+			sprite:         sprite,
+			monster:        mon,
+			monsterFlip:    flip,
+			monsterRenderX: renderX,
+			monsterRenderY: renderY,
 		})
 	}
 
@@ -2891,6 +2959,10 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
+	renderX, renderY := s.monsterRenderX, s.monsterRenderY
+	if renderX == 0 && renderY == 0 && s.monster != nil {
+		renderX, renderY = s.monster.X, s.monster.Y
+	}
 
 	drawLeft := s.screenX - s.spriteSize/2
 	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
@@ -2918,8 +2990,8 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	distance := Distance(s.monster.X, s.monster.Y, r.game.camera.X, r.game.camera.Y)
-	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
+	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
+	brightness := r.calculateBrightnessWithTorchLight(renderX, renderY, distance)
 	br := float32(brightness)
 	rr, gg, bb := br, br, br
 	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
@@ -2954,7 +3026,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// minimum angle away from the sight line. Clamping the TARGET (before
 		// easing) keeps the correction itself smooth.
 		if minDeg := r.game.config.Graphics.Standee.MinViewAngleDeg; minDeg > 0 {
-			viewAngle := math.Atan2(m.Y-r.game.camera.Y, m.X-r.game.camera.X)
+			viewAngle := math.Atan2(renderY-r.game.camera.Y, renderX-r.game.camera.X)
 			target = clampYawFromEdgeOn(target, viewAngle, minDeg*math.Pi/180)
 		}
 		if m.StandeeYawTick == 0 {
@@ -2988,7 +3060,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 		// Hit shake, standee edition: rattle the token along its own axis in
 		// world space (same amplitude/phase as the billboard's screen shake).
-		entX, entY := m.X, m.Y
+		entX, entY := renderX, renderY
 		if m.HitTintFrames > 0 {
 			f := float64(m.HitTintFrames) / float64(MonsterHitFlashFrames)
 			if f > 1 {

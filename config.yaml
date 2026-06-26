@@ -27,7 +27,7 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  field_of_view: 1.570796327  # pi/2 (90 degrees; shows the three front-adjacent tiles)
+  field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
   view_distance: 3200          # 50 * tile_size
 
 # UI settings

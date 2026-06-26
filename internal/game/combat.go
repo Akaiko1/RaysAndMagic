@@ -1122,6 +1122,9 @@ func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dis
 		return false
 	}
 	if dist <= attackRange {
+		if monster.HasRangedAttack() {
+			return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, cs.game.camera.X, cs.game.camera.Y)
+		}
 		return true
 	}
 	if monster.HasRangedAttack() {

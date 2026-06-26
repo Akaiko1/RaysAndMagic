@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	"ugataima/internal/character"
@@ -199,6 +200,37 @@ func TestTurnBased_MeleeAttacksDiagonally(t *testing.T) {
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("melee monster should attack from a diagonal tile")
+	}
+}
+
+func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	game.camera.Angle = 0 // facing east
+	r := &Renderer{game: game}
+
+	frontDiag := spawnMonsterAtTile(game, "goblin", 11, 9, ts)
+	vx, vy := r.monsterVisualPosition(frontDiag)
+	if vx == frontDiag.X && vy == frontDiag.Y {
+		t.Fatalf("front-diagonal melee monster should be visually pulled into the TB front view")
+	}
+	if got, want := vx-game.camera.X, tbFrontDiagonalMonsterForwardTiles*ts; math.Abs(got-want) > 1e-6 {
+		t.Fatalf("visual forward offset = %.2f, want %.2f", got, want)
+	}
+	if got, want := game.camera.Y-vy, tbFrontDiagonalMonsterLateralTiles*ts; math.Abs(got-want) > 1e-6 {
+		t.Fatalf("visual lateral offset = %.2f, want %.2f", got, want)
+	}
+
+	backDiag := spawnMonsterAtTile(game, "goblin", 9, 9, ts)
+	vx, vy = r.monsterVisualPosition(backDiag)
+	if vx != backDiag.X || vy != backDiag.Y {
+		t.Fatalf("back-diagonal monster should not be visually pulled")
+	}
+
+	game.turnBasedMode = false
+	vx, vy = r.monsterVisualPosition(frontDiag)
+	if vx != frontDiag.X || vy != frontDiag.Y {
+		t.Fatalf("real-time mode should use the monster's real position")
 	}
 }
 
