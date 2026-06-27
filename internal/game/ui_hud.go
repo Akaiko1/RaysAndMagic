@@ -13,7 +13,6 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -204,9 +203,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		statusColX := x + portraitColWidth + 4
 		statusColWidth := (portraitWidth - portraitColWidth - 12) / 2
 
-		ebitenutil.DebugPrintAt(screen, member.Name, statusColX, startY+15)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
+		drawDebugText(screen, member.Name, statusColX, startY+15)
+		drawDebugText(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
+		drawDebugText(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
 
 		// Add character condition status
 		statusText := "OK"
@@ -217,7 +216,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 			statusText = strings.Join(conds, ", ")
 		}
-		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+60)
+		drawDebugText(screen, statusText, statusColX, startY+60)
 
 		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
 		equipColX := statusColX + statusColWidth - 12
@@ -228,9 +227,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(weaponText) > 12 { // Truncate if too long
 				weaponText = weaponText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, weaponText, equipColX, startY+15)
+			drawDebugText(screen, weaponText, equipColX, startY+15)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "W:None", equipColX, startY+15)
+			drawDebugText(screen, "W:None", equipColX, startY+15)
 		}
 
 		// Show equipped spell (unified slot)
@@ -239,9 +238,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(spellText) > 12 { // Truncate if too long
 				spellText = spellText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, spellText, equipColX, startY+30)
+			drawDebugText(screen, spellText, equipColX, startY+30)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "S:None", equipColX, startY+30)
+			drawDebugText(screen, "S:None", equipColX, startY+30)
 		}
 
 		// Draw + button for stat points if available (under portrait)
@@ -420,7 +419,7 @@ func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, po
 	}
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", x+2, y+2, w-4, h-4)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
+	drawDebugText(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
 }
 
 func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
@@ -502,7 +501,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 		}
 		screen.DrawImage(sprite, opts)
 	} else if fallback != "" {
-		ebitenutil.DebugPrintAt(screen, fallback, x+size/2-4, y+size/2-4)
+		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
 
 	// Draw duration bar at bottom of icon
@@ -880,7 +879,7 @@ func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
 	}
 }
 
@@ -976,7 +975,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
 	}
 }
 
@@ -1041,10 +1040,10 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	// Draw the interaction message
 	textX := notificationX + padding
 	textY := notificationY + padding
-	ebitenutil.DebugPrintAt(screen, message, textX, textY)
+	drawDebugText(screen, message, textX, textY)
 }
 
 // drawInstructions draws the control instructions
 func (ui *UISystem) drawInstructions(screen *ebiten.Image) {
-	ebitenutil.DebugPrintAt(screen, "ESC: Main menu", 10, 10)
+	drawDebugText(screen, "ESC: Main menu", 10, 10)
 }

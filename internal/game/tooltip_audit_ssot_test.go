@@ -101,7 +101,7 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ray_of_light sd: %v", err)
 	}
-	joined := strings.Join(character.RenderCardLines(character.SpellCardSections("ray_of_light", def, sd, character.ArmorPhysicalReductionDivisor), true), "\n")
+	joined := strings.Join(character.RenderCardLines(character.SpellCardSections("ray_of_light", def, sd), true), "\n")
 	// Ray of Light scales with BOTH stats (school Intellect + the personality flag).
 	if !strings.Contains(joined, "Intellect / 3") || !strings.Contains(joined, "Personality / 3") {
 		t.Errorf("Ray of Light editor card must scale with BOTH Intellect and Personality:\n%s", joined)

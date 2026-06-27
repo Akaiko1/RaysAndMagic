@@ -89,19 +89,17 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
-	// When game over, only allow New Game or Load
+	// Game over: the on-screen buttons (New Game / Load / Main Menu / Quit) are
+	// handled in drawGameOverOverlay via consumeLeftClickIn; these keys mirror them.
 	if ih.game.gameOver {
-		if ih.game.mainMenuOpen && ih.game.mainMenuMode == MenuLoadSelect {
-			ih.handleMainMenuInput()
-			return
-		}
 		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
 			ih.restartNewGame()
 			return
 		}
 		if ih.loadKeyTracker.IsKeyJustPressed(ebiten.KeyL) {
-			ih.game.mainMenuOpen = true
-			ih.game.mainMenuMode = MenuLoadSelect
+			ih.game.returnToMainMenu()
+			ih.game.entryMenuMode = EntryMenuLoad
+			ih.game.slotSelection = 0
 			return
 		}
 		return
@@ -520,8 +518,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.slotSelection = 0
 			case 3: // High Scores
 				ih.game.showHighScores = true
-			case 4: // Exit
-				ih.game.exitRequested = true
+			case 4: // Main Menu (return to title, not quit the app)
+				ih.game.returnToMainMenu()
 			}
 		}
 
@@ -539,7 +537,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 3:
 				ih.game.showHighScores = true
 			case 4:
-				ih.game.exitRequested = true
+				ih.game.returnToMainMenu()
 			}
 		}
 	case MenuSaveSelect:

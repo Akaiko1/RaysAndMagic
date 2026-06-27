@@ -72,8 +72,15 @@ const (
 	// ArmorPierceRangedChancePct: a ranged physical hit has this % chance to
 	// ignore the target's armor entirely.
 	ArmorPierceRangedChancePct = 33
-	// ArmorPhysicalReductionDivisor: physical damage is reduced by AC/this.
-	ArmorPhysicalReductionDivisor = 2
+	// Party armor mitigation — a PERCENTAGE model with diminishing returns:
+	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
+	//   elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
+	// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
+	// exact AC where physical reaches 75% — not capping out far earlier.
+	// K sets the curve (AC == K gives 50% pre-cap).
+	ArmorMitigationK            = 45
+	ArmorPhysicalMitigationCap  = 75
+	ArmorElementalMitigationCap = 33
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing (buff magnitudes stay flat; duration
 	// scales via SpellMasteryDurationBonusPct).

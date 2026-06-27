@@ -207,7 +207,7 @@ weapons:
     damage: 10
     range: 1  # 1 tile reach
     bonus_stat: "Might"
-    damage_type: "light"  # holy silver: ignores Armor Class, meets Light resistance
+    damage_type: "light"  # holy silver: armor barely mitigates (elemental cap), meets Light resistance
     crit_chance: 12
     rarity: "rare"
     value: 250

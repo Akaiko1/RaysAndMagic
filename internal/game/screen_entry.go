@@ -7,7 +7,6 @@ import (
 	"ugataima/internal/config"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -63,6 +62,17 @@ func (g *MMGame) updateEntryMenu() {
 			g.achievementsScroll--
 		}
 	}
+}
+
+// returnToMainMenu leaves the current game and shows the title screen — the
+// in-game ESC menu's "Main Menu" option. It does NOT quit the app (the title
+// screen's own "Quit" does). The world/party stay in memory but aren't drawn
+// while on the title; Start/Load from the title replaces them.
+func (g *MMGame) returnToMainMenu() {
+	g.mainMenuOpen = false
+	g.mainMenuMode = MenuMain
+	g.entryMenuMode = EntryMenuRoot
+	g.appScreen = AppScreenMainMenu
 }
 
 // enterPartyCreate switches to the party-creation screen, building the hero pool.
@@ -136,7 +146,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
-	ebitenutil.DebugPrintAt(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
+	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	rowX := px + menuFrameInset
@@ -172,7 +182,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			}
 			label = fmt.Sprintf("Slot %d — %s  [%s %s]", i+1, truncateSaveName(name, 18), mode, t)
 		}
-		ebitenutil.DebugPrintAt(screen, label, rowX+12, y+rowH/2-12)
+		drawDebugText(screen, label, rowX+12, y+rowH/2-12)
 
 		if sum.Exists && g.consumeLeftClickIn(rowX, y, rowX+rowW, y+rowH-8) {
 			if err := g.LoadGameFromFile(slotPath(i)); err != nil {
@@ -202,7 +212,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
-	ebitenutil.DebugPrintAt(screen, "Achievements", px+menuFrameInset, py+menuFrameInset-4)
+	drawDebugText(screen, "Achievements", px+menuFrameInset, py+menuFrameInset-4)
 
 	defs := config.GetAchievements()
 	listX := px + menuFrameInset
@@ -213,7 +223,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	visibleRows := (backY - listY - 8) / rowH
 
 	if len(defs) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No achievements defined.", listX, listY+8)
+		drawDebugText(screen, "No achievements defined.", listX, listY+8)
 		ui.drawBackButton(screen, listX, backY, func() { g.entryMenuMode = EntryMenuRoot })
 		return
 	}
@@ -256,7 +266,7 @@ func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	}
 
 	if maxScroll > 0 {
-		ebitenutil.DebugPrintAt(screen, "Scroll: mouse wheel", px+panelW-menuFrameInset-150, py+menuFrameInset-4)
+		drawDebugText(screen, "Scroll: mouse wheel", px+panelW-menuFrameInset-150, py+menuFrameInset-4)
 	}
 	ui.drawBackButton(screen, listX, backY, func() { g.entryMenuMode = EntryMenuRoot })
 }

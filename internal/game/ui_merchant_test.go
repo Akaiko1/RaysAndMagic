@@ -6,7 +6,7 @@ func TestPageCount(t *testing.T) {
 	cases := []struct {
 		n, size, want int
 	}{
-		{0, 12, 1},  // empty list still has a valid page 0
+		{0, 12, 1}, // empty list still has a valid page 0
 		{1, 12, 1},
 		{12, 12, 1}, // exactly one full page
 		{13, 12, 2}, // one over spills to a second page

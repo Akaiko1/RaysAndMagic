@@ -2415,47 +2415,28 @@ const (
 	tbFrontDiagonalMonsterLateralTiles = 0.28
 )
 
+// monsterVisualPosition is where a monster is DRAWN: usually its true spot, but a
+// turn-based front-diagonal melee neighbour is "pulled" to read as in-front-of-you
+// rather than sliding to the screen edge. The pull geometry lives in ONE place —
+// CombatSystem.pulledFrontSlot — shared with the combat resolver so the sprite and
+// the hit can't drift apart. Only a genuinely PULLED slot moves the sprite.
 func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float64) {
-	if mon == nil || r == nil || r.game == nil || !r.game.turnBasedMode || mon.HasRangedAttack() {
-		if mon == nil {
-			return 0, 0
-		}
-		return mon.X, mon.Y
+	if mon == nil {
+		return 0, 0
 	}
-	if r.game.combat == nil || !r.game.combat.monsterMeleeAdjacentToParty(mon) {
-		return mon.X, mon.Y
+	if r != nil && r.game != nil && r.game.combat != nil {
+		return r.game.combat.monsterVisualPos(mon)
 	}
+	return mon.X, mon.Y
+}
 
-	tileSize := float64(r.game.config.GetTileSize())
-	if tileSize <= 0 {
-		return mon.X, mon.Y
+// monsterHitShakeSizePx clamps the sprite size that scales the on-hit shudder so
+// huge sprites don't jolt unboundedly every frame (see MonsterHitShakeMaxRefPx).
+func monsterHitShakeSizePx(spriteSize int) float64 {
+	if s := float64(spriteSize); s < MonsterHitShakeMaxRefPx {
+		return s
 	}
-	ptx, pty := r.game.GetPlayerTilePosition()
-	mtx, mty := int(mon.X/tileSize), int(mon.Y/tileSize)
-	mdx, mdy := mtx-ptx, mty-pty
-	if mdx == 0 || mdy == 0 {
-		return mon.X, mon.Y
-	}
-
-	fx, fy := cardinalForwardFromAngle(r.game.camera.Angle)
-	rx, ry := -fy, fx
-	side := 0
-	for _, s := range [2]int{-1, 1} {
-		if mdx == fx+s*rx && mdy == fy+s*ry {
-			side = s
-			break
-		}
-	}
-	if side == 0 {
-		return mon.X, mon.Y
-	}
-
-	fakeX := r.game.camera.X + float64(fx)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(side*rx)*tbFrontDiagonalMonsterLateralTiles*tileSize
-	fakeY := r.game.camera.Y + float64(fy)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(side*ry)*tbFrontDiagonalMonsterLateralTiles*tileSize
-	if r.game.collisionSystem != nil && !r.game.collisionSystem.CheckLineOfSight(r.game.camera.X, r.game.camera.Y, fakeX, fakeY) {
-		return mon.X, mon.Y
-	}
-	return fakeX, fakeY
+	return MonsterHitShakeMaxRefPx
 }
 
 func cardinalForwardFromAngle(angle float64) (int, int) {
@@ -2959,10 +2940,8 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
+	// drawAllSpritesSorted always stamps the visual position (true or pulled).
 	renderX, renderY := s.monsterRenderX, s.monsterRenderY
-	if renderX == 0 && renderY == 0 && s.monster != nil {
-		renderX, renderY = s.monster.X, s.monster.Y
-	}
 
 	drawLeft := s.screenX - s.spriteSize/2
 	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
@@ -2977,7 +2956,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		if s.monster.HitTintFrames%2 == 0 {
 			dir = -1.0
 		}
-		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * float64(s.spriteSize))
+		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize))
 	}
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
@@ -3071,7 +3050,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 				dir = -1.0
 			}
 			halfFovTan := math.Tan(r.game.camera.FOV / 2)
-			worldLen := float64(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
+			worldLen := monsterHitShakeSizePx(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
 			off := dir * f * MonsterHitShakeAmplitudeFrac * worldLen
 			entX += math.Cos(m.StandeeYaw) * off
 			entY += math.Sin(m.StandeeYaw) * off

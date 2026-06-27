@@ -164,10 +164,32 @@ func (cs *CombatSystem) CalculateArmorClassContribution(item items.Item, char *c
 func (cs *CombatSystem) armorClassContributionWithEnd(item items.Item, char *character.MMCharacter, effectiveEndurance int) int {
 	baseArmor := item.Attributes["armor_class_base"]
 	baseArmor += cs.armorMasteryBonus(char, item)
-	if enduranceDiv := item.Attributes["endurance_scaling_divisor"]; enduranceDiv > 0 {
+	if enduranceDiv, ok := armorEnduranceScalingDivisor(item); ok {
 		baseArmor += effectiveEndurance / enduranceDiv
 	}
 	return baseArmor
+}
+
+// armorEnduranceScalingDivisor is the design rule for armor AC scaling.
+// Keep this aligned with assets/items.yaml:
+//   - leather scales as END/10
+//   - chain scales as END/7
+//   - plate scales as END/5
+//
+// Cloth, shields, accessories, and any future armor category not explicitly
+// listed here are flat AC: no Endurance contribution, even if stale YAML data
+// accidentally contains endurance_scaling_divisor.
+func armorEnduranceScalingDivisor(item items.Item) (int, bool) {
+	div := item.Attributes["endurance_scaling_divisor"]
+	if div <= 0 {
+		return 0, false
+	}
+	switch strings.ToLower(item.ArmorCategory) {
+	case "leather", "chain", "plate":
+		return div, true
+	default:
+		return 0, false
+	}
 }
 
 // CalculateTotalArmorClass returns total AC from all equipped armor slots.

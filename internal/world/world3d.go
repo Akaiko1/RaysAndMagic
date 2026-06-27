@@ -53,7 +53,7 @@ type World3D struct {
 	config   *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
-	// to "seaview".
+	// to "oob_cliff".
 	OutOfBoundsKey string
 	// Starting position from map file
 	StartX int
@@ -70,7 +70,7 @@ func NewWorld3D(cfg *config.Config) *World3D {
 		Items:          make([]*character.WorldItem, 0),
 		Teachers:       make([]*character.SkillTeacher, 0),
 		config:         cfg,
-		OutOfBoundsKey: "seaview",
+		OutOfBoundsKey: "oob_cliff",
 	}
 
 	// Note: Map loading is now handled by WorldManager
@@ -172,13 +172,13 @@ func (w *World3D) GetTileAt(x, y float64) TileType3D {
 		// Off-map backdrop: render the biome's out-of-bounds wall (cached sprite)
 		// rather than the empty-sprite stone wall, whose per-column gray
 		// placeholder is the laggy gray border seen once trees stopped blocking
-		// rays. Per-biome via OutOfBoundsKey (jungle = foliage, default seaview).
+		// rays. Per-biome via OutOfBoundsKey (jungle = foliage, default oob_cliff).
 		// Concurrent map reads are safe (keyToType is fixed after load).
 		if GlobalTileManager != nil {
 			if t, ok := GlobalTileManager.GetTileTypeFromKey(w.OutOfBoundsKey); ok {
 				return t
 			}
-			if t, ok := GlobalTileManager.GetTileTypeFromKey("seaview"); ok {
+			if t, ok := GlobalTileManager.GetTileTypeFromKey("oob_cliff"); ok {
 				return t
 			}
 		}

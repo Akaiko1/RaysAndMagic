@@ -11,7 +11,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -355,7 +354,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	ui.drawScreenBackdrop(screen, w, h, "screen_party_create_bg")
-	ebitenutil.DebugPrintAt(screen, "To pick a hero, drag it into a party slot below", 24, 16)
+	drawDebugText(screen, "To pick a hero, drag it into a party slot below", 24, 16)
 
 	ui.drawHeroDetailPanel(screen, pc.detail, lay.detail)
 
@@ -381,7 +380,7 @@ func (ui *UISystem) drawPartyCreateScreen(screen *ebiten.Image) {
 		}
 		ui.drawHeroCard(screen, hero, lay.pool[i], hero == pc.detail)
 	}
-	ebitenutil.DebugPrintAt(screen, "Available heroes", lay.detail.x+lay.detail.w+20, lay.detail.y-18)
+	drawDebugText(screen, "Available heroes", lay.detail.x+lay.detail.w+20, lay.detail.y-18)
 
 	// Begin / Back buttons.
 	if pc.filledSlots() == 4 {

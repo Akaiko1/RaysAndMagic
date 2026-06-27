@@ -11,7 +11,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -34,7 +33,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	gridY := contentY + 84
 
 	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
+	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
 		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems()),
 		paperX, contentY+29)
 
@@ -131,8 +130,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ui.drawInventoryContextMenu(screen)
 
 	instructionY := contentY + contentHeight - 35
-	ebitenutil.DebugPrintAt(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
-	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
+	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
+	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
 }
 
 // drawInventoryPager draws the inventory grid's pager. It's a no-op when the
@@ -317,10 +316,10 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 // drawCharactersContent draws the characters tab content
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
-	ebitenutil.DebugPrintAt(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
+	drawDebugText(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
 
 	if len(ui.game.party.Members) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No party members.", panelX+20, contentY+40)
+		drawDebugText(screen, "No party members.", panelX+20, contentY+40)
 		return
 	}
 
@@ -373,7 +372,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	if ui.characterPage == 1 {
 		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, textColor, mutedTextColor)
-		ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+		drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
 		ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
 		return
 	}
@@ -509,7 +508,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+	drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
 	ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
 
 	if tooltip != "" {
@@ -524,20 +523,20 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	// Drop shadow on all sheet text (see drawCharactersContent).
 	drawDebugTextColored := drawDebugTextShadowed
 
-	// Physical mitigation is a PIPELINE, not a single number: combat subtracts the
-	// flat armor+skill, THEN applies resistance %, THEN the flat buff (and floors
-	// at 1). Show the steps in that order; the breakdown comes from CombatSystem so
-	// it can't drift from mitigateCharacterDamage.
+	// Physical mitigation is a PIPELINE, not a single number: combat applies armor %,
+	// THEN resistance %, floors at 1, THEN the flat reductions (skill + buff, which
+	// CAN finish a hit off to 0). Show the steps in that order; the breakdown comes
+	// from CombatSystem so it can't drift from mitigateCharacterDamage.
 	m := ui.game.combat.PhysicalMitigationBreakdown(member)
 
 	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
 	lines := []string{
 		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType("physical")),
 		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
-		fmt.Sprintf("1. Armor reduction: -%d flat (before resist)", m.ArmorFlat),
-		fmt.Sprintf("2. Skill reduction: -%d flat (before resist)", m.SkillFlat),
-		fmt.Sprintf("3. Physical resistance: -%d%% (after flat)", m.ResistPct),
-		fmt.Sprintf("4. Flat buff reduction: -%d (after resist)", m.FlatBuff),
+		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% elemental)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
+		fmt.Sprintf("2. Physical resistance: -%d%%", m.ResistPct),
+		fmt.Sprintf("3. Skill reduction: -%d flat", m.SkillFlat),
+		fmt.Sprintf("4. Flat buff reduction: -%d", m.FlatBuff),
 	}
 	for i, line := range lines {
 		drawDebugTextColored(screen, line, x, y+50+i*16, textColor)

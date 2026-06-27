@@ -1,4 +1,7 @@
 items:
+  # Armor Endurance AC scaling is category-wide by design:
+  # leather = END/10, chain = END/7, plate = END/5.
+  # Cloth, shields, and future non-listed armor categories stay flat AC.
   leather_armor:
     name: "Leather Armor"
     type: "armor"
@@ -7,7 +10,7 @@ items:
     flavor: "Worn smooth by a hundred roads; it smells of rain and smoke."
     equip_slot: "armor"
     armor_class_base: 2
-    endurance_scaling_divisor: 5
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 25
 
@@ -19,7 +22,7 @@ items:
     flavor: "A scuffed browband that keeps splinters—and doubts—at bay."
     equip_slot: "helmet"
     armor_class_base: 1
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 15
 
@@ -31,7 +34,7 @@ items:
     flavor: "Stitched at dusk; they creak like an old saddle."
     equip_slot: "boots"
     armor_class_base: 1
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 18
 
@@ -43,7 +46,7 @@ items:
     flavor: "Cold links that rattle with every breath."
     equip_slot: "armor"
     armor_class_base: 4
-    endurance_scaling_divisor: 5
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 85
 
@@ -55,7 +58,7 @@ items:
     flavor: "A weave of steel that muffles the world."
     equip_slot: "helmet"
     armor_class_base: 3
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 55
 
@@ -67,7 +70,7 @@ items:
     flavor: "Weighty rings that drag the dust at your feet."
     equip_slot: "boots"
     armor_class_base: 3
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 60
 
@@ -123,7 +126,7 @@ items:
     flavor: "Iron plates that sing quietly with every step."
     equip_slot: "armor"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 120
 
@@ -135,7 +138,7 @@ items:
     flavor: "A heavy crown of war."
     equip_slot: "helmet"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 90
 
@@ -147,7 +150,7 @@ items:
     flavor: "Each step lands with purpose."
     equip_slot: "boots"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 95
 
@@ -342,7 +345,7 @@ items:
     flavor: "Heavy gold that turns blades and heads alike."
     equip_slot: "armor"
     armor_class_base: 6
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "legendary"
     value: 1500
 
@@ -455,7 +458,7 @@ items:
     flavor: "They still reek of the warren that skinned them."
     equip_slot: "gauntlets"
     armor_class_base: 1
-    endurance_scaling_divisor: 7
+    endurance_scaling_divisor: 10
     bonus_accuracy: 3
     rarity: "common"
     value: 35
@@ -468,7 +471,7 @@ items:
     flavor: "Cold seawater still beads between the links."
     equip_slot: "gauntlets"
     armor_class_base: 2
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     bonus_speed: 6
     rarity: "uncommon"
     value: 240
@@ -481,6 +484,7 @@ items:
     flavor: "Make a fist and the whole room takes a step back."
     equip_slot: "gauntlets"
     armor_class_base: 3
+    endurance_scaling_divisor: 5
     bonus_might: 4
     rarity: "rare"
     value: 360
@@ -519,7 +523,7 @@ items:
     flavor: "Sewer-rat hide soles; silent on wet stone, and they keep the damp out."
     equip_slot: "boots"
     armor_class_base: 2
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 45
 
@@ -605,7 +609,7 @@ items:
 
   # --- Japanese Castle (eastern islands) loot ---
   # Samurai Warlord boss signature: cursed lamellar (legendary). Plate ⇒ gates on
-  # plate skill; flat AC + heavy stat block + partial undead/fire/mind resists.
+  # plate skill and follows the category-wide END/5 AC scaling.
   onryo_lamellar:
     name: "Onryo Lamellar"
     type: "armor"
@@ -614,6 +618,7 @@ items:
     flavor: "Plate that death itself could not make the warlord set down."
     equip_slot: "armor"
     armor_class_base: 8
+    endurance_scaling_divisor: 5
     bonus_might: 10
     bonus_endurance: 10
     rarity: "legendary"
@@ -631,7 +636,7 @@ items:
     flavor: "Iron scales laced in silk; they clatter like distant rain."
     equip_slot: "armor"
     armor_class_base: 5
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 400
 
@@ -742,7 +747,7 @@ items:
     flavor: "Light as the cat it came from, and twice as quiet."
     equip_slot: "armor"
     armor_class_base: 6
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 10
     bonus_speed: 8
     rarity: "rare"
     value: 600
@@ -796,7 +801,7 @@ items:
     value: 2500
 
   # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate ⇒
-  # gates on plate skill; flat AC + stat block + heavy dark/earth/body resists.
+  # gates on plate skill and follows the category-wide END/5 AC scaling.
   mantle_of_the_idol_king:
     name: "Mantle of the Idol-King"
     type: "armor"
@@ -805,6 +810,7 @@ items:
     flavor: "Cast from a god's broken face; it remembers being worshipped."
     equip_slot: "armor"
     armor_class_base: 10
+    endurance_scaling_divisor: 5
     bonus_might: 8
     bonus_endurance: 8
     rarity: "legendary"

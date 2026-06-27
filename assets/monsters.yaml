@@ -8,7 +8,7 @@ monsters:
     name: "Goblin"
     level: 1
     max_hit_points: 56
-    armor_class: 6
+    armor_class: 13
     experience: 15
     damage_min: 4
     damage_max: 8
@@ -31,7 +31,7 @@ monsters:
     name: "Orc"
     level: 3
     max_hit_points: 96
-    armor_class: 8
+    armor_class: 19
     experience: 65
     damage_min: 8
     damage_max: 15
@@ -60,7 +60,7 @@ monsters:
     name: "Wolf"
     level: 2
     max_hit_points: 76
-    armor_class: 7
+    armor_class: 16
     experience: 35
     damage_min: 6
     damage_max: 9
@@ -83,7 +83,7 @@ monsters:
     name: "Bear"
     level: 4
     max_hit_points: 130
-    armor_class: 9
+    armor_class: 28
     experience: 120
     damage_min: 10
     damage_max: 16
@@ -105,7 +105,7 @@ monsters:
     name: "Spider"
     level: 2
     max_hit_points: 60
-    armor_class: 8
+    armor_class: 11
     experience: 25
     damage_min: 3
     damage_max: 5
@@ -128,7 +128,7 @@ monsters:
     name: "Skeleton"
     level: 3
     max_hit_points: 86
-    armor_class: 7
+    armor_class: 20
     experience: 45
     damage_min: 7
     damage_max: 12
@@ -154,7 +154,7 @@ monsters:
     name: "Mummy"
     level: 5
     max_hit_points: 180
-    armor_class: 10
+    armor_class: 30
     experience: 180
     damage_min: 17
     damage_max: 25
@@ -183,7 +183,7 @@ monsters:
     name: "Minotaur"
     level: 8
     max_hit_points: 360
-    armor_class: 13
+    armor_class: 33
     experience: 620
     damage_min: 24
     damage_max: 38
@@ -209,7 +209,7 @@ monsters:
     name: "Isis"
     level: 11
     max_hit_points: 460
-    armor_class: 14
+    armor_class: 40
     perfect_dodge: 10
     experience: 950
     damage_min: 20
@@ -238,7 +238,7 @@ monsters:
     name: "Troll"
     level: 6
     max_hit_points: 160
-    armor_class: 10
+    armor_class: 32
     experience: 300
     damage_min: 15
     damage_max: 23
@@ -265,7 +265,7 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 30
     damage_max: 50
@@ -304,7 +304,7 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 30
     damage_max: 50
@@ -334,7 +334,7 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 20            # tankier: melee-only, no ranged attack
+    armor_class: 67            # tankier: melee-only, no ranged attack
     experience: 2000
     damage_min: 32
     damage_max: 52
@@ -364,7 +364,7 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1050       # a bit squishier but faster + longer reach
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 28
     damage_max: 46
@@ -394,7 +394,7 @@ monsters:
     name: "Forest Orc"
     level: 4
     max_hit_points: 100
-    armor_class: 9
+    armor_class: 19
     experience: 85
     damage_min: 8
     damage_max: 12
@@ -422,7 +422,7 @@ monsters:
     name: "Dire Wolf"
     level: 5
     max_hit_points: 120
-    armor_class: 9
+    armor_class: 18
     experience: 125
     damage_min: 7
     damage_max: 17
@@ -445,7 +445,7 @@ monsters:
     name: "Alien"
     level: 5
     max_hit_points: 500
-    armor_class: 12
+    armor_class: 38
     experience: 550
     damage_min: 25
     damage_max: 35
@@ -472,7 +472,7 @@ monsters:
     name: "Forest Spider"
     level: 3
     max_hit_points: 72
-    armor_class: 10
+    armor_class: 13
     experience: 45
     damage_min: 4
     damage_max: 9
@@ -499,7 +499,7 @@ monsters:
     name: "Treant"
     level: 8
     max_hit_points: 240
-    armor_class: 12
+    armor_class: 33
     experience: 400
     damage_min: 20
     damage_max: 35
@@ -528,7 +528,7 @@ monsters:
     name: "Pixie"
     level: 2
     max_hit_points: 66
-    armor_class: 4     # Light armor, relies on dodge
+    armor_class: 6     # Light armor, relies on dodge
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 50
     damage_min: 12
@@ -568,7 +568,7 @@ monsters:
     name: "Bandit"
     level: 3
     max_hit_points: 86
-    armor_class: 8
+    armor_class: 14
     experience: 55
     damage_min: 7
     damage_max: 10
@@ -594,7 +594,7 @@ monsters:
     name: "Medusa"
     level: 6
     max_hit_points: 360
-    armor_class: 10
+    armor_class: 38
     experience: 260
     damage_min: 15
     damage_max: 23
@@ -624,7 +624,7 @@ monsters:
     name: "Octopus"
     level: 5
     max_hit_points: 330
-    armor_class: 11
+    armor_class: 20
     experience: 240
     damage_min: 17
     damage_max: 23
@@ -660,7 +660,7 @@ monsters:
     name: "Puma"
     level: 6
     max_hit_points: 150
-    armor_class: 11
+    armor_class: 20
     experience: 280
     damage_min: 19
     damage_max: 27
@@ -691,7 +691,7 @@ monsters:
     name: "Elf Archer"
     level: 7
     max_hit_points: 190
-    armor_class: 11
+    armor_class: 14
     experience: 380
     damage_min: 16
     damage_max: 26
@@ -722,7 +722,7 @@ monsters:
     name: "Elf Swordsman"
     level: 9
     max_hit_points: 320
-    armor_class: 14
+    armor_class: 32
     experience: 520
     damage_min: 26
     damage_max: 40
@@ -751,7 +751,7 @@ monsters:
     name: "Mountain Troll"
     level: 10
     max_hit_points: 480
-    armor_class: 13
+    armor_class: 34
     experience: 720
     damage_min: 28
     damage_max: 44
@@ -780,7 +780,7 @@ monsters:
     name: "Archmage"
     level: 11
     max_hit_points: 360
-    armor_class: 12
+    armor_class: 24
     experience: 880
     damage_min: 16
     damage_max: 26
@@ -814,7 +814,7 @@ monsters:
     name: "Lich"
     level: 12
     max_hit_points: 620
-    armor_class: 15
+    armor_class: 40
     experience: 1300
     damage_min: 24
     damage_max: 36
@@ -847,7 +847,7 @@ monsters:
     name: "Revenant"
     level: 10
     max_hit_points: 420
-    armor_class: 14
+    armor_class: 32
     experience: 760
     damage_min: 24
     damage_max: 38
@@ -875,7 +875,7 @@ monsters:
     name: "Lich King"
     level: 14
     max_hit_points: 900
-    armor_class: 18
+    armor_class: 52
     experience: 1800
     damage_min: 32
     damage_max: 52
@@ -906,7 +906,7 @@ monsters:
     name: "Sewer Rat"
     level: 5
     max_hit_points: 95
-    armor_class: 6
+    armor_class: 7
     experience: 70
     damage_min: 14
     damage_max: 19
@@ -927,7 +927,7 @@ monsters:
     name: "Cave Bat"
     level: 5
     max_hit_points: 72
-    armor_class: 7
+    armor_class: 8
     perfect_dodge: 18
     experience: 75
     damage_min: 13
@@ -950,7 +950,7 @@ monsters:
     name: "Thief Bug"
     level: 7
     max_hit_points: 165
-    armor_class: 13
+    armor_class: 20
     experience: 130
     damage_min: 14
     damage_max: 20
@@ -974,7 +974,7 @@ monsters:
     name: "Golden Thief Bug"
     level: 10
     max_hit_points: 1200
-    armor_class: 18
+    armor_class: 55
     perfect_dodge: 20
     experience: 2000
     damage_min: 10
@@ -1013,7 +1013,7 @@ monsters:
     name: "Ashigaru Arquebusier"
     level: 12
     max_hit_points: 420
-    armor_class: 13
+    armor_class: 18
     experience: 900
     damage_min: 26
     damage_max: 40
@@ -1039,7 +1039,7 @@ monsters:
     name: "Ronin Marksman"
     level: 15
     max_hit_points: 640
-    armor_class: 16
+    armor_class: 20
     perfect_dodge: 5
     experience: 1400
     damage_min: 30
@@ -1067,7 +1067,7 @@ monsters:
     name: "Miyabi Ningyo"
     level: 13
     max_hit_points: 500
-    armor_class: 13
+    armor_class: 20
     perfect_dodge: 15
     experience: 1000
     damage_min: 26
@@ -1096,7 +1096,7 @@ monsters:
     name: "Vengeful Ningyo"
     level: 16
     max_hit_points: 740
-    armor_class: 16
+    armor_class: 32
     perfect_dodge: 20
     experience: 1500
     damage_min: 32
@@ -1128,7 +1128,7 @@ monsters:
     name: "Samurai Warlord"
     level: 17
     max_hit_points: 1600
-    armor_class: 18
+    armor_class: 50
     perfect_dodge: 10
     experience: 3500
     damage_min: 30
@@ -1164,7 +1164,7 @@ monsters:
     name: "Ocelot"
     level: 18
     max_hit_points: 640
-    armor_class: 16
+    armor_class: 20
     perfect_dodge: 15
     experience: 700
     damage_min: 32
@@ -1213,7 +1213,7 @@ monsters:
     name: "Masked Huntress"
     level: 20
     max_hit_points: 800
-    armor_class: 16
+    armor_class: 20
     perfect_dodge: 10
     experience: 1100
     damage_min: 36
@@ -1241,7 +1241,7 @@ monsters:
     name: "Masked Serpent Dancer"
     level: 21
     max_hit_points: 720
-    armor_class: 17
+    armor_class: 38
     perfect_dodge: 25
     experience: 1300
     damage_min: 30
@@ -1269,7 +1269,7 @@ monsters:
     name: "Masked Hexer"
     level: 22
     max_hit_points: 780
-    armor_class: 16
+    armor_class: 26
     perfect_dodge: 10
     experience: 1700
     damage_min: 30
@@ -1300,7 +1300,7 @@ monsters:
     name: "Gorilla Titan"
     level: 23
     max_hit_points: 1700
-    armor_class: 19
+    armor_class: 58
     experience: 2600
     damage_min: 34
     damage_max: 52
@@ -1331,7 +1331,7 @@ monsters:
     name: "Orc Warlord"
     level: 24
     max_hit_points: 2400
-    armor_class: 20
+    armor_class: 52
     perfect_dodge: 5
     experience: 4200
     damage_min: 36
@@ -1363,7 +1363,7 @@ monsters:
     name: "Warlord Idol"
     level: 20
     max_hit_points: 500
-    armor_class: 18
+    armor_class: 45
     experience: 300
     damage_min: 0
     damage_max: 0

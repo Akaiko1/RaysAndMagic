@@ -26,8 +26,9 @@ const DefaultSavePath = "savegame.json"
 // slotPath returns a filename for a numbered save slot (0-based index)
 func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
 
-// mainMenuOptions defines the visible options in the ESC menu
-var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Exit"}
+// mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
+// returns to the title screen (not a full app quit — that's the title's "Quit").
+var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {

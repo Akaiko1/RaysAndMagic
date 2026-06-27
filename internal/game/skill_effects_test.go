@@ -102,8 +102,8 @@ func TestDisarmTrap_ReducesIncomingDamage(t *testing.T) {
 	skilled := character.CreateCharacter("B", character.ClassArcher, cs.game.config)
 	skilled.Skills[character.SkillDisarmTrap] = expertSkill()
 	const raw = 50 // large enough to avoid the floor-at-1
-	base := cs.ApplyArmorDamageReduction(raw, plain)
-	reduced := cs.ApplyArmorDamageReduction(raw, skilled)
+	base := cs.mitigateCharacterDamage(raw, "physical", plain, false)
+	reduced := cs.mitigateCharacterDamage(raw, "physical", skilled, false)
 	if base-reduced != DisarmTrapDamageReductionPerTier {
 		t.Errorf("DisarmTrap reduction delta = %d, want %d", base-reduced, DisarmTrapDamageReductionPerTier)
 	}

@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/collision"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
@@ -58,6 +59,113 @@ func TestMelee_ArcAndDiagonalReach(t *testing.T) {
 	}
 	if h := swing(axe, 3, [][2]int{front, side}); !h[0] || h[1] {
 		t.Fatalf("arc 3 must NOT hit the perpendicular side, got %v", h)
+	}
+}
+
+func TestTurnBased_MeleePulledFrontDiagonalArcAssist(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	cs := game.combat
+	const ptx, pty = 10, 10
+	placePlayerAtTile(game, ptx, pty, ts)
+	game.camera.Angle = 0 // face +X (East)
+
+	axe, err := items.TryCreateWeaponFromYAML("steel_axe")
+	if err != nil {
+		t.Fatalf("steel_axe: %v", err)
+	}
+	g := func(dx, dy int) *monster.Monster3D {
+		m := monster.NewMonster3DFromConfig(float64(ptx+dx)*ts+ts/2, float64(pty+dy)*ts+ts/2, "goblin", game.config)
+		m.IsEngagingPlayer = true
+		m.WasAttacked = true
+		return m
+	}
+	setMobs := func(mobs ...*monster.Monster3D) {
+		game.world.Monsters = mobs
+		game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	}
+	hurtCount := func(mobs ...*monster.Monster3D) int {
+		n := 0
+		for _, m := range mobs {
+			if m.HitPoints < m.MaxHitPoints {
+				n++
+			}
+		}
+		return n
+	}
+
+	sideOnly := g(1, -1)
+	setMobs(sideOnly)
+	cs.performMeleeHitDetection(axe, 40, &config.MeleeAttackConfig{ArcType: 1}, false)
+	if sideOnly.HitPoints >= sideOnly.MaxHitPoints {
+		t.Fatalf("arc 1 must hit a lone pulled front-diagonal monster")
+	}
+
+	left, right := g(1, -1), g(1, 1)
+	setMobs(left, right)
+	cs.performMeleeHitDetection(axe, 40, &config.MeleeAttackConfig{ArcType: 2}, false)
+	if got := hurtCount(left, right); got != 1 {
+		t.Fatalf("arc 2 without a front target must hit exactly one pulled side, got %d", got)
+	}
+
+	front, side := g(1, 0), g(1, -1)
+	setMobs(front, side)
+	cs.performMeleeHitDetection(axe, 40, &config.MeleeAttackConfig{ArcType: 2}, false)
+	if got := hurtCount(front, side); got != 2 {
+		t.Fatalf("arc 2 with front + pulled side must hit both, got %d", got)
+	}
+
+	front, side = g(1, 0), g(1, -1)
+	setMobs(front, side)
+	cs.performMeleeHitDetection(axe, 40, &config.MeleeAttackConfig{ArcType: 1}, false)
+	if got := hurtCount(front, side); got != 1 || front.HitPoints >= front.MaxHitPoints {
+		t.Fatalf("arc 1 with front + pulled side must prefer the front target only, hurt=%d frontHP=%d/%d", got, front.HitPoints, front.MaxHitPoints)
+	}
+}
+
+func TestTurnBased_PlayerProjectileAssistsPulledFrontDiagonalTarget(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	cs := game.combat
+	const ptx, pty = 10, 10
+	placePlayerAtTile(game, ptx, pty, ts)
+	game.camera.Angle = 0 // face +X (East)
+
+	target := spawnMonsterAtTile(game, "goblin", ptx+1, pty-1, ts)
+	beforeHP := target.HitPoints
+	projectile := MagicProjectile{
+		ID:        "test_firebolt",
+		X:         game.camera.X,
+		Y:         game.camera.Y,
+		VelX:      8,
+		VelY:      0,
+		Damage:    20,
+		LifeTime:  10,
+		Active:    true,
+		SpellType: "firebolt",
+		Size:      16,
+		Owner:     ProjectileOwnerPlayer,
+	}
+	game.magicProjectiles = append(game.magicProjectiles, projectile)
+	game.collisionSystem.RegisterEntity(collision.NewEntity(projectile.ID, projectile.X, projectile.Y, 16, 16, collision.CollisionTypeProjectile, false))
+
+	// Fresh from the muzzle (still at the camera): the assist must NOT fire yet —
+	// the bolt has to visibly travel toward the pulled sprite first.
+	cs.CheckProjectileMonsterCollisions()
+	if target.HitPoints < beforeHP {
+		t.Fatalf("projectile must not assist-hit at spawn; the bolt should still be in flight")
+	}
+	if !game.magicProjectiles[0].Active {
+		t.Fatalf("projectile was consumed before it travelled")
+	}
+
+	// Advance the bolt out to the pulled slot's drawn position; now it connects.
+	game.magicProjectiles[0].X = game.camera.X + 1.0*ts
+	game.magicProjectiles[0].Y = game.camera.Y
+	cs.CheckProjectileMonsterCollisions()
+	if target.HitPoints >= beforeHP {
+		t.Fatalf("player projectile should assist-hit once it reaches the pulled front-diagonal slot")
+	}
+	if game.magicProjectiles[0].Active {
+		t.Fatalf("projectile should be consumed after the assisted hit")
 	}
 }
 

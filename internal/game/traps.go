@@ -219,10 +219,39 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 			return tx, ty, true // right under its feet
 		}
 	}
+	// Nothing dead-ahead: a front-diagonal monster pulled to screen-center is a
+	// valid melee target, so drop the trap under its REAL tile (traps are
+	// world-space; the sweep fires on the monster's true position). Closest
+	// pulled flank wins — mirrors the melee front→side priority.
+	if mon := cs.nearestPulledFlankMonster(); mon != nil {
+		return int(mon.X / ts), int(mon.Y / ts), true
+	}
 	if lastX == curX && lastY == curY {
 		return 0, 0, false // facing straight into a wall
 	}
 	return lastX, lastY, true
+}
+
+// nearestPulledFlankMonster returns the closest monster currently pulled onto a
+// turn-based front DIAGONAL slot (drawn at screen-center), or nil. Uses the
+// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees.
+func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
+	var best *monsterPkg.Monster3D
+	var bestD float64
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		side, _, _, pulled, ok := cs.pulledFrontSlot(m)
+		if !ok || !pulled || side == 0 {
+			continue // only genuinely pulled diagonals (dead-ahead handled above)
+		}
+		d := DistanceSquared(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y)
+		if best == nil || d < bestD {
+			best, bestD = m, d
+		}
+	}
+	return best
 }
 
 // monsterOnTile returns a living monster occupying the tile, or nil.
@@ -324,9 +353,9 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	if bossInvulnerable(m) {
 		return // invulnerable boss (sealed or idol-warded) — no trap damage, FX, or aggro
 	}
-	// Physical traps respect monster armor like any other physical hit;
-	// elemental payloads go through resistances only.
-	dmg = applyArmorReductionIfPhysical(dmg, element, m.ArmorClass, false)
+	// Trap damage runs the same armor→resist path as any hit: armor mitigates by
+	// element (physical fully, elemental on the reduced cap), then resistances.
+	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
 	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
 	m.HitTintFrames = MonsterHitFlashFrames
 	cs.breakPacifyOnHit(m)

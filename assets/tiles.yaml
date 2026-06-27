@@ -175,6 +175,17 @@ tiles:
     render_type: "textured_wall"
     wall_color: [70, 130, 170]  # Sea blue fallback
 
+  # Universal off-map backdrop used when a biome sets no out_of_bounds_tile.
+  oob_cliff:
+    name: "Cliff Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "highlands_cliff_wall"
+    render_type: "textured_wall"
+    wall_color: [82, 86, 80]
+
   church_floor:
     name: "Abandoned Church Floor"
     solid: false

@@ -16,7 +16,7 @@ import (
 // asserting each wrapper's rows actually CONTAIN the shared builder's output —
 // rendered here with the same args the wrapper should use. That catches a wiring
 // break the game-side test can't see: a dropped RenderCardLines call, the
-// spellCard sdErr branch swallowing rows, or the wrong ArmorPhysicalReductionDivisor.
+// spellCard sdErr branch swallowing rows.
 func TestEditorCardsWired(t *testing.T) {
 	root := func(name string) string { return filepath.Join("..", "..", "assets", name) }
 	if _, err := config.LoadWeaponConfig(root("weapons.yaml")); err != nil {
@@ -51,7 +51,7 @@ func TestEditorCardsWired(t *testing.T) {
 		}
 		wProcessed++
 		shared := body(character.RenderCardLines(
-			character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true))
+			character.WeaponCardSections(def), true))
 		c, ok := weaponCards[key]
 		if !ok {
 			t.Errorf("weapon %q: no editor card built", key)
@@ -98,7 +98,7 @@ func TestEditorCardsWired(t *testing.T) {
 		if def.MonsterOnly {
 			sections = character.MonsterSpellCardSections(def, sd)
 		} else {
-			sections = character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor)
+			sections = character.SpellCardSections(key, def, sd)
 		}
 		shared := body(character.RenderCardLines(sections, true))
 		c, ok := spellCards[key]

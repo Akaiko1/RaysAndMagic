@@ -499,6 +499,11 @@ const (
 	meleeArcFlank = 90.0*math.Pi/180.0 + 1e-6
 )
 
+type meleeHitCandidate struct {
+	m   *monsterPkg.Monster3D
+	ang float64
+}
+
 // performMeleeHitDetection applies the swing to every monster inside the weapon's
 // arc. Reach is measured in TILE steps (Chebyshev: a diagonal neighbour is one
 // step), so range 1 covers all 8 adjacent tiles and range 2 reaches two tiles in
@@ -526,11 +531,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 	// Candidates: alive monsters within tile reach, with their signed angle off
 	// the player's facing. Stunned monsters are still valid targets (stun only
 	// suppresses their own turn).
-	type meleeCand struct {
-		m   *monsterPkg.Monster3D
-		ang float64
-	}
-	var cands []meleeCand
+	var cands []meleeHitCandidate
 	for _, monster := range cs.game.world.Monsters {
 		if !monster.IsAlive() {
 			continue
@@ -550,10 +551,17 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		for ang < -math.Pi {
 			ang += 2 * math.Pi
 		}
-		cands = append(cands, meleeCand{monster, ang})
+		cands = append(cands, meleeHitCandidate{monster, ang})
 	}
 
 	hit := func(m *monsterPkg.Monster3D) { cs.ApplyDamageToMonster(m, damage, weapon.Name, isCrit) }
+
+	if targets, ok := cs.turnBasedPulledMeleeTargets(cands, meleeConfig.ArcType); ok {
+		for _, m := range targets {
+			hit(m)
+		}
+		return
+	}
 
 	switch meleeConfig.ArcType {
 	case 2:
@@ -599,6 +607,219 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 			}
 		}
 	}
+}
+
+func (cs *CombatSystem) turnBasedPulledMeleeTargets(cands []meleeHitCandidate, arcType int) ([]*monsterPkg.Monster3D, bool) {
+	if arcType != 1 && arcType != 2 {
+		return nil, false
+	}
+	mons := make([]*monsterPkg.Monster3D, len(cands))
+	for i, c := range cands {
+		mons[i] = c.m
+	}
+	front, left, right, hasPulledSide := cs.classifyFrontSlots(mons)
+	if !hasPulledSide {
+		return nil, false
+	}
+
+	side := chooseFrontAttackSide(left, right)
+	switch arcType {
+	case 1:
+		if front != nil {
+			return []*monsterPkg.Monster3D{front.monster}, true
+		}
+		if side != nil {
+			return []*monsterPkg.Monster3D{side.monster}, true
+		}
+	case 2:
+		targets := make([]*monsterPkg.Monster3D, 0, 2)
+		if front != nil {
+			targets = append(targets, front.monster)
+		}
+		if side != nil {
+			targets = append(targets, side.monster)
+		}
+		if len(targets) > 0 {
+			return targets, true
+		}
+	}
+	return nil, false
+}
+
+type frontAttackSlotChoice struct {
+	monster *monsterPkg.Monster3D
+	dist2   float64
+	vx, vy  float64 // visual (pulled) world position — gates projectile assist by aim direction
+}
+
+// classifyFrontSlots buckets monsters into the player's front attack slots
+// (dead-ahead / pulled-left / pulled-right), nearest-first per side, via the
+// pulledFrontSlot single source of truth. hasPulledSide reports whether any
+// DIAGONAL was actually pulled (the trigger for the narrow-arc melee override).
+func (cs *CombatSystem) classifyFrontSlots(mons []*monsterPkg.Monster3D) (front, left, right *frontAttackSlotChoice, hasPulledSide bool) {
+	for _, m := range mons {
+		side, vx, vy, pulled, ok := cs.pulledFrontSlot(m)
+		if !ok {
+			continue
+		}
+		choice := &frontAttackSlotChoice{
+			monster: m,
+			dist2:   DistanceSquared(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y),
+			vx:      vx,
+			vy:      vy,
+		}
+		switch side {
+		case -1:
+			hasPulledSide = hasPulledSide || pulled
+			if left == nil || choice.dist2 < left.dist2 {
+				left = choice
+			}
+		case 1:
+			hasPulledSide = hasPulledSide || pulled
+			if right == nil || choice.dist2 < right.dist2 {
+				right = choice
+			}
+		default:
+			if front == nil || choice.dist2 < front.dist2 {
+				front = choice
+			}
+		}
+	}
+	return front, left, right, hasPulledSide
+}
+
+// turnBasedProjectileAssistTarget redirects a player projectile that hit nothing
+// onto the front attack slot it was AIMED at, so a shot at a pulled front-diagonal
+// SPRITE connects with the real monster. It assists only when the shot was heading
+// at the slot (within projectileAssistMaxAngleRad of the camera→slot direction)
+// AND the projectile has actually FLOWN out to the slot's drawn position — so the
+// arrow/bolt visibly travels instead of striking the instant it spawns. A sideways
+// or backward miss, or a shot still in the player's lap, never connects.
+func (cs *CombatSystem) turnBasedProjectileAssistTarget(px, py, dirX, dirY float64) *monsterPkg.Monster3D {
+	if cs == nil || cs.game == nil || !cs.game.turnBasedMode {
+		return nil
+	}
+	front, left, right, _ := cs.classifyFrontSlots(cs.game.world.Monsters)
+	best := front
+	if best == nil {
+		best = chooseFrontAttackSide(left, right)
+	}
+	if best == nil {
+		return nil
+	}
+	camX, camY := cs.game.camera.X, cs.game.camera.Y
+	if !headingTowardWithin(camX, camY, dirX, dirY, best.vx, best.vy, projectileAssistMaxAngleRad) {
+		return nil
+	}
+	// Forward progress of the projectile along the camera→slot ray must reach the
+	// slot (minus a tolerance for the sprite's size / fast bolts overshooting a frame).
+	slotX, slotY := best.vx-camX, best.vy-camY
+	slotDist := math.Hypot(slotX, slotY)
+	if slotDist <= 0 {
+		return best.monster
+	}
+	forward := ((px-camX)*slotX + (py-camY)*slotY) / slotDist
+	tol := projectileAssistReachToleranceTiles * float64(cs.game.config.GetTileSize())
+	if forward < slotDist-tol {
+		return nil // still in flight — let it keep travelling
+	}
+	return best.monster
+}
+
+const projectileAssistMaxAngleRad = 35.0 * math.Pi / 180.0
+
+// projectileAssistReachToleranceTiles: how far short of the pulled slot the
+// projectile may connect (sprite radius + per-frame overshoot slack).
+const projectileAssistReachToleranceTiles = 0.5
+
+// headingTowardWithin reports whether heading (dirX,dirY) points within maxRad of
+// the direction from (ox,oy) to (tx,ty).
+func headingTowardWithin(ox, oy, dirX, dirY, tx, ty, maxRad float64) bool {
+	if dirX == 0 && dirY == 0 {
+		return false
+	}
+	d := math.Atan2(ty-oy, tx-ox) - math.Atan2(dirY, dirX)
+	for d > math.Pi {
+		d -= 2 * math.Pi
+	}
+	for d < -math.Pi {
+		d += 2 * math.Pi
+	}
+	return math.Abs(d) <= maxRad
+}
+
+func chooseFrontAttackSide(left, right *frontAttackSlotChoice) *frontAttackSlotChoice {
+	switch {
+	case left != nil && right != nil:
+		if right.dist2 < left.dist2 {
+			return right
+		}
+		return left
+	case left != nil:
+		return left
+	default:
+		return right
+	}
+}
+
+// pulledFrontSlot is the SINGLE source of truth for the turn-based front-diagonal
+// "pull": where a melee monster on a front slot is both DRAWN and ATTACKED FROM,
+// so the visual and the hit can never disagree (the renderer and the combat
+// resolver both call it). Returns the slot side (-1 left / 0 dead-ahead / +1
+// right), the world position to use (pulled ~1 tile ahead + slightly aside for a
+// front diagonal; the monster's true spot dead-ahead), whether it was pulled, and
+// ok=false when no front slot applies (not TB, ranged diagonal, not adjacent,
+// off-axis, behind, or the pulled spot has no line of sight).
+func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x, y float64, pulled, ok bool) {
+	if cs == nil || cs.game == nil || mon == nil || !cs.game.turnBasedMode || !mon.IsAlive() {
+		return 0, 0, 0, false, false
+	}
+	tileSize := float64(cs.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return 0, 0, 0, false, false
+	}
+	ptx, pty := cs.game.GetPlayerTilePosition()
+	mtx, mty := int(mon.X/tileSize), int(mon.Y/tileSize)
+	mdx, mdy := mtx-ptx, mty-pty
+	fx, fy := cardinalForwardFromAngle(cs.game.camera.Angle)
+
+	// Exactly one tile dead-ahead: a real front target, drawn/attacked where it is.
+	if mdx == fx && mdy == fy {
+		losOK := cs.game.collisionSystem == nil ||
+			cs.game.collisionSystem.CheckLineOfSight(mon.X, mon.Y, cs.game.camera.X, cs.game.camera.Y)
+		return 0, mon.X, mon.Y, false, losOK
+	}
+	// Front DIAGONAL melee neighbour: pull it ~1 tile ahead, slightly to its side.
+	if mdx == 0 || mdy == 0 || mon.HasRangedAttack() || !cs.monsterMeleeAdjacentToParty(mon) {
+		return 0, 0, 0, false, false
+	}
+	rx, ry := -fy, fx
+	for _, s := range [2]int{-1, 1} {
+		if mdx != fx+s*rx || mdy != fy+s*ry {
+			continue
+		}
+		fakeX := cs.game.camera.X + float64(fx)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*rx)*tbFrontDiagonalMonsterLateralTiles*tileSize
+		fakeY := cs.game.camera.Y + float64(fy)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*ry)*tbFrontDiagonalMonsterLateralTiles*tileSize
+		if cs.game.collisionSystem != nil && !cs.game.collisionSystem.CheckLineOfSight(cs.game.camera.X, cs.game.camera.Y, fakeX, fakeY) {
+			return 0, 0, 0, false, false
+		}
+		return s, fakeX, fakeY, true, true
+	}
+	return 0, 0, 0, false, false
+}
+
+// monsterVisualPos returns where a monster is DRAWN — its true spot, or the
+// turn-based front-diagonal pulled slot. Instant-hit FX (melee impact sparks)
+// must anchor here so they land where the player SEES the monster, not at its
+// real off-to-the-side tile. Shares pulledFrontSlot with the renderer.
+func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, float64) {
+	if mon == nil {
+		return 0, 0
+	}
+	if _, x, y, pulled, ok := cs.pulledFrontSlot(mon); ok && pulled {
+		return x, y
+	}
+	return mon.X, mon.Y
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
@@ -651,7 +872,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, false)
+	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, false)
 	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
 		if reducedDamage < 1 {
@@ -667,8 +888,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Impact feedback: spark burst + light flash at the monster, plus a small
 	// damage-scaled view kick (well under a fireball's). The monster stays put
 	// and the HitTintFrames timer also drives an in-place sprite shake (see
-	// renderer) — no positional knockback.
-	cs.game.spawnImpactSparks(monster.X, monster.Y)
+	// renderer) — no positional knockback. Anchor on the VISUAL position so a
+	// pulled front-diagonal monster's sparks land where it's drawn, not its tile.
+	vx, vy := cs.monsterVisualPos(monster)
+	cs.game.spawnImpactSparks(vx, vy)
 	cs.game.addScreenShake(0.05*float64(finalDamage), 2.2)
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
@@ -1336,7 +1559,8 @@ func (cs *CombatSystem) spawnRangedHitEffect(monster *monsterPkg.Monster3D, weap
 		count = 48
 	}
 	size := SpellParticleSize + damage/8
-	cs.game.spawnWeaponBoltImpact(monster.X, monster.Y, weaponDef, count, size)
+	vx, vy := cs.monsterVisualPos(monster) // burst where the monster is drawn (pulled slot in TB)
+	cs.game.spawnWeaponBoltImpact(vx, vy, weaponDef, count, size)
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) {
@@ -1715,6 +1939,16 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 				}
 			}
 		}
+		if hitMonster == nil && proj.owner == ProjectileOwnerPlayer {
+			var px, py, vx, vy float64
+			switch d := proj.data.(type) {
+			case *Arrow:
+				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
+			case *MagicProjectile:
+				px, py, vx, vy = d.X, d.Y, d.VelX, d.VelY
+			}
+			hitMonster = cs.turnBasedProjectileAssistTarget(px, py, vx, vy)
+		}
 		if hitMonster != nil {
 			// Monster-fired crossfire resolves as monster-vs-monster (no party
 			// attribution); player projectiles use the full party-damage path.
@@ -1971,6 +2205,11 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		attackerName = attacker.Name
 	}
 
+	// Impact FX anchor: the projectile bursts where the monster is DRAWN. For a
+	// turn-based pulled front-diagonal target that's the pulled slot (where the
+	// assist connects), not its real off-to-the-side tile.
+	fxX, fxY := cs.monsterVisualPos(monster)
+
 	// Weapon-mastery TRUE damage / dodge-ignore (physical weapons only; spells
 	// leave these zero/false). Spell schools instead pierce resistance at GM.
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(attacker, weaponDef)
@@ -2009,9 +2248,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < disintegrateChance {
 		if isSpell {
 			if mp, ok := projectile.(*MagicProjectile); ok {
-				cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+				cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
 			} else {
-				cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+				cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
 			}
 		} else if isRanged {
 			cs.spawnRangedHitEffect(monster, weaponDef, damage)
@@ -2039,9 +2278,9 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Bind/Charm are handled earlier; this is the Disintegrate case.
 	if dealsNoDamage {
 		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
 		} else {
-			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		}
 		monster.TakeDamageResist(0, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		monster.HitTintFrames = MonsterHitFlashFrames
@@ -2055,16 +2294,16 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
 	if isSpell {
 		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(monster.X, monster.Y, mp.SpellType)
+			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
 		} else {
-			cs.game.CreateSpellHitEffect(monster.X, monster.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		}
 	} else if isRanged {
 		cs.spawnRangedHitEffect(monster, weaponDef, damage)
 	}
 
 	// Calculate damage reduction based on damage type
-	reducedDamage := applyArmorReductionIfPhysical(damage, damageTypeStr, monster.ArmorClass, isRanged)
+	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, isRanged)
 	if !isSpell {
 		if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 			reducedDamage = int(math.Round(float64(reducedDamage) * mult))
@@ -2149,7 +2388,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 		if dx*dx+dy*dy > radiusSq {
 			continue
 		}
-		reduced := applyArmorReductionIfPhysical(damage, damageTypeStr, m.ArmorClass, false)
+		reduced := applyMonsterArmor(damage, damageTypeStr, m.ArmorClass, false)
 		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
@@ -2606,7 +2845,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		if m == nil || !m.IsAlive() || bossInvulnerable(m) || Distance(cx, cy, m.X, m.Y) > radius {
 			continue
 		}
-		reduced := applyArmorReductionIfPhysical(monsterDmg, damageTypeStr, m.ArmorClass, false)
+		reduced := applyMonsterArmor(monsterDmg, damageTypeStr, m.ArmorClass, false)
 		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
@@ -3104,32 +3343,42 @@ func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int)
 	return roll < chance, chance
 }
 
-// ApplyArmorDamageReduction calculates final damage after armor reduction (YAML-driven items)
-func (cs *CombatSystem) ApplyArmorDamageReduction(damage int, char *character.MMCharacter) int {
-	totalArmorClass := cs.CalculateTotalArmorClass(char)
-
-	damageReduction := totalArmorClass / ArmorPhysicalReductionDivisor
-
-	// Apply damage reduction
-	finalDamage := damage - damageReduction
-
-	// DisarmTrap PLACEHOLDER effect: until trap tiles exist, the skill simply
-	// shaves a flat amount off incoming damage per mastery tier.
-	// TODO: implement the real trap-disarming mechanic — trap special-tiles on
-	// maps that trigger damage/effects unless a party member's DisarmTrap check
-	// defuses them — and remove this stand-in damage reduction.
-	finalDamage -= char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier
-
-	if finalDamage < 1 {
-		finalDamage = 1 // Minimum 1 damage (armor can't completely negate damage)
+// armorMitigationPctFromAC is the SINGLE source of truth for armor's percentage
+// mitigation (diminishing returns), shared by the PARTY and MONSTERS:
+// physical = min(75%, 100*AC/(AC+K)); elemental is that SAME curve scaled by
+// 33/75, so it reaches its 33% cap at the exact AC where physical reaches 75%.
+// Returns 0 for AC <= 0.
+func armorMitigationPctFromAC(ac int, physical bool) int {
+	if ac <= 0 {
+		return 0
 	}
-
-	return finalDamage
+	phys := 100 * ac / (ac + ArmorMitigationK)
+	if phys > ArmorPhysicalMitigationCap {
+		phys = ArmorPhysicalMitigationCap
+	}
+	if physical {
+		return phys
+	}
+	return phys * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
 }
 
-// mitigateCharacterDamage reduces incoming damage to a party member: armor (physical
-// only, floored at 1), then the school's resistance % (gear + party resist buff),
-// then the flat party reduction. ignoreArmor skips the armor step (armor-piercing).
+// armorMitigationPct is the PARTY's armor mitigation (over summed equipped AC).
+func (cs *CombatSystem) armorMitigationPct(char *character.MMCharacter, physical bool) int {
+	return armorMitigationPctFromAC(cs.CalculateTotalArmorClass(char), physical)
+}
+
+// mitigateCharacterDamage reduces incoming damage to a party member through the
+// fixed pipeline:
+//
+//  1. Armor   — % mitigation (cap 75% physical / 33% elemental); skipped on
+//     armor-pierce (ranged crit) and true damage (ignoreArmor).
+//  2. Resist  — per-school gear resist + party resist buff, capped 100%
+//     (100% == true immunity → 0 damage).
+//  3. Flat    — additive reductions (DisarmTrap placeholder + Hour of Power /
+//     Stone Skin), applied together AFTER the % steps; CAN drive damage to 0.
+//
+// Armor and Resist are both multiplicative, so their order doesn't change the
+// result; the additive flat step is applied last by design.
 func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
 	if damage <= 0 || char == nil {
 		return damage
@@ -3140,10 +3389,13 @@ func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string
 	}
 	physical := school == "physical"
 
-	if physical && !ignoreArmor {
-		damage = cs.ApplyArmorDamageReduction(damage, char)
+	// 1) Armor (% mitigation; also blunts elemental on a scaled-down curve).
+	if !ignoreArmor {
+		if mit := cs.armorMitigationPct(char, physical); mit > 0 {
+			damage = damage * (100 - mit) / 100
+		}
 	}
-	// Percentage resistance: per-element gear resist + the party-wide buff.
+	// 2) Resistance: per-element gear resist + the party-wide buff. 100% = immune.
 	resist := char.GearResistPct(school) + cs.game.combatBuffResistPct()
 	if resist > 100 {
 		resist = 100
@@ -3151,47 +3403,49 @@ func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string
 	if resist > 0 {
 		damage = damage * (100 - resist) / 100
 	}
-	// Flat party damage reduction (Hour of Power / Stone Skin).
-	if red := cs.game.combatBuffInReduce(); red > 0 {
-		damage -= red
+	if resist >= 100 {
+		return 0 // true immunity
 	}
-	if physical {
-		if damage < 1 {
-			damage = 1
-		}
-	} else if damage < 0 {
+	// The % steps alone never fully negate a real hit — keep a 1-damage chip...
+	if damage < 1 {
+		damage = 1
+	}
+	// 3) ...then the flat reductions (DisarmTrap + Hour of Power / Stone Skin),
+	//    which CAN finish a hit off to 0.
+	damage -= char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier
+	damage -= cs.game.combatBuffInReduce()
+	if damage < 0 {
 		damage = 0
 	}
 	return damage
 }
 
 // PhysicalMitigation is the breakdown of how an incoming PHYSICAL hit is reduced,
-// in the exact order mitigateCharacterDamage applies it. There is no single
-// "total reduction" number — the percentage step and the min-1 floor make the
-// result depend on the incoming hit — so the UI renders the pipeline, not a sum.
+// in the exact order mitigateCharacterDamage applies it. The percentage steps and
+// the floor make the result depend on the incoming hit, so the UI renders the
+// pipeline, not a single total.
 type PhysicalMitigation struct {
 	ArmorClass int // total AC across equipped armor
-	ArmorFlat  int // flat pre-resist reduction from armor: AC / ArmorPhysicalReductionDivisor
-	SkillFlat  int // flat pre-resist reduction from DisarmTrap tier
-	ResistPct  int // physical resistance % applied AFTER the flat step (gear + party buff, capped 100)
-	FlatBuff   int // flat reduction applied AFTER the resistance step (Hour of Power / Stone Skin)
+	ArmorPct   int // armor % mitigation vs physical (capped 75)
+	ResistPct  int // physical resistance % (gear + party buff, capped 100; 100 = immune)
+	SkillFlat  int // flat reduction from DisarmTrap tier, applied AFTER the % steps with FlatBuff
+	FlatBuff   int // flat reduction applied after the % steps (Hour of Power / Stone Skin)
 }
 
 // PhysicalMitigationBreakdown decomposes physical mitigation for the character
 // sheet, reading the SAME pieces mitigateCharacterDamage uses so the UI can't
-// drift from combat. Order matches combat: (armor+skill flat) → resist % → flat buff.
+// drift from combat. Order matches combat: armor % → resist % → floor → (skill flat + flat buff).
 func (cs *CombatSystem) PhysicalMitigationBreakdown(char *character.MMCharacter) PhysicalMitigation {
 	if cs == nil || char == nil {
 		return PhysicalMitigation{}
 	}
-	ac := cs.CalculateTotalArmorClass(char)
 	resist := char.GearResistPct("physical") + cs.game.combatBuffResistPct()
 	if resist > 100 {
 		resist = 100
 	}
 	return PhysicalMitigation{
-		ArmorClass: ac,
-		ArmorFlat:  ac / ArmorPhysicalReductionDivisor,
+		ArmorClass: cs.CalculateTotalArmorClass(char),
+		ArmorPct:   cs.armorMitigationPct(char, true),
 		SkillFlat:  char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier,
 		ResistPct:  resist,
 		FlatBuff:   cs.game.combatBuffInReduce(),
@@ -3234,22 +3488,28 @@ func convertToMonsterDamageType(damageTypeStr string) monsterPkg.DamageType {
 	return damageType
 }
 
-func applyArmorReductionIfPhysical(damage int, damageTypeStr string, armorClass int, isRanged bool) int {
-	reducedDamage := damage
-	if isPhysicalDamageType(damageTypeStr) {
-		applyArmor := true
-		if isRanged && rand.Intn(100) < ArmorPierceRangedChancePct {
-			applyArmor = false // Armor piercing shot!
-		}
-		if applyArmor {
-			armorReduction := armorClass / ArmorPhysicalReductionDivisor
-			reducedDamage = damage - armorReduction
-			if reducedDamage < 1 {
-				reducedDamage = 1 // Minimum 1 damage
-			}
-		}
+// applyMonsterArmor reduces a hit by the monster's armor using the SAME % model
+// as the party (armorMitigationPctFromAC): physical capped 75%, elemental scaled
+// to 33%. A ranged PHYSICAL shot still has ArmorPierceRangedChancePct to bypass
+// armor entirely. Armor alone never fully negates a hit (floor 1); resistance
+// (TakeDamageResist, applied next) is what can take it to 0.
+func applyMonsterArmor(damage int, damageTypeStr string, armorClass int, isRanged bool) int {
+	if damage <= 0 || armorClass <= 0 {
+		return damage
 	}
-	return reducedDamage
+	physical := isPhysicalDamageType(damageTypeStr)
+	if isRanged && physical && rand.Intn(100) < ArmorPierceRangedChancePct {
+		return damage // armor-piercing shot
+	}
+	mit := armorMitigationPctFromAC(armorClass, physical)
+	if mit <= 0 {
+		return damage
+	}
+	reduced := damage * (100 - mit) / 100
+	if reduced < 1 {
+		reduced = 1
+	}
+	return reduced
 }
 
 func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor items.Item) int {

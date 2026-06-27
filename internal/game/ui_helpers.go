@@ -271,7 +271,7 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, ico
 		return
 	}
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, textX, y+6+i*16)
+		drawDebugText(screen, line, textX, y+6+i*16)
 	}
 }
 
@@ -470,34 +470,22 @@ func drawCenteredDebugText(screen *ebiten.Image, text string, x, y, w, h int) {
 		return
 	}
 	drawX, drawY := centeredTextPos(text, x, y, w, h)
-	ebitenutil.DebugPrintAt(screen, text, drawX, drawY)
+	drawDebugText(screen, text, drawX, drawY)
 }
 
-// drawCenteredTextWithShadow centers text in the box and lays a dark outline
-// behind it so light text stays legible over busy art (e.g. hero portraits).
+// drawCenteredTextWithShadow centers text in the box. The dark outline is built
+// into drawDebugTextColored game-wide, so this just centers.
 func drawCenteredTextWithShadow(screen *ebiten.Image, text string, x, y, w, h int, fg color.Color) {
 	if text == "" {
 		return
 	}
 	drawX, drawY := centeredTextPos(text, x, y, w, h)
-	shadow := color.RGBA{0, 0, 0, 235}
-	for _, d := range [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}} {
-		drawDebugTextColored(screen, text, drawX+d[0], drawY+d[1], shadow)
-	}
 	drawDebugTextColored(screen, text, drawX, drawY, fg)
 }
 
-// drawDebugTextShadowed draws left-aligned colored text wrapped in a dark
-// outline so light body text stays legible over textured backgrounds (e.g. the
-// parchment character sheet) — same treatment as the party-screen hero names.
+// drawDebugTextShadowed is kept as a name for existing callers; the outline now
+// lives in drawDebugTextColored, so it is a thin alias.
 func drawDebugTextShadowed(screen *ebiten.Image, text string, x, y int, fg color.Color) {
-	if text == "" {
-		return
-	}
-	outline := color.RGBA{0, 0, 0, 235}
-	for _, d := range [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}} {
-		drawDebugTextColored(screen, text, x+d[0], y+d[1], outline)
-	}
 	drawDebugTextColored(screen, text, x, y, fg)
 }
 
@@ -519,6 +507,49 @@ func ensureDebugTextScratch(width, height int) {
 	}
 }
 
+// textOutlineOffsets are the 8 neighbour directions for the dark text outline.
+var textOutlineOffsets = [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
+
+// drawScaledCenteredText draws text scaled by `scale`, centered on (cx, cy), with
+// a dark outline that scales with it — for emphasis headings (e.g. GAME OVER).
+func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, col color.Color) {
+	if text == "" {
+		return
+	}
+	w := debugTextWidth(text) + 2
+	h := debugTextCharHeight
+	ensureDebugTextScratch(w, h)
+	debugTextScratch.Fill(color.RGBA{0, 0, 0, 0})
+	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
+	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
+	x := float64(cx) - float64(w)*scale/2
+	y := float64(cy) - float64(h)*scale/2
+	blit := func(ox, oy float64, c color.Color) {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(scale, scale)
+		op.GeoM.Translate(x+ox, y+oy)
+		r, g, b, a := c.RGBA()
+		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
+		screen.DrawImage(glyphs, op)
+	}
+	outline := color.RGBA{0, 0, 0, 235}
+	for _, d := range textOutlineOffsets {
+		blit(float64(d[0])*scale, float64(d[1])*scale, outline)
+	}
+	blit(0, 0, col)
+}
+
+// drawDebugText draws left-aligned OUTLINED white text — the game-wide default,
+// replacing raw ebitenutil.DebugPrintAt(screen, …) so every label stays legible
+// over any background.
+func drawDebugText(screen *ebiten.Image, text string, x, y int) {
+	drawDebugTextColored(screen, text, x, y, color.White)
+}
+
+// drawDebugTextColored draws left-aligned text wrapped in a dark 8-direction
+// outline (the character-sheet look, now game-wide). The glyphs are rasterized
+// ONCE into the scratch and blitted 9× (8 black offsets + the body), so the
+// outline costs cheap GPU blits, not 9 font re-rasters.
 func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color.Color) {
 	if text == "" {
 		return
@@ -530,29 +561,110 @@ func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color
 
 	// Offset by -1 so the rendered text aligns with DebugPrintAt's left edge.
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
+	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
 
-	opts := &ebiten.DrawImageOptions{}
-	r, g, b, a := col.RGBA()
-	opts.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
-	opts.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(debugTextScratch, opts)
+	blit := func(dx, dy int, c color.Color) {
+		opts := &ebiten.DrawImageOptions{}
+		r, g, b, a := c.RGBA()
+		opts.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
+		opts.GeoM.Translate(float64(x+dx), float64(y+dy))
+		screen.DrawImage(glyphs, opts)
+	}
+	outline := color.RGBA{0, 0, 0, 235}
+	for _, d := range textOutlineOffsets {
+		blit(d[0], d[1], outline)
+	}
+	// Rarity metals render as a vertical gradient (shiny); everything else flat.
+	if base, ok := asMetal(col); ok {
+		drawMetalBody(screen, x, y, w, h, base)
+		return
+	}
+	blit(0, 0, col)
+}
+
+func lerpByte(a, b uint8, t float64) uint8 {
+	return uint8(float64(a) + (float64(b)-float64(a))*t + 0.5)
+}
+
+// metalShade is the metallic ramp at vertical fraction t (0 top … 1 bottom): a
+// bright highlight at the top, the base tint in the middle, a dark edge at the
+// bottom — the beveled shiny-metal look for gold/silver/legendary names.
+func metalShade(base color.RGBA, t float64) color.RGBA {
+	to := color.RGBA{255, 255, 255, base.A} // highlight
+	k := (0.5 - t) / 0.5 * 0.6              // up to +60% toward white at the very top
+	if t >= 0.5 {
+		to = color.RGBA{0, 0, 0, base.A} // shadow
+		k = (t - 0.5) / 0.5 * 0.5        // up to -50% toward black at the bottom
+	}
+	return color.RGBA{
+		lerpByte(base.R, to.R, k),
+		lerpByte(base.G, to.G, k),
+		lerpByte(base.B, to.B, k),
+		base.A,
+	}
+}
+
+// drawMetalBody fills the already-rasterized glyph (in debugTextScratch) with the
+// metalShade gradient, blitting it in thin horizontal bands top→bottom.
+func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
+	const band = 2
+	for sy := 0; sy < h; sy += band {
+		sh := band
+		if sy+sh > h {
+			sh = h - sy
+		}
+		c := metalShade(base, (float64(sy)+float64(sh)/2)/float64(h))
+		strip := debugTextScratch.SubImage(image.Rect(0, sy, w, sy+sh)).(*ebiten.Image)
+		op := &ebiten.DrawImageOptions{}
+		r, g, b, a := c.RGBA()
+		op.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
+		op.GeoM.Translate(float64(x), float64(y+sy))
+		screen.DrawImage(strip, op)
+	}
+}
+
+// Rarity metals — the SINGLE definition of each tier's tint. Silver is light and
+// cool (blue > red); gold and legendary are warm. Listed in metallicColors so
+// drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
+// rather than a flat fill.
+var (
+	raritySilver = color.RGBA{210, 216, 230, 255} // uncommon
+	rarityGold   = color.RGBA{255, 215, 0, 255}   // rare
+	rarityFire   = color.RGBA{220, 80, 20, 255}   // legendary
+)
+
+// metallicColors marks which base tints get the metal-gradient text treatment.
+var metallicColors = map[color.RGBA]bool{
+	raritySilver: true,
+	rarityGold:   true,
+	rarityFire:   true,
+}
+
+// asMetal reports whether col is a registered rarity metal (so the text renders
+// as a gradient), returning the concrete RGBA base.
+func asMetal(col color.Color) (color.RGBA, bool) {
+	if rc, ok := col.(color.RGBA); ok && metallicColors[rc] {
+		return rc, true
+	}
+	return color.RGBA{}, false
 }
 
 func rarityColor(rarity string) color.Color {
 	switch strings.ToLower(rarity) {
 	case "uncommon":
-		return color.RGBA{192, 192, 192, 255} // Silver
+		return raritySilver
 	case "rare":
-		return color.RGBA{255, 215, 0, 255} // Gold
+		return rarityGold
 	case "legendary":
-		return color.RGBA{220, 80, 20, 255} // Deep orange-red
+		return rarityFire
 	default:
 		return color.White // Common/default
 	}
 }
 
 var (
-	combatMessageGold   = color.RGBA{255, 215, 0, 255}
+	// Distinct from rarityGold so the combat log stays a flat fill (not metal).
+	combatMessageGold   = color.RGBA{255, 205, 40, 255}
 	combatMessagePurple = color.RGBA{190, 100, 255, 255}
 )
 

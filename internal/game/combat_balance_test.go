@@ -209,7 +209,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	_, _, dmg := cs.CalculateWeaponDamage(weapon, char)
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	isRanged := weaponDef != nil && weaponDef.Category == "bow"
-	dmg = applyArmorReductionIfPhysical(dmg, "physical", target.ArmorClass, isRanged)
+	dmg = applyMonsterArmor(dmg, "physical", target.ArmorClass, isRanged)
 	target.TakeDamage(dmg, monsterPkg.DamagePhysical, 0, 0)
 }
 
@@ -2102,10 +2102,10 @@ func TestCombatBalance_LowLevelPartyVsForest(t *testing.T) {
 // TestMonsterDamageVsArmorTiers reports, for EVERY current monster, the physical
 // melee damage it deals to a level-6 / 20-Endurance character wearing a full set
 // of each armor tier — leather, chain, plate. Each monster's min..max is run
-// through the real armor-reduction path (ApplyArmorDamageReduction = dmg - AC/2,
-// floored at 1). Output is a table (run with -run MonsterDamageVsArmorTiers -v);
-// it also asserts AC rises leather<chain<plate, heavier armor never takes MORE,
-// and the 1-damage floor holds.
+// through the real percentage armor path (armorMitigationPctFromAC: physical%
+// = min(75, 100*AC/(AC+K)), floored at 1). Output is a table (run with
+// -run MonsterDamageVsArmorTiers -v); it also asserts AC rises leather<chain<plate,
+// heavier armor never takes MORE, and the 1-damage floor holds.
 func TestMonsterDamageVsArmorTiers(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -2144,8 +2144,9 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		tanks[s.name] = newTank(s.pieces)
 		ac[s.name] = cs.CalculateTotalArmorClass(tanks[s.name])
 	}
-	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (reduction = AC/%d)",
-		ac["leather"], ac["chain"], ac["plate"], ArmorPhysicalReductionDivisor)
+	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (phys mitigation leather:%d%% chain:%d%% plate:%d%%)",
+		ac["leather"], ac["chain"], ac["plate"],
+		armorMitigationPctFromAC(ac["leather"], true), armorMitigationPctFromAC(ac["chain"], true), armorMitigationPctFromAC(ac["plate"], true))
 	if !(ac["leather"] < ac["chain"] && ac["chain"] < ac["plate"]) {
 		t.Errorf("AC should rise leather<chain<plate, got %d/%d/%d", ac["leather"], ac["chain"], ac["plate"])
 	}
@@ -2165,7 +2166,7 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 
 	t.Logf("%-3s %-22s %-9s %-11s %-11s %-11s", "lvl", "monster", "raw", "leather", "chain", "plate")
 	rng := func(set string, m *monsterPkg.Monster3D) (int, int) {
-		return cs.ApplyArmorDamageReduction(m.DamageMin, tanks[set]), cs.ApplyArmorDamageReduction(m.DamageMax, tanks[set])
+		return cs.mitigateCharacterDamage(m.DamageMin, "physical", tanks[set], false), cs.mitigateCharacterDamage(m.DamageMax, "physical", tanks[set], false)
 	}
 	for _, m := range mobs {
 		lMin, lMax := rng("leather", m)
@@ -2180,7 +2181,9 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		if lMax < cMax || cMax < pMax {
 			t.Errorf("%s: heavier armor took more (leather %d, chain %d, plate %d)", m.Name, lMax, cMax, pMax)
 		}
-		if pMin < 1 {
+		// Anything that actually deals damage must chip at least 1 through armor;
+		// passive 0-damage entries (e.g. the Warlord Idol) legitimately stay 0.
+		if m.DamageMin >= 1 && pMin < 1 {
 			t.Errorf("%s: damage floor dropped below 1 (got %d)", m.Name, pMin)
 		}
 	}

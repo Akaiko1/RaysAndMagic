@@ -103,6 +103,7 @@ func TestInferno_UsesFireResistanceButNeverGMPierce(t *testing.T) {
 
 	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
 	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.ArmorClass = 0 // isolate fire resistance: % armor would also blunt elemental
 	m.Resistances[monster.DamageFire] = 60
 	game.world.Monsters = []*monster.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -135,6 +136,7 @@ func TestInferno_OutgoingBuffAppliesOnlyToMonsters(t *testing.T) {
 
 	m := monster.NewMonster3DFromConfig(game.camera.X+32, game.camera.Y, "goblin", game.config)
 	m.MaxHitPoints, m.HitPoints = 1000, 1000
+	m.ArmorClass = 0 // isolate the outgoing buff: % armor would scale it down too
 	m.Resistances[monster.DamageFire] = 0
 	game.world.Monsters = []*monster.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)

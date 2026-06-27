@@ -128,7 +128,7 @@ func damageTypeAoELine(damageType string, aoeTiles float64) string {
 }
 
 func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueDmg bool) {
-	character.ArmorInteractionLines(sec, damageType, isRanged, hasTrueDmg, ArmorPhysicalReductionDivisor)
+	character.ArmorInteractionLines(sec, damageType, isRanged, hasTrueDmg)
 }
 
 // ---------------------------------------------------------------- weapons ---
@@ -268,8 +268,8 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	if ok && def != nil && cs != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
 		totalAC = cs.CalculateArmorClassContribution(item, char)
 		defense.AddDetail("Base Armor Class: %d", def.ArmorClassBase)
-		if def.EnduranceScalingDivisor > 0 && char != nil {
-			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), def.EnduranceScalingDivisor)
+		if enduranceDiv, scalingOK := armorEnduranceScalingDivisor(item); scalingOK && char != nil {
+			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), enduranceDiv)
 		}
 		if cat, catOK := armorMasterySkill(item); catOK && char != nil {
 			if tier, tierName := masteryTier(char, cat); tier > 0 {
@@ -288,9 +288,11 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 			effects.Add("%s", ln)
 		}
 	}
-	if totalAC > 0 {
-		effects.AddDetail("Physical Damage Reduction: AC / %d", ArmorPhysicalReductionDivisor)
-		effects.Add("Current Reduction: %d per physical hit", totalAC/ArmorPhysicalReductionDivisor)
+	if totalAC > 0 && cs != nil && char != nil {
+		phys := cs.armorMitigationPct(char, true)
+		elem := cs.armorMitigationPct(char, false)
+		effects.AddDetail("Armor mitigates physical up to %d%%, elemental up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
+		effects.Add("Current total: -%d%% physical (-%d%% elemental)", phys, elem)
 	}
 
 	rules := ttSection{Title: "RULES"}

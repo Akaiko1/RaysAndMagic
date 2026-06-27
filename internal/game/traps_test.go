@@ -75,6 +75,21 @@ func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {
 	}
 }
 
+// With no monster dead-ahead, a trap auto-targets the REAL tile of a front-
+// diagonal monster pulled to screen-center (so it actually fires), not max range.
+func TestTrap_AutoTargetsPulledFrontDiagonal(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	g.turnBasedMode = true // the pull only exists in turn-based mode
+	// Player at tile (1,1) facing +X: the front diagonals are (2,0) and (2,2).
+	flank := spawnTestMonsterAt(g, 2, 0)
+	flank.IsEngagingPlayer, flank.WasAttacked = true, true
+
+	tx, ty, ok := g.combat.pickTrapTile()
+	if !ok || tx != 2 || ty != 0 {
+		t.Fatalf("trap should target the pulled flank's real tile (2,0), got (%d,%d) ok=%v", tx, ty, ok)
+	}
+}
+
 // Per-owner arming limit: the 4th trap is refused.
 func TestTrap_OwnerLimit(t *testing.T) {
 	g, thief := newThiefTestGame(t)

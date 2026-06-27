@@ -198,11 +198,11 @@ type Monster3D struct {
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
-	WardedByIdols bool // static: this boss is warded while any WarlordIdol lives
-	WarlordIdol   bool // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
-	BossWarded    bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
-	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	WardedByIdols   bool // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol     bool // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	BossWarded      bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
+	BossLastHP      int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.
 	SummonChance          float64  // 0..1 chance per action to summon
 	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance

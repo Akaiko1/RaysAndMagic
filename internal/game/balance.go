@@ -49,10 +49,13 @@ const (
 
 // Defense and progression.
 const (
-	// ArmorPhysicalReductionDivisor: physical damage reduction = AC / divisor.
-	// Quoted in armor tooltips, applied in ApplyArmorDamageReduction.
-	// Canonical value in character/catalog.go (cards quote it too).
-	ArmorPhysicalReductionDivisor = character.ArmorPhysicalReductionDivisor
+	// Armor mitigation (percentage, diminishing returns) — shared by party AND
+	// monster armor via armorMitigationPctFromAC. Canonical values in
+	// character/catalog.go. Physical caps at 75%; elemental is the same curve
+	// scaled to reach its 33% cap at the same AC.
+	ArmorMitigationK            = character.ArmorMitigationK
+	ArmorPhysicalMitigationCap  = character.ArmorPhysicalMitigationCap
+	ArmorElementalMitigationCap = character.ArmorElementalMitigationCap
 
 	// MaxStatValue is the cap a character's base stat can reach (the stat +button
 	// and AUTO distribution both stop here). A mechanics constant, kept out of the
@@ -199,6 +202,13 @@ const MonsterAttackAnimFrames = 18
 // as the red flash and decaying with it, it makes a struck monster shudder in
 // place — replacing the old positional knockback (it stays put, just rattles).
 const MonsterHitShakeAmplitudeFrac = 0.0333
+
+// MonsterHitShakeMaxRefPx caps the on-screen sprite size used to scale the hit
+// shudder. The amplitude is a fraction of sprite size, so without a cap a giant
+// sprite point-blank (e.g. a size-12 troll) jolts enormously every frame — in
+// standee mode that whips it across wall/tree occluders (and past the camera
+// plane), reading as furious blinking. Beyond this size the shudder stops growing.
+const MonsterHitShakeMaxRefPx = 300.0
 
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
