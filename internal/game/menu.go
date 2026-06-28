@@ -200,8 +200,8 @@ type MonsterSave struct {
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
-	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
-	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
 	// Stun diminishing-returns chain — persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`

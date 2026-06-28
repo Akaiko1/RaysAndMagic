@@ -190,19 +190,19 @@ type MMGame struct {
 	// Quick-slot drag-and-drop (sampled in updateMouseState, resolved in Draw).
 	// A drag is only armed while the menu is open; the in-game bar is double-click
 	// only. dragSrc names what's being carried; see quickslots.go.
-	dragArmed      bool       // left button down on a draggable; awaiting move/release
-	dragActive     bool       // moved past threshold → a real drag is in flight
-	dragDropAt     int        // 1 = a drop must be resolved this frame (release), else 0
-	dragStartX     int        // press position (for the move threshold + source hit-test)
-	dragStartY     int
-	dragCurX       int        // live cursor position (drop target + carried-icon render)
-	dragCurY       int
-	dragSrc        dragSource // kind of source captured this drag
-	dragItem       items.Item // the carried item (copy, for rendering)
-	dragInvIndex   int        // source: party inventory index
-	dragQuickChar  int        // source: quick-slot owner index
-	dragQuickSlot  int        // source: quick-slot index
-	dragSpellID    spells.SpellID
+	dragArmed     bool // left button down on a draggable; awaiting move/release
+	dragActive    bool // moved past threshold → a real drag is in flight
+	dragDropAt    int  // 1 = a drop must be resolved this frame (release), else 0
+	dragStartX    int  // press position (for the move threshold + source hit-test)
+	dragStartY    int
+	dragCurX      int // live cursor position (drop target + carried-icon render)
+	dragCurY      int
+	dragSrc       dragSource // kind of source captured this drag
+	dragItem      items.Item // the carried item (copy, for rendering)
+	dragInvIndex  int        // source: party inventory index
+	dragQuickChar int        // source: quick-slot owner index
+	dragQuickSlot int        // source: quick-slot index
+	dragSpellID   spells.SpellID
 	// Double-click support for the in-game quick-slot bar
 	lastQuickClickTime int64
 	lastQuickClickedCh int
@@ -238,6 +238,8 @@ type MMGame struct {
 	spellHitEffects      []SpellHitEffect
 	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
 	screenShake          float64       // camera shake amplitude in world units, decays each tick
+	screenShakeOffsetX   float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
+	screenShakeOffsetY   float64
 	hitEffectsMu         sync.Mutex
 
 	// Smooth turn-based rotation: logic snaps camera.Angle 90° instantly (no
@@ -987,7 +989,15 @@ func (g *MMGame) Draw(screen *ebiten.Image) {
 		}
 		g.camera.X += ox
 		g.camera.Y += oy
-		defer func(x, y float64) { g.camera.X, g.camera.Y = x, y }(g.camera.X-ox, g.camera.Y-oy)
+		// Record the displacement so render-time geometry that must IGNORE the
+		// cosmetic shake (the TB front-diagonal pull — see pulledFrontSlot) can
+		// recover the logical camera. Otherwise the per-frame ± jitter flips the
+		// pull's LOS near walls and the pulled monster blinks when struck.
+		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
+		defer func(x, y float64) {
+			g.camera.X, g.camera.Y = x, y
+			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
+		}(g.camera.X-ox, g.camera.Y-oy)
 	}
 	g.gameLoop.Draw(screen)
 }

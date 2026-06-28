@@ -762,6 +762,14 @@ func chooseFrontAttackSide(left, right *frontAttackSlotChoice) *frontAttackSlotC
 	}
 }
 
+// logicalCameraXY is the camera position WITHOUT the cosmetic Draw-time screen
+// shake (screenShakeOffset is 0 outside Draw). Render-time geometry that must NOT
+// jitter with the shake — the TB front-diagonal pull and its gates — uses this,
+// so a pulled monster near a wall doesn't blink when a hit shakes the view.
+func (cs *CombatSystem) logicalCameraXY() (float64, float64) {
+	return cs.game.camera.X - cs.game.screenShakeOffsetX, cs.game.camera.Y - cs.game.screenShakeOffsetY
+}
+
 // pulledFrontSlot is the SINGLE source of truth for the turn-based front-diagonal
 // "pull": where a melee monster on a front slot is both DRAWN and ATTACKED FROM,
 // so the visual and the hit can never disagree (the renderer and the combat
@@ -778,7 +786,10 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 	if tileSize <= 0 {
 		return 0, 0, 0, false, false
 	}
-	ptx, pty := cs.game.GetPlayerTilePosition()
+	// Logical (un-shaken) camera: the pull decision, its gates, and its LOS must
+	// not flip with the per-frame ± shake jitter (see logicalCameraXY).
+	camX, camY := cs.logicalCameraXY()
+	ptx, pty := int(camX/tileSize), int(camY/tileSize)
 	mtx, mty := int(mon.X/tileSize), int(mon.Y/tileSize)
 	mdx, mdy := mtx-ptx, mty-pty
 	fx, fy := cardinalForwardFromAngle(cs.game.camera.Angle)
@@ -786,7 +797,7 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 	// Exactly one tile dead-ahead: a real front target, drawn/attacked where it is.
 	if mdx == fx && mdy == fy {
 		losOK := cs.game.collisionSystem == nil ||
-			cs.game.collisionSystem.CheckLineOfSight(mon.X, mon.Y, cs.game.camera.X, cs.game.camera.Y)
+			cs.game.collisionSystem.CheckLineOfSight(mon.X, mon.Y, camX, camY)
 		return 0, mon.X, mon.Y, false, losOK
 	}
 	// Front DIAGONAL melee neighbour: pull it ~1 tile ahead, slightly to its side.
@@ -798,9 +809,9 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 		if mdx != fx+s*rx || mdy != fy+s*ry {
 			continue
 		}
-		fakeX := cs.game.camera.X + float64(fx)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*rx)*tbFrontDiagonalMonsterLateralTiles*tileSize
-		fakeY := cs.game.camera.Y + float64(fy)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*ry)*tbFrontDiagonalMonsterLateralTiles*tileSize
-		if cs.game.collisionSystem != nil && !cs.game.collisionSystem.CheckLineOfSight(cs.game.camera.X, cs.game.camera.Y, fakeX, fakeY) {
+		fakeX := camX + float64(fx)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*rx)*tbFrontDiagonalMonsterLateralTiles*tileSize
+		fakeY := camY + float64(fy)*tbFrontDiagonalMonsterForwardTiles*tileSize + float64(s*ry)*tbFrontDiagonalMonsterLateralTiles*tileSize
+		if cs.game.collisionSystem != nil && !cs.game.collisionSystem.CheckLineOfSight(camX, camY, fakeX, fakeY) {
 			return 0, 0, 0, false, false
 		}
 		return s, fakeX, fakeY, true, true
@@ -1364,8 +1375,12 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	if tileSize <= 0 {
 		return false
 	}
+	// Logical (un-shaken) camera so this gate is shake-invariant on the pull path
+	// (offset is 0 on the AI path). Otherwise it could flip near a wall — the same
+	// blink the pull fix addresses. See logicalCameraXY.
+	camX, camY := cs.logicalCameraXY()
 	mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
-	ptx, pty := cs.game.GetPlayerTilePosition()
+	ptx, pty := int(camX/tileSize), int(camY/tileSize)
 	dx, dy := mathutil.IntAbs(mtx-ptx), mathutil.IntAbs(mty-pty)
 	if dx == 0 && dy == 0 {
 		return false
@@ -1373,7 +1388,7 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	if dx > 1 || dy > 1 {
 		return false
 	}
-	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, cs.game.camera.X, cs.game.camera.Y)
+	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, camX, camY)
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
