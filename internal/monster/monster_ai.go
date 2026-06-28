@@ -155,6 +155,13 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 		m.StunFramesRemaining--
 		return
 	}
+	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
+	if m.StunDRMemoryFrames > 0 {
+		m.StunDRMemoryFrames--
+		if m.StunDRMemoryFrames == 0 {
+			m.StunDRStacks, m.StunDRMemoryTurns = 0, 0
+		}
+	}
 	// Rooted (bear trap): the FULL update runs — detection, state machine,
 	// attack cadence — but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
@@ -526,9 +533,25 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	m.followPathToTarget(collisionChecker, playerX, playerY)
 }
 
+// entersTargetTile reports whether (x, y) would land a MELEE monster on the
+// target's own tile. RT melee must hold one tile out — mirroring the TB rule and
+// the A* goal ring, which already excludes the target tile. The player is a
+// non-solid collision entity, so CanMoveToWithHabitat won't stop a pixel step
+// from crossing onto the party and overlapping their sprite ("wolf on the head");
+// this guard is what keeps the final-approach steps off the player tile. Ranged
+// mobs are unaffected (they stop at firing range, never tile-adjacent).
+func (m *Monster3D) entersTargetTile(x, y, targetX, targetY float64) bool {
+	if m.HasRangedAttack() {
+		return false
+	}
+	return m.worldToTile(x) == m.worldToTile(targetX) && m.worldToTile(y) == m.worldToTile(targetY)
+}
+
 // stepToward takes one collision-checked step straight toward (tx, ty) at the
 // monster's pursuit speed, sliding along whichever axis stays clear when the
-// diagonal grazes an obstacle. Returns false when fully blocked.
+// diagonal grazes an obstacle. Returns false when fully blocked or when the only
+// available step would put a melee monster onto the target's tile (caller then
+// falls through to A*, whose goal ring stops one tile out).
 func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64) bool {
 	dx := tx - m.X
 	dy := ty - m.Y
@@ -542,17 +565,17 @@ func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64
 	}
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X, m.Y = newX, newY
 		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
-	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
-	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
 		m.Y = newY
 		m.Direction = math.Atan2(dy, dx)
 		return true
@@ -587,7 +610,7 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 	candidates[0].dir = math.Atan2(0, float64(mathutil.IntSign(dxTile)))
 	candidates[1].dir = math.Atan2(float64(mathutil.IntSign(dyTile)), 0)
 	for _, c := range candidates {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
+		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
 			m.X, m.Y = c.x, c.y
 			m.Direction = c.dir
 			m.ResetPathfinding()

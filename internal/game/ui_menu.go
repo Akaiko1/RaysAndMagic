@@ -265,6 +265,9 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	case TabQuests:
 		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
 	}
+
+	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
+	ui.drawDragCarried(screen)
 }
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
@@ -343,6 +346,7 @@ func (ui *UISystem) updateMouseState() {
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
 	ui.game.pruneClickQueues(now)
+	ui.updateQuickDrag()
 
 	if leftJustPressed {
 		x, y := ebiten.CursorPosition()

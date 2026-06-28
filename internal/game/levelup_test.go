@@ -7,6 +7,48 @@ import (
 	"ugataima/internal/config"
 )
 
+// Benched heroes (reserve/captive) level "alongside the party" but must NOT spam
+// the combat log with "reached level N" for heroes the player can't see — only
+// the active party announces. Both still actually level up.
+func TestGrantSharedXP_BenchedHeroesLevelSilently(t *testing.T) {
+	cfg := loadTestConfig(t) // loads weapon/spell/item configs so CreateCharacter's class kit works
+	game := &MMGame{config: cfg}
+	game.combat = NewCombatSystem(game)
+
+	mk := func(name string) *character.MMCharacter {
+		c := character.CreateCharacter(name, character.ClassKnight, cfg)
+		c.Level, c.Experience = 1, 90 // 10 short of the level-2 threshold (100)
+		c.HitPoints = c.MaxHitPoints  // alive: benched-but-downed heroes gain nothing
+		return c
+	}
+	active, benched := mk("Activehero"), mk("Benchedhero")
+	game.party = &character.Party{
+		Members: []*character.MMCharacter{active},
+		Reserve: []*character.MMCharacter{benched},
+	}
+
+	game.grantSharedXP(20) // pushes both over the level-2 threshold
+
+	if active.Level != 2 {
+		t.Errorf("active hero should reach level 2, got %d", active.Level)
+	}
+	if benched.Level != 2 {
+		t.Errorf("benched hero should level alongside the party, got %d", benched.Level)
+	}
+
+	var log strings.Builder
+	for _, e := range game.combatLogHistory {
+		log.WriteString(e.Text)
+		log.WriteString("\n")
+	}
+	if !strings.Contains(log.String(), "Activehero reached level 2") {
+		t.Errorf("active hero level-up must be announced; log:\n%s", log.String())
+	}
+	if strings.Contains(log.String(), "Benchedhero") {
+		t.Errorf("benched hero level-up must NOT be announced; log:\n%s", log.String())
+	}
+}
+
 func TestLevelUpSystem(t *testing.T) {
 	// Load configuration
 	cfg, err := config.LoadConfig("../../config.yaml")
@@ -57,7 +99,7 @@ func TestLevelUpSystem(t *testing.T) {
 		testChar.Experience = 100
 
 		// Call checkLevelUp
-		combatSystem.checkLevelUp(testChar)
+		combatSystem.checkLevelUp(testChar, true)
 
 		// Verify level increased
 		if testChar.Level != initialLevel+1 {
@@ -107,7 +149,7 @@ func TestLevelUpSystem(t *testing.T) {
 		initialLevel := testChar.Level
 
 		// Call checkLevelUp
-		combatSystem.checkLevelUp(testChar)
+		combatSystem.checkLevelUp(testChar, true)
 
 		// Should reach level 4 (1->2->3->4)
 		expectedLevel := 4
@@ -144,14 +186,14 @@ func TestLevelUpSystem(t *testing.T) {
 			testChar.Level = tc.level
 			testChar.Experience = tc.expectedExp - 1 // Just below threshold
 
-			combatSystem.checkLevelUp(testChar)
+			combatSystem.checkLevelUp(testChar, true)
 			if testChar.Level != tc.level {
 				t.Errorf("Character shouldn't level up with %d experience at level %d", tc.expectedExp-1, tc.level)
 			}
 
 			// Now give exact amount needed
 			testChar.Experience = tc.expectedExp
-			combatSystem.checkLevelUp(testChar)
+			combatSystem.checkLevelUp(testChar, true)
 			if testChar.Level != tc.level+1 {
 				t.Errorf("Character should level up from %d to %d with %d experience", tc.level, tc.level+1, tc.expectedExp)
 			}
@@ -182,7 +224,7 @@ func TestLevelUpSystem(t *testing.T) {
 		initialMessageCount := len(fullGame.GetCombatMessages())
 
 		// Call checkLevelUp
-		fullCombatSystem.checkLevelUp(testChar)
+		fullCombatSystem.checkLevelUp(testChar, true)
 
 		// Verify level up occurred
 		if testChar.Level != 2 {

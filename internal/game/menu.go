@@ -128,6 +128,7 @@ type CharacterSave struct {
 	Skills                []SkillEntry       `json:"skills"`
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
 	Equipment             []EquipmentEntry   `json:"equipment"`
+	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. Omitted from real-time saves
@@ -164,6 +165,12 @@ type EquipmentEntry struct {
 	Item items.Item `json:"item"`
 }
 
+// QuickSlotEntry is one occupied quick slot (sparse: empty slots are omitted).
+type QuickSlotEntry struct {
+	Slot int        `json:"slot"`
+	Item items.Item `json:"item"`
+}
+
 // GroundContainerSave captures an on-floor reward container (loot bag or
 // treasure chest) for save/load. Kind drives the presentation defaults; the
 // rest of the fields are the runtime state.
@@ -195,6 +202,11 @@ type MonsterSave struct {
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	// Stun diminishing-returns chain — persisted so save/reload can't reset it
+	// and re-enable a full-strength perma-stun-lock (bosses included).
+	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
+	StunDRMemoryTurns   int                  `json:"stun_dr_memory_turns,omitempty"`
+	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
 	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
 	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
@@ -526,6 +538,14 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.Equipment[items.EquipSlot(eq.Slot)] = item
 	}
+	for _, qs := range cs.QuickSlots {
+		if qs.Slot < 0 || qs.Slot >= character.QuickSlotCount {
+			continue
+		}
+		item := qs.Item
+		normalizeItemFromConfig(&item)
+		m.QuickSlots[qs.Slot] = &item
+	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
@@ -575,6 +595,11 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	}
 	for slot, item := range m.Equipment {
 		cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
+	}
+	for i, item := range m.QuickSlots {
+		if item != nil {
+			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
+		}
 	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
@@ -644,6 +669,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				WasAttacked:         mon.WasAttacked,
 				StunFramesRemaining: mon.StunFramesRemaining,
 				StunTurnsRemaining:  mon.StunTurnsRemaining,
+				StunDRStacks:        mon.StunDRStacks,
+				StunDRMemoryTurns:   mon.StunDRMemoryTurns,
+				StunDRMemoryFrames:  mon.StunDRMemoryFrames,
 				RootFramesRemaining: mon.RootFramesRemaining,
 				RootTurnsRemaining:  mon.RootTurnsRemaining,
 				Pilfered:            mon.Pilfered,
@@ -906,6 +934,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.StunDRStacks = ms.StunDRStacks
+				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
+				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
 				m.RootFramesRemaining = ms.RootFramesRemaining
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
 				m.Pilfered = ms.Pilfered

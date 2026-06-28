@@ -324,14 +324,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 
 	turnsStun, secsStun := trapControlDuration(def.StunTurns, def.StunSeconds, t.Owner)
 	if def.StunTurns > 0 {
-		if cs.game.turnBasedMode {
-			if turnsStun > victim.StunTurnsRemaining {
-				victim.StunTurnsRemaining = turnsStun
-			}
-		} else if frames := secsStun * cs.game.config.GetTPS(); frames > victim.StunFramesRemaining {
-			victim.StunFramesRemaining = frames
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", victim.Name))
+		cs.applyStunDR(victim, turnsStun, secsStun*cs.game.config.GetTPS(), true) // announces stun/resist
 	}
 
 	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)

@@ -58,6 +58,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
 			continue
 		}
+		if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
+			// Stun-free this turn: count toward clearing the diminishing-returns chain.
+			m.StunDRMemoryTurns--
+			if m.StunDRMemoryTurns == 0 {
+				m.StunDRStacks, m.StunDRMemoryFrames = 0, 0
+			}
+		}
 		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			m.StunTurnsRemaining--
 			gl.game.turnBasedMonsterStunned[m] = true

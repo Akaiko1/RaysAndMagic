@@ -131,6 +131,9 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
+	StunDRStacks        int     // Stun diminishing-returns chain length (0=fresh; caps → immune)
+	StunDRMemoryTurns   int     // TB: stun-free turns left before the DR chain resets
+	StunDRMemoryFrames  int     // RT: stun-free frames left before the DR chain resets
 	RootTurnsRemaining  int     // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
 	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)

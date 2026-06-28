@@ -91,6 +91,7 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 // drawGameplayUI draws core gameplay UI elements
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
+	ui.drawInGameQuickSlots(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)

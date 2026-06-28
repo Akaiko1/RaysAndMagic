@@ -187,6 +187,27 @@ type MMGame struct {
 	lastSchoolClickTime  int64 // Time of last school click in milliseconds
 	lastSchoolClickedIdx int   // Index of last clicked school header
 
+	// Quick-slot drag-and-drop (sampled in updateMouseState, resolved in Draw).
+	// A drag is only armed while the menu is open; the in-game bar is double-click
+	// only. dragSrc names what's being carried; see quickslots.go.
+	dragArmed      bool       // left button down on a draggable; awaiting move/release
+	dragActive     bool       // moved past threshold → a real drag is in flight
+	dragDropAt     int        // 1 = a drop must be resolved this frame (release), else 0
+	dragStartX     int        // press position (for the move threshold + source hit-test)
+	dragStartY     int
+	dragCurX       int        // live cursor position (drop target + carried-icon render)
+	dragCurY       int
+	dragSrc        dragSource // kind of source captured this drag
+	dragItem       items.Item // the carried item (copy, for rendering)
+	dragInvIndex   int        // source: party inventory index
+	dragQuickChar  int        // source: quick-slot owner index
+	dragQuickSlot  int        // source: quick-slot index
+	dragSpellID    spells.SpellID
+	// Double-click support for the in-game quick-slot bar
+	lastQuickClickTime int64
+	lastQuickClickedCh int
+	lastQuickClickedSl int
+
 	// Double-click support for dialogs (neutral)
 	dialogLastClickTime  int64  // Time of last dialog list click in milliseconds
 	dialogLastClickedIdx int    // Index of last clicked dialog list entry

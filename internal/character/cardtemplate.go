@@ -122,7 +122,7 @@ func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
 	default:
 		return ""
 	}
-	reach := "reaches all adjacent tiles (diagonals included)"
+	reach := "reaches 1 tile, diagonals included"
 	if def.Range >= 2 {
 		reach = fmt.Sprintf("reaches %d tiles deep in the cone (diagonals included)", def.Range)
 	}

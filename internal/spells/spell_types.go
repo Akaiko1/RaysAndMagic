@@ -182,6 +182,9 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.StunRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Stuns every monster within %.1f tiles for %ds / %d TB turns", d.StunRadiusTiles, d.StunDurationSeconds, d.StunDurationTurns))
 	}
+	if d.StunChance > 0 || d.StunRadiusTiles > 0 {
+		out = append(out, "Repeated stuns wear off (diminishing returns), then the target is briefly immune")
+	}
 	if d.BindUndead {
 		out = append(out, fmt.Sprintf("Binds an undead target for %ds (it fights other monsters for you)", d.BindDurationSeconds))
 	}

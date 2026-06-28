@@ -65,6 +65,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 	drawLeft := float64(s.screenX - s.spriteSize/2)
 	drawTop := float64(s.screenY)
 	size := float64(s.spriteSize)
+	depthBuf := r.game.depthBuffer
 	glowBase := math.Max(3, size*0.105)
 	coreBase := math.Max(1.25, size*0.018)
 	globalFlicker := fireflySwarmFlicker(seed, r.game.frameCount)
@@ -84,6 +85,13 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		driftY := math.Sin(frame*0.010+localPhase*0.7) * size * 0.014
 		x := drawLeft + mote.u*size + driftX
 		y := drawTop + mote.v*size + driftY
+		// Per-mote occlusion: the whole-swarm visibility gate is ANY-column, so a
+		// swarm only peeking past a wall/tree edge would still draw every mote —
+		// including ones deep behind the wall (looked like walls didn't occlude).
+		// Skip a mote whose own screen column is behind a nearer wall/tree.
+		if col := int(x); col >= 0 && col < len(depthBuf) && s.depthPerp >= depthBuf[col] {
+			continue
+		}
 		alpha := brightness * globalFlicker * slowPulse
 		if alpha > 1 {
 			alpha = 1

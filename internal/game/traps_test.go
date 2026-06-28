@@ -52,6 +52,45 @@ func spawnTestMonsterAt(g *MMGame, tileX, tileY int) *monsterPkg.Monster3D {
 	return m
 }
 
+// Stun diminishing returns: successive stuns on the same target land for
+// 100/50/25/0% of their duration, then the target is immune — so it can't be
+// perma-stun-locked. The DR chain is one mode-agnostic counter, so a TB↔RT
+// switch can't bypass it. After the chain resets, stuns are full again.
+func TestStunDR_DiminishesThenImmune(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	cs := g.combat
+	m := spawnTestMonsterAt(g, 3, 1)
+	tps := g.config.GetTPS()
+
+	// requestStun applies a fresh 4-turn stun after clearing any active stun, so
+	// each call's RESULT reflects only the DR scaling (not refresh-to-max).
+	requestStun := func() (stunned bool, turns int) {
+		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
+		stunned = cs.applyStunDR(m, 4, 4*tps, true)
+		return stunned, m.StunTurnsRemaining
+	}
+
+	for i, want := range []int{4, 2, 1, 0} { // 100% → 50% → 25% → immune
+		stunned, got := requestStun()
+		if got != want {
+			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
+		}
+		if (want > 0) != stunned {
+			t.Fatalf("stun #%d: stunned=%v, want %v", i+1, stunned, want > 0)
+		}
+	}
+	// The reset window was (re)armed on every attempt.
+	if m.StunDRMemoryTurns != StunDRResetTurns || m.StunDRMemoryFrames != StunDRResetSeconds*tps {
+		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemoryTurns, m.StunDRMemoryFrames)
+	}
+
+	// Once the chain resets (stun-free window elapsed), stuns are full again.
+	m.StunDRStacks = 0
+	if _, got := requestStun(); got != 4 {
+		t.Fatalf("after DR reset the stun should be full (4), got %d", got)
+	}
+}
+
 // A trap thrown at a monster's feet fires immediately: damage lands, SP is
 // paid, and the one-shot trap is gone.
 func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {

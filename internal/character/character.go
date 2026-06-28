@@ -61,6 +61,10 @@ func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster)
 func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
 func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 
+// QuickSlotCount is the number of per-character quick slots (matches the 5-cell
+// quick-bar frame art).
+const QuickSlotCount = 5
+
 type MMCharacter struct {
 	Name      string
 	Class     CharacterClass
@@ -97,6 +101,14 @@ type MMCharacter struct {
 
 	// Equipment slots
 	Equipment map[items.EquipSlot]items.Item
+
+	// QuickSlots is a small per-character container (like a 5-cell pocket) for
+	// mouse-driven quick use: weapons to swap to, potions to drink, spells to
+	// cast — all by double-click. An item dragged here LEAVES the shared party
+	// inventory and lives in the slot (nil = empty). Spells hold a temporary
+	// spell item (spellbook-owned; never returned to inventory). Independent of
+	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
+	QuickSlots [QuickSlotCount]*items.Item
 
 	// Status effects
 	Conditions []Condition

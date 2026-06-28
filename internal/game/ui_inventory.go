@@ -99,6 +99,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 		if !ui.inventoryContextOpen {
 			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
+			ui.quickInvSlotDragSource(idx, x, y, w, h)
 		}
 		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
 			ui.inventoryContextOpen = true
@@ -115,8 +116,19 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			tooltipY = mouseY + 8
 		}
 	}
-	ui.drawInventoryPager(screen, gridX, gridY+gridSize+6, gridSize, totalPages)
-	ui.drawCampButton(screen, gridX, gridY+gridSize+30, gridSize)
+	// Below the grid: pager, then the Camp button + its rest-result notice
+	// vertically centred in the gap between the grid box and the quick-slot bar,
+	// then the compact quick-slot bar (kept off the paperdoll on the left).
+	gridBottom := gridY + gridSize
+	barTop := gridBottom + 88
+	const campBlockH = 26 + 6 + 14 // button + gap + notice line
+	campY := gridBottom + (barTop-gridBottom-campBlockH)/2
+	ui.drawInventoryPager(screen, gridX, gridBottom+6, gridSize, totalPages)
+	ui.drawCampButton(screen, gridX, campY, gridSize)
+
+	ui.quickInvDropZone(gridX, gridY, gridSize, gridSize)
+	const qbW = 210
+	ui.drawTabQuickSlotBar(screen, gridX+(gridSize-qbW)/2, barTop, qbW)
 
 	if tooltip != "" && tooltipHasItem {
 		lines := strings.Split(tooltip, "\n")
@@ -711,6 +723,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 			}
 
 			ui.handleSpellbookSpellClick(cardX, cardY, cardW, cardH, ui.game.selectedSchool, spellIndex)
+			ui.quickSpellCardDragSource(spellID, cardX, cardY, cardW, cardH)
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
@@ -737,6 +750,10 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 
 	// Draw spellbook controls
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+
+	// Quick-slot bar below the book, narrow + centred so cells stay compact.
+	qbW := 360
+	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {

@@ -1770,8 +1770,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 	// Stun rider (Psychic Shock etc.) carries over too.
 	if target.IsAlive() && stunChance > 0 && rand.Float64() < stunChance {
-		cs.applyStun(target, stunSeconds, stunTurns)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", target.Name))
+		cs.applyStun(target, stunSeconds, stunTurns) // announces stun/resist itself
 	}
 	if !target.IsAlive() {
 		kill()
@@ -2323,8 +2322,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.tryApplyWeaponStun(monster, weaponDef)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
-			cs.applyStun(monster, stunSeconds, stunTurns)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned by %s!", monster.Name, weaponName))
+			cs.applyStun(monster, stunSeconds, stunTurns) // announces stun/resist itself
 		}
 	}
 	cs.game.collisionSystem.UnregisterEntity(entityID)
@@ -2447,28 +2445,11 @@ func (cs *CombatSystem) tryApplyWeaponStun(monster *monsterPkg.Monster3D, weapon
 	if turns <= 0 {
 		turns = 1
 	}
-
-	if cs.game.turnBasedMode {
-		if monster.StunTurnsRemaining <= 0 {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
-		}
-		if turns > monster.StunTurnsRemaining {
-			monster.StunTurnsRemaining = turns
-		}
-		return
-	}
-
 	framesPerTurn := cs.game.config.GetTPS()
 	if framesPerTurn <= 0 {
 		framesPerTurn = 60
 	}
-	frames := turns * framesPerTurn
-	if monster.StunFramesRemaining <= 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", monster.Name))
-	}
-	if frames > monster.StunFramesRemaining {
-		monster.StunFramesRemaining = frames
-	}
+	cs.applyStunDR(monster, turns, turns*framesPerTurn, true)
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
@@ -2574,8 +2555,12 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	cs.game.applyCompletedQuestTiles()
 }
 
-// checkLevelUp checks if a character should level up and applies level up benefits
-func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
+// checkLevelUp checks if a character should level up and applies level up benefits.
+// announce gates the combat-log message: only ACTIVE party members announce, so a
+// benched reserve/captive hero leveling "alongside the party" doesn't spam the log
+// with "reached level N" for heroes the player can't see (their stat points and
+// owed class choices still bank for when they're swapped in).
+func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce bool) {
 	// Level progression: each level requires currentLevel * XPRequiredPerLevel
 	// experience. Loop handles multiple level-ups from a single XP gain.
 	for {
@@ -2595,9 +2580,11 @@ func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter) {
 			character.HitPoints = character.MaxHitPoints
 			character.SpellPoints = character.MaxSpellPoints
 
-			message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
-				character.Name, character.Level, oldLevel, StatPointsPerLevel)
-			cs.game.AddCombatMessage(message)
+			if announce {
+				message := fmt.Sprintf("%s reached level %d! (was level %d) [+%d stat points]",
+					character.Name, character.Level, oldLevel, StatPointsPerLevel)
+				cs.game.AddCombatMessage(message)
+			}
 
 			// Offer a class-progression choice every LevelUpChoiceInterval levels
 			// (3, 6, 9, 12, ...), or whenever level_up.yaml explicitly defines one
@@ -2983,15 +2970,54 @@ func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.Spel
 	return true
 }
 
-// applyStun stuns a single monster for `seconds` real-time (× TPS frames) and
-// `turns` turn-based turns, taking the max with any existing stun.
+// applyStunDR is the single entry point for stunning a monster. It applies
+// DIMINISHING RETURNS: the requested duration is scaled by StunDRFactorsPct for
+// the target's current DR chain length (100/50/25/0%), so repeated stuns shrink
+// to nothing and then the target is immune until it goes stun-free for the reset
+// window. Refreshes the chain + both per-mode reset clocks on every attempt (a
+// TB↔RT switch is conservative). announce=false suppresses the per-target line
+// for AoE callers that print their own summary. Returns whether it actually stunned.
+func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, announce bool) bool {
+	if m == nil {
+		return false
+	}
+	i := m.StunDRStacks
+	if i >= len(StunDRFactorsPct) {
+		i = len(StunDRFactorsPct) - 1
+	}
+	mult := StunDRFactorsPct[i]
+	effTurns, effFrames := turns*mult/100, frames*mult/100
+	wasStunned := m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0
+
+	// Advance the chain (caps at the immune step) and refresh both reset clocks.
+	if m.StunDRStacks < len(StunDRFactorsPct)-1 {
+		m.StunDRStacks++
+	}
+	m.StunDRMemoryTurns = StunDRResetTurns
+	m.StunDRMemoryFrames = StunDRResetSeconds * cs.game.config.GetTPS()
+
+	if effTurns <= 0 && effFrames <= 0 { // worn down → immune this attempt
+		if announce && !wasStunned {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s resists the stun!", m.Name))
+		}
+		return false
+	}
+	if effFrames > m.StunFramesRemaining {
+		m.StunFramesRemaining = effFrames
+	}
+	if effTurns > m.StunTurnsRemaining {
+		m.StunTurnsRemaining = effTurns
+	}
+	if announce && !wasStunned {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", m.Name))
+	}
+	return true
+}
+
+// applyStun stuns a single monster for `seconds` real-time and `turns` turn-based
+// turns, under diminishing returns (see applyStunDR).
 func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
-	if frames := seconds * cs.game.config.GetTPS(); frames > m.StunFramesRemaining {
-		m.StunFramesRemaining = frames
-	}
-	if turns > m.StunTurnsRemaining {
-		m.StunTurnsRemaining = turns
-	}
+	cs.applyStunDR(m, turns, seconds*cs.game.config.GetTPS(), true)
 }
 
 // applyBindUndead (Bind Undead) takes control of an UNDEAD target — it hunts
@@ -3214,13 +3240,9 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 		if Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) > radius {
 			continue
 		}
-		if frames > m.StunFramesRemaining {
-			m.StunFramesRemaining = frames
+		if cs.applyStunDR(m, turns, frames, false) { // per-target DR; summary printed below
+			stunned++
 		}
-		if turns > m.StunTurnsRemaining {
-			m.StunTurnsRemaining = turns
-		}
-		stunned++
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area — %d foe(s) stunned!", def.Name, stunned))
 	cs.game.setUtilityStatus(spellID, frames)

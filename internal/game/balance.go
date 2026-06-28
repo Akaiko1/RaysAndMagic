@@ -210,6 +210,19 @@ const MonsterHitShakeAmplitudeFrac = 0.0333
 // plane), reading as furious blinking. Beyond this size the shudder stops growing.
 const MonsterHitShakeMaxRefPx = 300.0
 
+// Stun diminishing returns: each successive stun on the SAME target lands for a
+// smaller fraction of its duration — 100% → 50% → 25% → 0% (immune) — so no
+// target (boss included) can be perma-stun-locked. The chain resets once the
+// target has been stun-free for the window below (TB turns / RT seconds). The
+// chain length is mode-agnostic; the reset window is tracked per mode so a
+// TB↔RT switch mid-fight is conservative (never speeds up the reset).
+var StunDRFactorsPct = []int{100, 50, 25, 0}
+
+const (
+	StunDRResetTurns   = 4 // TB: stun-free turns that clear the DR chain
+	StunDRResetSeconds = 8 // RT: stun-free seconds that clear the DR chain
+)
+
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
 // of attacking. 0.6 = heal anyone at or below 60% HP; healthier party → attack.
