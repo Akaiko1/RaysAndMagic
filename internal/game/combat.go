@@ -1432,10 +1432,30 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 	targetIndex := cs.findCharacterIndex(target)
 
-	// Perfect Dodge: luck/5% to avoid all damage
+	// Perfect Dodge: luck/5% to avoid the hit. The dodge evades the mitigable part,
+	// but a monster's TRUE damage lands anyway (mirrors party weapon-mastery true,
+	// which pierces a monster's dodge) — no riders, just the unmitigable chunk.
 	if dodged, _ := cs.RollPerfectDodge(target); dodged {
-		cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
-		return false
+		trueDmg := 0
+		if monster != nil {
+			trueDmg = monster.TrueDamage
+		}
+		if trueDmg <= 0 {
+			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
+			return false
+		}
+		target.HitPoints -= trueDmg
+		if target.HitPoints < 0 {
+			target.HitPoints = 0
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s but still takes %d! (HP: %d/%d)",
+			target.Name, sourceName, trueDmg, target.HitPoints, target.MaxHitPoints))
+		if target.HitPoints == 0 {
+			target.AddCondition(character.ConditionUnconscious)
+			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+		}
+		cs.game.TriggerDamageBlink(targetIndex)
+		return true
 	}
 
 	if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
@@ -1447,6 +1467,9 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	}
 
 	finalDamage := cs.mitigateCharacterDamage(damage, damageType, target, ignoresArmor)
+	if monster != nil && monster.TrueDamage > 0 {
+		finalDamage += monster.TrueDamage // bypasses all mitigation; folded into the total, no separate line
+	}
 	target.HitPoints -= finalDamage
 	if target.HitPoints < 0 {
 		target.HitPoints = 0
@@ -1461,6 +1484,9 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 
 	if monster != nil {
 		cs.tryApplyMonsterPoison(monster, target)
+		cs.tryApplyMonsterIgnite(monster, target)
+		cs.tryApplyMonsterStun(monster, target)
+		cs.tryApplyMonsterDispel(monster, target)
 	}
 	return true
 }
@@ -1524,6 +1550,63 @@ func (cs *CombatSystem) tryApplyMonsterPoison(monster *monsterPkg.Monster3D, tar
 	poisonFrames := cs.game.config.GetTPS() * monster.PoisonDurationSec
 	target.ApplyPoison(poisonFrames)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", target.Name))
+}
+
+// tryApplyMonsterIgnite rolls the attacker's IgniteChance and sets the target on
+// fire — a burn DoT 3x as strong as poison that STACKS with it (independent tick).
+func (cs *CombatSystem) tryApplyMonsterIgnite(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
+	if monster.IgniteChance <= 0 || rand.Float64() >= monster.IgniteChance {
+		return
+	}
+	// ignite_duration_seconds is guaranteed by load-time validation.
+	burnFrames := cs.game.config.GetTPS() * monster.IgniteDurationSec
+	target.ApplyBurn(burnFrames)
+	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s bursts into flames!", target.Name), combatMessageOrange)
+}
+
+// tryApplyMonsterStun rolls the attacker's StunCharChance and stuns the struck
+// character (skips its actions: RT seconds / TB turns).
+func (cs *CombatSystem) tryApplyMonsterStun(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
+	if monster.StunCharChance <= 0 || rand.Float64() >= monster.StunCharChance {
+		return
+	}
+	stunFrames := cs.game.config.GetTPS() * monster.StunCharSeconds
+	target.ApplyCharStun(stunFrames, monster.StunCharTurns)
+	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s is stunned!", target.Name), combatMessageYellow)
+}
+
+// tryApplyMonsterDispel rolls the attacker's DispelChance and strips one random
+// active party buff (stat or combat). Buffs are party-wide, so the struck
+// character only triggers the roll.
+func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *character.MMCharacter) {
+	if monster.DispelChance <= 0 || rand.Float64() >= monster.DispelChance {
+		return
+	}
+	type dispelTarget struct {
+		spellID string
+		combat  bool
+	}
+	var pool []dispelTarget
+	for i := range cs.game.statBuffs {
+		pool = append(pool, dispelTarget{cs.game.statBuffs[i].SpellID, false})
+	}
+	for i := range cs.game.combatBuffs {
+		pool = append(pool, dispelTarget{cs.game.combatBuffs[i].SpellID, true})
+	}
+	if len(pool) == 0 {
+		return
+	}
+	pick := pool[rand.Intn(len(pool))]
+	name := pick.spellID
+	if def, err := spells.GetSpellDefinitionByID(spells.SpellID(pick.spellID)); err == nil && def.Name != "" {
+		name = def.Name
+	}
+	if pick.combat {
+		cs.game.removeCombatBuff(pick.spellID)
+	} else {
+		cs.game.removeStatBuff(pick.spellID)
+	}
+	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s rips %s from the party!", monster.Name, name), combatMessagePurple)
 }
 
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
@@ -1832,6 +1915,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		DisintegrateChance: disintegrateChance,
 		Owner:              owner,
 		SourceName:         monster.Name,
+		SourceMonster:      monster,
 		AoE:                aoe,
 	}
 	cs.game.magicProjectiles = append(cs.game.magicProjectiles, magicProjectile)
@@ -1875,6 +1959,7 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 		DisintegrateChance: weaponDef.DisintegrateChance,
 		Owner:              owner,
 		SourceName:         monster.Name,
+		SourceMonster:      monster,
 	}
 
 	cs.game.arrows = append(cs.game.arrows, arrow)
@@ -1990,9 +2075,9 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		if cs.projectileHitsPlayer(mp.ID, playerEntity) {
 			damageTypeStr := spellDamageTypeStr(mp.SpellType)
 			if mp.AoE {
-				cs.applyMonsterProjectileDamageAoE(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
+				cs.applyMonsterProjectileDamageAoE(mp.SourceMonster, mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
 			} else {
-				cs.applyMonsterProjectileDamage(mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
+				cs.applyMonsterProjectileDamage(mp.SourceMonster, mp.SourceName, mp.Damage, damageTypeStr, mp.DisintegrateChance)
 			}
 			mp.Active = false
 			cs.game.collisionSystem.UnregisterEntity(mp.ID)
@@ -2006,7 +2091,7 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		}
 		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
 			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
-			cs.applyMonsterProjectileDamage(ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
+			cs.applyMonsterProjectileDamage(ar.SourceMonster, ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
 			ar.Active = false
 			cs.game.collisionSystem.UnregisterEntity(ar.ID)
 		}
@@ -2024,19 +2109,19 @@ func (cs *CombatSystem) projectileHitsPlayer(projectileID string, playerEntity *
 // applyMonsterProjectileDamage applies a single-target monster projectile/arrow.
 // Real-time → the tank (front slot). Turn-based → mostly the tank, sometimes a
 // back-liner (see rangedTBTarget / RangedOffTankChance).
-func (cs *CombatSystem) applyMonsterProjectileDamage(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
+func (cs *CombatSystem) applyMonsterProjectileDamage(src *monsterPkg.Monster3D, sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
 	var target *character.MMCharacter
 	if cs.game.turnBasedMode {
 		target = cs.rangedTBTarget()
 	} else {
 		target = cs.tankTarget()
 	}
-	cs.applyMonsterProjectileDamageToChar(target, sourceName, damage, damageTypeStr, disintegrateChance)
+	cs.applyMonsterProjectileDamageToChar(src, target, sourceName, damage, damageTypeStr, disintegrateChance)
 }
 
 // applyMonsterProjectileDamageAoE splashes a monster projectile across EVERY
 // party member that can still take a hit (AoE spells like a monster's fireball).
-func (cs *CombatSystem) applyMonsterProjectileDamageAoE(sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
+func (cs *CombatSystem) applyMonsterProjectileDamageAoE(src *monsterPkg.Monster3D, sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
 	if sourceName == "" {
 		sourceName = "Monster"
 	}
@@ -2045,17 +2130,17 @@ func (cs *CombatSystem) applyMonsterProjectileDamageAoE(sourceName string, damag
 		if member == nil || !member.CanAct() {
 			continue
 		}
-		cs.applyMonsterProjectileDamageToChar(member, sourceName, damage, damageTypeStr, disintegrateChance)
+		cs.applyMonsterProjectileDamageToChar(src, member, sourceName, damage, damageTypeStr, disintegrateChance)
 	}
 }
 
-func (cs *CombatSystem) applyMonsterProjectileDamageToChar(currentChar *character.MMCharacter, sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
+func (cs *CombatSystem) applyMonsterProjectileDamageToChar(src *monsterPkg.Monster3D, currentChar *character.MMCharacter, sourceName string, damage int, damageTypeStr string, disintegrateChance float64) {
 	if currentChar == nil {
 		return
 	}
-	// Sourceless projectile (monster=nil → no poison rider); the disintegrate
-	// roll runs inside the shared choke point.
-	cs.monsterHitCharacter(nil, currentChar, sourceName, damage, damageTypeStr, false, disintegrateChance)
+	// src is the firing monster (carries true-damage + on-hit riders to impact);
+	// the disintegrate roll runs inside the shared choke point.
+	cs.monsterHitCharacter(src, currentChar, sourceName, damage, damageTypeStr, false, disintegrateChance)
 }
 
 // getProjectileGraphicsInfo extracts base size, min size, and max size for a projectile
@@ -2524,6 +2609,10 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	// Update quest progress
 	cs.updateQuestProgress(monster)
 
+	// Revenge: a slain patron (DeathRalliesType) sends every live map monster of
+	// that type into a relentless map-wide hunt.
+	cs.rallyOnPatronDeath(monster)
+
 	// Drop gold/items into a loot bag on the ground
 	if monster.Gold > 0 || len(drops) > 0 {
 		sizeMultiplier := monster.GetSizeGameMultiplier() / 2.0
@@ -2534,6 +2623,30 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	}
 
 	return xpAwarded
+}
+
+// rallyOnPatronDeath: when a monster carrying DeathRalliesType dies, every other
+// LIVE monster on the map whose Type matches flies into a relentless map-wide
+// hunt for the party (the Relentless flag drives pursueRelentlessly, ignoring
+// detection range — and it persists across reload). The orc Warlord's death
+// turns the masked Amazons (type "human") vengeful; goblins/beasts are untouched.
+func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
+	if dead == nil || dead.DeathRalliesType == "" || cs.game == nil || cs.game.world == nil {
+		return
+	}
+	rallied := 0
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || m == dead || !m.IsAlive() || m.Relentless || m.MonsterType != dead.DeathRalliesType {
+			continue
+		}
+		m.Relentless = true
+		m.IsEngagingPlayer = true
+		m.WasAttacked = true // sticky hostility, persisted
+		rallied++
+	}
+	if rallied > 0 {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s falls — its retainers turn on you in a vengeful fury!", dead.Name))
+	}
 }
 
 // updateQuestProgress updates quest progress when a monster is killed

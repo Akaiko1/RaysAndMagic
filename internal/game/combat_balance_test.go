@@ -298,11 +298,19 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
-			// Elemental projectile — no AC reduction, no resistance (party has none defined).
-			dmg = m.GetAttackDamage()
+			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
+			// uses ranged whenever HasRangedAttack, even point-blank — it never
+			// melees). Mitigate it by the breath's element so the target's armor
+			// (elemental cap), resists, and buffs actually apply.
+			school := "physical"
+			if d, ok := config.GetSpellDefinition(m.ProjectileSpell); ok && d != nil && d.School != "" {
+				school = d.School
+			}
+			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), school, target, false)
 		} else {
 			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, m.IgnoresArmor)
 		}
+		dmg += m.TrueDamage // bypasses all mitigation, folded into the hit
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
 			dmg += m.FireburstDamageMin + rand.Intn(m.FireburstDamageMax-m.FireburstDamageMin+1)

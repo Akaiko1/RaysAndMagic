@@ -159,7 +159,7 @@ monsters:
     damage_min: 17
     damage_max: 25
     poison_chance: 0.20
-    poison_duration_seconds: 15
+    poison_duration_seconds: 20
     alert_radius: 4
     attack_radius: 1
     speed: 1.0
@@ -269,6 +269,7 @@ monsters:
     experience: 2000
     damage_min: 30
     damage_max: 50
+    true_damage: 15  # black dragon: +15 unmitigable per hit
     fireburst_chance: 0.15
     fireburst_damage_min: 10
     fireburst_damage_max: 16
@@ -308,6 +309,9 @@ monsters:
     experience: 2000
     damage_min: 30
     damage_max: 50
+    true_damage: 10  # red dragon: +10 unmitigable per hit
+    ignite_chance: 0.30           # 30% to set a character ablaze
+    ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
@@ -338,6 +342,8 @@ monsters:
     experience: 2000
     damage_min: 32
     damage_max: 52
+    true_damage: 10  # green dragon: +10 unmitigable per hit
+    attack_cooldown_multiplier: 0.6  # attacks fast
     poison_chance: 0.33
     poison_duration_seconds: 20
     alert_radius: 5
@@ -368,6 +374,10 @@ monsters:
     experience: 2000
     damage_min: 28
     damage_max: 46
+    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    stun_char_chance: 0.10        # 10% to stun the struck character
+    stun_char_seconds: 4          # RT stun duration
+    stun_char_turns: 2            # TB stun duration
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
@@ -958,7 +968,7 @@ monsters:
     attack_radius: 1
     speed: 1.5
     poison_chance: 0.12
-    poison_duration_seconds: 12
+    poison_duration_seconds: 20
     gold_min: 10
     gold_max: 40
     sprite: "thief_bug"
@@ -994,6 +1004,7 @@ monsters:
     passive_until_quest: "culverts_valves"
     evade_radius_tiles: 3
     boss_cooldown_seconds: 1
+    aggro_whole_map: true  # UNIQUE: once the valves are opened it hunts the party from anywhere
     sprite: "golden_thief_bug"
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
@@ -1134,7 +1145,7 @@ monsters:
     damage_min: 30
     damage_max: 48
     attack_radius: 1
-    alert_radius: 9
+    alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.6
     gold_min: 4000
     gold_max: 6000
@@ -1211,6 +1222,7 @@ monsters:
 
   masked_huntress:
     name: "Masked Huntress"
+    type: "human"
     level: 20
     max_hit_points: 800
     armor_class: 20
@@ -1218,13 +1230,14 @@ monsters:
     experience: 1100
     damage_min: 36
     damage_max: 54
+    true_damage: 10  # jungle spearwoman: +10 unmitigable per hit
     projectile_weapon: "blowgun"
     ranged_attack_range: 6
     attack_radius: 5
     alert_radius: 8
     speed: 1.6
     poison_chance: 0.3
-    poison_duration_seconds: 6
+    poison_duration_seconds: 20
     gold_min: 60
     gold_max: 160
     sprite: "masked_huntress"
@@ -1239,6 +1252,7 @@ monsters:
 
   masked_serpent_dancer:
     name: "Masked Serpent Dancer"
+    type: "human"
     level: 21
     max_hit_points: 720
     armor_class: 38
@@ -1252,7 +1266,7 @@ monsters:
     alert_radius: 7
     speed: 1.9
     poison_chance: 0.4
-    poison_duration_seconds: 8
+    poison_duration_seconds: 20
     gold_min: 80
     gold_max: 180
     sprite: "masked_serpent_dancer"
@@ -1267,6 +1281,7 @@ monsters:
 
   masked_hexer_girl:
     name: "Masked Hexer"
+    type: "human"
     level: 22
     max_hit_points: 780
     armor_class: 26
@@ -1274,6 +1289,7 @@ monsters:
     experience: 1700
     damage_min: 30
     damage_max: 46
+    dispel_chance: 0.10           # 10% to strip a random active party buff on hit
     projectile_spell: "darkbolt"
     ranged_attack_range: 6
     attack_radius: 5
@@ -1302,16 +1318,23 @@ monsters:
     max_hit_points: 1700
     armor_class: 58
     experience: 2600
-    damage_min: 34
-    damage_max: 52
+    damage_min: 49
+    damage_max: 67
     attack_radius: 1
-    alert_radius: 6
+    alert_radius: 10  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.5
     pounce_range_tiles: 3
     pounce_cooldown_seconds: 6
     fireburst_chance: 0.15
     fireburst_damage_min: 30
     fireburst_damage_max: 50
+    # Rallies a pair of Masked Huntress escorts (shared boss summon kit): first is
+    # guaranteed, refills the pair via chance once both die (cap 2 live).
+    summon_chance: 0.18
+    summon_first_guaranteed: true
+    summon_monsters: ["masked_huntress"]
+    summon_count: 2
+    summon_max: 2
     gold_min: 300
     gold_max: 700
     sprite: "gorilla_titan"
@@ -1337,13 +1360,22 @@ monsters:
     damage_min: 36
     damage_max: 56
     attack_radius: 1
-    alert_radius: 10
+    alert_radius: 14  # boss: senses the party from further than a normal mob (not map-wide)
     speed: 1.7
     ignores_armor: true
     warded_by_idols: true
     enrage_at_hp: 800
     enrage_damage_mult: 1.5
     enrage_cooldown_mult: 0.6
+    # Calls masked Amazon retainers to the fight (shared boss summon kit).
+    summon_chance: 0.20
+    summon_first_guaranteed: true
+    summon_monsters: ["masked_huntress", "masked_hexer_girl"]
+    summon_count: 2
+    summon_max: 4
+    # Revenge: when the Warlord dies, every human on the map (Amazons, NOT goblins
+    # or beasts) flies into a relentless map-wide hunt for the party — a surprise.
+    death_rallies_type: "human"
     gold_min: 5000
     gold_max: 8000
     sprite: "orc_warlord"

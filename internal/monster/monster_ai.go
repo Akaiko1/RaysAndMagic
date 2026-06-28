@@ -270,8 +270,9 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	// Aggressive boss: pursue the party relentlessly (ignores detection range / LoS / flee).
-	if m.BossAggro {
+	// Aggressive boss OR revenge-rallied mob (Amazons after their Warlord dies):
+	// pursue the party relentlessly, ignoring detection range / LoS / flee.
+	if m.relentlessHunter() {
 		m.pursueRelentlessly(collisionChecker, playerX, playerY)
 		return
 	}
@@ -963,8 +964,8 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 		rangeTiles = 4
 	}
 	rangeTiles *= 2
-	if m.BossAggro {
-		// Boss pursues map-wide: widen the window to hold maze detours (48 covers a 50x50 map).
+	if m.relentlessHunter() {
+		// Map-wide pursuit: widen the window to hold maze detours (48 covers a 50x50 map).
 		rangeTiles = 48
 	}
 
@@ -1021,7 +1022,7 @@ func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goa
 		rangeTiles = 4
 	}
 	rangeTiles *= 2
-	if m.BossAggro {
+	if m.relentlessHunter() {
 		rangeTiles = 48
 	}
 
@@ -1114,8 +1115,8 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 
 	nodesSearched := 0
 	maxNodes := 500 // typical mob search area is ~200-400 tiles
-	if m.BossAggro {
-		// Boss may path across a whole maze — well beyond a normal mob's budget.
+	if m.relentlessHunter() {
+		// Map-wide pursuit may path across a whole maze — well beyond a normal budget.
 		maxNodes = 4000
 	}
 

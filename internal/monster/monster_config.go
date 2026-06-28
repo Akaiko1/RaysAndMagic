@@ -21,6 +21,7 @@ type MonsterDefinition struct {
 	Experience          int               `yaml:"experience"`
 	DamageMin           int               `yaml:"damage_min"`
 	DamageMax           int               `yaml:"damage_max"`
+	TrueDamage          int               `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
 	AlertRadius         float64           `yaml:"alert_radius"`
 	AttackRadius        float64           `yaml:"attack_radius"`
 	Speed               float64           `yaml:"speed"`
@@ -53,6 +54,12 @@ type MonsterDefinition struct {
 	AllyHealRadius      float64           `yaml:"ally_heal_radius_tiles,omitempty"`
 	PoisonChance        float64           `yaml:"poison_chance"`
 	PoisonDurationSec   int               `yaml:"poison_duration_seconds"`
+	IgniteChance        float64           `yaml:"ignite_chance,omitempty"`
+	IgniteDurationSec   int               `yaml:"ignite_duration_seconds,omitempty"`
+	StunCharChance      float64           `yaml:"stun_char_chance,omitempty"`
+	StunCharSeconds     int               `yaml:"stun_char_seconds,omitempty"`
+	StunCharTurns       int               `yaml:"stun_char_turns,omitempty"`
+	DispelChance        float64           `yaml:"dispel_chance,omitempty"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
@@ -80,8 +87,10 @@ type MonsterDefinition struct {
 	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
-	WardedByIdols bool `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
-	WarlordIdol   bool `yaml:"warlord_idol,omitempty"`    // this monster is a ward idol
+	WardedByIdols    bool   `yaml:"warded_by_idols,omitempty"`    // boss: warded while any idol lives
+	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE — once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
+	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
@@ -154,6 +163,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
+		}
+		if monster.IgniteChance > 0 && monster.IgniteDurationSec <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ignite_chance but no ignite_duration_seconds", key))
+		}
+		if monster.StunCharChance > 0 && monster.StunCharSeconds <= 0 && monster.StunCharTurns <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but no stun_char_seconds/turns", key))
 		}
 		// An evasive boss (blinks away while its quest is unfinished) needs a blink
 		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
@@ -303,6 +318,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Experience = def.Experience
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
+	m.TrueDamage = def.TrueDamage
 	// Convert tile-based radii to pixels
 	tileSize := m.tileSize()
 	m.AlertRadius = def.AlertRadius * tileSize
@@ -361,6 +377,12 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	if def.PoisonDurationSec > 0 {
 		m.PoisonDurationSec = def.PoisonDurationSec
 	}
+	m.IgniteChance = def.IgniteChance
+	m.IgniteDurationSec = def.IgniteDurationSec
+	m.StunCharChance = def.StunCharChance
+	m.StunCharSeconds = def.StunCharSeconds
+	m.StunCharTurns = def.StunCharTurns
+	m.DispelChance = def.DispelChance
 	if def.PounceRangeTiles > 0 {
 		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
@@ -382,6 +404,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.EnrageDamageMult = def.EnrageDamageMult
 	m.EnrageCooldownMult = def.EnrageCooldownMult
 	m.WardedByIdols = def.WardedByIdols
+	m.AggroWholeMap = def.AggroWholeMap
+	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
 	if len(def.TintColor) == 3 {
 		m.TintR = float32(def.TintColor[0])

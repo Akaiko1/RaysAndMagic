@@ -666,6 +666,8 @@ var (
 	// Distinct from rarityGold so the combat log stays a flat fill (not metal).
 	combatMessageGold   = color.RGBA{255, 205, 40, 255}
 	combatMessagePurple = color.RGBA{190, 100, 255, 255}
+	combatMessageOrange = color.RGBA{255, 140, 40, 255}
+	combatMessageYellow = color.RGBA{255, 230, 90, 255}
 )
 
 func lootMessageColor(drops []items.Item) color.Color {

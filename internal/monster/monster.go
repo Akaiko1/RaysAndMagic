@@ -42,6 +42,13 @@ type TreasureChestReward struct {
 // passive monster. Mutated in place to avoid per-frame allocation.
 var PartyTraits = map[string]bool{}
 
+// relentlessHunter reports whether this monster pursues the party MAP-WIDE: a boss
+// turned aggressive (BossAggro) or a non-boss rallied for revenge (Relentless,
+// e.g. Amazons after their Warlord dies). Both ignore detection/LoS AND must get
+// the widened A* window + node budget, or they'd stay on a normal mob's reach and
+// fail to path across a large/maze map despite being "hostile from anywhere".
+func (m *Monster3D) relentlessHunter() bool { return m.BossAggro || m.Relentless }
+
 // HatesActiveTrait reports whether any of this monster's hated party traits is
 // currently active — i.e. whether a passive monster should turn hostile on sight.
 func (m *Monster3D) HatesActiveTrait() bool {
@@ -79,6 +86,10 @@ type Monster3D struct {
 	// Combat stats
 	DamageMin int
 	DamageMax int
+	// TrueDamage is added to every attack and bypasses EVERYTHING on the target —
+	// armor, resists, Stone Skin/flat, dodge — landing straight on HP (folded into
+	// the hit's total, no separate message). Applies to melee AND ranged.
+	TrueDamage int
 	// Light emission (torch-like)
 	LightRadius    float64
 	LightIntensity float64
@@ -164,6 +175,12 @@ type Monster3D struct {
 	AllyHealRadiusPixels     float64    // Radius for ally heal target search
 	PoisonChance             float64    // Chance to apply poison on hit
 	PoisonDurationSec        int        // Poison duration in seconds
+	IgniteChance             float64    // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
+	IgniteDurationSec        int        // Burn duration in seconds
+	StunCharChance           float64    // Chance to stun the struck character (skips actions)
+	StunCharSeconds          int        // Stun duration in RT seconds
+	StunCharTurns            int        // Stun duration in TB turns
+	DispelChance             float64    // Chance to strip one random active party buff on hit
 
 	// Loot
 	Gold  int
@@ -201,11 +218,14 @@ type Monster3D struct {
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
-	WardedByIdols   bool // static: this boss is warded while any WarlordIdol lives
-	WarlordIdol     bool // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
-	BossWarded      bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
-	BossLastHP      int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	WardedByIdols    bool   // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	AggroWholeMap    bool   // static: UNIQUE boss trait — once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord → "human".)
+	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
+	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
+	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending  bool   // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.
 	SummonChance          float64  // 0..1 chance per action to summon
 	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance

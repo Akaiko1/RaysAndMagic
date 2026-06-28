@@ -115,6 +115,12 @@ type MMCharacter struct {
 	// Poison status timer and tick accumulator (frames)
 	PoisonFramesRemaining int
 	poisonTickTimer       int
+	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
+	BurnFramesRemaining int
+	burnTickTimer       int
+	// Stun: skips the character's actions. RT counts frames, TB counts turns.
+	StunFramesRemaining int
+	StunTurnsRemaining  int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -420,11 +426,41 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 			tps = 60
 		}
 		c.updatePoison(tps)
+		c.updateBurn(tps)
 		return
 	}
 
 	// Use normal timer-based regeneration in real-time mode
 	c.updateRegenAndPoison()
+}
+
+// A stun carries both a RT (seconds→frames) and a TB (turns) counter; only the
+// current mode's counter is ticked. The stun ends when the ACTIVE counter
+// expires (clearing the other), so it lasts its full single-mode duration and a
+// mode switch ends it on whichever runs out first — never permanent.
+
+// tickStunFrames counts down a real-time stun, clearing it when the timer ends.
+func (c *MMCharacter) tickStunFrames() {
+	if c.StunFramesRemaining <= 0 {
+		return
+	}
+	c.StunFramesRemaining--
+	if c.StunFramesRemaining <= 0 {
+		c.StunTurnsRemaining = 0
+		c.RemoveCondition(ConditionStunned)
+	}
+}
+
+// TickStunTurn counts down a turn-based stun at the start of the party's turn.
+func (c *MMCharacter) TickStunTurn() {
+	if c.StunTurnsRemaining <= 0 {
+		return
+	}
+	c.StunTurnsRemaining--
+	if c.StunTurnsRemaining <= 0 {
+		c.StunFramesRemaining = 0
+		c.RemoveCondition(ConditionStunned)
+	}
 }
 
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
@@ -435,6 +471,8 @@ func (c *MMCharacter) updateRegenAndPoison() {
 		tps = 60
 	}
 	c.updatePoison(tps)
+	c.updateBurn(tps)
+	c.tickStunFrames()
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
@@ -485,6 +523,66 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 		c.PoisonFramesRemaining = frames
 	}
 	c.AddCondition(ConditionPoisoned)
+}
+
+// ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison —
+// both can run at once. The tick is desynced (starts half a second in) so burn
+// and poison ticks don't land on the same frame.
+func (c *MMCharacter) ApplyBurn(frames int) {
+	if frames <= 0 {
+		return
+	}
+	if frames > c.BurnFramesRemaining {
+		c.BurnFramesRemaining = frames
+	}
+	c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
+	c.AddCondition(ConditionBurning)
+}
+
+// BurnDamagePerTick is how much ignite deals each second — 3x poison's 1/sec.
+const BurnDamagePerTick = 3
+
+func (c *MMCharacter) updateBurn(tps int) {
+	if c.BurnFramesRemaining <= 0 {
+		return
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	c.BurnFramesRemaining--
+	c.burnTickTimer++
+	if c.burnTickTimer >= tps {
+		c.burnTickTimer = 0
+		if c.HitPoints > 0 {
+			c.HitPoints -= BurnDamagePerTick
+			if c.HitPoints <= 0 {
+				c.HitPoints = 0
+				c.AddCondition(ConditionUnconscious)
+			}
+		}
+	}
+	if c.BurnFramesRemaining <= 0 {
+		c.RemoveCondition(ConditionBurning)
+	}
+}
+
+// ApplyCharStun stuns the character for the given RT frames / TB turns (max with
+// any existing stun). A stunned character takes no action until it wears off.
+func (c *MMCharacter) ApplyCharStun(frames, turns int) {
+	if frames > c.StunFramesRemaining {
+		c.StunFramesRemaining = frames
+	}
+	if turns > c.StunTurnsRemaining {
+		c.StunTurnsRemaining = turns
+	}
+	if frames > 0 || turns > 0 {
+		c.AddCondition(ConditionStunned)
+	}
+}
+
+// IsStunned reports whether the character currently skips actions.
+func (c *MMCharacter) IsStunned() bool {
+	return c != nil && (c.StunFramesRemaining > 0 || c.StunTurnsRemaining > 0)
 }
 
 func (c *MMCharacter) updatePoison(tps int) {

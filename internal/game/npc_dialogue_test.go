@@ -96,6 +96,88 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 	want(npcStateConcluded, "farewell")
 }
 
+// branchingNPC builds a quest-giver whose first root choice is an "info" branch
+// (reply + its own follow-up choices), so we can exercise descend/back.
+func branchingNPC(questID string) *character.NPC {
+	return &character.NPC{
+		Name: "Brancher",
+		DialogueData: &character.NPCDialogue{
+			Greeting: "root",
+			Choices: []*character.NPCDialogueChoice{
+				{Text: "Ask", Action: "info", Response: "reply", Choices: []*character.NPCDialogueChoice{
+					{Text: "Deeper", Action: "give_quest", QuestID: questID},
+					{Text: "Back", Action: "back"},
+				}},
+				{Text: "Take", Action: "give_quest", QuestID: questID},
+				{Text: "Leave", Action: "leave"},
+			},
+		},
+	}
+}
+
+// An "info" choice shows the NPC's reply and its follow-ups WITHOUT closing the
+// dialog or taking the quest; "back" returns to the greeting. Quest-state
+// filtering still applies at depth (a nested give_quest hides once active).
+func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.questManager = loadTestQuestManager(t)
+	const qid = "dragon_cliffs_troll_cull"
+	npc := branchingNPC(qid)
+	ih := NewInputHandler(g)
+	g.dialogActive = true
+	g.dialogNPC = npc
+	g.dialogNodePath = nil
+
+	// Root (offer): greeting body, info + give_quest + leave.
+	if g.npcDialogueText(npc) != "root" {
+		t.Fatalf("root body = %q", g.npcDialogueText(npc))
+	}
+	if got := actions(g.visibleNPCChoices(npc)); len(got) != 3 || got[0] != "info" {
+		t.Fatalf("root choices = %v", got)
+	}
+
+	// Pick the info choice → descend, NOT close, NOT take the quest.
+	g.selectedChoice = 0
+	ih.executeEncounterChoice()
+	if !g.dialogActive || g.dialogNPC == nil {
+		t.Fatal("info must not close the dialog")
+	}
+	if q := g.questManager.GetQuest(qid); q != nil && q.Status == quests.QuestStatusActive {
+		t.Fatal("info must not activate the quest")
+	}
+	if len(g.dialogNodePath) != 1 {
+		t.Fatalf("should have descended one level, path=%d", len(g.dialogNodePath))
+	}
+	if g.npcDialogueText(npc) != "reply" {
+		t.Errorf("branch body = %q, want reply", g.npcDialogueText(npc))
+	}
+	if got := actions(g.visibleNPCChoices(npc)); len(got) != 2 || got[0] != "give_quest" || got[1] != "back" {
+		t.Fatalf("branch choices (offer) = %v, want [give_quest back]", got)
+	}
+
+	// "back" (index 1) pops to the greeting.
+	g.selectedChoice = 1
+	ih.executeEncounterChoice()
+	if len(g.dialogNodePath) != 0 {
+		t.Fatalf("back should pop to root, path=%d", len(g.dialogNodePath))
+	}
+	if g.npcDialogueText(npc) != "root" {
+		t.Errorf("after back body = %q, want root", g.npcDialogueText(npc))
+	}
+
+	// Once the quest is active, the nested give_quest is filtered out: descending
+	// shows only the non-quest follow-ups (back).
+	if err := g.questManager.ActivateQuest(qid); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	g.selectedChoice = 0
+	ih.executeEncounterChoice()
+	if got := actions(g.visibleNPCChoices(npc)); len(got) != 1 || got[0] != "back" {
+		t.Fatalf("branch choices (active) = %v, want [back]", got)
+	}
+}
+
 // Generic turn-in at the NPC pays gold + XP and concludes the NPC (Visited).
 func TestHandleTurnInQuest_GenericClaimsAndConcludes(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)

@@ -13,16 +13,16 @@
 npcs:
   # Spell Traders - NPCs who teach spells for gold
   spell_trader_mage:
-    name: "Mystic Trader Eldrich"
+    name: "Priestess Liora"
     type: "spell_trader"
-    description: "A mysterious mage who trades arcane knowledge for gold"
-    sprite: "elf_warrior"
+    description: "A serene priestess in white and gold, keeper of a lakeside shrine, who teaches the divine arts of body, mind and spirit"
+    sprite: "priestess_spell_merchant"
     size_multiplier: 4
     dialogue:
-      greeting: "Greetings, traveler! I deal in magical knowledge. Choose a character and spell to learn."
-      insufficient_gold: "You need %d gold to learn this spell."
-      already_known: "%s already knows this spell."
-      success: "The knowledge flows into %s's mind. Use it wisely!"
+      greeting: "Peace, traveler. You crossed the bridge — then Soren kept his word and the wolves are quiet. Few reach my shrine. The Light rewards those who do: I will teach the arts of body, mind, and spirit. Choose a soul, and a prayer for them to carry."
+      insufficient_gold: "Devotion is not bought with empty hands. This teaching asks %d gold."
+      already_known: "%s already carries this prayer in their heart."
+      success: "The Light settles into %s. Wield it gently, and it will not fail you."
 
     # Self & divine magic — every Body, Mind and Spirit spell. Each entry authors
     # only its shop price; name/school/level/requirements are backfilled from
@@ -46,22 +46,37 @@ npcs:
 
   # Spell trader for testing
   mtrader0:
-    name: "Mystic Trader Aldric"
+    name: "Apprentice Soren"
     type: "spell_trader"
-    description: "A wise old mage who trades in magical knowledge"
-    sprite: "human"
+    description: "An eager young hedge-mage camped at the forest's edge, peddling the few charms he has mastered while he dreams of greater teaching"
+    sprite: "beginner_spell_merchant"
     size_multiplier: 4
     dialogue:
-      greeting: "Greetings, traveler! I possess ancient spells for those with coin."
-      insufficient_gold: "You lack the gold required for this knowledge."
-      already_known: "This character already knows that spell."
-      success: "The magical knowledge has been imparted. Use it wisely!"
-      active_message: "The wolves still prowl the forest. Silence every last howl and I will bridge the lake."
-      completed_message: "The forest is quiet at last! The bridge to Eldrich's perch is laid - and here is your due."
-      visited_message: "Cross my bridge and give Eldrich my regards."
-      choice_prompt: "Aldric glances toward the lake."
+      greeting: "Oh — a real adventuring party! Welcome, welcome. I'm Soren. I haven't much yet, but what I've mastered I'll gladly sell. Pick a companion and I'll show you the one trick I've truly got down."
+      insufficient_gold: "Ah — that's %d gold, and your purse is a little light. No shame in it; come back when it's heavier."
+      already_known: "%s already knows that one! You're ahead of me there."
+      success: "There — %s has it. Mind the gestures; I botched that spell for a month."
+      active_message: "The wolves are still out there — you can hear them at dusk. Quiet every last one and I'll have the lake bridge finished, I swear it."
+      completed_message: "The forest's gone silent — you did it! The bridge is laid at last, all the way to Priestess Liora's shrine across the water. Here's your reward, and my thanks. Go meet her — tell her Soren sent you!"
+      visited_message: "Cross my bridge whenever you like. Give Priestess Liora my respects — one day I'll study under her myself."
+      choice_prompt: "Soren fidgets with a half-finished plank."
       choices:
-        - text: "Ask about the wolves"
+        - text: "Why are you building a bridge?"
+          action: "info"
+          response: "Across the lake there's a shrine — Priestess Liora teaches the divine arts there, body and mind and spirit. Real magic, not my hedge-tricks. I've been trying to reach her for a season. But the only crossing is this bridge I'm building, and I can't lay a plank with wolves at my back every night."
+          choices:
+            - text: "What's the trouble with the wolves?"
+              action: "info"
+              response: "A whole pack, gone bold and hungry — they own this forest after dark. I've lost tools, near lost a hand. If your party thinned them out, truly silenced the lot, I'd have the bridge finished in days. Do that, and the crossing to Liora is yours as much as mine."
+              choices:
+                - text: "Consider it done. We'll cull the pack."
+                  action: "give_quest"
+                  quest_id: "forest_wolf_cull"
+                - text: "Let me think."
+                  action: "back"
+            - text: "Back."
+              action: "back"
+        - text: "We'll silence the wolves for you."
           action: "give_quest"
           quest_id: "forest_wolf_cull"
         - text: "Claim your reward"
@@ -76,13 +91,13 @@ npcs:
 
   # Example of other NPC types for future expansion
   merchant_general:
-    name: "Trader Marcus"
+    name: "Trader Faelan"
     type: "merchant"
-    description: "A general goods merchant with basic supplies"
+    description: "A soft-spoken elven trader of road staples — potions, plain steel, and whatever a far-walking party forgot to pack"
     sprite: "elf"
     size_multiplier: 4
     dialogue:
-      greeting: "Welcome to my shop! What can I get for you today?"
+      greeting: "Well met, travelers. Faelan's the name. I don't deal in wonders — just the staples that keep a party walking: a potion for the wounds, honest steel for the road. What did you forget to pack?"
     inventory:
       - type: "potion"
         name: "Health Potion"
@@ -101,15 +116,15 @@ npcs:
     size_multiplier: 4
     sell_available: true
     dialogue:
-      greeting: "Spare tools and trinkets? I pay fair coin."
+      greeting: "Sun's mercy on you, travelers. Sahim has crossed three deserts and sold the same lamp four times — so trust me when I say I pay fair coin for spare tools and trinkets. Got anything weighing down your packs?"
 
   quest_elder:
-    name: "Village Elder Aldwin"
+    name: "Elder Aldwin"
     type: "quest_giver"
-    description: "The wise village elder with knowledge of ancient secrets"
+    description: "A grey-braided elven warrior, long retired to counsel; his sword is hung up but his memory is not"
     sprite: "elf_warrior"
     dialogue:
-      greeting: "Young adventurer, I have a task that requires your skills..."
+      greeting: "Rest your feet a moment, young ones. I carried a blade for two hundred years before I hung it up — long enough to know that the roads out of here run to old and hungry places. Walk them with open eyes. The land remembers more than it forgives."
 
   shipwreck_bandit_camp:
     name: "Abandoned Shipwreck"
@@ -290,12 +305,27 @@ npcs:
     size_multiplier: 1.0
     rejects_lich: true
     dialogue:
-      greeting: "A voice echoes from the tower's heights: 'Only one who has broken the Lich King may be raised to Archmage and command the Light. Will you take the trial?'"
-      active_message: "The voice stirs again: 'The Lich King still draws breath. Return when the deed is done.'"
-      completed_message: "The wards blaze bright: 'You have broken the Lich King. Step forward and be raised to Archmage.'"
-      visited_message: "The tower stands quiet now — an Archmage walks among you."
-      choice_prompt: "The Mage Tower awaits."
+      greeting: "A voice rings down from the tower's heights, neither man's nor woman's: 'You feel the wards part for you. Few do. Speak, then — there is a trial here for those bold enough to be raised.'"
+      active_message: "The voice stirs again, cooler now: 'The Lich King still draws breath, and so the throne of Archmage stays empty. Return when the deed is done.'"
+      completed_message: "The wards blaze white: 'You have broken the Lich King. The Light has waited long for hands worthy of it. Step forward, and be raised to Archmage.'"
+      visited_message: "The tower stands quiet now — its highest seat is filled, and an Archmage walks among you."
+      choice_prompt: "The Mage Tower's wards hum, waiting."
       choices:
+        - text: "What trial does the tower offer?"
+          action: "info"
+          response: "'The seat of Archmage has stood empty since the Lich King rose. The Light will crown no one who has not first unmade him — for what use is mastery that flees the dark? Break the Lich King upon his nexus, return alive, and one among you will be raised to command the Light itself.'"
+          choices:
+            - text: "What does becoming Archmage grant?"
+              action: "info"
+              response: "'Command of the highest Light: the prayers no trader will sell and no shrine will teach. But the Light tests before it gives. It will not bind itself to the undead, nor to the unready — only to one who has already walked into the Lich King's dark and walked back out. Prove that, and the gift is yours.'"
+              choices:
+                - text: "We accept. The Lich King will fall."
+                  action: "give_quest"
+                  quest_id: "archmage_trial"
+                - text: "Not yet."
+                  action: "back"
+            - text: "Back."
+              action: "back"
         - text: "Accept the trial (slay the Lich King)"
           action: "give_quest"
           quest_id: "archmage_trial"
@@ -312,13 +342,28 @@ npcs:
     sprite: "dragon_cliffs_ranger"
     size_multiplier: 4
     dialogue:
-      greeting: "Keep low when the wind shifts. The trolls use the cliff mist as cover, and they are getting bold near the bridge stones."
-      active_message: "Still too many trolls on the ridge. Thin them out and the bridge approaches are ours again."
-      completed_message: "The bridge stones are quiet for the first time in weeks. You've earned your due — let me settle up."
-      visited_message: "The cliffs hold. Safe travels, friend."
+      greeting: "Down — keep low when the wind shifts. Good. You've a steadier hand than the last lot who came up this trail. I'm Maera; I watch these cliffs so the bridge towns below get a warning before the trouble does. And lately there's trouble."
+      active_message: "Still too many of them on the ridge. Thin the pack and the bridge approaches are ours again — I'll know the moment the mist clears."
+      completed_message: "The bridge stones are quiet for the first time in weeks. I watched you work the ridge — clean, no wasted blood. You've earned your due; let me settle up."
+      visited_message: "The cliffs hold, and the towns below sleep easier. Safe travels, friend — mind the wind."
       choice_prompt: "Maera studies the ridgeline."
       choices:
-        - text: "Ask about the troll raids"
+        - text: "What kind of trouble?"
+          action: "info"
+          response: "Trolls. They come up out of the gorges and use the cliff mist for cover — you don't see them until they're on the bridge stones, and a troll on a bridge is a toll no caravan can pay. They've never massed like this before. Something below has them stirred up and climbing."
+          choices:
+            - text: "Why are they suddenly so bold?"
+              action: "info"
+              response: "If I knew, I'd have shot it already. Old Varric down the trail mutters about rites in the rock — fire-magic waking the deep things. All I know is what I see through the glass: more of them, every dawn, pushing for the bridges. Cull the pack hard enough and the approaches are safe again. That I can promise."
+              choices:
+                - text: "We'll thin the ridge for you."
+                  action: "give_quest"
+                  quest_id: "dragon_cliffs_troll_cull"
+                - text: "Let me look around first."
+                  action: "back"
+            - text: "Back."
+              action: "back"
+        - text: "We'll clear the trolls."
           action: "give_quest"
           quest_id: "dragon_cliffs_troll_cull"
         - text: "Claim your reward"
@@ -334,13 +379,28 @@ npcs:
     sprite: "dragon_cliffs_bone_hermit"
     size_multiplier: 4
     dialogue:
-      greeting: "The bones remember flame. Something below the cliffs has taught the mountain mages to listen to it."
-      active_message: "The rite still hums in the rock. The mages yet breathe — silence them, and the bones will rest."
-      completed_message: "The humming has stopped. You broke the rite. Take what the bones owe you."
-      visited_message: "The dragon-bones are quiet at last. Go well."
-      choice_prompt: "The hermit taps his dragon-bone staff."
+      greeting: "Hsh. Listen — there, under your feet. The bones remember flame, and lately the rock has begun to hum back. I have hung these dragon-teeth thirty years and never heard it sing like this. Something below has taught the mountain mages to listen. That is never a small thing."
+      active_message: "The rite still hums in the rock — I feel it in my teeth and theirs. The mages yet breathe. Silence them, and the bones will rest, and so will I."
+      completed_message: "The humming has stopped. The rock is only rock again. You broke the rite, and the old dead beneath us have gone quiet. Take what the bones owe you — they pay their debts, unlike the living."
+      visited_message: "The dragon-bones are quiet at last. Thirty years, and finally a still night. Go well, ash-walker."
+      choice_prompt: "Varric taps his dragon-bone staff against the stone."
       choices:
-        - text: "Ask about the ember rites"
+        - text: "What is humming in the rock?"
+          action: "info"
+          response: "Dragons died on these cliffs, ages before your grandmother's grandmother. Their bones are still down there, and bone that has held fire never truly forgets it. The mountain mages have found a rite to wake that memory — to make the dead embers listen, and answer. You feel it as a hum. I feel it as a wound."
+          choices:
+            - text: "What happens if the rite is finished?"
+              action: "info"
+              response: "Then the cliffs remember being a furnace. The trolls already feel it — that's why they climb, why Maera's bridges burn with raiders. Fire under the stone wakes everything that fears it. The mages performing the rite are flesh, ash-walker. Stop their breath and the hum stops with them. Will you do it?"
+              choices:
+                - text: "We'll silence the mages and end the rite."
+                  action: "give_quest"
+                  quest_id: "dragon_cliffs_ember_rites"
+                - text: "Let me weigh it."
+                  action: "back"
+            - text: "Back."
+              action: "back"
+        - text: "We'll end the ember rites."
           action: "give_quest"
           quest_id: "dragon_cliffs_ember_rites"
         - text: "Claim your reward"
@@ -637,19 +697,40 @@ npcs:
           action: "leave"
 
   culverts_oldman:
-    name: "Sewerman Garran"
+    name: "Grist the Sluice-Rat"
     type: "quest_giver"
-    description: "A stooped old sewer-keeper who knows the culverts' every drip"
-    sprite: "dragon_cliffs_bone_hermit"
+    description: "A cloaked ratfolk who keeps the Seabright culverts and their seven sluice valves, lantern always lit"
+    sprite: "ratman_cloak"
     size_multiplier: 4
     dialogue:
-      greeting: "Mind the gold glint in the dark, traveler. The Golden Thief Bug hoards down here — but it won't stand and fight; it blinks away the moment you close in. Shut the seven sluice valves and the flood drains from its lair. Cornered in the dry, it'll finally turn on you."
-      active_message: "Valves still gushing. Seven of them — shut every one and the bug's lair drains dry."
-      completed_message: "The channels run dry; the Thief Bug's nowhere left to skitter. Here's for your trouble — now go corner the thing."
-      visited_message: "Dry as old bone down there now. Mind that bug's bite."
-      choice_prompt: "Garran leans on his hook-pole."
+      greeting: "Hsss — easy, top-dweller. Grist means no harm. I keep these culverts; have, since before your harbor learned to count its coin. Lower that steel and I'll tell you what glitters down here in the dark."
+      active_message: "Still seven valves gushing, friend. Wheel them all shut and the bug's hall drains to mud — then it's nowhere left to skitter."
+      completed_message: "I hear it now — the channels run dry, and something gold-shelled scratches at the bottom of its own hall with no water left to flee through. You did the trick. Take Grist's thanks, and the harbor's."
+      visited_message: "Dry as a picked bone down there now. Mind its bite, top-dweller — gold or no, it's still got pincers."
+      choice_prompt: "Grist's whiskers twitch toward the dark."
       choices:
-        - text: "Ask about the Golden Thief Bug"
+        - text: "What glitters down here? (ask Grist)"
+          action: "info"
+          response: "The Golden Thief Bug. Big as a hound, shell like minted coin, and it hoards — drags every dropped ring and lost crown down into its flooded hall. Trouble is, it won't fight fair. Close on it and it just... blinks. Gone. Three strides off, watching you with those black eyes."
+          choices:
+            - text: "So how do you corner a thing that vanishes?"
+              action: "info"
+              response: "You take its water. Seven sluice valves feed the flood that fills its hall — that's how it slips away, swimming the channels quicker than you can blink after it. Wheel all seven shut and the hall drains to bare stone. No water, no escape. Cornered in the dry, it finally turns and bites. That's when you've got it."
+              choices:
+                - text: "Then I'll shut all seven valves."
+                  action: "give_quest"
+                  quest_id: "culverts_valves"
+                - text: "Let me think on it."
+                  action: "back"
+            - text: "Hm. Tell me the rest later."
+              action: "back"
+        - text: "Why does a rat keep the harbor's drains?"
+          action: "info"
+          response: "Ha! Because no top-dweller will. Grist's kind were here when Seabright was three huts and a fishing weir. We mind the valves, we keep the floods off your cellars, and your sort pretends we don't exist. Suits us both. The bug, though — the bug's been eating our quiet. I'd be glad to see it gone."
+          choices:
+            - text: "Fair enough. Back to the bug."
+              action: "back"
+        - text: "I'll drain its lair for you."
           action: "give_quest"
           quest_id: "culverts_valves"
         - text: "Claim your reward"
@@ -754,19 +835,44 @@ npcs:
           action: "leave"
 
   castle_oldman:
-    name: "Old Retainer Shozo"
+    name: "Shozo the Ronin"
     type: "quest_giver"
-    description: "A bent old retainer who kept these walls long after his lord fell"
-    sprite: "dragon_cliffs_bone_hermit"
+    description: "A masterless swordsman in a straw cloak, the last of a fallen eastern house, lingering at the castle gate"
+    sprite: "ronin_outcast"
     size_multiplier: 4
     dialogue:
-      greeting: "I have kept this castle since my lord fell to the eastern blade. He sits sealed in the keep above — the Samurai Warlord — and he will not wake for trespassers. But strip the five katana racks his guard hid behind the shoji screens, take up the castle's own steel, and his pride will not abide it. He will rise. Then you may end him."
-      active_message: "Five racks, hidden behind the paper screens in the halls above. Bare them all, and the Warlord wakes."
-      completed_message: "The racks stand empty and the keep has stirred — I feel him moving above. Here is the castle's old reward. Now go; he is waiting."
-      visited_message: "He is awake now. The rest is steel and fortune."
-      choice_prompt: "The old retainer bows stiffly."
+      greeting: "Stay your feet, westerner. You stand at the gate of a dead house. I am Shozo — once sworn sword to its lord, now only the man who sweeps its steps. Speak softly here. The one who sleeps above does not love to be woken... unless it is done properly."
+      active_message: "Five racks remain, hidden behind the shoji screens of the upper halls. Bare every one, take up the house's steel, and his pride will do the rest."
+      completed_message: "The racks stand empty, and I feel the keep breathing again — he stirs. You have done it properly, westerner. Take this, the last gift of a house with no one left to give it. Then climb. He is waiting now."
+      visited_message: "He is awake. What remains between you and him is only steel, and fortune. Go with both."
+      choice_prompt: "Shozo rests a hand on his sheathed katana."
       choices:
-        - text: "Ask about the keep"
+        - text: "Who sleeps in the keep above?"
+          action: "info"
+          response: "My lord. The Samurai Warlord. He fell defending these walls against the eastern blade, and rather than let him be taken, the temple sealed him in the high keep — armored, wrathful, and dreaming. He will not so much as stir for trespassers. Honor is the only key that fits that door."
+          choices:
+            - text: "Then how does one wake him?"
+              action: "info"
+              response: "His guard, in their last hour, hid the house's five katana racks behind the paper screens of the upper halls — so no looter could ever claim the blades and shame the house. Find all five. Take up the castle's own steel as your own. THAT he will not abide — a stranger bearing his soldiers' swords. His pride will drag him from sleep. Then, and only then, may you face him."
+              choices:
+                - text: "I will bare the five racks."
+                  action: "give_quest"
+                  quest_id: "castle_armory"
+                - text: "A grave thing. Let me consider."
+                  action: "back"
+            - text: "Why not let him sleep?"
+              action: "info"
+              response: "Because a sleeping wrath is still a wrath. Travelers vanish on this road. The temple's seal weakens with every year I grow older, and when I am gone there will be no one to keep the gate. Better he is faced now, by living hands, than loosed later upon a road that has forgotten him."
+              choices:
+                - text: "Then back to how he wakes."
+                  action: "back"
+        - text: "And who are you, truly?"
+          action: "info"
+          response: "A ronin. A sword without a master — the lowest thing my people name. When my lord fell I should have followed him in death, as custom demands. Instead I stayed, to sweep these steps and warn the foolish. Call it cowardice. I call it the last duty no one assigned me."
+          choices:
+            - text: "There's honor in that. Go on."
+              action: "back"
+        - text: "I will wake your lord and end him."
           action: "give_quest"
           quest_id: "castle_armory"
         - text: "Claim your reward"
@@ -887,14 +993,14 @@ npcs:
           action: "leave"
 
   city_weapon_shop:
-    name: "Seabright Arms"
+    name: "Bladewright Dalia"
     type: "merchant"
-    description: "A weapon shop with upgraded blades, bows and staves"
-    sprite: "merchant"
+    description: "The blade-dealer of Seabright Arms; daggers at her hip and a knife-trick for every customer who haggles"
+    sprite: "city_weapon_merchant"
     size_multiplier: 4
     sell_available: true
     dialogue:
-      greeting: "Starter steel won't last the road. These will."
+      greeting: "Dalia, of Seabright Arms. That starter steel you're carrying won't last the first real road — I've buried adventurers who trusted it. These will. Take a look; I sharpen what I sell."
     # Stock is one class-appropriate upgrade above the starter loadout —
     # nothing here matches an item the party already carries at L1.
     inventory:
@@ -920,14 +1026,14 @@ npcs:
         quantity: 3
 
   city_potion_shop:
-    name: "Harbor Remedies"
+    name: "Apothecary Wrenna"
     type: "merchant"
-    description: "A small apothecary selling road medicine"
-    sprite: "merchant"
+    description: "Keeper of Harbor Remedies; a belt of labelled vials and not one mystery brew among them"
+    sprite: "city_potion_merchant"
     size_multiplier: 4
     sell_available: true
     dialogue:
-      greeting: "Careful bottles, clear labels, no mystery brews."
+      greeting: "Welcome to Harbor Remedies. I'm Wrenna — careful bottles, clear labels, no mystery brews. The harbor's full of folk who'll sell you swamp water and call it a cure. I'm not one of them. What ails the party?"
     inventory:
       - type: "potion"
         name: "Health Potion"
@@ -939,16 +1045,16 @@ npcs:
         quantity: 3
 
   city_spell_shop:
-    name: "Tideglass Scriptorium"
+    name: "Scrivener Oletta"
     type: "spell_trader"
-    description: "A spell shop whose windows overlook the harbor"
-    sprite: "elf_warrior"
+    description: "Mistress of the Tideglass Scriptorium; a robed scholar of the four elements whose harbor windows are always salt-fogged"
+    sprite: "city_spell_merchant"
     size_multiplier: 4
     dialogue:
-      greeting: "Ink, salt, and spellwork. Choose a character and a spell."
-      insufficient_gold: "You need %d gold for this spell."
-      already_known: "%s already knows this spell."
-      success: "%s learned the spell."
+      greeting: "Mind the wet ink. I'm Oletta — I keep the Tideglass Scriptorium, and I copy the four elements true: fire, water, air, earth. No Light, no Dark; that trade belongs to the shrines and the tombs, not to me. Choose a character, and a spell to scribe into them."
+      insufficient_gold: "A clean copy costs %d gold. Come back when the purse allows."
+      already_known: "%s already carries this one — I'll not sell you the same page twice."
+      success: "There — scribed clean into %s. The ink will hold."
     # The elemental catalog: every Fire, Water, Air and Earth spell (no Light or
     # Dark). Each entry authors only its shop price; name/school/level/requirements
     # are backfilled from spells.yaml (see backfillTraderSpells).
@@ -977,11 +1083,11 @@ npcs:
   city_mastery_trainer:
     name: "Master Ilyra"
     type: "skill_trainer"
-    description: "A city trainer who sharpens known skills and magic schools"
-    sprite: "elf"
+    description: "A staff-bearing martial instructor in worn leathers; she sharpens skills and magic schools a party already owns"
+    sprite: "city_skill_trainer"
     size_multiplier: 4
     dialogue:
-      greeting: "I train discipline, not wishes. Pick a character and a known mastery to improve."
+      greeting: "Grip your weapon. No — like you mean to keep it. *She lowers her quarterstaff.* Good enough. I'm Ilyra. I train discipline, not wishes — I sharpen what you already know, I don't hand out gifts. Pick a character and a mastery they hold, and we'll make it bite harder."
 
   # --- Deep Jungle (deep_jungle) ---
   # Pure-wilderness zone: the only NPC is the canoe back to Seabright at the

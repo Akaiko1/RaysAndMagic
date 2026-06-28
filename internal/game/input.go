@@ -1649,7 +1649,8 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
 	ih.game.selectedSpellKey = ""   // No spell selected initially
 	ih.game.skillTrainerPopup = false
-	ih.game.selectedChoice = 0 // Reset encounter choice selection
+	ih.game.selectedChoice = 0   // Reset encounter choice selection
+	ih.game.dialogNodePath = nil // Start every conversation at the greeting
 	ih.game.merchantBuyPage = 0
 	ih.game.merchantSellPage = 0
 
@@ -2483,6 +2484,20 @@ func (ih *InputHandler) executeEncounterChoice() {
 	choice := choices[ih.game.selectedChoice]
 
 	switch choice.Action {
+	case "info":
+		// Branch deeper: show this choice's reply + its follow-up choices. The
+		// conversation stays open (no quest taken) until the player picks a
+		// terminal action inside the branch.
+		ih.game.dialogNodePath = append(ih.game.dialogNodePath, choice)
+		ih.game.selectedChoice = 0
+
+	case "back":
+		// Pop one conversation level (back toward the greeting).
+		if n := len(ih.game.dialogNodePath); n > 0 {
+			ih.game.dialogNodePath = ih.game.dialogNodePath[:n-1]
+		}
+		ih.game.selectedChoice = 0
+
 	case "leave":
 		// Close dialog and leave
 		ih.game.dialogActive = false

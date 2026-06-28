@@ -129,6 +129,39 @@ func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
 	t.Logf("reached target-adjacent in %d steps via the gap", steps)
 }
 
+// A relentlessHunter (an aggressive boss OR a revenge-rallied non-boss, e.g. the
+// Amazons after their Warlord dies) must get the WIDENED A* window/budget, not
+// just the relentless gate — else it can't route to the party across a big map.
+// The only gap is beyond a normal mob's window: a normal mob can't reach it, but
+// both BossAggro and Relentless can. Guards that the budget widening uses the
+// shared relentlessHunter() predicate, not BossAggro alone.
+func TestNextPathStepTile_RelentlessWidensWindow(t *testing.T) {
+	makeChecker := func() *MockCollisionChecker {
+		c := NewMockCollisionChecker(defaultTileSize)
+		for y := 12; y <= 40; y++ {
+			c.BlockTile(3, y) // wall at column 3; the ONLY gap is row 11
+		}
+		return c
+	}
+	sx, sy := tileToWorldCenter(1, 20)
+	targetX, targetY := tileToWorldCenter(5, 20) // close in X, but the gap (row 11) is ~9 rows away
+
+	// Normal mob: window padding ~8 around row 20 → can't see the row-11 gap.
+	normal := &Monster3D{X: sx, Y: sy, Speed: 1.5}
+	if _, _, ok := normal.NextPathStepTile(makeChecker(), targetX, targetY); ok {
+		t.Fatal("control: a normal mob must NOT route to a gap beyond its A* window (test would be vacuous)")
+	}
+	// Both flavours of relentless pursuit get the map-wide window → route to the gap.
+	for _, m := range []*Monster3D{
+		{X: sx, Y: sy, Speed: 1.5, Relentless: true},
+		{X: sx, Y: sy, Speed: 1.5, BossAggro: true},
+	} {
+		if _, _, ok := m.NextPathStepTile(makeChecker(), targetX, targetY); !ok {
+			t.Fatalf("relentless hunter (relentless=%v boss=%v) must path map-wide to the far gap", m.Relentless, m.BossAggro)
+		}
+	}
+}
+
 // TestMonsterPathMovementBasic tests that a monster can move in open terrain using pathfinding
 func TestMonsterPathMovementBasic(t *testing.T) {
 	// Create a monster at tile center (32, 32) - center of tile (0, 0)

@@ -70,7 +70,8 @@ type MagicProjectile struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
-	AoE                bool // monster projectile: on hit, splash damage to the whole party
+	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) — carries true-damage + on-hit rider flags to impact
+	AoE                bool               // monster projectile: on hit, splash damage to the whole party
 }
 
 // SlashEffect represents a visual melee swing (a per-weapon pixel-particle
@@ -101,8 +102,9 @@ type Arrow struct {
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
-	RenderAngle        float64 // Render-only: smoothed on-screen shaft angle
-	RenderAngleSet     bool    // Render-only: RenderAngle initialised
+	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) — carries true-damage + on-hit rider flags to impact
+	RenderAngle        float64            // Render-only: smoothed on-screen shaft angle
+	RenderAngleSet     bool               // Render-only: RenderAngle initialised
 }
 
 // SpellHitParticle represents a single particle from a spell impact
@@ -323,9 +325,13 @@ type MMGame struct {
 	skillTrainerPopup   bool           // Skill trainer: per-character mastery popup open
 	selectedSpellKey    string         // Selected spell key for learning
 	selectedChoice      int            // Selected choice in encounter dialogs
-	dialogTab           int            // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
-	merchantBuyPage     int            // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage    int            // Merchant sell-grid page (0-based)
+	// dialogNodePath is the chain of "info" choices the player has descended into
+	// this conversation (empty = root). It drives the body text and choice list so
+	// "ask about X" branches into a real reply instead of closing. Reset on open.
+	dialogNodePath   []*character.NPCDialogueChoice
+	dialogTab        int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
+	merchantBuyPage  int // Merchant buy-grid page (0-based); read by both renderer and input
+	merchantSellPage int // Merchant sell-grid page (0-based)
 
 	// Spellbook UI
 	selectedSchool     int
@@ -1277,8 +1283,13 @@ func (g *MMGame) refreshBoundUndeadCache() {
 		// Without this hold an aggressive boss beelines across the whole map to the
 		// party at the landing the instant the map loads.
 		m.BossWarded = m.WardedByIdols && liveIdols > 0
-		// Aggressive boss → relentless chase; evasive/dormant/warded bosses hold.
-		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m) && !m.BossWarded
+		// Relentless chase (ignores detection range). Most bosses go relentless only
+		// AFTER normal aggro — within their (larger) alert radius or once the party
+		// has hit them (WasAttacked is sticky) — so they don't beeline across the
+		// whole map the instant they activate. AggroWholeMap is the UNIQUE opt-in
+		// (Golden Thief Bug) that DOES chase from anywhere on activation.
+		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m) && !m.BossWarded &&
+			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
 		// Sealed boss (passive-until-quest, no evade radius) → freeze on its spawn
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
@@ -1386,7 +1397,7 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 		return false
 	}
 	m := g.party.Members[idx]
-	if m == nil || !m.CanAct() {
+	if m == nil || !m.CanAct() || m.IsStunned() {
 		return false
 	}
 	switch kind {
@@ -1498,7 +1509,10 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	for _, m := range g.party.Members {
-		if m.CanAct() {
+		if m.IsStunned() {
+			m.TickStunTurn() // consume one stunned turn
+			m.ActionsRemaining = 0
+		} else if m.CanAct() {
 			m.ActionsRemaining = 1
 		} else {
 			m.ActionsRemaining = 0
@@ -1513,7 +1527,7 @@ func (g *MMGame) startPartyTurn() {
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	bonusActions := 0
 	for _, m := range g.party.Members {
-		if m != nil && m.CanAct() {
+		if m != nil && m.CanAct() && !m.IsStunned() {
 			if tier := m.SpeedBonusActionTier(); tier > bonusActions {
 				bonusActions = tier
 			}
@@ -1523,7 +1537,7 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 		bestIdx := -1
 		bestSpeed := -1
 		for i, m := range g.party.Members {
-			if m == nil || !m.CanAct() || m.ActionsRemaining > 1 {
+			if m == nil || !m.CanAct() || m.IsStunned() || m.ActionsRemaining > 1 {
 				continue
 			}
 			speed := m.GetEffectiveSpeed()

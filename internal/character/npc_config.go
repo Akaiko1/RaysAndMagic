@@ -69,6 +69,12 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	// Branching dialogue (action "info"): when this choice is picked the dialog
+	// does NOT close — it shows Response as the NPC's reply and Choices as the
+	// follow-up options, so "ask about X" actually answers and can lead deeper
+	// or on to a give_quest. Nest freely; "back" pops one level.
+	Response string               `yaml:"response,omitempty"`
+	Choices  []*NPCDialogueChoice `yaml:"choices,omitempty"`
 	// Cost/Amount parameterize purchase-style actions: tavern_rest charges Cost
 	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
 	Cost   int `yaml:"cost,omitempty"`

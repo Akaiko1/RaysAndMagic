@@ -130,6 +130,9 @@ type CharacterSave struct {
 	Equipment             []EquipmentEntry   `json:"equipment"`
 	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
+	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
+	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
@@ -198,6 +201,7 @@ type MonsterSave struct {
 	Pacified                bool    `json:"pacified,omitempty"`
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
+	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
@@ -547,6 +551,9 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		m.QuickSlots[qs.Slot] = &item
 	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+	m.BurnFramesRemaining = cs.BurnFramesRemaining
+	m.StunFramesRemaining = cs.StunFramesRemaining
+	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
 	return m
@@ -602,6 +609,9 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 		}
 	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+	cs.BurnFramesRemaining = m.BurnFramesRemaining
+	cs.StunFramesRemaining = m.StunFramesRemaining
+	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.RTCooldown = m.RTCooldown
 	return cs
@@ -667,6 +677,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				WasAttacked:         mon.WasAttacked,
+				Relentless:          mon.Relentless,
 				StunFramesRemaining: mon.StunFramesRemaining,
 				StunTurnsRemaining:  mon.StunTurnsRemaining,
 				StunDRStacks:        mon.StunDRStacks,
@@ -959,6 +970,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
 				m.WasAttacked = hostile
 				m.IsEngagingPlayer = hostile
+				// Patron-death revenge persists: a rallied human keeps hunting after reload.
+				if ms.Relentless {
+					m.Relentless = true
+					m.IsEngagingPlayer = true
+				}
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
