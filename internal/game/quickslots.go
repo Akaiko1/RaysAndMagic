@@ -6,6 +6,7 @@ import (
 	"image/color"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 
@@ -46,6 +47,7 @@ const (
 	dragFromInventory
 	dragFromQuickSlot
 	dragFromSpell
+	dragFromTrap
 )
 
 // quickSlotRects returns the bar height and the 5 cell rects for a bar drawn at
@@ -145,6 +147,22 @@ func (ui *UISystem) quickSpellCardDragSource(spellID spells.SpellID, x, y, w, h 
 	}
 }
 
+// quickTrapCardDragSource captures a trap-book recipe card as a drag source
+// (trapper parity with spells — a trap recipe is book-owned, like a spell).
+func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
+	g := ui.game
+	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+		return
+	}
+	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
+		if it, ok := config.TrapItem(key); ok {
+			g.dragSrc = dragFromTrap
+			g.dragTrapKey = key
+			g.dragItem = it
+		}
+	}
+}
+
 // quickInvDropZone resolves a quick-slot item dropped back onto the inventory grid.
 func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	g := ui.game
@@ -189,6 +207,15 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 				g.returnQuickItemToInventory(*occ)
 			}
 		}
+	case dragFromTrap:
+		if it, ok := config.TrapItem(g.dragTrapKey); ok {
+			occ := tch.QuickSlots[targetSlot]
+			cp := it
+			tch.QuickSlots[targetSlot] = &cp
+			if occ != nil {
+				g.returnQuickItemToInventory(*occ)
+			}
+		}
 	case dragFromQuickSlot:
 		if !(g.dragQuickChar == targetChar && g.dragQuickSlot == targetSlot) {
 			sch := g.party.Members[g.dragQuickChar]
@@ -202,7 +229,9 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 // returnQuickItemToInventory puts a displaced quick-slot item back into the bag,
 // except spells, which are spellbook-owned and simply vanish from the slot.
 func (g *MMGame) returnQuickItemToInventory(item items.Item) {
-	if item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell {
+	// Spells and trap recipes are book-owned — they never belong in the bag.
+	switch item.Type {
+	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap:
 		return
 	}
 	g.party.AddItem(item)
@@ -365,12 +394,32 @@ func (g *MMGame) quickSlotCharReady(idx int) bool {
 // slots respect the same combat cadence as the keyboard — and are inert while
 // the character is on cooldown / out of actions.
 func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
-	if !g.quickSlotCharReady(charIdx) {
+	if charIdx < 0 || charIdx >= len(g.party.Members) {
 		return
 	}
 	ch := g.party.Members[charIdx]
 	item := ch.QuickSlots[slotIdx]
 	if item == nil {
+		return
+	}
+
+	// Quest items (map, lich phylactery) are not combat actions: they work
+	// regardless of cooldown/turn budget, exactly as they do in the inventory.
+	if item.Type == items.ItemQuest {
+		switch {
+		case item.Attributes["opens_map"] > 0:
+			g.mapOverlayOpen = true
+		case item.Attributes["promotes_lich"] > 0:
+			// useLichPhylactery consumes by inventory index: route through the bag.
+			q := *item
+			g.party.AddItem(q)
+			g.useLichPhylactery(len(g.party.Inventory) - 1)
+			ch.QuickSlots[slotIdx] = nil
+		}
+		return
+	}
+
+	if !g.quickSlotCharReady(charIdx) {
 		return
 	}
 	acted := false
@@ -412,6 +461,12 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		}
 		if g.combat.castResolvedSpell(spellID, def, ch, g.combat.effectiveSpellCost(ch, def.SpellPointsCost), true) {
 			acted, cdFrames = true, g.combat.SpellCooldownFrames(ch, spellID)
+		}
+	case items.ItemTrap:
+		// Arm the trap recipe in the world (same path as the trap-book double-click).
+		// The recipe is book-owned, so the slot keeps the trap for reuse.
+		if _, placed := g.combat.placeTrapByKey(ch, string(item.SpellEffect), true); placed {
+			acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
 		}
 	}
 	if acted {

@@ -203,6 +203,7 @@ type MMGame struct {
 	dragQuickChar int        // source: quick-slot owner index
 	dragQuickSlot int        // source: quick-slot index
 	dragSpellID   spells.SpellID
+	dragTrapKey   string // source: trap recipe key (trap book → quick slot)
 	// Double-click support for the in-game quick-slot bar
 	lastQuickClickTime int64
 	lastQuickClickedCh int

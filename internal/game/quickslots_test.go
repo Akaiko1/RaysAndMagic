@@ -88,6 +88,22 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 		t.Fatalf("quick slot should work once off cooldown")
 	}
 
+	// Quest item (map): opens the overlay even on cooldown, and is NOT consumed.
+	mapItem := items.Item{Name: "Old Map", Type: items.ItemQuest, Attributes: map[string]int{"opens_map": 1}}
+	ch.QuickSlots[4] = &mapItem
+	ch.RTCooldown = 10 // would block a combat action; a map is not one
+	game.mapOverlayOpen = false
+	game.useQuickSlot(0, 4)
+	if !game.mapOverlayOpen {
+		t.Fatalf("map quick slot should open the map overlay")
+	}
+	if ch.QuickSlots[4] == nil {
+		t.Fatalf("a map must not be consumed on use")
+	}
+	game.mapOverlayOpen = false
+	ch.QuickSlots[4] = nil
+	ch.RTCooldown = 0
+
 	// Save round-trip preserves a populated slot.
 	keep := items.CreateItemFromYAML("health_potion")
 	ch.QuickSlots[2] = &keep
