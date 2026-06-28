@@ -1,16 +1,23 @@
 package game
 
+import (
+	"strings"
+
+	"ugataima/internal/spells"
+)
+
 // TimedCombatBuff is one active, timed party combat buff. Multiple buffs STACK
 // additively (Day of the Gods, Hour of Power, Stone Skin, Heroism, …): their
 // ResistPct / OutBonus / InReduce sum across all active entries. This replaces
 // the old single-slot dayGods*/hourPower* fields, so casting one buff no longer
 // clobbers another and any number of buff spells can coexist.
 type TimedCombatBuff struct {
-	SpellID   string // spell id (HUD status icon + replace-on-recast key)
-	Frames    int    // frames remaining
-	OutBonus  int    // flat add to party outgoing damage
-	InReduce  int    // flat reduction of incoming damage (after ResistPct)
-	ResistPct int    // % reduction of incoming damage (applied before InReduce)
+	SpellID       string // spell id (HUD status icon + replace-on-recast key)
+	Frames        int    // frames remaining
+	OutBonus      int    // flat add to party outgoing damage
+	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
+	InReduce      int    // flat reduction of incoming damage (after ResistPct)
+	ResistPct     int    // % reduction of incoming damage (applied before InReduce)
 }
 
 func (b TimedCombatBuff) buffSpellID() string { return b.SpellID }
@@ -30,6 +37,20 @@ func (g *MMGame) combatBuffOutBonus() int {
 	total := 0
 	for i := range g.combatBuffs {
 		total += g.combatBuffs[i].OutBonus
+	}
+	return total
+}
+
+// combatBuffOutBonusForDamageType sums outgoing-damage bonuses that apply to
+// the supplied damage type. Empty/all buff types apply to every outgoing hit.
+func (g *MMGame) combatBuffOutBonusForDamageType(damageType string) int {
+	damageType = strings.ToLower(strings.TrimSpace(damageType))
+	total := 0
+	for i := range g.combatBuffs {
+		buffType := strings.ToLower(strings.TrimSpace(g.combatBuffs[i].OutDamageType))
+		if buffType == "" || buffType == "all" || buffType == damageType {
+			total += g.combatBuffs[i].OutBonus
+		}
 	}
 	return total
 }
@@ -61,7 +82,10 @@ func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 	return buffByID(g.combatBuffs, spellID)
 }
 
-// CombatBuffSave is the JSON form of a TimedCombatBuff for save files.
+// CombatBuffSave is the JSON form of a TimedCombatBuff for save files. Only the
+// caster/mastery-derived magnitudes are persisted; OutDamageType is a static
+// spell property re-derived from the spell definition on restore (SSoT), so it
+// can never drift from spells.yaml.
 type CombatBuffSave struct {
 	SpellID   string `json:"spell_id"`
 	Frames    int    `json:"frames"`
@@ -89,7 +113,20 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	}
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
-		out[i] = TimedCombatBuff{s.SpellID, s.Frames, s.OutBonus, s.InReduce, s.ResistPct}
+		b := TimedCombatBuff{
+			SpellID:   s.SpellID,
+			Frames:    s.Frames,
+			OutBonus:  s.OutBonus,
+			InReduce:  s.InReduce,
+			ResistPct: s.ResistPct,
+		}
+		// OutDamageType is static spell data, not run-state: re-derive from the
+		// spell definition so it can't drift from spells.yaml (a buff cast before
+		// a yaml edit would otherwise restore with the stale type).
+		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
+			b.OutDamageType = def.OutgoingDamageType
+		}
+		out[i] = b
 	}
 	return out
 }

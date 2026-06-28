@@ -51,6 +51,10 @@ type World3D struct {
 	Items    []*character.WorldItem
 	Teachers []*character.SkillTeacher
 	config   *config.Config
+	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
+	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
+	// to "oob_cliff".
+	OutOfBoundsKey string
 	// Starting position from map file
 	StartX int
 	StartY int
@@ -61,11 +65,12 @@ type World3D struct {
 
 func NewWorld3D(cfg *config.Config) *World3D {
 	world := &World3D{
-		Monsters: make([]*monster.Monster3D, 0),
-		NPCs:     make([]*character.NPC, 0),
-		Items:    make([]*character.WorldItem, 0),
-		Teachers: make([]*character.SkillTeacher, 0),
-		config:   cfg,
+		Monsters:       make([]*monster.Monster3D, 0),
+		NPCs:           make([]*character.NPC, 0),
+		Items:          make([]*character.WorldItem, 0),
+		Teachers:       make([]*character.SkillTeacher, 0),
+		config:         cfg,
+		OutOfBoundsKey: "oob_cliff",
 	}
 
 	// Note: Map loading is now handled by WorldManager
@@ -164,7 +169,20 @@ func (w *World3D) GetTileAt(x, y float64) TileType3D {
 	tileY := int(y / tileSize)
 
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
-		return TileWall // Treat out-of-bounds as walls
+		// Off-map backdrop: render the biome's out-of-bounds wall (cached sprite)
+		// rather than the empty-sprite stone wall, whose per-column gray
+		// placeholder is the laggy gray border seen once trees stopped blocking
+		// rays. Per-biome via OutOfBoundsKey (jungle = foliage, default oob_cliff).
+		// Concurrent map reads are safe (keyToType is fixed after load).
+		if GlobalTileManager != nil {
+			if t, ok := GlobalTileManager.GetTileTypeFromKey(w.OutOfBoundsKey); ok {
+				return t
+			}
+			if t, ok := GlobalTileManager.GetTileTypeFromKey("oob_cliff"); ok {
+				return t
+			}
+		}
+		return TileWall
 	}
 
 	return w.Tiles[tileY][tileX]

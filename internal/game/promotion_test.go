@@ -97,10 +97,12 @@ func TestStavesAndBooksAreRangedMagic(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
+	// projectile_school is cosmetic; it must name the weapon's REAL magic element
+	// (no fake "arcane" school, which would mislead — staves deal these types).
 	cases := map[string]string{
-		"oak_staff":        "arcane",
-		"battle_staff":     "arcane",
-		"archmage_staff":   "arcane",
+		"oak_staff":        "air",
+		"battle_staff":     "air",
+		"archmage_staff":   "fire",
 		"book_of_darkness": "dark",
 	}
 	for key, wantSchool := range cases {

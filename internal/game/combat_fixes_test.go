@@ -65,6 +65,7 @@ func TestCombatBuffOutBonus_BoostsMelee(t *testing.T) {
 	g.selectedChar = 0
 	mon := monsterPkg.NewMonster3DFromConfig(200, 0, "goblin", g.config)
 	mon.PerfectDodge = 0
+	mon.ArmorClass = 0 // isolate the buff: % armor would scale the bonus down too
 	g.world.Monsters = append(g.world.Monsters, mon)
 	hpBefore := mon.HitPoints
 	cs.ApplyDamageToMonster(mon, 10, "Iron Sword", false)
@@ -75,7 +76,7 @@ func TestCombatBuffOutBonus_BoostsMelee(t *testing.T) {
 	cs.ApplyDamageToMonster(mon, 10, "Iron Sword", false)
 	buffedDmg := hpBefore - mon.HitPoints
 
-	// Armor reduction is flat, so the FULL +7 must come through.
+	// With no armor on the target, the full +7 outgoing bonus comes through.
 	if buffedDmg-plainDmg != 7 {
 		t.Errorf("melee under Heroism dealt +%d, want +7 (plain %d, buffed %d)", buffedDmg-plainDmg, plainDmg, buffedDmg)
 	}

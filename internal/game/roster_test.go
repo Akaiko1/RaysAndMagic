@@ -55,6 +55,43 @@ func TestBenchXP_ReserveLevelsWithParty(t *testing.T) {
 	}
 }
 
+func TestAwardExperienceAndGold_SummonedBossAddsGrantNoXP(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	cs.game.party = character.NewParty(cs.game.config)
+	cs.game.party.Reserve = nil
+	cs.game.party.Captive = nil
+	for _, member := range cs.game.party.Members {
+		member.Level = 50
+		member.Experience = 0
+		member.Skills = map[character.SkillType]*character.Skill{}
+	}
+
+	normal := monsterPkg.NewMonster3DFromConfig(0, 0, "troll", cs.game.config)
+	normal.Experience = 120
+	if xpAwarded := cs.awardExperienceAndGold(normal); xpAwarded != 120 {
+		t.Fatalf("normal monster awarded XP = %d, want 120", xpAwarded)
+	}
+	if got := cs.game.party.Members[0].Experience; got != 120/len(cs.game.party.Members) {
+		t.Fatalf("normal monster member XP = %d, want %d", got, 120/len(cs.game.party.Members))
+	}
+
+	for _, member := range cs.game.party.Members {
+		member.Experience = 0
+	}
+	summoned := monsterPkg.NewMonster3DFromConfig(0, 0, "troll", cs.game.config)
+	summoned.Experience = 120
+	summoned.SummonedBy = "old_samurai_1"
+	if xpAwarded := cs.awardExperienceAndGold(summoned); xpAwarded != 0 {
+		t.Fatalf("summoned boss add awarded XP = %d, want 0", xpAwarded)
+	}
+	for i, member := range cs.game.party.Members {
+		if member.Experience != 0 {
+			t.Fatalf("member %d gained XP from summoned boss add: %d", i, member.Experience)
+		}
+	}
+}
+
 // TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut verifies a benched hero's owed
 // level-up choice surfaces when swapped in and is re-banked when swapped out.
 func TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut(t *testing.T) {

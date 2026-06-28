@@ -163,9 +163,13 @@ func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float
 	return collisionTiles * tileSize
 }
 
-// MeleeAttackConfig for instant melee weapons
+// MeleeAttackConfig for instant melee weapons. ArcType is the discrete swing
+// shape (1-4): 1 strikes only straight ahead, 2 front + one flank, 3 front + both
+// diagonals, 4 front + diagonals + both sides. Combined with Range (tiles, with
+// diagonals counting as one step) it defines how many surrounding foes a swing
+// catches — e.g. arc 3 at range 2 sweeps a 90° cone two ranks deep.
 type MeleeAttackConfig struct {
-	ArcAngle        int `yaml:"arc_angle"`        // Swing arc in degrees
+	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
 	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
 	HitDelay        int `yaml:"hit_delay"`        // Frames before damage applies
 }
@@ -314,11 +318,15 @@ type SpellDefinitionConfig struct {
 	// whose only effect is its disintegrate_chance instakill roll on hit).
 	DealsNoDamage bool `yaml:"deals_no_damage,omitempty"`
 
-	// Party combat buffs (applied for `duration` seconds). Day of the Gods sets
-	// ResistBuffPct; Hour of Power sets OutgoingDamageBonus + IncomingDamageReduction.
-	ResistBuffPct           int `yaml:"resist_buff_pct,omitempty"`           // % reduction of all incoming party damage
-	OutgoingDamageBonus     int `yaml:"outgoing_damage_bonus,omitempty"`     // flat add to all party outgoing damage
-	IncomingDamageReduction int `yaml:"incoming_damage_reduction,omitempty"` // flat reduction of incoming damage (floors at 0)
+	// Party combat buffs (applied for `duration` seconds). Optional Grandmaster
+	// fields make the magnitude scale linearly by spell-school mastery.
+	ResistBuffPct                      int    `yaml:"resist_buff_pct,omitempty"`                       // base % reduction of all incoming party damage
+	ResistBuffPctGrandmaster           int    `yaml:"resist_buff_pct_grandmaster,omitempty"`           // optional GM-scaled % reduction cap
+	OutgoingDamageBonus                int    `yaml:"outgoing_damage_bonus,omitempty"`                 // base flat add to party outgoing damage
+	OutgoingDamageBonusGrandmaster     int    `yaml:"outgoing_damage_bonus_grandmaster,omitempty"`     // optional GM-scaled outgoing damage cap
+	OutgoingDamageType                 string `yaml:"outgoing_damage_type,omitempty"`                  // empty/"all" applies to all damage; "physical" only to weapon/arrow damage
+	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
+	IncomingDamageReductionGrandmaster int    `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
 	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
 	// hunts other monsters and ignores the party. No effect on non-undead. Dies
@@ -365,8 +373,9 @@ type SpellDefinitionConfig struct {
 	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
 
 	// Utility spell specific fields
-	HealAmount int `yaml:"heal_amount,omitempty"`
-	StatBonus  int `yaml:"stat_bonus,omitempty"`
+	HealAmount           int `yaml:"heal_amount,omitempty"`
+	StatBonus            int `yaml:"stat_bonus,omitempty"`
+	StatBonusGrandmaster int `yaml:"stat_bonus_grandmaster,omitempty"`
 	// StatBonuses is the per-stat alternative to the uniform stat_bonus
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
 	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
@@ -433,6 +442,18 @@ type GraphicsConfig struct {
 	// tokens standing in the world (board-game standees) instead of
 	// camera-facing billboards. Monsters turn with their travel direction.
 	Standee StandeeConfig `yaml:"standee"`
+
+	// TreesAsBillboards renders tree tiles as two crossed full-tile billboards
+	// (a "+" from above, double-sided) instead of the per-column full-sprite
+	// draw. Each screen ray that crosses either center-plane of a tree tile
+	// draws a textured vertical slice; see drawTreeBillboardSlice.
+	TreesAsBillboards bool `yaml:"trees_as_billboards"`
+
+	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
+	// standee degrades to a single (non-crossed) standee plane — ~4× fewer draws
+	// for distant trees whose cross is sub-pixel anyway. <=0 disables the LOD
+	// (always full crossed standee). Trees only; other standees are unaffected.
+	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
 }
 
 // StandeeConfig tunes the board-game standee rendering mode.
@@ -466,6 +487,12 @@ type ColorKeyConfig struct {
 	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
+	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
+	// "<name>_<animType>") whose interior magenta is intentional art. For these,
+	// despill runs ONLY within EdgeDespillRadius px of a transparent edge — the
+	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
+	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
+	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 → default
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
@@ -523,16 +550,20 @@ type TileLightConfig struct {
 }
 
 type TileData struct {
-	Name             string  `yaml:"name"`
-	Type             string  `yaml:"type,omitempty"`
-	Solid            bool    `yaml:"solid"`
-	Transparent      bool    `yaml:"transparent"`
-	Walkable         bool    `yaml:"walkable"`
-	HeightMultiplier float64 `yaml:"height_multiplier"`
-	Sprite           string  `yaml:"sprite"`
-	RenderType       string  `yaml:"render_type"`
-	FloorColor       [3]int  `yaml:"floor_color"`
-	FloorNearColor   [3]int  `yaml:"floor_near_color"`
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type,omitempty"`
+	Solid       bool   `yaml:"solid"`
+	Transparent bool   `yaml:"transparent"`
+	Walkable    bool   `yaml:"walkable"`
+	// WallHeightMultiplier affects vertical textured-wall rendering only.
+	// HeightMultiplier is a legacy fallback for old tile YAML.
+	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
+	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
+	SizeMultiplier       float64 `yaml:"size_multiplier,omitempty"`
+	Sprite               string  `yaml:"sprite"`
+	RenderType           string  `yaml:"render_type"`
+	FloorColor           [3]int  `yaml:"floor_color"`
+	FloorNearColor       [3]int  `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Empty = no texture overlay (renderer falls back to base
@@ -567,6 +598,9 @@ type MapConfig struct {
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.
 	AmbientLight float64 `yaml:"ambient_light,omitempty"`
+	// CanopyShade locally lowers ambient light where tree_sprite tiles are dense.
+	// It keeps open areas at normal map ambient while making forests feel shaded.
+	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
 	// WallTorches places a flickering torch (particle flame + point light) at
 	// every inner wall corner of the map — the classic dungeon/temple dressing
 	// for dark maps.
@@ -581,12 +615,23 @@ type MapConfig struct {
 	ClearEncounters []MapClearEncounterConfig `yaml:"clear_encounters,omitempty"`
 }
 
+type MapCanopyShadeConfig struct {
+	MinAmbient   float64 `yaml:"min_ambient,omitempty"`
+	RadiusTiles  float64 `yaml:"radius_tiles,omitempty"`
+	StartDensity int     `yaml:"start_density,omitempty"`
+	FullDensity  int     `yaml:"full_density,omitempty"`
+}
+
 // BiomeConfig holds the data-driven appearance shared by every map of a
 // biome. Floor textures live here (keyed by group name; tiles select a
 // group via TileData.FloorTextureGroup) so all maps of the same biome
 // render identical ground without re-declaring texture lists per map.
 type BiomeConfig struct {
 	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
+	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
+	// this biome (the off-map backdrop wall). Empty → the global "seaview"
+	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
+	OutOfBoundsTile string `yaml:"out_of_bounds_tile,omitempty"`
 }
 
 type MapClearEncounterConfig struct {
@@ -624,6 +669,7 @@ type MapTreasureChestRewardConfig struct {
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`
 	Gold              int      `yaml:"gold,omitempty"`
+	LootTable         string   `yaml:"loot_table,omitempty"` // roll a named weighted pool (loots.yaml loot_tables) into the chest
 	CompletionMessage string   `yaml:"completion_message,omitempty"`
 }
 
@@ -659,13 +705,15 @@ type WeaponDefinitionConfig struct {
 	// Basic weapon properties
 	Name               string  `yaml:"name"`
 	Description        string  `yaml:"description"`
+	Flavor             string  `yaml:"flavor,omitempty"`
 	Category           string  `yaml:"category"`
 	Damage             int     `yaml:"damage"`
 	Range              int     `yaml:"range"` // Range in tiles (for melee reach)
 	BonusStat          string  `yaml:"bonus_stat"`
 	BonusStatSecondary string  `yaml:"bonus_stat_secondary"`
 	DamageType         string  `yaml:"damage_type"`
-	MaxProjectiles     int     `yaml:"max_projectiles"`
+	MaxProjectiles     int     `yaml:"max_projectiles"`  // cap on this weapon's projectiles in flight at once
+	Volley             int     `yaml:"volley,omitempty"` // projectiles loosed per shot in a small fan (default 1)
 	CritChance         int     `yaml:"crit_chance"`
 	StunChance         float64 `yaml:"stun_chance"`
 	StunTurns          int     `yaml:"stun_turns"`
@@ -734,6 +782,10 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	var config Config
+	// Defaults applied before unmarshal so an absent key keeps the default while a
+	// present key overrides it (bool can't otherwise distinguish unset from false).
+	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
+	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to a single plane
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
@@ -766,7 +818,7 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSpellStatBonuses(&spellConfig); err != nil {
+	if err := validateSpellAuthoring(&spellConfig); err != nil {
 		return nil, err
 	}
 
@@ -776,21 +828,24 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 	return &spellConfig, nil
 }
 
-// validateSpellStatBonuses fails fast on malformed stat-buff authoring: a
-// per-stat map with an unknown stat name, or a spell mixing the uniform
-// stat_bonus with the per-stat stat_bonuses.
-func validateSpellStatBonuses(cfg *SpellSystemConfig) error {
+// validateSpellAuthoring fails fast on malformed spell authoring: invalid stat
+// buff shapes or unknown typed-buff filters.
+func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
-		if len(def.StatBonuses) == 0 {
-			continue
-		}
-		if def.StatBonus > 0 {
-			return fmt.Errorf("spell '%s': stat_bonus and stat_bonuses are mutually exclusive", id)
-		}
-		for key := range def.StatBonuses {
-			if !IsStatName(key) {
-				return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+		if len(def.StatBonuses) > 0 {
+			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
+				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
 			}
+			for key := range def.StatBonuses {
+				if !IsStatName(key) {
+					return fmt.Errorf("spell '%s': unknown stat %q in stat_bonuses", id, key)
+				}
+			}
+		}
+		switch strings.TrimSpace(def.OutgoingDamageType) {
+		case "", "all", "physical":
+		default:
+			return fmt.Errorf("spell '%s': unsupported outgoing_damage_type %q", id, def.OutgoingDamageType)
 		}
 	}
 	return nil
@@ -832,9 +887,6 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 		weaponKeyByName[def.Name] = key
 	}
 
-	// Set up weapon accessor for items package to avoid circular imports
-	setupWeaponAccessor()
-
 	return &weaponConfig, nil
 }
 
@@ -843,12 +895,6 @@ var (
 	weaponDefByName map[string]*WeaponDefinitionConfig
 	weaponKeyByName map[string]string
 )
-
-// setupWeaponAccessor configures the global weapon accessor for items package
-func setupWeaponAccessor() {
-	// This will be imported by items package
-	// For now we'll define this in a separate function
-}
 
 // StatNames is THE canonical, ordered list of the seven character stats
 // (lowercase — the YAML key convention), DERIVED from the StatBonuses struct
@@ -892,6 +938,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			}
 			if def.Melee == nil {
 				return fmt.Errorf("melee weapon '%s' missing melee configuration", key)
+			}
+			if def.Melee.ArcType < 1 || def.Melee.ArcType > 4 {
+				return fmt.Errorf("melee weapon '%s' has invalid arc_type %d (must be 1-4)", key, def.Melee.ArcType)
 			}
 			if def.Graphics == nil || def.Graphics.SlashWidth <= 0 || def.Graphics.SlashLength <= 0 {
 				return fmt.Errorf("melee weapon '%s' missing melee graphics configuration", key)
@@ -955,6 +1004,7 @@ type ItemDefinitionConfig struct {
 	SummonDistanceTiles  int  `yaml:"summon_distance_tiles,omitempty"`
 	Revive               bool `yaml:"revive,omitempty"`
 	FullHeal             bool `yaml:"full_heal,omitempty"`
+	CurePoison           bool `yaml:"cure_poison,omitempty"` // clears the Poisoned condition on use
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -1034,12 +1084,30 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 
 type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
+	// Named weighted pools (distinct from the per-monster Loots lists above):
+	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
+	// containers (sword racks) that grant a random ZONE item, never a unique —
+	// uniques are simply not listed, so they can't leak in.
+	WeightedLootTables map[string]*WeightedLootTable `yaml:"loot_tables"`
 }
 
 type LootEntry struct {
 	Type   string  `yaml:"type"` // weapon|item
 	Key    string  `yaml:"key"`
 	Chance float64 `yaml:"chance"`
+}
+
+type WeightedLootTable struct {
+	Rolls   int                 `yaml:"rolls"`
+	GoldMin int                 `yaml:"gold_min,omitempty"`
+	GoldMax int                 `yaml:"gold_max,omitempty"`
+	Entries []WeightedLootEntry `yaml:"entries"`
+}
+
+type WeightedLootEntry struct {
+	Type   string `yaml:"type"` // weapon|item
+	Key    string `yaml:"key"`
+	Weight int    `yaml:"weight"`
 }
 
 func LoadLootTables(filename string) (*LootTablesConfig, error) {
@@ -1051,8 +1119,65 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := yaml.Unmarshal(data, &loots); err != nil {
 		return nil, err
 	}
+	if err := validateWeightedLootTables(&loots); err != nil {
+		return nil, err // don't publish invalid data to the process global
+	}
 	GlobalLoots = &loots
 	return &loots, nil
+}
+
+// validateWeightedLootTables fail-fast checks every named pool: positive rolls,
+// a sane gold range, and that each entry's key resolves to a real weapon/item.
+// Weapons and items are loaded before loot tables (see main.go), so the lookups
+// are valid here.
+func validateWeightedLootTables(lt *LootTablesConfig) error {
+	for name, t := range lt.WeightedLootTables {
+		if t == nil {
+			return fmt.Errorf("loot_table %q is empty", name)
+		}
+		if t.Rolls < 1 {
+			return fmt.Errorf("loot_table %q: rolls must be >= 1", name)
+		}
+		if t.GoldMax < t.GoldMin {
+			return fmt.Errorf("loot_table %q: gold_max < gold_min", name)
+		}
+		if len(t.Entries) == 0 {
+			return fmt.Errorf("loot_table %q: no entries", name)
+		}
+		for _, e := range t.Entries {
+			if e.Weight <= 0 {
+				return fmt.Errorf("loot_table %q: entry %q weight must be > 0", name, e.Key)
+			}
+			switch e.Type {
+			case "weapon":
+				if GlobalWeapons == nil {
+					return fmt.Errorf("loot_table %q: weapons not loaded for entry %q", name, e.Key)
+				}
+				if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
+					return fmt.Errorf("loot_table %q: unknown weapon key %q", name, e.Key)
+				}
+			case "item":
+				if GlobalItems == nil {
+					return fmt.Errorf("loot_table %q: items not loaded for entry %q", name, e.Key)
+				}
+				if _, ok := GetItemDefinition(e.Key); !ok {
+					return fmt.Errorf("loot_table %q: unknown item key %q", name, e.Key)
+				}
+			default:
+				return fmt.Errorf("loot_table %q: entry %q has bad type %q (want weapon|item)", name, e.Key, e.Type)
+			}
+		}
+	}
+	return nil
+}
+
+// GetWeightedLootTable returns a named weighted pool, ok=false if absent.
+func GetWeightedLootTable(name string) (*WeightedLootTable, bool) {
+	if GlobalLoots == nil {
+		return nil, false
+	}
+	t, ok := GlobalLoots.WeightedLootTables[name]
+	return t, ok && t != nil
 }
 
 func MustLoadLootTables(filename string) *LootTablesConfig {
@@ -1175,6 +1300,9 @@ func GetSpellsBySchool(schoolKey string) []string {
 			spells = append(spells, key)
 		}
 	}
+	// Deterministic order: map iteration is random, and this list flows into the
+	// level-up spell picker, which would otherwise reshuffle every run.
+	sort.Strings(spells)
 	return spells
 }
 

@@ -2,7 +2,6 @@ package monster
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"sort"
@@ -13,41 +12,54 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Name               string            `yaml:"name"`
-	Type               string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
-	Level              int               `yaml:"level"`
-	MaxHitPoints       int               `yaml:"max_hit_points"`
-	ArmorClass         int               `yaml:"armor_class"`
-	PerfectDodge       int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
-	Experience         int               `yaml:"experience"`
-	DamageMin          int               `yaml:"damage_min"`
-	DamageMax          int               `yaml:"damage_max"`
-	AlertRadius        float64           `yaml:"alert_radius"`
-	AttackRadius       float64           `yaml:"attack_radius"`
-	Speed              float64           `yaml:"speed"`
-	GoldMin            int               `yaml:"gold_min"`
-	GoldMax            int               `yaml:"gold_max"`
-	Sprite             string            `yaml:"sprite"`
-	Letter             string            `yaml:"letter"`
-	Biomes             []string          `yaml:"biomes,omitempty"`
-	BoxW               float64           `yaml:"box_w"`
-	BoxH               float64           `yaml:"box_h"`
-	SizeGame           float64           `yaml:"size_game"`
-	Resistances        map[string]int    `yaml:"resistances"`
-	HabitatPrefs       []string          `yaml:"habitat_preferences"`
-	HabitatNear        []HabitatNearRule `yaml:"habitat_near"`
-	ProjectileSpell    string            `yaml:"projectile_spell"`
-	ProjectileWeapon   string            `yaml:"projectile_weapon"`
-	Flying             bool              `yaml:"flying"`
-	RangedAttackRange  float64           `yaml:"ranged_attack_range"`
-	AttacksPerRound    int               `yaml:"attacks_per_round"`
-	AttackCooldownMult float64           `yaml:"attack_cooldown_multiplier"`
-	PassiveUntilHit    bool              `yaml:"passive_until_attacked"`
-	FireburstChance    float64           `yaml:"fireburst_chance"`
-	FireburstDamageMin int               `yaml:"fireburst_damage_min"`
-	FireburstDamageMax int               `yaml:"fireburst_damage_max"`
-	PoisonChance       float64           `yaml:"poison_chance"`
-	PoisonDurationSec  int               `yaml:"poison_duration_seconds"`
+	Name                string            `yaml:"name"`
+	Type                string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
+	Level               int               `yaml:"level"`
+	MaxHitPoints        int               `yaml:"max_hit_points"`
+	ArmorClass          int               `yaml:"armor_class"`
+	PerfectDodge        int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
+	Experience          int               `yaml:"experience"`
+	DamageMin           int               `yaml:"damage_min"`
+	DamageMax           int               `yaml:"damage_max"`
+	TrueDamage          int               `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
+	AlertRadius         float64           `yaml:"alert_radius"`
+	AttackRadius        float64           `yaml:"attack_radius"`
+	Speed               float64           `yaml:"speed"`
+	GoldMin             int               `yaml:"gold_min"`
+	GoldMax             int               `yaml:"gold_max"`
+	Sprite              string            `yaml:"sprite"`
+	Letter              string            `yaml:"letter"`
+	Biomes              []string          `yaml:"biomes,omitempty"`
+	BoxW                float64           `yaml:"box_w"`
+	BoxH                float64           `yaml:"box_h"`
+	SizeMultiplier      float64           `yaml:"size_multiplier,omitempty"`
+	SizeGame            float64           `yaml:"size_game"`
+	Resistances         map[string]int    `yaml:"resistances"`
+	HabitatPrefs        []string          `yaml:"habitat_preferences"`
+	HabitatNear         []HabitatNearRule `yaml:"habitat_near"`
+	ProjectileSpell     string            `yaml:"projectile_spell"`
+	ProjectileWeapon    string            `yaml:"projectile_weapon"`
+	Flying              bool              `yaml:"flying"`
+	RangedAttackRange   float64           `yaml:"ranged_attack_range"`
+	AttacksPerRound     int               `yaml:"attacks_per_round"`
+	AttackCooldownMult  float64           `yaml:"attack_cooldown_multiplier"`
+	PassiveUntilHit     bool              `yaml:"passive_until_attacked"`
+	FireburstChance     float64           `yaml:"fireburst_chance"`
+	FireburstDamageMin  int               `yaml:"fireburst_damage_min"`
+	FireburstDamageMax  int               `yaml:"fireburst_damage_max"`
+	PiercingShotChance  float64           `yaml:"piercing_shot_chance,omitempty"`
+	PiercingShotTargets int               `yaml:"piercing_shot_targets,omitempty"`
+	AllyHealChance      float64           `yaml:"ally_heal_chance,omitempty"`
+	AllyHealAmount      int               `yaml:"ally_heal_amount,omitempty"`
+	AllyHealRadius      float64           `yaml:"ally_heal_radius_tiles,omitempty"`
+	PoisonChance        float64           `yaml:"poison_chance"`
+	PoisonDurationSec   int               `yaml:"poison_duration_seconds"`
+	IgniteChance        float64           `yaml:"ignite_chance,omitempty"`
+	IgniteDurationSec   int               `yaml:"ignite_duration_seconds,omitempty"`
+	StunCharChance      float64           `yaml:"stun_char_chance,omitempty"`
+	StunCharSeconds     int               `yaml:"stun_char_seconds,omitempty"`
+	StunCharTurns       int               `yaml:"stun_char_turns,omitempty"`
+	DispelChance        float64           `yaml:"dispel_chance,omitempty"`
 	// PounceRangeTiles > 0 gives the monster a leap: from within this range
 	// (but beyond melee) it closes to melee instantly and attacks. Cooldown
 	// (real-time only) throttles repeats.
@@ -60,9 +72,28 @@ type MonsterDefinition struct {
 	InfernoDamage     int     `yaml:"inferno_damage,omitempty"`        // fire damage of that nova, pre-mitigation (required with inferno_chance)
 	TeleportAtHP      int     `yaml:"teleport_at_hp,omitempty"`        // when HP <= this, may blink to a random tile
 	TeleportChance    float64 `yaml:"teleport_chance,omitempty"`       // 0..1 chance per action to blink (only below TeleportAtHP)
-	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete: only evades (blinks away when the party is near), never attacks; turns aggressive once complete
-	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // evasive phase: blink when the party is within this many tiles (required with passive_until_quest)
-	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with passive_until_quest)
+	PassiveUntilQuest string  `yaml:"passive_until_quest,omitempty"`   // while this quest is incomplete the boss does not attack: it evades (if evade_radius_tiles set) or just holds dormant; turns aggressive once complete
+	EvadeRadiusTiles  float64 `yaml:"evade_radius_tiles,omitempty"`    // >0 = evasive boss: blink when the party is within this many tiles (needs boss_cooldown_seconds). Omit for a dormant boss that just holds.
+	BossCooldownSecs  float64 `yaml:"boss_cooldown_seconds,omitempty"` // RT cadence between evasive blinks (required with evade_radius_tiles)
+	// Summon: an aggressive boss rallies adds on its action.
+	SummonChance          float64  `yaml:"summon_chance,omitempty"`           // 0..1 chance per action to summon (needs summon_monsters)
+	SummonFirstGuaranteed bool     `yaml:"summon_first_guaranteed,omitempty"` // first successful summon ignores summon_chance; refill uses chance
+	SummonMonsters        []string `yaml:"summon_monsters,omitempty"`         // monster keys to pick from
+	SummonCount           int      `yaml:"summon_count,omitempty"`            // adds per summon (default 1)
+	SummonMax             int      `yaml:"summon_max,omitempty"`              // cap on simultaneously-live summons (0 = uncapped)
+	// Enrage: at/below enrage_at_hp the boss hits harder/faster (at least one mult).
+	EnrageAtHP         int     `yaml:"enrage_at_hp,omitempty"`
+	EnrageDamageMult   float64 `yaml:"enrage_damage_mult,omitempty"`
+	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
+	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
+	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
+	WardedByIdols    bool   `yaml:"warded_by_idols,omitempty"`    // boss: warded while any idol lives
+	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE — once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
+	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
+	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
+	// or variant apart from a base mob that shares its sprite.
+	TintColor []float64 `yaml:"tint_color,omitempty"`
 }
 
 // HabitatNearRule defines a rule for placing monsters near certain tile types
@@ -118,14 +149,11 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
-		if monster.AttacksPerRound > 1 {
-			expectedMultiplier := 1.0 / float64(monster.AttacksPerRound)
-			if math.Abs(monster.AttackCooldownMult-expectedMultiplier) > 0.000001 {
-				conflicts = append(conflicts, fmt.Sprintf(
-					"Monster '%s' has attacks_per_round %d but attack_cooldown_multiplier %.6g; expected %.6g",
-					key, monster.AttacksPerRound, monster.AttackCooldownMult, expectedMultiplier,
-				))
-			}
+		if monster.PiercingShotChance > 0 && monster.PiercingShotTargets < 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative piercing_shot_targets", key))
+		}
+		if monster.AllyHealChance > 0 && monster.AllyHealAmount <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ally_heal_chance but no ally_heal_amount", key))
 		}
 		if monster.TeleportChance > 0 && monster.TeleportAtHP <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has teleport_chance but no teleport_at_hp", key))
@@ -136,13 +164,26 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.PoisonChance > 0 && monster.PoisonDurationSec <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has poison_chance but no poison_duration_seconds", key))
 		}
-		if monster.PassiveUntilQuest != "" {
-			if monster.EvadeRadiusTiles <= 0 {
-				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no evade_radius_tiles", key))
-			}
-			if monster.BossCooldownSecs <= 0 {
-				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has passive_until_quest but no boss_cooldown_seconds", key))
-			}
+		if monster.IgniteChance > 0 && monster.IgniteDurationSec <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has ignite_chance but no ignite_duration_seconds", key))
+		}
+		if monster.StunCharChance > 0 && monster.StunCharSeconds <= 0 && monster.StunCharTurns <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but no stun_char_seconds/turns", key))
+		}
+		// An evasive boss (blinks away while its quest is unfinished) needs a blink
+		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
+		// just holds until the quest completes, so it needs neither.
+		if monster.EvadeRadiusTiles > 0 && monster.BossCooldownSecs <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has evade_radius_tiles but no boss_cooldown_seconds", key))
+		}
+		if monster.SummonChance > 0 && len(monster.SummonMonsters) == 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has summon_chance but no summon_monsters", key))
+		}
+		if monster.EnrageAtHP > 0 && monster.EnrageDamageMult <= 0 && monster.EnrageCooldownMult <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has enrage_at_hp but neither enrage_damage_mult nor enrage_cooldown_mult", key))
+		}
+		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
 		}
 	}
 	for letter, monsterKeys := range universalLetters {
@@ -277,6 +318,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Experience = def.Experience
 	m.DamageMin = def.DamageMin
 	m.DamageMax = def.DamageMax
+	m.TrueDamage = def.TrueDamage
 	// Convert tile-based radii to pixels
 	tileSize := m.tileSize()
 	m.AlertRadius = def.AlertRadius * tileSize
@@ -322,12 +364,25 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	if def.FireburstDamageMax > 0 {
 		m.FireburstDamageMax = def.FireburstDamageMax
 	}
+	m.PiercingShotChance = def.PiercingShotChance
+	m.PiercingShotTargets = def.PiercingShotTargets
+	m.AllyHealChance = def.AllyHealChance
+	m.AllyHealAmount = def.AllyHealAmount
+	if def.AllyHealRadius > 0 {
+		m.AllyHealRadiusPixels = def.AllyHealRadius * tileSize
+	}
 	if def.PoisonChance > 0 {
 		m.PoisonChance = def.PoisonChance
 	}
 	if def.PoisonDurationSec > 0 {
 		m.PoisonDurationSec = def.PoisonDurationSec
 	}
+	m.IgniteChance = def.IgniteChance
+	m.IgniteDurationSec = def.IgniteDurationSec
+	m.StunCharChance = def.StunCharChance
+	m.StunCharSeconds = def.StunCharSeconds
+	m.StunCharTurns = def.StunCharTurns
+	m.DispelChance = def.DispelChance
 	if def.PounceRangeTiles > 0 {
 		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
@@ -340,6 +395,23 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.PassiveUntilQuest = def.PassiveUntilQuest
 	m.EvadeRadiusTiles = def.EvadeRadiusTiles
 	m.BossCooldownSecs = def.BossCooldownSecs
+	m.SummonChance = def.SummonChance
+	m.SummonFirstGuaranteed = def.SummonFirstGuaranteed
+	m.SummonMonsters = def.SummonMonsters
+	m.SummonCount = def.SummonCount
+	m.SummonMax = def.SummonMax
+	m.EnrageAtHP = def.EnrageAtHP
+	m.EnrageDamageMult = def.EnrageDamageMult
+	m.EnrageCooldownMult = def.EnrageCooldownMult
+	m.WardedByIdols = def.WardedByIdols
+	m.AggroWholeMap = def.AggroWholeMap
+	m.DeathRalliesType = def.DeathRalliesType
+	m.WarlordIdol = def.WarlordIdol
+	if len(def.TintColor) == 3 {
+		m.TintR = float32(def.TintColor[0])
+		m.TintG = float32(def.TintColor[1])
+		m.TintB = float32(def.TintColor[2])
+	}
 
 	m.LightRadius = 0
 	m.LightIntensity = 0
@@ -359,10 +431,15 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 	return def.BoxW, def.BoxH
 }
 
-// GetSizeGameMultiplier returns the visual size multiplier from config
+// GetSizeGameMultiplier returns the visual size multiplier from config.
+// size_multiplier is the canonical YAML key; size_game is accepted for
+// backward compatibility with older content.
 func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
-	if def.SizeGame == 0 {
-		return 1.0 // Default multiplier if not set
+	if def.SizeMultiplier > 0 {
+		return def.SizeMultiplier
 	}
-	return def.SizeGame
+	if def.SizeGame > 0 {
+		return def.SizeGame
+	}
+	return 1.0
 }

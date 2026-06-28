@@ -26,12 +26,12 @@ func TestWeaponDamage_SpeedScaling(t *testing.T) {
 			base, statBonus, total, wantBonus, 7+wantBonus)
 	}
 
-	// chitin_spear: damage 13, primary Might, secondary Speed.
+	// chitin_spear: damage 15, primary Might, secondary Speed.
 	spear := items.CreateWeaponFromYAML("chitin_spear")
 	base, statBonus, total = cs.CalculateWeaponDamage(spear, char)
 	wantBonus = char.Might/WeaponPrimaryStatDivisor + char.Speed/WeaponSecondaryStatDivisor
-	if base != 13 || statBonus != wantBonus || total != 13+wantBonus {
-		t.Errorf("spear: base=%d bonus=%d total=%d, want 13/%d/%d (secondary Speed must count)",
-			base, statBonus, total, wantBonus, 13+wantBonus)
+	if base != 15 || statBonus != wantBonus || total != 15+wantBonus {
+		t.Errorf("spear: base=%d bonus=%d total=%d, want 15/%d/%d (secondary Speed must count)",
+			base, statBonus, total, wantBonus, 15+wantBonus)
 	}
 }

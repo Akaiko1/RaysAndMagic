@@ -56,6 +56,7 @@ type QuestDefinition struct {
 	Type            QuestType `yaml:"type"`
 	TargetMonster   string    `yaml:"target_monster"`
 	TargetCount     int       `yaml:"target_count"`
+	Exterminate     bool      `yaml:"exterminate,omitempty"`
 	IsStartingQuest bool      `yaml:"is_starting_quest"`
 	// TargetMap scopes the "no living targets left → complete" check to one map,
 	// for region quests whose monster type also lives elsewhere (e.g. the cliff
@@ -74,12 +75,26 @@ type QuestDefinition struct {
 
 // Quest represents an active quest with progress tracking
 type Quest struct {
-	ID             string
-	Definition     *QuestDefinition
-	Status         QuestStatus
-	CurrentCount   int // Current progress towards target
+	ID           string
+	Definition   *QuestDefinition
+	Status       QuestStatus
+	CurrentCount int // Current progress towards target
+	// DynamicTarget snapshots a per-instance goal count at accept time (0 = unset,
+	// fall back to the static Definition.TargetCount). Exterminate quests capture
+	// the live target census when accepted, so the journal counts the map's real
+	// population instead of a hand-maintained number.
+	DynamicTarget  int
 	Completed      bool
 	RewardsClaimed bool
+}
+
+// Target is the effective goal count: the per-instance DynamicTarget snapshot
+// when set, else the static definition count.
+func (q *Quest) Target() int {
+	if q.DynamicTarget > 0 {
+		return q.DynamicTarget
+	}
+	return q.Definition.TargetCount
 }
 
 // QuestConfig holds all quest definitions loaded from YAML
@@ -190,10 +205,39 @@ func (qm *QuestManager) MarkCompleted(questID string) {
 	defer qm.mu.Unlock()
 
 	if quest, ok := qm.activeQuests[questID]; ok {
-		quest.CurrentCount = quest.Definition.TargetCount
+		quest.CurrentCount = quest.Target()
 		quest.Completed = true
 		quest.Status = QuestStatusCompleted
 	}
+}
+
+// SetDynamicTarget snapshots a per-instance goal count (exterminate quests
+// capture the live target census at accept). No-op if not active.
+func (qm *QuestManager) SetDynamicTarget(questID string, target int) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	if quest, ok := qm.activeQuests[questID]; ok {
+		quest.DynamicTarget = target
+	}
+}
+
+// SetCurrentCount updates a quest counter while preserving its status. Count is
+// clamped to [0, target_count] so dynamic progress displays cannot exceed 100%.
+func (qm *QuestManager) SetCurrentCount(questID string, count int) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	quest, ok := qm.activeQuests[questID]
+	if !ok || quest.Definition == nil {
+		return
+	}
+	if count < 0 {
+		count = 0
+	}
+	if max := quest.Target(); max > 0 && count > max {
+		count = max
+	}
+	quest.CurrentCount = count
 }
 
 // OnMonsterKilled updates quest progress when a monster is killed. mapKey is
@@ -231,7 +275,10 @@ func (qm *QuestManager) advanceCountedQuests(qType QuestType, tag, mapKey string
 			continue
 		}
 		quest.CurrentCount++
-		if quest.CurrentCount >= quest.Definition.TargetCount {
+		// Exterminate quests never complete on the kill quota — completion is
+		// owned by the living-count check (completeExterminationQuests at 0 alive),
+		// so killing N of M never finishes early when M != the static target.
+		if !quest.Definition.Exterminate && quest.CurrentCount >= quest.Target() {
 			quest.Completed = true
 			quest.Status = QuestStatusCompleted
 			completedQuests = append(completedQuests, quest)
@@ -319,9 +366,9 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 func (q *Quest) GetProgressString() string {
 	switch q.Definition.Type {
 	case QuestTypeKill:
-		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Definition.TargetCount, q.Definition.TargetMonster)
+		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Target(), q.Definition.TargetMonster)
 	case QuestTypeInteract:
-		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Definition.TargetCount, q.Definition.TargetMonster)
+		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Target(), q.Definition.TargetMonster)
 	}
 	return ""
 }
@@ -413,7 +460,7 @@ func (qm *QuestManager) RemoveQuest(questID string) {
 }
 
 // RestoreQuestProgress restores quest state from a save file
-func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus, currentCount int, rewardsClaimed bool) {
+func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus, currentCount, dynamicTarget int, rewardsClaimed bool) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
@@ -433,6 +480,7 @@ func (qm *QuestManager) RestoreQuestProgress(questID string, status QuestStatus,
 
 	quest.Status = status
 	quest.CurrentCount = currentCount
+	quest.DynamicTarget = dynamicTarget
 	quest.RewardsClaimed = rewardsClaimed
 	quest.Completed = (status == QuestStatusCompleted)
 }

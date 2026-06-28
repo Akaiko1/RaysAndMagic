@@ -102,22 +102,22 @@ func (g *MMGame) grantSharedXP(amount int) {
 	// A Grandmaster of Learning teaches the whole party: a flat % to everyone,
 	// on top of each hero's own per-tier bonus.
 	teacherPct := g.learningTeacherBonusPct()
-	award := func(m *character.MMCharacter) {
+	award := func(m *character.MMCharacter, announce bool) {
 		if m != nil && m.HitPoints > 0 {
 			pct := m.SkillTier(character.SkillLearning)*LearningXPPctPerTier + teacherPct
 			gain := amount + amount*pct/100
 			m.Experience += gain
-			g.combat.checkLevelUp(m)
+			g.combat.checkLevelUp(m, announce) // only the visible active party announces level-ups
 		}
 	}
 	for _, m := range g.party.Members {
-		award(m)
+		award(m, true)
 	}
 	for _, m := range g.party.Reserve {
-		award(m)
+		award(m, false)
 	}
 	for _, m := range g.party.Captive {
-		award(m)
+		award(m, false)
 	}
 }
 

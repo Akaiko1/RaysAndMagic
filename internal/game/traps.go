@@ -219,10 +219,39 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 			return tx, ty, true // right under its feet
 		}
 	}
+	// Nothing dead-ahead: a front-diagonal monster pulled to screen-center is a
+	// valid melee target, so drop the trap under its REAL tile (traps are
+	// world-space; the sweep fires on the monster's true position). Closest
+	// pulled flank wins — mirrors the melee front→side priority.
+	if mon := cs.nearestPulledFlankMonster(); mon != nil {
+		return int(mon.X / ts), int(mon.Y / ts), true
+	}
 	if lastX == curX && lastY == curY {
 		return 0, 0, false // facing straight into a wall
 	}
 	return lastX, lastY, true
+}
+
+// nearestPulledFlankMonster returns the closest monster currently pulled onto a
+// turn-based front DIAGONAL slot (drawn at screen-center), or nil. Uses the
+// pulledFrontSlot SSoT so trap auto-targeting matches what the player sees.
+func (cs *CombatSystem) nearestPulledFlankMonster() *monsterPkg.Monster3D {
+	var best *monsterPkg.Monster3D
+	var bestD float64
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		side, _, _, pulled, ok := cs.pulledFrontSlot(m)
+		if !ok || !pulled || side == 0 {
+			continue // only genuinely pulled diagonals (dead-ahead handled above)
+		}
+		d := DistanceSquared(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y)
+		if best == nil || d < bestD {
+			best, bestD = m, d
+		}
+	}
+	return best
 }
 
 // monsterOnTile returns a living monster occupying the tile, or nil.
@@ -287,16 +316,15 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 		}
 	}
 
+	// A sealed / idol-warded boss is immune to indirect damage (gated inside
+	// applyTrapDamage) — and to its control riders too. Skip stun/root for it.
+	if bossInvulnerable(victim) {
+		return
+	}
+
 	turnsStun, secsStun := trapControlDuration(def.StunTurns, def.StunSeconds, t.Owner)
 	if def.StunTurns > 0 {
-		if cs.game.turnBasedMode {
-			if turnsStun > victim.StunTurnsRemaining {
-				victim.StunTurnsRemaining = turnsStun
-			}
-		} else if frames := secsStun * cs.game.config.GetTPS(); frames > victim.StunFramesRemaining {
-			victim.StunFramesRemaining = frames
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is stunned!", victim.Name))
+		cs.applyStunDR(victim, turnsStun, secsStun*cs.game.config.GetTPS(), true) // announces stun/resist
 	}
 
 	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)
@@ -315,9 +343,12 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 // applyTrapDamage lands trap damage on one monster with the shared indirect-
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
 func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
-	// Physical traps respect monster armor like any other physical hit;
-	// elemental payloads go through resistances only.
-	dmg = applyArmorReductionIfPhysical(dmg, element, m.ArmorClass, false)
+	if bossInvulnerable(m) {
+		return // invulnerable boss (sealed or idol-warded) — no trap damage, FX, or aggro
+	}
+	// Trap damage runs the same armor→resist path as any hit: armor mitigates by
+	// element (physical fully, elemental on the reduced cap), then resistances.
+	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
 	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
 	m.HitTintFrames = MonsterHitFlashFrames
 	cs.breakPacifyOnHit(m)
@@ -372,7 +403,7 @@ func (gl *GameLoop) updateTraps() {
 	}
 	g.traps = g.traps[:w]
 	if !g.turnBasedMode {
-		gl.combat.sweepTrapTriggers()
+		gl.game.combat.sweepTrapTriggers()
 	}
 }
 

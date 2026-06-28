@@ -37,13 +37,3 @@ func (c *FirstPersonCamera) SetPosition(x, y float64) {
 	c.X = x
 	c.Y = y
 }
-
-// Rotate rotates the camera by the given angle
-func (c *FirstPersonCamera) Rotate(angle float64) {
-	c.Angle += angle
-}
-
-// GetViewDirection returns the current view direction as a normalized vector
-func (c *FirstPersonCamera) GetViewDirection() (float64, float64) {
-	return c.GetForwardX(), c.GetForwardY()
-}

@@ -39,15 +39,17 @@ func TestSkillTooltips_UseRealConstants(t *testing.T) {
 	}
 }
 
-// TestSpeedTooltip_NoTurnBasedLie: Speed grants turn-based action slots, so its
-// tooltip must not claim it has no turn-based effect.
+// TestSpeedTooltip_NoTurnBasedLie: Speed grants party-wide turn-based bonus
+// action slots, so its tooltip must not claim it has no turn-based effect.
 func TestSpeedTooltip_NoTurnBasedLie(t *testing.T) {
 	tip := statTooltipText("speed")
 	if strings.Contains(strings.ToLower(tip), "no effect in turn-based") {
 		t.Errorf("speed tooltip still lies about turn-based: %q", tip)
 	}
-	if !strings.Contains(tip, fmt.Sprint(character.SpeedActionSlot2Threshold)) {
-		t.Errorf("speed tooltip should cite the action-slot threshold: %q", tip)
+	for _, want := range []int{character.SpeedBonusAction1Threshold, character.SpeedBonusAction2Threshold} {
+		if !strings.Contains(tip, fmt.Sprint(want)) {
+			t.Errorf("speed tooltip should cite bonus-action threshold %d: %q", want, tip)
+		}
 	}
 }
 
@@ -100,8 +102,8 @@ func TestDisarmTrap_ReducesIncomingDamage(t *testing.T) {
 	skilled := character.CreateCharacter("B", character.ClassArcher, cs.game.config)
 	skilled.Skills[character.SkillDisarmTrap] = expertSkill()
 	const raw = 50 // large enough to avoid the floor-at-1
-	base := cs.ApplyArmorDamageReduction(raw, plain)
-	reduced := cs.ApplyArmorDamageReduction(raw, skilled)
+	base := cs.mitigateCharacterDamage(raw, "physical", plain, false)
+	reduced := cs.mitigateCharacterDamage(raw, "physical", skilled, false)
 	if base-reduced != DisarmTrapDamageReductionPerTier {
 		t.Errorf("DisarmTrap reduction delta = %d, want %d", base-reduced, DisarmTrapDamageReductionPerTier)
 	}

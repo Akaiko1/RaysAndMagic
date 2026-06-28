@@ -14,6 +14,7 @@ import (
 const (
 	ManaRegenIntervalFrames     = 600 // ~5s at 120 TPS
 	ManaRegenPersonalityDivisor = 10
+	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
 	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
 	MeditationRegenPerTier = 3
@@ -60,6 +61,10 @@ func (c *MMCharacter) ArmsMasterTier() int { return c.SkillTier(SkillArmsMaster)
 func (c *MMCharacter) DisarmTrapTier() int { return c.SkillTier(SkillDisarmTrap) }
 func (c *MMCharacter) MerchantTier() int   { return c.SkillTier(SkillMerchant) }
 
+// QuickSlotCount is the number of per-character quick slots (matches the 5-cell
+// quick-bar frame art).
+const QuickSlotCount = 5
+
 type MMCharacter struct {
 	Name      string
 	Class     CharacterClass
@@ -97,11 +102,25 @@ type MMCharacter struct {
 	// Equipment slots
 	Equipment map[items.EquipSlot]items.Item
 
+	// QuickSlots is a small per-character container (like a 5-cell pocket) for
+	// mouse-driven quick use: weapons to swap to, potions to drink, spells to
+	// cast — all by double-click. An item dragged here LEAVES the shared party
+	// inventory and lives in the slot (nil = empty). Spells hold a temporary
+	// spell item (spellbook-owned; never returned to inventory). Independent of
+	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
+	QuickSlots [QuickSlotCount]*items.Item
+
 	// Status effects
 	Conditions []Condition
 	// Poison status timer and tick accumulator (frames)
 	PoisonFramesRemaining int
 	poisonTickTimer       int
+	// Ignite (burn): a separate DoT 3x as strong as poison that STACKS with it.
+	BurnFramesRemaining int
+	burnTickTimer       int
+	// Stun: skips the character's actions. RT counts frames, TB counts turns.
+	StunFramesRemaining int
+	StunTurnsRemaining  int
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
@@ -116,9 +135,10 @@ type MMCharacter struct {
 	OwedLevelChoices []int
 
 	// ActionsRemaining tracks how many attack/spell actions this character
-	// has left in the current turn-based round. Refilled by ActionSlotsForTurn
-	// at party-turn start, decremented on each attack/spell, set to 0 on
-	// party movement (which immediately ends the round). Unused in real-time.
+	// has left in the current turn-based round. Refilled at party-turn start
+	// (1 base action plus any party-wide Speed bonus assigned to this member),
+	// decremented on each attack/spell, set to 0 on party movement (which
+	// immediately ends the round). Unused in real-time.
 	ActionsRemaining int
 
 	// RTCooldown is this character's remaining real-time action cooldown in
@@ -129,25 +149,24 @@ type MMCharacter struct {
 	RTCooldown int
 }
 
-// Turn-based action-slot thresholds on effective Speed. Single source shared by
-// ActionSlotsForTurn (mechanic) and the Speed stat tooltip (description).
+// Turn-based party bonus-action thresholds on effective Speed. Single source
+// shared by MMGame.startPartyTurn (mechanic) and the Speed stat tooltip.
 const (
-	SpeedActionSlot2Threshold = 25 // Speed > this → 2 actions/turn
-	SpeedActionSlot3Threshold = 50 // Speed > this → 3 actions/turn
+	SpeedBonusAction1Threshold = 25 // Any living Speed > this → +1 party bonus action
+	SpeedBonusAction2Threshold = 50 // Any living Speed > this → +2 party bonus actions
 )
 
-// ActionSlotsForTurn returns the number of attack/spell slots this character
-// gets per turn-based round, based on effective Speed (see the threshold
-// constants above; buffs flow in via BuffBonuses).
-func (c *MMCharacter) ActionSlotsForTurn() int {
+// SpeedBonusActionTier returns how many party-wide bonus action slots this
+// character unlocks if they are the fastest living member this turn.
+func (c *MMCharacter) SpeedBonusActionTier() int {
 	speed := c.GetEffectiveSpeed()
 	switch {
-	case speed > SpeedActionSlot3Threshold:
-		return 3
-	case speed > SpeedActionSlot2Threshold:
+	case speed > SpeedBonusAction2Threshold:
 		return 2
-	default:
+	case speed > SpeedBonusAction1Threshold:
 		return 1
+	default:
+		return 0
 	}
 }
 
@@ -265,7 +284,10 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(stats.MainHand)
 	}
 	if stats.Armor != "" {
-		c.Equipment[items.SlotArmor] = items.CreateItemFromYAML(stats.Armor)
+		// Route by the item's own equip_slot so a helmet/boots/etc. lands in its
+		// real slot (the field name is historical); body armor stays in SlotArmor.
+		it := items.CreateItemFromYAML(stats.Armor)
+		c.Equipment[it.PreferredSlot(items.SlotArmor)] = it
 	}
 	if stats.QuickTrap != "" {
 		// The starting trap occupies the SAME quick slot as quick spells.
@@ -332,13 +354,13 @@ func derivedStatMultipliers(cfg *config.Config) (endurMult, levelHPMult, levelSP
 // (base + equipment + buffs) — the single formula every recalc path shares:
 //
 //	MaxHP = effEndurance×endurMult + Level×levelHPMult (+ Bodybuilding)
-//	MaxSP = effIntellect + effPersonality + Level×levelSPMult
+//	MaxSP = effIntellect + effPersonality/MaxSPPersonalityDivisor + Level×levelSPMult
 func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 	endurMult, levelHPMult, levelSPMult := derivedStatMultipliers(cfg)
 	_, effInt, effPers, effEnd, _, _, _ := c.GetEffectiveStats()
 	baseMaxHP := effEnd*endurMult + c.Level*levelHPMult
 	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
-	c.MaxSpellPoints = effInt + effPers + c.Level*levelSPMult
+	c.MaxSpellPoints = effInt + effPers/MaxSPPersonalityDivisor + c.Level*levelSPMult
 }
 
 // CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current
@@ -404,11 +426,41 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 			tps = 60
 		}
 		c.updatePoison(tps)
+		c.updateBurn(tps)
 		return
 	}
 
 	// Use normal timer-based regeneration in real-time mode
 	c.updateRegenAndPoison()
+}
+
+// A stun carries both a RT (seconds→frames) and a TB (turns) counter; only the
+// current mode's counter is ticked. The stun ends when the ACTIVE counter
+// expires (clearing the other), so it lasts its full single-mode duration and a
+// mode switch ends it on whichever runs out first — never permanent.
+
+// tickStunFrames counts down a real-time stun, clearing it when the timer ends.
+func (c *MMCharacter) tickStunFrames() {
+	if c.StunFramesRemaining <= 0 {
+		return
+	}
+	c.StunFramesRemaining--
+	if c.StunFramesRemaining <= 0 {
+		c.StunTurnsRemaining = 0
+		c.RemoveCondition(ConditionStunned)
+	}
+}
+
+// TickStunTurn counts down a turn-based stun at the start of the party's turn.
+func (c *MMCharacter) TickStunTurn() {
+	if c.StunTurnsRemaining <= 0 {
+		return
+	}
+	c.StunTurnsRemaining--
+	if c.StunTurnsRemaining <= 0 {
+		c.StunFramesRemaining = 0
+		c.RemoveCondition(ConditionStunned)
+	}
 }
 
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
@@ -419,6 +471,8 @@ func (c *MMCharacter) updateRegenAndPoison() {
 		tps = 60
 	}
 	c.updatePoison(tps)
+	c.updateBurn(tps)
+	c.tickStunFrames()
 
 	// If unconscious, skip regeneration and updates
 	if c.HasCondition(ConditionUnconscious) {
@@ -469,6 +523,66 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 		c.PoisonFramesRemaining = frames
 	}
 	c.AddCondition(ConditionPoisoned)
+}
+
+// ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison —
+// both can run at once. The tick is desynced (starts half a second in) so burn
+// and poison ticks don't land on the same frame.
+func (c *MMCharacter) ApplyBurn(frames int) {
+	if frames <= 0 {
+		return
+	}
+	if frames > c.BurnFramesRemaining {
+		c.BurnFramesRemaining = frames
+	}
+	c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
+	c.AddCondition(ConditionBurning)
+}
+
+// BurnDamagePerTick is how much ignite deals each second — 3x poison's 1/sec.
+const BurnDamagePerTick = 3
+
+func (c *MMCharacter) updateBurn(tps int) {
+	if c.BurnFramesRemaining <= 0 {
+		return
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	c.BurnFramesRemaining--
+	c.burnTickTimer++
+	if c.burnTickTimer >= tps {
+		c.burnTickTimer = 0
+		if c.HitPoints > 0 {
+			c.HitPoints -= BurnDamagePerTick
+			if c.HitPoints <= 0 {
+				c.HitPoints = 0
+				c.AddCondition(ConditionUnconscious)
+			}
+		}
+	}
+	if c.BurnFramesRemaining <= 0 {
+		c.RemoveCondition(ConditionBurning)
+	}
+}
+
+// ApplyCharStun stuns the character for the given RT frames / TB turns (max with
+// any existing stun). A stunned character takes no action until it wears off.
+func (c *MMCharacter) ApplyCharStun(frames, turns int) {
+	if frames > c.StunFramesRemaining {
+		c.StunFramesRemaining = frames
+	}
+	if turns > c.StunTurnsRemaining {
+		c.StunTurnsRemaining = turns
+	}
+	if frames > 0 || turns > 0 {
+		c.AddCondition(ConditionStunned)
+	}
+}
+
+// IsStunned reports whether the character currently skips actions.
+func (c *MMCharacter) IsStunned() bool {
+	return c != nil && (c.StunFramesRemaining > 0 || c.StunTurnsRemaining > 0)
 }
 
 func (c *MMCharacter) updatePoison(tps int) {
@@ -530,7 +644,7 @@ func (c *MMCharacter) GetDisplayInfo() string {
 }
 
 func (c *MMCharacter) GetDetailedInfo() string {
-	info := fmt.Sprintf("=== %s ===\n", c.Name)
+	info := fmt.Sprintf("%s\n", c.Name)
 	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
 	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
 
@@ -745,19 +859,9 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		if !c.CanEquipArmor(item) {
 			return items.Item{}, false, false
 		}
-		// Use equip_slot attribute if defined, otherwise default to armor slot
-		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
-			slot = items.EquipSlot(equipSlotCode)
-		} else {
-			slot = items.SlotArmor
-		}
+		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
-		// Use equip_slot attribute if defined, otherwise default to ring slot 1
-		if equipSlotCode, hasSlot := item.Attributes["equip_slot"]; hasSlot {
-			slot = items.EquipSlot(equipSlotCode)
-		} else {
-			slot = items.SlotRing1
-		}
+		slot = item.PreferredSlot(items.SlotRing1)
 	default:
 		return items.Item{}, false, false
 	}

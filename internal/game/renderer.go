@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/graphics"
@@ -33,6 +34,8 @@ type LightSource struct {
 	Y         float64
 	Radius    float64
 	Intensity float64
+	Seed      int
+	Firefly   bool
 }
 
 type floorTexture struct {
@@ -67,6 +70,12 @@ type Renderer struct {
 	floorTexTileW        int
 	floorTexTileH        int
 	floorTexturesKey     string // biome the floor textures were loaded for (cache key)
+	canopyShadeFactors   []float64
+	canopyShadeW         int
+	canopyShadeH         int
+	canopyViewerAmbient  float64
+	canopyViewerFrame    int64
+	canopyViewerReady    bool
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
 	// a 64-float allocation each draw call.
 	floorLightsBuf [maxFloorShaderLights * 4]float32
@@ -81,6 +90,20 @@ type Renderer struct {
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
+	// Reusable slab-surface buffers (A/B keep both crossed-tree slabs live for
+	// the interleaved arm draw) and the crossed-tree arm scratch list.
+	standeeSurfaces  []standeeSurface
+	standeeSurfacesB []standeeSurface
+	treeArms         []treeArm
+
+	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
+	statTreesDrawn   int
+	statStandeeCalls int
+	statAuraTiles    int
+	// Per-frame sprite-pass sub-phase timings (ms) for the perf overlay.
+	statFloorMs   float64
+	statWallsMs   float64
+	statSpritesMs float64
 	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
 	// world change alongside the other per-map caches.
 	wallTorches []wallTorchPoint
@@ -92,6 +115,10 @@ type Renderer struct {
 	standeeNPCYaw map[*character.NPC]standeeEnvYawState
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
+	// treeTilesCache lists every tree tile (one entry per tile) for the
+	// crossed-standee billboard mode (config.Graphics.TreesAsBillboards). Built
+	// alongside transparentSpritesCache; unused in the per-column tree mode.
+	treeTilesCache []TransparentSpriteData
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -196,11 +223,14 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
+		r.treeTilesCache = nil
 		r.tileLightCache = nil
+		r.clearCanopyShadeCache()
 		return
 	}
 
 	var cache []TransparentSpriteData
+	var treeCache []TransparentSpriteData
 	var lights []LightSource
 	worldWidth := r.game.GetCurrentWorld().Width
 	worldHeight := r.game.GetCurrentWorld().Height
@@ -219,13 +249,26 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				radius := tileData.Light.RadiusTiles * tileSize
 				intensity := tileData.Light.Intensity
 				if radius > 0 && intensity > 0 {
-					lights = append(lights, LightSource{
+					light := LightSource{
 						X:         worldX,
 						Y:         worldY,
 						Radius:    radius,
 						Intensity: intensity,
-					})
+					}
+					if isFireflySwarmTile(tileType) {
+						light.Seed = fireflySwarmSeed(tileX, tileY)
+						light.Firefly = true
+					}
+					lights = append(lights, light)
 				}
+			}
+
+			// Tree tiles: cache one entry per tile for the crossed-standee mode.
+			if world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+				treeCache = append(treeCache, TransparentSpriteData{
+					tileX: tileX, tileY: tileY, worldX: worldX, worldY: worldY,
+					tileType: tileType, spriteName: world.GlobalTileManager.GetSprite(tileType),
+				})
 			}
 
 			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
@@ -251,7 +294,9 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	}
 
 	r.transparentSpritesCache = cache
+	r.treeTilesCache = treeCache
 	r.tileLightCache = lights
+	r.buildCanopyShadeCache()
 	r.buildWallTorches()
 }
 
@@ -348,6 +393,9 @@ func (r *Renderer) updateActiveLights() {
 		radius := light.Radius
 		if radius <= 0 || light.Intensity <= 0 {
 			continue
+		}
+		if light.Firefly {
+			light.Intensity *= fireflySwarmFlicker(light.Seed, r.game.frameCount)
 		}
 		maxDist := viewDist + radius
 		dx := light.X - camX
@@ -473,9 +521,7 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 	if brightness < r.game.config.Graphics.BrightnessMin {
 		brightness = r.game.config.Graphics.BrightnessMin
 	}
-	if r.ambientLight > 0 {
-		brightness *= r.ambientLight
-	}
+	brightness *= r.localAmbientAt(worldX, worldY)
 
 	for _, light := range r.activeLights {
 		brightness = r.applyLocalLight(brightness, light.X, light.Y, worldX, worldY, light.Radius, light.Intensity)
@@ -539,20 +585,13 @@ func (r *Renderer) precomputeFloorColorCache() {
 	// Get map-specific default floor color
 	var defaultFloorColor [3]int
 	if world.GlobalWorldManager != nil {
-		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-		currentMapKey := world.GlobalWorldManager.CurrentMapKey
-		fmt.Printf("[FloorCache] CurrentMapKey: %s\n", currentMapKey)
-
-		if mapConfig != nil {
+		if mapConfig := world.GlobalWorldManager.GetCurrentMapConfig(); mapConfig != nil {
 			defaultFloorColor = mapConfig.DefaultFloorColor
-			fmt.Printf("[FloorCache] Using map config - Biome: %s, FloorColor: %v\n", mapConfig.Biome, defaultFloorColor)
 		} else {
 			defaultFloorColor = [3]int{60, 180, 60} // Fallback green
-			fmt.Printf("[FloorCache] No map config found, using fallback green\n")
 		}
 	} else {
 		defaultFloorColor = [3]int{60, 180, 60} // Fallback green
-		fmt.Printf("[FloorCache] No WorldManager, using fallback green\n")
 	}
 
 	defaultMapFloor := color.RGBA{uint8(defaultFloorColor[0]), uint8(defaultFloorColor[1]), uint8(defaultFloorColor[2]), 255}
@@ -950,8 +989,17 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	// Clear depth buffer for this frame - optimized with slice header manipulation
 	viewDist := r.game.camera.ViewDist
 	depthBuf := r.game.depthBuffer
+	wallTopBuf := r.game.wallTopBuffer
 	for i := range depthBuf {
 		depthBuf[i] = viewDist
+		// Default wall top = 0 (screen top) = "occlude fully". This is the
+		// fail-SAFE default: any opaque depth-writer that doesn't record a real
+		// wall top leaves a sprite behind it fully clipped (the old behavior),
+		// never drawn through. Only a floor-anchored wall lowers it to reveal a
+		// taller sprite's canopy above the wall.
+		if i < len(wallTopBuf) {
+			wallTopBuf[i] = 0
+		}
 	}
 
 	// Calculate ray parameters first
@@ -988,18 +1036,28 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	raycastTimer.EndRaycast()
 
 	// Draw simple floor and ceiling before walls/trees so trees are visible above floor
+	r.statTreesDrawn, r.statStandeeCalls, r.statAuraTiles = 0, 0, 0
 	r.game.threading.PerformanceMonitor.ProfiledFunction("sprite_render", func() {
+		tf := time.Now()
 		r.drawSimpleFloorCeiling(screen)
+		r.statFloorMs = float64(time.Since(tf).Microseconds()) / 1000.0
 
 		// Render the results and update depth buffer
+		tw := time.Now()
 		r.renderRaycastResults(screen, results)
+		r.statWallsMs = float64(time.Since(tw).Microseconds()) / 1000.0
 
 		// Draw all sprites (trees, ferns, monsters, NPCs) sorted by depth
+		ts := time.Now()
 		r.drawAllSpritesSorted(screen)
+		r.statSpritesMs = float64(time.Since(ts).Microseconds()) / 1000.0
 
 		// Highlight impassable billboard tiles with rising ground bubbles
 		// (after walls/sprites so the depth buffer is populated for occlusion).
 		r.drawImpassableTileAura(screen)
+		// Grey smoke wreath around a sealed (dormant) boss — invulnerable until
+		// its quest unseals it.
+		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
@@ -1183,6 +1241,15 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 			continue
 		}
 
+		// Crossed-standee tree mode: tree tiles don't block the ray and aren't
+		// drawn per-column here — they render as two crossed standees in the
+		// sprite pass (drawCrossedTreeStandees), so the forest shows through the
+		// gaps between the planes. Skip the tile entirely.
+		if r.game.config.Graphics.TreesAsBillboards && world.GlobalTileManager != nil &&
+			world.GlobalTileManager.GetRenderType(tileType) == "tree_sprite" {
+			continue
+		}
+
 		// Calculate distance
 		var perpendicularDistance float64
 		if wallSide == 0 {
@@ -1262,6 +1329,23 @@ type treeHitData struct {
 // renderRaycastResults processes and renders the results from parallel raycasting.
 // Each result contains distance and hit information for one vertical screen column.
 // Tree sprites are collected and rendered in the unified sprite pass for proper transparency.
+// writeWallColumns records an opaque wall hit across its screen columns into
+// BOTH the depth buffer and the wall-top buffer (screen-Y of the wall's top), so
+// a tall sprite (tree standee) behind this wall clips at the wall's top edge and
+// still renders the canopy that rises above it. This is the single place an
+// opaque wall's occlusion is recorded — keeping both writes together prevents
+// the buffers from drifting out of sync.
+func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileType world.TileType3D) {
+	_, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, world.GetTileHeight(tileType))
+	for dx := 0; dx < width; dx++ {
+		x := screenX + dx
+		if x >= 0 && x < len(r.game.depthBuffer) {
+			r.game.depthBuffer[x] = distance
+			r.game.wallTopBuffer[x] = wallTop
+		}
+	}
+}
+
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
@@ -1289,13 +1373,10 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			for i := len(hitData.Hits) - 1; i >= 0; i-- {
 				hit := hitData.Hits[i]
 
-				// Update depth buffer only with solid objects
+				// Record depth + wall-top for solid objects (tall sprites clip on
+				// the wall's top edge so their canopy shows above shorter walls).
 				if !hit.IsTransparent {
-					for dx := 0; dx < currentRayWidth; dx++ {
-						if screenX+dx < len(r.game.depthBuffer) {
-							r.game.depthBuffer[screenX+dx] = hit.Distance
-						}
-					}
+					r.writeWallColumns(screenX, currentRayWidth, hit.Distance, hit.TileType)
 				}
 
 				// Collect tree hits for later sorted rendering
@@ -1315,12 +1396,8 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			// This case should ideally not be hit with the new system, but as a fallback:
 			hitInfo := hitData
 
-			// Update depth buffer for proper sprite occlusion
-			for dx := 0; dx < currentRayWidth; dx++ {
-				if screenX+dx < len(r.game.depthBuffer) {
-					r.game.depthBuffer[screenX+dx] = rayResult.Distance
-				}
-			}
+			// Record depth + wall-top for proper sprite occlusion.
+			r.writeWallColumns(screenX, currentRayWidth, rayResult.Distance, hitInfo.TileType)
 
 			// Collect tree hits for later sorted rendering
 			if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(hitInfo.TileType) == "tree_sprite" {
@@ -1419,6 +1496,11 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 
 	worldW := r.floorColorMap.Bounds().Dx()
 	worldH := r.floorColorMap.Bounds().Dy()
+	if len(r.canopyShadeFactors) == 0 ||
+		r.canopyShadeW != worldW ||
+		r.canopyShadeH != worldH {
+		r.buildCanopyShadeCache()
+	}
 
 	texAtlas := r.floorTexAtlas
 	if texAtlas == nil {
@@ -1476,6 +1558,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 		ambient = 1
 	}
 	uniforms["Ambient"] = float32(ambient)
+	uniforms["ViewerAmbient"] = float32(r.viewerAmbient())
 	uniforms["TexCount"] = float32(r.floorTexCount)
 	uniforms["LightCount"] = float32(lightCount)
 	uniforms["Lights"] = lights
@@ -1523,7 +1606,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	// Calculate tree height and position
 	// distance is already perpendicular distance from the raycast
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	if world.GlobalTileManager != nil {
+		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+	}
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
 	if spriteHeight < 8 {
 		spriteHeight = 8
 	}
@@ -1555,22 +1642,14 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	sprite := r.game.sprites.GetSprite(spriteName)
 
-	// Scale and draw the tree sprite
-	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
-	// Apply distance shading with torch light effects
-	// For tree sprites, use camera position as approximation
-	brightness := r.calculateBrightnessWithTorchLight(r.game.camera.X, r.game.camera.Y, distance)
+	// Light the tree at its own column world point (not the camera), so torches
+	// and spell glows reach it like any other raycast surface.
+	brightness := r.wallPointBrightness(x, distance)
 	brightness = r.applyTreeDepthShading(brightness, distance)
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
@@ -1663,7 +1742,11 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, r.game.config.Graphics.Sprite.TreeHeightMultiplier)
+	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	if world.GlobalTileManager != nil {
+		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+	}
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
 	}
@@ -1690,6 +1773,13 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 		for px := depthLeft; px <= depthRight && px >= 0 && px < len(r.game.depthBuffer); px++ {
 			if distance < r.game.depthBuffer[px] {
 				r.game.depthBuffer[px] = distance
+				// Opaque billboard: fully occlude a standee behind it (wall top 0).
+				// These sprites are screen-CENTERED, not floor-anchored, so their
+				// top is not a valid clip line; full-occlude matches the prior
+				// behavior and overrides any stale wall top from this column.
+				if px < len(r.game.wallTopBuffer) {
+					r.game.wallTopBuffer[px] = 0
+				}
 			}
 		}
 	}
@@ -1703,17 +1793,9 @@ func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance f
 	}
 	sprite := r.game.sprites.GetSprite(spriteName)
 
-	// Scale and draw the sprite
-	opts := r.sharedDrawOpts()
 	scaleX := float64(spriteWidth) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteHeight) / float64(sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(spriteLeft), float64(spriteTop))
 
 	// Distance shading, light-aware: torch / spell glow reaches raycast sprites
@@ -2046,20 +2128,20 @@ func (r *Renderer) weaponFxProfile(weaponDef *config.WeaponDefinitionConfig) pro
 			profile.glowColor = mixColor(profile.glowColor, [3]int{255, 180, 220}, 0.35)
 			profile.trailColor = mixColor(profile.trailColor, [3]int{255, 200, 230}, 0.25)
 		}
-		// Projectile school wins over the stat tint, giving staves/books a
-		// distinct magical hue.
-		switch strings.ToLower(weaponDef.ProjectileSchool) {
-		case "dark":
-			profile.glowColor = [3]int{170, 90, 220}
-			profile.trailColor = [3]int{210, 140, 255}
-			profile.sparkColor = [3]int{210, 160, 255}
+		// A projectile_school turns the shot into a glowing spell-ORB (not a plain
+		// arrow), tinted to its magic element — staves/books fire magic charges,
+		// not arrows. The "arcane" style name is just the orb body renderer
+		// (pixel-particle, mirrored R→L), independent of the element.
+		if school := strings.ToLower(weaponDef.ProjectileSchool); school != "" {
+			c, ok := ElementColors[school]
+			if !ok {
+				c = ElementColors["arcane"]
+			}
+			profile.glowColor = mixColor(c, [3]int{255, 255, 255}, 0.25)
+			profile.trailColor = mixColor(c, [3]int{255, 255, 255}, 0.45)
+			profile.sparkColor = mixColor(c, [3]int{255, 255, 255}, 0.55)
 			profile.spark = true
-		case "arcane":
-			profile.glowColor = [3]int{150, 190, 255}
-			profile.trailColor = [3]int{210, 230, 255}
-			profile.sparkColor = [3]int{220, 235, 255}
-			profile.spark = true
-			profile.style = "arcane" // pixel-particle body + trail, mirrored (R→L)
+			profile.style = "arcane"
 		}
 	}
 	return profile
@@ -2302,12 +2384,73 @@ type UnifiedSpriteRenderData struct {
 	tileY    int
 	tileType world.TileType3D
 	// Monster specific
-	monster     *monster.Monster3D
-	monsterFlip bool
+	monster        *monster.Monster3D
+	monsterFlip    bool
+	monsterRenderX float64
+	monsterRenderY float64
 	// NPC specific
 	npc *character.NPC
 	// Ground container (loot bag / treasure chest) specific
 	groundContainer *GroundContainer
+}
+
+// Near-tree LOD. A tree is collected once PER screen column it covers (treeHits),
+// and each of those redraws the ENTIRE tree sprite (drawTreeSprite isn't a 1px
+// slice). At 1 ray/pixel a point-blank tree spans the whole screen → that many
+// full-sprite redraws → the FPS cliff when pressed into a forest tree. For trees
+// within nearTreeLODTiles we keep only 1 of every `stride` columns. A FIXED stride
+// isn't enough at point-blank (1-in-4 of ~1920 columns is still ~480 full-screen
+// draws), so the stride GROWS as distance shrinks (∝ nearTreeDist/distance): the
+// columns a tree covers scale ~1/distance, so this keeps the kept-column count —
+// and thus the draw count — roughly flat all the way in. Each kept draw is still
+// the whole sprite, so the tree looks the same. Far trees stay at full density.
+const (
+	nearTreeLODTiles     = 3  // apply the thinning only within this many tiles
+	nearTreeLODStride    = 4  // base stride at the near edge (nearTreeLODTiles out)
+	nearTreeLODMaxStride = 32 // clamp: point-blank keeps ~screenWidth/this columns
+)
+
+const (
+	tbFrontDiagonalMonsterForwardTiles = 1.05
+	tbFrontDiagonalMonsterLateralTiles = 0.28
+)
+
+// monsterVisualPosition is where a monster is DRAWN: usually its true spot, but a
+// turn-based front-diagonal melee neighbour is "pulled" to read as in-front-of-you
+// rather than sliding to the screen edge. The pull geometry lives in ONE place —
+// CombatSystem.pulledFrontSlot — shared with the combat resolver so the sprite and
+// the hit can't drift apart. Only a genuinely PULLED slot moves the sprite.
+func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float64) {
+	if mon == nil {
+		return 0, 0
+	}
+	if r != nil && r.game != nil && r.game.combat != nil {
+		return r.game.combat.monsterVisualPos(mon)
+	}
+	return mon.X, mon.Y
+}
+
+// monsterHitShakeSizePx clamps the sprite size that scales the on-hit shudder so
+// huge sprites don't jolt unboundedly every frame (see MonsterHitShakeMaxRefPx).
+func monsterHitShakeSizePx(spriteSize int) float64 {
+	if s := float64(spriteSize); s < MonsterHitShakeMaxRefPx {
+		return s
+	}
+	return MonsterHitShakeMaxRefPx
+}
+
+func cardinalForwardFromAngle(angle float64) (int, int) {
+	c, s := math.Cos(angle), math.Sin(angle)
+	if math.Abs(c) >= math.Abs(s) {
+		if c < 0 {
+			return -1, 0
+		}
+		return 1, 0
+	}
+	if s < 0 {
+		return 0, -1
+	}
+	return 0, 1
 }
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
@@ -2320,16 +2463,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	camX := r.game.camera.X
 	camY := r.game.camera.Y
 	camAngle := r.game.camera.Angle
-	fov := r.game.camera.FOV
 	viewDistSq := r.game.camera.ViewDist * r.game.camera.ViewDist
 
 	// Precompute camera direction for camera-space depth calculations
 	camDirX := math.Cos(camAngle)
 	camDirY := math.Sin(camAngle)
-
-	// Precompute frustum culling values
-	halfFOV := fov / 2
-	fovMargin := halfFOV + 0.1
 
 	// Get player's current tile for sprite culling
 	playerTileX, playerTileY := r.game.GetPlayerTilePosition()
@@ -2358,27 +2496,18 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			entityAngle := math.Atan2(dy, dx)
-			angleDiff := entityAngle - camAngle
-			for angleDiff > math.Pi {
-				angleDiff -= 2 * math.Pi
-			}
-			for angleDiff < -math.Pi {
-				angleDiff += 2 * math.Pi
-			}
-			if math.Abs(angleDiff) > fovMargin {
-				continue
-			}
-
 			distance := math.Sqrt(distanceSq)
 			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
 			}
 
-			sprite := r.getProcessedSpriteByName(spriteData.tileType, spriteData.spriteName)
-			if sprite == nil {
-				continue
+			var sprite *ebiten.Image
+			if !isFireflySwarmTile(spriteData.tileType) {
+				sprite = r.getProcessedSpriteByName(spriteData.tileType, spriteData.spriteName)
+				if sprite == nil {
+					continue
+				}
 			}
 
 			sprites = append(sprites, UnifiedSpriteRenderData{
@@ -2395,8 +2524,29 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 	}
 
-	// 2. Add tree hits collected during raycasting
+	// 2. Add tree hits collected during raycasting. Near trees are thinned with a
+	// distance-adaptive stride (see the nearTreeLOD note above): the closer the
+	// tree, the more columns it covers and the harder we thin, so the draw count
+	// stays bounded even pressed point-blank into it. Far trees keep every column.
+	nearTreeDist := float64(nearTreeLODTiles) * float64(r.game.config.GetTileSize())
 	for _, tree := range r.treeHits {
+		if tree.distance <= nearTreeDist {
+			stride := nearTreeLODStride
+			if tree.distance > 1 {
+				// ∝ 1/distance; == nearTreeLODStride at the near edge, grows as you close in.
+				if s := int(float64(nearTreeLODStride) * nearTreeDist / tree.distance); s > stride {
+					stride = s
+				}
+			} else {
+				stride = nearTreeLODMaxStride // point-blank (distance ~0): max thinning
+			}
+			if stride > nearTreeLODMaxStride {
+				stride = nearTreeLODMaxStride
+			}
+			if tree.screenX%stride != 0 {
+				continue
+			}
+		}
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeTree,
 			screenX:    tree.screenX,
@@ -2406,14 +2556,53 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	}
 	r.treeHits = r.treeHits[:0]
 
+	// 2b. Crossed-standee trees (one entry per tree TILE). In this mode the DDA
+	// skipped tree tiles, so treeHits is empty; trees are drawn as two crossed
+	// standees, depth-sorted with everything else.
+	if r.game.config.Graphics.TreesAsBillboards {
+		for i := range r.treeTilesCache {
+			td := &r.treeTilesCache[i]
+			dx := td.worldX - camX
+			dy := td.worldY - camY
+			distanceSq := dx*dx + dy*dy
+			// No NEAR cull (unlike other standees): a tree must stay visible when
+			// the player walks right up to it. Only the far view-distance cull
+			// applies; depthPerp<=0 drops trees behind the camera.
+			if distanceSq > viewDistSq {
+				continue
+			}
+			depthPerp := dx*camDirX + dy*camDirY
+			if depthPerp <= 0 {
+				continue
+			}
+			distance := math.Sqrt(distanceSq)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(td.worldX, td.worldY, distance, td.tileType, 1.0)
+			if !visible {
+				continue
+			}
+			sprites = append(sprites, UnifiedSpriteRenderData{
+				spriteType: SpriteTypeTree,
+				screenX:    screenX,
+				screenY:    screenY,
+				spriteSize: spriteSize,
+				depthPerp:  depthPerp,
+				tileX:      td.tileX,
+				tileY:      td.tileY,
+				tileType:   td.tileType,
+			})
+		}
+	}
+
 	// 3. Collect monsters
 	for _, mon := range r.game.GetCurrentWorld().Monsters {
 		if !mon.IsAlive() {
 			continue
 		}
 
-		dx := mon.X - camX
-		dy := mon.Y - camY
+		renderX, renderY := r.monsterVisualPosition(mon)
+
+		dx := renderX - camX
+		dy := renderY - camY
 		distanceSq := dx*dx + dy*dy
 
 		if distanceSq > viewDistSq {
@@ -2427,7 +2616,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 		distance := math.Sqrt(distanceSq)
 		sizeMultiplier := mon.GetSizeGameMultiplier()
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(mon.X, mon.Y, distance, sizeMultiplier)
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeMultiplier)
 		if visible && mon.Flying {
 			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
 		}
@@ -2438,14 +2627,16 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		sprite, flip := r.getMonsterSprite(mon)
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
-			spriteType:  SpriteTypeMonster,
-			screenX:     screenX,
-			screenY:     screenY,
-			spriteSize:  spriteSize,
-			depthPerp:   depthPerp,
-			sprite:      sprite,
-			monster:     mon,
-			monsterFlip: flip,
+			spriteType:     SpriteTypeMonster,
+			screenX:        screenX,
+			screenY:        screenY,
+			spriteSize:     spriteSize,
+			depthPerp:      depthPerp,
+			sprite:         sprite,
+			monster:        mon,
+			monsterFlip:    flip,
+			monsterRenderX: renderX,
+			monsterRenderY: renderY,
 		})
 	}
 
@@ -2582,7 +2773,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		case SpriteTypeEnvironment:
 			r.drawUnifiedEnvironmentSprite(screen, s)
 		case SpriteTypeTree:
-			r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+			r.statTreesDrawn++
+			if r.game.config.Graphics.TreesAsBillboards {
+				r.drawCrossedTreeStandees(screen, s)
+			} else {
+				r.drawTreeSprite(screen, s.screenX, s.depthPerp, s.tileType)
+			}
 		case SpriteTypeMonster:
 			r.drawUnifiedMonsterSprite(screen, s)
 		case SpriteTypeNPC:
@@ -2617,6 +2813,17 @@ func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
 	return false
 }
 
+func (r *Renderer) scaledWorldSpriteOpts(scaleX, scaleY float64) *ebiten.DrawImageOptions {
+	opts := r.sharedDrawOpts()
+	if math.Abs(scaleX) < 0.5 || math.Abs(scaleY) < 0.5 {
+		// Mipmapped shrink only when well below source resolution: it kills the
+		// nearest-sample mush at range, while the 0.5-1.0 band stays nearest.
+		opts.Filter = ebiten.FilterLinear
+	}
+	opts.GeoM.Scale(scaleX, scaleY)
+	return opts
+}
+
 // drawTintedSprite draws a sprite scaled to spriteSize at (drawLeft, screenY)
 // with the given RGBA tint applied via ColorScale. Used for both the
 // brightness pass and the hover-highlight overlay.
@@ -2626,14 +2833,7 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 	}
 	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
 	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
-	opts := r.sharedDrawOpts()
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
 	opts.Blend = ebiten.BlendSourceOver
@@ -2684,7 +2884,14 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
-	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	distance := Distance(worldX, worldY, r.game.camera.X, r.game.camera.Y)
+	if isFireflySwarmTile(s.tileType) {
+		r.drawFireflySwarmEffect(screen, s, distance)
+		return
+	}
+	if s.sprite == nil {
+		return
+	}
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
 	b := float32(brightness)
 
@@ -2719,7 +2926,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
 		key := standeeCoreKey{name: "tile:" + name, bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, worldX, worldY, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0, -1, -1, -1) {
 			return
 		}
 	}
@@ -2733,6 +2940,8 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	if !r.spriteDepthBufferVisible(s) {
 		return
 	}
+	// drawAllSpritesSorted always stamps the visual position (true or pulled).
+	renderX, renderY := s.monsterRenderX, s.monsterRenderY
 
 	drawLeft := s.screenX - s.spriteSize/2
 	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
@@ -2747,7 +2956,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		if s.monster.HitTintFrames%2 == 0 {
 			dir = -1.0
 		}
-		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * float64(s.spriteSize))
+		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize))
 	}
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
@@ -2760,8 +2969,8 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		}
 	}
 
-	distance := math.Sqrt(math.Pow(s.monster.X-r.game.camera.X, 2) + math.Pow(s.monster.Y-r.game.camera.Y, 2))
-	brightness := r.calculateBrightnessWithTorchLight(s.monster.X, s.monster.Y, distance)
+	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
+	brightness := r.calculateBrightnessWithTorchLight(renderX, renderY, distance)
 	br := float32(brightness)
 	rr, gg, bb := br, br, br
 	// Hit flash: when just struck, flash red (boost red, cut green/blue), fading
@@ -2774,6 +2983,14 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		rr = br + (1.7-br)*f
 		gg = br * (1 - 0.75*f)
 		bb = br * (1 - 0.75*f)
+	}
+	// Elite/variant tint: a persistent colour cast distinguishes a champion from
+	// the base mob it shares a sprite with. Multiplies the lit colour (applied to
+	// both standee and billboard paths below), so it reads at a glance — no new art.
+	if s.monster != nil && (s.monster.TintR != 0 || s.monster.TintG != 0 || s.monster.TintB != 0) {
+		rr *= s.monster.TintR
+		gg *= s.monster.TintG
+		bb *= s.monster.TintB
 	}
 
 	// Standee mode: the monster is a wooden token whose face turns with its
@@ -2788,7 +3005,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// minimum angle away from the sight line. Clamping the TARGET (before
 		// easing) keeps the correction itself smooth.
 		if minDeg := r.game.config.Graphics.Standee.MinViewAngleDeg; minDeg > 0 {
-			viewAngle := math.Atan2(m.Y-r.game.camera.Y, m.X-r.game.camera.X)
+			viewAngle := math.Atan2(renderY-r.game.camera.Y, renderX-r.game.camera.X)
 			target = clampYawFromEdgeOn(target, viewAngle, minDeg*math.Pi/180)
 		}
 		if m.StandeeYawTick == 0 {
@@ -2822,7 +3039,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 		// Hit shake, standee edition: rattle the token along its own axis in
 		// world space (same amplitude/phase as the billboard's screen shake).
-		entX, entY := m.X, m.Y
+		entX, entY := renderX, renderY
 		if m.HitTintFrames > 0 {
 			f := float64(m.HitTintFrames) / float64(MonsterHitFlashFrames)
 			if f > 1 {
@@ -2833,7 +3050,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 				dir = -1.0
 			}
 			halfFovTan := math.Tan(r.game.camera.FOV / 2)
-			worldLen := float64(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
+			worldLen := monsterHitShakeSizePx(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
 			off := dir * f * MonsterHitShakeAmplitudeFrac * worldLen
 			entX += math.Cos(m.StandeeYaw) * off
 			entY += math.Sin(m.StandeeYaw) * off
@@ -2843,33 +3060,26 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the pointer (stable for them) is what tells frames apart in the cache.
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
-			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror) {
+			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0, -1, -1, -1) {
 			return
 		}
 	}
 
-	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-
 	if s.monsterFlip {
-		opts.GeoM.Scale(-scaleX, scaleY)
+		opts := r.scaledWorldSpriteOpts(-scaleX, scaleY)
 		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
+		opts.ColorScale.Scale(rr, gg, bb, 1.0)
+		opts.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, opts)
 	} else {
-		opts.GeoM.Scale(scaleX, scaleY)
+		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+		opts.ColorScale.Scale(rr, gg, bb, 1.0)
+		opts.Blend = ebiten.BlendSourceOver
+		screen.DrawImage(s.sprite, opts)
 	}
-
-	opts.ColorScale.Scale(rr, gg, bb, 1.0)
-	opts.Blend = ebiten.BlendSourceOver
-
-	screen.DrawImage(s.sprite, opts)
 }
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
@@ -2881,7 +3091,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
-	distance := math.Sqrt(math.Pow(s.npc.X-r.game.camera.X, 2) + math.Pow(s.npc.Y-r.game.camera.Y, 2))
+	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
 	if brightness < r.game.config.Graphics.BrightnessMin {
 		brightness = r.game.config.Graphics.BrightnessMin
@@ -2918,21 +3128,14 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1) {
 			return
 		}
 	}
 
-	opts := r.sharedDrawOpts()
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
-	if scaleX < 0.5 || scaleY < 0.5 {
-		// Mipmapped shrink only when well below source resolution: it kills the
-		// nearest-sample mush at range, while the 0.5–1.0 band stays nearest —
-		// linear there reads as smeared (city houses at mid distance).
-		opts.Filter = ebiten.FilterLinear
-	}
-	opts.GeoM.Scale(scaleX, scaleY)
+	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
 	opts.ColorScale.Scale(br, br, br, 1.0)
@@ -2960,16 +3163,16 @@ func selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.
 	return sprite.SubImage(rect).(*ebiten.Image), h, h
 }
 
-// drawProjectiles draws magic projectiles, sword attacks, and arrows
+// drawProjectiles draws moving spell and weapon projectiles. Melee swings render
+// through slashEffects, not this projectile pass.
 func (r *Renderer) drawProjectiles(screen *ebiten.Image) {
 	r.drawMagicProjectiles(screen)
-	r.drawMeleeAttacks(screen)
 	r.drawArrows(screen)
 }
 
 // projectileProjection bundles the camera-space projection of a point-like
-// moving entity (magic projectile, melee swing, arrow). Returned by
-// projectMovingEntity when the entity passes range / FOV / depth-buffer culls.
+// moving projectile. Returned by projectMovingEntity when the entity passes
+// range / FOV / depth-buffer culls.
 type projectileProjection struct {
 	screenX int
 	screenY int
@@ -3240,80 +3443,6 @@ func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dir
 		col := mixColor(hot, core, edge)
 		flick := 0.65 + 0.35*auraHash(id, k, 5, int(fc))
 		r.drawGlowSprite(screen, px, py, qs, col, (0.85-0.4*edge)*flick*critBoost, additiveGlowBlend)
-	}
-}
-
-// drawMeleeAttacks draws all active melee attacks
-func (r *Renderer) drawMeleeAttacks(screen *ebiten.Image) {
-	for _, attack := range r.game.meleeAttacks {
-		if !attack.Active {
-			continue
-		}
-
-		weaponDef := lookupWeaponConfigByName(attack.WeaponName)
-		if weaponDef == nil || weaponDef.Graphics == nil {
-			continue // Skip rendering if weapon config missing
-		}
-
-		proj, ok := r.projectMovingEntity(attack.X, attack.Y,
-			weaponDef.Graphics.BaseSize, weaponDef.Graphics.MinSize, weaponDef.Graphics.MaxSize)
-		if !ok {
-			continue
-		}
-		screenX := proj.screenX
-		screenY := proj.screenY
-		attackSize := proj.size
-
-		// Draw collision box if enabled (draw first, so it's behind the attack)
-		if r.game.showCollisionBoxes {
-			// Get world-space collision box dimensions
-			var worldColW, worldColH float64
-			if r.game.collisionSystem != nil {
-				// Use unique ID for direct lookup
-				if entity := r.game.collisionSystem.GetEntityByID(attack.ID); entity != nil && entity.BoundingBox != nil {
-					worldColW = entity.BoundingBox.Width
-					worldColH = entity.BoundingBox.Height
-				} else {
-					worldColW, worldColH = float64(weaponDef.Graphics.BaseSize), float64(weaponDef.Graphics.BaseSize)
-				}
-			} else {
-				worldColW, worldColH = float64(weaponDef.Graphics.BaseSize), float64(weaponDef.Graphics.BaseSize)
-			}
-			// Apply the same distance-based scaling as the attack visual
-			scaleFactor := float64(attackSize) / float64(weaponDef.Graphics.BaseSize)
-			screenColW := int(worldColW * scaleFactor)
-			screenColH := int(worldColH * scaleFactor)
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (attackSize-screenColH)/2
-				boxColor := color.RGBA{255, 255, 0, 120} // Yellow, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
-		}
-
-		// Draw attack using weapon-specific color from config
-		attackColor := weaponDef.Graphics.Color
-
-		opts := r.sharedDrawOpts()
-		opts.GeoM.Scale(float64(attackSize), float64(attackSize))
-		opts.GeoM.Translate(float64(screenX-attackSize/2), float64(screenY))
-		opts.ColorScale.Scale(
-			float32(attackColor[0])/255,
-			float32(attackColor[1])/255,
-			float32(attackColor[2])/255,
-			1,
-		)
-		screen.DrawImage(r.whiteImg, opts)
 	}
 }
 

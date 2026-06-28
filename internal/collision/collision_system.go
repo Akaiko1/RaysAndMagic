@@ -347,11 +347,10 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 	dx := x2 - x1
 	dy := y2 - y1
 
-	// Handle zero distance
+	// Handle zero distance. A sight ray sees out of its own tile (see the
+	// start-tile note below); only movement is blocked by the start tile.
 	if math.Abs(dx) < 1e-6 && math.Abs(dy) < 1e-6 {
-		if sightOnly && cs.tileChecker.IsTileOpaque(tx, ty) {
-			return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
-		} else if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
+		if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
 			return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 		}
 		return RaycastHit{Hit: false}, false
@@ -392,10 +391,13 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 	width, height := cs.tileChecker.GetWorldBounds()
 	maxT := math.Hypot(dx, dy) / math.Max(cs.tileSize, 1)
 
-	// Check starting tile
-	if sightOnly && cs.tileChecker.IsTileOpaque(tx, ty) {
-		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
-	} else if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
+	// Check starting tile. A sight ray always sees OUT of the observer's own
+	// tile: the only way to occupy an opaque tile is a flying mob perched on a
+	// solid-but-transparent sprite tile (boulder/canopy), which IsTileOpaque
+	// reports opaque — bailing here would blind it to its own line of fire and
+	// make ranged flyers shuffle instead of shooting. Movement is still blocked
+	// by the start tile.
+	if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
 		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 	}
 

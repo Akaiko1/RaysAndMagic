@@ -49,10 +49,18 @@ const (
 
 // Defense and progression.
 const (
-	// ArmorPhysicalReductionDivisor: physical damage reduction = AC / divisor.
-	// Quoted in armor tooltips, applied in ApplyArmorDamageReduction.
-	// Canonical value in character/catalog.go (cards quote it too).
-	ArmorPhysicalReductionDivisor = character.ArmorPhysicalReductionDivisor
+	// Armor mitigation (percentage, diminishing returns) — shared by party AND
+	// monster armor via armorMitigationPctFromAC. Canonical values in
+	// character/catalog.go. Physical caps at 75%; elemental is the same curve
+	// scaled to reach its 33% cap at the same AC.
+	ArmorMitigationK            = character.ArmorMitigationK
+	ArmorPhysicalMitigationCap  = character.ArmorPhysicalMitigationCap
+	ArmorElementalMitigationCap = character.ArmorElementalMitigationCap
+
+	// MaxStatValue is the cap a character's base stat can reach (the stat +button
+	// and AUTO distribution both stop here). A mechanics constant, kept out of the
+	// UI files that happen to render it.
+	MaxStatValue = 99
 
 	// StatPointsPerLevel is granted on each level-up. Mentioned in the
 	// level-up combat message and applied in checkLevelUp.
@@ -106,6 +114,10 @@ const (
 	// turn-based mode between SP regeneration ticks. Each tick adds
 	// CalculateManaRegenAmount SP to every able-bodied member.
 	TurnBasedSpRegenEveryNRounds = 3
+
+	// TurnBasedExtraMonsterActionDelaySeconds: visual pause between the normal
+	// monster action pass and the anti-kite extra pass.
+	TurnBasedExtraMonsterActionDelaySeconds = 0.18
 
 	// Camping (the Camp button in the inventory tab): costs CampFoodCost food
 	// and is refused while any living monster is within CampEnemyRadiusTiles.
@@ -191,10 +203,30 @@ const MonsterAttackAnimFrames = 18
 // place — replacing the old positional knockback (it stays put, just rattles).
 const MonsterHitShakeAmplitudeFrac = 0.0333
 
+// MonsterHitShakeMaxRefPx caps the on-screen sprite size used to scale the hit
+// shudder. The amplitude is a fraction of sprite size, so without a cap a giant
+// sprite point-blank (e.g. a size-12 troll) jolts enormously every frame — in
+// standee mode that whips it across wall/tree occluders (and past the camera
+// plane), reading as furious blinking. Beyond this size the shudder stops growing.
+const MonsterHitShakeMaxRefPx = 300.0
+
+// Stun diminishing returns: each successive stun on the SAME target lands for a
+// smaller fraction of its duration — 100% → 50% → 25% → 0% (immune) — so no
+// target (boss included) can be perma-stun-locked. The chain resets once the
+// target has been stun-free for the window below (TB turns / RT seconds). The
+// chain length is mode-agnostic; the reset window is tracked per mode so a
+// TB↔RT switch mid-fight is conservative (never speeds up the reset).
+var StunDRFactorsPct = []int{100, 50, 25, 0}
+
+const (
+	StunDRResetTurns   = 4 // TB: stun-free turns that clear the DR chain
+	StunDRResetSeconds = 8 // RT: stun-free seconds that clear the DR chain
+)
+
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
-// of attacking. 0.9 = heal anyone at or below 90% HP; full-HP party → attack.
-const SmartHealWoundedPct = 0.9
+// of attacking. 0.6 = heal anyone at or below 60% HP; healthier party → attack.
+const SmartHealWoundedPct = 0.6
 
 // SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
 // quotes the same default); this alias keeps game-side call sites unchanged.

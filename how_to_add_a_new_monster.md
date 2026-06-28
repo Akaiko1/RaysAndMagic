@@ -7,7 +7,7 @@ Monsters are defined in YAML and driven by runtime config.
 - Loot tables are in `assets/loots.yaml`.
 - Map placement uses a single lowercase letter in `.map` files.
 - Radii in `monsters.yaml` are in tiles (1 tile = 64px).
-- `size_game` multiplies render size and stacks with `graphics.monster.size_distance_multiplier`.
+- `size_multiplier` multiplies render size and stacks with `graphics.monster.size_distance_multiplier`.
 
 ## Step 1: Define the monster
 Add a new entry under `monsters:` in `assets/monsters.yaml`.
@@ -32,7 +32,7 @@ monsters:
     letter: "a"            # lowercase, unique in its biome scope (see "Biome restriction")
     box_w: 40              # keep < 64 (tile size) or it can't fit 1-wide corridors
     box_h: 40
-    size_game: 2.0
+    size_multiplier: 2.0
     resistances: {}
     habitat_preferences:
       - "empty"

@@ -11,7 +11,6 @@ import (
 	"ugataima/internal/spells"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -34,7 +33,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	gridY := contentY + 84
 
 	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
+	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
 		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems()),
 		paperX, contentY+29)
 
@@ -69,19 +68,10 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 	drawCenteredDebugText(screen, "Inventory", gridX, gridY-22, gridSize, 18)
 	pageSize := len(inventoryGridSlots)
-	totalItems := len(ui.game.party.Inventory)
-	totalPages := (totalItems + pageSize - 1) / pageSize
-	if totalPages < 1 {
-		totalPages = 1
-	}
-	// Clamp the page every frame so it stays valid when the inventory shrinks
+	totalPages := pageCount(len(ui.game.party.Inventory), pageSize)
+	// Clamp every frame so the page stays valid when the inventory shrinks
 	// (equip/discard) out from under the current page.
-	if ui.inventoryPage >= totalPages {
-		ui.inventoryPage = totalPages - 1
-	}
-	if ui.inventoryPage < 0 {
-		ui.inventoryPage = 0
-	}
+	clampPage(&ui.inventoryPage, totalPages)
 	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
 		idx := pageStart + slot
@@ -109,6 +99,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 		if !ui.inventoryContextOpen {
 			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
+			ui.quickInvSlotDragSource(idx, x, y, w, h)
 		}
 		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
 			ui.inventoryContextOpen = true
@@ -125,35 +116,68 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			tooltipY = mouseY + 8
 		}
 	}
-	ui.drawInventoryPager(screen, gridX, gridY+gridSize+6, gridSize, totalPages)
-	ui.drawCampButton(screen, gridX, gridY+gridSize+30, gridSize)
+	// Below the grid: pager, then the Camp button + its rest-result notice
+	// vertically centred in the gap between the grid box and the quick-slot bar,
+	// then the compact quick-slot bar (kept off the paperdoll on the left).
+	gridBottom := gridY + gridSize
+	barTop := gridBottom + 88
+	const campBlockH = 26 + 6 + 14 // button + gap + notice line
+	campY := gridBottom + (barTop-gridBottom-campBlockH)/2
+	ui.drawInventoryPager(screen, gridX, gridBottom+6, gridSize, totalPages)
+	ui.drawCampButton(screen, gridX, campY, gridSize)
+
+	ui.quickInvDropZone(gridX, gridY, gridSize, gridSize)
+	const qbW = 210
+	ui.drawTabQuickSlotBar(screen, gridX+(gridSize-qbW)/2, barTop, qbW)
 
 	if tooltip != "" && tooltipHasItem {
 		lines := strings.Split(tooltip, "\n")
-		ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
+		plate, titleText := ui.itemTitleColors(tooltipItem)
+		var bodyColors []color.Color
+		if titleText != nil { // gear keeps its rarity-metal body; spells/traps stay white
+			bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
+		}
+		ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
 		if compareTooltip != "" {
 			compareLines := strings.Split(compareTooltip, "\n")
-			ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
+			var compareBody []color.Color
+			if titleText != nil {
+				compareBody = ui.rarityBodyColors(tooltipItem, len(compareLines))
+			}
+			ui.queueTitledTooltipComparison(compareLines, compareBody, plate, titleText)
 		}
 	}
 
 	ui.drawInventoryContextMenu(screen)
 
 	instructionY := contentY + contentHeight - 35
-	ebitenutil.DebugPrintAt(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
-	ebitenutil.DebugPrintAt(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
+	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
+	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
 }
 
-// drawInventoryPager draws the "Page X/Y" indicator plus prev/next buttons
-// under the inventory grid and handles their clicks. It's a no-op when the
-// whole inventory fits on a single page (nothing to flip through).
+// drawInventoryPager draws the inventory grid's pager. It's a no-op when the
+// whole inventory fits on a single page (nothing to flip through). Flipping the
+// page breaks any in-flight double-click chain so navigating away and clicking
+// the same absolute index doesn't read as a double-click equip/use.
 func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, totalPages int) {
+	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
+	if ui.drawPager(screen, gridX, y, gridW, &ui.inventoryPage, totalPages, clickable) {
+		ui.lastClickedItem = -1
+		ui.lastClickTime = time.Time{}
+	}
+}
+
+// drawPager renders a "< Page x/y >" strip with prev/next buttons spanning width
+// w at (x,y), flipping *page on click. Shared by the inventory and merchant
+// grids. No-op for a single page. Click handling lives here (Draw phase) like
+// the rest of the icon-grid widgets. Returns true if the page changed this frame
+// so callers can break any double-click chain that a page flip interrupted.
+func (ui *UISystem) drawPager(screen *ebiten.Image, x, y, w int, page *int, totalPages int, clickable bool) bool {
 	if totalPages <= 1 {
-		return
+		return false
 	}
 	const btnW, btnH = 30, 18
 	mouseX, mouseY := ebiten.CursorPosition()
-	clickable := !ui.inventoryContextOpen && !ui.inventoryInputBlocked()
 
 	drawBtn := func(bx int, label string, enabled bool) bool {
 		bg := color.RGBA{70, 50, 30, 210}
@@ -169,13 +193,17 @@ func (ui *UISystem) drawInventoryPager(screen *ebiten.Image, gridX, y, gridW, to
 		return enabled && clickable && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
 	}
 
-	if drawBtn(gridX, "<", ui.inventoryPage > 0) {
-		ui.inventoryPage--
+	changed := false
+	if drawBtn(x, "<", *page > 0) {
+		*page--
+		changed = true
 	}
-	if drawBtn(gridX+gridW-btnW, ">", ui.inventoryPage < totalPages-1) {
-		ui.inventoryPage++
+	if drawBtn(x+w-btnW, ">", *page < totalPages-1) {
+		*page++
+		changed = true
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.inventoryPage+1, totalPages), gridX, y+2, gridW, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", *page+1, totalPages), x, y+2, w, btnH-2)
+	return changed
 }
 
 const (
@@ -309,10 +337,10 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 // drawCharactersContent draws the characters tab content
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
-	ebitenutil.DebugPrintAt(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
+	drawDebugText(screen, "CHARACTER INFO", panelX+20, contentY+10)
 
 	if len(ui.game.party.Members) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No party members.", panelX+20, contentY+40)
+		drawDebugText(screen, "No party members.", panelX+20, contentY+40)
 		return
 	}
 
@@ -325,6 +353,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	mouseX, mouseY := ebiten.CursorPosition()
 	var tooltip string
 	var tooltipX, tooltipY int
+
+	// All character-sheet text gets a drop shadow so it lifts off the parchment.
+	// A local closure shadows the package draw so every call below is covered.
+	drawDebugTextColored := drawDebugTextShadowed
 
 	// Character layout — centre the portrait+scroll block within the 700-wide panel.
 	const (
@@ -348,10 +380,10 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
 	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
 
-	// Text colors tuned for the parchment scroll: near-black body for readable
-	// values, deep maroon for section headers so they stand out from the body.
-	textColor := color.RGBA{16, 8, 4, 255}
-	mutedTextColor := color.RGBA{96, 32, 20, 255}
+	// Light text over a dark outline (drawDebugTextShadowed): white body for
+	// readable values, warm gold for section headers so they stand out.
+	textColor := color.RGBA{240, 240, 240, 255}
+	mutedTextColor := color.RGBA{235, 200, 120, 255}
 	scrollTextX := scrollX + 26
 	scrollTextY := scrollY + 18
 
@@ -361,7 +393,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	if ui.characterPage == 1 {
 		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, textColor, mutedTextColor)
-		ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+		drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
 		ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
 		return
 	}
@@ -497,7 +529,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
+	drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
 	ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
 
 	if tooltip != "" {
@@ -509,21 +541,23 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	if member == nil {
 		return
 	}
+	// Drop shadow on all sheet text (see drawCharactersContent).
+	drawDebugTextColored := drawDebugTextShadowed
 
-	// Physical mitigation is a PIPELINE, not a single number: combat subtracts the
-	// flat armor+skill, THEN applies resistance %, THEN the flat buff (and floors
-	// at 1). Show the steps in that order; the breakdown comes from CombatSystem so
-	// it can't drift from mitigateCharacterDamage.
+	// Physical mitigation is a PIPELINE, not a single number: combat applies armor %,
+	// THEN resistance %, floors at 1, THEN the flat reductions (skill + buff, which
+	// CAN finish a hit off to 0). Show the steps in that order; the breakdown comes
+	// from CombatSystem so it can't drift from mitigateCharacterDamage.
 	m := ui.game.combat.PhysicalMitigationBreakdown(member)
 
 	drawDebugTextColored(screen, "COMBAT TOTALS", x, y+32, headingColor)
 	lines := []string{
-		fmt.Sprintf("Attack bonus: +%d damage", ui.game.combatBuffOutBonus()),
+		fmt.Sprintf("Physical attack bonus: +%d damage", ui.game.combatBuffOutBonusForDamageType("physical")),
 		fmt.Sprintf("Total defense (AC): %d", m.ArmorClass),
-		fmt.Sprintf("1. Armor reduction: -%d flat (before resist)", m.ArmorFlat),
-		fmt.Sprintf("2. Skill reduction: -%d flat (before resist)", m.SkillFlat),
-		fmt.Sprintf("3. Physical resistance: -%d%% (after flat)", m.ResistPct),
-		fmt.Sprintf("4. Flat buff reduction: -%d (after resist)", m.FlatBuff),
+		fmt.Sprintf("1. Armor mitigation: -%d%% physical (-%d%% elemental)", m.ArmorPct, ui.game.combat.armorMitigationPct(member, false)),
+		fmt.Sprintf("2. Physical resistance: -%d%%", m.ResistPct),
+		fmt.Sprintf("3. Skill reduction: -%d flat", m.SkillFlat),
+		fmt.Sprintf("4. Flat buff reduction: -%d", m.FlatBuff),
 	}
 	for i, line := range lines {
 		drawDebugTextColored(screen, line, x, y+50+i*16, textColor)
@@ -698,6 +732,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 			}
 
 			ui.handleSpellbookSpellClick(cardX, cardY, cardW, cardH, ui.game.selectedSchool, spellIndex)
+			ui.quickSpellCardDragSource(spellID, cardX, cardY, cardW, cardH)
 			isSelected := spellIndex == ui.game.selectedSpell
 			isHovering := mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH
 			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
@@ -724,6 +759,10 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 
 	// Draw spellbook controls
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+
+	// Quick-slot bar below the book, narrow + centred so cells stay compact.
+	qbW := 360
+	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {

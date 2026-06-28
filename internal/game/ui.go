@@ -12,21 +12,10 @@ import (
 const doubleClickWindowMs = 700
 const doubleClickWindow = doubleClickWindowMs * time.Millisecond
 
-// UI Color constants for DRY code
-var (
-	UIColorSelectedCharacter = color.RGBA{0, 100, 200, 128}  // Blue background for selected character
-	UIColorKnowsSpell        = color.RGBA{100, 100, 100, 64} // Gray background for known spells
-	UIColorCanLearn          = color.RGBA{0, 150, 0, 64}     // Green background for learnable spells
-	UIColorCannotLearn       = color.RGBA{150, 0, 0, 64}     // Red background for non-learnable spells
-	UIColorSpellSelection    = color.RGBA{0, 150, 0, 128}    // Green background for selected spell
-)
-
 // UI Dimension constants
 const (
-	UICharacterBackgroundWidth = 300
-	UISpellBackgroundWidth     = 350
-	UIRowHeight                = 20
-	UIRowSpacing               = 25
+	UIRowHeight  = 20
+	UIRowSpacing = 25
 )
 
 // UISystem handles all user interface rendering and logic
@@ -63,6 +52,10 @@ type UISystem struct {
 	tooltipY              int
 	tooltipCompareLines   []string
 	tooltipCompareColors  []color.Color
+	tooltipTitleColor     color.Color // nameplate base behind the main tooltip's first line (nil = none)
+	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
+	tooltipCompareTitle   color.Color // nameplate base for the comparison card
+	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
 	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
@@ -113,6 +106,10 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipIcon = ""
 	ui.tooltipCompareLines = nil
 	ui.tooltipCompareColors = nil
+	ui.tooltipTitleColor = nil
+	ui.tooltipTitleText = nil
+	ui.tooltipCompareTitle = nil
+	ui.tooltipCompareText = nil
 
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
@@ -171,39 +168,35 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// are no longer suppressed — the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen {
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
-		mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon != "", ui.tooltipX, screenW)
+		hasIcon := ui.tooltipIcon != ""
 
-		// Resolve the vertical flip ONCE against the TALLER of the two cards so
-		// the main and comparison boxes always share a top edge (a tall full
-		// card flipping above the cursor while a short compare card stayed
-		// below was the misalignment bug).
-		y := ui.tooltipY
-		if ui.tooltipCompareLines != nil {
-			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, screenW)
+		if ui.tooltipCompareLines == nil {
+			_, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, screenW)
+			y := flipTooltipY(ui.tooltipY, mainH, screenH)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
+		} else {
+			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
+			// the pair always fits, then place the comparison flush to the right of
+			// the main and shift the pair left to stay on screen. Sizing and drawing
+			// use the same column width (cardCap) so the measured and painted boxes
+			// match; the flip is resolved once against the taller card so they share
+			// a top edge.
+			gap := tooltipCompareGap
+			cardCap := screenW/2 - gap
+			mainW, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, 0, cardCap)
+			compareW, compareH := tooltipBoxSizeForScreen(ui.tooltipCompareLines, ui.tooltipCompareColors, false, 0, cardCap)
 			h := mainH
 			if compareH > h {
 				h = compareH
 			}
-			y = flipTooltipY(ui.tooltipY, h, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
+			y := flipTooltipY(ui.tooltipY, h, screenH)
 
-			compareX := ui.tooltipX - tooltipCompareGap - compareW
-			if compareX < 0 {
-				compareX = ui.tooltipX + mainW + tooltipCompareGap
-			}
-			if compareX+compareW > screenW {
-				compareX = screenW - compareW
-			}
-			if compareX < 0 {
-				compareX = 0
-			}
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, y, ui.game.sprites)
-		} else {
-			y = flipTooltipY(ui.tooltipY, mainH, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, ui.game.sprites)
+			mainX, compareX := tooltipPairX(ui.tooltipX, mainW, compareW, gap, screenW)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+cardCap, ui.game.sprites)
 		}
 	}
 }

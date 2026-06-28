@@ -138,12 +138,29 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 
 // Update runs the monster AI with collision checking and player position for engagement detection
 func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
+	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
+	// its throne until its quest unseals it. The RT attack loop already no-ops via
+	// updateBoss; without this the patrol state would still drift the boss off its
+	// spawn tile. Flag is set single-threaded in refreshBoundUndeadCache.
+	// A warlord idol is likewise immobile — it stands where placed and never moves.
+	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
+	// without this it would chase the party clear across the map at load.
+	if m.BossDormant || m.WarlordIdol || m.BossWarded {
+		return
+	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
 	if m.StunFramesRemaining > 0 {
 		m.StunFramesRemaining--
 		return
+	}
+	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
+	if m.StunDRMemoryFrames > 0 {
+		m.StunDRMemoryFrames--
+		if m.StunDRMemoryFrames == 0 {
+			m.StunDRStacks, m.StunDRMemoryTurns = 0, 0
+		}
 	}
 	// Rooted (bear trap): the FULL update runs — detection, state machine,
 	// attack cadence — but any displacement it produced is undone, so the
@@ -175,19 +192,46 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	case StatePursuing:
 		m.updatePursuing(collisionChecker, playerX, playerY)
 	case StateAlert:
-		m.updateAlert(playerX, playerY)
+		m.updateAlert(collisionChecker, playerX, playerY)
 	case StateAttacking:
-		m.updateAttacking(playerX, playerY)
+		m.updateAttacking(collisionChecker, playerX, playerY)
 	case StateFleeing:
 		m.updateFleeing(collisionChecker, playerX, playerY)
 	}
 }
 
+// meleeTileAdjacent reports whether a MELEE attacker stands on one of the 8 tiles
+// around the target WITH a clear line of sight to it. A diagonal neighbour is
+// ~1.41 tiles away — just past the 1-tile pixel attack range — so the pixel
+// checks alone leave a melee monster pursuing forever at a diagonal (walk
+// animation looping). The LoS requirement matters at a tree/wall CORNER: a
+// diagonal contact whose line is blocked is NOT real reach, so the monster keeps
+// pursuing (routes around) instead of freezing in an attack stance it can never
+// land. Ranged attackers never count as melee-adjacent.
+func (m *Monster3D) meleeTileAdjacent(targetX, targetY float64, checker CollisionChecker) bool {
+	if m.HasRangedAttack() {
+		return false
+	}
+	ts := m.tileSize()
+	if ts <= 0 {
+		return false
+	}
+	dx := mathutil.IntAbs(int(m.X/ts) - int(targetX/ts))
+	dy := mathutil.IntAbs(int(m.Y/ts) - int(targetY/ts))
+	if dx > 1 || dy > 1 || (dx == 0 && dy == 0) {
+		return false
+	}
+	return checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+}
+
 // pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
 // and the flee cycle. Shared by bound undead and aggressive bosses.
-func (m *Monster3D) pursueRelentlessly(targetX, targetY float64) {
+func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, targetY float64) {
 	m.IsEngagingPlayer = true
-	if distance(m.X, m.Y, targetX, targetY) > m.GetAttackRangePixels() {
+	los := checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
+	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.GetAttackRangePixels() && los) ||
+		m.meleeTileAdjacent(targetX, targetY, checker)
+	if !inReach {
 		if m.State != StatePursuing {
 			m.State = StatePursuing
 			m.StateTimer = 0
@@ -222,13 +266,14 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// once within real attack range; beyond that it keeps closing. When it has no
 	// enemy the target is its own position, so this just parks it (dist 0).
 	if m.Bound {
-		m.pursueRelentlessly(playerX, playerY)
+		m.pursueRelentlessly(collisionChecker, playerX, playerY)
 		return
 	}
 
-	// Aggressive boss: pursue the party relentlessly (ignores detection range / LoS / flee).
-	if m.BossAggro {
-		m.pursueRelentlessly(playerX, playerY)
+	// Aggressive boss OR revenge-rallied mob (Amazons after their Warlord dies):
+	// pursue the party relentlessly, ignoring detection range / LoS / flee.
+	if m.relentlessHunter() {
+		m.pursueRelentlessly(collisionChecker, playerX, playerY)
 		return
 	}
 
@@ -443,9 +488,11 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// Calculate distance to player
 	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
 	attackRange := m.GetAttackRangePixels()
+	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
 
-	// Check if close enough to attack
-	if distanceToPlayer <= attackRange {
+	// Check if close enough to attack (pixel range, or melee tile-adjacency so a
+	// diagonal neighbour commits instead of pursuing in place).
+	if (distanceToPlayer <= attackRange && hasLOS) || m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 		m.State = StateAttacking
 		m.StateTimer = 0
 		return
@@ -462,6 +509,9 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	// is blocked by the player's body — leaving a melee monster frozen a few
 	// pixels out of range. A direct collision-checked step has no such
 	// quantization; walls still win, and we fall through to A* when blocked.
+	if m.stepOutOfBlockedMeleeDiagonal(collisionChecker, playerX, playerY) {
+		return
+	}
 	if distanceToPlayer <= m.tileSize()*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
 		return
 	}
@@ -484,9 +534,25 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 	m.followPathToTarget(collisionChecker, playerX, playerY)
 }
 
+// entersTargetTile reports whether (x, y) would land a MELEE monster on the
+// target's own tile. RT melee must hold one tile out — mirroring the TB rule and
+// the A* goal ring, which already excludes the target tile. The player is a
+// non-solid collision entity, so CanMoveToWithHabitat won't stop a pixel step
+// from crossing onto the party and overlapping their sprite ("wolf on the head");
+// this guard is what keeps the final-approach steps off the player tile. Ranged
+// mobs are unaffected (they stop at firing range, never tile-adjacent).
+func (m *Monster3D) entersTargetTile(x, y, targetX, targetY float64) bool {
+	if m.HasRangedAttack() {
+		return false
+	}
+	return m.worldToTile(x) == m.worldToTile(targetX) && m.worldToTile(y) == m.worldToTile(targetY)
+}
+
 // stepToward takes one collision-checked step straight toward (tx, ty) at the
 // monster's pursuit speed, sliding along whichever axis stays clear when the
-// diagonal grazes an obstacle. Returns false when fully blocked.
+// diagonal grazes an obstacle. Returns false when fully blocked or when the only
+// available step would put a melee monster onto the target's tile (caller then
+// falls through to A*, whose goal ring stops one tile out).
 func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64) bool {
 	dx := tx - m.X
 	dy := ty - m.Y
@@ -500,20 +566,57 @@ func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64
 	}
 	newX := m.X + dx/dist*step
 	newY := m.Y + dy/dist*step
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
+	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X, m.Y = newX, newY
 		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
-	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
-	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
 		m.Y = newY
 		m.Direction = math.Atan2(dy, dx)
 		return true
+	}
+	return false
+}
+
+func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChecker, targetX, targetY float64) bool {
+	if collisionChecker == nil || m.HasRangedAttack() {
+		return false
+	}
+	ts := m.tileSize()
+	if ts <= 0 {
+		return false
+	}
+	dxTile := m.worldToTile(m.X) - m.worldToTile(targetX)
+	dyTile := m.worldToTile(m.Y) - m.worldToTile(targetY)
+	if mathutil.IntAbs(dxTile) != 1 || mathutil.IntAbs(dyTile) != 1 {
+		return false
+	}
+	if collisionChecker.CheckLineOfSight(m.X, m.Y, targetX, targetY) {
+		return false
+	}
+	step := m.speedPerTick()
+	candidates := [2]struct {
+		x, y float64
+		dir  float64
+	}{
+		{x: m.X + float64(mathutil.IntSign(dxTile))*step, y: m.Y, dir: 0},
+		{x: m.X, y: m.Y + float64(mathutil.IntSign(dyTile))*step, dir: 0},
+	}
+	candidates[0].dir = math.Atan2(0, float64(mathutil.IntSign(dxTile)))
+	candidates[1].dir = math.Atan2(float64(mathutil.IntSign(dyTile)), 0)
+	for _, c := range candidates {
+		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
+			m.X, m.Y = c.x, c.y
+			m.Direction = c.dir
+			m.ResetPathfinding()
+			return true
+		}
 	}
 	return false
 }
@@ -861,8 +964,8 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 		rangeTiles = 4
 	}
 	rangeTiles *= 2
-	if m.BossAggro {
-		// Boss pursues map-wide: widen the window to hold maze detours (48 covers a 50x50 map).
+	if m.relentlessHunter() {
+		// Map-wide pursuit: widen the window to hold maze detours (48 covers a 50x50 map).
 		rangeTiles = 48
 	}
 
@@ -872,6 +975,67 @@ func (m *Monster3D) findPathToTarget(collisionChecker CollisionChecker, targetX,
 	maxY := mathutil.IntMax(start.Y, targetTileY) + rangeTiles
 
 	return m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+}
+
+// NextPathStepTile returns the next cardinal tile this monster should step to en
+// route to (targetX,targetY) via the same A* the real-time AI uses, plus ok=true.
+// ok=false means it's already adjacent or no path exists. Turn-based movement uses
+// this so mobs route around barriers (across a bridge/ford) instead of oscillating
+// at the edge — where they could otherwise be safely ranged down.
+func (m *Monster3D) NextPathStepTile(collisionChecker CollisionChecker, targetX, targetY float64) (tileX, tileY int, ok bool) {
+	path := m.findPathToTarget(collisionChecker, targetX, targetY)
+	if len(path) < 2 {
+		return 0, 0, false // path[0] is the current tile; need at least one step
+	}
+	return path[1].X, path[1].Y, true
+}
+
+// NextPathStepTileToAny returns the next cardinal tile toward one of the given
+// goal tiles. It is used by callers with mode-specific goals, e.g. turn-based
+// ranged monsters that need a row/column firing lane rather than any tile inside
+// their circular projectile range.
+func (m *Monster3D) NextPathStepTileToAny(collisionChecker CollisionChecker, goals []TileCoord) (tileX, tileY int, ok bool) {
+	if collisionChecker == nil || len(goals) == 0 {
+		return 0, 0, false
+	}
+	start := TileCoord{X: m.worldToTile(m.X), Y: m.worldToTile(m.Y)}
+
+	minGoalX, maxGoalX := goals[0].X, goals[0].X
+	minGoalY, maxGoalY := goals[0].Y, goals[0].Y
+	for _, goal := range goals[1:] {
+		if goal.X < minGoalX {
+			minGoalX = goal.X
+		}
+		if goal.X > maxGoalX {
+			maxGoalX = goal.X
+		}
+		if goal.Y < minGoalY {
+			minGoalY = goal.Y
+		}
+		if goal.Y > maxGoalY {
+			maxGoalY = goal.Y
+		}
+	}
+
+	rangeTiles := int(math.Ceil(m.AlertRadius / m.tileSize()))
+	if rangeTiles < 4 {
+		rangeTiles = 4
+	}
+	rangeTiles *= 2
+	if m.relentlessHunter() {
+		rangeTiles = 48
+	}
+
+	minX := mathutil.IntMin(start.X, minGoalX) - rangeTiles
+	maxX := mathutil.IntMax(start.X, maxGoalX) + rangeTiles
+	minY := mathutil.IntMin(start.Y, minGoalY) - rangeTiles
+	maxY := mathutil.IntMax(start.Y, maxGoalY) + rangeTiles
+
+	path := m.findPathAStar(collisionChecker, start, goals, minX, maxX, minY, maxY)
+	if len(path) < 2 {
+		return 0, 0, false
+	}
+	return path[1].X, path[1].Y, true
 }
 
 func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) []TileCoord {
@@ -951,8 +1115,8 @@ func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileC
 
 	nodesSearched := 0
 	maxNodes := 500 // typical mob search area is ~200-400 tiles
-	if m.BossAggro {
-		// Boss may path across a whole maze — well beyond a normal mob's budget.
+	if m.relentlessHunter() {
+		// Map-wide pursuit may path across a whole maze — well beyond a normal budget.
 		maxNodes = 4000
 	}
 
@@ -1005,12 +1169,14 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	targetTileX := int(targetX / m.tileSize())
 	targetTileY := int(targetY / m.tileSize())
 	// Pursue to within the monster's actual attack reach — the ranged range for
-	// ranged attackers, melee AttackRadius otherwise (GetAttackRangePixels returns
-	// AttackRadius when there's no projectile, so melee behaviour is unchanged).
+	// ranged attackers, melee AttackRadius otherwise. Melee treats the 8 tiles
+	// around the party as valid contact so mobs can surround instead of queueing
+	// only on N/S/E/W.
 	// Using only the melee radius made ranged mobs (e.g. dragons) path to melee
 	// distance; when those near tiles were unreachable (party blocking a bridge)
 	// they orbited without ever stopping at firing range.
 	reach := m.GetAttackRangePixels()
+	melee := !m.HasRangedAttack()
 	radiusTiles := int(math.Ceil(reach / m.tileSize()))
 	if radiusTiles < 1 {
 		radiusTiles = 1
@@ -1022,8 +1188,22 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
 			centerX, centerY := m.tileToWorldCenter(tileX, tileY)
-			if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
-				continue
+			if melee {
+				adx, ady := mathutil.IntAbs(dx), mathutil.IntAbs(dy)
+				if dx == 0 && dy == 0 {
+					continue
+				}
+				adjacent := adx <= 1 && ady <= 1
+				if adjacent && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
+					continue
+				}
+				if !adjacent && distance(targetX, targetY, centerX, centerY) > reach+0.1 {
+					continue
+				}
+			} else {
+				if distance(targetX, targetY, centerX, centerY) > reach+0.1 {
+					continue
+				}
 			}
 			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
 				goals = append(goals, TileCoord{X: tileX, Y: tileY})
@@ -1107,7 +1287,7 @@ func (m *Monster3D) canRepath(pathCheckFrequency int) bool {
 	return m.StateTimer-m.LastPathCalcTick >= pathCheckFrequency
 }
 
-func (m *Monster3D) updateAlert(playerX, playerY float64) {
+func (m *Monster3D) updateAlert(collisionChecker CollisionChecker, playerX, playerY float64) {
 	if m.IsEngagingPlayer {
 		// Calculate distance to player
 		distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
@@ -1119,7 +1299,8 @@ func (m *Monster3D) updateAlert(playerX, playerY float64) {
 		if m.config != nil && m.config.MonsterAI.AttackEnterRangeFraction > 0 {
 			enterFraction = m.config.MonsterAI.AttackEnterRangeFraction
 		}
-		if distanceToPlayer <= attackRange*enterFraction {
+		hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+		if (distanceToPlayer <= attackRange*enterFraction && hasLOS) || m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 			m.State = StateAttacking
 			m.StateTimer = 0
 		} else {
@@ -1148,17 +1329,39 @@ func (m *Monster3D) AttackCooldownFrames() int {
 	if m.AttackCooldownMultiplier > 0 {
 		cd = int(math.Round(float64(cd) * m.AttackCooldownMultiplier))
 	}
+	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
+		cd = int(math.Round(float64(cd) * m.EnrageCooldownMult))
+	}
 	if cd < 1 {
 		cd = 1
 	}
 	return cd
 }
 
-func (m *Monster3D) updateAttacking(playerX, playerY float64) {
+// tbAttacksForCooldownMult maps a real-time attack-cooldown multiplier to the
+// turn-based swing count that keeps the two modes at parity: a faster RT cadence
+// (mult < 1) grants proportionally more TB swings. Power-of-two buckets so the
+// count stays integer — mult >= 1 → 1, [0.5,1) → 2, [0.25,0.5) → 4, … (capped at
+// 8). Used both for cooldown-only static configs and dynamic enrage multipliers.
+func tbAttacksForCooldownMult(mult float64) int {
+	if mult <= 0 {
+		return 1
+	}
+	n := 1
+	for mult < 1.0 && n < 8 {
+		n *= 2
+		mult *= 2
+	}
+	return n
+}
+
+func (m *Monster3D) updateAttacking(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Target stepped out of reach → resume the chase immediately instead of
 	// swinging at air for the rest of the cooldown. (updateAlert re-enters attack
 	// at <=0.9×range, so exiting at >range keeps a clean hysteresis band.)
-	if m.IsEngagingPlayer && distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() {
+	hasLOS := collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY)
+	if m.IsEngagingPlayer && (distance(m.X, m.Y, playerX, playerY) > m.GetAttackRangePixels() || !hasLOS) &&
+		!m.meleeTileAdjacent(playerX, playerY, collisionChecker) {
 		m.State = StatePursuing
 		m.StateTimer = 0
 		return

@@ -52,6 +52,45 @@ func spawnTestMonsterAt(g *MMGame, tileX, tileY int) *monsterPkg.Monster3D {
 	return m
 }
 
+// Stun diminishing returns: successive stuns on the same target land for
+// 100/50/25/0% of their duration, then the target is immune — so it can't be
+// perma-stun-locked. The DR chain is one mode-agnostic counter, so a TB↔RT
+// switch can't bypass it. After the chain resets, stuns are full again.
+func TestStunDR_DiminishesThenImmune(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	cs := g.combat
+	m := spawnTestMonsterAt(g, 3, 1)
+	tps := g.config.GetTPS()
+
+	// requestStun applies a fresh 4-turn stun after clearing any active stun, so
+	// each call's RESULT reflects only the DR scaling (not refresh-to-max).
+	requestStun := func() (stunned bool, turns int) {
+		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
+		stunned = cs.applyStunDR(m, 4, 4*tps, true)
+		return stunned, m.StunTurnsRemaining
+	}
+
+	for i, want := range []int{4, 2, 1, 0} { // 100% → 50% → 25% → immune
+		stunned, got := requestStun()
+		if got != want {
+			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
+		}
+		if (want > 0) != stunned {
+			t.Fatalf("stun #%d: stunned=%v, want %v", i+1, stunned, want > 0)
+		}
+	}
+	// The reset window was (re)armed on every attempt.
+	if m.StunDRMemoryTurns != StunDRResetTurns || m.StunDRMemoryFrames != StunDRResetSeconds*tps {
+		t.Fatalf("reset window not armed: turns=%d frames=%d", m.StunDRMemoryTurns, m.StunDRMemoryFrames)
+	}
+
+	// Once the chain resets (stun-free window elapsed), stuns are full again.
+	m.StunDRStacks = 0
+	if _, got := requestStun(); got != 4 {
+		t.Fatalf("after DR reset the stun should be full (4), got %d", got)
+	}
+}
+
 // A trap thrown at a monster's feet fires immediately: damage lands, SP is
 // paid, and the one-shot trap is gone.
 func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {
@@ -72,6 +111,21 @@ func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {
 	}
 	if thief.SpellPoints >= startSP {
 		t.Errorf("trap must cost SP: %d -> %d", startSP, thief.SpellPoints)
+	}
+}
+
+// With no monster dead-ahead, a trap auto-targets the REAL tile of a front-
+// diagonal monster pulled to screen-center (so it actually fires), not max range.
+func TestTrap_AutoTargetsPulledFrontDiagonal(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	g.turnBasedMode = true // the pull only exists in turn-based mode
+	// Player at tile (1,1) facing +X: the front diagonals are (2,0) and (2,2).
+	flank := spawnTestMonsterAt(g, 2, 0)
+	flank.IsEngagingPlayer, flank.WasAttacked = true, true
+
+	tx, ty, ok := g.combat.pickTrapTile()
+	if !ok || tx != 2 || ty != 0 {
+		t.Fatalf("trap should target the pulled flank's real tile (2,0), got (%d,%d) ok=%v", tx, ty, ok)
 	}
 }
 
@@ -119,7 +173,7 @@ func TestTrapDamage_ScalesWithStatsAndMastery(t *testing.T) {
 func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	g.turnBasedMode = true
-	gl := &GameLoop{game: g, combat: g.combat}
+	gl := &GameLoop{game: g}
 	thief.Level = 10 // unlock everything
 
 	if !equipTrap(thief, "stasis_trap") {

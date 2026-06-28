@@ -57,7 +57,7 @@ func TestQuestTileChanges_ShippedDataValid(t *testing.T) {
 }
 
 // Taking the wolf cull AFTER the wolves are already dead credits it on the
-// spot — the journal must never show "0/18" on a finished job.
+// spot — the journal must never show "0/21" on a finished job.
 func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {
 	g, _ := loadRealQuestTileData(t) // no wolves placed: the map is already "cleared"
 
@@ -81,6 +81,73 @@ func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {
 	bridgeType, _ := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
 	if g.worldByKey(tc.Map).Tiles[tc.Y][tc.X] != bridgeType {
 		t.Error("bridge should be laid the moment the cleared quest is credited")
+	}
+}
+
+func TestWolfCull_ProgressIgnoresRuntimeSummonedWolves(t *testing.T) {
+	g, w := loadRealQuestTileData(t)
+
+	prevQM := quests.GlobalQuestManager
+	quests.GlobalQuestManager = g.questManager
+	t.Cleanup(func() { quests.GlobalQuestManager = prevQM })
+
+	makeWolf := func(ignore bool) *monster.Monster3D {
+		return &monster.Monster3D{
+			Name:                 "Wolf",
+			HitPoints:            10,
+			MaxHitPoints:         10,
+			QuestProgressIgnored: ignore,
+		}
+	}
+	first := makeWolf(false)
+	second := makeWolf(false)
+	extra := makeWolf(true) // e.g. a Dead Branch random summon
+	w.Monsters = append(w.Monsters, first, second, extra)
+
+	ih := &InputHandler{game: g}
+	ih.handleGiveQuest("forest_wolf_cull")
+	q := g.questManager.GetQuest("forest_wolf_cull")
+	if q == nil {
+		t.Fatal("quest not activated")
+	}
+	// Dynamic target = live, quest-eligible census at pickup: the two real wolves
+	// (the ignored runtime summon is excluded). Progress starts at 0/2.
+	if q.Target() != 2 {
+		t.Fatalf("dynamic target = %d, want 2 (live census, ignored summon excluded)", q.Target())
+	}
+	if q.CurrentCount != 0 {
+		t.Fatalf("progress after pickup = %d/%d, want 0/2", q.CurrentCount, q.Target())
+	}
+	if q.Completed {
+		t.Fatal("two real wolves are still alive; quest must not complete")
+	}
+
+	// Killing the runtime-summoned (ignored) wolf must not advance or complete it.
+	extra.HitPoints = 0
+	g.completeExterminationQuests("wolf")
+	if q.CurrentCount != 0 {
+		t.Fatalf("ignored wolf changed progress to %d/%d, want 0/2", q.CurrentCount, q.Target())
+	}
+	if q.Completed {
+		t.Fatal("ignored extra wolf death must not complete while real wolves live")
+	}
+
+	first.HitPoints = 0
+	g.completeExterminationQuests("wolf")
+	if q.CurrentCount != 1 {
+		t.Fatalf("one real wolf left progress = %d/%d, want 1/2", q.CurrentCount, q.Target())
+	}
+	if q.Completed {
+		t.Fatal("one real wolf still alive; quest must not complete")
+	}
+
+	second.HitPoints = 0
+	g.completeExterminationQuests("wolf")
+	if !q.Completed {
+		t.Fatal("quest should complete after the last real wolf dies")
+	}
+	if q.CurrentCount != q.Target() {
+		t.Fatalf("completed progress = %d/%d, want full", q.CurrentCount, q.Target())
 	}
 }
 

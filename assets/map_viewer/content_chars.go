@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"path/filepath"
 	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -306,10 +306,11 @@ func (v *viewer) charPortrait(name, fallbackKey string) *ebiten.Image {
 			continue
 		}
 		for _, suffix := range []string{"_full", ""} {
-			path := filepath.Join("assets", "sprites", "characters", base+suffix+".png")
-			if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
-				v.iconCache[cacheKey] = img
-				return img
+			if path, ok := graphics.ResolveSpritePath(base + suffix); ok {
+				if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
+					v.iconCache[cacheKey] = img
+					return img
+				}
 			}
 		}
 	}

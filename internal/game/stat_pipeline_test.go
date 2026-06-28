@@ -24,8 +24,8 @@ func TestEnduranceDivisor_ACOnly_NoStatFeedback(t *testing.T) {
 	}
 
 	// AC of the piece = base + effectiveEnd/div, where effectiveEnd has no
-	// divisor feedback: leather_armor is base 2, div 5.
-	wantAC := 2 + cs.armorMasteryBonus(char, char.Equipment[items.SlotArmor]) + baseEnd/5
+	// divisor feedback: leather scales category-wide as END/10.
+	wantAC := 2 + cs.armorMasteryBonus(char, char.Equipment[items.SlotArmor]) + baseEnd/10
 	if got := cs.CalculateTotalArmorClass(char); got != wantAC {
 		t.Errorf("AC = %d, want %d (no divisor feedback)", got, wantAC)
 	}
@@ -91,8 +91,9 @@ func TestBless_SwellsAndShrinksMaxima(t *testing.T) {
 	if char.MaxHitPoints != maxHPBefore+10*endurMult {
 		t.Errorf("blessed MaxHP = %d, want %d", char.MaxHitPoints, maxHPBefore+10*endurMult)
 	}
-	if char.MaxSpellPoints != maxSPBefore+20 { // +10 Int +10 Pers
-		t.Errorf("blessed MaxSP = %d, want %d", char.MaxSpellPoints, maxSPBefore+20)
+	wantSP := maxSPBefore + 10 + 10/character.MaxSPPersonalityDivisor
+	if char.MaxSpellPoints != wantSP {
+		t.Errorf("blessed MaxSP = %d, want %d", char.MaxSpellPoints, wantSP)
 	}
 
 	// Expire through the registry tick (the real path).

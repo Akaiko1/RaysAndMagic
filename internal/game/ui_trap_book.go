@@ -108,6 +108,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 			}
 			ui.game.selectedTrap = i
 		}
+		ui.quickTrapCardDragSource(key, cardX, cardY, cardW, cardH)
 		ui.drawTrapCard(screen, cardX, cardY, cardW, cardH, iconSize, key, def, currentChar, i == ui.game.selectedTrap)
 
 		if mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH {
@@ -118,9 +119,13 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	}
 
 	if tooltip != "" {
-		ui.queueTooltipIcon(strings.Split(tooltip, "\n"), tooltipIcon, tooltipX, tooltipY)
+		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+
+	// Quick-slot bar below the book, same as the spellbook (drag traps here).
+	qbW := 360
+	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
 }
 
 // drawTrapCard renders one trap entry: icon, name, SP/level row. The browse

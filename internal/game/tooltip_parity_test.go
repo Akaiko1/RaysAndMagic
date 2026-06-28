@@ -176,6 +176,11 @@ func isSectionHeader(ln string) bool {
 func isStyleDivergent(line string) bool {
 	return strings.HasPrefix(line, "Base Duration:") ||
 		strings.HasPrefix(line, "Current Duration:") ||
+		strings.HasPrefix(line, "Current damage bonus:") ||
+		strings.HasPrefix(line, "Current physical damage bonus:") ||
+		strings.HasPrefix(line, "Current reduction:") ||
+		strings.HasPrefix(line, "Current resistance:") ||
+		strings.HasPrefix(line, "Current stat bonus:") ||
 		strings.HasPrefix(line, "Mastery:") || // editor "Mastery: +20% duration per tier"
 		strings.Contains(line, " Mastery — ") // game "<School> Mastery — Tier: +N%"
 }
@@ -230,7 +235,7 @@ func TestCardParity_WeaponsGameVsEditor(t *testing.T) {
 		processed++
 		gameCard := GetItemTooltip(items.CreateWeaponFromYAML(key), char, cs, true)
 		editorCard := strings.Join(character.RenderCardLines(
-			character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true), "\n")
+			character.WeaponCardSections(def), true), "\n")
 
 		if d := extractSkeleton(gameCard).diff(extractSkeleton(editorCard), false); len(d) > 0 {
 			t.Errorf("weapon %q game/editor drift:\n  %s\n--- game ---\n%s\n--- editor ---\n%s",
@@ -267,7 +272,7 @@ func TestCardParity_SpellsGameVsEditor(t *testing.T) {
 		}
 		gameCard := buildSpellTooltipUnified(sd, char, cs, true)
 		editorCard := strings.Join(character.RenderCardLines(
-			character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor), true), "\n")
+			character.SpellCardSections(key, def, sd), true), "\n")
 
 		if d := extractSkeleton(gameCard).diff(extractSkeleton(editorCard), true); len(d) > 0 {
 			t.Errorf("spell %q game/editor drift:\n  %s\n--- game ---\n%s\n--- editor ---\n%s",
@@ -305,8 +310,7 @@ func TestCardParity_TrapsGameVsEditor(t *testing.T) {
 		processed++
 		gameCard := buildTrapTooltipUnified(key, def, char, cs, true)
 		editorCard := strings.Join(character.RenderCardLines(
-			character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner,
-				character.ArmorPhysicalReductionDivisor), true), "\n")
+			character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true), "\n")
 
 		// A mechanic the def declares must appear in BOTH cards — requiring presence
 		// (not mere equality) catches the case where BOTH builders drop it.

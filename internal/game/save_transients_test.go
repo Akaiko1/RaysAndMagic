@@ -19,8 +19,7 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 
 	g.magicProjectiles = append(g.magicProjectiles, MagicProjectile{ID: "mp_1", Active: true})
 	g.arrows = append(g.arrows, Arrow{ID: "ar_1", Active: true})
-	g.meleeAttacks = append(g.meleeAttacks, MeleeAttack{ID: "me_1", Active: true})
-	for _, id := range []string{"mp_1", "ar_1", "me_1"} {
+	for _, id := range []string{"mp_1", "ar_1"} {
 		g.collisionSystem.RegisterEntity(collision.NewEntity(id, 64, 64, 8, 8, collision.CollisionTypeProjectile, false))
 	}
 	g.slashEffects = append(g.slashEffects, SlashEffect{ID: "sl_1"})
@@ -30,9 +29,9 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 
 	g.clearTransientCombatState()
 
-	if len(g.magicProjectiles) != 0 || len(g.arrows) != 0 || len(g.meleeAttacks) != 0 {
-		t.Fatalf("projectile slices not cleared: %d/%d/%d",
-			len(g.magicProjectiles), len(g.arrows), len(g.meleeAttacks))
+	if len(g.magicProjectiles) != 0 || len(g.arrows) != 0 {
+		t.Fatalf("projectile slices not cleared: %d/%d",
+			len(g.magicProjectiles), len(g.arrows))
 	}
 	if len(g.slashEffects) != 0 || len(g.spellHitEffects) != 0 || len(g.impactLights) != 0 {
 		t.Fatalf("VFX slices not cleared: %d/%d/%d",
@@ -41,7 +40,7 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	if len(g.deadMonsterIDs) != 0 {
 		t.Fatalf("deadMonsterIDs not cleared: %d", len(g.deadMonsterIDs))
 	}
-	for _, id := range []string{"mp_1", "ar_1", "me_1"} {
+	for _, id := range []string{"mp_1", "ar_1"} {
 		if g.collisionSystem.GetEntityByID(id) != nil {
 			t.Errorf("collision entity %q must be unregistered", id)
 		}

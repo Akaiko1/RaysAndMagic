@@ -72,8 +72,15 @@ const (
 	// ArmorPierceRangedChancePct: a ranged physical hit has this % chance to
 	// ignore the target's armor entirely.
 	ArmorPierceRangedChancePct = 33
-	// ArmorPhysicalReductionDivisor: physical damage is reduced by AC/this.
-	ArmorPhysicalReductionDivisor = 2
+	// Party armor mitigation — a PERCENTAGE model with diminishing returns:
+	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
+	//   elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
+	// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
+	// exact AC where physical reaches 75% — not capping out far earlier.
+	// K sets the curve (AC == K gives 50% pre-cap).
+	ArmorMitigationK            = 45
+	ArmorPhysicalMitigationCap  = 75
+	ArmorElementalMitigationCap = 33
 	// MasterySpellEffectPerLevel: flat bonus per magic-school mastery tier above
 	// Novice to spell damage/healing (buff magnitudes stay flat; duration
 	// scales via SpellMasteryDurationBonusPct).
@@ -149,47 +156,29 @@ func (c CharacterClass) Blurb() string {
 	}
 }
 
-// DefaultCharacterName returns the canonical hero name for a class (used to pick
-// its portrait art), falling back to the class key. Sourced from the default
-// rosters so it never drifts from the shipped portraits.
-func DefaultCharacterName(c CharacterClass) string {
-	key := c.Key()
-	for _, e := range defaultStartingParty {
-		if e.Class == key {
-			return e.Name
-		}
-	}
-	for _, e := range defaultCaptives {
-		if e.Class == key {
-			return e.Name
-		}
-	}
-	return key
-}
-
 // StatDescription is the canonical player-facing explanation of a primary
 // stat — quoted by the in-game stat tooltip AND the map editor, built from the
 // same balance constants combat uses.
 func StatDescription(stat string) string {
 	switch strings.ToLower(stat) {
 	case "might":
-		return fmt.Sprintf("Adds Might/%d to damage of weapons that scale with Might.", WeaponPrimaryStatDivisor)
+		return "Improves damage for weapons that scale from Might."
 	case "intellect":
 		return fmt.Sprintf("Drives elemental spell damage (Intellect/%d) and trap damage (+(Int+Acc)/%d); "+
-			"adds to max spell points and to weapons that scale with Intellect.",
+			"adds to max spell points. Improves damage for weapons that scale from Intellect.",
 			spells.SpellIntellectDivisor, TrapStatScalingDivisor)
 	case "personality":
 		return fmt.Sprintf("Drives self-magic (Body/Mind/Spirit) damage (Personality/%d) and ALL healing "+
-			"(Personality/%d); adds to max spell points and SP regen.",
-			spells.SpellIntellectDivisor, spells.HealingPersonalityDivisor)
+			"(Personality/%d); adds Personality/%d to max spell points and improves SP regen.",
+			spells.SpellIntellectDivisor, spells.HealingPersonalityDivisor, MaxSPPersonalityDivisor)
 	case "endurance":
 		return "Increases max HP, armor-class scaling on equipped armor, and potion healing."
 	case "accuracy":
-		return fmt.Sprintf("Adds Accuracy/%d to damage of weapons that scale with Accuracy; "+
-			"feeds trap damage (+(Int+Acc)/%d).", WeaponPrimaryStatDivisor, TrapStatScalingDivisor)
+		return fmt.Sprintf("Improves damage for weapons that scale from Accuracy; "+
+			"feeds trap damage (+(Int+Acc)/%d).", TrapStatScalingDivisor)
 	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode grants extra actions per turn (Speed >%d → 2 actions, >%d → 3).",
-			SpeedActionSlot2Threshold, SpeedActionSlot3Threshold)
+		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode the fastest living party member grants party bonus actions (Speed >%d → +1, >%d → +2). Improves damage for weapons that scale from Speed.",
+			SpeedBonusAction1Threshold, SpeedBonusAction2Threshold)
 	case "luck":
 		return "Improves critical chance and Perfect Dodge."
 	default:
@@ -235,7 +224,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 func MagicMasteryDescription() string {
 	return fmt.Sprintf(
 		"Magic Mastery: +%d%% spell duration and +%d damage/healing per mastery tier above Novice. "+
-			"Grandmaster: ignores %d%% of enemy resistance with spells (except Inferno).",
+			"Grandmaster: projectile and zone spells ignore %d%% of enemy resistance.",
 		SpellMasteryDurationBonusPct, MasterySpellEffectPerLevel, MagicGMResistPiercePct)
 }
 

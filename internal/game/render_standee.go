@@ -3,6 +3,9 @@ package game
 import (
 	"image"
 	"math"
+	"sort"
+
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -195,6 +198,29 @@ type standeeSurface struct {
 	shade            float32 // multiplied into the color scale
 }
 
+// standeeSlab is a prepared token slab: the surface stack plus the billboard
+// metrics the per-column draw needs. Built once per yaw by prepareStandeeSlab,
+// then drawn (optionally column-clipped) by drawStandeeSlabColumns — a crossed
+// tree reuses one slab across its two arms instead of re-preparing per arm.
+type standeeSlab struct {
+	surfaces     []standeeSurface
+	firstSurface int // draw from here (face-on fast path collapses to the near sticker)
+	minX, maxX   int // unclipped screen span
+	centerSize   int
+	centerDepth  float64
+	bottomY      int
+	rr, gg, bb   float32
+}
+
+// treeArm is one center→corner half of a crossed-tree diagonal standee: the
+// slab it belongs to, its screen-column span, and its midpoint depth (the
+// far→near sort key for exact painter order across the four arms).
+type treeArm struct {
+	slabIdx int
+	lo, hi  int
+	depth   float64
+}
+
 // drawStandeeSprite draws the sprite as a thick wooden token of world yaw `yaw`
 // (the slab's long direction). centerDepth/centerSize/bottomY come from the
 // entity's billboard metrics so the token matches the billboard's on-screen
@@ -210,24 +236,48 @@ type standeeSurface struct {
 //
 // Returns false when the token can't be built this frame so the caller falls
 // back to the billboard.
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize int, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool) bool {
+// worldLengthOverride (>0) forces the token's world footprint length instead of
+// deriving it from the billboard width; halfThicknessOverride (>=0) forces the
+// slab half-thickness instead of using config.Standee.ThicknessTiles. Both are
+// used by the crossed-standee tree (full-tile footprint + full-tile thickness so
+// the four faces land on the tile edges and the core fills the square).
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize int, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride, halfThicknessOverride float64, clipMinX, clipMaxX int) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
+	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, halfThicknessOverride, r.standeeSurfaces[:0])
+	if ok {
+		r.drawStandeeSlabColumns(screen, slab, clipMinX, clipMaxX)
+	}
+	r.standeeSurfaces = slab.surfaces[:0] // reclaim the backing array (cap grows to the max needed)
+	return true
+}
+
+// prepareStandeeSlab builds a token slab for one yaw into dst (a reused
+// surface buffer): the far/near stickers with the wood shells between them, plus
+// the unclipped screen span and the billboard metrics. ok=false means the slab
+// projects fully off-screen (nothing to draw). The returned slab's `surfaces`
+// aliases dst (grown), so the caller reclaims it after drawing. See
+// drawStandeeSprite's doc for the parameter meanings.
+func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride, halfThicknessOverride float64, dst []standeeSurface) (standeeSlab, bool) {
 	screenW := r.game.config.GetScreenWidth()
-	screenH := r.game.config.GetScreenHeight()
 	cam := r.game.camera
-	horizon := float64(screenH) / 2
 	halfFovTan := math.Tan(cam.FOV / 2)
 
 	// World length of the token chosen so that, seen face-on at the entity's
 	// current depth, it spans exactly the billboard's pixel width.
 	length := float64(centerSize) * 2 * halfFovTan * centerDepth / float64(screenW)
+	if worldLengthOverride > 0 {
+		length = worldLengthOverride
+	}
 	sx := math.Cos(yaw)
 	sy := math.Sin(yaw)
 	// Slab normal and half-thickness: the front/back faces sit at ±h along it.
 	nx, ny := -sy, sx
 	h := r.game.config.Graphics.Standee.ThicknessTiles * float64(r.game.config.GetTileSize()) / 2
+	if halfThicknessOverride >= 0 {
+		h = halfThicknessOverride
+	}
 
 	// Which side faces the camera?
 	camSide := 1.0
@@ -266,7 +316,7 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 		shells = standeeMaxShells
 	}
 	// Painter's order per column is fixed for parallel surfaces: build far → near.
-	surfaces := make([]standeeSurface, 0, shells+2)
+	surfaces := dst[:0]
 	surfaces = append(surfaces, surface(-h*camSide, sprite, standeeCoreShadeFar)) // far sticker (its edge sliver)
 	for i := 1; i <= shells; i++ {
 		f := float64(i) / float64(shells+1)
@@ -310,7 +360,7 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 	if anyBehind {
 		minX, maxX = 0, screenW-1
 	} else if maxX < 0 || minX >= screenW {
-		return true // slab entirely off-screen: nothing to draw
+		return standeeSlab{surfaces: surfaces}, false // slab entirely off-screen
 	}
 	if minX < 0 {
 		minX = 0
@@ -320,25 +370,63 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 	}
 
 	// Face-on fast path: when the slab's parallax is under a pixel, the near
-	// sticker covers everything (all layers share the silhouette) — skip the
-	// wood shells and the far face entirely.
+	// sticker covers everything (all layers share the silhouette) — draw only it,
+	// skipping the wood shells and the far face.
+	first := 0
 	if fok0 && fok1 && nok0 && nok1 && absInt(fx0-nx0) <= 1 && absInt(fx1-nx1) <= 1 {
-		surfaces = surfaces[len(surfaces)-1:]
+		first = len(surfaces) - 1
 	}
 
+	return standeeSlab{
+		surfaces:     surfaces,
+		firstSurface: first,
+		minX:         minX,
+		maxX:         maxX,
+		centerSize:   centerSize,
+		centerDepth:  centerDepth,
+		bottomY:      bottomY,
+		rr:           rr,
+		gg:           gg,
+		bb:           bb,
+	}, true
+}
+
+// drawStandeeSlabColumns rasterizes a prepared slab, optionally narrowed to
+// [clipMinX,clipMaxX] (-1 disables — crossed trees split the draw at the planes'
+// crossover column so each arm draws far→near). Each surface goes out as ONE
+// DrawTriangles batch: parallel planes keep a single global depth order, so
+// surface-major drawing far→near is identical to per-column ordering, and it
+// avoids per-column SubImage slices (thousands of wrappers/frame that broke
+// batching at every column).
+func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab, clipMinX, clipMaxX int) {
+	minX, maxX := slab.minX, slab.maxX
+	if clipMinX >= 0 && clipMinX > minX {
+		minX = clipMinX
+	}
+	if clipMaxX >= 0 && clipMaxX < maxX {
+		maxX = clipMaxX
+	}
+	if maxX < minX {
+		return
+	}
+
+	screenW := r.game.config.GetScreenWidth()
+	horizon := float64(r.game.config.GetScreenHeight()) / 2
+	cam := r.game.camera
+	halfFovTan := math.Tan(cam.FOV / 2)
 	camDirX := math.Cos(cam.Angle)
 	camDirY := math.Sin(cam.Angle)
 	planeX := math.Cos(cam.Angle+math.Pi/2) * halfFovTan
 	planeY := math.Sin(cam.Angle+math.Pi/2) * halfFovTan
 
 	depthBuf := r.game.depthBuffer
+	wallTopBuf := r.game.wallTopBuffer
 
-	// Surface-major rendering: parallel planes keep one global depth order, so
-	// drawing whole surfaces far → near is identical to per-column ordering —
-	// and it lets each surface go out as ONE DrawTriangles batch (per-column
-	// SubImage slices allocated thousands of wrappers per frame and broke
-	// sprite/wood batching at every column).
-	for _, sf := range surfaces {
+	centerSize := slab.centerSize
+	centerDepth := slab.centerDepth
+	bottomY := slab.bottomY
+
+	for _, sf := range slab.surfaces[slab.firstSurface:] {
 		if sf.img == nil {
 			continue
 		}
@@ -348,9 +436,9 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 		if texW <= 0 || texH <= 0 {
 			continue
 		}
-		cr := rr * sf.shade
-		cg := gg * sf.shade
-		cb := bb * sf.shade
+		cr := slab.rr * sf.shade
+		cg := slab.gg * sf.shade
+		cb := slab.bb * sf.shade
 		verts := r.standeeVerts[:0]
 		idx := r.standeeIdx[:0]
 		for x := minX; x <= maxX; x++ {
@@ -361,27 +449,40 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 			if !ok {
 				continue
 			}
-			if x < len(depthBuf) && t >= depthBuf[x] {
-				continue // behind a wall
-			}
 			// Billboard metrics scale linearly in 1/depth: reuse the center
 			// anchor and size so the feet stay on the floor across the width.
 			colH := float32(float64(centerSize) * centerDepth / t)
 			bottom := float32(horizon + (float64(bottomY)-horizon)*centerDepth/t)
+			top := bottom - colH
+			srcY0 := float32(bounds.Min.Y)
+			srcY1 := float32(bounds.Min.Y) + float32(texH)
+			drawBottom, srcYbot := bottom, srcY1
+			if x < len(depthBuf) && t >= depthBuf[x] {
+				// Behind a wall: only the slice rising ABOVE the wall's top edge is
+				// visible, so a short wall can't occlude a tall tree's canopy. Clip
+				// the column's bottom to the wall top (1D depth alone would cull the
+				// whole column, hiding everything above the wall too).
+				wt := float32(wallTopBuf[x])
+				if wt <= top {
+					continue // wall covers this entire slice
+				}
+				if wt < drawBottom {
+					srcYbot = srcY0 + (srcY1-srcY0)*((wt-top)/colH)
+					drawBottom = wt
+				}
+			}
 			texU := u
 			if sf.mirrored {
 				texU = 1 - u
 			}
 			srcX := float32(bounds.Min.X) + float32(math.Min(texU*texW, texW-1)) + 0.5
-			srcY0 := float32(bounds.Min.Y)
-			srcY1 := float32(bounds.Min.Y) + float32(texH)
 			x0, x1 := float32(x), float32(x+1)
 			base := uint16(len(verts))
 			verts = append(verts,
-				ebiten.Vertex{DstX: x0, DstY: bottom - colH, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x1, DstY: bottom - colH, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x0, DstY: bottom, SrcX: srcX, SrcY: srcY1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x1, DstY: bottom, SrcX: srcX, SrcY: srcY1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
+				ebiten.Vertex{DstX: x0, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
+				ebiten.Vertex{DstX: x1, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
+				ebiten.Vertex{DstX: x0, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
+				ebiten.Vertex{DstX: x1, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
 			)
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 		}
@@ -400,11 +501,133 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 				Blend:  ebiten.BlendSourceOver,
 				Filter: filter,
 			})
+			r.statStandeeCalls++
 		}
 		r.standeeVerts = verts[:0]
 		r.standeeIdx = idx[:0]
 	}
-	return true
+}
+
+// drawCrossedTreeStandees renders a tree tile as two normal standees crossed
+// along the tile's DIAGONALS (an "X" from above, corner to corner), with the
+// usual standee thickness. Both are two-sided and share the tile's billboard
+// metrics (depth/size/floor anchor), so they stay grounded. The texture is the
+// TILE's own configured sprite (data-driven), so each tree tile (forest oak,
+// ancient tree, …) keeps its own art.
+func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
+	spriteName := "tree"
+	if world.GlobalTileManager != nil {
+		if n := world.GlobalTileManager.GetSprite(s.tileType); n != "" {
+			spriteName = n
+		}
+	}
+	sprite := r.game.sprites.GetSprite(spriteName)
+	if sprite == nil || s.spriteSize <= 0 || s.depthPerp <= 0 {
+		return
+	}
+	tileSize := float64(r.game.config.GetTileSize())
+	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
+	distance := math.Sqrt(math.Pow(worldX-r.game.camera.X, 2) + math.Pow(worldY-r.game.camera.Y, 2))
+	b := float32(r.applyTreeDepthShading(r.calculateBrightnessWithTorchLight(worldX, worldY, distance), distance))
+
+	// HEIGHT scales by the sprite aspect (the platan, 1:2, is twice as tall as
+	// the square oak); floor anchor unchanged so feet stay grounded.
+	heightPx := s.spriteSize
+	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
+		heightPx = int(float64(s.spriteSize) * float64(sprite.Bounds().Dy()) / texW)
+	}
+	bottomY := s.screenY + s.spriteSize
+	key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
+
+	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
+	diag := tileSize * math.Sqrt2
+
+	// Distance LOD (trees only): beyond the threshold the crossed pair's parallax
+	// is sub-pixel, so collapse to a SINGLE camera-facing plane — ~4× fewer draws,
+	// full silhouette from any angle. Static (no easing): trees don't sway, they
+	// just present face-on to the camera this frame.
+	if lod := r.game.config.Graphics.TreeStandeeLODTiles; lod > 0 && distance > lod*tileSize {
+		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
+		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, -1, -1)
+		return
+	}
+
+	// The two diagonal standees cross on the tile's central vertical axis. Split
+	// each into its two ARMS (center→corner): the four arms are disjoint in 3D
+	// (they meet only on that axis), so any two of them project to screen segments
+	// that share only the center column — they can't swap depth order across the
+	// columns they overlap in. A far→near painter's order over the four arms is
+	// therefore exact: a nearer arm's opaque pixels occlude a farther arm and its
+	// transparent pixels reveal it, with no slab interpenetration even when one
+	// standee is edge-on. (Ordering the two standees whole can't: near the axis
+	// the slabs interleave and whichever plane draws last wins — the see-through
+	// artifact.) Each arm draws the WHOLE slab clipped to its columns, so the
+	// texture stays continuous and the draw stays batched.
+	//
+	// Both arms of a diagonal share one slab, so prepare each yaw's slab ONCE
+	// (shells, projection, silhouette) and reuse it across its two arms. The two
+	// slabs must stay live together for the interleaved far→near draw, hence two
+	// reused buffers (A/B).
+	slabs := [2]standeeSlab{}
+	slabOK := [2]bool{}
+	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, r.standeeSurfaces[:0])
+	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, r.standeeSurfacesB[:0])
+
+	cam := r.game.camera
+	screenW := r.game.config.GetScreenWidth()
+	xc, _, okc := r.game.renderHelper.projectToScreenX(worldX, worldY)
+	clampCol := func(x int) int {
+		if x < 0 {
+			return 0
+		}
+		if x >= screenW {
+			return screenW - 1
+		}
+		return x
+	}
+	arms := r.treeArms[:0]
+	allOK := okc
+	for si, yaw := range [2]float64{yawA, yawB} {
+		dx, dy := math.Cos(yaw), math.Sin(yaw)
+		for _, side := range [2]float64{+1, -1} {
+			cornerX := worldX + dx*side*diag/2
+			cornerY := worldY + dy*side*diag/2
+			cc, _, okCorner := r.game.renderHelper.projectToScreenX(cornerX, cornerY)
+			if !okCorner {
+				allOK = false
+			}
+			lo, hi := xc, cc
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+			arms = append(arms, treeArm{
+				slabIdx: si,
+				lo:      clampCol(lo),
+				hi:      clampCol(hi),
+				depth:   math.Hypot(worldX+dx*side*diag/4-cam.X, worldY+dy*side*diag/4-cam.Y),
+			})
+		}
+	}
+	if !allOK {
+		// Camera atop the tile: center/corners fall behind the view plane and the
+		// arm spans are meaningless. Best-effort whole-plane far→near.
+		if slabOK[0] {
+			r.drawStandeeSlabColumns(screen, slabs[0], -1, -1)
+		}
+		if slabOK[1] {
+			r.drawStandeeSlabColumns(screen, slabs[1], -1, -1)
+		}
+	} else {
+		sort.Slice(arms, func(i, j int) bool { return arms[i].depth > arms[j].depth }) // far → near
+		for _, a := range arms {
+			if slabOK[a.slabIdx] {
+				r.drawStandeeSlabColumns(screen, slabs[a.slabIdx], a.lo, a.hi)
+			}
+		}
+	}
+	r.treeArms = arms[:0]
+	r.standeeSurfaces = slabs[0].surfaces[:0] // reclaim backing arrays (caps grow)
+	r.standeeSurfacesB = slabs[1].surfaces[:0]
 }
 
 func absInt(v int) int {

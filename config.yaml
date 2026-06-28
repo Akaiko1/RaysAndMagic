@@ -28,7 +28,7 @@ movement:
 # Camera/3D rendering settings
 camera:
   field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
-  view_distance: 1600          # 10 * tile_size
+  view_distance: 3200          # 50 * tile_size
 
 # UI settings
 ui:
@@ -119,8 +119,12 @@ characters:
       accuracy: 10
       speed: 10
       luck: 11
-      skills: [axe, sword, chain, shield, bodybuilding]
-      main_hand: steel_axe
+      skills: [axe, sword, mace, chain, plate, shield, bodybuilding, meditation]
+      magic:
+        - { school: body, spells: [heal] }
+      main_hand: bronze_labrys
+      armor: chain_helmet
+      quick_spell: heal
 
     druid:
       might: 10
@@ -218,13 +222,19 @@ monster_ai:
 # Graphics and rendering
 graphics:
   # Raycasting optimization - reduced for 60 FPS performance
-  rays_per_screen_width: 4  # ScreenWidth / 4 rays (256 rays instead of 512)
+  rays_per_screen_width: 1  # One ray per screen pixel: best wall quality, most expensive
 
   # Colors (RGB values)
   colors:
     sky: [135, 206, 235]      # Light blue
     ground: [34, 139, 34]     # Green
     forest_bg: [34, 139, 34]  # Forest background
+
+  # Distance (in tiles) beyond which a crossed-tree standee degrades to a single
+  # camera-facing plane (~4x fewer draws for distant trees; their cross is
+  # sub-pixel anyway). Trees only. <=0 disables the LOD (always full crossed standee).
+  trees_as_billboards: true
+  tree_standee_lod_tiles: 15
 
   # Sprite sizes
   sprite:
@@ -276,3 +286,61 @@ graphics:
     color: [255, 0, 255]   # magenta
     tolerance: 60          # per-channel slack for the fully-transparent core
     despill: true          # fringe (semitone) pixels: strip the magenta cast, keep the base tone opaque (don't erase)
+    # Despill is intentionally aggressive (strips ANY magenta hue), which greys
+    # out sprites whose purple/magenta is real art. List those here (basenames;
+    # animation sheets as "<name>_<animType>") to despill ONLY their edge fringe
+    # within edge_despill_radius px, preserving the interior. Curated from the
+    # despill audit — extend as new purple art is added.
+    edge_despill_radius: 3
+    edge_only_despill:
+      # Purple/magenta creatures
+      - octopus
+      - octopus_walking_r
+      - medusa
+      - medusa_walking_r
+      - alien
+      - alien_walking_r
+      - archmage
+      - archmage_walking_r
+      - lich
+      - lich_walking_r
+      - lich_king
+      - lich_king_walking_r
+      - forest_spider
+      - forest_spider_walking_r
+      # Sorcerer hero art (purple robes)
+      - lysander
+      - lysander_full
+      - lysander_archmage
+      - lysander_archmage_full
+      - lysander_lich
+      - lysander_lich_full
+      # Environment
+      - bonsai_tree
+      # Spellbook school tabs (mind/spirit are purple)
+      - spellbook_tab_mind
+      - spellbook_tab_spirit
+      # Spell icons (dark / spirit / mind / arcane)
+      - icon_spell_darkness
+      - icon_spell_charm
+      - icon_spell_psychic_shock
+      - icon_spell_spirit_lash
+      - icon_spell_disintegrate
+      - icon_spell_bind_undead
+      - icon_spell_wizard_eye
+      - icon_spell_raise_dead
+      - icon_spell_awaken
+      - icon_spell_darkbolt
+      - icon_spell_alien_dark_bolt
+      # Item / weapon icons (lich / archmage / wizard themed)
+      - icon_item_lich_phylactery
+      - icon_item_archmage_robe
+      - icon_item_wizard_robe
+      - icon_item_lich_king_crown
+      - icon_item_lich_card
+      - icon_item_archmage_card
+      - icon_item_medusa_card
+      - icon_item_soul_phylactery_gem
+      - icon_weapon_book_of_darkness
+      - icon_weapon_battle_staff
+      - icon_weapon_archmage_staff

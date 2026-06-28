@@ -88,6 +88,20 @@ biomes:
         - "culverts_floor_2"
         - "culverts_floor_3"
 
+  # Each castle floor is its OWN single-texture group so the map can paint floors
+  # deliberately by tile letter (cobble courtyard / wood halls / tatami rooms /
+  # blossom garden), not the random-from-group variety the other biomes use.
+  japanese_castle:
+    floor_texture_groups:
+      cobble:
+        - "japanese_castle_floor_0"
+      wood:
+        - "japanese_castle_floor_1"
+      tatami:
+        - "japanese_castle_floor_2"
+      garden:
+        - "japanese_castle_floor_3"
+
   city:
     floor_texture_groups:
       default:
@@ -135,6 +149,33 @@ biomes:
       chasm_floor_1:
         - "dragon_cliffs_chasm_floor_1"
 
+  # Amazon-style jungle: dense leaf-litter floor (own art), the river reuses the
+  # universal water tiles for its impassable channel/oxbow, walkable fords reuse
+  # the forest_stream texture, and the renderer auto-selects "beach" for the
+  # sandy banks bordering water.
+  jungle:
+    # Off-map backdrop: dense jungle foliage wall instead of the global seaview.
+    out_of_bounds_tile: "jungle_wall_foliage"
+    floor_texture_groups:
+      # Terra-firme upland: earthy leaf-litter + vine-mat, mixed for organic variety.
+      default:
+        - "deep_jungle_floor_0"
+        - "deep_jungle_floor_3"
+      # Mossy carved flagstone — the lost-city plaza/causeways (tile letter ':').
+      ruin:
+        - "deep_jungle_floor_1"
+      # Wet flooded floodplain ground — várzea (tile letter ',').
+      varzea:
+        - "deep_jungle_floor_2"
+      water:
+        - "water_0"
+        - "water_1"
+      beach:
+        - "beach_sand_0"
+        - "beach_sand_1"
+      jungle_ford:
+        - "dragon_cliffs_bridge_1"
+
 maps:
   forest:
     name: "Elvish Forest"
@@ -143,6 +184,11 @@ maps:
     sky_color: [135, 206, 235]        # Light blue sky
     sky_texture: "forest_panorama"
     default_floor_color: [60, 180, 60]  # Green grass
+    canopy_shade:
+      min_ambient: 0.7
+      radius_tiles: 3.0
+      start_density: 2
+      full_density: 8
 
   desert:
     name: "Scorching Desert"
@@ -285,6 +331,16 @@ maps:
     ambient_light: 0.3   # pitch-dark sewers: bring a torch (or a fireball)
     wall_torches: true   # flickering torches at inner wall corners light the maze
 
+  japanese_castle:
+    name: "Eastern Isle Castle"
+    file: "japanese_castle.map"
+    biome: "japanese_castle"
+    sky_color: [18, 22, 40]              # moonlit night
+    sky_texture: "japanese_castle_panorama"
+    default_floor_color: [70, 64, 56]
+    ambient_light: 0.5   # moonlit courtyard; lantern glow carries the halls
+    wall_torches: true   # paper lanterns flicker at inner wall corners
+
   city:
     name: "Seabright"
     file: "city.map"
@@ -308,3 +364,34 @@ maps:
     sky_color: [86, 66, 72]             # Ashen, dragon-smoke sky
     sky_texture: "dragon_cliffs_panorama"
     default_floor_color: [92, 112, 64]  # Cliff grass
+
+  deep_jungle:
+    name: "Deep Jungle"
+    file: "deep_jungle.map"
+    biome: "jungle"
+    sky_color: [54, 84, 64]             # Humid green canopy haze
+    sky_texture: "deep_jungle_panorama"
+    default_floor_color: [34, 78, 40]   # Dark jungle green
+    ambient_light: 1.0   # full daylight; no ambient darkening
+    # Slay the warlord (only possible once his idols are broken) → the lost
+    # city's treasury opens in the plaza. Zone gear + gold only; his uniques
+    # drop from the boss itself (loots.yaml), so none can leak here.
+    # PLURAL clear_encounters: binds only the N-nearest monsters of the listed
+    # type to the chest. The SINGULAR `clear_encounter` ignores `monsters:` and
+    # binds EVERY mob on the map (chest fires only when the LAST one dies) — wrong
+    # here: we want the chest the instant the warlord dies, not after the whole
+    # zone is swept.
+    clear_encounters:
+      - monsters:
+          - type: "orc_hero_boss"
+            count: 1
+        rewards:
+          completion_message: "The warlord falls. A flagstone grinds aside — the lost city's treasury lies open."
+          treasure_chest:
+            id: "lost_city_treasury"
+            map: "deep_jungle"
+            tile_x: 38
+            tile_y: 13
+            sprite: "chest"
+            size_multiplier: 5.0
+            loot_table: "lost_city_cache"   # 3 rolls of zone gear + 400-900 gold

@@ -8,12 +8,12 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/graphics"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/stats"
@@ -215,7 +215,7 @@ func buildTrapCards() []contentCard {
 			continue
 		}
 		rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
-		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner, character.ArmorPhysicalReductionDivisor), true)...)
+		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
 		cards = append(cards, contentCard{
 			kind:        cardSpell,
 			section:     "Traps (Thief)",
@@ -241,7 +241,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	// Unified template (shared engine in character/cardtemplate.go): the
 	// editor shows the character-independent variant — formulas in place of
 	// personal numbers — in the same section order as the in-game tooltip.
-	rows := character.RenderCardLines(character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true)
+	rows := character.RenderCardLines(character.WeaponCardSections(def), true)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -255,6 +255,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 		name:        def.Name,
 		subtitle:    subtitle,
 		description: def.Description,
+		flavor:      def.Flavor,
 		tooltipRows: rows,
 	}
 }
@@ -295,7 +296,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 	rows := []string{"Type: " + kind}
 	// Unified template (character/cardtemplate.go) — same sections as the
 	// in-game tooltip, character-independent variant.
-	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def, character.ArmorPhysicalReductionDivisor), true)...)
+	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def), true)...)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
 	}
@@ -422,7 +423,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	var rows []string
 	rows = appendRow(rows, "School", titleCase(def.School))
 	if sdErr == nil {
-		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd, character.ArmorPhysicalReductionDivisor), true)...)
+		rows = append(rows, character.RenderCardLines(character.SpellCardSections(key, def, sd), true)...)
 	}
 
 	return contentCard{
@@ -541,8 +542,7 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 	if img, ok := v.iconCache[cacheKey]; ok {
 		return img // may be nil — already checked, no file
 	}
-	for _, dir := range []string{"environment", "mobs", "characters", "interface"} {
-		path := filepath.Join("assets", "sprites", dir, sprite+".png")
+	if path, ok := graphics.ResolveSpritePath(sprite); ok {
 		if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
 			v.iconCache[cacheKey] = img
 			return img
@@ -553,7 +553,8 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 }
 
 // iconForCard loads the per-card sprite by naming convention
-// (assets/sprites/interface/icon_<kind>_<key>.png). Returns nil if no file.
+// (icon_<kind>_<key>), resolved anywhere under assets/sprites via the shared
+// index. Returns nil if no file.
 func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	// Skills have no art (the card renderer draws a placeholder box).
 	if c.kind == cardSkill {
@@ -577,7 +578,11 @@ func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	if img, ok := v.iconCache[cacheKey]; ok {
 		return img // may be nil — "we already checked, no file"
 	}
-	path := filepath.Join("assets", "sprites", "interface", fileBase+".png")
+	path, ok := graphics.ResolveSpritePath(fileBase)
+	if !ok {
+		v.iconCache[cacheKey] = nil
+		return nil
+	}
 	img, _, err := ebitenutil.NewImageFromFile(path)
 	if err != nil {
 		v.iconCache[cacheKey] = nil

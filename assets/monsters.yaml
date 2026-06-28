@@ -7,8 +7,8 @@ monsters:
   goblin:
     name: "Goblin"
     level: 1
-    max_hit_points: 56
-    armor_class: 6
+    max_hit_points: 50
+    armor_class: 13
     experience: 15
     damage_min: 4
     damage_max: 8
@@ -21,7 +21,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -31,10 +31,10 @@ monsters:
     name: "Orc"
     level: 3
     max_hit_points: 96
-    armor_class: 8
+    armor_class: 19
     experience: 65
-    damage_min: 8
-    damage_max: 15
+    damage_min: 15
+    damage_max: 25
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -46,7 +46,7 @@ monsters:
     letter: "o"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -60,7 +60,7 @@ monsters:
     name: "Wolf"
     level: 2
     max_hit_points: 76
-    armor_class: 7
+    armor_class: 16
     experience: 35
     damage_min: 6
     damage_max: 9
@@ -73,7 +73,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_game: 6.0
+    size_multiplier: 6.0
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -83,10 +83,10 @@ monsters:
     name: "Bear"
     level: 4
     max_hit_points: 130
-    armor_class: 9
+    armor_class: 28
     experience: 120
     damage_min: 10
-    damage_max: 16
+    damage_max: 20
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
@@ -96,7 +96,7 @@ monsters:
     letter: "b"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_multiplier: 8.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -105,7 +105,7 @@ monsters:
     name: "Spider"
     level: 2
     max_hit_points: 60
-    armor_class: 8
+    armor_class: 11
     experience: 25
     damage_min: 3
     damage_max: 5
@@ -118,7 +118,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -128,7 +128,7 @@ monsters:
     name: "Skeleton"
     level: 3
     max_hit_points: 86
-    armor_class: 7
+    armor_class: 20
     experience: 45
     damage_min: 7
     damage_max: 12
@@ -141,7 +141,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
@@ -154,12 +154,12 @@ monsters:
     name: "Mummy"
     level: 5
     max_hit_points: 180
-    armor_class: 10
+    armor_class: 30
     experience: 180
     damage_min: 17
     damage_max: 25
     poison_chance: 0.20
-    poison_duration_seconds: 15
+    poison_duration_seconds: 20
     alert_radius: 4
     attack_radius: 1
     speed: 1.0
@@ -169,7 +169,7 @@ monsters:
     letter: "m"
     box_w: 48
     box_h: 48
-    size_game: 5.0
+    size_multiplier: 5.0
     biomes: ["pyramid"]
     resistances:
       mind: 100
@@ -183,7 +183,7 @@ monsters:
     name: "Minotaur"
     level: 8
     max_hit_points: 360
-    armor_class: 13
+    armor_class: 33
     experience: 620
     damage_min: 24
     damage_max: 38
@@ -198,7 +198,7 @@ monsters:
     letter: "n"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_multiplier: 8.0
     biomes: ["pyramid"]
     resistances:
       physical: 25
@@ -209,7 +209,7 @@ monsters:
     name: "Isis"
     level: 11
     max_hit_points: 460
-    armor_class: 14
+    armor_class: 40
     perfect_dodge: 10
     experience: 950
     damage_min: 20
@@ -225,7 +225,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_game: 7.0
+    size_multiplier: 7.0
     biomes: ["pyramid"]
     resistances:
       air: 50
@@ -238,12 +238,12 @@ monsters:
     name: "Troll"
     level: 6
     max_hit_points: 160
-    armor_class: 10
+    armor_class: 32
     experience: 300
     damage_min: 15
-    damage_max: 23
+    damage_max: 30
     poison_chance: 0.33
-    poison_duration_seconds: 20
+    poison_duration_seconds: 23
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
@@ -253,7 +253,7 @@ monsters:
     letter: "l"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
@@ -265,10 +265,11 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 30
     damage_max: 50
+    true_damage: 15  # black dragon: +15 unmitigable per hit
     fireburst_chance: 0.15
     fireburst_damage_min: 10
     fireburst_damage_max: 16
@@ -284,7 +285,7 @@ monsters:
     letter: "d"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     resistances:
       fire: 90
       physical: 50
@@ -304,10 +305,13 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 30
     damage_max: 50
+    true_damage: 10  # red dragon: +10 unmitigable per hit
+    ignite_chance: 0.30           # 30% to set a character ablaze
+    ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
@@ -320,7 +324,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     biomes: ["desert"]
     resistances:
       dark: 90
@@ -334,12 +338,14 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1100
-    armor_class: 20            # tankier: melee-only, no ranged attack
+    armor_class: 67            # tankier: melee-only, no ranged attack
     experience: 2000
     damage_min: 32
     damage_max: 52
+    true_damage: 10  # green dragon: +10 unmitigable per hit
+    attack_cooldown_multiplier: 0.6  # attacks fast
     poison_chance: 0.33
-    poison_duration_seconds: 20
+    poison_duration_seconds: 45
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
@@ -350,7 +356,7 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
@@ -364,10 +370,14 @@ monsters:
     name: "Dragon"
     level: 15
     max_hit_points: 1050       # a bit squishier but faster + longer reach
-    armor_class: 18
+    armor_class: 50
     experience: 2000
     damage_min: 28
     damage_max: 46
+    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    stun_char_chance: 0.10        # 10% to stun the struck character
+    stun_char_seconds: 4          # RT stun duration
+    stun_char_turns: 2            # TB stun duration
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
@@ -380,7 +390,7 @@ monsters:
     letter: "y"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
@@ -394,7 +404,7 @@ monsters:
     name: "Forest Orc"
     level: 4
     max_hit_points: 100
-    armor_class: 9
+    armor_class: 19
     experience: 85
     damage_min: 8
     damage_max: 12
@@ -407,7 +417,7 @@ monsters:
     letter: "f"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_multiplier: 8.0
     resistances:
       earth: 25
     habitat_preferences:
@@ -422,7 +432,7 @@ monsters:
     name: "Dire Wolf"
     level: 5
     max_hit_points: 120
-    armor_class: 9
+    armor_class: 18
     experience: 125
     damage_min: 7
     damage_max: 17
@@ -435,7 +445,7 @@ monsters:
     letter: "u"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -445,7 +455,7 @@ monsters:
     name: "Alien"
     level: 5
     max_hit_points: 500
-    armor_class: 12
+    armor_class: 38
     experience: 550
     damage_min: 25
     damage_max: 35
@@ -460,7 +470,7 @@ monsters:
     letter: "x"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances:
       fire: 25
       dark: 30
@@ -472,7 +482,7 @@ monsters:
     name: "Forest Spider"
     level: 3
     max_hit_points: 72
-    armor_class: 10
+    armor_class: 13
     experience: 45
     damage_min: 4
     damage_max: 9
@@ -485,7 +495,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "fern_patch"
@@ -499,7 +509,7 @@ monsters:
     name: "Treant"
     level: 8
     max_hit_points: 240
-    armor_class: 12
+    armor_class: 33
     experience: 400
     damage_min: 20
     damage_max: 35
@@ -512,7 +522,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     resistances:
       earth: 75
       water: 50
@@ -528,7 +538,7 @@ monsters:
     name: "Pixie"
     level: 2
     max_hit_points: 66
-    armor_class: 4     # Light armor, relies on dodge
+    armor_class: 6     # Light armor, relies on dodge
     perfect_dodge: 20  # 20% chance to completely avoid attacks
     experience: 50
     damage_min: 12
@@ -548,7 +558,7 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_game: 3.0
+    size_multiplier: 3.0
     light:
       enabled: true
       radius_tiles: 3.0
@@ -567,8 +577,8 @@ monsters:
   bandit:
     name: "Bandit"
     level: 3
-    max_hit_points: 86
-    armor_class: 8
+    max_hit_points: 50
+    armor_class: 14
     experience: 55
     damage_min: 7
     damage_max: 10
@@ -583,7 +593,7 @@ monsters:
     letter: "n"       # Bandit
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -594,7 +604,7 @@ monsters:
     name: "Medusa"
     level: 6
     max_hit_points: 360
-    armor_class: 10
+    armor_class: 38
     experience: 260
     damage_min: 15
     damage_max: 23
@@ -612,7 +622,7 @@ monsters:
     passive_until_attacked: true
     box_w: 48
     box_h: 48
-    size_game: 5.0
+    size_multiplier: 5.0
     resistances:
       water: 60
       air: 35
@@ -624,7 +634,7 @@ monsters:
     name: "Octopus"
     level: 5
     max_hit_points: 330
-    armor_class: 11
+    armor_class: 20
     experience: 240
     damage_min: 17
     damage_max: 23
@@ -640,7 +650,7 @@ monsters:
     biomes: ["water"]
     box_w: 48
     box_h: 48
-    size_game: 10.0
+    size_multiplier: 10.0
     resistances:
       water: 60
       physical: 10
@@ -660,7 +670,7 @@ monsters:
     name: "Puma"
     level: 6
     max_hit_points: 150
-    armor_class: 11
+    armor_class: 20
     experience: 280
     damage_min: 19
     damage_max: 27
@@ -674,7 +684,7 @@ monsters:
     letter: "c"
     box_w: 48
     box_h: 48
-    size_game: 5.0
+    size_multiplier: 5.0
     biomes: ["highlands"]
     pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
     pounce_cooldown_seconds: 4
@@ -691,7 +701,7 @@ monsters:
     name: "Elf Archer"
     level: 7
     max_hit_points: 190
-    armor_class: 11
+    armor_class: 14
     experience: 380
     damage_min: 16
     damage_max: 26
@@ -707,7 +717,7 @@ monsters:
     letter: "h"
     box_w: 48
     box_h: 48
-    size_game: 6.0
+    size_multiplier: 6.0
     biomes: ["highlands"]
     resistances: {}
     habitat_preferences:
@@ -722,10 +732,10 @@ monsters:
     name: "Elf Swordsman"
     level: 9
     max_hit_points: 320
-    armor_class: 14
+    armor_class: 32
     experience: 520
-    damage_min: 22
-    damage_max: 34
+    damage_min: 26
+    damage_max: 40
     alert_radius: 5
     attack_radius: 1
     speed: 1.5
@@ -736,7 +746,7 @@ monsters:
     letter: "j"
     box_w: 48
     box_h: 48
-    size_game: 6.0
+    size_multiplier: 6.0
     biomes: ["highlands"]
     resistances:
       physical: 30
@@ -751,7 +761,7 @@ monsters:
     name: "Mountain Troll"
     level: 10
     max_hit_points: 480
-    armor_class: 13
+    armor_class: 34
     experience: 720
     damage_min: 28
     damage_max: 44
@@ -764,7 +774,7 @@ monsters:
     letter: "v"
     box_w: 48
     box_h: 48
-    size_game: 12.0
+    size_multiplier: 12.0
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       physical: 40
@@ -780,7 +790,7 @@ monsters:
     name: "Archmage"
     level: 11
     max_hit_points: 360
-    armor_class: 12
+    armor_class: 24
     experience: 880
     damage_min: 16
     damage_max: 26
@@ -796,7 +806,7 @@ monsters:
     letter: "z"
     box_w: 48
     box_h: 48
-    size_game: 7.0
+    size_multiplier: 7.0
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       fire: 50
@@ -814,7 +824,7 @@ monsters:
     name: "Lich"
     level: 12
     max_hit_points: 620
-    armor_class: 15
+    armor_class: 40
     experience: 1300
     damage_min: 24
     damage_max: 36
@@ -829,7 +839,7 @@ monsters:
     letter: "q"
     box_w: 48
     box_h: 48
-    size_game: 7.0
+    size_multiplier: 7.0
     biomes: ["highlands", "lich_nexus"]
     resistances:
       dark: 75
@@ -847,7 +857,7 @@ monsters:
     name: "Revenant"
     level: 10
     max_hit_points: 420
-    armor_class: 14
+    armor_class: 32
     experience: 760
     damage_min: 24
     damage_max: 38
@@ -860,7 +870,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_game: 7.0
+    size_multiplier: 7.0
     biomes: ["lich_nexus"]
     resistances:
       dark: 60
@@ -875,7 +885,7 @@ monsters:
     name: "Lich King"
     level: 14
     max_hit_points: 900
-    armor_class: 18
+    armor_class: 52
     experience: 1800
     damage_min: 32
     damage_max: 52
@@ -890,7 +900,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_game: 8.0
+    size_multiplier: 8.0
     biomes: ["lich_nexus"]
     resistances:
       dark: 90
@@ -906,7 +916,7 @@ monsters:
     name: "Sewer Rat"
     level: 5
     max_hit_points: 95
-    armor_class: 6
+    armor_class: 7
     experience: 70
     damage_min: 14
     damage_max: 19
@@ -919,7 +929,7 @@ monsters:
     letter: "r"
     box_w: 40
     box_h: 40
-    size_game: 3.5
+    size_multiplier: 3.5
     biomes: ["culverts"]
     resistances: {}
 
@@ -927,7 +937,7 @@ monsters:
     name: "Cave Bat"
     level: 5
     max_hit_points: 72
-    armor_class: 7
+    armor_class: 8
     perfect_dodge: 18
     experience: 75
     damage_min: 13
@@ -942,7 +952,7 @@ monsters:
     letter: "v"
     box_w: 40
     box_h: 40
-    size_game: 3.2
+    size_multiplier: 3.2
     biomes: ["culverts"]
     resistances: {}
 
@@ -950,7 +960,7 @@ monsters:
     name: "Thief Bug"
     level: 7
     max_hit_points: 165
-    armor_class: 13
+    armor_class: 20
     experience: 130
     damage_min: 14
     damage_max: 20
@@ -958,14 +968,14 @@ monsters:
     attack_radius: 1
     speed: 1.5
     poison_chance: 0.12
-    poison_duration_seconds: 12
+    poison_duration_seconds: 25
     gold_min: 10
     gold_max: 40
     sprite: "thief_bug"
     letter: "t"
     box_w: 48
     box_h: 48
-    size_game: 4.0
+    size_multiplier: 4.0
     biomes: ["culverts"]
     resistances:
       physical: 15
@@ -974,7 +984,7 @@ monsters:
     name: "Golden Thief Bug"
     level: 10
     max_hit_points: 1200
-    armor_class: 18
+    armor_class: 55
     perfect_dodge: 20
     experience: 2000
     damage_min: 10
@@ -994,19 +1004,416 @@ monsters:
     passive_until_quest: "culverts_valves"
     evade_radius_tiles: 3
     boss_cooldown_seconds: 1
+    aggro_whole_map: true  # UNIQUE: once the valves are opened it hunts the party from anywhere
     sprite: "golden_thief_bug"
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
     # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide
-    # corridors, freezing the boss. 48 fits one tile; size_game keeps it big visually.
+    # corridors, freezing the boss. 48 fits one tile; size_multiplier keeps it big visually.
     box_w: 48
     box_h: 48
-    size_game: 5.5
+    size_multiplier: 9.0
     biomes: ["culverts"]
     resistances:
       physical: 20
       fire: 40
       mind: 60
+
+  # --- Japanese Castle (eastern islands) mobs (L12-18) ---
+  ashigaru_firelock:
+    name: "Ashigaru Arquebusier"
+    level: 12
+    max_hit_points: 420
+    armor_class: 18
+    experience: 900
+    damage_min: 26
+    damage_max: 40
+    piercing_shot_chance: 0.50
+    piercing_shot_targets: 2
+    projectile_weapon: "tanegashima"
+    ranged_attack_range: 6
+    alert_radius: 8
+    attack_radius: 6
+    speed: 1.3
+    gold_min: 80
+    gold_max: 180
+    sprite: "ashigaru_firelock"
+    letter: "a"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 6.0
+    biomes: ["japanese_castle"]
+    resistances:
+      physical: 10
+
+  ronin_marksman:
+    name: "Ronin Marksman"
+    level: 15
+    max_hit_points: 640
+    armor_class: 20
+    perfect_dodge: 5
+    experience: 1400
+    damage_min: 30
+    damage_max: 46
+    piercing_shot_chance: 0.25
+    piercing_shot_targets: 2
+    projectile_weapon: "tanegashima"
+    ranged_attack_range: 7
+    alert_radius: 9
+    attack_radius: 7
+    speed: 1.4
+    gold_min: 220
+    gold_max: 450
+    sprite: "ashigaru_firelock"
+    letter: "m"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 7.0
+    biomes: ["japanese_castle"]
+    tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
+    resistances:
+      physical: 15
+
+  ningyo:
+    name: "Miyabi Ningyo"
+    level: 13
+    max_hit_points: 500
+    armor_class: 20
+    perfect_dodge: 15
+    experience: 1000
+    damage_min: 26
+    damage_max: 40
+    attacks_per_round: 2
+    attack_cooldown_multiplier: 0.6
+    ally_heal_chance: 0.15
+    ally_heal_amount: 200
+    ally_heal_radius_tiles: 2.0
+    attack_radius: 1
+    alert_radius: 7
+    speed: 1.7
+    gold_min: 120
+    gold_max: 280
+    sprite: "ningyo"
+    letter: "n"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 6.5
+    biomes: ["japanese_castle"]
+    resistances:
+      mind: 30
+      dark: 20
+
+  vengeful_ningyo:
+    name: "Vengeful Ningyo"
+    level: 16
+    max_hit_points: 740
+    armor_class: 32
+    perfect_dodge: 20
+    experience: 1500
+    damage_min: 32
+    damage_max: 48
+    attacks_per_round: 2          # elite inherits the base ningyo's double strike
+    attack_cooldown_multiplier: 0.6
+    ally_heal_chance: 0.15
+    ally_heal_amount: 200
+    ally_heal_radius_tiles: 2.0
+    attack_radius: 1
+    alert_radius: 8
+    speed: 1.9
+    gold_min: 260
+    gold_max: 560
+    sprite: "ningyo"
+    letter: "e"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 7.5
+    biomes: ["japanese_castle"]
+    tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
+    resistances:
+      mind: 40
+      dark: 30
+
+  # Boss: dormant on the throne (visible, inert) until the castle_armory quest
+  # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
+  old_samurai:
+    name: "Samurai Warlord"
+    level: 17
+    max_hit_points: 1600
+    armor_class: 50
+    perfect_dodge: 10
+    experience: 3500
+    damage_min: 30
+    damage_max: 48
+    attack_radius: 1
+    alert_radius: 12  # boss: senses the party from further than a normal mob (not map-wide)
+    speed: 1.6
+    gold_min: 4000
+    gold_max: 6000
+    ignores_armor: true
+    passive_until_quest: "castle_armory"
+    summon_chance: 0.18
+    summon_first_guaranteed: true
+    summon_monsters: ["ashigaru_firelock", "ningyo"]
+    summon_count: 2
+    summon_max: 4
+    enrage_at_hp: 480
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    sprite: "old_samurai"
+    letter: "s"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["japanese_castle"]
+    resistances:
+      physical: 20
+      dark: 30
+      mind: 40
+
+  # ---- Deep Jungle (Amazon) zone, party L18-24 ----
+  ocelot:
+    name: "Ocelot"
+    level: 18
+    max_hit_points: 640
+    armor_class: 20
+    perfect_dodge: 15
+    experience: 700
+    damage_min: 32
+    damage_max: 48
+    attacks_per_round: 2          # fast predator: rapid claw swipes (tier L18-24 cadence)
+    attack_cooldown_multiplier: 0.6
+    attack_radius: 1
+    alert_radius: 8
+    speed: 2.2
+    pounce_range_tiles: 4
+    pounce_cooldown_seconds: 5
+    gold_min: 30
+    gold_max: 110
+    sprite: "ocelot"
+    letter: "o"
+    box_w: 40
+    box_h: 40
+    size_multiplier: 4.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+
+  jungle_goblin:
+    name: "Jungle Goblin"
+    level: 18
+    max_hit_points: 760
+    armor_class: 15
+    experience: 800
+    damage_min: 40
+    damage_max: 60
+    attack_radius: 1
+    alert_radius: 6
+    speed: 1.5
+    gold_min: 30
+    gold_max: 90
+    sprite: "jungle_goblin"
+    letter: "j"
+    box_w: 44
+    box_h: 44
+    size_multiplier: 5.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+
+  masked_huntress:
+    name: "Masked Huntress"
+    type: "human"
+    level: 20
+    max_hit_points: 800
+    armor_class: 20
+    perfect_dodge: 10
+    experience: 1100
+    damage_min: 36
+    damage_max: 54
+    true_damage: 10  # jungle spearwoman: +10 unmitigable per hit
+    projectile_weapon: "blowgun"
+    ranged_attack_range: 6
+    attack_radius: 5
+    alert_radius: 8
+    speed: 1.6
+    poison_chance: 0.3
+    poison_duration_seconds: 58
+    gold_min: 60
+    gold_max: 160
+    sprite: "masked_huntress"
+    letter: "h"
+    box_w: 46
+    box_h: 46
+    size_multiplier: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 10
+      body: 30
+
+  masked_serpent_dancer:
+    name: "Masked Serpent Dancer"
+    type: "human"
+    level: 21
+    max_hit_points: 720
+    armor_class: 38
+    perfect_dodge: 25
+    experience: 1300
+    damage_min: 30
+    damage_max: 46
+    attacks_per_round: 2          # whirling blades
+    attack_cooldown_multiplier: 0.7
+    attack_radius: 1
+    alert_radius: 7
+    speed: 1.9
+    poison_chance: 0.4
+    poison_duration_seconds: 60
+    gold_min: 80
+    gold_max: 180
+    sprite: "masked_serpent_dancer"
+    letter: "d"
+    box_w: 46
+    box_h: 46
+    size_multiplier: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 15
+      body: 50
+
+  masked_hexer_girl:
+    name: "Masked Hexer"
+    type: "human"
+    level: 22
+    max_hit_points: 780
+    armor_class: 26
+    perfect_dodge: 10
+    experience: 1700
+    damage_min: 30
+    damage_max: 46
+    dispel_chance: 0.10           # 10% to strip a random active party buff on hit
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 6
+    attack_radius: 5
+    alert_radius: 8
+    speed: 1.5
+    ally_heal_chance: 0.25
+    ally_heal_amount: 80
+    ally_heal_radius_tiles: 5
+    gold_min: 100
+    gold_max: 220
+    sprite: "masked_hexer_girl"
+    letter: "x"
+    box_w: 46
+    box_h: 46
+    size_multiplier: 6.0
+    biomes: ["jungle"]
+    resistances:
+      fire: 40
+      mind: 50
+      dark: 40
+
+  # Elite: huge territorial ape guarding the oxbow grove. Ground-pound shockwave.
+  gorilla_titan:
+    name: "Gorilla Titan"
+    level: 23
+    max_hit_points: 1700
+    armor_class: 58
+    experience: 2600
+    damage_min: 49
+    damage_max: 67
+    attack_radius: 1
+    alert_radius: 10  # boss: senses the party from further than a normal mob (not map-wide)
+    speed: 1.5
+    pounce_range_tiles: 3
+    pounce_cooldown_seconds: 6
+    fireburst_chance: 0.15
+    fireburst_damage_min: 30
+    fireburst_damage_max: 50
+    # Rallies a pair of Masked Huntress escorts (shared boss summon kit): first is
+    # guaranteed, refills the pair via chance once both die (cap 2 live).
+    summon_chance: 0.18
+    summon_first_guaranteed: true
+    summon_monsters: ["masked_huntress"]
+    summon_count: 2
+    summon_max: 2
+    gold_min: 300
+    gold_max: 700
+    sprite: "gorilla_titan"
+    letter: "g"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 30
+
+  # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
+  # (warlord_idol) lives — break all idols and he ACTIVATES as a normal aggressive
+  # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
+  # enrage_at_hp once active (enrage is HP-driven, not the ward).
+  orc_hero_boss:
+    name: "Orc Warlord"
+    level: 24
+    max_hit_points: 2400
+    armor_class: 52
+    perfect_dodge: 5
+    experience: 4200
+    damage_min: 36
+    damage_max: 56
+    attack_radius: 1
+    alert_radius: 14  # boss: senses the party from further than a normal mob (not map-wide)
+    speed: 1.7
+    ignores_armor: true
+    warded_by_idols: true
+    enrage_at_hp: 800
+    enrage_damage_mult: 1.5
+    enrage_cooldown_mult: 0.6
+    # Calls masked Amazon retainers to the fight (shared boss summon kit).
+    summon_chance: 0.20
+    summon_first_guaranteed: true
+    summon_monsters: ["masked_huntress", "masked_hexer_girl"]
+    summon_count: 2
+    summon_max: 4
+    # Revenge: when the Warlord dies, every human on the map (Amazons, NOT goblins
+    # or beasts) flies into a relentless map-wide hunt for the party — a surprise.
+    death_rallies_type: "human"
+    gold_min: 5000
+    gold_max: 8000
+    sprite: "orc_warlord"
+    letter: "w"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 25
+      dark: 30
+      earth: 30
+
+  # Plaza idol: immobile, never attacks; while any idol lives the warlord is
+  # warded (invulnerable + rooted, holds the plaza). Break all to drop his ward.
+  jungle_idol:
+    name: "Warlord Idol"
+    level: 20
+    max_hit_points: 500
+    armor_class: 45
+    experience: 300
+    damage_min: 0
+    damage_max: 0
+    attack_radius: 0
+    alert_radius: 0
+    speed: 0
+    warlord_idol: true
+    gold_min: 0
+    gold_max: 0
+    sprite: "deep_jungle_idol"
+    letter: "i"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 6.0
+    biomes: ["jungle"]
+    resistances:
+      physical: 20
+      mind: 50
 
 # Damage type mappings for resistances
 damage_types:

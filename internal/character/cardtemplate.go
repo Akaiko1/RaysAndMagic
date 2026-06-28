@@ -102,14 +102,51 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	return line
 }
 
-// MeleeSwingArcLine describes a melee weapon's swing arc. A swing strikes EVERY
-// enemy inside the cone, so the arc width is as decision-relevant as the reach.
-// Returns "" for projectile weapons (Physics set) or weapons with no arc.
+// MeleeSwingArcLine describes a melee weapon's swing shape and reach. A swing
+// strikes EVERY enemy inside the cone, so the arc width is as decision-relevant
+// as the reach. Returns "" for projectile weapons (Physics set) or no melee.
 func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
-	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcAngle <= 0 {
+	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcType <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("Swing Arc: %d° (hits every enemy in the cone)", def.Melee.ArcAngle)
+	var shape string
+	switch def.Melee.ArcType {
+	case 1:
+		shape = "Strikes straight ahead"
+	case 2:
+		shape = "Strikes the front and one flank"
+	case 3:
+		shape = "Strikes the front and both diagonals"
+	case 4:
+		shape = "Strikes the front, both diagonals and both sides"
+	default:
+		return ""
+	}
+	reach := "reaches 1 tile, diagonals included"
+	if def.Range >= 2 {
+		reach = fmt.Sprintf("reaches %d tiles deep in the cone (diagonals included)", def.Range)
+	}
+	return fmt.Sprintf("%s; %s", shape, reach)
+}
+
+// MeleeArcShortLabel is the compact arc descriptor used in comparison tooltips
+// (e.g. "front+diagonals"). Returns "" for projectile weapons or no melee.
+func MeleeArcShortLabel(def *config.WeaponDefinitionConfig) string {
+	if def == nil || def.Physics != nil || def.Melee == nil || def.Melee.ArcType <= 0 {
+		return ""
+	}
+	switch def.Melee.ArcType {
+	case 1:
+		return "front"
+	case 2:
+		return "front+flank"
+	case 3:
+		return "front+diagonals"
+	case 4:
+		return "front+diagonals+sides"
+	default:
+		return ""
+	}
 }
 
 // ProjectileHitboxLine reports a projectile's collision footprint in tiles — its
@@ -137,23 +174,20 @@ func CooldownLine(seconds float64) string {
 	return fmt.Sprintf("RT Cooldown: %.1fs · TB: 1 action", seconds)
 }
 
-// ArmorInteractionLines spells out how a damage type meets Armor Class —
-// generic for EVERY element: physical is armor-reduced (ranged shots pierce
-// 33% of the time), anything elemental skips armor and meets resistance. These
-// are universal/educational RULES, so they go into the DETAIL tier (full view
-// only); the map editor renders full and still shows them.
-func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool, armorDivisor int) {
+// ArmorInteractionLines spells out how a damage type meets the target's defenses
+// under the percentage armor model: armor mitigates physical up to its cap and
+// elemental up to a lower cap (diminishing returns), elemental also meets
+// Resistance, ranged physical shots can pierce armor. Universal/educational RULES
+// → DETAIL tier (full view only); the map editor renders full and still shows them.
+func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool) {
 	dt := strings.ToLower(damageType)
 	if dt == "" || dt == "physical" {
+		sec.AddDetail("Reduced by target Armor (up to %d%%, diminishing)", ArmorPhysicalMitigationCap)
 		if isRanged {
-			sec.AddDetail("%d%% of shots ignore Armor Class", ArmorPierceRangedChancePct)
-			sec.AddDetail("Other shots are reduced by Armor Class / %d", armorDivisor)
-		} else {
-			sec.AddDetail("Reduced by Armor Class / %d", armorDivisor)
+			sec.AddDetail("%d%% of shots pierce armor entirely", ArmorPierceRangedChancePct)
 		}
 	} else {
-		sec.AddDetail("%s damage ignores Armor Class", strings.Title(dt))
-		sec.AddDetail("%s Resistance affects normal damage", strings.Title(dt))
+		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, strings.Title(dt))
 	}
 	if hasTrueDmg {
 		// Resistance still applies to the summed hit — true damage only
@@ -216,7 +250,7 @@ func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 
 // WeaponCardSections renders a weapon in template shape with formulas in
 // place of caster numbers.
-func WeaponCardSections(def *config.WeaponDefinitionConfig, armorDivisor int) []CardSection {
+func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	attack := CardSection{Title: "ATTACK"}
 	if def.Range > 0 {
 		attack.Add("Range: %d tiles", def.Range)
@@ -232,6 +266,9 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig, armorDivisor int) []
 	}
 	if def.MaxProjectiles > 0 {
 		attack.Add("Maximum Projectiles: %d", def.MaxProjectiles)
+	}
+	if def.Volley > 1 {
+		attack.Add("Volley: %d per shot", def.Volley)
 	}
 	for _, ln := range WeaponCombatLines(def) {
 		if strings.HasPrefix(ln, "Attack cooldown") {
@@ -275,7 +312,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig, armorDivisor int) []
 	}
 
 	rules := CardSection{Title: "RULES"}
-	ArmorInteractionLines(&rules, def.DamageType, def.Physics != nil, hasWeaponSkill, armorDivisor)
+	ArmorInteractionLines(&rules, def.DamageType, def.Physics != nil, hasWeaponSkill)
 	if def.AoeRadiusTiles > 0 {
 		rules.Add("%s", SplashCritRule)
 	}
@@ -287,7 +324,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig, armorDivisor int) []
 }
 
 // SpellCardSections renders a spell in template shape (character-independent).
-func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.SpellDefinition, armorDivisor int) []CardSection {
+func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}
 	casting.Add("Cost: %d SP", def.SpellPointsCost)
 	cd := def.CooldownSeconds
@@ -387,7 +424,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	switch {
 	case sd.PartyAoeRadiusTiles > 0:
 		rules.Add("Fixed damage: no stat or mastery scaling")
-		rules.Add("No GM resistance penetration")
+		rules.Add("%s: no GM resistance penetration", def.Name)
 		rules.Add("Enemy %s Resistance reduces damage", school)
 		rules.Add("Party %s Resistance reduces self-damage", school)
 		rules.Add("Cannot critically hit")
@@ -409,7 +446,11 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		rules.Add("No effect on undead")
 	}
 	if sd.StatBonus > 0 || len(sd.StatBonuses) > 0 {
-		rules.Add("Mastery increases duration, not the bonus")
+		if sd.StatBonusGrandmaster > sd.StatBonus {
+			rules.Add("Mastery increases duration and the bonus")
+		} else {
+			rules.Add("Mastery increases duration, not the bonus")
+		}
 		rules.Add("Recasting refreshes the effect")
 	}
 	if sd.ZoneRadiusTiles > 0 {
@@ -462,7 +503,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 }
 
 // TrapCardSections renders a trap in template shape (character-independent).
-func TrapCardSections(def *config.TrapDefinitionConfig, placeRangeTiles, maxPerOwner, armorDivisor int) []CardSection {
+func TrapCardSections(def *config.TrapDefinitionConfig, placeRangeTiles, maxPerOwner int) []CardSection {
 	placement := CardSection{Title: "PLACEMENT"}
 	placement.Add("Cost: %d SP", def.SPCost)
 	placement.Add("%s", CooldownLine(def.CooldownSeconds))
@@ -497,7 +538,7 @@ func TrapCardSections(def *config.TrapDefinitionConfig, placeRangeTiles, maxPerO
 		rules.Add("Prevents movement but not attacks")
 	}
 	if def.DamageBase > 0 {
-		ArmorInteractionLines(&rules, def.Element, false, false, armorDivisor)
+		ArmorInteractionLines(&rules, def.Element, false, false)
 	}
 	rules.Add("Triggers once, then disappears")
 	rules.Add("Maximum %d armed traps per character on the map", maxPerOwner)
@@ -506,7 +547,7 @@ func TrapCardSections(def *config.TrapDefinitionConfig, placeRangeTiles, maxPerO
 }
 
 // ItemCardSections renders a wearable/consumable/quest item in template shape.
-func ItemCardSections(def *config.ItemDefinitionConfig, armorDivisor int) []CardSection {
+func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 	_, hasArmorSkill := ArmorSkillForCategory(strings.ToLower(def.ArmorType))
 	defense := CardSection{Title: "DEFENSE"}
 	if def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0 {
@@ -530,7 +571,7 @@ func ItemCardSections(def *config.ItemDefinitionConfig, armorDivisor int) []Card
 		effects.Add("%s", ln)
 	}
 	if def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0 {
-		effects.Add("Physical Damage Reduction: AC / %d", armorDivisor)
+		effects.Add("Armor mitigates physical up to %d%%, elemental up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
 	}
 	// Consumable / quest behavior shares the item formatter.
 	for _, ln := range def.EffectLines() {

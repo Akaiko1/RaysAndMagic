@@ -1,13 +1,9 @@
 package game
 
-// Armor damage-reduction tests — exercise the REAL CombatSystem path:
-// CombatSystem.ApplyArmorDamageReduction → CalculateTotalArmorClass →
-// CalculateArmorClassContribution (formula = base_armor + Endurance/divisor),
-// then `final = damage - AC / ArmorPhysicalReductionDivisor`, floor 1.
-//
-// Replaces the placebo internal/character/armor_damage_test.go which used a
-// hand-rolled `ApplyArmorDamageReduction` defined inside the test file and
-// only ever verified its own implementation.
+// Armor mitigation tests — exercise the REAL CombatSystem path:
+// CalculateTotalArmorClass → armorMitigationPct (% with diminishing returns,
+// capped 75% physical / 33% elemental) → mitigateCharacterDamage pipeline
+// (armor % → resist % → flat buff → floor; 100% resist = immune).
 
 import (
 	"testing"
@@ -37,59 +33,53 @@ func equipArmorPieces(t *testing.T, char *character.MMCharacter, keys ...string)
 	}
 }
 
-func TestApplyArmorDamageReduction_NoArmor_NoReduction(t *testing.T) {
+func TestArmorMitigationPct_NoArmor(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
-	// Fresh character has no armor equipped.
-	for _, damage := range []int{1, 10, 100} {
-		got := cs.ApplyArmorDamageReduction(damage, char)
-		if got != damage {
-			t.Errorf("no-armor damage %d: got %d, want %d (untouched)", damage, got, damage)
-		}
+	if mit := cs.armorMitigationPct(char, true); mit != 0 {
+		t.Errorf("no-armor physical mitigation: got %d%%, want 0", mit)
+	}
+	if mit := cs.armorMitigationPct(char, false); mit != 0 {
+		t.Errorf("no-armor elemental mitigation: got %d%%, want 0", mit)
 	}
 }
 
-func TestApplyArmorDamageReduction_LeatherArmorReducesBy_AC_over_Divisor(t *testing.T) {
+func TestArmorMitigationPct_FormulaAndCaps(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
-	// leather_armor (items.yaml): armor_class_base 2, endurance_scaling_divisor 5
-	// Knight starter already has Leather skill via party setup; if not, the
-	// helper will fail fast and tell us.
 	equipArmorPieces(t, char, "leather_armor")
-
-	expectedAC := cs.CalculateTotalArmorClass(char)
-	if expectedAC <= 0 {
-		t.Fatalf("expected positive AC after equipping leather armor, got %d", expectedAC)
+	ac := cs.CalculateTotalArmorClass(char)
+	if ac <= 0 {
+		t.Fatalf("expected positive AC after leather armor, got %d", ac)
 	}
-	wantReduction := expectedAC / ArmorPhysicalReductionDivisor
-
-	for _, damage := range []int{20, 50, 100} {
-		got := cs.ApplyArmorDamageReduction(damage, char)
-		want := damage - wantReduction
-		if want < 1 {
-			want = 1
-		}
-		if got != want {
-			t.Errorf("damage %d with AC %d: got %d, want %d (AC/%d = %d)",
-				damage, expectedAC, got, want, ArmorPhysicalReductionDivisor, wantReduction)
-		}
+	wantPhys := 100 * ac / (ac + ArmorMitigationK)
+	if wantPhys > ArmorPhysicalMitigationCap {
+		wantPhys = ArmorPhysicalMitigationCap
+	}
+	// Elemental is the physical curve scaled to reach 33% when physical reaches 75%.
+	wantElem := wantPhys * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
+	if got := cs.armorMitigationPct(char, true); got != wantPhys {
+		t.Errorf("physical mit: got %d%%, want %d%% (AC %d, K %d)", got, wantPhys, ac, ArmorMitigationK)
+	}
+	if got := cs.armorMitigationPct(char, false); got != wantElem {
+		t.Errorf("elemental mit: got %d%%, want %d%% (scaled to cap %d)", got, wantElem, ArmorElementalMitigationCap)
 	}
 }
 
-func TestApplyArmorDamageReduction_FloorsAt1(t *testing.T) {
+func TestMitigateCharacterDamage_FloorsAt1(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
-	// Stack the heaviest armor we have to push AC up; even if total AC
-	// exceeds damage*2, final damage must clamp at 1.
+	// Capped armor (≤75%) can never fully negate without 100% resist, so a tiny
+	// physical hit always chips at least 1.
 	equipArmorPieces(t, char, "leather_armor", "leather_helmet", "leather_pants")
-
-	got := cs.ApplyArmorDamageReduction(1, char)
-	if got != 1 {
-		t.Errorf("incoming 1 damage with heavy armor: got %d, want 1 (floor)", got)
+	if got := cs.mitigateCharacterDamage(1, "physical", char, false); got != 1 {
+		t.Errorf("incoming 1 physical damage with armor: got %d, want 1 (floor)", got)
 	}
 }
 
-func TestApplyArmorDamageReduction_MultiSlotIsAdditive(t *testing.T) {
+// Total Armor Class aggregates additively across every equipped armor slot, so
+// the percentage mitigation derived from it grows with each piece.
+func TestTotalArmorClass_MultiSlotIsAdditive(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
@@ -201,8 +191,8 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 		if tc.stoneSkin {
 			cast(t, cs, "stone_skin")
 			buff, ok := game.combatBuffByID("stone_skin")
-			if !ok || buff.InReduce != 6 {
-				t.Fatalf("Stone Skin cast registered %+v (ok=%v), want incoming reduction 6", buff, ok)
+			if !ok || buff.InReduce != 4 {
+				t.Fatalf("Stone Skin cast registered %+v (ok=%v), want incoming reduction 4", buff, ok)
 			}
 		}
 
@@ -258,9 +248,14 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 	for name, tc := range tests {
 		got := results[name]
 		for raw := 24; raw <= 38; raw++ {
-			want := raw - got.armorClass/ArmorPhysicalReductionDivisor
+			// Mirror mitigateCharacterDamage: armor % (capped 75) → flat buff → floor.
+			mit := 100 * got.armorClass / (got.armorClass + ArmorMitigationK)
+			if mit > ArmorPhysicalMitigationCap {
+				mit = ArmorPhysicalMitigationCap
+			}
+			want := raw * (100 - mit) / 100
 			if tc.stoneSkin {
-				want -= 6
+				want -= 4
 			}
 			if want < 1 {
 				want = 1
@@ -283,8 +278,8 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 			results["full chain"].armorClass,
 			results["full plate"].armorClass)
 	}
-	if results["full plate + bless"].effectiveEnd != results["full plate"].effectiveEnd+10 {
-		t.Errorf("Bless did not add 10 effective Endurance: plate=%d blessed=%d",
+	if results["full plate + bless"].effectiveEnd != results["full plate"].effectiveEnd+5 {
+		t.Errorf("Bless did not add 5 effective Endurance: plate=%d blessed=%d",
 			results["full plate"].effectiveEnd, results["full plate + bless"].effectiveEnd)
 	}
 	if results["full plate + bless"].armorClass <= results["full plate"].armorClass {

@@ -76,6 +76,92 @@ func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
 }
 
+// TestNextPathStepTile_RoutesAroundBarrier guards the turn-based fix: a mob
+// separated from the party by a long barrier (a river) with a single gap (the
+// bridge/ford) must ROUTE through the gap, not oscillate at the bank. Stepping
+// one A* tile per "turn" must reach the target instead of getting stuck — which
+// is what let the player range a stranded gorilla down for free.
+func TestNextPathStepTile_RoutesAroundBarrier(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	// Vertical wall at column 3 (rows 0..8) with one gap at row 4 = the bridge.
+	for y := 0; y <= 8; y++ {
+		if y == 4 {
+			continue
+		}
+		checker.BlockTile(3, y)
+	}
+	sx, sy := tileToWorldCenter(1, 2)
+	m := &Monster3D{X: sx, Y: sy, Speed: 1.5}
+	targetX, targetY := tileToWorldCenter(5, 2)
+	tgtTX, tgtTY := worldToTile(targetX), worldToTile(targetY)
+
+	chebyshev := func() int {
+		dx := worldToTile(m.X) - tgtTX
+		dy := worldToTile(m.Y) - tgtTY
+		adx := int(math.Abs(float64(dx)))
+		ady := int(math.Abs(float64(dy)))
+		if ady > adx {
+			return ady
+		}
+		return adx
+	}
+
+	const maxSteps = 40
+	steps := 0
+	for ; steps < maxSteps && chebyshev() > 1; steps++ {
+		nx, ny, ok := m.NextPathStepTile(checker, targetX, targetY)
+		if !ok {
+			t.Fatalf("step %d: no A* path to the target across the barrier", steps)
+		}
+		curTX, curTY := worldToTile(m.X), worldToTile(m.Y)
+		if d := math.Abs(float64(nx-curTX)) + math.Abs(float64(ny-curTY)); d != 1 {
+			t.Fatalf("step %d: non-cardinal step from (%d,%d) to (%d,%d)", steps, curTX, curTY, nx, ny)
+		}
+		wx, wy := tileToWorldCenter(nx, ny)
+		if !checker.CanMoveToWithHabitat("m", wx, wy, nil, false) {
+			t.Fatalf("step %d: routed into a blocked tile (%d,%d)", steps, nx, ny)
+		}
+		m.X, m.Y = wx, wy
+	}
+	if chebyshev() > 1 {
+		t.Fatalf("monster never reached the target (stuck/oscillating at the bank); final Chebyshev=%d after %d steps", chebyshev(), steps)
+	}
+	t.Logf("reached target-adjacent in %d steps via the gap", steps)
+}
+
+// A relentlessHunter (an aggressive boss OR a revenge-rallied non-boss, e.g. the
+// Amazons after their Warlord dies) must get the WIDENED A* window/budget, not
+// just the relentless gate — else it can't route to the party across a big map.
+// The only gap is beyond a normal mob's window: a normal mob can't reach it, but
+// both BossAggro and Relentless can. Guards that the budget widening uses the
+// shared relentlessHunter() predicate, not BossAggro alone.
+func TestNextPathStepTile_RelentlessWidensWindow(t *testing.T) {
+	makeChecker := func() *MockCollisionChecker {
+		c := NewMockCollisionChecker(defaultTileSize)
+		for y := 12; y <= 40; y++ {
+			c.BlockTile(3, y) // wall at column 3; the ONLY gap is row 11
+		}
+		return c
+	}
+	sx, sy := tileToWorldCenter(1, 20)
+	targetX, targetY := tileToWorldCenter(5, 20) // close in X, but the gap (row 11) is ~9 rows away
+
+	// Normal mob: window padding ~8 around row 20 → can't see the row-11 gap.
+	normal := &Monster3D{X: sx, Y: sy, Speed: 1.5}
+	if _, _, ok := normal.NextPathStepTile(makeChecker(), targetX, targetY); ok {
+		t.Fatal("control: a normal mob must NOT route to a gap beyond its A* window (test would be vacuous)")
+	}
+	// Both flavours of relentless pursuit get the map-wide window → route to the gap.
+	for _, m := range []*Monster3D{
+		{X: sx, Y: sy, Speed: 1.5, Relentless: true},
+		{X: sx, Y: sy, Speed: 1.5, BossAggro: true},
+	} {
+		if _, _, ok := m.NextPathStepTile(makeChecker(), targetX, targetY); !ok {
+			t.Fatalf("relentless hunter (relentless=%v boss=%v) must path map-wide to the far gap", m.Relentless, m.BossAggro)
+		}
+	}
+}
+
 // TestMonsterPathMovementBasic tests that a monster can move in open terrain using pathfinding
 func TestMonsterPathMovementBasic(t *testing.T) {
 	// Create a monster at tile center (32, 32) - center of tile (0, 0)
@@ -698,6 +784,43 @@ func TestMonsterEngagesWhenHitFromLongRange(t *testing.T) {
 	}
 }
 
+// A sealed/dormant boss (BossDormant set) is fully inert: even with the party
+// point-blank it never moves, never patrols, never engages — it holds its throne.
+// Clearing the flag (its quest unseals it) lets the normal AI run again.
+// Regression: the sealed Samurai Warlord wandered off his throne because
+// updateBoss froze only his ATTACK while the separate movement path kept
+// patrolling him away — the attack-only test stayed green through the bug.
+func TestDormantBossHoldsPosition(t *testing.T) {
+	checker := NewMockCollisionChecker(64.0) // nothing blocked → free to wander if not frozen
+	m := createTestMonster(320.0, 320.0)
+	m.BossDormant = true
+	playerX, playerY := 384.0, 320.0 // one tile east, well inside alert radius
+
+	for i := 0; i < 600; i++ {
+		m.Update(checker, playerX, playerY)
+	}
+	if m.X != 320.0 || m.Y != 320.0 {
+		t.Errorf("dormant boss moved to (%.1f,%.1f); must hold spawn (320,320)", m.X, m.Y)
+	}
+	if m.StateTimer != 0 {
+		t.Errorf("dormant boss ran its AI (StateTimer=%d); Update must early-return", m.StateTimer)
+	}
+	if m.State != StateIdle || m.IsEngagingPlayer {
+		t.Errorf("dormant boss changed state (state=%v engaging=%v); must stay inert", m.State, m.IsEngagingPlayer)
+	}
+
+	// Unseal (quest complete → flag cleared): the AI body runs again. An engaged
+	// boss sitting in idle must now snap out of it (cf. TestEngagedMonsterLeavesPatrolState),
+	// which it can only do if Update no longer early-returns.
+	m.BossDormant = false
+	m.IsEngagingPlayer = true
+	m.WasAttacked = true
+	m.Update(checker, playerX, playerY)
+	if m.State == StateIdle {
+		t.Error("once unsealed, Update must run the AI again (engaged boss should leave idle)")
+	}
+}
+
 // TestMonsterStaysEngagedAfterBeingHit tests that monster doesn't disengage after being hit
 func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 	m := createTestMonster(100.0, 100.0)
@@ -895,13 +1018,13 @@ func TestBossAggroPathsAroundLongDetour(t *testing.T) {
 // "dead zone" where the party out-reaches the mob but it never closes in).
 func TestAttacking_RepursuesWhenTargetLeavesReach(t *testing.T) {
 	inReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
-	inReach.updateAttacking(140, 100) // 40px < 64 reach
+	inReach.updateAttacking(nil, 140, 100) // 40px < 64 reach
 	if inReach.State != StateAttacking {
 		t.Errorf("target in reach: should keep attacking, got %v", inReach.State)
 	}
 
 	outOfReach := &Monster3D{X: 100, Y: 100, State: StateAttacking, IsEngagingPlayer: true, AttackRadius: 64, StateTimer: 1}
-	outOfReach.updateAttacking(300, 100) // 200px > 64 reach
+	outOfReach.updateAttacking(nil, 300, 100) // 200px > 64 reach
 	if outOfReach.State != StatePursuing {
 		t.Errorf("target out of reach: should resume pursuit, got %v", outOfReach.State)
 	}

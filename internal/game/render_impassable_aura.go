@@ -96,6 +96,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				clampColor(int(float64(base[1]) * auraColorBoost)),
 				clampColor(int(float64(base[2]) * auraColorBoost)),
 			}
+			r.statAuraTiles++
 			for _, d := range dirs {
 				if r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
 					continue // edge faces another blocker → interior, skip

@@ -26,8 +26,9 @@ const DefaultSavePath = "savegame.json"
 // slotPath returns a filename for a numbered save slot (0-based index)
 func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
 
-// mainMenuOptions defines the visible options in the ESC menu
-var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Exit"}
+// mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
+// returns to the title screen (not a full app quit — that's the title's "Quit").
+var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
@@ -57,6 +58,7 @@ type GameSave struct {
 	TurnBasedRotCooldown  int  `json:"turn_based_rot_cooldown,omitempty"`
 	MonsterTurnResolved   bool `json:"monster_turn_resolved,omitempty"`
 	TurnBasedSpRegenCount int  `json:"turn_based_sp_regen_count,omitempty"`
+	ExtraMonsterAction    bool `json:"extra_monster_action,omitempty"`
 
 	// Utility/buff state
 	TorchLightActive       bool             `json:"torch_light_active,omitempty"`
@@ -91,6 +93,7 @@ type QuestSave struct {
 	ID             string `json:"id"`
 	Status         string `json:"status"`
 	CurrentCount   int    `json:"current_count"`
+	DynamicTarget  int    `json:"dynamic_target,omitempty"`
 	RewardsClaimed bool   `json:"rewards_claimed"`
 }
 
@@ -126,7 +129,11 @@ type CharacterSave struct {
 	Skills                []SkillEntry       `json:"skills"`
 	MagicSchools          []MagicSchoolEntry `json:"magic_schools"`
 	Equipment             []EquipmentEntry   `json:"equipment"`
+	QuickSlots            []QuickSlotEntry   `json:"quick_slots,omitempty"`
 	PoisonFramesRemaining int                `json:"poison_frames_remaining,omitempty"`
+	BurnFramesRemaining   int                `json:"burn_frames_remaining,omitempty"`
+	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
@@ -162,6 +169,12 @@ type EquipmentEntry struct {
 	Item items.Item `json:"item"`
 }
 
+// QuickSlotEntry is one occupied quick slot (sparse: empty slots are omitted).
+type QuickSlotEntry struct {
+	Slot int        `json:"slot"`
+	Item items.Item `json:"item"`
+}
+
 // GroundContainerSave captures an on-floor reward container (loot bag or
 // treasure chest) for save/load. Kind drives the presentation defaults; the
 // rest of the fields are the runtime state.
@@ -178,6 +191,7 @@ type GroundContainerSave struct {
 }
 
 type MonsterSave struct {
+	ID                      string  `json:"id,omitempty"`
 	Key                     string  `json:"key"`
 	Name                    string  `json:"name"`
 	X                       float64 `json:"x"`
@@ -188,10 +202,17 @@ type MonsterSave struct {
 	Pacified                bool    `json:"pacified,omitempty"`
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
+	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
+	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
-	StunFramesRemaining int                  `json:"stun_frames_remaining,omitempty"`
-	StunTurnsRemaining  int                  `json:"stun_turns_remaining,omitempty"`
+	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
+	// Stun diminishing-returns chain — persisted so save/reload can't reset it
+	// and re-enable a full-strength perma-stun-lock (bosses included).
+	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
+	StunDRMemoryTurns   int                  `json:"stun_dr_memory_turns,omitempty"`
+	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
 	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
 	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
@@ -200,6 +221,8 @@ type MonsterSave struct {
 	BossCD              int                  `json:"boss_cd,omitempty"`
 	BossHurtPending     bool                 `json:"boss_hurt_pending,omitempty"`
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
+	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
+	SummonedBy          string               `json:"summoned_by,omitempty"`
 	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
@@ -226,6 +249,7 @@ type TreasureChestRewardSave struct {
 	Items             []string `json:"items,omitempty"`
 	Weapons           []string `json:"weapons,omitempty"`
 	Gold              int      `json:"gold,omitempty"`
+	LootTable         string   `json:"loot_table,omitempty"`
 	CompletionMessage string   `json:"completion_message,omitempty"`
 }
 
@@ -244,6 +268,7 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		Items:             append([]string(nil), reward.Items...),
 		Weapons:           append([]string(nil), reward.Weapons...),
 		Gold:              reward.Gold,
+		LootTable:         reward.LootTable,
 		CompletionMessage: reward.CompletionMessage,
 	}
 }
@@ -263,6 +288,7 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		Items:             append([]string(nil), save.Items...),
 		Weapons:           append([]string(nil), save.Weapons...),
 		Gold:              save.Gold,
+		LootTable:         save.LootTable,
 		CompletionMessage: save.CompletionMessage,
 	}
 }
@@ -315,13 +341,9 @@ func (g *MMGame) clearTransientCombatState() {
 		for i := range g.arrows {
 			g.collisionSystem.UnregisterEntity(g.arrows[i].ID)
 		}
-		for i := range g.meleeAttacks {
-			g.collisionSystem.UnregisterEntity(g.meleeAttacks[i].ID)
-		}
 	}
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.arrows = g.arrows[:0]
-	g.meleeAttacks = g.meleeAttacks[:0]
 	g.projectileMutex.Unlock()
 	g.slashEffects = g.slashEffects[:0]
 	g.hitEffectsMu.Lock()
@@ -522,7 +544,18 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		normalizeItemFromConfig(&item)
 		m.Equipment[items.EquipSlot(eq.Slot)] = item
 	}
+	for _, qs := range cs.QuickSlots {
+		if qs.Slot < 0 || qs.Slot >= character.QuickSlotCount {
+			continue
+		}
+		item := qs.Item
+		normalizeItemFromConfig(&item)
+		m.QuickSlots[qs.Slot] = &item
+	}
 	m.PoisonFramesRemaining = cs.PoisonFramesRemaining
+	m.BurnFramesRemaining = cs.BurnFramesRemaining
+	m.StunFramesRemaining = cs.StunFramesRemaining
+	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
 	return m
@@ -572,7 +605,15 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	for slot, item := range m.Equipment {
 		cs.Equipment = append(cs.Equipment, EquipmentEntry{Slot: int(slot), Item: item})
 	}
+	for i, item := range m.QuickSlots {
+		if item != nil {
+			cs.QuickSlots = append(cs.QuickSlots, QuickSlotEntry{Slot: i, Item: *item})
+		}
+	}
 	cs.PoisonFramesRemaining = m.PoisonFramesRemaining
+	cs.BurnFramesRemaining = m.BurnFramesRemaining
+	cs.StunFramesRemaining = m.StunFramesRemaining
+	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.RTCooldown = m.RTCooldown
 	return cs
@@ -634,21 +675,28 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
 			saveEntry := MonsterSave{
-				Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
+				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
-				WasAttacked:         mon.WasAttacked,
-				StunFramesRemaining: mon.StunFramesRemaining,
-				StunTurnsRemaining:  mon.StunTurnsRemaining,
-				RootFramesRemaining: mon.RootFramesRemaining,
-				RootTurnsRemaining:  mon.RootTurnsRemaining,
-				Pilfered:            mon.Pilfered,
-				PounceCDFrames:      mon.PounceCDFrames,
-				PounceCDTurns:       mon.PounceCDTurns,
-				BossCD:              mon.BossCD,
-				BossHurtPending:     mon.BossHurtPending,
-				BossLastHP:          mon.BossLastHP,
-				CrossfireCD:         mon.CrossfireCD,
+				WasAttacked:          mon.WasAttacked,
+				Relentless:           mon.Relentless,
+				QuestProgressIgnored: mon.QuestProgressIgnored,
+				StunFramesRemaining:  mon.StunFramesRemaining,
+				StunTurnsRemaining:   mon.StunTurnsRemaining,
+				StunDRStacks:         mon.StunDRStacks,
+				StunDRMemoryTurns:    mon.StunDRMemoryTurns,
+				StunDRMemoryFrames:   mon.StunDRMemoryFrames,
+				RootFramesRemaining:  mon.RootFramesRemaining,
+				RootTurnsRemaining:   mon.RootTurnsRemaining,
+				Pilfered:             mon.Pilfered,
+				PounceCDFrames:       mon.PounceCDFrames,
+				PounceCDTurns:        mon.PounceCDTurns,
+				BossCD:               mon.BossCD,
+				BossHurtPending:      mon.BossHurtPending,
+				BossLastHP:           mon.BossLastHP,
+				SummonFirstDone:      mon.SummonFirstDone,
+				SummonedBy:           mon.SummonedBy,
+				CrossfireCD:          mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -716,6 +764,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID:             quest.ID,
 				Status:         string(quest.Status),
 				CurrentCount:   quest.CurrentCount,
+				DynamicTarget:  quest.DynamicTarget,
 				RewardsClaimed: quest.RewardsClaimed,
 			})
 		}
@@ -756,6 +805,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		TurnBasedRotCooldown:  g.turnBasedRotCooldown,
 		MonsterTurnResolved:   g.monsterTurnResolved,
 		TurnBasedSpRegenCount: g.turnBasedSpRegenCount,
+		ExtraMonsterAction:    g.turnBasedExtraMonsterAction,
 		TorchLightActive:      g.torchLightActive,
 		TorchLightDuration:    g.torchLightDuration,
 		TorchLightRadius:      g.torchLightRadius,
@@ -846,7 +896,28 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore monsters (all loaded maps)
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
+		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
+		// radius) never legitimately moves while its quest is unfinished — it holds
+		// its map spawn. Saves written before the dormant-freeze fix captured it
+		// wandered off (e.g. the Samurai Warlord drifted off his throne), so on
+		// restore we snap any still-sealed boss back to its map spawn. Idempotent
+		// for correct saves (saved position already IS the spawn); once the quest
+		// completes the boss has gone aggressive and may have moved, so it keeps
+		// its saved position.
+		completedQuests := make(map[string]bool)
+		for _, q := range save.Quests {
+			if q.Status == string(quests.QuestStatusCompleted) {
+				completedQuests[q.ID] = true
+			}
+		}
 		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
+			sealedSpawn := make(map[string][2]float64)
+			for _, fresh := range w.Monsters {
+				if fresh != nil && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
+					!completedQuests[fresh.PassiveUntilQuest] {
+					sealedSpawn[fresh.Key] = [2]float64{fresh.X, fresh.Y}
+				}
+			}
 			w.Monsters = make([]*monster.Monster3D, 0, len(monsters))
 			for _, ms := range monsters {
 				key := ms.Key
@@ -856,7 +927,21 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				if key == "" {
 					continue
 				}
-				m := monster.NewMonster3DFromConfig(ms.X, ms.Y, key, g.config)
+				x, y := ms.X, ms.Y
+				if sp, ok := sealedSpawn[key]; ok {
+					x, y = sp[0], sp[1] // sealed boss → back to its throne
+				}
+				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
+				if ms.ID != "" {
+					m.ID = ms.ID
+				}
+				// Seal a dormant boss immediately. refreshBoundUndeadCache recomputes
+				// BossDormant every frame, but that runs AFTER input — so without this a
+				// player action on the first frame after load could damage a still-sealed
+				// boss before the flag is set. Uses the same completed-quest set as the
+				// throne snap-back above.
+				m.BossDormant = m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
+					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
@@ -864,6 +949,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.StunDRStacks = ms.StunDRStacks
+				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
+				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
 				m.RootFramesRemaining = ms.RootFramesRemaining
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
 				m.Pilfered = ms.Pilfered
@@ -872,7 +960,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossCD = ms.BossCD
 				m.BossHurtPending = ms.BossHurtPending
 				m.BossLastHP = ms.BossLastHP
+				m.SummonFirstDone = ms.SummonFirstDone
+				m.SummonedBy = ms.SummonedBy
 				m.CrossfireCD = ms.CrossfireCD
+				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live — restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -884,6 +975,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
 				m.WasAttacked = hostile
 				m.IsEngagingPlayer = hostile
+				// Patron-death revenge persists: a rallied human keeps hunting after reload.
+				if ms.Relentless {
+					m.Relentless = true
+					m.IsEngagingPlayer = true
+				}
 				if ms.IsEncounterMonster && ms.EncounterRewards != nil {
 					m.IsEncounterMonster = true
 					if ms.EncounterID > 0 {
@@ -899,6 +995,24 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					}
 				}
 				w.Monsters = append(w.Monsters, m)
+			}
+			// Idol-ward immediately at restore. Unlike BossDormant (per-monster
+			// above), it's cross-monster — it counts the live idols on THIS map — so
+			// it must run after the loop. Same first-frame reason: refreshBoundUndead-
+			// Cache recomputes it every frame but runs AFTER input, so without this the
+			// warded boss would be hittable on the first frame after a load.
+			liveIdols := 0
+			for _, mm := range w.Monsters {
+				if mm != nil && mm.WarlordIdol && mm.IsAlive() {
+					liveIdols++
+				}
+			}
+			if liveIdols > 0 {
+				for _, mm := range w.Monsters {
+					if mm != nil && mm.WardedByIdols {
+						mm.BossWarded = true
+					}
+				}
 			}
 		}
 
@@ -959,6 +1073,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.turnBasedRotCooldown = save.TurnBasedRotCooldown
 	g.monsterTurnResolved = save.MonsterTurnResolved
 	g.turnBasedSpRegenCount = save.TurnBasedSpRegenCount
+	g.turnBasedExtraMonsterAction = save.ExtraMonsterAction
 
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
@@ -1081,7 +1196,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	if g.questManager != nil {
 		g.questManager.Reset()
 		for _, qs := range save.Quests {
-			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
+			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
 		// Re-apply world changes of completed quests — maps reload pristine from
 		// disk, so e.g. the wolf-cull bridge must be laid again.

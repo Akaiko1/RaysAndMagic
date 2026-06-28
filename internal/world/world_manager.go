@@ -77,6 +77,20 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 		}
 	}
 
+	// Fail fast: a biome's out_of_bounds_tile (off-map backdrop) must name a real
+	// tile — otherwise GetTileAt silently falls back to "seaview" and the data
+	// typo goes unnoticed.
+	if GlobalTileManager != nil {
+		for name, biome := range wm.Biomes {
+			if biome.OutOfBoundsTile == "" {
+				continue
+			}
+			if _, ok := GlobalTileManager.GetTileTypeFromKey(biome.OutOfBoundsTile); !ok {
+				return fmt.Errorf("biome %q out_of_bounds_tile %q is not a defined tile", name, biome.OutOfBoundsTile)
+			}
+		}
+	}
+
 	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
 	// named group must be defined by at least one biome (we don't require
 	// every biome to define it — universal tiles like water legitimately
@@ -184,6 +198,11 @@ func (wm *WorldManager) loadSingleMap(mapKey string, mapConfig *config.MapConfig
 	world.StartX = mapData.StartX
 	world.StartY = mapData.StartY
 	world.Tiles = mapData.Tiles
+
+	// Per-biome off-map backdrop wall (defaults to "seaview" set in NewWorld3D).
+	if biome, ok := wm.Biomes[mapConfig.Biome]; ok && biome.OutOfBoundsTile != "" {
+		world.OutOfBoundsKey = biome.OutOfBoundsTile
+	}
 
 	// Load NPCs from map data
 	world.loadNPCsFromMapData(mapData.NPCSpawns)
@@ -312,6 +331,7 @@ func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapK
 		Items:             append([]string(nil), chestCfg.Items...),
 		Weapons:           append([]string(nil), chestCfg.Weapons...),
 		Gold:              chestCfg.Gold,
+		LootTable:         chestCfg.LootTable,
 		CompletionMessage: chestCfg.CompletionMessage,
 	}
 }

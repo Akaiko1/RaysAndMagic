@@ -8,11 +8,11 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/highscore"
+	"ugataima/internal/items"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -20,9 +20,6 @@ type statMeta struct {
 	Name string
 	Ptr  *int
 }
-
-// MaxStatValue is the maximum base stat value a character can have
-const MaxStatValue = 99
 
 // statHoldInitialDelay — frames the user has to hold the mouse on a +button
 // before hold-to-repeat starts firing. Configured for the game's 120 TPS so
@@ -37,7 +34,7 @@ const (
 
 // drawStatPointRow draws a single stat row with name, value, and + button
 func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr *int, y, plusX, plusY, btnW, btnH int, canAdd, isHover *bool, clickIn bool) bool {
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
+	drawDebugText(screen, fmt.Sprintf("%s: %d", name, *valuePtr), plusX-148, y)
 
 	// Check if stat is already at max (99)
 	atMax := *valuePtr >= MaxStatValue
@@ -90,9 +87,9 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, borderThickness, borderCol)
 
 	// Title
-	ebitenutil.DebugPrintAt(screen, "Distribute Stat Points", popupX+16, popupY+16)
-	ebitenutil.DebugPrintAt(screen, "Points left:", popupX+16, popupY+44)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", member.FreeStatPoints), popupX+120, popupY+44)
+	drawDebugText(screen, "Distribute Stat Points", popupX+16, popupY+16)
+	drawDebugText(screen, "Points left:", popupX+16, popupY+44)
+	drawDebugText(screen, fmt.Sprintf("%d", member.FreeStatPoints), popupX+120, popupY+44)
 
 	// Stat list
 	statList := []statMeta{
@@ -199,8 +196,8 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
 
-	ebitenutil.DebugPrintAt(screen, "Revive Whom?", popupX+16, popupY+16)
-	ebitenutil.DebugPrintAt(screen, "Click a fallen party member.", popupX+16, popupY+36)
+	drawDebugText(screen, "Revive Whom?", popupX+16, popupY+16)
+	drawDebugText(screen, "Click a fallen party member.", popupX+16, popupY+36)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	startY := popupY + 64
@@ -217,7 +214,7 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 		if member.HasCondition(character.ConditionDead) {
 			status = "Dead"
 		}
-		ebitenutil.DebugPrintAt(screen,
+		drawDebugText(screen,
 			fmt.Sprintf("%d) %s — %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints),
 			popupX+24, y+6)
 
@@ -266,10 +263,10 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
-	ebitenutil.DebugPrintAt(screen, "Tavern — Manage Roster", popupX+16, popupY+14)
-	ebitenutil.DebugPrintAt(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
-	ebitenutil.DebugPrintAt(screen, "Active Party", leftX, listY-16)
-	ebitenutil.DebugPrintAt(screen, "Reserve (tavern)", rightX, listY-16)
+	drawDebugText(screen, "Tavern — Manage Roster", popupX+16, popupY+14)
+	drawDebugText(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
+	drawDebugText(screen, "Active Party", leftX, listY-16)
+	drawDebugText(screen, "Reserve (tavern)", rightX, listY-16)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	label := func(m *character.MMCharacter) string {
@@ -289,7 +286,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		} else if hover {
 			drawFilledRect(screen, leftX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
-		ebitenutil.DebugPrintAt(screen, label(m), leftX+6, y+6)
+		drawDebugText(screen, label(m), leftX+6, y+6)
 		if hover && g.consumeLeftClickIn(leftX, y-2, leftX+colW, y-2+rowH) {
 			g.rosterSelectedActive = i
 		}
@@ -302,7 +299,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		if hover {
 			drawFilledRect(screen, rightX, y-2, colW, rowH, color.RGBA{60, 120, 180, 180})
 		}
-		ebitenutil.DebugPrintAt(screen, label(m), rightX+6, y+6)
+		drawDebugText(screen, label(m), rightX+6, y+6)
 		if hover && g.consumeLeftClickIn(rightX, y-2, rightX+colW, y-2+rowH) {
 			if g.rosterSelectedActive >= 0 {
 				g.swapRosterMember(g.rosterSelectedActive, j)
@@ -311,7 +308,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		}
 	}
 	if len(g.party.Reserve) == 0 {
-		ebitenutil.DebugPrintAt(screen, "(no benched heroes yet)", rightX+6, listY+6)
+		drawDebugText(screen, "(no benched heroes yet)", rightX+6, listY+6)
 	}
 
 	// Close button
@@ -361,8 +358,8 @@ func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
 
-	ebitenutil.DebugPrintAt(screen, title, popupX+16, popupY+16)
-	ebitenutil.DebugPrintAt(screen, "Click a party member.", popupX+16, popupY+36)
+	drawDebugText(screen, title, popupX+16, popupY+16)
+	drawDebugText(screen, "Click a party member.", popupX+16, popupY+36)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	startY := popupY + 64
@@ -373,7 +370,7 @@ func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 		if isHover {
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
-		ebitenutil.DebugPrintAt(screen,
+		drawDebugText(screen,
 			fmt.Sprintf("%d) %s the %s (Lv.%d)", idx+1, member.Name, member.Class.String(), member.Level),
 			popupX+24, y+6)
 		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
@@ -409,11 +406,11 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 	if title == "" {
 		title = "Level Up Choice"
 	}
-	ebitenutil.DebugPrintAt(screen, title, popupX+16, popupY+16)
+	drawDebugText(screen, title, popupX+16, popupY+16)
 	if req.isMultiSelect() {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s: choose %d (%d selected)", member.Name, req.maxSelections, req.selectedCount()), popupX+16, popupY+36)
+		drawDebugText(screen, fmt.Sprintf("%s: choose %d (%d selected)", member.Name, req.maxSelections, req.selectedCount()), popupX+16, popupY+36)
 	} else {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
+		drawDebugText(screen, fmt.Sprintf("%s reached level %d", member.Name, req.level), popupX+16, popupY+36)
 	}
 
 	for i, option := range req.options {
@@ -436,7 +433,7 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			}
 			drawColoredTextSegments(screen, popupX+40, y, segments)
 		} else {
-			ebitenutil.DebugPrintAt(screen, option.label, popupX+40, y)
+			drawDebugText(screen, option.label, popupX+40, y)
 		}
 
 		if isMouseHoveringBox(mouseX, mouseY, popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
@@ -450,11 +447,16 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 				tooltip = magicMasteryTooltipText()
 			}
 			if tooltip != "" {
-				icon := ""
+				lines := strings.Split(tooltip, "\n")
 				if strings.ToLower(option.choice.Type) == "spell" {
-					icon = spellTooltipIconName(option.spellID)
+					plate := color.Color(nil)
+					if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+						plate = schoolPlateColor(def.School)
+					}
+					ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
+				} else {
+					ui.queueTooltipIcon(lines, "", mouseX+16, mouseY+8)
 				}
-				ui.queueTooltipIcon(strings.Split(tooltip, "\n"), icon, mouseX+16, mouseY+8)
 			}
 		}
 	}
@@ -471,9 +473,9 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			drawFilledRect(screen, popupX+16, cy-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawDebugTextColored(screen, "Confirm", popupX+40, cy, confirmCol)
-		ebitenutil.DebugPrintAt(screen, "↑/↓ move · Space toggles · Enter confirms", popupX+16, popupY+popupH-22)
+		drawDebugText(screen, "↑/↓ move · Space toggles · Enter confirms", popupX+16, popupY+popupH-22)
 	} else {
-		ebitenutil.DebugPrintAt(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
+		drawDebugText(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
 	}
 }
 
@@ -522,7 +524,7 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 
 	// Draw title
 	titleText := npc.Name
-	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
 
 	ui.drawDialogueChoicesBody(screen, npc, dialogX, dialogY+50, dialogWidth)
 }
@@ -538,18 +540,18 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	// concluded) — see npcDialogueText.
 	lines := ui.wrapText(ui.game.npcDialogueText(npc), dialogueWrapColumns)
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, dialogX+20, textY+i*dialogueLineHeight)
+		drawDebugText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
 	}
 
 	// Only the choices valid in this state (give_quest while offering,
 	// turn_in_quest once completed, etc.) — same list the input handler acts on.
 	choices := ui.game.visibleNPCChoices(npc)
 	if len(choices) == 0 {
-		ebitenutil.DebugPrintAt(screen, "Press ESC to leave.", dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+		drawDebugText(screen, "Press ESC to leave.", dialogX+20, textY+len(lines)*dialogueLineHeight+20)
 		return
 	}
 	if npc.DialogueData.ChoicePrompt != "" {
-		ebitenutil.DebugPrintAt(screen, npc.DialogueData.ChoicePrompt, dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+		drawDebugText(screen, npc.DialogueData.ChoicePrompt, dialogX+20, textY+len(lines)*dialogueLineHeight+20)
 	}
 	dialogY := textY - dialogueBodyTextY
 	for i, choice := range choices {
@@ -558,9 +560,14 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 		if i == ui.game.selectedChoice {
 			drawFilledRect(screen, x, y, w, h, color.RGBA{100, 100, 0, 128})
 		}
-		ebitenutil.DebugPrintAt(screen, choiceText, x+5, y+2)
+		drawDebugText(screen, choiceText, x+5, y+2)
 	}
 }
+
+// tabGreetingWrapColumns wraps the greeting on tab-style dialogs (spell trader,
+// merchant, skill trainer) to the box width. Keep these greetings to <=2 lines:
+// the portrait strip sits at dialogY+78, just below a two-line greeting.
+const tabGreetingWrapColumns = 78
 
 // Spell-trader layout constants.
 const (
@@ -569,7 +576,19 @@ const (
 	spellTraderIconSize     = 48
 	spellTraderIconGap      = 10
 	spellTraderGridCols     = 6
+	// Portrait strip sits this far below the dialog top — low enough that a
+	// two-line greeting clears the selected-character frame above it.
+	spellTraderPortraitTop = 92
+	// Two icon rows per page is the most that fits between the grid top and the
+	// instructions without overlapping; the rest paginate.
+	spellTraderGridRows = 2
+	spellTraderPerPage  = spellTraderGridCols * spellTraderGridRows
 )
+
+// spellTraderGridTop is the Y of the spell icon grid (just below the portraits).
+func spellTraderGridTop(dialogY int) int {
+	return dialogY + spellTraderPortraitTop + spellTraderPortraitSize + 32
+}
 
 // spellTraderPortraitRect returns the screen rect for the i-th party
 // portrait in the spell-trader dialog.
@@ -577,18 +596,21 @@ func spellTraderPortraitRect(dialogX, dialogY, i int) (x, y, w, h int) {
 	stripW := 4*spellTraderPortraitSize + 3*spellTraderPortraitGap
 	startX := dialogX + (600-stripW)/2
 	return startX + i*(spellTraderPortraitSize+spellTraderPortraitGap),
-		dialogY + 78,
+		dialogY + spellTraderPortraitTop,
 		spellTraderPortraitSize,
 		spellTraderPortraitSize
 }
 
-// spellTraderIconRect returns the screen rect for the i-th spell icon.
-func spellTraderIconRect(dialogX, dialogY, i int) (x, y, w, h int) {
+// spellTraderIconRect returns the screen rect for the spell icon in page-slot
+// `slot` (0..spellTraderPerPage-1) — NOT the global spell index. Renderer and
+// input both map page*perPage+slot to the global spell, so the grid only ever
+// shows one page's worth and click rects line up with what's drawn.
+func spellTraderIconRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
 	startX := dialogX + (600-gridW)/2
-	gridY := dialogY + 78 + spellTraderPortraitSize + 32
-	row := i / spellTraderGridCols
-	col := i % spellTraderGridCols
+	gridY := spellTraderGridTop(dialogY)
+	row := slot / spellTraderGridCols
+	col := slot % spellTraderGridCols
 	cellH := spellTraderIconSize + 14 // icon + cost line
 	return startX + col*(spellTraderIconSize+spellTraderIconGap),
 		gridY + row*(cellH+8),
@@ -596,11 +618,17 @@ func spellTraderIconRect(dialogX, dialogY, i int) (x, y, w, h int) {
 		spellTraderIconSize
 }
 
+// spellTraderPagerY is the Y of the page nav row (below the two icon rows).
+func spellTraderPagerY(dialogY int) int {
+	cellH := spellTraderIconSize + 14
+	return spellTraderGridTop(dialogY) + spellTraderGridRows*(cellH+8) + 4
+}
+
 // drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
 // portrait strip at top, icon grid for spells below, tooltip on hover.
 func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
-	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
 
 	// Quest-giving traders carry a second tab: clickable folder tabs along the
 	// dialog's top edge (same sprites as the party menu); Tab key also switches
@@ -633,10 +661,14 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greetingText = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	ebitenutil.DebugPrintAt(screen, greetingText, dialogX+20, dialogY+44)
+	// Wrap so a long greeting never spills past the box; the portrait strip
+	// below (dialogY+78) leaves room for two lines.
+	for i, line := range ui.wrapText(greetingText, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
 
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-	ebitenutil.DebugPrintAt(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
+	drawDebugText(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
 
 	// Portrait strip — click to switch active character.
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -647,10 +679,10 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		} else if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{120, 120, 160, 200})
 		}
-		portrait := ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member))
-		drawImageScaled(screen, portrait, x, y, w, h)
+		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
-		drawCenteredDebugText(screen, label, x-8, y+h+2, w+16, debugTextCharHeight)
+		// +6 (not +2) so the label clears the selection frame's bottom edge (y+h+3).
+		drawCenteredDebugText(screen, label, x-8, y+h+6, w+16, debugTextCharHeight)
 	}
 
 	// Spell icon grid.
@@ -660,9 +692,20 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		selectedChar = ui.game.party.Members[ui.game.selectedCharIdx]
 	}
 
+	// Paginate: only the current page's icons are drawn (two rows), the rest
+	// reached via the pager below — so the grid never runs into the instructions.
+	pages := pageCount(len(spellKeys), spellTraderPerPage)
+	clampPage(&ui.game.spellTraderPage, pages)
+	pageStart := ui.game.spellTraderPage * spellTraderPerPage
+
 	var hoverSpellIdx = -1
-	for i, spellKey := range spellKeys {
-		x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+	for slot := 0; slot < spellTraderPerPage; slot++ {
+		i := pageStart + slot
+		if i >= len(spellKeys) {
+			break
+		}
+		spellKey := spellKeys[i]
+		x, y, w, h := spellTraderIconRect(dialogX, dialogY, slot)
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 
 		// Determine status for the selected character.
@@ -690,9 +733,9 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 			drawCenteredDebugText(screen, spellInitials(npcSpell.Name), x, y, w, h)
 		}
 
-		// Cost under icon.
+		// Cost under icon (+6 clears the icon's selection frame at y+h+3).
 		costText := fmt.Sprintf("%d g", npcSpell.Cost)
-		drawCenteredDebugText(screen, costText, x-4, y+h+2, w+8, debugTextCharHeight)
+		drawCenteredDebugText(screen, costText, x-4, y+h+6, w+8, debugTextCharHeight)
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -723,11 +766,21 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}
 
-	// Instructions.
-	instructionsY := dialogY + dialogHeight - 60
-	ebitenutil.DebugPrintAt(screen, "Click portrait: select character  |  Hover spell: details", dialogX+20, instructionsY)
-	ebitenutil.DebugPrintAt(screen, "Click spell: select  |  Double-click: purchase  |  ESC: close", dialogX+20, instructionsY+15)
-	ebitenutil.DebugPrintAt(screen, "Gold frame: selected | Green: can learn | Red: cannot | Gray: known", dialogX+20, instructionsY+30)
+	// Page nav (only renders when there's more than one page).
+	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
+	if ui.drawPager(screen, dialogX+(600-gridW)/2, spellTraderPagerY(dialogY), gridW, &ui.game.spellTraderPage, pages, true) {
+		// Page changed: move the selection onto the new page so a keyboard
+		// purchase (Enter) can't buy a now-hidden spell from the previous page.
+		if first := ui.game.spellTraderPage * spellTraderPerPage; first < len(spellKeys) {
+			ui.game.dialogSelectedSpell = first
+			ui.game.selectedSpellKey = spellKeys[first]
+		}
+	}
+
+	// Instructions (two condensed lines).
+	instructionsY := dialogY + dialogHeight - 38
+	drawDebugText(screen, "Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", dialogX+20, instructionsY)
+	drawDebugText(screen, "Gold=selected   Green=learnable   Red=cannot   Gray=known   |   Hover: details", dialogX+20, instructionsY+15)
 }
 
 // Skill-trainer layout.
@@ -740,7 +793,7 @@ func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h 
 	stripW := 4*skillTrainerPortraitSize + 3*skillTrainerPortraitGap
 	startX := dialogX + (dialogWidth-stripW)/2
 	return startX + i*(skillTrainerPortraitSize+skillTrainerPortraitGap),
-		dialogY + 120,
+		dialogY + 128,
 		skillTrainerPortraitSize,
 		skillTrainerPortraitSize
 }
@@ -759,14 +812,16 @@ func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, 
 
 func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	titleText := fmt.Sprintf("Mastery Trainer - %s", ui.game.dialogNPC.Name)
-	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
 
 	greeting := "Choose a character to view trainable masteries."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+44)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
+	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
 
 	// Portrait row.
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -776,13 +831,14 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		if hover && !ui.game.skillTrainerPopup {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
 		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(ui.game.portraitSpriteName(member)), x, y, w, h)
-		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
-		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+20, w+16, debugTextCharHeight)
+		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
+		// +8/+24 keep both labels clear of the hover/selection frame (y+h+3).
+		drawCenteredDebugText(screen, member.Name, x-8, y+h+8, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+24, w+16, debugTextCharHeight)
 	}
 
 	instructionsY := dialogY + dialogHeight - 40
-	ebitenutil.DebugPrintAt(screen, "Click a portrait to view trainable masteries  |  ESC: close", dialogX+20, instructionsY)
+	drawDebugText(screen, "Click a portrait to view trainable masteries  |  ESC: close", dialogX+20, instructionsY)
 
 	// Modal popup on top when character was clicked.
 	if ui.game.skillTrainerPopup &&
@@ -800,7 +856,7 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 	member := ui.game.party.Members[ui.game.selectedCharIdx]
 	header := fmt.Sprintf("%s - Trainable Masteries", member.Name)
 	drawCenteredDebugText(screen, header, px, py+10, pw, 18)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d", ui.game.party.Gold), px+12, py+30)
+	drawDebugText(screen, fmt.Sprintf("Gold: %d", ui.game.party.Gold), px+12, py+30)
 
 	options := trainerOptions(member)
 	if len(options) == 0 {
@@ -821,11 +877,11 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 			if option.Cost > ui.game.party.Gold {
 				label += "  (Need Gold)"
 			}
-			ebitenutil.DebugPrintAt(screen, label, x+6, y)
+			drawDebugText(screen, label, x+6, y)
 		}
 	}
 
-	ebitenutil.DebugPrintAt(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
+	drawDebugText(screen, "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22)
 }
 
 // partyMerchantTier returns the best Merchant mastery tier among active members.
@@ -855,83 +911,131 @@ func (g *MMGame) merchantSellPrice(base int) int {
 	return base + base*g.partyMerchantTier()*MerchantPricePctPerTier/100
 }
 
-// drawMerchantDialog draws a buy/sell UI for merchant NPCs
+// drawMerchantDialog draws an icon-based buy/sell UI: a paginated stock grid on
+// the left, the party's inventory grid on the right, with a full item card on
+// hover. Click geometry is shared with the input handler via merchantGridLayout
+// / merchantCellRect, and the pager flips the page state on MMGame so both sides
+// agree.
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
-	// Title and greeting
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
-	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
 	greeting := "Bring your wares. I pay fair coin."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	ebitenutil.DebugPrintAt(screen, greeting, dialogX+20, dialogY+50)
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+46+i*dialogueLineHeight)
+	}
+	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
 
-	// Gold
-	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-	ebitenutil.DebugPrintAt(screen, goldText, dialogX+400, dialogY+20)
+	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
+	mouseX, mouseY := ebiten.CursorPosition()
 
-	_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
+	// Headers + faint divider between the two halves. Headers sit at gridTop-24
+	// so they clear the two-line greeting above and the icon frames below.
+	drawDebugText(screen, "For Sale", leftX, gridTop-24)
+	drawDebugText(screen, "Your Items", rightX, gridTop-24)
+	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-6, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
 
-	// Headers
-	ebitenutil.DebugPrintAt(screen, "For Sale:", leftX, listY-20)
-	ebitenutil.DebugPrintAt(screen, "Your Items:", rightX, listY-20)
+	var tooltipItem items.Item
+	var tooltipHasItem bool
 
-	// Merchant stock list
-	maxItems := 12
-	if len(ui.game.dialogNPC.MerchantStock) == 0 {
-		ebitenutil.DebugPrintAt(screen, "(No stock for sale)", leftX, listY)
+	// Buy grid (left): merchant stock.
+	stock := ui.game.dialogNPC.MerchantStock
+	buyPages := pageCount(len(stock), merchantPageSize)
+	clampPage(&ui.game.merchantBuyPage, buyPages)
+	if len(stock) == 0 {
+		drawDebugText(screen, "(No stock for sale)", leftX, gridTop)
 	} else {
-		for i := 0; i < len(ui.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
-			entry := ui.game.dialogNPC.MerchantStock[i]
-			item := entry.Item
-			y := listY + i*rowH
-			stockLabel := fmt.Sprintf("%2d. %s", i+1, item.Name)
-			if entry.Quantity <= 0 {
-				stockLabel += " (Sold Out)"
+		start := ui.game.merchantBuyPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := start + slot
+			if idx >= len(stock) {
+				break
 			}
-			priceLabel := fmt.Sprintf("  %4d gold", ui.game.merchantBuyPrice(entry.Cost))
-
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= leftX-2 && mouseX <= leftX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
-			if isHover {
-				ui.drawUIBackground(screen, leftX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+			entry := stock[idx]
+			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
+			soldOut := entry.Quantity <= 0
+			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				tooltipItem = entry.Item
+				tooltipHasItem = true
 			}
-			drawColoredTextSegments(screen, leftX, y, []coloredTextSegment{
-				{text: stockLabel, color: ui.itemRarityColor(item)},
-				{text: priceLabel, color: color.White},
-			})
+			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
+			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
+			if soldOut {
+				priceText = "sold out"
+			}
+			drawCenteredDebugText(screen, priceText, x-6, y+h, w+12, merchantPriceH)
 		}
 	}
+	pagerChanged := ui.drawPager(screen, leftX, pagerY, merchantGridW, &ui.game.merchantBuyPage, buyPages, true)
 
-	// Player inventory list (sell side)
+	// Sell grid (right): party inventory.
 	if !ui.game.dialogNPC.SellAvailable {
-		ebitenutil.DebugPrintAt(screen, "(Not buying goods)", rightX, listY)
+		drawDebugText(screen, "(Not buying goods)", rightX, gridTop)
 	} else {
-		for i := 0; i < len(ui.game.party.Inventory) && i < maxItems; i++ {
-			item := ui.game.party.Inventory[i]
-			y := listY + i*rowH
-			price := ui.game.merchantSellPrice(item.Attributes["value"])
-			prefix := fmt.Sprintf("%2d. ", i+1)
-			nameField := fmt.Sprintf("%-18s", item.Name)
-			suffix := fmt.Sprintf("  %4d gold", price)
-
-			mouseX, mouseY := ebiten.CursorPosition()
-			isHover := mouseX >= rightX-2 && mouseX <= rightX+colW && mouseY >= y-2 && mouseY <= y-2+rowH
-			if isHover {
-				ui.drawUIBackground(screen, rightX-5, y-2, colW+10, rowH, color.RGBA{40, 80, 40, 120})
+		inv := ui.game.party.Inventory
+		sellPages := pageCount(len(inv), merchantPageSize)
+		clampPage(&ui.game.merchantSellPage, sellPages)
+		start := ui.game.merchantSellPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := start + slot
+			if idx >= len(inv) {
+				break
 			}
-			drawColoredTextSegments(screen, rightX, y, []coloredTextSegment{
-				{text: prefix, color: color.White},
-				{text: nameField, color: ui.itemRarityColor(item)},
-				{text: suffix, color: color.White},
-			})
+			item := inv[idx]
+			x, y, w, h := merchantCellRect(rightX, gridTop, slot)
+			value := item.Attributes["value"]
+			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				tooltipItem = item
+				tooltipHasItem = true
+			}
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, value > 0)
+			priceText := "no value"
+			if value > 0 {
+				priceText = fmt.Sprintf("%d g", ui.game.merchantSellPrice(value))
+			}
+			drawCenteredDebugText(screen, priceText, x-6, y+h, w+12, merchantPriceH)
+		}
+		if ui.drawPager(screen, rightX, pagerY, merchantGridW, &ui.game.merchantSellPage, sellPages, true) {
+			pagerChanged = true
+		}
+	}
+	// A page flip is a navigation action between item clicks — break any in-flight
+	// double-click so the same absolute index across pages can't buy/sell by surprise.
+	if pagerChanged {
+		ui.game.resetDialogClickTracker()
+	}
+
+	// Full item card on hover, floating at the cursor (drawn over everything via
+	// the queued tooltip pass). selectedChar is bounds-guarded — a stale index
+	// (party shrank) must not panic on this per-frame hover path. We resolve to a
+	// real member (clamping a stale index) so the formatter never sees a nil char.
+	if tooltipHasItem {
+		members := ui.game.party.Members
+		idx := ui.game.selectedChar
+		if idx < 0 || idx >= len(members) {
+			idx = 0
+		}
+		if idx < len(members) && members[idx] != nil {
+			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
+			if tip != "" {
+				lines := strings.Split(tip, "\n")
+				plate, titleText := ui.itemTitleColors(tooltipItem)
+				var bodyColors []color.Color
+				if titleText != nil { // gear keeps its rarity-metal body
+					bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
+				}
+				ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), mouseX+16, mouseY+8)
+			}
 		}
 	}
 
-	// Instructions
-	instructionsY := dialogY + dialogHeight - 60
-	ebitenutil.DebugPrintAt(screen, "Double-click left list: Buy  |  Double-click right list: Sell", dialogX+20, instructionsY)
-	ebitenutil.DebugPrintAt(screen, "ESC: Close", dialogX+20, instructionsY+15)
+	instructionsY := dialogY + dialogHeight - 38
+	drawDebugText(screen, "Hover: details  |  Double-click: buy (left) / sell (right)", dialogX+20, instructionsY)
+	drawDebugText(screen, "ESC: Close", dialogX+20, instructionsY+15)
 }
 
 // drawGenericDialog draws basic dialog for other NPC types
@@ -940,32 +1044,55 @@ func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, _ 
 
 	// Draw title
 	titleText := npc.Name
-	ebitenutil.DebugPrintAt(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
 
 	// Draw basic greeting
 	if npc.DialogueData != nil && npc.DialogueData.Greeting != "" {
 		lines := ui.wrapText(npc.DialogueData.Greeting, 70)
 		for i, line := range lines {
-			ebitenutil.DebugPrintAt(screen, line, dialogX+20, dialogY+50+i*16)
+			drawDebugText(screen, line, dialogX+20, dialogY+50+i*16)
 		}
 	}
 
-	ebitenutil.DebugPrintAt(screen, "Press ESC to close", dialogX+20, dialogY+200)
+	drawDebugText(screen, "Press ESC to close", dialogX+20, dialogY+200)
 }
 
 // drawGameOverOverlay draws a simple game over screen with options
 func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
-	w := ui.game.config.GetScreenWidth()
-	h := ui.game.config.GetScreenHeight()
-	// Darken background
-	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 180})
+	g := ui.game
+	w := g.config.GetScreenWidth()
+	h := g.config.GetScreenHeight()
 
-	// Text
-	centerX := w/2 - 160
-	centerY := h/2 - 30
-	ebitenutil.DebugPrintAt(screen, "GAME OVER", centerX+80, centerY-30)
-	ebitenutil.DebugPrintAt(screen, "Press N: New Game", centerX, centerY)
-	ebitenutil.DebugPrintAt(screen, "Press L: Load Game", centerX, centerY+20)
+	// Dark blood-red veil over the frozen scene.
+	drawFilledRect(screen, 0, 0, w, h, color.RGBA{45, 0, 0, 215})
+
+	// Big GAME OVER heading + subtitle.
+	drawScaledCenteredText(screen, "GAME OVER", w/2, h/2-150, 4.0, color.RGBA{220, 60, 50, 255})
+	drawCenteredTextWithShadow(screen, "Your party has fallen.", w/2-140, h/2-104, 280, 16, color.RGBA{205, 185, 185, 255})
+
+	// Button menu (same look as the title screen).
+	btns := []struct {
+		label  string
+		action func()
+	}{
+		{"New Game", func() { g.startNewGameWithParty(character.NewParty(g.config)) }},
+		{"Load Game", func() { g.returnToMainMenu(); g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
+		{"Main Menu", func() { g.returnToMainMenu() }},
+		{"Quit", func() { g.exitRequested = true }},
+	}
+	const btnW, btnH, gap = 280, 50, 14
+	bx := (w - btnW) / 2
+	startY := h/2 - 30
+	mx, my := ebiten.CursorPosition()
+	for i, b := range btns {
+		by := startY + i*(btnH+gap)
+		hover := isMouseHoveringBox(mx, my, bx, by, bx+btnW, by+btnH)
+		ui.drawMenuButton(screen, "", b.label, bx, by, btnW, btnH, hover)
+		if g.consumeLeftClickIn(bx, by, bx+btnW, by+btnH) {
+			b.action()
+			return
+		}
+	}
 }
 
 // drawVictoryOverlay draws the victory screen with score and options
@@ -985,28 +1112,28 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	startY := h/2 - 120
 
 	// Victory header
-	ebitenutil.DebugPrintAt(screen, "=== VICTORY! ===", centerX-70, startY)
-	ebitenutil.DebugPrintAt(screen, "You have slain all four dragons!", centerX-120, startY+25)
-	ebitenutil.DebugPrintAt(screen, "The realm is saved!", centerX-70, startY+45)
+	drawDebugText(screen, "VICTORY!", centerX-70, startY)
+	drawDebugText(screen, "You have slain all four dragons!", centerX-120, startY+25)
+	drawDebugText(screen, "The realm is saved!", centerX-70, startY+45)
 
 	// Score details
-	ebitenutil.DebugPrintAt(screen, "--- Final Score ---", centerX-75, startY+80)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
+	drawDebugText(screen, "Final Score", centerX-75, startY+80)
+	drawDebugText(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
+	drawDebugText(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
+	drawDebugText(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
+	drawDebugText(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
+	drawDebugText(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
 
 	// Instructions
 	if !ui.game.victoryScoreSaved {
-		ebitenutil.DebugPrintAt(screen, "Enter your name:", centerX-60, startY+220)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
-		ebitenutil.DebugPrintAt(screen, "Press ENTER to save score", centerX-90, startY+270)
-		ebitenutil.DebugPrintAt(screen, "Press ESC for main menu", centerX-85, startY+290)
+		drawDebugText(screen, "Enter your name:", centerX-60, startY+220)
+		drawDebugText(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
+		drawDebugText(screen, "Press ENTER to save score", centerX-90, startY+270)
+		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+290)
 	} else {
-		ebitenutil.DebugPrintAt(screen, "Score saved!", centerX-45, startY+220)
-		ebitenutil.DebugPrintAt(screen, "Press H to view High Scores", centerX-100, startY+250)
-		ebitenutil.DebugPrintAt(screen, "Press ESC for main menu", centerX-85, startY+270)
+		drawDebugText(screen, "Score saved!", centerX-45, startY+220)
+		drawDebugText(screen, "Press H to view High Scores", centerX-100, startY+250)
+		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+270)
 	}
 }
 
@@ -1020,7 +1147,7 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 
 	scores, err := highscore.Load()
 	if err != nil {
-		ebitenutil.DebugPrintAt(screen, "Error loading high scores", w/2-90, h/2)
+		drawDebugText(screen, "Error loading high scores", w/2-90, h/2)
 		return
 	}
 
@@ -1028,24 +1155,24 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	startY := 60
 
 	// Header
-	ebitenutil.DebugPrintAt(screen, "=== HIGH SCORES ===", centerX-75, startY)
+	drawDebugText(screen, "HIGH SCORES", centerX-75, startY)
 
 	// Column headers
-	ebitenutil.DebugPrintAt(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
-	ebitenutil.DebugPrintAt(screen, "----  ----           -----    ----", centerX-140, startY+55)
+	drawDebugText(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
+	drawFilledRect(screen, centerX-140, startY+56, 290, 1, color.RGBA{120, 120, 150, 255})
 
 	// Entries
 	if len(scores.Entries) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No scores yet!", centerX-50, startY+80)
+		drawDebugText(screen, "No scores yet!", centerX-50, startY+80)
 	} else {
 		for i, entry := range scores.Entries {
 			line := fmt.Sprintf("%2d.   %-14s %6d   %s", i+1, truncateName(entry.PlayerName, 14), entry.Score, entry.PlayTime)
-			ebitenutil.DebugPrintAt(screen, line, centerX-140, startY+80+i*20)
+			drawDebugText(screen, line, centerX-140, startY+80+i*20)
 		}
 	}
 
 	// Instructions
-	ebitenutil.DebugPrintAt(screen, "Press ESC to close", centerX-70, h-50)
+	drawDebugText(screen, "Press ESC to close", centerX-70, h-50)
 }
 
 // drawMapOverlay renders the current map with NPCs and teleporters.
@@ -1086,7 +1213,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 			title = fmt.Sprintf("World Map - %s", mapCfg.Name)
 		}
 	}
-	ebitenutil.DebugPrintAt(screen, title, panelX+16, panelY+12)
+	drawDebugText(screen, title, panelX+16, panelY+12)
 
 	closeX := panelX + panelW - 26
 	closeY := panelY + 10
@@ -1277,24 +1404,24 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 
 		// Draw quest number in center
 		questNum := fmt.Sprintf("%d", i+1)
-		ebitenutil.DebugPrintAt(screen, questNum, int(centerX)-3, int(centerY)-6)
+		drawDebugText(screen, questNum, int(centerX)-3, int(centerY)-6)
 	}
 }
 
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
-	ebitenutil.DebugPrintAt(screen, "=== ACTIVE QUESTS ===", panelX+20, contentY+10)
+	drawDebugText(screen, "ACTIVE QUESTS", panelX+20, contentY+10)
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
-		ebitenutil.DebugPrintAt(screen, "No quests available.", panelX+20, contentY+40)
+		drawDebugText(screen, "No quests available.", panelX+20, contentY+40)
 		return
 	}
 
 	allQuests := ui.game.questManager.GetAllQuests()
 	if len(allQuests) == 0 {
-		ebitenutil.DebugPrintAt(screen, "No active quests.", panelX+20, contentY+40)
+		drawDebugText(screen, "No active quests.", panelX+20, contentY+40)
 		return
 	}
 
@@ -1363,7 +1490,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		if quest.Completed {
 			namePrefix = "[DONE] "
 		}
-		ebitenutil.DebugPrintAt(screen, namePrefix+quest.Definition.Name, panelX+30, questY+6)
+		drawDebugText(screen, namePrefix+quest.Definition.Name, panelX+30, questY+6)
 
 		// Quest description - wrap to fit within box (max ~70 chars per line)
 		descLines := wrapText(quest.Definition.Description, 70)
@@ -1371,7 +1498,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			if i >= 2 { // Max 2 lines for description
 				break
 			}
-			ebitenutil.DebugPrintAt(screen, line, panelX+30, questY+22+(i*14))
+			drawDebugText(screen, line, panelX+30, questY+22+(i*14))
 		}
 
 		// Bottom row: Progress on left, Rewards on right
@@ -1381,7 +1508,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		// CurrentCount toward TargetCount, so they share the bar.
 		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 			progressText := quest.GetProgressString()
-			ebitenutil.DebugPrintAt(screen, progressText, panelX+30, bottomY)
+			drawDebugText(screen, progressText, panelX+30, bottomY)
 
 			// Draw progress bar below text
 			barX := panelX + 30
@@ -1393,7 +1520,10 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			drawFilledRect(screen, barX, barY, barWidth, barHeight, color.RGBA{20, 20, 20, 255})
 
 			// Progress fill
-			progress := float64(quest.CurrentCount) / float64(quest.Definition.TargetCount)
+			progress := 0.0
+			if target := quest.Target(); target > 0 {
+				progress = float64(quest.CurrentCount) / float64(target)
+			}
 			if progress > 1 {
 				progress = 1
 			}
@@ -1418,13 +1548,13 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			} else {
 				objectiveText = "Defeat all enemies"
 			}
-			ebitenutil.DebugPrintAt(screen, objectiveText, panelX+30, bottomY)
+			drawDebugText(screen, objectiveText, panelX+30, bottomY)
 		}
 
 		// Rewards section (right side)
 		rewardsX := panelX + 300
 		rewardsText := fmt.Sprintf("Reward: %dg / %dxp", quest.Definition.Rewards.Gold, quest.Definition.Rewards.Experience)
-		ebitenutil.DebugPrintAt(screen, rewardsText, rewardsX, bottomY)
+		drawDebugText(screen, rewardsText, rewardsX, bottomY)
 
 		// Claim button for completed quests with unclaimed rewards
 		if quest.Completed && !quest.RewardsClaimed {

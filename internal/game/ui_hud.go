@@ -13,7 +13,6 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
@@ -92,6 +91,7 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 // drawGameplayUI draws core gameplay UI elements
 func (ui *UISystem) drawGameplayUI(screen *ebiten.Image) {
 	ui.drawPartyUI(screen)
+	ui.drawInGameQuickSlots(screen)
 	ui.drawSpellStatusBar(screen)
 	ui.drawCompass(screen)
 	ui.drawWizardEyeRadar(screen)
@@ -179,12 +179,16 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Darken overlay if unconscious
 		isUnconscious := false
 		isPoisoned := false
+		isBurning := false
 		for _, cond := range member.Conditions {
 			if cond == character.ConditionUnconscious {
 				isUnconscious = true
 			}
 			if cond == character.ConditionPoisoned {
 				isPoisoned = true
+			}
+			if cond == character.ConditionBurning {
+				isBurning = true
 			}
 		}
 		if isUnconscious {
@@ -193,6 +197,14 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Poison: green bubbles drift up the card (replaces the old green tint).
 		if isPoisoned && !isUnconscious {
 			ui.drawCardPoisonBubbles(screen, x, startY, portraitWidth, portraitHeight)
+		}
+		// Ignite: living flames lick up the card (stacks visually with poison).
+		if isBurning && !isUnconscious {
+			ui.drawCardIgnite(screen, x, startY, portraitWidth, portraitHeight, i)
+		}
+		// Stun: a ring of dazed stars wheels around the portrait head.
+		if member.IsStunned() && !isUnconscious {
+			ui.drawCardStunStars(screen, x, startY, portraitColWidth, portraitHeight)
 		}
 
 		// Particle overlays: Inferno scorch flames, hit sparks, heal "+" glyphs.
@@ -204,9 +216,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		statusColX := x + portraitColWidth + 4
 		statusColWidth := (portraitWidth - portraitColWidth - 12) / 2
 
-		ebitenutil.DebugPrintAt(screen, member.Name, statusColX, startY+15)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
+		drawDebugText(screen, member.Name, statusColX, startY+15)
+		drawDebugText(screen, fmt.Sprintf("HP:%d/%d", member.HitPoints, member.MaxHitPoints), statusColX, startY+30)
+		drawDebugText(screen, fmt.Sprintf("SP:%d/%d", member.SpellPoints, member.MaxSpellPoints), statusColX, startY+45)
 
 		// Add character condition status
 		statusText := "OK"
@@ -217,7 +229,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			}
 			statusText = strings.Join(conds, ", ")
 		}
-		ebitenutil.DebugPrintAt(screen, statusText, statusColX, startY+60)
+		drawDebugText(screen, statusText, statusColX, startY+60)
 
 		// Equipment Column (Column 3) - weapon and spell equipment (even closer to status)
 		equipColX := statusColX + statusColWidth - 12
@@ -228,9 +240,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(weaponText) > 12 { // Truncate if too long
 				weaponText = weaponText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, weaponText, equipColX, startY+15)
+			drawDebugText(screen, weaponText, equipColX, startY+15)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "W:None", equipColX, startY+15)
+			drawDebugText(screen, "W:None", equipColX, startY+15)
 		}
 
 		// Show equipped spell (unified slot)
@@ -239,9 +251,9 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(spellText) > 12 { // Truncate if too long
 				spellText = spellText[:9] + "..."
 			}
-			ebitenutil.DebugPrintAt(screen, spellText, equipColX, startY+30)
+			drawDebugText(screen, spellText, equipColX, startY+30)
 		} else {
-			ebitenutil.DebugPrintAt(screen, "S:None", equipColX, startY+30)
+			drawDebugText(screen, "S:None", equipColX, startY+30)
 		}
 
 		// Draw + button for stat points if available (under portrait)
@@ -410,6 +422,96 @@ func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h 
 	}
 }
 
+// hashNoise is a cheap deterministic [0,1) hash — gives ignite its per-particle
+// randomness without rand (so the flame is reproducible frame-to-frame, not pure
+// flicker). seed blends a particle index with a per-card salt.
+func hashNoise(seed float64) float64 {
+	s := math.Sin(seed*127.1+311.7) * 43758.5453
+	return s - math.Floor(s)
+}
+
+// drawCardIgnite draws a living, layered fire climbing a burning member's card:
+// each tongue has its own randomized rise/lick cycle, three colour layers
+// (dark-red glow → orange body → hot yellow-white core near the base) plus a few
+// embers that float up and wink out. Built to read as real fire, not a recolour
+// of the poison bubbles. Runs continuously while ConditionBurning.
+func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
+	f := float64(ui.game.frameCount)
+	fx, fb, fw, fh := float64(x), float64(startY+h), float64(w), float64(h)
+	salt := float64(idx) * 13.7
+
+	// Flickering warm glow banked along the bottom of the card.
+	glow := uint8(35 + 25*math.Sin(f*0.3+salt))
+	vector.FillRect(screen, float32(x), float32(startY)+float32(fh*0.55), float32(w-2), float32(fh*0.45),
+		color.RGBA{120, 40, 10, glow}, false)
+
+	const n = 22
+	for k := 0; k < n; k++ {
+		seed := float64(k)*1.7 + salt
+		life := hashNoise(seed)
+		ph := math.Mod(f*0.02*(0.6+life*0.8)+life, 1.0) // 0..1 rising, varied speed
+		rise := 1.0 - ph                                // heat fades with height
+		col := hashNoise(seed * 3.3)
+		wob := math.Sin(f*0.15+life*6.28+float64(k))*5*ph + (hashNoise(seed+f*0.01)-0.5)*4
+		px := fx + col*fw + wob
+		if px < fx || px > fx+fw {
+			continue
+		}
+		py := fb - ph*fh*1.05 - 4
+		base := float32(4 + 5*rise)
+		if a := uint8(85 * rise); a > 8 { // outer red glow
+			vector.DrawFilledCircle(screen, float32(px), float32(py), base*1.7, color.RGBA{200, 30, 0, a}, true)
+		}
+		if a := uint8(170 * rise); a > 8 { // orange body
+			vector.DrawFilledCircle(screen, float32(px), float32(py), base, color.RGBA{255, uint8(40 + 120*rise), 0, a}, true)
+		}
+		if rise > 0.55 { // hot core, only near the base
+			a := uint8(230 * (rise - 0.55) / 0.45)
+			vector.DrawFilledCircle(screen, float32(px), float32(py), base*0.5, color.RGBA{255, 240, 170, a}, true)
+		}
+	}
+
+	const embers = 6
+	for k := 0; k < embers; k++ {
+		seed := float64(k)*7.1 + salt
+		ph := math.Mod(f*0.012+hashNoise(seed), 1.0)
+		px := fx + hashNoise(seed*2.0)*fw + math.Sin(f*0.05+seed)*6
+		py := fb - ph*fh*1.2
+		a := uint8(200 * (1 - ph) * (1 - ph))
+		if a < 12 {
+			continue
+		}
+		vector.DrawFilledCircle(screen, float32(px), float32(py), float32(1+1.5*(1-ph)), color.RGBA{255, 200, 90, a}, true)
+	}
+}
+
+// drawCardStunStars wheels a ring of twinkling four-point stars around a stunned
+// member's portrait head — the classic "seeing stars" daze. Each star orbits,
+// pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
+func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
+	f := float64(ui.game.frameCount)
+	cx := float64(x) + float64(w)*0.5
+	cy := float64(startY) + float64(h)*0.30 // ring around the upper portrait (head)
+	rx, ry := float64(w)*0.42, float64(h)*0.20
+	const n = 5
+	for k := 0; k < n; k++ {
+		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
+		sx := float32(cx + math.Cos(ang)*rx)
+		sy := float32(cy + math.Sin(ang)*ry)
+		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
+		a := uint8(120 + 135*tw)
+		arm := float32(2.5 + 3.5*tw)
+		col := color.RGBA{255, 240, 120, a}
+		vector.StrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
+		vector.StrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
+		d := arm * 0.6
+		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
+		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
+		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
+		vector.DrawFilledCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+	}
+}
+
 // drawStatPointPlusButton draws the + button under the portrait if stat points are available
 func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, points int, isHover bool) {
 	var plusColor color.RGBA
@@ -420,7 +522,7 @@ func (ui *UISystem) drawStatPointPlusButton(screen *ebiten.Image, x, y, w, h, po
 	}
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), plusColor, false)
 	ui.drawInterfaceIcon(screen, "icon_stat_up", x+2, y+2, w-4, h-4)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
+	drawDebugText(screen, fmt.Sprintf("%d", points), x+w+2, y+6)
 }
 
 func (ui *UISystem) drawAutoStatButton(screen *ebiten.Image, x, y, w, h int, isHover bool) {
@@ -502,7 +604,7 @@ func (ui *UISystem) drawSpellIcon(screen *ebiten.Image, x, y, size int, icon, fa
 		}
 		screen.DrawImage(sprite, opts)
 	} else if fallback != "" {
-		ebitenutil.DebugPrintAt(screen, fallback, x+size/2-4, y+size/2-4)
+		drawDebugText(screen, fallback, x+size/2-4, y+size/2-4)
 	}
 
 	// Draw duration bar at bottom of icon
@@ -880,7 +982,7 @@ func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
 	}
 }
 
@@ -938,6 +1040,24 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 		fmt.Sprintf("TPS: %.1f", tps),
 	}
 
+	// Perf diagnostics: raycast vs sprite cost split, plus the per-frame draw
+	// counters that localize a frame-time spike (open-corridor rays vs tree
+	// standees vs impassable-aura tiles).
+	if ui.game.gameLoop != nil && ui.game.gameLoop.renderer != nil {
+		r := ui.game.gameLoop.renderer
+		stats := ui.game.threading.PerformanceMonitor.GetDetailedStats()
+		lines = append(lines,
+			fmt.Sprintf("ray: %.2fms", getPerfFloat(stats, "last_raycast_time_ms")),
+			fmt.Sprintf("spr: %.2fms", getPerfFloat(stats, "last_sprite_render_time_ms")),
+			fmt.Sprintf("  floor: %.2fms", r.statFloorMs),
+			fmt.Sprintf("  walls: %.2fms", r.statWallsMs),
+			fmt.Sprintf("  sprites: %.2fms", r.statSpritesMs),
+			fmt.Sprintf("trees: %d", r.statTreesDrawn),
+			fmt.Sprintf("standee dc: %d", r.statStandeeCalls),
+			fmt.Sprintf("aura: %d", r.statAuraTiles),
+		)
+	}
+
 	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
 	_ = compassX
@@ -958,7 +1078,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		ebitenutil.DebugPrintAt(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
 	}
 }
 
@@ -1023,10 +1143,10 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	// Draw the interaction message
 	textX := notificationX + padding
 	textY := notificationY + padding
-	ebitenutil.DebugPrintAt(screen, message, textX, textY)
+	drawDebugText(screen, message, textX, textY)
 }
 
 // drawInstructions draws the control instructions
 func (ui *UISystem) drawInstructions(screen *ebiten.Image) {
-	ebitenutil.DebugPrintAt(screen, "ESC: Main menu", 10, 10)
+	drawDebugText(screen, "ESC: Main menu", 10, 10)
 }

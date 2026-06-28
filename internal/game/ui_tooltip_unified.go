@@ -29,7 +29,7 @@ type ttSection = character.CardSection
 
 // renderTooltip assembles the final text, dropping empty sections.
 func renderTooltip(name, subtitle string, sections []ttSection, full bool) string {
-	out := []string{fmt.Sprintf("=== %s ===", name)}
+	out := []string{name}
 	if subtitle != "" {
 		out = append(out, subtitle)
 	}
@@ -128,7 +128,7 @@ func damageTypeAoELine(damageType string, aoeTiles float64) string {
 }
 
 func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueDmg bool) {
-	character.ArmorInteractionLines(sec, damageType, isRanged, hasTrueDmg, ArmorPhysicalReductionDivisor)
+	character.ArmorInteractionLines(sec, damageType, isRanged, hasTrueDmg)
 }
 
 // ---------------------------------------------------------------- weapons ---
@@ -136,7 +136,7 @@ func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueD
 func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) string {
 	def := lookupWeaponConfigByName(item.Name)
 	if def == nil || cs == nil {
-		return fmt.Sprintf("=== %s ===", item.Name)
+		return item.Name
 	}
 	subtitle := strings.Title(def.Category)
 	if def.Rarity != "" {
@@ -169,6 +169,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if def.MaxProjectiles > 0 {
 		attack.AddDetail("Maximum Projectiles: %d", def.MaxProjectiles)
 	}
+	if def.Volley > 1 {
+		attack.AddDetail("Volley: %d per shot", def.Volley)
+	}
 
 	dmg := ttSection{Title: "DAMAGE"}
 	armsBonus := 0
@@ -197,10 +200,10 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 			dmg.AddDetail("%s Mastery — %s: +%d True", skill.String(), tierName, trueDmg)
 		}
 	}
-	// Active party buffs (Heroism, Hour of Power, …) add a flat bonus to every
-	// outgoing hit AFTER crit doubling (combat.go applyProjectileDamage), so the
-	// live starting damage is higher than the gear/stat total alone.
-	outBonus := cs.game.combatBuffOutBonus()
+	// Active party buffs add a flat bonus after crit doubling; filter by the
+	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
+	// e.g. Heroism (physical) does not boost a light/fire weapon.
+	outBonus := cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
 	if outBonus > 0 {
 		dmg.AddDetail("Active party buff: +%d", outBonus)
 	}
@@ -265,8 +268,8 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	if ok && def != nil && cs != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
 		totalAC = cs.CalculateArmorClassContribution(item, char)
 		defense.AddDetail("Base Armor Class: %d", def.ArmorClassBase)
-		if def.EnduranceScalingDivisor > 0 && char != nil {
-			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), def.EnduranceScalingDivisor)
+		if enduranceDiv, scalingOK := armorEnduranceScalingDivisor(item); scalingOK && char != nil {
+			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), enduranceDiv)
 		}
 		if cat, catOK := armorMasterySkill(item); catOK && char != nil {
 			if tier, tierName := masteryTier(char, cat); tier > 0 {
@@ -285,9 +288,11 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 			effects.Add("%s", ln)
 		}
 	}
-	if totalAC > 0 {
-		effects.AddDetail("Physical Damage Reduction: AC / %d", ArmorPhysicalReductionDivisor)
-		effects.Add("Current Reduction: %d per physical hit", totalAC/ArmorPhysicalReductionDivisor)
+	if totalAC > 0 && cs != nil && char != nil {
+		phys := cs.armorMitigationPct(char, true)
+		elem := cs.armorMitigationPct(char, false)
+		effects.AddDetail("Armor mitigates physical up to %d%%, elemental up to %d%% (diminishing)", ArmorPhysicalMitigationCap, ArmorElementalMitigationCap)
+		effects.Add("Current total: -%d%% physical (-%d%% elemental)", phys, elem)
 	}
 
 	rules := ttSection{Title: "RULES"}
@@ -390,14 +395,17 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			}
 		}
 		statContribDetail(&dmg, primaryStat, primaryValue, spells.SpellIntellectDivisor)
-		if def.ScalesWithPersonality && char != nil {
+		// Non-self magic only: self magic already shows Personality as its primary
+		// stat above (mirrors the guard in CalculateSpellDamage).
+		if def.ScalesWithPersonality && char != nil && !spellScalesWithPersonality(def.School) {
 			statContribDetail(&dmg, "Personality", char.GetEffectivePersonality(), spells.SpellIntellectDivisor)
 		}
 		if mastery > 0 {
 			dmg.AddDetail("%s Mastery — %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
-		// Active party buffs (Heroism, …) add a flat bonus after crit doubling.
-		outBonus := cs.game.combatBuffOutBonus()
+		// Active party buffs add a flat bonus after crit doubling; Heroism is
+		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
+		outBonus := cs.game.combatBuffOutBonusForDamageType(def.School)
 		if outBonus > 0 {
 			dmg.AddDetail("Active party buff: +%d", outBonus)
 		}
@@ -467,6 +475,26 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	for _, ln := range character.FilteredSpellEffectLines(def) {
 		effects.Add("%s", ln)
 	}
+	if def.StatBonusGrandmaster > def.StatBonus && def.StatBonus > 0 {
+		current := scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
+		effects.Add("Current stat bonus: +%d", current)
+	}
+	if def.ResistBuffPctGrandmaster > def.ResistBuffPct && def.ResistBuffPct > 0 {
+		current := scaledSpellMasteryValue(def, char, def.ResistBuffPct, def.ResistBuffPctGrandmaster)
+		effects.Add("Current resistance: -%d%% incoming", current)
+	}
+	if def.OutgoingDamageBonusGrandmaster > def.OutgoingDamageBonus && def.OutgoingDamageBonus > 0 {
+		current := scaledSpellMasteryValue(def, char, def.OutgoingDamageBonus, def.OutgoingDamageBonusGrandmaster)
+		target := "damage"
+		if def.OutgoingDamageType == "physical" {
+			target = "physical damage"
+		}
+		effects.Add("Current %s bonus: +%d", target, current)
+	}
+	if def.IncomingDamageReductionGrandmaster > def.IncomingDamageReduction && def.IncomingDamageReduction > 0 {
+		current := scaledIncomingDamageReduction(def, char)
+		effects.Add("Current reduction: -%d per hit", current)
+	}
 	// Duration decomposed: base → mastery % → current.
 	if def.Duration > 0 && cs != nil {
 		current := cs.CalculateSpellDurationSeconds(def.ID, char)
@@ -481,7 +509,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	switch {
 	case def.PartyAoeRadiusTiles > 0:
 		rules.AddDetail("Fixed damage: no stat or mastery scaling")
-		rules.AddDetail("No GM resistance penetration")
+		rules.AddDetail("%s: no GM resistance penetration", def.Name)
 		rules.AddDetail("Enemy %s Resistance reduces damage", formatSchoolName(def.School))
 		rules.AddDetail("Party %s Resistance reduces self-damage", formatSchoolName(def.School))
 		rules.AddDetail("Cannot critically hit")
@@ -505,7 +533,11 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		rules.AddDetail("No effect on undead")
 	}
 	if def.StatBonus > 0 || len(def.StatBonuses) > 0 {
-		rules.AddDetail("Mastery increases duration, not the bonus")
+		if def.StatBonusGrandmaster > def.StatBonus {
+			rules.AddDetail("Mastery increases duration and the bonus")
+		} else {
+			rules.AddDetail("Mastery increases duration, not the bonus")
+		}
 		rules.AddDetail("Recasting refreshes the effect")
 	}
 	if def.ZoneRadiusTiles > 0 {

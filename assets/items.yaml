@@ -1,4 +1,7 @@
 items:
+  # Armor Endurance AC scaling is category-wide by design:
+  # leather = END/10, chain = END/7, plate = END/5.
+  # Cloth, shields, and future non-listed armor categories stay flat AC.
   leather_armor:
     name: "Leather Armor"
     type: "armor"
@@ -7,7 +10,7 @@ items:
     flavor: "Worn smooth by a hundred roads; it smells of rain and smoke."
     equip_slot: "armor"
     armor_class_base: 2
-    endurance_scaling_divisor: 5
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 25
 
@@ -19,7 +22,7 @@ items:
     flavor: "A scuffed browband that keeps splinters—and doubts—at bay."
     equip_slot: "helmet"
     armor_class_base: 1
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 15
 
@@ -31,7 +34,7 @@ items:
     flavor: "Stitched at dusk; they creak like an old saddle."
     equip_slot: "boots"
     armor_class_base: 1
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 18
 
@@ -43,7 +46,7 @@ items:
     flavor: "Cold links that rattle with every breath."
     equip_slot: "armor"
     armor_class_base: 4
-    endurance_scaling_divisor: 5
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 85
 
@@ -55,7 +58,7 @@ items:
     flavor: "A weave of steel that muffles the world."
     equip_slot: "helmet"
     armor_class_base: 3
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 55
 
@@ -67,7 +70,7 @@ items:
     flavor: "Weighty rings that drag the dust at your feet."
     equip_slot: "boots"
     armor_class_base: 3
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     rarity: "uncommon"
     value: 60
 
@@ -123,7 +126,7 @@ items:
     flavor: "Iron plates that sing quietly with every step."
     equip_slot: "armor"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 120
 
@@ -135,7 +138,7 @@ items:
     flavor: "A heavy crown of war."
     equip_slot: "helmet"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 90
 
@@ -147,7 +150,7 @@ items:
     flavor: "Each step lands with purpose."
     equip_slot: "boots"
     armor_class_base: 4
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "uncommon"
     value: 95
 
@@ -342,7 +345,7 @@ items:
     flavor: "Heavy gold that turns blades and heads alike."
     equip_slot: "armor"
     armor_class_base: 6
-    endurance_scaling_divisor: 4
+    endurance_scaling_divisor: 5
     rarity: "legendary"
     value: 1500
 
@@ -455,7 +458,7 @@ items:
     flavor: "They still reek of the warren that skinned them."
     equip_slot: "gauntlets"
     armor_class_base: 1
-    endurance_scaling_divisor: 7
+    endurance_scaling_divisor: 10
     bonus_accuracy: 3
     rarity: "common"
     value: 35
@@ -468,7 +471,7 @@ items:
     flavor: "Cold seawater still beads between the links."
     equip_slot: "gauntlets"
     armor_class_base: 2
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 7
     bonus_speed: 6
     rarity: "uncommon"
     value: 240
@@ -481,6 +484,7 @@ items:
     flavor: "Make a fist and the whole room takes a step back."
     equip_slot: "gauntlets"
     armor_class_base: 3
+    endurance_scaling_divisor: 5
     bonus_might: 4
     rarity: "rare"
     value: 360
@@ -519,7 +523,7 @@ items:
     flavor: "Sewer-rat hide soles; silent on wet stone, and they keep the damp out."
     equip_slot: "boots"
     armor_class_base: 2
-    endurance_scaling_divisor: 6
+    endurance_scaling_divisor: 10
     rarity: "common"
     value: 45
 
@@ -602,3 +606,299 @@ items:
       spirit: 100
       light: 100
       dark: 100
+
+  # --- Japanese Castle (eastern islands) loot ---
+  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate ⇒ gates on
+  # plate skill and follows the category-wide END/5 AC scaling.
+  onryo_lamellar:
+    name: "Onryo Lamellar"
+    type: "armor"
+    armor_category: "plate"
+    description: "The warlord's cursed lamellar, bound to a vengeful spirit"
+    flavor: "Plate that death itself could not make the warlord set down."
+    equip_slot: "armor"
+    armor_class_base: 8
+    endurance_scaling_divisor: 5
+    bonus_might: 10
+    bonus_endurance: 10
+    rarity: "legendary"
+    value: 5000
+    resistances:
+      dark: 50
+      fire: 50
+      mind: 50
+
+  o_yoroi:
+    name: "O-yoroi Lamellar"
+    type: "armor"
+    armor_category: "plate"
+    description: "Silk-laced lamellar plate of a mounted samurai"
+    flavor: "Iron scales laced in silk; they clatter like distant rain."
+    equip_slot: "armor"
+    armor_class_base: 5
+    endurance_scaling_divisor: 5
+    rarity: "uncommon"
+    value: 400
+
+  kabuto:
+    name: "Kabuto"
+    type: "armor"
+    armor_category: "plate"
+    description: "A crested samurai war-helm with an iron face-guard"
+    flavor: "Its iron crest throws a long shadow across the eyes."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 5
+    rarity: "uncommon"
+    value: 200
+
+  silk_hakama:
+    name: "Silk Hakama"
+    type: "armor"
+    armor_category: "cloth"
+    description: "Wide pleated silk trousers that flow with every step"
+    flavor: "Pleated silk that whispers; the feet beneath it do not."
+    equip_slot: "boots"
+    armor_class_base: 1
+    bonus_speed: 6
+    rarity: "uncommon"
+    value: 180
+
+  haori_cloak:
+    name: "Haori Cloak"
+    type: "accessory"
+    description: "A crested half-coat worn over the shoulders"
+    flavor: "A clan crest at the back; it carries an old, steadying pride."
+    equip_slot: "cloak"
+    bonus_endurance: 5
+    bonus_speed: 4
+    rarity: "uncommon"
+    value: 280
+
+  jade_netsuke:
+    name: "Jade Netsuke"
+    type: "accessory"
+    description: "A carved jade toggle-charm on a silk cord"
+    flavor: "Cool jade worn smooth by a courtier's restless thumb."
+    equip_slot: "amulet"
+    bonus_personality: 8
+    bonus_luck: 6
+    rarity: "rare"
+    value: 360
+
+  onmyoji_talisman:
+    name: "Onmyoji Talisman"
+    type: "accessory"
+    description: "An inked paper ward that focuses arcane will"
+    flavor: "A folded ofuda; the ink still hums where the brush pressed hard."
+    equip_slot: "ring"
+    intellect_scaling_divisor: 6
+    rarity: "uncommon"
+    value: 260
+
+  ashigaru_matchcord:
+    name: "Ashigaru Matchcord"
+    type: "trinket"
+    description: "A coil of tarred match-cord and a spent firelock, sold by weight"
+    flavor: "Tarred cord and a rusted lock — alchemists pay by the coil."
+    rarity: "uncommon"
+    value: 150
+
+  lacquered_comb:
+    name: "Lacquered Comb"
+    type: "trinket"
+    description: "A courtesan's lacquer comb of bone and mother-of-pearl"
+    flavor: "Black lacquer and pearl; it still smells faintly of plum oil."
+    rarity: "uncommon"
+    value: 160
+
+  samurai_card:
+    name: "Samurai Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a horned warlord beneath a tattered banner."
+    rarity: "rare"
+    value: 500
+
+  ningyo_card:
+    name: "Ningyo Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a fan-dancer whose lower half fades to mist."
+    rarity: "rare"
+    value: 500
+
+  sake_flask:
+    name: "Sake Flask"
+    type: "consumable"
+    description: "A warm flask of rice wine that restores vigor"
+    flavor: "Warm rice wine; courage returns with the second cup."
+    heal_base: 30
+    heal_endurance_divisor: 4
+    rarity: "common"
+    value: 60
+
+  # --- Deep Jungle (Amazon) loot ---
+  jaguar_pelt_jerkin:
+    name: "Jaguar-Pelt Jerkin"
+    type: "armor"
+    armor_category: "leather"
+    description: "Supple spotted hide cut for a hunter who must move fast"
+    flavor: "Light as the cat it came from, and twice as quiet."
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 10
+    bonus_speed: 8
+    rarity: "rare"
+    value: 600
+
+  feathered_headdress:
+    name: "Plumed Headdress"
+    type: "armor"
+    armor_category: "cloth"
+    description: "A shaman's crown of macaw feathers and jade beads"
+    flavor: "The feathers stir when a spell is near, like a thing still alive."
+    equip_slot: "helmet"
+    armor_class_base: 2
+    bonus_intellect: 10
+    bonus_personality: 6
+    rarity: "rare"
+    value: 520
+
+  vinewoven_cloak:
+    name: "Vine-Woven Cloak"
+    type: "accessory"
+    description: "A mantle of living creeper that turns thorn and venom"
+    flavor: "It drinks the rain and shrugs off the jungle's poisons."
+    equip_slot: "cloak"
+    bonus_endurance: 6
+    rarity: "uncommon"
+    value: 400
+    resistances:
+      body: 30
+      earth: 30
+
+  serpent_idol_amulet:
+    name: "Serpent Idol Amulet"
+    type: "accessory"
+    description: "A coiled serpent of green stone that focuses arcane will"
+    flavor: "Its stone eyes hold a spark that answers your own."
+    equip_slot: "amulet"
+    intellect_scaling_divisor: 6
+    bonus_personality: 5
+    rarity: "rare"
+    value: 650
+
+  warlords_signet:
+    name: "Warlord's Signet"
+    type: "accessory"
+    description: "A heavy iron ring stamped with the lost city's mark"
+    flavor: "Whoever wears it speaks, and the jungle listens."
+    equip_slot: "ring"
+    bonus_might: 12
+    bonus_endurance: 8
+    rarity: "legendary"
+    value: 2500
+
+  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate ⇒
+  # gates on plate skill and follows the category-wide END/5 AC scaling.
+  mantle_of_the_idol_king:
+    name: "Mantle of the Idol-King"
+    type: "armor"
+    armor_category: "plate"
+    description: "A warlord's mantle of beaten idol-bronze and jaguar pelt"
+    flavor: "Cast from a god's broken face; it remembers being worshipped."
+    equip_slot: "armor"
+    armor_class_base: 10
+    endurance_scaling_divisor: 5
+    bonus_might: 8
+    bonus_endurance: 8
+    rarity: "legendary"
+    value: 8000
+    resistances:
+      dark: 60
+      earth: 60
+      body: 60
+
+  ocelot_pelt:
+    name: "Ocelot Pelt"
+    type: "trinket"
+    description: "A spotted jungle-cat hide, sold by weight to furriers"
+    flavor: "Rosettes like coins; furriers pay nearly as much."
+    rarity: "common"
+    value: 130
+
+  serpent_skin:
+    name: "Serpent Skin"
+    type: "trinket"
+    description: "A long shed snakeskin prized by alchemists"
+    flavor: "Whole and unbroken — the alchemists like that."
+    rarity: "common"
+    value: 150
+
+  tribal_mask:
+    name: "Tribal Mask"
+    type: "trinket"
+    description: "A carved ritual mask of the masked tribe"
+    flavor: "The carver gave it an expression you can't quite name."
+    rarity: "uncommon"
+    value: 180
+
+  gorilla_heart:
+    name: "Titan's Heart"
+    type: "trinket"
+    description: "The still-warm heart of a gorilla titan, heavy as a melon"
+    flavor: "It takes two hands to lift, and alchemists pay for the weight."
+    rarity: "uncommon"
+    value: 460
+
+  golden_idol:
+    name: "Golden Idol"
+    type: "trinket"
+    description: "A small solid-gold idol from the lost city's hoard"
+    flavor: "Heavier than it looks, and worth a small fortune in any port."
+    rarity: "legendary"
+    value: 1300
+
+  ocelot_card:
+    name: "Ocelot Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a spotted cat mid-pounce, claws spread."
+    rarity: "rare"
+    value: 500
+
+  gorilla_titan_card:
+    name: "Gorilla Titan Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a great ape, fists raised over a flattened glade."
+    rarity: "rare"
+    value: 500
+
+  masked_huntress_card:
+    name: "Masked Huntress Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a masked stalker, blowgun to her lips."
+    rarity: "rare"
+    value: 500
+
+  orc_warlord_card:
+    name: "Orc Warlord Card"
+    type: "trinket"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a tusked warlord crowned in idol-bronze."
+    rarity: "rare"
+    value: 500
+
+  antivenom:
+    name: "Antivenom"
+    type: "consumable"
+    description: "A bitter draught that purges venom from the blood"
+    flavor: "Tastes of rot and roots — and stops the burning in your veins."
+    cure_poison: true
+    heal_base: 10
+    heal_endurance_divisor: 6
+    rarity: "common"
+    value: 45

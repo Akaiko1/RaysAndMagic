@@ -46,7 +46,6 @@ type InputHandler struct {
 	hKeyTracker          keytracker.KeyStateTracker
 	rKeyTracker          keytracker.KeyStateTracker
 	cKeyTracker          keytracker.KeyStateTracker
-	pKeyTracker          keytracker.KeyStateTracker
 	attackHoldFrames     int // frames an RT attack key has been held (tap vs hold-repeat)
 	menuKeyTracker       keytracker.KeyStateTracker
 	inventoryKeyTracker  keytracker.KeyStateTracker
@@ -90,19 +89,17 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
-	// When game over, only allow New Game or Load
+	// Game over: the on-screen buttons (New Game / Load / Main Menu / Quit) are
+	// handled in drawGameOverOverlay via consumeLeftClickIn; these keys mirror them.
 	if ih.game.gameOver {
-		if ih.game.mainMenuOpen && ih.game.mainMenuMode == MenuLoadSelect {
-			ih.handleMainMenuInput()
-			return
-		}
 		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
 			ih.restartNewGame()
 			return
 		}
 		if ih.loadKeyTracker.IsKeyJustPressed(ebiten.KeyL) {
-			ih.game.mainMenuOpen = true
-			ih.game.mainMenuMode = MenuLoadSelect
+			ih.game.returnToMainMenu()
+			ih.game.entryMenuMode = EntryMenuLoad
+			ih.game.slotSelection = 0
 			return
 		}
 		return
@@ -237,11 +234,17 @@ func (ih *InputHandler) HandleInput() {
 	ih.handleMouseInput()
 }
 
-// restartNewGame resets party and state for a fresh start
+// restartNewGame resets to a fresh game with the default config roster (used by
+// the game-over screen's New Game shortcut).
 func (ih *InputHandler) restartNewGame() {
-	g := ih.game
-	// Recreate party
-	g.party = character.NewParty(g.config)
+	ih.game.startNewGameWithParty(character.NewParty(ih.game.config))
+}
+
+// startNewGameWithParty resets all world/combat/UI state for a fresh game and
+// drops the player into gameplay with the given party. Shared by restartNewGame
+// (default roster) and the party-creation screen (player-picked roster).
+func (g *MMGame) startNewGameWithParty(party *character.Party) {
+	g.party = party
 	g.selectedChar = 0
 
 	// Reset victory/high score state and session timer
@@ -362,6 +365,9 @@ func (ih *InputHandler) restartNewGame() {
 			g.gameLoop.renderer.buildTransparentSpriteCache()
 		}
 	}
+
+	// Hand control to the gameplay loop.
+	g.appScreen = AppScreenInGame
 }
 
 // handleVictoryInput processes input on the victory screen
@@ -411,6 +417,9 @@ func (ih *InputHandler) handleVictoryNameInput() {
 	// Get input characters
 	inputChars := ebiten.AppendInputChars(nil)
 	for _, char := range inputChars {
+		if char == '\n' || char == '\r' || char == '\t' {
+			continue // same control-char guard as handleSaveRenameInput
+		}
 		if len(ih.game.victoryNameInput) < 20 {
 			ih.game.victoryNameInput += string(char)
 		}
@@ -509,8 +518,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 				ih.game.slotSelection = 0
 			case 3: // High Scores
 				ih.game.showHighScores = true
-			case 4: // Exit
-				ih.game.exitRequested = true
+			case 4: // Main Menu (return to title, not quit the app)
+				ih.game.returnToMainMenu()
 			}
 		}
 
@@ -528,7 +537,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 3:
 				ih.game.showHighScores = true
 			case 4:
-				ih.game.exitRequested = true
+				ih.game.returnToMainMenu()
 			}
 		}
 	case MenuSaveSelect:
@@ -1017,8 +1026,8 @@ func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
 }
 
 // handleCharacterSelectionInput processes party character selection via 1-4
-// keys. In turn-based mode, characters that have already spent all their
-// action slots this round (or are KO) are not selectable.
+// keys. Selection is a UI/inventory focus, not permission to act: turn-based
+// action keys still gate on canSelectChar before attacking/casting.
 func (ih *InputHandler) handleCharacterSelectionInput() {
 	target := -1
 	switch {
@@ -1032,9 +1041,6 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 		target = 3
 	}
 	if target < 0 || target >= len(ih.game.party.Members) {
-		return
-	}
-	if ih.game.turnBasedMode && !ih.game.canSelectChar(target) {
 		return
 	}
 	ih.game.selectedChar = target
@@ -1306,10 +1312,6 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update visual systems
 	ih.game.UpdateSkyAndGroundColors()
 	if ih.game.gameLoop != nil && ih.game.gameLoop.renderer != nil {
-		mapConfig := world.GlobalWorldManager.GetCurrentMapConfig()
-		if mapConfig != nil {
-			fmt.Printf("Switched to %s map with %s colors: %v\n", targetMapKey, mapConfig.Biome, mapConfig.DefaultFloorColor)
-		}
 		// Refresh renderer caches that depend on world tiles
 		ih.game.gameLoop.renderer.precomputeFloorColorCache()
 		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
@@ -1418,16 +1420,12 @@ func (ih *InputHandler) handleMouseInput() {
 	// per-character cooldown + auto-advance, instead of a separate path here.
 
 	// Handle party character selection clicks (works both in and out of menu).
-	// In turn-based mode, skip portraits whose owner can't act this round
-	// (KO or already spent all their slots).
+	// Selection is allowed even when the member is out of TB actions; combat
+	// actions remain gated separately.
 	if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
 		if targetCharIndex >= 0 {
-			if ih.game.turnBasedMode && !ih.game.canSelectChar(targetCharIndex) {
-				// Eat the click anyway so we don't fall through to other
-				// handlers thinking the click is unused.
-				ih.game.consumeLeftClick()
-			} else if ih.game.consumeLeftClick() {
+			if ih.game.consumeLeftClick() {
 				ih.game.selectedChar = targetCharIndex
 			}
 		}
@@ -1630,9 +1628,10 @@ func (ih *InputHandler) handleNPCInteraction() {
 	if npc == nil {
 		return
 	}
-	// A Lich in the party can't even speak with quest-giving wards (the Mage
-	// Tower). The wards reject the undead outright.
-	if npcIsQuestGiver(npc) && ih.game.party.HasLich() {
+	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
+	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
+	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
+	if npc.RejectsLich && ih.game.party.HasLich() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
 		return
 	}
@@ -1650,7 +1649,11 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.dialogSelectedSpell = 0 // Default to first spell
 	ih.game.selectedSpellKey = ""   // No spell selected initially
 	ih.game.skillTrainerPopup = false
-	ih.game.selectedChoice = 0 // Reset encounter choice selection
+	ih.game.selectedChoice = 0   // Reset encounter choice selection
+	ih.game.dialogNodePath = nil // Start every conversation at the greeting
+	ih.game.merchantBuyPage = 0
+	ih.game.merchantSellPage = 0
+	ih.game.spellTraderPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1696,6 +1699,19 @@ func (ih *InputHandler) handleDialogInput() {
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// syncSpellTraderPageToSelection keeps the highlight index and the visible page
+// aligned with selectedSpellKey after keyboard navigation, so the selected spell
+// is always on-screen and an Enter purchase matches what's shown.
+func (ih *InputHandler) syncSpellTraderPageToSelection(spellKeys []string) {
+	for i, key := range spellKeys {
+		if key == ih.game.selectedSpellKey {
+			ih.game.dialogSelectedSpell = i
+			ih.game.spellTraderPage = i / spellTraderPerPage
+			return
+		}
+	}
 }
 
 // getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
@@ -1853,15 +1869,22 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			}
 		}
 		spellKeys := npcSpellKeys(ih.game.dialogNPC)
-		for i, spellKey := range spellKeys {
-			x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+		// Match the renderer's pagination: only the current page's icons are
+		// clickable, mapping page-slot → global spell index.
+		pageStart := ih.game.spellTraderPage * spellTraderPerPage
+		for slot := 0; slot < spellTraderPerPage; slot++ {
+			i := pageStart + slot
+			if i >= len(spellKeys) {
+				break
+			}
+			x, y, w, h := spellTraderIconRect(dialogX, dialogY, slot)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("trader_spell", i) {
 					ih.purchaseSelectedSpell()
 					ih.resetDialogDoubleClick()
 				} else {
 					ih.game.dialogSelectedSpell = i
-					ih.game.selectedSpellKey = spellKey
+					ih.game.selectedSpellKey = spellKeys[i]
 				}
 				return
 			}
@@ -1912,17 +1935,26 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Check if clicking to buy/sell items (if NPC is merchant)
+	// Buy/sell clicks on the merchant icon grids. Cell rects + page state are
+	// shared with the renderer (merchantGridLayout/merchantCellRect); the pager
+	// buttons are consumed in the draw pass, so a click that misses every cell
+	// here falls through to flip the page. idx (absolute list position) keys the
+	// double-click so the same item keeps its identity across pages.
 	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
-		_, _, _, _, listY, leftX, rightX, colW, rowH := merchantDialogLayout(ih.game.config.GetScreenWidth(), ih.game.config.GetScreenHeight())
-		maxItems := 12
+		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
 
-		// Buy from merchant (left list)
-		for i := 0; i < len(ih.game.dialogNPC.MerchantStock) && i < maxItems; i++ {
-			y := listY + i*rowH
-			if ih.game.consumeLeftClickIn(leftX-2, y-2, leftX+colW+1, y-2+rowH+1) {
-				if ih.dialogDoubleClick("merchant_buy", i) {
-					entry := ih.game.dialogNPC.MerchantStock[i]
+		// Buy from merchant (left grid).
+		stock := ih.game.dialogNPC.MerchantStock
+		buyStart := ih.game.merchantBuyPage * merchantPageSize
+		for slot := 0; slot < merchantPageSize; slot++ {
+			idx := buyStart + slot
+			if idx >= len(stock) {
+				break
+			}
+			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("merchant_buy", idx) {
+					entry := stock[idx]
 					if entry.Quantity <= 0 {
 						ih.game.AddCombatMessage("That item is sold out.")
 						return
@@ -1937,19 +1969,24 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					entry.Quantity--
 					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
 					ih.resetDialogDoubleClick()
-					return
 				}
 				return
 			}
 		}
 
-		// Sell to merchant (right list)
+		// Sell to merchant (right grid).
 		if ih.game.dialogNPC.SellAvailable {
-			for i := 0; i < len(ih.game.party.Inventory) && i < maxItems; i++ {
-				y := listY + i*rowH
-				if ih.game.consumeLeftClickIn(rightX-2, y-2, rightX+colW+1, y-2+rowH+1) {
-					if ih.dialogDoubleClick("merchant_sell", i) {
-						item := ih.game.party.Inventory[i]
+			inv := ih.game.party.Inventory
+			sellStart := ih.game.merchantSellPage * merchantPageSize
+			for slot := 0; slot < merchantPageSize; slot++ {
+				idx := sellStart + slot
+				if idx >= len(inv) {
+					break
+				}
+				x, y, w, h := merchantCellRect(rightX, gridTop, slot)
+				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+					if ih.dialogDoubleClick("merchant_sell", idx) {
+						item := inv[idx]
 						base := item.Attributes["value"]
 						if base <= 0 {
 							ih.game.AddCombatMessage("This item has no value.")
@@ -1957,10 +1994,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 						}
 						price := ih.game.merchantSellPrice(base) // Merchant skill markup
 						ih.game.party.Gold += price
-						ih.game.party.RemoveItem(i)
+						ih.game.party.RemoveItem(idx)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 						ih.resetDialogDoubleClick()
-						return
 					}
 					return
 				}
@@ -1993,9 +2029,17 @@ func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 // shifted the list (selling removes the row; the next row slides under the
 // cursor and a stray click would sell it too).
 func (ih *InputHandler) resetDialogDoubleClick() {
-	ih.game.dialogLastClickTime = 0
-	ih.game.dialogLastClickedIdx = -1
-	ih.game.dialogLastClickZone = ""
+	ih.game.resetDialogClickTracker()
+}
+
+// resetDialogClickTracker clears the dialog double-click tracker. Shared with
+// the renderer so a merchant page flip (consumed in the Draw pass) also breaks
+// the chain — otherwise click-item → flip page → click same index could pair as
+// a double-click buy/sell despite the navigation in between.
+func (g *MMGame) resetDialogClickTracker() {
+	g.dialogLastClickTime = 0
+	g.dialogLastClickedIdx = -1
+	g.dialogLastClickZone = ""
 }
 
 // toggleTurnBasedMode switches between real-time and turn-based modes
@@ -2015,6 +2059,13 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 	if ih.game.turnBasedRotCooldown > 0 {
 		ih.game.turnBasedRotCooldown--
+	}
+
+	// A TB rotation is an inspection sweep through the diagonal sector, not just a
+	// cosmetic snap. While the rendered view is still turning, ignore party actions
+	// so the player actually gets those intermediate frames before acting again.
+	if ih.game.viewTurnFramesLeft > 0 {
+		return
 	}
 
 	// Each alive+conscious character has Speed-derived attack slots
@@ -2061,16 +2112,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 
 		if rotated {
 			ih.game.turnBasedRotCooldown = int(TurnBasedInputCooldownSeconds * float64(ih.game.config.GetTPS()))
+			return
 		}
 	}
 
 	if moved {
-		// Movement is a party-wide commitment: it spends EVERY remaining
-		// action slot and ends the round immediately.
-		for _, m := range ih.game.party.Members {
-			m.ActionsRemaining = 0
-		}
-		ih.game.endPartyTurn()
+		ih.game.endPartyTurnAfterMovement()
 		return
 	}
 
@@ -2107,9 +2154,11 @@ func (ih *InputHandler) handleTurnBasedInput() {
 				ih.game.consumeSelectedCharAction()
 			}
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
-		} else if ih.game.combat.CastEquippedSpell() {
-			ih.game.consumeSelectedCharAction()
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
+		} else {
+			if ih.game.combat.CastEquippedSpell() {
+				ih.game.consumeSelectedCharAction()
+			}
+			ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 		}
 	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
 		mouseX, mouseY := ebiten.CursorPosition()
@@ -2236,6 +2285,10 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 	for ih.game.camera.Angle >= 2*math.Pi {
 		ih.game.camera.Angle -= 2 * math.Pi
 	}
+
+	// The logical angle snapped above (gameplay reads it immediately); ease the
+	// RENDERED view toward it over the next frames so the turn glides (advanceViewTurn).
+	ih.game.viewTurnFramesLeft = ih.game.turnViewFrames()
 }
 
 func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) int {
@@ -2268,10 +2321,12 @@ func (ih *InputHandler) handleSpellTraderInput() {
 
 	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
+		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionDown(spellKeys)
+		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
@@ -2452,6 +2507,20 @@ func (ih *InputHandler) executeEncounterChoice() {
 	choice := choices[ih.game.selectedChoice]
 
 	switch choice.Action {
+	case "info":
+		// Branch deeper: show this choice's reply + its follow-up choices. The
+		// conversation stays open (no quest taken) until the player picks a
+		// terminal action inside the branch.
+		ih.game.dialogNodePath = append(ih.game.dialogNodePath, choice)
+		ih.game.selectedChoice = 0
+
+	case "back":
+		// Pop one conversation level (back toward the greeting).
+		if n := len(ih.game.dialogNodePath); n > 0 {
+			ih.game.dialogNodePath = ih.game.dialogNodePath[:n-1]
+		}
+		ih.game.selectedChoice = 0
+
 	case "leave":
 		// Close dialog and leave
 		ih.game.dialogActive = false
@@ -2472,6 +2541,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 
 	case "close_valve":
 		ih.handleCloseValve(choice.QuestID)
+
+	case "take_swords":
+		ih.handleOpenSwordRack(choice.QuestID)
 
 	case "tavern_rest":
 		ih.handleTavernRest(choice)
@@ -2495,38 +2567,26 @@ func (ih *InputHandler) executeEncounterChoice() {
 	}
 }
 
-// npcIsQuestGiver reports whether an NPC offers any give_quest/turn_in_quest
-// choice — used to reject Lich party members from those NPCs (the Mage Tower).
-func npcIsQuestGiver(npc *character.NPC) bool {
-	if npc == nil || npc.DialogueData == nil {
-		return false
-	}
-	for _, c := range npc.DialogueData.Choices {
-		if c.Action == "give_quest" || c.Action == "turn_in_quest" {
-			return true
-		}
-	}
-	return false
-}
-
-// anyLivingMonsterOfType reports whether a living monster whose name maps to
-// target (the same name→key normalization quest kills use) exists. Dead monsters
-// are dropped from the world slice, so HP>0 means alive. targetMap scopes the
-// search to one map; empty scans every loaded map (suits a unique boss).
-func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
-	scan := func(w *world.World3D) bool {
+// countLivingQuestTargets returns living, quest-eligible monsters whose name maps
+// to target (the same name→key normalization quest kills use). Dead monsters are
+// dropped from the world slice, so HP>0 means alive. targetMap scopes the search
+// to one map; empty scans every loaded map (suits a unique boss). Runtime/ad-hoc
+// summons can opt out so they do not distort map-clear quest progress.
+func (g *MMGame) countLivingQuestTargets(target, targetMap string) int {
+	scan := func(w *world.World3D) int {
 		if w == nil {
-			return false
+			return 0
 		}
+		count := 0
 		for _, m := range w.Monsters {
-			if m == nil || m.HitPoints <= 0 {
+			if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
 				continue
 			}
 			if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
-				return true
+				count++
 			}
 		}
-		return false
+		return count
 	}
 	wm := world.GlobalWorldManager
 	if wm == nil {
@@ -2535,12 +2595,41 @@ func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
 	if targetMap != "" {
 		return scan(wm.LoadedMaps[targetMap])
 	}
+	total := 0
 	for _, w := range wm.LoadedMaps {
-		if scan(w) {
-			return true
+		total += scan(w)
+	}
+	return total
+}
+
+// syncExterminationQuestProgress refreshes an active exterminate quest's counter
+// to (target - living) and returns the living target count, so callers can reuse
+// it for the completion check instead of scanning the world a second time.
+// Returns -1 when the quest isn't an active exterminate kill (no sync done).
+func (g *MMGame) syncExterminationQuestProgress(questID string) int {
+	if g.questManager == nil {
+		return -1
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Completed || q.Definition.Type != quests.QuestTypeKill || !q.Definition.Exterminate {
+		return -1
+	}
+	living := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+	g.questManager.SetCurrentCount(q.ID, q.Target()-living)
+	return living
+}
+
+func (g *MMGame) syncExterminationQuestProgressForTarget(target string) {
+	if g.questManager == nil || target == "" {
+		return
+	}
+	for _, q := range g.questManager.GetActiveQuests() {
+		if q.Definition.Type == quests.QuestTypeKill &&
+			q.Definition.Exterminate &&
+			q.Definition.TargetMonster == target {
+			g.syncExterminationQuestProgress(q.ID)
 		}
 	}
-	return false
 }
 
 // creditQuestIfCleared marks an active kill quest completed when none of its
@@ -2556,7 +2645,11 @@ func (g *MMGame) creditQuestIfCleared(questID string) bool {
 		q.Definition.Type != quests.QuestTypeKill || q.Definition.TargetMonster == "" {
 		return false
 	}
-	if g.anyLivingMonsterOfType(q.Definition.TargetMonster, q.Definition.TargetMap) {
+	living := g.syncExterminationQuestProgress(questID)
+	if living < 0 { // not an exterminate quest — sync didn't scan, so do it here
+		living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+	}
+	if living > 0 {
 		return false
 	}
 	g.questManager.MarkCompleted(questID)
@@ -2618,12 +2711,19 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	name := questID
 	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
 		name = q.Definition.Name
+		// Exterminate quests count the map's live target population at accept time,
+		// so the goal tracks the real census instead of a hand-maintained number
+		// (and an already-empty map completes instantly via creditQuestIfCleared).
+		if q.Definition.Exterminate {
+			census := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+			quests.GlobalQuestManager.SetDynamicTarget(questID, census)
+		}
 	}
 	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
 
 	// Targets already wiped out before the quest was taken? Credit it on the
 	// spot (and apply any world changes) instead of showing 0/N until the next
-	// chat — the journal should never say "0/18" on a finished job.
+	// chat — the journal should never say "0/21" on a finished job.
 	if g.creditQuestIfCleared(questID) {
 		g.applyCompletedQuestTiles()
 		g.AddCombatMessage(fmt.Sprintf("'%s' is already done! Return to claim your reward.", name))
@@ -2696,6 +2796,54 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	g.AddCombatMessage(fmt.Sprintf("You heave the valve shut. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
 		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! The flood drains from the lair.", cq.Definition.Name))
+	}
+}
+
+// handleOpenSwordRack loots a katana rack hidden behind a shoji: rolls the zone
+// loot table into the party (random zone gear + a little gold, never a unique),
+// advances the interact-quest, and marks the rack Visited so it can't be
+// re-looted. Gating on an ACTIVE quest avoids consuming a rack that wouldn't
+// count (no soft-lock). Gathering all of them completes castle_armory, which
+// wakes the dormant Samurai Warlord (passive_until_quest).
+func (ih *InputHandler) handleOpenSwordRack(questID string) {
+	g := ih.game
+	npc := g.dialogNPC
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if g.questManager == nil || npc == nil {
+		return
+	}
+	if npc.Visited {
+		g.AddCombatMessage("The rack stands empty.")
+		return
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Status != quests.QuestStatusActive {
+		g.AddCombatMessage("No reason to disturb the armoury yet.")
+		return
+	}
+	npc.Visited = true
+	loot, gold := rollWeightedLootTable("castle_armory")
+	for _, it := range loot {
+		g.party.AddItem(it)
+	}
+	if gold > 0 {
+		g.party.Gold += gold
+	}
+	parts := make([]string, 0, len(loot)+1)
+	if gold > 0 {
+		parts = append(parts, fmt.Sprintf("%d gold", gold))
+	}
+	for _, it := range loot {
+		parts = append(parts, it.Name)
+	}
+	if len(parts) > 0 {
+		g.AddCombatMessage(fmt.Sprintf("You take from the rack: %s.", strings.Join(parts, ", ")))
+	}
+	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
+	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
+	for _, cq := range completed {
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep — the Warlord wakes.", cq.Definition.Name))
 	}
 }
 
@@ -2930,7 +3078,6 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				monster.WasAttacked = true
 				monster.IsEngagingPlayer = true
 				ih.game.registerSpawnedMonster(monster)
-				fmt.Printf("Spawned %s at walkable position (%.1f, %.1f) with AI enabled\n", monsterDef.Type, spawnX, spawnY)
 			}
 		}
 	}
@@ -2953,7 +3100,9 @@ func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64,
 		candidateX := npcX + offsetX
 		candidateY := npcY + offsetY
 
-		// Only return if the exact candidate position is walkable
+		// Only return if the exact candidate position is walkable. Uses raw tile
+		// walkability (not the player's CanMoveTo) on purpose: a spawn must land on
+		// terrain-walkable ground regardless of the player's transient walk-on-water.
 		if ih.isPositionWalkable(candidateX, candidateY) {
 			return candidateX, candidateY
 		}
@@ -2964,21 +3113,21 @@ func (ih *InputHandler) findEncounterSpawnLocation(npcX, npcY float64) (float64,
 	return 0, 0 // Return invalid coordinates
 }
 
-// isPositionWalkable checks if a specific position is walkable (DRY helper)
+// isPositionWalkable reports whether a world position sits on a terrain-walkable
+// tile. Deliberately a raw tile-walkability check (not the player's CanMoveTo):
+// encounter spawns must land on ground that is walkable on its own, independent
+// of the player's transient walk-on-water / water-breathing buffs.
 func (ih *InputHandler) isPositionWalkable(x, y float64) bool {
 	worldInst := ih.game.GetCurrentWorld()
 	if worldInst == nil {
 		return false
 	}
-
-	tileSize := float64(ih.game.config.GetTileSize())
-	// Treat negative positions as out of bounds
 	if x < 0 || y < 0 {
-		return false
+		return false // negative positions are out of bounds
 	}
+	tileSize := float64(ih.game.config.GetTileSize())
 	tileX := int(x / tileSize)
 	tileY := int(y / tileSize)
-
 	if tileX >= 0 && tileX < worldInst.Width && tileY >= 0 && tileY < worldInst.Height {
 		tile := worldInst.Tiles[tileY][tileX]
 		return world.GlobalTileManager != nil && world.GlobalTileManager.IsWalkable(tile)

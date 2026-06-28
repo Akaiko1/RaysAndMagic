@@ -97,6 +97,9 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 			lines = append(lines, fmt.Sprintf("Heals %d HP", d.HealBase))
 		}
 	}
+	if d.CurePoison {
+		lines = append(lines, "Cures poison")
+	}
 	if d.Revive {
 		if d.FullHeal {
 			lines = append(lines, "Revives a fallen ally at FULL health")

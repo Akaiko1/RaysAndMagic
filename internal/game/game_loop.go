@@ -16,26 +16,20 @@ import (
 type GameLoop struct {
 	game               *MMGame
 	inputHandler       *InputHandler
-	combat             *CombatSystem
 	ui                 *UISystem
 	renderer           *Renderer
 	lastUpdateDuration time.Duration
 	lastDrawDuration   time.Duration
 }
 
-// NewGameLoop creates a new game loop manager
+// NewGameLoop creates a new game loop manager. Combat is shared via
+// game.combat (a stateless back-pointer holder) — no second instance.
 func NewGameLoop(game *MMGame) *GameLoop {
-	inputHandler := NewInputHandler(game)
-	combat := NewCombatSystem(game)
-	ui := NewUISystem(game)
-	renderer := NewRenderer(game)
-
 	return &GameLoop{
 		game:         game,
-		inputHandler: inputHandler,
-		combat:       combat,
-		ui:           ui,
-		renderer:     renderer,
+		inputHandler: NewInputHandler(game),
+		ui:           NewUISystem(game),
+		renderer:     NewRenderer(game),
 	}
 }
 
@@ -58,6 +52,18 @@ func (gl *GameLoop) Update() error {
 	// Update per-frame mouse state before input handling and Draw
 	gl.ui.updateMouseState()
 
+	// Top-level screens replace the gameplay loop entirely. Their click handling
+	// lives in the matching Draw call (roster-screen convention); update only
+	// processes keyboard/back navigation here.
+	switch gl.game.appScreen {
+	case AppScreenMainMenu:
+		gl.game.updateEntryMenu()
+		return nil
+	case AppScreenPartyCreate:
+		gl.game.updatePartyCreate()
+		return nil
+	}
+
 	gl.updateExploration()
 
 	return nil
@@ -73,6 +79,10 @@ func (gl *GameLoop) updateExploration() {
 
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
+
+	// Ease the rendered view angle toward the (snapped) camera angle — smooth TB
+	// turns. No-op in real time. Cheap; fine to run before the pause check.
+	gl.game.advanceViewTurn()
 
 	// Pause gameplay updates while menus/panels are open
 	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
@@ -99,7 +109,7 @@ func (gl *GameLoop) updateExploration() {
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
-		gl.combat.tickEvasiveBossesTB()
+		gl.game.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()
 	} else {
 		// Update monsters in parallel with performance monitoring
@@ -120,7 +130,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Handle combat interactions (only in real-time mode)
 	if !gl.game.turnBasedMode {
-		gl.combat.HandleMonsterInteractions()
+		gl.game.combat.HandleMonsterInteractions()
 	}
 
 	// Update projectiles - skip if no active projectiles to save CPU
@@ -158,10 +168,67 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	// forestBg := gl.game.config.Graphics.Colors.ForestBg
 	// screen.Fill(color.RGBA{uint8(forestBg[0]), uint8(forestBg[1]), uint8(forestBg[2]), 255})
 
-	// Render the 3D first-person view
-	gl.renderer.RenderFirstPersonView(screen)
+	// Top-level menu screens render instead of the 3D scene + gameplay UI.
+	switch gl.game.appScreen {
+	case AppScreenMainMenu:
+		gl.ui.drawEntryMenuScreen(screen)
+		return
+	case AppScreenPartyCreate:
+		gl.ui.drawPartyCreateScreen(screen)
+		return
+	}
 
-	// Draw UI elements
+	// Render the 3D scene, then composite to the screen. During a turn-based turn
+	// the scene goes through a horizontal motion-blur shader (camera blur — the
+	// view pans sideways) whose length tracks the turn speed; otherwise it's a
+	// straight blit. Either way the UI is drawn last, directly to the screen, so it
+	// never blurs.
+	g := gl.game
+	screenBounds := screen.Bounds()
+	blurPx := g.turnBlurPixels(screenBounds.Dx()) // blur length scales with the real draw width
+	if blurPx >= 0.75 {
+		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
+			if shader, err := g.ensureBlurShader(); err == nil {
+				scene.Clear()
+				gl.renderer.RenderFirstPersonView(scene)
+				b := scene.Bounds()
+				op := &ebiten.DrawRectShaderOptions{}
+				op.Images[0] = scene
+				op.Uniforms = map[string]any{"BlurPx": float32(blurPx)}
+				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+			} else {
+				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile — no blur
+			}
+		} else {
+			gl.renderer.RenderFirstPersonView(screen)
+		}
+	} else if turnBlurStrength > 0 && !g.turnBlurWarm {
+		if scene := g.ensureTurnSceneBuffer(screenBounds); scene != nil {
+			if shader, err := g.ensureBlurShader(); err == nil {
+				// Prewarm the exact blur pipeline on an idle frame. BlurPx=0 is a
+				// visually identical blit, but it creates the scene buffer and lets
+				// Ebiten/Metal compile the shader pipeline before the first TB turn.
+				scene.Clear()
+				gl.renderer.RenderFirstPersonView(scene)
+				b := scene.Bounds()
+				op := &ebiten.DrawRectShaderOptions{}
+				op.Images[0] = scene
+				op.Uniforms = map[string]any{"BlurPx": float32(0)}
+				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
+				g.turnBlurWarm = true
+			} else {
+				g.turnBlurWarm = true
+				gl.renderer.RenderFirstPersonView(screen)
+			}
+		} else {
+			g.turnBlurWarm = true
+			gl.renderer.RenderFirstPersonView(screen)
+		}
+	} else {
+		gl.renderer.RenderFirstPersonView(screen)
+	}
+
+	// Draw UI elements (straight to the screen — never blurred)
 	gl.ui.Draw(screen)
 }
 
@@ -189,8 +256,8 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	defer gl.game.projectileMutex.Unlock()
 
 	// Check for projectile-monster collisions BEFORE movement to prevent tunneling
-	gl.combat.CheckProjectilePlayerCollisions()
-	gl.combat.CheckProjectileMonsterCollisions()
+	gl.game.combat.CheckProjectilePlayerCollisions()
+	gl.game.combat.CheckProjectileMonsterCollisions()
 
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
@@ -437,7 +504,7 @@ func (gl *GameLoop) updateSlashEffects() {
 // updatePerformanceMetrics updates game-specific performance metrics
 func (gl *GameLoop) updatePerformanceMetrics() {
 	monstersUpdated := uint64(len(gl.game.world.Monsters))
-	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.meleeAttacks))
+	projectilesActive := int32(len(gl.game.magicProjectiles) + len(gl.game.arrows))
 	collisionsDetected := uint64(0) // Could be updated by collision detection system
 
 	gl.game.threading.PerformanceMonitor.UpdateGameMetrics(monstersUpdated, projectilesActive, collisionsDetected)
@@ -609,7 +676,7 @@ func (gl *GameLoop) returnFromUnderwater() {
 
 // hasActiveProjectiles checks if there are any active projectiles to update
 func (gl *GameLoop) hasActiveProjectiles() bool {
-	return len(gl.game.magicProjectiles) > 0 || len(gl.game.meleeAttacks) > 0 || len(gl.game.arrows) > 0
+	return len(gl.game.magicProjectiles) > 0 || len(gl.game.arrows) > 0
 }
 
 // isEncounterMonster checks if a monster is part of an encounter with rewards

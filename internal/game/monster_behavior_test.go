@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	"ugataima/internal/character"
@@ -10,9 +11,9 @@ import (
 )
 
 // These tests cover the turn-based / real-time monster movement and attack
-// rules: tile-centering, cardinal-only melee that never enters the player's
-// tile, ranged firing only when row/column-aligned, the 1-tile real-time melee
-// reach, and the puma pounce landing on an adjacent tile (not on the player).
+// rules: tile-centering, adjacent melee that never enters the player's tile,
+// ranged firing only when row/column-aligned, the 1-tile real-time melee reach,
+// and the puma pounce landing on an adjacent tile (not on the player).
 
 func absI(n int) int {
 	if n < 0 {
@@ -35,7 +36,7 @@ func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
 	for _, c := range game.party.Members {
 		c.Luck = 0
 	}
-	gl := &GameLoop{game: game, combat: game.combat}
+	gl := &GameLoop{game: game}
 	return game, gl, float64(cfg.GetTileSize())
 }
 
@@ -72,10 +73,90 @@ func monsterTileCoords(m *monster.Monster3D, ts float64) (int, int) {
 	return int(m.X / ts), int(m.Y / ts)
 }
 
-// Melee monsters approach one tile per turn, only ever strike from a
-// cardinally-adjacent tile (Manhattan distance 1), and never step onto the
-// player's own tile.
-func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
+func TestTurnBased_MoveAfterActionGrantsExtraMonsterAction(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 20, 20)
+	game.currentTurn = 0
+	for _, m := range game.party.Members {
+		m.ActionsRemaining = 1
+	}
+
+	game.consumeSelectedCharAction()
+	if !game.turnBasedMode || game.partyActionsUsed != 1 {
+		t.Fatalf("test setup failed: turnBased=%v partyActionsUsed=%d", game.turnBasedMode, game.partyActionsUsed)
+	}
+
+	game.endPartyTurnAfterMovement()
+
+	if !game.turnBasedExtraMonsterAction {
+		t.Fatalf("moving after spending a TB action must grant monsters an extra action pass")
+	}
+	if game.currentTurn != 1 {
+		t.Fatalf("currentTurn=%d, want monster turn", game.currentTurn)
+	}
+	for i, m := range game.party.Members {
+		if m.ActionsRemaining != 0 {
+			t.Fatalf("member %d ActionsRemaining=%d, want 0 after movement", i, m.ActionsRemaining)
+		}
+	}
+}
+
+func TestTurnBased_ExtraMonsterActionMovesTwiceAndResets(t *testing.T) {
+	run := func(extra bool) (int, bool) {
+		game, gl, ts := tbBehaviorGame(t, 20, 20)
+		placePlayerAtTile(game, 10, 10, ts)
+		m := spawnMonsterAtTile(game, "goblin", 10, 7, ts)
+		game.turnBasedExtraMonsterAction = extra
+
+		runOneMonsterTurn(game, gl)
+
+		_, my := monsterTileCoords(m, ts)
+		return my, game.turnBasedExtraMonsterAction
+	}
+
+	normalY, normalExtra := run(false)
+	if normalY != 8 {
+		t.Fatalf("normal monster turn moved to y=%d, want 8 (one tile)", normalY)
+	}
+	if normalExtra {
+		t.Fatalf("normal monster turn should not set extra action flag")
+	}
+
+	game, gl, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := spawnMonsterAtTile(game, "goblin", 10, 7, ts)
+	game.turnBasedExtraMonsterAction = true
+
+	runOneMonsterTurn(game, gl)
+	_, firstPassY := monsterTileCoords(m, ts)
+	if firstPassY != 8 {
+		t.Fatalf("first pass moved to y=%d, want 8 before the delayed extra pass", firstPassY)
+	}
+	if game.currentTurn != 1 {
+		t.Fatalf("currentTurn=%d, want monster turn while waiting for delayed extra pass", game.currentTurn)
+	}
+	if game.turnBasedMonsterPassDelay <= 0 {
+		t.Fatalf("turnBasedMonsterPassDelay=%d, want visible delay before extra pass", game.turnBasedMonsterPassDelay)
+	}
+
+	for frames := 0; game.currentTurn == 1 && frames < 120; frames++ {
+		runOneMonsterTurn(game, gl)
+	}
+	if game.currentTurn != 0 {
+		t.Fatalf("monster turn did not finish after delayed extra pass")
+	}
+
+	_, finalY := monsterTileCoords(m, ts)
+	if finalY != 9 {
+		t.Fatalf("extra monster turn moved to y=%d, want 9 after two tile actions", finalY)
+	}
+	if game.turnBasedExtraMonsterAction {
+		t.Fatalf("extra monster action flag must reset after the monster turn consumes it")
+	}
+}
+
+// Melee monsters approach one tile per turn, strike from any adjacent tile
+// (including diagonals), and never step onto the player's own tile.
+func TestTurnBased_MeleeOnlyHitsFromAdjacent(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
 	placePlayerAtTile(game, ptx, pty, ts)
@@ -92,8 +173,9 @@ func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
 		}
 		if partyHPSum(game) < hpBefore {
 			everHit = true
-			if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-				t.Fatalf("turn %d: melee hit from a non-cardinal-adjacent tile (Manhattan %d)", turn, man)
+			dx, dy := absI(tx-ptx), absI(ty-pty)
+			if dx > 1 || dy > 1 || dx+dy == 0 {
+				t.Fatalf("turn %d: melee hit from a non-adjacent tile (dx=%d dy=%d)", turn, dx, dy)
 			}
 		}
 	}
@@ -102,9 +184,9 @@ func TestTurnBased_MeleeOnlyHitsFromCardinalAdjacent(t *testing.T) {
 	}
 }
 
-// A melee monster diagonally adjacent to the player must NOT attack; it should
-// reposition onto a cardinally-adjacent tile instead.
-func TestTurnBased_MeleeDoesNotAttackDiagonally(t *testing.T) {
+// A melee monster diagonally adjacent to the player can attack; diagonal contact
+// counts as point-blank so packs can surround the party.
+func TestTurnBased_MeleeAttacksDiagonally(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	m := spawnMonsterAtTile(game, "goblin", 11, 11, ts) // diagonal neighbour
@@ -112,12 +194,43 @@ func TestTurnBased_MeleeDoesNotAttackDiagonally(t *testing.T) {
 	hp0 := partyHPSum(game)
 	runOneMonsterTurn(game, gl)
 
-	if partyHPSum(game) < hp0 {
-		t.Fatalf("melee monster attacked from a diagonal tile")
-	}
 	tx, ty := monsterTileCoords(m, ts)
-	if man := absI(tx-10) + absI(ty-10); man != 1 {
-		t.Fatalf("expected diagonal monster to reposition to a cardinal-adjacent tile, Manhattan=%d", man)
+	if dx, dy := absI(tx-10), absI(ty-10); dx != 1 || dy != 1 {
+		t.Fatalf("expected diagonal monster to stay diagonally adjacent, got dx=%d dy=%d", dx, dy)
+	}
+	if partyHPSum(game) >= hp0 {
+		t.Fatalf("melee monster should attack from a diagonal tile")
+	}
+}
+
+func TestTurnBased_FrontDiagonalMeleeMonsterHasPulledVisualPosition(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	game.camera.Angle = 0 // facing east
+	r := &Renderer{game: game}
+
+	frontDiag := spawnMonsterAtTile(game, "goblin", 11, 9, ts)
+	vx, vy := r.monsterVisualPosition(frontDiag)
+	if vx == frontDiag.X && vy == frontDiag.Y {
+		t.Fatalf("front-diagonal melee monster should be visually pulled into the TB front view")
+	}
+	if got, want := vx-game.camera.X, tbFrontDiagonalMonsterForwardTiles*ts; math.Abs(got-want) > 1e-6 {
+		t.Fatalf("visual forward offset = %.2f, want %.2f", got, want)
+	}
+	if got, want := game.camera.Y-vy, tbFrontDiagonalMonsterLateralTiles*ts; math.Abs(got-want) > 1e-6 {
+		t.Fatalf("visual lateral offset = %.2f, want %.2f", got, want)
+	}
+
+	backDiag := spawnMonsterAtTile(game, "goblin", 9, 9, ts)
+	vx, vy = r.monsterVisualPosition(backDiag)
+	if vx != backDiag.X || vy != backDiag.Y {
+		t.Fatalf("back-diagonal monster should not be visually pulled")
+	}
+
+	game.turnBasedMode = false
+	vx, vy = r.monsterVisualPosition(frontDiag)
+	if vx != frontDiag.X || vy != frontDiag.Y {
+		t.Fatalf("real-time mode should use the monster's real position")
 	}
 }
 
@@ -171,8 +284,54 @@ func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
 	}
 }
 
-// A pouncing monster (puma) leaps onto a cardinally-adjacent tile — never onto
-// the player's tile — and strikes. Turn-based path.
+func TestTurnBased_RangedAttackCountUsesCooldownMultiplier(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+	archer := spawnMonsterAtTile(game, "elf_archer", 13, 10, ts) // same row, 3 tiles (range 5)
+	archer.AttackCooldownMultiplier = 0.6
+
+	runOneMonsterTurn(game, gl)
+
+	if got := len(game.arrows); got != 2 {
+		t.Fatalf("turn-based ranged attack count = %d projectiles, want 2", got)
+	}
+}
+
+func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	placePlayerAtTile(game, 10, 10, ts)
+
+	// First archer already owns the east firing lane. The second starts diagonal:
+	// generic circular-range pathing may pick diagonal "in range" goals where TB
+	// ranged still cannot shoot. It should instead path to another row/column lane.
+	first := monster.NewMonster3DFromConfig(13*ts+ts/2, 10*ts+ts/2, "elf_archer", game.config)
+	second := monster.NewMonster3DFromConfig(13*ts+ts/2, 12*ts+ts/2, "elf_archer", game.config)
+	for _, m := range []*monster.Monster3D{first, second} {
+		m.IsEngagingPlayer = true
+		m.WasAttacked = true
+		m.RangedAttackRange = 5 * ts
+	}
+	game.world.Monsters = []*monster.Monster3D{first, second}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	for turn := 0; turn < 4; turn++ {
+		runOneMonsterTurn(game, gl)
+	}
+
+	sx, sy := monsterTileCoords(second, ts)
+	if sx != 10 && sy != 10 {
+		t.Fatalf("second archer should take a row/column firing lane, got tile (%d,%d)", sx, sy)
+	}
+	if sx == 13 && sy == 10 {
+		t.Fatalf("second archer moved into the first archer's occupied firing tile")
+	}
+	if len(game.arrows) < 5 {
+		t.Fatalf("expected both archers to be firing after repositioning, got %d arrows", len(game.arrows))
+	}
+}
+
+// A pouncing monster (puma) leaps onto an adjacent tile — never onto the
+// player's tile — and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
@@ -186,16 +345,16 @@ func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	if tx == ptx && ty == pty {
 		t.Fatalf("puma pounced onto the player's tile")
 	}
-	if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-		t.Fatalf("puma should land on a cardinally-adjacent tile, Manhattan=%d", man)
+	dx, dy := absI(tx-ptx), absI(ty-pty)
+	if dx > 1 || dy > 1 || dx+dy == 0 {
+		t.Fatalf("puma should land on an adjacent tile, dx=%d dy=%d", dx, dy)
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("puma pounce should strike the party")
 	}
 }
 
-// Real-time pounce lands on a cardinally-adjacent tile (not the player's) and
-// deals damage.
+// Real-time pounce lands on an adjacent tile (not the player's) and deals damage.
 func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
@@ -210,8 +369,9 @@ func TestRealTime_PounceLandsAdjacentNotPlayerTile(t *testing.T) {
 	if tx == ptx && ty == pty {
 		t.Fatalf("real-time puma pounced onto the player's tile")
 	}
-	if man := absI(tx-ptx) + absI(ty-pty); man != 1 {
-		t.Fatalf("real-time puma should land cardinally adjacent, Manhattan=%d", man)
+	dx, dy := absI(tx-ptx), absI(ty-pty)
+	if dx > 1 || dy > 1 || dx+dy == 0 {
+		t.Fatalf("real-time puma should land adjacent, dx=%d dy=%d", dx, dy)
 	}
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time puma pounce should strike the party")
@@ -295,21 +455,21 @@ func TestDisintegrate_ImmunityAndConfig(t *testing.T) {
 	}
 }
 
-// Day of the Gods grants the party a 50% incoming-damage reduction for its
-// (YAML-driven) duration.
+// Day of the Gods grants the party a mastery-scaled incoming-damage reduction
+// for its YAML-driven duration.
 func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("day_of_the_gods cast failed")
 	}
-	if got := game.combatBuffResistPct(); got != 50 {
-		t.Fatalf("expected 50%% resist active, got %d", got)
+	if got := game.combatBuffResistPct(); got != 10 {
+		t.Fatalf("expected 10%% resist active, got %d", got)
 	}
-	// Day of the Gods boosts every school's resist → 100 fire → 50 on a member.
+	// Day of the Gods boosts every school's resist → 100 fire → 90 at Novice.
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 50 {
-		t.Errorf("100 incoming with 50%% resist should be 50, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 90 {
+		t.Errorf("100 incoming with 10%% resist should be 90, got %d", got)
 	}
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
 	buff, ok := game.combatBuffByID("day_of_the_gods")
@@ -318,36 +478,36 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	}
 }
 
-// Hour of Power: +15 outgoing damage and -5 incoming (floored at 0).
+// Hour of Power: +5 outgoing damage and -1 incoming at Novice.
 func TestHourOfPower_DamageBuffs(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	if !game.combat.CastEquippedSpell() {
 		t.Fatalf("hour_of_power cast failed")
 	}
-	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 15 || in != 5 {
-		t.Fatalf("hour_of_power: out=%d in=%d (want 15/5)", out, in)
+	if out, in := game.combatBuffOutBonus(), game.combatBuffInReduce(); out != 5 || in != 1 {
+		t.Fatalf("hour_of_power: out=%d in=%d (want 5/1)", out, in)
 	}
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 5 {
-		t.Errorf("10 incoming -5 should be 5, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(10, "fire", m, false); got != 9 {
+		t.Errorf("10 incoming -1 should be 9, got %d", got)
 	}
-	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 0 {
-		t.Errorf("3 incoming -5 should floor at 0, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(3, "fire", m, false); got != 2 {
+		t.Errorf("3 incoming -1 should be 2, got %d", got)
 	}
 }
 
-// Both party buffs stack on incoming damage: % reduction first, then the flat -5.
+// Both party buffs stack on incoming damage: % reduction first, then flat reduction.
 func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	equipSpellAndPrepareCaster(t, game.combat, "day_of_the_gods", 100, 30)
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 fire → 50% resist → 50 → flat -5 → 45
+	// 100 fire → 10% resist → 90 → flat -1 → 89
 	m := game.party.Members[0]
-	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 45 {
-		t.Errorf("100 with 50%% resist then -5 should be 45, got %d", got)
+	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 89 {
+		t.Errorf("100 with 10%% resist then -1 should be 89, got %d", got)
 	}
 }
 
@@ -877,6 +1037,21 @@ func TestRealTime_MeleeHitsAtExactlyOneTile(t *testing.T) {
 	game.combat.HandleMonsterInteractions()
 	if partyHPSum(game) >= hp0 {
 		t.Fatalf("real-time melee should hit at exactly one tile (inclusive reach)")
+	}
+}
+
+func TestRealTime_MeleeHitsFromDiagonalAdjacentTile(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 10, 10, ts)
+	m := spawnMonsterAtTile(game, "goblin", 11, 11, ts)
+	m.State = monster.StateAttacking
+	m.StateTimer = 1
+
+	hp0 := partyHPSum(game)
+	game.combat.HandleMonsterInteractions()
+	if partyHPSum(game) >= hp0 {
+		t.Fatalf("real-time melee should hit from a diagonal adjacent tile")
 	}
 }
 

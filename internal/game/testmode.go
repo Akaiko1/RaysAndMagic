@@ -39,6 +39,8 @@ func (g *MMGame) ApplyTestArena() {
 	if g == nil || g.party == nil {
 		return
 	}
+	// Skip the entry/party-creation menus and drop straight into gameplay.
+	g.appScreen = AppScreenInGame
 	// Clear the two locations: per monster, roll its loot exactly as the live
 	// kill path does, and tally the per-member XP share and the gold it carries
 	// (same split the live kill path uses) as the monsters are removed.
@@ -77,7 +79,7 @@ func addMainDamageStat(c *character.MMCharacter, v int) {
 		c.Intellect += v
 	case character.ClassCleric:
 		c.Personality += v
-	case character.ClassArcher:
+	case character.ClassArcher, character.ClassThief:
 		c.Accuracy += v
 	default: // Knight, Paladin — melee weapon scaling on Might
 		c.Might += v
@@ -249,6 +251,13 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 	}
 	for _, it := range fixedItemRewards(c.Items) {
 		g.party.AddItem(it)
+	}
+	if c.LootTable != "" {
+		poolItems, poolGold := rollWeightedLootTable(c.LootTable)
+		g.party.Gold += poolGold
+		for _, it := range poolItems {
+			g.party.AddItem(it)
+		}
 	}
 }
 

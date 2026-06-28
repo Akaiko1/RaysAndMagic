@@ -78,7 +78,7 @@ func TestWeaponCooldown_TypeMultipliers(t *testing.T) {
 	dagger := frames("magic_dagger")
 	sword := frames("iron_sword")
 	bow := frames("hunting_bow")
-	axe := frames("steel_axe")
+	axe := frames("bronze_labrys") // category-baseline axe (steel_axe/gorehorn carry per-weapon overrides)
 	hellfire := frames("bow_of_hellfire")
 
 	if !(dagger < sword && sword < bow && bow < axe) {

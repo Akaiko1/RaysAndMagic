@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/config"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
@@ -115,5 +116,47 @@ func TestFireboltYAML_HasNoAoE(t *testing.T) {
 	}
 	if def.AoeRadiusTiles != 0 {
 		t.Fatalf("firebolt should be single-target (aoe_radius_tiles=0), got %.2f", def.AoeRadiusTiles)
+	}
+}
+
+func TestTonbogiriYAML_AdvertisesTwoTileAoE(t *testing.T) {
+	_ = newTestCombatSystemWithConfig(t)
+	def, ok := config.GetWeaponDefinition("tonbogiri")
+	if !ok || def == nil {
+		t.Fatal("tonbogiri missing from weapons.yaml")
+	}
+	if def.AoeRadiusTiles != 2.0 {
+		t.Fatalf("tonbogiri AoE radius = %.2f, want 2.0", def.AoeRadiusTiles)
+	}
+}
+
+func TestMeleeWeaponAoE_UsesWeaponRadiusOnRealMeleeDamagePath(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	tileSize := float64(cs.game.config.GetTileSize())
+
+	primary := &monsterPkg.Monster3D{
+		ID: "primary", Name: "Primary", X: 0, Y: 0,
+		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
+	}
+	near := &monsterPkg.Monster3D{
+		ID: "near", Name: "Near", X: tileSize * 1.9, Y: 0,
+		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
+	}
+	far := &monsterPkg.Monster3D{
+		ID: "far", Name: "Far", X: tileSize * 2.1, Y: 0,
+		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
+	}
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, near, far}
+
+	cs.ApplyDamageToMonster(primary, 20, "Tonbogiri, the Dragonfly Spear", false)
+
+	if primary.HitPoints != 80 {
+		t.Fatalf("primary HP = %d, want 80", primary.HitPoints)
+	}
+	if near.HitPoints != 80 {
+		t.Fatalf("near monster should take Tonbogiri splash, HP = %d, want 80", near.HitPoints)
+	}
+	if far.HitPoints != 100 {
+		t.Fatalf("far monster should be outside Tonbogiri splash, HP = %d, want 100", far.HitPoints)
 	}
 }

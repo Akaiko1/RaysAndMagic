@@ -83,3 +83,16 @@ func TestStatDescriptions_QuoteRealConstants(t *testing.T) {
 		t.Errorf("personality description must quote healing divisor %d: %s", spells.HealingPersonalityDivisor, persDesc)
 	}
 }
+
+func TestStatDescriptions_DoNotPretendWeaponScalingIsUniversal(t *testing.T) {
+	for _, stat := range []string{"might", "accuracy"} {
+		desc := character.StatDescription(stat)
+		oldWeaponFormula := fmt.Sprintf("%s/%d", strings.ToUpper(stat[:1])+stat[1:], character.WeaponPrimaryStatDivisor)
+		if strings.Contains(desc, oldWeaponFormula) {
+			t.Errorf("%s description should point to weapon tooltips, not hard-code universal weapon scaling: %q", stat, desc)
+		}
+		if !strings.Contains(strings.ToLower(desc), "weapons that scale from") {
+			t.Errorf("%s description should say weapon scaling is weapon-specific: %q", stat, desc)
+		}
+	}
+}

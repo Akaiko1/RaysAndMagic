@@ -31,6 +31,7 @@ type TreasureChestReward struct {
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`
 	Gold              int      `yaml:"gold,omitempty"`
+	LootTable         string   `yaml:"loot_table,omitempty"`
 	CompletionMessage string   `yaml:"completion_message,omitempty"`
 }
 
@@ -40,6 +41,13 @@ type TreasureChestReward struct {
 // is present here — so a Lich enrages just archmages and elf warriors, not every
 // passive monster. Mutated in place to avoid per-frame allocation.
 var PartyTraits = map[string]bool{}
+
+// relentlessHunter reports whether this monster pursues the party MAP-WIDE: a boss
+// turned aggressive (BossAggro) or a non-boss rallied for revenge (Relentless,
+// e.g. Amazons after their Warlord dies). Both ignore detection/LoS AND must get
+// the widened A* window + node budget, or they'd stay on a normal mob's reach and
+// fail to path across a large/maze map despite being "hostile from anywhere".
+func (m *Monster3D) relentlessHunter() bool { return m.BossAggro || m.Relentless }
 
 // HatesActiveTrait reports whether any of this monster's hated party traits is
 // currently active — i.e. whether a passive monster should turn hostile on sight.
@@ -78,6 +86,10 @@ type Monster3D struct {
 	// Combat stats
 	DamageMin int
 	DamageMax int
+	// TrueDamage is added to every attack and bypasses EVERYTHING on the target —
+	// armor, resists, Stone Skin/flat, dodge — landing straight on HP (folded into
+	// the hit's total, no separate message). Applies to melee AND ranged.
+	TrueDamage int
 	// Light emission (torch-like)
 	LightRadius    float64
 	LightIntensity float64
@@ -130,6 +142,9 @@ type Monster3D struct {
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
 	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
 	StunFramesRemaining int     // Real-time stun duration in frames
+	StunDRStacks        int     // Stun diminishing-returns chain length (0=fresh; caps → immune)
+	StunDRMemoryTurns   int     // TB: stun-free turns left before the DR chain resets
+	StunDRMemoryFrames  int     // RT: stun-free frames left before the DR chain resets
 	RootTurnsRemaining  int     // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
 	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)
@@ -153,12 +168,27 @@ type Monster3D struct {
 	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
 	FireburstDamageMin       int        // Fireburst damage min
 	FireburstDamageMax       int        // Fireburst damage max
+	PiercingShotChance       float64    // Chance to fire an armor-piercing shot at multiple party members
+	PiercingShotTargets      int        // Number of party members hit by Piercing Shot (default 2)
+	AllyHealChance           float64    // Chance to heal self or a nearby allied monster instead of attacking
+	AllyHealAmount           int        // HP restored by the ally heal special
+	AllyHealRadiusPixels     float64    // Radius for ally heal target search
 	PoisonChance             float64    // Chance to apply poison on hit
 	PoisonDurationSec        int        // Poison duration in seconds
+	IgniteChance             float64    // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
+	IgniteDurationSec        int        // Burn duration in seconds
+	StunCharChance           float64    // Chance to stun the struck character (skips actions)
+	StunCharSeconds          int        // Stun duration in RT seconds
+	StunCharTurns            int        // Stun duration in TB turns
+	DispelChance             float64    // Chance to strip one random active party buff on hit
 
 	// Loot
 	Gold  int
 	Items []items.Item
+
+	// QuestProgressIgnored marks ad-hoc/runtime summons that should not advance or
+	// block map-clear kill quests. Fixed map spawns leave this false.
+	QuestProgressIgnored bool
 
 	// Resistances and immunities
 	Resistances map[DamageType]int
@@ -188,8 +218,36 @@ type Monster3D struct {
 	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
-	BossLastHP        int     // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending   bool    // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn — no detection or wandering until its quest unseals it (set by refreshBoundUndeadCache)
+	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
+	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
+	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
+	WardedByIdols    bool   // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	AggroWholeMap    bool   // static: UNIQUE boss trait — once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord → "human".)
+	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
+	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
+	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending  bool   // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	// Summon (war-banner): on its action an aggressive boss may rally adds.
+	SummonChance          float64  // 0..1 chance per action to summon
+	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance
+	SummonFirstDone       bool     // save-backed latch once the guaranteed summon has happened
+	SummonMonsters        []string // monster keys to pick from when summoning
+	SummonCount           int      // adds spawned per summon (default 1)
+	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
+	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
+	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
+	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is
+	// save-safe (no mutated stats stored); Enraged is only the one-shot announce latch.
+	EnrageAtHP         int
+	EnrageDamageMult   float64
+	EnrageCooldownMult float64
+	Enraged            bool
+	// Visual tint: a persistent RGB cast multiplied into the lit sprite, marking a
+	// variant apart when it shares a base mob's sprite (e.g. an elite). All-zero = none.
+	TintR, TintG, TintB float32
 
 	// Encounter system
 	IsEncounterMonster bool              // True if this monster is part of an encounter
@@ -248,6 +306,13 @@ func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playe
 // of the target's resistance to damageType is ignored before reduction. Used by
 // Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
 func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
+	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
+	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
+	// Both flags are set per-frame in the game's pre-pass; this is the backstop for
+	// damage paths that don't pre-check (AoE splash, mastery true-damage, mob-vs-mob).
+	if m.BossDormant || m.BossWarded {
+		return 0
+	}
 	// Apply resistance (reduced by any piercing)
 	if resistance, exists := m.Resistances[damageType]; exists {
 		if resistPiercePct > 0 {
@@ -286,17 +351,36 @@ func (m *Monster3D) IsAlive() bool {
 }
 
 func (m *Monster3D) GetAttackDamage() int {
-	if m.DamageMin >= m.DamageMax {
-		return m.DamageMin
+	dmg := m.DamageMin
+	if m.DamageMax > m.DamageMin {
+		dmg += rand.Intn(m.DamageMax - m.DamageMin + 1)
 	}
-	return m.DamageMin + rand.Intn(m.DamageMax-m.DamageMin+1)
+	if m.IsEnraged() && m.EnrageDamageMult > 0 {
+		dmg = int(float64(dmg) * m.EnrageDamageMult)
+	}
+	return dmg
+}
+
+// IsEnraged reports whether the boss is at/below its enrage HP threshold. Derived
+// live from HP (not a stored flag) so enrage survives save/load without mutating
+// stats; the EnrageDamageMult/EnrageCooldownMult are applied wherever this is true.
+func (m *Monster3D) IsEnraged() bool {
+	return m.EnrageAtHP > 0 && m.HitPoints > 0 && m.HitPoints <= m.EnrageAtHP
 }
 
 func (m *Monster3D) GetTurnBasedAttackCount() int {
-	if m.AttacksPerRound < 1 {
-		return 1
+	n := m.AttacksPerRound
+	if n < 1 {
+		n = tbAttacksForCooldownMult(m.AttackCooldownMultiplier)
 	}
-	return m.AttacksPerRound
+	// RT/TB parity: cooldown speedups that make the monster strike faster in real
+	// time grant proportionally more turn-based swings. If AttacksPerRound is set,
+	// it is the explicit base; otherwise derive the base from the static cooldown
+	// multiplier. Enrage is a dynamic multiplier on top.
+	if m.IsEnraged() && m.EnrageCooldownMult > 0 {
+		n *= tbAttacksForCooldownMult(m.EnrageCooldownMult)
+	}
+	return n
 }
 
 func (m *Monster3D) HasRangedAttack() bool {

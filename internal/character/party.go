@@ -84,25 +84,83 @@ func createRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacte
 	return c
 }
 
-func NewParty(cfg *config.Config) *Party {
-	party := &Party{
-		Members:   make([]*MMCharacter, 0, 4),
-		Gold:      cfg.Characters.StartingGold,
-		Food:      cfg.Characters.StartingFood,
-		Inventory: make([]items.Item, 0),
-	}
-
-	// Build the starting roster from config (data-driven). Active party + the
-	// imprisoned captives that train alongside it. Falls back to the classic
-	// roster if a config omits the lists (older configs / minimal test configs).
-	active := cfg.Characters.StartingParty
-	captives := cfg.Characters.Captives
+// StartingRoster returns the three roster groups (active party, imprisoned
+// captives, tavern recruits) from config, applying the same fallbacks NewParty
+// uses for the active/captive lists. The party-creation screen pools all three.
+func StartingRoster(cfg *config.Config) (active, captives, recruits []config.RosterEntry) {
+	active = cfg.Characters.StartingParty
+	captives = cfg.Characters.Captives
 	if len(active) == 0 {
 		active = defaultStartingParty
 	}
 	if len(captives) == 0 {
 		captives = defaultCaptives
 	}
+	return active, captives, cfg.Characters.TavernRecruits
+}
+
+// LeftoverHero is a benched hero awaiting assignment to the jail or the tavern
+// reserve, with whether the roster flagged it a captive.
+type LeftoverHero struct {
+	Char    *MMCharacter
+	Captive bool
+}
+
+// PartitionLeftovers splits benched heroes into the mountain prison (jail) and
+// the tavern reserve. Config-flagged captives fill the jail first, then
+// non-captives top it up to jailTarget so the prison always holds the configured
+// number (preserving the rescue narrative); everyone else joins the reserve.
+// Input order is preserved within each group.
+func PartitionLeftovers(leftovers []LeftoverHero, jailTarget int) (jail, reserve []*MMCharacter) {
+	used := make([]bool, len(leftovers))
+	take := func(wantCaptive bool) {
+		for i, h := range leftovers {
+			if len(jail) >= jailTarget {
+				return
+			}
+			if !used[i] && (!wantCaptive || h.Captive) {
+				jail = append(jail, h.Char)
+				used[i] = true
+			}
+		}
+	}
+	take(true)  // captives first
+	take(false) // then fill to jailTarget from the front
+	for i, h := range leftovers {
+		if !used[i] {
+			reserve = append(reserve, h.Char)
+		}
+	}
+	return jail, reserve
+}
+
+// newPartyBase allocates a party with the configured starting gold/food and an
+// empty inventory — the shared shell for every new-game constructor.
+func newPartyBase(cfg *config.Config) *Party {
+	return &Party{
+		Members:   make([]*MMCharacter, 0, 4),
+		Gold:      cfg.Characters.StartingGold,
+		Food:      cfg.Characters.StartingFood,
+		Inventory: make([]items.Item, 0),
+	}
+}
+
+// addStartingItems seeds the shared new-game inventory from YAML definitions.
+func (p *Party) addStartingItems() {
+	p.AddItem(items.CreateWeaponFromYAML("iron_spear"))
+	p.AddItem(items.CreateItemFromYAML("leather_armor"))
+	p.AddItem(items.CreateItemFromYAML("health_potion"))
+	p.AddItem(items.CreateItemFromYAML("revival_potion"))
+	p.AddItem(items.CreateItemFromYAML("magic_ring"))
+	p.AddItem(items.CreateItemFromYAML("world_map"))
+}
+
+func NewParty(cfg *config.Config) *Party {
+	party := newPartyBase(cfg)
+
+	// Build the starting roster from config (data-driven). Active party + the
+	// imprisoned captives that train alongside it.
+	active, captives, recruits := StartingRoster(cfg)
 	for _, e := range active {
 		if c := createRosterCharacter(e, cfg); c != nil {
 			party.AddMember(c)
@@ -115,20 +173,38 @@ func NewParty(cfg *config.Config) *Party {
 	}
 	// Tavern recruits start benched in the reserve — available at the tavern
 	// from the very first visit.
-	for _, e := range cfg.Characters.TavernRecruits {
+	for _, e := range recruits {
 		if c := createRosterCharacter(e, cfg); c != nil {
 			party.Reserve = append(party.Reserve, c)
 		}
 	}
 
-	// Add some starting items using YAML definitions
-	party.AddItem(items.CreateWeaponFromYAML("iron_spear"))
-	party.AddItem(items.CreateItemFromYAML("leather_armor"))
-	party.AddItem(items.CreateItemFromYAML("health_potion"))
-	party.AddItem(items.CreateItemFromYAML("revival_potion"))
-	party.AddItem(items.CreateItemFromYAML("magic_ring"))
-	party.AddItem(items.CreateItemFromYAML("world_map"))
+	party.addStartingItems()
+	return party
+}
 
+// NewPartyFromGroups builds a new-game party from already-constructed heroes
+// split into active members, imprisoned captives, and tavern reserve. Used by
+// the party-creation screen, where the player picks who goes where. Shares the
+// same starting gold/food/inventory as NewParty. Active is capped at 4.
+func NewPartyFromGroups(cfg *config.Config, active, captive, reserve []*MMCharacter) *Party {
+	party := newPartyBase(cfg)
+	for _, c := range active {
+		if c != nil {
+			party.AddMember(c)
+		}
+	}
+	for _, c := range captive {
+		if c != nil {
+			party.Captive = append(party.Captive, c)
+		}
+	}
+	for _, c := range reserve {
+		if c != nil {
+			party.Reserve = append(party.Reserve, c)
+		}
+	}
+	party.addStartingItems()
 	return party
 }
 

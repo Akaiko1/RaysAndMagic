@@ -14,6 +14,8 @@ const (
 	ConditionDead
 	ConditionStone
 	ConditionEradicated
+	ConditionBurning // on fire (ignite): poison-like DoT, 3x damage, stacks with poison
+	ConditionStunned // skips actions (RT frames / TB turns)
 )
 
 // String returns the display name of the condition (Stringer interface).
@@ -41,6 +43,10 @@ func (c Condition) String() string {
 		return "Stone"
 	case ConditionEradicated:
 		return "Eradicated"
+	case ConditionBurning:
+		return "Burning"
+	case ConditionStunned:
+		return "Stunned"
 	default:
 		return "Unknown"
 	}

@@ -61,11 +61,24 @@ func (g *MMGame) npcDialogueState(npc *character.NPC) npcDialogState {
 	}
 }
 
+// currentDialogNode returns the "info" choice the player has descended into
+// (the deepest entry of dialogNodePath), or nil at the conversation root.
+func (g *MMGame) currentDialogNode() *character.NPCDialogueChoice {
+	if n := len(g.dialogNodePath); n > 0 {
+		return g.dialogNodePath[n-1]
+	}
+	return nil
+}
+
 // npcDialogueText is the body text for the NPC's current state, falling back to
-// the greeting when a state-specific message is unset.
+// the greeting when a state-specific message is unset. When the player has
+// branched into an "info" choice, its Response is shown instead.
 func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 	if npc == nil || npc.DialogueData == nil {
 		return ""
+	}
+	if node := g.currentDialogNode(); node != nil {
+		return node.Response
 	}
 	d := npc.DialogueData
 	switch g.npcDialogueState(npc) {
@@ -79,6 +92,12 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 		}
 	case npcStateConcluded:
 		return d.VisitedMessage // may be "" → renderer shows just "Press ESC"
+	default:
+		// Offer state. On a spell-trader's Quests tab, lead with the quest hook
+		// rather than the shop-welcome Greeting (Spells tab keeps the Greeting).
+		if g.dialogTab == 1 && d.QuestGreeting != "" {
+			return d.QuestGreeting
+		}
 	}
 	return d.Greeting
 }
@@ -165,8 +184,14 @@ func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueC
 	if state == npcStateConcluded {
 		return nil
 	}
+	// Inside an "info" branch, the follow-up choices are the node's own (still
+	// state-filtered, so a give_quest deep in a branch obeys the same rules).
+	source := npc.DialogueData.Choices
+	if node := g.currentDialogNode(); node != nil {
+		source = node.Choices
+	}
 	var out []*character.NPCDialogueChoice
-	for _, c := range npc.DialogueData.Choices {
+	for _, c := range source {
 		if c == nil {
 			continue
 		}

@@ -68,7 +68,7 @@ func TestTurnBasedHitEngagesPack(t *testing.T) {
 	game.monsterTurnResolved = false
 	game.frameCount = 42
 
-	gl := &GameLoop{game: game, combat: game.combat}
+	gl := &GameLoop{game: game}
 
 	oldHitX, oldHitY := hit.X, hit.Y
 	oldFarX, oldFarY := farSame.X, farSame.Y

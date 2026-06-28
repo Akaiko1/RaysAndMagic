@@ -83,15 +83,18 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	if z.MapKey != "" && z.MapKey != currentMapKey() {
 		return
 	}
-	dmgType := convertToMonsterDamageType("water")
+	damageTypeStr := "water"
+	tickDamage := z.TickDamage + cs.game.combatBuffOutBonusForDamageType(damageTypeStr)
+	dmgType := convertToMonsterDamageType(damageTypeStr)
 	for _, m := range cs.game.world.Monsters {
-		if m == nil || !m.IsAlive() {
+		// An invulnerable boss (sealed or idol-warded) is unscathed by the zone.
+		if m == nil || !m.IsAlive() || bossInvulnerable(m) {
 			continue
 		}
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
 			continue
 		}
-		m.TakeDamageResist(z.TickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
+		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
 		m.HitTintFrames = MonsterHitFlashFrames
 		cs.breakPacifyOnHit(m)
 		cs.engageTurnBasedPackOnHit(m)
@@ -130,7 +133,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 			z.tickCounter++
 			if z.tickCounter >= z.IntervalFrames {
 				z.tickCounter = 0
-				gl.combat.damageSteamZoneOnce(z)
+				gl.game.combat.damageSteamZoneOnce(z)
 			}
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
@@ -153,7 +156,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 // monster turn in turn-based combat.
 func (gl *GameLoop) tickSteamZonesTB() {
 	for i := range gl.game.steamZones {
-		gl.combat.damageSteamZoneOnce(&gl.game.steamZones[i])
+		gl.game.combat.damageSteamZoneOnce(&gl.game.steamZones[i])
 	}
 }
 

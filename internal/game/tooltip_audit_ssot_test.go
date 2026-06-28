@@ -23,10 +23,11 @@ func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
 	}
 	full := GetItemTooltip(mace, thief, g.combat, true)
 
-	// Swing arc is a core melee differentiator → visible without Shift.
+	// Swing arc is a core melee differentiator → visible without Shift. The steel
+	// mace is arc type 2 (front + one flank).
 	compact := GetItemTooltip(mace, thief, g.combat, false)
-	if !strings.Contains(compact, "Swing Arc: 90°") {
-		t.Errorf("mace must show its 90° swing arc:\n%s", compact)
+	if !strings.Contains(compact, "front and one flank") {
+		t.Errorf("mace must show its swing arc shape:\n%s", compact)
 	}
 	// Cooldown distinguishes real-time seconds from the turn-based action.
 	for _, want := range []string{"RT Cooldown:", "TB: 1 action"} {
@@ -100,7 +101,7 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ray_of_light sd: %v", err)
 	}
-	joined := strings.Join(character.RenderCardLines(character.SpellCardSections("ray_of_light", def, sd, character.ArmorPhysicalReductionDivisor), true), "\n")
+	joined := strings.Join(character.RenderCardLines(character.SpellCardSections("ray_of_light", def, sd), true), "\n")
 	// Ray of Light scales with BOTH stats (school Intellect + the personality flag).
 	if !strings.Contains(joined, "Intellect / 3") || !strings.Contains(joined, "Personality / 3") {
 		t.Errorf("Ray of Light editor card must scale with BOTH Intellect and Personality:\n%s", joined)

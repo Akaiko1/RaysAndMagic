@@ -11,7 +11,8 @@ import (
 
 // Class promotions (Archmage / Lich). Eligibility is data-driven by asset
 // existence: a character can take a promotion only if its promoted portrait
-// sprite ships in assets/sprites/characters (lysander_archmage, druid_lich, …).
+// sprite ships under assets/sprites/characters/ (lysander_archmage, druid_lich,
+// …) — found by basename in any subfolder via the sprite index.
 // That naturally limits promotions to the Sorcerer and Druid today without a
 // hardcoded class list.
 

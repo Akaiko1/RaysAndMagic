@@ -14,7 +14,7 @@ func TestTileManager(t *testing.T) {
     solid: true
     transparent: false
     walkable: false
-    height_multiplier: 1.0
+    wall_height_multiplier: 1.0
     sprite: ""
     render_type: "textured_wall"
     letter: "W"
@@ -24,7 +24,6 @@ func TestTileManager(t *testing.T) {
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: "water"
     render_type: "environment_sprite"
     floor_color: [100, 150, 200]
@@ -89,22 +88,21 @@ func TestTileManagerProperties(t *testing.T) {
 	// Create some default tile data for testing
 	tm.tileData = map[string]*config.TileData{
 		"tree": {
-			Name:             "Forest Tree",
-			Solid:            true,
-			Transparent:      false,
-			Walkable:         false,
-			HeightMultiplier: 2.0,
-			Sprite:           "tree",
-			RenderType:       "tree_sprite",
+			Name:           "Forest Tree",
+			Solid:          true,
+			Transparent:    false,
+			Walkable:       false,
+			SizeMultiplier: 2.0,
+			Sprite:         "tree",
+			RenderType:     "tree_sprite",
 		},
 		"forest_stream": {
-			Name:             "Flowing Water",
-			Solid:            false,
-			Transparent:      true,
-			Walkable:         true,
-			HeightMultiplier: 1.0,
-			Sprite:           "forest_stream",
-			RenderType:       "environment_sprite",
+			Name:        "Flowing Water",
+			Solid:       false,
+			Transparent: true,
+			Walkable:    true,
+			Sprite:      "forest_stream",
+			RenderType:  "environment_sprite",
 		},
 	}
 
@@ -121,8 +119,11 @@ func TestTileManagerProperties(t *testing.T) {
 	if tm.IsWalkable(TileTree) {
 		t.Errorf("Expected tree to not be walkable")
 	}
-	if tm.GetHeightMultiplier(TileTree) != 2.0 {
-		t.Errorf("Expected tree height multiplier to be 2.0, got %f", tm.GetHeightMultiplier(TileTree))
+	if tm.GetHeightMultiplier(TileTree) != 1.0 {
+		t.Errorf("Expected tree height multiplier to default to 1.0, got %f", tm.GetHeightMultiplier(TileTree))
+	}
+	if tm.GetSizeMultiplier(TileTree) != 2.0 {
+		t.Errorf("Expected tree size multiplier to be 2.0, got %f", tm.GetSizeMultiplier(TileTree))
 	}
 
 	// Test stream properties
@@ -146,10 +147,126 @@ func TestTileManagerProperties(t *testing.T) {
 		t.Errorf("Expected tree to be walkable after setting property")
 	}
 
+	err = tm.SetTileProperty(TileTree, "size_multiplier", 2.5)
+	if err != nil {
+		t.Errorf("Failed to set tile size multiplier: %v", err)
+	}
+	if tm.GetSizeMultiplier(TileTree) != 2.5 {
+		t.Errorf("Expected tree size multiplier to be 2.5, got %f", tm.GetSizeMultiplier(TileTree))
+	}
+
 	// Test invalid property
 	err = tm.SetTileProperty(TileTree, "invalid_property", true)
 	if err == nil {
 		t.Errorf("Expected error when setting invalid property")
+	}
+}
+
+func TestTileSizeMultiplierFallback(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"tree": {
+			Name:             "Legacy Tree",
+			HeightMultiplier: 2.25,
+			RenderType:       "tree_sprite",
+		},
+		"wall": {
+			Name:                 "Wall",
+			WallHeightMultiplier: 1.5,
+			RenderType:           "textured_wall",
+		},
+	}
+	tm.createTypeMapping()
+
+	if got := tm.GetSizeMultiplier(TileTree); got != 2.25 {
+		t.Fatalf("expected legacy billboard height_multiplier fallback 2.25, got %f", got)
+	}
+	if got := tm.GetSizeMultiplier(TileWall); got != 1.0 {
+		t.Fatalf("expected wall size multiplier default 1.0, got %f", got)
+	}
+	if got := tm.GetHeightMultiplier(TileWall); got != 1.5 {
+		t.Fatalf("expected wall height multiplier 1.5, got %f", got)
+	}
+}
+
+func TestTileWallHeightMultiplierFallback(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"wall": {
+			Name:             "Legacy Wall",
+			HeightMultiplier: 0.75,
+			RenderType:       "textured_wall",
+		},
+	}
+	tm.createTypeMapping()
+
+	if got := tm.GetHeightMultiplier(TileWall); got != 0.75 {
+		t.Fatalf("expected legacy height_multiplier fallback 0.75, got %f", got)
+	}
+}
+
+func TestTileOpaqueTreatsSolidSpritesAsSightBlockers(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"solid_palm": {
+			Name:        "Solid Palm",
+			Solid:       true,
+			Transparent: true,
+			Walkable:    false,
+			RenderType:  "environment_sprite",
+		},
+		"walkable_fern": {
+			Name:        "Walkable Fern",
+			Solid:       false,
+			Transparent: true,
+			Walkable:    true,
+			RenderType:  "environment_sprite",
+		},
+		"ground_hazard": {
+			Name:        "Ground Hazard",
+			Solid:       true,
+			Transparent: true,
+			Walkable:    false,
+			RenderType:  "floor_only",
+		},
+		"stone_wall": {
+			Name:        "Stone Wall",
+			Solid:       true,
+			Transparent: false,
+			Walkable:    false,
+			RenderType:  "textured_wall",
+		},
+	}
+	tm.createTypeMapping()
+
+	solidPalm, ok := tm.GetTileTypeFromKey("solid_palm")
+	if !ok {
+		t.Fatal("solid_palm type missing")
+	}
+	walkableFern, ok := tm.GetTileTypeFromKey("walkable_fern")
+	if !ok {
+		t.Fatal("walkable_fern type missing")
+	}
+	groundHazard, ok := tm.GetTileTypeFromKey("ground_hazard")
+	if !ok {
+		t.Fatal("ground_hazard type missing")
+	}
+	stoneWall, ok := tm.GetTileTypeFromKey("stone_wall")
+	if !ok {
+		t.Fatal("stone_wall type missing")
+	}
+
+	if !tm.IsOpaque(solidPalm) {
+		t.Fatalf("expected a solid transparent environment sprite to block line of sight")
+	}
+	if tm.IsOpaque(walkableFern) {
+		t.Fatalf("expected a non-solid environment sprite to remain see-through")
+	}
+	if tm.IsOpaque(groundHazard) {
+		t.Fatalf("expected floor-only blockers to stay see-through for line of sight")
+	}
+	if !tm.IsOpaque(stoneWall) {
+		t.Fatalf("expected non-transparent walls to block line of sight")
 	}
 }
 

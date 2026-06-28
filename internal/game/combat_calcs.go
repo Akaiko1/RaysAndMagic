@@ -32,15 +32,18 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
 	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic —
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
+	def, defErr := spells.GetSpellDefinitionByID(spellID)
+	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
 	scalingStat := char.GetEffectiveIntellect()
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && spellScalesWithPersonality(def.School) {
+	if selfMagic {
 		scalingStat = char.GetEffectivePersonality()
 	}
 	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
 	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
-	// Personality/divisor term on top of the primary term. Both combat and the
-	// tooltip call this function, so the displayed number matches what's dealt.
-	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.ScalesWithPersonality {
+	// Personality/divisor term on top of the primary term — but ONLY for non-self
+	// magic, else Personality (already the primary stat for self magic) is counted
+	// twice. The tooltip applies the same guard so the displayed number matches.
+	if defErr == nil && def.ScalesWithPersonality && !selfMagic {
 		perBonus := char.GetEffectivePersonality() / spells.SpellIntellectDivisor
 		intellectBonus += perBonus
 		totalDamage += perBonus
@@ -105,15 +108,14 @@ func (cs *CombatSystem) CalculateSpellDurationFrames(spellID spells.SpellID, cha
 	return seconds * tps
 }
 
-// CalculateSpellStatBonus returns the spell's stat bonus (e.g., Bless). FLAT
-// by balance decision: mastery scales only the DURATION of buffs, never their
-// magnitude (mastery-scaled +stats snowballed too hard).
+// CalculateSpellStatBonus returns the spell's uniform stat bonus (e.g. Bless),
+// including optional spell-school mastery scaling.
 func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *character.MMCharacter) int {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		return 0
 	}
-	return def.StatBonus
+	return scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
 }
 
 // CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
@@ -162,10 +164,32 @@ func (cs *CombatSystem) CalculateArmorClassContribution(item items.Item, char *c
 func (cs *CombatSystem) armorClassContributionWithEnd(item items.Item, char *character.MMCharacter, effectiveEndurance int) int {
 	baseArmor := item.Attributes["armor_class_base"]
 	baseArmor += cs.armorMasteryBonus(char, item)
-	if enduranceDiv := item.Attributes["endurance_scaling_divisor"]; enduranceDiv > 0 {
+	if enduranceDiv, ok := armorEnduranceScalingDivisor(item); ok {
 		baseArmor += effectiveEndurance / enduranceDiv
 	}
 	return baseArmor
+}
+
+// armorEnduranceScalingDivisor is the design rule for armor AC scaling.
+// Keep this aligned with assets/items.yaml:
+//   - leather scales as END/10
+//   - chain scales as END/7
+//   - plate scales as END/5
+//
+// Cloth, shields, accessories, and any future armor category not explicitly
+// listed here are flat AC: no Endurance contribution, even if stale YAML data
+// accidentally contains endurance_scaling_divisor.
+func armorEnduranceScalingDivisor(item items.Item) (int, bool) {
+	div := item.Attributes["endurance_scaling_divisor"]
+	if div <= 0 {
+		return 0, false
+	}
+	switch strings.ToLower(item.ArmorCategory) {
+	case "leather", "chain", "plate":
+		return div, true
+	default:
+		return 0, false
+	}
 }
 
 // CalculateTotalArmorClass returns total AC from all equipped armor slots.

@@ -39,13 +39,13 @@ func TestTooltipCompact_WeaponHidesBreakdownKeepsTotals(t *testing.T) {
 		}
 	}
 	// Compact hides the decomposition + universal RULES.
-	for _, hidden := range []string{"Base:", "Normal Damage:", "Reduced by Armor Class", "RULES"} {
+	for _, hidden := range []string{"Base:", "Normal Damage:", "Reduced by target Armor", "RULES"} {
 		if strings.Contains(compact, hidden) {
 			t.Errorf("compact weapon must NOT contain %q:\n%s", hidden, compact)
 		}
 	}
 	// Full reveals them, and the hint is gone.
-	for _, want := range []string{"Base:", "Normal Damage:", "Reduced by Armor Class"} {
+	for _, want := range []string{"Base:", "Normal Damage:", "Reduced by target Armor"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("full weapon must contain %q:\n%s", want, full)
 		}
@@ -97,7 +97,7 @@ func TestTooltipCompact_TrapKeepsCooldown(t *testing.T) {
 		}
 	}
 	// Armed Lifetime + the armor-interaction RULES stay detail.
-	for _, hidden := range []string{"Armed Lifetime:", "Reduced by Armor Class"} {
+	for _, hidden := range []string{"Armed Lifetime:", "Reduced by target Armor"} {
 		if strings.Contains(compact, hidden) {
 			t.Errorf("compact trap must NOT contain %q:\n%s", hidden, compact)
 		}
@@ -149,9 +149,9 @@ func TestEditorCardsAlwaysFull(t *testing.T) {
 	if !ok || def == nil {
 		t.Skip("magic dagger not defined")
 	}
-	rows := character.RenderCardLines(character.WeaponCardSections(def, character.ArmorPhysicalReductionDivisor), true)
+	rows := character.RenderCardLines(character.WeaponCardSections(def), true)
 	joined := strings.Join(rows, "\n")
-	if !strings.Contains(joined, "Reduced by Armor Class") {
+	if !strings.Contains(joined, "Reduced by target Armor") {
 		t.Errorf("editor weapon card (full) must include the RULES detail:\n%s", joined)
 	}
 }

@@ -53,7 +53,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {
-		core = fmt.Sprintf("=== %s ===\n%s", item.Name, itemKindLabel(item))
+		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
 	}
 
 	var tail []string
@@ -160,7 +160,7 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		lines := []string{
-			fmt.Sprintf("=== %s ===", item.Name),
+			item.Name,
 			"Unknown Spell",
 		}
 		if item.SpellSchool != "" {
@@ -218,69 +218,26 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 	if category == "cloth" {
 		return "Requires: None"
 	}
-	skillName, hasReq := armorRequiredSkillName(item)
-	if !hasReq {
+	// Category → required skill via the character package's authoritative map.
+	skill, ok := character.ArmorSkillForCategory(category)
+	if !ok {
 		return ""
 	}
-	display := strings.Title(skillName)
+	display := strings.ToUpper(category[:1]) + category[1:]
 	if char == nil {
 		return fmt.Sprintf("Requires: %s Skill", display)
 	}
-	hasSkill := false
-	switch strings.ToLower(skillName) {
-	case "leather":
-		_, hasSkill = char.Skills[character.SkillLeather]
-	case "chain":
-		_, hasSkill = char.Skills[character.SkillChain]
-	case "plate":
-		_, hasSkill = char.Skills[character.SkillPlate]
-	case "shield":
-		_, hasSkill = char.Skills[character.SkillShield]
-	}
-	if hasSkill {
+	if _, hasSkill := char.Skills[skill]; hasSkill {
 		return fmt.Sprintf("Requires: %s Skill", display)
 	}
 	return fmt.Sprintf("Requires: %s Skill (Missing)", display)
-}
-
-func armorCategoryString(item items.Item) string {
-	category := strings.ToLower(item.ArmorCategory)
-	switch category {
-	case "leather":
-		return "leather"
-	case "chain":
-		return "chain"
-	case "plate":
-		return "plate"
-	case "shield":
-		return "shield"
-	case "cloth":
-		return "cloth"
-	default:
-		return ""
-	}
-}
-
-func armorRequiredSkillName(item items.Item) (string, bool) {
-	category := armorCategoryString(item)
-	if category == "" {
-		return "", false
-	}
-	return category, true
 }
 
 // getConsumableTooltip returns consumable-specific tooltip information
 
 // joinTooltipLines joins tooltip lines with newlines
 func joinTooltipLines(lines []string) string {
-	result := ""
-	for i, line := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += line
-	}
-	return result
+	return strings.Join(lines, "\n")
 }
 
 // armorBonusParts lists flat stat bonuses + resistances via the config-level
@@ -340,7 +297,7 @@ func getEquipSlotForItem(item items.Item) (items.EquipSlot, bool) {
 
 func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
 	_, _, total := combatSystem.CalculateWeaponDamage(item, char)
@@ -358,6 +315,17 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 		lines = append(lines, fmt.Sprintf("Range: %d vs %d (%+d) tiles", itemRange, eqRange, itemRange-eqRange))
 	}
 
+	itemArc, eqArc := "", ""
+	if def, _, ok := config.GetWeaponDefinitionByName(item.Name); ok {
+		itemArc = character.MeleeArcShortLabel(def)
+	}
+	if def, _, ok := config.GetWeaponDefinitionByName(equipped.Name); ok {
+		eqArc = character.MeleeArcShortLabel(def)
+	}
+	if itemArc != "" || eqArc != "" {
+		lines = append(lines, fmt.Sprintf("Swing: %s vs %s", effectOrNone(itemArc), effectOrNone(eqArc)))
+	}
+
 	itemCrit := combatSystem.CalculateWeaponCritChance(item, char)
 	eqCrit := combatSystem.CalculateWeaponCritChance(equipped, char)
 	if itemCrit > 0 || eqCrit > 0 {
@@ -367,7 +335,10 @@ func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCha
 	itemEffects := weaponEffectsSummary(item)
 	eqEffects := weaponEffectsSummary(equipped)
 	if itemEffects != "" || eqEffects != "" {
-		lines = append(lines, fmt.Sprintf("Effects: %s vs %s", effectOrNone(itemEffects), effectOrNone(eqEffects)))
+		// Two lines, not one "X vs Y": the effect summaries are verbose, and a single
+		// combined line ran 200+ chars wide (it spanned the screen and buried the card).
+		lines = append(lines, fmt.Sprintf("Effects (this): %s", effectOrNone(itemEffects)))
+		lines = append(lines, fmt.Sprintf("Effects (equipped): %s", effectOrNone(eqEffects)))
 	}
 
 	return lines
@@ -399,7 +370,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
 	}
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equippedDef.Name),
+		fmt.Sprintf("Equipped: %s", equippedDef.Name),
 		fmt.Sprintf("Spell Points: %d vs %d (%+d)", itemCost, eqCost, itemCost-eqCost),
 	}
 
@@ -443,7 +414,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 
 func buildArmorComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
 	itemAC := combatSystem.CalculateArmorClassContribution(item, char)
@@ -503,7 +474,7 @@ func spellEffectsSummary(def spells.SpellDefinition) string {
 func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
-		return fmt.Sprintf("=== Unknown Spell (%s) ===", spellID)
+		return fmt.Sprintf("Unknown Spell (%s)", spellID)
 	}
 	out := buildSpellTooltipUnified(def, char, combatSystem, full)
 	if def.Description != "" {

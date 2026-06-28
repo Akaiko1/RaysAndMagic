@@ -26,11 +26,6 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 	}
 }
 
-// CalculateWallDimensions calculates wall height and position for rendering
-func (rh *RenderingHelper) CalculateWallDimensions(distance float64) (wallHeight, wallTop int) {
-	return rh.CalculateWallDimensionsWithHeight(distance, 1.0)
-}
-
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
 	// Division guard only — collision keeps the camera farther away than this.
@@ -149,22 +144,6 @@ func (rh *RenderingHelper) projectToScreenX(entityX, entityY float64) (screenX i
 	screenW := rh.game.config.GetScreenWidth()
 	screenX = int(float64(screenW) / 2 * (1 + transformX/transformY))
 	return screenX, transformY, true
-}
-
-// CreateWallSlice creates a cached wall slice image with proper shading
-func (rh *RenderingHelper) CreateWallSlice(tileType world.TileType3D, distance float64, width, height int) *ebiten.Image {
-	return rh.CreateWallSliceWithSide(tileType, distance, width, height, 0)
-}
-
-// CreateWallSliceWithSide creates a cached wall slice image with side-based shading and basic texturing
-func (rh *RenderingHelper) CreateWallSliceWithSide(tileType world.TileType3D, distance float64, width, height, side int) *ebiten.Image {
-	return rh.CreateTexturedWallSlice(tileType, distance, width, height, side, 0.0)
-}
-
-// CreateTexturedWallSlice creates a wall slice with texture mapping and proper shading.
-// This combines distance-based lighting, side-based shading, and procedural texture patterns.
-func (rh *RenderingHelper) CreateTexturedWallSlice(tileType world.TileType3D, distance float64, width, height, wallSide int, textureCoord float64) *ebiten.Image {
-	return rh.CreateBaseTexturedWallSlice(tileType, width, height, wallSide, textureCoord)
 }
 
 // CreateBaseTexturedWallSlice creates a wall slice with base colors and textures but without distance-based shading.
@@ -498,10 +477,10 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 		return 0, 0, 0, false
 	}
 
-	// Get height multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
+	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
 	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		heightMultiplier = world.GlobalTileManager.GetHeightMultiplier(tileType)
+		heightMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
 	}
 	heightMultiplier *= sizeScale
 
@@ -699,6 +678,7 @@ var WorldSize vec2
 var ViewDist float
 var MinBrightness float
 var Ambient float
+var ViewerAmbient float
 var TexCount float
 var TexTileSize vec2
 var LightCount float
@@ -801,7 +781,11 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		brightness = MinBrightness
 	}
 	// Map ambient level: dark maps stay dark until point lights lift them.
-	brightness *= Ambient
+	localAmbient := Ambient
+	if ViewerAmbient > 0.0 && ViewerAmbient < localAmbient {
+		localAmbient = ViewerAmbient
+	}
+	brightness *= localAmbient
 	for i := 0; i < 32; i++ {
 		if float(i) >= LightCount {
 			break
@@ -830,6 +814,33 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // manual bilinear filtering and X-axis wrap. Doing this in a custom shader
 // lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
 // (which break batching and force the source out of the texture atlas).
+// turnBlurShaderSrc is a horizontal directional blur — camera motion blur for a
+// yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
+// averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
+// scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
+const turnBlurShaderSrc = `//kage:unit pixels
+
+package main
+
+var BlurPx float
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	size := imageSrc0Size()
+	origin := imageSrc0Origin()
+	local := srcPos - origin
+	sy := clamp(local.y, 0.5, size.y-0.5)
+
+	const taps = 13
+	sum := vec4(0.0)
+	for i := 0; i < taps; i++ {
+		t := (float(i)/float(taps-1))*2.0 - 1.0 // -1 .. +1
+		sx := clamp(local.x+t*BlurPx, 0.5, size.x-0.5)
+		sum += imageSrc0UnsafeAt(origin + vec2(sx, sy))
+	}
+	return (sum / float(taps)) * color
+}
+`
+
 const skyShaderSrc = `//kage:unit pixels
 
 package main

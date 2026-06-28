@@ -1,0 +1,50 @@
+# Achievement definitions (data-driven, graphics-ready stub).
+#
+# Unlock tracking is NOT implemented yet — the entry-menu Achievements screen
+# renders every entry as locked. To wire real progress later, add unlock logic
+# that flips a per-key flag; the screen already reads this list.
+#
+# icon (optional): sprite key under assets/sprites/<icon>.png. When absent or
+# missing, the UI draws a procedural placeholder, so art can be added per-entry
+# at any time without code changes.
+
+achievements:
+  - key: first_steps
+    name: "First Steps"
+    description: "Leave the starting town for the first time."
+    icon: "icon_achievement_first_steps"
+
+  - key: first_blood
+    name: "First Blood"
+    description: "Defeat your first monster in combat."
+    icon: "icon_achievement_first_blood"
+
+  - key: free_the_captives
+    name: "Jailbreak"
+    description: "Free the imprisoned heroes from the mountain prison."
+    icon: "icon_achievement_jailbreak"
+
+  - key: full_roster
+    name: "Band of Heroes"
+    description: "Recruit every available hero to your cause."
+    icon: "icon_achievement_full_roster"
+
+  - key: warlord_slayer
+    name: "Warlord Slayer"
+    description: "Defeat one of the realm's warlord bosses."
+    icon: "icon_achievement_warlord"
+
+  - key: archmage
+    name: "Master of the Arcane"
+    description: "Promote a party member to Archmage."
+    icon: "icon_achievement_archmage"
+
+  - key: lichdom
+    name: "Beyond Death"
+    description: "Promote a party member to Lich."
+    icon: "icon_achievement_lich"
+
+  - key: victory
+    name: "Champion of the Realm"
+    description: "Complete the main quest and win the game."
+    icon: "icon_achievement_victory"

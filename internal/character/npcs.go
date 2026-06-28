@@ -16,6 +16,7 @@ type NPC struct {
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool
+	RejectsLich      bool // Light-aligned ward (Mage Tower) — won't speak to a party with a Lich
 	SpellData        map[string]*NPCSpell
 	DialogueData     *NPCDialogue
 	EncounterData    *NPCEncounter

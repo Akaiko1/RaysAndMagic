@@ -22,6 +22,14 @@ const (
 	SlotSpell // Unified spell slot for any spell
 )
 
+// DisplayEquipSlots is the canonical render order of wearable equipment slots
+// (excludes the spell slot). UI panels iterate this so adding a slot surfaces it
+// everywhere without re-encoding the order per screen.
+var DisplayEquipSlots = []EquipSlot{
+	SlotMainHand, SlotOffHand, SlotArmor, SlotHelmet, SlotBoots,
+	SlotCloak, SlotGauntlets, SlotBelt, SlotAmulet, SlotRing1, SlotRing2,
+}
+
 // DisplayName is the player-facing slot label (item cards, tooltips).
 func (s EquipSlot) DisplayName() string {
 	switch s {
@@ -63,6 +71,16 @@ type Item struct {
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+}
+
+// PreferredSlot resolves where this item equips from its equip_slot attribute,
+// falling back to the given slot when unset. Single source for the
+// equip_slot→slot mapping (used by EquipItem and the class-kit loader).
+func (it Item) PreferredSlot(fallback EquipSlot) EquipSlot {
+	if code, ok := it.Attributes["equip_slot"]; ok {
+		return EquipSlot(code)
+	}
+	return fallback
 }
 
 type ItemType int
@@ -172,10 +190,15 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		return Item{}, fmt.Errorf("weapon '%s' not found in weapons.yaml", weaponKey)
 	}
 
+	desc := weaponDef.Description
+	if weaponDef.Flavor != "" {
+		desc = weaponDef.Flavor
+	}
+
 	it := Item{
 		Name:        weaponDef.Name,
 		Type:        ItemWeapon,
-		Description: weaponDef.Description,
+		Description: desc,
 		Rarity:      weaponDef.Rarity,
 		Attributes:  make(map[string]int),
 	}
@@ -200,6 +223,7 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*WeaponDefinitionFromYAML,
 type WeaponDefinitionFromYAML struct {
 	Name        string
 	Description string
+	Flavor      string
 	Category    string
 	Rarity      string
 	Value       int
@@ -214,13 +238,24 @@ func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 // GlobalWeaponAccessor is set by the config module to provide weapon access
 var GlobalWeaponAccessor func(string) (*WeaponDefinitionFromYAML, bool)
 
-// GetWeaponKeyByName returns the YAML weapon key for a given weapon name
+// GlobalWeaponKeyByName is set by the config bridge to resolve a weapon's display
+// name to its YAML key via the real name index — handles flavor names the naive
+// transform below can't (e.g. "Kage-kunai, the Twin Shadows" -> "kage_kunai",
+// "Kanabo" -> "kanabo"). Unset in isolated tests, where the fallback applies.
+var GlobalWeaponKeyByName func(string) (string, bool)
 
-// GetWeaponKeyByName dynamically converts a display name to a YAML weapon key.
-// Example: "Steel Axe" -> "steel_axe"
+// GetWeaponKeyByName returns the YAML weapon key for a display name. Prefers the
+// exact config name index (punctuation/flavor-name safe); falls back to a
+// lower+underscore transform only when the bridge is unset or the name is unknown.
+// The fallback is why a weapon whose display name isn't its key-with-spaces (a
+// comma or an "of the ...") was previously unequippable — now resolved.
 func GetWeaponKeyByName(name string) string {
-	key := strings.ToLower(strings.ReplaceAll(name, " ", "_"))
-	return key
+	if GlobalWeaponKeyByName != nil {
+		if key, ok := GlobalWeaponKeyByName(name); ok {
+			return key
+		}
+	}
+	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
 }
 
 // ------- Non-weapon items from YAML -------
@@ -253,6 +288,7 @@ type ItemDefinitionFromYAML struct {
 	Value                     int
 	Revive                    bool
 	FullHeal                  bool
+	CurePoison                bool
 	OpensMap                  bool
 	PromotesLich              bool
 }
@@ -366,6 +402,9 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.FullHeal {
 		attrs["full_heal"] = 1
+	}
+	if def.CurePoison {
+		attrs["cure_poison"] = 1
 	}
 
 	// Prefer flavor text if provided, else use description

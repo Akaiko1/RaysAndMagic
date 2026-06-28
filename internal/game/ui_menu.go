@@ -8,7 +8,6 @@ import (
 	"ugataima/internal/character"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -57,7 +56,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	switch ui.game.mainMenuMode {
 	case MenuMain:
 		// Title
-		ebitenutil.DebugPrintAt(screen, "Main Menu", px+16, py+14)
+		drawDebugText(screen, "Main Menu", px+16, py+14)
 		// Options
 		startY := py + 56
 		for i, label := range mainMenuOptions {
@@ -65,7 +64,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			if i == ui.game.mainMenuSelection {
 				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{60, 120, 180, 200})
 			}
-			ebitenutil.DebugPrintAt(screen, label, px+28, y)
+			drawDebugText(screen, label, px+28, y)
 		}
 		tips := []string{
 			"Controls:",
@@ -77,11 +76,11 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		}
 		tipsY := startY + len(mainMenuOptions)*32 + 10
 		for i, tip := range tips {
-			ebitenutil.DebugPrintAt(screen, tip, px+16, tipsY+i*14)
+			drawDebugText(screen, tip, px+16, tipsY+i*14)
 		}
 	case MenuSaveSelect:
-		ebitenutil.DebugPrintAt(screen, "Save Game - Select Slot", px+16, py+14)
-		ebitenutil.DebugPrintAt(screen, "Enter: Save  R: Rename", px+16, py+32)
+		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
+		drawDebugText(screen, "Enter: Save  R: Rename", px+16, py+32)
 		startY := py + 56
 		for i := 0; i < 5; i++ {
 			y := startY + i*32
@@ -106,13 +105,13 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			if i == ui.game.slotSelection {
 				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{80, 180, 80, 200})
 			}
-			ebitenutil.DebugPrintAt(screen, label, px+28, y)
+			drawDebugText(screen, label, px+28, y)
 		}
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
 		}
 	case MenuLoadSelect:
-		ebitenutil.DebugPrintAt(screen, "Load Game - Select Slot", px+16, py+14)
+		drawDebugText(screen, "Load Game - Select Slot", px+16, py+14)
 		startY := py + 56
 		for i := 0; i < 5; i++ {
 			y := startY + i*32
@@ -136,7 +135,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			if i == ui.game.slotSelection {
 				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{180, 120, 60, 200})
 			}
-			ebitenutil.DebugPrintAt(screen, label, px+28, y)
+			drawDebugText(screen, label, px+28, y)
 		}
 	}
 }
@@ -179,7 +178,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	}
 	drawCenteredDebugText(screen, input, inputBoxX, inputBoxY, inputBoxW, inputBoxH)
 
-	ebitenutil.DebugPrintAt(screen, "Enter: Confirm  Esc: Cancel", x+60, y+90)
+	drawDebugText(screen, "Enter: Confirm  Esc: Cancel", x+60, y+90)
 }
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
@@ -266,6 +265,9 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 	case TabQuests:
 		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
 	}
+
+	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
+	ui.drawDragCarried(screen)
 }
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
@@ -344,6 +346,7 @@ func (ui *UISystem) updateMouseState() {
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
 	ui.game.pruneClickQueues(now)
+	ui.updateQuickDrag()
 
 	if leftJustPressed {
 		x, y := ebiten.CursorPosition()

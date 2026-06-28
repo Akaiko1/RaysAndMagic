@@ -16,11 +16,18 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		{"inferno chance without damage", MonsterDefinition{InfernoChance: 0.1}, true},
 		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
 		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
-		{"evasive without radius", MonsterDefinition{PassiveUntilQuest: "q", BossCooldownSecs: 1}, true},
+		{"dormant boss (passive, no evade) is valid", MonsterDefinition{PassiveUntilQuest: "q"}, false},
 		{"evasive without cooldown", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
+		{"evasive fully configured", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
+		{"summon chance without monsters", MonsterDefinition{SummonChance: 0.2}, true},
+		{"summon configured", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
+		{"enrage without effect", MonsterDefinition{EnrageAtHP: 100}, true},
+		{"enrage with damage mult", MonsterDefinition{EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
 		{"fully configured boss", MonsterDefinition{
 			InfernoChance: 0.1, InfernoDamage: 28,
 			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
+			SummonChance: 0.1, SummonMonsters: []string{"rat"},
+			EnrageAtHP: 100, EnrageCooldownMult: 0.6,
 		}, false},
 	}
 	for _, tc := range cases {
@@ -35,17 +42,19 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 	}
 }
 
-func TestValidateMonsterConfiguration_AttackCadenceMatchesModes(t *testing.T) {
+func TestValidateMonsterConfiguration_AttackCadenceAllowsExplicitTurnBasedOverride(t *testing.T) {
 	tests := []struct {
 		name    string
 		def     MonsterDefinition
 		wantErr bool
 	}{
 		{name: "default single attack", def: MonsterDefinition{}},
+		{name: "cooldown-only derives turn cadence", def: MonsterDefinition{AttackCooldownMult: 0.6}},
 		{name: "two attacks with half cooldown", def: MonsterDefinition{AttacksPerRound: 2, AttackCooldownMult: 0.5}},
 		{name: "four attacks with quarter cooldown", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.25}},
-		{name: "two attacks missing multiplier", def: MonsterDefinition{AttacksPerRound: 2}, wantErr: true},
-		{name: "four attacks with half cooldown", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.5}, wantErr: true},
+		{name: "explicit TB-only multiattack", def: MonsterDefinition{AttacksPerRound: 2}},
+		{name: "explicit RT/TB desync", def: MonsterDefinition{AttacksPerRound: 1, AttackCooldownMult: 0.3}},
+		{name: "explicit multiattack desync", def: MonsterDefinition{AttacksPerRound: 4, AttackCooldownMult: 0.5}},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +68,36 @@ func TestValidateMonsterConfiguration_AttackCadenceMatchesModes(t *testing.T) {
 				t.Fatalf("unexpected validation error: %v", err)
 			}
 		})
+	}
+}
+
+func TestSetupMonsterFromConfig_CooldownOnlyRangedDerivesTurnBasedAttacks(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{
+		Name:               "Fast Archer",
+		ProjectileWeapon:   "short_bow",
+		AttackCooldownMult: 0.6,
+	})
+
+	if !m.HasRangedAttack() {
+		t.Fatal("test monster should be ranged")
+	}
+	if got := m.GetTurnBasedAttackCount(); got != 2 {
+		t.Fatalf("cooldown-only ranged TB attacks = %d, want 2", got)
+	}
+}
+
+func TestSetupMonsterFromConfig_ExplicitAttacksPerRoundOverridesCooldown(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{
+		Name:               "TB Balanced Archer",
+		ProjectileWeapon:   "short_bow",
+		AttacksPerRound:    1,
+		AttackCooldownMult: 0.3,
+	})
+
+	if got := m.GetTurnBasedAttackCount(); got != 1 {
+		t.Fatalf("explicit attacks_per_round override = %d, want 1", got)
 	}
 }
 

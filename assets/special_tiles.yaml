@@ -7,7 +7,6 @@ special_tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [138, 43, 226]  # Violet/Purple RGB
@@ -27,7 +26,6 @@ special_tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [220, 20, 60]  # Crimson RGB
@@ -47,7 +45,6 @@ special_tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [139, 69, 19]  # Saddle brown RGB
@@ -65,7 +62,6 @@ special_tiles:
     solid: false
     transparent: true
     walkable: true
-    height_multiplier: 1.0
     sprite: ""
     render_type: "floor_only"
     floor_color: [65, 105, 225]  # Royal blue RGB

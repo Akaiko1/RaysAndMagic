@@ -28,7 +28,7 @@ import (
 )
 
 // balanceRosterEntry is one character in the balance baseline party.
-// MaxHP and MaxSP are derived (HP=End*2+Lvl*3; SP=Int+Per+equipPersBonus+Lvl*2)
+// MaxHP and MaxSP are derived (HP=End*2+Lvl*3; SP=Int+Per/3+Lvl*2)
 // so we don't pin them here — CalculateDerivedStats reconstructs them after
 // equipment is applied.
 type balanceRosterEntry struct {
@@ -174,9 +174,21 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 			if def.IsUtility {
 				if hurt := lowestHurtAlly(party); hurt != nil {
 					_, _, heal := cs.CalculateSpellHealing(spellID, char)
-					hurt.HitPoints += heal
-					if hurt.HitPoints > hurt.MaxHitPoints {
-						hurt.HitPoints = hurt.MaxHitPoints
+					if def.HealParty {
+						for _, ally := range party {
+							if !ally.CanAct() || ally.HitPoints >= ally.MaxHitPoints {
+								continue
+							}
+							ally.HitPoints += heal
+							if ally.HitPoints > ally.MaxHitPoints {
+								ally.HitPoints = ally.MaxHitPoints
+							}
+						}
+					} else {
+						hurt.HitPoints += heal
+						if hurt.HitPoints > hurt.MaxHitPoints {
+							hurt.HitPoints = hurt.MaxHitPoints
+						}
 					}
 					char.SpellPoints -= def.SpellPointsCost
 					return
@@ -197,13 +209,83 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	_, _, dmg := cs.CalculateWeaponDamage(weapon, char)
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	isRanged := weaponDef != nil && weaponDef.Category == "bow"
-	dmg = applyArmorReductionIfPhysical(dmg, "physical", target.ArmorClass, isRanged)
+	dmg = applyMonsterArmor(dmg, "physical", target.ArmorClass, isRanged)
 	target.TakeDamage(dmg, monsterPkg.DamagePhysical, 0, 0)
 }
 
-func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter) {
+func trySimMonsterAllyHeal(m *monsterPkg.Monster3D, monsters []*monsterPkg.Monster3D, cfg *config.Config) bool {
+	if m.AllyHealChance <= 0 || m.AllyHealAmount <= 0 || rand.Float64() >= m.AllyHealChance {
+		return false
+	}
+	radius := m.AllyHealRadiusPixels
+	if radius <= 0 {
+		radius = 2 * float64(cfg.GetTileSize())
+	}
+	var target *monsterPkg.Monster3D
+	for _, candidate := range monsters {
+		if candidate == nil || !candidate.IsAlive() || candidate.HitPoints >= candidate.MaxHitPoints {
+			continue
+		}
+		if candidate.Bound != m.Bound {
+			continue
+		}
+		if candidate != m && Distance(m.X, m.Y, candidate.X, candidate.Y) > radius {
+			continue
+		}
+		if target == nil || candidate.HitPoints*target.MaxHitPoints < target.HitPoints*candidate.MaxHitPoints {
+			target = candidate
+		}
+	}
+	if target == nil {
+		return false
+	}
+	target.HitPoints += m.AllyHealAmount
+	if target.HitPoints > target.MaxHitPoints {
+		target.HitPoints = target.MaxHitPoints
+	}
+	return true
+}
+
+func trySimMonsterPiercingShot(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter) bool {
+	if m.PiercingShotChance <= 0 || rand.Float64() >= m.PiercingShotChance {
+		return false
+	}
+	alive := make([]*character.MMCharacter, 0, len(party))
+	for _, c := range party {
+		if c.CanAct() {
+			alive = append(alive, c)
+		}
+	}
+	if len(alive) == 0 {
+		return false
+	}
+	targets := m.PiercingShotTargets
+	if targets <= 0 {
+		targets = 2
+	}
+	if targets > len(alive) {
+		targets = len(alive)
+	}
+	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
+	for _, target := range alive[:targets] {
+		dmg := cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, true)
+		target.HitPoints -= dmg
+		if target.HitPoints < 0 {
+			target.HitPoints = 0
+		}
+		if target.HitPoints == 0 {
+			target.AddCondition(character.ConditionUnconscious)
+		}
+	}
+	return true
+}
+
+func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*character.MMCharacter, monsters []*monsterPkg.Monster3D) {
 	attacks := m.GetTurnBasedAttackCount()
 	for i := 0; i < attacks; i++ {
+		if trySimMonsterAllyHeal(m, monsters, cs.game.config) || trySimMonsterPiercingShot(cs, m, party) {
+			continue
+		}
 		alive := make([]*character.MMCharacter, 0, len(party))
 		for _, c := range party {
 			if c.CanAct() {
@@ -216,11 +298,19 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
-			// Elemental projectile — no AC reduction, no resistance (party has none defined).
-			dmg = m.GetAttackDamage()
+			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
+			// uses ranged whenever HasRangedAttack, even point-blank — it never
+			// melees). Mitigate it by the breath's element so the target's armor
+			// (elemental cap), resists, and buffs actually apply.
+			school := "physical"
+			if d, ok := config.GetSpellDefinition(m.ProjectileSpell); ok && d != nil && d.School != "" {
+				school = d.School
+			}
+			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), school, target, false)
 		} else {
-			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, false)
+			dmg = cs.mitigateCharacterDamage(m.GetAttackDamage(), "physical", target, m.IgnoresArmor)
 		}
+		dmg += m.TrueDamage // bypasses all mitigation, folded into the hit
 		// Fireburst proc (used by dragon)
 		if m.FireburstChance > 0 && rand.Float64() < m.FireburstChance {
 			dmg += m.FireburstDamageMin + rand.Intn(m.FireburstDamageMax-m.FireburstDamageMin+1)
@@ -233,6 +323,46 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 			target.AddCondition(character.ConditionUnconscious)
 		}
 	}
+}
+
+func liveSummonsForBoss(monsters []*monsterPkg.Monster3D, boss *monsterPkg.Monster3D) int {
+	count := 0
+	for _, m := range monsters {
+		if m != nil && m.IsAlive() && m.SummonedBy == boss.ID {
+			count++
+		}
+	}
+	return count
+}
+
+func trySimBossSummon(monsters *[]*monsterPkg.Monster3D, boss *monsterPkg.Monster3D, cfg *config.Config) {
+	if boss == nil || !boss.IsAlive() || len(boss.SummonMonsters) == 0 {
+		return
+	}
+	guaranteed := boss.SummonFirstGuaranteed && !boss.SummonFirstDone
+	if !guaranteed && (boss.SummonChance <= 0 || rand.Float64() >= boss.SummonChance) {
+		return
+	}
+	live := liveSummonsForBoss(*monsters, boss)
+	if boss.SummonMax > 0 && live >= boss.SummonMax {
+		return
+	}
+	count := boss.SummonCount
+	if count <= 0 {
+		count = 1
+	}
+	if boss.SummonMax > 0 && live+count > boss.SummonMax {
+		count = boss.SummonMax - live
+	}
+	for i := 0; i < count; i++ {
+		key := boss.SummonMonsters[rand.Intn(len(boss.SummonMonsters))]
+		add := monsterPkg.NewMonster3DFromConfig(0, 0, key, cfg)
+		add.WasAttacked = true
+		add.IsEngagingPlayer = true
+		add.SummonedBy = boss.ID
+		*monsters = append(*monsters, add)
+	}
+	boss.SummonFirstDone = true
 }
 
 type simResult struct {
@@ -267,6 +397,40 @@ func allMonstersDead(monsters []*monsterPkg.Monster3D) bool {
 	return true
 }
 
+func turnBasedActionSlotsForParty(party []*character.MMCharacter) map[*character.MMCharacter]int {
+	slots := make(map[*character.MMCharacter]int, len(party))
+	bonusActions := 0
+	for _, c := range party {
+		if !c.CanAct() {
+			continue
+		}
+		slots[c] = 1
+		if tier := c.SpeedBonusActionTier(); tier > bonusActions {
+			bonusActions = tier
+		}
+	}
+	for bonusActions > 0 {
+		var best *character.MMCharacter
+		bestSpeed := -1
+		for _, c := range party {
+			if !c.CanAct() || slots[c] == 0 || slots[c] > 1 {
+				continue
+			}
+			speed := c.GetEffectiveSpeed()
+			if speed > bestSpeed {
+				best = c
+				bestSpeed = speed
+			}
+		}
+		if best == nil {
+			return slots
+		}
+		slots[best]++
+		bonusActions--
+	}
+	return slots
+}
+
 // runOneFight runs a single combat between party and monsters; both slices
 // are mutated. Returns whether the monsters were all killed, whether the
 // party was wiped, and how many rounds elapsed.
@@ -275,11 +439,12 @@ func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*m
 	for ; rounds < maxRounds; rounds++ {
 		// Party turn — each char uses their action slots on the
 		// lowest-HP alive monster (focus-fire).
+		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn()
+			slots := actionSlots[c]
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {
@@ -301,7 +466,8 @@ func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*m
 			if !m.IsAlive() {
 				continue
 			}
-			monsterActOnce(cs, m, party)
+			trySimBossSummon(&monsters, m, cs.game.config)
+			monsterActOnce(cs, m, party, monsters)
 			if partyAllDown(party) {
 				break
 			}
@@ -379,12 +545,12 @@ func TestCombatBalance_RosterDerivedStats(t *testing.T) {
 		name   string
 		hp, sp int
 	}{
-		// MaxSP includes EFFECTIVE Intellect+Personality (equipment counts):
+		// MaxSP includes EFFECTIVE Intellect+Personality/3 (equipment counts):
 		// Lysander's magic_ring (+Int via intellect_scaling_divisor) now adds SP.
-		{"Gareth", 65, 30},
-		{"Lysander", 45, 48},
-		{"Celestine", 45, 48},
-		{"Silvelyn", 45, 35},
+		{"Gareth", 65, 23},
+		{"Lysander", 45, 39},
+		{"Celestine", 45, 30},
+		{"Silvelyn", 45, 28},
 	}
 	for i, want := range expected {
 		got := party[i]
@@ -496,6 +662,293 @@ func logFightTable(t *testing.T, cs *CombatSystem, party []*character.MMCharacte
 				sc.label, blessLbl, r.winPct, r.wipePct, rounds, r.avgHPLeft)
 		}
 	}
+}
+
+func mustEquipItemKey(t *testing.T, c *character.MMCharacter, key string) {
+	t.Helper()
+	it := items.CreateItemFromYAML(key)
+	if _, _, ok := c.EquipItem(it); !ok {
+		t.Fatalf("%s: failed to equip %s", c.Name, key)
+	}
+}
+
+func mustEquipWeaponKey(t *testing.T, c *character.MMCharacter, key string) {
+	t.Helper()
+	c.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(key)
+}
+
+func mustEquipSpellID(t *testing.T, c *character.MMCharacter, spellID spells.SpellID) {
+	t.Helper()
+	if !characterKnowsSpellByID(c, spellID) && !addSpellByID(c, spellID) {
+		t.Fatalf("%s: failed to add spell %s", c.Name, spellID)
+	}
+	sp, err := spells.CreateSpellItem(spellID)
+	if err != nil {
+		t.Fatalf("%s: create spell %s: %v", c.Name, spellID, err)
+	}
+	c.Equipment[items.SlotSpell] = sp
+}
+
+// buildCastleEntryL10Party models a fixed level-10 party entering the Japanese
+// castle with late midgame gear, but before any castle/rack/boss loot. Keeping it
+// deterministic makes the castle balance table easier to compare across changes.
+func buildCastleEntryL10Party(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	party := buildDefaultParty(t, cs, 10)
+	cs.game.party.Members = party
+
+	mustEquipWeaponKey(t, party[0], "silver_sword")
+	mustEquipItemKey(t, party[0], "iron_armor")
+	mustEquipItemKey(t, party[0], "iron_helmet")
+	mustEquipItemKey(t, party[0], "iron_pants")
+	mustEquipItemKey(t, party[0], "bearpaw_gauntlets")
+	mustEquipItemKey(t, party[0], "belt_of_strength")
+	mustEquipItemKey(t, party[0], "direpelt_cloak")
+
+	mustEquipWeaponKey(t, party[1], "battle_staff")
+	mustEquipSpellID(t, party[1], "fireball")
+	mustEquipSpellID(t, party[1], "darkbolt")
+	mustEquipSpellID(t, party[1], "ice_bolt")
+	mustEquipItemKey(t, party[1], "wizard_robe")
+	mustEquipItemKey(t, party[1], "magic_ring")
+	mustEquipItemKey(t, party[1], "serpentscale_gauntlets")
+
+	mustEquipWeaponKey(t, party[2], "steel_mace")
+	mustEquipSpellID(t, party[2], "heal")
+	mustEquipItemKey(t, party[2], "chain_armor")
+	mustEquipItemKey(t, party[2], "chain_helmet")
+	mustEquipItemKey(t, party[2], "chain_pants")
+	mustEquipItemKey(t, party[2], "tideclasp_gauntlets")
+	mustEquipItemKey(t, party[2], "scarab_amulet")
+
+	mustEquipWeaponKey(t, party[3], "elven_bow")
+	mustEquipItemKey(t, party[3], "leather_armor")
+	mustEquipItemKey(t, party[3], "leather_helmet")
+	mustEquipItemKey(t, party[3], "leather_pants")
+	mustEquipItemKey(t, party[3], "belt_of_speed")
+	mustEquipItemKey(t, party[3], "puma_claw")
+	mustEquipItemKey(t, party[3], "batwing_cloak")
+
+	for _, c := range party {
+		c.CalculateDerivedStats(cs.game.config)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+	}
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
+// buildCastleVeteranL17Party models a higher-level party returning to the castle
+// with common castle gear and late-zone tools, but without Samurai boss uniques.
+func buildCastleVeteranL17Party(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	party := buildDefaultParty(t, cs, 17)
+	cs.game.party.Members = party
+
+	mustEquipWeaponKey(t, party[0], "katana")
+	mustEquipItemKey(t, party[0], "o_yoroi")
+	mustEquipItemKey(t, party[0], "kabuto")
+	mustEquipItemKey(t, party[0], "silk_hakama")
+	mustEquipItemKey(t, party[0], "bearpaw_gauntlets")
+	mustEquipItemKey(t, party[0], "belt_of_strength")
+	mustEquipItemKey(t, party[0], "haori_cloak")
+	mustEquipItemKey(t, party[0], "jade_netsuke")
+
+	mustEquipWeaponKey(t, party[1], "archmage_staff")
+	mustEquipSpellID(t, party[1], "fireball")
+	mustEquipSpellID(t, party[1], "darkbolt")
+	mustEquipSpellID(t, party[1], "ice_bolt")
+	mustEquipSpellID(t, party[1], "lightning")
+	mustEquipSpellID(t, party[1], "disintegrate")
+	mustEquipSpellID(t, party[1], "inferno")
+	mustEquipSpellID(t, party[1], "starburst")
+	mustEquipSpellID(t, party[1], "hot_steam")
+	mustEquipItemKey(t, party[1], "archmage_robe")
+	mustEquipItemKey(t, party[1], "serpentscale_gauntlets")
+	mustEquipItemKey(t, party[1], "haori_cloak")
+	mustEquipItemKey(t, party[1], "onmyoji_talisman")
+	mustEquipItemKey(t, party[1], "jade_netsuke")
+
+	mustEquipWeaponKey(t, party[2], "kanabo")
+	mustEquipSpellID(t, party[2], "heal")
+	mustEquipSpellID(t, party[2], "heal_other")
+	mustEquipSpellID(t, party[2], "mass_heal")
+	mustEquipItemKey(t, party[2], "chain_armor")
+	mustEquipItemKey(t, party[2], "chain_helmet")
+	mustEquipItemKey(t, party[2], "chain_pants")
+	mustEquipItemKey(t, party[2], "tideclasp_gauntlets")
+	mustEquipItemKey(t, party[2], "haori_cloak")
+	mustEquipItemKey(t, party[2], "jade_netsuke")
+	mustEquipItemKey(t, party[2], "magic_ring")
+
+	mustEquipWeaponKey(t, party[3], "tanegashima")
+	mustEquipItemKey(t, party[3], "leather_armor")
+	mustEquipItemKey(t, party[3], "leather_helmet")
+	mustEquipItemKey(t, party[3], "silk_hakama")
+	mustEquipItemKey(t, party[3], "serpentscale_gauntlets")
+	mustEquipItemKey(t, party[3], "belt_of_speed")
+	mustEquipItemKey(t, party[3], "haori_cloak")
+	mustEquipItemKey(t, party[3], "accuracy_talisman")
+
+	for _, c := range party {
+		c.CalculateDerivedStats(cs.game.config)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+	}
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
+// buildRealPlayParty reconstructs the EXACT party from save1 — the author's real
+// playthrough: same classes, levels, BASE stats (gear bonuses apply on top, as
+// in-game), gear and spell books. Gives the zone tables a real progression party
+// alongside the synthetic entry/veteran loadouts. Silvelyn's wizard_eye is a
+// vision utility, kept in her book but NOT her active spell slot, so the sim fires
+// her bow each round instead of "casting" a no-op heal (how she actually fights).
+// Lysander's active spell is left to equipBestOffensiveSpellVs (runFixedPartySim
+// re-picks the best offensive spell he knows per fight, as in real play).
+func buildRealPlayParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	t.Helper()
+	cs.game.party = character.NewParty(cs.game.config)
+	cfg := cs.game.config
+
+	type member struct {
+		name                                                            string
+		class                                                           character.CharacterClass
+		level                                                           int
+		might, intellect, personality, endurance, accuracy, speed, luck int
+		weapon                                                          string
+		gear                                                            []string
+		known                                                           []spells.SpellID
+		equipSpell                                                      spells.SpellID
+	}
+	roster := []member{
+		{"Gareth", character.ClassKnight, 13, 56, 10, 10, 28, 12, 16, 10,
+			"tonbogiri", []string{"iron_armor", "chain_pants", "iron_helmet"}, nil, ""},
+		{"Lysander", character.ClassSorcerer, 14, 8, 66, 12, 16, 10, 16, 12,
+			"battle_staff", []string{"direpelt_cloak", "leather_armor", "leather_pants", "sonar_pendant", "magic_ring"},
+			[]spells.SpellID{"torch_light", "firebolt", "ice_bolt", "hot_steam", "sparks", "starburst", "day_of_the_gods", "ray_of_light"}, ""},
+		{"Celestine", character.ClassCleric, 13, 10, 12, 59, 22, 8, 16, 10,
+			"holy_mace", []string{"chain_armor"},
+			[]spells.SpellID{"heal_other", "harm", "mind_blast", "spirit_lash", "bless", "heroism"}, "mass_heal"},
+		{"Silvelyn", character.ClassArcher, 13, 12, 26, 10, 18, 47, 16, 10,
+			"elven_bow", []string{"ratskin_boots"}, []spells.SpellID{"wizard_eye"}, ""},
+	}
+	party := make([]*character.MMCharacter, 0, len(roster))
+	for _, m := range roster {
+		c := character.CreateCharacter(m.name, m.class, cfg)
+		c.Level = m.level
+		c.Might, c.Intellect, c.Personality, c.Endurance = m.might, m.intellect, m.personality, m.endurance
+		c.Accuracy, c.Speed, c.Luck = m.accuracy, m.speed, m.luck
+		mustEquipWeaponKey(t, c, m.weapon)
+		for _, k := range m.gear {
+			mustEquipItemKey(t, c, k)
+		}
+		for _, sid := range m.known {
+			addSpellByID(c, sid)
+		}
+		if m.equipSpell != "" {
+			mustEquipSpellID(t, c, m.equipSpell)
+		}
+		c.CalculateDerivedStats(cfg)
+		c.HitPoints = c.MaxHitPoints
+		c.SpellPoints = c.MaxSpellPoints
+		party = append(party, c)
+	}
+	cs.game.party.Members = party
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("health_potion"))
+	cs.game.party.AddItem(items.CreateItemFromYAML("revival_potion"))
+	return party
+}
+
+func runFixedPartySim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *CombatSystem) []*character.MMCharacter, monsterKeys []string, label string, statBonus int, trials int) {
+	t.Helper()
+	var wins, wipes int
+	var sumRoundsWin int
+	var sumHPLeft, sumEnemyHPLeftOnWipe float64
+	var sumLevel float64
+	var enemyMaxHPSum int
+
+	for trial := 0; trial < trials; trial++ {
+		party := build(t, cs)
+		monsters := make([]*monsterPkg.Monster3D, 0, len(monsterKeys))
+		for _, key := range monsterKeys {
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config)
+			m.WasAttacked = true
+			m.IsEngagingPlayer = true
+			monsters = append(monsters, m)
+		}
+		for _, c := range party {
+			if c.Class == character.ClassSorcerer {
+				equipBestOffensiveSpellVs(c, monsters[0])
+			}
+		}
+
+		cs.game.statBuffs = nil
+		cs.game.recomputeStatBonuses()
+		if statBonus > 0 {
+			cs.game.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(statBonus)})
+		}
+		resetPartyForSim(party)
+
+		killed, wiped, rounds := runOneFightWithPotions(cs, party, monsters)
+		if killed {
+			wins++
+			sumRoundsWin += rounds
+		}
+		if wiped {
+			wipes++
+			remHP := 0
+			totalMax := 0
+			for _, m := range monsters {
+				remHP += m.HitPoints
+				totalMax += m.MaxHitPoints
+			}
+			if totalMax > 0 {
+				sumEnemyHPLeftOnWipe += float64(remHP) / float64(totalMax)
+			}
+		}
+		sumHPLeft += partyHPRatio(party)
+		levelSum := 0
+		for _, c := range party {
+			levelSum += c.Level
+		}
+		sumLevel += float64(levelSum) / float64(len(party))
+		if trial == 0 {
+			for _, m := range monsters {
+				enemyMaxHPSum += m.MaxHitPoints
+			}
+		}
+	}
+	cs.game.statBuffs = nil
+	cs.game.recomputeStatBonuses()
+
+	avgRoundsWin := 0.0
+	if wins > 0 {
+		avgRoundsWin = float64(sumRoundsWin) / float64(wins)
+	}
+	t.Logf("%s — %d trials, fixed party", label, trials)
+	t.Logf("  avg party level: %.1f", sumLevel/float64(trials))
+	t.Logf("  wins:  %d/%d  (%.0f%%)", wins, trials, float64(wins)*100/float64(trials))
+	t.Logf("  wipes: %d/%d  (%.0f%%)", wipes, trials, float64(wipes)*100/float64(trials))
+	if unresolved := trials - wins - wipes; unresolved > 0 {
+		t.Logf("  unresolved: %d/%d  (%.0f%%)", unresolved, trials, float64(unresolved)*100/float64(trials))
+	}
+	if wins > 0 {
+		t.Logf("  avg rounds to kill all enemies: %.1f", avgRoundsWin)
+	}
+	if wipes > 0 {
+		t.Logf("  avg enemy HP remaining on wipe: %.0f%% (of %d base total)",
+			sumEnemyHPLeftOnWipe*100/float64(wipes), enemyMaxHPSum)
+	}
+	t.Logf("  avg party HP left: %.0f%%", sumHPLeft*100/float64(trials))
 }
 
 // TestCombatBalance_L5PartyVsMonsters runs the baseline L5 party against
@@ -1062,11 +1515,12 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 		tryUsePotions(cs)
 		// Party turn — each char uses their action slots on the
 		// lowest-HP alive monster.
+		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
 			if !c.CanAct() {
 				continue
 			}
-			slots := c.ActionSlotsForTurn()
+			slots := actionSlots[c]
 			for s := 0; s < slots; s++ {
 				target := pickLowestHPTarget(monsters)
 				if target == nil {
@@ -1087,7 +1541,8 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 			if !m.IsAlive() {
 				continue
 			}
-			monsterActOnce(cs, m, party)
+			trySimBossSummon(&monsters, m, cs.game.config)
+			monsterActOnce(cs, m, party, monsters)
 			if partyAllDown(party) {
 				break
 			}
@@ -1470,6 +1925,136 @@ func TestCombatBalance_HighlandsPartyVs2Mobs(t *testing.T) {
 	}
 }
 
+// TestCombatBalance_CastleEntryL10PartyVsCastleMobs uses a deterministic level
+// 10 party with late-midgame gear (no castle loot) to benchmark the Japanese
+// castle's normal mobs, elite pairs, and Samurai Warlord with real summon/enrage
+// fields represented by the simulator.
+func TestCombatBalance_CastleEntryL10PartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(42)
+
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleEntryL10Party, sc.monsters, "Castle-entry L10 party vs "+sc.label+" (no Bless)", 0, 50)
+		runFixedPartySim(t, cs, buildCastleEntryL10Party, sc.monsters, "Castle-entry L10 party vs "+sc.label+" (Bless +10)", 10, 50)
+	}
+}
+
+func castleMobScenarios() []fightScenario {
+	return []fightScenario{
+		{label: "ashigaru", monsters: []string{"ashigaru_firelock"}},
+		{label: "ningyo", monsters: []string{"ningyo"}},
+		{label: "ronin", monsters: []string{"ronin_marksman"}},
+		{label: "vengeful", monsters: []string{"vengeful_ningyo"}},
+		{label: "2x ashigaru", monsters: []string{"ashigaru_firelock", "ashigaru_firelock"}},
+		{label: "2x ningyo", monsters: []string{"ningyo", "ningyo"}},
+		{label: "ronin+vengeful", monsters: []string{"ronin_marksman", "vengeful_ningyo"}},
+		{label: "samurai", monsters: []string{"old_samurai"}},
+	}
+}
+
+// TestCombatBalance_CastleVeteranL17PartyVsCastleMobs benchmarks the same
+// castle scenarios against a fixed level-17 party with common castle/late-zone
+// gear, without Samurai boss uniques.
+func TestCombatBalance_CastleVeteranL17PartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(43)
+
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Castle-veteran L17 party vs "+sc.label+" (no Bless)", 0, 50)
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Castle-veteran L17 party vs "+sc.label+" (Bless +10)", 10, 50)
+	}
+}
+
+// TestCombatBalance_CastleRealPlayPartyVsCastleMobs runs the actual save1 party
+// (the author's real progression: L13-14, mixed real gear/spells) against the
+// Japanese castle's mobs, elite pairs, and the Samurai Warlord.
+func TestCombatBalance_CastleRealPlayPartyVsCastleMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(45)
+	for _, sc := range castleMobScenarios() {
+		runFixedPartySim(t, cs, buildRealPlayParty, sc.monsters, "Castle Real play party vs "+sc.label, 0, 50)
+	}
+}
+
+func jungleMobScenarios() []fightScenario {
+	return []fightScenario{
+		{label: "ocelot", monsters: []string{"ocelot"}},
+		{label: "jungle_goblin", monsters: []string{"jungle_goblin"}},
+		{label: "masked_huntress", monsters: []string{"masked_huntress"}},
+		{label: "serpent_dancer", monsters: []string{"masked_serpent_dancer"}},
+		{label: "masked_hexer", monsters: []string{"masked_hexer_girl"}},
+		{label: "gorilla_titan", monsters: []string{"gorilla_titan"}},
+		{label: "2x ocelot", monsters: []string{"ocelot", "ocelot"}},
+		{label: "2x goblin", monsters: []string{"jungle_goblin", "jungle_goblin"}},
+		{label: "huntress+dancer", monsters: []string{"masked_huntress", "masked_serpent_dancer"}},
+		{label: "warlord+4 idols", monsters: []string{"jungle_idol", "jungle_idol", "jungle_idol", "jungle_idol", "orc_hero_boss"}},
+	}
+}
+
+// TestCombatBalance_JungleL8PartyVsMobs — a LOW (L8) starter party wandering into
+// the L18-24 jungle. It SHOULD struggle/wipe on the zone's mobs; if it facerolls
+// ocelots/goblins while they pay big XP, the trash is undertuned (farmable). Note
+// the sim doesn't model the warlord's idol-ward (BossWarded is set only by the
+// live per-frame pre-pass), so the boss row reflects raw HP/damage, not the gate.
+func TestCombatBalance_JungleL8PartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(42)
+	buildL8 := func(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+		cs.game.party = character.NewParty(cs.game.config)
+		party := buildDefaultParty(t, cs, 8)
+		cs.game.party.Members = party
+		return party
+	}
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildL8, sc.monsters, "Jungle L8 party vs "+sc.label, 0, 50)
+	}
+}
+
+// TestCombatBalance_JungleVeteranPartyVsMobs — a well-geared L17 veteran (the
+// castle-veteran loadout, the kind of party that would actually attempt the
+// jungle) vs the same scenarios, as the at-level reference.
+func TestCombatBalance_JungleVeteranPartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(43)
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildCastleVeteranL17Party, sc.monsters, "Jungle L17-veteran party vs "+sc.label, 0, 50)
+	}
+}
+
+// TestCombatBalance_JungleRealPlayPartyVsMobs runs the actual save1 party (the
+// author's real progression: L13-14, mixed real gear/spells) against the jungle.
+func TestCombatBalance_JungleRealPlayPartyVsMobs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(44)
+	for _, sc := range jungleMobScenarios() {
+		runFixedPartySim(t, cs, buildRealPlayParty, sc.monsters, "Jungle Real play party vs "+sc.label, 0, 50)
+	}
+}
+
 // TestCombatBalance_FullClearCasterSpeedPartyVsDragon — party clears
 // forest + church + water (everything except dragon), then fights the
 // dragon. Stat strategy: only Sorcerer/Archer invest Spd→16; Knight
@@ -1525,10 +2110,10 @@ func TestCombatBalance_LowLevelPartyVsForest(t *testing.T) {
 // TestMonsterDamageVsArmorTiers reports, for EVERY current monster, the physical
 // melee damage it deals to a level-6 / 20-Endurance character wearing a full set
 // of each armor tier — leather, chain, plate. Each monster's min..max is run
-// through the real armor-reduction path (ApplyArmorDamageReduction = dmg - AC/2,
-// floored at 1). Output is a table (run with -run MonsterDamageVsArmorTiers -v);
-// it also asserts AC rises leather<chain<plate, heavier armor never takes MORE,
-// and the 1-damage floor holds.
+// through the real percentage armor path (armorMitigationPctFromAC: physical%
+// = min(75, 100*AC/(AC+K)), floored at 1). Output is a table (run with
+// -run MonsterDamageVsArmorTiers -v); it also asserts AC rises leather<chain<plate,
+// heavier armor never takes MORE, and the 1-damage floor holds.
 func TestMonsterDamageVsArmorTiers(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -1567,8 +2152,9 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		tanks[s.name] = newTank(s.pieces)
 		ac[s.name] = cs.CalculateTotalArmorClass(tanks[s.name])
 	}
-	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (reduction = AC/%d)",
-		ac["leather"], ac["chain"], ac["plate"], ArmorPhysicalReductionDivisor)
+	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (phys mitigation leather:%d%% chain:%d%% plate:%d%%)",
+		ac["leather"], ac["chain"], ac["plate"],
+		armorMitigationPctFromAC(ac["leather"], true), armorMitigationPctFromAC(ac["chain"], true), armorMitigationPctFromAC(ac["plate"], true))
 	if !(ac["leather"] < ac["chain"] && ac["chain"] < ac["plate"]) {
 		t.Errorf("AC should rise leather<chain<plate, got %d/%d/%d", ac["leather"], ac["chain"], ac["plate"])
 	}
@@ -1588,7 +2174,7 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 
 	t.Logf("%-3s %-22s %-9s %-11s %-11s %-11s", "lvl", "monster", "raw", "leather", "chain", "plate")
 	rng := func(set string, m *monsterPkg.Monster3D) (int, int) {
-		return cs.ApplyArmorDamageReduction(m.DamageMin, tanks[set]), cs.ApplyArmorDamageReduction(m.DamageMax, tanks[set])
+		return cs.mitigateCharacterDamage(m.DamageMin, "physical", tanks[set], false), cs.mitigateCharacterDamage(m.DamageMax, "physical", tanks[set], false)
 	}
 	for _, m := range mobs {
 		lMin, lMax := rng("leather", m)
@@ -1603,7 +2189,9 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		if lMax < cMax || cMax < pMax {
 			t.Errorf("%s: heavier armor took more (leather %d, chain %d, plate %d)", m.Name, lMax, cMax, pMax)
 		}
-		if pMin < 1 {
+		// Anything that actually deals damage must chip at least 1 through armor;
+		// passive 0-damage entries (e.g. the Warlord Idol) legitimately stay 0.
+		if m.DamageMin >= 1 && pMin < 1 {
 			t.Errorf("%s: damage floor dropped below 1 (got %d)", m.Name, pMin)
 		}
 	}

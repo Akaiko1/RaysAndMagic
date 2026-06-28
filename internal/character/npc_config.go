@@ -29,6 +29,7 @@ type NPCData struct {
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
+	RejectsLich      bool                 `yaml:"rejects_lich,omitempty"`       // Light-aligned ward (the Mage Tower) that won't speak to a party containing a Lich
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
@@ -56,10 +57,15 @@ type NPCDialogue struct {
 	// linked quest is taken-but-not-done, CompletedMessage once it's done (turn-in
 	// available). The offer state uses Greeting; the concluded state uses
 	// VisitedMessage. See npc_dialogue.go.
-	ActiveMessage    string               `yaml:"active_message,omitempty"`
-	CompletedMessage string               `yaml:"completed_message,omitempty"`
-	ChoicePrompt     string               `yaml:"choice_prompt,omitempty"`
-	Choices          []*NPCDialogueChoice `yaml:"choices,omitempty"`
+	ActiveMessage    string `yaml:"active_message,omitempty"`
+	CompletedMessage string `yaml:"completed_message,omitempty"`
+	// QuestGreeting is the offer-state body shown on a spell-trader's QUESTS tab,
+	// so the quest hook there differs from the shop-welcome Greeting on the Spells
+	// tab. Unset → the Quests tab falls back to Greeting (fine for pure quest NPCs,
+	// which have no tabs).
+	QuestGreeting string               `yaml:"quest_greeting,omitempty"`
+	ChoicePrompt  string               `yaml:"choice_prompt,omitempty"`
+	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
 
 // NPCDialogueChoice represents a dialogue choice option
@@ -68,6 +74,12 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	// Branching dialogue (action "info"): when this choice is picked the dialog
+	// does NOT close — it shows Response as the NPC's reply and Choices as the
+	// follow-up options, so "ask about X" actually answers and can lead deeper
+	// or on to a give_quest. Nest freely; "back" pops one level.
+	Response string               `yaml:"response,omitempty"`
+	Choices  []*NPCDialogueChoice `yaml:"choices,omitempty"`
 	// Cost/Amount parameterize purchase-style actions: tavern_rest charges Cost
 	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
 	Cost   int `yaml:"cost,omitempty"`
@@ -263,6 +275,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
+		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 	}
