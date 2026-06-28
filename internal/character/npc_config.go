@@ -57,10 +57,15 @@ type NPCDialogue struct {
 	// linked quest is taken-but-not-done, CompletedMessage once it's done (turn-in
 	// available). The offer state uses Greeting; the concluded state uses
 	// VisitedMessage. See npc_dialogue.go.
-	ActiveMessage    string               `yaml:"active_message,omitempty"`
-	CompletedMessage string               `yaml:"completed_message,omitempty"`
-	ChoicePrompt     string               `yaml:"choice_prompt,omitempty"`
-	Choices          []*NPCDialogueChoice `yaml:"choices,omitempty"`
+	ActiveMessage    string `yaml:"active_message,omitempty"`
+	CompletedMessage string `yaml:"completed_message,omitempty"`
+	// QuestGreeting is the offer-state body shown on a spell-trader's QUESTS tab,
+	// so the quest hook there differs from the shop-welcome Greeting on the Spells
+	// tab. Unset → the Quests tab falls back to Greeting (fine for pure quest NPCs,
+	// which have no tabs).
+	QuestGreeting string               `yaml:"quest_greeting,omitempty"`
+	ChoicePrompt  string               `yaml:"choice_prompt,omitempty"`
+	Choices       []*NPCDialogueChoice `yaml:"choices,omitempty"`
 }
 
 // NPCDialogueChoice represents a dialogue choice option

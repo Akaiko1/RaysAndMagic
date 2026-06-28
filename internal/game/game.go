@@ -332,6 +332,7 @@ type MMGame struct {
 	dialogTab        int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
 	merchantBuyPage  int // Merchant buy-grid page (0-based); read by both renderer and input
 	merchantSellPage int // Merchant sell-grid page (0-based)
+	spellTraderPage  int // Spell-trader icon-grid page (0-based); shared by renderer and input
 
 	// Spellbook UI
 	selectedSchool     int
@@ -1129,6 +1130,7 @@ func (g *MMGame) SummonRandomMonsterNearPlayer(distanceTiles float64) bool {
 	if m == nil {
 		return false
 	}
+	m.QuestProgressIgnored = true // Dead Branch / ad-hoc summons are not map quest targets.
 	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("A %s appears!", m.Name))
 	return true

@@ -518,7 +518,7 @@ func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 	// Load = reset to baseline, then re-apply the snapshot (mirrors applySave).
 	qm.Reset()
 	for _, s := range saved {
-		qm.RestoreQuestProgress(s.id, s.status, s.count, s.claimed)
+		qm.RestoreQuestProgress(s.id, s.status, s.count, 0, s.claimed)
 	}
 
 	if qm.GetQuest("side_quest") != nil {

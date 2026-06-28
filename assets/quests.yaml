@@ -79,8 +79,9 @@ quests:
     description: "Mystic Trader Aldric will lay a bridge to his colleague on the lake once every wolf in the Elvish Forest is dead."
     type: "kill"
     target_monster: "wolf"
-    target_count: 18
+    target_count: 21
     target_map: "forest"
+    exterminate: true
     is_starting_quest: false
     rewards:
       gold: 600

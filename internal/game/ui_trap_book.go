@@ -119,7 +119,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	}
 
 	if tooltip != "" {
-		ui.queueTooltipIcon(strings.Split(tooltip, "\n"), tooltipIcon, tooltipX, tooltipY)
+		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
 	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bookX+20, contentY+contentHeight-28, bookW-40, 20)
 

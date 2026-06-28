@@ -53,7 +53,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {
-		core = fmt.Sprintf("=== %s ===\n%s", item.Name, itemKindLabel(item))
+		core = fmt.Sprintf("%s\n%s", item.Name, itemKindLabel(item))
 	}
 
 	var tail []string
@@ -160,7 +160,7 @@ func buildSpellItemTooltipFromDefinition(item items.Item, char *character.MMChar
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
 		lines := []string{
-			fmt.Sprintf("=== %s ===", item.Name),
+			item.Name,
 			"Unknown Spell",
 		}
 		if item.SpellSchool != "" {
@@ -297,7 +297,7 @@ func getEquipSlotForItem(item items.Item) (items.EquipSlot, bool) {
 
 func buildWeaponComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
 	_, _, total := combatSystem.CalculateWeaponDamage(item, char)
@@ -370,7 +370,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 		eqCost = combatSystem.effectiveSpellCost(char, eqCost)
 	}
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equippedDef.Name),
+		fmt.Sprintf("Equipped: %s", equippedDef.Name),
 		fmt.Sprintf("Spell Points: %d vs %d (%+d)", itemCost, eqCost, itemCost-eqCost),
 	}
 
@@ -414,7 +414,7 @@ func buildSpellComparisonLinesByID(itemID, equippedID spells.SpellID, char *char
 
 func buildArmorComparisonLines(item, equipped items.Item, char *character.MMCharacter, combatSystem *CombatSystem) []string {
 	lines := []string{
-		fmt.Sprintf("--- Equipped: %s ---", equipped.Name),
+		fmt.Sprintf("Equipped: %s", equipped.Name),
 	}
 
 	itemAC := combatSystem.CalculateArmorClassContribution(item, char)
@@ -474,7 +474,7 @@ func spellEffectsSummary(def spells.SpellDefinition) string {
 func GetSpellTooltip(spellID spells.SpellID, char *character.MMCharacter, combatSystem *CombatSystem, full bool) string {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
-		return fmt.Sprintf("=== Unknown Spell (%s) ===", spellID)
+		return fmt.Sprintf("Unknown Spell (%s)", spellID)
 	}
 	out := buildSpellTooltipUnified(def, char, combatSystem, full)
 	if def.Description != "" {

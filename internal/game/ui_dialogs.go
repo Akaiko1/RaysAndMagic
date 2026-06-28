@@ -447,11 +447,16 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 				tooltip = magicMasteryTooltipText()
 			}
 			if tooltip != "" {
-				icon := ""
+				lines := strings.Split(tooltip, "\n")
 				if strings.ToLower(option.choice.Type) == "spell" {
-					icon = spellTooltipIconName(option.spellID)
+					plate := color.Color(nil)
+					if def, err := spells.GetSpellDefinitionByID(option.spellID); err == nil {
+						plate = schoolPlateColor(def.School)
+					}
+					ui.queueTitledTooltipIcon(lines, nil, plate, nil, spellTooltipIconName(option.spellID), mouseX+16, mouseY+8)
+				} else {
+					ui.queueTooltipIcon(lines, "", mouseX+16, mouseY+8)
 				}
-				ui.queueTooltipIcon(strings.Split(tooltip, "\n"), icon, mouseX+16, mouseY+8)
 			}
 		}
 	}
@@ -559,6 +564,11 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	}
 }
 
+// tabGreetingWrapColumns wraps the greeting on tab-style dialogs (spell trader,
+// merchant, skill trainer) to the box width. Keep these greetings to <=2 lines:
+// the portrait strip sits at dialogY+78, just below a two-line greeting.
+const tabGreetingWrapColumns = 78
+
 // Spell-trader layout constants.
 const (
 	spellTraderPortraitSize = 56
@@ -566,7 +576,19 @@ const (
 	spellTraderIconSize     = 48
 	spellTraderIconGap      = 10
 	spellTraderGridCols     = 6
+	// Portrait strip sits this far below the dialog top — low enough that a
+	// two-line greeting clears the selected-character frame above it.
+	spellTraderPortraitTop = 92
+	// Two icon rows per page is the most that fits between the grid top and the
+	// instructions without overlapping; the rest paginate.
+	spellTraderGridRows = 2
+	spellTraderPerPage  = spellTraderGridCols * spellTraderGridRows
 )
+
+// spellTraderGridTop is the Y of the spell icon grid (just below the portraits).
+func spellTraderGridTop(dialogY int) int {
+	return dialogY + spellTraderPortraitTop + spellTraderPortraitSize + 32
+}
 
 // spellTraderPortraitRect returns the screen rect for the i-th party
 // portrait in the spell-trader dialog.
@@ -574,23 +596,32 @@ func spellTraderPortraitRect(dialogX, dialogY, i int) (x, y, w, h int) {
 	stripW := 4*spellTraderPortraitSize + 3*spellTraderPortraitGap
 	startX := dialogX + (600-stripW)/2
 	return startX + i*(spellTraderPortraitSize+spellTraderPortraitGap),
-		dialogY + 78,
+		dialogY + spellTraderPortraitTop,
 		spellTraderPortraitSize,
 		spellTraderPortraitSize
 }
 
-// spellTraderIconRect returns the screen rect for the i-th spell icon.
-func spellTraderIconRect(dialogX, dialogY, i int) (x, y, w, h int) {
+// spellTraderIconRect returns the screen rect for the spell icon in page-slot
+// `slot` (0..spellTraderPerPage-1) — NOT the global spell index. Renderer and
+// input both map page*perPage+slot to the global spell, so the grid only ever
+// shows one page's worth and click rects line up with what's drawn.
+func spellTraderIconRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
 	startX := dialogX + (600-gridW)/2
-	gridY := dialogY + 78 + spellTraderPortraitSize + 32
-	row := i / spellTraderGridCols
-	col := i % spellTraderGridCols
+	gridY := spellTraderGridTop(dialogY)
+	row := slot / spellTraderGridCols
+	col := slot % spellTraderGridCols
 	cellH := spellTraderIconSize + 14 // icon + cost line
 	return startX + col*(spellTraderIconSize+spellTraderIconGap),
 		gridY + row*(cellH+8),
 		spellTraderIconSize,
 		spellTraderIconSize
+}
+
+// spellTraderPagerY is the Y of the page nav row (below the two icon rows).
+func spellTraderPagerY(dialogY int) int {
+	cellH := spellTraderIconSize + 14
+	return spellTraderGridTop(dialogY) + spellTraderGridRows*(cellH+8) + 4
 }
 
 // drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
@@ -630,7 +661,11 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greetingText = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	drawDebugText(screen, greetingText, dialogX+20, dialogY+44)
+	// Wrap so a long greeting never spills past the box; the portrait strip
+	// below (dialogY+78) leaves room for two lines.
+	for i, line := range ui.wrapText(greetingText, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
 
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
 	drawDebugText(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
@@ -646,7 +681,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
-		drawCenteredDebugText(screen, label, x-8, y+h+2, w+16, debugTextCharHeight)
+		// +6 (not +2) so the label clears the selection frame's bottom edge (y+h+3).
+		drawCenteredDebugText(screen, label, x-8, y+h+6, w+16, debugTextCharHeight)
 	}
 
 	// Spell icon grid.
@@ -656,9 +692,20 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		selectedChar = ui.game.party.Members[ui.game.selectedCharIdx]
 	}
 
+	// Paginate: only the current page's icons are drawn (two rows), the rest
+	// reached via the pager below — so the grid never runs into the instructions.
+	pages := pageCount(len(spellKeys), spellTraderPerPage)
+	clampPage(&ui.game.spellTraderPage, pages)
+	pageStart := ui.game.spellTraderPage * spellTraderPerPage
+
 	var hoverSpellIdx = -1
-	for i, spellKey := range spellKeys {
-		x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+	for slot := 0; slot < spellTraderPerPage; slot++ {
+		i := pageStart + slot
+		if i >= len(spellKeys) {
+			break
+		}
+		spellKey := spellKeys[i]
+		x, y, w, h := spellTraderIconRect(dialogX, dialogY, slot)
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
 
 		// Determine status for the selected character.
@@ -686,9 +733,9 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 			drawCenteredDebugText(screen, spellInitials(npcSpell.Name), x, y, w, h)
 		}
 
-		// Cost under icon.
+		// Cost under icon (+6 clears the icon's selection frame at y+h+3).
 		costText := fmt.Sprintf("%d g", npcSpell.Cost)
-		drawCenteredDebugText(screen, costText, x-4, y+h+2, w+8, debugTextCharHeight)
+		drawCenteredDebugText(screen, costText, x-4, y+h+6, w+8, debugTextCharHeight)
 
 		// Dim overlay if known.
 		if alreadyKnows {
@@ -719,11 +766,21 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		ui.queueTooltipIcon(lines, spellTooltipIconName(spells.SpellID(spellKey)), mouseX+16, mouseY+8)
 	}
 
-	// Instructions.
-	instructionsY := dialogY + dialogHeight - 60
-	drawDebugText(screen, "Click portrait: select character  |  Hover spell: details", dialogX+20, instructionsY)
-	drawDebugText(screen, "Click spell: select  |  Double-click: purchase  |  ESC: close", dialogX+20, instructionsY+15)
-	drawDebugText(screen, "Gold frame: selected | Green: can learn | Red: cannot | Gray: known", dialogX+20, instructionsY+30)
+	// Page nav (only renders when there's more than one page).
+	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
+	if ui.drawPager(screen, dialogX+(600-gridW)/2, spellTraderPagerY(dialogY), gridW, &ui.game.spellTraderPage, pages, true) {
+		// Page changed: move the selection onto the new page so a keyboard
+		// purchase (Enter) can't buy a now-hidden spell from the previous page.
+		if first := ui.game.spellTraderPage * spellTraderPerPage; first < len(spellKeys) {
+			ui.game.dialogSelectedSpell = first
+			ui.game.selectedSpellKey = spellKeys[first]
+		}
+	}
+
+	// Instructions (two condensed lines).
+	instructionsY := dialogY + dialogHeight - 38
+	drawDebugText(screen, "Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", dialogX+20, instructionsY)
+	drawDebugText(screen, "Gold=selected   Green=learnable   Red=cannot   Gray=known   |   Hover: details", dialogX+20, instructionsY+15)
 }
 
 // Skill-trainer layout.
@@ -736,7 +793,7 @@ func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h 
 	stripW := 4*skillTrainerPortraitSize + 3*skillTrainerPortraitGap
 	startX := dialogX + (dialogWidth-stripW)/2
 	return startX + i*(skillTrainerPortraitSize+skillTrainerPortraitGap),
-		dialogY + 120,
+		dialogY + 128,
 		skillTrainerPortraitSize,
 		skillTrainerPortraitSize
 }
@@ -761,7 +818,9 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	drawDebugText(screen, greeting, dialogX+20, dialogY+44)
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
 	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
 
 	// Portrait row.
@@ -773,8 +832,9 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{210, 170, 80, 240})
 		}
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
-		drawCenteredDebugText(screen, member.Name, x-8, y+h+4, w+16, debugTextCharHeight)
-		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+20, w+16, debugTextCharHeight)
+		// +8/+24 keep both labels clear of the hover/selection frame (y+h+3).
+		drawCenteredDebugText(screen, member.Name, x-8, y+h+8, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+24, w+16, debugTextCharHeight)
 	}
 
 	instructionsY := dialogY + dialogHeight - 40
@@ -863,16 +923,19 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	drawDebugText(screen, greeting, dialogX+20, dialogY+46)
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+46+i*dialogueLineHeight)
+	}
 	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
 
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	// Headers + faint divider between the two halves.
-	drawDebugText(screen, "For Sale", leftX, gridTop-18)
-	drawDebugText(screen, "Your Items", rightX, gridTop-18)
-	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-12, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
+	// Headers + faint divider between the two halves. Headers sit at gridTop-24
+	// so they clear the two-line greeting above and the icon frames below.
+	drawDebugText(screen, "For Sale", leftX, gridTop-24)
+	drawDebugText(screen, "Your Items", rightX, gridTop-24)
+	drawFilledRect(screen, dialogX+dialogWidth/2, gridTop-6, 1, merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap), color.RGBA{90, 90, 110, 120})
 
 	var tooltipItem items.Item
 	var tooltipHasItem bool
@@ -960,7 +1023,12 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
 			if tip != "" {
 				lines := strings.Split(tip, "\n")
-				ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), mouseX+16, mouseY+8)
+				plate, titleText := ui.itemTitleColors(tooltipItem)
+				var bodyColors []color.Color
+				if titleText != nil { // gear keeps its rarity-metal body
+					bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
+				}
+				ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), mouseX+16, mouseY+8)
 			}
 		}
 	}
@@ -1044,12 +1112,12 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	startY := h/2 - 120
 
 	// Victory header
-	drawDebugText(screen, "=== VICTORY! ===", centerX-70, startY)
+	drawDebugText(screen, "VICTORY!", centerX-70, startY)
 	drawDebugText(screen, "You have slain all four dragons!", centerX-120, startY+25)
 	drawDebugText(screen, "The realm is saved!", centerX-70, startY+45)
 
 	// Score details
-	drawDebugText(screen, "--- Final Score ---", centerX-75, startY+80)
+	drawDebugText(screen, "Final Score", centerX-75, startY+80)
 	drawDebugText(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
 	drawDebugText(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
 	drawDebugText(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
@@ -1087,11 +1155,11 @@ func (ui *UISystem) drawHighScoresOverlay(screen *ebiten.Image) {
 	startY := 60
 
 	// Header
-	drawDebugText(screen, "=== HIGH SCORES ===", centerX-75, startY)
+	drawDebugText(screen, "HIGH SCORES", centerX-75, startY)
 
 	// Column headers
 	drawDebugText(screen, "Rank  Name           Score    Time", centerX-140, startY+40)
-	drawDebugText(screen, "----  ----           -----    ----", centerX-140, startY+55)
+	drawFilledRect(screen, centerX-140, startY+56, 290, 1, color.RGBA{120, 120, 150, 255})
 
 	// Entries
 	if len(scores.Entries) == 0 {
@@ -1343,7 +1411,7 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
-	drawDebugText(screen, "=== ACTIVE QUESTS ===", panelX+20, contentY+10)
+	drawDebugText(screen, "ACTIVE QUESTS", panelX+20, contentY+10)
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
@@ -1452,7 +1520,10 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			drawFilledRect(screen, barX, barY, barWidth, barHeight, color.RGBA{20, 20, 20, 255})
 
 			// Progress fill
-			progress := float64(quest.CurrentCount) / float64(quest.Definition.TargetCount)
+			progress := 0.0
+			if target := quest.Target(); target > 0 {
+				progress = float64(quest.CurrentCount) / float64(target)
+			}
 			if progress > 1 {
 				progress = 1
 			}

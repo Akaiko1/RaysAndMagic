@@ -186,6 +186,10 @@ type Monster3D struct {
 	Gold  int
 	Items []items.Item
 
+	// QuestProgressIgnored marks ad-hoc/runtime summons that should not advance or
+	// block map-clear kill quests. Fixed map spawns leave this false.
+	QuestProgressIgnored bool
+
 	// Resistances and immunities
 	Resistances map[DamageType]int
 

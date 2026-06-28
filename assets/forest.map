@@ -13,9 +13,8 @@
 # Monster spawns: b=bear f=forest orc g=goblin l=troll n=bandit p=pixie
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%.@..T...T....T.PPPPP...T........T....T.PPWQQQQQQ%  >[npc:mtrader0]
+%.@..T...T....T.PPPPP...T.....fffT....T.PPWQQQQQQ%  >[npc:mtrader0]
 %..........T......................T........WQQQQQ%
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%
@@ -36,11 +35,11 @@
 %.T.....T.......T...T.TT......T.....T.....PP....P=
 %....T.........T..TT.TT.T......T.....T....PP...P.=
 %t.........T......TAWWWAT...T.......T............%
-%.T.....T.......T.TWWWWWT..MM...T.....T....P.....%
-%....T.........TTTTWWWWWTf........T.....T........%
+%.T.....T.......T.TWWWWWT..MM...T...w.T....P.....%
+%....T.........TTTTWWWWWTf........T.w...T........%
 %t....ww...T....T..WW@WW.f..T.......T........P...%  >[npc:spell_trader_mage]
-%.T.....T.......TTTWWWWWTf......T..w..T..........%
-%....T.........T..TWWWWWT...MM....T.w...T........%
+%.T.....T.......TTTWWWWWTf......T..ww.T..........%
+%....T.........T..TWWWWWT...MM....Tww...T........%
 %t...M.....T......TAWWWAT...T.......T.......P....%
 %.T.....T...ww..T.T.T.T.T.....T.....T.....P......%
 %....T.........T...T.T.T.......T.....T...........%
@@ -50,18 +49,18 @@
 %...ww.....T.......T.....T.......T............P..%
 %.T.....T....TTTTT....T.......T.....T............%
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
-%SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
+%SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
-%..P.Tb...Pb...Tb....T...PP....T.....T...........%
+%..P.T....P....T.....TgggPP....TFFFFFT...........%
 T..P.......T.......T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
 T.P..T.Mggg....T..@..T........CCCCCC............R%  >[npc:tavern]
 T.P...gggM.T...TT..CCCCCC.....CCCCCC............R%
-T.T.....T.......T..CCCCCC.....CCCCCC.........P.nR%
-T.M..T.......P.TT..CCCCCC..+.................P.nR%
+T.T.....T..g...FT..CCCCCC.....CCCCCC.........P.nR%
+T.M..T.....g.P.TT..CCCCCC..+.................P.nR%
 T......T...T.......CCCCCC.....CCCCCC.........P.nR%
 T.T.....TT......T..CCCCCC.....CCCCCC...........RR%
-TpFFpT....T....TT..CCCCCC.....CCCCCC...........RR%
-TpFFp......TM....................................%
+TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
+TpFFp...FF.TM....................................%
 TTTTTTTTTT..T..TTP......PP......................@%  >[npc:abandoned_church]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -93,6 +93,7 @@ type QuestSave struct {
 	ID             string `json:"id"`
 	Status         string `json:"status"`
 	CurrentCount   int    `json:"current_count"`
+	DynamicTarget  int    `json:"dynamic_target,omitempty"`
 	RewardsClaimed bool   `json:"rewards_claimed"`
 }
 
@@ -202,6 +203,7 @@ type MonsterSave struct {
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
 	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
+	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
@@ -676,24 +678,25 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
-				WasAttacked:         mon.WasAttacked,
-				Relentless:          mon.Relentless,
-				StunFramesRemaining: mon.StunFramesRemaining,
-				StunTurnsRemaining:  mon.StunTurnsRemaining,
-				StunDRStacks:        mon.StunDRStacks,
-				StunDRMemoryTurns:   mon.StunDRMemoryTurns,
-				StunDRMemoryFrames:  mon.StunDRMemoryFrames,
-				RootFramesRemaining: mon.RootFramesRemaining,
-				RootTurnsRemaining:  mon.RootTurnsRemaining,
-				Pilfered:            mon.Pilfered,
-				PounceCDFrames:      mon.PounceCDFrames,
-				PounceCDTurns:       mon.PounceCDTurns,
-				BossCD:              mon.BossCD,
-				BossHurtPending:     mon.BossHurtPending,
-				BossLastHP:          mon.BossLastHP,
-				SummonFirstDone:     mon.SummonFirstDone,
-				SummonedBy:          mon.SummonedBy,
-				CrossfireCD:         mon.CrossfireCD,
+				WasAttacked:          mon.WasAttacked,
+				Relentless:           mon.Relentless,
+				QuestProgressIgnored: mon.QuestProgressIgnored,
+				StunFramesRemaining:  mon.StunFramesRemaining,
+				StunTurnsRemaining:   mon.StunTurnsRemaining,
+				StunDRStacks:         mon.StunDRStacks,
+				StunDRMemoryTurns:    mon.StunDRMemoryTurns,
+				StunDRMemoryFrames:   mon.StunDRMemoryFrames,
+				RootFramesRemaining:  mon.RootFramesRemaining,
+				RootTurnsRemaining:   mon.RootTurnsRemaining,
+				Pilfered:             mon.Pilfered,
+				PounceCDFrames:       mon.PounceCDFrames,
+				PounceCDTurns:        mon.PounceCDTurns,
+				BossCD:               mon.BossCD,
+				BossHurtPending:      mon.BossHurtPending,
+				BossLastHP:           mon.BossLastHP,
+				SummonFirstDone:      mon.SummonFirstDone,
+				SummonedBy:           mon.SummonedBy,
+				CrossfireCD:          mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -761,6 +764,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID:             quest.ID,
 				Status:         string(quest.Status),
 				CurrentCount:   quest.CurrentCount,
+				DynamicTarget:  quest.DynamicTarget,
 				RewardsClaimed: quest.RewardsClaimed,
 			})
 		}
@@ -959,6 +963,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
 				m.CrossfireCD = ms.CrossfireCD
+				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live — restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
@@ -1191,7 +1196,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	if g.questManager != nil {
 		g.questManager.Reset()
 		for _, qs := range save.Quests {
-			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.RewardsClaimed)
+			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
 		// Re-apply world changes of completed quests — maps reload pristine from
 		// disk, so e.g. the wolf-cull bridge must be laid again.

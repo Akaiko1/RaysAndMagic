@@ -132,10 +132,19 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 	if tooltip != "" && tooltipHasItem {
 		lines := strings.Split(tooltip, "\n")
-		ui.queueTooltipColoredIcon(lines, ui.itemTooltipColors(tooltipItem, lines), itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
+		plate, titleText := ui.itemTitleColors(tooltipItem)
+		var bodyColors []color.Color
+		if titleText != nil { // gear keeps its rarity-metal body; spells/traps stay white
+			bodyColors = ui.rarityBodyColors(tooltipItem, len(lines))
+		}
+		ui.queueTitledTooltipIcon(lines, bodyColors, plate, titleText, itemTooltipIconName(tooltipItem), tooltipX, tooltipY)
 		if compareTooltip != "" {
 			compareLines := strings.Split(compareTooltip, "\n")
-			ui.queueTooltipComparison(compareLines, ui.itemTooltipColors(tooltipItem, compareLines))
+			var compareBody []color.Color
+			if titleText != nil {
+				compareBody = ui.rarityBodyColors(tooltipItem, len(compareLines))
+			}
+			ui.queueTitledTooltipComparison(compareLines, compareBody, plate, titleText)
 		}
 	}
 
@@ -328,7 +337,7 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 // drawCharactersContent draws the characters tab content
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	// Title
-	drawDebugText(screen, "=== CHARACTER INFO ===", panelX+20, contentY+10)
+	drawDebugText(screen, "CHARACTER INFO", panelX+20, contentY+10)
 
 	if len(ui.game.party.Members) == 0 {
 		drawDebugText(screen, "No party members.", panelX+20, contentY+40)

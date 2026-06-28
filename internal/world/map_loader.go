@@ -74,6 +74,7 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 	var lines []string
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
+	var atCells [][2]int // [x,y] of every '@' placeholder (auto-floored under an entity)
 	scanner := bufio.NewScanner(file)
 
 	// Read all non-comment lines and process as tile tokens
@@ -85,9 +86,13 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		}
 
 		// Parse line into tiles and extract NPCs and special tiles
-		parsedLine, lineNPCs, lineSpecialTiles := ml.parseTileTokens(line, len(lines))
+		y := len(lines)
+		parsedLine, lineNPCs, lineSpecialTiles, lineAt := ml.parseTileTokens(line, y)
 		npcSpawns = append(npcSpawns, lineNPCs...)
 		specialTileSpawns = append(specialTileSpawns, lineSpecialTiles...)
+		for _, ax := range lineAt {
+			atCells = append(atCells, [2]int{ax, y})
+		}
 		lines = append(lines, parsedLine)
 	}
 
@@ -159,6 +164,17 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		}
 	}
 
+	// Resolve the auto-default floor under placed entities (monsters + '@'
+	// placeholders) to the dominant nearby floor before special tiles override.
+	autoFloored := make(map[[2]int]bool, len(mapData.MonsterSpawns)+len(atCells))
+	for _, s := range mapData.MonsterSpawns {
+		autoFloored[[2]int{s.X, s.Y}] = true
+	}
+	for _, c := range atCells {
+		autoFloored[c] = true
+	}
+	ml.resolveUnderEntityFloors(mapData, autoFloored)
+
 	// Apply special tile spawns to the map
 	for _, specialTile := range mapData.SpecialTileSpawns {
 		if specialTile.Y >= 0 && specialTile.Y < mapData.Height &&
@@ -168,6 +184,66 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 	}
 
 	return mapData, nil
+}
+
+// resolveUnderEntityFloors replaces the auto-default floor under placed entities
+// (monster spawns, '@' NPC/placeholder cells) with the DOMINANT floor tile among
+// the 8 neighbours, so an entity dropped onto a floor-variant patch blends in
+// instead of stamping the biome default '.'. Only explicitly-authored floor tiles
+// vote (other auto-floored cells are skipped); orthogonal neighbours count double.
+// Falls back to the biome '.' floor when no floor neighbour exists. On uniform
+// floors the dominant neighbour IS the biome default, so behaviour is unchanged.
+func (ml *MapLoader) resolveUnderEntityFloors(md *MapData, autoFloored map[[2]int]bool) {
+	if GlobalTileManager == nil || len(autoFloored) == 0 {
+		return
+	}
+	defFloor, hasDef := GlobalTileManager.GetTileTypeFromLetterForBiome(".", ml.biome)
+	// A floor candidate must be BOTH a real ground tile (render_type "floor_only"
+	// — excludes walkable "environment_sprite" decorations like fern_patch /
+	// clearing / firefly_swarm / mushroom_ring) AND actually steppable (excludes
+	// "floor_only" but impassable water / deep_water / chasm-floor tiles). Neither
+	// check alone is enough.
+	isFloor := func(t TileType3D) bool {
+		return GlobalTileManager.GetRenderType(t) == "floor_only" &&
+			GlobalTileManager.IsWalkable(t) && !GlobalTileManager.IsSolid(t)
+	}
+	// Fixed neighbour order (orthogonal first) so tie-breaks are deterministic.
+	type off struct{ dx, dy, w int }
+	neighbours := []off{
+		{0, -1, 2}, {0, 1, 2}, {-1, 0, 2}, {1, 0, 2}, // orthogonal, weight 2
+		{-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1}, // diagonal, weight 1
+	}
+	for cell := range autoFloored {
+		x, y := cell[0], cell[1]
+		counts := make(map[TileType3D]int)
+		best := TileEmpty
+		bestScore := 0
+		for _, n := range neighbours {
+			nx, ny := x+n.dx, y+n.dy
+			if nx < 0 || ny < 0 || ny >= md.Height || nx >= md.Width {
+				continue
+			}
+			if autoFloored[[2]int{nx, ny}] {
+				continue // ignore other entity cells — vote on authored floor only
+			}
+			t := md.Tiles[ny][nx]
+			if !isFloor(t) {
+				continue
+			}
+			counts[t] += n.w
+			if counts[t] > bestScore {
+				bestScore = counts[t]
+				best = t
+			}
+		}
+		if bestScore == 0 {
+			if hasDef {
+				md.Tiles[y][x] = defFloor
+			}
+			continue
+		}
+		md.Tiles[y][x] = best
+	}
 }
 
 // parseMapCharacter converts a map character to tile type and optional monster letter
@@ -235,7 +311,7 @@ func (ml *MapLoader) LoadForestMap() (*MapData, error) {
 
 // parseTileTokens parses a line into tiles, handling both NPCs and special tiles:
 // Map tiles use single characters, definitions are at line end with >[npc:key] or >[stile:key] format
-func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn) {
+func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []int) {
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
 
@@ -312,5 +388,5 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 	// Replace '@' characters with '.' (empty walkable tiles) in the result
 	resultTiles := strings.ReplaceAll(tilesPart, "@", ".")
 
-	return resultTiles, npcSpawns, specialTileSpawns
+	return resultTiles, npcSpawns, specialTileSpawns, atPositions
 }

@@ -7,7 +7,7 @@ monsters:
   goblin:
     name: "Goblin"
     level: 1
-    max_hit_points: 56
+    max_hit_points: 50
     armor_class: 13
     experience: 15
     damage_min: 4
@@ -33,8 +33,8 @@ monsters:
     max_hit_points: 96
     armor_class: 19
     experience: 65
-    damage_min: 8
-    damage_max: 15
+    damage_min: 15
+    damage_max: 25
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.5
     alert_radius: 5
@@ -86,7 +86,7 @@ monsters:
     armor_class: 28
     experience: 120
     damage_min: 10
-    damage_max: 16
+    damage_max: 20
     alert_radius: 2  # 2 tiles
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
@@ -241,9 +241,9 @@ monsters:
     armor_class: 32
     experience: 300
     damage_min: 15
-    damage_max: 23
+    damage_max: 30
     poison_chance: 0.33
-    poison_duration_seconds: 20
+    poison_duration_seconds: 23
     alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.3
@@ -345,7 +345,7 @@ monsters:
     true_damage: 10  # green dragon: +10 unmitigable per hit
     attack_cooldown_multiplier: 0.6  # attacks fast
     poison_chance: 0.33
-    poison_duration_seconds: 20
+    poison_duration_seconds: 45
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
@@ -577,7 +577,7 @@ monsters:
   bandit:
     name: "Bandit"
     level: 3
-    max_hit_points: 86
+    max_hit_points: 50
     armor_class: 14
     experience: 55
     damage_min: 7
@@ -968,7 +968,7 @@ monsters:
     attack_radius: 1
     speed: 1.5
     poison_chance: 0.12
-    poison_duration_seconds: 20
+    poison_duration_seconds: 25
     gold_min: 10
     gold_max: 40
     sprite: "thief_bug"
@@ -1012,7 +1012,7 @@ monsters:
     # corridors, freezing the boss. 48 fits one tile; size_multiplier keeps it big visually.
     box_w: 48
     box_h: 48
-    size_multiplier: 5.5
+    size_multiplier: 9.0
     biomes: ["culverts"]
     resistances:
       physical: 20
@@ -1163,7 +1163,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.5
+    size_multiplier: 12.0
     biomes: ["japanese_castle"]
     resistances:
       physical: 20
@@ -1237,7 +1237,7 @@ monsters:
     alert_radius: 8
     speed: 1.6
     poison_chance: 0.3
-    poison_duration_seconds: 20
+    poison_duration_seconds: 58
     gold_min: 60
     gold_max: 160
     sprite: "masked_huntress"
@@ -1266,7 +1266,7 @@ monsters:
     alert_radius: 7
     speed: 1.9
     poison_chance: 0.4
-    poison_duration_seconds: 20
+    poison_duration_seconds: 60
     gold_min: 80
     gold_max: 180
     sprite: "masked_serpent_dancer"
@@ -1341,7 +1341,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_multiplier: 12.0
     biomes: ["jungle"]
     resistances:
       physical: 30
@@ -1382,7 +1382,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_multiplier: 12.0
     biomes: ["jungle"]
     resistances:
       physical: 25

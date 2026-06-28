@@ -92,6 +92,12 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 		}
 	case npcStateConcluded:
 		return d.VisitedMessage // may be "" → renderer shows just "Press ESC"
+	default:
+		// Offer state. On a spell-trader's Quests tab, lead with the quest hook
+		// rather than the shop-welcome Greeting (Spells tab keeps the Greeting).
+		if g.dialogTab == 1 && d.QuestGreeting != "" {
+			return d.QuestGreeting
+		}
 	}
 	return d.Greeting
 }

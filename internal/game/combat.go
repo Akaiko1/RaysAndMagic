@@ -2654,6 +2654,9 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	if cs.game.questManager == nil {
 		return
 	}
+	if monster.QuestProgressIgnored {
+		return
+	}
 
 	// Convert monster name to lowercase key format (e.g., "Goblin" -> "goblin", "Dire Wolf" -> "dire_wolf")
 	monsterType := strings.ToLower(strings.ReplaceAll(monster.Name, " ", "_"))
@@ -2670,6 +2673,7 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 	}
 
 	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType, currentMapKey())
+	cs.game.syncExterminationQuestProgressForTarget(monsterType)
 
 	// Notify player of quest completions
 	for _, quest := range completedQuests {

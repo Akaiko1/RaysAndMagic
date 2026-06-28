@@ -76,7 +76,9 @@ const (
 func merchantGridLayout(dialogX, dialogY int) (leftX, rightX, gridTop, pagerY int) {
 	leftX = dialogX + 40
 	rightX = dialogX + npcDialogWidth/2 + 26
-	gridTop = dialogY + 92
+	// Low enough that a two-line greeting clears the "For Sale"/"Your Items"
+	// headers (at gridTop-24), which in turn clear the grid below.
+	gridTop = dialogY + 108
 	stride := merchantIconSize + merchantPriceH + merchantRowGap
 	pagerY = gridTop + merchantGridRows*stride + 2
 	return
@@ -247,7 +249,7 @@ func flipTooltipY(y, bgHeight, screenH int) int {
 // maxRight bounds word-wrapping: lines wrap to fit between x and maxRight. Callers
 // pass the screen width for a lone tooltip, or a tighter column edge so two
 // side-by-side cards (item + its comparison) each wrap within their own column.
-func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
+func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, titlePlate, titleText color.Color, iconName string, x, y, maxRight int, sprites *graphics.SpriteManager) {
 	hasIcon := iconName != "" && sprites != nil
 	lines, colors = wrapTooltipLines(lines, colors, x, maxRight, tooltipTextOffset(hasIcon))
 	bgWidth, bgHeight := tooltipBoxSizeWithIcon(lines, hasIcon)
@@ -264,14 +266,54 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, ico
 		drawImageScaled(screen, sprites.GetSprite(iconName), x+6, y+6, tooltipIconSize, tooltipIconSize)
 		textX += tooltipIconSize + tooltipIconGap
 	}
-	if len(colors) == len(lines) && len(colors) > 0 {
-		for i, line := range lines {
-			drawDebugTextColored(screen, line, textX, y+6+i*16, colors[i])
+
+	// Rarity nameplate: a brushed-metal band (darkened metal of the rarity hue)
+	// behind the first line, with the name drawn in its normal rarity color +
+	// black outline so the shiny text still reads.
+	titleStart := 0
+	if titlePlate != nil && len(lines) > 0 {
+		if plateW := x + bgWidth - 4 - (textX - 4); plateW > 0 {
+			drawMetalPlate(screen, textX-4, y+4, plateW, 18, metalPlateBase(titlePlate))
 		}
+		if titleText != nil {
+			drawDebugTextColored(screen, lines[0], textX, y+6, titleText)
+		} else {
+			drawDebugText(screen, lines[0], textX, y+6) // "as before": plain white + outline
+		}
+		titleStart = 1
+	}
+
+	hasColors := len(colors) == len(lines) && len(colors) > 0
+	for i := titleStart; i < len(lines); i++ {
+		if hasColors {
+			drawDebugTextColored(screen, lines[i], textX, y+6+i*16, colors[i])
+		} else {
+			drawDebugText(screen, lines[i], textX, y+6+i*16)
+		}
+	}
+}
+
+// metalPlateBase returns the nameplate's base color: a darkened metal of the
+// same hue as the rarity text (so the bright text reads on it). Common's white
+// becomes mid-grey, so common/uncommon plates look like steel, not flat white.
+func metalPlateBase(c color.Color) color.RGBA {
+	r, g, b, _ := c.RGBA()
+	return color.RGBA{uint8(r >> 9), uint8(g >> 9), uint8(b >> 9), 255} // 8-bit value × 0.5
+}
+
+// drawMetalPlate fills a rect with the same vertical brushed-metal gradient the
+// rarity text uses (bright top → dark bottom), giving a metallic nameplate band.
+func drawMetalPlate(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
+	if w <= 0 || h <= 0 {
 		return
 	}
-	for i, line := range lines {
-		drawDebugText(screen, line, textX, y+6+i*16)
+	const band = 2
+	for sy := 0; sy < h; sy += band {
+		sh := band
+		if sy+sh > h {
+			sh = h - sy
+		}
+		drawFilledRect(screen, x, y+sy, w, sh, metalShade(base, (float64(sy)+float64(sh)/2)/float64(h)))
 	}
 }
 
@@ -350,6 +392,8 @@ func (ui *UISystem) queueTooltip(lines []string, x, y int) {
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
+	ui.tooltipTitleColor = nil
+	ui.tooltipTitleText = nil
 	ui.tooltipIcon = ""
 	ui.tooltipX = x
 	ui.tooltipY = y
@@ -361,17 +405,26 @@ func (ui *UISystem) queueTooltipIcon(lines []string, icon string, x, y int) {
 	}
 	ui.tooltipLines = lines
 	ui.tooltipColors = nil
+	ui.tooltipTitleColor = nil
+	ui.tooltipTitleText = nil
 	ui.tooltipIcon = ui.validTooltipIcon(icon)
 	ui.tooltipX = x
 	ui.tooltipY = y
 }
 
-func (ui *UISystem) queueTooltipColoredIcon(lines []string, colors []color.Color, icon string, x, y int) {
+// queueTitledTooltipIcon queues a tooltip whose first line (the name) gets a
+// metallic nameplate (plate base) with the name in titleText (nil = plain white
+// name). bodyColors tints lines BELOW the name (nil = plain white body); gear
+// keeps its rarity-metal body, spells/traps stay white. Plate hue: rarity for
+// gear, school for spells, wood for traps.
+func (ui *UISystem) queueTitledTooltipIcon(lines []string, bodyColors []color.Color, plate, titleText color.Color, icon string, x, y int) {
 	if len(lines) == 0 {
 		return
 	}
 	ui.tooltipLines = lines
-	ui.tooltipColors = colors
+	ui.tooltipColors = bodyColors
+	ui.tooltipTitleColor = plate
+	ui.tooltipTitleText = titleText
 	ui.tooltipIcon = ui.validTooltipIcon(icon)
 	ui.tooltipX = x
 	ui.tooltipY = y
@@ -397,6 +450,79 @@ func (ui *UISystem) queueTooltipComparison(lines []string, colors []color.Color)
 	}
 	ui.tooltipCompareLines = lines
 	ui.tooltipCompareColors = colors
+	ui.tooltipCompareTitle = nil
+}
+
+// queueTitledTooltipComparison queues the side-by-side comparison card with a
+// metallic nameplate on its first line.
+func (ui *UISystem) queueTitledTooltipComparison(lines []string, bodyColors []color.Color, plate, titleText color.Color) {
+	if len(lines) == 0 {
+		return
+	}
+	ui.tooltipCompareLines = lines
+	ui.tooltipCompareColors = bodyColors
+	ui.tooltipCompareTitle = plate
+	ui.tooltipCompareText = titleText
+}
+
+// rarityBodyColors paints every tooltip line in the item's rarity metal — the
+// original gear-tooltip body look (the name line's color is overridden by the
+// nameplate's titleText).
+func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
+	if n <= 0 {
+		return nil
+	}
+	c := ui.itemRarityColor(item)
+	colors := make([]color.Color, n)
+	for i := range colors {
+		colors[i] = c
+	}
+	return colors
+}
+
+// schoolPlateColor maps a magic school to its nameplate base hue (darkened +
+// brushed by drawMetalPlate). Used for spell-item / spellbook nameplates.
+func schoolPlateColor(school string) color.Color {
+	switch strings.ToLower(school) {
+	case "fire":
+		return color.RGBA{220, 70, 40, 255}
+	case "water":
+		return color.RGBA{60, 130, 220, 255}
+	case "air":
+		return color.RGBA{150, 205, 225, 255}
+	case "earth":
+		return color.RGBA{150, 120, 60, 255}
+	case "spirit":
+		return color.RGBA{230, 215, 120, 255}
+	case "mind":
+		return color.RGBA{200, 120, 215, 255}
+	case "body":
+		return color.RGBA{90, 195, 110, 255}
+	case "light":
+		return color.RGBA{240, 225, 140, 255}
+	case "dark":
+		return color.RGBA{135, 95, 170, 255}
+	default:
+		return color.RGBA{120, 128, 148, 255} // steel
+	}
+}
+
+// woodPlateColor is the trap nameplate base (brown).
+var woodPlateColor = color.RGBA{135, 92, 48, 255}
+
+// itemTitleColors returns the nameplate (plate base, name-text) for an item:
+// spells use their school hue with the normal white name, traps use wood with
+// the white name, and everything else uses the rarity metal for BOTH.
+func (ui *UISystem) itemTitleColors(item items.Item) (plate, text color.Color) {
+	switch item.Type {
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		return schoolPlateColor(item.SpellSchool), nil
+	case items.ItemTrap:
+		return woodPlateColor, nil
+	default:
+		r := ui.itemRarityColor(item)
+		return r, r
+	}
 }
 
 func itemTooltipIconName(item items.Item) string {
@@ -693,18 +819,6 @@ func (ui *UISystem) itemRarity(item items.Item) string {
 
 func (ui *UISystem) itemRarityColor(item items.Item) color.Color {
 	return rarityColor(ui.itemRarity(item))
-}
-
-func (ui *UISystem) itemTooltipColors(item items.Item, lines []string) []color.Color {
-	if len(lines) == 0 {
-		return nil
-	}
-	colors := make([]color.Color, len(lines))
-	c := ui.itemRarityColor(item)
-	for i := range colors {
-		colors[i] = c
-	}
-	return colors
 }
 
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area

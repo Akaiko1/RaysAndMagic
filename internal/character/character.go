@@ -644,7 +644,7 @@ func (c *MMCharacter) GetDisplayInfo() string {
 }
 
 func (c *MMCharacter) GetDetailedInfo() string {
-	info := fmt.Sprintf("=== %s ===\n", c.Name)
+	info := fmt.Sprintf("%s\n", c.Name)
 	info += fmt.Sprintf("Class: %s  Level: %d\n", c.ClassDisplayName(), c.Level)
 	info += fmt.Sprintf("Experience: %d\n\n", c.Experience)
 

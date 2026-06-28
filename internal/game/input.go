@@ -1653,6 +1653,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.dialogNodePath = nil // Start every conversation at the greeting
 	ih.game.merchantBuyPage = 0
 	ih.game.merchantSellPage = 0
+	ih.game.spellTraderPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1698,6 +1699,19 @@ func (ih *InputHandler) handleDialogInput() {
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// syncSpellTraderPageToSelection keeps the highlight index and the visible page
+// aligned with selectedSpellKey after keyboard navigation, so the selected spell
+// is always on-screen and an Enter purchase matches what's shown.
+func (ih *InputHandler) syncSpellTraderPageToSelection(spellKeys []string) {
+	for i, key := range spellKeys {
+		if key == ih.game.selectedSpellKey {
+			ih.game.dialogSelectedSpell = i
+			ih.game.spellTraderPage = i / spellTraderPerPage
+			return
+		}
+	}
 }
 
 // getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
@@ -1855,15 +1869,22 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			}
 		}
 		spellKeys := npcSpellKeys(ih.game.dialogNPC)
-		for i, spellKey := range spellKeys {
-			x, y, w, h := spellTraderIconRect(dialogX, dialogY, i)
+		// Match the renderer's pagination: only the current page's icons are
+		// clickable, mapping page-slot → global spell index.
+		pageStart := ih.game.spellTraderPage * spellTraderPerPage
+		for slot := 0; slot < spellTraderPerPage; slot++ {
+			i := pageStart + slot
+			if i >= len(spellKeys) {
+				break
+			}
+			x, y, w, h := spellTraderIconRect(dialogX, dialogY, slot)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("trader_spell", i) {
 					ih.purchaseSelectedSpell()
 					ih.resetDialogDoubleClick()
 				} else {
 					ih.game.dialogSelectedSpell = i
-					ih.game.selectedSpellKey = spellKey
+					ih.game.selectedSpellKey = spellKeys[i]
 				}
 				return
 			}
@@ -2300,10 +2321,12 @@ func (ih *InputHandler) handleSpellTraderInput() {
 
 	if ebiten.IsKeyPressed(ebiten.KeyUp) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionUp(spellKeys)
+		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
 		ih.navigateSpellSelectionDown(spellKeys)
+		ih.syncSpellTraderPageToSelection(spellKeys)
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
@@ -2544,24 +2567,26 @@ func (ih *InputHandler) executeEncounterChoice() {
 	}
 }
 
-// anyLivingMonsterOfType reports whether a living monster whose name maps to
-// target (the same name→key normalization quest kills use) exists. Dead monsters
-// are dropped from the world slice, so HP>0 means alive. targetMap scopes the
-// search to one map; empty scans every loaded map (suits a unique boss).
-func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
-	scan := func(w *world.World3D) bool {
+// countLivingQuestTargets returns living, quest-eligible monsters whose name maps
+// to target (the same name→key normalization quest kills use). Dead monsters are
+// dropped from the world slice, so HP>0 means alive. targetMap scopes the search
+// to one map; empty scans every loaded map (suits a unique boss). Runtime/ad-hoc
+// summons can opt out so they do not distort map-clear quest progress.
+func (g *MMGame) countLivingQuestTargets(target, targetMap string) int {
+	scan := func(w *world.World3D) int {
 		if w == nil {
-			return false
+			return 0
 		}
+		count := 0
 		for _, m := range w.Monsters {
-			if m == nil || m.HitPoints <= 0 {
+			if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
 				continue
 			}
 			if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
-				return true
+				count++
 			}
 		}
-		return false
+		return count
 	}
 	wm := world.GlobalWorldManager
 	if wm == nil {
@@ -2570,12 +2595,41 @@ func (g *MMGame) anyLivingMonsterOfType(target, targetMap string) bool {
 	if targetMap != "" {
 		return scan(wm.LoadedMaps[targetMap])
 	}
+	total := 0
 	for _, w := range wm.LoadedMaps {
-		if scan(w) {
-			return true
+		total += scan(w)
+	}
+	return total
+}
+
+// syncExterminationQuestProgress refreshes an active exterminate quest's counter
+// to (target - living) and returns the living target count, so callers can reuse
+// it for the completion check instead of scanning the world a second time.
+// Returns -1 when the quest isn't an active exterminate kill (no sync done).
+func (g *MMGame) syncExterminationQuestProgress(questID string) int {
+	if g.questManager == nil {
+		return -1
+	}
+	q := g.questManager.GetQuest(questID)
+	if q == nil || q.Completed || q.Definition.Type != quests.QuestTypeKill || !q.Definition.Exterminate {
+		return -1
+	}
+	living := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+	g.questManager.SetCurrentCount(q.ID, q.Target()-living)
+	return living
+}
+
+func (g *MMGame) syncExterminationQuestProgressForTarget(target string) {
+	if g.questManager == nil || target == "" {
+		return
+	}
+	for _, q := range g.questManager.GetActiveQuests() {
+		if q.Definition.Type == quests.QuestTypeKill &&
+			q.Definition.Exterminate &&
+			q.Definition.TargetMonster == target {
+			g.syncExterminationQuestProgress(q.ID)
 		}
 	}
-	return false
 }
 
 // creditQuestIfCleared marks an active kill quest completed when none of its
@@ -2591,7 +2645,11 @@ func (g *MMGame) creditQuestIfCleared(questID string) bool {
 		q.Definition.Type != quests.QuestTypeKill || q.Definition.TargetMonster == "" {
 		return false
 	}
-	if g.anyLivingMonsterOfType(q.Definition.TargetMonster, q.Definition.TargetMap) {
+	living := g.syncExterminationQuestProgress(questID)
+	if living < 0 { // not an exterminate quest — sync didn't scan, so do it here
+		living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+	}
+	if living > 0 {
 		return false
 	}
 	g.questManager.MarkCompleted(questID)
@@ -2653,12 +2711,19 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 	name := questID
 	if q := quests.GlobalQuestManager.GetQuest(questID); q != nil && q.Definition.Name != "" {
 		name = q.Definition.Name
+		// Exterminate quests count the map's live target population at accept time,
+		// so the goal tracks the real census instead of a hand-maintained number
+		// (and an already-empty map completes instantly via creditQuestIfCleared).
+		if q.Definition.Exterminate {
+			census := g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+			quests.GlobalQuestManager.SetDynamicTarget(questID, census)
+		}
 	}
 	g.AddCombatMessage(fmt.Sprintf("Quest accepted: %s", name))
 
 	// Targets already wiped out before the quest was taken? Credit it on the
 	// spot (and apply any world changes) instead of showing 0/N until the next
-	// chat — the journal should never say "0/18" on a finished job.
+	// chat — the journal should never say "0/21" on a finished job.
 	if g.creditQuestIfCleared(questID) {
 		g.applyCompletedQuestTiles()
 		g.AddCombatMessage(fmt.Sprintf("'%s' is already done! Return to claim your reward.", name))

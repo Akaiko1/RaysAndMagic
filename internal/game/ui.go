@@ -52,6 +52,10 @@ type UISystem struct {
 	tooltipY              int
 	tooltipCompareLines   []string
 	tooltipCompareColors  []color.Color
+	tooltipTitleColor     color.Color // nameplate base behind the main tooltip's first line (nil = none)
+	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
+	tooltipCompareTitle   color.Color // nameplate base for the comparison card
+	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
 	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
@@ -102,6 +106,10 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipIcon = ""
 	ui.tooltipCompareLines = nil
 	ui.tooltipCompareColors = nil
+	ui.tooltipTitleColor = nil
+	ui.tooltipTitleText = nil
+	ui.tooltipCompareTitle = nil
+	ui.tooltipCompareText = nil
 
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
@@ -168,7 +176,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		if ui.tooltipCompareLines == nil {
 			_, mainH := tooltipBoxSizeForScreen(ui.tooltipLines, ui.tooltipColors, hasIcon, ui.tooltipX, screenW)
 			y := flipTooltipY(ui.tooltipY, mainH, screenH)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, ui.tooltipX, y, screenW, ui.game.sprites)
 		} else {
 			// Two cards side by side. Cap EACH to ~half the screen (word-wrapped) so
 			// the pair always fits, then place the comparison flush to the right of
@@ -187,8 +195,8 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 			y := flipTooltipY(ui.tooltipY, h, screenH)
 
 			mainX, compareX := tooltipPairX(ui.tooltipX, mainW, compareW, gap, screenW)
-			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
-			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, "", compareX, y, compareX+cardCap, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipLines, ui.tooltipColors, ui.tooltipTitleColor, ui.tooltipTitleText, ui.tooltipIcon, mainX, y, mainX+cardCap, ui.game.sprites)
+			drawTooltip(screen, ui.tooltipCompareLines, ui.tooltipCompareColors, ui.tooltipCompareTitle, ui.tooltipCompareText, "", compareX, y, compareX+cardCap, ui.game.sprites)
 		}
 	}
 }

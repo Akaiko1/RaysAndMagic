@@ -29,7 +29,7 @@ type ttSection = character.CardSection
 
 // renderTooltip assembles the final text, dropping empty sections.
 func renderTooltip(name, subtitle string, sections []ttSection, full bool) string {
-	out := []string{fmt.Sprintf("=== %s ===", name)}
+	out := []string{name}
 	if subtitle != "" {
 		out = append(out, subtitle)
 	}
@@ -136,7 +136,7 @@ func armorInteractionRules(sec *ttSection, damageType string, isRanged, hasTrueD
 func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs *CombatSystem, full bool) string {
 	def := lookupWeaponConfigByName(item.Name)
 	if def == nil || cs == nil {
-		return fmt.Sprintf("=== %s ===", item.Name)
+		return item.Name
 	}
 	subtitle := strings.Title(def.Category)
 	if def.Rarity != "" {

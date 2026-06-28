@@ -1,6 +1,7 @@
 package game
 
 import (
+	"fmt"
 	"testing"
 
 	"ugataima/internal/character"
@@ -175,6 +176,40 @@ func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
 	ih.executeEncounterChoice()
 	if got := actions(g.visibleNPCChoices(npc)); len(got) != 1 || got[0] != "back" {
 		t.Fatalf("branch choices (active) = %v, want [back]", got)
+	}
+}
+
+// Keyboard spell navigation must drag the visible page (and the highlight) along
+// with selectedSpellKey, so a paged trader never leaves the selection off-screen
+// where Enter would buy a hidden spell (the pagination desync bug).
+func TestSpellTrader_PageFollowsKeyboardSelection(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	npc := &character.NPC{Name: "Trader", SpellData: map[string]*character.NPCSpell{}}
+	// 15 spells with sortable keys → spans two pages (perPage = 12).
+	for i := 0; i < 15; i++ {
+		npc.SpellData[fmt.Sprintf("spell_%02d", i)] = &character.NPCSpell{Name: fmt.Sprintf("S%02d", i)}
+	}
+	g.dialogNPC = npc
+	ih := NewInputHandler(g)
+	keys := npcSpellKeys(npc)
+
+	// Select a spell on the second page (index 13) and sync.
+	g.selectedSpellKey = keys[13]
+	g.spellTraderPage = 0
+	ih.syncSpellTraderPageToSelection(keys)
+	if g.spellTraderPage != 13/spellTraderPerPage {
+		t.Errorf("page = %d, want %d", g.spellTraderPage, 13/spellTraderPerPage)
+	}
+	if g.dialogSelectedSpell != 13 {
+		t.Errorf("highlight index = %d, want 13", g.dialogSelectedSpell)
+	}
+
+	// Back to a first-page spell → page returns to 0.
+	g.selectedSpellKey = keys[2]
+	ih.syncSpellTraderPageToSelection(keys)
+	if g.spellTraderPage != 0 || g.dialogSelectedSpell != 2 {
+		t.Errorf("page/index = %d/%d, want 0/2", g.spellTraderPage, g.dialogSelectedSpell)
 	}
 }
 

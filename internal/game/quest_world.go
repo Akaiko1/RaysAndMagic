@@ -68,7 +68,11 @@ func (g *MMGame) completeExterminationQuests(monsterType string) {
 			q.Definition.TargetMap == "" || q.Definition.TargetMonster != monsterType {
 			continue
 		}
-		if !g.anyLivingMonsterOfType(q.Definition.TargetMonster, q.Definition.TargetMap) {
+		living := g.syncExterminationQuestProgress(q.ID)
+		if living < 0 { // not an exterminate quest — sync didn't scan, so do it here
+			living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
+		}
+		if living == 0 {
 			g.questManager.MarkCompleted(q.ID)
 			g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", q.Definition.Name))
 		}
