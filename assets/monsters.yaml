@@ -263,14 +263,14 @@ monsters:
 
   dragon:
     type: "dragon"
-    name: "Elder Dragon"   # elite tier; ALL 4 share this name so dragon_slayer (matches by name -> "elder_dragon") counts every color
-    level: 18
-    max_hit_points: 1650
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
     armor_class: 50
-    experience: 3000
-    damage_min: 38
-    damage_max: 62
-    true_damage: 22  # black dragon: +22 unmitigable per hit
+    experience: 2000
+    damage_min: 30
+    damage_max: 50
+    true_damage: 15  # black dragon: +15 unmitigable per hit
     fireburst_chance: 0.15
     fireburst_damage_min: 10
     fireburst_damage_max: 16
@@ -279,17 +279,16 @@ monsters:
     projectile_spell: "firebolt"
     ranged_attack_range: 3
     speed: 3.75
-    gold_min: 1000
-    gold_max: 2500
+    gold_min: 500
+    gold_max: 1500
     sprite: "dragon"
-    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast (a black sprite can't be brightened in its own hue)
     flying: true
     letter: "d"
     box_w: 48
     box_h: 48
     size_multiplier: 12.0
     resistances:
-      fire: 100
+      fire: 90
       physical: 50
       air: 75
     habitat_preferences:
@@ -297,12 +296,115 @@ monsters:
       - "desert_dune"
       - "large_dune"
 
-  # Elemental dragon variants — the 4 main-quest dragons in the desert corners
-  # are one of each (base `dragon` = fire, plus the three below). ALL share
-  # name "Elder Dragon" so the dragon_slayer quest (matches by name ->
-  # "elder_dragon") counts every color toward the 4-kill victory. Elite tier;
-  # they differ only in element (resists / projectile / proc) for variety.
+  # Elemental dragon variants — wild dragons (dragon_cliffs biome + the two cliff
+  # lair caves) and the desert-statue ELITES are built from these. The 4 elite
+  # `elder_dragon*` entries below summon from the statues; these base entries are
+  # the ordinary dragons. They differ only in element (resists/projectile/proc).
   dragon_red:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 50
+    experience: 2000
+    damage_min: 30
+    damage_max: 50
+    true_damage: 10  # red dragon: +10 unmitigable per hit
+    ignite_chance: 0.30           # 30% to set a character ablaze
+    ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_red"
+    flying: true
+    letter: "r"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["desert"]
+    resistances:
+      dark: 90
+      physical: 50
+      fire: 40
+    habitat_preferences:
+      - "empty"
+
+  dragon_green:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1100
+    armor_class: 67            # tankier: melee-only, no ranged attack
+    experience: 2000
+    damage_min: 32
+    damage_max: 52
+    true_damage: 10  # green dragon: +10 unmitigable per hit
+    attack_cooldown_multiplier: 0.6  # attacks fast
+    poison_chance: 0.33
+    poison_duration_seconds: 45
+    alert_radius: 5
+    attack_radius: 2
+    speed: 3.75
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_green"
+    flying: true
+    letter: "e"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["desert", "dragon_cliffs"]
+    resistances:
+      earth: 90
+      physical: 60
+      fire: -25                # nature dragon: vulnerable to fire
+    habitat_preferences:
+      - "empty"
+
+  dragon_gold:
+    type: "dragon"
+    name: "Dragon"
+    level: 15
+    max_hit_points: 1050       # a bit squishier but faster + longer reach
+    armor_class: 50
+    experience: 2000
+    damage_min: 28
+    damage_max: 46
+    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    stun_char_chance: 0.10        # 10% to stun the struck character
+    stun_char_seconds: 4          # RT stun duration
+    stun_char_turns: 2            # TB stun duration
+    alert_radius: 6
+    attack_radius: 2
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+    speed: 4.5                  # storm dragon: fast
+    gold_min: 500
+    gold_max: 1500
+    sprite: "dragon_gold"
+    flying: true
+    letter: "y"
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    biomes: ["desert", "dragon_cliffs"]
+    resistances:
+      air: 90
+      physical: 50
+      water: -25               # vulnerable to water/ice
+    habitat_preferences:
+      - "empty"
+
+  # ── Elder Dragons (ELITE) ────────────────────────────────────────────────
+  # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
+  # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
+  # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
+  # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
+  elder_dragon:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
@@ -311,9 +413,40 @@ monsters:
     experience: 3000
     damage_min: 38
     damage_max: 62
-    true_damage: 15  # red dragon: +15 unmitigable per hit
-    ignite_chance: 0.30           # 30% to set a character ablaze
-    ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
+    true_damage: 22
+    fireburst_chance: 0.15
+    fireburst_damage_min: 10
+    fireburst_damage_max: 16
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "firebolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 1000
+    gold_max: 2500
+    sprite: "dragon"
+    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
+    flying: true
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    resistances:
+      fire: 100
+      physical: 50
+      air: 75
+
+  elder_dragon_red:
+    type: "dragon"
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
+    armor_class: 50
+    experience: 3000
+    damage_min: 38
+    damage_max: 62
+    true_damage: 15
+    ignite_chance: 0.30
+    ignite_duration_seconds: 30
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
@@ -324,29 +457,25 @@ monsters:
     sprite: "dragon_red"
     tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
-    letter: "r"
     box_w: 48
     box_h: 48
     size_multiplier: 12.0
-    biomes: ["desert"]
     resistances:
       dark: 100
       physical: 50
       fire: 40
-    habitat_preferences:
-      - "empty"
 
-  dragon_green:
+  elder_dragon_green:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
     max_hit_points: 1650
-    armor_class: 67            # tankier: melee-only, no ranged attack
+    armor_class: 67
     experience: 3000
     damage_min: 40
     damage_max: 65
-    true_damage: 15  # green dragon: +15 unmitigable per hit
-    attack_cooldown_multiplier: 0.6  # attacks fast
+    true_damage: 15
+    attack_cooldown_multiplier: 0.6
     poison_chance: 0.33
     poison_duration_seconds: 45
     alert_radius: 5
@@ -357,52 +486,44 @@ monsters:
     sprite: "dragon_green"
     tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
-    letter: "e"
     box_w: 48
     box_h: 48
     size_multiplier: 12.0
-    biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 100
       physical: 60
-      fire: -25                # nature dragon: vulnerable to fire
-    habitat_preferences:
-      - "empty"
+      fire: -25
 
-  dragon_gold:
+  elder_dragon_gold:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1575       # a bit squishier but faster + longer reach
+    max_hit_points: 1575
     armor_class: 50
     experience: 3000
     damage_min: 35
     damage_max: 58
-    true_damage: 15  # gold dragon: +15 unmitigable per hit
-    stun_char_chance: 0.10        # 10% to stun the struck character
-    stun_char_seconds: 4          # RT stun duration
-    stun_char_turns: 2            # TB stun duration
+    true_damage: 15
+    stun_char_chance: 0.10
+    stun_char_seconds: 4
+    stun_char_turns: 2
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
     ranged_attack_range: 4
-    speed: 4.5                  # storm dragon: fast
+    speed: 4.5
     gold_min: 1000
     gold_max: 2500
     sprite: "dragon_gold"
     tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
-    letter: "y"
     box_w: 48
     box_h: 48
     size_multiplier: 12.0
-    biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 100
       physical: 50
-      water: -25               # vulnerable to water/ice
-    habitat_preferences:
-      - "empty"
+      water: -25
 
   # Forest-specific monsters
   forest_orc:

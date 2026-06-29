@@ -188,7 +188,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Black Dragon Statuette"
-        monster: "dragon"
+        monster: "elder_dragon"
         label: "Black"
 
   dragon_statue_red:
@@ -208,7 +208,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Red Dragon Statuette"
-        monster: "dragon_red"
+        monster: "elder_dragon_red"
         label: "Red"
 
   dragon_statue_green:
@@ -228,7 +228,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Green Dragon Statuette"
-        monster: "dragon_green"
+        monster: "elder_dragon_green"
         label: "Green"
 
   dragon_statue_gold:
@@ -248,7 +248,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Gold Dragon Statuette"
-        monster: "dragon_gold"
+        monster: "elder_dragon_gold"
         label: "Gold"
 
   prison:
