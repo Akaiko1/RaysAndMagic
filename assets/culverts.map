@@ -3,7 +3,7 @@
 # Monsters: r = rat   v = bat   t = thief bug   y = Golden Thief Bug (boss)
 # NPCs: culverts_exit, culverts_oldman (Sewerman Garran), culvert_valve_1..7
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%...@.........................%.................%%  >[npc:culverts_exit]
+%@............................%.................%%  >[npc:culverts_exit]
 %.+......%.%%.%.%%%..%%...%.%.%.%.%.%.%%%.%.%.%.%%
 %.....@.....%.%.........%.%.%...%.%r....%r%...%..%  >[npc:culverts_oldman]
 %........%%...%r%.%%%%%r%.%..%..%.%.%%%.%.%.%.%.%%

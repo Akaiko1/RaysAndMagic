@@ -105,9 +105,9 @@ quests:
   # Main quest - victory condition
   dragon_slayer:
     name: "Dragon Slayer"
-    description: "Legendary dragons terrorize the desert. Slay all 4 dragons to become a true hero and save the realm."
+    description: "Elder dragons terrorize the desert. Slay all 4 to become a true hero and save the realm."
     type: "kill"
-    target_monster: "dragon"
+    target_monster: "elder_dragon"   # all 4 statue dragons are named "Elder Dragon" -> type "elder_dragon"
     target_count: 4
     is_starting_quest: true
     rewards:

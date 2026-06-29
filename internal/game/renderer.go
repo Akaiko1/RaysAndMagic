@@ -113,6 +113,11 @@ type Renderer struct {
 	// Same for animated NPC tokens (people turn to face the party; static
 	// objects keep the showcase spin instead). NPC pointers are stable.
 	standeeNPCYaw map[*character.NPC]standeeEnvYawState
+	// standeeDepthBias (px) is subtracted from a standee column's depth in the
+	// wall-occlusion test for the current draw — wall-mounted tokens set it so
+	// their own backing wall (flush behind them) can't clip them, while real walls
+	// farther in front still occlude. 0 for every normal standee.
+	standeeDepthBias float64
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
 	// treeTilesCache lists every tree tile (one entry per tile) for the
@@ -2654,15 +2659,25 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
-		dx := npc.X - camX
-		dy := npc.Y - camY
+		// Wall-mounted tokens render AT the wall (offset from their tile centre), so
+		// anchor culling/metrics there too — otherwise standing in the tile centre
+		// puts the camera ~0 from npc.X/Y and the near-cull deletes the gate.
+		ex, ey := npc.X, npc.Y
+		if npc.WallMounted {
+			if wx, wy, _, ok := r.wallStickPose(npc.X, npc.Y); ok {
+				ex, ey = wx, wy
+			}
+		}
+		dx := ex - camX
+		dy := ey - camY
 		distanceSq := dx*dx + dy*dy
 
-		// Same cull thresholds as environment sprites so NPCs (including the
-		// shipwreck / church / exit) disappear cleanly when the player walks
-		// into them, instead of glitching as their floor anchor slides below
-		// the screen at very small perpDist.
-		if distanceSq < minDistSq || distanceSq > viewDistSq {
+		// Same near-cull as environment sprites for floor-anchored NPCs, so
+		// shipwrecks/churches/exits disappear cleanly when the player walks into
+		// them. Wall-mounted NPCs are different: their visual anchor is on the
+		// adjacent wall, so a player standing in the NPC tile is intentionally
+		// within one tile of the anchor and the gate/grate must remain visible.
+		if (!npc.WallMounted && distanceSq < minDistSq) || distanceSq > viewDistSq {
 			continue
 		}
 
@@ -2677,9 +2692,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		var visible bool
 
 		if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty, npc.SizeMultiplier)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
 		} else {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
 		}
 		if !visible {
 			continue
@@ -3099,10 +3114,6 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if !r.spriteDepthBufferVisible(s) {
-		return
-	}
-
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
@@ -3117,6 +3128,33 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	// figures attending to a visitor; static objects (statues, valves,
 	// buildings) spin slowly in place, showcase-style, with the spin phase
 	// hashed from position so neighbours don't rotate in lockstep.
+	if r.game.config.Graphics.Standee.Enabled {
+		// Wall-mounted: slide the token to the nearest solid (wall) neighbour and
+		// face along that wall, so gates/grates sit flush ON the wall instead of
+		// floating (and spinning) mid-tile. Falls through to the normal standee if
+		// no wall is adjacent.
+		//
+		// This must run BEFORE the generic spriteDepthBufferVisible prefilter:
+		// a wall-mounted anchor sits on the backing wall, so the coarse
+		// sprite-vs-wall test can see the NPC at the same depth as that wall and
+		// reject it before the wall-mounted draw path gets to apply its backing
+		// wall bias.
+		if s.npc.WallMounted {
+			if wx, wy, wyaw, ok := r.wallStickPose(s.npc.X, s.npc.Y); ok {
+				ts := float64(r.game.config.GetTileSize())
+				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+				r.standeeDepthBias = ts * 0.6
+				r.drawStandeeSprite(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1)
+				r.standeeDepthBias = 0
+				return
+			}
+		}
+	}
+
+	if !r.spriteDepthBufferVisible(s) {
+		return
+	}
+
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
 		animated := frameW != s.sprite.Bounds().Dx() // a frame was cut from a sheet

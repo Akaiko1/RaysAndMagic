@@ -2867,8 +2867,9 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 
 	// Only statue-summoned dragons count toward the win quest. They're flagged
 	// at summon (IsEncounterMonster + EncounterRewards.QuestID == "dragon_slayer");
-	// any other dragon is ignored so it can never trip the victory.
-	if monsterType == "dragon" {
+	// any other dragon is ignored so it can never trip the victory. The 4 elite
+	// dragons are all named "Elder Dragon" -> monsterType "elder_dragon".
+	if monsterType == "elder_dragon" {
 		summoned := monster.IsEncounterMonster && monster.EncounterRewards != nil &&
 			monster.EncounterRewards.QuestID == "dragon_slayer"
 		if !summoned {

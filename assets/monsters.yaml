@@ -172,10 +172,11 @@ monsters:
     size_multiplier: 5.0
     biomes: ["pyramid"]
     resistances:
-      mind: 100
-      body: 40
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       fire: -25
       dark: 50
+      light: -50     # undead: vulnerable to light
     habitat_preferences:
       - "pyramid_floor"
 
@@ -262,14 +263,14 @@ monsters:
 
   dragon:
     type: "dragon"
-    name: "Dragon"
-    level: 15
-    max_hit_points: 1100
+    name: "Elder Dragon"   # elite tier; ALL 4 share this name so dragon_slayer (matches by name -> "elder_dragon") counts every color
+    level: 18
+    max_hit_points: 1650
     armor_class: 50
-    experience: 2000
-    damage_min: 30
-    damage_max: 50
-    true_damage: 15  # black dragon: +15 unmitigable per hit
+    experience: 3000
+    damage_min: 38
+    damage_max: 62
+    true_damage: 22  # black dragon: +22 unmitigable per hit
     fireburst_chance: 0.15
     fireburst_damage_min: 10
     fireburst_damage_max: 16
@@ -278,16 +279,17 @@ monsters:
     projectile_spell: "firebolt"
     ranged_attack_range: 3
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
+    gold_min: 1000
+    gold_max: 2500
     sprite: "dragon"
+    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast (a black sprite can't be brightened in its own hue)
     flying: true
     letter: "d"
     box_w: 48
     box_h: 48
     size_multiplier: 12.0
     resistances:
-      fire: 90
+      fire: 100
       physical: 50
       air: 75
     habitat_preferences:
@@ -297,19 +299,19 @@ monsters:
 
   # Elemental dragon variants — the 4 main-quest dragons in the desert corners
   # are one of each (base `dragon` = fire, plus the three below). ALL share
-  # name "Dragon" so the dragon_slayer quest (matches by name) counts every
-  # color toward the 4-kill victory. Same lvl-15 power tier as the base dragon;
+  # name "Elder Dragon" so the dragon_slayer quest (matches by name ->
+  # "elder_dragon") counts every color toward the 4-kill victory. Elite tier;
   # they differ only in element (resists / projectile / proc) for variety.
   dragon_red:
     type: "dragon"
-    name: "Dragon"
-    level: 15
-    max_hit_points: 1100
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
     armor_class: 50
-    experience: 2000
-    damage_min: 30
-    damage_max: 50
-    true_damage: 10  # red dragon: +10 unmitigable per hit
+    experience: 3000
+    damage_min: 38
+    damage_max: 62
+    true_damage: 15  # red dragon: +15 unmitigable per hit
     ignite_chance: 0.30           # 30% to set a character ablaze
     ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
     alert_radius: 5
@@ -317,9 +319,10 @@ monsters:
     projectile_spell: "darkbolt"
     ranged_attack_range: 3
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
+    gold_min: 1000
+    gold_max: 2500
     sprite: "dragon_red"
+    tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
     letter: "r"
     box_w: 48
@@ -327,7 +330,7 @@ monsters:
     size_multiplier: 12.0
     biomes: ["desert"]
     resistances:
-      dark: 90
+      dark: 100
       physical: 50
       fire: 40
     habitat_preferences:
@@ -335,23 +338,24 @@ monsters:
 
   dragon_green:
     type: "dragon"
-    name: "Dragon"
-    level: 15
-    max_hit_points: 1100
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
     armor_class: 67            # tankier: melee-only, no ranged attack
-    experience: 2000
-    damage_min: 32
-    damage_max: 52
-    true_damage: 10  # green dragon: +10 unmitigable per hit
+    experience: 3000
+    damage_min: 40
+    damage_max: 65
+    true_damage: 15  # green dragon: +15 unmitigable per hit
     attack_cooldown_multiplier: 0.6  # attacks fast
     poison_chance: 0.33
     poison_duration_seconds: 45
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
-    gold_min: 500
-    gold_max: 1500
+    gold_min: 1000
+    gold_max: 2500
     sprite: "dragon_green"
+    tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
     letter: "e"
     box_w: 48
@@ -359,7 +363,7 @@ monsters:
     size_multiplier: 12.0
     biomes: ["desert", "dragon_cliffs"]
     resistances:
-      earth: 90
+      earth: 100
       physical: 60
       fire: -25                # nature dragon: vulnerable to fire
     habitat_preferences:
@@ -367,14 +371,14 @@ monsters:
 
   dragon_gold:
     type: "dragon"
-    name: "Dragon"
-    level: 15
-    max_hit_points: 1050       # a bit squishier but faster + longer reach
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1575       # a bit squishier but faster + longer reach
     armor_class: 50
-    experience: 2000
-    damage_min: 28
-    damage_max: 46
-    true_damage: 10  # gold dragon: +10 unmitigable per hit
+    experience: 3000
+    damage_min: 35
+    damage_max: 58
+    true_damage: 15  # gold dragon: +15 unmitigable per hit
     stun_char_chance: 0.10        # 10% to stun the struck character
     stun_char_seconds: 4          # RT stun duration
     stun_char_turns: 2            # TB stun duration
@@ -383,9 +387,10 @@ monsters:
     projectile_spell: "lightning"
     ranged_attack_range: 4
     speed: 4.5                  # storm dragon: fast
-    gold_min: 500
-    gold_max: 1500
+    gold_min: 1000
+    gold_max: 2500
     sprite: "dragon_gold"
+    tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
     letter: "y"
     box_w: 48
@@ -393,7 +398,7 @@ monsters:
     size_multiplier: 12.0
     biomes: ["desert", "dragon_cliffs"]
     resistances:
-      air: 90
+      air: 100
       physical: 50
       water: -25               # vulnerable to water/ice
     habitat_preferences:
@@ -842,9 +847,12 @@ monsters:
     size_multiplier: 7.0
     biomes: ["highlands", "lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 75
       physical: 40
       fire: -25
+      light: -50     # undead: vulnerable to light
     habitat_preferences:
       - "highlands_floor"
       - "lich_nexus_floor"
@@ -873,6 +881,8 @@ monsters:
     size_multiplier: 7.0
     biomes: ["lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 60
       physical: 35
       fire: -20
@@ -903,6 +913,8 @@ monsters:
     size_multiplier: 8.0
     biomes: ["lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 90
       physical: 45
       fire: -20
@@ -981,6 +993,7 @@ monsters:
       physical: 15
 
   golden_thief_bug:
+    type: "formless"
     name: "Golden Thief Bug"
     level: 10
     max_hit_points: 1200
@@ -1021,6 +1034,7 @@ monsters:
 
   # --- Japanese Castle (eastern islands) mobs (L12-18) ---
   ashigaru_firelock:
+    type: "undead"
     name: "Ashigaru Arquebusier"
     level: 12
     max_hit_points: 420
@@ -1044,9 +1058,13 @@ monsters:
     size_multiplier: 6.0
     biomes: ["japanese_castle"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       physical: 10
+      light: -50     # undead: vulnerable to light
 
   ronin_marksman:
+    type: "undead"
     name: "Ronin Marksman"
     level: 15
     max_hit_points: 640
@@ -1072,9 +1090,13 @@ monsters:
     biomes: ["japanese_castle"]
     tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       physical: 15
+      light: -50     # undead: vulnerable to light
 
   ningyo:
+    type: "undead"
     name: "Miyabi Ningyo"
     level: 13
     max_hit_points: 500
@@ -1100,10 +1122,13 @@ monsters:
     size_multiplier: 6.5
     biomes: ["japanese_castle"]
     resistances:
-      mind: 30
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 20
+      light: -50     # undead: vulnerable to light
 
   vengeful_ningyo:
+    type: "undead"
     name: "Vengeful Ningyo"
     level: 16
     max_hit_points: 740
@@ -1130,12 +1155,15 @@ monsters:
     biomes: ["japanese_castle"]
     tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
-      mind: 40
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 30
+      light: -50     # undead: vulnerable to light
 
   # Boss: dormant on the throne (visible, inert) until the castle_armory quest
   # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
   old_samurai:
+    type: "formless"
     name: "Samurai Warlord"
     level: 17
     max_hit_points: 1600
@@ -1313,6 +1341,7 @@ monsters:
 
   # Elite: huge territorial ape guarding the oxbow grove. Ground-pound shockwave.
   gorilla_titan:
+    type: "formless"
     name: "Gorilla Titan"
     level: 23
     max_hit_points: 1700
@@ -1351,6 +1380,7 @@ monsters:
   # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
   # enrage_at_hp once active (enrage is HP-driven, not the ward).
   orc_hero_boss:
+    type: "formless"
     name: "Orc Warlord"
     level: 24
     max_hit_points: 2400

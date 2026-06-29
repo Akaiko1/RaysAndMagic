@@ -457,7 +457,7 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 			srcY0 := float32(bounds.Min.Y)
 			srcY1 := float32(bounds.Min.Y) + float32(texH)
 			drawBottom, srcYbot := bottom, srcY1
-			if x < len(depthBuf) && t >= depthBuf[x] {
+			if x < len(depthBuf) && t-r.standeeDepthBias >= depthBuf[x] {
 				// Behind a wall: only the slice rising ABOVE the wall's top edge is
 				// visible, so a short wall can't occlude a tall tree's canopy. Clip
 				// the column's bottom to the wall top (1D depth alone would cull the
@@ -632,6 +632,37 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 	r.treeArms = arms[:0]
 	r.standeeSurfaces = slabs[0].surfaces[:0] // reclaim backing arrays (caps grow)
 	r.standeeSurfacesB = slabs[1].surfaces[:0]
+}
+
+// wallStickPose returns the render position + slab yaw for a wall-mounted standee:
+// it slides from the tile centre toward the nearest SOLID (wall) orthogonal
+// neighbour and orients the slab ALONG that wall, so the token sits flush on the
+// wall face instead of floating mid-tile. Neighbours are checked N,E,S,W (fixed
+// priority so a corner picks deterministically). ok=false when none is solid —
+// the caller then draws the normal centred standee.
+func (r *Renderer) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) {
+	w := r.game.GetCurrentWorld()
+	if w == nil || world.GlobalTileManager == nil {
+		return 0, 0, 0, false
+	}
+	ts := float64(r.game.config.GetTileSize())
+	cx := (math.Floor(npcX/ts) + 0.5) * ts
+	cy := (math.Floor(npcY/ts) + 0.5) * ts
+	const off = 0.5 // flush against the wall face (the player's collision stops them short, so they never pass the plane)
+	// dx,dy = neighbour direction; yaw = slab long axis (runs ALONG the wall).
+	for _, d := range [4]struct {
+		dx, dy, yaw float64
+	}{
+		{0, -1, 0},           // wall north  → slab runs E-W
+		{1, 0, math.Pi / 2},  // wall east   → slab runs N-S
+		{0, 1, 0},            // wall south  → slab runs E-W
+		{-1, 0, math.Pi / 2}, // wall west   → slab runs N-S
+	} {
+		if world.GlobalTileManager.IsSolid(w.GetTileAt(cx+d.dx*ts, cy+d.dy*ts)) {
+			return cx + d.dx*ts*off, cy + d.dy*ts*off, d.yaw, true
+		}
+	}
+	return 0, 0, 0, false
 }
 
 // drawLandmarkStandee renders a render_type:"landmark" entity (mage tower, church,

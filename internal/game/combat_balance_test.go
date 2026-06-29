@@ -1834,6 +1834,19 @@ func buildFullClearCasterSpeedParty(t *testing.T, cs *CombatSystem) []*character
 	}, statSpeedOnlyForCasters)
 }
 
+// buildFullProgressionParty grinds the realistic pre-dragon path: forest,
+// church, water, PLUS the culverts and highlands — the closest fixture to a
+// party that has actually earned the dragon statuettes. Same caster-speed strategy.
+func buildFullProgressionParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	return buildClearedMapsParty(t, cs, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+		{"../../assets/water.map", "water"},
+		{"../../assets/culverts.map", "culverts"},
+		{"../../assets/highlands.map", "highlands"},
+	}, statSpeedOnlyForCasters)
+}
+
 // buildHighlandsReadyParty models the party state when first entering the
 // highlands: cleared forest, church, the shipwreck encounter and BOTH desert
 // oases, then spent its coin on city gear. It does NOT fight the dragons (those
@@ -2073,6 +2086,24 @@ func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
 			"Full-clear party (all 3 maps) vs "+dk+" (no Bless)", 0, false)
 		runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{dk},
 			"Full-clear party (all 3 maps) vs "+dk+" (Bless +10)", 10, true)
+	}
+}
+
+// TestCombatBalance_FullProgressionPartyVsDragon — the strongest fixture: a party
+// that also cleared the culverts and highlands (the realistic pre-dragon path)
+// vs each Elder Dragon, with and without Bless.
+func TestCombatBalance_FullProgressionPartyVsDragon(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	for _, dk := range dragonKeys {
+		runEndgameSim(t, cs, buildFullProgressionParty, []string{dk},
+			"Full-progression party (+culverts +highlands) vs "+dk+" (no Bless)", 0, false)
+		runEndgameSim(t, cs, buildFullProgressionParty, []string{dk},
+			"Full-progression party (+culverts +highlands) vs "+dk+" (Bless +10)", 10, true)
 	}
 }
 
