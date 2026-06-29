@@ -285,7 +285,7 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case "tree_sprite", "environment_sprite", "flooring_object":
+		case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
 			return true
 		}
 	}
@@ -321,7 +321,7 @@ func (tm *TileManager) GetSizeMultiplier(tileType TileType3D) float64 {
 		return data.SizeMultiplier
 	}
 	switch data.RenderType {
-	case "tree_sprite", "environment_sprite", "flooring_object":
+	case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
 		if data.HeightMultiplier > 0 {
 			return data.HeightMultiplier
 		}

@@ -148,6 +148,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.revivalPickerOpen {
 		ui.drawRevivalPickerPopup(screen)
 	}
+	if ui.game.healPickerOpen {
+		ui.drawHealPickerPopup(screen)
+	}
 
 	// Draw promotion picker (which member becomes Archmage/Lich) if open
 	if ui.game.promotionPickerOpen {
@@ -168,7 +171,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// are no longer suppressed — the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
 		hasIcon := ui.tooltipIcon != ""

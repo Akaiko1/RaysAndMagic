@@ -271,8 +271,10 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				})
 			}
 
-			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
-			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
+			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting).
+			// Landmark tiles (e.g. the city fountain) share this sprite pass — they're
+			// drawn as a tall crossed standee in drawEnvironmentSprite.
+			if rt := world.GlobalTileManager.GetRenderType(tileType); (rt == "environment_sprite" || rt == "landmark") &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
 				// Pick a stable variant now; load/process the image lazily in Draw.
@@ -1430,7 +1432,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 		switch renderType {
 		case "tree_sprite":
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
-		case "environment_sprite":
+		case "environment_sprite", "landmark":
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
 			// Use both hit.IsTransparent flag and tile manager check for safety
 			if hit.IsTransparent {
@@ -2674,7 +2676,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		var screenX, screenY, spriteSize int
 		var visible bool
 
-		if npc.RenderType == "environment_sprite" {
+		if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty, npc.SizeMultiplier)
 		} else {
 			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
@@ -2900,6 +2902,19 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	// nudged, not glued to the view). Rate 0 = fixed diagonal.
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
+		// Landmark tiles (e.g. the city fountain) render as a TALL crossed standee
+		// spinning in place — same monument treatment as the landmark NPCs (they
+		// spin, unlike ordinary scenery which only faces the camera).
+		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(s.tileType) == "landmark" {
+			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 {
+				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
+				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+			}
+			name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
+			if r.drawLandmarkStandee(screen, s.sprite, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.spriteSize, s.screenY, b) {
+				return
+			}
+		}
 		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 {
 			target := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 			tileKey := [2]int{s.tileX, s.tileY}
@@ -3125,6 +3140,14 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !animated && spin != 0 {
 			phase := auraHash(int(s.npc.X), int(s.npc.Y), 0, 0) * 2 * math.Pi
 			yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		}
+		// Landmarks (towers, churches, the city gate, the lich nexus) render as a
+		// TALL crossed standee spinning with the same showcase yaw — a 3D monument
+		// instead of a flat token.
+		if s.npc.RenderType == "landmark" {
+			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, br) {
+				return
+			}
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,

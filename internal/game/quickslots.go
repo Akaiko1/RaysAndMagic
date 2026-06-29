@@ -419,11 +419,31 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		return
 	}
 
-	if !g.quickSlotCharReady(charIdx) {
+	// Potions are passive: usable regardless of cooldown / turn budget /
+	// consciousness, and never spend an action (matches inventory use). A heal
+	// used by an unconscious owner routes to a target picker (see
+	// UseConsumableFromInventory); a revive opens the revival picker.
+	if item.Type == items.ItemConsumable {
+		drink := *item
+		g.party.AddItem(drink)
+		idx := len(g.party.Inventory) - 1
+		used := g.UseConsumableFromInventory(idx, charIdx)
+		switch {
+		case used:
+			ch.QuickSlots[slotIdx] = nil // consumed outright (no picker)
+		case g.revivalPickerOpen || g.healPickerOpen:
+			// A picker owns the temp bag copy at idx; keep the slot filled until it
+			// resolves (confirm clears it, cancel drops the temp copy & keeps it).
+			g.pickerQuickChar, g.pickerQuickSlot = charIdx, slotIdx
+		default:
+			g.party.RemoveItem(idx) // refused (full HP etc.): keep it, spend nothing
+		}
 		return
 	}
-	acted := false
-	cdFrames := 0
+
+	// Equipping a weapon/armor/accessory is a gear SWAP, not a combat action: it
+	// works regardless of cooldown / turn budget and never spends one (matches the
+	// inventory double-click). Handled BEFORE the readiness gate.
 	switch item.Type {
 	case items.ItemWeapon, items.ItemArmor, items.ItemAccessory:
 		prev, had, ok := ch.EquipItem(*item)
@@ -439,20 +459,17 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		} else {
 			ch.QuickSlots[slotIdx] = nil
 		}
-		acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
-	case items.ItemConsumable:
-		// Route through the shared inventory consumable path: drop into the bag,
-		// use by index, then reconcile so the slot empties iff it was consumed.
-		drink := *item
-		g.party.AddItem(drink)
-		idx := len(g.party.Inventory) - 1
-		used := g.UseConsumableFromInventory(idx, charIdx)
-		if used || g.revivalPickerOpen {
-			ch.QuickSlots[slotIdx] = nil // consumed (or the revive picker now owns it)
-			acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
-		} else {
-			g.party.RemoveItem(idx) // refused (full HP etc.): keep it, spend nothing
-		}
+		return
+	}
+
+	// Spells and traps ARE combat actions: gated by readiness, and a successful one
+	// spends the action (TB) / sets the cooldown (RT).
+	if !g.quickSlotCharReady(charIdx) {
+		return
+	}
+	acted := false
+	cdFrames := 0
+	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		spellID := spells.SpellID(item.SpellEffect)
 		def, err := spells.GetSpellDefinitionByID(spellID)

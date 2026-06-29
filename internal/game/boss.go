@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 
-	"ugataima/internal/character"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -313,8 +312,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dmg, member.HitPoints, member.MaxHitPoints))
 		if member.HitPoints == 0 {
-			member.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
 		}
 		cs.game.TriggerDamageBlink(idx)
 		cs.game.TriggerPartyFlame(idx)

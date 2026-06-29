@@ -263,7 +263,7 @@ func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventor
 // clicks. The revival picker holds an inventory index across frames, so any
 // click that mutates inventory (equip, use, discard) would invalidate it.
 func (ui *UISystem) inventoryInputBlocked() bool {
-	return ui.game.revivalPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
+	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
 }
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {

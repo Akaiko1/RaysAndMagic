@@ -33,6 +33,8 @@ func (g *MMGame) recomputeStatBonuses() {
 	for i := range g.statBuffs {
 		sum = sum.Add(g.statBuffs[i].Bonuses)
 	}
+	// Monster cards (e.g. the Ocelot Card) add flat party-wide stat bonuses.
+	sum = sum.Add(g.cardStatBonuses())
 	g.statBonuses = sum
 	g.applyPartyStatBonuses()
 }

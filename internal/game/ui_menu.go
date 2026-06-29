@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"strings"
 	"time"
 
 	"ugataima/internal/character"
@@ -208,6 +209,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		{TabCharacters, "Characters", "(C)"},
 		{TabSpellbook, "Spellbook", "(M)"},
 		{TabQuests, "Quests", "(J)"},
+		{TabCards, "Cards", "(K)"},
 	}
 
 	for i, tabInfo := range tabs {
@@ -264,10 +266,69 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
 	case TabQuests:
 		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
+	case TabCards:
+		ui.drawCardsContent(screen, panelX, contentY, contentHeight)
 	}
 
 	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
 	ui.drawDragCarried(screen)
+}
+
+// drawCardsContent shows the party's active monster-card collection as an
+// art grid (icon + name + effect per slot) plus a combined-effects summary.
+// View-only: cards are slotted/removed at the Card Collector NPC.
+func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ int) {
+	const panelWidth = 700
+	drawDebugText(screen, "Active Card Collection", panelX+30, contentY+6)
+	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", panelX+30, contentY+24)
+
+	const (
+		cols   = 4
+		icon   = 84
+		colGap = 28
+		rowGap = 64
+	)
+	gridW := cols*icon + (cols-1)*colGap
+	startX := panelX + (panelWidth-gridW)/2
+	startY := contentY + 56
+	mouseX, mouseY := ebiten.CursorPosition()
+	var hover []string
+
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		r, c := slot/cols, slot%cols
+		x := startX + c*(icon+colGap)
+		y := startY + r*(icon+rowGap)
+		key := ui.game.cardCollection[slot]
+		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
+		if def := cardDef(key); def != nil {
+			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
+			drawCenteredDebugText(screen, cardEffectText(def), x-20, y+icon+16, icon+40, 14)
+			if hovered {
+				hover = []string{def.Name, cardEffectText(def)}
+			}
+		}
+	}
+
+	// Combined active effects: list EVERY equipped card's effect via the same
+	// cardEffectText formatter the cells use (not just move speed / bonus actions,
+	// which omitted Samurai/Ningyo/Medusa/etc. and falsely read "none active").
+	var totals []string
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(ui.game.cardCollection[slot]); def != nil {
+			if eff := cardEffectText(def); eff != "" {
+				totals = append(totals, eff)
+			}
+		}
+	}
+	summary := "No active card effects."
+	if len(totals) > 0 {
+		summary = "Active: " + strings.Join(totals, ", ")
+	}
+	drawDebugText(screen, summary, panelX+30, startY+2*(icon+rowGap)+6)
+
+	if hover != nil {
+		ui.queueTooltip(hover, mouseX+16, mouseY+8)
+	}
 }
 
 // handleTabClick checks if mouse clicked on a tab and switches to it

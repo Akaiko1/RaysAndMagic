@@ -89,7 +89,7 @@ loots:
   medusa:
     - type: "item"
       key: "medusa_card"
-      chance: 0.005
+      chance: 0.03
     - type: "item"
       key: "serpentscale_gauntlets"
       chance: 0.05
@@ -367,7 +367,7 @@ loots:
       chance: 0.05
     - type: "item"
       key: "samurai_card"
-      chance: 0.12
+      chance: 0.03
     - type: "item"
       key: "diamond"
       chance: 0.10
@@ -443,7 +443,7 @@ loots:
       chance: 0.10
     - type: "item"
       key: "gorilla_titan_card"
-      chance: 0.05
+      chance: 0.03
 
   jungle_idol:
     - type: "weapon"
@@ -471,7 +471,7 @@ loots:
       chance: 0.50
     - type: "item"
       key: "orc_warlord_card"
-      chance: 0.10
+      chance: 0.03
 
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).

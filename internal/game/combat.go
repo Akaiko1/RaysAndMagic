@@ -95,6 +95,167 @@ func (cs *CombatSystem) healWholeParty(amount int) int {
 	return healed
 }
 
+// knockOut handles a member reaching 0 HP from a hit: the Lich Card may cheat
+// death (restore half HP + half SP), otherwise the member falls unconscious.
+// Single chokepoint so the save applies to every lethal branch alike.
+func (cs *CombatSystem) knockOut(target *character.MMCharacter) {
+	if pct := cs.game.cardLethalSavePct(); pct > 0 && rand.Intn(100) < pct {
+		reviveHalf(target)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s cheats death! (Lich Card)", target.Name))
+		return
+	}
+	target.AddCondition(character.ConditionUnconscious)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+}
+
+// reviveHalf restores a downed member to half max HP and SP (Lich Card save).
+func reviveHalf(target *character.MMCharacter) {
+	if hp := target.MaxHitPoints / 2; hp > target.HitPoints {
+		target.HitPoints = hp
+	}
+	if sp := target.MaxSpellPoints / 2; sp > target.SpellPoints {
+		target.SpellPoints = sp
+	}
+}
+
+// tryCardHealOnAttack rolls the Ningyo Card's self-heal when the active member
+// attacks (chance and amount both stack across copies).
+func (cs *CombatSystem) tryCardHealOnAttack() {
+	pct := cs.game.cardHealOnAttackPct()
+	if pct <= 0 || rand.Intn(100) >= pct {
+		return
+	}
+	amt := cs.game.cardHealAmount()
+	idx := cs.game.selectedChar
+	if amt <= 0 || idx < 0 || idx >= len(cs.game.party.Members) {
+		return
+	}
+	if m := cs.game.party.Members[idx]; m != nil && m.HitPoints > 0 {
+		cs.healMember(idx, amt)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's Ningyo Card mends %d HP.", m.Name, amt))
+	}
+}
+
+// tryCardMoveBurst rolls the Gorilla Titan Card's on-move shockwave: pure damage
+// to monsters next to the party. Called once per tile the party steps into.
+func (cs *CombatSystem) tryCardMoveBurst() {
+	pct := cs.game.cardMoveAoePct()
+	if pct <= 0 || rand.Intn(100) >= pct {
+		return
+	}
+	if cs.cardMoveBurstApply(cs.game.cardMoveAoeDmg()) {
+		cs.game.AddCombatMessage(fmt.Sprintf("The Gorilla Titan Card erupts for %d pure damage!", cs.game.cardMoveAoeDmg()))
+	}
+}
+
+// cardMoveBurstApply deals `dmg` pure damage to every living monster within 1.5
+// tiles of the party. Returns whether anything was hit. Deterministic core of
+// the Gorilla move-burst (the roll lives in tryCardMoveBurst).
+func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
+	if dmg <= 0 || cs.game.world == nil {
+		return false
+	}
+	radius := float64(cs.game.config.GetTileSize()) * 1.5
+	px, py := cs.game.camera.X, cs.game.camera.Y
+	hit := false
+	for _, m := range cs.game.world.Monsters {
+		// "Nearby FOES" only: never the party's own bound allies (card summons /
+		// bind-undead), charmed (pacified) monsters, or an invulnerable boss (sealed/
+		// idol-warded) — the latter would absorb the damage yet still flash + log a hit.
+		if m == nil || !m.IsAlive() || m.Bound || m.Pacified || bossInvulnerable(m) ||
+			math.Hypot(m.X-px, m.Y-py) > radius {
+			continue
+		}
+		// Pure: bypass armor (TakeDamage skips AC) AND resistance (100% resist-pierce),
+		// so physical-resistant/immune mobs still take the full advertised amount.
+		m.TakeDamageResist(dmg, monsterPkg.DamagePhysical, 100, px, py)
+		m.HitTintFrames = MonsterHitFlashFrames
+		hit = true
+		if !m.IsAlive() {
+			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+			cs.awardExperienceAndGold(m)
+		}
+	}
+	return hit
+}
+
+// countCardSummons counts living allies summoned by the card collection.
+func (cs *CombatSystem) countCardSummons() int {
+	w := cs.game.GetCurrentWorld()
+	if w == nil {
+		return 0
+	}
+	n := 0
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && m.SummonedBy == cardSummonOwner {
+			n++
+		}
+	}
+	return n
+}
+
+// tryCardSummonOnAction rolls the Orc Warlord Card on a party action: a chance to
+// summon allied monsters (Bound — they hunt enemy monsters, ignore the party) up
+// to the collection's summon limit. Called from the attack and cast chokepoints.
+func (cs *CombatSystem) tryCardSummonOnAction() {
+	chance := cs.game.cardSummonChance()
+	limit := cs.game.cardSummonLimit()
+	key := cs.game.cardSummonMonsterKey()
+	if chance <= 0 || limit <= 0 || key == "" || cs.game.GetCurrentWorld() == nil {
+		return
+	}
+	if rand.Intn(100) >= chance {
+		return
+	}
+	if want := limit - cs.countCardSummons(); want > 0 {
+		cs.summonCardAllies(key, want)
+	}
+}
+
+// markCardAlly turns a spawned monster into a permanent party ally summoned by
+// the card collection: Bound (hunts enemy monsters, ignores the party), tagged
+// for the summon limit, and excluded from map-clear quest counts.
+// BoundFramesRemaining 0 = never expires (the bind tick only counts down > 0).
+// Unlike spell-bound undead these are MAP-LOCAL permanent: they don't crumble on
+// a map switch (switchToMap exempts SummonedBy == cardSummonOwner) — they stay on
+// their map and are re-summoned fresh on the new one via the proc.
+func markCardAlly(m *monsterPkg.Monster3D) {
+	m.Bound = true
+	m.BoundFramesRemaining = 0
+	m.CrossfireCD = 0
+	m.WasAttacked = false
+	m.SummonedBy = cardSummonOwner
+	m.QuestProgressIgnored = true
+}
+
+// summonCardAllies spawns up to n permanent allied (Bound) monsters of `key` near
+// the party. BoundFramesRemaining 0 = never expires (the bind tick only counts
+// down values > 0), so they fight on until slain. Returns how many spawned.
+func (cs *CombatSystem) summonCardAllies(key string, n int) int {
+	tile := float64(cs.game.config.GetTileSize())
+	px, py := cs.game.camera.X, cs.game.camera.Y
+	spawned := 0
+	for attempts := 0; spawned < n && attempts < n*12+12; attempts++ {
+		angle := rand.Float64() * 2 * math.Pi
+		sx, sy, ok := cs.findNearestSummonTile(px+math.Cos(angle)*2*tile, py+math.Sin(angle)*2*tile, 10)
+		if !ok {
+			continue
+		}
+		add := monsterPkg.NewMonster3DFromConfig(sx, sy, key, cs.game.config)
+		if add == nil {
+			continue
+		}
+		markCardAlly(add)
+		cs.game.registerSpawnedMonster(add)
+		cs.game.updateMonsterCollisionEngagement(add, px, py)
+		spawned++
+	}
+	if spawned > 0 {
+		cs.game.AddCombatMessage(fmt.Sprintf("The Orc Warlord Card rallies %d ally to your side!", spawned))
+	}
+	return spawned
+}
+
 func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
@@ -340,17 +501,31 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	// goes through the projectile path. Throwing weapons must declare
 	// range ≥ 4 to count as ranged (otherwise they fall into melee).
 	// For ranged: roll crit and apply doubling inside createArrowAttack only.
+	acted := false
 	if weaponDef.Range > 3 {
-		return cs.createArrowAttack(totalDamage)
-	}
-	isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
-	if isCrit {
-		totalDamage *= CritDamageMultiplier
+		// Masked Huntress Card: boost ranged weapon damage.
+		if pct := cs.game.cardRangedDmgPct(); pct != 0 {
+			totalDamage = totalDamage * (100 + pct) / 100
+		}
+		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
+		// nothing fired, so no cooldown/action — and no card procs either.
+		acted = cs.createArrowAttack(totalDamage)
+	} else {
+		isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
+		if isCrit {
+			totalDamage *= CritDamageMultiplier
+		}
+		cs.createMeleeAttack(weapon, totalDamage, isCrit) // close-range, always lands
+		acted = true
 	}
 
-	// Create instant melee attack for close-range weapons
-	cs.createMeleeAttack(weapon, totalDamage, isCrit)
-	return true
+	// Card procs only fire on an attack that actually happened (gated above), so a
+	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
+	if acted {
+		cs.tryCardHealOnAttack()   // Ningyo Card: chance to self-heal on attacking
+		cs.tryCardSummonOnAction() // Orc Warlord Card: chance to summon allies
+	}
+	return acted
 }
 
 // createArrowAttack creates a projectile arrow attack; reports whether an
@@ -883,6 +1058,14 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
+	// Archmage Card: divert a share of physical melee damage into a SEPARATE fire
+	// hit. The fire share is mitigated like ANY fire damage — elemental armor (its
+	// lower cap) then fire resistance — not as physical. Only physical weapons convert.
+	fireConvert := 0
+	if damageTypeStr == "physical" {
+		damage, fireConvert = splitPhysToFire(damage, cs.game.cardPhysToFirePct())
+	}
+
 	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, false)
 	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
 		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
@@ -890,10 +1073,16 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 			reducedDamage = 1
 		}
 	}
-	reducedDamage += trueDmg // weapon-mastery true damage bypasses armor
+	reducedDamage += trueDmg                    // weapon-mastery true damage bypasses armor
+	reducedDamage += cs.game.cardMeleeTrueDmg() // Samurai Card: flat true melee damage
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	if fireConvert > 0 {
+		// Same path as all other fire (spells/splash): elemental armor then fire resist.
+		fireReduced := applyMonsterArmor(fireConvert, "fire", monster.ArmorClass, false)
+		finalDamage += monster.TakeDamage(fireReduced, convertToMonsterDamageType("fire"), cs.game.camera.X, cs.game.camera.Y)
+	}
 	monster.HitTintFrames = MonsterHitFlashFrames
 	cs.trySleightOfHand(attacker, monster)
 	// Impact feedback: spark burst + light flash at the monster, plus a small
@@ -909,7 +1098,14 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.tryApplyWeaponStun(monster, weaponDef)
 	}
 	if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
+		// Splash mirrors the primary's Archmage-Card phys/fire split: the physical
+		// remainder AND the converted fire both reach nearby foes (previously the
+		// already-reduced `damage` was used, so the fire share was silently dropped
+		// and splash dealt e.g. 75 instead of 100).
 		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, weaponDef.AoeRadiusTiles, 0)
+		if fireConvert > 0 {
+			cs.applyAoeSplash(monster, fireConvert, "fire", convertToMonsterDamageType("fire"), weaponName, weaponDef.AoeRadiusTiles, 0)
+		}
 	}
 
 	// Add combat message
@@ -1020,12 +1216,23 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		return false
 	}
 	caster.SpellPoints -= spellCost
+	spAfterPay := caster.SpellPoints
 
 	// Data-driven effect spells (AoE stun, party buffs, resurrect) — no
 	// projectile, no direct damage.
 	if cs.tryCastSpecialEffect(spellID, spellDef, caster) {
+		// Orc Warlord Card: only a REAL cast is a party action. Empty
+		// Resurrect/Awaken/Raise Dead refund the SP and still return handled, so
+		// gate the summon roll on the SP staying spent — no free summons on a
+		// no-op cast.
+		if caster.SpellPoints <= spAfterPay {
+			cs.tryCardSummonOnAction()
+		}
 		return true
 	}
+
+	// A projectile or utility cast that reaches here is a real party action.
+	cs.tryCardSummonOnAction()
 
 	castingSystem := spells.NewCastingSystem(cs.game.config)
 
@@ -1451,8 +1658,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.game.AddCombatMessage(fmt.Sprintf("%s dodges %s but still takes %d! (HP: %d/%d)",
 			target.Name, sourceName, trueDmg, target.HitPoints, target.MaxHitPoints))
 		if target.HitPoints == 0 {
-			target.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+			cs.knockOut(target)
 		}
 		cs.game.TriggerDamageBlink(targetIndex)
 		return true
@@ -1477,8 +1683,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	cs.game.AddCombatMessage(fmt.Sprintf("%s hits %s for %d damage! (HP: %d/%d)",
 		sourceName, target.Name, finalDamage, target.HitPoints, target.MaxHitPoints))
 	if target.HitPoints == 0 {
-		target.AddCondition(character.ConditionUnconscious)
-		cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
+		cs.knockOut(target)
 	}
 	cs.game.TriggerDamageBlink(targetIndex)
 
@@ -1639,8 +1844,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 			member.Name, damage, member.HitPoints, member.MaxHitPoints))
 
 		if member.HitPoints == 0 {
-			member.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
 		}
 
 		cs.game.TriggerDamageBlink(idx)
@@ -2991,8 +3195,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
 			member.Name, mdmg, member.HitPoints, member.MaxHitPoints))
 		if member.HitPoints == 0 {
-			member.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
 		}
 		cs.game.TriggerDamageBlink(idx)
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card

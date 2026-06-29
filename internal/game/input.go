@@ -51,6 +51,7 @@ type InputHandler struct {
 	inventoryKeyTracker  keytracker.KeyStateTracker
 	charactersKeyTracker keytracker.KeyStateTracker
 	questsKeyTracker     keytracker.KeyStateTracker
+	cardsKeyTracker      keytracker.KeyStateTracker
 	interactKeyTracker   keytracker.KeyStateTracker
 	newGameKeyTracker    keytracker.KeyStateTracker
 	loadKeyTracker       keytracker.KeyStateTracker
@@ -133,7 +134,7 @@ func (ih *InputHandler) HandleInput() {
 	// Revival potion target picker: clicks are consumed inside the popup's
 	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
 	// so the player can't move/attack/cast while choosing a revive target.
-	if ih.game.revivalPickerOpen {
+	if ih.game.revivalPickerOpen || ih.game.healPickerOpen {
 		return
 	}
 
@@ -246,6 +247,7 @@ func (ih *InputHandler) restartNewGame() {
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.party = party
 	g.selectedChar = 0
+	g.parkSelection = false
 
 	// Reset victory/high score state and session timer
 	g.gameOver = false
@@ -303,6 +305,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 	// Reset every timed effect family (buffs, zones, utility flags)
 	g.resetTimedEffects()
+
+	// Fresh party must not inherit the old run's card effects.
+	g.resetCardCollection()
 
 	// Reset turn-based state
 	g.turnBasedMode = false
@@ -1044,6 +1049,7 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 		return
 	}
 	ih.game.selectedChar = target
+	ih.game.parkSelection = true // park here even if KO (use their potions)
 }
 
 // handleUIInput processes UI-related input
@@ -1107,6 +1113,18 @@ func (ih *InputHandler) handleUIInput() {
 			ih.openTabbedMenu(TabQuests)
 		}
 	}
+	if ih.cardsKeyTracker.IsKeyJustPressed(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
+		if ih.game.menuOpen {
+			if ih.game.currentTab == TabCards {
+				ih.game.menuOpen = false // Close menu if already on Cards tab
+				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+			} else {
+				ih.game.currentTab = TabCards
+			}
+		} else {
+			ih.openTabbedMenu(TabCards)
+		}
+	}
 
 	// Handle NPC interaction with T key
 	if ih.interactKeyTracker.IsKeyJustPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
@@ -1146,6 +1164,7 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
+	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }
@@ -1186,6 +1205,10 @@ func (ih *InputHandler) moveSpeed() float64 {
 	speed := ih.game.config.GetMoveSpeed() * ih.movementScale()
 	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()
+	}
+	// Monster cards (e.g. the Thief Bug Card) speed up party travel.
+	if pct := ih.game.cardMoveSpeedPct(); pct != 0 {
+		speed *= 1 + float64(pct)/100
 	}
 	return speed
 }
@@ -1274,12 +1297,14 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
-	// Bound undead can't follow across maps: they crumble as the party departs,
+	// Bound UNDEAD can't follow across maps: they crumble as the party departs,
 	// granting their XP but no loot or gold. (Pacified mobs aren't yours — they're
-	// simply left behind.)
+	// simply left behind.) Card-collection allies (SummonedBy == cardSummonOwner)
+	// are exempt: they're permanent summons that persist on their map (re-summoned
+	// fresh on the new one via the proc), not disposable spell-bound undead.
 	if ih.game.world != nil && ih.game.combat != nil {
 		for _, m := range ih.game.world.Monsters {
-			if m != nil && m.Bound && m.IsAlive() {
+			if m != nil && m.Bound && m.IsAlive() && m.SummonedBy != cardSummonOwner {
 				ih.game.combat.awardExperienceOnly(m)
 				ih.game.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
 				m.HitPoints = 0
@@ -1427,6 +1452,7 @@ func (ih *InputHandler) handleMouseInput() {
 		if targetCharIndex >= 0 {
 			if ih.game.consumeLeftClick() {
 				ih.game.selectedChar = targetCharIndex
+				ih.game.parkSelection = true // park here even if KO (use their potions)
 			}
 		}
 	}
@@ -1654,6 +1680,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.merchantBuyPage = 0
 	ih.game.merchantSellPage = 0
 	ih.game.spellTraderPage = 0
+	ih.game.cardCollectorInvPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1853,6 +1880,44 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// Dialog coordinates (single source: npcDialogLayout, same as the UI)
 	dlg := npcDialogLayout(ih.game)
 	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
+
+	// Card collector — double-click a slotted card to take it back, a loose card
+	// to slot it (matches the inventory's equip/unequip double-click). Reset after
+	// each action since the lists shift underneath the cursor.
+	if npcIsCardCollector(ih.game.dialogNPC) {
+		for slot := 0; slot < MaxCardSlots; slot++ {
+			x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("card_slot", slot) {
+					ih.game.removeCardToInventory(slot)
+					ih.resetDialogDoubleClick()
+				}
+				return
+			}
+		}
+		cardIdx := ih.game.inventoryCardIndices()
+		// Match the renderer's pagination: only the current page's loose cards
+		// are clickable, mapping page-slot -> inventory index.
+		invStart := ih.game.cardCollectorInvPage * cardInvMaxShown
+		for slot := 0; slot < cardInvMaxShown; slot++ {
+			i := invStart + slot
+			if i >= len(cardIdx) {
+				break
+			}
+			inv := cardIdx[i]
+			x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("card_inv", inv) {
+					if !ih.game.placeCardFromInventory(inv) {
+						ih.game.AddCombatMessage("The collection is full (8 cards).")
+					}
+					ih.resetDialogDoubleClick()
+				}
+				return
+			}
+		}
+		return
+	}
 
 	// Spell trader — portrait strip + icon grid.
 	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
@@ -2252,6 +2317,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	ih.game.camera.X = targetX
 	ih.game.camera.Y = targetY
 	ih.game.collisionSystem.UpdateEntity("player", targetX, targetY)
+	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 	return true

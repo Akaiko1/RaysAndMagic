@@ -773,9 +773,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_multiplier: 1.2
+    size_multiplier: 2.0
     sprite: "city_fountain"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     wall_color: [120, 120, 110]
     floor_texture_group: "default"
     letter: "O"

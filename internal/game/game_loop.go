@@ -85,7 +85,7 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.advanceViewTurn()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 
@@ -566,7 +566,8 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {
-		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
+		// The Medusa Card grants permanent walk-on-water on top of the spell.
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 	}
 

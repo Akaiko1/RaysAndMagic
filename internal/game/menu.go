@@ -98,12 +98,13 @@ type QuestSave struct {
 }
 
 type PartySave struct {
-	Gold      int             `json:"gold"`
-	Food      int             `json:"food"`
-	Inventory []items.Item    `json:"inventory"`
-	Members   []CharacterSave `json:"members"`
-	Reserve   []CharacterSave `json:"reserve,omitempty"`
-	Captive   []CharacterSave `json:"captive,omitempty"`
+	Gold           int             `json:"gold"`
+	Food           int             `json:"food"`
+	Inventory      []items.Item    `json:"inventory"`
+	Members        []CharacterSave `json:"members"`
+	Reserve        []CharacterSave `json:"reserve,omitempty"`
+	Captive        []CharacterSave `json:"captive,omitempty"`
+	CardCollection []string        `json:"card_collection,omitempty"` // party-wide monster-card slots (keys; "" = empty)
 }
 
 type CharacterSave struct {
@@ -457,7 +458,7 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	switch item.Type {
-	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket:
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
 	default:
 		return
 	}
@@ -469,6 +470,9 @@ func normalizeItemFromConfig(item *items.Item) {
 	if err != nil {
 		return
 	}
+	// Adopt the def's current type, so cards saved before they became their own
+	// type (was "trinket") migrate to items.ItemCard on load.
+	item.Type = template.Type
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
 	// the change. Items carry no instance state in Attributes — merging only
@@ -626,10 +630,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
-		Gold:      g.party.Gold,
-		Food:      g.party.Food,
-		Inventory: g.party.Inventory,
-		Members:   make([]CharacterSave, 0, len(g.party.Members)),
+		Gold:           g.party.Gold,
+		Food:           g.party.Food,
+		Inventory:      g.party.Inventory,
+		Members:        make([]CharacterSave, 0, len(g.party.Members)),
+		CardCollection: g.cardCollection[:],
 	}
 	for _, m := range g.party.Members {
 		ps.Members = append(ps.Members, buildCharacterSave(m))
@@ -872,6 +877,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, Inventory: save.Party.Inventory}
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
+	}
+	// Restore the monster-card collection (party-wide). Unknown/empty keys clear.
+	g.cardCollection = [MaxCardSlots]string{}
+	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
+		if cardDef(save.Party.CardCollection[i]) != nil {
+			g.cardCollection[i] = save.Party.CardCollection[i]
+		}
 	}
 	for _, cs := range save.Party.Members {
 		g.party.Members = append(g.party.Members, restoreCharacterSave(cs))

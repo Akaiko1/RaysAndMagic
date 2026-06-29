@@ -328,11 +328,18 @@ type MMGame struct {
 	// dialogNodePath is the chain of "info" choices the player has descended into
 	// this conversation (empty = root). It drives the body text and choice list so
 	// "ask about X" branches into a real reply instead of closing. Reset on open.
-	dialogNodePath   []*character.NPCDialogueChoice
-	dialogTab        int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
-	merchantBuyPage  int // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage int // Merchant sell-grid page (0-based)
-	spellTraderPage  int // Spell-trader icon-grid page (0-based); shared by renderer and input
+	dialogNodePath       []*character.NPCDialogueChoice
+	dialogTab            int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
+	merchantBuyPage      int // Merchant buy-grid page (0-based); read by both renderer and input
+	merchantSellPage     int // Merchant sell-grid page (0-based)
+	spellTraderPage      int // Spell-trader icon-grid page (0-based); shared by renderer and input
+	cardCollectorInvPage int // Card-collector loose-card grid page (0-based); shared by renderer and input
+	// cardCollection is the party-wide monster-card collection (MaxCardSlots).
+	// Cards held here grant passive effects; only the card collector mutates it.
+	cardCollection [MaxCardSlots]string
+	// cardBurstTile is the last party tile the Gorilla Titan move-burst rolled on,
+	// so the on-move proc fires once per tile entered, not every frame.
+	cardBurstTileX, cardBurstTileY int
 
 	// Spellbook UI
 	selectedSchool     int
@@ -399,6 +406,26 @@ type MMGame struct {
 	// is the inventory slot of the consumable to spend on confirm.
 	revivalPickerOpen    bool
 	revivalPickerItemIdx int
+
+	// healPicker mirrors the revival picker: when a heal potion is used by an
+	// UNCONSCIOUS owner (who can't heal themselves), the player chooses which
+	// conscious, wounded member to heal instead.
+	healPickerOpen    bool
+	healPickerItemIdx int
+
+	// pickerQuickChar/Slot record the quick slot a heal/revival picker was opened
+	// FROM (char<0 = opened from the inventory). The slot stays filled while the
+	// picker is up; on confirm it's cleared, on cancel the temp bag copy is dropped
+	// and the slot kept — so cancelling never silently moves the potion to the bag.
+	pickerQuickChar int
+	pickerQuickSlot int
+
+	// parkSelection is set when the player selects a member BY HAND (portrait
+	// click / number key) and cleared on any auto-advance of the selection. While
+	// set, the TB/RT auto-snap that moves selection off a member who can't act is
+	// suppressed, so the player can park on a downed ally to use their (free,
+	// passive) quick-slot potions. Zero value (false) is the safe default.
+	parkSelection bool
 
 	// Promotion picker: when more than one party member is eligible for a
 	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
@@ -509,6 +536,7 @@ const (
 	TabCharacters
 	TabSpellbook
 	TabQuests
+	TabCards
 )
 
 type FirstPersonCamera struct {
@@ -570,6 +598,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		showFPS:          false, // FPS counter starts hidden
 		perfDebugEnabled: strings.TrimSpace(os.Getenv("DEBUG_PERF")) != "",
 		selectedChar:     0,
+		pickerQuickChar:  -1,
+		pickerQuickSlot:  -1,
 		skyImg:           skyImg,
 		groundImg:        groundImg,
 		magicProjectiles: make([]MagicProjectile, 0),
@@ -1356,6 +1386,7 @@ func (g *MMGame) firstEligiblePartyIndex() int {
 // member that can still act this round, wrapping from the end back to the
 // start. No-op if none are eligible.
 func (g *MMGame) advanceToNextEligibleChar() {
+	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)
 	for off := 1; off <= n; off++ {
 		idx := (g.selectedChar + off) % n
@@ -1459,6 +1490,7 @@ func (g *MMGame) nextReadyRTActor(kind rtActionKind) int {
 // held key WAITS on a capable member instead of skipping to one who can't, or
 // sticking on the current incapable one). Leaves selection put if none capable.
 func (g *MMGame) advanceRTActor(kind rtActionKind) {
+	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)
 	for off := 1; off <= n; off++ {
 		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
@@ -1481,6 +1513,9 @@ func (g *MMGame) advanceRTActor(kind rtActionKind) {
 func (g *MMGame) ensureSelectedCanActRT() {
 	if g.rtCharReady(g.selectedChar) {
 		return
+	}
+	if g.parkedOnSelected() {
+		return // player deliberately parked here (e.g. to use a downed ally's potions)
 	}
 	cur := g.party.Members[g.selectedChar]
 	if cur != nil && cur.CanAct() {
@@ -1510,6 +1545,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // living members (tie-break: lower party slot). Called when entering
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
+	g.parkSelection = false // a new round clears any manual park
 	for _, m := range g.party.Members {
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
@@ -1535,6 +1571,9 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 			}
 		}
 	}
+	// Monster cards (e.g. the Puma Card) add to the party's bonus-action pool,
+	// distributed to the fastest members alongside Speed bonuses.
+	bonusActions += g.cardBonusActions()
 	for bonusActions > 0 {
 		bestIdx := -1
 		bestSpeed := -1
@@ -1594,9 +1633,28 @@ func (g *MMGame) endPartyTurnAfterMovement() {
 // during the party turn, poison ticks, etc. Without this guard pressing
 // Space/F on a dead selectedChar would silently do nothing.
 // Real-time mode no-ops — selection isn't gated on CanAct there.
+// parkedOnSelected reports whether the player manually selected the current
+// member (portrait/number key) and that member is still a valid park target
+// (present, not Eradicated). The auto-snap that moves selection off a member
+// who can't act respects this, so the player can sit on a downed ally to use
+// their free, passive quick-slot potions instead of being bounced away.
+func (g *MMGame) parkedOnSelected() bool {
+	if !g.parkSelection {
+		return false
+	}
+	if g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[g.selectedChar]
+	return m != nil && !m.HasCondition(character.ConditionEradicated)
+}
+
 func (g *MMGame) ensureSelectedCharCanAct() {
 	if !g.turnBasedMode {
 		return
+	}
+	if g.parkedOnSelected() {
+		return // player deliberately parked here (e.g. to use a downed ally's potions)
 	}
 	if g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
 		if m := g.party.Members[g.selectedChar]; m != nil && m.CanAct() {

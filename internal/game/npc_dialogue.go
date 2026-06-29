@@ -143,10 +143,18 @@ const (
 	dialogKindSkillTrainer
 	dialogKindChoices
 	dialogKindMerchant
+	dialogKindCardCollector
 )
+
+// npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
+func npcIsCardCollector(npc *character.NPC) bool {
+	return npc != nil && npc.Type == "card_collector"
+}
 
 func npcDialogKindFor(npc *character.NPC) npcDialogKind {
 	switch {
+	case npcIsCardCollector(npc):
+		return dialogKindCardCollector
 	case npcHasSpellTrading(npc):
 		return dialogKindSpellTrader
 	case npcHasSkillTraining(npc):

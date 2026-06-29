@@ -177,6 +177,7 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	targets := ui.game.RevivablePartyIndices()
 	if len(targets) == 0 {
 		// No one left to revive (cured externally?) — close cleanly.
+		ui.game.resolvePickerQuickSource(ui.game.revivalPickerItemIdx, false)
 		ui.game.revivalPickerOpen = false
 		return
 	}
@@ -219,7 +220,8 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 			popupX+24, y+6)
 
 		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			ui.game.applyReviveTo(ui.game.revivalPickerItemIdx, idx)
+			ok := ui.game.applyReviveTo(ui.game.revivalPickerItemIdx, idx)
+			ui.game.resolvePickerQuickSource(ui.game.revivalPickerItemIdx, ok)
 			ui.game.revivalPickerOpen = false
 			return
 		}
@@ -235,11 +237,81 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	}
 	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
 	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
+		ui.game.resolvePickerQuickSource(ui.game.revivalPickerItemIdx, false)
 		ui.game.revivalPickerOpen = false
 		return
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		ui.game.resolvePickerQuickSource(ui.game.revivalPickerItemIdx, false)
 		ui.game.revivalPickerOpen = false
+	}
+}
+
+// drawHealPickerPopup draws the "Heal whom?" overlay opened when a heal potion
+// is used by an UNCONSCIOUS owner (who can't heal themselves) and 2+ conscious
+// members are wounded. Recomputed every frame; closing without a click cancels
+// (potion not spent).
+func (ui *UISystem) drawHealPickerPopup(screen *ebiten.Image) {
+	targets := ui.game.HealablePartyIndices()
+	if len(targets) == 0 {
+		ui.game.resolvePickerQuickSource(ui.game.healPickerItemIdx, false)
+		ui.game.healPickerOpen = false
+		return
+	}
+
+	screenW := ui.game.config.GetScreenWidth()
+	screenH := ui.game.config.GetScreenHeight()
+	popupW := 360
+	rowH := 28
+	popupH := 100 + len(targets)*rowH
+	popupX := (screenW - popupW) / 2
+	popupY := (screenH - popupH) / 2
+
+	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
+	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
+	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
+
+	drawDebugText(screen, "Heal Whom?", popupX+16, popupY+16)
+	drawDebugText(screen, "Click a wounded party member.", popupX+16, popupY+36)
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	startY := popupY + 64
+	for row, idx := range targets {
+		y := startY + row*rowH
+		member := ui.game.party.Members[idx]
+		isHover := mouseX >= popupX+16 && mouseX < popupX+popupW-16 &&
+			mouseY >= y-2 && mouseY < y-2+rowH
+		if isHover {
+			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
+		}
+		drawDebugText(screen,
+			fmt.Sprintf("%d) %s  (HP:%d/%d)", idx+1, member.Name, member.HitPoints, member.MaxHitPoints),
+			popupX+24, y+6)
+
+		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
+			ok := ui.game.applyHealTo(ui.game.healPickerItemIdx, idx)
+			ui.game.resolvePickerQuickSource(ui.game.healPickerItemIdx, ok)
+			ui.game.healPickerOpen = false
+			return
+		}
+	}
+
+	closeX := popupX + popupW - 36
+	closeY := popupY + 12
+	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
+	} else {
+		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
+	}
+	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
+	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
+		ui.game.resolvePickerQuickSource(ui.game.healPickerItemIdx, false)
+		ui.game.healPickerOpen = false
+		return
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		ui.game.resolvePickerQuickSource(ui.game.healPickerItemIdx, false)
+		ui.game.healPickerOpen = false
 	}
 }
 
@@ -513,6 +585,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindMerchant:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindCardCollector:
+		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
 	}
@@ -1036,6 +1110,120 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	instructionsY := dialogY + dialogHeight - 38
 	drawDebugText(screen, "Hover: details  |  Double-click: buy (left) / sell (right)", dialogX+20, instructionsY)
 	drawDebugText(screen, "ESC: Close", dialogX+20, instructionsY+15)
+}
+
+// Card-collector layout. The 8 collection slots sit in one compact row; the
+// party's loose cards sit in a grid below. Geometry is shared with the input
+// handler (cardCollectorSlotRect / cardCollectorInvRect) so click rects match.
+const (
+	cardCollSlotSize = 48
+	cardCollSlotGap  = 8
+	cardInvSize      = 56
+	cardInvCols      = 4
+	cardInvGap       = 14
+	cardInvMaxShown  = cardInvCols * 2 // up to 8 loose cards shown at once
+)
+
+func cardCollectorSlotRect(dialogX, dialogY, slot int) (x, y, w, h int) {
+	gridW := MaxCardSlots*cardCollSlotSize + (MaxCardSlots-1)*cardCollSlotGap
+	startX := dialogX + (npcDialogWidth-gridW)/2
+	return startX + slot*(cardCollSlotSize+cardCollSlotGap), dialogY + 114, cardCollSlotSize, cardCollSlotSize
+}
+
+// cardInvTop is the Y of the loose-card grid; cardInvRowPitch the row stride.
+// Pulled up enough to leave room for the page nav row beneath the two rows.
+const (
+	cardInvTop      = 196
+	cardInvRowPitch = cardInvSize + cardInvGap + 2
+)
+
+func cardCollectorInvRect(dialogX, dialogY, slot int) (x, y, w, h int) {
+	gridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	startX := dialogX + (npcDialogWidth-gridW)/2
+	r, c := slot/cardInvCols, slot%cardInvCols
+	return startX + c*(cardInvSize+cardInvGap), dialogY + cardInvTop + r*cardInvRowPitch, cardInvSize, cardInvSize
+}
+
+// drawCardCell draws one card cell — the card's art when key is set, else a
+// placeholder frame (with emptyLabel). Returns whether the cursor is over it.
+// Shared by the collector dialog and the Cards menu tab so the cell looks and
+// hit-tests identically in both.
+func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size int, emptyLabel string) bool {
+	if key == "" {
+		drawFilledRect(screen, x, y, size, size, color.RGBA{30, 30, 44, 255})
+		drawRectBorder(screen, x, y, size, size, 1, color.RGBA{80, 80, 100, 200})
+		if emptyLabel != "" {
+			drawCenteredDebugText(screen, emptyLabel, x, y, size, size)
+		}
+		return false
+	}
+	ui.drawInventoryItemIcon(screen, items.CreateItemFromYAML(key), x, y, size, size, 3, true)
+	mx, my := ebiten.CursorPosition()
+	return isMouseHoveringBox(mx, my, x, y, x+size, y+size)
+}
+
+// drawCardCollectorDialog draws the monster-card collection UI: the 8 active
+// slots on top, the party's loose cards below. Double-click a loose card to slot
+// it, double-click a slotted card to take it back. Art-based with hover tooltips.
+func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	drawDebugText(screen, fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), dialogX+20, dialogY+20)
+	greeting := "Cards, is it? Hand them here and I'll pin them to your collection."
+	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+		greeting = ui.game.dialogNPC.DialogueData.Greeting
+	}
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	var hoverLines []string
+
+	// Active collection (8 slots).
+	drawDebugText(screen, "Collection (active effects)", dialogX+20, dialogY+96)
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
+		key := ui.game.cardCollection[slot]
+		if ui.drawCardCell(screen, key, x, y, w, "+") {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
+			if def := cardDef(key); def != nil {
+				hoverLines = []string{def.Name, cardEffectText(def), "", "Double-click to remove"}
+			}
+		}
+	}
+
+	// Loose cards in the party inventory (paginated — the pack can hold more than
+	// one page of cards).
+	cardIdx := ui.game.inventoryCardIndices()
+	drawDebugText(screen, "Your cards (double-click to add)", dialogX+20, dialogY+176)
+	if len(cardIdx) == 0 {
+		drawDebugText(screen, "(No loose cards to add)", dialogX+20, dialogY+200)
+	}
+	invPages := pageCount(len(cardIdx), cardInvMaxShown)
+	clampPage(&ui.game.cardCollectorInvPage, invPages)
+	invStart := ui.game.cardCollectorInvPage * cardInvMaxShown
+	for slot := 0; slot < cardInvMaxShown; slot++ {
+		i := invStart + slot
+		if i >= len(cardIdx) {
+			break
+		}
+		x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
+		key := itemCardKey(ui.game.party.Inventory[cardIdx[i]])
+		if ui.drawCardCell(screen, key, x, y, w, "") {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
+			if def := cardDef(key); def != nil {
+				hoverLines = []string{def.Name, cardEffectText(def), "", "Double-click to add to collection"}
+			}
+		}
+	}
+	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	ui.drawPager(screen, dialogX+(npcDialogWidth-invGridW)/2, dialogY+cardInvTop+2*cardInvRowPitch-4, invGridW, &ui.game.cardCollectorInvPage, invPages, true)
+
+	instructionsY := dialogY + dialogHeight - 38
+	drawDebugText(screen, "Double-click a card to slot it  |  Double-click a slotted card to take it back", dialogX+20, instructionsY)
+
+	if hoverLines != nil {
+		ui.queueTooltip(hoverLines, mouseX+16, mouseY+8)
+	}
 }
 
 // drawGenericDialog draws basic dialog for other NPC types

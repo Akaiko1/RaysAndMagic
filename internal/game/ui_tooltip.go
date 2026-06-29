@@ -49,7 +49,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 			usage = append([]string{"Double-click to use"}, usage...)
 		}
 		core = buildSimpleItemTooltipUnified(item, "EFFECT", usage, full)
-	case items.ItemTrinket:
+	case items.ItemTrinket, items.ItemCard:
+		// Cards (split out of trinkets) share the simple path so their
+		// "Collection: ..." effect lines surface as loose inventory items too.
 		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Collectible; sell to merchants"}, full)
 	}
 	if core == "" {

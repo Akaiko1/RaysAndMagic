@@ -998,6 +998,25 @@ type ItemDefinitionConfig struct {
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
 	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
 	Resistances map[string]int `yaml:"resistances,omitempty"`
+	// Monster-card collection effects (type: "card"). The same fields drive both
+	// the passive party-wide mechanic and the derived effect text (single source).
+	// Int fields STACK additively across the collection; CardWalkOnWater is a
+	// capability (present-or-not).
+	CardMoveSpeedPct  int            `yaml:"card_move_speed_pct,omitempty"`     // +N% party movement speed
+	CardBonusActions  int            `yaml:"card_bonus_actions,omitempty"`      // +N party actions per turn-based round
+	CardStatBonuses   map[string]int `yaml:"card_stat_bonuses,omitempty"`       // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
+	CardRangedDmgPct  int            `yaml:"card_ranged_dmg_pct,omitempty"`     // +N% ranged weapon damage
+	CardMeleeTrueDmg  int            `yaml:"card_melee_true_dmg,omitempty"`     // +N flat true damage on melee hits
+	CardPhysToFirePct int            `yaml:"card_phys_to_fire_pct,omitempty"`   // N% of melee physical damage dealt as fire instead
+	CardHealOnAtkPct  int            `yaml:"card_heal_on_attack_pct,omitempty"` // N% chance to self-heal on attacking
+	CardHealAmount    int            `yaml:"card_heal_amount,omitempty"`        // HP restored by the self-heal-on-attack proc
+	CardLethalSavePct int            `yaml:"card_lethal_save_pct,omitempty"`    // N% chance a lethal hit leaves the member at half HP+SP
+	CardMoveAoePct    int            `yaml:"card_move_aoe_pct,omitempty"`       // N% chance, on party move, to burst nearby foes
+	CardMoveAoeDmg    int            `yaml:"card_move_aoe_dmg,omitempty"`       // pure damage dealt by the move-burst
+	CardWalkOnWater   bool           `yaml:"card_walk_on_water,omitempty"`      // permanent walk-on-water while collected
+	CardSummonChance  int            `yaml:"card_summon_chance,omitempty"`      // N% chance, on any party action, to summon allied adds
+	CardSummonLimit   int            `yaml:"card_summon_limit,omitempty"`       // max live allied summons from one copy of this card
+	CardSummonMonster string         `yaml:"card_summon_monster,omitempty"`     // monster key summoned as a party ally
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`

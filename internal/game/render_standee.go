@@ -552,26 +552,30 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		return
 	}
 
-	// The two diagonal standees cross on the tile's central vertical axis. Split
-	// each into its two ARMS (center→corner): the four arms are disjoint in 3D
-	// (they meet only on that axis), so any two of them project to screen segments
-	// that share only the center column — they can't swap depth order across the
-	// columns they overlap in. A far→near painter's order over the four arms is
-	// therefore exact: a nearer arm's opaque pixels occlude a farther arm and its
-	// transparent pixels reveal it, with no slab interpenetration even when one
-	// standee is edge-on. (Ordering the two standees whole can't: near the axis
-	// the slabs interleave and whichever plane draws last wins — the see-through
-	// artifact.) Each arm draws the WHOLE slab clipped to its columns, so the
-	// texture stays continuous and the draw stays batched.
-	//
-	// Both arms of a diagonal share one slab, so prepare each yaw's slab ONCE
-	// (shells, projection, silhouette) and reuse it across its two arms. The two
-	// slabs must stay live together for the interleaved far→near draw, hence two
-	// reused buffers (A/B).
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, diag, s.depthPerp, heightPx, bottomY, b)
+}
+
+// drawCrossedSlabs renders two perpendicular standee planes (yawA, yawB) crossing
+// at (worldX,worldY) over a square footprint, split into four center→corner ARMS
+// drawn far→near for exact occlusion. Shared by static crossed trees (diagonal
+// yaws) and spinning landmark monuments (rotating yaws).
+//
+// The arms are disjoint in 3D (they meet only on the central axis), so any two
+// project to screen segments that share only the center column — they can't swap
+// depth order across the columns they overlap in. A far→near painter's order over
+// the four arms is therefore exact: a nearer arm's opaque pixels occlude a farther
+// arm and its transparent pixels reveal it, with no slab interpenetration even
+// when one plane is edge-on. (Ordering the two whole planes can't: near the axis
+// the slabs interleave and whichever draws last wins — the see-through artifact.)
+// Each arm draws the WHOLE slab clipped to its columns, so the texture stays
+// continuous and batched. Both arms of a plane share one slab, so each yaw's slab
+// is prepared ONCE and reused; the two slabs stay live together for the
+// interleaved draw, hence two reused buffers (A/B).
+func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightPx, bottomY int, b float32) {
 	slabs := [2]standeeSlab{}
 	slabOK := [2]bool{}
-	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, r.standeeSurfaces[:0])
-	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, r.standeeSurfacesB[:0])
+	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, -1, r.standeeSurfaces[:0])
+	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, -1, r.standeeSurfacesB[:0])
 
 	cam := r.game.camera
 	screenW := r.game.config.GetScreenWidth()
@@ -590,8 +594,8 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	for si, yaw := range [2]float64{yawA, yawB} {
 		dx, dy := math.Cos(yaw), math.Sin(yaw)
 		for _, side := range [2]float64{+1, -1} {
-			cornerX := worldX + dx*side*diag/2
-			cornerY := worldY + dy*side*diag/2
+			cornerX := worldX + dx*side*footprint/2
+			cornerY := worldY + dy*side*footprint/2
 			cc, _, okCorner := r.game.renderHelper.projectToScreenX(cornerX, cornerY)
 			if !okCorner {
 				allOK = false
@@ -604,7 +608,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 				slabIdx: si,
 				lo:      clampCol(lo),
 				hi:      clampCol(hi),
-				depth:   math.Hypot(worldX+dx*side*diag/4-cam.X, worldY+dy*side*diag/4-cam.Y),
+				depth:   math.Hypot(worldX+dx*side*footprint/4-cam.X, worldY+dy*side*footprint/4-cam.Y),
 			})
 		}
 	}
@@ -628,6 +632,34 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	r.treeArms = arms[:0]
 	r.standeeSurfaces = slabs[0].surfaces[:0] // reclaim backing arrays (caps grow)
 	r.standeeSurfacesB = slabs[1].surfaces[:0]
+}
+
+// drawLandmarkStandee renders a render_type:"landmark" entity (mage tower, church,
+// city gate, lich nexus, fountain) as a TALL crossed standee that slowly spins in
+// place — the static-token showcase spin, but as a perpendicular cross so it reads
+// as a 3D monument from any angle. spinYaw is the showcase yaw the caller already
+// computes (so it matches the single-standee spin); the second plane is spinYaw+90°.
+// Height scales by sprite aspect (tall art → tall monument), feet stay anchored.
+func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName string, worldX, worldY, spinYaw, depthPerp float64, spriteSize, screenY int, b float32) bool {
+	if sprite == nil || spriteSize <= 0 || depthPerp <= 0 {
+		return false
+	}
+	heightPx := spriteSize
+	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
+		heightPx = int(float64(spriteSize) * float64(sprite.Bounds().Dy()) / texW)
+	}
+	key := standeeCoreKey{name: keyName, bounds: sprite.Bounds(), img: sprite}
+	// Footprint = the sprite's OWN projected width (the world length that spans
+	// spriteSize px face-on), NOT a fixed tile diagonal: the texture maps u∈[0,1]
+	// across it centered on the entity, so the cross's intersection axis (u=0.5)
+	// lands on the texture centre and the arms span the full art at any scale.
+	halfFovTan := math.Tan(r.game.camera.FOV / 2)
+	footprint := float64(spriteSize) * 2 * halfFovTan * depthPerp / float64(r.game.config.GetScreenWidth())
+	if footprint <= 0 {
+		footprint = float64(r.game.config.GetTileSize()) * math.Sqrt2
+	}
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightPx, screenY+spriteSize, b)
+	return true
 }
 
 func absInt(v int) int {

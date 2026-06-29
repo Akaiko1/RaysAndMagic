@@ -195,7 +195,8 @@ items:
 
   medusa_card:
     name: "Medusa Card"
-    type: "trinket"
+    type: "card"
+    card_walk_on_water: true
     description: "A rare monster card prized by collectors"
     flavor: "A stamped parchment card showing a glowing sea medusa."
     rarity: "rare"
@@ -416,7 +417,8 @@ items:
 
   puma_card:
     name: "Puma Card"
-    type: "trinket"
+    type: "card"
+    card_bonus_actions: 1
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a prowling highland puma."
     rarity: "rare"
@@ -424,7 +426,8 @@ items:
 
   archmage_card:
     name: "Archmage Card"
-    type: "trinket"
+    type: "card"
+    card_phys_to_fire_pct: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a robed highland archmage."
     rarity: "rare"
@@ -432,7 +435,8 @@ items:
 
   lich_card:
     name: "Lich Card"
-    type: "trinket"
+    type: "card"
+    card_lethal_save_pct: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a crowned lich wreathed in shadow."
     rarity: "rare"
@@ -566,7 +570,8 @@ items:
 
   thief_bug_card:
     name: "Thief Bug Card"
-    type: "trinket"
+    type: "card"
+    card_move_speed_pct: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a thief bug mid-skitter, mandibles wide."
     rarity: "rare"
@@ -714,7 +719,8 @@ items:
 
   samurai_card:
     name: "Samurai Card"
-    type: "trinket"
+    type: "card"
+    card_melee_true_dmg: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a horned warlord beneath a tattered banner."
     rarity: "rare"
@@ -722,7 +728,9 @@ items:
 
   ningyo_card:
     name: "Ningyo Card"
-    type: "trinket"
+    type: "card"
+    card_heal_on_attack_pct: 5
+    card_heal_amount: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a fan-dancer whose lower half fades to mist."
     rarity: "rare"
@@ -862,7 +870,9 @@ items:
 
   ocelot_card:
     name: "Ocelot Card"
-    type: "trinket"
+    type: "card"
+    card_stat_bonuses:
+      speed: 15
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a spotted cat mid-pounce, claws spread."
     rarity: "rare"
@@ -870,7 +880,9 @@ items:
 
   gorilla_titan_card:
     name: "Gorilla Titan Card"
-    type: "trinket"
+    type: "card"
+    card_move_aoe_pct: 10
+    card_move_aoe_dmg: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a great ape, fists raised over a flattened glade."
     rarity: "rare"
@@ -878,7 +890,8 @@ items:
 
   masked_huntress_card:
     name: "Masked Huntress Card"
-    type: "trinket"
+    type: "card"
+    card_ranged_dmg_pct: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a masked stalker, blowgun to her lips."
     rarity: "rare"
@@ -886,7 +899,10 @@ items:
 
   orc_warlord_card:
     name: "Orc Warlord Card"
-    type: "trinket"
+    type: "card"
+    card_summon_chance: 15
+    card_summon_limit: 2
+    card_summon_monster: "masked_huntress"
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a tusked warlord crowned in idol-bronze."
     rarity: "rare"

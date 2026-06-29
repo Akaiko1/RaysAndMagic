@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+// hasNPCKey reports whether a map spawned an NPC with the given key. Map tests
+// assert key NPCs are PRESENT by name rather than counting spawns, so adding
+// service NPCs (taverns, etc.) doesn't break unrelated tests.
+func hasNPCKey(spawns []NPCSpawn, key string) bool {
+	for _, s := range spawns {
+		if s.NPCKey == key {
+			return true
+		}
+	}
+	return false
+}
+
 func TestMapLoader_SpecialTileByKey(t *testing.T) {
 	tm := NewTileManager()
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {

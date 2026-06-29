@@ -292,32 +292,12 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		targetIndex := alive[rand.Intn(len(alive))]
 		target := gl.game.party.Members[targetIndex]
 
-		damage := monster.GetAttackDamage()
-		// Armour-piercing attackers (Golden Thief Bug) bypass armor class; resistances
-		// and buff mitigation still apply.
-		finalDamage := gl.game.combat.mitigateCharacterDamage(damage, "physical", target, monster.IgnoresArmor)
-
-		// Perfect Dodge: luck/5% roll to avoid all damage
-		if dodged, _ := gl.game.combat.RollPerfectDodge(target); dodged {
-			gl.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, monster.Name))
-			continue
-		}
-
-		target.HitPoints -= finalDamage
-		if target.HitPoints < 0 {
-			target.HitPoints = 0
-		}
-		if target.HitPoints == 0 {
-			target.AddCondition(character.ConditionUnconscious)
-		}
-		gl.game.TriggerDamageBlink(targetIndex)
-		gl.game.combat.tryApplyMonsterPoison(monster, target)
-
-		suffix := ""
-		if attacks > 1 {
-			suffix = fmt.Sprintf(" (%d/%d)", hit+1, attacks)
-		}
-		gl.game.AddCombatMessage(fmt.Sprintf("%s attacks %s for %d damage!%s", monster.Name, target.Name, finalDamage, suffix))
+		// Route through the shared hit hub (same as RT melee/ranged) so TB melee
+		// gets the FULL treatment: armor/resist mitigation, true damage, true-through-
+		// dodge, knockOut (Lich Card cheat-death), damage blink, and the on-hit riders
+		// (poison/ignite/char-stun/dispel). Disintegrate is a separate special ability
+		// (tryMonsterSpecialAbility above), so 0 here.
+		gl.game.combat.monsterHitCharacter(monster, target, monster.Name, monster.GetAttackDamage(), "physical", monster.IgnoresArmor, 0)
 	}
 }
 

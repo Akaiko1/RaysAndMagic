@@ -116,5 +116,55 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, "Offers a party member the path of the Lich")
 	}
+	if cl := d.CardEffectLines(); len(cl) > 0 {
+		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
+	}
 	return lines
+}
+
+// CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
+// text, derived from its Card* fields. Shared by the item tooltip (via
+// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only —
+// the in-game bitmap font has no glyph for unicode dashes.
+func (d *ItemDefinitionConfig) CardEffectLines() []string {
+	var p []string
+	if d.CardMoveSpeedPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% move speed", d.CardMoveSpeedPct))
+	}
+	if d.CardBonusActions != 0 {
+		p = append(p, fmt.Sprintf("+%d party action/turn", d.CardBonusActions))
+	}
+	for _, s := range []struct{ key, label string }{
+		{"might", "Might"}, {"intellect", "Intellect"}, {"personality", "Personality"},
+		{"endurance", "Endurance"}, {"accuracy", "Accuracy"}, {"speed", "Speed"}, {"luck", "Luck"},
+	} {
+		if v := d.CardStatBonuses[s.key]; v != 0 {
+			p = append(p, fmt.Sprintf("%+d %s", v, s.label))
+		}
+	}
+	if d.CardRangedDmgPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% ranged damage", d.CardRangedDmgPct))
+	}
+	if d.CardMeleeTrueDmg != 0 {
+		p = append(p, fmt.Sprintf("+%d true melee damage", d.CardMeleeTrueDmg))
+	}
+	if d.CardPhysToFirePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% of melee damage dealt as fire", d.CardPhysToFirePct))
+	}
+	if d.CardWalkOnWater {
+		p = append(p, "Walk on water")
+	}
+	if d.CardHealOnAtkPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% to self-heal %d on attack", d.CardHealOnAtkPct, d.CardHealAmount))
+	}
+	if d.CardLethalSavePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% to cheat death (half HP+SP)", d.CardLethalSavePct))
+	}
+	if d.CardMoveAoePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on move: %d pure to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
+	}
+	if d.CardSummonChance != 0 {
+		p = append(p, fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit))
+	}
+	return p
 }
