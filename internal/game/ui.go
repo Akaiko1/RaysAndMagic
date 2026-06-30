@@ -162,6 +162,11 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawRosterScreen(screen)
 	}
 
+	// Draw tavern stash screen if open
+	if ui.game.stashScreenOpen {
+		ui.drawStashScreen(screen)
+	}
+
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)

@@ -226,6 +226,9 @@ type Monster3D struct {
 	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
 	AggroWholeMap    bool   // static: UNIQUE boss trait — once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
 	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord → "human".)
+	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
 	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
 	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised

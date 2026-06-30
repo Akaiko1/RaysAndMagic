@@ -22,6 +22,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/stash"
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
@@ -440,6 +441,24 @@ type MMGame struct {
 	rosterScreenOpen     bool
 	rosterSelectedActive int
 
+	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
+	// chest is lazy-loaded on first open and persisted on every transfer.
+	// Drag-and-drop state mirrors the quick-slot drag but is self-contained so it
+	// works while no tab/menu is open. stashDragFrom < 0 when nothing is carried;
+	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
+	stashScreenOpen bool
+	stash           *stash.Stash
+	stashDragArmed  bool
+	stashDragActive bool
+	stashDragFrom   int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
+	stashDragItem   items.Item // carried copy, for rendering
+	stashDragStartX int
+	stashDragStartY int
+	stashDragCurX   int
+	stashDragCurY   int
+	stashDragDrop   bool // a drop must be resolved this frame
+	stashInvPage    int
+
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
 	currentTurn           int  // 0 = party turn, 1 = monster turn
@@ -462,7 +481,8 @@ type MMGame struct {
 	mainMenuOpen      bool
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
-	slotSelection     int
+	slotSelection     int // row within the current save page (0..saveRowsPerPage-1)
+	savePage          int // current save/load menu page (0..savePageCount-1)
 	saveRenameOpen    bool
 	saveRenameSlot    int
 	saveRenameInput   string

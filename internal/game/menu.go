@@ -26,6 +26,81 @@ const DefaultSavePath = "savegame.json"
 // slotPath returns a filename for a numbered save slot (0-based index)
 func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
 
+// Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
+// pages. Global row 0 is the shared Autosave (written automatically on map change
+// and stash use; load-only — never manually overwritten). Rows 1..N are manual
+// slots and map to save1.json.. unchanged, so existing saves stay reachable.
+const (
+	saveRowsPerPage = 7
+	savePageCount   = 3
+	saveRowCount    = saveRowsPerPage * savePageCount
+	autosaveFile    = "autosave.json"
+
+	// Shared geometry for the save/load menus, used by both the draw code and
+	// the layout-collision test so the two never drift. Panels are sized to fit
+	// saveRowsPerPage rows (the pager sits on a strip just below the in-game panel).
+	saveMenuPanelW = 340
+	saveMenuPanelH = 320
+	// saveMenuListTopY centers the saveRowsPerPage-row block vertically between
+	// the header text (ends ~py+48) and the panel bottom (py+saveMenuPanelH):
+	// the highlight block is (rows-1)*pitch + 28 tall, so equal top/bottom gaps
+	// put the first row at py+78. Recompute if panelH / row count / pitch change.
+	saveMenuListTopY = 78
+	saveMenuRowPitch = 32 // vertical pitch between rows
+	entryLoadPanelW  = 460
+	entryLoadPanelH  = 480
+	entryLoadRowH    = 44
+)
+
+// saveRowPath maps a global save-row index to its file. Row 0 is the autosave.
+func saveRowPath(row int) string {
+	if row == 0 {
+		return storage.AppSavePath(autosaveFile)
+	}
+	return storage.AppSavePath(fmt.Sprintf("save%d.json", row))
+}
+
+// saveRowIsAutosave reports whether a row is the load-only autosave slot.
+func saveRowIsAutosave(row int) bool { return row == 0 }
+
+// selectedSaveRow is the global save-row index the save/load menu cursor points
+// at: the row-within-page (slotSelection) offset by the current page.
+func (g *MMGame) selectedSaveRow() int {
+	return g.savePage*saveRowsPerPage + g.slotSelection
+}
+
+// saveRowLabel is the slot's display name ("Autosave" or "Slot N").
+func saveRowLabel(row int) string {
+	if row == 0 {
+		return "Autosave"
+	}
+	return fmt.Sprintf("Slot %d", row)
+}
+
+// GetSaveRowSummary reads minimal display info for a global save-row index.
+func GetSaveRowSummary(row int) SaveSummary {
+	return summaryFromPath(saveRowPath(row))
+}
+
+// Autosave writes the shared autosave slot (row 0). Best-effort and silent: a
+// failure must never interrupt play. No-op outside live gameplay so it can't fire
+// mid-load or before the world exists.
+func (g *MMGame) Autosave() {
+	_ = g.autosaveErr()
+}
+
+// autosaveErr is Autosave that reports a real write failure, so callers needing
+// the bag/game state committed in step with another store (the stash) can detect
+// it and roll back. A guard miss returns nil: there is no in-game state to
+// autosave (the stash only opens in play, so this is the unit-test / not-in-game
+// case), which is "nothing to commit", not a failure.
+func (g *MMGame) autosaveErr() error {
+	if g.appScreen != AppScreenInGame || world.GlobalWorldManager == nil || g.party == nil {
+		return nil
+	}
+	return g.SaveGameToFile(saveRowPath(0))
+}
+
 // mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
 // returns to the title screen (not a full app quit — that's the title's "Quit").
 var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
@@ -365,7 +440,11 @@ type SaveSummary struct {
 
 // GetSaveSlotSummary reads minimal info from a save slot for UI display
 func GetSaveSlotSummary(slot int) SaveSummary {
-	path := slotPath(slot)
+	return summaryFromPath(slotPath(slot))
+}
+
+// summaryFromPath reads minimal display info from a save file path.
+func summaryFromPath(path string) SaveSummary {
 	f, err := os.Open(path)
 	if err != nil {
 		return SaveSummary{Exists: false}
@@ -402,9 +481,10 @@ func (g *MMGame) SaveGameToFile(path string) error {
 	return enc.Encode(&save)
 }
 
-// RenameSaveSlot updates the stored save name for an existing slot.
-func RenameSaveSlot(slot int, name string) error {
-	path := slotPath(slot)
+// RenameSaveSlot updates the stored save name for an existing slot, identified
+// by its global save-row index (rows 1..; the autosave row is never renamed).
+func RenameSaveSlot(row int, name string) error {
+	path := saveRowPath(row)
 	f, err := os.Open(path)
 	if err != nil {
 		return err

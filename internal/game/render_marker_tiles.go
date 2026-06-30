@@ -78,8 +78,18 @@ func (r *Renderer) drawTeleporterTileFx(screen *ebiten.Image) {
 	}
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(teleporterMaxDepthTiles) * ts
+	camX, camY := r.game.camera.X, r.game.camera.Y
 
 	for _, tp := range r.teleporterTiles {
+		// Standee-mode trees don't write the wall depth buffer, so the bubble
+		// columns' depthBuffer test alone can't hide a portal behind a tree. Add a
+		// solid-tile line-of-sight check (trees/walls are solid) and skip the whole
+		// tile's glow when the camera can't see its centre.
+		cx := (float64(tp.tx) + 0.5) * ts
+		cy := (float64(tp.ty) + 0.5) * ts
+		if r.game.collisionSystem != nil && !r.game.collisionSystem.CheckLineOfSight(camX, camY, cx, cy) {
+			continue
+		}
 		for gy := 0; gy < teleporterGrid; gy++ {
 			for gx := 0; gx < teleporterGrid; gx++ {
 				fx := (float64(gx) + 0.5) / float64(teleporterGrid)

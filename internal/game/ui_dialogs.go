@@ -392,7 +392,9 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
 	}
 	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
-	if g.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) || ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
+	// opening on the next frame; here only the close button.
+	if g.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
 		g.rosterScreenOpen = false
 		g.rosterSelectedActive = -1
 	}
@@ -1264,7 +1266,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		action func()
 	}{
 		{"New Game", func() { g.startNewGameWithParty(character.NewParty(g.config)) }},
-		{"Load Game", func() { g.returnToMainMenu(); g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
+		{"Load Game", func() { g.returnToMainMenu(); g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 		{"Main Menu", func() { g.returnToMainMenu() }},
 		{"Quit", func() { g.exitRequested = true }},
 	}

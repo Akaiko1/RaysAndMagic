@@ -6,6 +6,7 @@ monsters:
   # Basic Monsters
   goblin:
     name: "Goblin"
+    banding: true
     level: 1
     max_hit_points: 50
     armor_class: 13
@@ -58,6 +59,7 @@ monsters:
 
   wolf:
     name: "Wolf"
+    banding: true
     level: 2
     max_hit_points: 76
     armor_class: 16
@@ -825,6 +827,7 @@ monsters:
   # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
+    banding: true
     level: 7
     max_hit_points: 190
     armor_class: 14
@@ -1047,6 +1050,7 @@ monsters:
   # Bug is the boss (see ignores_armor / inferno_chance / teleport_* / passive_until_quest). ---
   rat:
     name: "Sewer Rat"
+    banding: true
     level: 5
     max_hit_points: 95
     armor_class: 7
@@ -1091,6 +1095,7 @@ monsters:
 
   thief_bug:
     name: "Thief Bug"
+    banding: true
     level: 7
     max_hit_points: 165
     armor_class: 20

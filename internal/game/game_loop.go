@@ -125,6 +125,11 @@ func (gl *GameLoop) updateExploration() {
 	// each vetoes the other's every move — so resolve it here instead.
 	gl.separateOverlappingMonsters()
 
+	// Banding: stack calm same-key flockers onto their leader (or scatter a band
+	// whose member just engaged/was hit). Runs after movement+separation so it has
+	// the final positions to snap/fan.
+	gl.updateMonsterBands()
+
 	// Update monster hit tint timers
 	gl.game.UpdateMonsterHitTintTimers()
 

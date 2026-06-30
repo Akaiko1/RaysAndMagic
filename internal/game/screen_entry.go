@@ -37,7 +37,7 @@ type entryButton struct {
 // a parameter (capture-free), so the slice is safe to share across frames.
 var entryButtonDefs = []entryButton{
 	{"start", "Start Game", func(g *MMGame) { g.enterPartyCreate() }},
-	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
+	{"load", "Load Game", func(g *MMGame) { g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 	{"scores", "Top Scores", func(g *MMGame) { g.entryMenuMode = EntryMenuScores }},
 	{"achievements", "Achievements", func(g *MMGame) { g.entryMenuMode = EntryMenuAchievements; g.achievementsScroll = 0 }},
 	{"quit", "Quit", func(g *MMGame) { g.exitRequested = true }},
@@ -138,24 +138,33 @@ func (ui *UISystem) drawEntryMenuRoot(screen *ebiten.Image, w, h int) {
 	}
 }
 
-// drawEntryLoadList shows the 5 save slots; clicking a populated slot loads it
-// and enters the game.
+// drawEntryLoadList shows a page of save slots; clicking a populated slot loads
+// it and enters the game. Row 0 of page 0 is the load-only Autosave. Left/Right
+// (keys or the on-screen buttons) page through savePageCount pages.
 func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	g := ui.game
-	panelW, panelH := 460, 360
+	panelW, panelH := entryLoadPanelW, entryLoadPanelH
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
 	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) && g.savePage > 0 {
+		g.savePage--
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) && g.savePage < savePageCount-1 {
+		g.savePage++
+	}
+
 	mouseX, mouseY := ebiten.CursorPosition()
 	rowX := px + menuFrameInset
 	rowW := panelW - 2*menuFrameInset
 	startY := py + menuFrameInset + 22
-	rowH := 44
-	for i := 0; i < 5; i++ {
+	rowH := entryLoadRowH
+	for i := 0; i < saveRowsPerPage; i++ {
+		row := g.savePage*saveRowsPerPage + i
 		y := startY + i*rowH
-		sum := GetSaveSlotSummary(i)
+		sum := GetSaveRowSummary(row)
 		hover := isMouseHoveringBox(mouseX, mouseY, rowX, y, rowX+rowW, y+rowH-8)
 		bg := color.RGBA{40, 40, 70, 220}
 		if !sum.Exists {
@@ -166,10 +175,10 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		drawFilledRect(screen, rowX, y, rowW, rowH-8, bg)
 		drawRectBorder(screen, rowX, y, rowW, rowH-8, 1, color.RGBA{90, 90, 130, 200})
 
-		label := fmt.Sprintf("Slot %d — (empty)", i+1)
+		label := fmt.Sprintf("%s — (empty)", saveRowLabel(row))
 		if sum.Exists {
 			name := sum.Name
-			if name == "" {
+			if name == "" || saveRowIsAutosave(row) {
 				name = "Saved game"
 			}
 			mode := "RT"
@@ -180,12 +189,12 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			if len(t) > 19 {
 				t = t[:19]
 			}
-			label = fmt.Sprintf("Slot %d — %s  [%s %s]", i+1, truncateSaveName(name, 18), mode, t)
+			label = fmt.Sprintf("%s — %s  [%s %s]", saveRowLabel(row), truncateSaveName(name, 18), mode, t)
 		}
 		drawDebugText(screen, label, rowX+12, y+rowH/2-12)
 
 		if sum.Exists && g.consumeLeftClickIn(rowX, y, rowX+rowW, y+rowH-8) {
-			if err := g.LoadGameFromFile(slotPath(i)); err != nil {
+			if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
 				g.AddCombatMessage("Load failed")
 			} else {
 				g.entryMenuMode = EntryMenuRoot
@@ -195,7 +204,27 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		}
 	}
 
-	ui.drawBackButton(screen, px+menuFrameInset, py+panelH-menuFrameInset-30, func() { g.entryMenuMode = EntryMenuRoot })
+	// Page controls: distinct Prev/Next buttons on their own row (dimmed at the
+	// ends), clearly above the Back button so neither overlaps the other.
+	pagerY := startY + saveRowsPerPage*rowH + 6
+	const pbW, pbH = 96, 26
+	drawEntryPagerBtn := func(bx int, label string, enabled bool, onClick func()) {
+		fill := color.RGBA{60, 60, 100, 230}
+		if !enabled {
+			fill = color.RGBA{35, 35, 55, 200}
+		}
+		drawFilledRect(screen, bx, pagerY, pbW, pbH, fill)
+		drawRectBorder(screen, bx, pagerY, pbW, pbH, 1, color.RGBA{120, 120, 180, 230})
+		drawCenteredDebugText(screen, label, bx, pagerY+(pbH-12)/2, pbW, 12)
+		if enabled && g.consumeLeftClickIn(bx, pagerY, bx+pbW, pagerY+pbH) {
+			onClick()
+		}
+	}
+	drawEntryPagerBtn(rowX, "< Prev", g.savePage > 0, func() { g.savePage-- })
+	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", g.savePage < savePageCount-1, func() { g.savePage++ })
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
+
+	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })
 }
 
 // drawAchievementsScreen renders the data-driven (stub) achievements list. All

@@ -101,6 +101,7 @@ func (ih *InputHandler) HandleInput() {
 			ih.game.returnToMainMenu()
 			ih.game.entryMenuMode = EntryMenuLoad
 			ih.game.slotSelection = 0
+			ih.game.savePage = 0 // open Load on page 1, matching every other Load entry
 			return
 		}
 		return
@@ -145,7 +146,22 @@ func (ih *InputHandler) HandleInput() {
 	}
 
 	// Tavern roster screen: clicks handled inside its Draw; suppress gameplay.
+	// ESC closes the screen here (edge-tracked + consumed) so it can't leak to the
+	// menu-open handler below on the next frame.
 	if ih.game.rosterScreenOpen {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.rosterScreenOpen = false
+			ih.game.rosterSelectedActive = -1
+		}
+		return
+	}
+
+	// Tavern stash screen: drag + clicks handled inside its Draw; suppress gameplay.
+	if ih.game.stashScreenOpen {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.stashScreenOpen = false
+			ih.game.clearStashDrag()
+		}
 		return
 	}
 
@@ -486,7 +502,7 @@ func repeatingKeyPressed(key ebiten.Key) bool {
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := ebiten.CursorPosition()
-	panelW, panelH := 300, 220
+	panelW, panelH := saveMenuPanelW, saveMenuPanelH
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
 
@@ -518,9 +534,11 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 1: // Save
 				ih.game.mainMenuMode = MenuSaveSelect
 				ih.game.slotSelection = 0
+				ih.game.savePage = 0
 			case 2: // Load
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
+				ih.game.savePage = 0
 			case 3: // High Scores
 				ih.game.showHighScores = true
 			case 4: // Main Menu (return to title, not quit the app)
@@ -536,9 +554,11 @@ func (ih *InputHandler) handleMainMenuInput() {
 			case 1:
 				ih.game.mainMenuMode = MenuSaveSelect
 				ih.game.slotSelection = 0
+				ih.game.savePage = 0
 			case 2:
 				ih.game.mainMenuMode = MenuLoadSelect
 				ih.game.slotSelection = 0
+				ih.game.savePage = 0
 			case 3:
 				ih.game.showHighScores = true
 			case 4:
@@ -552,93 +572,115 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.handleSaveRenameInput()
 			return
 		}
-		for i := 0; i < 5; i++ {
-			y := py + 56 + i*32
+		ih.navigateSavePage(px, py, panelW, panelH)
+		for i := 0; i < saveRowsPerPage; i++ {
+			row := ih.game.savePage*saveRowsPerPage + i
+			y := py + saveMenuListTopY + i*saveMenuRowPitch
 			if ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
-				sum := GetSaveSlotSummary(i)
-				if !sum.Exists {
+				if saveRowIsAutosave(row) {
+					ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+				} else if sum := GetSaveRowSummary(row); !sum.Exists {
 					ih.game.AddCombatMessage("No save in slot to rename")
 				} else {
 					ih.game.slotSelection = i
 					ih.game.saveRenameOpen = true
-					ih.game.saveRenameSlot = i
+					ih.game.saveRenameSlot = row
 					ih.game.saveRenameInput = sum.Name
 				}
 				return
 			}
 		}
-		// Navigate slots 0..4
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
-			if ih.game.slotSelection > 0 {
-				ih.game.slotSelection--
-			}
-		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
-			if ih.game.slotSelection < 4 {
-				ih.game.slotSelection++
-			}
-		}
-		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
+		// Mouse hover selection (row within page).
+		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Save failed")
-			} else {
-				ih.game.AddCombatMessage("Saved to slot")
-				ih.game.mainMenuMode = MenuMain
-			}
+			ih.doSaveToSelectedRow()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-			sum := GetSaveSlotSummary(ih.game.slotSelection)
-			if !sum.Exists {
+			row := ih.game.selectedSaveRow()
+			if saveRowIsAutosave(row) {
+				ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+			} else if sum := GetSaveRowSummary(row); !sum.Exists {
 				ih.game.AddCombatMessage("No save in slot to rename")
 			} else {
 				ih.game.saveRenameOpen = true
-				ih.game.saveRenameSlot = ih.game.slotSelection
+				ih.game.saveRenameSlot = row
 				ih.game.saveRenameInput = sum.Name
 			}
 		}
 		// Mouse click activation
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Save failed")
-			} else {
-				ih.game.AddCombatMessage("Saved to slot")
-				ih.game.mainMenuMode = MenuMain
-			}
+		if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
+			ih.doSaveToSelectedRow()
 		}
 	case MenuLoadSelect:
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
-			if ih.game.slotSelection > 0 {
-				ih.game.slotSelection--
-			}
-		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
-			if ih.game.slotSelection < 4 {
-				ih.game.slotSelection++
-			}
-		}
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
+		ih.navigateSavePage(px, py, panelW, panelH)
+		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Load failed")
-			} else {
-				ih.game.AddCombatMessage("Loaded from slot")
-				ih.game.mainMenuOpen = false
-				ih.game.mainMenuMode = MenuMain
-			}
+			ih.doLoadFromSelectedRow()
 		}
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Load failed")
-			} else {
-				ih.game.AddCombatMessage("Loaded from slot")
-				ih.game.mainMenuOpen = false
-				ih.game.mainMenuMode = MenuMain
-			}
+		if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
+			ih.doLoadFromSelectedRow()
 		}
+	}
+}
+
+// navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor
+// within the current page, Left/Right (keys) or the on-screen Prev/Next buttons
+// (a strip below the panel) flip between pages. The button rects are shared with
+// the draw side via savePagerButtonRects.
+func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
+	g := ih.game
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && g.slotSelection > 0 {
+		g.slotSelection--
+	}
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
+		g.slotSelection++
+	}
+	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
+	prev := inpututil.IsKeyJustPressed(ebiten.KeyLeft) ||
+		(g.savePage > 0 && g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2))
+	next := inpututil.IsKeyJustPressed(ebiten.KeyRight) ||
+		(g.savePage < savePageCount-1 && g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2))
+	if prev && g.savePage > 0 {
+		g.savePage--
+	}
+	if next && g.savePage < savePageCount-1 {
+		g.savePage++
+	}
+}
+
+// doSaveToSelectedRow writes the manual slot under the cursor. The Autosave slot
+// is load-only and refuses a manual write.
+func (ih *InputHandler) doSaveToSelectedRow() {
+	g := ih.game
+	row := g.selectedSaveRow()
+	if saveRowIsAutosave(row) {
+		g.AddCombatMessage("Autosave is written automatically - pick another slot")
+		return
+	}
+	if err := g.SaveGameToFile(saveRowPath(row)); err != nil {
+		g.AddCombatMessage("Save failed")
+	} else {
+		g.AddCombatMessage("Saved to " + saveRowLabel(row))
+		g.mainMenuMode = MenuMain
+	}
+}
+
+// doLoadFromSelectedRow loads the slot under the cursor (Autosave included).
+func (ih *InputHandler) doLoadFromSelectedRow() {
+	g := ih.game
+	row := g.selectedSaveRow()
+	if sum := GetSaveRowSummary(row); !sum.Exists {
+		g.AddCombatMessage("No save in that slot")
+		return
+	}
+	if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
+		g.AddCombatMessage("Load failed")
+	} else {
+		g.AddCombatMessage("Loaded " + saveRowLabel(row))
+		g.mainMenuOpen = false
+		g.mainMenuMode = MenuMain
 	}
 }
 
@@ -1341,6 +1383,9 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 		ih.game.gameLoop.renderer.precomputeFloorColorCache()
 		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
 	}
+
+	// Autosave on every map transition (load-only Autosave slot).
+	ih.game.Autosave()
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
@@ -2625,6 +2670,11 @@ func (ih *InputHandler) executeEncounterChoice() {
 		ih.game.dialogNPC = nil
 		ih.game.rosterScreenOpen = true
 		ih.game.rosterSelectedActive = -1
+
+	case "manage_stash":
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+		ih.game.openStash()
 
 	default:
 		// Unknown action - just close dialog

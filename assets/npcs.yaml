@@ -295,6 +295,8 @@ npcs:
       choices:
         - text: "Manage roster"
           action: "open_roster"
+        - text: "Manage your stash"
+          action: "manage_stash"
         - text: "Rest the night (25 gold)"
           action: "tavern_rest"
           cost: 25

@@ -91,6 +91,10 @@ type MonsterDefinition struct {
 	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE — once active, relentlessly chases from anywhere (else relentless only after normal aggro)
 	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
 	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
+	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
+	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
+	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
+	Banding bool `yaml:"banding,omitempty"`
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
@@ -407,6 +411,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AggroWholeMap = def.AggroWholeMap
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
+	m.Banding = def.Banding
 	if len(def.TintColor) == 3 {
 		m.TintR = float32(def.TintColor[0])
 		m.TintG = float32(def.TintColor[1])

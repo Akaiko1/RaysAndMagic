@@ -2441,10 +2441,17 @@ func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float
 	if mon == nil {
 		return 0, 0
 	}
+	x, y := mon.X, mon.Y
 	if r != nil && r.game != nil && r.game.combat != nil {
-		return r.game.combat.monsterVisualPos(mon)
+		x, y = r.game.combat.monsterVisualPos(mon)
 	}
-	return mon.X, mon.Y
+	// Banded stack: fan members around the tile centre so a pile of mobs snapped
+	// onto one leader reads as several, not one (render-only; positions unchanged).
+	if mon.BandStackCount > 1 && r.game != nil && r.game.config != nil {
+		ox, oy := bandFanOffset(mon.BandStackIndex, mon.BandStackCount, float64(r.game.config.GetTileSize()))
+		x, y = x+ox, y+oy
+	}
+	return x, y
 }
 
 // monsterHitShakeSizePx clamps the sprite size that scales the on-hit shudder so
