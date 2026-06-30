@@ -511,6 +511,7 @@ npcs:
     description: "The cold doorway back to the forest"
     sprite: "church_exit"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     dialogue:
       greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
@@ -546,6 +547,7 @@ npcs:
     description: "The stairway back out of the pyramid"
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -564,6 +566,7 @@ npcs:
     description: "Sandstone stairs leading upward"
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -582,6 +585,7 @@ npcs:
     description: "Sandstone stairs leading deeper"
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -600,6 +604,7 @@ npcs:
     description: "A narrow stairway toward the sealed sanctum"
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
