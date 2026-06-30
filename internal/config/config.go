@@ -569,10 +569,16 @@ type TileData struct {
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
 	// bordering water — see the renderer.
-	FloorTextureGroup string   `yaml:"floor_texture_group,omitempty"`
-	WallColor         [3]int   `yaml:"wall_color"`
-	Letter            string   `yaml:"letter"`
-	Biomes            []string `yaml:"biomes,omitempty"`
+	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
+	// InheritFloor makes a floor_only marker tile (spawn point, teleporter) take
+	// the surrounding biome floor colour + texture instead of painting its own
+	// floor_color square — like the ground under a mob spawn. The floor_color is
+	// then reused only as the tint for the tile's decoration (spawn border /
+	// teleporter glow), not the floor itself.
+	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
+	WallColor    [3]int   `yaml:"wall_color"`
+	Letter       string   `yaml:"letter"`
+	Biomes       []string `yaml:"biomes,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor_only) that blocks movement but reads like walkable
 	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura

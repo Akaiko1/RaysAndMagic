@@ -107,6 +107,10 @@ type Renderer struct {
 	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
 	// world change alongside the other per-map caches.
 	wallTorches []wallTorchPoint
+	// teleporterTiles caches every teleporter tile on the current map (+ its glow
+	// colour), collected during precomputeFloorColorCache's per-map tile scan so
+	// drawTeleporterTileFx doesn't rescan the world each frame.
+	teleporterTiles []teleporterTileFx
 	// Eased facing of scenery tokens (they slowly turn toward the camera),
 	// keyed by tile — environment sprites have no entity struct to carry it.
 	standeeEnvYaw map[[2]int]standeeEnvYawState
@@ -630,6 +634,7 @@ func (r *Renderer) precomputeFloorColorCache() {
 	}
 
 	// For each floor tile, check neighbors and determine color
+	var teleporterTiles []teleporterTileFx
 	for tileY := 0; tileY < worldHeight; tileY++ {
 		for tileX := 0; tileX < worldWidth; tileX++ {
 			// Get base floor color for this tile
@@ -638,15 +643,23 @@ func (r *Renderer) precomputeFloorColorCache() {
 			currentTile := r.game.GetCurrentWorld().GetTileAt(checkX, checkY)
 
 			baseColor := defaultMapFloor
+			// inherit_floor markers (spawn/teleporters) blend into the biome ground
+			// like an empty tile — their floor_color is the decoration tint, not the floor.
+			inherit := world.GlobalTileManager != nil && world.GlobalTileManager.InheritsFloor(currentTile)
 			if world.GlobalTileManager != nil {
-				// Only use tile-specific floor colors for non-empty tiles
-				// Empty tiles should use the map's default floor color
-				if currentTile != world.TileEmpty {
+				if td := world.GlobalTileManager.GetTileData(currentTile); td != nil && strings.EqualFold(td.Type, "teleporter") {
+					teleporterTiles = append(teleporterTiles, teleporterTileFx{tx: tileX, ty: tileY, color: td.FloorColor})
+				}
+			}
+			if world.GlobalTileManager != nil {
+				// Only use tile-specific floor colors for non-empty, non-inheriting tiles
+				// Empty (and inheriting) tiles should use the map's default floor color
+				if currentTile != world.TileEmpty && !inherit {
 					if colorConfig := world.GlobalTileManager.GetFloorColor(currentTile); colorConfig != [3]int{0, 0, 0} {
 						baseColor = color.RGBA{uint8(colorConfig[0]), uint8(colorConfig[1]), uint8(colorConfig[2]), 255}
 					}
 				}
-				// For TileEmpty, keep using defaultMapFloor (map-specific color)
+				// For TileEmpty/inherit, keep using defaultMapFloor (map-specific color)
 			}
 
 			// Check if any nearby tiles affect this floor color
@@ -670,30 +683,19 @@ func (r *Renderer) precomputeFloorColorCache() {
 			}
 
 			clr := baseColor
-			// Apply nearby tile effect ONLY to empty '.' tiles
-			if nearSpecialTile && currentTile == world.TileEmpty {
+			// Apply nearby tile effect to empty '.' tiles AND inherit_floor markers
+			if nearSpecialTile && (currentTile == world.TileEmpty || inherit) {
 				clr = nearTileColor
 			}
 			cache[[2]int{tileX, tileY}] = clr
 		}
 	}
 
-	// Highlight the player's spawn point tile using spawn tile configuration
-	if r.game.GetCurrentWorld() != nil {
-		spawnTileX := r.game.GetCurrentWorld().StartX
-		spawnTileY := r.game.GetCurrentWorld().StartY
-
-		// Get spawn color from tile configuration
-		if world.GlobalTileManager != nil {
-			spawnColor := world.GlobalTileManager.GetFloorColor(world.TileSpawn)
-			cache[[2]int{spawnTileX, spawnTileY}] = color.RGBA{
-				R: uint8(spawnColor[0]),
-				G: uint8(spawnColor[1]),
-				B: uint8(spawnColor[2]),
-				A: 255,
-			}
-		}
-	}
+	// The spawn tile and teleporters now inherit the biome floor (inherit_floor)
+	// — no coloured-square override here. Their colour shows as a decoration
+	// drawn over the floor (spawn border / teleporter glow). Cache the teleporter
+	// tiles found during this per-map scan so the glow pass doesn't rescan.
+	r.teleporterTiles = teleporterTiles
 
 	r.floorColorCache = cache
 	r.buildFloorColorMap(worldWidth, worldHeight)
@@ -785,13 +787,17 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	}
 	group := tileData.FloorTextureGroup
 	if group == "" {
-		// No group: borrow the biome default only for tiles that paint no
-		// floor of their own. A set floor_color means the color IS the look
-		// (teleporter/trap/spawn) — leave it untextured.
-		if tileData.FloorColor != ([3]int{0, 0, 0}) {
+		// inherit_floor markers (spawn/teleporters) take the biome ground texture
+		// even though they set a floor_color (that colour is their decoration tint).
+		if tileData.InheritFloor {
+			group = defaultFloorTextureGroup
+		} else if tileData.FloorColor != ([3]int{0, 0, 0}) {
+			// No group + a set floor_color means the color IS the look
+			// (trap, etc.) — leave it untextured.
 			return ""
+		} else {
+			group = defaultFloorTextureGroup
 		}
-		group = defaultFloorTextureGroup
 	}
 	// Beach shoreline: any tile sitting on the biome's default ground that
 	// borders water uses "beach" instead, so the sand transition is
@@ -1066,6 +1072,10 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// its quest unseals it.
 		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
+		// Red bubble border around the player's start tile (floor inherited).
+		r.drawSpawnTileBorder(screen)
+		// Coloured glow filling every teleporter tile (floor inherited).
+		r.drawTeleporterTileFx(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
 		// Steam rising from every shut culvert valve's tile.

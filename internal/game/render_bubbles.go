@@ -30,6 +30,8 @@ type bubbleColumnFx struct {
 	color        [3]int
 	centerDepth  float64 // billboard self-cull plane (bubbles behind it are hidden)
 	hasCenter    bool    // false disables the self-cull (steam/valve fill the tile)
+	fall         bool    // true = motes descend sky→ground (teleporter); default ground→sky (steam/aura)
+	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1−j, 1+j]×base
 }
 
 // emitBubbleColumn projects one world point, culls it against the near/far clip,
@@ -69,12 +71,24 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 		speedSeed := auraHash(c.hx, c.hy, c.salt+200, idx)
 		period := c.periodTick * (c.jitterMin + c.jitterSpan*speedSeed)
 		phase := math.Mod(float64(r.game.frameCount)/period+seed, 1.0)
+		// phase 0→1: rising goes floor→top; falling goes top→floor.
 		by := floorY - phase*rise
+		if c.fall {
+			by = (floorY - rise) + phase*rise
+		}
 		alpha := c.baseAlpha * distFade * c.colBright * math.Sin(phase*math.Pi)
 		if alpha <= 0.01 {
 			continue
 		}
-		bx := float64(screenX) + math.Sin((phase+seed)*2*math.Pi)*size*c.wobbleCoef
-		r.drawGlowRect(screen, bx, by, size, c.color, alpha, additiveGlowBlend)
+		bsize := size
+		if c.sizeJitter > 0 {
+			sj := auraHash(c.hx, c.hy, c.salt+300, idx)
+			bsize = size * (1 - c.sizeJitter + 2*c.sizeJitter*sj)
+			if bsize < c.sizeFloor {
+				bsize = c.sizeFloor
+			}
+		}
+		bx := float64(screenX) + math.Sin((phase+seed)*2*math.Pi)*bsize*c.wobbleCoef
+		r.drawGlowRect(screen, bx, by, bsize, c.color, alpha, additiveGlowBlend)
 	}
 }

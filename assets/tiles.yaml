@@ -1263,7 +1263,8 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [255, 0, 0]  # Bright red for spawn point
+    floor_color: [255, 0, 0]  # Red — now used only as the spawn-tile border tint
+    inherit_floor: true       # ground takes the surrounding biome floor; red shows as a border
     letter: "+"
 
   # Variable height walls

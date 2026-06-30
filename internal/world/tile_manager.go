@@ -359,6 +359,15 @@ func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 	return data.FloorColor
 }
 
+// InheritsFloor reports whether a tile should take the surrounding biome floor
+// (colour + texture) rather than painting its own floor_color — see
+// config.TileData.InheritFloor. Marker tiles (spawn, teleporters) set this so
+// they blend into the ground like a mob-spawn cell.
+func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && data.InheritFloor
+}
+
 // GetFloorNearColor returns the floor color to use near this tile type
 func (tm *TileManager) GetFloorNearColor(tileType TileType3D) [3]int {
 	data := tm.GetTileData(tileType)
