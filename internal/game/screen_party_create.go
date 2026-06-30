@@ -501,7 +501,7 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	if hero.entry.Race != "" {
 		race = humanizeKey(hero.entry.Race)
 	}
-	line(fmt.Sprintf("%s — %s %s", c.Name, race, c.Class.String()), gold)
+	line(fmt.Sprintf("%s - %s %s", c.Name, race, c.Class.String()), gold)
 	line(fmt.Sprintf("Level %d   HP %d/%d   SP %d/%d", c.Level, c.HitPoints, c.MaxHitPoints, c.SpellPoints, c.MaxSpellPoints), white)
 	ty += 4
 

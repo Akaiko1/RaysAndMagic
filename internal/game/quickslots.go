@@ -309,7 +309,7 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 // label above it. Callers position it in the free space of the open tab so it
 // clears the panel art.
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
-	drawCenteredDebugText(screen, "Quick Slots — drag items / spells here", barX, barY-15, barW, 14)
+	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here", barX, barY-15, barW, 14)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW)
 }
 

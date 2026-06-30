@@ -207,7 +207,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			}
 		}
 		g.party.RemoveItem(itemIndex)
-		g.AddCombatMessage(fmt.Sprintf("%s drinks %s — the venom subsides.", ch.Name, item.Name))
+		g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
 		return true
 	}
 

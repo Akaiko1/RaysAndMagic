@@ -192,7 +192,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, fmt.Sprintf("Pacifies a living target for %ds (stops attacking; breaks if hit)", d.PacifyDurationSeconds))
 	}
 	if d.PartyAoeRadiusTiles > 0 {
-		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage — your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
+		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
 	}
 	if d.ZoneRadiusTiles > 0 {
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE

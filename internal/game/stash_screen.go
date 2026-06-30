@@ -71,13 +71,13 @@ func (g *MMGame) commitStashTransfer(rollback func()) bool {
 	}
 	if err := stash.Save(g.stash); err != nil {
 		rollback() // chest never committed → just undo the in-memory move
-		g.AddCombatMessage("Stash transfer failed — nothing was moved.")
+		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
 	if err := g.autosaveErr(); err != nil {
 		rollback()              // bag write failed after the chest committed:
 		_ = stash.Save(g.stash) // re-commit the chest at its pre-move state too
-		g.AddCombatMessage("Stash transfer failed — nothing was moved.")
+		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
 	return true

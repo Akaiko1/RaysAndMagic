@@ -876,46 +876,33 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 	}
 }
 
-// drawCombatMessages draws the compact recent-message log above the party.
+const hudMessageSpacing = 18
+
+// drawCombatMessages draws the compact recent-message log just above the party
+// portraits. Long entries word-wrap to the block width (see hudMessageLines); the
+// block is bottom-anchored and grows upward so it never spills over the party UI.
 func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
-	messages := ui.game.GetCombatMessages()
-	if len(messages) == 0 {
+	lines := ui.game.hudMessageLines()
+	if len(lines) == 0 {
 		return
 	}
 
-	// Position messages in the bottom-right corner, above the party UI
-	screenWidth := ui.game.config.GetScreenWidth()
-	screenHeight := ui.game.config.GetScreenHeight()
-	portraitHeight := ui.game.config.UI.PartyPortraitHeight
+	bx, by, bw, bh := ui.game.hudMessageBlockRect(len(lines))
+	vector.FillRect(screen, float32(bx), float32(by), float32(bw), float32(bh), color.RGBA{0, 0, 0, 150}, false)
 
-	// Start from just above the party UI
-	startY := screenHeight - portraitHeight - 80 // 80px above party UI
-	messageSpacing := 18                         // Space between messages
-	messageWidth := 400                          // Width of message area
-	startX := screenWidth - messageWidth - 10    // 10px from right edge
-
-	// Draw semi-transparent background for the message area
-	bgHeight := len(messages)*messageSpacing + 10
-	vector.FillRect(screen, float32(startX-5), float32(startY-5), float32(messageWidth), float32(bgHeight), color.RGBA{0, 0, 0, 150}, false)
-
-	// Draw messages from top to bottom (most recent at bottom)
-	for i, message := range messages {
-		textY := startY + (i * messageSpacing)
-		drawDebugTextColored(screen, message, startX, textY, ui.game.GetCombatMessageColor(i))
+	// Draw lines from top to bottom (most recent at bottom)
+	for i, line := range lines {
+		textY := by + 5 + (i * hudMessageSpacing)
+		drawDebugTextColored(screen, line.Text, bx+5, textY, line.Color)
 	}
 }
 
 func combatMessageArea(g *MMGame) (x, y, w, h int) {
-	count := len(g.GetCombatMessages())
+	count := len(g.hudMessageLines())
 	if count == 0 {
 		return 0, 0, 0, 0
 	}
-	const messageSpacing = 18
-	w = 400
-	x = g.config.GetScreenWidth() - w - 15
-	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - 85
-	h = count*messageSpacing + 10
-	return
+	return g.hudMessageBlockRect(count)
 }
 
 func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {

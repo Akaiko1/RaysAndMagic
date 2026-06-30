@@ -474,7 +474,7 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 		return
 	}
 	for _, c := range gl.game.party.FreeCaptives() {
-		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed — they'll wait at the tavern.", c.Name, c.Class.String()))
+		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }
 

@@ -1197,6 +1197,47 @@ func (g *MMGame) hudLog() []combatLogEntry {
 	return g.combatLogHistory[len(g.combatLogHistory)-n:]
 }
 
+const (
+	// hudMessageWidth is the on-screen width (px) of the inline HUD message block.
+	hudMessageWidth = 400
+	// maxHudMessageLines caps how many wrapped lines the HUD shows (most recent
+	// kept), so a burst of long messages can't grow the block up across the screen.
+	maxHudMessageLines = 8
+	// hudMessageBottomGap is the gap (px) between the block's bottom and the party
+	// portraits: the block is bottom-anchored here and grows upward.
+	hudMessageBottomGap = 4
+)
+
+// hudMessageLines wraps the HUD combat-log tail to the message-block width,
+// carrying each entry's color onto every line it wraps to, and keeps only the
+// most recent maxHudMessageLines lines. Shared by the HUD renderer and its click
+// hit-region so the drawn block and the clickable area stay the same height.
+func (g *MMGame) hudMessageLines() []combatLogEntry {
+	maxChars := (hudMessageWidth - 10) / debugTextCharWidth
+	var lines []combatLogEntry
+	for _, e := range g.hudLog() {
+		for _, l := range wrapText(e.Text, maxChars) {
+			lines = append(lines, combatLogEntry{Text: l, Color: e.Color})
+		}
+	}
+	if len(lines) > maxHudMessageLines {
+		lines = lines[len(lines)-maxHudMessageLines:]
+	}
+	return lines
+}
+
+// hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
+// given wrapped-line count: bottom-anchored just above the party portraits and
+// growing upward so a tall block never spills down over the party UI. Shared by
+// the renderer and the click hit-region.
+func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
+	h = lineCount*hudMessageSpacing + 10
+	w = hudMessageWidth
+	x = g.config.GetScreenWidth() - w - 15
+	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - hudMessageBottomGap - h
+	return
+}
+
 // GetCombatMessages returns the HUD combat-message texts (most recent last).
 func (g *MMGame) GetCombatMessages() []string {
 	hud := g.hudLog()

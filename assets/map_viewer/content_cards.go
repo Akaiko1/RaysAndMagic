@@ -84,7 +84,7 @@ func buildWeaponCards() []contentCard {
 		sort.SliceStable(keys, func(i, j int) bool {
 			return config.GlobalWeapons.Weapons[keys[i]].Name < config.GlobalWeapons.Weapons[keys[j]].Name
 		})
-		section := "Weapons — " + titleCase(strings.ReplaceAll(cat, "_", " "))
+		section := "Weapons - " + titleCase(strings.ReplaceAll(cat, "_", " "))
 		for _, key := range keys {
 			cards = append(cards, weaponCard(section, key, config.GlobalWeapons.Weapons[key]))
 		}

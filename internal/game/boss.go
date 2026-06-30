@@ -165,7 +165,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 	if spawned == 0 {
 		return false
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner — retainers rush to its side!", m.Name))
+	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner - retainers rush to its side!", m.Name))
 	return true
 }
 

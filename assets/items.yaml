@@ -19,7 +19,7 @@ items:
     type: "armor"
     armor_category: "leather"
     description: "Simple leather cap offering light protection"
-    flavor: "A scuffed browband that keeps splinters—and doubts—at bay."
+    flavor: "A scuffed browband that keeps splinters - and doubts - at bay."
     equip_slot: "helmet"
     armor_class_base: 1
     endurance_scaling_divisor: 10
@@ -596,7 +596,7 @@ items:
     type: "armor"
     armor_category: "cloth"
     description: "A gilded breastplate forged around a Golden Thief Bug card"
-    flavor: "A breastplate forged around the golden thief-bug card itself — spellfire, frost, venom and shadow all slide off the gilded shell."
+    flavor: "A breastplate forged around the golden thief-bug card itself - spellfire, frost, venom and shadow all slide off the gilded shell."
     equip_slot: "armor"
     armor_class_base: 10
     rarity: "legendary"
@@ -705,7 +705,7 @@ items:
     name: "Ashigaru Matchcord"
     type: "trinket"
     description: "A coil of tarred match-cord and a spent firelock, sold by weight"
-    flavor: "Tarred cord and a rusted lock — alchemists pay by the coil."
+    flavor: "Tarred cord and a rusted lock - alchemists pay by the coil."
     rarity: "uncommon"
     value: 150
 
@@ -840,7 +840,7 @@ items:
     name: "Serpent Skin"
     type: "trinket"
     description: "A long shed snakeskin prized by alchemists"
-    flavor: "Whole and unbroken — the alchemists like that."
+    flavor: "Whole and unbroken - the alchemists like that."
     rarity: "common"
     value: 150
 
@@ -912,7 +912,7 @@ items:
     name: "Antivenom"
     type: "consumable"
     description: "A bitter draught that purges venom from the blood"
-    flavor: "Tastes of rot and roots — and stops the burning in your veins."
+    flavor: "Tastes of rot and roots - and stops the burning in your veins."
     cure_poison: true
     heal_base: 10
     heal_endurance_divisor: 6

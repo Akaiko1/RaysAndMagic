@@ -386,7 +386,7 @@ maps:
           - type: "orc_hero_boss"
             count: 1
         rewards:
-          completion_message: "The warlord falls. A flagstone grinds aside — the lost city's treasury lies open."
+          completion_message: "The warlord falls. A flagstone grinds aside - the lost city's treasury lies open."
           treasure_chest:
             id: "lost_city_treasury"
             map: "deep_jungle"

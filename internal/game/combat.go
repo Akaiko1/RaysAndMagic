@@ -2851,7 +2851,7 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 		rallied++
 	}
 	if rallied > 0 {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s falls — its retainers turn on you in a vengeful fury!", dead.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("%s falls - its retainers turn on you in a vengeful fury!", dead.Name))
 	}
 }
 
@@ -3124,11 +3124,11 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 	switch {
 	case m.BossDormant:
 		cs.game.spawnImpactSparks(m.X, m.Y)
-		cs.game.AddCombatMessage(fmt.Sprintf("The seal holds — %s is impervious.", m.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("The seal holds - %s is impervious.", m.Name))
 		return true
 	case m.BossWarded:
 		cs.game.spawnImpactSparks(m.X, m.Y)
-		cs.game.AddCombatMessage(fmt.Sprintf("The idols' ward holds — %s is impervious. Shatter the idols!", m.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("The idols' ward holds - %s is impervious. Shatter the idols!", m.Name))
 		return true
 	}
 	return false
@@ -3360,7 +3360,7 @@ func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
 // damage is dealt. A separate, mutually exclusive effect from Pacify (Charm).
 func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, spellName string) {
 	if m.MonsterType != "undead" {
-		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s — only the undead can be bound.", spellName, m.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("%s washes over %s - only the undead can be bound.", spellName, m.Name))
 		return
 	}
 	m.Bound = true
@@ -3579,7 +3579,7 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 			stunned++
 		}
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area — %d foe(s) stunned!", def.Name, stunned))
+	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area - %d foe(s) stunned!", def.Name, stunned))
 	cs.game.setUtilityStatus(spellID, frames)
 	return true
 }

@@ -216,7 +216,7 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 			status = "Dead"
 		}
 		drawDebugText(screen,
-			fmt.Sprintf("%d) %s — %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints),
+			fmt.Sprintf("%d) %s - %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints),
 			popupX+24, y+6)
 
 		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
@@ -335,7 +335,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
-	drawDebugText(screen, "Tavern — Manage Roster", popupX+16, popupY+14)
+	drawDebugText(screen, "Tavern - Manage Roster", popupX+16, popupY+14)
 	drawDebugText(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
 	drawDebugText(screen, "Active Party", leftX, listY-16)
 	drawDebugText(screen, "Reserve (tavern)", rightX, listY-16)
@@ -346,7 +346,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		if m.FreeStatPoints > 0 || len(m.OwedLevelChoices) > 0 {
 			flag = " !"
 		}
-		return fmt.Sprintf("%s — %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
+		return fmt.Sprintf("%s - %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
 	}
 
 	// Active column

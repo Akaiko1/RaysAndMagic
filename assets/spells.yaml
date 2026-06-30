@@ -227,7 +227,7 @@ spells:
   disintegrate:
     # Basic spell properties
     name: "Disintegrate"
-    description: "Unmakes a foe — 15% chance to instantly slay it. No effect on undead or dragons."
+    description: "Unmakes a foe - 15% chance to instantly slay it. No effect on undead or dragons."
     school: "dark"
     level: 5
     spell_points_cost: 10
@@ -284,7 +284,7 @@ spells:
 
   bind_undead:
     name: "Bind Undead"
-    description: "Binds an undead to your will for 5 minutes — it fights other monsters. No effect on the living. It perishes when you leave the area."
+    description: "Binds an undead to your will for 5 minutes - it fights other monsters. No effect on the living. It perishes when you leave the area."
     school: "dark"
     level: 6
     spell_points_cost: 8
@@ -312,7 +312,7 @@ spells:
 
   resurrect:
     name: "Resurrect"
-    description: "Restores a fallen ally to full health — even one who has been eradicated"
+    description: "Restores a fallen ally to full health - even one who has been eradicated"
     school: "light"
     level: 7
     spell_points_cost: 16
@@ -717,7 +717,7 @@ spells:
 
   inferno:
     name: "Inferno"
-    description: "Engulfs everything around the party in flame — friend and foe alike take heavy fire damage"
+    description: "Engulfs everything around the party in flame - friend and foe alike take heavy fire damage"
     school: "fire"
     level: 7
     spell_points_cost: 15       # 45 damage (cost × 3) to all in radius, including the party

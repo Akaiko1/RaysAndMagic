@@ -737,7 +737,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		// in the sky shader; Kage samples nearest-only natively). Plain
 		// bilinear smears magnified pixel art, so when one texel spans several
 		// screen pixels the interpolation is squeezed into a ~1-pixel band at
-		// texel seams — crisp texels, antialiased edges — and relaxes back to
+		// texel seams - crisp texels, antialiased edges - and relaxes back to
 		// ordinary bilinear by the 1:1 footprint.
 		fx := lx*TexTileSize.x - 0.5
 		fy := ly*TexTileSize.y - 0.5

@@ -457,7 +457,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		rules.Add("Overlapping zones of the same spell do not stack")
 	}
 	if def.MonsterOnly {
-		rules.Add("Monster only — never offered to the party")
+		rules.Add("Monster only - never offered to the party")
 	}
 
 	return []CardSection{casting, dmg, heal, crit, zone, effects, rules}
@@ -470,7 +470,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 // stay.
 func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}
-	casting.Add("Cast by monsters only — never learnable")
+	casting.Add("Cast by monsters only - never learnable")
 	if sd.IsProjectile && def.Physics != nil {
 		if def.Physics.RangeTiles > 0 {
 			casting.Add("Range: %.0f tiles", def.Physics.RangeTiles)
@@ -497,7 +497,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 
 	rules := CardSection{Title: "RULES"}
 	rules.Add("Strikes your party, not other monsters")
-	rules.Add("Monster only — never offered to the party")
+	rules.Add("Monster only - never offered to the party")
 
 	return []CardSection{casting, dmg, effects, rules}
 }

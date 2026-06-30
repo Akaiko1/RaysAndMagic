@@ -1584,9 +1584,9 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 
 	biomeLabel := biome
 	if biomeLabel == "" {
-		biomeLabel = "—"
+		biomeLabel = "-"
 	}
-	entries = append(entries, legendEntry{Text: fmt.Sprintf("Tiles — biome: %s", biomeLabel), IsHeader: true})
+	entries = append(entries, legendEntry{Text: fmt.Sprintf("Tiles - biome: %s", biomeLabel), IsHeader: true})
 
 	tileItems := make(map[string][]legendBuildItem)
 	for key, data := range tm.ListTiles() {

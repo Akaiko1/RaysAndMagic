@@ -1721,7 +1721,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
 	if npc.RejectsLich && ih.game.party.HasLich() {
-		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
+		ih.game.AddCombatMessage("The tower's wards flare against the undead - it will not answer a Lich.")
 		return
 	}
 	// Credit any of this NPC's kill quests whose targets are already gone, so the
@@ -2807,7 +2807,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 			return
 		}
 		if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-			g.AddCombatMessage("The trial is already underway — return when the Lich King is slain.")
+			g.AddCombatMessage("The trial is already underway - return when the Lich King is slain.")
 			return
 		}
 		g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
@@ -2878,7 +2878,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	// Generic turn-in: must be done, then pay out and conclude the NPC.
 	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
-		g.AddCombatMessage("That task isn't finished yet — return when it's done.")
+		g.AddCombatMessage("That task isn't finished yet - return when it's done.")
 		return
 	}
 	if g.claimQuestReward(questID) && npc != nil {
@@ -2899,7 +2899,7 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	}
 	q := g.questManager.GetQuest(questID)
 	if q == nil || q.Status != quests.QuestStatusActive {
-		g.AddCombatMessage("The valve won't budge — no reason to shut it yet.")
+		g.AddCombatMessage("The valve won't budge - no reason to shut it yet.")
 		return
 	}
 	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
@@ -2954,7 +2954,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
 	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep — the Warlord wakes.", cq.Definition.Name))
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep - the Warlord wakes.", cq.Definition.Name))
 	}
 }
 

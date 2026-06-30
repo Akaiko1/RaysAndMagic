@@ -258,7 +258,7 @@ weapons:
     crit_chance: 5
     rarity: "common"
     value: 140
-    flavor: "A drain-cleaner's pole resharpened into a pike — rust and all."
+    flavor: "A drain-cleaner's pole resharpened into a pike - rust and all."
     melee:
       arc_type: 1
       animation_frames: 12
@@ -784,7 +784,7 @@ weapons:
     crit_chance: 12
     rarity: "uncommon"
     value: 320
-    flavor: "It clears a path through anything — vines, or men."
+    flavor: "It clears a path through anything - vines, or men."
     melee:
       arc_type: 2
       animation_frames: 7
@@ -846,7 +846,7 @@ weapons:
     volley: 2  # fires a fan of 2 darts per shot
     rarity: "uncommon"
     value: 360
-    flavor: "A breath, a hiss — and the canopy goes quiet."
+    flavor: "A breath, a hiss - and the canopy goes quiet."
     physics:
       speed_tiles: 11.0
       range_tiles: 7.0

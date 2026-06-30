@@ -175,7 +175,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 		drawFilledRect(screen, rowX, y, rowW, rowH-8, bg)
 		drawRectBorder(screen, rowX, y, rowW, rowH-8, 1, color.RGBA{90, 90, 130, 200})
 
-		label := fmt.Sprintf("%s — (empty)", saveRowLabel(row))
+		label := fmt.Sprintf("%s - (empty)", saveRowLabel(row))
 		if sum.Exists {
 			name := sum.Name
 			if name == "" || saveRowIsAutosave(row) {
@@ -189,7 +189,7 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			if len(t) > 19 {
 				t = t[:19]
 			}
-			label = fmt.Sprintf("%s — %s  [%s %s]", saveRowLabel(row), truncateSaveName(name, 18), mode, t)
+			label = fmt.Sprintf("%s - %s  [%s %s]", saveRowLabel(row), truncateSaveName(name, 18), mode, t)
 		}
 		drawDebugText(screen, label, rowX+12, y+rowH/2-12)
 
