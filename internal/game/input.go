@@ -1270,19 +1270,18 @@ func (ih *InputHandler) checkTeleporter() {
 		return // No teleportation occurred
 	}
 
-	// Handle map transition if needed
+	// Cross-map teleport: switch, then land north-facing + autosave (same arrival
+	// path as enter_map portals).
 	if targetMapKey != "" && world.GlobalWorldManager != nil && targetMapKey != world.GlobalWorldManager.CurrentMapKey {
 		ih.switchToMap(targetMapKey)
-		// Cross-location teleport: face north on arrival for a consistent
-		// orientation (same rule as enter_map portals). Same-map teleporters
-		// keep the party's current heading.
-		ih.game.camera.Angle = AngleNorth
+		ih.finishMapArrival(newX, newY, AngleNorth)
+		return
 	}
 
+	// Same-map teleport: keep the party's heading, no map-change autosave.
 	ih.game.camera.X = newX
 	ih.game.camera.Y = newY
 	ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-	// Keep turn-based facing cardinal after a teleport.
 	if ih.game.turnBasedMode {
 		ih.game.snapToCardinalDirection()
 	}
@@ -1384,7 +1383,28 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
 	}
 
-	// Autosave on every map transition (load-only Autosave slot).
+	// NOTE: do NOT autosave here. The player's position on the new map is set by
+	// finishMapArrival AFTER this returns; autosaving here would snapshot the OLD
+	// map's coordinates on the new map (e.g. the party jammed into a border wall).
+}
+
+// finishMapArrival is the single "arrived on a new map" path: it places the
+// party at (x,y,angle), re-registers collision, snaps to a cardinal heading in
+// turn-based mode, and autosaves. Keeping position + autosave together here is
+// what guarantees the autosave can't capture stale pre-switch coordinates — the
+// ordering invariant lives in one place instead of being copy-pasted per caller.
+func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
+	ih.game.camera.X = x
+	ih.game.camera.Y = y
+	ih.game.camera.Angle = angle
+	if ih.game.collisionSystem != nil {
+		ih.game.collisionSystem.UpdateEntity("player", x, y)
+	}
+	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
+	// would otherwise leave the party at 45° on the new map.
+	if ih.game.turnBasedMode {
+		ih.game.snapToCardinalDirection()
+	}
 	ih.game.Autosave()
 }
 
@@ -1429,9 +1449,7 @@ func (ih *InputHandler) checkDeepWater() {
 
 		// Teleport to center of water map
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
-		ih.game.camera.X = centerX
-		ih.game.camera.Y = centerY
-		ih.game.collisionSystem.UpdateEntity("player", centerX, centerY)
+		ih.finishMapArrival(centerX, centerY, ih.game.camera.Angle)
 
 		fmt.Println("Entered underwater realm with Water Breathing active!")
 	} else {
@@ -3099,18 +3117,7 @@ func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
 		x, y = currentWorld.GetStartingPosition()
 		angle = AngleNorth
 	}
-	ih.game.camera.X = x
-	ih.game.camera.Y = y
-	ih.game.camera.Angle = angle
-	if ih.game.collisionSystem != nil {
-		ih.game.collisionSystem.UpdateEntity("player", x, y)
-	}
-	// Turn-based facing must be cardinal. A restored return-pose angle can be a
-	// free real-time heading (diagonal), which would leave the party at 45° on
-	// the new map — snap it to the nearest cardinal in TB.
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
-	}
+	ih.finishMapArrival(x, y, angle)
 }
 
 // startEncounter initiates combat encounter with bandits

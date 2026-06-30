@@ -670,10 +670,8 @@ func (gl *GameLoop) returnFromUnderwater() {
 	// Find nearest walkable tile to the stored return position - MUST succeed for safety
 	returnX, returnY := gl.game.FindNearestWalkableTileMustSucceed(gl.game.underwaterReturnX, gl.game.underwaterReturnY)
 
-	// Teleport to the safe position
-	gl.game.camera.X = returnX
-	gl.game.camera.Y = returnY
-	gl.game.collisionSystem.UpdateEntity("player", returnX, returnY)
+	// Teleport to the safe position (single arrival path: position + autosave).
+	gl.inputHandler.finishMapArrival(returnX, returnY, gl.game.camera.Angle)
 
 	fmt.Println("Water Breathing expired! Returned to surface.")
 }
