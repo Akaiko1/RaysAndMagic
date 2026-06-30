@@ -315,6 +315,13 @@ graphics:
       - lysander_archmage_full
       - lysander_lich
       - lysander_lich_full
+      # Dark-elf sorcerer hero art (violet skin)
+      - vaelith
+      - vaelith_full
+      - vaelith_archmage
+      - vaelith_archmage_full
+      - vaelith_lich
+      - vaelith_lich_full
       # Environment
       - bonsai_tree
       # Spellbook school tabs (mind/spirit are purple)

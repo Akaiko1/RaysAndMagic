@@ -646,6 +646,11 @@ func (r *Renderer) precomputeFloorColorCache() {
 			// inherit_floor markers (spawn/teleporters) blend into the biome ground
 			// like an empty tile — their floor_color is the decoration tint, not the floor.
 			inherit := world.GlobalTileManager != nil && world.GlobalTileManager.InheritsFloor(currentTile)
+			if inherit {
+				if inherited := r.inheritedFloorColor(tileX, tileY); inherited != ([3]int{0, 0, 0}) {
+					baseColor = color.RGBA{uint8(inherited[0]), uint8(inherited[1]), uint8(inherited[2]), 255}
+				}
+			}
 			if world.GlobalTileManager != nil {
 				if td := world.GlobalTileManager.GetTileData(currentTile); td != nil && strings.EqualFold(td.Type, "teleporter") {
 					teleporterTiles = append(teleporterTiles, teleporterTileFx{tx: tileX, ty: tileY, color: td.FloorColor})
@@ -790,7 +795,10 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 		// inherit_floor markers (spawn/teleporters) take the biome ground texture
 		// even though they set a floor_color (that colour is their decoration tint).
 		if tileData.InheritFloor {
-			group = defaultFloorTextureGroup
+			group = r.inheritedFloorTextureGroup(tileX, tileY)
+			if group == "" {
+				group = defaultFloorTextureGroup
+			}
 		} else if tileData.FloorColor != ([3]int{0, 0, 0}) {
 			// No group + a set floor_color means the color IS the look
 			// (trap, etc.) — leave it untextured.
@@ -810,6 +818,38 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 		}
 	}
 	return group
+}
+
+func (r *Renderer) inheritedFloorTextureGroup(tileX, tileY int) string {
+	data := r.inheritedFloorTileData(tileX, tileY)
+	if data == nil {
+		return ""
+	}
+	return data.FloorTextureGroup
+}
+
+func (r *Renderer) inheritedFloorColor(tileX, tileY int) [3]int {
+	data := r.inheritedFloorTileData(tileX, tileY)
+	if data == nil {
+		return [3]int{0, 0, 0}
+	}
+	return data.FloorColor
+}
+
+// inheritedFloorTileData picks the floor an inherit_floor marker (spawn/teleporter)
+// blends into, using the same weighted dominant-neighbour vote as under-entity
+// floors so a marker in a multi-floor room (e.g. the castle) takes the room's
+// dominant floor, not an arbitrary first neighbour.
+func (r *Renderer) inheritedFloorTileData(tileX, tileY int) *config.TileData {
+	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
+		return nil
+	}
+	t, ok := world.GlobalTileManager.DominantNeighbourFloor(
+		r.game.world.Tiles, r.game.world.Width, r.game.world.Height, tileX, tileY, nil)
+	if !ok {
+		return nil
+	}
+	return world.GlobalTileManager.GetTileData(t)
 }
 
 func (r *Renderer) tileBordersWater(tileX, tileY int) bool {
@@ -3336,6 +3376,27 @@ func spellParticleScreenSize(particleSize int, lifeRatio, scale float64) float64
 }
 
 // drawMagicProjectiles draws all active magic projectiles
+// drawProjectileCollisionBox draws the debug collision box for a flying
+// projectile (magic bolt or arrow), scaled and centered on its on-screen sprite.
+// No-op for non-positive dimensions. Shared by the projectile and arrow renderers.
+func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, screenY, spriteSize, screenColW, screenColH int, boxColor color.RGBA) {
+	if screenColW <= 0 || screenColH <= 0 {
+		return
+	}
+	boxX := screenX - screenColW/2
+	boxY := screenY + (spriteSize-screenColH)/2
+	boxOpts := &ebiten.DrawImageOptions{}
+	boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
+	boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
+	boxOpts.ColorScale.Scale(
+		float32(boxColor.R)/255,
+		float32(boxColor.G)/255,
+		float32(boxColor.B)/255,
+		float32(boxColor.A)/255*0.5,
+	)
+	screen.DrawImage(r.whiteImg, boxOpts)
+}
+
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 	glowBlend := additiveGlowBlend
 
@@ -3381,22 +3442,8 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			screenColW := int(worldColW * scaleFactor)
 			screenColH := int(worldColH * scaleFactor)
 
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (projectileSize-screenColH)/2
-				boxColor := color.RGBA{0, 255, 0, 120} // Green, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
+			// Green box for magic projectiles.
+			r.drawProjectileCollisionBox(screen, screenX, screenY, projectileSize, screenColW, screenColH, color.RGBA{0, 255, 0, 120})
 		}
 
 		// Use spell-specific color from config (no more hardcoded colors!)
@@ -3566,22 +3613,8 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			scaleFactor := float64(arrowSize) / float64(bowDef.Graphics.BaseSize)
 			screenColW := int(worldColW * scaleFactor)
 			screenColH := int(worldColH * scaleFactor)
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (arrowSize-screenColH)/2
-				boxColor := color.RGBA{0, 255, 255, 120} // Cyan, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
+			// Cyan box for arrows.
+			r.drawProjectileCollisionBox(screen, screenX, screenY, arrowSize, screenColW, screenColH, color.RGBA{0, 255, 255, 120})
 		}
 
 		// Draw arrow using bow-specific color from config

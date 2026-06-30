@@ -232,7 +232,7 @@ loots:
   elf_swordsman:
     - type: "item"
       key: "elven_shield"
-      chance: 0.10
+      chance: 0.20
     - type: "item"
       key: "golden_armor"
       chance: 0.05
@@ -278,11 +278,17 @@ loots:
     - type: "item"
       key: "diamond"
       chance: 0.15
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.05
 
   dragon_green:
     - type: "item"
       key: "emerald"
       chance: 0.15
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.01
 
   dragon_gold:
     - type: "item"
@@ -291,6 +297,9 @@ loots:
     - type: "item"
       key: "golden_armor"
       chance: 0.06
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.02
 
   # --- Japanese Castle (eastern islands) mobs (L12-18) ---
   ashigaru_firelock:

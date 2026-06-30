@@ -1780,30 +1780,13 @@ func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages
 	if totalPages <= 1 {
 		return
 	}
-	const btnW, btnH = 30, 18
-	mouseX, mouseY := ebiten.CursorPosition()
-
-	drawBtn := func(bx int, label string, enabled bool) bool {
-		bg := color.RGBA{70, 50, 30, 210}
-		switch {
-		case !enabled:
-			bg = color.RGBA{45, 40, 38, 160}
-		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
-			bg = color.RGBA{120, 90, 50, 230}
-		}
-		drawFilledRect(screen, bx, y, btnW, btnH, bg)
-		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
-		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
-		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
-	}
-
-	if drawBtn(x, "<", ui.questPage > 0) {
+	if ui.drawPagerButton(screen, x, y, "<", ui.questPage > 0) {
 		ui.questPage--
 	}
-	if drawBtn(x+width-btnW, ">", ui.questPage < totalPages-1) {
+	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.questPage < totalPages-1) {
 		ui.questPage++
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
 }
 
 // characterKnowsSpell checks if a character already knows a spell

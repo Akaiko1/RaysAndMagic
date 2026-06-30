@@ -582,31 +582,34 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }
 
-func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
-	const btnW, btnH = 30, 18
+const pagerBtnW, pagerBtnH = 30, 18
+
+// drawPagerButton draws one prev/next pager button at (bx, y) and reports whether
+// it was clicked this frame (only when enabled). Shared by the quest and
+// character list pagers.
+func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool) bool {
 	mouseX, mouseY := ebiten.CursorPosition()
-
-	drawBtn := func(bx int, label string, enabled bool) bool {
-		bg := color.RGBA{70, 50, 30, 210}
-		switch {
-		case !enabled:
-			bg = color.RGBA{45, 40, 38, 160}
-		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
-			bg = color.RGBA{120, 90, 50, 230}
-		}
-		drawFilledRect(screen, bx, y, btnW, btnH, bg)
-		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
-		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
-		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	bg := color.RGBA{70, 50, 30, 210}
+	switch {
+	case !enabled:
+		bg = color.RGBA{45, 40, 38, 160}
+	case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH):
+		bg = color.RGBA{120, 90, 50, 230}
 	}
+	drawFilledRect(screen, bx, y, pagerBtnW, pagerBtnH, bg)
+	drawRectBorder(screen, bx, y, pagerBtnW, pagerBtnH, 1, color.RGBA{150, 110, 52, 220})
+	drawCenteredDebugText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
+	return enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH)
+}
 
-	if drawBtn(x, "<", ui.characterPage > 0) {
+func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
+	if ui.drawPagerButton(screen, x, y, "<", ui.characterPage > 0) {
 		ui.characterPage--
 	}
-	if drawBtn(x+width-btnW, ">", ui.characterPage < 1) {
+	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.characterPage < 1) {
 		ui.characterPage++
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, pagerBtnH-2)
 }
 
 // drawSpellbookContent draws the spellbook tab content

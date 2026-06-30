@@ -172,8 +172,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 		m.HitTintFrames = MonsterHitFlashFrames
 		hit = true
 		if !m.IsAlive() {
-			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			cs.awardExperienceAndGold(m)
+			cs.finishMonsterKill(m)
 		}
 	}
 	return hit
@@ -1018,8 +1017,7 @@ func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3
 	monster.HitTintFrames = MonsterHitFlashFrames
 	cs.engageTurnBasedPackOnHit(monster)
 	if !monster.IsAlive() {
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		xpAwarded := cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.finishMonsterKill(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's mastery pierces %s's dodge for %d true damage and kills it!", attackerName, monster.Name, actual))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
 	} else {
@@ -1125,11 +1123,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		cs.game.AddCombatMessage(fmt.Sprintf("%s%s hits %s for %d damage and kills it!",
 			prefix, cs.game.party.Members[cs.game.selectedChar].Name, monster.Name, finalDamage))
 
-		// Add to dead monsters list for cleanup (O(1) instead of iterating all monsters)
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-
-		// Award experience and gold using centralized function
-		xpAwarded := cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.finishMonsterKill(monster)
 
 		// Add experience/gold award message
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
@@ -2564,8 +2558,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		monster.HitTintFrames = MonsterHitFlashFrames
 		cs.engageTurnBasedPackOnHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		xpAwarded := cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.finishMonsterKill(monster)
 
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's %s disintegrates %s!", attackerName, weaponName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
@@ -2586,9 +2579,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		}
 		monster.TakeDamageResist(0, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
-		monster.HitTintFrames = MonsterHitFlashFrames
-		cs.breakPacifyOnHit(monster)         // a hit still frees a Charmed monster
-		cs.engageTurnBasedPackOnHit(monster) // and still pulls its TB pack into the fight
+		cs.markMonsterHit(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		return
@@ -2619,9 +2610,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	// GM spell mastery pierces part of the target's resistance.
 	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
-	monster.HitTintFrames = MonsterHitFlashFrames
-	cs.breakPacifyOnHit(monster) // any hit frees a pacified (Charm) monster
-	cs.engageTurnBasedPackOnHit(monster)
+	cs.markMonsterHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
@@ -2632,8 +2621,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	cs.game.collisionSystem.UnregisterEntity(entityID)
 
 	if !monster.IsAlive() {
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, monster.ID)
-		xpAwarded := cs.awardExperienceAndGold(monster)
+		xpAwarded := cs.finishMonsterKill(monster)
 		prefix := ""
 		if isCrit {
 			prefix = "Critical! "
@@ -2692,14 +2680,11 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 		}
 		reduced := applyMonsterArmor(damage, damageTypeStr, m.ArmorClass, false)
 		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
-		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakPacifyOnHit(m)
-		cs.engageTurnBasedPackOnHit(m)
+		cs.markMonsterHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 
 		if !m.IsAlive() {
-			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			xpAwarded := cs.awardExperienceAndGold(m)
+			xpAwarded := cs.finishMonsterKill(m)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splash kills %s! (+%d XP)", weaponName, m.Name, xpAwarded))
 		} else {
 			cs.game.AddCombatMessage(fmt.Sprintf("%s splashes %s for %d %s damage.", weaponName, m.Name, actual, damageTypeStr))
@@ -2788,6 +2773,23 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 	scaledProjBox := collision.NewBoundingBox(projX, projY, scaledProjW, scaledProjH)
 	scaledMonsterBox := collision.NewBoundingBox(monster.X, monster.Y, scaledMonsterW, scaledMonsterH)
 	return scaledProjBox.Intersects(scaledMonsterBox)
+}
+
+// markMonsterHit applies the side effects every hit shares regardless of source
+// (melee, projectile, splash, nova, trap, steam): the damage flash, freeing a
+// Charmed monster, and pulling its turn-based pack into the fight.
+func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
+	m.HitTintFrames = MonsterHitFlashFrames
+	cs.breakPacifyOnHit(m)
+	cs.engageTurnBasedPackOnHit(m)
+}
+
+// finishMonsterKill records a slain monster for the end-of-frame removal sweep
+// (removeDeadMonstersByID, which also unregisters its collision entity) and
+// awards the kill's XP/gold. Returns the XP awarded, for the kill message.
+func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
+	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	return cs.awardExperienceAndGold(m)
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed.
@@ -3171,14 +3173,11 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		}
 		reduced := applyMonsterArmor(monsterDmg, damageTypeStr, m.ArmorClass, false)
 		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
-		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakPacifyOnHit(m)
-		cs.engageTurnBasedPackOnHit(m)
+		cs.markMonsterHit(m)
 		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
 		if !m.IsAlive() {
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
-			cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-			xpAwarded := cs.awardExperienceAndGold(m)
+			xpAwarded := cs.finishMonsterKill(m)
 			cs.game.AddCombatMessage(fmt.Sprintf("%s is consumed by %s! (+%d XP)", m.Name, def.Name, xpAwarded))
 		}
 	}

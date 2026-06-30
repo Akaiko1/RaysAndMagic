@@ -95,9 +95,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 			continue
 		}
 		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
-		m.HitTintFrames = MonsterHitFlashFrames
-		cs.breakPacifyOnHit(m)
-		cs.engageTurnBasedPackOnHit(m)
+		cs.markMonsterHit(m)
 		cs.game.spawnSteamPuff(m.X, m.Y)
 		cs.finishIndirectKill(m)
 	}

@@ -368,6 +368,51 @@ func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
 	return data != nil && data.InheritFloor
 }
 
+// floorVoteNeighbours are the 8 neighbours that vote on an inherited floor,
+// orthogonal first (weight 2) then diagonal (weight 1). Fixed order makes
+// tie-breaks deterministic.
+var floorVoteNeighbours = []struct{ dx, dy, w int }{
+	{0, -1, 2}, {0, 1, 2}, {-1, 0, 2}, {1, 0, 2},
+	{-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1},
+}
+
+// DominantNeighbourFloor returns the dominant authored, steppable floor tile among
+// the 8 neighbours of (x,y) — orthogonal neighbours weighted double, with a
+// deterministic tie-break by neighbour order. Only real ground votes: render_type
+// "floor_only" AND walkable, non-solid, and not itself an inherit_floor marker
+// (so spawn/teleporters never stamp their own square under an entity). Cells where
+// skip(nx,ny) is true are ignored (e.g. other entity-placeholder cells). ok is
+// false when no floor neighbour exists, leaving the fallback to the caller. Single
+// source for both under-entity floors (map load) and inherit_floor markers (render).
+func (tm *TileManager) DominantNeighbourFloor(tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	isFloor := func(t TileType3D) bool {
+		return tm.GetRenderType(t) == "floor_only" &&
+			tm.IsWalkable(t) && !tm.IsSolid(t) && !tm.InheritsFloor(t)
+	}
+	counts := make(map[TileType3D]int)
+	best := TileEmpty
+	bestScore := 0
+	for _, n := range floorVoteNeighbours {
+		nx, ny := x+n.dx, y+n.dy
+		if nx < 0 || ny < 0 || ny >= height || nx >= width {
+			continue
+		}
+		if skip != nil && skip(nx, ny) {
+			continue
+		}
+		t := tiles[ny][nx]
+		if !isFloor(t) {
+			continue
+		}
+		counts[t] += n.w
+		if counts[t] > bestScore {
+			bestScore = counts[t]
+			best = t
+		}
+	}
+	return best, bestScore > 0
+}
+
 // GetFloorNearColor returns the floor color to use near this tile type
 func (tm *TileManager) GetFloorNearColor(tileType TileType3D) [3]int {
 	data := tm.GetTileData(tileType)

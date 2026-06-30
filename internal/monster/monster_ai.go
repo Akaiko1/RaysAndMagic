@@ -777,24 +777,8 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 		return false
 	}
 
-	currentTileX := m.worldToTile(m.X)
-	currentTileY := m.worldToTile(m.Y)
-
-	if m.PathIndex == 0 {
-		if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
-			m.PathIndex = 1
-		} else {
-			for i := range m.PathTiles {
-				if m.PathTiles[i].X == currentTileX && m.PathTiles[i].Y == currentTileY {
-					m.PathIndex = i + 1
-					break
-				}
-			}
-			if m.PathIndex == 0 {
-				m.PathTiles = nil
-				return false
-			}
-		}
+	if !m.advancePathIndexToCurrentTile() {
+		return false
 	}
 
 	if m.PathIndex >= len(m.PathTiles) {
@@ -883,24 +867,8 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return false
 	}
 
-	currentTileX := m.worldToTile(m.X)
-	currentTileY := m.worldToTile(m.Y)
-
-	if m.PathIndex == 0 {
-		if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
-			m.PathIndex = 1
-		} else {
-			for i := range m.PathTiles {
-				if m.PathTiles[i].X == currentTileX && m.PathTiles[i].Y == currentTileY {
-					m.PathIndex = i + 1
-					break
-				}
-			}
-			if m.PathIndex == 0 {
-				m.PathTiles = nil
-				return false
-			}
-		}
+	if !m.advancePathIndexToCurrentTile() {
+		return false
 	}
 
 	if m.PathIndex >= len(m.PathTiles) {
@@ -945,6 +913,30 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return true
 	}
 
+	m.PathTiles = nil
+	return false
+}
+
+// advancePathIndexToCurrentTile aligns PathIndex with the monster's current tile
+// when a fresh path begins (PathIndex 0): it skips the node the monster already
+// stands on, scanning forward to locate it. Returns false (and drops the path)
+// when the current tile isn't on the path at all, so the caller repaths.
+func (m *Monster3D) advancePathIndexToCurrentTile() bool {
+	if m.PathIndex != 0 {
+		return true
+	}
+	currentTileX := m.worldToTile(m.X)
+	currentTileY := m.worldToTile(m.Y)
+	if m.PathTiles[0].X == currentTileX && m.PathTiles[0].Y == currentTileY {
+		m.PathIndex = 1
+		return true
+	}
+	for i := range m.PathTiles {
+		if m.PathTiles[i].X == currentTileX && m.PathTiles[i].Y == currentTileY {
+			m.PathIndex = i + 1
+			return true
+		}
+	}
 	m.PathTiles = nil
 	return false
 }

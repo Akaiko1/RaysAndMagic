@@ -498,6 +498,27 @@ func repeatingKeyPressed(key ebiten.Key) bool {
 	return false
 }
 
+// activateMainMenuSelection runs the action for the highlighted MenuMain option,
+// shared by Enter-key and mouse-click activation.
+func (ih *InputHandler) activateMainMenuSelection() {
+	switch ih.game.mainMenuSelection {
+	case 0: // Continue
+		ih.game.mainMenuOpen = false
+	case 1: // Save
+		ih.game.mainMenuMode = MenuSaveSelect
+		ih.game.slotSelection = 0
+		ih.game.savePage = 0
+	case 2: // Load
+		ih.game.mainMenuMode = MenuLoadSelect
+		ih.game.slotSelection = 0
+		ih.game.savePage = 0
+	case 3: // High Scores
+		ih.game.showHighScores = true
+	case 4: // Main Menu (return to title, not quit the app)
+		ih.game.returnToMainMenu()
+	}
+}
+
 // handleMainMenuInput processes input for the main menu (opened with ESC)
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
@@ -526,44 +547,12 @@ func (ih *InputHandler) handleMainMenuInput() {
 		// Mouse hover selection
 		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, 56)
 
-		// Activate selection with Enter
+		// Activate selection with Enter or a mouse click on the panel
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			switch ih.game.mainMenuSelection {
-			case 0: // Continue
-				ih.game.mainMenuOpen = false
-			case 1: // Save
-				ih.game.mainMenuMode = MenuSaveSelect
-				ih.game.slotSelection = 0
-				ih.game.savePage = 0
-			case 2: // Load
-				ih.game.mainMenuMode = MenuLoadSelect
-				ih.game.slotSelection = 0
-				ih.game.savePage = 0
-			case 3: // High Scores
-				ih.game.showHighScores = true
-			case 4: // Main Menu (return to title, not quit the app)
-				ih.game.returnToMainMenu()
-			}
+			ih.activateMainMenuSelection()
 		}
-
-		// Mouse click activation
 		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			switch ih.game.mainMenuSelection {
-			case 0:
-				ih.game.mainMenuOpen = false
-			case 1:
-				ih.game.mainMenuMode = MenuSaveSelect
-				ih.game.slotSelection = 0
-				ih.game.savePage = 0
-			case 2:
-				ih.game.mainMenuMode = MenuLoadSelect
-				ih.game.slotSelection = 0
-				ih.game.savePage = 0
-			case 3:
-				ih.game.showHighScores = true
-			case 4:
-				ih.game.returnToMainMenu()
-			}
+			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
 		px := (w - panelW) / 2
@@ -1009,9 +998,6 @@ func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	ih.game.advanceRTActor(kind)
 }
 
-// castSlottedSpell casts the selected character's slotted spell (F key). Heal
-// spells are aimed with the mouse; everything else casts directly. Applies the
-// real-time cooldown only if the cast actually fired.
 // announceCastShortfall explains a refused explicit cast (F) for the member
 // the player had selected: not enough SP for the slotted spell/trap. Uses the
 // LIVE trap cost (saved items may carry stale SpellCost).
@@ -1040,34 +1026,48 @@ func (ih *InputHandler) announceCastShortfall(idx int) {
 	}
 }
 
-func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+// castSlottedSpellResolved performs the slotted-spell cast the F key triggers in
+// both modes: a heal spell aims at the mouse-picked party member, anything else
+// casts directly. Reports whether it fired and the spell's ID for cooldown lookup.
+// The caller commits the result per mode (RT cooldown vs TB action slot).
+func (ih *InputHandler) castSlottedSpellResolved(sel *character.MMCharacter) (bool, spells.SpellID) {
 	spell, hasSpell := sel.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return
+		return false, ""
 	}
 	spellID := spells.SpellID(spell.SpellEffect)
 	if spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther {
 		mouseX, mouseY := ebiten.CursorPosition()
 		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-		if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
-			ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
-		}
-		return
+		return ih.game.combat.CastEquippedHealOnTarget(targetCharIndex), spellID
 	}
-	if ih.game.combat.CastEquippedSpell() {
+	return ih.game.combat.CastEquippedSpell(), spellID
+}
+
+// castSlottedSpell casts the selected character's slotted spell (F key) and, in
+// real-time mode, applies the cooldown only if the cast actually fired.
+func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+	if fired, spellID := ih.castSlottedSpellResolved(sel); fired {
 		ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
 
-// castBestHeal casts the selected character's strongest known heal (C key),
-// aimed at the party member under the mouse (or self). No-op if they know none.
-func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+// castBestHealResolved performs the best-heal cast the C/H key triggers in both
+// modes: aim at the party member under the mouse, falling back to the selected
+// character. Reports whether it fired and the heal spell's ID for cooldown lookup.
+func (ih *InputHandler) castBestHealResolved() (bool, spells.SpellID) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
 	if targetCharIndex < 0 {
 		targetCharIndex = ih.game.selectedChar
 	}
-	if cast, spellID := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+	return ih.game.combat.CastBestHealOnTarget(targetCharIndex)
+}
+
+// castBestHeal casts the selected character's strongest known heal (C key),
+// aimed at the party member under the mouse (or self). No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+	if cast, spellID := ih.castBestHealResolved(); cast {
 		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
@@ -1851,6 +1851,18 @@ func (ih *InputHandler) navigateSpellSelectionDown(spellKeys []string) {
 	}
 }
 
+// npcShopLine returns the dialog NPC's configured line for a shop event (with the
+// buyer/spell vars filled in), or `fallback` when the NPC defines none. `pick`
+// selects the relevant field from the NPC's dialogue data.
+func (ih *InputHandler) npcShopLine(pick func(*character.NPCDialogue) string, vars npcDialogVars, fallback string) string {
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil {
+		if custom := pick(ih.game.dialogNPC.DialogueData); custom != "" {
+			return formatNPCDialogue(custom, vars)
+		}
+	}
+	return fallback
+}
+
 // purchaseSelectedSpell attempts to purchase the selected spell for the selected character
 func (ih *InputHandler) purchaseSelectedSpell() {
 	if ih.game.dialogNPC == nil || ih.game.selectedSpellKey == "" {
@@ -1864,35 +1876,21 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		return
 	}
 
+	vars := npcDialogVars{Name: selectedChar.Name, Spell: spellData.Name, Cost: spellData.Cost}
+
 	// Check if character already knows this spell
 	if characterKnowsSpellByName(selectedChar, spellData.Name) {
-		msg := "Already known."
-		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.AlreadyKnown != "" {
-			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.AlreadyKnown, npcDialogVars{
-				Name:  selectedChar.Name,
-				Spell: spellData.Name,
-				Cost:  spellData.Cost,
-			})
-		} else {
-			msg = fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)
-		}
-		ih.game.AddCombatMessage(msg)
+		ih.game.AddCombatMessage(ih.npcShopLine(
+			func(d *character.NPCDialogue) string { return d.AlreadyKnown }, vars,
+			fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)))
 		return
 	}
 
 	// Check if character has enough gold
 	if ih.game.party.Gold < spellData.Cost {
-		msg := "Not enough gold."
-		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.InsufficientGold != "" {
-			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.InsufficientGold, npcDialogVars{
-				Name:  selectedChar.Name,
-				Spell: spellData.Name,
-				Cost:  spellData.Cost,
-			})
-		} else {
-			msg = fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)
-		}
-		ih.game.AddCombatMessage(msg)
+		ih.game.AddCombatMessage(ih.npcShopLine(
+			func(d *character.NPCDialogue) string { return d.InsufficientGold }, vars,
+			fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)))
 		return
 	}
 
@@ -1910,15 +1908,9 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	}
 	ih.game.party.Gold -= spellData.Cost
 
-	msg := fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.Success != "" {
-		msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.Success, npcDialogVars{
-			Name:  selectedChar.Name,
-			Spell: spellData.Name,
-			Cost:  spellData.Cost,
-		})
-	}
-	ih.game.AddCombatMessage(msg)
+	ih.game.AddCombatMessage(ih.npcShopLine(
+		func(d *character.NPCDialogue) string { return d.Success }, vars,
+		fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)))
 }
 
 // addSpellToCharacter teaches a shop spell; reports whether the spellbook
@@ -2274,27 +2266,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
-		spell, hasSpell := selected.Equipment[items.SlotSpell]
-		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-			mouseX, mouseY := ebiten.CursorPosition()
-			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-			if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
-				ih.game.consumeSelectedCharAction()
-			}
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
-		} else {
-			if ih.game.combat.CastEquippedSpell() {
-				ih.game.consumeSelectedCharAction()
-			}
-			ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
+		if fired, _ := ih.castSlottedSpellResolved(selected); fired {
+			ih.game.consumeSelectedCharAction()
 		}
+		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
-		mouseX, mouseY := ebiten.CursorPosition()
-		targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-		if targetCharIndex < 0 {
-			targetCharIndex = ih.game.selectedChar
-		}
-		if cast, _ := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+		if cast, _ := ih.castBestHealResolved(); cast {
 			ih.game.consumeSelectedCharAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)

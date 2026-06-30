@@ -313,6 +313,20 @@ func alivePartyIndices(members []*character.MMCharacter) []int {
 	return indices
 }
 
+// commitMonsterMoveTB moves the monster to the tile-center (wx, wy) when the
+// habitat-aware collision check passes, updating its collision entity and turn
+// stamp. Returns whether the monster moved.
+func (gl *GameLoop) commitMonsterMoveTB(m *monster.Monster3D, wx, wy float64) bool {
+	if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+		return false
+	}
+	m.X = wx
+	m.Y = wy
+	gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
+	m.LastMoveTick = gl.game.frameCount
+	return true
+}
+
 // centerMonsterOnTile snaps the monster to the center of the tile it currently
 // occupies, so turn-based movement stays strictly tile-to-tile. No-op if the
 // tile center isn't reachable for this monster (wall/occupied).
@@ -321,11 +335,7 @@ func (gl *GameLoop) centerMonsterOnTile(m *monster.Monster3D, tileSize float64) 
 	if cx == m.X && cy == m.Y {
 		return
 	}
-	if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
-		m.X, m.Y = cx, cy
-		gl.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
-		m.LastMoveTick = gl.game.frameCount
-	}
+	gl.commitMonsterMoveTB(m, cx, cy)
 }
 
 // monsterMoveTurnBased handles a monster move in turn-based mode
@@ -360,11 +370,7 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// teleport steps below are only a fallback for when A* finds no path at all.
 	if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
 		wx, wy := TileCenterFromTile(nx, ny, tileSize)
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, wx, wy, monster.HabitatPrefs, monster.Flying) {
-			monster.X = wx
-			monster.Y = wy
-			gl.game.collisionSystem.UpdateEntity(monster.ID, wx, wy)
-			monster.LastMoveTick = gl.game.frameCount
+		if gl.commitMonsterMoveTB(monster, wx, wy) {
 			return
 		}
 	}
@@ -381,34 +387,19 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	newX := monster.X + float64(stepX)*tileSize
 	newY := monster.Y + float64(stepY)*tileSize
 
-	// Check if the monster can move to the new position
-	if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, newX, newY, monster.HabitatPrefs, monster.Flying) {
-		monster.X = newX
-		monster.Y = newY
-		gl.game.collisionSystem.UpdateEntity(monster.ID, newX, newY)
-		monster.LastMoveTick = gl.game.frameCount
+	if gl.commitMonsterMoveTB(monster, newX, newY) {
 		return
 	}
 
 	// Try the other perpendicular direction if the preferred one is blocked
 	if stepX != 0 && dyTiles != 0 {
-		altX := monster.X
 		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
-			monster.X = altX
-			monster.Y = altY
-			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
-			monster.LastMoveTick = gl.game.frameCount
+		if gl.commitMonsterMoveTB(monster, monster.X, altY) {
 			return
 		}
 	} else if stepY != 0 && dxTiles != 0 {
 		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
-		altY := monster.Y
-		if gl.game.collisionSystem.CanMoveToWithHabitat(monster.ID, altX, altY, monster.HabitatPrefs, monster.Flying) {
-			monster.X = altX
-			monster.Y = altY
-			gl.game.collisionSystem.UpdateEntity(monster.ID, altX, altY)
-			monster.LastMoveTick = gl.game.frameCount
+		if gl.commitMonsterMoveTB(monster, altX, monster.Y) {
 			return
 		}
 	}
@@ -464,11 +455,7 @@ func (gl *GameLoop) monsterMoveRangedTurnBased(m *monster.Monster3D, rangeTiles 
 		tileSize := float64(gl.game.config.GetTileSize())
 		if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
 			wx, wy := TileCenterFromTile(nx, ny, tileSize)
-			if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
-				m.X = wx
-				m.Y = wy
-				gl.game.collisionSystem.UpdateEntity(m.ID, wx, wy)
-				m.LastMoveTick = gl.game.frameCount
+			if gl.commitMonsterMoveTB(m, wx, wy) {
 				return
 			}
 		}

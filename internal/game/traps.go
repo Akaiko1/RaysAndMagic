@@ -350,9 +350,7 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	// element (physical fully, elemental on the reduced cap), then resistances.
 	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
 	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
-	m.HitTintFrames = MonsterHitFlashFrames
-	cs.breakPacifyOnHit(m)
-	cs.engageTurnBasedPackOnHit(m)
+	cs.markMonsterHit(m)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
 	cs.finishIndirectKill(m)
 }
@@ -364,8 +362,7 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 		return
 	}
 	cs.game.collisionSystem.UnregisterEntity(m.ID)
-	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
-	cs.awardExperienceAndGold(m)
+	cs.finishMonsterKill(m)
 }
 
 // updateTraps runs once per frame from the game loop: ambient swirl VFX in
