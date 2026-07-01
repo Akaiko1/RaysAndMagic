@@ -476,7 +476,6 @@ func (m *Monster3D) tryMoveCardinal(collisionChecker CollisionChecker, dirX, dir
 	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
-		m.Direction = dirAngle
 		return true
 	}
 
@@ -539,8 +538,9 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 // the A* goal ring, which already excludes the target tile. The player is a
 // non-solid collision entity, so CanMoveToWithHabitat won't stop a pixel step
 // from crossing onto the party and overlapping their sprite ("wolf on the head");
-// this guard is what keeps the final-approach steps off the player tile. Ranged
-// mobs are unaffected (they stop at firing range, never tile-adjacent).
+// this guard is what keeps the final-approach steps off the player tile.
+// TODO: ranged mobs are skipped here because they should stop at firing range,
+// but LOS/pathing edge cases can still let them step onto the party tile.
 func (m *Monster3D) entersTargetTile(x, y, targetX, targetY float64) bool {
 	if m.HasRangedAttack() {
 		return false
@@ -568,17 +568,14 @@ func (m *Monster3D) stepToward(collisionChecker CollisionChecker, tx, ty float64
 	newY := m.Y + dy/dist*step
 	if !m.entersTargetTile(newX, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X, m.Y = newX, newY
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 	if dx != 0 && !m.entersTargetTile(newX, m.Y, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
 		m.X = newX
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 	if dy != 0 && !m.entersTargetTile(m.X, newY, tx, ty) && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
 		m.Y = newY
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 	return false
@@ -603,17 +600,13 @@ func (m *Monster3D) stepOutOfBlockedMeleeDiagonal(collisionChecker CollisionChec
 	step := m.speedPerTick()
 	candidates := [2]struct {
 		x, y float64
-		dir  float64
 	}{
-		{x: m.X + float64(mathutil.IntSign(dxTile))*step, y: m.Y, dir: 0},
-		{x: m.X, y: m.Y + float64(mathutil.IntSign(dyTile))*step, dir: 0},
+		{x: m.X + float64(mathutil.IntSign(dxTile))*step, y: m.Y},
+		{x: m.X, y: m.Y + float64(mathutil.IntSign(dyTile))*step},
 	}
-	candidates[0].dir = math.Atan2(0, float64(mathutil.IntSign(dxTile)))
-	candidates[1].dir = math.Atan2(float64(mathutil.IntSign(dyTile)), 0)
 	for _, c := range candidates {
 		if !m.entersTargetTile(c.x, c.y, targetX, targetY) && collisionChecker.CanMoveToWithHabitat(m.ID, c.x, c.y, m.HabitatPrefs, m.Flying) {
 			m.X, m.Y = c.x, c.y
-			m.Direction = c.dir
 			m.ResetPathfinding()
 			return true
 		}
@@ -814,7 +807,6 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 
@@ -824,12 +816,10 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	// pursuers sticking on corners; only if BOTH axes are blocked do we repath.
 	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
 		m.X = newX
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
 		m.Y = newY
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 
@@ -909,7 +899,6 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
 		m.X = newX
 		m.Y = newY
-		m.Direction = math.Atan2(dy, dx)
 		return true
 	}
 
@@ -1476,7 +1465,6 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 			if collisionChecker.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
 				m.X = nx
 				m.Y = ny
-				m.Direction = angle
 				return
 			}
 		}
@@ -1485,6 +1473,5 @@ func (m *Monster3D) unstuckFromObstacles(collisionChecker CollisionChecker) {
 	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
 		m.X = m.SpawnX
 		m.Y = m.SpawnY
-		m.Direction = m.GetDirectionToSpawn()
 	}
 }

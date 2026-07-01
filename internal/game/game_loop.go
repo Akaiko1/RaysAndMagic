@@ -22,6 +22,11 @@ type GameLoop struct {
 	lastDrawDuration   time.Duration
 }
 
+type monsterFramePosition struct {
+	monster *monster.Monster3D
+	x, y    float64
+}
+
 // NewGameLoop creates a new game loop manager. Combat is shared via
 // game.combat (a stateless back-pointer holder) — no second instance.
 func NewGameLoop(game *MMGame) *GameLoop {
@@ -106,6 +111,8 @@ func (gl *GameLoop) updateExploration() {
 	// retaliation) stays cheap when none exist — the overwhelmingly common case.
 	gl.game.refreshBoundUndeadCache()
 
+	monsterFrameStart := gl.captureMonsterFramePositions()
+
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
 		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
@@ -138,6 +145,8 @@ func (gl *GameLoop) updateExploration() {
 		gl.game.combat.HandleMonsterInteractions()
 	}
 
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
 		gl.updateProjectilesParallel()
@@ -161,6 +170,46 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update performance metrics
 	gl.updatePerformanceMetrics()
+}
+
+func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
+	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
+		return nil
+	}
+	positions := make([]monsterFramePosition, 0, len(gl.game.world.Monsters))
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		positions = append(positions, monsterFramePosition{
+			monster: m,
+			x:       m.X,
+			y:       m.Y,
+		})
+	}
+	return positions
+}
+
+// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
+// it points each monster along its net displacement this tick, derived from actual
+// motion (so axis-slides and band snaps read correctly). Movement helpers therefore
+// don't set m.Direction themselves — only no-move state transitions (idle/alert/flee)
+// still set an intent facing, since there's no motion here to derive it from.
+func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
+	const minMoveForFacing = 0.25
+	minMoveSq := minMoveForFacing * minMoveForFacing
+	for _, pos := range start {
+		m := pos.monster
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		dx := m.X - pos.x
+		dy := m.Y - pos.y
+		if dx*dx+dy*dy < minMoveSq {
+			continue
+		}
+		m.Direction = math.Atan2(dy, dx)
+	}
 }
 
 // Draw handles all rendering for one frame
