@@ -85,11 +85,14 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
+		} else {
+			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 		}
 	case MenuLoadSelect:
 		drawDebugText(screen, "Load Game - Select Slot", px+16, py+14)
 		drawDebugText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
 		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
+		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 	}
 }
 
@@ -140,6 +143,68 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 		drawDebugText(screen, label, px+28, y)
 	}
 	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
+	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
+	// top of the pager strip instead of being covered by it.
+}
+
+// drawSaveRowHoverTooltip shows play time + the saved party (name, level, class)
+// for the row under the cursor, so you can tell saves apart before loading.
+func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
+	mx, my := ebiten.CursorPosition()
+	startY := py + saveMenuListTopY
+	for i := 0; i < saveRowsPerPage; i++ {
+		y := startY + i*saveMenuRowPitch
+		if mx < px+16 || mx > px+panelW-16 || my < y-4 || my > y+24 {
+			continue
+		}
+		sum := GetSaveRowSummary(ui.game.savePage*saveRowsPerPage + i)
+		if !sum.Exists {
+			return
+		}
+		var lines []string
+		if sum.PlayTime != "" {
+			lines = append(lines, "Play time: "+sum.PlayTime)
+		}
+		for _, m := range sum.Party {
+			lines = append(lines, fmt.Sprintf("%s  Lv.%d %s", m.Name, m.Level, character.CharacterClass(m.Class).String()))
+		}
+		if len(lines) > 0 {
+			ui.drawTooltipLines(screen, mx+16, my+16, lines)
+		}
+		return
+	}
+}
+
+// drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
+// the screen so it never spills off the edge.
+func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
+	boxW := 0
+	for _, l := range lines {
+		if lw := debugTextWidth(l); lw > boxW {
+			boxW = lw
+		}
+	}
+	boxW += 16
+	boxH := len(lines)*16 + 10
+	sw := ui.game.config.GetScreenWidth()
+	sh := ui.game.config.GetScreenHeight()
+	if x+boxW > sw {
+		x = sw - boxW
+	}
+	if y+boxH > sh {
+		y = sh - boxH
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	drawFilledRect(screen, x, y, boxW, boxH, color.RGBA{12, 12, 28, 240})
+	drawRectBorder(screen, x, y, boxW, boxH, 1, color.RGBA{120, 120, 180, 230})
+	for i, l := range lines {
+		drawDebugText(screen, l, x+8, y+6+i*16)
+	}
 }
 
 // drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a

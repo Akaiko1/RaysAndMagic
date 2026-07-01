@@ -47,10 +47,13 @@ func stashLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	gridX := L.centerX - L.gridW/2
 	chestH := L.chestRows*stashCellSize + (L.chestRows-1)*stashCellGap
 	bagH := L.bagRows*stashCellSize + (L.bagRows-1)*stashCellGap
+	toggle := stashToggleRect(L)
 	boxes := []uiBox{
 		textLineBox("title", "Tavern Stash", L.popupX+16, L.popupY+14),
 		textLineBox("subtitle", stashSubtitle, L.popupX+16, L.popupY+34),
-		centeredTextBox("chest-heading", "Chest", L.popupX, L.chestTop-16, stashPopupW, 14),
+		// "Card Vault - cards only" is the wider of the two tab headings; check it.
+		centeredTextBox("chest-heading", "Card Vault - cards only", L.popupX, L.chestTop-16, stashPopupW, 14),
+		{"chest-tab-toggle", toggle.Min.X, toggle.Min.Y, toggle.Dx(), toggle.Dy()},
 		{"chest-cells", gridX, L.chestTop, L.gridW, chestH},
 		centeredTextBox("bag-heading", "Your Bag", L.popupX, L.invTop-16, stashPopupW, 14),
 		{"bag-cells", gridX, L.invTop, L.gridW, bagH},

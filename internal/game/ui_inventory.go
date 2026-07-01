@@ -50,12 +50,24 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+		// While dragging an equippable inventory item, glow every slot it can go into.
+		if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
+			equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) {
+			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{90, 220, 100, 240})
+		}
 		if isHovering {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 		}
+		ui.equipSlotDropZone(slotInfo.slot, x, y, w, h) // drop inventory item here to equip
 		if equipped {
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
+			// Hide the icon while its own slot (on this same character) is dragged off.
+			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
+				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
+			if !dragging {
+				ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
+			}
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
+			ui.equipSlotDragSource(ui.game.selectedChar, slotInfo.slot, item, x, y, w, h) // pick up equipped item
 			if isHovering {
 				tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
 				tooltipItem = item
@@ -75,13 +87,20 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
 		idx := pageStart + slot
-		// Guard against the LIVE length, not the cached totalItems: a
-		// double-click below can equip/use an item mid-loop, shrinking the
-		// inventory, and a stale bound would index out of range.
-		if idx >= len(ui.game.party.Inventory) {
-			break
-		}
 		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
+		// Empty cell (guard against the LIVE length — a double-click below can
+		// equip/use mid-loop and shrink the bag). Dropping a dragged item on an
+		// empty cell moves it to the end (bag is a packed slice).
+		if idx >= len(ui.game.party.Inventory) {
+			if !ui.inventoryContextOpen {
+				if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
+					isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+					drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				}
+				ui.inventoryEmptyDropZone(x, y, w, h)
+			}
+			continue
+		}
 		item := ui.game.party.Inventory[idx]
 		canEquip := ui.canSelectedCharacterEquipInventoryItem(item)
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
@@ -95,11 +114,16 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			}
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
 		}
-		ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
+		// Hide the icon of the cell currently being dragged out of.
+		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory && ui.game.dragInvIndex == idx
+		if !dragging {
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
+		}
 
 		if !ui.inventoryContextOpen {
 			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
 			ui.quickInvSlotDragSource(idx, x, y, w, h)
+			ui.inventoryCellDropZone(idx, x, y, w, h) // drop another bag item here to swap
 		}
 		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
 			ui.inventoryContextOpen = true

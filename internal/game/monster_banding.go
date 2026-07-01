@@ -288,9 +288,11 @@ func (gl *GameLoop) stackMonsterBand(id int, band []*monster.Monster3D) {
 	}
 }
 
-// bandScatterRing is the search order for scatter destinations: 8 adjacent tiles
-// first, then a ring further out ("через тайл") when the near ones are taken.
+// bandScatterRing is the search order for scatter destinations: the centre tile
+// FIRST (one member holds the band's original cell), then the 8 adjacent tiles,
+// then a ring one tile further out when the near ones are taken.
 var bandScatterRing = [][2]int{
+	{0, 0},
 	{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1},
 	{2, 0}, {-2, 0}, {0, 2}, {0, -2}, {2, 1}, {-2, 1}, {1, 2}, {-1, 2},
 }

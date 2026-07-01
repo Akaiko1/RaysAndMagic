@@ -10,7 +10,7 @@ import (
 )
 
 // MeleeFxLingerFrames is the minimum lifetime of a melee swing's visual so the
-// shaped trail (росчерк) fades slowly after the fast swing completes.
+// shaped trail (flourish) fades slowly after the fast swing completes.
 const MeleeFxLingerFrames = 22
 
 // meleeSweepFrac: the swing itself completes in this fraction of the lifetime;
@@ -60,7 +60,7 @@ func seedFromID(s string) int {
 }
 
 // drawMeleeParticles renders a melee swing as a shaped, slowly-fading trail
-// (росчерк) plus particle sparks, in screen space around the first-person
+// (flourish) plus particle sparks, in screen space around the first-person
 // centre. The trail is a smooth ribbon of overlapping soft sprites; sparks fly
 // off the leading edge during the fast sweep. Geometry differs per weapon kind.
 func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {

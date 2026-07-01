@@ -842,23 +842,13 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*items.WeaponDefinitionFro
 
 // EquipItem attempts to equip an item from inventory, returns (previousItem, hadPreviousItem, success)
 func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
-	var previousItem items.Item
-	var hadPreviousItem bool
 	var slot items.EquipSlot
-
 	switch item.Type {
 	case items.ItemWeapon:
-		// Check if character can equip this weapon by name
-		if !c.CanEquipWeaponByName(item.Name) {
-			return items.Item{}, false, false
-		}
 		slot = items.SlotMainHand
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
-		if !c.CanEquipArmor(item) {
-			return items.Item{}, false, false
-		}
 		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
 		slot = item.PreferredSlot(items.SlotRing1)
@@ -877,18 +867,34 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		}
 	}
 
-	// Check if there's already an item equipped in this slot
-	if existingItem, exists := c.Equipment[slot]; exists {
-		previousItem = existingItem
-		hadPreviousItem = true
+	// EquipItemToSlot enforces the class/armor gates and places the item.
+	return c.EquipItemToSlot(item, slot)
+}
+
+// EquipItemToSlot forces item into a specific equipment slot, returning any
+// displaced item. Used when the UI drop target is an exact slot (e.g. dragging a
+// ring onto the Ring2 finger) — unlike EquipItem, which resolves the slot itself
+// and would send a ring to Ring1. The caller must ensure item fits slot; the
+// class/armor gates are still enforced here.
+func (c *MMCharacter) EquipItemToSlot(item items.Item, slot items.EquipSlot) (items.Item, bool, bool) {
+	switch item.Type {
+	case items.ItemWeapon:
+		if !c.CanEquipWeaponByName(item.Name) {
+			return items.Item{}, false, false
+		}
+	case items.ItemArmor:
+		if !c.CanEquipArmor(item) {
+			return items.Item{}, false, false
+		}
+	case items.ItemAccessory, items.ItemBattleSpell, items.ItemUtilitySpell:
+		// no extra gate
+	default:
+		return items.Item{}, false, false
 	}
 
-	// Equip the new item
+	previousItem, hadPreviousItem := c.Equipment[slot]
 	c.Equipment[slot] = item
-
-	// Recalculate derived stats to apply equipment bonuses (preserves current HP/SP ratios)
 	c.updateDerivedStatsForEquipment()
-
 	return previousItem, hadPreviousItem, true
 }
 

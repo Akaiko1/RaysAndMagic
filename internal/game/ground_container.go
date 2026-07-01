@@ -454,7 +454,35 @@ func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float
 		}
 		count++
 	}
-	return bandFanOffset(idx, count, tile)
+	if count <= 1 {
+		return 0, 0
+	}
+	// Arrange same-tile containers evenly on a ring around the tile CENTRE so a
+	// pile from several kills reads as several bags side by side — regardless of
+	// where each mob actually died (they don't snap together like monster bands).
+	// Offset = ring slot - drop position.
+	ox, oy := containerFanOffset(idx, count, tile)
+	cx := (float64(ctx) + 0.5) * tile
+	cy := (float64(cty) + 0.5) * tile
+	return cx + ox - c.X, cy + oy - c.Y
+}
+
+const containerFanRadiusTiles = 0.32
+
+// containerFanOffset spreads count containers evenly on a ring of radius
+// containerFanRadiusTiles. Every member sits ON the ring (so two bags land
+// opposite each other — side by side, not one behind the other). The radius grows
+// slightly with the count so a bigger pile stays legible.
+func containerFanOffset(idx, count int, tile float64) (float64, float64) {
+	if count <= 1 {
+		return 0, 0
+	}
+	r := containerFanRadiusTiles * tile
+	if count > 3 {
+		r *= 1.0 + 0.12*float64(count-3)
+	}
+	ang := (2 * math.Pi * float64(idx)) / float64(count)
+	return math.Cos(ang) * r, math.Sin(ang) * r
 }
 
 // containerHighestRarity returns the rarest item rarity in a container ("common"

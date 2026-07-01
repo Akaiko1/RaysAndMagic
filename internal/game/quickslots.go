@@ -48,6 +48,7 @@ const (
 	dragFromQuickSlot
 	dragFromSpell
 	dragFromTrap
+	dragFromEquip // an equipped item dragged off the paperdoll
 )
 
 // quickSlotRects returns the bar height and the 5 cell rects for a bar drawn at
@@ -81,6 +82,12 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		r := slots[i]
 		ui.quickSlotCellInteract(charIdx, i, r)
 		item := ch.QuickSlots[i]
+		// Right-click a spell/trap in the bar to bind it as the Space quick-spell
+		// (the single quick slot); the item stays in the bar.
+		if item != nil && (item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell || item.Type == items.ItemTrap) &&
+			ui.game.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+			ui.game.bindQuickSpellFromPanel(charIdx, *item)
+		}
 		// Hide the icon of the cell the cursor is currently carrying out of.
 		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromQuickSlot &&
 			ui.game.dragQuickChar == charIdx && ui.game.dragQuickSlot == i
@@ -163,13 +170,38 @@ func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
 	}
 }
 
+// bindQuickSpellFromPanel binds a spell/trap sitting in the quick-slot BAR (the
+// panel) as the character's single Space quick-spell (Equipment[SlotSpell]),
+// leaving the item in the bar. Right-click entry point for the bar cells.
+func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
+	if charIdx < 0 || charIdx >= len(g.party.Members) {
+		return
+	}
+	ch := g.party.Members[charIdx]
+	switch it.Type {
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		ch.Equipment[items.SlotSpell] = it
+		g.AddCombatMessage(fmt.Sprintf("%s set as %s's quick spell", it.Name, ch.Name))
+	case items.ItemTrap:
+		if equipTrap(ch, string(it.SpellEffect)) {
+			g.AddCombatMessage(fmt.Sprintf("%s armed in %s's quick slot", it.Name, ch.Name))
+		} else {
+			g.AddCombatMessage(fmt.Sprintf("%s can't arm %s yet", ch.Name, it.Name))
+		}
+	}
+}
+
+// dragOver reports whether an in-flight drag is being released over the given
+// rect — the shared guard for every drop zone.
+func (g *MMGame) dragOver(x, y, w, h int) bool {
+	return g.menuOpen && g.dragDropAt == 1 && g.dragSrc != dragNone &&
+		ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h))
+}
+
 // quickInvDropZone resolves a quick-slot item dropped back onto the inventory grid.
 func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || g.dragDropAt != 1 || g.dragSrc == dragNone {
-		return
-	}
-	if !ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h)) {
+	if !g.dragOver(x, y, w, h) {
 		return
 	}
 	if g.dragSrc == dragFromQuickSlot {
@@ -179,7 +211,100 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 			sch.QuickSlots[g.dragQuickSlot] = nil
 		}
 	}
-	// inventory→inventory and spell→inventory are no-ops (spells are book-owned).
+	// Equipped item dropped anywhere on the grid → unequip its OWNER (the char it
+	// was dragged from, not the possibly-switched selectedChar) back to the bag.
+	if g.dragSrc == dragFromEquip {
+		g.party.UnequipItemToInventory(g.dragEquipSlot, g.dragEquipChar)
+	}
+	// inventory→inventory (handled per-cell) and spell→inventory are no-ops here.
+	g.clearDrag()
+}
+
+// equipItemMatchesSlot reports whether item would equip into paperdoll slot for c
+// — used for both drag-drop validation and the drag-time compatible-slot highlight.
+func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.EquipSlot) bool {
+	switch item.Type {
+	case items.ItemWeapon:
+		return slot == items.SlotMainHand && c.CanEquipWeaponByName(item.Name)
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		return slot == items.SlotSpell
+	case items.ItemArmor:
+		return c.CanEquipArmor(item) && slot == item.PreferredSlot(items.SlotArmor)
+	case items.ItemAccessory:
+		ps := item.PreferredSlot(items.SlotRing1)
+		if ps == items.SlotRing1 {
+			return slot == items.SlotRing1 || slot == items.SlotRing2 // rings fit either finger
+		}
+		return slot == ps
+	}
+	return false
+}
+
+// equipSlotDragSource arms a drag that begins on charIdx's equipped paperdoll
+// slot. charIdx is remembered so switching character mid-drag can't unequip the
+// wrong hero on drop.
+func (ui *UISystem) equipSlotDragSource(charIdx int, slot items.EquipSlot, item items.Item, x, y, w, h int) {
+	g := ui.game
+	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+		return
+	}
+	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
+		g.dragSrc = dragFromEquip
+		g.dragEquipSlot = slot
+		g.dragEquipChar = charIdx
+		g.dragItem = item
+	}
+}
+
+// equipSlotDropZone equips a dragged inventory item onto a paperdoll slot it fits.
+func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) {
+		return
+	}
+	if g.dragSrc == dragFromInventory && g.dragInvIndex >= 0 && g.dragInvIndex < len(g.party.Inventory) {
+		ch := g.party.Members[g.selectedChar]
+		if equipItemMatchesSlot(ch, g.party.Inventory[g.dragInvIndex], slot) {
+			// Equip into the EXACT slot dropped on (so a ring lands on the finger
+			// under the cursor, not whichever one EquipItem would auto-pick).
+			g.party.EquipItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
+		}
+	}
+	g.clearDrag()
+}
+
+// inventoryCellDropZone swaps two bag items when one is dragged onto another
+// (reorder within the inventory).
+func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+		return
+	}
+	src := g.dragInvIndex
+	inv := g.party.Inventory
+	if src >= 0 && src < len(inv) && dstIndex >= 0 && dstIndex < len(inv) && src != dstIndex {
+		inv[src], inv[dstIndex] = inv[dstIndex], inv[src]
+	}
+	g.clearDrag()
+}
+
+// inventoryEmptyDropZone moves a dragged bag item to the end of the inventory when
+// dropped onto an empty grid cell (the bag is a packed slice, so empty cells are
+// the tail — "put it in a free slot" = append at the end).
+func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+		return
+	}
+	src := g.dragInvIndex
+	inv := g.party.Inventory
+	if src >= 0 && src < len(inv) {
+		it := inv[src]
+		rest := make([]items.Item, 0, len(inv))
+		rest = append(rest, inv[:src]...)
+		rest = append(rest, inv[src+1:]...)
+		g.party.Inventory = append(rest, it)
+	}
 	g.clearDrag()
 }
 

@@ -565,22 +565,8 @@ func (ih *InputHandler) handleMainMenuInput() {
 			return
 		}
 		ih.navigateSavePage(px, py, panelW, panelH)
-		for i := 0; i < saveRowsPerPage; i++ {
-			row := ih.game.savePage*saveRowsPerPage + i
-			y := py + saveMenuListTopY + i*saveMenuRowPitch
-			if ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
-				if saveRowIsAutosave(row) {
-					ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
-				} else if sum := GetSaveRowSummary(row); !sum.Exists {
-					ih.game.AddCombatMessage("No save in slot to rename")
-				} else {
-					ih.game.slotSelection = i
-					ih.game.saveRenameOpen = true
-					ih.game.saveRenameSlot = row
-					ih.game.saveRenameInput = sum.Name
-				}
-				return
-			}
+		if ih.handleSaveRowRename(px, py, panelW) {
+			return
 		}
 		// Mouse hover selection (row within page).
 		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
@@ -588,16 +574,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.doSaveToSelectedRow()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-			row := ih.game.selectedSaveRow()
-			if saveRowIsAutosave(row) {
-				ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
-			} else if sum := GetSaveRowSummary(row); !sum.Exists {
-				ih.game.AddCombatMessage("No save in slot to rename")
-			} else {
-				ih.game.saveRenameOpen = true
-				ih.game.saveRenameSlot = row
-				ih.game.saveRenameInput = sum.Name
-			}
+			ih.openSaveRename(ih.game.selectedSaveRow())
 		}
 		// Mouse click activation
 		if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
@@ -606,7 +583,14 @@ func (ih *InputHandler) handleMainMenuInput() {
 	case MenuLoadSelect:
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
+		if ih.game.saveRenameOpen {
+			ih.handleSaveRenameInput()
+			return
+		}
 		ih.navigateSavePage(px, py, panelW, panelH)
+		if ih.handleSaveRowRename(px, py, panelW) { // right-click rename, same as Save menu
+			return
+		}
 		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
 			ih.doLoadFromSelectedRow()
@@ -615,6 +599,38 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.doLoadFromSelectedRow()
 		}
 	}
+}
+
+// openSaveRename opens the rename dialog for a manual save row, rejecting the
+// Autosave slot and empty slots with a message.
+func (ih *InputHandler) openSaveRename(row int) {
+	if saveRowIsAutosave(row) {
+		ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+		return
+	}
+	sum := GetSaveRowSummary(row)
+	if !sum.Exists {
+		ih.game.AddCombatMessage("No save in slot to rename")
+		return
+	}
+	ih.game.saveRenameOpen = true
+	ih.game.saveRenameSlot = row
+	ih.game.saveRenameInput = sum.Name
+}
+
+// handleSaveRowRename opens rename on a right-clicked row in the Save/Load menus.
+// Returns true if a row was clicked (caller should stop further input this frame).
+func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
+	for i := 0; i < saveRowsPerPage; i++ {
+		y := py + saveMenuListTopY + i*saveMenuRowPitch
+		if !ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
+			continue
+		}
+		ih.game.slotSelection = i
+		ih.openSaveRename(ih.game.savePage*saveRowsPerPage + i)
+		return true
+	}
+	return false
 }
 
 // navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor

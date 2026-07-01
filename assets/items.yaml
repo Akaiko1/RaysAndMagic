@@ -199,7 +199,7 @@ items:
     card_walk_on_water: true
     description: "A rare monster card prized by collectors"
     flavor: "A stamped parchment card showing a glowing sea medusa."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   black_dragon_statuette:
@@ -421,7 +421,7 @@ items:
     card_bonus_actions: 1
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a prowling highland puma."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   archmage_card:
@@ -430,7 +430,7 @@ items:
     card_phys_to_fire_pct: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a robed highland archmage."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   lich_card:
@@ -439,7 +439,7 @@ items:
     card_lethal_save_pct: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a crowned lich wreathed in shadow."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   lich_phylactery:
@@ -574,7 +574,7 @@ items:
     card_move_speed_pct: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a thief bug mid-skitter, mandibles wide."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   thief_king_signet:
@@ -723,7 +723,7 @@ items:
     card_melee_true_dmg: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a horned warlord beneath a tattered banner."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   ningyo_card:
@@ -733,7 +733,7 @@ items:
     card_heal_amount: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a fan-dancer whose lower half fades to mist."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   sake_flask:
@@ -875,7 +875,7 @@ items:
       speed: 15
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a spotted cat mid-pounce, claws spread."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   gorilla_titan_card:
@@ -885,7 +885,7 @@ items:
     card_move_aoe_dmg: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a great ape, fists raised over a flattened glade."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   masked_huntress_card:
@@ -894,7 +894,7 @@ items:
     card_ranged_dmg_pct: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a masked stalker, blowgun to her lips."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   orc_warlord_card:
@@ -905,7 +905,7 @@ items:
     card_summon_monster: "masked_huntress"
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a tusked warlord crowned in idol-bronze."
-    rarity: "rare"
+    rarity: "legendary"
     value: 500
 
   antivenom:

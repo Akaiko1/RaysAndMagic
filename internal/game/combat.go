@@ -577,18 +577,21 @@ func (cs *CombatSystem) createArrowAttack(damage int) bool {
 		damageType = equippedDef.DamageType
 	}
 
-	// Volley: a weapon may loose several projectiles per shot in a small fan
-	// (e.g. the blowgun fires 2 darts). Each projectile rolls its own crit.
+	// Volley: a weapon may loose several projectiles per shot (e.g. the blowgun
+	// fires 2 darts). They fly STRAIGHT along the aim — an angular fan straddled a
+	// target dead ahead and missed — spaced back along the line so they read as a
+	// quick stream (one behind the other) and all strike what's in front. Each
+	// projectile rolls its own crit.
 	volley := 1
 	if equippedDef != nil && equippedDef.Volley > 1 {
 		volley = equippedDef.Volley
 	}
-	const volleySpreadRad = 6.0 * math.Pi / 180.0 // ~6° between adjacent projectiles
+	ang := cs.game.camera.Angle
+	dirX, dirY := math.Cos(ang), math.Sin(ang)
+	const volleySpacingFrac = 0.45 // tiles between successive darts
+	spacing := volleySpacingFrac * float64(tileSize)
 	for i := 0; i < volley; i++ {
-		ang := cs.game.camera.Angle
-		if volley > 1 {
-			ang += (float64(i) - float64(volley-1)/2.0) * volleySpreadRad
-		}
+		back := spacing * float64(i) // trail later darts behind the first
 		isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 		dmg := damage
 		if isCrit {
@@ -597,10 +600,10 @@ func (cs *CombatSystem) createArrowAttack(damage int) bool {
 		arrow := Arrow{
 			ID:                 cs.game.GenerateProjectileID("arrow"),
 			Attacker:           cs.activeAttacker(),
-			X:                  cs.game.camera.X,
-			Y:                  cs.game.camera.Y,
-			VelX:               math.Cos(ang) * arrowSpeed,
-			VelY:               math.Sin(ang) * arrowSpeed,
+			X:                  cs.game.camera.X - dirX*back,
+			Y:                  cs.game.camera.Y - dirY*back,
+			VelX:               dirX * arrowSpeed,
+			VelY:               dirY * arrowSpeed,
 			Damage:             dmg,
 			LifeTime:           arrowLifetime,
 			Active:             true,

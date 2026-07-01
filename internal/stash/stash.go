@@ -13,14 +13,20 @@ import (
 	"ugataima/internal/storage"
 )
 
-// SlotCount is the number of visible stash cells.
+// SlotCount is the number of general (any-item) stash cells.
 const SlotCount = 8
+
+// CardSlotCount is the number of extra cells that ONLY accept monster cards.
+const CardSlotCount = 8
 
 const fileName = "stash.json"
 
 // Stash is the shared chest. An empty slot is the zero Item (Name == "").
+// CardSlots are a separate bank restricted to monster cards (items.ItemCard);
+// older stash.json files without the field load them empty (backward-compatible).
 type Stash struct {
-	Slots [SlotCount]items.Item `json:"slots"`
+	Slots     [SlotCount]items.Item     `json:"slots"`
+	CardSlots [CardSlotCount]items.Item `json:"card_slots"`
 }
 
 func path() string { return storage.AppSavePath(fileName) }

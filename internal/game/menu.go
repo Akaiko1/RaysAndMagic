@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -436,6 +437,15 @@ type SaveSummary struct {
 	MapKey    string
 	TurnBased bool
 	Name      string
+	PlayTime  string           // formatted elapsed play time ("" if unknown)
+	Party     []SavePartyBrief // active roster for the hover tooltip
+}
+
+// SavePartyBrief is the per-member info shown in the save hover tooltip.
+type SavePartyBrief struct {
+	Name  string
+	Level int
+	Class int
 }
 
 // GetSaveSlotSummary reads minimal info from a save slot for UI display
@@ -454,7 +464,14 @@ func summaryFromPath(path string) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	if s.PlayedTimeNs > 0 {
+		sum.PlayTime = highscore.FormatPlayTime(time.Duration(s.PlayedTimeNs))
+	}
+	for _, m := range s.Party.Members {
+		sum.Party = append(sum.Party, SavePartyBrief{Name: m.Name, Level: m.Level, Class: m.Class})
+	}
+	return sum
 }
 
 // SaveGameToFile writes the current game state to a JSON file

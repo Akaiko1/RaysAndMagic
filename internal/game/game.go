@@ -206,7 +206,9 @@ type MMGame struct {
 	dragQuickChar int        // source: quick-slot owner index
 	dragQuickSlot int        // source: quick-slot index
 	dragSpellID   spells.SpellID
-	dragTrapKey   string // source: trap recipe key (trap book → quick slot)
+	dragTrapKey   string          // source: trap recipe key (trap book → quick slot)
+	dragEquipSlot items.EquipSlot // source: paperdoll slot (equipped item → inventory)
+	dragEquipChar int             // source: owner of the dragged equipped item (may differ from selectedChar after a 1-4 switch mid-drag)
 	// Double-click support for the in-game quick-slot bar
 	lastQuickClickTime int64
 	lastQuickClickedCh int
@@ -458,6 +460,7 @@ type MMGame struct {
 	stashDragCurY   int
 	stashDragDrop   bool // a drop must be resolved this frame
 	stashInvPage    int
+	stashShowCards  bool // top storage tab: false = general chest, true = card vault
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
