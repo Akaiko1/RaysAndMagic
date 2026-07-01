@@ -72,9 +72,14 @@ type GroundContainerRenderInfo struct {
 }
 
 // effectiveSprite returns the sprite name to draw / hit-test for this container.
+// A loot bag holding an item shows a rarity-specific sack (bag_common/…/legendary);
+// an item-less (gold-only) bag keeps the default sack. Chests are unaffected.
 func (c *GroundContainer) effectiveSprite() string {
 	if c != nil && c.Sprite != "" {
 		return c.Sprite
+	}
+	if c.Kind == ContainerKindLootBag && len(c.Items) > 0 {
+		return "bag_" + containerHighestRarity(c)
 	}
 	return groundContainerDefaults[c.Kind].sprite
 }
@@ -113,9 +118,8 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 	if len(c.Items) == 0 && c.Gold <= 0 {
 		return
 	}
-	if c.Sprite == "" {
-		c.Sprite = groundContainerDefaults[c.Kind].sprite
-	}
+	// Sprite is left empty for kind defaults so effectiveSprite() resolves it live
+	// (rarity-aware for loot bags); only an explicit override is stored.
 	if c.SizeMultiplier <= 0 {
 		c.SizeMultiplier = groundContainerDefaults[c.Kind].sizeMultiplier
 	}
@@ -414,7 +418,9 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
 }
 
-// groundContainerRenderInfo projects a container's world position to screen.
+// groundContainerRenderInfo projects a container's world position to screen. The
+// render-only band fan offset is folded in so the projection and click hit-test
+// both track the fanned sprite when several containers share a tile.
 func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64) GroundContainerRenderInfo {
 	info := GroundContainerRenderInfo{Distance: distance}
 	if c == nil || g.renderHelper == nil {
@@ -423,8 +429,44 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 	if info.Distance < 0 {
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X, c.Y, info.Distance, c.effectiveSizeMultiplier())
+	ox, oy := g.groundContainerRenderOffset(c)
+	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, c.effectiveSizeMultiplier())
 	return info
+}
+
+// groundContainerRenderOffset returns the render-only fan offset for a container
+// sharing its tile with others, so a pile of loot bags reads as a band — the same
+// visual (and formula) as monster banding. Solo containers get (0,0).
+func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float64) {
+	if g == nil || c == nil {
+		return 0, 0
+	}
+	tile := float64(g.config.GetTileSize())
+	ctx, cty := int(c.X/tile), int(c.Y/tile)
+	idx, count := 0, 0
+	for i := range g.groundContainers {
+		o := &g.groundContainers[i]
+		if o.MapKey != c.MapKey || int(o.X/tile) != ctx || int(o.Y/tile) != cty {
+			continue
+		}
+		if o == c {
+			idx = count
+		}
+		count++
+	}
+	return bandFanOffset(idx, count, tile)
+}
+
+// containerHighestRarity returns the rarest item rarity in a container ("common"
+// when empty), used to pick the metallic loot-bag tint.
+func containerHighestRarity(c *GroundContainer) string {
+	best, bestTier := "common", 0
+	for i := range c.Items {
+		if r := itemRarity(c.Items[i]); rarityTier(r) > bestTier {
+			best, bestTier = r, rarityTier(r)
+		}
+	}
+	return best
 }
 
 // groundContainerHitTestFromInfo returns true if (mouseX, mouseY) is over the

@@ -2918,12 +2918,20 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 // sprites (ground containers) when the cursor is over them.
 var hoverHighlightTint = [4]float32{1.0, 0.95, 0.6, 0.6}
 
+// containerHoverBoost brightens a standee container while the cursor is over it
+// (the overlay trick used for billboards doesn't map onto the token mesh).
+const containerHoverBoost = 1.4
+
 // drawUnifiedGroundContainerSprite draws a ground container (loot bag or
-// treasure chest) from unified data with brightness and optional hover.
+// treasure chest) as a slowly spinning standee token (falling back to a
+// billboard when standee mode is off). A loot bag is recolored to its best
+// item's metallic rarity (baked into the texture so it spins with the token);
+// chests and common bags keep their original art.
 func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	if !r.spriteDepthBufferVisible(s) || s.groundContainer == nil {
 		return
 	}
+	c := s.groundContainer
 
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
@@ -2936,14 +2944,33 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 			Distance:   s.distance,
 			Visible:    true,
 		}
-		hovered = r.game.groundContainerHitTestFromInfo(info, s.groundContainer.effectiveSprite(), mouseX, mouseY, pickupRange)
+		hovered = r.game.groundContainerHitTestFromInfo(info, c.effectiveSprite(), mouseX, mouseY, pickupRange)
 	}
 
-	drawLeft := s.screenX - s.spriteSize/2
-	brightness := r.calculateBrightnessWithTorchLight(s.groundContainer.X, s.groundContainer.Y, s.distance)
+	brightness := r.calculateBrightnessWithTorchLight(c.X, c.Y, s.distance)
 	b := float32(brightness)
-	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 
+	// Standee: draw as a wooden token spinning idly in place (same path as
+	// scenery/NPC tokens), positioned by the band fan so a pile of bags on one
+	// tile reads as several. A brightness bump is the hover cue in this path.
+	if r.game.config.Graphics.Standee.Enabled {
+		sb := b
+		if hovered {
+			sb = b * containerHoverBoost
+		}
+		ox, oy := r.game.groundContainerRenderOffset(c)
+		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
+		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		key := standeeCoreKey{name: "container:" + c.effectiveSprite(), bounds: s.sprite.Bounds()}
+		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0, -1, -1, -1) {
+			return
+		}
+	}
+
+	// Billboard fallback (standee off or off-screen).
+	drawLeft := s.screenX - s.spriteSize/2
+	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 	if hovered {
 		r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize,
 			hoverHighlightTint[0], hoverHighlightTint[1], hoverHighlightTint[2], hoverHighlightTint[3])

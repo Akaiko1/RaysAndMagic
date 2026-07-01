@@ -25,6 +25,7 @@ const (
 	standeeMinDepth     = 4.0           // near clip for token columns (world units)
 	standeeStaticYaw    = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
 	standeeTurnDefault  = 270.0         // deg/sec token swivel when config omits it
+	containerSpinDegSec = 60.0          // deg/sec idle spin for loot-bag / chest tokens
 )
 
 // Wood core look: base tone with subtle horizontal grain banding, tinted

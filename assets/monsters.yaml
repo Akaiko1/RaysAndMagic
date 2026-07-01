@@ -30,6 +30,7 @@ monsters:
 
   orc:
     name: "Orc"
+    banding: true
     level: 3
     max_hit_points: 96
     armor_class: 19
@@ -128,6 +129,7 @@ monsters:
   skeleton:
     type: "undead"
     name: "Skeleton"
+    banding: true
     level: 3
     max_hit_points: 86
     armor_class: 20
@@ -338,6 +340,7 @@ monsters:
   dragon_green:
     type: "dragon"
     name: "Dragon"
+    banding: true
     level: 15
     max_hit_points: 1100
     armor_class: 67            # tankier: melee-only, no ranged attack
@@ -530,6 +533,7 @@ monsters:
   # Forest-specific monsters
   forest_orc:
     name: "Forest Orc"
+    banding: true
     level: 4
     max_hit_points: 100
     armor_class: 19
@@ -796,6 +800,7 @@ monsters:
   # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
   puma:
     name: "Puma"
+    banding: true
     level: 6
     max_hit_points: 150
     armor_class: 20
@@ -859,6 +864,7 @@ monsters:
   # L9 — armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
+    banding: true
     level: 9
     max_hit_points: 320
     armor_class: 32
@@ -987,6 +993,7 @@ monsters:
   revenant:
     type: "undead"
     name: "Revenant"
+    banding: true
     level: 10
     max_hit_points: 420
     armor_class: 32
@@ -1162,6 +1169,7 @@ monsters:
   ashigaru_firelock:
     type: "undead"
     name: "Ashigaru Arquebusier"
+    banding: true
     level: 12
     max_hit_points: 420
     armor_class: 18
@@ -1327,6 +1335,7 @@ monsters:
   # ---- Deep Jungle (Amazon) zone, party L18-24 ----
   ocelot:
     name: "Ocelot"
+    banding: true
     level: 18
     max_hit_points: 640
     armor_class: 20
@@ -1376,6 +1385,7 @@ monsters:
 
   masked_huntress:
     name: "Masked Huntress"
+    banding: true
     type: "human"
     level: 20
     max_hit_points: 800
@@ -1406,6 +1416,7 @@ monsters:
 
   masked_serpent_dancer:
     name: "Masked Serpent Dancer"
+    banding: true
     type: "human"
     level: 21
     max_hit_points: 720

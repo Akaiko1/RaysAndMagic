@@ -1257,6 +1257,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			Sprite:         c.Sprite,
 			SizeMultiplier: c.SizeMultiplier,
 		}
+		// Legacy saves baked the kind's default sprite name in; blank it so the
+		// live effectiveSprite() (rarity-aware for loot bags) applies to old bags.
+		if restored.Sprite == groundContainerDefaults[restored.Kind].sprite {
+			restored.Sprite = ""
+		}
 		if len(c.Items) > 0 {
 			restored.Items = make([]items.Item, len(c.Items))
 			for i, it := range c.Items {

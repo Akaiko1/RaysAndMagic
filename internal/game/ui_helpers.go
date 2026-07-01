@@ -805,7 +805,7 @@ func lootMessageColor(drops []items.Item) color.Color {
 	return combatMessageGold
 }
 
-func (ui *UISystem) itemRarity(item items.Item) string {
+func itemRarity(item items.Item) string {
 	if item.Rarity != "" {
 		return item.Rarity
 	}
@@ -818,7 +818,21 @@ func (ui *UISystem) itemRarity(item items.Item) string {
 }
 
 func (ui *UISystem) itemRarityColor(item items.Item) color.Color {
-	return rarityColor(ui.itemRarity(item))
+	return rarityColor(itemRarity(item))
+}
+
+// rarityTier ranks rarities for "highest wins" comparisons (higher = rarer).
+func rarityTier(rarity string) int {
+	switch strings.ToLower(rarity) {
+	case "uncommon":
+		return 1
+	case "rare":
+		return 2
+	case "legendary":
+		return 3
+	default:
+		return 0
+	}
 }
 
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area

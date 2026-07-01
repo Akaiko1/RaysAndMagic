@@ -345,6 +345,10 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	}
 	g.questManager = quests.GlobalQuestManager
 
+	// Drop the previous run's per-map return positions so a fresh party enters
+	// each map at its '+' start, not where the old party last stood.
+	g.mapReturnPoses = make(map[string]MapPose)
+
 	// Reset maps to a fresh state with monsters and NPCs.
 	if wm := world.GlobalWorldManager; wm != nil {
 		if err := wm.Reset(); err != nil {
@@ -358,8 +362,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		tileSize := float64(g.config.GetTileSize())
 		startX, startY := 0.0, 0.0
 		if currentWorld.StartX >= 0 && currentWorld.StartY >= 0 {
-			startX = float64(currentWorld.StartX) * tileSize
-			startY = float64(currentWorld.StartY) * tileSize
+			startX, startY = TileCenterFromTile(currentWorld.StartX, currentWorld.StartY, tileSize)
 		} else {
 			centerX := float64(currentWorld.Width) * tileSize * 0.5
 			centerY := float64(currentWorld.Height) * tileSize * 0.5
@@ -885,9 +888,12 @@ func (ih *InputHandler) handleCombatInput() {
 	// No attacks/casts/shots while running — you must stop sprinting to act.
 	running := ih.isRunning()
 
-	// Space also picks up ground loot — works while sprinting, cooldown-independent.
+	// Space also picks up ground loot — works while sprinting. The input cooldown
+	// paces held-Space to one container per press, so a fanned pile of bags is
+	// picked up one at a time rather than vanishing in a few frames.
 	if spaceHeld && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			return
 		}
 	}
