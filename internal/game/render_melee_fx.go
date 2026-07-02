@@ -59,6 +59,24 @@ func seedFromID(s string) int {
 	return h
 }
 
+// meleeFxTiming derives the shared swing-animation parameters: total progress,
+// the lingering fade, the fast-sweep fraction and the eased blade position.
+func meleeFxTiming(s SlashEffect) (progress, fade, sweepT, lead float64) {
+	progress = float64(s.AnimationFrame) / float64(s.MaxFrames)
+	if progress < 0 {
+		progress = 0
+	} else if progress > 1 {
+		progress = 1
+	}
+	fade = 1.0 - progress
+	sweepT = progress / meleeSweepFrac
+	if sweepT > 1 {
+		sweepT = 1
+	}
+	lead = 1.0 - (1.0-sweepT)*(1.0-sweepT)
+	return
+}
+
 // drawMeleeParticles renders a melee swing as a shaped, slowly-fading trail
 // (flourish) plus particle sparks, in screen space around the first-person
 // centre. The trail is a smooth ribbon of overlapping soft sprites; sparks fly
@@ -67,21 +85,14 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	if s.MaxFrames <= 0 {
 		return
 	}
-	progress := float64(s.AnimationFrame) / float64(s.MaxFrames)
-	if progress < 0 {
-		progress = 0
-	} else if progress > 1 {
-		progress = 1
+	if draw, ok := meleeFxStyleDraw[s.Style]; ok {
+		draw(r, screen, s, cx, cy, screenH)
+		return
 	}
-	fade := 1.0 - progress // slow fade over the (lingering) lifetime
+	_, fade, sweepT, lead := meleeFxTiming(s)
 	if fade <= 0 {
 		return
 	}
-	sweepT := progress / meleeSweepFrac // 0→1 over the fast swing, then clamps
-	if sweepT > 1 {
-		sweepT = 1
-	}
-	lead := 1.0 - (1.0-sweepT)*(1.0-sweepT) // easeOut: how far the blade has swept
 
 	seed := seedFromID(s.ID)
 	fc := int(r.game.frameCount)

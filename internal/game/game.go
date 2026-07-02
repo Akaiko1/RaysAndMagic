@@ -86,6 +86,7 @@ type SlashEffect struct {
 	MaxFrames      int     // Total animation frames
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
+	Style          string // bespoke legendary flourish (graphics.slash_fx); overrides Kind
 	Crit           bool   // critical swing: bigger, brighter, golden-edged
 }
 
@@ -119,6 +120,7 @@ type SpellHitParticle struct {
 	MaxLife          int     // Initial lifetime for alpha calculation
 	Size             int     // Particle size (shrinks over time)
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
+	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
 	Active           bool
 }
 
@@ -701,8 +703,11 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		panic(err)
 	}
 
-	// Fail fast on buff_fx_sprite typos (sprite index is ready by now).
+	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite
+	// index is ready by now).
 	game.validateBuffFxSprites()
+	validateSlashFxStyles()
+	validateProjectileFxStyles()
 
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()

@@ -395,7 +395,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
 			drawCenteredDebugText(screen, cardEffectText(def), x-20, y+icon+16, icon+40, 14)
 			if hovered {
-				hover = []string{def.Name, cardEffectText(def)}
+				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
 			}
 		}
 	}

@@ -1088,7 +1088,43 @@ func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size in
 	}
 	ui.drawInventoryItemIcon(screen, items.CreateItemFromYAML(key), x, y, size, size, 3, true)
 	mx, my := ebiten.CursorPosition()
-	return isMouseHoveringBox(mx, my, x, y, x+size, y+size)
+	hovered := isMouseHoveringBox(mx, my, x, y, x+size, y+size)
+	if hovered {
+		ui.fullArtCardKey = key
+	}
+	return hovered
+}
+
+// appendCardArtHint adds the SHIFT hint to a card tooltip when full art exists.
+func (ui *UISystem) appendCardArtHint(lines []string, key string) []string {
+	if _, ok := ui.game.cardFullArtSprite(key); ok {
+		return append(lines, "Hold SHIFT to view the art")
+	}
+	return lines
+}
+
+// drawCardFullArtOverlay dims the screen and shows a card's full art fitted
+// to it (drawn while SHIFT is held over a card).
+func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) {
+	img := ui.game.sprites.GetSprite(sprite)
+	if img == nil {
+		return
+	}
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	drawFilledRect(screen, 0, 0, sw, sh, color.RGBA{0, 0, 0, 195})
+	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
+	scale := 0.92 * float64(sw) / float64(iw)
+	if v := 0.92 * float64(sh) / float64(ih); v < scale {
+		scale = v
+	}
+	w, h := float64(iw)*scale, float64(ih)*scale
+	x, y := (float64(sw)-w)/2, (float64(sh)-h)/2
+	opts := &ebiten.DrawImageOptions{}
+	opts.Filter = ebiten.FilterLinear
+	opts.GeoM.Scale(scale, scale)
+	opts.GeoM.Translate(x, y)
+	screen.DrawImage(img, opts)
+	drawRectBorder(screen, int(x)-2, int(y)-2, int(w)+4, int(h)+4, 2, color.RGBA{210, 170, 80, 235})
 }
 
 // drawCardCollectorDialog draws the monster-card collection UI: the 8 active
@@ -1115,7 +1151,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "+") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = []string{def.Name, cardEffectText(def), "", "Double-click to remove"}
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to remove"}, key)
 			}
 		}
 	}
@@ -1140,7 +1176,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		if ui.drawCardCell(screen, key, x, y, w, "") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
 			if def := cardDef(key); def != nil {
-				hoverLines = []string{def.Name, cardEffectText(def), "", "Double-click to add to collection"}
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to add to collection"}, key)
 			}
 		}
 	}

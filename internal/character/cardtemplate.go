@@ -122,9 +122,12 @@ func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
 	default:
 		return ""
 	}
-	reach := "reaches 1 tile, diagonals included"
+	// Reach depth only: which directions get hit is the shape sentence's job,
+	// and depth counts diagonals as one step for EVERY weapon, so a per-item
+	// "diagonals included" note carried no information.
+	reach := "reaches 1 tile"
 	if def.Range >= 2 {
-		reach = fmt.Sprintf("reaches %d tiles deep in the cone (diagonals included)", def.Range)
+		reach = fmt.Sprintf("reaches %d tiles deep in the cone", def.Range)
 	}
 	return fmt.Sprintf("%s; %s", shape, reach)
 }

@@ -33,7 +33,10 @@ type MonsterDefinition struct {
 	BoxW                float64           `yaml:"box_w"`
 	BoxH                float64           `yaml:"box_h"`
 	SizeMultiplier      float64           `yaml:"size_multiplier,omitempty"`
-	SizeGame            float64           `yaml:"size_game"`
+	// size_game is retired (was a legacy alias of size_multiplier). The field
+	// exists only so content still authoring it FAILS LOUD in validation
+	// instead of silently rendering at 1.0 scale.
+	DeprecatedSizeGame float64 `yaml:"size_game,omitempty"`
 	Resistances         map[string]int    `yaml:"resistances"`
 	HabitatPrefs        []string          `yaml:"habitat_preferences"`
 	HabitatNear         []HabitatNearRule `yaml:"habitat_near"`
@@ -150,6 +153,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
+		if monster.DeprecatedSizeGame != 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game — rename it to size_multiplier", key))
+		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
@@ -436,15 +442,11 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 	return def.BoxW, def.BoxH
 }
 
-// GetSizeGameMultiplier returns the visual size multiplier from config.
-// size_multiplier is the canonical YAML key; size_game is accepted for
-// backward compatibility with older content.
+// GetSizeGameMultiplier returns the visual size multiplier from config
+// (size_multiplier in YAML), defaulting to 1.0 when unset.
 func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
 	if def.SizeMultiplier > 0 {
 		return def.SizeMultiplier
-	}
-	if def.SizeGame > 0 {
-		return def.SizeGame
 	}
 	return 1.0
 }

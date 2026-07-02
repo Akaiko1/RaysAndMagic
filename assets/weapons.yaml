@@ -223,6 +223,7 @@ weapons:
       slash_color: [220, 220, 255]  # Silver-blue flash
       slash_width: 36
       slash_length: 52
+      slash_fx: silver_sword
 
   iron_spear:
     name: "Iron Spear"
@@ -311,6 +312,7 @@ weapons:
       slash_color: [255, 215, 0]  # Golden flash
       slash_width: 40
       slash_length: 56
+      slash_fx: gold_sword
 
   steel_axe:
     name: "Steel Axe"
@@ -433,6 +435,7 @@ weapons:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
       slash_length: 60
+      slash_fx: agility_katar
 
   long_bow:
     name: "Long Bow"
@@ -553,6 +556,7 @@ weapons:
       slash_color: [150, 40, 40]  # Dark red gore flash
       slash_width: 52
       slash_length: 70
+      slash_fx: gorehorn
 
   # --- Japanese Castle (eastern islands) — uniques (boss drops) ---
   muramasa:
@@ -576,6 +580,7 @@ weapons:
       slash_color: [200, 40, 40]
       slash_width: 36
       slash_length: 56
+      slash_fx: muramasa
 
   tonbogiri:
     name: "Tonbogiri, the Dragonfly Spear"
@@ -598,6 +603,7 @@ weapons:
       slash_color: [120, 200, 140]
       slash_width: 22
       slash_length: 88
+      slash_fx: tonbogiri
 
   kage_kunai:
     name: "Kage-kunai, the Twin Shadows"
@@ -622,6 +628,7 @@ weapons:
       slash_color: [120, 60, 180]
       slash_width: 22
       slash_length: 34
+      slash_fx: kage_kunai
 
   inazuma_matchlock:
     name: "Inazuma Tanegashima"
@@ -727,6 +734,7 @@ weapons:
       slash_color: [200, 210, 200]
       slash_width: 30
       slash_length: 78
+      slash_fx: naginata
 
   tanegashima:
     name: "Tanegashima Matchlock"
@@ -879,6 +887,7 @@ weapons:
       slash_color: [140, 200, 120]
       slash_width: 22
       slash_length: 40
+      slash_fx: serpent_fang
 
   idol_breakers_maul:
     name: "Idol-Breaker, the Warlord's Maul"
@@ -901,6 +910,7 @@ weapons:
       slash_color: [220, 180, 90]
       slash_width: 46
       slash_length: 58
+      slash_fx: idol_breaker
 
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its

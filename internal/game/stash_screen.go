@@ -504,6 +504,9 @@ func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX
 	if g.stashDragActive || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {
 		return
 	}
+	if key := itemCardKey(it); key != "" {
+		ui.fullArtCardKey = key
+	}
 	char := g.party.Members[g.selectedChar]
 	tip := GetItemTooltip(it, char, g.combat, tooltipDetailHeld())
 	if tip == "" {

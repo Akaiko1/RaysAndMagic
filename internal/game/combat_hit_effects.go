@@ -80,7 +80,12 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 		particleSize = 2
 	}
 
-	g.CreateSpellHitEffect(x, y, element, particleCount, particleSize)
+	// impact_stars spells scatter twinkling stars instead of square pixels.
+	stars := false
+	if cfgDef, ok := config.GetSpellDefinition(spellID); ok && cfgDef != nil && cfgDef.Graphics != nil {
+		stars = cfgDef.Graphics.ImpactStars
+	}
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, stars)
 
 	// Heavy spells rattle the view: shake amplitude follows the same damage +
 	// blast levers as the particles, so a bolt barely taps and a fireball kicks.
@@ -144,6 +149,12 @@ const impactLightFrames = 20
 
 // CreateSpellHitEffect spawns a burst of colored particles at the impact point
 func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCount, particleSize int) {
+	g.createSpellHitEffectStyled(x, y, element, particleCount, particleSize, false)
+}
+
+// createSpellHitEffectStyled is CreateSpellHitEffect with the star-shape flag
+// (impact_stars): star bursts render as twinkling 4-point stars, not squares.
+func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, particleCount, particleSize int, stars bool) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
 
@@ -255,6 +266,7 @@ func (g *MMGame) CreateSpellHitEffect(x, y float64, element string, particleCoun
 			LifeTime: life,
 			MaxLife:  life, // fade ratio uses LifeTime/MaxLife — must match the per-particle life
 			Size:     particleSize,
+			Star:     stars,
 			Active:   true,
 		}
 	}

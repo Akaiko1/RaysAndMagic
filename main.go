@@ -26,7 +26,6 @@ func main() {
 	cfg, _ := boot.LoadGameData()
 
 	// Game-only configs.
-	config.MustLoadLootTables("assets/loots.yaml")
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
 	// Load achievement definitions (optional — stubbed feature, non-fatal).

@@ -2,28 +2,13 @@ package game
 
 import (
 	"testing"
-
-	"ugataima/internal/world"
 )
 
 // TestFxPreview_CatalogAndSpawnCycle smoke-tests the editor FX sandbox: it
 // must build against loaded game data, enumerate a data-driven catalog, and
 // survive select+step cycles for every kind without panicking.
 func TestFxPreview_CatalogAndSpawnCycle(t *testing.T) {
-	cfg := loadTestConfig(t)
-	if world.GlobalTileManager == nil {
-		tm := world.NewTileManager()
-		if err := tm.LoadTileConfig("../../assets/tiles.yaml"); err != nil {
-			t.Fatalf("load tiles: %v", err)
-		}
-		if err := tm.LoadSpecialTileConfig("../../assets/special_tiles.yaml"); err != nil {
-			t.Fatalf("load special tiles: %v", err)
-		}
-		world.GlobalTileManager = tm
-	}
-	prevWM := world.GlobalWorldManager
-	world.GlobalWorldManager = nil // the sandbox installs its own stage world
-	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
+	cfg := setupPreviewSandboxTest(t)
 
 	p, err := NewFxPreview(cfg)
 	if err != nil {

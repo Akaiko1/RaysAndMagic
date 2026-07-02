@@ -214,6 +214,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 
+		// Acting against the party IS engagement. RT sets this on sight in
+		// updatePlayerEngagementWithVision, which the TB scheduler never runs;
+		// without it a banded flock stays "calm" by flags, keeps re-stacking
+		// every frame and chases the party as one pile — sight aggro must
+		// scatter a band in any mode, damage must not be required.
+		m.IsEngagingPlayer = true
+
 		// Each participating monster snaps to the center of its current tile at
 		// the start of its turn. Keeps TB strictly tile-to-tile and fixes
 		// off-center spawns (e.g. encounter pirates) that would otherwise

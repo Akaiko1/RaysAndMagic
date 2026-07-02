@@ -56,6 +56,7 @@ type UISystem struct {
 	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
 	tooltipCompareTitle   color.Color // nameplate base for the comparison card
 	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
+	fullArtCardKey        string      // card under the cursor this frame; SHIFT shows its full art
 	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
@@ -110,6 +111,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipTitleText = nil
 	ui.tooltipCompareTitle = nil
 	ui.tooltipCompareText = nil
+	ui.fullArtCardKey = ""
 
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
@@ -170,6 +172,16 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)
+	}
+
+	// Full card art: while SHIFT is held over a card (Cards tab, collector,
+	// stash) its full art replaces the tooltip, fitted to the screen. Cards
+	// without a full_art_<key> sprite simply don't respond.
+	if ui.fullArtCardKey != "" && (ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)) {
+		if sprite, ok := ui.game.cardFullArtSprite(ui.fullArtCardKey); ok {
+			ui.drawCardFullArtOverlay(screen, sprite)
+			return
+		}
 	}
 
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)

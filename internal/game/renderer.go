@@ -2161,6 +2161,11 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.spark = true
 			profile.sparkColor = [3]int{240, 220, 255}
 		}
+		// Signature spells override the school default with a bespoke body
+		// renderer (graphics.projectile_fx → spellFxStyleDraw).
+		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+			profile.style = def.Graphics.ProjectileFx
+		}
 	}
 	return profile
 }
@@ -3568,15 +3573,15 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
 		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
 
-		dirX, _, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
+		dirX, dirY, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
 		if !hasDir {
-			dirX = 1 // default trail direction when motion is head-on
+			dirX, dirY = 1, 0 // default trail direction when motion is head-on
 		}
 
 		// Spells are always magical → particle body + evaporating trail (never the
 		// old solid square). Drift/mirror come from the school's style; colour comes
 		// from the projectile colour, so every school looks distinct.
-		r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX,
+		r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX, dirY,
 			projectileColor, fxProfile, critBoost, idx)
 	}
 }
@@ -3585,13 +3590,17 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // an evaporating trail, instead of a single solid square. "ember" (fire) motes
 // flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
 // Density/length scale with `size`, so a fireball reads far bigger than a bolt.
-func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	// Floor the cluster size so a bolt launched far from the camera (e.g. a bound
 	// lich shooting across the room) still reads as a particle puff rather than a
 	// lone dot. Party bolts spawn at the camera (size ≈ MaxSize) so they're well
 	// above this and unaffected; only distant/small projectiles get the lift.
 	if size < spellFxMinClusterSize {
 		size = spellFxMinClusterSize
+	}
+	if draw, ok := spellFxStyleDraw[p.style]; ok {
+		draw(r, screen, cx, cy, size, dirX, dirY, core, p, critBoost, id)
+		return
 	}
 	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
 	sink := p.style == "shard" || p.style == "dark"
@@ -3714,16 +3723,22 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		if arrow.Crit {
 			critBoost = 1.2
 		}
+		if strings.EqualFold(bowDef.Category, "blaster") {
+			// Blasters fire slugs with a tracer streak, not fletched arrows.
+			r.drawBulletTracer(screen, centerX, centerY, float64(arrowSize),
+				arrow.VelX, arrow.VelY, arrowColor, critBoost, idx)
+			continue
+		}
 		if fxProfile.style != "" {
 			// Staff/book bolt: glowing pixel-particle body + evaporating trail as
 			// spells, mirrored (R→L) for arcane. Reuses the spell FX renderer.
 			glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
 			r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-			dirX, _, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			dirX, dirY, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
 			if !ok {
-				dirX = 1
+				dirX, dirY = 1, 0
 			}
-			r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX,
+			r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX, dirY,
 				arrowColor, fxProfile, critBoost, idx)
 			continue
 		}
@@ -3924,6 +3939,14 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				lifeRatio = 0
 			}
 			size := spellParticleScreenSize(particle.Size, lifeRatio, scale)
+			if particle.Star {
+				// Twinkling 4-point star (impact_stars — plasma/energy bursts).
+				tw := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.45+float64(i*13+j))
+				r.drawSparkStar(screen, screenX, screenY, size*0.9,
+					particle.Color, mixColor(particle.Color, [3]int{255, 255, 255}, 0.6),
+					lifeRatio*tw, 1)
+				continue
+			}
 			// Square pixel particle (matches the impassable-aura / projectile look).
 			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, additiveGlowBlend)
 		}

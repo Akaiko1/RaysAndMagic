@@ -41,6 +41,7 @@ spells:
       min_size: 4
       base_size: 28
       color: [255, 50, 0]      # Deep red
+      projectile_fx: fireball
 
   firebolt:
     # Basic spell properties
@@ -179,6 +180,7 @@ spells:
       min_size: 2
       base_size: 10
       color: [100, 150, 255]   # Bright blue
+      projectile_fx: lightning
 
   ray_of_light:
     # Basic spell properties
@@ -207,6 +209,8 @@ spells:
       min_size: 2
       base_size: 12
       color: [255, 245, 180]   # warm golden light
+      projectile_fx: ray_of_light
+      impact_stars: true
 
   darkness:
     # Basic spell properties
@@ -251,6 +255,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [170, 60, 200]   # violet unmaking
+      projectile_fx: disintegrate
 
   day_of_the_gods:
     name: "Day of the Gods"
@@ -564,6 +569,7 @@ spells:
       min_size: 2
       base_size: 11
       color: [120, 230, 150]   # body green
+      projectile_fx: harm
 
   mind_blast:
     name: "Mind Blast"
@@ -694,6 +700,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [190, 170, 255]   # violet-blue
+      projectile_fx: psyshock
 
   charm:
     name: "Charm"
@@ -754,6 +761,7 @@ spells:
       min_size: 3
       base_size: 13
       color: [220, 235, 255]   # bright star-white
+      projectile_fx: starburst
 
   hot_steam:
     name: "Hot Steam"

@@ -37,6 +37,7 @@ const (
 	pageChars  = 3 // playable characters with starting loadout
 	pageSkills = 4 // all skills with detailed descriptions
 	pageFX     = 5 // live preview of the game's special effects (fx_page.go)
+	pageMobs   = 6 // monster stat sheets + live animated preview (mobs_page.go)
 )
 
 // pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
@@ -51,6 +52,7 @@ var pageTabDefs = []struct {
 	{pageChars, "Characters", "F4"},
 	{pageSkills, "Skills", "F5"},
 	{pageFX, "FX", "F6"},
+	{pageMobs, "Mobs", "F7"},
 }
 
 type mapInfo struct {
@@ -237,6 +239,11 @@ func (v *viewer) Update() error {
 		return nil
 	}
 
+	if v.page == pageMobs {
+		v.updateMobsPage()
+		return nil
+	}
+
 	if v.page != pageMaps {
 		scroll := v.pageScroll[v.page]
 		_, wheelY := ebiten.Wheel()
@@ -345,6 +352,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	if v.page == pageFX {
 		v.drawFXPage(screen)
+		return
+	}
+	if v.page == pageMobs {
+		v.drawMobsPage(screen)
 		return
 	}
 	if v.page == pageChars {

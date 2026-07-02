@@ -49,6 +49,17 @@ func itemCardKey(it items.Item) string {
 	return ""
 }
 
+// cardFullArtSprite returns a card's full-art sprite name ("full_art_<key>"
+// by convention) and whether that art exists — cards without one simply have
+// no SHIFT view.
+func (g *MMGame) cardFullArtSprite(key string) (string, bool) {
+	if key == "" || g.sprites == nil {
+		return "", false
+	}
+	name := "full_art_" + key
+	return name, g.sprites.HasSprite(name)
+}
+
 // cardCollectionBonus sums one per-card integer effect across the active
 // collection (the single source for both the mechanic and the effect text).
 func (g *MMGame) cardCollectionBonus(get func(*config.ItemDefinitionConfig) int) int {

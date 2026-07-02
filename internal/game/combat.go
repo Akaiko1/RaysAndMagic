@@ -641,10 +641,15 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	// drawMeleeParticles, driven by Kind).
 	if graphicsConfig != nil {
 		// Linger the visual flourish past the (fast) swing so the shaped trail
-		// fades slowly — the instant hit already resolved separately.
+		// fades slowly — the instant hit already resolved separately. Bespoke
+		// legendary styles linger longer: their debris/droplets need the tail.
+		linger := MeleeFxLingerFrames
+		if graphicsConfig.SlashFx != "" {
+			linger = meleeFxStyledLingerFrames
+		}
 		maxFrames := meleeConfig.AnimationFrames
-		if maxFrames < MeleeFxLingerFrames {
-			maxFrames = MeleeFxLingerFrames
+		if maxFrames < linger {
+			maxFrames = linger
 		}
 		slashEffect := SlashEffect{
 			ID:             cs.game.GenerateProjectileID("slash"),
@@ -657,6 +662,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 			MaxFrames:      maxFrames,
 			Active:         true,
 			Kind:           meleeFxKind(weaponDef),
+			Style:          graphicsConfig.SlashFx,
 			Crit:           isCrit,
 		}
 		cs.game.slashEffects = append(cs.game.slashEffects, slashEffect)

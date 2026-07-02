@@ -179,6 +179,7 @@ type WeaponGraphicsConfig struct {
 	SlashColor  [3]int `yaml:"slash_color"`  // RGB color for slash effect
 	SlashWidth  int    `yaml:"slash_width"`  // Width of slash line
 	SlashLength int    `yaml:"slash_length"` // Length of slash line
+	SlashFx     string `yaml:"slash_fx,omitempty"` // bespoke swing style (legendaries); empty = category default
 
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
@@ -542,6 +543,12 @@ type ProjectileRenderConfig struct {
 	MinSize  int    `yaml:"min_size"`
 	BaseSize int    `yaml:"base_size"`
 	Color    [3]int `yaml:"color"`
+	// ProjectileFx selects a bespoke flying-body renderer (signature spells);
+	// empty = the school's default particle style.
+	ProjectileFx string `yaml:"projectile_fx,omitempty"`
+	// ImpactStars scatters the impact burst as twinkling 4-point stars instead
+	// of square pixels (plasma/energy impacts).
+	ImpactStars bool `yaml:"impact_stars,omitempty"`
 }
 
 type TileConfig struct {
@@ -939,6 +946,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 		if isProjectileWeapon(def) {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
+			}
+			if def.Graphics != nil && def.Graphics.SlashFx != "" {
+				return fmt.Errorf("projectile weapon '%s' defines slash_fx (melee-only)", key)
 			}
 			if def.Graphics == nil || def.Graphics.BaseSize <= 0 || def.Graphics.MaxSize <= 0 || def.Graphics.MinSize <= 0 {
 				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)

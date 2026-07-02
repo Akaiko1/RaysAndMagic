@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 
 	"ugataima/internal/config"
@@ -162,8 +163,10 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 		return
 	}
 
-	// Left: selectable effect list.
+	// Left: selectable effect list, clipped so scrolled rows never overlap the
+	// page tab bar.
 	vector.FillRect(screen, 0, float32(pageBarHeight), float32(fxListW), float32(windowHeight-pageBarHeight), color.RGBA{22, 22, 32, 255}, false)
+	list := screen.SubImage(image.Rect(0, pageBarHeight, fxListW, windowHeight)).(*ebiten.Image)
 	y0 := pageBarHeight + fxListPadY - fxPage.scroll
 	for i, it := range fxPage.items {
 		ry := y0 + i*fxRowH
@@ -171,9 +174,9 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 			continue
 		}
 		if i == fxPage.selIdx {
-			vector.FillRect(screen, 0, float32(ry-3), float32(fxListW), float32(fxRowH), color.RGBA{60, 90, 140, 200}, false)
+			vector.FillRect(list, 0, float32(ry-3), float32(fxListW), float32(fxRowH), color.RGBA{60, 90, 140, 200}, false)
 		}
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), 8, ry)
+		ebitenutil.DebugPrintAt(list, fmt.Sprintf("%-8s %s", fxKindTag(it.Kind), it.Label), 8, ry)
 	}
 
 	// Right: the sandbox scene, aspect-fit into the remaining panel.

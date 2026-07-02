@@ -109,7 +109,16 @@ func (p *FxPreview) resetCamera() {
 
 // buildArena creates a flat 17x17 world with tile exhibits along the north row.
 func (p *FxPreview) buildArena(cfg *config.Config) (*world.World3D, error) {
-	const size = 17
+	w := buildFlatArena(cfg, 17)
+	// Spawn-tile border FX anchors here — kept BEHIND the default camera (which
+	// stands at x=3.5 facing east) so exhibits never photobomb the spell stage.
+	w.StartX, w.StartY = 1, 12
+	return w, nil
+}
+
+// buildFlatArena creates an all-floor square world — the empty stage every
+// editor preview sandbox (FX, mobs) builds on.
+func buildFlatArena(cfg *config.Config, size int) *world.World3D {
 	w := world.NewWorld3D(cfg)
 	w.Width, w.Height = size, size
 	empty, ok := world.GlobalTileManager.GetTileTypeFromKey("empty")
@@ -129,10 +138,7 @@ func (p *FxPreview) buildArena(cfg *config.Config) (*world.World3D, error) {
 			w.Tiles[y][x] = empty
 		}
 	}
-	// Spawn-tile border FX anchors here — kept BEHIND the default camera (which
-	// stands at x=3.5 facing east) so exhibits never photobomb the spell stage.
-	w.StartX, w.StartY = 1, 12
-	return w, nil
+	return w
 }
 
 // fxTileExhibits places one instance of each tile-driven effect into the arena
@@ -293,6 +299,15 @@ func (p *FxPreview) spawn() {
 		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
 			cfgDef.IsProjectile && !def.DealsNoDamage && cfgDef.ZoneRadiusTiles == 0 {
 			g.CreateSpellHitEffectFromSpell(p.stageX, p.stageY, p.sel.Key)
+			// In the game the falling stars trigger on the target hit; the
+			// sandbox has no targets, so drop them at the stage point too.
+			if cfgDef.StarburstFx {
+				radius := def.AoeRadiusTiles
+				if radius <= 0 {
+					radius = 1
+				}
+				g.spawnStarburstFx(p.stageX, p.stageY, radius)
+			}
 		}
 	case FxWeapon:
 		if def, ok := config.GetWeaponDefinition(p.sel.Key); ok && def != nil {
@@ -336,6 +351,9 @@ func (p *FxPreview) spawn() {
 // Step advances the sandbox one tick — the same sub-updates the game loop runs
 // for effects, minus input/monsters.
 func (p *FxPreview) Step() {
+	// Editor preview sandboxes share the global world manager; re-pin our stage
+	// in case another preview tab switched the current map.
+	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 	g := p.g
 	gl := g.gameLoop
 	g.frameCount++
