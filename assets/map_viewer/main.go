@@ -14,6 +14,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -1729,6 +1730,11 @@ func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.R
 }
 
 func ensureRuntimeCWD() {
+	// macOS .app: seed + run out of the same shared writable per-user dir as the
+	// game, so edited maps land where the game reads them. No-op for bare binaries.
+	if storage.SetupBundleRuntime() {
+		return
+	}
 	if _, err := os.Stat("config.yaml"); err == nil {
 		return
 	}

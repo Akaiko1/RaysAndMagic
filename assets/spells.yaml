@@ -520,7 +520,7 @@ spells:
     physics:
       speed_tiles: 9.0           # slow drifting swarm
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      collision_size_tiles: 2.0
     graphics:
       max_size: 46
       min_size: 3
@@ -744,7 +744,7 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 9.0
-      collision_size_tiles: 0.5
+      collision_size_tiles: 2.0
     graphics:
       max_size: 46
       min_size: 3

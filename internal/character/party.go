@@ -255,8 +255,10 @@ func (p *Party) GetTotalItems() int {
 	return len(p.Inventory)
 }
 
-// EquipItemFromInventory attempts to equip an item from inventory to a character
-func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
+// equipFromInventory validates the indices and conscious state, runs the given
+// equip call, and on success removes the item from the bag and returns any
+// displaced item to it. Shared core of the equip-from-inventory variants.
+func (p *Party) equipFromInventory(itemIndex, characterIndex int, equip func(*MMCharacter, items.Item) (items.Item, bool, bool)) bool {
 	if itemIndex < 0 || itemIndex >= len(p.Inventory) {
 		return false
 	}
@@ -272,13 +274,20 @@ func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
 		return false
 	}
 
-	previousItem, hadPreviousItem, success := character.EquipItem(item)
+	previousItem, hadPreviousItem, success := equip(character, item)
 	if !success {
 		return false
 	}
 	p.RemoveItem(itemIndex)
 	p.returnDisplacedToBag(previousItem, hadPreviousItem)
 	return true
+}
+
+// EquipItemFromInventory attempts to equip an item from inventory to a character
+func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
+	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
+		return c.EquipItem(item)
+	})
 }
 
 // returnDisplacedToBag puts an item displaced by an equip back into the inventory,
@@ -294,24 +303,19 @@ func (p *Party) returnDisplacedToBag(item items.Item, had bool) {
 // dropped on. Mirrors EquipItemFromInventory otherwise (inventory removal +
 // displaced item returned to the bag).
 func (p *Party) EquipItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
-	if itemIndex < 0 || itemIndex >= len(p.Inventory) {
-		return false
-	}
+	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
+		return c.EquipItemToSlot(item, slot)
+	})
+}
+
+// MoveEquippedSlot moves a character's equipped item from srcSlot to dstSlot
+// (swapping if dstSlot is occupied). For interchangeable slots like the two ring
+// fingers — nothing leaves the paperdoll, so no inventory changes.
+func (p *Party) MoveEquippedSlot(srcSlot, dstSlot items.EquipSlot, characterIndex int) bool {
 	if characterIndex < 0 || characterIndex >= len(p.Members) {
 		return false
 	}
-	item := p.Inventory[itemIndex]
-	character := p.Members[characterIndex]
-	if character.HasCondition(ConditionUnconscious) {
-		return false
-	}
-	previousItem, hadPreviousItem, success := character.EquipItemToSlot(item, slot)
-	if !success {
-		return false
-	}
-	p.RemoveItem(itemIndex)
-	p.returnDisplacedToBag(previousItem, hadPreviousItem)
-	return true
+	return p.Members[characterIndex].MoveEquipmentSlot(srcSlot, dstSlot)
 }
 
 // UnequipItemToInventory removes an item from a character's equipment and adds it to inventory.

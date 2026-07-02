@@ -50,9 +50,12 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
-		// While dragging an equippable inventory item, glow every slot it can go into.
-		if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
-			equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) {
+		// While dragging an equippable item, glow every slot it can go into — from
+		// the bag, or from another paperdoll slot (a ring to its other finger). The
+		// source slot itself never glows.
+		if ui.game.dragActive && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
+			(ui.game.dragSrc == dragFromInventory ||
+				(ui.game.dragSrc == dragFromEquip && ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot != slotInfo.slot)) {
 			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{90, 220, 100, 240})
 		}
 		if isHovering {
@@ -652,23 +655,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		ui.game.selectedSpell = 0
 	}
 
-	bookX := panelX + 24
-	// Push the book down so the bookmark flags have room between the menu tabs and the book.
-	bookY := contentY + 60
-	bookW := 652
-	bookH := bookW / 2
-	if maxBookH := contentHeight - 94; bookH > maxBookH {
-		bookH = maxBookH
-		bookW = bookH * 2
-		bookX = panelX + (700-bookW)/2
-	}
-
-	scaleX := float64(bookW) / 1024.0
-	scaleY := float64(bookH) / 512.0
-	srcX := func(v int) int { return bookX + int(float64(v)*scaleX) }
-	srcY := func(v int) int { return bookY + int(float64(v)*scaleY) }
-	srcW := func(v int) int { return int(float64(v) * scaleX) }
-	srcH := func(v int) int { return int(float64(v) * scaleY) }
+	bl := computeBookLayout(panelX, contentY, contentHeight)
 
 	// Draw bookmarks first so the book sprite hides the inserted portion.
 	if len(schools) > 0 {
@@ -676,20 +663,20 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		if ui.game.selectedSchool < len(schools) {
 			selSchool = schools[ui.game.selectedSchool]
 		}
-		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bookX, bookY, scaleX, scaleY)
+		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bl.bookX, bl.bookY, bl.scaleX, bl.scaleY)
 	}
 
-	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bookX, bookY, bookW, bookH)
+	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
 
-	leftTextX := srcX(92)
-	leftTextW := srcW(350)
+	leftTextX := bl.srcX(92)
+	leftTextW := bl.srcW(350)
 
-	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, srcY(72), leftTextW, 20)
+	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, bl.srcY(72), leftTextW, 20)
 	// SP counter is shown in the party panel; no need to duplicate it in the book.
 	// School name is shown by the active bookmark; no header needed on the right page.
 
 	if len(schools) == 0 {
-		drawCenteredDebugText(screen, "No magic schools available", bookX+24, bookY+bookH/2-8, bookW-48, 20)
+		drawCenteredDebugText(screen, "No magic schools available", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 		return
 	}
 
@@ -711,36 +698,12 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	if len(schoolSpells) == 0 {
-		drawCenteredDebugText(screen, "No learned spells", leftTextX, bookY+bookH/2-8, leftTextW, 20)
+		drawCenteredDebugText(screen, "No learned spells", leftTextX, bl.bookY+bl.bookH/2-8, leftTextW, 20)
 	} else {
-		// 2×2 grid per page (left + right) = up to 8 spells visible at once.
-		gridY := srcY(118)
-		cardW := srcW(180)
-		cardH := srcH(150)
-		cols := 2
-		const cardsPerPage = 4
-		iconSize := srcW(96)
-		// Clamp icon size so name + stats rows fit below it without overlap at small scales.
-		if maxIcon := cardH - 2*debugTextCharHeight - 12; iconSize > maxIcon {
-			iconSize = maxIcon
-		}
-		if iconSize < 16 {
-			iconSize = 16
-		}
-		cardGap := srcW(18)
-		rowGap := srcH(14)
-		// Centre the 2×2 grid on the parchment area of each page. Source-coord
-		// centres measured from the spellbook_open sprite: left page parchment
-		// spans x=87..468 (centre 278), right page spans x=558..936 (centre 747).
-		gridW := cols*cardW + (cols-1)*cardGap
-		pageOriginX := [2]int{
-			srcX(278) - gridW/2,
-			srcX(747) - gridW/2,
-		}
 		mouseX, mouseY := ebiten.CursorPosition()
 
 		for spellIndex, spellID := range schoolSpells {
-			if spellIndex >= 2*cardsPerPage {
+			if spellIndex >= 2*bl.cardsPerPage {
 				break
 			}
 			def, err := spells.GetSpellDefinitionByID(spellID)
@@ -748,21 +711,16 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 				continue
 			}
 
-			page := spellIndex / cardsPerPage
-			local := spellIndex % cardsPerPage
-			col := local % cols
-			row := local / cols
-			cardX := pageOriginX[page] + col*(cardW+cardGap)
-			cardY := gridY + row*(cardH+rowGap)
-			if cardY+cardH > srcY(460) {
+			cardX, cardY := bl.cardPos(spellIndex)
+			if cardY+bl.cardH > bl.gridMaxY {
 				continue
 			}
 
-			ui.handleSpellbookSpellClick(cardX, cardY, cardW, cardH, ui.game.selectedSchool, spellIndex)
-			ui.quickSpellCardDragSource(spellID, cardX, cardY, cardW, cardH)
+			ui.handleSpellbookSpellClick(cardX, cardY, bl.cardW, bl.cardH, ui.game.selectedSchool, spellIndex)
+			ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
 			isSelected := spellIndex == ui.game.selectedSpell
-			isHovering := mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH
-			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
+			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
+			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, isSelected)
 
 			if isHovering {
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
@@ -785,11 +743,11 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	// Draw spellbook controls
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bl.bookX+20, contentY+contentHeight-28, bl.bookW-40, 20)
 
 	// Quick-slot bar below the book, narrow + centred so cells stay compact.
 	qbW := 360
-	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
+	ui.drawTabQuickSlotBar(screen, bl.bookX+(bl.bookW-qbW)/2, bl.bookY+bl.bookH+16, qbW)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {

@@ -1624,6 +1624,12 @@ func (g *MMGame) startPartyTurn() {
 	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
 		g.selectedChar = idx
 	}
+	// Pull any stacked mobs onto distinct tiles before the player aims — TB fires
+	// along rows/columns, so a stacked/half-offset pair would let a shot thread
+	// between them. Once per turn = jitter-free (unlike a per-frame RT snap).
+	if g.turnBasedMode {
+		g.separateStackedMonstersTB()
+	}
 }
 
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {

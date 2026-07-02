@@ -29,19 +29,7 @@ func (r *Renderer) drawSpawnTileBorder(screen *ebiten.Image) {
 		rgb = [3]int{255, 0, 0}
 	}
 
-	auraCfg := r.game.config.Graphics.ImpassableAura
-	baseAlpha := auraCfg.Alpha
-	if baseAlpha <= 0 {
-		baseAlpha = 0.5
-	}
-	perEdge := auraCfg.BubblesPerEdge
-	if perEdge <= 0 {
-		perEdge = 3
-	}
-	radius := auraCfg.RadiusTiles
-	if radius <= 0 {
-		radius = 7
-	}
+	baseAlpha, perEdge, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(radius) * ts

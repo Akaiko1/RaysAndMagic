@@ -558,46 +558,37 @@ func (ih *InputHandler) handleMainMenuInput() {
 			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
-		if ih.game.saveRenameOpen {
-			ih.handleSaveRenameInput()
-			return
-		}
-		ih.navigateSavePage(px, py, panelW, panelH)
-		if ih.handleSaveRowRename(px, py, panelW) {
-			return
-		}
-		// Mouse hover selection (row within page).
-		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			ih.doSaveToSelectedRow()
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-			ih.openSaveRename(ih.game.selectedSaveRow())
-		}
-		// Mouse click activation
-		if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-			ih.doSaveToSelectedRow()
-		}
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
-		if ih.game.saveRenameOpen {
-			ih.handleSaveRenameInput()
-			return
-		}
-		ih.navigateSavePage(px, py, panelW, panelH)
-		if ih.handleSaveRowRename(px, py, panelW) { // right-click rename, same as Save menu
-			return
-		}
-		ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			ih.doLoadFromSelectedRow()
-		}
-		if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
-			ih.doLoadFromSelectedRow()
-		}
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, false, ih.doLoadFromSelectedRow)
+	}
+}
+
+// handleSaveLoadMenuInput drives the shared Save/Load slot-list input: rename
+// dialog, page navigation, right-click rename, row hover selection, and
+// Enter/click activation. allowRename adds the R rename key (Save menu only).
+func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH int, allowRename bool, activate func()) {
+	px := (w - panelW) / 2
+	py := (h - panelH) / 2
+	if ih.game.saveRenameOpen {
+		ih.handleSaveRenameInput()
+		return
+	}
+	ih.navigateSavePage(px, py, panelW, panelH)
+	if ih.handleSaveRowRename(px, py, panelW) {
+		return
+	}
+	// Mouse hover selection (row within page).
+	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		activate()
+	}
+	if allowRename && inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		ih.openSaveRename(ih.game.selectedSaveRow())
+	}
+	// Mouse click activation
+	if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
+		activate()
 	}
 }
 

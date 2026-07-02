@@ -336,7 +336,11 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 
 	// Check line of sight - if obstructed (trees, walls), reduce detection radius
 	// Only apply penalty if we are inside our territory. If outside, we stay alert.
-	if m.IsWithinTetherRadius() && collisionChecker != nil && !collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
+	// The LOS trace (a per-monster DDA walk) is skipped when the player is beyond
+	// the largest radius either branch below could use: past that distance the
+	// engage/disengage outcome is identical with or without the LOS multiplier.
+	losRelevant := distanceToPlayer <= detectionRadius*math.Max(1, losBlockedMult)*math.Max(1, disengageMult)
+	if losRelevant && m.IsWithinTetherRadius() && collisionChecker != nil && !collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
 		detectionRadius *= losBlockedMult
 	}
 
@@ -730,6 +734,14 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 	return TileCoord{}, false
 }
 
+// pathCheckFrequency returns the configured repath throttle in ticks (default 30).
+func (m *Monster3D) pathCheckFrequency() int {
+	if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
+		return m.config.MonsterAI.PathCheckFrequency
+	}
+	return 30
+}
+
 // followPathToTarget computes (or reuses) an A* path and moves toward the next tile.
 func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, targetX, targetY float64) bool {
 	if collisionChecker == nil {
@@ -748,84 +760,13 @@ func (m *Monster3D) followPathToTarget(collisionChecker CollisionChecker, target
 	// A failed search (boxed in: previous A* toward this same target found no
 	// path) retries at pathCheckFrequency, not every tick — otherwise a wedged
 	// pursuer reruns a full A* 120x/s for as long as it stays blocked.
-	if shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 {
-		pathCheckFrequency := 30
-		if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
-			pathCheckFrequency = m.config.MonsterAI.PathCheckFrequency
-		}
-		if !m.canRepath(pathCheckFrequency) {
-			return false
-		}
-	}
-
-	if shouldRepath {
-		m.PathTiles = m.findPathToTarget(collisionChecker, targetX, targetY)
-		m.PathIndex = 0
-		m.PathTargetTileX = targetTileX
-		m.PathTargetTileY = targetTileY
-		m.LastPathCalcTick = m.StateTimer
-	}
-
-	if len(m.PathTiles) == 0 {
+	if shouldRepath && !targetChanged && len(m.PathTiles) == 0 && m.LastPathCalcTick > 0 && !m.canRepath(m.pathCheckFrequency()) {
 		return false
 	}
 
-	if !m.advancePathIndexToCurrentTile() {
-		return false
-	}
-
-	if m.PathIndex >= len(m.PathTiles) {
-		return false
-	}
-
-	next := m.PathTiles[m.PathIndex]
-	targetCenterX, targetCenterY := m.tileToWorldCenter(next.X, next.Y)
-
-	dx := targetCenterX - m.X
-	dy := targetCenterY - m.Y
-	dist := math.Hypot(dx, dy)
-	speed := m.speedPerTick()
-	step := speed
-	if dist < step {
-		step = dist
-	}
-
-	if dist <= step {
-		if collisionChecker.CanMoveToWithHabitat(m.ID, targetCenterX, targetCenterY, m.HabitatPrefs, m.Flying) {
-			m.X = targetCenterX
-			m.Y = targetCenterY
-			m.PathIndex++
-			return true
-		}
-		m.PathTiles = nil
-		return false
-	}
-
-	newX := m.X + dx/dist*step
-	newY := m.Y + dy/dist*step
-
-	if collisionChecker.CanMoveToWithHabitat(m.ID, newX, newY, m.HabitatPrefs, m.Flying) {
-		m.X = newX
-		m.Y = newY
-		return true
-	}
-
-	// The diagonal step clips a wall corner (the box grazes the inside edge while
-	// rounding it). Instead of giving up and freezing, slide along whichever axis
-	// is still clear so the monster rounds the corner. This is the usual fix for
-	// pursuers sticking on corners; only if BOTH axes are blocked do we repath.
-	if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
-		m.X = newX
-		return true
-	}
-	if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
-		m.Y = newY
-		return true
-	}
-
-	// Truly boxed in on both axes - drop the path and repath next tick.
-	m.PathTiles = nil
-	return false
+	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
+		func() []TileCoord { return m.findPathToTarget(collisionChecker, targetX, targetY) },
+		m.speedPerTick(), false, true)
 }
 
 // followPathToTile computes (or reuses) an A* path to a tile and moves toward it.
@@ -834,19 +775,25 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return false
 	}
 
-	pathCheckFrequency := 30
-	if m.config != nil && m.config.MonsterAI.PathCheckFrequency > 0 {
-		pathCheckFrequency = m.config.MonsterAI.PathCheckFrequency
-	}
-
 	shouldRepath := len(m.PathTiles) == 0 || m.PathIndex >= len(m.PathTiles)
 	targetChanged := m.PathTargetTileX != targetTileX || m.PathTargetTileY != targetTileY
-	if targetChanged && !shouldRepath && m.canRepath(pathCheckFrequency) {
+	if targetChanged && !shouldRepath && m.canRepath(m.pathCheckFrequency()) {
 		shouldRepath = true
 	}
 
+	return m.followPathStep(collisionChecker, targetTileX, targetTileY, shouldRepath,
+		func() []TileCoord { return m.findPathToTile(collisionChecker, targetTileX, targetTileY) },
+		m.movementSpeed(m.State), true, false)
+}
+
+// followPathStep advances one tick along m.PathTiles toward (targetTileX,
+// targetTileY), recomputing the path via computePath when shouldRepath. It snaps
+// onto the next tile centre when within one step, else moves straight toward it.
+// haltOnZeroSpeed returns early on speed <= 0 (tile variant); cornerSlide enables
+// the axis-slide fallback (target variant only).
+func (m *Monster3D) followPathStep(collisionChecker CollisionChecker, targetTileX, targetTileY int, shouldRepath bool, computePath func() []TileCoord, speed float64, haltOnZeroSpeed, cornerSlide bool) bool {
 	if shouldRepath {
-		m.PathTiles = m.findPathToTile(collisionChecker, targetTileX, targetTileY)
+		m.PathTiles = computePath()
 		m.PathIndex = 0
 		m.PathTargetTileX = targetTileX
 		m.PathTargetTileY = targetTileY
@@ -865,8 +812,7 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return false
 	}
 
-	speed := m.movementSpeed(m.State)
-	if speed <= 0 {
+	if haltOnZeroSpeed && speed <= 0 {
 		return false
 	}
 
@@ -876,7 +822,6 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 	dx := targetCenterX - m.X
 	dy := targetCenterY - m.Y
 	dist := math.Hypot(dx, dy)
-
 	step := speed
 	if dist < step {
 		step = dist
@@ -902,6 +847,22 @@ func (m *Monster3D) followPathToTile(collisionChecker CollisionChecker, targetTi
 		return true
 	}
 
+	if cornerSlide {
+		// The diagonal step clips a wall corner (the box grazes the inside edge
+		// while rounding it). Instead of giving up and freezing, slide along
+		// whichever axis is still clear so the monster rounds the corner; only
+		// if BOTH axes are blocked do we repath.
+		if dx != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, newX, m.Y, m.HabitatPrefs, m.Flying) {
+			m.X = newX
+			return true
+		}
+		if dy != 0 && collisionChecker.CanMoveToWithHabitat(m.ID, m.X, newY, m.HabitatPrefs, m.Flying) {
+			m.Y = newY
+			return true
+		}
+	}
+
+	// Blocked - drop the path and repath next tick.
 	m.PathTiles = nil
 	return false
 }

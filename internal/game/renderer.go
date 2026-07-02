@@ -144,6 +144,13 @@ type Renderer struct {
 	// avoids a per-frame fmt.Sprintf allocation that showed up in the hot draw
 	// path (one call per visible transparent sprite per frame).
 	processedSpriteCache map[processedSpriteKey]*ebiten.Image
+	// Per-sprite 1px column SubImages for sprite-textured wall slices — SubImage
+	// allocates a new *ebiten.Image per call (one per wall column per frame).
+	// Sprites come from the SpriteManager and live for the whole game.
+	wallSliceColumns map[*ebiten.Image][]*ebiten.Image
+	// Per-sprite animation-frame SubImages (see selectAnimatedSpriteFrame),
+	// same per-frame SubImage churn for animated NPC sheets.
+	animFrameCache map[*ebiten.Image][]*ebiten.Image
 	// Reusable buffer for tree hits to avoid allocation per frame
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
@@ -327,23 +334,30 @@ func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX,
 	return variants[index%len(variants)]
 }
 
+// computeNumRays derives the per-frame ray count from the configured screen
+// width and ray width, ceil-divided so all pixels are covered, with safety
+// guards against zero/negative config values.
+func (r *Renderer) computeNumRays() int {
+	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
+	if rayWidth <= 0 {
+		rayWidth = 1
+	}
+	screenWidth := r.game.config.GetScreenWidth()
+	if screenWidth <= 0 {
+		screenWidth = 800
+	}
+	numRays := (screenWidth + rayWidth - 1) / rayWidth
+	if numRays <= 0 {
+		numRays = 1
+	}
+	return numRays
+}
+
 // precomputeRayDirections calculates ray directions once per frame for performance
 func (r *Renderer) precomputeRayDirections() {
 	// Safety check: ensure ray direction cache is allocated
 	if len(r.rayDirectionsX) == 0 || len(r.rayDirectionsY) == 0 {
-		// Reallocate if needed
-		rayWidth := r.game.config.Graphics.RaysPerScreenWidth
-		if rayWidth <= 0 {
-			rayWidth = 1
-		}
-		screenWidth := r.game.config.GetScreenWidth()
-		if screenWidth <= 0 {
-			screenWidth = 800
-		}
-		numRays := (screenWidth + rayWidth - 1) / rayWidth
-		if numRays <= 0 {
-			numRays = 1
-		}
+		numRays := r.computeNumRays()
 		r.rayDirectionsX = make([]float64, numRays)
 		r.rayDirectionsY = make([]float64, numRays)
 	}
@@ -512,11 +526,14 @@ func (r *Renderer) applyLocalLight(brightness float64, sourceX, sourceY, worldX,
 	if radius <= 0 || intensity <= 0 {
 		return brightness
 	}
-	distanceFromLight := Distance(sourceX, sourceY, worldX, worldY)
-	if distanceFromLight > radius {
+	// Squared-distance reject before the sqrt: most lights are out of range.
+	dx := worldX - sourceX
+	dy := worldY - sourceY
+	distSq := dx*dx + dy*dy
+	if distSq > radius*radius {
 		return brightness
 	}
-	falloff := 1.0 - (distanceFromLight / radius)
+	falloff := 1.0 - (math.Sqrt(distSq) / radius)
 	brightness += intensity * falloff
 	if brightness > 1.0 {
 		brightness = 1.0
@@ -536,6 +553,9 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 
 	for _, light := range r.activeLights {
 		brightness = r.applyLocalLight(brightness, light.X, light.Y, worldX, worldY, light.Radius, light.Intensity)
+		if brightness == 1.0 {
+			break // clamp ceiling reached: every further light returns 1.0 unchanged
+		}
 	}
 
 	return brightness
@@ -1056,19 +1076,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	}
 
 	// Calculate ray parameters first
-	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
-	if rayWidth <= 0 {
-		rayWidth = 1 // Safety guard against zero/negative ray width
-	}
-	screenWidth := r.game.config.GetScreenWidth()
-	if screenWidth <= 0 {
-		screenWidth = 800 // Safety fallback
-	}
-	// Use ceil-division consistently to ensure all pixels are covered
-	numRays := (screenWidth + rayWidth - 1) / rayWidth // Round up to cover entire screen
-	if numRays <= 0 {
-		numRays = 1 // Safety guard against zero rays
-	}
+	numRays := r.computeNumRays()
 
 	// Ensure precomputed ray directions match numRays BEFORE precomputing
 	if len(r.rayDirectionsX) != numRays {
@@ -1993,12 +2001,30 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 		brightness *= 0.7
 	}
 
-	src := sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
+	src := r.spriteColumn(sprite, textureX, spriteWidth, spriteHeight)
 	opts := r.sharedDrawOpts()
 	opts.GeoM.Scale(xScale, yScale)
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	screen.DrawImage(src, opts)
+}
+
+// spriteColumn returns the cached 1px-wide column SubImage of a wall sprite.
+// textureX is one of spriteWidth discrete values, so columns are built lazily
+// once per sprite instead of allocating a SubImage per wall column per frame.
+func (r *Renderer) spriteColumn(sprite *ebiten.Image, textureX, spriteWidth, spriteHeight int) *ebiten.Image {
+	cols := r.wallSliceColumns[sprite]
+	if cols == nil {
+		if r.wallSliceColumns == nil {
+			r.wallSliceColumns = make(map[*ebiten.Image][]*ebiten.Image)
+		}
+		cols = make([]*ebiten.Image, spriteWidth)
+		r.wallSliceColumns[sprite] = cols
+	}
+	if cols[textureX] == nil {
+		cols[textureX] = sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
+	}
+	return cols[textureX]
 }
 
 // spellFxMinClusterSize is the floor (in screen px) for a spell projectile's
@@ -2517,6 +2543,24 @@ func cardinalForwardFromAngle(angle float64) (int, int) {
 	return 0, 1
 }
 
+// cullAndProject applies the shared sprite-collection cull: near/far distance
+// against squared thresholds (minDistSq 0 disables the near cull) and
+// behind-camera rejection via camera-space depth. Returns the euclidean
+// distance and perpendicular depth on success.
+func cullAndProject(x, y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq float64) (distance, depthPerp float64, ok bool) {
+	dx := x - camX
+	dy := y - camY
+	distanceSq := dx*dx + dy*dy
+	if distanceSq < minDistSq || distanceSq > viewDistSq {
+		return 0, 0, false
+	}
+	depthPerp = dx*camDirX + dy*camDirY
+	if depthPerp <= 0 {
+		return 0, 0, false
+	}
+	return math.Sqrt(distanceSq), depthPerp, true
+}
+
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
 // and renders them sorted by depth for proper transparency and occlusion.
 func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
@@ -2547,20 +2591,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			dx := spriteData.worldX - camX
-			dy := spriteData.worldY - camY
-			distanceSq := dx*dx + dy*dy
-
-			if distanceSq < minDistSq || distanceSq > viewDistSq {
+			distance, depthPerp, ok := cullAndProject(spriteData.worldX, spriteData.worldY, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+			if !ok {
 				continue
 			}
 
-			depthPerp := dx*camDirX + dy*camDirY
-			if depthPerp <= 0 {
-				continue
-			}
-
-			distance := math.Sqrt(distanceSq)
 			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
@@ -2626,20 +2661,13 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	if r.game.config.Graphics.TreesAsBillboards {
 		for i := range r.treeTilesCache {
 			td := &r.treeTilesCache[i]
-			dx := td.worldX - camX
-			dy := td.worldY - camY
-			distanceSq := dx*dx + dy*dy
 			// No NEAR cull (unlike other standees): a tree must stay visible when
 			// the player walks right up to it. Only the far view-distance cull
 			// applies; depthPerp<=0 drops trees behind the camera.
-			if distanceSq > viewDistSq {
+			distance, depthPerp, ok := cullAndProject(td.worldX, td.worldY, camX, camY, camDirX, camDirY, 0, viewDistSq)
+			if !ok {
 				continue
 			}
-			depthPerp := dx*camDirX + dy*camDirY
-			if depthPerp <= 0 {
-				continue
-			}
-			distance := math.Sqrt(distanceSq)
 			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(td.worldX, td.worldY, distance, td.tileType, 1.0)
 			if !visible {
 				continue
@@ -2665,20 +2693,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 		renderX, renderY := r.monsterVisualPosition(mon)
 
-		dx := renderX - camX
-		dy := renderY - camY
-		distanceSq := dx*dx + dy*dy
-
-		if distanceSq > viewDistSq {
+		distance, depthPerp, ok := cullAndProject(renderX, renderY, camX, camY, camDirX, camDirY, 0, viewDistSq)
+		if !ok {
 			continue
 		}
 
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-
-		distance := math.Sqrt(distanceSq)
 		sizeMultiplier := mon.GetSizeGameMultiplier()
 		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeMultiplier)
 		if visible && mon.Flying {
@@ -2725,25 +2744,19 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				ex, ey = wx, wy
 			}
 		}
-		dx := ex - camX
-		dy := ey - camY
-		distanceSq := dx*dx + dy*dy
-
 		// Same near-cull as environment sprites for floor-anchored NPCs, so
 		// shipwrecks/churches/exits disappear cleanly when the player walks into
 		// them. Wall-mounted NPCs are different: their visual anchor is on the
 		// adjacent wall, so a player standing in the NPC tile is intentionally
 		// within one tile of the anchor and the gate/grate must remain visible.
-		if (!npc.WallMounted && distanceSq < minDistSq) || distanceSq > viewDistSq {
+		nearSq := minDistSq
+		if npc.WallMounted {
+			nearSq = 0
+		}
+		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
+		if !ok {
 			continue
 		}
-
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-
-		distance := math.Sqrt(distanceSq)
 
 		var screenX, screenY, spriteSize int
 		var visible bool
@@ -2781,19 +2794,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if c.MapKey != "" && c.MapKey != activeMapKey {
 			continue
 		}
-		dx := c.X - camX
-		dy := c.Y - camY
-		distanceSq := dx*dx + dy*dy
 		// Same one-tile cull as env sprites / NPCs so a container at the
 		// player's feet disappears cleanly instead of sliding under the camera.
-		if distanceSq < minDistSq || distanceSq > viewDistSq {
+		distance, depthPerp, ok := cullAndProject(c.X, c.Y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+		if !ok {
 			continue
 		}
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-		distance := math.Sqrt(distanceSq)
 		info := r.game.groundContainerRenderInfo(c, distance)
 		if !info.Visible {
 			continue
@@ -2816,14 +2822,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// let flames shine through trees and tokens).
 	for ti := range r.wallTorches {
 		tp := &r.wallTorches[ti]
-		dx := tp.X - camX
-		dy := tp.Y - camY
-		distanceSq := dx*dx + dy*dy
-		if distanceSq > viewDistSq {
-			continue
-		}
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
+		_, depthPerp, ok := cullAndProject(tp.X, tp.Y, camX, camY, camDirX, camDirY, 0, viewDistSq)
+		if !ok {
 			continue
 		}
 		sprites = append(sprites, UnifiedSpriteRenderData{
@@ -2977,6 +2977,21 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 	}
 }
 
+// smoothYaw eases a standee's stored yaw toward target at speed (deg/sec).
+// First sighting (or long unseen, > 1s) snaps to the target at once.
+func (r *Renderer) smoothYaw(st standeeEnvYawState, seen bool, target, speed float64) standeeEnvYawState {
+	tps := r.game.config.GetTPS()
+	dt := r.game.frameCount - st.tick
+	if !seen || dt > int64(tps) {
+		st.yaw = target
+	} else if dt > 0 {
+		maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
+		st.yaw = approachAngle(st.yaw, target, maxStep)
+	}
+	st.tick = r.game.frameCount
+	return st
+}
+
 // drawUnifiedEnvironmentSprite draws an environment sprite from unified data
 func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	if !r.spriteDepthBufferVisible(s) {
@@ -3021,15 +3036,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				r.standeeEnvYaw = make(map[[2]int]standeeEnvYawState)
 			}
 			st, seen := r.standeeEnvYaw[tileKey]
-			tps := r.game.config.GetTPS()
-			dt := r.game.frameCount - st.tick
-			if !seen || dt > int64(tps) {
-				st.yaw = target // first sighting (or long unseen): face the camera at once
-			} else if dt > 0 {
-				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
-				st.yaw = approachAngle(st.yaw, target, maxStep)
-			}
-			st.tick = r.game.frameCount
+			st = r.smoothYaw(st, seen, target, speed)
 			r.standeeEnvYaw[tileKey] = st
 			yaw = st.yaw
 		}
@@ -3199,7 +3206,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	drawLeft := s.screenX - s.spriteSize/2
-	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -3248,15 +3255,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				r.standeeNPCYaw = make(map[*character.NPC]standeeEnvYawState)
 			}
 			st, seen := r.standeeNPCYaw[s.npc]
-			tps := r.game.config.GetTPS()
-			dt := r.game.frameCount - st.tick
-			if !seen || dt > int64(tps) {
-				st.yaw = target // first sighting (or long unseen): face the party at once
-			} else if dt > 0 {
-				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
-				st.yaw = approachAngle(st.yaw, target, maxStep)
-			}
-			st.tick = r.game.frameCount
+			st = r.smoothYaw(st, seen, target, speed)
 			r.standeeNPCYaw[s.npc] = st
 			yaw = st.yaw
 		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !animated && spin != 0 {
@@ -3292,20 +3291,32 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 // selectAnimatedSpriteFrame picks an animation frame from a horizontal sprite
 // sheet. If the sprite's width equals frameHeight × SpriteSheetFrameCount, the
 // sheet is treated as animated and the frame is selected by frameCount; the
-// returned image is a SubImage and the returned width/height are the per-frame
-// dimensions. Otherwise the sprite is returned unchanged.
-func selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
+// returned image is a SubImage (cached per sprite+frame to avoid a per-draw
+// allocation) and the returned width/height are the per-frame dimensions.
+// Otherwise the sprite is returned unchanged.
+func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
 	bounds := sprite.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	if h <= 0 || w != h*SpriteSheetFrameCount {
 		return sprite, w, h
 	}
 	frame := int((frameCount / SpriteFrameStride) % SpriteSheetFrameCount)
-	rect := image.Rect(
-		bounds.Min.X+frame*h, bounds.Min.Y,
-		bounds.Min.X+(frame+1)*h, bounds.Min.Y+h,
-	)
-	return sprite.SubImage(rect).(*ebiten.Image), h, h
+	frames := r.animFrameCache[sprite]
+	if frames == nil {
+		if r.animFrameCache == nil {
+			r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
+		}
+		frames = make([]*ebiten.Image, SpriteSheetFrameCount)
+		r.animFrameCache[sprite] = frames
+	}
+	if frames[frame] == nil {
+		rect := image.Rect(
+			bounds.Min.X+frame*h, bounds.Min.Y,
+			bounds.Min.X+(frame+1)*h, bounds.Min.Y+h,
+		)
+		frames[frame] = sprite.SubImage(rect).(*ebiten.Image)
+	}
+	return frames[frame], h, h
 }
 
 // drawProjectiles draws moving spell and weapon projectiles. Melee swings render

@@ -30,6 +30,8 @@ type bubbleColumnFx struct {
 	color        [3]int
 	centerDepth  float64 // billboard self-cull plane (bubbles behind it are hidden)
 	hasCenter    bool    // false disables the self-cull (steam/valve fill the tile)
+	centerSpanL  int     // screen-X span the billboard covers at the cull plane;
+	centerSpanR  int     // the self-cull applies only inside it (±math.MinInt/MaxInt = anywhere)
 	fall         bool    // true = motes descend sky→ground (teleporter); default ground→sky (steam/aura)
 	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1−j, 1+j]×base
 }
@@ -44,8 +46,8 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 	if !ok || depth < auraMinDepth || depth > c.maxDepth {
 		return
 	}
-	if c.hasCenter && depth > c.centerDepth {
-		return // far side of the billboard plane → hidden by the sprite
+	if c.hasCenter && depth > c.centerDepth && screenX >= c.centerSpanL && screenX <= c.centerSpanR {
+		return // far side of the billboard plane AND behind its on-screen silhouette
 	}
 	if screenX >= 0 && screenX < len(r.game.depthBuffer) && depth >= r.game.depthBuffer[screenX] {
 		return // behind a wall

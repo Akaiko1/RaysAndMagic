@@ -221,23 +221,11 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 }
 
 // equipItemMatchesSlot reports whether item would equip into paperdoll slot for c
-// — used for both drag-drop validation and the drag-time compatible-slot highlight.
+// — used for both drag-drop validation and the drag-time compatible-slot
+// highlight. Thin alias over the model's ItemFitsSlot (the SSoT; EquipItemToSlot
+// enforces the same check, so the UI gate is a preview, not the guard).
 func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.EquipSlot) bool {
-	switch item.Type {
-	case items.ItemWeapon:
-		return slot == items.SlotMainHand && c.CanEquipWeaponByName(item.Name)
-	case items.ItemBattleSpell, items.ItemUtilitySpell:
-		return slot == items.SlotSpell
-	case items.ItemArmor:
-		return c.CanEquipArmor(item) && slot == item.PreferredSlot(items.SlotArmor)
-	case items.ItemAccessory:
-		ps := item.PreferredSlot(items.SlotRing1)
-		if ps == items.SlotRing1 {
-			return slot == items.SlotRing1 || slot == items.SlotRing2 // rings fit either finger
-		}
-		return slot == ps
-	}
-	return false
+	return c.ItemFitsSlot(item, slot)
 }
 
 // equipSlotDragSource arms a drag that begins on charIdx's equipped paperdoll
@@ -268,6 +256,16 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 			// Equip into the EXACT slot dropped on (so a ring lands on the finger
 			// under the cursor, not whichever one EquipItem would auto-pick).
 			g.party.EquipItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
+		}
+	}
+	// Equipped item dragged onto ANOTHER compatible slot (e.g. a ring between the
+	// two fingers): move it there rather than only allowing a return to the bag.
+	// Gated on the drag owner still being displayed (1-4 mid-drag switch), same
+	// as the slot glow — otherwise the move would fire on the wrong character.
+	if g.dragSrc == dragFromEquip && g.dragEquipChar == g.selectedChar && g.dragEquipSlot != slot {
+		ch := g.party.Members[g.dragEquipChar]
+		if equipItemMatchesSlot(ch, g.dragItem, slot) {
+			g.party.MoveEquippedSlot(g.dragEquipSlot, slot, g.dragEquipChar)
 		}
 	}
 	g.clearDrag()

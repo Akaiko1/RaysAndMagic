@@ -2404,6 +2404,21 @@ func (cs *CombatSystem) calculatePerspectiveScale(x, y, baseSize float64, minSiz
 	return scale
 }
 
+// spawnProjectileHitFX bursts the impact FX for a projectile hit at the FX
+// anchor: spell-typed particles for magic projectiles (school-colored fallback
+// otherwise), or the ranged-weapon effect for arrows.
+func (cs *CombatSystem) spawnProjectileHitFX(projectile interface{}, fxX, fxY float64, isSpell, isRanged bool, damageTypeStr string, monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig, damage int) {
+	if isSpell {
+		if mp, ok := projectile.(*MagicProjectile); ok {
+			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
+		} else {
+			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		}
+	} else if isRanged {
+		cs.spawnRangedHitEffect(monster, weaponDef, damage)
+	}
+}
+
 // applyProjectileDamage applies damage from a projectile to a monster and generates combat messages
 func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectileType string, monster *monsterPkg.Monster3D, entityID string) {
 	var damage int
@@ -2546,15 +2561,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 
 	if disintegrateChance > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < disintegrateChance {
-		if isSpell {
-			if mp, ok := projectile.(*MagicProjectile); ok {
-				cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
-			} else {
-				cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
-			}
-		} else if isRanged {
-			cs.spawnRangedHitEffect(monster, weaponDef, damage)
-		}
+		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 
 		monster.HitPoints = 0
 		monster.WasAttacked = true
@@ -2576,11 +2583,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// spam "hit for 0 damage" with a bogus "Critical!" (the spell can't crit).
 	// Bind/Charm are handled earlier; this is the Disintegrate case.
 	if dealsNoDamage {
-		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
-		} else {
-			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
-		}
+		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 		monster.TakeDamageResist(0, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		cs.markMonsterHit(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
@@ -2589,15 +2592,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	}
 
 	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
-	if isSpell {
-		if mp, ok := projectile.(*MagicProjectile); ok {
-			cs.game.CreateSpellHitEffectFromSpell(fxX, fxY, mp.SpellType)
-		} else {
-			cs.game.CreateSpellHitEffect(fxX, fxY, damageTypeStr, SpellParticleCount, SpellParticleSize)
-		}
-	} else if isRanged {
-		cs.spawnRangedHitEffect(monster, weaponDef, damage)
-	}
+	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 
 	// Calculate damage reduction based on damage type
 	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, isRanged)
@@ -2792,7 +2787,34 @@ func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 // awards the kill's XP/gold. Returns the XP awarded, for the kill message.
 func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
+	cs.scatterBandOnMemberDeath(m)
 	return cs.awardExperienceAndGold(m)
+}
+
+// scatterBandOnMemberDeath bursts the victim's band the moment a member is
+// slain. The hit-propagation path (TakeDamage → non-calm member → next-tick
+// scatter) never fires on a one-shot kill: the dead member drops out of the
+// band collection, so the survivors would stay calm and stacked — a band could
+// be sniped down one by one without ever aggroing.
+func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
+	if victim == nil || !victim.Banding || victim.BandID <= 0 ||
+		cs.game.gameLoop == nil || cs.game.world == nil || cs.game.collisionSystem == nil {
+		return
+	}
+	var calm, survivors []*monsterPkg.Monster3D
+	for _, m := range cs.game.world.Monsters {
+		if m == nil || m == victim || !m.IsAlive() || m.BandID != victim.BandID {
+			continue
+		}
+		survivors = append(survivors, m)
+		if isCalmBander(m) {
+			calm = append(calm, m)
+		}
+	}
+	if len(calm) == 0 {
+		return // nobody left to wake — already fighting or band is gone
+	}
+	cs.game.gameLoop.scatterBand(calm, survivors, float64(cs.game.config.GetTileSize()))
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed.

@@ -412,18 +412,10 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 	pagerY := L.pagerY
 	ui.drawPager(screen, centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, true)
 
-	// Close button.
-	closeX := popupX + popupW - 36
-	closeY := popupY + 10
-	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
-	} else {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
-	}
-	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
-	// modal without leaking to the menu-open handler; here only the close button.
-	if !g.stashDragActive && g.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
+	// modal without leaking to the menu-open handler; here only the close button
+	// (click-inert while a drag is in flight).
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive) {
 		g.stashScreenOpen = false
 		g.clearStashDrag()
 	}

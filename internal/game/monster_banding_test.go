@@ -160,3 +160,62 @@ func bandMembershipCounts(monsters []*monsterPkg.Monster3D) map[int]int {
 	}
 	return counts
 }
+
+// TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors covers the gap the
+// hit-propagation path can't reach: a one-shot kill drops the victim out of the
+// band collection before the next banding tick, so without the explicit kill
+// hook the survivors stay calm and stacked while being sniped one by one.
+func TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors(t *testing.T) {
+	game := newBandingTestGame()
+	game.combat = NewCombatSystem(game)
+	game.gameLoop = &GameLoop{game: game}
+
+	tile := float64(game.config.GetTileSize())
+	cx, cy := TileCenterFromTile(3, 3, tile)
+	addBandingTestMonster(game, "wolf_a", "wolf", cx, cy, 7)
+	addBandingTestMonster(game, "wolf_b", "wolf", cx, cy, 7)
+	addBandingTestMonster(game, "wolf_c", "wolf", cx, cy, 7)
+	victim, s1, s2 := game.world.Monsters[0], game.world.Monsters[1], game.world.Monsters[2]
+
+	victim.HitPoints = 0 // one-shot kill
+	game.combat.finishMonsterKill(victim)
+
+	for _, m := range []*monsterPkg.Monster3D{s1, s2} {
+		if !m.IsEngagingPlayer || !m.WasAttacked {
+			t.Errorf("%s should aggro when a bandmate is slain (engaging=%v wasAttacked=%v)",
+				m.ID, m.IsEngagingPlayer, m.WasAttacked)
+		}
+		if m.BandID != 0 {
+			t.Errorf("%s should leave the band on scatter, BandID=%d", m.ID, m.BandID)
+		}
+	}
+	t1 := [2]int{int(s1.X / tile), int(s1.Y / tile)}
+	t2 := [2]int{int(s2.X / tile), int(s2.Y / tile)}
+	if t1 == t2 {
+		t.Errorf("scattered survivors should land on distinct tiles, both on %v", t1)
+	}
+}
+
+// TestScatterBandOnMemberDeath_FightingSurvivorsStayPut: survivors already in
+// combat must not be teleported by the death burst — scatter repositions only
+// still-calm members.
+func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
+	game := newBandingTestGame()
+	game.combat = NewCombatSystem(game)
+	game.gameLoop = &GameLoop{game: game}
+
+	tile := float64(game.config.GetTileSize())
+	cx, cy := TileCenterFromTile(3, 3, tile)
+	addBandingTestMonster(game, "wolf_a", "wolf", cx, cy, 9)
+	addBandingTestMonster(game, "wolf_b", "wolf", cx+tile, cy, 9)
+	victim, fighter := game.world.Monsters[0], game.world.Monsters[1]
+	fighter.IsEngagingPlayer = true
+
+	victim.HitPoints = 0
+	fx, fy := fighter.X, fighter.Y
+	game.combat.finishMonsterKill(victim)
+
+	if fighter.X != fx || fighter.Y != fy {
+		t.Errorf("already-fighting survivor moved by death burst: (%.0f,%.0f)->(%.0f,%.0f)", fx, fy, fighter.X, fighter.Y)
+	}
+}

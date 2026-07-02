@@ -45,16 +45,31 @@ type monsterBandGroup struct {
 //   - each band caps at maxBandStackCount.
 //
 // A hit propagates for free: TakeDamage makes the struck mob non-calm, so next
-// tick its existing band scatters + aggros.
+// tick its existing band scatters + aggros. A one-shot KILL can't propagate this
+// way (the dead member drops out of the collection), so finishMonsterKill calls
+// scatterBandOnMemberDeath explicitly.
 func (gl *GameLoop) updateMonsterBands() {
 	if gl.game.world == nil || gl.game.collisionSystem == nil {
 		return
 	}
 	monsters := gl.game.world.Monsters
+
+	// Boolean pre-scan first: maps without banding monsters allocate nothing.
+	hasBanders := false
+	for _, m := range monsters {
+		if m != nil && m.Banding && m.IsAlive() {
+			hasBanders = true
+			break
+		}
+	}
+	if !hasBanders {
+		return
+	}
+
 	tile := float64(gl.game.config.GetTileSize())
 	bindDistSq := (bandBindDistTiles * tile) * (bandBindDistTiles * tile)
 
-	banders := make([]*monster.Monster3D, 0, len(monsters))
+	banders := gl.bandersBuf[:0]
 	existing := map[int][]*monster.Monster3D{}
 	maxBandID := 0
 	for _, m := range monsters {
@@ -70,18 +85,21 @@ func (gl *GameLoop) updateMonsterBands() {
 			}
 		}
 	}
-	if len(banders) == 0 {
-		return
-	}
+	gl.bandersBuf = banders
 
 	var bands []monsterBandGroup
-	singles := make([]*monster.Monster3D, 0, len(banders))
-	handled := map[*monster.Monster3D]bool{}
+	singles := gl.bandSinglesBuf[:0]
+	if gl.bandHandled == nil {
+		gl.bandHandled = map[*monster.Monster3D]bool{}
+	}
+	clear(gl.bandHandled)
+	handled := gl.bandHandled
 
-	bandIDs := make([]int, 0, len(existing))
+	bandIDs := gl.bandIDsBuf[:0]
 	for id := range existing {
 		bandIDs = append(bandIDs, id)
 	}
+	gl.bandIDsBuf = bandIDs
 	sort.Ints(bandIDs)
 	for _, id := range bandIDs {
 		group := existing[id]
@@ -135,8 +153,13 @@ func (gl *GameLoop) updateMonsterBands() {
 		}
 	}
 	sortMonstersByID(singles)
+	gl.bandSinglesBuf = singles
 
-	usedSingles := map[*monster.Monster3D]bool{}
+	if gl.bandUsedSingles == nil {
+		gl.bandUsedSingles = map[*monster.Monster3D]bool{}
+	}
+	clear(gl.bandUsedSingles)
+	usedSingles := gl.bandUsedSingles
 	for bi := range bands {
 		band := &bands[bi]
 		for len(band.members) < maxBandStackCount {
@@ -149,13 +172,14 @@ func (gl *GameLoop) updateMonsterBands() {
 		}
 	}
 
-	remainingSingles := make([]*monster.Monster3D, 0, len(singles))
+	// In-place compaction: singles has no readers after this point.
+	remainingSingles := singles[:0]
 	for _, m := range singles {
 		if !usedSingles[m] {
 			remainingSingles = append(remainingSingles, m)
 		}
 	}
-	for _, group := range soloBandClusters(remainingSingles, bindDistSq) {
+	for _, group := range gl.soloBandClusters(remainingSingles, bindDistSq) {
 		for start := 0; start < len(group); start += maxBandStackCount {
 			end := start + maxBandStackCount
 			if end > len(group) {
@@ -224,17 +248,18 @@ func firstRecruitableSingle(band, singles []*monster.Monster3D, used map[*monste
 	return nil
 }
 
-func soloBandClusters(singles []*monster.Monster3D, bindDistSq float64) [][]*monster.Monster3D {
+func (gl *GameLoop) soloBandClusters(singles []*monster.Monster3D, bindDistSq float64) [][]*monster.Monster3D {
 	if len(singles) < 2 {
 		if len(singles) == 1 {
 			return [][]*monster.Monster3D{singles}
 		}
 		return nil
 	}
-	parent := make([]int, len(singles))
-	for i := range parent {
-		parent[i] = i
+	parent := gl.bandParentBuf[:0] // union-find scratch, reused across ticks
+	for i := range singles {
+		parent = append(parent, i)
 	}
+	gl.bandParentBuf = parent
 	var find func(int) int
 	find = func(i int) int {
 		for parent[i] != i {

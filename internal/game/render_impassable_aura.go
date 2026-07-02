@@ -1,6 +1,8 @@
 package game
 
 import (
+	"math"
+
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -19,6 +21,26 @@ const (
 	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]×base period
 )
 
+// auraEdgeParams returns the edge-bubble tuning from the impassable-aura
+// config with defaults applied — shared by the impassable aura, trap borders,
+// and the spawn tile marker.
+func (r *Renderer) auraEdgeParams() (baseAlpha float64, perEdge, radius int) {
+	cfg := r.game.config.Graphics.ImpassableAura
+	baseAlpha = cfg.Alpha
+	if baseAlpha <= 0 {
+		baseAlpha = 0.5
+	}
+	perEdge = cfg.BubblesPerEdge
+	if perEdge <= 0 {
+		perEdge = 3
+	}
+	radius = cfg.RadiusTiles
+	if radius <= 0 {
+		radius = 7
+	}
+	return baseAlpha, perEdge, radius
+}
+
 // drawImpassableTileAura draws a subtle stream of rising "bubble" pixels along
 // the ground edges of impassable billboard tiles (rocks/cliffs) that border a
 // walkable tile. Trees and textured walls are skipped — they already read as
@@ -26,23 +48,11 @@ const (
 // cluttering the scene; bubbles take the tile's own floor colour so they blend
 // in, and are depth-tested against walls so they hide correctly behind geometry.
 func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
-	cfg := r.game.config.Graphics.ImpassableAura
-	if !cfg.Enabled || r.game.world == nil || world.GlobalTileManager == nil {
+	if !r.game.config.Graphics.ImpassableAura.Enabled || r.game.world == nil || world.GlobalTileManager == nil {
 		return
 	}
 
-	radius := cfg.RadiusTiles
-	if radius <= 0 {
-		radius = 7
-	}
-	perEdge := cfg.BubblesPerEdge
-	if perEdge <= 0 {
-		perEdge = 3
-	}
-	baseAlpha := cfg.Alpha
-	if baseAlpha <= 0 {
-		baseAlpha = 0.5
-	}
+	baseAlpha, perEdge, radius := r.auraEdgeParams()
 
 	ts := float64(r.game.config.GetTileSize())
 	camTX := int(r.game.camera.X / ts)
@@ -113,8 +123,25 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts float64, perEdge int, baseAlpha, maxDepth float64, rgb [3]int) {
 	// The billboard sprite stands at the tile centre. Bubbles on the FAR side of
 	// that plane are hidden by the sprite (which doesn't write the depth buffer),
-	// so cull them geometrically against the centre's perpendicular depth.
-	_, centerDepth, centerOK := r.game.renderHelper.projectToScreenX((float64(tx)+0.5)*ts, (float64(ty)+0.5)*ts)
+	// so cull them geometrically against the centre's perpendicular depth — but
+	// only where the sprite's silhouette actually covers them on screen: a
+	// side-on edge extends past the billboard, and a depth-only cull erased the
+	// far half of the barrier.
+	cx := (float64(tx) + 0.5) * ts
+	cy := (float64(ty) + 0.5) * ts
+	_, centerDepth, centerOK := r.game.renderHelper.projectToScreenX(cx, cy)
+	spanL, spanR := math.MinInt, math.MaxInt
+	if centerOK {
+		// Tile-wide camera-facing plane at the centre: offset perpendicular to the
+		// view direction, so both endpoints share the centre's depth.
+		ang := r.game.camera.Angle
+		ox, oy := -math.Sin(ang)*ts/2, math.Cos(ang)*ts/2
+		lx, _, lok := r.game.renderHelper.projectToScreenX(cx-ox, cy-oy)
+		rx, _, rok := r.game.renderHelper.projectToScreenX(cx+ox, cy+oy)
+		if lok && rok {
+			spanL, spanR = min(lx, rx), max(lx, rx)
+		}
+	}
 	edgeKey := d[0]*2 + d[1]
 
 	for s := 0; s < perEdge; s++ {
@@ -158,6 +185,8 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 			color:        rgb,
 			centerDepth:  centerDepth,
 			hasCenter:    centerOK,
+			centerSpanL:  spanL,
+			centerSpanR:  spanR,
 		})
 	}
 }

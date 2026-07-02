@@ -448,11 +448,6 @@ type SavePartyBrief struct {
 	Class int
 }
 
-// GetSaveSlotSummary reads minimal info from a save slot for UI display
-func GetSaveSlotSummary(slot int) SaveSummary {
-	return summaryFromPath(slotPath(slot))
-}
-
 // summaryFromPath reads minimal display info from a save file path.
 func summaryFromPath(path string) SaveSummary {
 	f, err := os.Open(path)

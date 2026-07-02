@@ -15,6 +15,7 @@ import (
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
+	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -134,6 +135,11 @@ func hasFlag(name string) bool {
 }
 
 func ensureRuntimeCWD() {
+	// macOS .app: seed + run out of a shared writable per-user dir (bundles can't
+	// write inside themselves). No-op for bare binaries / go run / Windows.
+	if storage.SetupBundleRuntime() {
+		return
+	}
 	if _, err := os.Stat("config.yaml"); err == nil {
 		return
 	}

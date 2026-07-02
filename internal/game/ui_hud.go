@@ -960,16 +960,33 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }
 
+// Translucent text-panel geometry shared by the turn-based status bar and the
+// FPS/perf overlay.
+const (
+	textPanelLineHeight = 16
+	textPanelPadding    = 6
+)
+
+// measureTextPanel returns the panel size fitting the given lines (7px-per-char
+// width estimate).
+func measureTextPanel(lines []string) (w, h int) {
+	maxLen := 0
+	for _, line := range lines {
+		if len(line) > maxLen {
+			maxLen = len(line)
+		}
+	}
+	return maxLen*7 + textPanelPadding*2, len(lines)*textPanelLineHeight + textPanelPadding*2
+}
+
 // drawTurnBasedStatus displays the current game mode and turn state
 func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
-	lineHeight := 16
-	padding := 6
 
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
 	}
 }
 
@@ -990,16 +1007,7 @@ func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
 		}
 	}
 
-	lineHeight := 16
-	padding := 6
-	maxLen := 0
-	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
-		}
-	}
-	barWidth := maxLen*7 + padding*2
-	barHeight := len(lines)*lineHeight + padding*2
+	barWidth, barHeight := measureTextPanel(lines)
 	barX := ui.game.config.GetScreenWidth() - barWidth - 10
 	barY := 10
 
@@ -1048,16 +1056,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
 	_ = compassX
-	lineHeight := 16
-	padding := 6
-	maxLen := 0
-	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
-		}
-	}
-	barWidth := maxLen*7 + padding*2
-	barHeight := len(lines)*lineHeight + padding*2
+	barWidth, barHeight := measureTextPanel(lines)
 	screenWidth := ui.game.config.GetScreenWidth()
 	barX := screenWidth - barWidth - 10
 	barY := compassY + compassRadius + 10
@@ -1065,7 +1064,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
 	}
 }
 

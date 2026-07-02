@@ -4,10 +4,110 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/mathutil"
 	"ugataima/internal/monster"
 )
+
+// separateStackedMonstersTB pulls in-play monsters off shared tiles onto distinct
+// neighbouring tile centres. Turn-based combat fires down rows/columns, so two
+// mobs the real-time pixel push left stacked or half-a-tile offset straddle the
+// aim line and a shot threads the gap between them. Runs once per turn boundary
+// (via startPartyTurn — which fires on TB entry and at every party turn); being
+// turn-discrete it can't oscillate the way a per-frame RT snap would (that
+// jittered because pursuit re-converged the pair every frame). Real time keeps
+// its smooth pixel push (separateOverlappingMonsters); this is TB-only. Calm
+// band stacks are skipped — stacking is the banding feature, and stackMonsterBand
+// would snap them back the same tick anyway; it only reuses the read-only
+// bandScatterRing order.
+func (g *MMGame) separateStackedMonstersTB() {
+	if g.world == nil || g.collisionSystem == nil {
+		return
+	}
+	tile := float64(g.config.GetTileSize())
+	vision := tile * TurnBasedVisionRangeTiles
+	px, py := g.camera.X, g.camera.Y
+	playerTile := [2]int{int(px / tile), int(py / tile)}
+	byTile := map[[2]int][]*monster.Monster3D{}
+	for _, m := range g.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		if m.Banding && !m.IsEngagingPlayer {
+			continue // calm band stack: intentional, and re-stacked same tick anyway
+		}
+		if Distance(px, py, m.X, m.Y) > vision && !m.IsEngagingPlayer {
+			continue // out of this fight — leave it be
+		}
+		key := [2]int{int(m.X / tile), int(m.Y / tile)}
+		byTile[key] = append(byTile[key], m)
+	}
+	keys := make([][2]int, 0, len(byTile))
+	for k := range byTile {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(a, b int) bool {
+		if keys[a][0] != keys[b][0] {
+			return keys[a][0] < keys[b][0]
+		}
+		return keys[a][1] < keys[b][1]
+	})
+	// used is shared across clusters: every occupied tile is off-limits as a
+	// destination, so two adjacent stacks can't scatter onto the same free tile
+	// (calm-calm pass-through wouldn't stop them) or onto a lone calm mob.
+	used := map[[2]int]bool{playerTile: true}
+	for k := range byTile {
+		used[k] = true
+	}
+	for _, k := range keys {
+		cluster := byTile[k]
+		if len(cluster) < 2 {
+			continue
+		}
+		// Lowest-ID mob keeps the tile (a stable owner → no role ping-pong); the
+		// rest snap onto distinct free neighbours. Set-piece monsters (sealed or
+		// warded bosses, warlord idols) must never leave their scripted tile — one
+		// of them owns the tile and none of them ever scatters.
+		sortMonstersByID(cluster)
+		owner := 0
+		for i, m := range cluster {
+			if m.BossDormant || m.BossWarded || m.WarlordIdol {
+				owner = i
+				break
+			}
+		}
+		for i, m := range cluster {
+			if i == owner || m.BossDormant || m.BossWarded || m.WarlordIdol {
+				continue
+			}
+			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
+		}
+	}
+}
+
+// scatterMonsterToFreeTile snaps m onto the first walkable tile CENTRE from the
+// bandScatterRing search order around (ctx,cty) not already in used, marks it
+// used, and replans the mob's path. Returns false if every ring tile is
+// blocked/taken (the mob stays put). It reuses the ring ORDER constant only —
+// band scatter's own logic is untouched.
+func (g *MMGame) scatterMonsterToFreeTile(m *monster.Monster3D, ctx, cty int, tile float64, used map[[2]int]bool) bool {
+	for _, d := range bandScatterRing {
+		key := [2]int{ctx + d[0], cty + d[1]}
+		if used[key] {
+			continue
+		}
+		nx, ny := TileCenterFromTile(key[0], key[1], tile)
+		if g.collisionSystem.CanMoveToWithHabitat(m.ID, nx, ny, m.HabitatPrefs, m.Flying) {
+			used[key] = true
+			m.X, m.Y = nx, ny
+			g.collisionSystem.UpdateEntity(m.ID, nx, ny)
+			m.ResetPathfinding()
+			return true
+		}
+	}
+	return false
+}
 
 // updateMonstersTurnBased handles monster updates in turn-based mode.
 // A monster turn usually gives every participating monster one action pass.

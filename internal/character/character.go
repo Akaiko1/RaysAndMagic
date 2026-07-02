@@ -871,31 +871,65 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	return c.EquipItemToSlot(item, slot)
 }
 
+// ItemFitsSlot reports whether item can legally occupy slot for this character:
+// the type→slot mapping plus the class/armor gates. Single source of truth for
+// the model equip paths and the UI drag highlight / drop validation.
+func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	switch item.Type {
+	case items.ItemWeapon:
+		return slot == items.SlotMainHand && c.CanEquipWeaponByName(item.Name)
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		return slot == items.SlotSpell
+	case items.ItemArmor:
+		return slot == item.PreferredSlot(items.SlotArmor) && c.CanEquipArmor(item)
+	case items.ItemAccessory:
+		ps := item.PreferredSlot(items.SlotRing1)
+		if ps == items.SlotRing1 {
+			return slot == items.SlotRing1 || slot == items.SlotRing2 // rings fit either finger
+		}
+		return slot == ps
+	}
+	return false
+}
+
 // EquipItemToSlot forces item into a specific equipment slot, returning any
 // displaced item. Used when the UI drop target is an exact slot (e.g. dragging a
 // ring onto the Ring2 finger) — unlike EquipItem, which resolves the slot itself
-// and would send a ring to Ring1. The caller must ensure item fits slot; the
-// class/armor gates are still enforced here.
+// and would send a ring to Ring1. Refuses a slot the item can't legally occupy.
 func (c *MMCharacter) EquipItemToSlot(item items.Item, slot items.EquipSlot) (items.Item, bool, bool) {
-	switch item.Type {
-	case items.ItemWeapon:
-		if !c.CanEquipWeaponByName(item.Name) {
-			return items.Item{}, false, false
-		}
-	case items.ItemArmor:
-		if !c.CanEquipArmor(item) {
-			return items.Item{}, false, false
-		}
-	case items.ItemAccessory, items.ItemBattleSpell, items.ItemUtilitySpell:
-		// no extra gate
-	default:
+	if !c.ItemFitsSlot(item, slot) {
 		return items.Item{}, false, false
 	}
-
 	previousItem, hadPreviousItem := c.Equipment[slot]
 	c.Equipment[slot] = item
 	c.updateDerivedStatsForEquipment()
 	return previousItem, hadPreviousItem, true
+}
+
+// MoveEquipmentSlot moves the item in srcSlot to dstSlot, swapping with whatever
+// already occupies dstSlot. In practice this serves interchangeable slots
+// (dragging a ring between the two fingers); both the moved item and any
+// displaced occupant must fit their new slots. Returns false if srcSlot is
+// empty, the slots are the same, or either item doesn't fit.
+func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
+	if srcSlot == dstSlot {
+		return false
+	}
+	moving, ok := c.Equipment[srcSlot]
+	if !ok || !c.ItemFitsSlot(moving, dstSlot) {
+		return false
+	}
+	if occ, occupied := c.Equipment[dstSlot]; occupied {
+		if !c.ItemFitsSlot(occ, srcSlot) {
+			return false
+		}
+		c.Equipment[srcSlot] = occ // swap the two fingers
+	} else {
+		delete(c.Equipment, srcSlot)
+	}
+	c.Equipment[dstSlot] = moving
+	c.updateDerivedStatsForEquipment()
+	return true
 }
 
 // UnequipItem removes an item from an equipment slot and returns it

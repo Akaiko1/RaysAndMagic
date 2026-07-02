@@ -405,7 +405,7 @@ weapons:
     physics:
       speed_tiles: 4.0           # 4 tiles per second (very slow)
       range_tiles: 12.0          # 12 tile range
-      collision_size_tiles: 1.0  # 1 tile collision for large projectile
+      collision_size_tiles: 2.0  # oversized hitbox for the large slow projectile
 
     graphics:
       max_size: 24
@@ -474,7 +474,7 @@ weapons:
     physics:
       speed_tiles: 10.0
       range_tiles: 7.0
-      collision_size_tiles: 0.6
+      collision_size_tiles: 2.0
 
     graphics:
       max_size: 34
@@ -639,7 +639,7 @@ weapons:
     physics:
       speed_tiles: 14.0
       range_tiles: 7.0
-      collision_size_tiles: 0.6
+      collision_size_tiles: 2.0
     graphics:
       max_size: 26
       min_size: 4
@@ -850,7 +850,7 @@ weapons:
     physics:
       speed_tiles: 11.0
       range_tiles: 7.0
-      collision_size_tiles: 0.4
+      collision_size_tiles: 0.5
     graphics:
       max_size: 24
       min_size: 2
