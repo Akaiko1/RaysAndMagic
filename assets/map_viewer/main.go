@@ -10,11 +10,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"ugataima/internal/bridge"
+	"ugataima/internal/boot"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -37,6 +36,7 @@ const (
 	pageSpells = 2 // spells grouped by school
 	pageChars  = 3 // playable characters with starting loadout
 	pageSkills = 4 // all skills with detailed descriptions
+	pageFX     = 5 // live preview of the game's special effects (fx_page.go)
 )
 
 // pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
@@ -50,6 +50,7 @@ var pageTabDefs = []struct {
 	{pageSpells, "Spells", "F3"},
 	{pageChars, "Characters", "F4"},
 	{pageSkills, "Skills", "F5"},
+	{pageFX, "FX", "F6"},
 }
 
 type mapInfo struct {
@@ -160,45 +161,8 @@ type toolbarButton struct {
 }
 
 func main() {
-	ensureRuntimeCWD()
-
-	cfg := config.MustLoadConfig("config.yaml")
-
-	// Initialize tile manager + configs (needed by map loader).
-	world.GlobalTileManager = world.NewTileManager()
-	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
-		log.Printf("Warning: Failed to load tile config: %v", err)
-	}
-	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
-		log.Printf("Warning: Failed to load special tile config: %v", err)
-	}
-
-	monsterCfg := monster.MustLoadMonsterConfig("assets/monsters.yaml")
-
-	// Content tab needs item / weapon / spell defs. These are optional — if a
-	// file is missing the corresponding section is just empty.
-	if _, err := config.LoadItemConfig("assets/items.yaml"); err != nil {
-		log.Printf("Warning: failed to load items.yaml: %v", err)
-	}
-	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
-		log.Printf("Warning: failed to load weapons.yaml: %v", err)
-	}
-	if _, err := config.LoadTrapConfig("assets/traps.yaml"); err != nil {
-		log.Printf("Warning: Failed to load trap config: %v", err)
-	}
-	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
-		log.Printf("Warning: failed to load spells.yaml: %v", err)
-	}
-	// NPC defs drive the Characters page blurbs and the placeable-NPC legend.
-	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
-		log.Printf("Warning: failed to load npcs.yaml: %v", err)
-	}
-
-	// The Characters page instantiates each class via CreateCharacter, which
-	// builds starting equipment through the item/weapon accessors — wire them up
-	// (same bridge the game uses) so equipment names resolve.
-	bridge.SetupItemBridge()
-	bridge.SetupWeaponBridge()
+	// Shared content configs + bridges, same sequence as the game.
+	cfg, monsterCfg := boot.LoadGameData()
 
 	maps, err := loadMaps(cfg)
 	if err != nil {
@@ -266,6 +230,11 @@ func (v *viewer) Update() error {
 			v.handlePageBarClick()
 			return nil
 		}
+	}
+
+	if v.page == pageFX {
+		v.updateFXPage()
+		return nil
 	}
 
 	if v.page != pageMaps {
@@ -374,6 +343,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	v.drawPageBar(screen)
 
+	if v.page == pageFX {
+		v.drawFXPage(screen)
+		return
+	}
 	if v.page == pageChars {
 		v.drawCharactersPage(screen)
 		return
@@ -403,7 +376,7 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	drawMapPanel(screen, m, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 	drawToolbar(screen, lay, v.brush)
-	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileDataByKey, v.tileSpriteThumbnail)
+	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 
 	if !v.saveDialogOpen {
 		drawNPCHoverTooltip(screen, m, lay)
@@ -658,7 +631,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 	originX := x + (w-worldW*tileSize)/2
 	originY := y + (h-worldH*tileSize)/2
 
-	floorColor := colorFromRGB(m.Config.DefaultFloorColor, 255)
+	floorColor := effectiveFloorColor(m, tm, tileDataByKey)
 
 	for ty := 0; ty < worldH; ty++ {
 		for tx := 0; tx < worldW; tx++ {
@@ -677,7 +650,8 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 			}
 			if tileSize >= 6 && sprite != "" && thumb != nil {
 				if img := thumb(sprite); img != nil {
-					vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), floorColor, false)
+					under := floorUnderObjectColor(m, tm, tileDataByKey, tx, ty, floorColor)
+					vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), under, false)
 					drawImageInBox(screen, img, drawX, drawY, tileSize, tileSize)
 					continue
 				}
@@ -728,7 +702,7 @@ func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize in
 	}
 }
 
-func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legendLines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
+func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legendLines []legendEntry, scroll int, currentBrush brush, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
 	drawFilledRect(screen, x, y, w, h, color.RGBA{18, 18, 26, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
 
@@ -737,11 +711,7 @@ func drawSidebar(screen *ebiten.Image, m mapInfo, x, y, w, h int, tab int, legen
 	row := y + tabHeight + 12
 
 	if tab == tabLegend {
-		floorColor := color.RGBA{60, 180, 60, 255}
-		if m.Config != nil {
-			floorColor = colorFromRGB(m.Config.DefaultFloorColor, 255)
-		}
-		drawLegendList(screen, x, row, w, h-(row-y)-12, legendLines, scroll, currentBrush, tileDataByKey, floorColor, thumb)
+		drawLegendList(screen, x, row, w, h-(row-y)-12, legendLines, scroll, currentBrush, tileDataByKey, effectiveFloorColor(m, tm, tileDataByKey), thumb)
 		return
 	}
 
@@ -1311,7 +1281,7 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 				row[sp.X] = '@'
 				key := sp.TileKey
 				if key == "" {
-					key = specialTileKeyFromType(sp.TileType)
+					key = tm.GetTileKey(sp.TileType)
 				}
 				if key == "" {
 					continue
@@ -1330,17 +1300,6 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 	}
 
 	return lines, nil
-}
-
-func specialTileKeyFromType(tileType world.TileType3D) string {
-	switch tileType {
-	case world.TileVioletTeleporter:
-		return "vteleporter"
-	case world.TileRedTeleporter:
-		return "rteleporter"
-	default:
-		return ""
-	}
 }
 
 func drawTileMarkerCircle(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, clr color.RGBA, stroke bool) {
@@ -1416,6 +1375,49 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 		}
 	}
 	return color.RGBA{}, false
+}
+
+// floorUnderObjectColor is the ground shown under an object sprite. A tile
+// that authors its own floor_color (flooring objects) keeps it; otherwise the
+// ground is dynamic — the same dominant-neighbour vote the game uses for
+// under-entity and inherit_floor ground — so a tree in a road patch sits on
+// road, not on the biome default.
+func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[string]*config.TileData, tx, ty int, base color.RGBA) color.RGBA {
+	tile := m.Data.Tiles[ty][tx]
+	if key := tm.GetTileKey(tile); key != "" {
+		if data := tileDataByKey[key]; data != nil && data.FloorColor != [3]int{} {
+			return colorFromRGB(data.FloorColor, 255)
+		}
+	}
+	// TileEmpty's authored floor_color is ignored, same as the game renderer:
+	// empty ground always shows the map's default floor color.
+	if t, ok := tm.DominantNeighbourFloor(m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
+		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
+			return colorFromRGB(data.FloorColor, 255)
+		}
+	}
+	return base
+}
+
+// effectiveFloorColor is the color the biome's '.' floor actually renders
+// with on the panel: the biome '.' tile's own floor_color when it defines one
+// (e.g. highlands_floor), else the map's default_floor_color. Used for cells
+// and as the fill under object sprites, so both always match.
+func effectiveFloorColor(m mapInfo, tm *world.TileManager, tileDataByKey map[string]*config.TileData) color.RGBA {
+	def := color.RGBA{60, 180, 60, 255}
+	if m.Config == nil {
+		return def
+	}
+	def = colorFromRGB(m.Config.DefaultFloorColor, 255)
+	if tm == nil {
+		return def
+	}
+	if t, ok := tm.GetTileTypeFromLetterForBiome(".", m.Config.Biome); ok && t != world.TileEmpty {
+		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
+			return colorFromRGB(data.FloorColor, 255)
+		}
+	}
+	return def
 }
 
 func getMapTileColor(tile world.TileType3D, floorColor color.RGBA, tm *world.TileManager, tileDataByKey map[string]*config.TileData) color.RGBA {
@@ -1727,37 +1729,4 @@ func drawRectBorder(screen *ebiten.Image, x, y, w, h, thickness int, clr color.R
 	vector.FillRect(screen, fx, fy+fh-t, fw, t, clr, false)
 	vector.FillRect(screen, fx, fy, t, fh, clr, false)
 	vector.FillRect(screen, fx+fw-t, fy, t, fh, clr, false)
-}
-
-func ensureRuntimeCWD() {
-	// macOS .app: seed + run out of the same shared writable per-user dir as the
-	// game, so edited maps land where the game reads them. No-op for bare binaries.
-	if storage.SetupBundleRuntime() {
-		return
-	}
-	if _, err := os.Stat("config.yaml"); err == nil {
-		return
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	execDir := filepath.Dir(exe)
-	if runtimeDir, ok := findRuntimeCWD(execDir, os.Stat); ok {
-		_ = os.Chdir(runtimeDir)
-	}
-}
-
-func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (string, bool) {
-	candidates := []string{
-		execDir,
-		filepath.Join(execDir, ".."),
-		filepath.Join(execDir, "..", "Resources"),
-	}
-	for _, candidate := range candidates {
-		if _, err := stat(filepath.Join(candidate, "config.yaml")); err == nil {
-			return filepath.Clean(candidate), true
-		}
-	}
-	return "", false
 }

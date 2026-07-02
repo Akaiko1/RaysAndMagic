@@ -161,6 +161,44 @@ func bandMembershipCounts(monsters []*monsterPkg.Monster3D) map[int]int {
 	return counts
 }
 
+// TestScatterBand_SightVsHitPropagation: a band member being HIT marks the
+// whole band as attacked (sticky aggro); a band member merely NOTICING the
+// player engages the band without the sticky flag, so it can calm down by the
+// normal distance hysteresis.
+func TestScatterBand_SightVsHitPropagation(t *testing.T) {
+	cases := []struct {
+		name    string
+		trigger func(m *monsterPkg.Monster3D)
+		wantHit bool
+	}{
+		{"sighted", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true }, false},
+		{"hit", func(m *monsterPkg.Monster3D) { m.IsEngagingPlayer = true; m.WasAttacked = true }, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			game := newBandingTestGame()
+			addBandingTestMonster(game, "w_a", "wolf", 128, 128, 5)
+			addBandingTestMonster(game, "w_b", "wolf", 128, 128, 5)
+			addBandingTestMonster(game, "w_c", "wolf", 128, 128, 5)
+			tc.trigger(game.world.Monsters[0])
+
+			(&GameLoop{game: game}).updateMonsterBands()
+
+			for _, m := range game.world.Monsters[1:] {
+				if !m.IsEngagingPlayer {
+					t.Errorf("%s: %s should engage when a bandmate triggers", tc.name, m.ID)
+				}
+				if m.WasAttacked != tc.wantHit {
+					t.Errorf("%s: %s WasAttacked = %v, want %v", tc.name, m.ID, m.WasAttacked, tc.wantHit)
+				}
+				if m.BandID != 0 {
+					t.Errorf("%s: %s should leave the band on scatter", tc.name, m.ID)
+				}
+			}
+		})
+	}
+}
+
 // TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors covers the gap the
 // hit-propagation path can't reach: a one-shot kill drops the victim out of the
 // band collection before the next banding tick, so without the explicit kill

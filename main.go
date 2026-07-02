@@ -5,42 +5,28 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 
-	"ugataima/internal/bridge"
-	"ugataima/internal/character"
+	"ugataima/internal/boot"
 	"ugataima/internal/config"
 	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
-	"ugataima/internal/storage"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func main() {
-	ensureRuntimeCWD()
 	// Seed RNG for combat rolls (crit, loot, etc.)
 	rand.Seed(time.Now().UnixNano())
-	// Load configuration
-	cfg := config.MustLoadConfig("config.yaml")
 
-	// Load unified spell configuration
-	config.MustLoadSpellConfig("assets/spells.yaml")
+	// Shared content configs (also loaded by the map editor).
+	cfg, _ := boot.LoadGameData()
 
-	// Load weapon configuration
-	config.MustLoadWeaponConfig("assets/weapons.yaml")
-
-	// Load non-weapon item configuration
-	config.MustLoadItemConfig("assets/items.yaml")
-
-	// Load loot tables
+	// Game-only configs.
 	config.MustLoadLootTables("assets/loots.yaml")
-
-	// Load level-up choices
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
 	// Load achievement definitions (optional — stubbed feature, non-fatal).
@@ -48,28 +34,8 @@ func main() {
 		log.Printf("Warning: Failed to load achievements config: %v", err)
 	}
 
-	// Setup bridges to avoid circular imports
-	bridge.SetupWeaponBridge()
-	bridge.SetupItemBridge()
-
-	// Load and initialize tile manager
-	world.GlobalTileManager = world.NewTileManager()
-	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
-		log.Printf("Warning: Failed to load tile config: %v", err)
-	}
-	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
-		log.Printf("Warning: Failed to load special tile config: %v", err)
-	}
-
-	// Load monster configuration (needed before world loading)
-	config.MustLoadTrapConfig("assets/traps.yaml")
-	monster.MustLoadMonsterConfig("assets/monsters.yaml")
-
 	// Load aggro relationships (which party traits enrage passive monsters)
 	monster.MustLoadHatesConfig("assets/hates.yaml")
-
-	// Load NPC configuration (needed before world loading)
-	character.MustLoadNPCConfig("assets/npcs.yaml")
 
 	// Load quest configuration and initialize quest manager
 	questConfig, err := quests.LoadQuestConfig("assets/quests.yaml")
@@ -132,38 +98,4 @@ func hasFlag(name string) bool {
 		}
 	}
 	return false
-}
-
-func ensureRuntimeCWD() {
-	// macOS .app: seed + run out of a shared writable per-user dir (bundles can't
-	// write inside themselves). No-op for bare binaries / go run / Windows.
-	if storage.SetupBundleRuntime() {
-		return
-	}
-	if _, err := os.Stat("config.yaml"); err == nil {
-		return
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	execDir := filepath.Dir(exe)
-	if runtimeDir, ok := findRuntimeCWD(execDir, os.Stat); ok {
-		_ = os.Chdir(runtimeDir)
-	}
-}
-
-func findRuntimeCWD(execDir string, stat func(string) (os.FileInfo, error)) (string, bool) {
-	candidates := []string{
-		execDir,
-		filepath.Join(execDir, ".."),
-		// macOS .app bundle: Resources is sibling of MacOS.
-		filepath.Join(execDir, "..", "Resources"),
-	}
-	for _, candidate := range candidates {
-		if _, err := stat(filepath.Join(candidate, "config.yaml")); err == nil {
-			return filepath.Clean(candidate), true
-		}
-	}
-	return "", false
 }

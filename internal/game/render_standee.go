@@ -641,12 +641,12 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 // wall face instead of floating mid-tile. Neighbours are checked N,E,S,W (fixed
 // priority so a corner picks deterministically). ok=false when none is solid —
 // the caller then draws the normal centred standee.
-func (r *Renderer) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) {
-	w := r.game.GetCurrentWorld()
+func (g *MMGame) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) {
+	w := g.GetCurrentWorld()
 	if w == nil || world.GlobalTileManager == nil {
 		return 0, 0, 0, false
 	}
-	ts := float64(r.game.config.GetTileSize())
+	ts := float64(g.config.GetTileSize())
 	cx := (math.Floor(npcX/ts) + 0.5) * ts
 	cy := (math.Floor(npcY/ts) + 0.5) * ts
 	const off = 0.5 // flush against the wall face (the player's collision stops them short, so they never pass the plane)

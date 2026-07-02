@@ -115,11 +115,21 @@ func (gl *GameLoop) updateMonsterBands() {
 			}
 		}
 		if hasAggro {
+			// "Noticed" vs "attacked" propagates band-wide: if any member was
+			// actually hit, the whole band counts as hit (sticky aggro); a mere
+			// sighting engages everyone but lets them calm down by hysteresis.
+			wasHit := false
+			for _, m := range group {
+				if m.WasAttacked {
+					wasHit = true
+					break
+				}
+			}
 			for _, m := range group {
 				leaveBand(m)
 			}
 			if len(calm) > 0 {
-				gl.scatterBand(calm, group, tile)
+				gl.scatterBand(calm, group, tile, wasHit)
 			}
 			continue
 		}
@@ -324,8 +334,11 @@ var bandScatterRing = [][2]int{
 
 // scatterBand aggros every still-calm member of a triggered band and repositions
 // each onto a distinct walkable tile around the band centroid, so a stacked band
-// bursts apart the moment one of them engages or is hit.
-func (gl *GameLoop) scatterBand(calm, group []*monster.Monster3D, tile float64) {
+// bursts apart the moment one of them engages or is hit. wasHit marks the burst
+// as damage-triggered: then the whole band counts as attacked (sticky aggro that
+// never decays); a sight-triggered burst engages members without the flag, so
+// they calm down by the normal distance hysteresis if the player leaves.
+func (gl *GameLoop) scatterBand(calm, group []*monster.Monster3D, tile float64, wasHit bool) {
 	var cx, cy float64
 	for _, m := range group {
 		cx += m.X
@@ -340,7 +353,7 @@ func (gl *GameLoop) scatterBand(calm, group []*monster.Monster3D, tile float64) 
 	for _, m := range calm {
 		m.IsEngagingPlayer = true // engage the whole band
 		m.State = monster.StateAlert
-		m.WasAttacked = true
+		m.WasAttacked = wasHit // hit → whole band was hit; sighted → whole band just noticed
 		leaveBand(m)
 		for ri < len(bandScatterRing) {
 			d := bandScatterRing[ri]

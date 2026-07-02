@@ -1075,8 +1075,8 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 		return
 	}
 
-	// Get the nearest interactable NPC
-	nearestNPC := ui.game.GetNearestInteractableNPC()
+	// The Space target: the NPC in interact focus (centred + adjacent tile).
+	nearestNPC := ui.game.focusedNPC
 	if nearestNPC == nil {
 		return
 	}
@@ -1088,22 +1088,22 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	var message string
 	switch npcDialogKindFor(nearestNPC) {
 	case dialogKindSpellTrader:
-		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
 	case dialogKindChoices:
-		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
 	case dialogKindSkillTrainer:
-		message = fmt.Sprintf("Press T to train with %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
 	case dialogKindMerchant:
-		message = fmt.Sprintf("Press T to trade with %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
 	case dialogKindCardCollector:
-		message = fmt.Sprintf("Press T to manage cards with %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
 	default:
-		message = fmt.Sprintf("Press T to talk to %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
 	}
 
 	// Calculate text dimensions for background sizing
-	textWidth := len(message) * 8 // Approximate character width
-	textHeight := 20
+	textWidth := debugTextWidth(message)
+	textHeight := debugTextCharHeight
 	padding := 15
 
 	// Position at top center of screen

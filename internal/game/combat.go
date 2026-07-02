@@ -1224,6 +1224,7 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		// no-op cast.
 		if caster.SpellPoints <= spAfterPay {
 			cs.tryCardSummonOnAction()
+			cs.playSpellBuffFx(spellID) // same no-op gate: refunded cast = no animation
 		}
 		return true
 	}
@@ -1367,10 +1368,20 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		}
 
 		cs.game.setUtilityStatus(spellID, duration)
+		cs.playSpellBuffFx(spellID)
 		return true
 	}
 
 	return false
+}
+
+// playSpellBuffFx plays the spell's buff overlay animation if it defines one
+// (buff_fx_sprite in spells.yaml). Called from every successful cast branch —
+// special-effect AND utility — so any spell can be given the animation by data.
+func (cs *CombatSystem) playSpellBuffFx(spellID spells.SpellID) {
+	if cfgDef, ok := config.GetSpellDefinition(string(spellID)); ok && cfgDef != nil {
+		cs.game.playBuffFx(cfgDef.BuffFxSprite)
+	}
 }
 
 // EquipSelectedSpell equips the selected spell as an item in a battle or utility slot
@@ -2814,7 +2825,7 @@ func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
 	if len(calm) == 0 {
 		return // nobody left to wake — already fighting or band is gone
 	}
-	cs.game.gameLoop.scatterBand(calm, survivors, float64(cs.game.config.GetTileSize()))
+	cs.game.gameLoop.scatterBand(calm, survivors, float64(cs.game.config.GetTileSize()), true)
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed.

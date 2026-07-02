@@ -96,6 +96,10 @@ func (gl *GameLoop) updateExploration() {
 	// rather than silently no-opping for one frame.
 	gl.game.ensureSelectedCharCanAct()
 
+	// Resolve the Space-to-interact focus target before input reads it. Uses
+	// the camera as rendered last frame — exactly what the player is seeing.
+	gl.game.updateFocusedNPC()
+
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
@@ -620,6 +624,9 @@ func (gl *GameLoop) updateSpecialEffects() {
 			gl.game.screenShake = 0
 		}
 	}
+
+	// Buff-cast overlay animations age out.
+	gl.game.tickBuffFx()
 
 	// Impact light flashes burn down and expire.
 	if len(gl.game.impactLights) > 0 {

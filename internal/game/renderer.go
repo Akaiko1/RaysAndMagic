@@ -1137,6 +1137,9 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
+
+		// Buff-cast overlay animation, centred in the party's view.
+		r.drawBuffFx(screen)
 	})
 }
 
@@ -2740,7 +2743,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		// puts the camera ~0 from npc.X/Y and the near-cull deletes the gate.
 		ex, ey := npc.X, npc.Y
 		if npc.WallMounted {
-			if wx, wy, _, ok := r.wallStickPose(npc.X, npc.Y); ok {
+			if wx, wy, _, ok := r.game.wallStickPose(npc.X, npc.Y); ok {
 				ex, ey = wx, wy
 			}
 		}
@@ -3215,6 +3218,23 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	}
 	br := float32(brightness)
 
+	// Hover cue on clickable NPCs: a soft edge glow behind the sprite. Drawn
+	// FIRST, so the opaque sprite/standee covers the interior and only the rim
+	// protruding past the silhouette stays visible — an edge glow, not a
+	// brightness wash. Same hit-test as the click path, so wall-mounted
+	// standees highlight where they are actually drawn, not at their tile
+	// centre.
+	if r.game.worldClickAllowed() {
+		ex, ey := r.game.npcEffectivePos(s.npc)
+		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance {
+			mouseX, mouseY := ebiten.CursorPosition()
+			if r.game.npcScreenHitTest(s.npc, ex, ey, dist, mouseX, mouseY) {
+				r.drawSpriteEdgeGlow(screen, sprite, drawLeft, s.screenY,
+					float64(s.spriteSize)/float64(frameW), float64(s.spriteSize)/float64(frameH), s.spriteSize)
+			}
+		}
+	}
+
 	// Standee mode: animated NPCs (people) slowly turn to face the party, like
 	// figures attending to a visitor; static objects (statues, valves,
 	// buildings) spin slowly in place, showcase-style, with the spin phase
@@ -3231,7 +3251,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// reject it before the wall-mounted draw path gets to apply its backing
 		// wall bias.
 		if s.npc.WallMounted {
-			if wx, wy, wyaw, ok := r.wallStickPose(s.npc.X, s.npc.Y); ok {
+			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				ts := float64(r.game.config.GetTileSize())
 				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 				r.standeeDepthBias = ts * 0.6
@@ -3279,6 +3299,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
+
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
@@ -3288,12 +3309,55 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	screen.DrawImage(sprite, opts)
 }
 
+// drawSpriteEdgeGlow outlines a billboard sprite with a soft warm halo: the
+// sprite's own silhouette re-drawn additively at eight small offsets, so the
+// glow hugs the edge instead of washing over the body.
+func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, drawLeft, drawTop int, scaleX, scaleY float64, spriteSize int) {
+	off := spriteSize / 40
+	if off < 2 {
+		off = 2
+	}
+	for _, d := range [8][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft+d[0]*off), float64(drawTop+d[1]*off))
+		opts.ColorScale.Scale(1.0, 0.85, 0.45, 0.10)
+		opts.Blend = additiveGlowBlend
+		screen.DrawImage(sprite, opts)
+	}
+}
+
+// animationFrames returns the cached per-frame SubImages of a w==h*4 sheet;
+// a non-sheet image comes back as a single frame. Shared by the looping NPC
+// animation and one-shot players (buff overlay), which index frames themselves.
+func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
+	bounds := sprite.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if h <= 0 || w != h*SpriteSheetFrameCount {
+		return []*ebiten.Image{sprite}
+	}
+	frames := r.animFrameCache[sprite]
+	if frames == nil {
+		if r.animFrameCache == nil {
+			r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
+		}
+		frames = make([]*ebiten.Image, SpriteSheetFrameCount)
+		for i := range frames {
+			rect := image.Rect(
+				bounds.Min.X+i*h, bounds.Min.Y,
+				bounds.Min.X+(i+1)*h, bounds.Min.Y+h,
+			)
+			frames[i] = sprite.SubImage(rect).(*ebiten.Image)
+		}
+		r.animFrameCache[sprite] = frames
+	}
+	return frames
+}
+
 // selectAnimatedSpriteFrame picks an animation frame from a horizontal sprite
 // sheet. If the sprite's width equals frameHeight × SpriteSheetFrameCount, the
 // sheet is treated as animated and the frame is selected by frameCount; the
-// returned image is a SubImage (cached per sprite+frame to avoid a per-draw
-// allocation) and the returned width/height are the per-frame dimensions.
-// Otherwise the sprite is returned unchanged.
+// returned image is a cached SubImage and the returned width/height are the
+// per-frame dimensions. Otherwise the sprite is returned unchanged.
 func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
 	bounds := sprite.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
@@ -3301,22 +3365,7 @@ func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount in
 		return sprite, w, h
 	}
 	frame := int((frameCount / SpriteFrameStride) % SpriteSheetFrameCount)
-	frames := r.animFrameCache[sprite]
-	if frames == nil {
-		if r.animFrameCache == nil {
-			r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
-		}
-		frames = make([]*ebiten.Image, SpriteSheetFrameCount)
-		r.animFrameCache[sprite] = frames
-	}
-	if frames[frame] == nil {
-		rect := image.Rect(
-			bounds.Min.X+frame*h, bounds.Min.Y,
-			bounds.Min.X+(frame+1)*h, bounds.Min.Y+h,
-		)
-		frames[frame] = sprite.SubImage(rect).(*ebiten.Image)
-	}
-	return frames[frame], h, h
+	return r.animationFrames(sprite)[frame], h, h
 }
 
 // drawProjectiles draws moving spell and weapon projectiles. Melee swings render

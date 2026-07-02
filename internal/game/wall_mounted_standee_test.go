@@ -62,14 +62,13 @@ func TestWallStickPose_AnchorClearsNearCullAtTileCentre(t *testing.T) {
 	world.GlobalWorldManager = wm
 
 	g := newTestGame(cfg, w)
-	r := NewRenderer(g)
 
 	// Gate sits at the centre of tile (1,1); the party stands on that same tile.
 	npcX := (1.0 + 0.5) * ts
 	npcY := (1.0 + 0.5) * ts
 	camX, camY := npcX, npcY
 
-	wx, wy, yaw, found := r.wallStickPose(npcX, npcY)
+	wx, wy, yaw, found := g.wallStickPose(npcX, npcY)
 	if !found {
 		t.Fatal("wallStickPose found no wall neighbour for an east-walled tile")
 	}

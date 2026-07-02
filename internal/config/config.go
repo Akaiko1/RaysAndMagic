@@ -365,6 +365,11 @@ type SpellDefinitionConfig struct {
 	// within the spell's AoE radius (Starburst). Purely visual; damage uses AoeRadiusTiles.
 	StarburstFx bool `yaml:"starburst_fx,omitempty"`
 
+	// BuffFxSprite plays a short 4-frame animation (a w==h*4 sheet under
+	// assets/sprites/interface/buffs) centred in the party's view when the cast
+	// resolves. Purely visual; used by party buffs.
+	BuffFxSprite string `yaml:"buff_fx_sprite,omitempty"`
+
 	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
 	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
 	// ZoneTickDamage to monsters inside it — every turn in TB, every ZoneTickSeconds in RT.

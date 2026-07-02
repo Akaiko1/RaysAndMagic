@@ -265,6 +265,7 @@ spells:
     resist_buff_pct: 10
     resist_buff_pct_grandmaster: 30
     status_icon: "day_of_the_gods"   # HUD: status_day_of_the_gods if present, else the spell icon
+    buff_fx_sprite: "buff_fx_day_of_the_gods"
 
   hour_of_power:
     name: "Hour of Power"
@@ -388,6 +389,7 @@ spells:
     is_projectile: false
     is_utility: true
     status_icon: "bless"
+    buff_fx_sprite: "buff_fx_bless"
     message: "The party feels blessed! (+10 to all stats)"
 
     # No physics or graphics needed - utility spell
@@ -622,6 +624,7 @@ spells:
     incoming_damage_reduction: 4
     incoming_damage_reduction_grandmaster: 10
     status_icon: "stone_skin"
+    buff_fx_sprite: "buff_fx_stone_skin"
     message: "The party's skin hardens to stone!"
 
   heroism:
@@ -638,6 +641,7 @@ spells:
     outgoing_damage_bonus_grandmaster: 10
     outgoing_damage_type: "physical"
     status_icon: "heroism"
+    buff_fx_sprite: "buff_fx_heroism"
     message: "The party is emboldened with heroism!"
 
   raise_dead:

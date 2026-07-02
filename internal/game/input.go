@@ -52,7 +52,6 @@ type InputHandler struct {
 	charactersKeyTracker keytracker.KeyStateTracker
 	questsKeyTracker     keytracker.KeyStateTracker
 	cardsKeyTracker      keytracker.KeyStateTracker
-	interactKeyTracker   keytracker.KeyStateTracker
 	newGameKeyTracker    keytracker.KeyStateTracker
 	loadKeyTracker       keytracker.KeyStateTracker
 }
@@ -904,6 +903,13 @@ func (ih *InputHandler) handleCombatInput() {
 			return
 		}
 	}
+	// Space interacts with the NPC in focus (centred + adjacent tile). Loot at
+	// the feet wins above so an NPC can never block a pickup. Fresh press only —
+	// a held Space keeps its combat meaning.
+	if spaceJust && ih.game.spellInputCooldown == 0 && ih.tryFocusedNPCInteraction() {
+		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		return
+	}
 	if running {
 		ih.attackHoldFrames = 0
 		return
@@ -1179,12 +1185,6 @@ func (ih *InputHandler) handleUIInput() {
 		} else {
 			ih.openTabbedMenu(TabCards)
 		}
-	}
-
-	// Handle NPC interaction with T key
-	if ih.interactKeyTracker.IsKeyJustPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
-		ih.handleNPCInteraction()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
 	// Toggle turn-based mode with Tab key
@@ -1533,19 +1533,36 @@ func (ih *InputHandler) handleMouseInput() {
 		}
 	}
 
-	// Ground container pickup (only during gameplay, no overlays)
-	if !ih.game.menuOpen && !ih.game.mainMenuOpen && !ih.game.showHighScores && !ih.game.mapOverlayOpen && !ih.game.dialogActive && !ih.game.statPopupOpen && ih.game.currentLevelUpChoice() == nil {
-		pickupRange := ih.game.groundContainerPickupRange()
+	// World-object clicks (only during gameplay, no overlays). Containers get
+	// first claim — they're small and usually in front of whoever dropped them.
+	if ih.game.worldClickAllowed() {
 		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
+			pickupRange := ih.game.groundContainerPickupRange()
 			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
 				ih.game.pickupGroundContainerAt(idx)
+				return
+			}
+			if npc, inRange := ih.game.findNPCAtScreen(clickX, clickY); npc != nil {
+				ih.game.consumeLeftClick()
+				if inRange {
+					ih.openNPCInteraction(npc)
+				} else {
+					ih.game.AddCombatMessage(fmt.Sprintf("%s is too far away.", npc.Name))
+				}
 				return
 			}
 		}
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// worldClickAllowed reports whether a click can reach world objects (no menu,
+// dialog or overlay is swallowing the game view).
+func (g *MMGame) worldClickAllowed() bool {
+	return !g.menuOpen && !g.mainMenuOpen && !g.showHighScores && !g.mapOverlayOpen &&
+		!g.dialogActive && !g.statPopupOpen && g.currentLevelUpChoice() == nil
 }
 
 // getPartyMemberUnderMouse returns the index of the party member under the mouse cursor
@@ -1722,14 +1739,20 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 }
 
-// handleNPCInteraction starts a dialog with the nearest NPC within
-// interaction range. Mirrors the HUD hint (GetNearestInteractableNPC) so the
-// player always talks to the same NPC they see prompted.
-func (ih *InputHandler) handleNPCInteraction() {
-	npc := ih.game.GetNearestInteractableNPC()
+// tryFocusedNPCInteraction opens dialog with the NPC in interact focus
+// (centred on screen + within an adjacent tile). Space's first priority.
+func (ih *InputHandler) tryFocusedNPCInteraction() bool {
+	npc := ih.game.focusedNPC
 	if npc == nil {
-		return
+		return false
 	}
+	ih.openNPCInteraction(npc)
+	return true
+}
+
+// openNPCInteraction starts a dialog with the given NPC — the single entry
+// point shared by the T key, Space-in-focus, and mouse click paths.
+func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
@@ -2272,6 +2295,11 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
+			return
+		}
+		if ih.tryFocusedNPCInteraction() {
+			// Dialog opens; talking costs no action slot.
+			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		}
 		if acted, _ := ih.game.combat.SmartAttack(); acted {

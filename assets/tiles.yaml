@@ -7,7 +7,8 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [60, 180, 60]  # Green grass
+    # No floor_color on purpose: empty ground is tinted per-map by
+    # default_floor_color (map_configs.yaml); a color here is never read.
     floor_texture_group: "default"  # overridden to "beach" near water at runtime
     letter: "."
 

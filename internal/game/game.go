@@ -242,6 +242,7 @@ type MMGame struct {
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
 	spellHitEffects      []SpellHitEffect
+	buffFxAnims          []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
 	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
 	screenShake          float64       // camera shake amplitude in world units, decays each tick
 	screenShakeOffsetX   float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
@@ -322,6 +323,7 @@ type MMGame struct {
 	// Dialog system
 	dialogActive        bool           // Whether a dialog is currently open
 	dialogNPC           *character.NPC // Current NPC being talked to
+	focusedNPC          *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
 	dialogSelectedChar  int            // Currently selected character in dialog
 	dialogSelectedSpell int            // Currently selected spell in dialog
 	selectedCharIdx     int            // Selected character index for spell learning
@@ -699,6 +701,9 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		panic(err)
 	}
 
+	// Fail fast on buff_fx_sprite typos (sprite index is ready by now).
+	game.validateBuffFxSprites()
+
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
 
@@ -733,30 +738,134 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	g.collisionSystem.RegisterEntity(entity)
 }
 
-// GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
-func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
-	currentWorld := g.GetCurrentWorld()
-	if currentWorld == nil {
-		return nil
+// partyInCombat reports whether a live engaging monster is NEAR the party
+// (TB vision range). While true, Space keeps its combat meaning and never
+// opens dialog. Distance-gated on purpose: a whole-map-aggro boss or an
+// AoE-clipped stray must not lock interaction (e.g. the map-exit NPC) from
+// across the map.
+func (g *MMGame) partyInCombat() bool {
+	if g.world == nil {
+		return false
 	}
+	radius := TurnBasedVisionRangeTiles * float64(g.config.GetTileSize())
+	for _, m := range g.world.Monsters {
+		if m != nil && m.IsAlive() && m.IsEngagingPlayer &&
+			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {
+			return true
+		}
+	}
+	return false
+}
 
-	var nearestNPC *character.NPC
-	nearestDistance := float64(InteractionDistance)
+// npcEffectivePos returns where the NPC is actually rendered: wall-mounted
+// standees (gates/grates) slide flush onto the nearest wall face, everyone
+// else stays at their tile. Interaction focus and hit-tests MUST use this,
+// not the raw tile position, or they miss the visible sprite.
+func (g *MMGame) npcEffectivePos(npc *character.NPC) (float64, float64) {
+	if npc.WallMounted && g.config.Graphics.Standee.Enabled {
+		if wx, wy, _, ok := g.wallStickPose(npc.X, npc.Y); ok {
+			return wx, wy
+		}
+	}
+	return npc.X, npc.Y
+}
 
+// updateFocusedNPC recomputes the Space-to-interact target once per tick:
+// the nearest NPC the party stands next to (within ~1 adjacent tile, diagonals
+// included) that is roughly centred on screen. Cached so input and the HUD
+// hint agree, and so the hint never reads a screen-shake-displaced camera.
+// Nothing takes focus mid-combat — Space stays an attack while enemies engage.
+func (g *MMGame) updateFocusedNPC() {
+	g.focusedNPC = nil
+	currentWorld := g.GetCurrentWorld()
+	if currentWorld == nil || g.renderHelper == nil || g.partyInCombat() {
+		return
+	}
+	maxDist := float64(g.config.GetTileSize()) * 1.6 // own + adjacent tile, diagonal-safe
+	halfW := float64(g.config.GetScreenWidth()) / 2
+	band := halfW * 0.4 // "roughly centred": middle 40% of the screen
+	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
-		// Spent statues (hide_when_visited) are gone for all purposes once used.
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
-		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)
+		ex, ey := g.npcEffectivePos(npc)
+		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
+		if dist > bestDist {
+			continue
+		}
+		screenX, _, ok := g.renderHelper.projectToScreenX(ex, ey)
+		if !ok || math.Abs(float64(screenX)-halfW) > band {
+			continue
+		}
+		g.focusedNPC = npc
+		bestDist = dist
+	}
+}
 
-		if dist <= nearestDistance {
-			nearestNPC = npc
-			nearestDistance = dist
+// findNPCAtScreen returns the visible NPC whose rendered sprite is under the
+// given screen point (nearest wins). inRange reports whether it is close
+// enough to interact (InteractionDistance) — a hit beyond that only prompts.
+func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
+	currentWorld := g.GetCurrentWorld()
+	if currentWorld == nil || g.renderHelper == nil {
+		return nil, false
+	}
+	bestDist := math.MaxFloat64
+	for _, n := range currentWorld.NPCs {
+		if n.HideWhenVisited && n.Visited {
+			continue
+		}
+		if n.Sprite == "" || n.Sprite == "none" {
+			continue // invisible portal NPCs aren't clickable
+		}
+		ex, ey := g.npcEffectivePos(n)
+		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
+		if dist >= bestDist {
+			continue
+		}
+		if !g.npcScreenHitTest(n, ex, ey, dist, clickX, clickY) {
+			continue
+		}
+		npc = n
+		bestDist = dist
+	}
+	return npc, npc != nil && bestDist <= InteractionDistance
+}
+
+// npcScreenHitTest projects the NPC with the same metrics the renderer uses
+// and tests the point against its billboard rect (inset horizontally so the
+// mostly-transparent sprite margins don't catch clicks). ex/ey is the NPC's
+// effective (rendered) position — see npcEffectivePos. Occlusion is checked
+// against the wall depth buffer at the sprite's centre column.
+func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, x, y int) bool {
+	var screenX, screenY, spriteSize int
+	var visible bool
+	if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
+		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
+	} else {
+		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
+	}
+	if !visible || spriteSize <= 0 {
+		return false
+	}
+	if screenX >= 0 && screenX < len(g.depthBuffer) {
+		if _, depth, ok := g.renderHelper.projectToScreenX(ex, ey); ok {
+			// Wall-mounted tokens sit flush ON the wall plane, so their depth ties
+			// with the backing wall's and the comparison flips with tiny angle
+			// changes. Bias toward the camera exactly like the renderer's
+			// standeeDepthBias does when drawing them.
+			if npc.WallMounted {
+				depth -= float64(g.config.GetTileSize()) * 0.6
+			}
+			if depth >= g.depthBuffer[screenX] {
+				return false // behind a wall
+			}
 		}
 	}
-
-	return nearestNPC
+	drawLeft := screenX - spriteSize/2
+	inset := spriteSize / 5
+	return x >= drawLeft+inset && x < drawLeft+spriteSize-inset && y >= screenY && y < screenY+spriteSize
 }
 
 // FindNearestWalkableTile finds the closest walkable tile to the given position (DRY helper)
