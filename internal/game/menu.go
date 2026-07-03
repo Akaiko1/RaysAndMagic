@@ -51,7 +51,38 @@ const (
 	entryLoadPanelW  = 460
 	entryLoadPanelH  = 480
 	entryLoadRowH    = 44
+
+	// Main-menu panel + option-list layout (its own size, distinct from the
+	// save/load panel). Shared by the draw code and the input hit-testing.
+	mainMenuPanelW   = 360
+	mainMenuPanelH   = 320
+	mainMenuListTopY = 56
+	mainMenuRowPitch = 32
+
+	// menuRowHeight is the highlight/hitbox height of one vertical-menu row,
+	// shared by Main-menu options and save/load slots (see menuRowRect).
+	menuRowHeight = 28
 )
+
+// menuPanelSize returns the panel dimensions for a main-menu mode. Shared by the
+// draw code (drawMainMenu) and the input hit-testing (handleMainMenuInput) so
+// the drawn panel and its click regions can't drift.
+func menuPanelSize(mode MainMenuMode) (w, h int) {
+	if mode == MenuMain {
+		return mainMenuPanelW, mainMenuPanelH
+	}
+	return saveMenuPanelW, saveMenuPanelH
+}
+
+// menuRowRect returns the highlight/click box and the text baseline for row i of
+// a vertical menu list (Main-menu options, save/load slots). ONE geometry so the
+// draw highlight, hover-select and click hit-tests never drift (cf.
+// savePagerButtonRects). startY is the first row's baseline offset from py; pitch
+// is the row spacing.
+func menuRowRect(px, py, panelW, startY, pitch, i int) (box pagerRect, textX, textY int) {
+	y := py + startY + i*pitch
+	return pagerRect{px + 16, y - 4, px + panelW - 16, y - 4 + menuRowHeight}, px + 28, y
+}
 
 // saveRowPath maps a global save-row index to its file. Row 0 is the autosave.
 func saveRowPath(row int) string {
@@ -534,7 +565,19 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 	if wm == nil {
 		return errors.New("world manager not available")
 	}
-	return g.applySave(wm, &save)
+	g.loadNeedsResave = false
+	if err := g.applySave(wm, &save); err != nil {
+		return err
+	}
+	// One-time migration write: a load that stamped legacy items with instance
+	// ids re-saves the slot so the ids stick (SaveGameToFile preserves the slot's
+	// name). Without this the reloaded slot would revert to id-less items and stay
+	// dupe-able. Best-effort — a write failure just defers the migration.
+	if g.loadNeedsResave {
+		g.loadNeedsResave = false
+		_ = g.SaveGameToFile(path)
+	}
+	return nil
 }
 
 func normalizeItemFromConfig(item *items.Item) {
@@ -986,6 +1029,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, cs := range save.Party.Captive {
 		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
 	}
+	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
+	// the bag anything the shared chest already owns. A stamp means this slot was
+	// migrated — flag it so LoadGameFromFile persists the ids once (the strip is
+	// idempotent per load and needs no resave).
+	if g.stampPartyInstanceIDs() {
+		g.loadNeedsResave = true
+	}
+	g.reconcilePartyAgainstStash()
 	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too —
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members

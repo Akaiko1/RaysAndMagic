@@ -246,7 +246,7 @@ func (cs *CombatSystem) summonCardAllies(key string, n int) int {
 		}
 		markCardAlly(add)
 		cs.game.registerSpawnedMonster(add)
-		cs.game.updateMonsterCollisionEngagement(add, px, py)
+		cs.game.refreshMonsterCollisionSolidity(add, px, py)
 		spawned++
 	}
 	if spawned > 0 {

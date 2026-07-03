@@ -454,6 +454,7 @@ type MMGame struct {
 	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
 	stashScreenOpen bool
 	stash           *stash.Stash
+	loadNeedsResave bool // a load stamped legacy items with instance ids: re-save the slot once
 	stashDragArmed  bool
 	stashDragActive bool
 	stashDragFrom   int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
@@ -2037,10 +2038,23 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 // MonsterWrapper implements entities.MonsterUpdateInterface
 type MonsterWrapper struct {
 	Monster         *monster.Monster3D
-	collisionSystem *collision.CollisionSystem
-	game            *MMGame // Added to access camera position for tethering system
+	collisionSystem *collision.CollisionSystem  // LIVE system — touched only by ApplyCollisionUpdate (Phase 2, serial)
+	snapshot        *collision.CollisionSnapshot // frozen view for THIS tick — the only thing Update (Phase 1, parallel) may query
+	game            *MMGame                      // Added to access camera position for tethering system
+
+	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
 }
 
+// Update is the canonical RT monster tick: AI movement + the desired
+// collision-solidity decision — COMPUTED ONLY here, against the frozen
+// snapshot; nothing shared is written. Code that steps monsters manually
+// (including tests) must call this AND ApplyCollisionUpdate, not the bare
+// Monster3D.Update — that alone leaves the collision type stale.
+//
+// Runs in a worker goroutine (see entities.EntityUpdater.UpdateMonstersParallel):
+// every read here must come from mw.Monster's own fields or mw.snapshot (frozen
+// before the parallel phase started), never mw.collisionSystem — the live
+// system is being written by every OTHER monster's own worker at the same time.
 func (mw *MonsterWrapper) Update() {
 	oldX, oldY := mw.Monster.X, mw.Monster.Y
 
@@ -2054,12 +2068,15 @@ func (mw *MonsterWrapper) Update() {
 	// refreshBoundUndeadCache to keep this parallel update race-free.
 	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
 
-	// Use collision-aware update with the chosen AI target for tethering
-	mw.Monster.Update(mw.collisionSystem, targetX, targetY)
+	// Use collision-aware update with the chosen AI target for tethering. Reads
+	// the frozen snapshot only — never the live, concurrently-mutating system.
+	mw.Monster.Update(mw.snapshot, targetX, targetY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
-	mw.updateCollisionEngagement(playerX, playerY)
+	// Compute (don't apply) the desired collision type — a pure function of this
+	// monster's own state, safe from a worker. ApplyCollisionUpdate writes it.
+	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster, playerX, playerY)
 
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
@@ -2133,31 +2150,34 @@ func (mw *MonsterWrapper) Update() {
 		}
 	}
 
-	// Update collision system if position changed
-	if oldX != newX || oldY != newY {
-		if mw.collisionSystem != nil {
-			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
-		}
-	}
+	// The collision-system write for the new position happens in
+	// ApplyCollisionUpdate (Phase 2) — oldX/oldY above were only for the debug
+	// block.
 }
 
-func (mw *MonsterWrapper) updateCollisionEngagement(playerX, playerY float64) {
-	if mw.game == nil || mw.Monster == nil {
+// ApplyCollisionUpdate writes this monster's Update()-computed position and
+// collision type to the LIVE collision system. Phase 2 of the two-phase RT
+// tick (see entities.EntityUpdater.UpdateMonstersParallel): called serially,
+// once every monster's Update() has returned — never from a worker.
+func (mw *MonsterWrapper) ApplyCollisionUpdate() {
+	if mw.collisionSystem == nil || mw.Monster == nil {
 		return
 	}
-	mw.game.updateMonsterCollisionEngagement(mw.Monster, playerX, playerY)
+	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
+	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
 }
 
-func (g *MMGame) updateMonsterCollisionEngagement(m *monster.Monster3D, playerX, playerY float64) {
-	if g == nil || g.collisionSystem == nil || m == nil {
-		return
-	}
-	entity := g.collisionSystem.GetEntityByID(m.ID)
-	if entity == nil {
-		return
-	}
+// desiredMonsterCollisionType computes what m's collision type SHOULD be this
+// tick, from m's own fields and the (fixed, read-only for the duration of the
+// parallel phase) player position alone — no shared-state access, so it is
+// safe to call concurrently from any monster's own worker.
+func desiredMonsterCollisionType(m *monster.Monster3D, playerX, playerY float64) collision.CollisionType {
 	engaged := m.IsEngagingPlayer || m.State == monster.StateAttacking
-	if !engaged {
+	// Proximity alone must not solidify a DORMANT passive monster still within
+	// its own (possibly long, for ranged) attack range — it isn't actually
+	// fighting. Mirrors the dormancy check in updatePlayerEngagementWithVision.
+	dormant := m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait()
+	if !engaged && !dormant {
 		attackRange := m.GetAttackRangePixels()
 		if attackRange > 0 {
 			distSq := DistanceSquared(m.X, m.Y, playerX, playerY)
@@ -2166,13 +2186,38 @@ func (g *MMGame) updateMonsterCollisionEngagement(m *monster.Monster3D, playerX,
 			}
 		}
 	}
-	desired := collision.CollisionTypeMonster
 	if engaged {
-		desired = collision.CollisionTypeMonsterEngaged
+		return collision.CollisionTypeMonsterEngaged
+	}
+	return collision.CollisionTypeMonster
+}
+
+// applyMonsterCollisionType writes a monster's collision type to the live
+// system. Must only run single-threaded (main goroutine, or another
+// non-parallel context) — never from a monster-update worker; see
+// desiredMonsterCollisionType for the race-free compute half.
+func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
+	if g == nil || g.collisionSystem == nil {
+		return
+	}
+	entity := g.collisionSystem.GetEntityByID(monsterID)
+	if entity == nil {
+		return
 	}
 	if entity.CollisionType != desired {
 		entity.CollisionType = desired
 	}
+}
+
+// refreshMonsterCollisionSolidity computes AND immediately applies m's desired
+// collision type. Used by single-threaded call sites OUTSIDE the parallel RT
+// tick (turn-based monster processing, boss summons, combat triggers) where
+// there is no separate apply phase to defer to.
+func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D, playerX, playerY float64) {
+	if g == nil || m == nil {
+		return
+	}
+	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m, playerX, playerY))
 }
 
 func (mw *MonsterWrapper) IsAlive() bool {
@@ -2198,6 +2243,14 @@ type MagicProjectileWrapper struct {
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
 	game            *MMGame
+
+	// pendingImpact/impactX/impactY: OnCollision (runs in a worker) only
+	// records that a hit happened here — spawning the hit effect touches shared
+	// state (g.spellHitEffects, g.screenShake) that must be written serially.
+	// ApplyCollisionEffects (Phase 2, main goroutine) does the actual spawn.
+	pendingImpact bool
+	impactX       float64
+	impactY       float64
 }
 
 func (mpw *MagicProjectileWrapper) Update() {
@@ -2233,16 +2286,31 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 	mpw.MagicProjectile.VelY = vy
 }
 
+// OnCollision runs in a worker goroutine — it only touches this projectile's
+// own fields. The actual hit effect (shared state: particle list, screen
+// shake) is spawned later by ApplyCollisionEffects, serially.
 func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
 		return
 	}
 	mpw.MagicProjectile.Active = false
-	if mpw.game == nil {
+	mpw.pendingImpact = true
+	mpw.impactX, mpw.impactY = hitX, hitY
+}
+
+// ApplyCollisionEffects spawns the hit effect for any impact OnCollision
+// recorded this tick. Phase 2 of the two-phase projectile tick (see
+// entities.EntityUpdater.UpdateProjectilesParallel): called serially, once
+// every projectile's Update()/OnCollision has returned — never from a worker.
+func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
+	if !mpw.pendingImpact {
 		return
 	}
-
-	mpw.game.CreateSpellHitEffectFromSpell(hitX, hitY, mpw.MagicProjectile.SpellType)
+	mpw.pendingImpact = false
+	if mpw.MagicProjectile == nil || mpw.game == nil {
+		return
+	}
+	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)
 }
 
 // ArrowWrapper implements entities.ProjectileUpdateInterface
@@ -2251,6 +2319,11 @@ type ArrowWrapper struct {
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
 	game            *MMGame
+
+	// See MagicProjectileWrapper's pendingImpact fields for the rationale.
+	pendingImpact bool
+	impactX       float64
+	impactY       float64
 }
 
 func (aw *ArrowWrapper) Update() {
@@ -2286,18 +2359,33 @@ func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
 	aw.Arrow.VelY = vy
 }
 
+// OnCollision runs in a worker goroutine — it only touches this projectile's
+// own fields. The actual impact burst (shared state) is spawned later by
+// ApplyCollisionEffects, serially.
 func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
 	if aw.Arrow == nil || !aw.Arrow.Active {
 		return
 	}
 	aw.Arrow.Active = false
-	if aw.game == nil {
+	aw.pendingImpact = true
+	aw.impactX, aw.impactY = hitX, hitY
+}
+
+// ApplyCollisionEffects spawns the impact burst for any hit OnCollision
+// recorded this tick. Phase 2 of the two-phase projectile tick — see
+// MagicProjectileWrapper.ApplyCollisionEffects.
+func (aw *ArrowWrapper) ApplyCollisionEffects() {
+	if !aw.pendingImpact {
+		return
+	}
+	aw.pendingImpact = false
+	if aw.Arrow == nil || aw.game == nil {
 		return
 	}
 	// Staff/book bolt → magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize)
+	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

@@ -38,14 +38,23 @@ func (wp *WorkerPool) Start() {
 	}
 }
 
-// worker pulls jobs off the queue until quit is closed.
+// worker pulls jobs off the queue until quit is closed, then DRAINS whatever
+// is still queued before exiting. Every queued job has already wg.Add(1)'d in
+// Submit — abandoning it would leak the WaitGroup counter and hang any Wait().
 func (wp *WorkerPool) worker() {
 	for {
 		select {
 		case job := <-wp.jobQueue:
 			wp.runJob(job)
 		case <-wp.quit:
-			return
+			for {
+				select {
+				case job := <-wp.jobQueue:
+					wp.runJob(job)
+				default:
+					return
+				}
+			}
 		}
 	}
 }
@@ -64,15 +73,18 @@ func (wp *WorkerPool) runJob(job func()) {
 	job()
 }
 
-// Submit enqueues a job. Blocks if the queue is full. Jobs submitted after
-// Stop() are dropped — without this guard, Submit would deadlock waiting for
-// a worker that already exited via the quit channel.
-func (wp *WorkerPool) Submit(job func()) {
+// Submit enqueues a job and reports whether the pool accepted it. Blocks if
+// the queue is full. After Stop() it refuses (returns false) WITHOUT touching
+// the WaitGroup — the job is NOT run; the caller must run it inline (all
+// callers do), so submitted work always completes and no caller-side
+// WaitGroup can hang on a silently dropped job.
+func (wp *WorkerPool) Submit(job func()) bool {
 	if wp.stopped.Load() {
-		return
+		return false
 	}
 	wp.wg.Add(1)
 	wp.jobQueue <- job
+	return true
 }
 
 // Wait blocks until all submitted jobs have completed.
@@ -80,12 +92,19 @@ func (wp *WorkerPool) Wait() {
 	wp.wg.Wait()
 }
 
-// Stop signals workers to exit. In-flight jobs finish first. Idempotent.
+// Stop signals workers to exit and waits for every accepted job (in-flight
+// AND still queued — workers drain the queue on quit) to finish. Idempotent.
+// Lifecycle contract: Submit must not be called CONCURRENTLY with Stop — the
+// pool has a single owner (the main goroutine submits during ticks, stops at
+// shutdown), and a truly concurrent Submit could slip its job into the queue
+// after the drain and hang the Wait below. Submit called AFTER Stop returns
+// is fine: it refuses and the caller runs the job inline.
 func (wp *WorkerPool) Stop() {
 	if !wp.stopped.CompareAndSwap(false, true) {
 		return
 	}
 	close(wp.quit)
+	wp.wg.Wait()
 }
 
 // GetNumWorkers returns the configured worker count.

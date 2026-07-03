@@ -76,13 +76,25 @@ type TileChecker interface {
 
 // CollisionSystem manages all collision detection in the game.
 //
-// CONCURRENCY CONTRACT (deliberately lock-free): the parallel entity updaters
-// call UpdateEntity/CanMoveTo* from worker goroutines. That is safe only while
-// (1) updates are stop-the-world — no other game mutation runs concurrently,
-// (2) each worker touches a DISJOINT set of entities (chunked partitioning),
-// and (3) the entities map itself is never mutated (Register/Unregister) inside
-// a parallel phase — concurrent map READS are fine, a write would race.
-// Breaking any of these requires adding a lock here first.
+// CONCURRENCY CONTRACT (deliberately lock-free): the parallel PROJECTILE
+// updater calls UpdateEntity/CanMoveTo* directly on the live system from worker
+// goroutines. That is safe only while (1) updates are stop-the-world — no other
+// game mutation runs concurrently, (2) each worker touches a DISJOINT set of
+// entities (chunked partitioning) AND never reads another worker's entities —
+// projectile movement only checks TILES (world.CanProjectileMoveTo), never
+// other entities, so this holds — and (3) the entities map itself is never
+// mutated (Register/Unregister) inside a parallel phase. Breaking any of these
+// requires adding a lock here first.
+//
+// The parallel MONSTER updater does NOT qualify for the above: a monster's
+// movement/AI decision reads OTHER entities' bounding boxes and collision types
+// (CanMoveToWithHabitat → canMoveToEntityPosition scans the whole map), which
+// violates (2) — those other entities are concurrently being written by their
+// OWN workers. It instead uses Snapshot(): each worker reads an immutable,
+// frozen CollisionSnapshot (taken once, single-threaded, before the parallel
+// phase) and the live system is only touched afterward, serially, once all
+// workers have finished. See CollisionSnapshot's doc and
+// game.MonsterWrapper/entities.EntityUpdater.UpdateMonstersParallel.
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity
@@ -168,16 +180,24 @@ func (cs *CollisionSystem) CanMoveToWithHabitat(entityID string, newX, newY floa
 
 // canMoveToWorldPosition checks collision with world tiles
 func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool {
-	width, height := cs.tileChecker.GetWorldBounds()
+	return tilesAllowPosition(cs.tileChecker, cs.tileSize, boundingBox)
+}
+
+// tilesAllowPosition is the tile-only half of CanMoveTo: a pure function of the
+// (immutable, per-map) tile checker — never touches cs.entities — so it is
+// shared verbatim by the live CollisionSystem and by CollisionSnapshot, which
+// queries it from parallel workers against a frozen entity view.
+func tilesAllowPosition(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox) bool {
+	width, height := tileChecker.GetWorldBounds()
 
 	// Get the tile range that the bounding box covers
 	minX, minY, maxX, maxY := boundingBox.GetBounds()
 
 	// Convert to tile coordinates
-	startTileX := int(minX / cs.tileSize)
-	startTileY := int(minY / cs.tileSize)
-	endTileX := int(maxX / cs.tileSize)
-	endTileY := int(maxY / cs.tileSize)
+	startTileX := int(minX / tileSize)
+	startTileY := int(minY / tileSize)
+	endTileX := int(maxX / tileSize)
+	endTileY := int(maxY / tileSize)
 
 	// Check all tiles that the bounding box overlaps
 	for tileY := startTileY; tileY <= endTileY; tileY++ {
@@ -188,7 +208,7 @@ func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool
 			}
 
 			// Check if any overlapping tile blocks movement
-			if cs.tileChecker.IsTileBlocking(tileX, tileY) {
+			if tileChecker.IsTileBlocking(tileX, tileY) {
 				return false
 			}
 		}
@@ -199,16 +219,22 @@ func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool
 
 // canMoveToWorldPositionWithHabitat checks collision with world tiles using habitat preferences.
 func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
-	width, height := cs.tileChecker.GetWorldBounds()
+	return tilesAllowPositionWithHabitat(cs.tileChecker, cs.tileSize, boundingBox, habitatPrefs, flying)
+}
+
+// tilesAllowPositionWithHabitat is the habitat-aware counterpart of
+// tilesAllowPosition — same sharing rationale (see its doc comment).
+func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
+	width, height := tileChecker.GetWorldBounds()
 
 	// Get the tile range that the bounding box covers
 	minX, minY, maxX, maxY := boundingBox.GetBounds()
 
 	// Convert to tile coordinates
-	startTileX := int(minX / cs.tileSize)
-	startTileY := int(minY / cs.tileSize)
-	endTileX := int(maxX / cs.tileSize)
-	endTileY := int(maxY / cs.tileSize)
+	startTileX := int(minX / tileSize)
+	startTileY := int(minY / tileSize)
+	endTileX := int(maxX / tileSize)
+	endTileY := int(maxY / tileSize)
 
 	// Check all tiles that the bounding box overlaps
 	for tileY := startTileY; tileY <= endTileY; tileY++ {
@@ -219,7 +245,7 @@ func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *Boundi
 			}
 
 			// Check if any overlapping tile blocks movement (habitat-aware)
-			if cs.tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs, flying) {
+			if tileChecker.IsTileBlockingForHabitat(tileX, tileY, habitatPrefs, flying) {
 				return false
 			}
 		}
@@ -253,17 +279,28 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, moving
 	return true
 }
 
-// shouldIgnoreEntityCollision returns true when collision checks should skip the pair.
+// shouldIgnoreCollisionTypes is the type-only decision behind
+// shouldIgnoreEntityCollision, factored out so CollisionSnapshot (which holds
+// value copies, not *Entity pointers) can share it. CollisionTypeMonsterEngaged
+// must reflect a monster genuinely fighting — callers that derive it (e.g.
+// game.refreshMonsterCollisionSolidity) need a real combat signal, not mere
+// proximity, or two calm/dormant monsters stop passing through each other here.
+func shouldIgnoreCollisionTypes(moving, other CollisionType) bool {
+	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
+	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
+		(other == CollisionTypeMonster || other == CollisionTypeMonsterEngaged) {
+		return moving == CollisionTypeMonster && other == CollisionTypeMonster
+	}
+	return false
+}
+
+// shouldIgnoreEntityCollision returns true when collision checks should skip the
+// pair. See shouldIgnoreCollisionTypes for the actual decision.
 func shouldIgnoreEntityCollision(moving *Entity, other *Entity) bool {
 	if moving == nil || other == nil {
 		return false
 	}
-	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
-	if (moving.CollisionType == CollisionTypeMonster || moving.CollisionType == CollisionTypeMonsterEngaged) &&
-		(other.CollisionType == CollisionTypeMonster || other.CollisionType == CollisionTypeMonsterEngaged) {
-		return moving.CollisionType == CollisionTypeMonster && other.CollisionType == CollisionTypeMonster
-	}
-	return false
+	return shouldIgnoreCollisionTypes(moving.CollisionType, other.CollisionType)
 }
 
 // CanOccupyTilesWithHabitat checks only world tiles (no entity collision).
@@ -334,7 +371,14 @@ type RaycastHit struct {
 
 // CastRay performs a DDA-based raycast between two points
 func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
-	inv := 1.0 / cs.tileSize
+	return castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, sightOnly)
+}
+
+// castRayTiles is CastRay's body, parametrized over (tileChecker, tileSize) —
+// both immutable for the lifetime of a map, so it needs no entity access and is
+// shared verbatim by CollisionSnapshot.CheckLineOfSight.
+func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
+	inv := 1.0 / tileSize
 
 	// Current tile
 	tx := int(x1 * inv)
@@ -350,7 +394,7 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 	// Handle zero distance. A sight ray sees out of its own tile (see the
 	// start-tile note below); only movement is blocked by the start tile.
 	if math.Abs(dx) < 1e-6 && math.Abs(dy) < 1e-6 {
-		if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
+		if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 			return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 		}
 		return RaycastHit{Hit: false}, false
@@ -362,12 +406,12 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 
 	if dx > 0 {
 		stepX = 1
-		tMaxX = ((float64(tx)+1)*cs.tileSize - x1) / dx
-		tDeltaX = cs.tileSize / dx
+		tMaxX = ((float64(tx)+1)*tileSize - x1) / dx
+		tDeltaX = tileSize / dx
 	} else if dx < 0 {
 		stepX = -1
-		tMaxX = (x1 - float64(tx)*cs.tileSize) / -dx
-		tDeltaX = cs.tileSize / -dx
+		tMaxX = (x1 - float64(tx)*tileSize) / -dx
+		tDeltaX = tileSize / -dx
 	} else {
 		stepX = 0
 		tMaxX = math.Inf(1)
@@ -376,20 +420,20 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 
 	if dy > 0 {
 		stepY = 1
-		tMaxY = ((float64(ty)+1)*cs.tileSize - y1) / dy
-		tDeltaY = cs.tileSize / dy
+		tMaxY = ((float64(ty)+1)*tileSize - y1) / dy
+		tDeltaY = tileSize / dy
 	} else if dy < 0 {
 		stepY = -1
-		tMaxY = (y1 - float64(ty)*cs.tileSize) / -dy
-		tDeltaY = cs.tileSize / -dy
+		tMaxY = (y1 - float64(ty)*tileSize) / -dy
+		tDeltaY = tileSize / -dy
 	} else {
 		stepY = 0
 		tMaxY = math.Inf(1)
 		tDeltaY = math.Inf(1)
 	}
 
-	width, height := cs.tileChecker.GetWorldBounds()
-	maxT := math.Hypot(dx, dy) / math.Max(cs.tileSize, 1)
+	width, height := tileChecker.GetWorldBounds()
+	maxT := math.Hypot(dx, dy) / math.Max(tileSize, 1)
 
 	// Check starting tile. A sight ray always sees OUT of the observer's own
 	// tile: the only way to occupy an opaque tile is a flying mob perched on a
@@ -397,7 +441,7 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 	// reports opaque — bailing here would blind it to its own line of fire and
 	// make ranged flyers shuffle instead of shooting. Movement is still blocked
 	// by the start tile.
-	if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
+	if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 		return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: 0, HitX: x1, HitY: y1}, true
 	}
 
@@ -423,12 +467,12 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 		}
 
 		// Check for hit based on mode
-		if sightOnly && cs.tileChecker.IsTileOpaque(tx, ty) {
+		if sightOnly && tileChecker.IsTileOpaque(tx, ty) {
 			hitX := x1 + dx*t
 			hitY := y1 + dy*t
 			dist := math.Hypot(hitX-x1, hitY-y1)
 			return RaycastHit{Hit: true, TileX: tx, TileY: ty, Dist: dist, HitX: hitX, HitY: hitY}, true
-		} else if !sightOnly && cs.tileChecker.IsTileBlocking(tx, ty) {
+		} else if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {
 			hitX := x1 + dx*t
 			hitY := y1 + dy*t
 			dist := math.Hypot(hitX-x1, hitY-y1)

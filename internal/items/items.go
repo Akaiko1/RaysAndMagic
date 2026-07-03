@@ -65,6 +65,13 @@ type Item struct {
 	Attributes  map[string]int
 	Description string
 	Rarity      string
+	// InstanceID uniquely identifies THIS physical item across save/load and the
+	// cross-save stash. Assigned once at creation (the factories) and carried for
+	// life. 0 means "untracked" (a pre-InstanceID save/stash item): it never
+	// triggers stash reconciliation and is stamped lazily on load. Lets the stash
+	// recognise "the copy I already hold" and strip it from a reloaded bag,
+	// closing the save-scum dupe.
+	InstanceID uint64 `json:"instance_id,omitempty"`
 	// For armor
 	ArmorCategory string
 	// For spells
@@ -204,6 +211,7 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		Description: desc,
 		Rarity:      weaponDef.Rarity,
 		Attributes:  make(map[string]int),
+		InstanceID:  NewInstanceID(),
 	}
 	if weaponDef.Value > 0 {
 		it.Attributes["value"] = weaponDef.Value
@@ -425,6 +433,7 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		Rarity:        def.Rarity,
 		Attributes:    attrs,
 		ArmorCategory: def.ArmorType,
+		InstanceID:    NewInstanceID(),
 	}, nil
 }
 

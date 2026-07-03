@@ -51,23 +51,9 @@ const (
 // openStash lazy-loads the shared chest and shows the stash modal. Called from
 // the tavern's "Manage your stash" action.
 func (g *MMGame) openStash() {
-	if g.stash == nil {
-		s, err := stash.Load()
-		if err != nil {
-			g.AddCombatMessage("Could not open the stash.")
-			return
-		}
-		for i := range s.Slots {
-			if !stash.IsEmpty(s.Slots[i]) {
-				normalizeItemFromConfig(&s.Slots[i])
-			}
-		}
-		for i := range s.CardSlots {
-			if !stash.IsEmpty(s.CardSlots[i]) {
-				normalizeItemFromConfig(&s.CardSlots[i])
-			}
-		}
-		g.stash = s
+	if !g.ensureStashLoaded() {
+		g.AddCombatMessage("Could not open the stash.")
+		return
 	}
 	g.stashScreenOpen = true
 	g.stashInvPage = 0

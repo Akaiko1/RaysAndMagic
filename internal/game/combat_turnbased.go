@@ -155,7 +155,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 		if gl.game.turnBasedMonsterStunned[m] {
-			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
 		}
 		if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
@@ -168,7 +168,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			m.StunTurnsRemaining--
 			gl.game.turnBasedMonsterStunned[m] = true
-			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
 		}
 		// Root (bear trap) burns one turn per monster TURN — whether it moves
@@ -183,7 +183,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// inert in TB too. They hold their placed tile and never spend the monster
 		// turn moving or attacking while the seal/ward condition is active.
 		if m.BossDormant || m.BossWarded || m.WarlordIdol {
-			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
 		}
 
@@ -206,7 +206,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
 			continue
 		}
-		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+		gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 
 		// Skip monsters outside vision range unless engaged by a hit (they stay
 		// fully idle — no centering, no move).
@@ -258,7 +258,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}
-			gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
 		}
 
@@ -271,7 +271,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// asymmetry is intentional TB flavor — do not "fix" toward RT.
 		if gl.game.combat.isBoss(m) {
 			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
-				gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+				gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 				continue
 			}
 		}
@@ -307,7 +307,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
 					m.PounceCDTurns = 2
-					gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+					gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 					continue
 				}
 				// Couldn't land adjacent — fall through to a normal step this turn.
@@ -348,7 +348,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		gl.game.updateMonsterCollisionEngagement(m, playerX, playerY)
+		gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 	}
 
 	// Monsters finished moving: spring any traps they stepped onto.

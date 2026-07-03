@@ -136,7 +136,11 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 	return TileCoord{X: x, Y: y}
 }
 
-// Update runs the monster AI with collision checking and player position for engagement detection
+// Update runs the monster AI with collision checking and player position for
+// engagement detection. AI-ONLY: it does not touch collision-entity metadata
+// (e.g. the engaged/solid distinction), so a real-time gameplay step must call
+// this through game.MonsterWrapper.Update, not on its own — tests that need RT
+// fidelity (not just AI/position behavior) should do the same.
 func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
 	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
 	// its throne until its quest unseals it. The RT attack loop already no-ops via

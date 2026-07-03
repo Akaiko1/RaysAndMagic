@@ -43,12 +43,8 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	// Dim background
 	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 128})
 
-	// Panel (save/load use the default; it must fit 5 rows + the pager)
-	panelW, panelH := saveMenuPanelW, saveMenuPanelH
-	if ui.game.mainMenuMode == MenuMain {
-		panelW = 360
-		panelH = 320
-	}
+	// Panel size per mode (shared with the input hit-testing via menuPanelSize).
+	panelW, panelH := menuPanelSize(ui.game.mainMenuMode)
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	drawFilledRect(screen, px, py, panelW, panelH, color.RGBA{20, 20, 40, 230})
@@ -59,13 +55,12 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		// Title
 		drawDebugText(screen, "Main Menu", px+16, py+14)
 		// Options
-		startY := py + 56
 		for i, label := range mainMenuOptions {
-			y := startY + i*32
+			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
 			if i == ui.game.mainMenuSelection {
-				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{60, 120, 180, 200})
+				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
 			}
-			drawDebugText(screen, label, px+28, y)
+			drawDebugText(screen, label, tx, ty)
 		}
 		tips := []string{
 			"Controls:",
@@ -75,7 +70,7 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			"1-4: Select",
 			"Tab: Toggle Mode (TB/RT)",
 		}
-		tipsY := startY + len(mainMenuOptions)*32 + 10
+		tipsY := py + mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
 		for i, tip := range tips {
 			drawDebugText(screen, tip, px+16, tipsY+i*14)
 		}
@@ -115,10 +110,9 @@ func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
 // highlight tints the selected row.
 func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
 	g := ui.game
-	startY := py + saveMenuListTopY
 	for i := 0; i < saveRowsPerPage; i++ {
 		row := g.savePage*saveRowsPerPage + i
-		y := startY + i*saveMenuRowPitch
+		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
 		sum := GetSaveRowSummary(row)
 		label := saveRowLabel(row)
 		if sum.Name != "" && !saveRowIsAutosave(row) {
@@ -138,9 +132,9 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 			label = fmt.Sprintf("%s  (empty)", label)
 		}
 		if i == g.slotSelection {
-			drawFilledRect(screen, px+16, y-4, panelW-32, 28, highlight)
+			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
 		}
-		drawDebugText(screen, label, px+28, y)
+		drawDebugText(screen, label, tx, ty)
 	}
 	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
 	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
@@ -151,10 +145,9 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 // for the row under the cursor, so you can tell saves apart before loading.
 func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
 	mx, my := ebiten.CursorPosition()
-	startY := py + saveMenuListTopY
 	for i := 0; i < saveRowsPerPage; i++ {
-		y := startY + i*saveMenuRowPitch
-		if mx < px+16 || mx > px+panelW-16 || my < y-4 || my > y+24 {
+		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
+		if mx < box.x1 || mx >= box.x2 || my < box.y1 || my >= box.y2 {
 			continue
 		}
 		sum := GetSaveRowSummary(ui.game.savePage*saveRowsPerPage + i)

@@ -174,6 +174,15 @@ func (ih *InputHandler) HandleInput() {
 	}
 	// ESC handling: close current overlay before opening menu
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		// The save-rename dialog is a modal ON TOP of the Save menu: Escape
+		// cancels it before backing out of the submenu. It must be handled here
+		// because this block consumes the Escape edge — the shared key tracker
+		// only reports "just pressed" once per frame, so the modal's own handler
+		// (reached later via handleMainMenuInput) would never see it.
+		if ih.game.saveRenameOpen {
+			ih.game.closeSaveRename()
+			return
+		}
 		// If main menu is open, back out of submenus or close it
 		if ih.game.mainMenuOpen {
 			if ih.game.mainMenuMode != MenuMain {
@@ -313,9 +322,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.mainMenuMode = MenuMain
 	g.mainMenuSelection = 0
 	g.slotSelection = 0
-	g.saveRenameOpen = false
-	g.saveRenameSlot = -1
-	g.saveRenameInput = ""
+	g.closeSaveRename()
 	g.exitRequested = false
 
 	// Reset every timed effect family (buffs, zones, utility flags)
@@ -507,13 +514,9 @@ func (ih *InputHandler) activateMainMenuSelection() {
 	case 0: // Continue
 		ih.game.mainMenuOpen = false
 	case 1: // Save
-		ih.game.mainMenuMode = MenuSaveSelect
-		ih.game.slotSelection = 0
-		ih.game.savePage = 0
+		ih.game.openSaveLoad(MenuSaveSelect)
 	case 2: // Load
-		ih.game.mainMenuMode = MenuLoadSelect
-		ih.game.slotSelection = 0
-		ih.game.savePage = 0
+		ih.game.openSaveLoad(MenuLoadSelect)
 	case 3: // High Scores
 		ih.game.showHighScores = true
 	case 4: // Main Menu (return to title, not quit the app)
@@ -525,13 +528,13 @@ func (ih *InputHandler) activateMainMenuSelection() {
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := ebiten.CursorPosition()
-	panelW, panelH := saveMenuPanelW, saveMenuPanelH
+	// Panel size per mode (shared with the draw code via menuPanelSize).
+	panelW, panelH := menuPanelSize(ih.game.mainMenuMode)
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		panelW, panelH = 360, 320
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
 		// Navigate options (debounced)
@@ -547,7 +550,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		}
 
 		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, 56)
+		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
 
 		// Activate selection with Enter or a mouse click on the panel
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
@@ -574,11 +577,15 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 		return
 	}
 	ih.navigateSavePage(px, py, panelW, panelH)
-	if ih.handleSaveRowRename(px, py, panelW) {
+	// Right-click rename follows the same Save-menu-only gate as the R key: the
+	// Load menu can't rename (and, crucially, never draws the rename dialog), so
+	// letting a right-click open it there strands an invisible modal that only
+	// surfaces when you next open the Save menu.
+	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
 		return
 	}
 	// Mouse hover selection (row within page).
-	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY)
+	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
 	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
 		activate()
 	}
@@ -589,6 +596,22 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
 		activate()
 	}
+}
+
+// closeSaveRename dismisses the save-rename modal and clears its scratch state.
+func (g *MMGame) closeSaveRename() {
+	g.saveRenameOpen = false
+	g.saveRenameSlot = -1
+	g.saveRenameInput = ""
+}
+
+// openSaveLoad switches the main menu into a save/load slot list, resetting the
+// cursor to the first row of the first page. Single source for the "open a slot
+// list" state so a new reset field is added in one place.
+func (g *MMGame) openSaveLoad(mode MainMenuMode) {
+	g.mainMenuMode = mode
+	g.slotSelection = 0
+	g.savePage = 0
 }
 
 // openSaveRename opens the rename dialog for a manual save row, rejecting the
@@ -608,12 +631,12 @@ func (ih *InputHandler) openSaveRename(row int) {
 	ih.game.saveRenameInput = sum.Name
 }
 
-// handleSaveRowRename opens rename on a right-clicked row in the Save/Load menus.
+// handleSaveRowRename opens rename on a right-clicked row in the Save menu.
 // Returns true if a row was clicked (caller should stop further input this frame).
 func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
 	for i := 0; i < saveRowsPerPage; i++ {
-		y := py + saveMenuListTopY + i*saveMenuRowPitch
-		if !ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
+		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
+		if !ih.game.consumeRightClickIn(box.x1, box.y1, box.x2, box.y2) {
 			continue
 		}
 		ih.game.slotSelection = i
@@ -707,32 +730,24 @@ func (ih *InputHandler) handleSaveRenameInput() {
 		} else {
 			ih.game.AddCombatMessage("Save renamed")
 		}
-		ih.game.saveRenameOpen = false
-		ih.game.saveRenameSlot = -1
-		ih.game.saveRenameInput = ""
+		ih.game.closeSaveRename()
 	}
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-		ih.game.saveRenameOpen = false
-		ih.game.saveRenameSlot = -1
-		ih.game.saveRenameInput = ""
-	}
+	// Escape is consumed by the top-level ESC handler (it cancels this modal
+	// before backing out of the submenu), so it never reaches here.
 }
 
-// mainMenuHoverSelect updates selection based on mouse hover over the menu panel
-// panelW/H must match ui.drawMainMenu sizes (300x220), startY is the first option baseline.
-func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY int) {
+// mainMenuHoverSelect updates selection based on mouse hover over a vertical
+// menu list. panelW/H and (startY, pitch) must match the drawn list; row boxes
+// come from menuRowRect, the same geometry the draw code uses, so hover and
+// render can't drift.
+func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY, pitch int) {
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
-	// Option rectangles: x in [px+16, px+panelW-16], y baseline at startY+i*32; highlight box spans y-4..y-4+28
 	for i := 0; i < count; i++ {
-		y := py + startY + i*32
-		x1 := px + 16
-		x2 := px + panelW - 16
-		y1 := y - 4
-		y2 := y - 4 + 28
-		if mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2 {
+		box, _, _ := menuRowRect(px, py, panelW, startY, pitch, i)
+		if mouseX >= box.x1 && mouseX < box.x2 && mouseY >= box.y1 && mouseY < box.y2 {
 			if ih.game.mainMenuMode == MenuMain {
 				ih.game.mainMenuSelection = i
 			} else {
@@ -1123,68 +1138,22 @@ func (ih *InputHandler) handleUIInput() {
 	if ih.apostropheKeyTracker.IsKeyJustPressed(ebiten.KeyApostrophe) {
 		ih.game.showCollisionBoxes = !ih.game.showCollisionBoxes
 	}
+	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
+	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
 	if ih.menuKeyTracker.IsKeyJustPressed(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabSpellbook {
-				ih.game.menuOpen = false // Close menu if already on Spellbook tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				// Switching into the spellbook: clear highlight until user picks one.
-				ih.game.currentTab = TabSpellbook
-				ih.game.selectedSpell = -1
-			}
-		} else {
-			ih.openTabbedMenu(TabSpellbook)
-		}
+		ih.toggleTabbedMenu(TabSpellbook)
 	}
 	if ih.inventoryKeyTracker.IsKeyJustPressed(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabInventory {
-				ih.game.menuOpen = false // Close menu if already on Inventory tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabInventory
-			}
-		} else {
-			ih.openTabbedMenu(TabInventory)
-		}
+		ih.toggleTabbedMenu(TabInventory)
 	}
-	// Characters sheet is on P ('party') — C now casts the best heal in combat.
 	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabCharacters {
-				ih.game.menuOpen = false // Close menu if already on Characters tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabCharacters
-			}
-		} else {
-			ih.openTabbedMenu(TabCharacters)
-		}
+		ih.toggleTabbedMenu(TabCharacters)
 	}
 	if ih.questsKeyTracker.IsKeyJustPressed(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabQuests {
-				ih.game.menuOpen = false // Close menu if already on Quests tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabQuests
-			}
-		} else {
-			ih.openTabbedMenu(TabQuests)
-		}
+		ih.toggleTabbedMenu(TabQuests)
 	}
 	if ih.cardsKeyTracker.IsKeyJustPressed(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabCards {
-				ih.game.menuOpen = false // Close menu if already on Cards tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabCards
-			}
-		} else {
-			ih.openTabbedMenu(TabCards)
-		}
+		ih.toggleTabbedMenu(TabCards)
 	}
 
 	// Toggle turn-based mode with Tab key
@@ -1631,6 +1600,27 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	}
 
 	return -1
+}
+
+// toggleTabbedMenu switches the tabbed menu to `tab`: opens it if closed, hops
+// to `tab` if open on another, or closes the menu (starting the spell-input
+// cooldown so the same key doesn't instantly reopen) if already on it. One body
+// for the M/I/P/J/K tab keys.
+func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
+	g := ih.game
+	if !g.menuOpen {
+		ih.openTabbedMenu(tab) // resets the spellbook highlight itself
+		return
+	}
+	if g.currentTab == tab {
+		g.menuOpen = false
+		g.spellInputCooldown = g.config.UI.SpellInputCooldown
+		return
+	}
+	g.currentTab = tab
+	if tab == TabSpellbook {
+		g.selectedSpell = -1 // clear highlight until the user picks one
+	}
 }
 
 // openTabbedMenu opens the tabbed menu with the specified tab
