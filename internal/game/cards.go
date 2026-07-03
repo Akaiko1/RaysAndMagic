@@ -192,7 +192,7 @@ func cardEffectText(def *config.ItemDefinitionConfig) string {
 	}
 	parts := def.CardEffectLines() // single source (config/item_lines.go)
 	if len(parts) == 0 {
-		return "No active effect yet"
+		return "Currently not implemented"
 	}
 	return strings.Join(parts, ", ")
 }

@@ -918,3 +918,334 @@ items:
     heal_endurance_divisor: 6
     rarity: "common"
     value: 45
+
+# Monster-trophy cards added 2026-07-03 (mob roster expansion). Collection
+# effects not implemented yet -- cardEffectText falls back to "Currently not
+# implemented" until a Card* field is added to each.
+  alien_card:
+    name: "Alien Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card showing a spindly grey alien, eyes like flooded pools."
+    rarity: "legendary"
+    value: 500
+
+  ashigaru_firelock_card:
+    name: "Ashigaru Arquebusier Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an ashigaru gunner, matchcord smoldering."
+    rarity: "legendary"
+    value: 500
+
+  bandit_card:
+    name: "Bandit Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a hooded bandit, blade drawn."
+    rarity: "legendary"
+    value: 500
+
+  bat_card:
+    name: "Cave Bat Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a cave bat frozen mid-shriek."
+    rarity: "legendary"
+    value: 500
+
+  bear_card:
+    name: "Bear Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a rearing bear, claws bared."
+    rarity: "legendary"
+    value: 500
+
+  dire_wolf_card:
+    name: "Dire Wolf Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a dire wolf, hackles raised."
+    rarity: "legendary"
+    value: 500
+
+  dragon_card:
+    name: "Black Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a black dragon, scales like wet coal."
+    rarity: "legendary"
+    value: 500
+
+  dragon_gold_card:
+    name: "Gold Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a gold dragon, scales like molten coin."
+    rarity: "legendary"
+    value: 500
+
+  dragon_green_card:
+    name: "Green Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a green dragon, scales like river moss."
+    rarity: "legendary"
+    value: 500
+
+  dragon_red_card:
+    name: "Red Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a red dragon, scales like banked coals."
+    rarity: "legendary"
+    value: 500
+
+  elder_dragon_card:
+    name: "Elder Black Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elder black dragon, ancient and onyx-scaled."
+    rarity: "legendary"
+    value: 500
+
+  elder_dragon_gold_card:
+    name: "Elder Gold Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elder gold dragon, crowned in amber light."
+    rarity: "legendary"
+    value: 500
+
+  elder_dragon_green_card:
+    name: "Elder Green Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elder green dragon, wreathed in viridian mist."
+    rarity: "legendary"
+    value: 500
+
+  elder_dragon_red_card:
+    name: "Elder Red Dragon Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elder red dragon, wreathed in crimson smoke."
+    rarity: "legendary"
+    value: 500
+
+  elf_archer_card:
+    name: "Elf Archer Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elf archer, bowstring drawn taut."
+    rarity: "legendary"
+    value: 500
+
+  elf_swordsman_card:
+    name: "Elf Swordsman Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an elf swordsman, blade held high."
+    rarity: "legendary"
+    value: 500
+
+  forest_orc_card:
+    name: "Forest Orc Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a forest orc, tusks bared beneath the canopy."
+    rarity: "legendary"
+    value: 500
+
+  forest_spider_card:
+    name: "Forest Spider Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a forest spider, mandibles glistening."
+    rarity: "legendary"
+    value: 500
+
+  goblin_card:
+    name: "Goblin Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a snarling goblin, dagger in hand."
+    rarity: "legendary"
+    value: 500
+
+  golden_thief_bug_card:
+    name: "Golden Thief Bug Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of the golden thief bug, carapace gleaming."
+    rarity: "legendary"
+    value: 500
+
+  isis_card:
+    name: "Isis Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of Isis, serpent-crowned and gilded."
+    rarity: "legendary"
+    value: 500
+
+  jungle_goblin_card:
+    name: "Jungle Goblin Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a jungle goblin, war-paint smeared."
+    rarity: "legendary"
+    value: 500
+
+  jungle_idol_card:
+    name: "Warlord Idol Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of the warlord's idol, bronze eyes unblinking."
+    rarity: "legendary"
+    value: 500
+
+  lich_king_card:
+    name: "Lich King Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of the lich king, crown fused to bone."
+    rarity: "legendary"
+    value: 500
+
+  masked_hexer_girl_card:
+    name: "Masked Hexer Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a masked hexer, feathers and old magic."
+    rarity: "legendary"
+    value: 500
+
+  masked_serpent_dancer_card:
+    name: "Masked Serpent Dancer Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a masked dancer coiled in living serpents."
+    rarity: "legendary"
+    value: 500
+
+  minotaur_card:
+    name: "Minotaur Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a minotaur, horns lowered to charge."
+    rarity: "legendary"
+    value: 500
+
+  mountain_troll_card:
+    name: "Mountain Troll Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a mountain troll, granite-skinned and huge."
+    rarity: "legendary"
+    value: 500
+
+  mummy_card:
+    name: "Mummy Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a linen-wrapped mummy, eyes lit from within."
+    rarity: "legendary"
+    value: 500
+
+  octopus_card:
+    name: "Octopus Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of an octopus, ink curling through dark water."
+    rarity: "legendary"
+    value: 500
+
+  orc_card:
+    name: "Orc Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a snarling orc, cleaver raised."
+    rarity: "legendary"
+    value: 500
+
+  pixie_card:
+    name: "Pixie Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a pixie, wings a blur of light."
+    rarity: "legendary"
+    value: 500
+
+  rat_card:
+    name: "Sewer Rat Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a sewer rat, teeth bared in the dark."
+    rarity: "legendary"
+    value: 500
+
+  revenant_card:
+    name: "Revenant Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a revenant, armor rusted, eyes still burning."
+    rarity: "legendary"
+    value: 500
+
+  ronin_marksman_card:
+    name: "Ronin Marksman Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a ronin marksman, matchlock steady."
+    rarity: "legendary"
+    value: 500
+
+  skeleton_card:
+    name: "Skeleton Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a rattling skeleton, blade raised."
+    rarity: "legendary"
+    value: 500
+
+  spider_card:
+    name: "Spider Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a spider, legs folded over its prey."
+    rarity: "legendary"
+    value: 500
+
+  treant_card:
+    name: "Treant Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a treant, bark split like old scars."
+    rarity: "legendary"
+    value: 500
+
+  troll_card:
+    name: "Troll Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a troll, wounds closing as they watch."
+    rarity: "legendary"
+    value: 500
+
+  vengeful_ningyo_card:
+    name: "Vengeful Ningyo Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a vengeful ningyo, tears of brine and rage."
+    rarity: "legendary"
+    value: 500
+
+  wolf_card:
+    name: "Wolf Card"
+    type: "card"
+    description: "A rare monster card prized by collectors"
+    flavor: "A stamped card of a wolf, mid-howl beneath a pale moon."
+    rarity: "legendary"
+    value: 500
