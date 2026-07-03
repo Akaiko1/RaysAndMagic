@@ -994,6 +994,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
 				tooltipHasItem = true
+				if key := itemCardKey(item); key != "" {
+					ui.fullArtCardKey = key
+				}
 			}
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, value > 0)
 			priceText := "no value"
@@ -1025,7 +1028,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		if idx < len(members) && members[idx] != nil {
 			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
 			if tip != "" {
-				lines := strings.Split(tip, "\n")
+				lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
 				plate, titleText := ui.itemTitleColors(tooltipItem)
 				var bodyColors []color.Color
 				if titleText != nil { // gear keeps its rarity-metal body

@@ -350,6 +350,10 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		quests.GlobalQuestManager.Reset()
 	}
 	g.questManager = quests.GlobalQuestManager
+	// Fresh run must not inherit the old run's quest world-changes (e.g. the
+	// wolf-cull bridge). wm.Reset below reloads maps pristine anyway; this
+	// revert is the belt-and-suspenders for any world instance that survives.
+	g.syncQuestTiles()
 
 	// Drop the previous run's per-map return positions so a fresh party enters
 	// each map at its '+' start, not where the old party last stood.

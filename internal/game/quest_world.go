@@ -7,30 +7,78 @@ import (
 	"ugataima/internal/world"
 )
 
-// applyCompletedQuestTiles applies the on_complete_tiles of every completed
-// quest to the loaded maps (idempotent). Called whenever a quest may have just
-// completed and after a save restores quest state, so world changes always
-// match quest status.
-func (g *MMGame) applyCompletedQuestTiles() {
+// questTileKey identifies one quest-changed tile position across maps.
+func questTileKey(tc quests.QuestTileChange) string {
+	return fmt.Sprintf("%s:%d:%d", tc.Map, tc.X, tc.Y)
+}
+
+// ensureQuestTileOriginals captures, once, the pristine tile at every position
+// any quest's on_complete_tiles targets. Maps always load pristine from disk
+// (boot, WorldManager.Reset), and this runs before the first quest change is
+// applied, so what it sees IS the original. Needed to make syncQuestTiles
+// reversible: without the originals, a bridge laid in one run could never be
+// taken back off a world instance that outlives the quest state (e.g. loading
+// an older save — maps are NOT reloaded from disk on load).
+func (g *MMGame) ensureQuestTileOriginals() {
+	if g.questTileOriginals != nil || g.questManager == nil {
+		return
+	}
+	g.questTileOriginals = make(map[string]world.TileType3D)
+	for _, def := range g.questManager.Definitions() {
+		for _, tc := range def.OnCompleteTiles {
+			w := g.worldByKey(tc.Map)
+			if w == nil || tc.Y < 0 || tc.Y >= len(w.Tiles) || tc.X < 0 || tc.X >= len(w.Tiles[tc.Y]) {
+				continue
+			}
+			g.questTileOriginals[questTileKey(tc)] = w.Tiles[tc.Y][tc.X]
+		}
+	}
+}
+
+// syncQuestTiles makes the loaded maps MATCH quest state, both ways: a
+// completed quest's on_complete_tiles are applied, and a NOT-completed quest's
+// positions revert to their pristine originals. The revert half is what keeps
+// world changes save-safe — loading a save where the quest isn't done (or
+// resetting quests for a new run) must take the bridge back out of the shared
+// loaded-map instances, which persist across loads. Idempotent; called
+// whenever a quest may have just completed and after a save restores quest
+// state.
+func (g *MMGame) syncQuestTiles() {
 	if g.questManager == nil || world.GlobalTileManager == nil {
 		return
 	}
-	changedCurrent := false
+	g.ensureQuestTileOriginals()
+
+	completed := make(map[string]bool)
 	for _, q := range g.questManager.GetAllQuests() {
-		if !q.Completed {
-			continue
+		if q.Completed {
+			completed[q.ID] = true
 		}
-		for _, tc := range q.Definition.OnCompleteTiles {
-			tileType, ok := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
-			if !ok {
-				continue // validated at startup; unknown key here means a test stub
+	}
+
+	changedCurrent := false
+	for id, def := range g.questManager.Definitions() {
+		for _, tc := range def.OnCompleteTiles {
+			var target world.TileType3D
+			if completed[id] {
+				t, ok := world.GlobalTileManager.GetTileTypeFromKey(tc.Tile)
+				if !ok {
+					continue // validated at startup; unknown key here means a test stub
+				}
+				target = t
+			} else {
+				t, ok := g.questTileOriginals[questTileKey(tc)]
+				if !ok {
+					continue
+				}
+				target = t
 			}
 			w := g.worldByKey(tc.Map)
 			if w == nil || tc.Y < 0 || tc.Y >= len(w.Tiles) || tc.X < 0 || tc.X >= len(w.Tiles[tc.Y]) {
 				continue
 			}
-			if w.Tiles[tc.Y][tc.X] != tileType {
-				w.Tiles[tc.Y][tc.X] = tileType
+			if w.Tiles[tc.Y][tc.X] != target {
+				w.Tiles[tc.Y][tc.X] = target
 				if w == g.world {
 					changedCurrent = true
 				}
@@ -44,6 +92,10 @@ func (g *MMGame) applyCompletedQuestTiles() {
 		g.gameLoop.renderer.precomputeFloorColorCache()
 	}
 }
+
+// applyCompletedQuestTiles is the historical name for syncQuestTiles — kept so
+// call sites read naturally at quest-completion triggers.
+func (g *MMGame) applyCompletedQuestTiles() { g.syncQuestTiles() }
 
 // worldByKey resolves a map key against the loaded maps, falling back to the
 // current world when no world manager exists (minimal test setups).

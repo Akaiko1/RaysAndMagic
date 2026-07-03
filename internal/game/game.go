@@ -389,6 +389,10 @@ type MMGame struct {
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
 	questManager    *quests.QuestManager
+	// questTileOriginals: pristine tile at every quest on_complete_tiles
+	// position, captured once (maps always load pristine from disk) so
+	// syncQuestTiles can REVERT a change when its quest isn't completed.
+	questTileOriginals map[string]world.TileType3D
 
 	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
 	reusableMonsterWrappers     []entities.MonsterUpdateInterface

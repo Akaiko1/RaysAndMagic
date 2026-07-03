@@ -1358,9 +1358,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
-		// Re-apply world changes of completed quests — maps reload pristine from
-		// disk, so e.g. the wolf-cull bridge must be laid again.
-		g.applyCompletedQuestTiles()
+		// Sync world changes to the LOADED quest state, both ways: completed
+		// quests re-lay their tiles, and tiles of quests NOT completed in this
+		// save revert to pristine. Loading does NOT reload maps from disk
+		// (SwitchToMap flips a key on the shared instances), so a bridge laid
+		// earlier this session must be actively taken back out here.
+		g.syncQuestTiles()
 	}
 
 	// Restore played time by adjusting session start

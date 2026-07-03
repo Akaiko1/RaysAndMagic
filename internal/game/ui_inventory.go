@@ -77,6 +77,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
+				if key := itemCardKey(item); key != "" {
+					ui.fullArtCardKey = key
+				}
 			}
 		}
 	}
@@ -141,6 +144,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			tooltipHasItem = true
 			tooltipX = mouseX + 16
 			tooltipY = mouseY + 8
+			if key := itemCardKey(item); key != "" {
+				ui.fullArtCardKey = key
+			}
 		}
 	}
 	// Below the grid: pager, then the Camp button + its rest-result notice
@@ -158,7 +164,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ui.drawTabQuickSlotBar(screen, gridX+(gridSize-qbW)/2, barTop, qbW)
 
 	if tooltip != "" && tooltipHasItem {
-		lines := strings.Split(tooltip, "\n")
+		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
 		plate, titleText := ui.itemTitleColors(tooltipItem)
 		var bodyColors []color.Color
 		if titleText != nil { // gear keeps its rarity-metal body; spells/traps stay white
