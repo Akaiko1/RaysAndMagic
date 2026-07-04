@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 )
 
 // splitPhysToFire divides physical damage into a remaining-physical part and a
@@ -19,6 +20,36 @@ func splitPhysToFire(damage, pct int) (phys, fire int) {
 	}
 	fire = damage * pct / 100
 	return damage - fire, fire
+}
+
+// physConvShare is one elemental share carved out of physical damage by a
+// conversion card (Archmage=fire, Hexer=dark, Isis=light).
+type physConvShare struct {
+	element string
+	amount  int
+}
+
+// splitPhysConversions carves every conversion card's share out of a physical
+// damage total, in fixed fire→dark→light order (each card converts a share of
+// what the previous ones left). One rule for ALL party-dealt physical damage —
+// melee, ranged and traps; each share is then mitigated as its own element.
+func (g *MMGame) splitPhysConversions(damage int) (int, []physConvShare) {
+	var shares []physConvShare
+	for _, c := range [...]struct {
+		element string
+		pct     int
+	}{
+		{"fire", g.cardPhysToFirePct()},
+		{"dark", g.cardPhysToDarkPct()},
+		{"light", g.cardPhysToLightPct()},
+	} {
+		var amt int
+		damage, amt = splitPhysToFire(damage, c.pct)
+		if amt > 0 {
+			shares = append(shares, physConvShare{c.element, amt})
+		}
+	}
+	return damage, shares
 }
 
 // MaxCardSlots is the size of the party-wide monster-card collection. Cards held
@@ -145,6 +176,164 @@ func (g *MMGame) cardMoveAoePct() int {
 
 func (g *MMGame) cardMoveAoeDmg() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMoveAoeDmg })
+}
+
+func (g *MMGame) cardDisintegratePct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardDisintegratePct })
+}
+
+func (g *MMGame) cardRegenPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardRegenPct })
+}
+
+func (g *MMGame) cardDoubleAttackPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardDoubleAttackPct })
+}
+
+func (g *MMGame) cardSpellProcPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardSpellProcPct })
+}
+
+func (g *MMGame) cardDodgeBonusPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardDodgeBonusPct })
+}
+
+func (g *MMGame) cardArmorBonus() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardArmorBonus })
+}
+
+func (g *MMGame) cardThornsPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardThornsPct })
+}
+
+func (g *MMGame) cardPhysToDarkPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardPhysToDarkPct })
+}
+
+func (g *MMGame) cardPhysToLightPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardPhysToLightPct })
+}
+
+// cardPoisonProc returns the summed on-hit poison chance and the longest
+// duration from poison-proc cards. Chance stacks like the other card proc
+// percentages; duration is not additive, so multiple copies keep the best
+// duration instead of stretching poison indefinitely.
+func (g *MMGame) cardPoisonProc() (chancePct int, durationSec int) {
+	for _, key := range g.cardCollection {
+		if def := cardDef(key); def != nil && def.CardPoisonProcPct > 0 {
+			chancePct += def.CardPoisonProcPct
+			if def.CardPoisonDurationSec > durationSec {
+				durationSec = def.CardPoisonDurationSec
+			}
+		}
+	}
+	return chancePct, durationSec
+}
+
+func (g *MMGame) cardMeleeDmgPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMeleeDmgPct })
+}
+
+func (g *MMGame) cardMaxHPBonus() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMaxHPBonus })
+}
+
+// cardResistBonus sums the party's card-granted elemental resist bonuses.
+func (g *MMGame) cardResistBonus() map[string]int {
+	sum := make(map[string]int)
+	for _, key := range g.cardCollection {
+		if def := cardDef(key); def != nil {
+			for school, pct := range def.CardResistBonus {
+				sum[school] += pct
+			}
+		}
+	}
+	return sum
+}
+
+// cardResistBonusFor returns the party's card-granted resist bonus for a single
+// damage school (the hot path used by combat, avoiding a map alloc per hit).
+func (g *MMGame) cardResistBonusFor(school string) int {
+	total := 0
+	for _, key := range g.cardCollection {
+		if def := cardDef(key); def != nil {
+			total += def.CardResistBonus[school]
+		}
+	}
+	return total
+}
+
+func (g *MMGame) cardGoldFindPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardGoldFindPct })
+}
+
+func (g *MMGame) cardBonusBoltPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardBonusBoltPct })
+}
+
+func (g *MMGame) cardVolleyBonusPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardVolleyBonusPct })
+}
+
+func (g *MMGame) cardStunOnHitPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardStunOnHitPct })
+}
+
+func (g *MMGame) cardPoisonResistPct() int {
+	total := g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardPoisonResistPct })
+	if total > 100 {
+		return 100
+	}
+	return total
+}
+
+func (g *MMGame) cardCritBonusPct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardCritBonusPct })
+}
+
+func (g *MMGame) cardArmorPiercePct() int {
+	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardArmorPiercePct })
+}
+
+// cardBonusVsMultiplier mirrors weaponBonusMultiplier but sources from the card
+// collection and also matches the monster's Type (e.g. "formless") in addition
+// to its Name/Key — letting a card grant "+dmg vs a whole creature category"
+// the way a weapon's bonus_vs can't.
+func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
+	if monster == nil {
+		return 1.0
+	}
+	candidates := []string{monster.Name}
+	if monster.Key != "" {
+		candidates = append(candidates, monster.Key)
+	}
+	if monster.MonsterType != "" {
+		candidates = append(candidates, monster.MonsterType)
+	}
+	mult := 1.0
+	for _, key := range g.cardCollection {
+		def := cardDef(key)
+		if def == nil || len(def.CardBonusVs) == 0 {
+			continue
+		}
+		for bonusKey, m := range def.CardBonusVs {
+			if m <= 0 {
+				continue
+			}
+			// Name/Key/MonsterType often name the same identity (e.g. the Dragon
+			// monster has Name="Dragon", Key="dragon", MonsterType="dragon") — one
+			// matching bonus_vs entry means "this card applies to this monster",
+			// not "multiply once per field that happened to match", so stop at the
+			// first hit instead of checking the remaining candidates.
+			for _, candidate := range candidates {
+				if strings.EqualFold(bonusKey, candidate) {
+					mult *= m
+					break
+				}
+			}
+		}
+	}
+	return mult
 }
 
 // resetCardCollection empties the collection and recomputes party stats. Called

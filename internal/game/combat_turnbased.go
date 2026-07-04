@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/mathutil"
@@ -158,6 +157,15 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
 		}
+		if tickTurnStatuses {
+			m.TickPoisonTurn(gl.game.config.GetTPS()) // Venom-proc cards; ticks regardless of stun
+			if !m.IsAlive() {
+				// Matches RT: HandleMonsterInteractions skips a monster the parallel
+				// Update's TickPoison just killed. finalizeIndirectKills (end of
+				// frame) does the actual XP/loot/collision cleanup for both modes.
+				continue
+			}
+		}
 		if tickTurnStatuses && m.StunTurnsRemaining <= 0 && m.StunDRMemoryTurns > 0 {
 			// Stun-free this turn: count toward clearing the diminishing-returns chain.
 			m.StunDRMemoryTurns--
@@ -167,6 +175,13 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 		if tickTurnStatuses && m.StunTurnsRemaining > 0 {
 			m.StunTurnsRemaining--
+			if m.StunTurnsRemaining <= 0 {
+				// StunFramesRemaining never ticks down in TB (that only happens in
+				// the RT-only Monster3D.Update) — clear it here too, mirroring
+				// character.TickStunTurn, or the stun-star overlay and bossDisabled
+				// keep reading it as stunned forever.
+				m.StunFramesRemaining = 0
+			}
 			gl.game.turnBasedMonsterStunned[m] = true
 			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 			continue
@@ -382,29 +397,18 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 
 	attacks := monster.GetTurnBasedAttackCount()
 	for hit := 0; hit < attacks; hit++ {
-		if gl.game.combat.tryMonsterSpecialAbility(monster) {
-			continue
-		}
-		if monster.HasRangedAttack() {
-			gl.game.combat.spawnMonsterRangedAttackNormal(monster)
-			continue
-		}
-
 		// Re-filter every iteration: a previous attack may have just KO'd
 		// the only remaining target, in which case the rest are no-ops.
-		alive := alivePartyIndices(gl.game.party.Members)
-		if len(alive) == 0 {
+		if len(alivePartyIndices(gl.game.party.Members)) == 0 {
 			return
 		}
-		targetIndex := alive[rand.Intn(len(alive))]
-		target := gl.game.party.Members[targetIndex]
-
-		// Route through the shared hit hub (same as RT melee/ranged) so TB melee
-		// gets the FULL treatment: armor/resist mitigation, true damage, true-through-
-		// dodge, knockOut (Lich Card cheat-death), damage blink, and the on-hit riders
-		// (poison/ignite/char-stun/dispel). Disintegrate is a separate special ability
-		// (tryMonsterSpecialAbility above), so 0 here.
-		gl.game.combat.monsterHitCharacter(monster, target, monster.Name, monster.GetAttackDamage(), "physical", monster.IgnoresArmor, 0)
+		// Same attack wrappers as RT so TB gets the identical roll chain:
+		// special ability → Fireburst → the shared monster→character hit hub.
+		if monster.HasRangedAttack() {
+			gl.game.combat.spawnMonsterRangedAttack(monster)
+		} else {
+			gl.game.combat.applyMonsterMeleeDamage(monster)
+		}
 	}
 }
 

@@ -925,6 +925,7 @@ items:
   alien_card:
     name: "Alien Card"
     type: "card"
+    card_disintegrate_pct: 2
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card showing a spindly grey alien, eyes like flooded pools."
     rarity: "legendary"
@@ -933,6 +934,7 @@ items:
   ashigaru_firelock_card:
     name: "Ashigaru Arquebusier Card"
     type: "card"
+    card_volley_bonus_pct: 15
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an ashigaru gunner, matchcord smoldering."
     rarity: "legendary"
@@ -941,6 +943,7 @@ items:
   bandit_card:
     name: "Bandit Card"
     type: "card"
+    card_bonus_bolt_pct: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a hooded bandit, blade drawn."
     rarity: "legendary"
@@ -949,6 +952,7 @@ items:
   bat_card:
     name: "Cave Bat Card"
     type: "card"
+    card_dodge_bonus_pct: 4
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a cave bat frozen mid-shriek."
     rarity: "legendary"
@@ -957,6 +961,8 @@ items:
   bear_card:
     name: "Bear Card"
     type: "card"
+    card_stat_bonuses:
+      endurance: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a rearing bear, claws bared."
     rarity: "legendary"
@@ -965,6 +971,7 @@ items:
   dire_wolf_card:
     name: "Dire Wolf Card"
     type: "card"
+    card_melee_true_dmg: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a dire wolf, hackles raised."
     rarity: "legendary"
@@ -973,6 +980,8 @@ items:
   dragon_card:
     name: "Black Dragon Card"
     type: "card"
+    card_resist_bonus:
+      fire: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a black dragon, scales like wet coal."
     rarity: "legendary"
@@ -981,6 +990,8 @@ items:
   dragon_gold_card:
     name: "Gold Dragon Card"
     type: "card"
+    card_resist_bonus:
+      air: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a gold dragon, scales like molten coin."
     rarity: "legendary"
@@ -989,6 +1000,8 @@ items:
   dragon_green_card:
     name: "Green Dragon Card"
     type: "card"
+    card_resist_bonus:
+      earth: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a green dragon, scales like river moss."
     rarity: "legendary"
@@ -997,6 +1010,8 @@ items:
   dragon_red_card:
     name: "Red Dragon Card"
     type: "card"
+    card_resist_bonus:
+      fire: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a red dragon, scales like banked coals."
     rarity: "legendary"
@@ -1005,6 +1020,8 @@ items:
   elder_dragon_card:
     name: "Elder Black Dragon Card"
     type: "card"
+    card_resist_bonus:
+      fire: 75
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder black dragon, ancient and onyx-scaled."
     rarity: "legendary"
@@ -1013,6 +1030,8 @@ items:
   elder_dragon_gold_card:
     name: "Elder Gold Dragon Card"
     type: "card"
+    card_resist_bonus:
+      air: 75
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder gold dragon, crowned in amber light."
     rarity: "legendary"
@@ -1021,6 +1040,8 @@ items:
   elder_dragon_green_card:
     name: "Elder Green Dragon Card"
     type: "card"
+    card_resist_bonus:
+      earth: 75
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder green dragon, wreathed in viridian mist."
     rarity: "legendary"
@@ -1029,6 +1050,8 @@ items:
   elder_dragon_red_card:
     name: "Elder Red Dragon Card"
     type: "card"
+    card_resist_bonus:
+      fire: 75
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elder red dragon, wreathed in crimson smoke."
     rarity: "legendary"
@@ -1037,6 +1060,8 @@ items:
   elf_archer_card:
     name: "Elf Archer Card"
     type: "card"
+    card_bonus_vs:
+      dragon: 1.25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elf archer, bowstring drawn taut."
     rarity: "legendary"
@@ -1045,6 +1070,7 @@ items:
   elf_swordsman_card:
     name: "Elf Swordsman Card"
     type: "card"
+    card_melee_true_dmg: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an elf swordsman, blade held high."
     rarity: "legendary"
@@ -1053,6 +1079,7 @@ items:
   forest_orc_card:
     name: "Forest Orc Card"
     type: "card"
+    card_armor_pierce_pct: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a forest orc, tusks bared beneath the canopy."
     rarity: "legendary"
@@ -1061,6 +1088,8 @@ items:
   forest_spider_card:
     name: "Forest Spider Card"
     type: "card"
+    card_poison_proc_pct: 15
+    card_poison_duration_sec: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a forest spider, mandibles glistening."
     rarity: "legendary"
@@ -1069,6 +1098,8 @@ items:
   goblin_card:
     name: "Goblin Card"
     type: "card"
+    card_stat_bonuses:
+      luck: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a snarling goblin, dagger in hand."
     rarity: "legendary"
@@ -1077,6 +1108,8 @@ items:
   golden_thief_bug_card:
     name: "Golden Thief Bug Card"
     type: "card"
+    card_resist_bonus:
+      fire: 100
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of the golden thief bug, carapace gleaming."
     rarity: "legendary"
@@ -1085,6 +1118,7 @@ items:
   isis_card:
     name: "Isis Card"
     type: "card"
+    card_phys_to_light_pct: 50
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of Isis, serpent-crowned and gilded."
     rarity: "legendary"
@@ -1093,6 +1127,7 @@ items:
   jungle_goblin_card:
     name: "Jungle Goblin Card"
     type: "card"
+    card_gold_find_pct: 100
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a jungle goblin, war-paint smeared."
     rarity: "legendary"
@@ -1101,6 +1136,7 @@ items:
   jungle_idol_card:
     name: "Warlord Idol Card"
     type: "card"
+    card_max_hp_bonus: 25
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of the warlord's idol, bronze eyes unblinking."
     rarity: "legendary"
@@ -1109,6 +1145,9 @@ items:
   lich_king_card:
     name: "Lich King Card"
     type: "card"
+    card_summon_chance: 15
+    card_summon_limit: 2
+    card_summon_monster: "revenant"
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of the lich king, crown fused to bone."
     rarity: "legendary"
@@ -1117,6 +1156,7 @@ items:
   masked_hexer_girl_card:
     name: "Masked Hexer Card"
     type: "card"
+    card_phys_to_dark_pct: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a masked hexer, feathers and old magic."
     rarity: "legendary"
@@ -1125,6 +1165,7 @@ items:
   masked_serpent_dancer_card:
     name: "Masked Serpent Dancer Card"
     type: "card"
+    card_melee_dmg_pct: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a masked dancer coiled in living serpents."
     rarity: "legendary"
@@ -1133,6 +1174,7 @@ items:
   minotaur_card:
     name: "Minotaur Card"
     type: "card"
+    card_stun_on_hit_pct: 8
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a minotaur, horns lowered to charge."
     rarity: "legendary"
@@ -1141,6 +1183,7 @@ items:
   mountain_troll_card:
     name: "Mountain Troll Card"
     type: "card"
+    card_regen_pct: 3
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a mountain troll, granite-skinned and huge."
     rarity: "legendary"
@@ -1149,6 +1192,7 @@ items:
   mummy_card:
     name: "Mummy Card"
     type: "card"
+    card_poison_resist_pct: 100
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a linen-wrapped mummy, eyes lit from within."
     rarity: "legendary"
@@ -1157,6 +1201,7 @@ items:
   octopus_card:
     name: "Octopus Card"
     type: "card"
+    card_double_attack_pct: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of an octopus, ink curling through dark water."
     rarity: "legendary"
@@ -1165,6 +1210,7 @@ items:
   orc_card:
     name: "Orc Card"
     type: "card"
+    card_melee_true_dmg: 12
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a snarling orc, cleaver raised."
     rarity: "legendary"
@@ -1173,6 +1219,7 @@ items:
   pixie_card:
     name: "Pixie Card"
     type: "card"
+    card_spell_proc_pct: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a pixie, wings a blur of light."
     rarity: "legendary"
@@ -1181,6 +1228,8 @@ items:
   rat_card:
     name: "Sewer Rat Card"
     type: "card"
+    card_poison_proc_pct: 12
+    card_poison_duration_sec: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a sewer rat, teeth bared in the dark."
     rarity: "legendary"
@@ -1189,6 +1238,7 @@ items:
   revenant_card:
     name: "Revenant Card"
     type: "card"
+    card_lethal_save_pct: 8
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a revenant, armor rusted, eyes still burning."
     rarity: "legendary"
@@ -1197,6 +1247,7 @@ items:
   ronin_marksman_card:
     name: "Ronin Marksman Card"
     type: "card"
+    card_crit_bonus_pct: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a ronin marksman, matchlock steady."
     rarity: "legendary"
@@ -1205,6 +1256,8 @@ items:
   skeleton_card:
     name: "Skeleton Card"
     type: "card"
+    card_bonus_vs:
+      formless: 1.20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a rattling skeleton, blade raised."
     rarity: "legendary"
@@ -1213,6 +1266,8 @@ items:
   spider_card:
     name: "Spider Card"
     type: "card"
+    card_poison_proc_pct: 15
+    card_poison_duration_sec: 20
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a spider, legs folded over its prey."
     rarity: "legendary"
@@ -1221,6 +1276,7 @@ items:
   treant_card:
     name: "Treant Card"
     type: "card"
+    card_armor_bonus: 10
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a treant, bark split like old scars."
     rarity: "legendary"
@@ -1229,6 +1285,7 @@ items:
   troll_card:
     name: "Troll Card"
     type: "card"
+    card_regen_pct: 2
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a troll, wounds closing as they watch."
     rarity: "legendary"
@@ -1237,6 +1294,7 @@ items:
   vengeful_ningyo_card:
     name: "Vengeful Ningyo Card"
     type: "card"
+    card_thorns_pct: 12
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a vengeful ningyo, tears of brine and rage."
     rarity: "legendary"
@@ -1245,6 +1303,7 @@ items:
   wolf_card:
     name: "Wolf Card"
     type: "card"
+    card_melee_true_dmg: 5
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a wolf, mid-howl beneath a pale moon."
     rarity: "legendary"

@@ -1729,6 +1729,22 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	g.parkSelection = false // a new round clears any manual park
+	tps := g.config.GetTPS()
+	for _, m := range g.party.Members {
+		// Poison/ignite tick once per party turn in TB (mirrors monster
+		// TickPoisonTurn) — ticks regardless of stun, same as the RT per-frame
+		// updatePoison/updateBurn did before TB switched off real-time ticking.
+		m.TickPoisonTurn(tps)
+		m.TickBurnTurn(tps)
+	}
+	// Run the lethal-DoT sweep (Lich Card save / Unconscious) BEFORE handing out
+	// action slots below — otherwise a member the tick just ticked to 0 HP reads
+	// as unable to act this round even when the Lich Card would have saved them,
+	// and the KO message/condition lag a full frame behind the tick that caused
+	// it (the per-frame sweep in the main loop runs before this point, not after).
+	if g.combat != nil {
+		g.combat.knockOutLethalDoTVictims()
+	}
 	for _, m := range g.party.Members {
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
@@ -1795,6 +1811,7 @@ func (g *MMGame) endPartyTurn() {
 		g.turnBasedSpRegenCount = 0
 		for _, member := range g.party.Members {
 			member.RegenerateSpellPoints()
+			member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
 		}
 	}
 
@@ -2042,7 +2059,7 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 // MonsterWrapper implements entities.MonsterUpdateInterface
 type MonsterWrapper struct {
 	Monster         *monster.Monster3D
-	collisionSystem *collision.CollisionSystem  // LIVE system — touched only by ApplyCollisionUpdate (Phase 2, serial)
+	collisionSystem *collision.CollisionSystem   // LIVE system — touched only by ApplyCollisionUpdate (Phase 2, serial)
 	snapshot        *collision.CollisionSnapshot // frozen view for THIS tick — the only thing Update (Phase 1, parallel) may query
 	game            *MMGame                      // Added to access camera position for tethering system
 

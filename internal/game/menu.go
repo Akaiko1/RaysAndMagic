@@ -314,8 +314,9 @@ type MonsterSave struct {
 	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
-	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
-	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
+	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
+	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
 	// Stun diminishing-returns chain — persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
@@ -818,25 +819,26 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
-				WasAttacked:          mon.WasAttacked,
-				Relentless:           mon.Relentless,
-				QuestProgressIgnored: mon.QuestProgressIgnored,
-				StunFramesRemaining:  mon.StunFramesRemaining,
-				StunTurnsRemaining:   mon.StunTurnsRemaining,
-				StunDRStacks:         mon.StunDRStacks,
-				StunDRMemoryTurns:    mon.StunDRMemoryTurns,
-				StunDRMemoryFrames:   mon.StunDRMemoryFrames,
-				RootFramesRemaining:  mon.RootFramesRemaining,
-				RootTurnsRemaining:   mon.RootTurnsRemaining,
-				Pilfered:             mon.Pilfered,
-				PounceCDFrames:       mon.PounceCDFrames,
-				PounceCDTurns:        mon.PounceCDTurns,
-				BossCD:               mon.BossCD,
-				BossHurtPending:      mon.BossHurtPending,
-				BossLastHP:           mon.BossLastHP,
-				SummonFirstDone:      mon.SummonFirstDone,
-				SummonedBy:           mon.SummonedBy,
-				CrossfireCD:          mon.CrossfireCD,
+				WasAttacked:             mon.WasAttacked,
+				Relentless:              mon.Relentless,
+				QuestProgressIgnored:    mon.QuestProgressIgnored,
+				StunFramesRemaining:     mon.StunFramesRemaining,
+				StunTurnsRemaining:      mon.StunTurnsRemaining,
+				PoisonedFramesRemaining: mon.PoisonedFramesRemaining,
+				StunDRStacks:            mon.StunDRStacks,
+				StunDRMemoryTurns:       mon.StunDRMemoryTurns,
+				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
+				RootFramesRemaining:     mon.RootFramesRemaining,
+				RootTurnsRemaining:      mon.RootTurnsRemaining,
+				Pilfered:                mon.Pilfered,
+				PounceCDFrames:          mon.PounceCDFrames,
+				PounceCDTurns:           mon.PounceCDTurns,
+				BossCD:                  mon.BossCD,
+				BossHurtPending:         mon.BossHurtPending,
+				BossLastHP:              mon.BossLastHP,
+				SummonFirstDone:         mon.SummonFirstDone,
+				SummonedBy:              mon.SummonedBy,
+				CrossfireCD:             mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -1104,6 +1106,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
 				m.StunDRStacks = ms.StunDRStacks
 				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
 				m.StunDRMemoryFrames = ms.StunDRMemoryFrames

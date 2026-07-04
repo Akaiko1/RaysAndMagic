@@ -83,6 +83,36 @@ func (g *MMGame) HealablePartyIndices() []int {
 	return idxs
 }
 
+// applyFlatHeal adds a heal_base(+Endurance/div) amount to the member at
+// charIdx, clamped to MaxHitPoints, firing the rising "+" VFX if it actually
+// raised HP. Refuses on Unconscious/Dead/Eradicated — heals never revive,
+// Eradicated needs the Resurrect spell. Shared by applyHealTo and any
+// consumable that carries a secondary heal (e.g. antivenom's minor heal) so
+// there is exactly one clamp/VFX/revive-guard implementation, not per-caller
+// copies that can drift.
+func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
+	if charIdx < 0 || charIdx >= len(g.party.Members) || base <= 0 {
+		return
+	}
+	ch := g.party.Members[charIdx]
+	if ch == nil || ch.HasCondition(character.ConditionUnconscious) ||
+		ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+		return
+	}
+	heal := base
+	if div > 0 {
+		heal += ch.GetEffectiveEndurance() / div
+	}
+	before := ch.HitPoints
+	ch.HitPoints += heal
+	if ch.HitPoints > ch.MaxHitPoints {
+		ch.HitPoints = ch.MaxHitPoints
+	}
+	if ch.HitPoints > before {
+		g.TriggerPartyHeal(charIdx) // rising green "+" overlay
+	}
+}
+
 // applyHealTo consumes the heal consumable at itemIdx and heals the member at
 // targetIdx. Shared by the self-heal fast path and the heal picker. Re-validates
 // the item (the index can shift between picker-open and confirm) and refuses on
@@ -101,20 +131,14 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 		return false // slot now holds something else — inventory shifted under us
 	}
 	ch := g.party.Members[targetIdx]
-	if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) {
-		return false // heals never revive
+	if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+		return false // heals never revive — Eradicated needs the Resurrect spell
 	}
 	if ch.HitPoints >= ch.MaxHitPoints {
 		return false
 	}
 	before := ch.HitPoints
-	ch.HitPoints += base + (ch.GetEffectiveEndurance() / div)
-	if ch.HitPoints > ch.MaxHitPoints {
-		ch.HitPoints = ch.MaxHitPoints
-	}
-	if ch.HitPoints > before {
-		g.TriggerPartyHeal(targetIdx) // rising green "+" overlay
-	}
+	g.applyFlatHeal(targetIdx, base, div)
 	g.party.RemoveItem(itemIdx)
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, ch.HitPoints-before))
 	return true
@@ -191,21 +215,8 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			g.AddCombatMessage(fmt.Sprintf("%s isn't poisoned.", ch.Name))
 			return false
 		}
-		ch.RemoveCondition(character.ConditionPoisoned)
-		if base := item.Attributes["heal_base"]; base > 0 && !ch.HasCondition(character.ConditionUnconscious) {
-			heal := base
-			if div := item.Attributes["heal_endurance_divisor"]; div > 0 {
-				heal = base + (ch.GetEffectiveEndurance() / div)
-			}
-			before := ch.HitPoints
-			ch.HitPoints += heal
-			if ch.HitPoints > ch.MaxHitPoints {
-				ch.HitPoints = ch.MaxHitPoints
-			}
-			if ch.HitPoints > before {
-				g.TriggerPartyHeal(selectedChar)
-			}
-		}
+		ch.CurePoison()
+		g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
 		g.party.RemoveItem(itemIndex)
 		g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
 		return true

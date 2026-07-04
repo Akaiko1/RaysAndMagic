@@ -257,3 +257,60 @@ func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
 		t.Errorf("already-fighting survivor moved by death burst: (%.0f,%.0f)->(%.0f,%.0f)", fx, fy, fighter.X, fighter.Y)
 	}
 }
+
+// Regression: monsterStrikeMonster (monster-vs-monster melee, e.g. a bound
+// undead striking an enemy) hand-rolls its own kill bookkeeping and used to
+// skip scatterBandOnMemberDeath — a bound ally could snipe a banded mob's
+// members one by one without the survivors ever waking up.
+func TestMonsterStrikeMonster_ScattersVictimsBand(t *testing.T) {
+	game := newBandingTestGame()
+	game.combat = NewCombatSystem(game)
+	game.gameLoop = &GameLoop{game: game}
+
+	tile := float64(game.config.GetTileSize())
+	cx, cy := TileCenterFromTile(3, 3, tile)
+	addBandingTestMonster(game, "wolf_a", "wolf", cx, cy, 11)
+	addBandingTestMonster(game, "wolf_b", "wolf", cx, cy, 11)
+	victim, survivor := game.world.Monsters[0], game.world.Monsters[1]
+	victim.HitPoints = 1
+	attacker := &monsterPkg.Monster3D{ID: "bound_ally", Bound: true, DamageMin: 999, DamageMax: 999}
+
+	game.combat.monsterStrikeMonster(attacker, victim)
+
+	if victim.IsAlive() {
+		t.Fatal("setup: attacker should have killed the victim")
+	}
+	if !survivor.IsEngagingPlayer || !survivor.WasAttacked {
+		t.Errorf("bandmate should aggro when monsterStrikeMonster kills the victim (engaging=%v wasAttacked=%v)",
+			survivor.IsEngagingPlayer, survivor.WasAttacked)
+	}
+}
+
+// Regression: resolveMonsterProjectileVsMonster (bound-undead-vs-enemy
+// crossfire) hand-rolls its own kill bookkeeping too and had the same gap.
+func TestResolveMonsterProjectileVsMonster_ScattersVictimsBand(t *testing.T) {
+	game := newBandingTestGame()
+	game.combat = NewCombatSystem(game)
+	game.gameLoop = &GameLoop{game: game}
+
+	tile := float64(game.config.GetTileSize())
+	cx, cy := TileCenterFromTile(3, 3, tile)
+	addBandingTestMonster(game, "wolf_a", "wolf", cx, cy, 13)
+	addBandingTestMonster(game, "wolf_b", "wolf", cx, cy, 13)
+	victim, survivor := game.world.Monsters[0], game.world.Monsters[1]
+	victim.HitPoints = 1
+
+	ar := &Arrow{
+		ID: "crossfire-bolt", Active: true, LifeTime: 10,
+		Damage: 999, SourceName: "Bound Skeleton", DamageType: "physical",
+	}
+	game.combat.resolveMonsterProjectileVsMonster(ar, "arrow", victim, ar.ID)
+
+	if victim.IsAlive() {
+		t.Fatal("setup: the bolt should have killed the victim")
+	}
+	if !survivor.IsEngagingPlayer || !survivor.WasAttacked {
+		t.Errorf("bandmate should aggro when the crossfire kill lands (engaging=%v wasAttacked=%v)",
+			survivor.IsEngagingPlayer, survivor.WasAttacked)
+	}
+}

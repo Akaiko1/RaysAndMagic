@@ -346,10 +346,17 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	if bossInvulnerable(m) {
 		return // invulnerable boss (sealed or idol-warded) — no trap damage, FX, or aggro
 	}
+	// Phys-to-element conversion cards apply to physical trap damage too — a
+	// physical trap is as much "party physical damage" as a swing or an arrow.
+	var convShares []physConvShare
+	if element == "physical" {
+		dmg, convShares = cs.game.splitPhysConversions(dmg)
+	}
 	// Trap damage runs the same armor→resist path as any hit: armor mitigates by
 	// element (physical fully, elemental on the reduced cap), then resistances.
 	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
 	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
+	actual += cs.applyPhysConversionShares(m, convShares, false)
 	cs.markMonsterHit(m)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
 	cs.finishIndirectKill(m)

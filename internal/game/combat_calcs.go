@@ -213,6 +213,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 			total += cs.armorClassContributionWithEnd(armorPiece, char, effEnd)
 		}
 	}
+	total += cs.game.cardArmorBonus() // Treant Card: flat party Armor Class
 	return total
 }
 

@@ -108,6 +108,22 @@ func (cs *CombatSystem) knockOut(target *character.MMCharacter) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", target.Name))
 }
 
+// knockOutLethalDoTVictims finds party members poison/burn ticked to 0 HP this
+// frame and routes them through the real knockOut (Lich Card save + message) —
+// updatePoison/updateBurn only clamp HP, they can't call knockOut themselves
+// (character can't import game).
+func (cs *CombatSystem) knockOutLethalDoTVictims() {
+	for _, m := range cs.game.party.Members {
+		if m == nil || m.HitPoints > 0 {
+			continue
+		}
+		if m.HasCondition(character.ConditionUnconscious) || m.HasCondition(character.ConditionEradicated) || m.HasCondition(character.ConditionDead) {
+			continue
+		}
+		cs.knockOut(m)
+	}
+}
+
 // reviveHalf restores a downed member to half max HP and SP (Lich Card save).
 func reviveHalf(target *character.MMCharacter) {
 	if hp := target.MaxHitPoints / 2; hp > target.HitPoints {
@@ -134,6 +150,19 @@ func (cs *CombatSystem) tryCardHealOnAttack() {
 		cs.healMember(idx, amt)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's Ningyo Card mends %d HP.", m.Name, amt))
 	}
+}
+
+// tryCardFireBoltInstead casts a free Fire Bolt through the real spell-casting
+// path (Pixie Card) — same projectile, damage formula (Intellect-scaled) and
+// crit roll as an actual cast, just spellCost 0 so no SP is spent. Returns
+// false (and leaves the caller to do a normal swing) if the spell is missing.
+func (cs *CombatSystem) tryCardFireBoltInstead(caster *character.MMCharacter) bool {
+	spellID := spells.SpellID("firebolt")
+	spellDef, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return false
+	}
+	return cs.castResolvedSpell(spellID, spellDef, caster, 0, false)
 }
 
 // tryCardMoveBurst rolls the Gorilla Titan Card's on-move shockwave: pure damage
@@ -501,6 +530,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	// range ≥ 4 to count as ranged (otherwise they fall into melee).
 	// For ranged: roll crit and apply doubling inside createArrowAttack only.
 	acted := false
+	summonRolled := false
 	if weaponDef.Range > 3 {
 		// Masked Huntress Card: boost ranged weapon damage.
 		if pct := cs.game.cardRangedDmgPct(); pct != 0 {
@@ -509,20 +539,42 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		// createArrowAttack returns false at the projectile cap (MaxProjectiles):
 		// nothing fired, so no cooldown/action — and no card procs either.
 		acted = cs.createArrowAttack(totalDamage)
+	} else if pct := cs.game.cardSpellProcPct(); pct > 0 && rand.Intn(100) < pct && cs.tryCardFireBoltInstead(attacker) {
+		// Pixie Card: the swing becomes a free Fire Bolt cast instead of a melee hit.
+		// castResolvedSpell already rolled the Orc Warlord summon check for this
+		// action (a real cast counts as one) — don't roll it a second time below.
+		acted = true
+		summonRolled = true
 	} else {
+		baseDamage := totalDamage
 		isCrit, _ := cs.RollWeaponCriticalChance(weapon, attacker)
 		if isCrit {
 			totalDamage *= CritDamageMultiplier
 		}
 		cs.createMeleeAttack(weapon, totalDamage, isCrit) // close-range, always lands
 		acted = true
+		// Octopus Card: chance to strike again immediately with a fresh swing.
+		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
+			isCrit2, _ := cs.RollWeaponCriticalChance(weapon, attacker)
+			dmg2 := baseDamage
+			if isCrit2 {
+				dmg2 *= CritDamageMultiplier
+			}
+			cs.createMeleeAttack(weapon, dmg2, isCrit2)
+		}
 	}
 
 	// Card procs only fire on an attack that actually happened (gated above), so a
 	// capped ranged weapon can't be spammed for free Ningyo/Orc Warlord procs.
 	if acted {
-		cs.tryCardHealOnAttack()   // Ningyo Card: chance to self-heal on attacking
-		cs.tryCardSummonOnAction() // Orc Warlord Card: chance to summon allies
+		cs.tryCardHealOnAttack() // Ningyo Card: chance to self-heal on attacking
+		if !summonRolled {
+			cs.tryCardSummonOnAction() // Orc Warlord Card: chance to summon allies
+		}
+		// Bandit Card: chance to also loose a short bonus bolt (Accuracy/3 dmg).
+		if pct := cs.game.cardBonusBoltPct(); pct > 0 && rand.Intn(100) < pct {
+			cs.createArrowAttack(attacker.GetEffectiveAccuracy() / 3)
+		}
 	}
 	return acted
 }
@@ -585,6 +637,10 @@ func (cs *CombatSystem) createArrowAttack(damage int) bool {
 	volley := 1
 	if equippedDef != nil && equippedDef.Volley > 1 {
 		volley = equippedDef.Volley
+	}
+	// Ashigaru Firelock Card: chance to loose one extra arrow in the volley.
+	if pct := cs.game.cardVolleyBonusPct(); pct > 0 && rand.Intn(100) < pct {
+		volley++
 	}
 	ang := cs.game.camera.Angle
 	dirX, dirY := math.Cos(ang), math.Sin(ang)
@@ -1065,16 +1121,41 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 		return
 	}
 
-	// Archmage Card: divert a share of physical melee damage into a SEPARATE fire
-	// hit. The fire share is mitigated like ANY fire damage — elemental armor (its
-	// lower cap) then fire resistance — not as physical. Only physical weapons convert.
-	fireConvert := 0
-	if damageTypeStr == "physical" {
-		damage, fireConvert = splitPhysToFire(damage, cs.game.cardPhysToFirePct())
+	// Alien Card: chance any melee hit instantly disintegrates the target (same
+	// immunity gate as weapon/spell Disintegrate: undead/dragon/invulnerable boss).
+	if pct := cs.game.cardDisintegratePct(); pct > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < float64(pct)/100 {
+		monster.HitPoints = 0
+		monster.WasAttacked = true
+		monster.HitTintFrames = MonsterHitFlashFrames
+		cs.engageTurnBasedPackOnHit(monster)
+		xpAwarded := cs.finishMonsterKill(monster)
+		cs.game.AddCombatMessage(fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
+		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+		return
 	}
 
-	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, false)
+	// Phys-to-element conversion cards (Archmage=fire, Hexer=dark, Isis=light)
+	// divert a share of PHYSICAL damage regardless of source — melee, ranged and
+	// traps all go through splitPhysConversions; each share is mitigated as its
+	// own element (elemental armor cap, then that element's resistance).
+	var convShares []physConvShare
+	if damageTypeStr == "physical" {
+		damage, convShares = cs.game.splitPhysConversions(damage)
+	}
+
+	reducedDamage := damage
+	// Forest Orc Card: chance to ignore the target's armor entirely.
+	if pct := cs.game.cardArmorPiercePct(); pct <= 0 || rand.Intn(100) >= pct {
+		reducedDamage = applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, false)
+	}
 	if mult := cs.weaponBonusMultiplier(weaponDef, monster); mult != 1.0 {
+		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+		if reducedDamage < 1 {
+			reducedDamage = 1
+		}
+	}
+	// Card bonus_vs (e.g. Elf Archer vs dragons, Skeleton vs formless bosses).
+	if mult := cs.game.cardBonusVsMultiplier(monster); mult != 1.0 {
 		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
 		if reducedDamage < 1 {
 			reducedDamage = 1
@@ -1082,14 +1163,14 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 	reducedDamage += trueDmg                    // weapon-mastery true damage bypasses armor
 	reducedDamage += cs.game.cardMeleeTrueDmg() // Samurai Card: flat true melee damage
+	if pct := cs.game.cardMeleeDmgPct(); pct != 0 {
+		// Masked Serpent Dancer Card: +N% melee weapon damage.
+		reducedDamage = reducedDamage * (100 + pct) / 100
+	}
 
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
-	if fireConvert > 0 {
-		// Same path as all other fire (spells/splash): elemental armor then fire resist.
-		fireReduced := applyMonsterArmor(fireConvert, "fire", monster.ArmorClass, false)
-		finalDamage += monster.TakeDamage(fireReduced, convertToMonsterDamageType("fire"), cs.game.camera.X, cs.game.camera.Y)
-	}
+	finalDamage += cs.applyPhysConversionShares(monster, convShares, false)
 	monster.HitTintFrames = MonsterHitFlashFrames
 	cs.trySleightOfHand(attacker, monster)
 	// Impact feedback: spark burst + light flash at the monster, plus a small
@@ -1103,16 +1184,15 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
+		cs.tryCardPoisonProc(monster)
 	}
 	if weaponDef != nil && weaponDef.AoeRadiusTiles > 0 {
-		// Splash mirrors the primary's Archmage-Card phys/fire split: the physical
-		// remainder AND the converted fire both reach nearby foes (previously the
-		// already-reduced `damage` was used, so the fire share was silently dropped
-		// and splash dealt e.g. 75 instead of 100).
+		// Splash mirrors the primary's phys-conversion split: the physical
+		// remainder AND every converted share reach nearby foes too (previously
+		// the already-reduced `damage` was used, so converted shares were
+		// silently dropped and splash dealt less than the primary hit).
 		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, weaponDef.AoeRadiusTiles, 0)
-		if fireConvert > 0 {
-			cs.applyAoeSplash(monster, fireConvert, "fire", convertToMonsterDamageType("fire"), weaponName, weaponDef.AoeRadiusTiles, 0)
-		}
+		cs.splashPhysConversionShares(monster, convShares, weaponName, weaponDef.AoeRadiusTiles)
 	}
 
 	// Add combat message
@@ -1503,9 +1583,9 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
 				(!monster.PassiveUntilAttacked || monster.WasAttacked || monster.HatesActiveTrait()) {
-				if newDist, landed := cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y); landed {
+				if _, landed := cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y); landed {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
-					cs.applyMonsterMeleeDamage(monster, newDist)
+					cs.applyMonsterMeleeDamage(monster)
 					tps := cs.game.config.GetTPS()
 					if tps <= 0 {
 						tps = 60
@@ -1532,7 +1612,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttack(monster)
 				} else {
-					cs.applyMonsterMeleeDamage(monster, dist)
+					cs.applyMonsterMeleeDamage(monster)
 				}
 			}
 		}
@@ -1612,7 +1692,7 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, camX, camY)
 }
 
-func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D, dist float64) {
+func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if cs.tryMonsterSpecialAbility(monster) {
 		return
 	}
@@ -1706,6 +1786,17 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		cs.tryApplyMonsterIgnite(monster, target)
 		cs.tryApplyMonsterStun(monster, target)
 		cs.tryApplyMonsterDispel(monster, target)
+		// Vengeful Ningyo Card: reflect a share of the hit back at its source.
+		if pct := cs.game.cardThornsPct(); pct > 0 && finalDamage > 0 && monster.IsAlive() {
+			if reflected := finalDamage * pct / 100; reflected > 0 {
+				monster.TakeDamage(reflected, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+				if !monster.IsAlive() {
+					xpAwarded := cs.finishMonsterKill(monster)
+					cs.game.AddCombatMessage(fmt.Sprintf("%s's reflected wrath destroys %s!", target.Name, monster.Name))
+					cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+				}
+			}
+		}
 	}
 	return true
 }
@@ -1763,6 +1854,10 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 // that just took a hit. Shared by the RT and TB melee paths.
 func (cs *CombatSystem) tryApplyMonsterPoison(monster *monsterPkg.Monster3D, target *character.MMCharacter) {
 	if monster.PoisonChance <= 0 || rand.Float64() >= monster.PoisonChance {
+		return
+	}
+	// Mummy Card: chance to resist the poison outright.
+	if resist := cs.game.cardPoisonResistPct(); resist > 0 && rand.Intn(100) < resist {
 		return
 	}
 	// poison_duration_seconds is guaranteed by load-time validation.
@@ -2065,6 +2160,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
 		cs.game.collisionSystem.UnregisterEntity(target.ID)
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
+		cs.scatterBandOnMemberDeath(target)
 		if !target.Bound {
 			cs.awardExperienceAndGold(target)
 		}
@@ -2465,7 +2561,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			return
 		}
 		damage, isCrit = mp.Damage, mp.Crit
-		disintegrateChance = mp.DisintegrateChance
+		disintegrateChance = mp.DisintegrateChance + float64(cs.game.cardDisintegratePct())/100
 		spellID := spells.SpellID(mp.SpellType)
 		spellDef, _ := spells.GetSpellDefinitionByID(spellID)
 		weaponName = spellDef.Name
@@ -2490,7 +2586,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			return
 		}
 		damage, isCrit = ar.Damage, ar.Crit
-		disintegrateChance = ar.DisintegrateChance
+		disintegrateChance = ar.DisintegrateChance + float64(cs.game.cardDisintegratePct())/100
 		weaponName = "Arrow"
 		damageTypeStr = normalizeDamageTypeStr(ar.DamageType)
 		damageType = convertToMonsterDamageType(damageTypeStr)
@@ -2611,6 +2707,13 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Spawn hit effects at monster position (after dodge check, so only on actual hits)
 	cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 
+	// Phys-to-element conversion cards apply to every physical source (see
+	// splitPhysConversions) — spells aren't physical, so they're excluded here.
+	var convShares []physConvShare
+	if !isSpell && damageTypeStr == "physical" {
+		damage, convShares = cs.game.splitPhysConversions(damage)
+	}
+
 	// Calculate damage reduction based on damage type
 	reducedDamage := applyMonsterArmor(damage, damageTypeStr, monster.ArmorClass, isRanged)
 	if !isSpell {
@@ -2621,13 +2724,23 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 			}
 		}
 	}
+	// Card bonus_vs (e.g. Elf Archer vs dragons, Skeleton vs formless bosses) is a
+	// collection property, not a weapon one — applies to spells too.
+	if mult := cs.game.cardBonusVsMultiplier(monster); mult != 1.0 {
+		reducedDamage = int(math.Round(float64(reducedDamage) * mult))
+		if reducedDamage < 1 {
+			reducedDamage = 1
+		}
+	}
 	reducedDamage += trueDmg // weapon-mastery true damage bypasses armor
 
 	// GM spell mastery pierces part of the target's resistance.
 	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+	actualDamage += cs.applyPhysConversionShares(monster, convShares, isRanged)
 	cs.markMonsterHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponStun(monster, weaponDef)
+		cs.tryCardPoisonProc(monster)
 		// Spell stun-on-hit (Psychic Shock): chance to stun the struck monster.
 		if stunChance > 0 && rand.Float64() < stunChance {
 			cs.applyStun(monster, stunSeconds, stunTurns) // announces stun/resist itself
@@ -2655,6 +2768,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 
 	if aoeRadiusTiles > 0 {
 		cs.applyAoeSplash(monster, damage, damageTypeStr, damageType, weaponName, aoeRadiusTiles, resistPierce)
+		cs.splashPhysConversionShares(monster, convShares, weaponName, aoeRadiusTiles)
 	}
 	// Starburst: a star falls into every tile of the blast (purely visual).
 	if starburstFx {
@@ -2673,6 +2787,29 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 // its own). Each splash victim applies its own armor reduction. Drives
 // Fireball-style AoE from a single YAML field (`aoe_radius_tiles`), shared
 // between spells and weapon projectiles (e.g. Bow of Hellfire).
+// applyPhysConversionShares lands each phys-to-element conversion share
+// (Archmage=fire, Hexer=dark, Isis=light; see splitPhysConversions) on monster,
+// mitigated as its own element — elemental armor cap, then that element's
+// resistance. Shared by melee, ranged and trap damage so a conversion card
+// applies uniformly to every physical source instead of being wired per-path.
+func (cs *CombatSystem) applyPhysConversionShares(monster *monsterPkg.Monster3D, shares []physConvShare, isRanged bool) int {
+	total := 0
+	for _, s := range shares {
+		reduced := applyMonsterArmor(s.amount, s.element, monster.ArmorClass, isRanged)
+		total += monster.TakeDamage(reduced, convertToMonsterDamageType(s.element), cs.game.camera.X, cs.game.camera.Y)
+	}
+	return total
+}
+
+// splashPhysConversionShares mirrors applyPhysConversionShares for AoE splash:
+// every converted share reaches nearby foes too, not just the physical
+// remainder (previously the fire/dark/light shares were dropped from splash).
+func (cs *CombatSystem) splashPhysConversionShares(center *monsterPkg.Monster3D, shares []physConvShare, weaponName string, radiusTiles float64) {
+	for _, s := range shares {
+		cs.applyAoeSplash(center, s.amount, s.element, convertToMonsterDamageType(s.element), weaponName, radiusTiles, 0)
+	}
+}
+
 func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int, damageTypeStr string, damageType monsterPkg.DamageType, weaponName string, radiusTiles float64, resistPierce int) {
 	if center == nil || radiusTiles <= 0 {
 		return
@@ -2735,25 +2872,42 @@ func (cs *CombatSystem) weaponBonusMultiplier(weaponDef *config.WeaponDefinition
 }
 
 func (cs *CombatSystem) tryApplyWeaponStun(monster *monsterPkg.Monster3D, weaponDef *config.WeaponDefinitionConfig) {
-	if monster == nil || weaponDef == nil {
+	if monster == nil {
 		return
-	}
-	if weaponDef.StunChance <= 0 {
-		return
-	}
-	if rand.Float64() >= weaponDef.StunChance {
-		return
-	}
-
-	turns := weaponDef.StunTurns
-	if turns <= 0 {
-		turns = 1
 	}
 	framesPerTurn := cs.game.config.GetTPS()
 	if framesPerTurn <= 0 {
 		framesPerTurn = 60
 	}
-	cs.applyStunDR(monster, turns, turns*framesPerTurn, true)
+	if weaponDef != nil && weaponDef.StunChance > 0 && rand.Float64() < weaponDef.StunChance {
+		turns := weaponDef.StunTurns
+		if turns <= 0 {
+			turns = 1
+		}
+		cs.applyStunDR(monster, turns, turns*framesPerTurn, true)
+		return
+	}
+	// Minotaur Card: chance on any hit to stun the target (one stun-roll per hit).
+	if pct := cs.game.cardStunOnHitPct(); pct > 0 && rand.Intn(100) < pct {
+		cs.applyStunDR(monster, 1, framesPerTurn, true)
+	}
+}
+
+// tryCardPoisonProc rolls the Venom-proc cards' (rat/spider/forest_spider/
+// masked serpent dancer) on-hit poison chance against a struck monster.
+// Undead are immune, matching the genre convention (and this game's own
+// mind/body/light resist baseline for the type).
+func (cs *CombatSystem) tryCardPoisonProc(monster *monsterPkg.Monster3D) {
+	if monster == nil || monster.MonsterType == "undead" {
+		return
+	}
+	chancePct, durationSec := cs.game.cardPoisonProc()
+	if chancePct <= 0 || rand.Intn(100) >= chancePct {
+		return
+	}
+	frames := cs.game.config.GetTPS() * durationSec
+	monster.ApplyPoison(frames)
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is poisoned!", monster.Name))
 }
 
 // checkPerspectiveScaledCollision checks if a projectile collides with a monster using perspective-scaled bounding boxes
@@ -2867,7 +3021,11 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 		if sizeMultiplier < 0.1 {
 			sizeMultiplier = 0.1
 		}
-		cs.game.addLootBagDrop(monster.X, monster.Y, drops, monster.Gold, sizeMultiplier)
+		gold := monster.Gold
+		if pct := cs.game.cardGoldFindPct(); pct != 0 && gold > 0 {
+			gold = gold * (100 + pct) / 100 // Jungle Goblin Card
+		}
+		cs.game.addLootBagDrop(monster.X, monster.Y, drops, gold, sizeMultiplier)
 	}
 
 	return xpAwarded
@@ -3107,8 +3265,10 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 
 // CalculateCriticalChance calculates critical hit bonus from character stats
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
-	// Use effective Luck so Bless/stat bonuses influence crit chance
-	return char.GetEffectiveLuck() / LuckToCritDivisor
+	// Use effective Luck so Bless/stat bonuses influence crit chance. Feeds both
+	// weapon crit (CalculateWeaponCritChance) and spell crit (RollCriticalChance),
+	// so the Ronin Marksman Card's bonus applies to both for free.
+	return char.GetEffectiveLuck()/LuckToCritDivisor + cs.game.cardCritBonusPct()
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
@@ -3347,6 +3507,19 @@ func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.Spel
 	return true
 }
 
+// ceilStunDRPct scales v by pct% (0-100), rounding UP. turns is usually
+// authored as 1 (the smallest nonzero TB unit) — floor division sent it to 0
+// at any pct below 100, so the 2nd/3rd stun in a DR chain silently stopped
+// skipping a TB turn at all while its much-larger RT-frames twin stayed
+// nonzero (stun-star overlay stuck on forever, nothing left to clear it). Only
+// pct==0 (the true immune tier) or v<=0 yields exactly 0.
+func ceilStunDRPct(v, pct int) int {
+	if v <= 0 || pct <= 0 {
+		return 0
+	}
+	return (v*pct + 99) / 100
+}
+
 // applyStunDR is the single entry point for stunning a monster. It applies
 // DIMINISHING RETURNS: the requested duration is scaled by StunDRFactorsPct for
 // the target's current DR chain length (100/50/25/0%), so repeated stuns shrink
@@ -3363,7 +3536,7 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 		i = len(StunDRFactorsPct) - 1
 	}
 	mult := StunDRFactorsPct[i]
-	effTurns, effFrames := turns*mult/100, frames*mult/100
+	effTurns, effFrames := ceilStunDRPct(turns, mult), ceilStunDRPct(frames, mult)
 	wasStunned := m.StunTurnsRemaining > 0 || m.StunFramesRemaining > 0
 
 	// Advance the chain (caps at the immune step) and refresh both reset clocks.
@@ -3555,6 +3728,7 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
 	cs.game.collisionSystem.UnregisterEntity(target.ID)
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
+	cs.scatterBandOnMemberDeath(target)
 	if !target.Bound { // an enemy fell — reward; a fallen bound ally yields nothing
 		cs.awardExperienceAndGold(target)
 	}
@@ -3731,7 +3905,7 @@ func (cs *CombatSystem) armorGMDodgeBonus(chr *character.MMCharacter) int {
 
 func (cs *CombatSystem) RollPerfectDodge(chr *character.MMCharacter) (bool, int) {
 	// Use effective stats so Bless and equipment affect dodge
-	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr)
+	chance := chr.GetEffectiveLuck()/LuckToDodgeDivisor + cs.armorGMDodgeBonus(chr) + cs.game.cardDodgeBonusPct()
 	if chance < 0 {
 		chance = 0
 	}
@@ -3794,8 +3968,9 @@ func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string
 			damage = damage * (100 - mit) / 100
 		}
 	}
-	// 2) Resistance: per-element gear resist + the party-wide buff. 100% = immune.
-	resist := char.GearResistPct(school) + cs.game.combatBuffResistPct()
+	// 2) Resistance: per-element gear resist + the party-wide buff + the card
+	//    collection's elemental wards (Dragon Cards, Golden Thief Bug). 100% = immune.
+	resist := char.GearResistPct(school) + cs.game.combatBuffResistPct() + cs.game.cardResistBonusFor(school)
 	if resist > 100 {
 		resist = 100
 	}

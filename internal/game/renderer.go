@@ -17,6 +17,7 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // TransparentSpriteData holds cached data for transparent environment sprites
@@ -3190,10 +3191,16 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
 			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0, -1, -1, -1) {
+			r.drawMonsterStatusFX(screen, s, screenY)
 			return
 		}
 	}
 
+	// DEPRECATED: flat camera-facing billboard, superseded by the standee token
+	// above (graphics.standee.enabled=true is the shipped default). Kept only as
+	// the fallback when standee is turned off; not a maintained visual target —
+	// new per-monster overlays belong in drawMonsterStatusFX, called from BOTH
+	// paths, not appended here alone.
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
 	if s.monsterFlip {
@@ -3208,6 +3215,73 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		opts.ColorScale.Scale(rr, gg, bb, 1.0)
 		opts.Blend = ebiten.BlendSourceOver
 		screen.DrawImage(s.sprite, opts)
+	}
+	r.drawMonsterStatusFX(screen, s, screenY)
+}
+
+// drawMonsterStatusFX overlays a monster's status indicators (stun stars,
+// poison bubbles). Mandatory in the standee path (the shipped default) and
+// shared with the deprecated billboard fallback so the two can't drift —
+// call this for any new per-monster overlay instead of adding it to one path.
+func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRenderData, screenY int) {
+	if s.monster == nil {
+		return
+	}
+	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
+		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+	}
+	if s.monster.PoisonedFramesRemaining > 0 {
+		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+	}
+}
+
+// drawMonsterPoisonBubbles rises a column of small green bubbles past a
+// poisoned monster — the world-space sibling of the character HUD's
+// drawCardPoisonBubbles (ui_hud.go).
+func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	f := int(r.game.frameCount)
+	const n = 6
+	const period = 72
+	w := spriteSize * 0.5
+	left := centerX - w/2
+	for k := 0; k < n; k++ {
+		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
+		bx := left + (float64(k)+0.5)/float64(n)*w + math.Sin(float64(f)*0.08+float64(k))*spriteSize*0.02
+		by := topY + spriteSize*(1-phase)
+		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
+		if a < 12 {
+			continue
+		}
+		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
+		vector.DrawFilledCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
+	}
+}
+
+// drawMonsterStunStars wheels a ring of twinkling four-point stars above a
+// stunned monster — the world-space sibling of the character HUD's
+// drawCardStunStars (ui_hud.go), same visual, anchored over a monster sprite
+// instead of a portrait card.
+func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	f := float64(r.game.frameCount)
+	cx := centerX
+	cy := topY - spriteSize*0.08
+	rx, ry := spriteSize*0.30, spriteSize*0.12
+	const n = 5
+	for k := 0; k < n; k++ {
+		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
+		sx := float32(cx + math.Cos(ang)*rx)
+		sy := float32(cy + math.Sin(ang)*ry)
+		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
+		a := uint8(120 + 135*tw)
+		arm := float32(spriteSize*0.02 + spriteSize*0.03*tw)
+		col := color.RGBA{255, 240, 120, a}
+		vector.StrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
+		vector.StrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
+		d := arm * 0.6
+		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
+		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
+		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
+		vector.DrawFilledCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
 	}
 }
 

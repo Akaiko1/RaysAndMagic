@@ -165,12 +165,16 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 	}
 	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
 	// current bonuses, the benched one sheds them — otherwise a swap freezes a
-	// buff on the bench forever (or the newcomer fights unbuffed).
-	incoming := g.party.Members[activeIdx]
-	incoming.BuffBonuses = g.statBonuses
-	incoming.RecalculateMaxStatsKeepingCurrent(g.config)
+	// buff on the bench forever (or the newcomer fights unbuffed). Route through
+	// applyPartyStatBonuses (not a partial hand-roll) so the incoming member also
+	// picks up card-granted BonusMaxHP/BonusRegenPct — a member benched before the
+	// party found a Jungle Idol/Troll Card would otherwise swap back in with
+	// stale (zero) values until some unrelated change happened to recompute them.
 	outgoing.BuffBonuses = character.StatBonuses{}
+	outgoing.BonusMaxHP = 0
+	outgoing.BonusRegenPct = 0
 	outgoing.RecalculateMaxStatsKeepingCurrent(g.config)
+	g.applyPartyStatBonuses()
 	g.drainOwedChoices(activeIdx)
 	return true
 }

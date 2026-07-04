@@ -113,7 +113,7 @@ spells:
     # Projectile physics (tile-based units)
     physics:
       speed_tiles: 10.0
-      range_tiles: 4.0
+      range_tiles: 5.0
       collision_size_tiles: 0.5
 
     # Visual appearance

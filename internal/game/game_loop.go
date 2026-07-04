@@ -114,6 +114,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
+	gl.game.combat.knockOutLethalDoTVictims()
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
@@ -164,6 +165,15 @@ func (gl *GameLoop) updateExploration() {
 	}
 
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+
+	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
+	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
+	// TickPoisonTurn can zero a monster's HP with no CombatSystem in scope to run
+	// finishMonsterKill itself. Anything left in world.Monsters with IsAlive()
+	// false and not already queued in deadMonsterIDs died this way — finish it
+	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
+	// (steam zones and traps already self-finish via finishIndirectKill).
+	gl.finalizeIndirectKills()
 
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
@@ -456,6 +466,28 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 				resolvePair(i, a, monsters[j], aw, ah)
 			}
 		}
+	}
+}
+
+// finalizeIndirectKills sweeps for monsters that died from an autonomous tick
+// with no CombatSystem in scope to finish the kill itself (RT poison/ignite via
+// Monster3D.Update's TickPoison, TB's TickPoisonTurn) — anything left in
+// world.Monsters with IsAlive() false and not already queued in deadMonsterIDs
+// died this way this frame. Reuses the same scratch set removeDeadMonstersByID
+// rebuilds right after, so this costs one extra O(n) pass, no new allocation.
+func (gl *GameLoop) finalizeIndirectKills() {
+	queued := gl.game.reusableDeadSet
+	for k := range queued {
+		delete(queued, k)
+	}
+	for _, id := range gl.game.deadMonsterIDs {
+		queued[id] = true
+	}
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || m.IsAlive() || queued[m.ID] {
+			continue
+		}
+		gl.game.combat.finishIndirectKill(m)
 	}
 }
 

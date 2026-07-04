@@ -3,10 +3,21 @@ package game
 import (
 	"testing"
 
+	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 )
+
+// mkTestMonster builds a bare, alive monster with no resistances — the common
+// case for card-proc tests that don't care about mitigation.
+func mkTestMonster(name string, hp int) *monster.Monster3D {
+	return &monster.Monster3D{
+		Name: name, HitPoints: hp, MaxHitPoints: hp,
+		Resistances: map[monster.DamageType]int{},
+	}
+}
 
 // The collection aggregates per-card effects, place/remove move cards between the
 // party inventory and the 8 slots, and only true cards (items.ItemCard) qualify.
@@ -164,7 +175,7 @@ func TestCardEffects_BatchB(t *testing.T) {
 	}
 
 	for key, want := range map[string]string{
-		"archmage_card":      "25% of melee damage dealt as fire",
+		"archmage_card":      "25% of physical damage dealt as fire",
 		"ningyo_card":        "5% to self-heal 25 on attack",
 		"lich_card":          "10% to cheat death (half HP+SP)",
 		"gorilla_titan_card": "10% on move: 50 pure to nearby foes",
@@ -441,5 +452,543 @@ func TestSaveLoad_PersistsCardCollection(t *testing.T) {
 	}
 	if loaded.cardMoveSpeedPct() != 25 || loaded.cardBonusActions() != 1 {
 		t.Errorf("restored effects wrong: speed=%d actions=%d", loaded.cardMoveSpeedPct(), loaded.cardBonusActions())
+	}
+}
+
+// Every card added in the 2026-07-03 roster expansion must parse into a real
+// item def with a non-empty, non-"not implemented" effect line — catches a
+// typo'd card_* field name or a key mismatch across all 41 in one pass.
+func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	keys := []string{
+		"alien_card", "ashigaru_firelock_card", "bandit_card", "bat_card", "bear_card",
+		"dire_wolf_card", "dragon_card", "dragon_gold_card", "dragon_green_card", "dragon_red_card",
+		"elder_dragon_card", "elder_dragon_gold_card", "elder_dragon_green_card", "elder_dragon_red_card",
+		"elf_archer_card", "elf_swordsman_card", "forest_orc_card", "forest_spider_card", "goblin_card",
+		"golden_thief_bug_card", "isis_card", "jungle_goblin_card", "jungle_idol_card", "lich_king_card",
+		"masked_hexer_girl_card", "masked_serpent_dancer_card", "minotaur_card", "mountain_troll_card",
+		"mummy_card", "octopus_card", "orc_card", "pixie_card", "rat_card", "revenant_card",
+		"ronin_marksman_card", "skeleton_card", "spider_card", "treant_card", "troll_card",
+		"vengeful_ningyo_card", "wolf_card",
+	}
+	if len(keys) != 41 {
+		t.Fatalf("expected 41 keys, got %d", len(keys))
+	}
+	for _, key := range keys {
+		def := cardDef(key)
+		if def == nil {
+			t.Errorf("%s: no item definition found", key)
+			continue
+		}
+		if got := cardEffectText(def); got == "" || got == "Currently not implemented" {
+			t.Errorf("%s: cardEffectText = %q, want a real effect", key, got)
+		}
+	}
+}
+
+// Alien Card: statistical — 2% of hits should instantly zero HP, but not all.
+func TestAlienCard_DisintegrateOnHit(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "alien_card"
+	if g.cardDisintegratePct() != 2 {
+		t.Fatalf("cardDisintegratePct = %d, want 2", g.cardDisintegratePct())
+	}
+
+	killed, survived := 0, 0
+	const trials = 500
+	for i := 0; i < trials; i++ {
+		m := mkTestMonster("Skeleton Warrior", 1000) // not undead/dragon, so eligible
+		cs.ApplyDamageToMonster(m, 10, "Idol-Breaker, the Warlord's Maul", false)
+		if m.HitPoints == 0 {
+			killed++
+		} else {
+			survived++
+		}
+	}
+	if killed == 0 {
+		t.Fatalf("disintegrate never triggered over %d hits", trials)
+	}
+	if survived == 0 {
+		t.Fatalf("disintegrate triggered on every hit (%d/%d) — should be ~2%%", killed, trials)
+	}
+}
+
+// Golden Thief Bug Card: 100 flat fire resist through mitigateCharacterDamage
+// hits the existing >=100 immunity clamp — full fire immunity.
+func TestGoldenThiefBugCard_FireImmunity(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "golden_thief_bug_card"
+	if got := g.cardResistBonusFor("fire"); got != 100 {
+		t.Fatalf("cardResistBonusFor(fire) = %d, want 100", got)
+	}
+	member := g.party.Members[0]
+	if got := cs.mitigateCharacterDamage(500, "fire", member, false); got != 0 {
+		t.Errorf("fire damage through GTB card = %d, want 0 (immune)", got)
+	}
+	if got := cs.mitigateCharacterDamage(500, "physical", member, false); got == 0 {
+		t.Error("physical damage should NOT be blocked by a fire-only ward")
+	}
+}
+
+// Dragon Cards grant a flat resist bonus to their own element, at two tiers
+// (base 50 / elder 75), and stack when both a base and elder card are held.
+func TestDragonCards_ResistBonusPerElement(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+
+	cases := []struct {
+		key     string
+		element string
+		want    int
+	}{
+		{"dragon_card", "fire", 50},
+		{"dragon_red_card", "fire", 50},
+		{"dragon_green_card", "earth", 50},
+		{"dragon_gold_card", "air", 50},
+		{"elder_dragon_card", "fire", 75},
+		{"elder_dragon_red_card", "fire", 75},
+		{"elder_dragon_green_card", "earth", 75},
+		{"elder_dragon_gold_card", "air", 75},
+	}
+	for _, c := range cases {
+		g.cardCollection = [MaxCardSlots]string{}
+		g.cardCollection[0] = c.key
+		if got := g.cardResistBonusFor(c.element); got != c.want {
+			t.Errorf("%s resist(%s) = %d, want %d", c.key, c.element, got, c.want)
+		}
+	}
+
+	// Base + elder of the same color stack.
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "dragon_red_card"
+	g.cardCollection[1] = "elder_dragon_red_card"
+	if got := g.cardResistBonusFor("fire"); got != 125 {
+		t.Errorf("stacked red dragon fire resist = %d, want 125", got)
+	}
+	_ = cs
+}
+
+// Jungle Goblin Card doubles gold from a kill (card_gold_find_pct: 100).
+func TestJungleGoblinCard_DoublesGold(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	if g.world == nil {
+		t.Skip("test combat system has no world")
+	}
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "jungle_goblin_card"
+	if g.cardGoldFindPct() != 100 {
+		t.Fatalf("cardGoldFindPct = %d, want 100", g.cardGoldFindPct())
+	}
+
+	m := mkTestMonster("Goblin", 10)
+	m.Gold = 40
+	g.world.Monsters = []*monster.Monster3D{m}
+	cs.ApplyDamageToMonster(m, 1000, "Idol-Breaker, the Warlord's Maul", false)
+
+	if len(g.groundContainers) == 0 {
+		t.Fatal("expected a loot bag to spawn")
+	}
+	if got := g.groundContainers[len(g.groundContainers)-1].Gold; got != 80 {
+		t.Errorf("dropped gold = %d, want 80 (40 doubled)", got)
+	}
+}
+
+// Treant Card grants flat party Armor Class.
+func TestTreantCard_ArmorBonus(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	member := g.party.Members[0]
+	before := cs.CalculateTotalArmorClass(member)
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "treant_card"
+	after := cs.CalculateTotalArmorClass(member)
+	if after-before != 10 {
+		t.Errorf("treant card AC delta = %d, want 10", after-before)
+	}
+}
+
+// Jungle Idol Card grants flat party max HP, applied through the same push
+// used for BuffBonuses (applyPartyStatBonuses).
+func TestJungleIdolCard_MaxHPBonus(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	member := g.party.Members[0]
+	before := member.MaxHitPoints
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "jungle_idol_card"
+	g.recomputeStatBonuses()
+	if got := member.MaxHitPoints - before; got != 25 {
+		t.Errorf("max HP delta = %d, want 25", got)
+	}
+
+	// Removing the card must give it back.
+	g.cardCollection = [MaxCardSlots]string{}
+	g.recomputeStatBonuses()
+	if member.MaxHitPoints != before {
+		t.Errorf("max HP after removal = %d, want back to %d", member.MaxHitPoints, before)
+	}
+	_ = cs
+}
+
+// Troll Cards regenerate a % of max HP once per regen-tick cadence (RT).
+func TestTrollCards_RegenPct(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	member := g.party.Members[0]
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "troll_card"          // 2%
+	g.cardCollection[1] = "mountain_troll_card" // 3%
+	g.recomputeStatBonuses()
+	if g.cardRegenPct() != 5 {
+		t.Fatalf("cardRegenPct = %d, want 5", g.cardRegenPct())
+	}
+
+	member.MaxHitPoints = 1000
+	member.HitPoints = 500
+	for i := 0; i < character.ManaRegenIntervalFrames; i++ {
+		member.Update()
+	}
+	if member.HitPoints != 550 {
+		t.Errorf("HP after one regen tick = %d, want 550 (500 + 5%% of 1000)", member.HitPoints)
+	}
+}
+
+// Regression: the Troll Card's HP regen only lived in the RT-only
+// updateRegenAndPoison — UpdateWithMode(true) (TB) returned before reaching it,
+// so equipping the card and fighting in turn-based mode silently regenerated
+// nothing all fight. The TB path now ticks it via ApplyCardRegenTick on the
+// same round counter as SP regen (endPartyTurn).
+func TestTrollCard_RegensInTurnBasedMode(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	member := g.party.Members[0]
+	member.MaxHitPoints, member.HitPoints = 1000, 500
+	member.BonusRegenPct = 5 // as if a Troll Card were active
+
+	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
+		g.endPartyTurn()
+	}
+	if member.HitPoints != 550 {
+		t.Errorf("HP after %d TB rounds = %d, want 550 (500 + 5%% of 1000)", TurnBasedSpRegenEveryNRounds, member.HitPoints)
+	}
+}
+
+// Vengeful Ningyo Card reflects a flat % of incoming damage back at the
+// attacking monster.
+func TestVengefulNingyoCard_Thorns(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "vengeful_ningyo_card"
+	if g.cardThornsPct() != 12 {
+		t.Fatalf("cardThornsPct = %d, want 12", g.cardThornsPct())
+	}
+
+	attacker := mkTestMonster("Bandit", 1000)
+	member := g.party.Members[0]
+	member.HitPoints, member.MaxHitPoints = 500, 500
+	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
+
+	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0)
+	if attacker.HitPoints >= 1000 {
+		t.Errorf("attacker HP = %d, should have taken thorns reflect damage", attacker.HitPoints)
+	}
+}
+
+// Vengeful Ningyo Card: a reflect that kills the attacking monster must still
+// run kill finalization (XP/loot/quest credit), not just zero its HP.
+func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "vengeful_ningyo_card" // 12% reflect
+	if g.cardThornsPct() != 12 {
+		t.Fatalf("cardThornsPct = %d, want 12", g.cardThornsPct())
+	}
+
+	attacker := mkTestMonster("Weak Attacker", 10) // 12% of 100 = 12 > 10 HP
+	attacker.Experience = 50
+	member := g.party.Members[0]
+	member.HitPoints, member.MaxHitPoints = 500, 500
+	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
+
+	before := len(g.deadMonsterIDs)
+	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0)
+	if attacker.IsAlive() {
+		t.Fatal("setup: reflected damage should have killed the attacker")
+	}
+	if len(g.deadMonsterIDs) != before+1 {
+		t.Error("thorns kill should register in deadMonsterIDs via finishMonsterKill")
+	}
+}
+
+// Hexer/Isis Cards divert a share of physical damage into dark/light instead —
+// same split mechanism as Archmage's fire conversion, different element.
+func TestHexerIsisCards_ElementConversion(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	if g.world == nil {
+		t.Skip("test combat system has no world")
+	}
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "masked_hexer_girl_card" // 20% -> dark
+	dark := mkTestMonster("Target", 1000)
+	cs.ApplyDamageToMonster(dark, 100, "Idol-Breaker, the Warlord's Maul", false)
+	if got := 1000 - dark.HitPoints; got != 100 {
+		t.Errorf("hexer split total damage = %d, want 100 conserved", got)
+	}
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "isis_card" // 50% -> light, melee AND ranged
+	light := mkTestMonster("Target2", 1000)
+	cs.ApplyDamageToMonster(light, 100, "Idol-Breaker, the Warlord's Maul", false)
+	if got := 1000 - light.HitPoints; got != 100 {
+		t.Errorf("isis split total damage = %d, want 100 conserved", got)
+	}
+}
+
+// Hexer/Isis Cards: the AoE splash must carry the SAME dark/light split as the
+// primary hit, not just the physical remainder (mirrors the pre-existing
+// Archmage fire-split splash test).
+func TestHexerCard_AoESplashCarriesDarkConversion(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	if g.world == nil {
+		t.Skip("test combat system has no world")
+	}
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "masked_hexer_girl_card" // 20% -> dark
+	ts := float64(g.config.GetTileSize())
+	primary := mkTestMonster("Primary", 1000)
+	primary.X, primary.Y = 0, 0
+	near := mkTestMonster("Near", 1000)
+	near.X, near.Y = ts, 0
+	g.world.Monsters = []*monster.Monster3D{primary, near}
+
+	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
+	if got := 1000 - near.HitPoints; got != 100 {
+		t.Errorf("splash dealt %d, want 100 (80 phys + 20 dark) — the dark share is dropped if this is 80", got)
+	}
+}
+
+// Masked Serpent Dancer Card is a flat +20% melee weapon damage multiplier.
+func TestMaskedSerpentDancerCard_MeleeDmgPct(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	if g.world == nil {
+		t.Skip("test combat system has no world")
+	}
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "masked_serpent_dancer_card"
+	if g.cardMeleeDmgPct() != 20 {
+		t.Fatalf("cardMeleeDmgPct = %d, want 20", g.cardMeleeDmgPct())
+	}
+	m := mkTestMonster("Target", 1000)
+	cs.ApplyDamageToMonster(m, 100, "Idol-Breaker, the Warlord's Maul", false)
+	if got := 1000 - m.HitPoints; got != 120 {
+		t.Errorf("melee damage with +20%% card = %d, want 120", got)
+	}
+}
+
+// Elf Archer / Skeleton Cards: card-driven bonus_vs, matched by monster Name
+// (dragon) and by MonsterType (formless bosses) respectively.
+func TestElfArcherSkeletonCards_BonusVs(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "elf_archer_card"
+	dragon := &monster.Monster3D{Name: "Dragon", Key: "dragon_red"}
+	if got := g.cardBonusVsMultiplier(dragon); got != 1.25 {
+		t.Errorf("elf archer vs dragon mult = %.2f, want 1.25", got)
+	}
+	notDragon := &monster.Monster3D{Name: "Goblin", Key: "goblin"}
+	if got := g.cardBonusVsMultiplier(notDragon); got != 1.0 {
+		t.Errorf("elf archer vs goblin mult = %.2f, want 1.0", got)
+	}
+
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "skeleton_card"
+	boss := &monster.Monster3D{Name: "Golden Thief Bug", MonsterType: "formless"}
+	if got := g.cardBonusVsMultiplier(boss); got != 1.20 {
+		t.Errorf("skeleton vs formless mult = %.2f, want 1.20", got)
+	}
+	_ = cs
+}
+
+// Regression: Name/Key/MonsterType often name the same identity — the real
+// Dragon monster (assets/monsters.yaml) has Name="Dragon", Key="dragon", AND
+// MonsterType="dragon". A single card_bonus_vs: {dragon: 1.25} entry matched
+// all three candidate fields and multiplied in three times (1.25^3 ≈ 1.95)
+// instead of once — one matching entry means "this card applies," not
+// "multiply once per field that happened to match."
+func TestCardBonusVs_SameIdentityAcrossFieldsAppliesOnce(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "elf_archer_card"
+
+	dragon := &monster.Monster3D{Name: "Dragon", Key: "dragon", MonsterType: "dragon"}
+	if got := g.cardBonusVsMultiplier(dragon); got != 1.25 {
+		t.Errorf("elf archer vs a Dragon whose Name/Key/MonsterType all read \"dragon\" = %.4f, want 1.25 (single application)", got)
+	}
+}
+
+// Forest Orc Card: statistical armor-ignore chance — some hits should land at
+// full (armor-bypassed) damage against a heavily armored target.
+func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "forest_orc_card"
+	if g.cardArmorPiercePct() != 10 {
+		t.Fatalf("cardArmorPiercePct = %d, want 10", g.cardArmorPiercePct())
+	}
+
+	bypassed, mitigated := 0, 0
+	const trials = 400
+	for i := 0; i < trials; i++ {
+		m := mkTestMonster("Armored Target", 100000)
+		m.ArmorClass = 200 // heavy armor, would meaningfully cut unmitigated damage
+		before := m.HitPoints
+		cs.ApplyDamageToMonster(m, 100, "Idol-Breaker, the Warlord's Maul", false)
+		dealt := before - m.HitPoints
+		if dealt >= 100 {
+			bypassed++
+		} else {
+			mitigated++
+		}
+	}
+	if bypassed == 0 {
+		t.Fatalf("armor-pierce never triggered over %d hits", trials)
+	}
+	if mitigated == 0 {
+		t.Fatalf("armor-pierce triggered on every hit (%d/%d) — should be ~10%%", bypassed, trials)
+	}
+}
+
+// Mummy Card grants full (100%) resistance to the monster-inflicted poison proc.
+func TestMummyCard_PoisonImmunity(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "mummy_card"
+	if g.cardPoisonResistPct() != 100 {
+		t.Fatalf("cardPoisonResistPct = %d, want 100", g.cardPoisonResistPct())
+	}
+
+	m := &monster.Monster3D{Name: "Rat", PoisonChance: 1.0, PoisonDurationSec: 10}
+	member := g.party.Members[0]
+	member.Conditions = nil
+	for i := 0; i < 50; i++ {
+		cs.tryApplyMonsterPoison(m, member)
+	}
+	if member.HasCondition(character.ConditionPoisoned) {
+		t.Error("mummy card should have fully resisted every poison roll")
+	}
+}
+
+// Rat/Spider Cards inflict a real poison DoT on the STRUCK MONSTER (not the
+// party) — a genuinely new status, ticking HP down over time via TickPoison.
+func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "rat_card" // 12%/20s
+	if pct, dur := g.cardPoisonProc(); pct != 12 || dur != 20 {
+		t.Fatalf("cardPoisonProc = %d%%/%ds, want 12%%/20s", pct, dur)
+	}
+	g.cardCollection[1] = "spider_card"        // +15%/20s
+	g.cardCollection[2] = "forest_spider_card" // +15%/20s
+	if pct, dur := g.cardPoisonProc(); pct != 42 || dur != 20 {
+		t.Fatalf("stacked cardPoisonProc = %d%%/%ds, want 42%%/20s", pct, dur)
+	}
+	g.cardCollection[1], g.cardCollection[2] = "", ""
+
+	poisoned := 0
+	const trials = 300
+	var m *monster.Monster3D
+	for i := 0; i < trials; i++ {
+		m = mkTestMonster("Target", 1000)
+		cs.tryCardPoisonProc(m)
+		if m.PoisonedFramesRemaining > 0 {
+			poisoned++
+		}
+	}
+	if poisoned == 0 {
+		t.Fatalf("poison proc never triggered over %d hits", trials)
+	}
+	if poisoned == trials {
+		t.Fatalf("poison proc triggered on every hit (%d/%d) — should be ~12%%", poisoned, trials)
+	}
+
+	// A poisoned monster loses HP over (simulated) time via TickPoison.
+	tps := config.GetTargetTPS()
+	m = mkTestMonster("Ticking", 1000)
+	m.ApplyPoison(tps * 2) // 2 seconds of poison
+	before := m.HitPoints
+	for i := 0; i < tps; i++ { // 1 second — one tick should have fired
+		m.TickPoison()
+	}
+	if m.HitPoints >= before {
+		t.Errorf("poisoned monster HP = %d, should have dropped below %d after 1s of ticking", m.HitPoints, before)
+	}
+}
+
+// Minotaur Card: statistical stun-on-hit, reusing the existing stun-DR path.
+func TestMinotaurCard_StunOnHit(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "minotaur_card"
+	if g.cardStunOnHitPct() != 8 {
+		t.Fatalf("cardStunOnHitPct = %d, want 8", g.cardStunOnHitPct())
+	}
+
+	stunned := 0
+	const trials = 400
+	for i := 0; i < trials; i++ {
+		m := mkTestMonster("Target", 100000)
+		cs.tryApplyWeaponStun(m, nil)
+		if m.StunFramesRemaining > 0 || m.StunTurnsRemaining > 0 {
+			stunned++
+		}
+	}
+	if stunned == 0 {
+		t.Fatalf("stun-on-hit never triggered over %d hits", trials)
+	}
+	if stunned == trials {
+		t.Fatalf("stun-on-hit triggered on every hit (%d/%d) — should be ~8%%", stunned, trials)
+	}
+}
+
+// Ronin Marksman / Bat Cards: flat crit/dodge bonuses feed the existing rolls.
+func TestRoninBatCards_CritAndDodgeBonus(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	member := g.party.Members[0]
+
+	baseCrit := cs.CalculateCriticalChance(member)
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "ronin_marksman_card"
+	if got := cs.CalculateCriticalChance(member) - baseCrit; got != 5 {
+		t.Errorf("crit bonus delta = %d, want 5", got)
+	}
+
+	_, baseDodge := cs.RollPerfectDodge(member)
+	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollection[0] = "bat_card"
+	_, afterDodge := cs.RollPerfectDodge(member)
+	if got := afterDodge - baseDodge; got != 4 {
+		t.Errorf("dodge bonus delta = %d, want 4", got)
 	}
 }

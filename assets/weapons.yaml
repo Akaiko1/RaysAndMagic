@@ -741,7 +741,7 @@ weapons:
     description: "A smoothbore matchlock gun, loud and hard-hitting"
     category: "blaster"
     damage: 11
-    range: 6
+    range: 8  # must cover Ronin Marksman's 7-tile firing range (+margin)
     bonus_stat: "Accuracy"
     crit_chance: 12
     rarity: "uncommon"
@@ -750,7 +750,7 @@ weapons:
     flavor: "Smoke, thunder, and a hole where the armour was."
     physics:
       speed_tiles: 13.0
-      range_tiles: 6.0
+      range_tiles: 8.0  # bullet must reach the Ronin Marksman's 7-tile firing range
       collision_size_tiles: 0.5
     graphics:
       max_size: 22

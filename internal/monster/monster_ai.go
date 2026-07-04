@@ -152,11 +152,19 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	if m.BossDormant || m.WarlordIdol || m.BossWarded {
 		return
 	}
+	m.TickPoison() // Venom-proc cards; ticks regardless of stun/root state
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
 	if m.StunFramesRemaining > 0 {
 		m.StunFramesRemaining--
+		if m.StunFramesRemaining <= 0 {
+			// TB's StunTurnsRemaining never ticks down here (only the TB scheduler
+			// does that) — clear it too, mirroring character.tickStunFrames, or a
+			// pure-RT stun (e.g. a trap authoring both stun_turns/stun_seconds)
+			// leaves it stuck nonzero and the stun-star overlay never turns off.
+			m.StunTurnsRemaining = 0
+		}
 		return
 	}
 	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
