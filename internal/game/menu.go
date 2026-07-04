@@ -157,6 +157,9 @@ type GameSave struct {
 	// need to remember which character is owed a choice at which level.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
+	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
+	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
 
 	// Turn-based state
 	CurrentTurn           int  `json:"current_turn,omitempty"`
@@ -941,6 +944,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:      groundContainerSaves,
 		PendingLevelUpChoices: pendingChoices,
 		PlayedTimeNs:          playedTime.Nanoseconds(),
+		TotalGoldEarned:       g.totalGoldEarned,
+		TotalExperienceEarned: g.totalExperienceEarned,
+		VictoryAcknowledged:   g.victoryAcknowledged,
 		CurrentTurn:           g.currentTurn,
 		PartyActionsUsed:      g.partyActionsUsed,
 		TurnBasedMoveCooldown: g.turnBasedMoveCooldown,
@@ -1030,6 +1036,19 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	for _, cs := range save.Party.Captive {
 		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
+	}
+	if save.TotalExperienceEarned > 0 {
+		g.totalExperienceEarned = save.TotalExperienceEarned
+	} else {
+		g.totalExperienceEarned = earnedExperienceForParty(g.party)
+	}
+	if save.TotalGoldEarned > 0 {
+		g.totalGoldEarned = save.TotalGoldEarned
+	} else {
+		g.totalGoldEarned = save.Party.Gold - g.config.Characters.StartingGold
+		if g.totalGoldEarned < 0 {
+			g.totalGoldEarned = 0
+		}
 	}
 	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
 	// the bag anything the shared chest already owns. A stamp means this slot was
@@ -1296,6 +1315,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.gameOver = false
 	g.gameVictory = false
+	g.victoryAcknowledged = save.VictoryAcknowledged
 	g.showHighScores = false
 
 	if g.world != nil {

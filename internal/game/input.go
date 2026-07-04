@@ -276,10 +276,13 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// Reset victory/high score state and session timer
 	g.gameOver = false
 	g.gameVictory = false
+	g.victoryAcknowledged = false
 	g.victoryScoreSaved = false
 	g.victoryNameInput = ""
 	g.victoryTime = time.Time{}
 	g.sessionStartTime = time.Now()
+	g.totalGoldEarned = 0
+	g.totalExperienceEarned = 0
 	g.showHighScores = false
 	g.frameCount = 0
 
@@ -420,12 +423,9 @@ func (ih *InputHandler) handleVictoryInput() {
 		if ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH) {
 			ih.game.showHighScores = true
 		}
-		// ESC to return to main menu
+		// ESC closes the victory overlay and continues the finished save.
 		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-			ih.restartNewGame()
-			ih.game.gameVictory = false
-			ih.game.victoryScoreSaved = false
-			ih.game.victoryNameInput = ""
+			ih.closeVictoryOverlay()
 		}
 		return
 	}
@@ -438,12 +438,17 @@ func (ih *InputHandler) handleVictoryInput() {
 		ih.saveVictoryScore()
 	}
 
-	// ESC to skip saving and return to main menu
+	// ESC skips saving and continues the finished save.
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-		ih.restartNewGame()
-		ih.game.gameVictory = false
-		ih.game.victoryNameInput = ""
+		ih.closeVictoryOverlay()
 	}
+}
+
+func (ih *InputHandler) closeVictoryOverlay() {
+	ih.game.gameVictory = false
+	ih.game.victoryAcknowledged = true
+	ih.game.victoryNameInput = ""
+	ih.game.showHighScores = false
 }
 
 // handleVictoryNameInput handles text input for the player name
@@ -2143,7 +2148,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 							return
 						}
 						price := ih.game.merchantSellPrice(base) // Merchant skill markup
-						ih.game.party.Gold += price
+						ih.game.awardGold(price)
 						ih.game.party.RemoveItem(idx)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 						ih.resetDialogDoubleClick()
@@ -2974,7 +2979,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 		g.party.AddItem(it)
 	}
 	if gold > 0 {
-		g.party.Gold += gold
+		g.awardGold(gold)
 	}
 	parts := make([]string, 0, len(loot)+1)
 	if gold > 0 {

@@ -1843,7 +1843,7 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 	if monster.Level > character.SleightHighLevelThreshold {
 		gold = character.SleightGoldHighLevel
 	}
-	cs.game.party.Gold += gold
+	cs.game.awardGold(gold)
 	cs.game.AddColoredCombatMessage(
 		fmt.Sprintf("%s finds no item and lifts %d gold off %s instead!", attacker.Name, gold, monster.Name),
 		combatMessagePurple,
@@ -3084,7 +3084,11 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 
 	// Notify player of quest completions
 	for _, quest := range completedQuests {
-		cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", quest.Definition.Name))
+		if quest.ID == "dragon_slayer" {
+			cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed!", quest.Definition.Name))
+		} else {
+			cs.game.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Open Quests (J) to claim reward.", quest.Definition.Name))
+		}
 	}
 
 	// Map-scoped kill quests also complete the moment the map is cleared of

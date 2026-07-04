@@ -557,7 +557,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 			// Award gold to party
 			if questRewards.Gold > 0 {
-				gl.game.party.Gold += questRewards.Gold
+				gl.game.awardGold(questRewards.Gold)
 			}
 
 			// Award experience to all party members
@@ -579,7 +579,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 	// Award gold to party
 	if rewards.Gold > 0 {
-		gl.game.party.Gold += rewards.Gold
+		gl.game.awardGold(rewards.Gold)
 		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
 	}
 

@@ -1275,8 +1275,8 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	// Score details
 	drawDebugText(screen, "Final Score", centerX-75, startY+80)
 	drawDebugText(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
-	drawDebugText(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
-	drawDebugText(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
+	drawDebugText(screen, fmt.Sprintf("Gold Earned: %d", scoreData.Gold), centerX-75, startY+120)
+	drawDebugText(screen, fmt.Sprintf("Total XP: %d", scoreData.TotalExperience), centerX-65, startY+140)
 	drawDebugText(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
 	drawDebugText(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
 
@@ -1285,11 +1285,11 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 		drawDebugText(screen, "Enter your name:", centerX-60, startY+220)
 		drawDebugText(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
 		drawDebugText(screen, "Press ENTER to save score", centerX-90, startY+270)
-		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+290)
+		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+290)
 	} else {
 		drawDebugText(screen, "Score saved!", centerX-45, startY+220)
 		drawDebugText(screen, "Press H to view High Scores", centerX-100, startY+250)
-		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+270)
+		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+270)
 	}
 }
 
@@ -1779,7 +1779,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		return false
 	}
 	if rewards.Gold > 0 {
-		g.party.Gold += rewards.Gold
+		g.awardGold(rewards.Gold)
 	}
 	// Single XP source so Learning bonuses and bench training apply (active party,
 	// reserve, and captives all share quest XP).

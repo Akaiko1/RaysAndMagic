@@ -44,13 +44,19 @@ type ScoreData struct {
 // Calculate returns the final score for a run.
 //
 // BaseScore  = experience*10 + gold*5 + avgLevel*1000
-// TimeBonus  = max(0, 3600 - secondsPlayed) * 10  (rewards finishing under 1h)
+// TimeBonus  = max(0, 7200 - secondsPlayed)*5 + max(0, 3600 - secondsPlayed)*10
+//
+//	(two tiers: one for finishing under 2h, another under 1h)
+//
 // FinalScore = BaseScore + TimeBonus
 func Calculate(d ScoreData) int {
 	base := d.TotalExperience*10 + d.Gold*5 + d.AverageLevel*1000
 	bonus := 0
-	if secs := int(d.PlayTime.Seconds()); secs < 3600 {
-		bonus = (3600 - secs) * 10
+	if secs := int(d.PlayTime.Seconds()); secs < 7200 {
+		bonus += (7200 - secs) * 5
+		if secs < 3600 {
+			bonus += (3600 - secs) * 10
+		}
 	}
 	return base + bonus
 }

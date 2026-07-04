@@ -504,9 +504,12 @@ type MMGame struct {
 	gameOver bool
 
 	// Victory state
-	gameVictory      bool
-	victoryTime      time.Time
-	sessionStartTime time.Time
+	gameVictory           bool
+	victoryAcknowledged   bool
+	victoryTime           time.Time
+	sessionStartTime      time.Time
+	totalGoldEarned       int
+	totalExperienceEarned int
 
 	// High scores state
 	showHighScores    bool
@@ -1246,7 +1249,7 @@ func (g *MMGame) checkGameOver() {
 
 // checkVictory checks if the dragon_slayer quest is completed
 func (g *MMGame) checkVictory() {
-	if g.gameVictory || g.gameOver {
+	if g.gameVictory || g.victoryAcknowledged || g.gameOver {
 		return
 	}
 	if g.questManager == nil {
@@ -1254,9 +1257,28 @@ func (g *MMGame) checkVictory() {
 	}
 	quest := g.questManager.GetQuest("dragon_slayer")
 	if quest != nil && quest.Status == quests.QuestStatusCompleted {
+		if !quest.RewardsClaimed {
+			g.claimQuestReward("dragon_slayer")
+		}
+		g.enterPostVictoryFreeMode()
 		g.gameVictory = true
 		g.victoryTime = time.Now()
 	}
+}
+
+func (g *MMGame) enterPostVictoryFreeMode() {
+	g.turnBasedMode = false
+	g.currentTurn = 0
+	g.partyActionsUsed = 0
+	g.turnBasedMoveCooldown = 0
+	g.turnBasedRotCooldown = 0
+	g.monsterTurnResolved = false
+	g.turnBasedExtraMonsterAction = false
+	g.turnBasedMonsterPassesLeft = 0
+	g.turnBasedMonsterPassDelay = 0
+	g.turnBasedMonsterStatusTick = false
+	g.turnBasedMonsterStunned = nil
+	g.clearTransientCombatState()
 }
 
 // AddCombatMessage adds a combat message to the message queue

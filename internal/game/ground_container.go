@@ -388,7 +388,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 		g.party.AddItem(it)
 	}
 	if c.Gold > 0 {
-		g.party.Gold += c.Gold
+		g.awardGold(c.Gold)
 	}
 
 	// Compose a kind-appropriate combat message. Loot bags get three text
