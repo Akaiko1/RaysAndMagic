@@ -223,9 +223,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 		gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
 
-		// Skip monsters outside vision range unless engaged by a hit (they stay
-		// fully idle — no centering, no move).
-		if Distance(playerX, playerY, m.X, m.Y) > visionRange && !m.IsEngagingPlayer {
+		// Skip monsters outside vision range unless already committed to the fight.
+		// IsEngagingPlayer is transient and can be cleared by mode/AI transitions;
+		// WasAttacked/BossAggro/Relentless are the sticky signals that a monster
+		// must keep participating. Save/load restores IsEngagingPlayer from
+		// WasAttacked, so ignoring that flag here made some hit bosses freeze until
+		// reload when they were just outside the TB vision radius.
+		if Distance(playerX, playerY, m.X, m.Y) > visionRange &&
+			!m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
 			continue
 		}
 
@@ -472,14 +477,28 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		return // Already at player position
 	}
 
-	// A* FIRST — match the real-time AI, which is pure A*. Trying the naive cardinal
-	// step first (below) looks like progress but oscillates when the route runs
-	// PERPENDICULAR to it: a mob across a river from an offset party shuffles along
-	// its own bank (each bank step counts as "toward the party" on one axis) and
-	// never commits to the path down to the ford — so it could be ranged down for
-	// free. A* always finds the crossing here, so follow it; the greedy/perpendicular/
-	// teleport steps below are only a fallback for when A* finds no path at all.
-	if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
+	// A* FIRST. In TB, melee contact is tile-adjacent only, so do not reuse the
+	// RT "within attack radius" goals: they can pick a dead-end bank tile across
+	// water as "close enough", then the monster turns around next move.
+	if !monster.HasRangedAttack() {
+		if goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY); len(goals) > 0 {
+			if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+				wx, wy := TileCenterFromTile(nx, ny, tileSize)
+				if gl.commitMonsterMoveTB(monster, wx, wy) {
+					return
+				}
+			}
+			if nx, ny, ok := gl.nextPathStepToAnyIgnoringOwnSummonsTB(monster, goals); ok {
+				if gl.swapWithOwnSummonAtTileTB(monster, nx, ny, tileSize) {
+					return
+				}
+				wx, wy := TileCenterFromTile(nx, ny, tileSize)
+				if gl.commitMonsterMoveTB(monster, wx, wy) {
+					return
+				}
+			}
+		}
+	} else if nx, ny, ok := monster.NextPathStepTile(gl.game.collisionSystem, targetX, targetY); ok {
 		wx, wy := TileCenterFromTile(nx, ny, tileSize)
 		if gl.commitMonsterMoveTB(monster, wx, wy) {
 			return
@@ -518,6 +537,133 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
 	// This prevents monsters wasting turns stuck behind obstacles
 	gl.teleportMonsterTowardsPlayer(monster, tileSize)
+}
+
+func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
+	if m == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return nil
+	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	targetTileX, targetTileY := int(targetX/tileSize), int(targetY/tileSize)
+
+	goals := make([]monster.TileCoord, 0, 24)
+	addGoal := func(tx, ty int, requireLOS bool) {
+		wx, wy := TileCenterFromTile(tx, ty, tileSize)
+		if !gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, wx, wy, m.HabitatPrefs, m.Flying) {
+			return
+		}
+		if requireLOS && !gl.game.collisionSystem.CheckLineOfSight(wx, wy, targetX, targetY) {
+			return
+		}
+		goals = append(goals, monster.TileCoord{X: tx, Y: ty})
+	}
+
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			addGoal(targetTileX+dx, targetTileY+dy, true)
+		}
+	}
+
+	if m.CanPounce() {
+		pounceTiles := int(m.PounceRangePixels / tileSize)
+		for dy := -pounceTiles; dy <= pounceTiles; dy++ {
+			for dx := -pounceTiles; dx <= pounceTiles; dx++ {
+				manhattan := mathutil.IntAbs(dx) + mathutil.IntAbs(dy)
+				if manhattan < 2 || manhattan > pounceTiles {
+					continue
+				}
+				// Pounce itself does not require line-of-sight; it only needs a free
+				// landing tile adjacent to the target when it fires.
+				addGoal(targetTileX+dx, targetTileY+dy, false)
+			}
+		}
+	}
+
+	return uniqueTileGoals(goals)
+}
+
+func uniqueTileGoals(goals []monster.TileCoord) []monster.TileCoord {
+	if len(goals) < 2 {
+		return goals
+	}
+	out := goals[:0]
+	seen := make(map[monster.TileCoord]bool, len(goals))
+	for _, goal := range goals {
+		if seen[goal] {
+			continue
+		}
+		seen[goal] = true
+		out = append(out, goal)
+	}
+	return out
+}
+
+func (gl *GameLoop) nextPathStepToAnyIgnoringOwnSummonsTB(m *monster.Monster3D, goals []monster.TileCoord) (int, int, bool) {
+	if m == nil || m.ID == "" || len(goals) == 0 || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
+		return 0, 0, false
+	}
+	type restore struct {
+		id    string
+		solid bool
+	}
+	var restoreEntities []restore
+	for _, other := range gl.game.world.Monsters {
+		if other == nil || other == m || !other.IsAlive() || other.SummonedBy != m.ID {
+			continue
+		}
+		ent := gl.game.collisionSystem.GetEntityByID(other.ID)
+		if ent == nil {
+			continue
+		}
+		restoreEntities = append(restoreEntities, restore{id: other.ID, solid: ent.Solid})
+		ent.Solid = false
+	}
+	defer func() {
+		for _, r := range restoreEntities {
+			if ent := gl.game.collisionSystem.GetEntityByID(r.id); ent != nil {
+				ent.Solid = r.solid
+			}
+		}
+	}()
+	return m.NextPathStepTileToAny(gl.game.collisionSystem, goals)
+}
+
+func (gl *GameLoop) swapWithOwnSummonAtTileTB(m *monster.Monster3D, tileX, tileY int, tileSize float64) bool {
+	if m == nil || m.ID == "" || gl.game == nil || gl.game.world == nil || gl.game.collisionSystem == nil {
+		return false
+	}
+
+	for _, blocker := range gl.game.world.Monsters {
+		if blocker == nil || blocker == m || !blocker.IsAlive() || blocker.SummonedBy != m.ID {
+			continue
+		}
+		btx, bty := int(blocker.X/tileSize), int(blocker.Y/tileSize)
+		if btx != tileX || bty != tileY {
+			continue
+		}
+		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(m.ID, blocker.X, blocker.Y, m.HabitatPrefs, m.Flying) {
+			continue
+		}
+		if !gl.game.collisionSystem.CanOccupyTilesWithHabitat(blocker.ID, m.X, m.Y, blocker.HabitatPrefs, blocker.Flying) {
+			continue
+		}
+
+		mx, my := m.X, m.Y
+		bx, by := blocker.X, blocker.Y
+		m.X, m.Y = bx, by
+		blocker.X, blocker.Y = mx, my
+		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
+		gl.game.collisionSystem.UpdateEntity(blocker.ID, blocker.X, blocker.Y)
+		m.ResetPathfinding()
+		blocker.ResetPathfinding()
+		m.LastMoveTick = gl.game.frameCount
+		blocker.LastMoveTick = gl.game.frameCount
+		return true
+	}
+	return false
 }
 
 // teleportMonsterTowardsPlayer finds the closest valid position towards the
