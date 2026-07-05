@@ -44,6 +44,53 @@ func TestEnsureSelectedCanActRT_SkipsDead(t *testing.T) {
 	}
 }
 
+// TestParkSelection_RTCyclingUnaffected: a manual park lets the player sit on a
+// downed member (to use their potions), yet the held-Space RT loop still
+// recovers — advanceRTActor clears the park and moves to a capable member, so
+// cycling is never soft-locked.
+func TestParkSelection_RTCyclingUnaffected(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	g := cs.game
+	g.turnBasedMode = false
+	members := g.party.Members
+	if len(members) < 2 {
+		t.Skip("need >=2 party members")
+	}
+	for _, m := range members { // make everyone weapon-capable + alive
+		m.HitPoints = m.MaxHitPoints
+		m.RTCooldown = 0
+		m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
+	}
+
+	// Park on member 1, then KO them.
+	g.selectedChar = 1
+	g.parkSelection = true
+	members[1].HitPoints = 0
+
+	// The auto-snap must RESPECT the manual park (don't bounce off the downed
+	// member) so the player can use their quick potions.
+	g.ensureSelectedCanActRT()
+	if g.selectedChar != 1 {
+		t.Fatalf("manual park not respected: selection moved off downed member to %d", g.selectedChar)
+	}
+
+	// Acting (advanceRTActor, as commitRTAction does on each held-key fire) clears
+	// the park and hands selection to a member who can act — cycling resumes.
+	g.advanceRTActor(rtActWeapon)
+	if g.parkSelection {
+		t.Fatal("advanceRTActor must clear the manual park so RT cycling isn't soft-locked")
+	}
+	if g.selectedChar == 1 {
+		t.Fatalf("advanceRTActor stayed on the downed member")
+	}
+
+	// Park cleared → the auto-snap behaves normally again.
+	g.ensureSelectedCanActRT()
+	if !members[g.selectedChar].CanAct() {
+		t.Fatalf("post-park selection landed on a member who can't act (%d)", g.selectedChar)
+	}
+}
+
 // TestRTHoldSpace_HighSpeedAttacksMore verifies the per-character cooldown +
 // auto-advance model: holding the attack key, a high-Speed member (shorter
 // cooldown) acts more often than slow ones. Mirrors the real-time act loop in

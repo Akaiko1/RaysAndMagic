@@ -41,6 +41,7 @@ spells:
       min_size: 4
       base_size: 28
       color: [255, 50, 0]      # Deep red
+      projectile_fx: fireball
 
   firebolt:
     # Basic spell properties
@@ -112,7 +113,7 @@ spells:
     # Projectile physics (tile-based units)
     physics:
       speed_tiles: 10.0
-      range_tiles: 4.0
+      range_tiles: 5.0
       collision_size_tiles: 0.5
 
     # Visual appearance
@@ -179,6 +180,7 @@ spells:
       min_size: 2
       base_size: 10
       color: [100, 150, 255]   # Bright blue
+      projectile_fx: lightning
 
   ray_of_light:
     # Basic spell properties
@@ -207,6 +209,8 @@ spells:
       min_size: 2
       base_size: 12
       color: [255, 245, 180]   # warm golden light
+      projectile_fx: ray_of_light
+      impact_stars: true
 
   darkness:
     # Basic spell properties
@@ -227,7 +231,7 @@ spells:
   disintegrate:
     # Basic spell properties
     name: "Disintegrate"
-    description: "Unmakes a foe — 15% chance to instantly slay it. No effect on undead or dragons."
+    description: "Unmakes a foe - 15% chance to instantly slay it. No effect on undead or dragons."
     school: "dark"
     level: 5
     spell_points_cost: 10
@@ -251,6 +255,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [170, 60, 200]   # violet unmaking
+      projectile_fx: disintegrate
 
   day_of_the_gods:
     name: "Day of the Gods"
@@ -265,6 +270,7 @@ spells:
     resist_buff_pct: 10
     resist_buff_pct_grandmaster: 30
     status_icon: "day_of_the_gods"   # HUD: status_day_of_the_gods if present, else the spell icon
+    buff_fx_sprite: "buff_fx_day_of_the_gods"
 
   hour_of_power:
     name: "Hour of Power"
@@ -284,7 +290,7 @@ spells:
 
   bind_undead:
     name: "Bind Undead"
-    description: "Binds an undead to your will for 5 minutes — it fights other monsters. No effect on the living. It perishes when you leave the area."
+    description: "Binds an undead to your will for 5 minutes - it fights other monsters. No effect on the living. It perishes when you leave the area."
     school: "dark"
     level: 6
     spell_points_cost: 8
@@ -312,7 +318,7 @@ spells:
 
   resurrect:
     name: "Resurrect"
-    description: "Restores a fallen ally to full health — even one who has been eradicated"
+    description: "Restores a fallen ally to full health - even one who has been eradicated"
     school: "light"
     level: 7
     spell_points_cost: 16
@@ -388,6 +394,7 @@ spells:
     is_projectile: false
     is_utility: true
     status_icon: "bless"
+    buff_fx_sprite: "buff_fx_bless"
     message: "The party feels blessed! (+10 to all stats)"
 
     # No physics or graphics needed - utility spell
@@ -520,7 +527,7 @@ spells:
     physics:
       speed_tiles: 9.0           # slow drifting swarm
       range_tiles: 7.0
-      collision_size_tiles: 0.5
+      collision_size_tiles: 2.0
     graphics:
       max_size: 46
       min_size: 3
@@ -562,6 +569,7 @@ spells:
       min_size: 2
       base_size: 11
       color: [120, 230, 150]   # body green
+      projectile_fx: harm
 
   mind_blast:
     name: "Mind Blast"
@@ -622,6 +630,7 @@ spells:
     incoming_damage_reduction: 4
     incoming_damage_reduction_grandmaster: 10
     status_icon: "stone_skin"
+    buff_fx_sprite: "buff_fx_stone_skin"
     message: "The party's skin hardens to stone!"
 
   heroism:
@@ -638,6 +647,7 @@ spells:
     outgoing_damage_bonus_grandmaster: 10
     outgoing_damage_type: "physical"
     status_icon: "heroism"
+    buff_fx_sprite: "buff_fx_heroism"
     message: "The party is emboldened with heroism!"
 
   raise_dead:
@@ -690,6 +700,7 @@ spells:
       min_size: 2
       base_size: 12
       color: [190, 170, 255]   # violet-blue
+      projectile_fx: psyshock
 
   charm:
     name: "Charm"
@@ -717,7 +728,7 @@ spells:
 
   inferno:
     name: "Inferno"
-    description: "Engulfs everything around the party in flame — friend and foe alike take heavy fire damage"
+    description: "Engulfs everything around the party in flame - friend and foe alike take heavy fire damage"
     school: "fire"
     level: 7
     spell_points_cost: 15       # 45 damage (cost × 3) to all in radius, including the party
@@ -744,12 +755,13 @@ spells:
     physics:
       speed_tiles: 16.0
       range_tiles: 9.0
-      collision_size_tiles: 0.5
+      collision_size_tiles: 2.0
     graphics:
       max_size: 46
       min_size: 3
       base_size: 13
       color: [220, 235, 255]   # bright star-white
+      projectile_fx: starburst
 
   hot_steam:
     name: "Hot Steam"

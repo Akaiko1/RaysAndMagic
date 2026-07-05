@@ -56,6 +56,7 @@ type UISystem struct {
 	tooltipTitleText      color.Color // name-text color over the plate (nil = plain white)
 	tooltipCompareTitle   color.Color // nameplate base for the comparison card
 	tooltipCompareText    color.Color // comparison name-text color (nil = plain white)
+	fullArtCardKey        string      // card under the cursor this frame; SHIFT shows its full art
 	// Cached radar dot images for wizard eye (avoid vector.DrawFilledCircle every frame)
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
@@ -110,6 +111,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	ui.tooltipTitleText = nil
 	ui.tooltipCompareTitle = nil
 	ui.tooltipCompareText = nil
+	ui.fullArtCardKey = ""
 
 	// Draw base game UI elements
 	ui.drawGameplayUI(screen)
@@ -148,6 +150,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.revivalPickerOpen {
 		ui.drawRevivalPickerPopup(screen)
 	}
+	if ui.game.healPickerOpen {
+		ui.drawHealPickerPopup(screen)
+	}
 
 	// Draw promotion picker (which member becomes Archmage/Lich) if open
 	if ui.game.promotionPickerOpen {
@@ -159,16 +164,31 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 		ui.drawRosterScreen(screen)
 	}
 
+	// Draw tavern stash screen if open
+	if ui.game.stashScreenOpen {
+		ui.drawStashScreen(screen)
+	}
+
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
 		ui.drawLevelUpChoicePopup(screen)
+	}
+
+	// Full card art: while SHIFT is held over a card (Cards tab, collector,
+	// stash) its full art replaces the tooltip, fitted to the screen. Cards
+	// without a full_art_<key> sprite simply don't respond.
+	if ui.fullArtCardKey != "" && (ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)) {
+		if sprite, ok := ui.game.cardFullArtSprite(ui.fullArtCardKey); ok {
+			ui.drawCardFullArtOverlay(screen, sprite)
+			return
+		}
 	}
 
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
 	// are no longer suppressed — the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
 		hasIcon := ui.tooltipIcon != ""

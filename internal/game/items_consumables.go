@@ -59,12 +59,122 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	return true
 }
 
+// HealablePartyIndices returns conscious, wounded members (HP below max, alive,
+// not unconscious/dead/eradicated) — valid targets for a heal potion. Used by
+// the heal picker when an unconscious owner can't heal themselves.
+func (g *MMGame) HealablePartyIndices() []int {
+	if g == nil || g.party == nil {
+		return nil
+	}
+	var idxs []int
+	for i, m := range g.party.Members {
+		if m == nil {
+			continue
+		}
+		if m.HasCondition(character.ConditionUnconscious) ||
+			m.HasCondition(character.ConditionDead) ||
+			m.HasCondition(character.ConditionEradicated) {
+			continue
+		}
+		if m.HitPoints > 0 && m.HitPoints < m.MaxHitPoints {
+			idxs = append(idxs, i)
+		}
+	}
+	return idxs
+}
+
+// applyFlatHeal adds a heal_base(+Endurance/div) amount to the member at
+// charIdx, clamped to MaxHitPoints, firing the rising "+" VFX if it actually
+// raised HP. Refuses on Unconscious/Dead/Eradicated — heals never revive,
+// Eradicated needs the Resurrect spell. Shared by applyHealTo and any
+// consumable that carries a secondary heal (e.g. antivenom's minor heal) so
+// there is exactly one clamp/VFX/revive-guard implementation, not per-caller
+// copies that can drift.
+func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
+	if charIdx < 0 || charIdx >= len(g.party.Members) || base <= 0 {
+		return
+	}
+	ch := g.party.Members[charIdx]
+	if ch == nil || ch.HasCondition(character.ConditionUnconscious) ||
+		ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+		return
+	}
+	heal := base
+	if div > 0 {
+		heal += ch.GetEffectiveEndurance() / div
+	}
+	before := ch.HitPoints
+	ch.HitPoints += heal
+	if ch.HitPoints > ch.MaxHitPoints {
+		ch.HitPoints = ch.MaxHitPoints
+	}
+	if ch.HitPoints > before {
+		g.TriggerPartyHeal(charIdx) // rising green "+" overlay
+	}
+}
+
+// applyHealTo consumes the heal consumable at itemIdx and heals the member at
+// targetIdx. Shared by the self-heal fast path and the heal picker. Re-validates
+// the item (the index can shift between picker-open and confirm) and refuses on
+// an invalid/full/incapacitated target. Returns true if the heal applied.
+func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
+	if itemIdx < 0 || itemIdx >= len(g.party.Inventory) {
+		return false
+	}
+	if targetIdx < 0 || targetIdx >= len(g.party.Members) {
+		return false
+	}
+	item := g.party.Inventory[itemIdx]
+	base := item.Attributes["heal_base"]
+	div := item.Attributes["heal_endurance_divisor"]
+	if item.Type != items.ItemConsumable || base <= 0 || div <= 0 {
+		return false // slot now holds something else — inventory shifted under us
+	}
+	ch := g.party.Members[targetIdx]
+	if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+		return false // heals never revive — Eradicated needs the Resurrect spell
+	}
+	if ch.HitPoints >= ch.MaxHitPoints {
+		return false
+	}
+	before := ch.HitPoints
+	g.applyFlatHeal(targetIdx, base, div)
+	g.party.RemoveItem(itemIdx)
+	g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, ch.HitPoints-before))
+	return true
+}
+
+// resolvePickerQuickSource finishes a heal/revival picker that was opened FROM a
+// quick slot. consumed=true (potion spent) clears the source slot; consumed=false
+// (cancelled / not applied) drops the temp bag copy at itemIdx and leaves the slot
+// filled — so cancelling never silently moves the potion to the backpack. No-op
+// when the picker was opened from the inventory (pickerQuickChar < 0).
+func (g *MMGame) resolvePickerQuickSource(itemIdx int, consumed bool) {
+	if g.pickerQuickChar < 0 {
+		return
+	}
+	if !consumed {
+		if itemIdx >= 0 && itemIdx < len(g.party.Inventory) {
+			g.party.RemoveItem(itemIdx) // drop the temp bag copy; slot keeps the potion
+		}
+	} else if g.pickerQuickChar < len(g.party.Members) {
+		if ch := g.party.Members[g.pickerQuickChar]; ch != nil &&
+			g.pickerQuickSlot >= 0 && g.pickerQuickSlot < len(ch.QuickSlots) {
+			ch.QuickSlots[g.pickerQuickSlot] = nil
+		}
+	}
+	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
+}
+
 // UseConsumableFromInventory consumes a consumable item at inventory index for the selected character.
 // Handles game-side effects, inventory removal, and combat messages. Returns true if consumed.
 func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) bool {
 	if g == nil || g.party == nil {
 		return false
 	}
+	// Default any picker this opens to "from inventory"; the quick-slot caller
+	// re-tags it after the call if a picker actually opened.
+	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
 	if itemIndex < 0 || itemIndex >= len(g.party.Inventory) {
 		return false
 	}
@@ -105,58 +215,44 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			g.AddCombatMessage(fmt.Sprintf("%s isn't poisoned.", ch.Name))
 			return false
 		}
-		ch.RemoveCondition(character.ConditionPoisoned)
-		if base := item.Attributes["heal_base"]; base > 0 && !ch.HasCondition(character.ConditionUnconscious) {
-			heal := base
-			if div := item.Attributes["heal_endurance_divisor"]; div > 0 {
-				heal = base + (ch.GetEffectiveEndurance() / div)
-			}
-			before := ch.HitPoints
-			ch.HitPoints += heal
-			if ch.HitPoints > ch.MaxHitPoints {
-				ch.HitPoints = ch.MaxHitPoints
-			}
-			if ch.HitPoints > before {
-				g.TriggerPartyHeal(selectedChar)
-			}
-		}
+		ch.CurePoison()
+		g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
 		g.party.RemoveItem(itemIndex)
-		g.AddCombatMessage(fmt.Sprintf("%s drinks %s — the venom subsides.", ch.Name, item.Name))
+		g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
 		return true
 	}
 
 	// Healing consumable
 	if base, okBase := item.Attributes["heal_base"]; okBase {
-		if div, okDiv := item.Attributes["heal_endurance_divisor"]; okDiv && base > 0 && div > 0 {
-			ch := g.party.Members[selectedChar]
-			if ch.HasCondition(character.ConditionUnconscious) {
-				// Plain heals never revive: raising HP above 0 while Unconscious
-				// would let a follow-up Heal clear the condition without revival magic.
-				g.AddCombatMessage(fmt.Sprintf("%s is unconscious and needs revival, not a potion.", ch.Name))
-				return false
-			}
-			if ch.HitPoints >= ch.MaxHitPoints {
-				// Nothing to heal: keep the potion instead of wasting it.
-				g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))
-				return false
-			}
-			healAmount := base + (ch.GetEffectiveEndurance() / div)
-			before := ch.HitPoints
-			ch.HitPoints += healAmount
-			if ch.HitPoints > ch.MaxHitPoints {
-				ch.HitPoints = ch.MaxHitPoints
-			}
-			actual := ch.HitPoints - before
-			if actual > 0 {
-				g.TriggerPartyHeal(selectedChar) // rising green "+" overlay
-			}
-			// Potions do not remove Unconscious by themselves
-			g.party.RemoveItem(itemIndex)
-			g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, actual))
-			return true
+		div, okDiv := item.Attributes["heal_endurance_divisor"]
+		if !okDiv || base <= 0 || div <= 0 {
+			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (healing attributes)", item.Name))
+			return false
 		}
-		g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (healing attributes)", item.Name))
-		return false
+		ch := g.party.Members[selectedChar]
+		// An unconscious owner can't heal themselves (plain heals never revive), so
+		// route the potion to a conscious, wounded ally: 0 → keep it, 1 → heal them,
+		// N → let the player choose (heal picker).
+		if ch.HasCondition(character.ConditionUnconscious) {
+			targets := g.HealablePartyIndices()
+			switch len(targets) {
+			case 0:
+				g.AddCombatMessage("No conscious party member needs healing.")
+				return false
+			case 1:
+				return g.applyHealTo(itemIndex, targets[0])
+			default:
+				g.healPickerOpen = true
+				g.healPickerItemIdx = itemIndex
+				return false
+			}
+		}
+		if ch.HitPoints >= ch.MaxHitPoints {
+			// Nothing to heal: keep the potion instead of wasting it.
+			g.AddCombatMessage(fmt.Sprintf("%s is already at full health.", ch.Name))
+			return false
+		}
+		return g.applyHealTo(itemIndex, selectedChar)
 	}
 
 	// Summoning consumable

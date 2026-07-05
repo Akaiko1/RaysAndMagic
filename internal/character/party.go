@@ -255,8 +255,10 @@ func (p *Party) GetTotalItems() int {
 	return len(p.Inventory)
 }
 
-// EquipItemFromInventory attempts to equip an item from inventory to a character
-func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
+// equipFromInventory validates the indices and conscious state, runs the given
+// equip call, and on success removes the item from the bag and returns any
+// displaced item to it. Shared core of the equip-from-inventory variants.
+func (p *Party) equipFromInventory(itemIndex, characterIndex int, equip func(*MMCharacter, items.Item) (items.Item, bool, bool)) bool {
 	if itemIndex < 0 || itemIndex >= len(p.Inventory) {
 		return false
 	}
@@ -272,20 +274,48 @@ func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
 		return false
 	}
 
-	// Try to equip the item
-	previousItem, hadPreviousItem, success := character.EquipItem(item)
-	if success {
-		// Successfully equipped - remove item from inventory
-		p.RemoveItem(itemIndex)
-
-		// Add the previously equipped item back to inventory (if any).
-		// Spells are spellbook-owned and must never leak into inventory.
-		if hadPreviousItem && previousItem.Type != items.ItemBattleSpell && previousItem.Type != items.ItemUtilitySpell {
-			p.AddItem(previousItem)
-		}
-		return true
+	previousItem, hadPreviousItem, success := equip(character, item)
+	if !success {
+		return false
 	}
-	return false
+	p.RemoveItem(itemIndex)
+	p.returnDisplacedToBag(previousItem, hadPreviousItem)
+	return true
+}
+
+// EquipItemFromInventory attempts to equip an item from inventory to a character
+func (p *Party) EquipItemFromInventory(itemIndex, characterIndex int) bool {
+	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
+		return c.EquipItem(item)
+	})
+}
+
+// returnDisplacedToBag puts an item displaced by an equip back into the inventory,
+// skipping spellbook-owned spell items (which never live in the bag).
+func (p *Party) returnDisplacedToBag(item items.Item, had bool) {
+	if had && item.Type != items.ItemBattleSpell && item.Type != items.ItemUtilitySpell {
+		p.AddItem(item)
+	}
+}
+
+// EquipItemFromInventoryToSlot equips an inventory item into a SPECIFIC slot
+// (drag-drop onto an exact paperdoll slot), so a ring goes to the finger it was
+// dropped on. Mirrors EquipItemFromInventory otherwise (inventory removal +
+// displaced item returned to the bag).
+func (p *Party) EquipItemFromInventoryToSlot(itemIndex, characterIndex int, slot items.EquipSlot) bool {
+	return p.equipFromInventory(itemIndex, characterIndex, func(c *MMCharacter, item items.Item) (items.Item, bool, bool) {
+		return c.EquipItemToSlot(item, slot)
+	})
+}
+
+// MoveEquippedSlot moves a character's equipped item from srcSlot to dstSlot
+// (swapping if dstSlot is occupied). For interchangeable slots like the two ring
+// fingers — nothing leaves the paperdoll, so no inventory changes.
+func (p *Party) MoveEquippedSlot(srcSlot, dstSlot items.EquipSlot, characterIndex int) bool {
+	if characterIndex < 0 || characterIndex >= len(p.Members) {
+		return false
+	}
+	return p.Members[characterIndex].MoveEquipmentSlot(srcSlot, dstSlot)
 }
 
 // UnequipItemToInventory removes an item from a character's equipment and adds it to inventory.

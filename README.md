@@ -56,6 +56,47 @@ The game and map viewer locate `config.yaml`/`assets/` next to the binary or one
 ./build_mac_release.sh
 ```
 
+## Running on macOS (downloaded `.app`)
+
+The `.app` bundles are **not code-signed or notarized**, so a freshly downloaded
+copy is blocked by Gatekeeper. As of macOS Sequoia (15) and macOS Tahoe (26, the
+current release in 2026), the old Control-click → *Open* shortcut **no longer
+bypasses** this — you must approve the app in System Settings.
+
+**To run it:**
+
+1. Move `RaysAndMagic.app` (and `RaysAndMagicMapViewer.app`) out of the download
+   archive into a normal folder such as `~/Applications`.
+2. Double-click it once — macOS refuses and shows a security prompt.
+3. Open **System Settings → Privacy & Security**, scroll to the **Security**
+   section, and click **Open Anyway** next to RaysAndMagic, then confirm. You
+   only do this once per app.
+
+Alternatively, clear the quarantine flag from a terminal (also avoids Gatekeeper
+**App Translocation**, which runs a quarantined app from a read-only temp path):
+
+```bash
+xattr -dr com.apple.quarantine /path/to/RaysAndMagic.app
+xattr -dr com.apple.quarantine /path/to/RaysAndMagicMapViewer.app
+```
+
+**Where your data lives.** A `.app` cannot reliably write inside its own bundle
+(App Translocation makes it read-only, and each bundle carries a *private* copy
+of `assets/`). So on first launch each bundle seeds a shared, writable copy of
+`config.yaml` + `assets/` into:
+
+```text
+~/Library/Application Support/RaysAndMagic/
+```
+
+Both the game and the map editor run out of that folder, so **saves persist** and
+**maps edited in the editor are picked up by the game**. Shipped read-only content
+(sprites, YAML) refreshes from the bundle when the app updates; your edited `.map`
+files are preserved. Delete that folder to reset to the shipped content.
+
+> Bare binaries (and the Windows `.exe`) are unaffected — they read/write
+> `assets/` and `saves/` next to the executable exactly as before.
+
 ## Controls
 
 | Key             | Action                              |

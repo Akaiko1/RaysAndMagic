@@ -17,6 +17,7 @@ import (
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // TransparentSpriteData holds cached data for transparent environment sprites
@@ -107,12 +108,21 @@ type Renderer struct {
 	// Wall-torch corners for the current map (flag wall_torches), rebuilt on
 	// world change alongside the other per-map caches.
 	wallTorches []wallTorchPoint
+	// teleporterTiles caches every teleporter tile on the current map (+ its glow
+	// colour), collected during precomputeFloorColorCache's per-map tile scan so
+	// drawTeleporterTileFx doesn't rescan the world each frame.
+	teleporterTiles []teleporterTileFx
 	// Eased facing of scenery tokens (they slowly turn toward the camera),
 	// keyed by tile — environment sprites have no entity struct to carry it.
 	standeeEnvYaw map[[2]int]standeeEnvYawState
 	// Same for animated NPC tokens (people turn to face the party; static
 	// objects keep the showcase spin instead). NPC pointers are stable.
 	standeeNPCYaw map[*character.NPC]standeeEnvYawState
+	// standeeDepthBias (px) is subtracted from a standee column's depth in the
+	// wall-occlusion test for the current draw — wall-mounted tokens set it so
+	// their own backing wall (flush behind them) can't clip them, while real walls
+	// farther in front still occlude. 0 for every normal standee.
+	standeeDepthBias float64
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
 	// treeTilesCache lists every tree tile (one entry per tile) for the
@@ -135,6 +145,13 @@ type Renderer struct {
 	// avoids a per-frame fmt.Sprintf allocation that showed up in the hot draw
 	// path (one call per visible transparent sprite per frame).
 	processedSpriteCache map[processedSpriteKey]*ebiten.Image
+	// Per-sprite 1px column SubImages for sprite-textured wall slices — SubImage
+	// allocates a new *ebiten.Image per call (one per wall column per frame).
+	// Sprites come from the SpriteManager and live for the whole game.
+	wallSliceColumns map[*ebiten.Image][]*ebiten.Image
+	// Per-sprite animation-frame SubImages (see selectAnimatedSpriteFrame),
+	// same per-frame SubImage churn for animated NPC sheets.
+	animFrameCache map[*ebiten.Image][]*ebiten.Image
 	// Reusable buffer for tree hits to avoid allocation per frame
 	treeHits []treeHitData
 	// Unified sprite buffer for sorted rendering of all sprite types
@@ -271,8 +288,10 @@ func (r *Renderer) buildTransparentSpriteCache() {
 				})
 			}
 
-			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting)
-			if world.GlobalTileManager.GetRenderType(tileType) == "environment_sprite" &&
+			// Check if it's a transparent environment sprite (trees are rendered separately via raycasting).
+			// Landmark tiles (e.g. the city fountain) share this sprite pass — they're
+			// drawn as a tall crossed standee in drawEnvironmentSprite.
+			if rt := world.GlobalTileManager.GetRenderType(tileType); (rt == "environment_sprite" || rt == "landmark") &&
 				world.GlobalTileManager.IsTransparent(tileType) {
 
 				// Pick a stable variant now; load/process the image lazily in Draw.
@@ -316,23 +335,30 @@ func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX,
 	return variants[index%len(variants)]
 }
 
+// computeNumRays derives the per-frame ray count from the configured screen
+// width and ray width, ceil-divided so all pixels are covered, with safety
+// guards against zero/negative config values.
+func (r *Renderer) computeNumRays() int {
+	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
+	if rayWidth <= 0 {
+		rayWidth = 1
+	}
+	screenWidth := r.game.config.GetScreenWidth()
+	if screenWidth <= 0 {
+		screenWidth = 800
+	}
+	numRays := (screenWidth + rayWidth - 1) / rayWidth
+	if numRays <= 0 {
+		numRays = 1
+	}
+	return numRays
+}
+
 // precomputeRayDirections calculates ray directions once per frame for performance
 func (r *Renderer) precomputeRayDirections() {
 	// Safety check: ensure ray direction cache is allocated
 	if len(r.rayDirectionsX) == 0 || len(r.rayDirectionsY) == 0 {
-		// Reallocate if needed
-		rayWidth := r.game.config.Graphics.RaysPerScreenWidth
-		if rayWidth <= 0 {
-			rayWidth = 1
-		}
-		screenWidth := r.game.config.GetScreenWidth()
-		if screenWidth <= 0 {
-			screenWidth = 800
-		}
-		numRays := (screenWidth + rayWidth - 1) / rayWidth
-		if numRays <= 0 {
-			numRays = 1
-		}
+		numRays := r.computeNumRays()
 		r.rayDirectionsX = make([]float64, numRays)
 		r.rayDirectionsY = make([]float64, numRays)
 	}
@@ -501,11 +527,14 @@ func (r *Renderer) applyLocalLight(brightness float64, sourceX, sourceY, worldX,
 	if radius <= 0 || intensity <= 0 {
 		return brightness
 	}
-	distanceFromLight := Distance(sourceX, sourceY, worldX, worldY)
-	if distanceFromLight > radius {
+	// Squared-distance reject before the sqrt: most lights are out of range.
+	dx := worldX - sourceX
+	dy := worldY - sourceY
+	distSq := dx*dx + dy*dy
+	if distSq > radius*radius {
 		return brightness
 	}
-	falloff := 1.0 - (distanceFromLight / radius)
+	falloff := 1.0 - (math.Sqrt(distSq) / radius)
 	brightness += intensity * falloff
 	if brightness > 1.0 {
 		brightness = 1.0
@@ -525,6 +554,9 @@ func (r *Renderer) calculateBrightnessWithTorchLight(worldX, worldY, distance fl
 
 	for _, light := range r.activeLights {
 		brightness = r.applyLocalLight(brightness, light.X, light.Y, worldX, worldY, light.Radius, light.Intensity)
+		if brightness == 1.0 {
+			break // clamp ceiling reached: every further light returns 1.0 unchanged
+		}
 	}
 
 	return brightness
@@ -623,6 +655,7 @@ func (r *Renderer) precomputeFloorColorCache() {
 	}
 
 	// For each floor tile, check neighbors and determine color
+	var teleporterTiles []teleporterTileFx
 	for tileY := 0; tileY < worldHeight; tileY++ {
 		for tileX := 0; tileX < worldWidth; tileX++ {
 			// Get base floor color for this tile
@@ -631,15 +664,28 @@ func (r *Renderer) precomputeFloorColorCache() {
 			currentTile := r.game.GetCurrentWorld().GetTileAt(checkX, checkY)
 
 			baseColor := defaultMapFloor
+			// inherit_floor markers (spawn/teleporters) blend into the biome ground
+			// like an empty tile — their floor_color is the decoration tint, not the floor.
+			inherit := world.GlobalTileManager != nil && world.GlobalTileManager.InheritsFloor(currentTile)
+			if inherit {
+				if inherited := r.inheritedFloorColor(tileX, tileY); inherited != ([3]int{0, 0, 0}) {
+					baseColor = color.RGBA{uint8(inherited[0]), uint8(inherited[1]), uint8(inherited[2]), 255}
+				}
+			}
 			if world.GlobalTileManager != nil {
-				// Only use tile-specific floor colors for non-empty tiles
-				// Empty tiles should use the map's default floor color
-				if currentTile != world.TileEmpty {
+				if td := world.GlobalTileManager.GetTileData(currentTile); td != nil && strings.EqualFold(td.Type, "teleporter") {
+					teleporterTiles = append(teleporterTiles, teleporterTileFx{tx: tileX, ty: tileY, color: td.FloorColor})
+				}
+			}
+			if world.GlobalTileManager != nil {
+				// Only use tile-specific floor colors for non-empty, non-inheriting tiles
+				// Empty (and inheriting) tiles should use the map's default floor color
+				if currentTile != world.TileEmpty && !inherit {
 					if colorConfig := world.GlobalTileManager.GetFloorColor(currentTile); colorConfig != [3]int{0, 0, 0} {
 						baseColor = color.RGBA{uint8(colorConfig[0]), uint8(colorConfig[1]), uint8(colorConfig[2]), 255}
 					}
 				}
-				// For TileEmpty, keep using defaultMapFloor (map-specific color)
+				// For TileEmpty/inherit, keep using defaultMapFloor (map-specific color)
 			}
 
 			// Check if any nearby tiles affect this floor color
@@ -663,30 +709,19 @@ func (r *Renderer) precomputeFloorColorCache() {
 			}
 
 			clr := baseColor
-			// Apply nearby tile effect ONLY to empty '.' tiles
-			if nearSpecialTile && currentTile == world.TileEmpty {
+			// Apply nearby tile effect to empty '.' tiles AND inherit_floor markers
+			if nearSpecialTile && (currentTile == world.TileEmpty || inherit) {
 				clr = nearTileColor
 			}
 			cache[[2]int{tileX, tileY}] = clr
 		}
 	}
 
-	// Highlight the player's spawn point tile using spawn tile configuration
-	if r.game.GetCurrentWorld() != nil {
-		spawnTileX := r.game.GetCurrentWorld().StartX
-		spawnTileY := r.game.GetCurrentWorld().StartY
-
-		// Get spawn color from tile configuration
-		if world.GlobalTileManager != nil {
-			spawnColor := world.GlobalTileManager.GetFloorColor(world.TileSpawn)
-			cache[[2]int{spawnTileX, spawnTileY}] = color.RGBA{
-				R: uint8(spawnColor[0]),
-				G: uint8(spawnColor[1]),
-				B: uint8(spawnColor[2]),
-				A: 255,
-			}
-		}
-	}
+	// The spawn tile and teleporters now inherit the biome floor (inherit_floor)
+	// — no coloured-square override here. Their colour shows as a decoration
+	// drawn over the floor (spawn border / teleporter glow). Cache the teleporter
+	// tiles found during this per-map scan so the glow pass doesn't rescan.
+	r.teleporterTiles = teleporterTiles
 
 	r.floorColorCache = cache
 	r.buildFloorColorMap(worldWidth, worldHeight)
@@ -778,13 +813,20 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	}
 	group := tileData.FloorTextureGroup
 	if group == "" {
-		// No group: borrow the biome default only for tiles that paint no
-		// floor of their own. A set floor_color means the color IS the look
-		// (teleporter/trap/spawn) — leave it untextured.
-		if tileData.FloorColor != ([3]int{0, 0, 0}) {
+		// inherit_floor markers (spawn/teleporters) take the biome ground texture
+		// even though they set a floor_color (that colour is their decoration tint).
+		if tileData.InheritFloor {
+			group = r.inheritedFloorTextureGroup(tileX, tileY)
+			if group == "" {
+				group = defaultFloorTextureGroup
+			}
+		} else if tileData.FloorColor != ([3]int{0, 0, 0}) {
+			// No group + a set floor_color means the color IS the look
+			// (trap, etc.) — leave it untextured.
 			return ""
+		} else {
+			group = defaultFloorTextureGroup
 		}
-		group = defaultFloorTextureGroup
 	}
 	// Beach shoreline: any tile sitting on the biome's default ground that
 	// borders water uses "beach" instead, so the sand transition is
@@ -797,6 +839,38 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 		}
 	}
 	return group
+}
+
+func (r *Renderer) inheritedFloorTextureGroup(tileX, tileY int) string {
+	data := r.inheritedFloorTileData(tileX, tileY)
+	if data == nil {
+		return ""
+	}
+	return data.FloorTextureGroup
+}
+
+func (r *Renderer) inheritedFloorColor(tileX, tileY int) [3]int {
+	data := r.inheritedFloorTileData(tileX, tileY)
+	if data == nil {
+		return [3]int{0, 0, 0}
+	}
+	return data.FloorColor
+}
+
+// inheritedFloorTileData picks the floor an inherit_floor marker (spawn/teleporter)
+// blends into, using the same weighted dominant-neighbour vote as under-entity
+// floors so a marker in a multi-floor room (e.g. the castle) takes the room's
+// dominant floor, not an arbitrary first neighbour.
+func (r *Renderer) inheritedFloorTileData(tileX, tileY int) *config.TileData {
+	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
+		return nil
+	}
+	t, ok := world.GlobalTileManager.DominantNeighbourFloor(
+		r.game.world.Tiles, r.game.world.Width, r.game.world.Height, tileX, tileY, nil)
+	if !ok {
+		return nil
+	}
+	return world.GlobalTileManager.GetTileData(t)
 }
 
 func (r *Renderer) tileBordersWater(tileX, tileY int) bool {
@@ -1003,19 +1077,7 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 	}
 
 	// Calculate ray parameters first
-	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
-	if rayWidth <= 0 {
-		rayWidth = 1 // Safety guard against zero/negative ray width
-	}
-	screenWidth := r.game.config.GetScreenWidth()
-	if screenWidth <= 0 {
-		screenWidth = 800 // Safety fallback
-	}
-	// Use ceil-division consistently to ensure all pixels are covered
-	numRays := (screenWidth + rayWidth - 1) / rayWidth // Round up to cover entire screen
-	if numRays <= 0 {
-		numRays = 1 // Safety guard against zero rays
-	}
+	numRays := r.computeNumRays()
 
 	// Ensure precomputed ray directions match numRays BEFORE precomputing
 	if len(r.rayDirectionsX) != numRays {
@@ -1059,6 +1121,10 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 		// its quest unseals it.
 		r.drawSealedBossAura(screen)
 		r.drawTrapTileBorders(screen)
+		// Red bubble border around the player's start tile (floor inherited).
+		r.drawSpawnTileBorder(screen)
+		// Coloured glow filling every teleporter tile (floor inherited).
+		r.drawTeleporterTileFx(screen)
 		// Steam bubbles across every tile of an active Hot Steam zone.
 		r.drawSteamZoneBubbles(screen)
 		// Steam rising from every shut culvert valve's tile.
@@ -1072,6 +1138,9 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 
 		// Draw hit effects (spell particles, arrow bursts)
 		r.drawHitEffects(screen)
+
+		// Buff-cast overlay animation, centred in the party's view.
+		r.drawBuffFx(screen)
 	})
 }
 
@@ -1430,7 +1499,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 		switch renderType {
 		case "tree_sprite":
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
-		case "environment_sprite":
+		case "environment_sprite", "landmark":
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
 			// Use both hit.IsTransparent flag and tile manager check for safety
 			if hit.IsTransparent {
@@ -1936,12 +2005,30 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 		brightness *= 0.7
 	}
 
-	src := sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
+	src := r.spriteColumn(sprite, textureX, spriteWidth, spriteHeight)
 	opts := r.sharedDrawOpts()
 	opts.GeoM.Scale(xScale, yScale)
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	screen.DrawImage(src, opts)
+}
+
+// spriteColumn returns the cached 1px-wide column SubImage of a wall sprite.
+// textureX is one of spriteWidth discrete values, so columns are built lazily
+// once per sprite instead of allocating a SubImage per wall column per frame.
+func (r *Renderer) spriteColumn(sprite *ebiten.Image, textureX, spriteWidth, spriteHeight int) *ebiten.Image {
+	cols := r.wallSliceColumns[sprite]
+	if cols == nil {
+		if r.wallSliceColumns == nil {
+			r.wallSliceColumns = make(map[*ebiten.Image][]*ebiten.Image)
+		}
+		cols = make([]*ebiten.Image, spriteWidth)
+		r.wallSliceColumns[sprite] = cols
+	}
+	if cols[textureX] == nil {
+		cols[textureX] = sprite.SubImage(image.Rect(textureX, 0, textureX+1, spriteHeight)).(*ebiten.Image)
+	}
+	return cols[textureX]
 }
 
 // spellFxMinClusterSize is the floor (in screen px) for a spell projectile's
@@ -2074,6 +2161,11 @@ func (r *Renderer) spellFxProfile(spellKey string, base [3]int) projectileFxProf
 			profile.pulseSpeed = 1.2
 			profile.spark = true
 			profile.sparkColor = [3]int{240, 220, 255}
+		}
+		// Signature spells override the school default with a bespoke body
+		// renderer (graphics.projectile_fx → spellFxStyleDraw).
+		if def.Graphics != nil && def.Graphics.ProjectileFx != "" {
+			profile.style = def.Graphics.ProjectileFx
 		}
 	}
 	return profile
@@ -2424,10 +2516,17 @@ func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float
 	if mon == nil {
 		return 0, 0
 	}
+	x, y := mon.X, mon.Y
 	if r != nil && r.game != nil && r.game.combat != nil {
-		return r.game.combat.monsterVisualPos(mon)
+		x, y = r.game.combat.monsterVisualPos(mon)
 	}
-	return mon.X, mon.Y
+	// Banded stack: fan members around the tile centre so a pile of mobs snapped
+	// onto one leader reads as several, not one (render-only; positions unchanged).
+	if mon.BandStackCount > 1 && r.game != nil && r.game.config != nil {
+		ox, oy := bandFanOffset(mon.BandStackIndex, mon.BandStackCount, float64(r.game.config.GetTileSize()))
+		x, y = x+ox, y+oy
+	}
+	return x, y
 }
 
 // monsterHitShakeSizePx clamps the sprite size that scales the on-hit shudder so
@@ -2451,6 +2550,24 @@ func cardinalForwardFromAngle(angle float64) (int, int) {
 		return 0, -1
 	}
 	return 0, 1
+}
+
+// cullAndProject applies the shared sprite-collection cull: near/far distance
+// against squared thresholds (minDistSq 0 disables the near cull) and
+// behind-camera rejection via camera-space depth. Returns the euclidean
+// distance and perpendicular depth on success.
+func cullAndProject(x, y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq float64) (distance, depthPerp float64, ok bool) {
+	dx := x - camX
+	dy := y - camY
+	distanceSq := dx*dx + dy*dy
+	if distanceSq < minDistSq || distanceSq > viewDistSq {
+		return 0, 0, false
+	}
+	depthPerp = dx*camDirX + dy*camDirY
+	if depthPerp <= 0 {
+		return 0, 0, false
+	}
+	return math.Sqrt(distanceSq), depthPerp, true
 }
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
@@ -2483,20 +2600,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			dx := spriteData.worldX - camX
-			dy := spriteData.worldY - camY
-			distanceSq := dx*dx + dy*dy
-
-			if distanceSq < minDistSq || distanceSq > viewDistSq {
+			distance, depthPerp, ok := cullAndProject(spriteData.worldX, spriteData.worldY, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+			if !ok {
 				continue
 			}
 
-			depthPerp := dx*camDirX + dy*camDirY
-			if depthPerp <= 0 {
-				continue
-			}
-
-			distance := math.Sqrt(distanceSq)
 			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
@@ -2562,20 +2670,13 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	if r.game.config.Graphics.TreesAsBillboards {
 		for i := range r.treeTilesCache {
 			td := &r.treeTilesCache[i]
-			dx := td.worldX - camX
-			dy := td.worldY - camY
-			distanceSq := dx*dx + dy*dy
 			// No NEAR cull (unlike other standees): a tree must stay visible when
 			// the player walks right up to it. Only the far view-distance cull
 			// applies; depthPerp<=0 drops trees behind the camera.
-			if distanceSq > viewDistSq {
+			distance, depthPerp, ok := cullAndProject(td.worldX, td.worldY, camX, camY, camDirX, camDirY, 0, viewDistSq)
+			if !ok {
 				continue
 			}
-			depthPerp := dx*camDirX + dy*camDirY
-			if depthPerp <= 0 {
-				continue
-			}
-			distance := math.Sqrt(distanceSq)
 			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(td.worldX, td.worldY, distance, td.tileType, 1.0)
 			if !visible {
 				continue
@@ -2601,20 +2702,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 		renderX, renderY := r.monsterVisualPosition(mon)
 
-		dx := renderX - camX
-		dy := renderY - camY
-		distanceSq := dx*dx + dy*dy
-
-		if distanceSq > viewDistSq {
+		distance, depthPerp, ok := cullAndProject(renderX, renderY, camX, camY, camDirX, camDirY, 0, viewDistSq)
+		if !ok {
 			continue
 		}
 
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-
-		distance := math.Sqrt(distanceSq)
 		sizeMultiplier := mon.GetSizeGameMultiplier()
 		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeMultiplier)
 		if visible && mon.Flying {
@@ -2652,32 +2744,36 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
-		dx := npc.X - camX
-		dy := npc.Y - camY
-		distanceSq := dx*dx + dy*dy
-
-		// Same cull thresholds as environment sprites so NPCs (including the
-		// shipwreck / church / exit) disappear cleanly when the player walks
-		// into them, instead of glitching as their floor anchor slides below
-		// the screen at very small perpDist.
-		if distanceSq < minDistSq || distanceSq > viewDistSq {
+		// Wall-mounted tokens render AT the wall (offset from their tile centre), so
+		// anchor culling/metrics there too — otherwise standing in the tile centre
+		// puts the camera ~0 from npc.X/Y and the near-cull deletes the gate.
+		ex, ey := npc.X, npc.Y
+		if npc.WallMounted {
+			if wx, wy, _, ok := r.game.wallStickPose(npc.X, npc.Y); ok {
+				ex, ey = wx, wy
+			}
+		}
+		// Same near-cull as environment sprites for floor-anchored NPCs, so
+		// shipwrecks/churches/exits disappear cleanly when the player walks into
+		// them. Wall-mounted NPCs are different: their visual anchor is on the
+		// adjacent wall, so a player standing in the NPC tile is intentionally
+		// within one tile of the anchor and the gate/grate must remain visible.
+		nearSq := minDistSq
+		if npc.WallMounted {
+			nearSq = 0
+		}
+		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
+		if !ok {
 			continue
 		}
-
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-
-		distance := math.Sqrt(distanceSq)
 
 		var screenX, screenY, spriteSize int
 		var visible bool
 
-		if npc.RenderType == "environment_sprite" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(npc.X, npc.Y, distance, world.TileEmpty, npc.SizeMultiplier)
+		if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
 		} else {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(npc.X, npc.Y, distance, npc.SizeMultiplier)
+			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
 		}
 		if !visible {
 			continue
@@ -2707,19 +2803,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if c.MapKey != "" && c.MapKey != activeMapKey {
 			continue
 		}
-		dx := c.X - camX
-		dy := c.Y - camY
-		distanceSq := dx*dx + dy*dy
 		// Same one-tile cull as env sprites / NPCs so a container at the
 		// player's feet disappears cleanly instead of sliding under the camera.
-		if distanceSq < minDistSq || distanceSq > viewDistSq {
+		distance, depthPerp, ok := cullAndProject(c.X, c.Y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+		if !ok {
 			continue
 		}
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
-			continue
-		}
-		distance := math.Sqrt(distanceSq)
 		info := r.game.groundContainerRenderInfo(c, distance)
 		if !info.Visible {
 			continue
@@ -2742,14 +2831,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// let flames shine through trees and tokens).
 	for ti := range r.wallTorches {
 		tp := &r.wallTorches[ti]
-		dx := tp.X - camX
-		dy := tp.Y - camY
-		distanceSq := dx*dx + dy*dy
-		if distanceSq > viewDistSq {
-			continue
-		}
-		depthPerp := dx*camDirX + dy*camDirY
-		if depthPerp <= 0 {
+		_, depthPerp, ok := cullAndProject(tp.X, tp.Y, camX, camY, camDirX, camDirY, 0, viewDistSq)
+		if !ok {
 			continue
 		}
 		sprites = append(sprites, UnifiedSpriteRenderData{
@@ -2844,12 +2927,20 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 // sprites (ground containers) when the cursor is over them.
 var hoverHighlightTint = [4]float32{1.0, 0.95, 0.6, 0.6}
 
+// containerHoverBoost brightens a standee container while the cursor is over it
+// (the overlay trick used for billboards doesn't map onto the token mesh).
+const containerHoverBoost = 1.4
+
 // drawUnifiedGroundContainerSprite draws a ground container (loot bag or
-// treasure chest) from unified data with brightness and optional hover.
+// treasure chest) as a slowly spinning standee token (falling back to a
+// billboard when standee mode is off). A loot bag is recolored to its best
+// item's metallic rarity (baked into the texture so it spins with the token);
+// chests and common bags keep their original art.
 func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	if !r.spriteDepthBufferVisible(s) || s.groundContainer == nil {
 		return
 	}
+	c := s.groundContainer
 
 	pickupRange := r.game.groundContainerPickupRange()
 	hovered := false
@@ -2862,18 +2953,52 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 			Distance:   s.distance,
 			Visible:    true,
 		}
-		hovered = r.game.groundContainerHitTestFromInfo(info, s.groundContainer.effectiveSprite(), mouseX, mouseY, pickupRange)
+		hovered = r.game.groundContainerHitTestFromInfo(info, c.effectiveSprite(), mouseX, mouseY, pickupRange)
 	}
 
-	drawLeft := s.screenX - s.spriteSize/2
-	brightness := r.calculateBrightnessWithTorchLight(s.groundContainer.X, s.groundContainer.Y, s.distance)
+	brightness := r.calculateBrightnessWithTorchLight(c.X, c.Y, s.distance)
 	b := float32(brightness)
-	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 
+	// Standee: draw as a wooden token spinning idly in place (same path as
+	// scenery/NPC tokens), positioned by the band fan so a pile of bags on one
+	// tile reads as several. A brightness bump is the hover cue in this path.
+	if r.game.config.Graphics.Standee.Enabled {
+		sb := b
+		if hovered {
+			sb = b * containerHoverBoost
+		}
+		ox, oy := r.game.groundContainerRenderOffset(c)
+		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
+		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		key := standeeCoreKey{name: "container:" + c.effectiveSprite(), bounds: s.sprite.Bounds()}
+		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0, -1, -1, -1) {
+			return
+		}
+	}
+
+	// Billboard fallback (standee off or off-screen).
+	drawLeft := s.screenX - s.spriteSize/2
+	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 	if hovered {
 		r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize,
 			hoverHighlightTint[0], hoverHighlightTint[1], hoverHighlightTint[2], hoverHighlightTint[3])
 	}
+}
+
+// smoothYaw eases a standee's stored yaw toward target at speed (deg/sec).
+// First sighting (or long unseen, > 1s) snaps to the target at once.
+func (r *Renderer) smoothYaw(st standeeEnvYawState, seen bool, target, speed float64) standeeEnvYawState {
+	tps := r.game.config.GetTPS()
+	dt := r.game.frameCount - st.tick
+	if !seen || dt > int64(tps) {
+		st.yaw = target
+	} else if dt > 0 {
+		maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
+		st.yaw = approachAngle(st.yaw, target, maxStep)
+	}
+	st.tick = r.game.frameCount
+	return st
 }
 
 // drawUnifiedEnvironmentSprite draws an environment sprite from unified data
@@ -2900,6 +3025,19 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	// nudged, not glued to the view). Rate 0 = fixed diagonal.
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
+		// Landmark tiles (e.g. the city fountain) render as a TALL crossed standee
+		// spinning in place — same monument treatment as the landmark NPCs (they
+		// spin, unlike ordinary scenery which only faces the camera).
+		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(s.tileType) == "landmark" {
+			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 {
+				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
+				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+			}
+			name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
+			if r.drawLandmarkStandee(screen, s.sprite, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.spriteSize, s.screenY, b) {
+				return
+			}
+		}
 		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; speed > 0 {
 			target := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 			tileKey := [2]int{s.tileX, s.tileY}
@@ -2907,15 +3045,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				r.standeeEnvYaw = make(map[[2]int]standeeEnvYawState)
 			}
 			st, seen := r.standeeEnvYaw[tileKey]
-			tps := r.game.config.GetTPS()
-			dt := r.game.frameCount - st.tick
-			if !seen || dt > int64(tps) {
-				st.yaw = target // first sighting (or long unseen): face the camera at once
-			} else if dt > 0 {
-				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
-				st.yaw = approachAngle(st.yaw, target, maxStep)
-			}
-			st.tick = r.game.frameCount
+			st = r.smoothYaw(st, seen, target, speed)
 			r.standeeEnvYaw[tileKey] = st
 			yaw = st.yaw
 		}
@@ -3061,10 +3191,16 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
 			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0, -1, -1, -1) {
+			r.drawMonsterStatusFX(screen, s, screenY)
 			return
 		}
 	}
 
+	// DEPRECATED: flat camera-facing billboard, superseded by the standee token
+	// above (graphics.standee.enabled=true is the shipped default). Kept only as
+	// the fallback when standee is turned off; not a maintained visual target —
+	// new per-monster overlays belong in drawMonsterStatusFX, called from BOTH
+	// paths, not appended here alone.
 	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
 	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
 	if s.monsterFlip {
@@ -3080,16 +3216,79 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		opts.Blend = ebiten.BlendSourceOver
 		screen.DrawImage(s.sprite, opts)
 	}
+	r.drawMonsterStatusFX(screen, s, screenY)
+}
+
+// drawMonsterStatusFX overlays a monster's status indicators (stun stars,
+// poison bubbles). Mandatory in the standee path (the shipped default) and
+// shared with the deprecated billboard fallback so the two can't drift —
+// call this for any new per-monster overlay instead of adding it to one path.
+func (r *Renderer) drawMonsterStatusFX(screen *ebiten.Image, s UnifiedSpriteRenderData, screenY int) {
+	if s.monster == nil {
+		return
+	}
+	if s.monster.StunFramesRemaining > 0 || s.monster.StunTurnsRemaining > 0 {
+		r.drawMonsterStunStars(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+	}
+	if s.monster.PoisonedFramesRemaining > 0 {
+		r.drawMonsterPoisonBubbles(screen, float64(s.screenX), float64(screenY), float64(s.spriteSize))
+	}
+}
+
+// drawMonsterPoisonBubbles rises a column of small green bubbles past a
+// poisoned monster — the world-space sibling of the character HUD's
+// drawCardPoisonBubbles (ui_hud.go).
+func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	f := int(r.game.frameCount)
+	const n = 6
+	const period = 72
+	w := spriteSize * 0.5
+	left := centerX - w/2
+	for k := 0; k < n; k++ {
+		phase := float64((f+k*period/n)%period) / float64(period) // 0..1 rising loop
+		bx := left + (float64(k)+0.5)/float64(n)*w + math.Sin(float64(f)*0.08+float64(k))*spriteSize*0.02
+		by := topY + spriteSize*(1-phase)
+		a := uint8(170 * (1 - phase)) // fade as it nears the top ("pops")
+		if a < 12 {
+			continue
+		}
+		rad := float32(spriteSize * (0.015 + 0.02*phase)) // swells as it rises
+		vector.DrawFilledCircle(screen, float32(bx), float32(by), rad, color.RGBA{70, 210, 90, a}, true)
+	}
+}
+
+// drawMonsterStunStars wheels a ring of twinkling four-point stars above a
+// stunned monster — the world-space sibling of the character HUD's
+// drawCardStunStars (ui_hud.go), same visual, anchored over a monster sprite
+// instead of a portrait card.
+func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize float64) {
+	f := float64(r.game.frameCount)
+	cx := centerX
+	cy := topY - spriteSize*0.08
+	rx, ry := spriteSize*0.30, spriteSize*0.12
+	const n = 5
+	for k := 0; k < n; k++ {
+		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)
+		sx := float32(cx + math.Cos(ang)*rx)
+		sy := float32(cy + math.Sin(ang)*ry)
+		tw := 0.5 + 0.5*math.Sin(f*0.25+float64(k)*1.7) // twinkle
+		a := uint8(120 + 135*tw)
+		arm := float32(spriteSize*0.02 + spriteSize*0.03*tw)
+		col := color.RGBA{255, 240, 120, a}
+		vector.StrokeLine(screen, sx-arm, sy, sx+arm, sy, 1.5, col, true)
+		vector.StrokeLine(screen, sx, sy-arm, sx, sy+arm, 1.5, col, true)
+		d := arm * 0.6
+		spark := color.RGBA{255, 255, 200, uint8(a / 2)}
+		vector.StrokeLine(screen, sx-d, sy-d, sx+d, sy+d, 1, spark, true)
+		vector.StrokeLine(screen, sx-d, sy+d, sx+d, sy-d, 1, spark, true)
+		vector.DrawFilledCircle(screen, sx, sy, 1.2, color.RGBA{255, 255, 230, a}, true)
+	}
 }
 
 // drawUnifiedNPCSprite draws an NPC sprite from unified data
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if !r.spriteDepthBufferVisible(s) {
-		return
-	}
-
 	drawLeft := s.screenX - s.spriteSize/2
-	sprite, frameW, frameH := selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -3098,10 +3297,54 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	}
 	br := float32(brightness)
 
+	// Hover cue on clickable NPCs: a soft edge glow behind the sprite. Drawn
+	// FIRST, so the opaque sprite/standee covers the interior and only the rim
+	// protruding past the silhouette stays visible — an edge glow, not a
+	// brightness wash. Same hit-test as the click path, so wall-mounted
+	// standees highlight where they are actually drawn, not at their tile
+	// centre.
+	if r.game.worldClickAllowed() {
+		ex, ey := r.game.npcEffectivePos(s.npc)
+		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance {
+			mouseX, mouseY := ebiten.CursorPosition()
+			if r.game.npcScreenHitTest(s.npc, ex, ey, dist, mouseX, mouseY) {
+				r.drawSpriteEdgeGlow(screen, sprite, drawLeft, s.screenY,
+					float64(s.spriteSize)/float64(frameW), float64(s.spriteSize)/float64(frameH), s.spriteSize)
+			}
+		}
+	}
+
 	// Standee mode: animated NPCs (people) slowly turn to face the party, like
 	// figures attending to a visitor; static objects (statues, valves,
 	// buildings) spin slowly in place, showcase-style, with the spin phase
 	// hashed from position so neighbours don't rotate in lockstep.
+	if r.game.config.Graphics.Standee.Enabled {
+		// Wall-mounted: slide the token to the nearest solid (wall) neighbour and
+		// face along that wall, so gates/grates sit flush ON the wall instead of
+		// floating (and spinning) mid-tile. Falls through to the normal standee if
+		// no wall is adjacent.
+		//
+		// This must run BEFORE the generic spriteDepthBufferVisible prefilter:
+		// a wall-mounted anchor sits on the backing wall, so the coarse
+		// sprite-vs-wall test can see the NPC at the same depth as that wall and
+		// reject it before the wall-mounted draw path gets to apply its backing
+		// wall bias.
+		if s.npc.WallMounted {
+			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
+				ts := float64(r.game.config.GetTileSize())
+				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+				r.standeeDepthBias = ts * 0.6
+				r.drawStandeeSprite(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1)
+				r.standeeDepthBias = 0
+				return
+			}
+		}
+	}
+
+	if !r.spriteDepthBufferVisible(s) {
+		return
+	}
+
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
 		animated := frameW != s.sprite.Bounds().Dx() // a frame was cut from a sheet
@@ -3111,20 +3354,20 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				r.standeeNPCYaw = make(map[*character.NPC]standeeEnvYawState)
 			}
 			st, seen := r.standeeNPCYaw[s.npc]
-			tps := r.game.config.GetTPS()
-			dt := r.game.frameCount - st.tick
-			if !seen || dt > int64(tps) {
-				st.yaw = target // first sighting (or long unseen): face the party at once
-			} else if dt > 0 {
-				maxStep := speed * math.Pi / 180 * float64(dt) / float64(tps)
-				st.yaw = approachAngle(st.yaw, target, maxStep)
-			}
-			st.tick = r.game.frameCount
+			st = r.smoothYaw(st, seen, target, speed)
 			r.standeeNPCYaw[s.npc] = st
 			yaw = st.yaw
 		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !animated && spin != 0 {
 			phase := auraHash(int(s.npc.X), int(s.npc.Y), 0, 0) * 2 * math.Pi
 			yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
+		}
+		// Landmarks (towers, churches, the city gate, the lich nexus) render as a
+		// TALL crossed standee spinning with the same showcase yaw — a 3D monument
+		// instead of a flat token.
+		if s.npc.RenderType == "landmark" {
+			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, br) {
+				return
+			}
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
@@ -3135,6 +3378,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
+
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
 
@@ -3144,23 +3388,63 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	screen.DrawImage(sprite, opts)
 }
 
+// drawSpriteEdgeGlow outlines a billboard sprite with a soft warm halo: the
+// sprite's own silhouette re-drawn additively at eight small offsets, so the
+// glow hugs the edge instead of washing over the body.
+func (r *Renderer) drawSpriteEdgeGlow(screen, sprite *ebiten.Image, drawLeft, drawTop int, scaleX, scaleY float64, spriteSize int) {
+	off := spriteSize / 40
+	if off < 2 {
+		off = 2
+	}
+	for _, d := range [8][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
+		opts.GeoM.Translate(float64(drawLeft+d[0]*off), float64(drawTop+d[1]*off))
+		opts.ColorScale.Scale(1.0, 0.85, 0.45, 0.10)
+		opts.Blend = additiveGlowBlend
+		screen.DrawImage(sprite, opts)
+	}
+}
+
+// animationFrames returns the cached per-frame SubImages of a w==h*4 sheet;
+// a non-sheet image comes back as a single frame. Shared by the looping NPC
+// animation and one-shot players (buff overlay), which index frames themselves.
+func (r *Renderer) animationFrames(sprite *ebiten.Image) []*ebiten.Image {
+	bounds := sprite.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if h <= 0 || w != h*SpriteSheetFrameCount {
+		return []*ebiten.Image{sprite}
+	}
+	frames := r.animFrameCache[sprite]
+	if frames == nil {
+		if r.animFrameCache == nil {
+			r.animFrameCache = make(map[*ebiten.Image][]*ebiten.Image)
+		}
+		frames = make([]*ebiten.Image, SpriteSheetFrameCount)
+		for i := range frames {
+			rect := image.Rect(
+				bounds.Min.X+i*h, bounds.Min.Y,
+				bounds.Min.X+(i+1)*h, bounds.Min.Y+h,
+			)
+			frames[i] = sprite.SubImage(rect).(*ebiten.Image)
+		}
+		r.animFrameCache[sprite] = frames
+	}
+	return frames
+}
+
 // selectAnimatedSpriteFrame picks an animation frame from a horizontal sprite
 // sheet. If the sprite's width equals frameHeight × SpriteSheetFrameCount, the
 // sheet is treated as animated and the frame is selected by frameCount; the
-// returned image is a SubImage and the returned width/height are the per-frame
-// dimensions. Otherwise the sprite is returned unchanged.
-func selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
+// returned image is a cached SubImage and the returned width/height are the
+// per-frame dimensions. Otherwise the sprite is returned unchanged.
+func (r *Renderer) selectAnimatedSpriteFrame(sprite *ebiten.Image, frameCount int64) (*ebiten.Image, int, int) {
 	bounds := sprite.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	if h <= 0 || w != h*SpriteSheetFrameCount {
 		return sprite, w, h
 	}
 	frame := int((frameCount / SpriteFrameStride) % SpriteSheetFrameCount)
-	rect := image.Rect(
-		bounds.Min.X+frame*h, bounds.Min.Y,
-		bounds.Min.X+(frame+1)*h, bounds.Min.Y+h,
-	)
-	return sprite.SubImage(rect).(*ebiten.Image), h, h
+	return r.animationFrames(sprite)[frame], h, h
 }
 
 // drawProjectiles draws moving spell and weapon projectiles. Melee swings render
@@ -3258,6 +3542,27 @@ func spellParticleScreenSize(particleSize int, lifeRatio, scale float64) float64
 }
 
 // drawMagicProjectiles draws all active magic projectiles
+// drawProjectileCollisionBox draws the debug collision box for a flying
+// projectile (magic bolt or arrow), scaled and centered on its on-screen sprite.
+// No-op for non-positive dimensions. Shared by the projectile and arrow renderers.
+func (r *Renderer) drawProjectileCollisionBox(screen *ebiten.Image, screenX, screenY, spriteSize, screenColW, screenColH int, boxColor color.RGBA) {
+	if screenColW <= 0 || screenColH <= 0 {
+		return
+	}
+	boxX := screenX - screenColW/2
+	boxY := screenY + (spriteSize-screenColH)/2
+	boxOpts := &ebiten.DrawImageOptions{}
+	boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
+	boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
+	boxOpts.ColorScale.Scale(
+		float32(boxColor.R)/255,
+		float32(boxColor.G)/255,
+		float32(boxColor.B)/255,
+		float32(boxColor.A)/255*0.5,
+	)
+	screen.DrawImage(r.whiteImg, boxOpts)
+}
+
 func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 	glowBlend := additiveGlowBlend
 
@@ -3303,22 +3608,8 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 			screenColW := int(worldColW * scaleFactor)
 			screenColH := int(worldColH * scaleFactor)
 
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (projectileSize-screenColH)/2
-				boxColor := color.RGBA{0, 255, 0, 120} // Green, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
+			// Green box for magic projectiles.
+			r.drawProjectileCollisionBox(screen, screenX, screenY, projectileSize, screenColW, screenColH, color.RGBA{0, 255, 0, 120})
 		}
 
 		// Use spell-specific color from config (no more hardcoded colors!)
@@ -3356,15 +3647,15 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
 		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
 
-		dirX, _, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
+		dirX, dirY, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
 		if !hasDir {
-			dirX = 1 // default trail direction when motion is head-on
+			dirX, dirY = 1, 0 // default trail direction when motion is head-on
 		}
 
 		// Spells are always magical → particle body + evaporating trail (never the
 		// old solid square). Drift/mirror come from the school's style; colour comes
 		// from the projectile colour, so every school looks distinct.
-		r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX,
+		r.drawSpellProjectileFx(screen, centerX, centerY, float64(projectileSize), dirX, dirY,
 			projectileColor, fxProfile, critBoost, idx)
 	}
 }
@@ -3373,13 +3664,17 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 // an evaporating trail, instead of a single solid square. "ember" (fire) motes
 // flicker hot and rise as they trail; "shard" (ice) bits stay crisp and sink.
 // Density/length scale with `size`, so a fireball reads far bigger than a bolt.
-func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellProjectileFx(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	// Floor the cluster size so a bolt launched far from the camera (e.g. a bound
 	// lich shooting across the room) still reads as a particle puff rather than a
 	// lone dot. Party bolts spawn at the camera (size ≈ MaxSize) so they're well
 	// above this and unaffected; only distant/small projectiles get the lift.
 	if size < spellFxMinClusterSize {
 		size = spellFxMinClusterSize
+	}
+	if draw, ok := spellFxStyleDraw[p.style]; ok {
+		draw(r, screen, cx, cy, size, dirX, dirY, core, p, critBoost, id)
+		return
 	}
 	// sink = heavy/cold/void motes fall; others rise like embers/wisps.
 	sink := p.style == "shard" || p.style == "dark"
@@ -3488,22 +3783,8 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			scaleFactor := float64(arrowSize) / float64(bowDef.Graphics.BaseSize)
 			screenColW := int(worldColW * scaleFactor)
 			screenColH := int(worldColH * scaleFactor)
-			// Only draw collision box if we have valid dimensions
-			if screenColW > 0 && screenColH > 0 {
-				boxX := screenX - screenColW/2
-				boxY := screenY + (arrowSize-screenColH)/2
-				boxColor := color.RGBA{0, 255, 255, 120} // Cyan, semi-transparent
-				boxOpts := &ebiten.DrawImageOptions{}
-				boxOpts.GeoM.Scale(float64(screenColW), float64(screenColH))
-				boxOpts.GeoM.Translate(float64(boxX), float64(boxY))
-				boxOpts.ColorScale.Scale(
-					float32(boxColor.R)/255,
-					float32(boxColor.G)/255,
-					float32(boxColor.B)/255,
-					float32(boxColor.A)/255*0.5,
-				)
-				screen.DrawImage(r.whiteImg, boxOpts)
-			}
+			// Cyan box for arrows.
+			r.drawProjectileCollisionBox(screen, screenX, screenY, arrowSize, screenColW, screenColH, color.RGBA{0, 255, 255, 120})
 		}
 
 		// Draw arrow using bow-specific color from config
@@ -3516,16 +3797,22 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 		if arrow.Crit {
 			critBoost = 1.2
 		}
+		if strings.EqualFold(bowDef.Category, "blaster") {
+			// Blasters fire slugs with a tracer streak, not fletched arrows.
+			r.drawBulletTracer(screen, centerX, centerY, float64(arrowSize),
+				arrow.VelX, arrow.VelY, arrowColor, critBoost, idx)
+			continue
+		}
 		if fxProfile.style != "" {
 			// Staff/book bolt: glowing pixel-particle body + evaporating trail as
 			// spells, mirrored (R→L) for arcane. Reuses the spell FX renderer.
 			glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
 			r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-			dirX, _, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			dirX, dirY, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
 			if !ok {
-				dirX = 1
+				dirX, dirY = 1, 0
 			}
-			r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX,
+			r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX, dirY,
 				arrowColor, fxProfile, critBoost, idx)
 			continue
 		}
@@ -3726,6 +4013,14 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				lifeRatio = 0
 			}
 			size := spellParticleScreenSize(particle.Size, lifeRatio, scale)
+			if particle.Star {
+				// Twinkling 4-point star (impact_stars — plasma/energy bursts).
+				tw := 0.7 + 0.3*math.Sin(float64(r.game.frameCount)*0.45+float64(i*13+j))
+				r.drawSparkStar(screen, screenX, screenY, size*0.9,
+					particle.Color, mixColor(particle.Color, [3]int{255, 255, 255}, 0.6),
+					lifeRatio*tw, 1)
+				continue
+			}
 			// Square pixel particle (matches the impassable-aura / projectile look).
 			r.drawGlowRect(screen, screenX, screenY, size, particle.Color, lifeRatio, additiveGlowBlend)
 		}

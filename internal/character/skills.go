@@ -152,55 +152,38 @@ func (s *Skill) IncreaseMastery() bool {
 	return true
 }
 
+// skillTypeByKey maps snake_case skill keys (config.yaml class kits) to skill
+// types. Weapon/armor category strings coincide with these keys; the category
+// lookups below gate on the SkillType const-block ranges.
+var skillTypeByKey = map[string]SkillType{
+	"sword":           SkillSword,
+	"dagger":          SkillDagger,
+	"axe":             SkillAxe,
+	"spear":           SkillSpear,
+	"bow":             SkillBow,
+	"mace":            SkillMace,
+	"staff":           SkillStaff,
+	"leather":         SkillLeather,
+	"chain":           SkillChain,
+	"plate":           SkillPlate,
+	"shield":          SkillShield,
+	"bodybuilding":    SkillBodybuilding,
+	"meditation":      SkillMeditation,
+	"merchant":        SkillMerchant,
+	"repair":          SkillRepair,
+	"identify_item":   SkillIdentifyItem,
+	"disarm_trap":     SkillDisarmTrap,
+	"learning":        SkillLearning,
+	"arms_master":     SkillArmsMaster,
+	"trapper":         SkillTrapper,
+	"sleight_of_hand": SkillSleightOfHand,
+}
+
 // SkillTypeFromKey resolves a snake_case config key (config.yaml class kits)
 // to its SkillType. Returns false for an unknown key.
 func SkillTypeFromKey(key string) (SkillType, bool) {
-	switch key {
-	case "sword":
-		return SkillSword, true
-	case "dagger":
-		return SkillDagger, true
-	case "axe":
-		return SkillAxe, true
-	case "spear":
-		return SkillSpear, true
-	case "bow":
-		return SkillBow, true
-	case "mace":
-		return SkillMace, true
-	case "staff":
-		return SkillStaff, true
-	case "leather":
-		return SkillLeather, true
-	case "chain":
-		return SkillChain, true
-	case "plate":
-		return SkillPlate, true
-	case "shield":
-		return SkillShield, true
-	case "bodybuilding":
-		return SkillBodybuilding, true
-	case "meditation":
-		return SkillMeditation, true
-	case "merchant":
-		return SkillMerchant, true
-	case "repair":
-		return SkillRepair, true
-	case "identify_item":
-		return SkillIdentifyItem, true
-	case "disarm_trap":
-		return SkillDisarmTrap, true
-	case "learning":
-		return SkillLearning, true
-	case "arms_master":
-		return SkillArmsMaster, true
-	case "trapper":
-		return SkillTrapper, true
-	case "sleight_of_hand":
-		return SkillSleightOfHand, true
-	default:
-		return 0, false
-	}
+	t, ok := skillTypeByKey[key]
+	return t, ok
 }
 
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
@@ -208,40 +191,23 @@ func SkillTypeFromKey(key string) (SkillType, bool) {
 // returns (0, false) because it's universally usable — callers handle that
 // special case explicitly.
 func WeaponSkillForCategory(category string) (SkillType, bool) {
-	switch category {
-	case "sword":
-		return SkillSword, true
-	case "dagger", "throwing":
-		return SkillDagger, true
-	case "axe":
-		return SkillAxe, true
-	case "spear":
-		return SkillSpear, true
-	case "bow":
-		return SkillBow, true
-	case "mace":
-		return SkillMace, true
-	case "staff":
-		return SkillStaff, true
-	default:
+	if category == "throwing" {
+		return SkillDagger, true // throwing weapons use the dagger skill
+	}
+	t, ok := skillTypeByKey[category]
+	if !ok || t < SkillSword || t > SkillStaff {
 		return 0, false
 	}
+	return t, true
 }
 
 // ArmorSkillForCategory maps an armor category string (lowercased) to the
 // SkillType that gates wearing it. The "cloth" category returns (0, false)
 // because it's universally wearable.
 func ArmorSkillForCategory(category string) (SkillType, bool) {
-	switch category {
-	case "leather":
-		return SkillLeather, true
-	case "chain":
-		return SkillChain, true
-	case "plate":
-		return SkillPlate, true
-	case "shield":
-		return SkillShield, true
-	default:
+	t, ok := skillTypeByKey[category]
+	if !ok || t < SkillLeather || t > SkillShield {
 		return 0, false
 	}
+	return t, true
 }

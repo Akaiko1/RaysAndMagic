@@ -51,7 +51,7 @@ type InputHandler struct {
 	inventoryKeyTracker  keytracker.KeyStateTracker
 	charactersKeyTracker keytracker.KeyStateTracker
 	questsKeyTracker     keytracker.KeyStateTracker
-	interactKeyTracker   keytracker.KeyStateTracker
+	cardsKeyTracker      keytracker.KeyStateTracker
 	newGameKeyTracker    keytracker.KeyStateTracker
 	loadKeyTracker       keytracker.KeyStateTracker
 }
@@ -100,6 +100,7 @@ func (ih *InputHandler) HandleInput() {
 			ih.game.returnToMainMenu()
 			ih.game.entryMenuMode = EntryMenuLoad
 			ih.game.slotSelection = 0
+			ih.game.savePage = 0 // open Load on page 1, matching every other Load entry
 			return
 		}
 		return
@@ -133,7 +134,7 @@ func (ih *InputHandler) HandleInput() {
 	// Revival potion target picker: clicks are consumed inside the popup's
 	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
 	// so the player can't move/attack/cast while choosing a revive target.
-	if ih.game.revivalPickerOpen {
+	if ih.game.revivalPickerOpen || ih.game.healPickerOpen {
 		return
 	}
 
@@ -144,7 +145,22 @@ func (ih *InputHandler) HandleInput() {
 	}
 
 	// Tavern roster screen: clicks handled inside its Draw; suppress gameplay.
+	// ESC closes the screen here (edge-tracked + consumed) so it can't leak to the
+	// menu-open handler below on the next frame.
 	if ih.game.rosterScreenOpen {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.rosterScreenOpen = false
+			ih.game.rosterSelectedActive = -1
+		}
+		return
+	}
+
+	// Tavern stash screen: drag + clicks handled inside its Draw; suppress gameplay.
+	if ih.game.stashScreenOpen {
+		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+			ih.game.stashScreenOpen = false
+			ih.game.clearStashDrag()
+		}
 		return
 	}
 
@@ -158,6 +174,15 @@ func (ih *InputHandler) HandleInput() {
 	}
 	// ESC handling: close current overlay before opening menu
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		// The save-rename dialog is a modal ON TOP of the Save menu: Escape
+		// cancels it before backing out of the submenu. It must be handled here
+		// because this block consumes the Escape edge — the shared key tracker
+		// only reports "just pressed" once per frame, so the modal's own handler
+		// (reached later via handleMainMenuInput) would never see it.
+		if ih.game.saveRenameOpen {
+			ih.game.closeSaveRename()
+			return
+		}
 		// If main menu is open, back out of submenus or close it
 		if ih.game.mainMenuOpen {
 			if ih.game.mainMenuMode != MenuMain {
@@ -246,14 +271,18 @@ func (ih *InputHandler) restartNewGame() {
 func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.party = party
 	g.selectedChar = 0
+	g.parkSelection = false
 
 	// Reset victory/high score state and session timer
 	g.gameOver = false
 	g.gameVictory = false
+	g.victoryAcknowledged = false
 	g.victoryScoreSaved = false
 	g.victoryNameInput = ""
 	g.victoryTime = time.Time{}
 	g.sessionStartTime = time.Now()
+	g.totalGoldEarned = 0
+	g.totalExperienceEarned = 0
 	g.showHighScores = false
 	g.frameCount = 0
 
@@ -296,13 +325,14 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.mainMenuMode = MenuMain
 	g.mainMenuSelection = 0
 	g.slotSelection = 0
-	g.saveRenameOpen = false
-	g.saveRenameSlot = -1
-	g.saveRenameInput = ""
+	g.closeSaveRename()
 	g.exitRequested = false
 
 	// Reset every timed effect family (buffs, zones, utility flags)
 	g.resetTimedEffects()
+
+	// Fresh party must not inherit the old run's card effects.
+	g.resetCardCollection()
 
 	// Reset turn-based state
 	g.turnBasedMode = false
@@ -323,6 +353,14 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		quests.GlobalQuestManager.Reset()
 	}
 	g.questManager = quests.GlobalQuestManager
+	// Fresh run must not inherit the old run's quest world-changes (e.g. the
+	// wolf-cull bridge). wm.Reset below reloads maps pristine anyway; this
+	// revert is the belt-and-suspenders for any world instance that survives.
+	g.syncQuestTiles()
+
+	// Drop the previous run's per-map return positions so a fresh party enters
+	// each map at its '+' start, not where the old party last stood.
+	g.mapReturnPoses = make(map[string]MapPose)
 
 	// Reset maps to a fresh state with monsters and NPCs.
 	if wm := world.GlobalWorldManager; wm != nil {
@@ -337,8 +375,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		tileSize := float64(g.config.GetTileSize())
 		startX, startY := 0.0, 0.0
 		if currentWorld.StartX >= 0 && currentWorld.StartY >= 0 {
-			startX = float64(currentWorld.StartX) * tileSize
-			startY = float64(currentWorld.StartY) * tileSize
+			startX, startY = TileCenterFromTile(currentWorld.StartX, currentWorld.StartY, tileSize)
 		} else {
 			centerX := float64(currentWorld.Width) * tileSize * 0.5
 			centerY := float64(currentWorld.Height) * tileSize * 0.5
@@ -386,12 +423,9 @@ func (ih *InputHandler) handleVictoryInput() {
 		if ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH) {
 			ih.game.showHighScores = true
 		}
-		// ESC to return to main menu
+		// ESC closes the victory overlay and continues the finished save.
 		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-			ih.restartNewGame()
-			ih.game.gameVictory = false
-			ih.game.victoryScoreSaved = false
-			ih.game.victoryNameInput = ""
+			ih.closeVictoryOverlay()
 		}
 		return
 	}
@@ -404,12 +438,17 @@ func (ih *InputHandler) handleVictoryInput() {
 		ih.saveVictoryScore()
 	}
 
-	// ESC to skip saving and return to main menu
+	// ESC skips saving and continues the finished save.
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-		ih.restartNewGame()
-		ih.game.gameVictory = false
-		ih.game.victoryNameInput = ""
+		ih.closeVictoryOverlay()
 	}
+}
+
+func (ih *InputHandler) closeVictoryOverlay() {
+	ih.game.gameVictory = false
+	ih.game.victoryAcknowledged = true
+	ih.game.victoryNameInput = ""
+	ih.game.showHighScores = false
 }
 
 // handleVictoryNameInput handles text input for the player name
@@ -477,17 +516,34 @@ func repeatingKeyPressed(key ebiten.Key) bool {
 	return false
 }
 
+// activateMainMenuSelection runs the action for the highlighted MenuMain option,
+// shared by Enter-key and mouse-click activation.
+func (ih *InputHandler) activateMainMenuSelection() {
+	switch ih.game.mainMenuSelection {
+	case 0: // Continue
+		ih.game.mainMenuOpen = false
+	case 1: // Save
+		ih.game.openSaveLoad(MenuSaveSelect)
+	case 2: // Load
+		ih.game.openSaveLoad(MenuLoadSelect)
+	case 3: // High Scores
+		ih.game.showHighScores = true
+	case 4: // Main Menu (return to title, not quit the app)
+		ih.game.returnToMainMenu()
+	}
+}
+
 // handleMainMenuInput processes input for the main menu (opened with ESC)
 func (ih *InputHandler) handleMainMenuInput() {
 	// Mouse position for hover/click
 	mouseX, mouseY := ebiten.CursorPosition()
-	panelW, panelH := 300, 220
+	// Panel size per mode (shared with the draw code via menuPanelSize).
+	panelW, panelH := menuPanelSize(ih.game.mainMenuMode)
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
 
 	switch ih.game.mainMenuMode {
 	case MenuMain:
-		panelW, panelH = 360, 320
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
 		// Navigate options (debounced)
@@ -503,137 +559,158 @@ func (ih *InputHandler) handleMainMenuInput() {
 		}
 
 		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, 56)
+		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
 
-		// Activate selection with Enter
+		// Activate selection with Enter or a mouse click on the panel
 		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			switch ih.game.mainMenuSelection {
-			case 0: // Continue
-				ih.game.mainMenuOpen = false
-			case 1: // Save
-				ih.game.mainMenuMode = MenuSaveSelect
-				ih.game.slotSelection = 0
-			case 2: // Load
-				ih.game.mainMenuMode = MenuLoadSelect
-				ih.game.slotSelection = 0
-			case 3: // High Scores
-				ih.game.showHighScores = true
-			case 4: // Main Menu (return to title, not quit the app)
-				ih.game.returnToMainMenu()
-			}
+			ih.activateMainMenuSelection()
 		}
-
-		// Mouse click activation
 		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			switch ih.game.mainMenuSelection {
-			case 0:
-				ih.game.mainMenuOpen = false
-			case 1:
-				ih.game.mainMenuMode = MenuSaveSelect
-				ih.game.slotSelection = 0
-			case 2:
-				ih.game.mainMenuMode = MenuLoadSelect
-				ih.game.slotSelection = 0
-			case 3:
-				ih.game.showHighScores = true
-			case 4:
-				ih.game.returnToMainMenu()
-			}
+			ih.activateMainMenuSelection()
 		}
 	case MenuSaveSelect:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
-		if ih.game.saveRenameOpen {
-			ih.handleSaveRenameInput()
-			return
-		}
-		for i := 0; i < 5; i++ {
-			y := py + 56 + i*32
-			if ih.game.consumeRightClickIn(px+16, y-4, px+panelW-16, y+24) {
-				sum := GetSaveSlotSummary(i)
-				if !sum.Exists {
-					ih.game.AddCombatMessage("No save in slot to rename")
-				} else {
-					ih.game.slotSelection = i
-					ih.game.saveRenameOpen = true
-					ih.game.saveRenameSlot = i
-					ih.game.saveRenameInput = sum.Name
-				}
-				return
-			}
-		}
-		// Navigate slots 0..4
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
-			if ih.game.slotSelection > 0 {
-				ih.game.slotSelection--
-			}
-		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
-			if ih.game.slotSelection < 4 {
-				ih.game.slotSelection++
-			}
-		}
-		// Mouse hover selection
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Save failed")
-			} else {
-				ih.game.AddCombatMessage("Saved to slot")
-				ih.game.mainMenuMode = MenuMain
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-			sum := GetSaveSlotSummary(ih.game.slotSelection)
-			if !sum.Exists {
-				ih.game.AddCombatMessage("No save in slot to rename")
-			} else {
-				ih.game.saveRenameOpen = true
-				ih.game.saveRenameSlot = ih.game.slotSelection
-				ih.game.saveRenameInput = sum.Name
-			}
-		}
-		// Mouse click activation
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			if err := ih.game.SaveGameToFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Save failed")
-			} else {
-				ih.game.AddCombatMessage("Saved to slot")
-				ih.game.mainMenuMode = MenuMain
-			}
-		}
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, true, ih.doSaveToSelectedRow)
 	case MenuLoadSelect:
-		px := (w - panelW) / 2
-		py := (h - panelH) / 2
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
-			if ih.game.slotSelection > 0 {
-				ih.game.slotSelection--
-			}
+		ih.handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH, false, ih.doLoadFromSelectedRow)
+	}
+}
+
+// handleSaveLoadMenuInput drives the shared Save/Load slot-list input: rename
+// dialog, page navigation, right-click rename, row hover selection, and
+// Enter/click activation. allowRename adds the R rename key (Save menu only).
+func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, panelH int, allowRename bool, activate func()) {
+	px := (w - panelW) / 2
+	py := (h - panelH) / 2
+	if ih.game.saveRenameOpen {
+		ih.handleSaveRenameInput()
+		return
+	}
+	ih.navigateSavePage(px, py, panelW, panelH)
+	// Right-click rename follows the same Save-menu-only gate as the R key: the
+	// Load menu can't rename (and, crucially, never draws the rename dialog), so
+	// letting a right-click open it there strands an invisible modal that only
+	// surfaces when you next open the Save menu.
+	if allowRename && ih.handleSaveRowRename(px, py, panelW) {
+		return
+	}
+	// Mouse hover selection (row within page).
+	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
+	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		activate()
+	}
+	if allowRename && inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		ih.openSaveRename(ih.game.selectedSaveRow())
+	}
+	// Mouse click activation
+	if ih.game.consumeLeftClickIn(px, py+saveMenuListTopY-6, px+panelW, py+saveMenuListTopY-6+saveRowsPerPage*saveMenuRowPitch) {
+		activate()
+	}
+}
+
+// closeSaveRename dismisses the save-rename modal and clears its scratch state.
+func (g *MMGame) closeSaveRename() {
+	g.saveRenameOpen = false
+	g.saveRenameSlot = -1
+	g.saveRenameInput = ""
+}
+
+// openSaveLoad switches the main menu into a save/load slot list, resetting the
+// cursor to the first row of the first page. Single source for the "open a slot
+// list" state so a new reset field is added in one place.
+func (g *MMGame) openSaveLoad(mode MainMenuMode) {
+	g.mainMenuMode = mode
+	g.slotSelection = 0
+	g.savePage = 0
+}
+
+// openSaveRename opens the rename dialog for a manual save row, rejecting the
+// Autosave slot and empty slots with a message.
+func (ih *InputHandler) openSaveRename(row int) {
+	if saveRowIsAutosave(row) {
+		ih.game.AddCombatMessage("The Autosave slot cannot be renamed")
+		return
+	}
+	sum := GetSaveRowSummary(row)
+	if !sum.Exists {
+		ih.game.AddCombatMessage("No save in slot to rename")
+		return
+	}
+	ih.game.saveRenameOpen = true
+	ih.game.saveRenameSlot = row
+	ih.game.saveRenameInput = sum.Name
+}
+
+// handleSaveRowRename opens rename on a right-clicked row in the Save menu.
+// Returns true if a row was clicked (caller should stop further input this frame).
+func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
+	for i := 0; i < saveRowsPerPage; i++ {
+		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
+		if !ih.game.consumeRightClickIn(box.x1, box.y1, box.x2, box.y2) {
+			continue
 		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
-			if ih.game.slotSelection < 4 {
-				ih.game.slotSelection++
-			}
-		}
-		ih.mainMenuHoverSelect(mouseX, mouseY, 5, panelW, panelH, 56)
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
-			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Load failed")
-			} else {
-				ih.game.AddCombatMessage("Loaded from slot")
-				ih.game.mainMenuOpen = false
-				ih.game.mainMenuMode = MenuMain
-			}
-		}
-		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
-			if err := ih.game.LoadGameFromFile(slotPath(ih.game.slotSelection)); err != nil {
-				ih.game.AddCombatMessage("Load failed")
-			} else {
-				ih.game.AddCombatMessage("Loaded from slot")
-				ih.game.mainMenuOpen = false
-				ih.game.mainMenuMode = MenuMain
-			}
-		}
+		ih.game.slotSelection = i
+		ih.openSaveRename(ih.game.savePage*saveRowsPerPage + i)
+		return true
+	}
+	return false
+}
+
+// navigateSavePage handles nav in the save/load menus: Up/Down moves the cursor
+// within the current page, Left/Right (keys) or the on-screen Prev/Next buttons
+// (a strip below the panel) flip between pages. The button rects are shared with
+// the draw side via savePagerButtonRects.
+func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
+	g := ih.game
+	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && g.slotSelection > 0 {
+		g.slotSelection--
+	}
+	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
+		g.slotSelection++
+	}
+	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
+	prev := inpututil.IsKeyJustPressed(ebiten.KeyLeft) ||
+		(g.savePage > 0 && g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2))
+	next := inpututil.IsKeyJustPressed(ebiten.KeyRight) ||
+		(g.savePage < savePageCount-1 && g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2))
+	if prev && g.savePage > 0 {
+		g.savePage--
+	}
+	if next && g.savePage < savePageCount-1 {
+		g.savePage++
+	}
+}
+
+// doSaveToSelectedRow writes the manual slot under the cursor. The Autosave slot
+// is load-only and refuses a manual write.
+func (ih *InputHandler) doSaveToSelectedRow() {
+	g := ih.game
+	row := g.selectedSaveRow()
+	if saveRowIsAutosave(row) {
+		g.AddCombatMessage("Autosave is written automatically - pick another slot")
+		return
+	}
+	if err := g.SaveGameToFile(saveRowPath(row)); err != nil {
+		g.AddCombatMessage("Save failed")
+	} else {
+		g.AddCombatMessage("Saved to " + saveRowLabel(row))
+		g.mainMenuMode = MenuMain
+	}
+}
+
+// doLoadFromSelectedRow loads the slot under the cursor (Autosave included).
+func (ih *InputHandler) doLoadFromSelectedRow() {
+	g := ih.game
+	row := g.selectedSaveRow()
+	if sum := GetSaveRowSummary(row); !sum.Exists {
+		g.AddCombatMessage("No save in that slot")
+		return
+	}
+	if err := g.LoadGameFromFile(saveRowPath(row)); err != nil {
+		g.AddCombatMessage("Load failed")
+	} else {
+		g.AddCombatMessage("Loaded " + saveRowLabel(row))
+		g.mainMenuOpen = false
+		g.mainMenuMode = MenuMain
 	}
 }
 
@@ -662,32 +739,24 @@ func (ih *InputHandler) handleSaveRenameInput() {
 		} else {
 			ih.game.AddCombatMessage("Save renamed")
 		}
-		ih.game.saveRenameOpen = false
-		ih.game.saveRenameSlot = -1
-		ih.game.saveRenameInput = ""
+		ih.game.closeSaveRename()
 	}
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
-		ih.game.saveRenameOpen = false
-		ih.game.saveRenameSlot = -1
-		ih.game.saveRenameInput = ""
-	}
+	// Escape is consumed by the top-level ESC handler (it cancels this modal
+	// before backing out of the submenu), so it never reaches here.
 }
 
-// mainMenuHoverSelect updates selection based on mouse hover over the menu panel
-// panelW/H must match ui.drawMainMenu sizes (300x220), startY is the first option baseline.
-func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY int) {
+// mainMenuHoverSelect updates selection based on mouse hover over a vertical
+// menu list. panelW/H and (startY, pitch) must match the drawn list; row boxes
+// come from menuRowRect, the same geometry the draw code uses, so hover and
+// render can't drift.
+func (ih *InputHandler) mainMenuHoverSelect(mouseX, mouseY, count, panelW, panelH, startY, pitch int) {
 	w := ih.game.config.GetScreenWidth()
 	h := ih.game.config.GetScreenHeight()
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
-	// Option rectangles: x in [px+16, px+panelW-16], y baseline at startY+i*32; highlight box spans y-4..y-4+28
 	for i := 0; i < count; i++ {
-		y := py + startY + i*32
-		x1 := px + 16
-		x2 := px + panelW - 16
-		y1 := y - 4
-		y2 := y - 4 + 28
-		if mouseX >= x1 && mouseX < x2 && mouseY >= y1 && mouseY < y2 {
+		box, _, _ := menuRowRect(px, py, panelW, startY, pitch, i)
+		if mouseX >= box.x1 && mouseX < box.x2 && mouseY >= box.y1 && mouseY < box.y2 {
 			if ih.game.mainMenuMode == MenuMain {
 				ih.game.mainMenuSelection = i
 			} else {
@@ -849,11 +918,21 @@ func (ih *InputHandler) handleCombatInput() {
 	// No attacks/casts/shots while running — you must stop sprinting to act.
 	running := ih.isRunning()
 
-	// Space also picks up ground loot — works while sprinting, cooldown-independent.
+	// Space also picks up ground loot — works while sprinting. The input cooldown
+	// paces held-Space to one container per press, so a fanned pile of bags is
+	// picked up one at a time rather than vanishing in a few frames.
 	if spaceHeld && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			return
 		}
+	}
+	// Space interacts with the NPC in focus (centred + adjacent tile). Loot at
+	// the feet wins above so an NPC can never block a pickup. Fresh press only —
+	// a held Space keeps its combat meaning.
+	if spaceJust && ih.game.spellInputCooldown == 0 && ih.tryFocusedNPCInteraction() {
+		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		return
 	}
 	if running {
 		ih.attackHoldFrames = 0
@@ -962,9 +1041,6 @@ func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	ih.game.advanceRTActor(kind)
 }
 
-// castSlottedSpell casts the selected character's slotted spell (F key). Heal
-// spells are aimed with the mouse; everything else casts directly. Applies the
-// real-time cooldown only if the cast actually fired.
 // announceCastShortfall explains a refused explicit cast (F) for the member
 // the player had selected: not enough SP for the slotted spell/trap. Uses the
 // LIVE trap cost (saved items may carry stale SpellCost).
@@ -993,34 +1069,48 @@ func (ih *InputHandler) announceCastShortfall(idx int) {
 	}
 }
 
-func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+// castSlottedSpellResolved performs the slotted-spell cast the F key triggers in
+// both modes: a heal spell aims at the mouse-picked party member, anything else
+// casts directly. Reports whether it fired and the spell's ID for cooldown lookup.
+// The caller commits the result per mode (RT cooldown vs TB action slot).
+func (ih *InputHandler) castSlottedSpellResolved(sel *character.MMCharacter) (bool, spells.SpellID) {
 	spell, hasSpell := sel.Equipment[items.SlotSpell]
 	if !hasSpell {
-		return
+		return false, ""
 	}
 	spellID := spells.SpellID(spell.SpellEffect)
 	if spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther {
 		mouseX, mouseY := ebiten.CursorPosition()
 		targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-		if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
-			ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
-		}
-		return
+		return ih.game.combat.CastEquippedHealOnTarget(targetCharIndex), spellID
 	}
-	if ih.game.combat.CastEquippedSpell() {
+	return ih.game.combat.CastEquippedSpell(), spellID
+}
+
+// castSlottedSpell casts the selected character's slotted spell (F key) and, in
+// real-time mode, applies the cooldown only if the cast actually fired.
+func (ih *InputHandler) castSlottedSpell(sel *character.MMCharacter) {
+	if fired, spellID := ih.castSlottedSpellResolved(sel); fired {
 		ih.commitRTAction(rtActCast, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
 
-// castBestHeal casts the selected character's strongest known heal (C key),
-// aimed at the party member under the mouse (or self). No-op if they know none.
-func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+// castBestHealResolved performs the best-heal cast the C/H key triggers in both
+// modes: aim at the party member under the mouse, falling back to the selected
+// character. Reports whether it fired and the heal spell's ID for cooldown lookup.
+func (ih *InputHandler) castBestHealResolved() (bool, spells.SpellID) {
 	mouseX, mouseY := ebiten.CursorPosition()
 	targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
 	if targetCharIndex < 0 {
 		targetCharIndex = ih.game.selectedChar
 	}
-	if cast, spellID := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+	return ih.game.combat.CastBestHealOnTarget(targetCharIndex)
+}
+
+// castBestHeal casts the selected character's strongest known heal (C key),
+// aimed at the party member under the mouse (or self). No-op if they know none.
+func (ih *InputHandler) castBestHeal(sel *character.MMCharacter) {
+	if cast, spellID := ih.castBestHealResolved(); cast {
 		ih.commitRTAction(rtActHeal, ih.game.combat.SpellCooldownFrames(sel, spellID))
 	}
 }
@@ -1044,6 +1134,7 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 		return
 	}
 	ih.game.selectedChar = target
+	ih.game.parkSelection = true // park here even if KO (use their potions)
 }
 
 // handleUIInput processes UI-related input
@@ -1056,62 +1147,22 @@ func (ih *InputHandler) handleUIInput() {
 	if ih.apostropheKeyTracker.IsKeyJustPressed(ebiten.KeyApostrophe) {
 		ih.game.showCollisionBoxes = !ih.game.showCollisionBoxes
 	}
+	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
+	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
 	if ih.menuKeyTracker.IsKeyJustPressed(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabSpellbook {
-				ih.game.menuOpen = false // Close menu if already on Spellbook tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				// Switching into the spellbook: clear highlight until user picks one.
-				ih.game.currentTab = TabSpellbook
-				ih.game.selectedSpell = -1
-			}
-		} else {
-			ih.openTabbedMenu(TabSpellbook)
-		}
+		ih.toggleTabbedMenu(TabSpellbook)
 	}
 	if ih.inventoryKeyTracker.IsKeyJustPressed(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabInventory {
-				ih.game.menuOpen = false // Close menu if already on Inventory tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabInventory
-			}
-		} else {
-			ih.openTabbedMenu(TabInventory)
-		}
+		ih.toggleTabbedMenu(TabInventory)
 	}
-	// Characters sheet is on P ('party') — C now casts the best heal in combat.
 	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabCharacters {
-				ih.game.menuOpen = false // Close menu if already on Characters tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabCharacters
-			}
-		} else {
-			ih.openTabbedMenu(TabCharacters)
-		}
+		ih.toggleTabbedMenu(TabCharacters)
 	}
 	if ih.questsKeyTracker.IsKeyJustPressed(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
-		if ih.game.menuOpen {
-			if ih.game.currentTab == TabQuests {
-				ih.game.menuOpen = false // Close menu if already on Quests tab
-				ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-			} else {
-				ih.game.currentTab = TabQuests
-			}
-		} else {
-			ih.openTabbedMenu(TabQuests)
-		}
+		ih.toggleTabbedMenu(TabQuests)
 	}
-
-	// Handle NPC interaction with T key
-	if ih.interactKeyTracker.IsKeyJustPressed(ebiten.KeyT) && ih.game.spellInputCooldown == 0 {
-		ih.handleNPCInteraction()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	if ih.cardsKeyTracker.IsKeyJustPressed(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
+		ih.toggleTabbedMenu(TabCards)
 	}
 
 	// Toggle turn-based mode with Tab key
@@ -1146,6 +1197,7 @@ func (ih *InputHandler) movePlayer(dx, dy float64) {
 		return
 	}
 	cs.UpdateEntity("player", cam.X, cam.Y)
+	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 }
@@ -1187,6 +1239,10 @@ func (ih *InputHandler) moveSpeed() float64 {
 	if ih.isRunning() {
 		speed *= ih.game.config.GetRunMultiplier()
 	}
+	// Monster cards (e.g. the Thief Bug Card) speed up party travel.
+	if pct := ih.game.cardMoveSpeedPct(); pct != 0 {
+		speed *= 1 + float64(pct)/100
+	}
 	return speed
 }
 
@@ -1205,19 +1261,18 @@ func (ih *InputHandler) checkTeleporter() {
 		return // No teleportation occurred
 	}
 
-	// Handle map transition if needed
+	// Cross-map teleport: switch, then land north-facing + autosave (same arrival
+	// path as enter_map portals).
 	if targetMapKey != "" && world.GlobalWorldManager != nil && targetMapKey != world.GlobalWorldManager.CurrentMapKey {
 		ih.switchToMap(targetMapKey)
-		// Cross-location teleport: face north on arrival for a consistent
-		// orientation (same rule as enter_map portals). Same-map teleporters
-		// keep the party's current heading.
-		ih.game.camera.Angle = AngleNorth
+		ih.finishMapArrival(newX, newY, AngleNorth)
+		return
 	}
 
+	// Same-map teleport: keep the party's heading, no map-change autosave.
 	ih.game.camera.X = newX
 	ih.game.camera.Y = newY
 	ih.game.collisionSystem.UpdateEntity("player", newX, newY)
-	// Keep turn-based facing cardinal after a teleport.
 	if ih.game.turnBasedMode {
 		ih.game.snapToCardinalDirection()
 	}
@@ -1274,12 +1329,14 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
-	// Bound undead can't follow across maps: they crumble as the party departs,
+	// Bound UNDEAD can't follow across maps: they crumble as the party departs,
 	// granting their XP but no loot or gold. (Pacified mobs aren't yours — they're
-	// simply left behind.)
+	// simply left behind.) Card-collection allies (SummonedBy == cardSummonOwner)
+	// are exempt: they're permanent summons that persist on their map (re-summoned
+	// fresh on the new one via the proc), not disposable spell-bound undead.
 	if ih.game.world != nil && ih.game.combat != nil {
 		for _, m := range ih.game.world.Monsters {
-			if m != nil && m.Bound && m.IsAlive() {
+			if m != nil && m.Bound && m.IsAlive() && m.SummonedBy != cardSummonOwner {
 				ih.game.combat.awardExperienceOnly(m)
 				ih.game.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
 				m.HitPoints = 0
@@ -1316,6 +1373,30 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 		ih.game.gameLoop.renderer.precomputeFloorColorCache()
 		ih.game.gameLoop.renderer.buildTransparentSpriteCache()
 	}
+
+	// NOTE: do NOT autosave here. The player's position on the new map is set by
+	// finishMapArrival AFTER this returns; autosaving here would snapshot the OLD
+	// map's coordinates on the new map (e.g. the party jammed into a border wall).
+}
+
+// finishMapArrival is the single "arrived on a new map" path: it places the
+// party at (x,y,angle), re-registers collision, snaps to a cardinal heading in
+// turn-based mode, and autosaves. Keeping position + autosave together here is
+// what guarantees the autosave can't capture stale pre-switch coordinates — the
+// ordering invariant lives in one place instead of being copy-pasted per caller.
+func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
+	ih.game.camera.X = x
+	ih.game.camera.Y = y
+	ih.game.camera.Angle = angle
+	if ih.game.collisionSystem != nil {
+		ih.game.collisionSystem.UpdateEntity("player", x, y)
+	}
+	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
+	// would otherwise leave the party at 45° on the new map.
+	if ih.game.turnBasedMode {
+		ih.game.snapToCardinalDirection()
+	}
+	ih.game.Autosave()
 }
 
 // checkDeepWater checks if player stepped on deep water and handles Water Breathing teleportation
@@ -1359,9 +1440,7 @@ func (ih *InputHandler) checkDeepWater() {
 
 		// Teleport to center of water map
 		centerX, centerY := TileCenterFromTile(25, 25, tileSize)
-		ih.game.camera.X = centerX
-		ih.game.camera.Y = centerY
-		ih.game.collisionSystem.UpdateEntity("player", centerX, centerY)
+		ih.finishMapArrival(centerX, centerY, ih.game.camera.Angle)
 
 		fmt.Println("Entered underwater realm with Water Breathing active!")
 	} else {
@@ -1427,23 +1506,41 @@ func (ih *InputHandler) handleMouseInput() {
 		if targetCharIndex >= 0 {
 			if ih.game.consumeLeftClick() {
 				ih.game.selectedChar = targetCharIndex
+				ih.game.parkSelection = true // park here even if KO (use their potions)
 			}
 		}
 	}
 
-	// Ground container pickup (only during gameplay, no overlays)
-	if !ih.game.menuOpen && !ih.game.mainMenuOpen && !ih.game.showHighScores && !ih.game.mapOverlayOpen && !ih.game.dialogActive && !ih.game.statPopupOpen && ih.game.currentLevelUpChoice() == nil {
-		pickupRange := ih.game.groundContainerPickupRange()
+	// World-object clicks (only during gameplay, no overlays). Containers get
+	// first claim — they're small and usually in front of whoever dropped them.
+	if ih.game.worldClickAllowed() {
 		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
+			pickupRange := ih.game.groundContainerPickupRange()
 			if idx := ih.game.findGroundContainerIndexAtScreen(clickX, clickY, pickupRange); idx >= 0 {
 				ih.game.consumeLeftClick()
 				ih.game.pickupGroundContainerAt(idx)
+				return
+			}
+			if npc, inRange := ih.game.findNPCAtScreen(clickX, clickY); npc != nil {
+				ih.game.consumeLeftClick()
+				if inRange {
+					ih.openNPCInteraction(npc)
+				} else {
+					ih.game.AddCombatMessage(fmt.Sprintf("%s is too far away.", npc.Name))
+				}
 				return
 			}
 		}
 	}
 
 	// Mouse state is updated once per frame in updateMouseState().
+}
+
+// worldClickAllowed reports whether a click can reach world objects (no menu,
+// dialog or overlay is swallowing the game view).
+func (g *MMGame) worldClickAllowed() bool {
+	return !g.menuOpen && !g.mainMenuOpen && !g.showHighScores && !g.mapOverlayOpen &&
+		!g.dialogActive && !g.statPopupOpen && g.currentLevelUpChoice() == nil
 }
 
 // getPartyMemberUnderMouse returns the index of the party member under the mouse cursor
@@ -1512,6 +1609,27 @@ func (ih *InputHandler) getPartyMemberUnderMouse(mouseX, mouseY int) int {
 	}
 
 	return -1
+}
+
+// toggleTabbedMenu switches the tabbed menu to `tab`: opens it if closed, hops
+// to `tab` if open on another, or closes the menu (starting the spell-input
+// cooldown so the same key doesn't instantly reopen) if already on it. One body
+// for the M/I/P/J/K tab keys.
+func (ih *InputHandler) toggleTabbedMenu(tab MenuTab) {
+	g := ih.game
+	if !g.menuOpen {
+		ih.openTabbedMenu(tab) // resets the spellbook highlight itself
+		return
+	}
+	if g.currentTab == tab {
+		g.menuOpen = false
+		g.spellInputCooldown = g.config.UI.SpellInputCooldown
+		return
+	}
+	g.currentTab = tab
+	if tab == TabSpellbook {
+		g.selectedSpell = -1 // clear highlight until the user picks one
+	}
 }
 
 // openTabbedMenu opens the tabbed menu with the specified tab
@@ -1620,19 +1738,25 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 }
 
-// handleNPCInteraction starts a dialog with the nearest NPC within
-// interaction range. Mirrors the HUD hint (GetNearestInteractableNPC) so the
-// player always talks to the same NPC they see prompted.
-func (ih *InputHandler) handleNPCInteraction() {
-	npc := ih.game.GetNearestInteractableNPC()
+// tryFocusedNPCInteraction opens dialog with the NPC in interact focus
+// (centred on screen + within an adjacent tile). Space's first priority.
+func (ih *InputHandler) tryFocusedNPCInteraction() bool {
+	npc := ih.game.focusedNPC
 	if npc == nil {
-		return
+		return false
 	}
+	ih.openNPCInteraction(npc)
+	return true
+}
+
+// openNPCInteraction starts a dialog with the given NPC — the single entry
+// point shared by the T key, Space-in-focus, and mouse click paths.
+func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
 	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
 	if npc.RejectsLich && ih.game.party.HasLich() {
-		ih.game.AddCombatMessage("The tower's wards flare against the undead — it will not answer a Lich.")
+		ih.game.AddCombatMessage("The tower's wards flare against the undead - it will not answer a Lich.")
 		return
 	}
 	// Credit any of this NPC's kill quests whose targets are already gone, so the
@@ -1654,6 +1778,7 @@ func (ih *InputHandler) handleNPCInteraction() {
 	ih.game.merchantBuyPage = 0
 	ih.game.merchantSellPage = 0
 	ih.game.spellTraderPage = 0
+	ih.game.cardCollectorInvPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
 	if npcHasSpellTrading(npc) {
@@ -1761,6 +1886,18 @@ func (ih *InputHandler) navigateSpellSelectionDown(spellKeys []string) {
 	}
 }
 
+// npcShopLine returns the dialog NPC's configured line for a shop event (with the
+// buyer/spell vars filled in), or `fallback` when the NPC defines none. `pick`
+// selects the relevant field from the NPC's dialogue data.
+func (ih *InputHandler) npcShopLine(pick func(*character.NPCDialogue) string, vars npcDialogVars, fallback string) string {
+	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil {
+		if custom := pick(ih.game.dialogNPC.DialogueData); custom != "" {
+			return formatNPCDialogue(custom, vars)
+		}
+	}
+	return fallback
+}
+
 // purchaseSelectedSpell attempts to purchase the selected spell for the selected character
 func (ih *InputHandler) purchaseSelectedSpell() {
 	if ih.game.dialogNPC == nil || ih.game.selectedSpellKey == "" {
@@ -1774,35 +1911,21 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 		return
 	}
 
+	vars := npcDialogVars{Name: selectedChar.Name, Spell: spellData.Name, Cost: spellData.Cost}
+
 	// Check if character already knows this spell
 	if characterKnowsSpellByName(selectedChar, spellData.Name) {
-		msg := "Already known."
-		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.AlreadyKnown != "" {
-			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.AlreadyKnown, npcDialogVars{
-				Name:  selectedChar.Name,
-				Spell: spellData.Name,
-				Cost:  spellData.Cost,
-			})
-		} else {
-			msg = fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)
-		}
-		ih.game.AddCombatMessage(msg)
+		ih.game.AddCombatMessage(ih.npcShopLine(
+			func(d *character.NPCDialogue) string { return d.AlreadyKnown }, vars,
+			fmt.Sprintf("%s already knows %s!", selectedChar.Name, spellData.Name)))
 		return
 	}
 
 	// Check if character has enough gold
 	if ih.game.party.Gold < spellData.Cost {
-		msg := "Not enough gold."
-		if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.InsufficientGold != "" {
-			msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.InsufficientGold, npcDialogVars{
-				Name:  selectedChar.Name,
-				Spell: spellData.Name,
-				Cost:  spellData.Cost,
-			})
-		} else {
-			msg = fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)
-		}
-		ih.game.AddCombatMessage(msg)
+		ih.game.AddCombatMessage(ih.npcShopLine(
+			func(d *character.NPCDialogue) string { return d.InsufficientGold }, vars,
+			fmt.Sprintf("Need %d gold to learn %s", spellData.Cost, spellData.Name)))
 		return
 	}
 
@@ -1820,15 +1943,9 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 	}
 	ih.game.party.Gold -= spellData.Cost
 
-	msg := fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)
-	if ih.game.dialogNPC != nil && ih.game.dialogNPC.DialogueData != nil && ih.game.dialogNPC.DialogueData.Success != "" {
-		msg = formatNPCDialogue(ih.game.dialogNPC.DialogueData.Success, npcDialogVars{
-			Name:  selectedChar.Name,
-			Spell: spellData.Name,
-			Cost:  spellData.Cost,
-		})
-	}
-	ih.game.AddCombatMessage(msg)
+	ih.game.AddCombatMessage(ih.npcShopLine(
+		func(d *character.NPCDialogue) string { return d.Success }, vars,
+		fmt.Sprintf("%s learned %s!", selectedChar.Name, spellData.Name)))
 }
 
 // addSpellToCharacter teaches a shop spell; reports whether the spellbook
@@ -1853,6 +1970,44 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// Dialog coordinates (single source: npcDialogLayout, same as the UI)
 	dlg := npcDialogLayout(ih.game)
 	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
+
+	// Card collector — double-click a slotted card to take it back, a loose card
+	// to slot it (matches the inventory's equip/unequip double-click). Reset after
+	// each action since the lists shift underneath the cursor.
+	if npcIsCardCollector(ih.game.dialogNPC) {
+		for slot := 0; slot < MaxCardSlots; slot++ {
+			x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("card_slot", slot) {
+					ih.game.removeCardToInventory(slot)
+					ih.resetDialogDoubleClick()
+				}
+				return
+			}
+		}
+		cardIdx := ih.game.inventoryCardIndices()
+		// Match the renderer's pagination: only the current page's loose cards
+		// are clickable, mapping page-slot -> inventory index.
+		invStart := ih.game.cardCollectorInvPage * cardInvMaxShown
+		for slot := 0; slot < cardInvMaxShown; slot++ {
+			i := invStart + slot
+			if i >= len(cardIdx) {
+				break
+			}
+			inv := cardIdx[i]
+			x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
+			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
+				if ih.dialogDoubleClick("card_inv", inv) {
+					if !ih.game.placeCardFromInventory(inv) {
+						ih.game.AddCombatMessage("The collection is full (8 cards).")
+					}
+					ih.resetDialogDoubleClick()
+				}
+				return
+			}
+		}
+		return
+	}
 
 	// Spell trader — portrait strip + icon grid.
 	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
@@ -1993,7 +2148,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 							return
 						}
 						price := ih.game.merchantSellPrice(base) // Merchant skill markup
-						ih.game.party.Gold += price
+						ih.game.awardGold(price)
 						ih.game.party.RemoveItem(idx)
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 						ih.resetDialogDoubleClick()
@@ -2141,32 +2296,22 @@ func (ih *InputHandler) handleTurnBasedInput() {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
+		if ih.tryFocusedNPCInteraction() {
+			// Dialog opens; talking costs no action slot.
+			ih.game.spellInputCooldown = ih.actionCooldown(15)
+			return
+		}
 		if acted, _ := ih.game.combat.SmartAttack(); acted {
 			ih.game.consumeSelectedCharAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
-		spell, hasSpell := selected.Equipment[items.SlotSpell]
-		if hasSpell && (spell.SpellEffect == items.SpellEffectHealSelf || spell.SpellEffect == items.SpellEffectHealOther) {
-			mouseX, mouseY := ebiten.CursorPosition()
-			targetCharIndex := ih.resolveHealTarget(spell, mouseX, mouseY)
-			if ih.game.combat.CastEquippedHealOnTarget(targetCharIndex) {
-				ih.game.consumeSelectedCharAction()
-			}
-			ih.game.spellInputCooldown = ih.actionCooldown(15)
-		} else {
-			if ih.game.combat.CastEquippedSpell() {
-				ih.game.consumeSelectedCharAction()
-			}
-			ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
+		if fired, _ := ih.castSlottedSpellResolved(selected); fired {
+			ih.game.consumeSelectedCharAction()
 		}
+		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
-		mouseX, mouseY := ebiten.CursorPosition()
-		targetCharIndex := ih.getPartyMemberUnderMouse(mouseX, mouseY)
-		if targetCharIndex < 0 {
-			targetCharIndex = ih.game.selectedChar
-		}
-		if cast, _ := ih.game.combat.CastBestHealOnTarget(targetCharIndex); cast {
+		if cast, _ := ih.castBestHealResolved(); cast {
 			ih.game.consumeSelectedCharAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
@@ -2252,6 +2397,7 @@ func (ih *InputHandler) moveTurnBasedInDirection(deltaX, deltaY int) bool {
 	ih.game.camera.X = targetX
 	ih.game.camera.Y = targetY
 	ih.game.collisionSystem.UpdateEntity("player", targetX, targetY)
+	ih.game.maybeCardMoveBurst() // Gorilla Titan Card: chance to burst nearby foes on a step (parity with RT)
 	ih.checkTeleporter()
 	ih.checkDeepWater()
 	return true
@@ -2560,6 +2706,11 @@ func (ih *InputHandler) executeEncounterChoice() {
 		ih.game.rosterScreenOpen = true
 		ih.game.rosterSelectedActive = -1
 
+	case "manage_stash":
+		ih.game.dialogActive = false
+		ih.game.dialogNPC = nil
+		ih.game.openStash()
+
 	default:
 		// Unknown action - just close dialog
 		ih.game.dialogActive = false
@@ -2696,7 +2847,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 			return
 		}
 		if err := quests.GlobalQuestManager.ActivateQuest(questID); err != nil {
-			g.AddCombatMessage("The trial is already underway — return when the Lich King is slain.")
+			g.AddCombatMessage("The trial is already underway - return when the Lich King is slain.")
 			return
 		}
 		g.AddCombatMessage("Trial accepted: slay the Lich King, then return to the tower.")
@@ -2767,7 +2918,7 @@ func (ih *InputHandler) handleTurnInQuest(questID string) {
 	// Generic turn-in: must be done, then pay out and conclude the NPC.
 	quest := g.questManager.GetQuest(questID)
 	if quest == nil || !quest.Completed {
-		g.AddCombatMessage("That task isn't finished yet — return when it's done.")
+		g.AddCombatMessage("That task isn't finished yet - return when it's done.")
 		return
 	}
 	if g.claimQuestReward(questID) && npc != nil {
@@ -2788,7 +2939,7 @@ func (ih *InputHandler) handleCloseValve(questID string) {
 	}
 	q := g.questManager.GetQuest(questID)
 	if q == nil || q.Status != quests.QuestStatusActive {
-		g.AddCombatMessage("The valve won't budge — no reason to shut it yet.")
+		g.AddCombatMessage("The valve won't budge - no reason to shut it yet.")
 		return
 	}
 	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
@@ -2828,7 +2979,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 		g.party.AddItem(it)
 	}
 	if gold > 0 {
-		g.party.Gold += gold
+		g.awardGold(gold)
 	}
 	parts := make([]string, 0, len(loot)+1)
 	if gold > 0 {
@@ -2843,7 +2994,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 	completed := g.questManager.OnInteract(q.Definition.TargetMonster)
 	g.AddCombatMessage(fmt.Sprintf("Sword rack cleared. (%s)", q.GetProgressString()))
 	for _, cq := range completed {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep — the Warlord wakes.", cq.Definition.Name))
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' complete! A cold wind stirs the keep - the Warlord wakes.", cq.Definition.Name))
 	}
 }
 
@@ -2983,18 +3134,7 @@ func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
 		x, y = currentWorld.GetStartingPosition()
 		angle = AngleNorth
 	}
-	ih.game.camera.X = x
-	ih.game.camera.Y = y
-	ih.game.camera.Angle = angle
-	if ih.game.collisionSystem != nil {
-		ih.game.collisionSystem.UpdateEntity("player", x, y)
-	}
-	// Turn-based facing must be cardinal. A restored return-pose angle can be a
-	// free real-time heading (diagonal), which would leave the party at 45° on
-	// the new map — snap it to the nearest cardinal in TB.
-	if ih.game.turnBasedMode {
-		ih.game.snapToCardinalDirection()
-	}
+	ih.finishMapArrival(x, y, angle)
 }
 
 // startEncounter initiates combat encounter with bandits

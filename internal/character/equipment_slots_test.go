@@ -150,6 +150,46 @@ func TestTwoRingsUseBothSlots(t *testing.T) {
 	}
 }
 
+// TestMoveRingBetweenFingers covers dragging an already-equipped ring from one
+// finger to the other: to an empty finger it relocates; onto an occupied finger
+// it swaps. Same-slot and empty-source moves are no-ops.
+func TestMoveRingBetweenFingers(t *testing.T) {
+	c := &MMCharacter{Name: "TestMage", Equipment: make(map[items.EquipSlot]items.Item)}
+	a := items.Item{Name: "Ring A", Type: items.ItemAccessory}
+	b := items.Item{Name: "Ring B", Type: items.ItemAccessory}
+
+	// Relocate to an empty finger.
+	c.Equipment[items.SlotRing1] = a
+	if !c.MoveEquipmentSlot(items.SlotRing1, items.SlotRing2) {
+		t.Fatal("move to an empty finger should succeed")
+	}
+	if _, ok := c.Equipment[items.SlotRing1]; ok {
+		t.Error("SlotRing1 should be empty after relocating")
+	}
+	if got := c.Equipment[items.SlotRing2]; got.Name != "Ring A" {
+		t.Errorf("SlotRing2 = %q, want Ring A", got.Name)
+	}
+
+	// Move onto an occupied finger swaps the two.
+	c.Equipment[items.SlotRing1] = b
+	if !c.MoveEquipmentSlot(items.SlotRing1, items.SlotRing2) {
+		t.Fatal("move onto an occupied finger should succeed (swap)")
+	}
+	if c.Equipment[items.SlotRing1].Name != "Ring A" || c.Equipment[items.SlotRing2].Name != "Ring B" {
+		t.Errorf("swap failed: r1=%q r2=%q, want Ring A / Ring B",
+			c.Equipment[items.SlotRing1].Name, c.Equipment[items.SlotRing2].Name)
+	}
+
+	// No-ops.
+	if c.MoveEquipmentSlot(items.SlotRing2, items.SlotRing2) {
+		t.Error("same-slot move should be a no-op")
+	}
+	empty := &MMCharacter{Equipment: make(map[items.EquipSlot]items.Item)}
+	if empty.MoveEquipmentSlot(items.SlotRing1, items.SlotRing2) {
+		t.Error("moving from an empty slot should be a no-op")
+	}
+}
+
 // TestTwoRingsStackBonuses: both worn rings contribute — magic_ring's
 // intellect/personality scaling-divisor bonuses sum across SlotRing1+SlotRing2,
 // so two rings double a single ring's bonus (calculateEquipmentBonuses ranges
@@ -223,5 +263,48 @@ func TestEquipRejectsConsumableAndEmptyUnequip(t *testing.T) {
 	}
 	if _, ok := character.UnequipItem(items.SlotHelmet); ok {
 		t.Errorf("UnequipItem should fail on an empty slot")
+	}
+}
+
+func TestEquipItemToSlotRejectsMismatchedSlot(t *testing.T) {
+	character := &MMCharacter{
+		Name: "TestKnight",
+		Skills: map[SkillType]*Skill{
+			SkillLeather: {Mastery: MasteryNovice},
+		},
+		Equipment: make(map[items.EquipSlot]items.Item),
+	}
+
+	helmet := items.CreateItemFromYAML("leather_helmet")
+	if _, _, ok := character.EquipItemToSlot(helmet, items.SlotBoots); ok {
+		t.Errorf("EquipItemToSlot should reject a helmet forced into the boots slot")
+	}
+	if _, occupied := character.Equipment[items.SlotBoots]; occupied {
+		t.Errorf("boots slot must stay empty after the rejected equip")
+	}
+	ring := items.CreateItemFromYAML("magic_ring")
+	if _, _, ok := character.EquipItemToSlot(ring, items.SlotRing2); !ok {
+		t.Errorf("EquipItemToSlot should allow a ring on either finger")
+	}
+}
+
+func TestMoveEquipmentSlotRejectsMismatchedSlot(t *testing.T) {
+	character := &MMCharacter{
+		Name: "TestKnight",
+		Skills: map[SkillType]*Skill{
+			SkillLeather: {Mastery: MasteryNovice},
+		},
+		Equipment: make(map[items.EquipSlot]items.Item),
+	}
+
+	helmet := items.CreateItemFromYAML("leather_helmet")
+	if _, _, ok := character.EquipItem(helmet); !ok {
+		t.Fatalf("setup: equip helmet failed")
+	}
+	if character.MoveEquipmentSlot(items.SlotHelmet, items.SlotBoots) {
+		t.Errorf("MoveEquipmentSlot should refuse moving a helmet onto the boots slot")
+	}
+	if got, ok := character.Equipment[items.SlotHelmet]; !ok || got.Name != "Leather Helmet" {
+		t.Errorf("helmet must stay in its slot after the rejected move")
 	}
 }

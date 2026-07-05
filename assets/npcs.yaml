@@ -119,6 +119,15 @@ npcs:
     dialogue:
       greeting: "Esna's the name - I walk the long routes most folk won't, tray and bedroll and all. I pay fair coin for spare gear. Anything you'd rather not carry?"
 
+  card_collector:
+    name: "Cartomancer Odette"
+    type: "card_collector"
+    description: "A monocled scholar of monster cards, pouches of stamped parchment at every belt-loop, set up under a sun-awning in the dunes"
+    sprite: "card_collector"
+    size_multiplier: 4
+    dialogue:
+      greeting: "Monster cards! Slot one into your collection and the whole party shares its power - or pull one back out. Only I know the trick of pinning them."
+
   quest_elder:
     name: "Warden Sylvaine"
     type: "quest_giver"
@@ -179,7 +188,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Black Dragon Statuette"
-        monster: "dragon"
+        monster: "elder_dragon"
         label: "Black"
 
   dragon_statue_red:
@@ -199,7 +208,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Red Dragon Statuette"
-        monster: "dragon_red"
+        monster: "elder_dragon_red"
         label: "Red"
 
   dragon_statue_green:
@@ -219,7 +228,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Green Dragon Statuette"
-        monster: "dragon_green"
+        monster: "elder_dragon_green"
         label: "Green"
 
   dragon_statue_gold:
@@ -239,7 +248,7 @@ npcs:
           action: "leave"
     summons:
       - statuette: "Gold Dragon Statuette"
-        monster: "dragon_gold"
+        monster: "elder_dragon_gold"
         label: "Gold"
 
   prison:
@@ -286,9 +295,11 @@ npcs:
       choices:
         - text: "Manage roster"
           action: "open_roster"
-        - text: "Rest the night (200 gold)"
+        - text: "Manage your stash"
+          action: "manage_stash"
+        - text: "Rest the night (25 gold)"
           action: "tavern_rest"
-          cost: 200
+          cost: 25
         - text: "Buy rations (+5 food, 1000 gold)"
           action: "buy_food"
           cost: 1000
@@ -301,9 +312,9 @@ npcs:
     type: "encounter"
     description: "A slender spire of pale stone, humming faintly with warded power"
     sprite: "mage_tower"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     transparent: true
-    size_multiplier: 1.0
+    size_multiplier: 2.0
     rejects_lich: true
     dialogue:
       greeting: "A voice rings down from the tower's heights, neither man's nor woman's: 'You feel the wards part for you. Few do. Speak, then - there is a trial here for those bold enough to be raised.'"
@@ -481,8 +492,9 @@ npcs:
     type: "encounter"
     description: "A ruined stone church whose broken doorway descends into darkness"
     sprite: "abandoned_church"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     transparent: true
+    size_multiplier: 2.0
     dialogue:
       greeting: "The abandoned church stands silent among the trees. Villagers say the old priest locked the doors after the crypt bells rang by themselves, and no one who entered after dusk returned unchanged."
       choice_prompt: "What do you want to do?"
@@ -499,6 +511,7 @@ npcs:
     description: "The cold doorway back to the forest"
     sprite: "church_exit"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     dialogue:
       greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
@@ -534,6 +547,7 @@ npcs:
     description: "The stairway back out of the pyramid"
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -552,6 +566,7 @@ npcs:
     description: "Sandstone stairs leading upward"
     sprite: "pyramid_stairs_up"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -570,6 +585,7 @@ npcs:
     description: "Sandstone stairs leading deeper"
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -588,6 +604,7 @@ npcs:
     description: "A narrow stairway toward the sealed sanctum"
     sprite: "pyramid_stairs_down"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -605,9 +622,9 @@ npcs:
     type: "encounter"
     description: "A black stone arch humming with trapped souls"
     sprite: "lich_nexus_entrance"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     transparent: true
-    size_multiplier: 1.0
+    size_multiplier: 2.0
     dialogue:
       greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
       choice_prompt: "What do you want to do?"
@@ -641,9 +658,9 @@ npcs:
     type: "encounter"
     description: "A stone road gate leading toward the sea city of Seabright"
     sprite: "city_exterior"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     transparent: true
-    size_multiplier: 1.0
+    size_multiplier: 2.0
     dialogue:
       greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch - an eastbound ship takes on water for the far isles, and at a muddy slip a shallow-draught riverboat hires crew to push up the green river into the deep jungle."
       choice_prompt: "What do you want to do?"
@@ -667,6 +684,7 @@ npcs:
     description: "A great barred storm-drain venting into the harbor"
     sprite: "culvert_outlet"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -685,6 +703,7 @@ npcs:
     description: "The barred outflow back up to Seabright harbor"
     sprite: "culvert_outlet"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:
@@ -981,6 +1000,7 @@ npcs:
     description: "The main gate back to the forest road"
     sprite: "city_gate"
     render_type: "environment_sprite"
+    wall_mounted: true
     transparent: true
     size_multiplier: 1.0
     dialogue:

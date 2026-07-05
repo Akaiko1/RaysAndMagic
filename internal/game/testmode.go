@@ -50,7 +50,7 @@ func (g *MMGame) ApplyTestArena() {
 		perMemberXP += xp
 		gold += gp
 	}
-	g.party.Gold += gold
+	g.awardGold(gold)
 
 	g.completeTestEncounters()   // shipwreck quest (gold + XP) + church chest reward
 	g.grantSharedXP(perMemberXP) // forest + church kill XP → natural level-ups
@@ -173,7 +173,7 @@ func (g *MMGame) completeShipwreckEncounter() {
 		for i := 0; i < rollCount(em.CountMin, em.CountMax); i++ {
 			mon := monster.NewMonster3DFromConfig(0, 0, em.Type, g.config)
 			xp, gold := g.tallyMonsterKill(mon)
-			g.party.Gold += gold
+			g.awardGold(gold)
 			g.grantSharedXP(xp)
 		}
 	}
@@ -187,7 +187,7 @@ func (g *MMGame) completeShipwreckEncounter() {
 		qm.CompleteEncounterQuest(enc.QuestID)
 	}
 	if enc.Rewards != nil {
-		g.party.Gold += enc.Rewards.Gold
+		g.awardGold(enc.Rewards.Gold)
 		// Encounter completion XP is awarded in full to each member (matching the
 		// live awardEncounterRewards path), not split like per-kill XP.
 		g.grantSharedXP(enc.Rewards.Experience)
@@ -228,7 +228,7 @@ func (g *MMGame) completeChurchEncounter() {
 // encounter reward (including its single optional chest), built from the same
 // reward helpers the live chest-spawn path uses.
 func (g *MMGame) grantMapEncounterReward(r *config.MapEncounterRewardsConfig) {
-	g.party.Gold += r.Gold
+	g.awardGold(r.Gold)
 	g.grantChestConfig(r.TreasureChest)
 	for i := range r.TreasureChests {
 		g.grantChestConfig(&r.TreasureChests[i])
@@ -242,7 +242,7 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 	if c == nil {
 		return
 	}
-	g.party.Gold += c.Gold
+	g.awardGold(c.Gold)
 	for _, it := range randomWeaponRewards(c.RandomWeaponCount) {
 		g.party.AddItem(it)
 	}
@@ -254,7 +254,7 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 	}
 	if c.LootTable != "" {
 		poolItems, poolGold := rollWeightedLootTable(c.LootTable)
-		g.party.Gold += poolGold
+		g.awardGold(poolGold)
 		for _, it := range poolItems {
 			g.party.AddItem(it)
 		}

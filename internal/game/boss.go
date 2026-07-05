@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 
-	"ugataima/internal/character"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -160,13 +159,13 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		add.SummonedBy = m.ID
 		add.QuestProgressIgnored = true // runtime summons never count toward map-clear quests
 		cs.game.registerSpawnedMonster(add)
-		cs.game.updateMonsterCollisionEngagement(add, cs.game.camera.X, cs.game.camera.Y)
+		cs.game.refreshMonsterCollisionSolidity(add, cs.game.camera.X, cs.game.camera.Y)
 		spawned++
 	}
 	if spawned == 0 {
 		return false
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner — retainers rush to its side!", m.Name))
+	cs.game.AddCombatMessage(fmt.Sprintf("%s raises the war-banner - retainers rush to its side!", m.Name))
 	return true
 }
 
@@ -313,8 +312,7 @@ func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
 			member.Name, dmg, member.HitPoints, member.MaxHitPoints))
 		if member.HitPoints == 0 {
-			member.AddCondition(character.ConditionUnconscious)
-			cs.game.AddCombatMessage(fmt.Sprintf("%s falls unconscious!", member.Name))
+			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
 		}
 		cs.game.TriggerDamageBlink(idx)
 		cs.game.TriggerPartyFlame(idx)

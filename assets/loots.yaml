@@ -6,6 +6,9 @@ loots:
     - type: "item"
       key: "wizard_robe"
       chance: 0.05
+    - type: "item"
+      key: "pixie_card"
+      chance: 0.01
 
   dragon:
     - type: "weapon"
@@ -14,6 +17,9 @@ loots:
     - type: "item"
       key: "ruby"
       chance: 0.15
+    - type: "item"
+      key: "dragon_card"
+      chance: 0.01
 
   bandit:
     - type: "item"
@@ -22,11 +28,17 @@ loots:
     - type: "item"
       key: "leather_pants"
       chance: 0.10
+    - type: "item"
+      key: "bandit_card"
+      chance: 0.01
 
   orc:
     - type: "item"
       key: "iron_armor"
       chance: 0.05
+    - type: "item"
+      key: "orc_card"
+      chance: 0.01
 
   forest_orc:
     - type: "item"
@@ -38,6 +50,9 @@ loots:
     - type: "item"
       key: "iron_pants"
       chance: 0.05
+    - type: "item"
+      key: "forest_orc_card"
+      chance: 0.01
 
   treant:
     - type: "item"
@@ -46,6 +61,9 @@ loots:
     - type: "weapon"
       key: "elven_bow"
       chance: 0.05
+    - type: "item"
+      key: "treant_card"
+      chance: 0.01
 
   troll:
     - type: "item"
@@ -54,11 +72,22 @@ loots:
     - type: "weapon"
       key: "steel_mace"
       chance: 0.10
+    - type: "item"
+      key: "troll_card"
+      chance: 0.01
 
   goblin:
     - type: "item"
       key: "goblin_hide_gauntlets"
       chance: 0.05
+    - type: "item"
+      key: "goblin_card"
+      chance: 0.01
+
+  spider:
+    - type: "item"
+      key: "spider_card"
+      chance: 0.01
 
   bear:
     - type: "item"
@@ -67,6 +96,9 @@ loots:
     - type: "item"
       key: "bearpaw_gauntlets"
       chance: 0.06
+    - type: "item"
+      key: "bear_card"
+      chance: 0.01
 
   wolf:
     - type: "item"
@@ -75,21 +107,35 @@ loots:
     - type: "item"
       key: "direpelt_cloak"
       chance: 0.03
+    - type: "item"
+      key: "wolf_card"
+      chance: 0.01
 
   dire_wolf:
     - type: "item"
       key: "lucky_paw"
+      chance: 0.01
+    - type: "item"
+      key: "dire_wolf_card"
       chance: 0.01
 
   alien:
     - type: "weapon"
       key: "alien_blaster"
       chance: 0.06
+    - type: "item"
+      key: "alien_card"
+      chance: 0.01
+
+  forest_spider:
+    - type: "item"
+      key: "forest_spider_card"
+      chance: 0.01
 
   medusa:
     - type: "item"
       key: "medusa_card"
-      chance: 0.005
+      chance: 0.03
     - type: "item"
       key: "serpentscale_gauntlets"
       chance: 0.05
@@ -101,6 +147,9 @@ loots:
     - type: "item"
       key: "tideclasp_gauntlets"
       chance: 0.05
+    - type: "item"
+      key: "octopus_card"
+      chance: 0.01
 
   skeleton:
     - type: "item"
@@ -112,6 +161,9 @@ loots:
     - type: "item"
       key: "chain_pants"
       chance: 0.07
+    - type: "item"
+      key: "skeleton_card"
+      chance: 0.01
 
   # Culverts (Seabright sewers) mobs.
   rat:
@@ -124,6 +176,9 @@ loots:
     - type: "item"
       key: "plague_rat_tail"
       chance: 0.10
+    - type: "item"
+      key: "rat_card"
+      chance: 0.01
 
   bat:
     - type: "item"
@@ -135,6 +190,9 @@ loots:
     - type: "item"
       key: "echo_membrane"
       chance: 0.10
+    - type: "item"
+      key: "bat_card"
+      chance: 0.01
 
   thief_bug:
     - type: "item"
@@ -160,6 +218,9 @@ loots:
     - type: "item"
       key: "diamond"
       chance: 0.08
+    - type: "item"
+      key: "golden_thief_bug_card"
+      chance: 0.01
 
   # Pyramid dungeon mobs.
   mummy:
@@ -169,6 +230,9 @@ loots:
     - type: "item"
       key: "scarab_amulet"
       chance: 0.04
+    - type: "item"
+      key: "mummy_card"
+      chance: 0.01
 
   minotaur:
     - type: "weapon"
@@ -183,6 +247,9 @@ loots:
     - type: "weapon"
       key: "gorehorn_greataxe"
       chance: 0.06
+    - type: "item"
+      key: "minotaur_card"
+      chance: 0.01
 
   isis:
     - type: "item"
@@ -191,6 +258,9 @@ loots:
     - type: "item"
       key: "serpent_diadem"
       chance: 0.04
+    - type: "item"
+      key: "isis_card"
+      chance: 0.01
 
   # Lich Nexus mobs.
   revenant:
@@ -200,6 +270,9 @@ loots:
     - type: "item"
       key: "grave_knight_sigil"
       chance: 0.04
+    - type: "item"
+      key: "revenant_card"
+      chance: 0.01
 
   lich_king:
     - type: "item"
@@ -208,6 +281,9 @@ loots:
     - type: "item"
       key: "soul_phylactery_gem"
       chance: 0.10
+    - type: "item"
+      key: "lich_king_card"
+      chance: 0.01
 
   # Highlands mid-tier mobs (L6-12) — gear + monster-trophy cards.
   puma:
@@ -228,14 +304,20 @@ loots:
     - type: "item"
       key: "accuracy_talisman"
       chance: 0.06
+    - type: "item"
+      key: "elf_archer_card"
+      chance: 0.01
 
   elf_swordsman:
     - type: "item"
       key: "elven_shield"
-      chance: 0.10
+      chance: 0.20
     - type: "item"
       key: "golden_armor"
       chance: 0.05
+    - type: "item"
+      key: "elf_swordsman_card"
+      chance: 0.01
 
   mountain_troll:
     - type: "item"
@@ -250,6 +332,9 @@ loots:
     - type: "item"
       key: "diamond"
       chance: 0.06
+    - type: "item"
+      key: "mountain_troll_card"
+      chance: 0.01
 
   archmage:
     - type: "item"
@@ -278,11 +363,23 @@ loots:
     - type: "item"
       key: "diamond"
       chance: 0.15
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.05
+    - type: "item"
+      key: "dragon_red_card"
+      chance: 0.01
 
   dragon_green:
     - type: "item"
       key: "emerald"
       chance: 0.15
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.01
+    - type: "item"
+      key: "dragon_green_card"
+      chance: 0.01
 
   dragon_gold:
     - type: "item"
@@ -291,6 +388,32 @@ loots:
     - type: "item"
       key: "golden_armor"
       chance: 0.06
+    - type: "weapon"
+      key: "bow_of_hellfire"
+      chance: 0.02
+    - type: "item"
+      key: "dragon_gold_card"
+      chance: 0.01
+
+  elder_dragon:
+    - type: "item"
+      key: "elder_dragon_card"
+      chance: 0.01
+
+  elder_dragon_red:
+    - type: "item"
+      key: "elder_dragon_red_card"
+      chance: 0.01
+
+  elder_dragon_green:
+    - type: "item"
+      key: "elder_dragon_green_card"
+      chance: 0.01
+
+  elder_dragon_gold:
+    - type: "item"
+      key: "elder_dragon_gold_card"
+      chance: 0.01
 
   # --- Japanese Castle (eastern islands) mobs (L12-18) ---
   ashigaru_firelock:
@@ -306,6 +429,9 @@ loots:
     - type: "weapon"
       key: "yari"
       chance: 0.05
+    - type: "item"
+      key: "ashigaru_firelock_card"
+      chance: 0.01
 
   ronin_marksman:
     - type: "weapon"
@@ -320,6 +446,9 @@ loots:
     - type: "weapon"
       key: "naginata"
       chance: 0.05
+    - type: "item"
+      key: "ronin_marksman_card"
+      chance: 0.01
 
   ningyo:
     - type: "item"
@@ -348,6 +477,9 @@ loots:
     - type: "weapon"
       key: "katana"
       chance: 0.05
+    - type: "item"
+      key: "vengeful_ningyo_card"
+      chance: 0.01
 
   old_samurai:
     - type: "weapon"
@@ -367,7 +499,7 @@ loots:
       chance: 0.05
     - type: "item"
       key: "samurai_card"
-      chance: 0.12
+      chance: 0.03
     - type: "item"
       key: "diamond"
       chance: 0.10
@@ -388,6 +520,9 @@ loots:
     - type: "weapon"
       key: "jungle_machete"
       chance: 0.04
+    - type: "item"
+      key: "jungle_goblin_card"
+      chance: 0.01
 
   masked_huntress:
     - type: "weapon"
@@ -413,6 +548,9 @@ loots:
     - type: "weapon"
       key: "serpent_fang"
       chance: 0.02
+    - type: "item"
+      key: "masked_serpent_dancer_card"
+      chance: 0.01
 
   masked_hexer_girl:
     - type: "item"
@@ -427,6 +565,9 @@ loots:
     - type: "item"
       key: "emerald"
       chance: 0.05
+    - type: "item"
+      key: "masked_hexer_girl_card"
+      chance: 0.01
 
   gorilla_titan:
     - type: "item"
@@ -443,7 +584,7 @@ loots:
       chance: 0.10
     - type: "item"
       key: "gorilla_titan_card"
-      chance: 0.05
+      chance: 0.03
 
   jungle_idol:
     - type: "weapon"
@@ -452,6 +593,9 @@ loots:
     - type: "item"
       key: "emerald"
       chance: 0.08
+    - type: "item"
+      key: "jungle_idol_card"
+      chance: 0.01
 
   orc_hero_boss:
     - type: "item"
@@ -471,7 +615,7 @@ loots:
       chance: 0.50
     - type: "item"
       key: "orc_warlord_card"
-      chance: 0.10
+      chance: 0.03
 
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/monster"
+	"ugataima/internal/threading/entities"
 )
 
 type wardMobPositions struct {
@@ -57,8 +58,17 @@ func TestDeepJungleWard_RTApproachRetreatDoesNotMoveBossOrIdol(t *testing.T) {
 	} {
 		placePlayerAtTile(game, pos[0], pos[1], ts)
 		game.refreshBoundUndeadCache()
+		// Mirror the real two-phase RT tick: one snapshot for every monster's
+		// Update() (Phase 1), then apply all the resulting writes (Phase 2).
+		snapshot := game.collisionSystem.Snapshot()
+		wrappers := make([]entities.MonsterUpdateInterface, 0, len(game.world.Monsters))
 		for _, m := range game.world.Monsters {
-			CreateMonsterWrapper(m, game.collisionSystem, game).Update()
+			w := CreateMonsterWrapper(m, game.collisionSystem, snapshot, game)
+			w.Update()
+			wrappers = append(wrappers, w)
+		}
+		for _, w := range wrappers {
+			w.ApplyCollisionUpdate()
 		}
 		game.combat.HandleMonsterInteractions()
 		assertWardEncounterHeld(t, boss, idol, start)

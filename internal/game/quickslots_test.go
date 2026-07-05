@@ -72,20 +72,16 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 		t.Fatalf("item should be back in the bag")
 	}
 
-	// Cooldown gate: a character on RT cooldown cannot fire a quick slot.
+	// Potions are passive: a quick-slot potion works even on RT cooldown and
+	// never spends an action (free, by design — unlike weapons/spells/traps).
 	game.turnBasedMode = false
 	gated := items.CreateItemFromYAML("health_potion")
 	ch.QuickSlots[4] = &gated
 	ch.HitPoints = 1
 	ch.RTCooldown = 10
 	game.useQuickSlot(0, 4)
-	if ch.HitPoints != 1 || ch.QuickSlots[4] == nil {
-		t.Fatalf("quick slot must be inert while on cooldown (HP=%d, slot nil=%v)", ch.HitPoints, ch.QuickSlots[4] == nil)
-	}
-	ch.RTCooldown = 0 // now ready
-	game.useQuickSlot(0, 4)
-	if ch.HitPoints <= 1 {
-		t.Fatalf("quick slot should work once off cooldown")
+	if ch.HitPoints <= 1 || ch.QuickSlots[4] != nil {
+		t.Fatalf("potion quick slot must work even on cooldown (HP=%d, slot nil=%v)", ch.HitPoints, ch.QuickSlots[4] == nil)
 	}
 
 	// Quest item (map): opens the overlay even on cooldown, and is NOT consumed.
@@ -110,5 +106,44 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	rc := restoreCharacterSave(buildCharacterSave(ch))
 	if rc.QuickSlots[2] == nil || rc.QuickSlots[2].Name != keep.Name {
 		t.Fatalf("quick slot not preserved across save/load")
+	}
+}
+
+// Equipping gear via a quick slot is a free swap — it must not spend a turn-based
+// action or set a real-time cooldown (only spells/traps are combat actions).
+func TestQuickSlot_EquipIsFree(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 20, 20)
+	ch := game.party.Members[0]
+	cur, had := ch.Equipment[items.SlotMainHand]
+	if !had {
+		t.Skip("class has no starting main-hand weapon")
+	}
+
+	// Turn-based: equipping from a slot must NOT consume an action.
+	game.turnBasedMode = true
+	ch.ActionsRemaining = 1
+	w := cur
+	delete(ch.Equipment, items.SlotMainHand)
+	ch.QuickSlots[0] = &w
+	game.useQuickSlot(0, 0)
+	if _, ok := ch.Equipment[items.SlotMainHand]; !ok {
+		t.Fatal("weapon was not equipped from the quick slot")
+	}
+	if ch.ActionsRemaining != 1 {
+		t.Errorf("equipping spent a TB action (ActionsRemaining=%d, want 1)", ch.ActionsRemaining)
+	}
+
+	// Real-time: equipping must NOT set a cooldown, and works even while on one.
+	game.turnBasedMode = false
+	w2 := ch.Equipment[items.SlotMainHand]
+	delete(ch.Equipment, items.SlotMainHand)
+	ch.QuickSlots[1] = &w2
+	ch.RTCooldown = 30 // already busy from a swing
+	game.useQuickSlot(0, 1)
+	if _, ok := ch.Equipment[items.SlotMainHand]; !ok {
+		t.Fatal("weapon was not equipped while on cooldown (equip should be free)")
+	}
+	if ch.RTCooldown != 30 {
+		t.Errorf("equipping changed the RT cooldown (RTCooldown=%d, want 30 unchanged)", ch.RTCooldown)
 	}
 }

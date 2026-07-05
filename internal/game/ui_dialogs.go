@@ -141,19 +141,11 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 		}
 	}
 
-	// Draw close button
+	// Close button; only acts once the mouse was released after opening the popup.
 	closeX := popupX + popupW - 40
 	closeY := popupY + 12
 	isCloseHover := mouseX >= closeX && mouseX < closeX+28 && mouseY >= closeY && mouseY < closeY+28
-	if isCloseHover {
-		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{200, 60, 60, 220})
-	} else {
-		drawFilledRect(screen, closeX, closeY, 28, 28, color.RGBA{120, 60, 60, 180})
-	}
-	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 24, 24)
-	// Handle close click
-	// Only allow closing if the mouse was released after opening the popup
-	if isCloseHover && ui.game.consumeLeftClickIn(closeX, closeY, closeX+28, closeY+28) && !ui.justOpenedStatPopup {
+	if ui.drawPopupCloseButton(screen, closeX, closeY, 28, isCloseHover) && !ui.justOpenedStatPopup {
 		ui.game.statPopupOpen = false
 	}
 
@@ -168,22 +160,13 @@ func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
 	}
 }
 
-// drawRevivalPickerPopup draws the "Choose who to revive" overlay opened
-// when a revival potion is used while 2+ party members are dead or
-// unconscious. The list is recomputed every frame from the current party
-// state so a member dying mid-popup naturally appears, and a member already
-// revived disappears. Closing without a click cancels (potion not spent).
-func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
-	targets := ui.game.RevivablePartyIndices()
-	if len(targets) == 0 {
-		// No one left to revive (cured externally?) — close cleanly.
-		ui.game.revivalPickerOpen = false
-		return
-	}
-
+// drawMemberPickerPopup is the shared centered pick-a-party-member overlay
+// behind the revival/heal/promotion pickers: dim, panel, title+prompt, one
+// hoverable row per target index. rowLabel formats a row; onPick fires on a
+// row click. onCancel==nil means not cancellable (no close X, ESC ignored).
+func (ui *UISystem) drawMemberPickerPopup(screen *ebiten.Image, title, prompt string, popupW int, targets []int, rowLabel func(idx int) string, onPick func(idx int), onCancel func()) {
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
-	popupW := 360
 	rowH := 28
 	popupH := 100 + len(targets)*rowH
 	popupX := (screenW - popupW) / 2
@@ -196,51 +179,99 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
 
-	drawDebugText(screen, "Revive Whom?", popupX+16, popupY+16)
-	drawDebugText(screen, "Click a fallen party member.", popupX+16, popupY+36)
+	drawDebugText(screen, title, popupX+16, popupY+16)
+	drawDebugText(screen, prompt, popupX+16, popupY+36)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	startY := popupY + 64
 	for row, idx := range targets {
 		y := startY + row*rowH
-		member := ui.game.party.Members[idx]
 		isHover := mouseX >= popupX+16 && mouseX < popupX+popupW-16 &&
 			mouseY >= y-2 && mouseY < y-2+rowH
 		if isHover {
 			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
-
-		status := "Unconscious"
-		if member.HasCondition(character.ConditionDead) {
-			status = "Dead"
-		}
-		drawDebugText(screen,
-			fmt.Sprintf("%d) %s — %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints),
-			popupX+24, y+6)
-
+		drawDebugText(screen, rowLabel(idx), popupX+24, y+6)
 		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			ui.game.applyReviveTo(ui.game.revivalPickerItemIdx, idx)
-			ui.game.revivalPickerOpen = false
+			onPick(idx)
 			return
 		}
 	}
 
-	// Close (X) button — cancel without spending the potion.
-	closeX := popupX + popupW - 36
-	closeY := popupY + 12
-	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
-	} else {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
+	if onCancel == nil {
+		return
 	}
-	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
-	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) {
-		ui.game.revivalPickerOpen = false
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+12, 24, true) {
+		onCancel()
 		return
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		ui.game.revivalPickerOpen = false
+		onCancel()
 	}
+}
+
+// drawRevivalPickerPopup draws the "Choose who to revive" overlay opened
+// when a revival potion is used while 2+ party members are dead or
+// unconscious. The list is recomputed every frame from the current party
+// state so a member dying mid-popup naturally appears, and a member already
+// revived disappears. Closing without a click cancels (potion not spent).
+func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
+	g := ui.game
+	targets := g.RevivablePartyIndices()
+	if len(targets) == 0 {
+		// No one left to revive (cured externally?) — close cleanly.
+		g.resolvePickerQuickSource(g.revivalPickerItemIdx, false)
+		g.revivalPickerOpen = false
+		return
+	}
+
+	ui.drawMemberPickerPopup(screen, "Revive Whom?", "Click a fallen party member.", 360, targets,
+		func(idx int) string {
+			member := g.party.Members[idx]
+			status := "Unconscious"
+			if member.HasCondition(character.ConditionDead) {
+				status = "Dead"
+			}
+			return fmt.Sprintf("%d) %s - %s  (HP:%d/%d)", idx+1, member.Name, status, member.HitPoints, member.MaxHitPoints)
+		},
+		func(idx int) {
+			ok := g.applyReviveTo(g.revivalPickerItemIdx, idx)
+			g.resolvePickerQuickSource(g.revivalPickerItemIdx, ok)
+			g.revivalPickerOpen = false
+		},
+		func() {
+			g.resolvePickerQuickSource(g.revivalPickerItemIdx, false)
+			g.revivalPickerOpen = false
+		})
+}
+
+// drawHealPickerPopup draws the "Heal whom?" overlay opened when a heal potion
+// is used by an UNCONSCIOUS owner (who can't heal themselves) and 2+ conscious
+// members are wounded. Recomputed every frame; closing without a click cancels
+// (potion not spent).
+func (ui *UISystem) drawHealPickerPopup(screen *ebiten.Image) {
+	g := ui.game
+	targets := g.HealablePartyIndices()
+	if len(targets) == 0 {
+		g.resolvePickerQuickSource(g.healPickerItemIdx, false)
+		g.healPickerOpen = false
+		return
+	}
+
+	ui.drawMemberPickerPopup(screen, "Heal Whom?", "Click a wounded party member.", 360, targets,
+		func(idx int) string {
+			member := g.party.Members[idx]
+			return fmt.Sprintf("%d) %s  (HP:%d/%d)", idx+1, member.Name, member.HitPoints, member.MaxHitPoints)
+		},
+		func(idx int) {
+			ok := g.applyHealTo(g.healPickerItemIdx, idx)
+			g.resolvePickerQuickSource(g.healPickerItemIdx, ok)
+			g.healPickerOpen = false
+		},
+		func() {
+			g.resolvePickerQuickSource(g.healPickerItemIdx, false)
+			g.healPickerOpen = false
+		})
 }
 
 // drawRosterScreen is the tavern party-management modal: a left column of the 4
@@ -263,7 +294,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 150})
 	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 244})
 	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{150, 110, 52, 230})
-	drawDebugText(screen, "Tavern — Manage Roster", popupX+16, popupY+14)
+	drawDebugText(screen, "Tavern - Manage Roster", popupX+16, popupY+14)
 	drawDebugText(screen, "Click an active hero, then a reserve hero to swap.", popupX+16, popupY+34)
 	drawDebugText(screen, "Active Party", leftX, listY-16)
 	drawDebugText(screen, "Reserve (tavern)", rightX, listY-16)
@@ -274,7 +305,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		if m.FreeStatPoints > 0 || len(m.OwedLevelChoices) > 0 {
 			flag = " !"
 		}
-		return fmt.Sprintf("%s — %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
+		return fmt.Sprintf("%s - %s Lv.%d%s", m.Name, m.ClassDisplayName(), m.Level, flag)
 	}
 
 	// Active column
@@ -311,16 +342,9 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 		drawDebugText(screen, "(no benched heroes yet)", rightX+6, listY+6)
 	}
 
-	// Close button
-	closeX := popupX + popupW - 36
-	closeY := popupY + 10
-	if mouseX >= closeX && mouseX < closeX+24 && mouseY >= closeY && mouseY < closeY+24 {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{200, 60, 60, 220})
-	} else {
-		drawFilledRect(screen, closeX, closeY, 24, 24, color.RGBA{120, 60, 60, 180})
-	}
-	ui.drawInterfaceIcon(screen, "icon_close", closeX+2, closeY+2, 20, 20)
-	if g.consumeLeftClickIn(closeX, closeY, closeX+24, closeY+24) || ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	// ESC is handled in the Update input loop (edge-tracked) to avoid the menu
+	// opening on the next frame; here only the close button.
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, true) {
 		g.rosterScreenOpen = false
 		g.rosterSelectedActive = -1
 	}
@@ -331,55 +355,32 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 // Mirrors the revival picker. Cannot be cancelled — a quest/phylactery has
 // already committed to the promotion by the time this opens.
 func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
-	kind := ui.game.promotionPickerKind
+	g := ui.game
+	kind := g.promotionPickerKind
 	var targets []int
-	title := "Promote Whom?"
+	title := "Who Becomes the Archmage?"
 	if kind == character.PromotionArchmage {
-		targets = ui.game.eligibleArchmageIndices()
-		title = "Who Becomes the Archmage?"
+		targets = g.eligibleArchmageIndices()
 	} else {
-		targets = ui.game.eligibleLichIndices()
+		targets = g.eligibleLichIndices()
 		title = "Who Becomes the Lich?"
 	}
 	if len(targets) == 0 {
-		ui.game.promotionPickerOpen = false
+		g.promotionPickerOpen = false
 		return
 	}
 
-	screenW := ui.game.config.GetScreenWidth()
-	screenH := ui.game.config.GetScreenHeight()
-	popupW := 380
-	rowH := 28
-	popupH := 100 + len(targets)*rowH
-	popupX := (screenW - popupW) / 2
-	popupY := (screenH - popupH) / 2
-
-	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
-	drawFilledRect(screen, popupX, popupY, popupW, popupH, color.RGBA{30, 30, 60, 240})
-	drawRectBorder(screen, popupX, popupY, popupW, popupH, 2, color.RGBA{120, 120, 180, 255})
-
-	drawDebugText(screen, title, popupX+16, popupY+16)
-	drawDebugText(screen, "Click a party member.", popupX+16, popupY+36)
-
-	mouseX, mouseY := ebiten.CursorPosition()
-	startY := popupY + 64
-	for row, idx := range targets {
-		y := startY + row*rowH
-		member := ui.game.party.Members[idx]
-		isHover := mouseX >= popupX+16 && mouseX < popupX+popupW-16 && mouseY >= y-2 && mouseY < y-2+rowH
-		if isHover {
-			drawFilledRect(screen, popupX+16, y-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
-		}
-		drawDebugText(screen,
-			fmt.Sprintf("%d) %s the %s (Lv.%d)", idx+1, member.Name, member.Class.String(), member.Level),
-			popupX+24, y+6)
-		if isHover && ui.game.consumeLeftClickIn(popupX+16, y-2, popupX+popupW-16, y-2+rowH) {
-			itemIdx := ui.game.promotionPickerItemIdx
-			ui.game.promotionPickerOpen = false
-			ui.game.applyPromotionKind(kind, idx, itemIdx)
-			return
-		}
-	}
+	ui.drawMemberPickerPopup(screen, title, "Click a party member.", 380, targets,
+		func(idx int) string {
+			member := g.party.Members[idx]
+			return fmt.Sprintf("%d) %s the %s (Lv.%d)", idx+1, member.Name, member.Class.String(), member.Level)
+		},
+		func(idx int) {
+			itemIdx := g.promotionPickerItemIdx
+			g.promotionPickerOpen = false
+			g.applyPromotionKind(kind, idx, itemIdx)
+		},
+		nil)
 }
 
 // drawLevelUpChoicePopup draws the level-up choice selection overlay.
@@ -513,6 +514,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindMerchant:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindCardCollector:
+		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
 	}
@@ -991,6 +994,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = item
 				tooltipHasItem = true
+				if key := itemCardKey(item); key != "" {
+					ui.fullArtCardKey = key
+				}
 			}
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, value > 0)
 			priceText := "no value"
@@ -1022,7 +1028,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		if idx < len(members) && members[idx] != nil {
 			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
 			if tip != "" {
-				lines := strings.Split(tip, "\n")
+				lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
 				plate, titleText := ui.itemTitleColors(tooltipItem)
 				var bodyColors []color.Color
 				if titleText != nil { // gear keeps its rarity-metal body
@@ -1036,6 +1042,156 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	instructionsY := dialogY + dialogHeight - 38
 	drawDebugText(screen, "Hover: details  |  Double-click: buy (left) / sell (right)", dialogX+20, instructionsY)
 	drawDebugText(screen, "ESC: Close", dialogX+20, instructionsY+15)
+}
+
+// Card-collector layout. The 8 collection slots sit in one compact row; the
+// party's loose cards sit in a grid below. Geometry is shared with the input
+// handler (cardCollectorSlotRect / cardCollectorInvRect) so click rects match.
+const (
+	cardCollSlotSize = 48
+	cardCollSlotGap  = 8
+	cardInvSize      = 56
+	cardInvCols      = 4
+	cardInvGap       = 14
+	cardInvMaxShown  = cardInvCols * 2 // up to 8 loose cards shown at once
+)
+
+func cardCollectorSlotRect(dialogX, dialogY, slot int) (x, y, w, h int) {
+	gridW := MaxCardSlots*cardCollSlotSize + (MaxCardSlots-1)*cardCollSlotGap
+	startX := dialogX + (npcDialogWidth-gridW)/2
+	return startX + slot*(cardCollSlotSize+cardCollSlotGap), dialogY + 114, cardCollSlotSize, cardCollSlotSize
+}
+
+// cardInvTop is the Y of the loose-card grid; cardInvRowPitch the row stride.
+// Pulled up enough to leave room for the page nav row beneath the two rows.
+const (
+	cardInvTop      = 196
+	cardInvRowPitch = cardInvSize + cardInvGap + 2
+)
+
+func cardCollectorInvRect(dialogX, dialogY, slot int) (x, y, w, h int) {
+	gridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	startX := dialogX + (npcDialogWidth-gridW)/2
+	r, c := slot/cardInvCols, slot%cardInvCols
+	return startX + c*(cardInvSize+cardInvGap), dialogY + cardInvTop + r*cardInvRowPitch, cardInvSize, cardInvSize
+}
+
+// drawCardCell draws one card cell — the card's art when key is set, else a
+// placeholder frame (with emptyLabel). Returns whether the cursor is over it.
+// Shared by the collector dialog and the Cards menu tab so the cell looks and
+// hit-tests identically in both.
+func (ui *UISystem) drawCardCell(screen *ebiten.Image, key string, x, y, size int, emptyLabel string) bool {
+	if key == "" {
+		drawFilledRect(screen, x, y, size, size, color.RGBA{30, 30, 44, 255})
+		drawRectBorder(screen, x, y, size, size, 1, color.RGBA{80, 80, 100, 200})
+		if emptyLabel != "" {
+			drawCenteredDebugText(screen, emptyLabel, x, y, size, size)
+		}
+		return false
+	}
+	ui.drawInventoryItemIcon(screen, items.CreateItemFromYAML(key), x, y, size, size, 3, true)
+	mx, my := ebiten.CursorPosition()
+	hovered := isMouseHoveringBox(mx, my, x, y, x+size, y+size)
+	if hovered {
+		ui.fullArtCardKey = key
+	}
+	return hovered
+}
+
+// appendCardArtHint adds the SHIFT hint to a card tooltip when full art exists.
+func (ui *UISystem) appendCardArtHint(lines []string, key string) []string {
+	if _, ok := ui.game.cardFullArtSprite(key); ok {
+		return append(lines, "Hold SHIFT to view the art")
+	}
+	return lines
+}
+
+// drawCardFullArtOverlay dims the screen and shows a card's full art fitted
+// to it (drawn while SHIFT is held over a card).
+func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) {
+	img := ui.game.sprites.GetSprite(sprite)
+	if img == nil {
+		return
+	}
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	drawFilledRect(screen, 0, 0, sw, sh, color.RGBA{0, 0, 0, 195})
+	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
+	scale := 0.92 * float64(sw) / float64(iw)
+	if v := 0.92 * float64(sh) / float64(ih); v < scale {
+		scale = v
+	}
+	w, h := float64(iw)*scale, float64(ih)*scale
+	x, y := (float64(sw)-w)/2, (float64(sh)-h)/2
+	opts := &ebiten.DrawImageOptions{}
+	opts.Filter = ebiten.FilterLinear
+	opts.GeoM.Scale(scale, scale)
+	opts.GeoM.Translate(x, y)
+	screen.DrawImage(img, opts)
+	drawRectBorder(screen, int(x)-2, int(y)-2, int(w)+4, int(h)+4, 2, color.RGBA{210, 170, 80, 235})
+}
+
+// drawCardCollectorDialog draws the monster-card collection UI: the 8 active
+// slots on top, the party's loose cards below. Double-click a loose card to slot
+// it, double-click a slotted card to take it back. Art-based with hover tooltips.
+func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	drawDebugText(screen, fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), dialogX+20, dialogY+20)
+	greeting := "Cards, is it? Hand them here and I'll pin them to your collection."
+	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+		greeting = ui.game.dialogNPC.DialogueData.Greeting
+	}
+	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
+	}
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	var hoverLines []string
+
+	// Active collection (8 slots).
+	drawDebugText(screen, "Collection (active effects)", dialogX+20, dialogY+96)
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
+		key := ui.game.cardCollection[slot]
+		if ui.drawCardCell(screen, key, x, y, w, "+") {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
+			if def := cardDef(key); def != nil {
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to remove"}, key)
+			}
+		}
+	}
+
+	// Loose cards in the party inventory (paginated — the pack can hold more than
+	// one page of cards).
+	cardIdx := ui.game.inventoryCardIndices()
+	drawDebugText(screen, "Your cards (double-click to add)", dialogX+20, dialogY+176)
+	if len(cardIdx) == 0 {
+		drawDebugText(screen, "(No loose cards to add)", dialogX+20, dialogY+200)
+	}
+	invPages := pageCount(len(cardIdx), cardInvMaxShown)
+	clampPage(&ui.game.cardCollectorInvPage, invPages)
+	invStart := ui.game.cardCollectorInvPage * cardInvMaxShown
+	for slot := 0; slot < cardInvMaxShown; slot++ {
+		i := invStart + slot
+		if i >= len(cardIdx) {
+			break
+		}
+		x, y, w, h := cardCollectorInvRect(dialogX, dialogY, slot)
+		key := itemCardKey(ui.game.party.Inventory[cardIdx[i]])
+		if ui.drawCardCell(screen, key, x, y, w, "") {
+			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{80, 200, 80, 235})
+			if def := cardDef(key); def != nil {
+				hoverLines = ui.appendCardArtHint([]string{def.Name, cardEffectText(def), "", "Double-click to add to collection"}, key)
+			}
+		}
+	}
+	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	ui.drawPager(screen, dialogX+(npcDialogWidth-invGridW)/2, dialogY+cardInvTop+2*cardInvRowPitch-4, invGridW, &ui.game.cardCollectorInvPage, invPages, true)
+
+	instructionsY := dialogY + dialogHeight - 38
+	drawDebugText(screen, "Double-click a card to slot it  |  Double-click a slotted card to take it back", dialogX+20, instructionsY)
+
+	if hoverLines != nil {
+		ui.queueTooltip(hoverLines, mouseX+16, mouseY+8)
+	}
 }
 
 // drawGenericDialog draws basic dialog for other NPC types
@@ -1076,7 +1232,7 @@ func (ui *UISystem) drawGameOverOverlay(screen *ebiten.Image) {
 		action func()
 	}{
 		{"New Game", func() { g.startNewGameWithParty(character.NewParty(g.config)) }},
-		{"Load Game", func() { g.returnToMainMenu(); g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0 }},
+		{"Load Game", func() { g.returnToMainMenu(); g.entryMenuMode = EntryMenuLoad; g.slotSelection = 0; g.savePage = 0 }},
 		{"Main Menu", func() { g.returnToMainMenu() }},
 		{"Quit", func() { g.exitRequested = true }},
 	}
@@ -1119,8 +1275,8 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 	// Score details
 	drawDebugText(screen, "Final Score", centerX-75, startY+80)
 	drawDebugText(screen, fmt.Sprintf("Score: %d", finalScore), centerX-50, startY+100)
-	drawDebugText(screen, fmt.Sprintf("Gold: %d", scoreData.Gold), centerX-50, startY+120)
-	drawDebugText(screen, fmt.Sprintf("Experience: %d", scoreData.TotalExperience), centerX-70, startY+140)
+	drawDebugText(screen, fmt.Sprintf("Gold Earned: %d", scoreData.Gold), centerX-75, startY+120)
+	drawDebugText(screen, fmt.Sprintf("Total XP: %d", scoreData.TotalExperience), centerX-65, startY+140)
 	drawDebugText(screen, fmt.Sprintf("Avg Level: %d", scoreData.AverageLevel), centerX-55, startY+160)
 	drawDebugText(screen, fmt.Sprintf("Time: %s", playTimeStr), centerX-50, startY+180)
 
@@ -1129,11 +1285,11 @@ func (ui *UISystem) drawVictoryOverlay(screen *ebiten.Image) {
 		drawDebugText(screen, "Enter your name:", centerX-60, startY+220)
 		drawDebugText(screen, fmt.Sprintf("> %s_", ui.game.victoryNameInput), centerX-80, startY+240)
 		drawDebugText(screen, "Press ENTER to save score", centerX-90, startY+270)
-		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+290)
+		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+290)
 	} else {
 		drawDebugText(screen, "Score saved!", centerX-45, startY+220)
 		drawDebugText(screen, "Press H to view High Scores", centerX-100, startY+250)
-		drawDebugText(screen, "Press ESC for main menu", centerX-85, startY+270)
+		drawDebugText(screen, "Press ESC to continue", centerX-80, startY+270)
 	}
 }
 
@@ -1590,30 +1746,13 @@ func (ui *UISystem) drawQuestPager(screen *ebiten.Image, x, y, width, totalPages
 	if totalPages <= 1 {
 		return
 	}
-	const btnW, btnH = 30, 18
-	mouseX, mouseY := ebiten.CursorPosition()
-
-	drawBtn := func(bx int, label string, enabled bool) bool {
-		bg := color.RGBA{70, 50, 30, 210}
-		switch {
-		case !enabled:
-			bg = color.RGBA{45, 40, 38, 160}
-		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
-			bg = color.RGBA{120, 90, 50, 230}
-		}
-		drawFilledRect(screen, bx, y, btnW, btnH, bg)
-		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
-		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
-		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
-	}
-
-	if drawBtn(x, "<", ui.questPage > 0) {
+	if ui.drawPagerButton(screen, x, y, "<", ui.questPage > 0) {
 		ui.questPage--
 	}
-	if drawBtn(x+width-btnW, ">", ui.questPage < totalPages-1) {
+	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.questPage < totalPages-1) {
 		ui.questPage++
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", ui.questPage+1, totalPages), x, y+2, width, pagerBtnH-2)
 }
 
 // characterKnowsSpell checks if a character already knows a spell
@@ -1640,7 +1779,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 		return false
 	}
 	if rewards.Gold > 0 {
-		g.party.Gold += rewards.Gold
+		g.awardGold(rewards.Gold)
 	}
 	// Single XP source so Learning bonuses and bench training apply (active party,
 	// reserve, and captives all share quest XP).

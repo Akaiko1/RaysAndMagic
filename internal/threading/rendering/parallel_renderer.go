@@ -73,7 +73,7 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (fl
 		end := mathutil.IntMin(i+batchSize, numRays)
 
 		wg.Add(1)
-		pr.workerPool.Submit(func() {
+		job := func() {
 			defer wg.Done()
 			for rayIndex := start; rayIndex < end; rayIndex++ {
 				distance, tileType := raycastFunc(rayIndex)
@@ -82,7 +82,12 @@ func (pr *ParallelRenderer) RenderRaycast(numRays int, raycastFunc func(int) (fl
 					TileType: tileType,
 				}
 			}
-		})
+		}
+		// Refused (pool stopped, post-shutdown render): run inline so this
+		// local wg.Wait can never hang on a silently dropped job.
+		if !pr.workerPool.Submit(job) {
+			job()
+		}
 	}
 	wg.Wait()
 

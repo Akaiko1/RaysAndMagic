@@ -876,46 +876,33 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 	}
 }
 
-// drawCombatMessages draws the compact recent-message log above the party.
+const hudMessageSpacing = 18
+
+// drawCombatMessages draws the compact recent-message log just above the party
+// portraits. Long entries word-wrap to the block width (see hudMessageLines); the
+// block is bottom-anchored and grows upward so it never spills over the party UI.
 func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
-	messages := ui.game.GetCombatMessages()
-	if len(messages) == 0 {
+	lines := ui.game.hudMessageLines()
+	if len(lines) == 0 {
 		return
 	}
 
-	// Position messages in the bottom-right corner, above the party UI
-	screenWidth := ui.game.config.GetScreenWidth()
-	screenHeight := ui.game.config.GetScreenHeight()
-	portraitHeight := ui.game.config.UI.PartyPortraitHeight
+	bx, by, bw, bh := ui.game.hudMessageBlockRect(len(lines))
+	vector.FillRect(screen, float32(bx), float32(by), float32(bw), float32(bh), color.RGBA{0, 0, 0, 150}, false)
 
-	// Start from just above the party UI
-	startY := screenHeight - portraitHeight - 80 // 80px above party UI
-	messageSpacing := 18                         // Space between messages
-	messageWidth := 400                          // Width of message area
-	startX := screenWidth - messageWidth - 10    // 10px from right edge
-
-	// Draw semi-transparent background for the message area
-	bgHeight := len(messages)*messageSpacing + 10
-	vector.FillRect(screen, float32(startX-5), float32(startY-5), float32(messageWidth), float32(bgHeight), color.RGBA{0, 0, 0, 150}, false)
-
-	// Draw messages from top to bottom (most recent at bottom)
-	for i, message := range messages {
-		textY := startY + (i * messageSpacing)
-		drawDebugTextColored(screen, message, startX, textY, ui.game.GetCombatMessageColor(i))
+	// Draw lines from top to bottom (most recent at bottom)
+	for i, line := range lines {
+		textY := by + 5 + (i * hudMessageSpacing)
+		drawDebugTextColored(screen, line.Text, bx+5, textY, line.Color)
 	}
 }
 
 func combatMessageArea(g *MMGame) (x, y, w, h int) {
-	count := len(g.GetCombatMessages())
+	count := len(g.hudMessageLines())
 	if count == 0 {
 		return 0, 0, 0, 0
 	}
-	const messageSpacing = 18
-	w = 400
-	x = g.config.GetScreenWidth() - w - 15
-	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - 85
-	h = count*messageSpacing + 10
-	return
+	return g.hudMessageBlockRect(count)
 }
 
 func combatLogPanelLayout(g *MMGame) (x, y, w, h int) {
@@ -973,16 +960,33 @@ func (ui *UISystem) drawCombatLogOverlay(screen *ebiten.Image) {
 	drawDebugTextColored(screen, "Mouse wheel / arrows to scroll", contentX, y+h-24, color.RGBA{180, 180, 190, 255})
 }
 
+// Translucent text-panel geometry shared by the turn-based status bar and the
+// FPS/perf overlay.
+const (
+	textPanelLineHeight = 16
+	textPanelPadding    = 6
+)
+
+// measureTextPanel returns the panel size fitting the given lines (7px-per-char
+// width estimate).
+func measureTextPanel(lines []string) (w, h int) {
+	maxLen := 0
+	for _, line := range lines {
+		if len(line) > maxLen {
+			maxLen = len(line)
+		}
+	}
+	return maxLen*7 + textPanelPadding*2, len(lines)*textPanelLineHeight + textPanelPadding*2
+}
+
 // drawTurnBasedStatus displays the current game mode and turn state
 func (ui *UISystem) drawTurnBasedStatus(screen *ebiten.Image) {
 	lines, barX, barY, barWidth, barHeight := ui.turnBasedStatusLayout()
-	lineHeight := 16
-	padding := 6
 
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
 	}
 }
 
@@ -1003,16 +1007,7 @@ func (ui *UISystem) turnBasedStatusLayout() ([]string, int, int, int, int) {
 		}
 	}
 
-	lineHeight := 16
-	padding := 6
-	maxLen := 0
-	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
-		}
-	}
-	barWidth := maxLen*7 + padding*2
-	barHeight := len(lines)*lineHeight + padding*2
+	barWidth, barHeight := measureTextPanel(lines)
 	barX := ui.game.config.GetScreenWidth() - barWidth - 10
 	barY := 10
 
@@ -1061,16 +1056,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	compassX, compassY := ui.getCompassCenter()
 	compassRadius := ui.game.config.UI.CompassRadius
 	_ = compassX
-	lineHeight := 16
-	padding := 6
-	maxLen := 0
-	for _, line := range lines {
-		if len(line) > maxLen {
-			maxLen = len(line)
-		}
-	}
-	barWidth := maxLen*7 + padding*2
-	barHeight := len(lines)*lineHeight + padding*2
+	barWidth, barHeight := measureTextPanel(lines)
 	screenWidth := ui.game.config.GetScreenWidth()
 	barX := screenWidth - barWidth - 10
 	barY := compassY + compassRadius + 10
@@ -1078,7 +1064,7 @@ func (ui *UISystem) drawFPSCounter(screen *ebiten.Image) {
 	vector.FillRect(screen, float32(barX), float32(barY), float32(barWidth), float32(barHeight), color.RGBA{0, 0, 0, 120}, false)
 
 	for i, line := range lines {
-		drawDebugText(screen, line, barX+padding, barY+padding+i*lineHeight)
+		drawDebugText(screen, line, barX+textPanelPadding, barY+textPanelPadding+i*textPanelLineHeight)
 	}
 }
 
@@ -1089,8 +1075,8 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 		return
 	}
 
-	// Get the nearest interactable NPC
-	nearestNPC := ui.game.GetNearestInteractableNPC()
+	// The Space target: the NPC in interact focus (centred + adjacent tile).
+	nearestNPC := ui.game.focusedNPC
 	if nearestNPC == nil {
 		return
 	}
@@ -1102,20 +1088,22 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 	var message string
 	switch npcDialogKindFor(nearestNPC) {
 	case dialogKindSpellTrader:
-		message = fmt.Sprintf("Press T to talk to %s (Spell Trader)", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
 	case dialogKindChoices:
-		message = fmt.Sprintf("Press T to investigate %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
 	case dialogKindSkillTrainer:
-		message = fmt.Sprintf("Press T to train with %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
 	case dialogKindMerchant:
-		message = fmt.Sprintf("Press T to trade with %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
+	case dialogKindCardCollector:
+		message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
 	default:
-		message = fmt.Sprintf("Press T to talk to %s", nearestNPC.Name)
+		message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
 	}
 
 	// Calculate text dimensions for background sizing
-	textWidth := len(message) * 8 // Approximate character width
-	textHeight := 20
+	textWidth := debugTextWidth(message)
+	textHeight := debugTextCharHeight
 	padding := 15
 
 	// Position at top center of screen

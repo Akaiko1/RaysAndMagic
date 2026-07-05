@@ -213,6 +213,7 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 			total += cs.armorClassContributionWithEnd(armorPiece, char, effEnd)
 		}
 	}
+	total += cs.game.cardArmorBonus() // Treant Card: flat party Armor Class
 	return total
 }
 
@@ -347,4 +348,8 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 		}
 	}
 	return clampRTCooldown(int(math.Round(frames)))
+}
+
+func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey string) int {
+	return cs.SpellCooldownFrames(char, spells.SpellID(trapKey))
 }

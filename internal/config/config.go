@@ -176,9 +176,10 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
-	SlashColor  [3]int `yaml:"slash_color"`  // RGB color for slash effect
-	SlashWidth  int    `yaml:"slash_width"`  // Width of slash line
-	SlashLength int    `yaml:"slash_length"` // Length of slash line
+	SlashColor  [3]int `yaml:"slash_color"`        // RGB color for slash effect
+	SlashWidth  int    `yaml:"slash_width"`        // Width of slash line
+	SlashLength int    `yaml:"slash_length"`       // Length of slash line
+	SlashFx     string `yaml:"slash_fx,omitempty"` // bespoke swing style (legendaries); empty = category default
 
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`
@@ -365,6 +366,11 @@ type SpellDefinitionConfig struct {
 	// within the spell's AoE radius (Starburst). Purely visual; damage uses AoeRadiusTiles.
 	StarburstFx bool `yaml:"starburst_fx,omitempty"`
 
+	// BuffFxSprite plays a short 4-frame animation (a w==h*4 sheet under
+	// assets/sprites/interface/buffs) centred in the party's view when the cast
+	// resolves. Purely visual; used by party buffs.
+	BuffFxSprite string `yaml:"buff_fx_sprite,omitempty"`
+
 	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
 	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
 	// ZoneTickDamage to monsters inside it — every turn in TB, every ZoneTickSeconds in RT.
@@ -537,6 +543,12 @@ type ProjectileRenderConfig struct {
 	MinSize  int    `yaml:"min_size"`
 	BaseSize int    `yaml:"base_size"`
 	Color    [3]int `yaml:"color"`
+	// ProjectileFx selects a bespoke flying-body renderer (signature spells);
+	// empty = the school's default particle style.
+	ProjectileFx string `yaml:"projectile_fx,omitempty"`
+	// ImpactStars scatters the impact burst as twinkling 4-point stars instead
+	// of square pixels (plasma/energy impacts).
+	ImpactStars bool `yaml:"impact_stars,omitempty"`
 }
 
 type TileConfig struct {
@@ -569,10 +581,16 @@ type TileData struct {
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
 	// bordering water — see the renderer.
-	FloorTextureGroup string   `yaml:"floor_texture_group,omitempty"`
-	WallColor         [3]int   `yaml:"wall_color"`
-	Letter            string   `yaml:"letter"`
-	Biomes            []string `yaml:"biomes,omitempty"`
+	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
+	// InheritFloor makes a floor_only marker tile (spawn point, teleporter) take
+	// the surrounding biome floor colour + texture instead of painting its own
+	// floor_color square — like the ground under a mob spawn. The floor_color is
+	// then reused only as the tint for the tile's decoration (spawn border /
+	// teleporter glow), not the floor itself.
+	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
+	WallColor    [3]int   `yaml:"wall_color"`
+	Letter       string   `yaml:"letter"`
+	Biomes       []string `yaml:"biomes,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor_only) that blocks movement but reads like walkable
 	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura
@@ -929,6 +947,9 @@ func validateWeaponConfig(cfg *WeaponSystemConfig) error {
 			if def.Physics == nil {
 				return fmt.Errorf("projectile weapon '%s' missing physics configuration", key)
 			}
+			if def.Graphics != nil && def.Graphics.SlashFx != "" {
+				return fmt.Errorf("projectile weapon '%s' defines slash_fx (melee-only)", key)
+			}
 			if def.Graphics == nil || def.Graphics.BaseSize <= 0 || def.Graphics.MaxSize <= 0 || def.Graphics.MinSize <= 0 {
 				return fmt.Errorf("projectile weapon '%s' missing projectile graphics configuration", key)
 			}
@@ -998,6 +1019,47 @@ type ItemDefinitionConfig struct {
 	BonusLuck                 int `yaml:"bonus_luck,omitempty"`
 	// Per-school % damage resistance the wearer gains (e.g. {fire: 100}); physical stacks after armor.
 	Resistances map[string]int `yaml:"resistances,omitempty"`
+	// Monster-card collection effects (type: "card"). The same fields drive both
+	// the passive party-wide mechanic and the derived effect text (single source).
+	// Int fields STACK additively across the collection; CardWalkOnWater is a
+	// capability (present-or-not).
+	CardMoveSpeedPct      int                `yaml:"card_move_speed_pct,omitempty"`      // +N% party movement speed
+	CardBonusActions      int                `yaml:"card_bonus_actions,omitempty"`       // +N party actions per turn-based round
+	CardStatBonuses       map[string]int     `yaml:"card_stat_bonuses,omitempty"`        // flat party-wide stat bonuses (e.g. {speed: 15}); reuses StatBonusesFromMap
+	CardRangedDmgPct      int                `yaml:"card_ranged_dmg_pct,omitempty"`      // +N% ranged weapon damage
+	CardMeleeTrueDmg      int                `yaml:"card_melee_true_dmg,omitempty"`      // +N flat true damage on melee hits
+	CardPhysToFirePct     int                `yaml:"card_phys_to_fire_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as fire instead
+	CardHealOnAtkPct      int                `yaml:"card_heal_on_attack_pct,omitempty"`  // N% chance to self-heal on attacking
+	CardHealAmount        int                `yaml:"card_heal_amount,omitempty"`         // HP restored by the self-heal-on-attack proc
+	CardLethalSavePct     int                `yaml:"card_lethal_save_pct,omitempty"`     // N% chance a lethal hit leaves the member at half HP+SP
+	CardMoveAoePct        int                `yaml:"card_move_aoe_pct,omitempty"`        // N% chance, on party move, to burst nearby foes
+	CardMoveAoeDmg        int                `yaml:"card_move_aoe_dmg,omitempty"`        // pure damage dealt by the move-burst
+	CardWalkOnWater       bool               `yaml:"card_walk_on_water,omitempty"`       // permanent walk-on-water while collected
+	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
+	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
+	CardSummonMonster     string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
+	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
+	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
+	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee hit strikes again immediately
+	CardSpellProcPct      int                `yaml:"card_spell_proc_pct,omitempty"`      // N% chance a melee swing casts a fire bolt instead (Intellect-scaled)
+	CardDodgeBonusPct     int                `yaml:"card_dodge_bonus_pct,omitempty"`     // +N Perfect Dodge chance
+	CardArmorBonus        int                `yaml:"card_armor_bonus,omitempty"`         // +N flat party Armor Class
+	CardThornsPct         int                `yaml:"card_thorns_pct,omitempty"`          // N% of incoming monster damage reflected back to it
+	CardPhysToDarkPct     int                `yaml:"card_phys_to_dark_pct,omitempty"`    // N% of physical damage (melee/ranged/trap) dealt as dark instead
+	CardPhysToLightPct    int                `yaml:"card_phys_to_light_pct,omitempty"`   // N% of physical damage (melee/ranged/trap) dealt as light instead
+	CardPoisonProcPct     int                `yaml:"card_poison_proc_pct,omitempty"`     // N% chance on hit to poison the monster
+	CardPoisonDurationSec int                `yaml:"card_poison_duration_sec,omitempty"` // duration of the on-hit poison proc
+	CardMeleeDmgPct       int                `yaml:"card_melee_dmg_pct,omitempty"`       // +N% melee weapon damage
+	CardMaxHPBonus        int                `yaml:"card_max_hp_bonus,omitempty"`        // +N flat party max HP
+	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
+	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
+	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on any attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
+	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
+	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
+	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
+	CardBonusVs           map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
+	CardArmorPiercePct    int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`

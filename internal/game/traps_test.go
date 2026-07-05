@@ -91,6 +91,36 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	}
 }
 
+// Regression: turns=1 (how every trap/weapon stun is authored — the smallest
+// nonzero TB unit) must NOT floor to 0 turns at 50%/25% DR while its
+// much-larger RT-frames twin stays nonzero. That mismatch let a second Stasis
+// Trap in a fight apply a stun that never gated a TB turn (StunTurnsRemaining
+// stayed 0) while still setting StunFramesRemaining — nothing in TB clears
+// that field, so the stun-star overlay stuck on forever. Only the true 0%
+// (immune) tier should ever yield 0 turns.
+func TestStunDR_OneTurnStunNeverFloorsToZeroBeforeImmune(t *testing.T) {
+	g, _ := newThiefTestGame(t)
+	cs := g.combat
+	m := spawnTestMonsterAt(g, 3, 1)
+	tps := g.config.GetTPS()
+
+	requestStun := func() (stunned bool, turns int) {
+		m.StunTurnsRemaining, m.StunFramesRemaining = 0, 0
+		stunned = cs.applyStunDR(m, 1, 2*tps, true) // Stasis Trap: stun_turns=1, stun_seconds=2
+		return stunned, m.StunTurnsRemaining
+	}
+
+	for i, want := range []int{1, 1, 1, 0} { // 100% / 50% / 25% all keep 1 turn; only immune (0%) drops to 0
+		stunned, got := requestStun()
+		if got != want {
+			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
+		}
+		if (want > 0) != stunned {
+			t.Fatalf("stun #%d: stunned=%v, want %v", i+1, stunned, want > 0)
+		}
+	}
+}
+
 // A trap thrown at a monster's feet fires immediately: damage lands, SP is
 // paid, and the one-shot trap is gone.
 func TestTrap_PlacedUnderMonsterFiresImmediately(t *testing.T) {
@@ -146,6 +176,45 @@ func TestTrap_OwnerLimit(t *testing.T) {
 	}
 	if len(g.traps) != MaxTrapsPerOwner {
 		t.Fatalf("expected %d armed traps, got %d", MaxTrapsPerOwner, len(g.traps))
+	}
+}
+
+func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
+	placeFromQuickSlot := func(speed int) int {
+		g, thief := newThiefTestGame(t)
+		g.turnBasedMode = false
+		thief.Speed = speed
+
+		trap, ok := config.TrapItem("cleave_trap")
+		if !ok {
+			t.Fatal("cleave_trap missing")
+		}
+		thief.QuickSlots[0] = &trap
+		want := g.combat.TrapCooldownFrames(thief, "cleave_trap")
+
+		g.useQuickSlot(0, 0)
+
+		if len(g.traps) != 1 {
+			t.Fatalf("quick-slot trap should be armed once, got %d traps", len(g.traps))
+		}
+		if thief.RTCooldown != want {
+			t.Fatalf("RT cooldown = %d, want %d", thief.RTCooldown, want)
+		}
+
+		tip := GetItemTooltip(trap, thief, g.combat, true)
+		if line := cooldownLine(g.combat, want); !strings.Contains(tip, line) {
+			t.Fatalf("trap tooltip must show effective cooldown %q:\n%s", line, tip)
+		}
+		if !strings.Contains(tip, "Scales with caster Speed") {
+			t.Fatalf("trap tooltip must disclose Speed scaling:\n%s", tip)
+		}
+		return thief.RTCooldown
+	}
+
+	slow := placeFromQuickSlot(5)
+	fast := placeFromQuickSlot(50)
+	if fast >= slow {
+		t.Fatalf("faster trapper should arm traps sooner: fast=%d slow=%d", fast, slow)
 	}
 }
 

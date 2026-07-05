@@ -207,119 +207,71 @@ func (rh *RenderingHelper) CreateBaseTexturedWallSlice(tileType world.TileType3D
 	return wallImage
 }
 
-// applyBrickTextureCached applies a cached brick pattern texture to the wall image.
-// This pre-renders the brick texture pattern once and reuses it for better performance.
-func (rh *RenderingHelper) applyBrickTextureCached(wallImage *ebiten.Image, finalColor color.RGBA, width, height int) {
-	// Create cache key based on size - pattern is deterministic
-	cacheKey := fmt.Sprintf("brick_%dx%d", width, height)
+// tintOptions returns draw options that scale a white-cached texture by the
+// given per-channel factors (alpha untouched).
+func tintOptions(r, g, b float32) *ebiten.DrawImageOptions {
+	opts := &ebiten.DrawImageOptions{}
+	opts.ColorScale.Scale(r, g, b, 1.0)
+	return opts
+}
 
-	// Check if we have this texture cached
+// applyPatternTextureCached draws a procedural pattern onto the wall image
+// with color tinting. The white-base pattern is painted once per size (the
+// patterns are deterministic), cached under keyPrefix, and reused.
+func (rh *RenderingHelper) applyPatternTextureCached(wallImage *ebiten.Image, finalColor color.RGBA, width, height int, keyPrefix string, paint func(base *ebiten.Image)) {
+	cacheKey := fmt.Sprintf("%s_%dx%d", keyPrefix, width, height)
+	tint := tintOptions(
+		float32(finalColor.R)/255.0,
+		float32(finalColor.G)/255.0,
+		float32(finalColor.B)/255.0)
+
 	if cachedTexture, exists := rh.textureCache[cacheKey]; exists {
-		// Apply the cached texture with color tinting
-		opts := &ebiten.DrawImageOptions{}
-
-		// Calculate color scaling for shading
-		opts.ColorScale.Scale(
-			float32(finalColor.R)/255.0,
-			float32(finalColor.G)/255.0,
-			float32(finalColor.B)/255.0,
-			1.0)
-
-		wallImage.DrawImage(cachedTexture, opts)
+		wallImage.DrawImage(cachedTexture, tint)
 		return
 	}
 
-	// Create the base texture pattern (white base for color tinting)
+	// White base so the cached pattern can be tinted to any wall color.
 	baseTexture := ebiten.NewImage(width, height)
-	baseTexture.Fill(color.RGBA{255, 255, 255, 255}) // White base
+	baseTexture.Fill(color.RGBA{255, 255, 255, 255})
+	paint(baseTexture)
 
-	// Create mortar lines on a separate layer
-	mortarTexture := ebiten.NewImage(width, height)
-	mortarColor := color.RGBA{179, 179, 179, 255} // Gray mortar (70% of white)
-
-	// Create mortar line image
-	mortarLine := ebiten.NewImage(width, 1)
-	mortarLine.Fill(mortarColor)
-
-	// Add horizontal mortar lines every 8 pixels
-	opts := &ebiten.DrawImageOptions{}
-	for y := 8; y < height; y += 8 {
-		opts.GeoM.Reset()
-		opts.GeoM.Translate(0, float64(y))
-		mortarTexture.DrawImage(mortarLine, opts)
-	}
-
-	// Combine base and mortar lines
-	baseTexture.DrawImage(mortarTexture, nil)
-
-	// Cache the texture for reuse
 	rh.textureCache[cacheKey] = baseTexture
+	wallImage.DrawImage(baseTexture, tint)
+}
 
-	// Apply with color tinting
-	finalOpts := &ebiten.DrawImageOptions{}
-	finalOpts.ColorScale.Scale(
-		float32(finalColor.R)/255.0,
-		float32(finalColor.G)/255.0,
-		float32(finalColor.B)/255.0,
-		1.0)
-
-	wallImage.DrawImage(baseTexture, finalOpts)
+// applyBrickTextureCached applies a cached brick pattern texture to the wall image.
+func (rh *RenderingHelper) applyBrickTextureCached(wallImage *ebiten.Image, finalColor color.RGBA, width, height int) {
+	rh.applyPatternTextureCached(wallImage, finalColor, width, height, "brick", func(base *ebiten.Image) {
+		// Horizontal mortar lines every 8 pixels on a separate layer
+		mortarTexture := ebiten.NewImage(width, height)
+		mortarColor := color.RGBA{179, 179, 179, 255} // Gray mortar (70% of white)
+		mortarLine := ebiten.NewImage(width, 1)
+		mortarLine.Fill(mortarColor)
+		opts := &ebiten.DrawImageOptions{}
+		for y := 8; y < height; y += 8 {
+			opts.GeoM.Reset()
+			opts.GeoM.Translate(0, float64(y))
+			mortarTexture.DrawImage(mortarLine, opts)
+		}
+		base.DrawImage(mortarTexture, nil)
+	})
 }
 
 // applyFoliageTextureCached applies a cached foliage pattern texture.
-// This pre-renders the texture pattern once and reuses it for better performance.
 func (rh *RenderingHelper) applyFoliageTextureCached(wallImage *ebiten.Image, finalColor color.RGBA, width, height int) {
-	// Create cache key based on size - pattern is deterministic
-	cacheKey := fmt.Sprintf("foliage_%dx%d", width, height)
-
-	// Check if we have this texture cached
-	if cachedTexture, exists := rh.textureCache[cacheKey]; exists {
-		// Apply the cached texture with color tinting
-		opts := &ebiten.DrawImageOptions{}
-
-		// Calculate color scaling for shading
-		opts.ColorScale.Scale(
-			float32(finalColor.R)/255.0,
-			float32(finalColor.G)/255.0,
-			float32(finalColor.B)/255.0,
-			1.0)
-
-		wallImage.DrawImage(cachedTexture, opts)
-		return
-	}
-
-	// Create the base texture pattern (white on transparent)
-	baseTexture := ebiten.NewImage(width, height)
-	baseTexture.Fill(color.RGBA{255, 255, 255, 255}) // White base
-
-	// Create shadow spots on a separate layer
-	shadowTexture := ebiten.NewImage(width, height)
-	shadowColor := color.RGBA{153, 153, 153, 255} // Gray shadow (60% of white)
-
-	// Add pseudo-random shadow spots
-	for y := 0; y < height; y += 3 {
-		for x := 0; x < width; x += 4 {
-			if (x+y)%5 < 2 {
-				shadowTexture.Set(x, y, shadowColor)
+	rh.applyPatternTextureCached(wallImage, finalColor, width, height, "foliage", func(base *ebiten.Image) {
+		// Pseudo-random shadow spots on a separate layer
+		shadowTexture := ebiten.NewImage(width, height)
+		shadowColor := color.RGBA{153, 153, 153, 255} // Gray shadow (60% of white)
+		for y := 0; y < height; y += 3 {
+			for x := 0; x < width; x += 4 {
+				if (x+y)%5 < 2 {
+					shadowTexture.Set(x, y, shadowColor)
+				}
 			}
 		}
-	}
-
-	// Combine base and shadows
-	baseTexture.DrawImage(shadowTexture, nil)
-
-	// Cache the texture for reuse
-	rh.textureCache[cacheKey] = baseTexture
-
-	// Apply with color tinting
-	opts := &ebiten.DrawImageOptions{}
-	opts.ColorScale.Scale(
-		float32(finalColor.R)/255.0,
-		float32(finalColor.G)/255.0,
-		float32(finalColor.B)/255.0,
-		1.0)
-
-	wallImage.DrawImage(baseTexture, opts)
+		base.DrawImage(shadowTexture, nil)
+	})
 }
 
 // applyWallSliceFromSprite extracts a vertical slice from a sprite texture for wall rendering.
@@ -348,20 +300,12 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 	// Create cache key including sprite dimensions, texture position, sampled strip width, and target size.
 	cacheKey := fmt.Sprintf("sprite_slice_%dx%d_x%d_sw%d_%dx%d", spriteWidth, spriteHeight, textureX, sourceWidth, width, height)
 
+	// Grayscale distance/side shading, red component as reference
+	shading := float32(finalColor.R) / 255.0
+
 	// Check if we have this sprite slice cached
 	if cachedSlice, exists := rh.textureCache[cacheKey]; exists {
-		// Apply the cached slice with color tinting
-		opts := &ebiten.DrawImageOptions{}
-
-		// Apply color tinting for distance/side shading
-		shadingFactor := float64(finalColor.R) / 255.0 // Use red component as reference
-		opts.ColorScale.Scale(
-			float32(shadingFactor),
-			float32(shadingFactor),
-			float32(shadingFactor),
-			1.0)
-
-		wallImage.DrawImage(cachedSlice, opts)
+		wallImage.DrawImage(cachedSlice, tintOptions(shading, shading, shading))
 		return
 	}
 
@@ -400,16 +344,7 @@ func (rh *RenderingHelper) applyWallSliceFromSprite(wallImage *ebiten.Image, spr
 	// Cache the scaled slice for reuse
 	rh.textureCache[cacheKey] = scaledSlice
 
-	// Apply with color tinting
-	finalOpts := &ebiten.DrawImageOptions{}
-	shadingFactor := float64(finalColor.R) / 255.0 // Use red component as reference
-	finalOpts.ColorScale.Scale(
-		float32(shadingFactor),
-		float32(shadingFactor),
-		float32(shadingFactor),
-		1.0)
-
-	wallImage.DrawImage(scaledSlice, finalOpts)
+	wallImage.DrawImage(scaledSlice, tintOptions(shading, shading, shading))
 }
 
 // GetTileColor returns the base color for a tile type (reads from tile configuration)
@@ -464,19 +399,6 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	if sizeScale <= 0 {
 		sizeScale = 1
 	}
-	// Check if within view distance using Euclidean distance (for culling)
-	if distance > rh.game.camera.ViewDist || distance < 5.0 {
-		return 0, 0, 0, false
-	}
-
-	// Project to screen and get perpendicular distance (transformY)
-	// Using perpendicular distance instead of Euclidean distance prevents fisheye effect
-	// and ensures sprites align correctly with the floor rendering
-	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
-	if !ok {
-		return 0, 0, 0, false
-	}
-
 	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
 	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
@@ -484,68 +406,38 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	}
 	heightMultiplier *= sizeScale
 
-	// Calculate size using perpendicular distance for consistent floor alignment
-	spriteHeight := rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	// Sanity bound only — a playable-range pixel cap makes the sprite sink at
-	// close range (capped size vs an anchor still growing ~1/d).
-	if maxS := rh.game.config.GetScreenHeight() * 64; spriteHeight > maxS {
-		spriteHeight = maxS
-	}
-	if spriteHeight < 8 {
-		spriteHeight = 8
-	}
-
-	screenW := rh.game.config.GetScreenWidth()
-	if screenX < -spriteHeight || screenX > screenW+spriteHeight {
-		return 0, 0, 0, false
-	}
-
-	// Anchor sprite's bottom to the floor at its perpendicular distance
-	// This ensures environment sprites (trees, ferns, etc.) align with the floor
-	floorScreenY := rh.calculateFloorScreenY(perpDist)
-	screenY = floorScreenY - spriteHeight
-
-	return screenX, screenY, spriteHeight, true
+	// Fixed 5.0 near cull: environment sprites keep it even in turn-based mode
+	// (only monsters/NPCs get the close-range exemption).
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, 8)
 }
 
-// calculateBoundedSpriteMetrics projects an entity and sizes its sprite with a
-// caller-supplied minimum (far-away sprites stay readable). NPCs use this path
-// because they carry a per-NPC `size_multiplier` scaling both the projection
-// coefficient and the minimum together (so a "size 4" NPC reads as a tall
-// building, not the same size as a "size 1" NPC).
-//
-// There is deliberately NO maximum at playable range: a screen-pixel cap makes
-// the sprite SINK as the camera closes in — the floor anchor keeps growing
-// ~1/d while the capped size stops, dragging the top below the viewport.
+// projectSpriteMetrics is the shared projection core for floor-anchored
+// billboard sprites: view-distance/near culling, camera-plane projection,
+// height-multiplier sizing with the numeric sanity cap, horizontal culling,
+// and floor anchoring. Callers differ only in the near-cull distance, the
+// minimum sprite size, and where heightMultiplier comes from.
 //
 // Math notes:
-//   - Screen X is projected via projectToScreenX (camera plane math)
-//   - Sprite size uses PERPENDICULAR distance, not Euclidean — using Euclidean
-//     would create fisheye distortion at screen edges
+//   - Culling uses the Euclidean distance parameter; sizing uses PERPENDICULAR
+//     distance from projectToScreenX — Euclidean sizing would create fisheye
+//     distortion at screen edges
+//   - The size cap is a numeric sanity bound only: any screen-pixel cap
+//     reachable at playable range makes the sprite SINK as the camera closes
+//     in — the floor anchor keeps growing ~1/d while the capped size stops,
+//     dragging the top below the viewport. The GPU clips oversize sprites.
 //   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
 //     so sprites appear grounded rather than floating
-func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
-	// Check if within view distance using Euclidean distance (for culling only)
-	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
-	minDistance := 5.0
-	if rh.game.turnBasedMode {
-		minDistance = 1.0 // Allow monsters to be rendered even when very close in turn-based mode
-	}
+func (rh *RenderingHelper) projectSpriteMetrics(entityX, entityY, distance, minDistance, heightMultiplier float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
 	if distance > rh.game.camera.ViewDist || distance < minDistance {
 		return 0, 0, 0, false
 	}
 
-	// Project to screen and get perpendicular distance (transformY)
-	// IMPORTANT: We use perpDist for sizing, NOT the Euclidean distance parameter
 	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
 	if !ok {
 		return 0, 0, 0, false
 	}
 
-	// Calculate sprite size using the same scaling model as environment sprites.
-	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
 	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	// Numeric sanity bound only (see doc comment) — GPU clips oversize sprites.
 	if maxS := rh.game.config.GetScreenHeight() * 64; spriteSize > maxS {
 		spriteSize = maxS
 	}
@@ -558,13 +450,34 @@ func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, dista
 		return 0, 0, 0, false
 	}
 
-	// Calculate screenY to anchor sprite's bottom to the floor at its distance
-	// The floor at perpendicular distance perpDist appears at a specific screen Y
-	// We position the sprite so its bottom aligns with that floor position
 	floorScreenY := rh.calculateFloorScreenY(perpDist)
 	screenY = floorScreenY - spriteSize
 
 	return screenX, screenY, spriteSize, true
+}
+
+// spriteNearCull returns the near-cull distance for monster/NPC sprites: in
+// turn-based mode monsters can be very close (adjacent tiles), so allow them
+// to render at close range.
+func (rh *RenderingHelper) spriteNearCull() float64 {
+	if rh.game.turnBasedMode {
+		return 1.0
+	}
+	return 5.0
+}
+
+// calculateBoundedSpriteMetrics projects an entity and sizes its sprite with a
+// caller-supplied minimum (far-away sprites stay readable). NPCs use this path
+// because they carry a per-NPC `size_multiplier` scaling both the projection
+// coefficient and the minimum together (so a "size 4" NPC reads as a tall
+// building, not the same size as a "size 1" NPC).
+//
+// There is deliberately NO maximum at playable range: a screen-pixel cap makes
+// the sprite SINK as the camera closes in — the floor anchor keeps growing
+// ~1/d while the capped size stops, dragging the top below the viewport.
+func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
+	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
+	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, minSize)
 }
 
 // calculateScreenCappedSpriteMetrics projects an entity and sizes its sprite
@@ -580,45 +493,7 @@ func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, dista
 // For the alternative (per-instance min/max bounds, NPCs), see
 // calculateBoundedSpriteMetrics.
 func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	// Check if within view distance using Euclidean distance (for culling only)
-	// In turn-based mode, monsters can be very close (adjacent tiles), so allow closer distances
-	minDistance := 5.0
-	if rh.game.turnBasedMode {
-		minDistance = 1.0
-	}
-	if distance > rh.game.camera.ViewDist || distance < minDistance {
-		return 0, 0, 0, false
-	}
-
-	// Project to screen and get perpendicular distance (transformY)
-	screenX, perpDist, ok := rh.projectToScreenX(entityX, entityY)
-	if !ok {
-		return 0, 0, 0, false
-	}
-
-	// Calculate sprite size using the same model as environment sprites.
-	// Numeric sanity bound only: any screen-pixel cap reachable at playable
-	// range makes the sprite SINK as the camera closes in — the floor anchor
-	// keeps growing ~1/d while the capped size stops, dragging the top below
-	// the viewport. The GPU clips oversized sprites for free.
-	spriteSize = rh.calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier)
-	if maxS := rh.game.config.GetScreenHeight() * 64; spriteSize > maxS {
-		spriteSize = maxS
-	}
-	if spriteSize < 8 {
-		spriteSize = 8
-	}
-
-	screenW := rh.game.config.GetScreenWidth()
-	if screenX < -spriteSize || screenX > screenW+spriteSize {
-		return 0, 0, 0, false
-	}
-
-	// Anchor sprite's bottom to the floor at its perpendicular distance
-	floorScreenY := rh.calculateFloorScreenY(perpDist)
-	screenY = floorScreenY - spriteSize
-
-	return screenX, screenY, spriteSize, true
+	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, 8)
 }
 
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
@@ -737,7 +612,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		// in the sky shader; Kage samples nearest-only natively). Plain
 		// bilinear smears magnified pixel art, so when one texel spans several
 		// screen pixels the interpolation is squeezed into a ~1-pixel band at
-		// texel seams — crisp texels, antialiased edges — and relaxes back to
+		// texel seams - crisp texels, antialiased edges - and relaxes back to
 		// ordinary bilinear by the 1:1 footprint.
 		fx := lx*TexTileSize.x - 0.5
 		fy := ly*TexTileSize.y - 0.5

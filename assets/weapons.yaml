@@ -223,6 +223,7 @@ weapons:
       slash_color: [220, 220, 255]  # Silver-blue flash
       slash_width: 36
       slash_length: 52
+      slash_fx: silver_sword
 
   iron_spear:
     name: "Iron Spear"
@@ -258,7 +259,7 @@ weapons:
     crit_chance: 5
     rarity: "common"
     value: 140
-    flavor: "A drain-cleaner's pole resharpened into a pike — rust and all."
+    flavor: "A drain-cleaner's pole resharpened into a pike - rust and all."
     melee:
       arc_type: 1
       animation_frames: 12
@@ -311,6 +312,7 @@ weapons:
       slash_color: [255, 215, 0]  # Golden flash
       slash_width: 40
       slash_length: 56
+      slash_fx: gold_sword
 
   steel_axe:
     name: "Steel Axe"
@@ -405,7 +407,7 @@ weapons:
     physics:
       speed_tiles: 4.0           # 4 tiles per second (very slow)
       range_tiles: 12.0          # 12 tile range
-      collision_size_tiles: 1.0  # 1 tile collision for large projectile
+      collision_size_tiles: 2.0  # oversized hitbox for the large slow projectile
 
     graphics:
       max_size: 24
@@ -433,6 +435,7 @@ weapons:
       slash_color: [120, 200, 140]  # green agile flash
       slash_width: 16
       slash_length: 60
+      slash_fx: agility_katar
 
   long_bow:
     name: "Long Bow"
@@ -474,7 +477,7 @@ weapons:
     physics:
       speed_tiles: 10.0
       range_tiles: 7.0
-      collision_size_tiles: 0.6
+      collision_size_tiles: 2.0
 
     graphics:
       max_size: 34
@@ -553,6 +556,7 @@ weapons:
       slash_color: [150, 40, 40]  # Dark red gore flash
       slash_width: 52
       slash_length: 70
+      slash_fx: gorehorn
 
   # --- Japanese Castle (eastern islands) — uniques (boss drops) ---
   muramasa:
@@ -576,6 +580,7 @@ weapons:
       slash_color: [200, 40, 40]
       slash_width: 36
       slash_length: 56
+      slash_fx: muramasa
 
   tonbogiri:
     name: "Tonbogiri, the Dragonfly Spear"
@@ -598,6 +603,7 @@ weapons:
       slash_color: [120, 200, 140]
       slash_width: 22
       slash_length: 88
+      slash_fx: tonbogiri
 
   kage_kunai:
     name: "Kage-kunai, the Twin Shadows"
@@ -622,6 +628,7 @@ weapons:
       slash_color: [120, 60, 180]
       slash_width: 22
       slash_length: 34
+      slash_fx: kage_kunai
 
   inazuma_matchlock:
     name: "Inazuma Tanegashima"
@@ -639,7 +646,7 @@ weapons:
     physics:
       speed_tiles: 14.0
       range_tiles: 7.0
-      collision_size_tiles: 0.6
+      collision_size_tiles: 2.0
     graphics:
       max_size: 26
       min_size: 4
@@ -727,13 +734,14 @@ weapons:
       slash_color: [200, 210, 200]
       slash_width: 30
       slash_length: 78
+      slash_fx: naginata
 
   tanegashima:
     name: "Tanegashima Matchlock"
     description: "A smoothbore matchlock gun, loud and hard-hitting"
     category: "blaster"
     damage: 11
-    range: 6
+    range: 8  # must cover Ronin Marksman's 7-tile firing range (+margin)
     bonus_stat: "Accuracy"
     crit_chance: 12
     rarity: "uncommon"
@@ -742,7 +750,7 @@ weapons:
     flavor: "Smoke, thunder, and a hole where the armour was."
     physics:
       speed_tiles: 13.0
-      range_tiles: 6.0
+      range_tiles: 8.0  # bullet must reach the Ronin Marksman's 7-tile firing range
       collision_size_tiles: 0.5
     graphics:
       max_size: 22
@@ -784,7 +792,7 @@ weapons:
     crit_chance: 12
     rarity: "uncommon"
     value: 320
-    flavor: "It clears a path through anything — vines, or men."
+    flavor: "It clears a path through anything - vines, or men."
     melee:
       arc_type: 2
       animation_frames: 7
@@ -846,11 +854,11 @@ weapons:
     volley: 2  # fires a fan of 2 darts per shot
     rarity: "uncommon"
     value: 360
-    flavor: "A breath, a hiss — and the canopy goes quiet."
+    flavor: "A breath, a hiss - and the canopy goes quiet."
     physics:
       speed_tiles: 11.0
       range_tiles: 7.0
-      collision_size_tiles: 0.4
+      collision_size_tiles: 0.5
     graphics:
       max_size: 24
       min_size: 2
@@ -879,6 +887,7 @@ weapons:
       slash_color: [140, 200, 120]
       slash_width: 22
       slash_length: 40
+      slash_fx: serpent_fang
 
   idol_breakers_maul:
     name: "Idol-Breaker, the Warlord's Maul"
@@ -901,6 +910,7 @@ weapons:
       slash_color: [220, 180, 90]
       slash_width: 46
       slash_length: 58
+      slash_fx: idol_breaker
 
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its

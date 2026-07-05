@@ -28,6 +28,28 @@ func TestTakeDamageResist_Pierce(t *testing.T) {
 	}
 }
 
+// GM resist-pierce must only eat positive resistance. A negative resistance is
+// a vulnerability (bonus damage); piercing it would blunt that bonus, which is
+// backwards for a mechanic meant to help the attacker.
+func TestTakeDamageResist_PierceIgnoresVulnerability(t *testing.T) {
+	mk := func() *Monster3D {
+		return &Monster3D{
+			HitPoints: 1000, MaxHitPoints: 1000,
+			Resistances: map[DamageType]int{DamageFire: -50}, // 50% vulnerable
+		}
+	}
+
+	base := mk().TakeDamageResist(100, DamageFire, 0, 0, 0)
+	if base != 150 {
+		t.Fatalf("no-pierce vulnerable fire damage = %d, want 150", base)
+	}
+	// Pierce must not shrink the vulnerability bonus.
+	pierced := mk().TakeDamageResist(100, DamageFire, 50, 0, 0)
+	if pierced != 150 {
+		t.Errorf("50%%-pierce vulnerable fire damage = %d, want 150 (pierce should not touch vulnerability)", pierced)
+	}
+}
+
 // A sealed (dormant) boss absorbs all damage and does not aggro; clearing the
 // flag (its quest unseals it) restores normal damage + engagement.
 func TestDormantBossInvulnerable(t *testing.T) {

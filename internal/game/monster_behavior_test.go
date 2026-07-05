@@ -910,11 +910,14 @@ func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(skel, 999, "Bind Undead")
 
-	mw := CreateMonsterWrapper(skel, game.collisionSystem, game)
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for f := 0; f < 1500; f++ { // ~12s at 120 TPS — plenty to close 3 tiles and strike
 		game.refreshBoundUndeadCache()
+		// Fresh snapshot + wrapper each tick, mirroring the real two-phase RT
+		// tick (a snapshot taken once at the top of the loop would go stale).
+		mw := CreateMonsterWrapper(skel, game.collisionSystem, game.collisionSystem.Snapshot(), game)
 		mw.Update()
+		mw.ApplyCollisionUpdate()
 		game.combat.HandleMonsterInteractions()
 		if enemy.HitPoints < enemyHP0 {
 			break

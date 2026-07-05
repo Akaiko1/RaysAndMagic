@@ -140,17 +140,17 @@ func (c CharacterClass) Blurb() string {
 	case ClassKnight:
 		return "Front-line fighter. No magic; the highest HP and weapon focus."
 	case ClassPaladin:
-		return "Holy warrior — axes, swords, chain and shield, with a touch of self magic."
+		return "Holy warrior - axes, swords, chain and shield, with a touch of self magic."
 	case ClassArcher:
 		return "Bow master with high Accuracy and a little Air magic for utility."
 	case ClassCleric:
 		return "Healer and master of self magic (Body/Mind/Spirit), scaling with Personality."
 	case ClassSorcerer:
-		return "Elemental nuker — Fire, Water and Air magic scaling with Intellect."
+		return "Elemental nuker - Fire, Water and Air magic scaling with Intellect."
 	case ClassDruid:
-		return "Nature hybrid — Water, Mind and Earth magic; staff and wilderness skills."
+		return "Nature hybrid - Water, Mind and Earth magic; staff and wilderness skills."
 	case ClassThief:
-		return "No magic — a trap book instead: deadly tile traps, daggers and quick fingers."
+		return "No magic - a trap book instead: deadly tile traps, daggers and quick fingers."
 	default:
 		return ""
 	}
@@ -296,7 +296,7 @@ func (s SkillType) Description() string {
 			TrapperDamagePerTier, TrapperSecondsPerTier, TrapperTurnBonus(int(MasteryGrandMaster)))
 	case SkillSleightOfHand:
 		return fmt.Sprintf("Sleight of Hand: %d-%d%% chance (by mastery, Novice included) to pick a pocket "+
-			"on each melee hit — rolls the victim's loot; a missed loot roll pays %d gold (level %d+ foes) or %d gold.",
+			"on each melee hit - rolls the victim's loot; a missed loot roll pays %d gold (level %d+ foes) or %d gold.",
 			SleightChancePctPerTier, 4*SleightChancePctPerTier,
 			SleightGoldHighLevel, SleightHighLevelThreshold+1, SleightGoldLow)
 	case SkillRepair:

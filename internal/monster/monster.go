@@ -149,6 +149,12 @@ type Monster3D struct {
 	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
 	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)
 	Pilfered            bool    // Sleight of Hand already succeeded on this monster
+	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
+	// serpent dancer cards) — separate from monster-inflicted PoisonChance on
+	// characters. Ticks 1% of MaxHitPoints (min 1) per second of real time (RT)
+	// or once per monster turn (TB).
+	PoisonedFramesRemaining int
+	poisonTickTimer         int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
 	Bound                    bool       // Bind Undead: under party control — hunts other monsters, ignores party
 	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
@@ -226,6 +232,11 @@ type Monster3D struct {
 	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
 	AggroWholeMap    bool   // static: UNIQUE boss trait — once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
 	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord → "human".)
+	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandID           int    // transient: stable runtime band membership; 0 = solo/unbanded
+	BandLeaderID     string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
+	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
 	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
 	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
@@ -315,7 +326,7 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 	}
 	// Apply resistance (reduced by any piercing)
 	if resistance, exists := m.Resistances[damageType]; exists {
-		if resistPiercePct > 0 {
+		if resistPiercePct > 0 && resistance > 0 {
 			resistance = resistance * (100 - resistPiercePct) / 100
 		}
 		damage = damage * (100 - resistance) / 100
@@ -344,6 +355,76 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 	m.StateTimer = 0
 
 	return damage
+}
+
+// ApplyPoison applies or refreshes a party-inflicted poison DoT (Venom-proc
+// cards). Mirrors character.ApplyPoison — refreshing never shortens an
+// existing, longer poison.
+func (m *Monster3D) ApplyPoison(frames int) {
+	if frames <= 0 {
+		return
+	}
+	if frames > m.PoisonedFramesRemaining {
+		m.PoisonedFramesRemaining = frames
+	}
+}
+
+// poisonTickDamage deals one poison tick: 1% of max HP, minimum 1.
+func (m *Monster3D) poisonTickDamage() {
+	if m.HitPoints <= 0 {
+		return
+	}
+	dmg := m.MaxHitPoints / 100
+	if dmg < 1 {
+		dmg = 1
+	}
+	m.HitPoints -= dmg
+	if m.HitPoints < 0 {
+		m.HitPoints = 0
+	}
+}
+
+// TickPoison advances the poison timer by one REAL-TIME frame (RT mode),
+// dealing a tick once per second of real time.
+func (m *Monster3D) TickPoison() {
+	if m.PoisonedFramesRemaining <= 0 {
+		return
+	}
+	tps := 60
+	if m.config != nil {
+		tps = m.config.GetTPS()
+	} else {
+		tps = config.GetTargetTPS()
+	}
+	if tps <= 0 {
+		tps = 60
+	}
+	m.PoisonedFramesRemaining--
+	m.poisonTickTimer++
+	if m.poisonTickTimer >= tps {
+		m.poisonTickTimer = 0
+		m.poisonTickDamage()
+	}
+	if m.PoisonedFramesRemaining <= 0 {
+		m.PoisonedFramesRemaining = 0
+		m.poisonTickTimer = 0
+	}
+}
+
+// TickPoisonTurn advances the poison timer by one TURN (TB mode) — one damage
+// tick per turn, duration measured in the same frame units ApplyPoison used.
+func (m *Monster3D) TickPoisonTurn(framesPerTurn int) {
+	if m.PoisonedFramesRemaining <= 0 {
+		return
+	}
+	if framesPerTurn <= 0 {
+		framesPerTurn = 60
+	}
+	m.PoisonedFramesRemaining -= framesPerTurn
+	if m.PoisonedFramesRemaining < 0 {
+		m.PoisonedFramesRemaining = 0
+	}
+	m.poisonTickDamage()
 }
 
 func (m *Monster3D) IsAlive() bool {

@@ -11,16 +11,18 @@
 # @ in the open desert = pyramid_entrance
 # Dragon STATUES (4 corners): each is an NPC placeholder bound to a
 # dragon_statue_* entry in npcs.yaml. Approaching one lets you spend a matching
-# dragon statuette (looted from the pyramid) to SUMMON that dragon; the statue
-# then vanishes. Black->dragon(fire), Red->dragon_red(dark),
-# Green->dragon_green(poison), Gold->dragon_gold(air).
+# dragon statuette (looted from the pyramid) to SUMMON an ELITE Elder Dragon;
+# the statue then vanishes. Black->elder_dragon(fire), Red->elder_dragon_red(dark),
+# Green->elder_dragon_green(poison), Gold->elder_dragon_gold(air). These are the
+# buffed, tinted "Elder Dragon" variants — distinct from the ordinary dragons that
+# roam dragon_cliffs and its lair caves.
 #
 # Layout: a central oasis (desert merchant + red teleporter) plus two small
 # palm oases, each guarded by 5 bandits (clearing an oasis's bandits drops a
 # 500-gold chest at its water — see desert.clear_encounters in map_configs.yaml).
-# MAIN QUEST: only these statue-summoned dragons count toward "dragon_slayer"
-# (combat.go updateQuestProgress gates the credit on the summoned-dragon flag),
-# so wild dragons elsewhere would NOT win the game.
+# MAIN QUEST: only these statue-summoned Elder Dragons count toward "dragon_slayer"
+# (combat.go updateQuestProgress: target "elder_dragon" + the summoned-dragon flag),
+# so ordinary wild dragons never win the game.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 TTAARTRTA................................ATRTRTAAT
 TTAA@....................................AA.T.TAAT  >[npc:dragon_statue_black]
@@ -49,8 +51,8 @@ T..................@.WWWWWWW.....................T  >[npc:desert_merchant]
 T.......................@WW..A...................T  >[stile:rteleporter]
 T....................WWWWWWW.A...................T
 T...................A.WWWWW..A...................T
-T....................AA..........................T
-T................................................T
+T....................AA......@...................T  >[npc:tavern]
+T............................@...................T  >[npc:card_collector]
 T................................................T
 T..............................................P.T
 T................................................T

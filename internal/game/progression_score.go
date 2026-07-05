@@ -3,15 +3,14 @@ package game
 import (
 	"time"
 
+	"ugataima/internal/character"
 	"ugataima/internal/highscore"
 )
 
 // GetScoreData collects score-input data from the current game state.
 func (g *MMGame) GetScoreData() highscore.ScoreData {
-	totalExp := 0
 	totalLevel := 0
 	for _, member := range g.party.Members {
-		totalExp += member.Experience
 		totalLevel += member.Level
 	}
 	avgLevel := 1
@@ -25,9 +24,50 @@ func (g *MMGame) GetScoreData() highscore.ScoreData {
 	}
 
 	return highscore.ScoreData{
-		TotalExperience: totalExp,
-		Gold:            g.party.Gold,
+		TotalExperience: g.totalExperienceEarned,
+		Gold:            g.totalGoldEarned,
 		AverageLevel:    avgLevel,
 		PlayTime:        playTime,
 	}
+}
+
+func (g *MMGame) awardGold(amount int) {
+	if amount <= 0 || g.party == nil {
+		return
+	}
+	g.party.Gold += amount
+	g.totalGoldEarned += amount
+}
+
+func earnedExperienceForCharacter(level, remaining int) int {
+	if level < 1 {
+		level = 1
+	}
+	if remaining < 0 {
+		remaining = 0
+	}
+	spent := XPRequiredPerLevel * (level - 1) * level / 2
+	return spent + remaining
+}
+
+func earnedExperienceForParty(p *character.Party) int {
+	if p == nil {
+		return 0
+	}
+	total := 0
+	add := func(m *character.MMCharacter) {
+		if m != nil {
+			total += earnedExperienceForCharacter(m.Level, m.Experience)
+		}
+	}
+	for _, m := range p.Members {
+		add(m)
+	}
+	for _, m := range p.Reserve {
+		add(m)
+	}
+	for _, m := range p.Captive {
+		add(m)
+	}
+	return total
 }

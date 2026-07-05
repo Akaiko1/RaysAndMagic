@@ -116,5 +116,132 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, "Offers a party member the path of the Lich")
 	}
+	if cl := d.CardEffectLines(); len(cl) > 0 {
+		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
+	}
 	return lines
+}
+
+// CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
+// text, derived from its Card* fields. Shared by the item tooltip (via
+// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only —
+// the in-game bitmap font has no glyph for unicode dashes.
+func (d *ItemDefinitionConfig) CardEffectLines() []string {
+	var p []string
+	if d.CardMoveSpeedPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% move speed", d.CardMoveSpeedPct))
+	}
+	if d.CardBonusActions != 0 {
+		p = append(p, fmt.Sprintf("+%d party action/turn", d.CardBonusActions))
+	}
+	for _, s := range []struct{ key, label string }{
+		{"might", "Might"}, {"intellect", "Intellect"}, {"personality", "Personality"},
+		{"endurance", "Endurance"}, {"accuracy", "Accuracy"}, {"speed", "Speed"}, {"luck", "Luck"},
+	} {
+		if v := d.CardStatBonuses[s.key]; v != 0 {
+			p = append(p, fmt.Sprintf("%+d %s", v, s.label))
+		}
+	}
+	if d.CardRangedDmgPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% ranged damage", d.CardRangedDmgPct))
+	}
+	if d.CardMeleeTrueDmg != 0 {
+		p = append(p, fmt.Sprintf("+%d true melee damage", d.CardMeleeTrueDmg))
+	}
+	if d.CardPhysToFirePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as fire", d.CardPhysToFirePct))
+	}
+	if d.CardWalkOnWater {
+		p = append(p, "Walk on water")
+	}
+	if d.CardHealOnAtkPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% to self-heal %d on attack", d.CardHealOnAtkPct, d.CardHealAmount))
+	}
+	if d.CardLethalSavePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% to cheat death (half HP+SP)", d.CardLethalSavePct))
+	}
+	if d.CardMoveAoePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on move: %d pure to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
+	}
+	if d.CardSummonChance != 0 {
+		p = append(p, fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit))
+	}
+	if d.CardDisintegratePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on hit: disintegrate the target", d.CardDisintegratePct))
+	}
+	if d.CardRegenPct != 0 {
+		p = append(p, fmt.Sprintf("Regenerate %d%% max HP per tick", d.CardRegenPct))
+	}
+	if d.CardDoubleAttackPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on melee hit: attack again", d.CardDoubleAttackPct))
+	}
+	if d.CardSpellProcPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% a melee swing casts a Fire Bolt instead", d.CardSpellProcPct))
+	}
+	if d.CardDodgeBonusPct != 0 {
+		p = append(p, fmt.Sprintf("+%d Perfect Dodge", d.CardDodgeBonusPct))
+	}
+	if d.CardArmorBonus != 0 {
+		p = append(p, fmt.Sprintf("+%d Armor Class", d.CardArmorBonus))
+	}
+	if d.CardThornsPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% of incoming damage reflected", d.CardThornsPct))
+	}
+	if d.CardPhysToDarkPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as dark", d.CardPhysToDarkPct))
+	}
+	if d.CardPhysToLightPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% of physical damage dealt as light", d.CardPhysToLightPct))
+	}
+	if d.CardPoisonProcPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on hit: poison for %ds", d.CardPoisonProcPct, d.CardPoisonDurationSec))
+	}
+	if d.CardMeleeDmgPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% melee damage", d.CardMeleeDmgPct))
+	}
+	if d.CardMaxHPBonus != 0 {
+		p = append(p, fmt.Sprintf("+%d max HP", d.CardMaxHPBonus))
+	}
+	if len(d.CardResistBonus) > 0 {
+		keys := make([]string, 0, len(d.CardResistBonus))
+		for k := range d.CardResistBonus {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			p = append(p, fmt.Sprintf("+%d%% %s resistance", d.CardResistBonus[k], titleCaseLower(k)))
+		}
+	}
+	if d.CardGoldFindPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% gold from kills", d.CardGoldFindPct))
+	}
+	if d.CardBonusBoltPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on attack: fire a bonus bolt", d.CardBonusBoltPct))
+	}
+	if d.CardVolleyBonusPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% a bow shot looses an extra arrow", d.CardVolleyBonusPct))
+	}
+	if d.CardStunOnHitPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on hit: stun the target", d.CardStunOnHitPct))
+	}
+	if d.CardPoisonResistPct != 0 {
+		p = append(p, fmt.Sprintf("%d%% resist poison", d.CardPoisonResistPct))
+	}
+	if d.CardCritBonusPct != 0 {
+		p = append(p, fmt.Sprintf("+%d%% critical hit chance", d.CardCritBonusPct))
+	}
+	if d.CardArmorPiercePct != 0 {
+		p = append(p, fmt.Sprintf("%d%% on hit: ignore armor", d.CardArmorPiercePct))
+	}
+	if len(d.CardBonusVs) > 0 {
+		keys := make([]string, 0, len(d.CardBonusVs))
+		for k := range d.CardBonusVs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			p = append(p, fmt.Sprintf("+%.0f%% damage vs %s", (d.CardBonusVs[k]-1)*100, titleCaseLower(k)))
+		}
+	}
+	return p
 }

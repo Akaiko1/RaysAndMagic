@@ -122,9 +122,12 @@ func MeleeSwingArcLine(def *config.WeaponDefinitionConfig) string {
 	default:
 		return ""
 	}
-	reach := "reaches 1 tile, diagonals included"
+	// Reach depth only: which directions get hit is the shape sentence's job,
+	// and depth counts diagonals as one step for EVERY weapon, so a per-item
+	// "diagonals included" note carried no information.
+	reach := "reaches 1 tile"
 	if def.Range >= 2 {
-		reach = fmt.Sprintf("reaches %d tiles deep in the cone (diagonals included)", def.Range)
+		reach = fmt.Sprintf("reaches %d tiles deep in the cone", def.Range)
 	}
 	return fmt.Sprintf("%s; %s", shape, reach)
 }
@@ -457,7 +460,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		rules.Add("Overlapping zones of the same spell do not stack")
 	}
 	if def.MonsterOnly {
-		rules.Add("Monster only — never offered to the party")
+		rules.Add("Monster only - never offered to the party")
 	}
 
 	return []CardSection{casting, dmg, heal, crit, zone, effects, rules}
@@ -470,7 +473,7 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 // stay.
 func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}
-	casting.Add("Cast by monsters only — never learnable")
+	casting.Add("Cast by monsters only - never learnable")
 	if sd.IsProjectile && def.Physics != nil {
 		if def.Physics.RangeTiles > 0 {
 			casting.Add("Range: %.0f tiles", def.Physics.RangeTiles)
@@ -497,7 +500,7 @@ func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.Spell
 
 	rules := CardSection{Title: "RULES"}
 	rules.Add("Strikes your party, not other monsters")
-	rules.Add("Monster only — never offered to the party")
+	rules.Add("Monster only - never offered to the party")
 
 	return []CardSection{casting, dmg, effects, rules}
 }

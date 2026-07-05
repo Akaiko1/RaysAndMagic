@@ -84,6 +84,10 @@ type MMCharacter struct {
 	// Runtime-only: rebuilt from buff state on load, never saved per character.
 	BuffBonuses StatBonuses
 
+	// BonusMaxHP is a flat MaxHP addition from an external source (the Jungle
+	// Idol Card), pushed the same way as BuffBonuses. Runtime-only.
+	BonusMaxHP int
+
 	// Primary attributes
 	Might       int // Physical strength and melee damage
 	Intellect   int // Spell points and spell damage
@@ -124,6 +128,11 @@ type MMCharacter struct {
 
 	// Regeneration timer - counts frames until next spell point regeneration
 	spellRegenTimer int
+
+	// BonusRegenPct is a % of max HP regenerated every ManaRegenIntervalFrames,
+	// pushed by the game (Troll Cards) the same way as BonusMaxHP. Runtime-only.
+	BonusRegenPct int
+	hpRegenTimer  int
 
 	// Free stat points to distribute on level-up
 	FreeStatPoints int
@@ -359,7 +368,7 @@ func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 	endurMult, levelHPMult, levelSPMult := derivedStatMultipliers(cfg)
 	_, effInt, effPers, effEnd, _, _, _ := c.GetEffectiveStats()
 	baseMaxHP := effEnd*endurMult + c.Level*levelHPMult
-	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP)
+	c.MaxHitPoints = baseMaxHP + c.bodybuildingBonusHP(baseMaxHP) + c.BonusMaxHP
 	c.MaxSpellPoints = effInt + effPers/MaxSPPersonalityDivisor + c.Level*levelSPMult
 }
 
@@ -419,14 +428,11 @@ func (c *MMCharacter) Update() {
 
 // UpdateWithMode updates the character with knowledge of the current game mode
 func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
-	// Skip timer-based regeneration in turn-based mode
+	// Turn-based mode: skip timer-based regen AND poison/burn — those advance
+	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
+	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
+	// mirroring monster poison's RT-frame-vs-TB-turn split.
 	if turnBasedMode {
-		tps := config.GetTargetTPS()
-		if tps <= 0 {
-			tps = 60
-		}
-		c.updatePoison(tps)
-		c.updateBurn(tps)
 		return
 	}
 
@@ -463,6 +469,51 @@ func (c *MMCharacter) TickStunTurn() {
 	}
 }
 
+// TickPoisonTurn advances poison by one TURN (TB mode) — one damage tick per
+// turn, duration measured in the same frame units ApplyPoison used. Mirrors
+// monster.TickPoisonTurn; called once per party turn from startPartyTurn.
+func (c *MMCharacter) TickPoisonTurn(framesPerTurn int) {
+	if c.PoisonFramesRemaining <= 0 {
+		return
+	}
+	if framesPerTurn <= 0 {
+		framesPerTurn = 60
+	}
+	c.PoisonFramesRemaining -= framesPerTurn
+	if c.PoisonFramesRemaining <= 0 {
+		c.PoisonFramesRemaining = 0
+		c.poisonTickTimer = 0
+		c.RemoveCondition(ConditionPoisoned)
+	}
+	if c.HitPoints > 0 {
+		c.HitPoints--
+		if c.HitPoints < 0 {
+			c.HitPoints = 0
+		}
+	}
+}
+
+// TickBurnTurn advances ignite by one TURN (TB mode), mirroring TickPoisonTurn.
+func (c *MMCharacter) TickBurnTurn(framesPerTurn int) {
+	if c.BurnFramesRemaining <= 0 {
+		return
+	}
+	if framesPerTurn <= 0 {
+		framesPerTurn = 60
+	}
+	c.BurnFramesRemaining -= framesPerTurn
+	if c.BurnFramesRemaining <= 0 {
+		c.BurnFramesRemaining = 0
+		c.RemoveCondition(ConditionBurning)
+	}
+	if c.HitPoints > 0 {
+		c.HitPoints -= BurnDamagePerTick
+		if c.HitPoints < 0 {
+			c.HitPoints = 0
+		}
+	}
+}
+
 // updateRegenAndPoison ticks poison and the SP-regen cadence (buffs flow in
 // via BuffBonuses).
 func (c *MMCharacter) updateRegenAndPoison() {
@@ -483,6 +534,14 @@ func (c *MMCharacter) updateRegenAndPoison() {
 	if c.spellRegenTimer >= ManaRegenIntervalFrames {
 		c.RegenerateSpellPoints()
 		c.spellRegenTimer = 0 // Reset timer
+	}
+	// Troll Card(s): regenerate a % of max HP on the same cadence.
+	if c.BonusRegenPct > 0 {
+		c.hpRegenTimer++
+		if c.hpRegenTimer >= ManaRegenIntervalFrames {
+			c.hpRegenTimer = 0
+			c.ApplyCardRegenTick()
+		}
 	}
 }
 
@@ -514,6 +573,20 @@ func (c *MMCharacter) RegenerateSpellPoints() {
 	}
 }
 
+// ApplyCardRegenTick heals BonusRegenPct% of max HP (Troll Card(s)), capped at
+// max. Called on its own frame-timer cadence in RT (updateRegenAndPoison) and
+// on the TB round counter (endPartyTurn), matching RegenerateSpellPoints' two
+// cadences for the two modes.
+func (c *MMCharacter) ApplyCardRegenTick() {
+	if !c.CanAct() || c.BonusRegenPct <= 0 || c.HitPoints >= c.MaxHitPoints {
+		return
+	}
+	c.HitPoints += c.MaxHitPoints * c.BonusRegenPct / 100
+	if c.HitPoints > c.MaxHitPoints {
+		c.HitPoints = c.MaxHitPoints
+	}
+}
+
 // ApplyPoison applies or refreshes a poison effect for the given duration in frames.
 func (c *MMCharacter) ApplyPoison(frames int) {
 	if frames <= 0 {
@@ -523,6 +596,17 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 		c.PoisonFramesRemaining = frames
 	}
 	c.AddCondition(ConditionPoisoned)
+}
+
+// CurePoison ends an active poison outright — zeroing the frame timer, not just
+// the Poisoned condition/icon. RemoveCondition alone leaves PoisonFramesRemaining
+// ticking in the background (updatePoison keys off the timer, not the
+// condition), so a cure item would look like it worked while 1 HP/sec kept
+// draining until the poison's natural expiry.
+func (c *MMCharacter) CurePoison() {
+	c.PoisonFramesRemaining = 0
+	c.poisonTickTimer = 0
+	c.RemoveCondition(ConditionPoisoned)
 }
 
 // ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison —
@@ -555,10 +639,10 @@ func (c *MMCharacter) updateBurn(tps int) {
 		c.burnTickTimer = 0
 		if c.HitPoints > 0 {
 			c.HitPoints -= BurnDamagePerTick
-			if c.HitPoints <= 0 {
+			if c.HitPoints < 0 {
 				c.HitPoints = 0
-				c.AddCondition(ConditionUnconscious)
 			}
+			// Unconscious is set by the game loop's knockOut sweep, not here.
 		}
 	}
 	if c.BurnFramesRemaining <= 0 {
@@ -599,10 +683,10 @@ func (c *MMCharacter) updatePoison(tps int) {
 		c.poisonTickTimer = 0
 		if c.HitPoints > 0 {
 			c.HitPoints--
-			if c.HitPoints <= 0 {
+			if c.HitPoints < 0 {
 				c.HitPoints = 0
-				c.AddCondition(ConditionUnconscious)
 			}
+			// Unconscious is set by the game loop's knockOut sweep, not here.
 		}
 	}
 
@@ -842,23 +926,13 @@ func getWeaponDefinitionFromGlobal(weaponKey string) (*items.WeaponDefinitionFro
 
 // EquipItem attempts to equip an item from inventory, returns (previousItem, hadPreviousItem, success)
 func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
-	var previousItem items.Item
-	var hadPreviousItem bool
 	var slot items.EquipSlot
-
 	switch item.Type {
 	case items.ItemWeapon:
-		// Check if character can equip this weapon by name
-		if !c.CanEquipWeaponByName(item.Name) {
-			return items.Item{}, false, false
-		}
 		slot = items.SlotMainHand
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
-		if !c.CanEquipArmor(item) {
-			return items.Item{}, false, false
-		}
 		slot = item.PreferredSlot(items.SlotArmor)
 	case items.ItemAccessory:
 		slot = item.PreferredSlot(items.SlotRing1)
@@ -877,19 +951,69 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		}
 	}
 
-	// Check if there's already an item equipped in this slot
-	if existingItem, exists := c.Equipment[slot]; exists {
-		previousItem = existingItem
-		hadPreviousItem = true
+	// EquipItemToSlot enforces the class/armor gates and places the item.
+	return c.EquipItemToSlot(item, slot)
+}
+
+// ItemFitsSlot reports whether item can legally occupy slot for this character:
+// the type→slot mapping plus the class/armor gates. Single source of truth for
+// the model equip paths and the UI drag highlight / drop validation.
+func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
+	switch item.Type {
+	case items.ItemWeapon:
+		return slot == items.SlotMainHand && c.CanEquipWeaponByName(item.Name)
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		return slot == items.SlotSpell
+	case items.ItemArmor:
+		return slot == item.PreferredSlot(items.SlotArmor) && c.CanEquipArmor(item)
+	case items.ItemAccessory:
+		ps := item.PreferredSlot(items.SlotRing1)
+		if ps == items.SlotRing1 {
+			return slot == items.SlotRing1 || slot == items.SlotRing2 // rings fit either finger
+		}
+		return slot == ps
 	}
+	return false
+}
 
-	// Equip the new item
+// EquipItemToSlot forces item into a specific equipment slot, returning any
+// displaced item. Used when the UI drop target is an exact slot (e.g. dragging a
+// ring onto the Ring2 finger) — unlike EquipItem, which resolves the slot itself
+// and would send a ring to Ring1. Refuses a slot the item can't legally occupy.
+func (c *MMCharacter) EquipItemToSlot(item items.Item, slot items.EquipSlot) (items.Item, bool, bool) {
+	if !c.ItemFitsSlot(item, slot) {
+		return items.Item{}, false, false
+	}
+	previousItem, hadPreviousItem := c.Equipment[slot]
 	c.Equipment[slot] = item
-
-	// Recalculate derived stats to apply equipment bonuses (preserves current HP/SP ratios)
 	c.updateDerivedStatsForEquipment()
-
 	return previousItem, hadPreviousItem, true
+}
+
+// MoveEquipmentSlot moves the item in srcSlot to dstSlot, swapping with whatever
+// already occupies dstSlot. In practice this serves interchangeable slots
+// (dragging a ring between the two fingers); both the moved item and any
+// displaced occupant must fit their new slots. Returns false if srcSlot is
+// empty, the slots are the same, or either item doesn't fit.
+func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
+	if srcSlot == dstSlot {
+		return false
+	}
+	moving, ok := c.Equipment[srcSlot]
+	if !ok || !c.ItemFitsSlot(moving, dstSlot) {
+		return false
+	}
+	if occ, occupied := c.Equipment[dstSlot]; occupied {
+		if !c.ItemFitsSlot(occ, srcSlot) {
+			return false
+		}
+		c.Equipment[srcSlot] = occ // swap the two fingers
+	} else {
+		delete(c.Equipment, srcSlot)
+	}
+	c.Equipment[dstSlot] = moving
+	c.updateDerivedStatsForEquipment()
+	return true
 }
 
 // UnequipItem removes an item from an equipment slot and returns it

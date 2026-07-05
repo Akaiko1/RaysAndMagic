@@ -1,0 +1,150 @@
+package game
+
+import (
+	"testing"
+
+	"ugataima/internal/bridge"
+	"ugataima/internal/config"
+	"ugataima/internal/monster"
+	"ugataima/internal/threading"
+	"ugataima/internal/world"
+)
+
+// TestRace_MonsterParallelUpdate exercises the EXACT production path
+// (GameLoop.updateMonstersParallel: ConvertMonstersToWrappers +
+// EntityUpdater.UpdateMonstersParallel) against a densely populated real map,
+// for many ticks, under -race. See CollisionSystem's documented "disjoint
+// entities" concurrency contract: canMoveToEntityPosition/shouldIgnoreEntityCollision
+// iterate ALL entities (not just the caller's own), so if a monster's worker
+// reads another monster's BoundingBox/CollisionType while that monster's own
+// worker concurrently writes them (UpdateEntity / refreshMonsterCollisionSolidity),
+// the race detector must catch it here.
+//
+// Run: go test ./internal/game/ -race -run TestRace_MonsterParallelUpdate -v
+func TestRace_MonsterParallelUpdate(t *testing.T) {
+	t.Chdir("../..")
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
+		t.Fatalf("spells: %v", err)
+	}
+	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
+		t.Fatalf("weapons: %v", err)
+	}
+	if _, err := config.LoadItemConfig("assets/items.yaml"); err != nil {
+		t.Fatalf("items: %v", err)
+	}
+	bridge.SetupWeaponBridge()
+	bridge.SetupItemBridge()
+	monster.MustLoadMonsterConfig("assets/monsters.yaml")
+
+	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
+	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
+	world.GlobalTileManager = world.NewTileManager()
+	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
+		t.Fatalf("tiles: %v", err)
+	}
+	wm := world.NewWorldManager(cfg)
+	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
+		t.Fatalf("map configs: %v", err)
+	}
+	if err := wm.LoadAllMaps(); err != nil {
+		t.Fatalf("load maps: %v", err)
+	}
+	// Forest has the densest, most varied (ranged + melee + banding) monster
+	// population of any map — the best odds of provoking cross-chunk contention.
+	if err := wm.SwitchToMap("forest"); err != nil {
+		t.Fatalf("switch: %v", err)
+	}
+	world.GlobalWorldManager = wm
+	w := wm.GetCurrentWorld()
+
+	g := newTestGame(cfg, w)
+	g.threading = threading.NewThreadingComponents(cfg)
+	defer g.threading.Shutdown()
+	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+	t.Logf("forest: %d monsters", len(w.Monsters))
+
+	// Party planted in the densest cluster so engaged/dormant collision-type
+	// flips (the exact field the review flagged) happen every tick, not just
+	// idle patrol drift.
+	if len(w.Monsters) > 0 {
+		m := w.Monsters[0]
+		g.camera.X, g.camera.Y = m.X, m.Y
+		g.collisionSystem.UpdateEntity("player", m.X, m.Y)
+	}
+
+	const ticks = 600 // 10s at 60 TPS — race detector needs sustained contention
+	for tick := 0; tick < ticks; tick++ {
+		g.frameCount++
+		monsters := g.ConvertMonstersToWrappers()
+		g.threading.EntityUpdater.UpdateMonstersParallel(monsters)
+	}
+}
+
+// TestRace_ProjectileImpactScreenShake exercises the production path
+// (GameLoop.updateProjectilesParallel: ConvertProjectilesToWrappers +
+// EntityUpdater.UpdateProjectilesParallel) with several magic projectiles that
+// all collide on the same tick, landing in different worker chunks.
+// MagicProjectileWrapper.OnCollision -> CreateSpellHitEffectFromSpell ->
+// addScreenShake reads-then-writes g.screenShake with no lock (unlike
+// impactLights/spellHitEffects, which ARE guarded by hitEffectsMu) — two
+// simultaneous impacts on different workers race on it.
+//
+// Run: go test ./internal/game/ -race -run TestRace_ProjectileImpactScreenShake -v
+func TestRace_ProjectileImpactScreenShake(t *testing.T) {
+	t.Chdir("../..")
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	if _, err := config.LoadSpellConfig("assets/spells.yaml"); err != nil {
+		t.Fatalf("spells: %v", err)
+	}
+	if _, err := config.LoadWeaponConfig("assets/weapons.yaml"); err != nil {
+		t.Fatalf("weapons: %v", err)
+	}
+	if _, err := config.LoadItemConfig("assets/items.yaml"); err != nil {
+		t.Fatalf("items: %v", err)
+	}
+	bridge.SetupWeaponBridge()
+	bridge.SetupItemBridge()
+
+	w := newTestWorld(cfg)
+	g := newTestGame(cfg, w)
+	g.threading = threading.NewThreadingComponents(cfg)
+	defer g.threading.Shutdown()
+
+	// addScreenShake's body is a couple of float comparisons — too small a
+	// window for the race detector to catch at low contention. Use enough
+	// projectiles that many workers land in CreateSpellHitEffectFromSpell's
+	// unlocked addScreenShake call at the same instant.
+	const n = 4000
+	g.magicProjectiles = make([]MagicProjectile, n)
+	for i := range g.magicProjectiles {
+		g.magicProjectiles[i] = MagicProjectile{
+			ID:        "race-bolt",
+			X:         float64(i) * 64,
+			Y:         64,
+			VelX:      4,
+			SpellType: "firebolt",
+			Active:    true,
+			LifeTime:  10,
+		}
+	}
+
+	alwaysBlocked := func(x, y float64) bool { return false } // force OnCollision every tick
+
+	for tick := 0; tick < 20; tick++ {
+		for i := range g.magicProjectiles {
+			g.magicProjectiles[i].Active = true
+			g.magicProjectiles[i].LifeTime = 10
+		}
+		projectiles := g.ConvertProjectilesToWrappers()
+		g.threading.EntityUpdater.UpdateProjectilesParallel(projectiles, alwaysBlocked)
+	}
+}

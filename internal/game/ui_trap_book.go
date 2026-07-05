@@ -21,50 +21,17 @@ import (
 func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 
-	bookX := panelX + 24
-	bookY := contentY + 60
-	bookW := 652
-	bookH := bookW / 2
-	if maxBookH := contentHeight - 94; bookH > maxBookH {
-		bookH = maxBookH
-		bookW = bookH * 2
-		bookX = panelX + (700-bookW)/2
-	}
-	scaleX := float64(bookW) / 1024.0
-	scaleY := float64(bookH) / 512.0
-	srcX := func(v int) int { return bookX + int(float64(v)*scaleX) }
-	srcY := func(v int) int { return bookY + int(float64(v)*scaleY) }
-	srcW := func(v int) int { return int(float64(v) * scaleX) }
-	srcH := func(v int) int { return int(float64(v) * scaleY) }
+	bl := computeBookLayout(panelX, contentY, contentHeight)
 
-	drawImageScaled(screen, ui.game.sprites.GetSprite("trap_recipe_book_open"), bookX, bookY, bookW, bookH)
-	leftTextX := srcX(92)
-	leftTextW := srcW(350)
-	drawCenteredDebugText(screen, fmt.Sprintf("%s's Trap Book", currentChar.Name), leftTextX, srcY(72), leftTextW, 20)
+	drawImageScaled(screen, ui.game.sprites.GetSprite("trap_recipe_book_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
+	drawCenteredDebugText(screen, fmt.Sprintf("%s's Trap Book", currentChar.Name), bl.srcX(92), bl.srcY(72), bl.srcW(350), 20)
 
 	keys := availableTraps(currentChar)
 	if len(keys) == 0 {
-		drawCenteredDebugText(screen, "No traps known", bookX+24, bookY+bookH/2-8, bookW-48, 20)
+		drawCenteredDebugText(screen, "No traps known", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 		return
 	}
 
-	// Same 2×2-per-page grid as the spellbook.
-	gridY := srcY(118)
-	cardW := srcW(180)
-	cardH := srcH(150)
-	cols := 2
-	const cardsPerPage = 4
-	iconSize := srcW(96)
-	if maxIcon := cardH - 2*debugTextCharHeight - 12; iconSize > maxIcon {
-		iconSize = maxIcon
-	}
-	if iconSize < 16 {
-		iconSize = 16
-	}
-	cardGap := srcW(18)
-	rowGap := srcH(14)
-	gridW := cols*cardW + (cols-1)*cardGap
-	pageOriginX := [2]int{srcX(278) - gridW/2, srcX(747) - gridW/2}
 	mouseX, mouseY := ebiten.CursorPosition()
 
 	var tooltip string
@@ -76,25 +43,22 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	}
 
 	for i, key := range keys {
-		if i >= 2*cardsPerPage {
+		if i >= 2*bl.cardsPerPage {
 			break
 		}
 		def, ok := config.GetTrapDefinition(key)
 		if !ok {
 			continue
 		}
-		page := i / cardsPerPage
-		local := i % cardsPerPage
-		cardX := pageOriginX[page] + (local%cols)*(cardW+cardGap)
-		cardY := gridY + (local/cols)*(cardH+rowGap)
-		if cardY+cardH > srcY(460) {
+		cardX, cardY := bl.cardPos(i)
+		if cardY+bl.cardH > bl.gridMaxY {
 			continue
 		}
 
 		// Spell-like mouse controls: click selects, double-click ARMS the
 		// clicked trap in the world (spells cast on double-click; Enter/F
 		// equip the quick slot). TB consumes an action like a book-cast spell.
-		if ui.game.consumeLeftClickIn(cardX, cardY, cardX+cardW, cardY+cardH) {
+		if ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
 			now := ui.game.mouseLeftClickAt
 			if ui.game.lastClickedSpell == i && now-ui.game.lastSpellClickTime < doubleClickWindowMs {
 				if _, placed := ui.game.combat.placeTrapByKey(currentChar, key, true); placed {
@@ -108,10 +72,10 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 			}
 			ui.game.selectedTrap = i
 		}
-		ui.quickTrapCardDragSource(key, cardX, cardY, cardW, cardH)
-		ui.drawTrapCard(screen, cardX, cardY, cardW, cardH, iconSize, key, def, currentChar, i == ui.game.selectedTrap)
+		ui.quickTrapCardDragSource(key, cardX, cardY, bl.cardW, bl.cardH)
+		ui.drawTrapCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, key, def, currentChar, i == ui.game.selectedTrap)
 
-		if mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH {
+		if mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH {
 			tooltip = trapTooltip(key, def, currentChar, ui.game.combat)
 			tooltipIcon = def.Icon
 			tooltipX, tooltipY = mouseX+16, mouseY+8
@@ -121,11 +85,11 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 	if tooltip != "" {
 		ui.queueTitledTooltipIcon(strings.Split(tooltip, "\n"), nil, woodPlateColor, nil, tooltipIcon, tooltipX, tooltipY)
 	}
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip quick trap  Click: Select  Double-click: Arm trap", bl.bookX+20, contentY+contentHeight-28, bl.bookW-40, 20)
 
 	// Quick-slot bar below the book, same as the spellbook (drag traps here).
 	qbW := 360
-	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
+	ui.drawTabQuickSlotBar(screen, bl.bookX+(bl.bookW-qbW)/2, bl.bookY+bl.bookH+16, qbW)
 }
 
 // drawTrapCard renders one trap entry: icon, name, SP/level row. The browse

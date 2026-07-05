@@ -50,18 +50,36 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
+		// While dragging an equippable item, glow every slot it can go into — from
+		// the bag, or from another paperdoll slot (a ring to its other finger). The
+		// source slot itself never glows.
+		if ui.game.dragActive && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
+			(ui.game.dragSrc == dragFromInventory ||
+				(ui.game.dragSrc == dragFromEquip && ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot != slotInfo.slot)) {
+			drawRectBorder(screen, x-3, y-3, w+6, h+6, 3, color.RGBA{90, 220, 100, 240})
+		}
 		if isHovering {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 		}
+		ui.equipSlotDropZone(slotInfo.slot, x, y, w, h) // drop inventory item here to equip
 		if equipped {
-			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
+			// Hide the icon while its own slot (on this same character) is dragged off.
+			dragging := ui.game.dragActive && ui.game.dragSrc == dragFromEquip &&
+				ui.game.dragEquipChar == ui.game.selectedChar && ui.game.dragEquipSlot == slotInfo.slot
+			if !dragging {
+				ui.drawInventoryItemIcon(screen, item, x, y, w, h, 0, true)
+			}
 			ui.handleEquippedItemClick(slotInfo.slot, x-3, y-3, x+w+3, y+h+3)
+			ui.equipSlotDragSource(ui.game.selectedChar, slotInfo.slot, item, x, y, w, h) // pick up equipped item
 			if isHovering {
 				tooltip = GetItemTooltip(item, currentChar, ui.game.combat, tooltipDetailHeld())
 				tooltipItem = item
 				tooltipHasItem = true
 				tooltipX = mouseX + 16
 				tooltipY = mouseY + 8
+				if key := itemCardKey(item); key != "" {
+					ui.fullArtCardKey = key
+				}
 			}
 		}
 	}
@@ -75,13 +93,20 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	pageStart := ui.inventoryPage * pageSize
 	for slot := 0; slot < pageSize; slot++ {
 		idx := pageStart + slot
-		// Guard against the LIVE length, not the cached totalItems: a
-		// double-click below can equip/use an item mid-loop, shrinking the
-		// inventory, and a stale bound would index out of range.
-		if idx >= len(ui.game.party.Inventory) {
-			break
-		}
 		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
+		// Empty cell (guard against the LIVE length — a double-click below can
+		// equip/use mid-loop and shrink the bag). Dropping a dragged item on an
+		// empty cell moves it to the end (bag is a packed slice).
+		if idx >= len(ui.game.party.Inventory) {
+			if !ui.inventoryContextOpen {
+				if ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
+					isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
+					drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
+				}
+				ui.inventoryEmptyDropZone(x, y, w, h)
+			}
+			continue
+		}
 		item := ui.game.party.Inventory[idx]
 		canEquip := ui.canSelectedCharacterEquipInventoryItem(item)
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
@@ -95,11 +120,16 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			}
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
 		}
-		ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
+		// Hide the icon of the cell currently being dragged out of.
+		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory && ui.game.dragInvIndex == idx
+		if !dragging {
+			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
+		}
 
 		if !ui.inventoryContextOpen {
 			ui.handleInventoryItemClick(idx, x-3, y-3, x+w+3, y+h+3)
 			ui.quickInvSlotDragSource(idx, x, y, w, h)
+			ui.inventoryCellDropZone(idx, x, y, w, h) // drop another bag item here to swap
 		}
 		if !ui.inventoryContextOpen && !ui.inventoryInputBlocked() && ui.game.consumeRightClickIn(x-3, y-3, x+w+3, y+h+3) {
 			ui.inventoryContextOpen = true
@@ -114,6 +144,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			tooltipHasItem = true
 			tooltipX = mouseX + 16
 			tooltipY = mouseY + 8
+			if key := itemCardKey(item); key != "" {
+				ui.fullArtCardKey = key
+			}
 		}
 	}
 	// Below the grid: pager, then the Camp button + its rest-result notice
@@ -131,7 +164,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ui.drawTabQuickSlotBar(screen, gridX+(gridSize-qbW)/2, barTop, qbW)
 
 	if tooltip != "" && tooltipHasItem {
-		lines := strings.Split(tooltip, "\n")
+		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
 		plate, titleText := ui.itemTitleColors(tooltipItem)
 		var bodyColors []color.Color
 		if titleText != nil { // gear keeps its rarity-metal body; spells/traps stay white
@@ -263,7 +296,7 @@ func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventor
 // clicks. The revival picker holds an inventory index across frames, so any
 // click that mutates inventory (equip, use, discard) would invalidate it.
 func (ui *UISystem) inventoryInputBlocked() bool {
-	return ui.game.revivalPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
+	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
 }
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
@@ -582,31 +615,34 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }
 
-func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
-	const btnW, btnH = 30, 18
+const pagerBtnW, pagerBtnH = 30, 18
+
+// drawPagerButton draws one prev/next pager button at (bx, y) and reports whether
+// it was clicked this frame (only when enabled). Shared by the quest and
+// character list pagers.
+func (ui *UISystem) drawPagerButton(screen *ebiten.Image, bx, y int, label string, enabled bool) bool {
 	mouseX, mouseY := ebiten.CursorPosition()
-
-	drawBtn := func(bx int, label string, enabled bool) bool {
-		bg := color.RGBA{70, 50, 30, 210}
-		switch {
-		case !enabled:
-			bg = color.RGBA{45, 40, 38, 160}
-		case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+btnW, y+btnH):
-			bg = color.RGBA{120, 90, 50, 230}
-		}
-		drawFilledRect(screen, bx, y, btnW, btnH, bg)
-		drawRectBorder(screen, bx, y, btnW, btnH, 1, color.RGBA{150, 110, 52, 220})
-		drawCenteredDebugText(screen, label, bx, y+2, btnW, btnH-2)
-		return enabled && ui.game.consumeLeftClickIn(bx, y, bx+btnW, y+btnH)
+	bg := color.RGBA{70, 50, 30, 210}
+	switch {
+	case !enabled:
+		bg = color.RGBA{45, 40, 38, 160}
+	case isMouseHoveringBox(mouseX, mouseY, bx, y, bx+pagerBtnW, y+pagerBtnH):
+		bg = color.RGBA{120, 90, 50, 230}
 	}
+	drawFilledRect(screen, bx, y, pagerBtnW, pagerBtnH, bg)
+	drawRectBorder(screen, bx, y, pagerBtnW, pagerBtnH, 1, color.RGBA{150, 110, 52, 220})
+	drawCenteredDebugText(screen, label, bx, y+2, pagerBtnW, pagerBtnH-2)
+	return enabled && ui.game.consumeLeftClickIn(bx, y, bx+pagerBtnW, y+pagerBtnH)
+}
 
-	if drawBtn(x, "<", ui.characterPage > 0) {
+func (ui *UISystem) drawCharacterPager(screen *ebiten.Image, x, y, width int) {
+	if ui.drawPagerButton(screen, x, y, "<", ui.characterPage > 0) {
 		ui.characterPage--
 	}
-	if drawBtn(x+width-btnW, ">", ui.characterPage < 1) {
+	if ui.drawPagerButton(screen, x+width-pagerBtnW, y, ">", ui.characterPage < 1) {
 		ui.characterPage++
 	}
-	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, btnH-2)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/2", ui.characterPage+1), x, y+2, width, pagerBtnH-2)
 }
 
 // drawSpellbookContent draws the spellbook tab content
@@ -625,23 +661,7 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		ui.game.selectedSpell = 0
 	}
 
-	bookX := panelX + 24
-	// Push the book down so the bookmark flags have room between the menu tabs and the book.
-	bookY := contentY + 60
-	bookW := 652
-	bookH := bookW / 2
-	if maxBookH := contentHeight - 94; bookH > maxBookH {
-		bookH = maxBookH
-		bookW = bookH * 2
-		bookX = panelX + (700-bookW)/2
-	}
-
-	scaleX := float64(bookW) / 1024.0
-	scaleY := float64(bookH) / 512.0
-	srcX := func(v int) int { return bookX + int(float64(v)*scaleX) }
-	srcY := func(v int) int { return bookY + int(float64(v)*scaleY) }
-	srcW := func(v int) int { return int(float64(v) * scaleX) }
-	srcH := func(v int) int { return int(float64(v) * scaleY) }
+	bl := computeBookLayout(panelX, contentY, contentHeight)
 
 	// Draw bookmarks first so the book sprite hides the inserted portion.
 	if len(schools) > 0 {
@@ -649,20 +669,20 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 		if ui.game.selectedSchool < len(schools) {
 			selSchool = schools[ui.game.selectedSchool]
 		}
-		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bookX, bookY, scaleX, scaleY)
+		ui.drawSpellbookSchoolTabs(screen, schools, selSchool, bl.bookX, bl.bookY, bl.scaleX, bl.scaleY)
 	}
 
-	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bookX, bookY, bookW, bookH)
+	drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_open"), bl.bookX, bl.bookY, bl.bookW, bl.bookH)
 
-	leftTextX := srcX(92)
-	leftTextW := srcW(350)
+	leftTextX := bl.srcX(92)
+	leftTextW := bl.srcW(350)
 
-	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, srcY(72), leftTextW, 20)
+	drawCenteredDebugText(screen, fmt.Sprintf("%s's Spellbook", currentChar.Name), leftTextX, bl.srcY(72), leftTextW, 20)
 	// SP counter is shown in the party panel; no need to duplicate it in the book.
 	// School name is shown by the active bookmark; no header needed on the right page.
 
 	if len(schools) == 0 {
-		drawCenteredDebugText(screen, "No magic schools available", bookX+24, bookY+bookH/2-8, bookW-48, 20)
+		drawCenteredDebugText(screen, "No magic schools available", bl.bookX+24, bl.bookY+bl.bookH/2-8, bl.bookW-48, 20)
 		return
 	}
 
@@ -684,36 +704,12 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	if len(schoolSpells) == 0 {
-		drawCenteredDebugText(screen, "No learned spells", leftTextX, bookY+bookH/2-8, leftTextW, 20)
+		drawCenteredDebugText(screen, "No learned spells", leftTextX, bl.bookY+bl.bookH/2-8, leftTextW, 20)
 	} else {
-		// 2×2 grid per page (left + right) = up to 8 spells visible at once.
-		gridY := srcY(118)
-		cardW := srcW(180)
-		cardH := srcH(150)
-		cols := 2
-		const cardsPerPage = 4
-		iconSize := srcW(96)
-		// Clamp icon size so name + stats rows fit below it without overlap at small scales.
-		if maxIcon := cardH - 2*debugTextCharHeight - 12; iconSize > maxIcon {
-			iconSize = maxIcon
-		}
-		if iconSize < 16 {
-			iconSize = 16
-		}
-		cardGap := srcW(18)
-		rowGap := srcH(14)
-		// Centre the 2×2 grid on the parchment area of each page. Source-coord
-		// centres measured from the spellbook_open sprite: left page parchment
-		// spans x=87..468 (centre 278), right page spans x=558..936 (centre 747).
-		gridW := cols*cardW + (cols-1)*cardGap
-		pageOriginX := [2]int{
-			srcX(278) - gridW/2,
-			srcX(747) - gridW/2,
-		}
 		mouseX, mouseY := ebiten.CursorPosition()
 
 		for spellIndex, spellID := range schoolSpells {
-			if spellIndex >= 2*cardsPerPage {
+			if spellIndex >= 2*bl.cardsPerPage {
 				break
 			}
 			def, err := spells.GetSpellDefinitionByID(spellID)
@@ -721,21 +717,16 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 				continue
 			}
 
-			page := spellIndex / cardsPerPage
-			local := spellIndex % cardsPerPage
-			col := local % cols
-			row := local / cols
-			cardX := pageOriginX[page] + col*(cardW+cardGap)
-			cardY := gridY + row*(cardH+rowGap)
-			if cardY+cardH > srcY(460) {
+			cardX, cardY := bl.cardPos(spellIndex)
+			if cardY+bl.cardH > bl.gridMaxY {
 				continue
 			}
 
-			ui.handleSpellbookSpellClick(cardX, cardY, cardW, cardH, ui.game.selectedSchool, spellIndex)
-			ui.quickSpellCardDragSource(spellID, cardX, cardY, cardW, cardH)
+			ui.handleSpellbookSpellClick(cardX, cardY, bl.cardW, bl.cardH, ui.game.selectedSchool, spellIndex)
+			ui.quickSpellCardDragSource(spellID, cardX, cardY, bl.cardW, bl.cardH)
 			isSelected := spellIndex == ui.game.selectedSpell
-			isHovering := mouseX >= cardX && mouseX < cardX+cardW && mouseY >= cardY && mouseY < cardY+cardH
-			ui.drawSpellbookSpellCard(screen, cardX, cardY, cardW, cardH, iconSize, spellID, def, currentChar, isSelected)
+			isHovering := mouseX >= cardX && mouseX < cardX+bl.cardW && mouseY >= cardY && mouseY < cardY+bl.cardH
+			ui.drawSpellbookSpellCard(screen, cardX, cardY, bl.cardW, bl.cardH, bl.iconSize, spellID, def, currentChar, isSelected)
 
 			if isHovering {
 				spellTooltip = GetSpellTooltip(spellID, currentChar, ui.game.combat, tooltipDetailHeld())
@@ -758,11 +749,11 @@ func (ui *UISystem) drawSpellbookContent(screen *ebiten.Image, panelX, contentY,
 	}
 
 	// Draw spellbook controls
-	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bookX+20, contentY+contentHeight-28, bookW-40, 20)
+	drawCenteredDebugText(screen, "Up/Down: Navigate  Enter/F: Equip fast spell  Click: Select  Double-click: Cast", bl.bookX+20, contentY+contentHeight-28, bl.bookW-40, 20)
 
 	// Quick-slot bar below the book, narrow + centred so cells stay compact.
 	qbW := 360
-	ui.drawTabQuickSlotBar(screen, bookX+(bookW-qbW)/2, bookY+bookH+16, qbW)
+	ui.drawTabQuickSlotBar(screen, bl.bookX+(bl.bookW-qbW)/2, bl.bookY+bl.bookH+16, qbW)
 }
 
 func spellbookSchoolsWithSpells(currentChar *character.MMCharacter) []character.MagicSchoolID {

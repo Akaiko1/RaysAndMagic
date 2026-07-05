@@ -22,6 +22,7 @@ import (
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
+	"ugataima/internal/stash"
 	"ugataima/internal/threading"
 	"ugataima/internal/threading/entities"
 	"ugataima/internal/world"
@@ -85,6 +86,7 @@ type SlashEffect struct {
 	MaxFrames      int     // Total animation frames
 	Active         bool
 	Kind           string // per-weapon FX flavor: slash/chop/smash/stab/lunge
+	Style          string // bespoke legendary flourish (graphics.slash_fx); overrides Kind
 	Crit           bool   // critical swing: bigger, brighter, golden-edged
 }
 
@@ -118,6 +120,7 @@ type SpellHitParticle struct {
 	MaxLife          int     // Initial lifetime for alpha calculation
 	Size             int     // Particle size (shrinks over time)
 	Trail            bool    // emits a fading breadcrumb trail each few frames (Starburst falling stars)
+	Star             bool    // renders as a twinkling 4-point star, not a square (impact_stars)
 	Active           bool
 }
 
@@ -205,7 +208,9 @@ type MMGame struct {
 	dragQuickChar int        // source: quick-slot owner index
 	dragQuickSlot int        // source: quick-slot index
 	dragSpellID   spells.SpellID
-	dragTrapKey   string // source: trap recipe key (trap book → quick slot)
+	dragTrapKey   string          // source: trap recipe key (trap book → quick slot)
+	dragEquipSlot items.EquipSlot // source: paperdoll slot (equipped item → inventory)
+	dragEquipChar int             // source: owner of the dragged equipped item (may differ from selectedChar after a 1-4 switch mid-drag)
 	// Double-click support for the in-game quick-slot bar
 	lastQuickClickTime int64
 	lastQuickClickedCh int
@@ -239,6 +244,7 @@ type MMGame struct {
 	utilitySpellStatuses map[spells.SpellID]*UtilitySpellStatus
 	slashEffects         []SlashEffect
 	spellHitEffects      []SpellHitEffect
+	buffFxAnims          []buffFxAnim  // buff-cast overlay animations (render_buff_fx.go)
 	impactLights         []ImpactLight // short-lived light flashes at spell impacts (guarded by hitEffectsMu)
 	screenShake          float64       // camera shake amplitude in world units, decays each tick
 	screenShakeOffsetX   float64       // live Draw-time camera shake displacement (0 outside Draw); subtract for logical camera
@@ -319,6 +325,7 @@ type MMGame struct {
 	// Dialog system
 	dialogActive        bool           // Whether a dialog is currently open
 	dialogNPC           *character.NPC // Current NPC being talked to
+	focusedNPC          *character.NPC // NPC in interact focus (centred + adjacent); recomputed each tick
 	dialogSelectedChar  int            // Currently selected character in dialog
 	dialogSelectedSpell int            // Currently selected spell in dialog
 	selectedCharIdx     int            // Selected character index for spell learning
@@ -328,11 +335,18 @@ type MMGame struct {
 	// dialogNodePath is the chain of "info" choices the player has descended into
 	// this conversation (empty = root). It drives the body text and choice list so
 	// "ask about X" branches into a real reply instead of closing. Reset on open.
-	dialogNodePath   []*character.NPCDialogueChoice
-	dialogTab        int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
-	merchantBuyPage  int // Merchant buy-grid page (0-based); read by both renderer and input
-	merchantSellPage int // Merchant sell-grid page (0-based)
-	spellTraderPage  int // Spell-trader icon-grid page (0-based); shared by renderer and input
+	dialogNodePath       []*character.NPCDialogueChoice
+	dialogTab            int // Spell-trader tab: 0 = spells, 1 = quests (quest-giving traders)
+	merchantBuyPage      int // Merchant buy-grid page (0-based); read by both renderer and input
+	merchantSellPage     int // Merchant sell-grid page (0-based)
+	spellTraderPage      int // Spell-trader icon-grid page (0-based); shared by renderer and input
+	cardCollectorInvPage int // Card-collector loose-card grid page (0-based); shared by renderer and input
+	// cardCollection is the party-wide monster-card collection (MaxCardSlots).
+	// Cards held here grant passive effects; only the card collector mutates it.
+	cardCollection [MaxCardSlots]string
+	// cardBurstTile is the last party tile the Gorilla Titan move-burst rolled on,
+	// so the on-move proc fires once per tile entered, not every frame.
+	cardBurstTileX, cardBurstTileY int
 
 	// Spellbook UI
 	selectedSchool     int
@@ -375,6 +389,10 @@ type MMGame struct {
 	combat          *CombatSystem
 	collisionSystem *collision.CollisionSystem
 	questManager    *quests.QuestManager
+	// questTileOriginals: pristine tile at every quest on_complete_tiles
+	// position, captured once (maps always load pristine from disk) so
+	// syncQuestTiles can REVERT a change when its quest isn't completed.
+	questTileOriginals map[string]world.TileType3D
 
 	// Reusable slices to reduce GC pressure (allocated once, reused each frame)
 	reusableMonsterWrappers     []entities.MonsterUpdateInterface
@@ -400,6 +418,26 @@ type MMGame struct {
 	revivalPickerOpen    bool
 	revivalPickerItemIdx int
 
+	// healPicker mirrors the revival picker: when a heal potion is used by an
+	// UNCONSCIOUS owner (who can't heal themselves), the player chooses which
+	// conscious, wounded member to heal instead.
+	healPickerOpen    bool
+	healPickerItemIdx int
+
+	// pickerQuickChar/Slot record the quick slot a heal/revival picker was opened
+	// FROM (char<0 = opened from the inventory). The slot stays filled while the
+	// picker is up; on confirm it's cleared, on cancel the temp bag copy is dropped
+	// and the slot kept — so cancelling never silently moves the potion to the bag.
+	pickerQuickChar int
+	pickerQuickSlot int
+
+	// parkSelection is set when the player selects a member BY HAND (portrait
+	// click / number key) and cleared on any auto-advance of the selection. While
+	// set, the TB/RT auto-snap that moves selection off a member who can't act is
+	// suppressed, so the player can park on a downed ally to use their (free,
+	// passive) quick-slot potions. Zero value (false) is the safe default.
+	parkSelection bool
+
 	// Promotion picker: when more than one party member is eligible for a
 	// promotion (Archmage/Lich), this modal lists them. promotionPickerKind is
 	// the target promotion; promotionPickerItemIdx is the phylactery slot to
@@ -412,6 +450,26 @@ type MMGame struct {
 	// rosterSelectedActive is the active slot the player picked first (-1 = none).
 	rosterScreenOpen     bool
 	rosterSelectedActive int
+
+	// Tavern stash screen: a cross-save shared chest (see internal/stash). The
+	// chest is lazy-loaded on first open and persisted on every transfer.
+	// Drag-and-drop state mirrors the quick-slot drag but is self-contained so it
+	// works while no tab/menu is open. stashDragFrom < 0 when nothing is carried;
+	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
+	stashScreenOpen bool
+	stash           *stash.Stash
+	loadNeedsResave bool // a load stamped legacy items with instance ids: re-save the slot once
+	stashDragArmed  bool
+	stashDragActive bool
+	stashDragFrom   int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
+	stashDragItem   items.Item // carried copy, for rendering
+	stashDragStartX int
+	stashDragStartY int
+	stashDragCurX   int
+	stashDragCurY   int
+	stashDragDrop   bool // a drop must be resolved this frame
+	stashInvPage    int
+	stashShowCards  bool // top storage tab: false = general chest, true = card vault
 
 	// Turn-based mode state
 	turnBasedMode         bool // Whether game is in turn-based mode
@@ -435,7 +493,8 @@ type MMGame struct {
 	mainMenuOpen      bool
 	mainMenuSelection int
 	mainMenuMode      MainMenuMode
-	slotSelection     int
+	slotSelection     int // row within the current save page (0..saveRowsPerPage-1)
+	savePage          int // current save/load menu page (0..savePageCount-1)
 	saveRenameOpen    bool
 	saveRenameSlot    int
 	saveRenameInput   string
@@ -445,9 +504,12 @@ type MMGame struct {
 	gameOver bool
 
 	// Victory state
-	gameVictory      bool
-	victoryTime      time.Time
-	sessionStartTime time.Time
+	gameVictory           bool
+	victoryAcknowledged   bool
+	victoryTime           time.Time
+	sessionStartTime      time.Time
+	totalGoldEarned       int
+	totalExperienceEarned int
 
 	// High scores state
 	showHighScores    bool
@@ -509,6 +571,7 @@ const (
 	TabCharacters
 	TabSpellbook
 	TabQuests
+	TabCards
 )
 
 type FirstPersonCamera struct {
@@ -570,6 +633,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		showFPS:          false, // FPS counter starts hidden
 		perfDebugEnabled: strings.TrimSpace(os.Getenv("DEBUG_PERF")) != "",
 		selectedChar:     0,
+		pickerQuickChar:  -1,
+		pickerQuickSlot:  -1,
 		skyImg:           skyImg,
 		groundImg:        groundImg,
 		magicProjectiles: make([]MagicProjectile, 0),
@@ -646,6 +711,12 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		panic(err)
 	}
 
+	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite
+	// index is ready by now).
+	game.validateBuffFxSprites()
+	validateSlashFxStyles()
+	validateProjectileFxStyles()
+
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
 
@@ -680,30 +751,134 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	g.collisionSystem.RegisterEntity(entity)
 }
 
-// GetNearestInteractableNPC returns the nearest NPC within interaction range, or nil if none
-func (g *MMGame) GetNearestInteractableNPC() *character.NPC {
-	currentWorld := g.GetCurrentWorld()
-	if currentWorld == nil {
-		return nil
+// partyInCombat reports whether a live engaging monster is NEAR the party
+// (TB vision range). While true, Space keeps its combat meaning and never
+// opens dialog. Distance-gated on purpose: a whole-map-aggro boss or an
+// AoE-clipped stray must not lock interaction (e.g. the map-exit NPC) from
+// across the map.
+func (g *MMGame) partyInCombat() bool {
+	if g.world == nil {
+		return false
 	}
+	radius := TurnBasedVisionRangeTiles * float64(g.config.GetTileSize())
+	for _, m := range g.world.Monsters {
+		if m != nil && m.IsAlive() && m.IsEngagingPlayer &&
+			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {
+			return true
+		}
+	}
+	return false
+}
 
-	var nearestNPC *character.NPC
-	nearestDistance := float64(InteractionDistance)
+// npcEffectivePos returns where the NPC is actually rendered: wall-mounted
+// standees (gates/grates) slide flush onto the nearest wall face, everyone
+// else stays at their tile. Interaction focus and hit-tests MUST use this,
+// not the raw tile position, or they miss the visible sprite.
+func (g *MMGame) npcEffectivePos(npc *character.NPC) (float64, float64) {
+	if npc.WallMounted && g.config.Graphics.Standee.Enabled {
+		if wx, wy, _, ok := g.wallStickPose(npc.X, npc.Y); ok {
+			return wx, wy
+		}
+	}
+	return npc.X, npc.Y
+}
 
+// updateFocusedNPC recomputes the Space-to-interact target once per tick:
+// the nearest NPC the party stands next to (within ~1 adjacent tile, diagonals
+// included) that is roughly centred on screen. Cached so input and the HUD
+// hint agree, and so the hint never reads a screen-shake-displaced camera.
+// Nothing takes focus mid-combat — Space stays an attack while enemies engage.
+func (g *MMGame) updateFocusedNPC() {
+	g.focusedNPC = nil
+	currentWorld := g.GetCurrentWorld()
+	if currentWorld == nil || g.renderHelper == nil || g.partyInCombat() {
+		return
+	}
+	maxDist := float64(g.config.GetTileSize()) * 1.6 // own + adjacent tile, diagonal-safe
+	halfW := float64(g.config.GetScreenWidth()) / 2
+	band := halfW * 0.4 // "roughly centred": middle 40% of the screen
+	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
-		// Spent statues (hide_when_visited) are gone for all purposes once used.
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
-		dist := Distance(g.camera.X, g.camera.Y, npc.X, npc.Y)
+		ex, ey := g.npcEffectivePos(npc)
+		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
+		if dist > bestDist {
+			continue
+		}
+		screenX, _, ok := g.renderHelper.projectToScreenX(ex, ey)
+		if !ok || math.Abs(float64(screenX)-halfW) > band {
+			continue
+		}
+		g.focusedNPC = npc
+		bestDist = dist
+	}
+}
 
-		if dist <= nearestDistance {
-			nearestNPC = npc
-			nearestDistance = dist
+// findNPCAtScreen returns the visible NPC whose rendered sprite is under the
+// given screen point (nearest wins). inRange reports whether it is close
+// enough to interact (InteractionDistance) — a hit beyond that only prompts.
+func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRange bool) {
+	currentWorld := g.GetCurrentWorld()
+	if currentWorld == nil || g.renderHelper == nil {
+		return nil, false
+	}
+	bestDist := math.MaxFloat64
+	for _, n := range currentWorld.NPCs {
+		if n.HideWhenVisited && n.Visited {
+			continue
+		}
+		if n.Sprite == "" || n.Sprite == "none" {
+			continue // invisible portal NPCs aren't clickable
+		}
+		ex, ey := g.npcEffectivePos(n)
+		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
+		if dist >= bestDist {
+			continue
+		}
+		if !g.npcScreenHitTest(n, ex, ey, dist, clickX, clickY) {
+			continue
+		}
+		npc = n
+		bestDist = dist
+	}
+	return npc, npc != nil && bestDist <= InteractionDistance
+}
+
+// npcScreenHitTest projects the NPC with the same metrics the renderer uses
+// and tests the point against its billboard rect (inset horizontally so the
+// mostly-transparent sprite margins don't catch clicks). ex/ey is the NPC's
+// effective (rendered) position — see npcEffectivePos. Occlusion is checked
+// against the wall depth buffer at the sprite's centre column.
+func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, x, y int) bool {
+	var screenX, screenY, spriteSize int
+	var visible bool
+	if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
+		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
+	} else {
+		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
+	}
+	if !visible || spriteSize <= 0 {
+		return false
+	}
+	if screenX >= 0 && screenX < len(g.depthBuffer) {
+		if _, depth, ok := g.renderHelper.projectToScreenX(ex, ey); ok {
+			// Wall-mounted tokens sit flush ON the wall plane, so their depth ties
+			// with the backing wall's and the comparison flips with tiny angle
+			// changes. Bias toward the camera exactly like the renderer's
+			// standeeDepthBias does when drawing them.
+			if npc.WallMounted {
+				depth -= float64(g.config.GetTileSize()) * 0.6
+			}
+			if depth >= g.depthBuffer[screenX] {
+				return false // behind a wall
+			}
 		}
 	}
-
-	return nearestNPC
+	drawLeft := screenX - spriteSize/2
+	inset := spriteSize / 5
+	return x >= drawLeft+inset && x < drawLeft+spriteSize-inset && y >= screenY && y < screenY+spriteSize
 }
 
 // FindNearestWalkableTile finds the closest walkable tile to the given position (DRY helper)
@@ -1074,7 +1249,7 @@ func (g *MMGame) checkGameOver() {
 
 // checkVictory checks if the dragon_slayer quest is completed
 func (g *MMGame) checkVictory() {
-	if g.gameVictory || g.gameOver {
+	if g.gameVictory || g.victoryAcknowledged || g.gameOver {
 		return
 	}
 	if g.questManager == nil {
@@ -1082,9 +1257,28 @@ func (g *MMGame) checkVictory() {
 	}
 	quest := g.questManager.GetQuest("dragon_slayer")
 	if quest != nil && quest.Status == quests.QuestStatusCompleted {
+		if !quest.RewardsClaimed {
+			g.claimQuestReward("dragon_slayer")
+		}
+		g.enterPostVictoryFreeMode()
 		g.gameVictory = true
 		g.victoryTime = time.Now()
 	}
+}
+
+func (g *MMGame) enterPostVictoryFreeMode() {
+	g.turnBasedMode = false
+	g.currentTurn = 0
+	g.partyActionsUsed = 0
+	g.turnBasedMoveCooldown = 0
+	g.turnBasedRotCooldown = 0
+	g.monsterTurnResolved = false
+	g.turnBasedExtraMonsterAction = false
+	g.turnBasedMonsterPassesLeft = 0
+	g.turnBasedMonsterPassDelay = 0
+	g.turnBasedMonsterStatusTick = false
+	g.turnBasedMonsterStunned = nil
+	g.clearTransientCombatState()
 }
 
 // AddCombatMessage adds a combat message to the message queue
@@ -1145,6 +1339,47 @@ func (g *MMGame) hudLog() []combatLogEntry {
 		n = len(g.combatLogHistory)
 	}
 	return g.combatLogHistory[len(g.combatLogHistory)-n:]
+}
+
+const (
+	// hudMessageWidth is the on-screen width (px) of the inline HUD message block.
+	hudMessageWidth = 400
+	// maxHudMessageLines caps how many wrapped lines the HUD shows (most recent
+	// kept), so a burst of long messages can't grow the block up across the screen.
+	maxHudMessageLines = 8
+	// hudMessageBottomGap is the gap (px) between the block's bottom and the party
+	// portraits: the block is bottom-anchored here and grows upward.
+	hudMessageBottomGap = 4
+)
+
+// hudMessageLines wraps the HUD combat-log tail to the message-block width,
+// carrying each entry's color onto every line it wraps to, and keeps only the
+// most recent maxHudMessageLines lines. Shared by the HUD renderer and its click
+// hit-region so the drawn block and the clickable area stay the same height.
+func (g *MMGame) hudMessageLines() []combatLogEntry {
+	maxChars := (hudMessageWidth - 10) / debugTextCharWidth
+	var lines []combatLogEntry
+	for _, e := range g.hudLog() {
+		for _, l := range wrapText(e.Text, maxChars) {
+			lines = append(lines, combatLogEntry{Text: l, Color: e.Color})
+		}
+	}
+	if len(lines) > maxHudMessageLines {
+		lines = lines[len(lines)-maxHudMessageLines:]
+	}
+	return lines
+}
+
+// hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
+// given wrapped-line count: bottom-anchored just above the party portraits and
+// growing upward so a tall block never spills down over the party UI. Shared by
+// the renderer and the click hit-region.
+func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
+	h = lineCount*hudMessageSpacing + 10
+	w = hudMessageWidth
+	x = g.config.GetScreenWidth() - w - 15
+	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - hudMessageBottomGap - h
+	return
 }
 
 // GetCombatMessages returns the HUD combat-message texts (most recent last).
@@ -1356,6 +1591,7 @@ func (g *MMGame) firstEligiblePartyIndex() int {
 // member that can still act this round, wrapping from the end back to the
 // start. No-op if none are eligible.
 func (g *MMGame) advanceToNextEligibleChar() {
+	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)
 	for off := 1; off <= n; off++ {
 		idx := (g.selectedChar + off) % n
@@ -1459,6 +1695,7 @@ func (g *MMGame) nextReadyRTActor(kind rtActionKind) int {
 // held key WAITS on a capable member instead of skipping to one who can't, or
 // sticking on the current incapable one). Leaves selection put if none capable.
 func (g *MMGame) advanceRTActor(kind rtActionKind) {
+	g.parkSelection = false // auto-advance clears any manual park
 	n := len(g.party.Members)
 	for off := 1; off <= n; off++ {
 		if i := (g.selectedChar + off) % n; g.rtActionReady(i, kind) {
@@ -1481,6 +1718,9 @@ func (g *MMGame) advanceRTActor(kind rtActionKind) {
 func (g *MMGame) ensureSelectedCanActRT() {
 	if g.rtCharReady(g.selectedChar) {
 		return
+	}
+	if g.parkedOnSelected() {
+		return // player deliberately parked here (e.g. to use a downed ally's potions)
 	}
 	cur := g.party.Members[g.selectedChar]
 	if cur != nil && cur.CanAct() {
@@ -1510,6 +1750,23 @@ func (g *MMGame) ensureSelectedCanActRT() {
 // living members (tie-break: lower party slot). Called when entering
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
+	g.parkSelection = false // a new round clears any manual park
+	tps := g.config.GetTPS()
+	for _, m := range g.party.Members {
+		// Poison/ignite tick once per party turn in TB (mirrors monster
+		// TickPoisonTurn) — ticks regardless of stun, same as the RT per-frame
+		// updatePoison/updateBurn did before TB switched off real-time ticking.
+		m.TickPoisonTurn(tps)
+		m.TickBurnTurn(tps)
+	}
+	// Run the lethal-DoT sweep (Lich Card save / Unconscious) BEFORE handing out
+	// action slots below — otherwise a member the tick just ticked to 0 HP reads
+	// as unable to act this round even when the Lich Card would have saved them,
+	// and the KO message/condition lag a full frame behind the tick that caused
+	// it (the per-frame sweep in the main loop runs before this point, not after).
+	if g.combat != nil {
+		g.combat.knockOutLethalDoTVictims()
+	}
 	for _, m := range g.party.Members {
 		if m.IsStunned() {
 			m.TickStunTurn() // consume one stunned turn
@@ -1524,6 +1781,12 @@ func (g *MMGame) startPartyTurn() {
 	if idx := g.firstEligiblePartyIndex(); idx >= 0 {
 		g.selectedChar = idx
 	}
+	// Pull any stacked mobs onto distinct tiles before the player aims — TB fires
+	// along rows/columns, so a stacked/half-offset pair would let a shot thread
+	// between them. Once per turn = jitter-free (unlike a per-frame RT snap).
+	if g.turnBasedMode {
+		g.separateStackedMonstersTB()
+	}
 }
 
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
@@ -1535,6 +1798,9 @@ func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 			}
 		}
 	}
+	// Monster cards (e.g. the Puma Card) add to the party's bonus-action pool,
+	// distributed to the fastest members alongside Speed bonuses.
+	bonusActions += g.cardBonusActions()
 	for bonusActions > 0 {
 		bestIdx := -1
 		bestSpeed := -1
@@ -1567,6 +1833,7 @@ func (g *MMGame) endPartyTurn() {
 		g.turnBasedSpRegenCount = 0
 		for _, member := range g.party.Members {
 			member.RegenerateSpellPoints()
+			member.ApplyCardRegenTick() // Troll Card(s): RT ticks on a frame timer, TB on this round counter
 		}
 	}
 
@@ -1594,9 +1861,28 @@ func (g *MMGame) endPartyTurnAfterMovement() {
 // during the party turn, poison ticks, etc. Without this guard pressing
 // Space/F on a dead selectedChar would silently do nothing.
 // Real-time mode no-ops — selection isn't gated on CanAct there.
+// parkedOnSelected reports whether the player manually selected the current
+// member (portrait/number key) and that member is still a valid park target
+// (present, not Eradicated). The auto-snap that moves selection off a member
+// who can't act respects this, so the player can sit on a downed ally to use
+// their free, passive quick-slot potions instead of being bounced away.
+func (g *MMGame) parkedOnSelected() bool {
+	if !g.parkSelection {
+		return false
+	}
+	if g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
+		return false
+	}
+	m := g.party.Members[g.selectedChar]
+	return m != nil && !m.HasCondition(character.ConditionEradicated)
+}
+
 func (g *MMGame) ensureSelectedCharCanAct() {
 	if !g.turnBasedMode {
 		return
+	}
+	if g.parkedOnSelected() {
+		return // player deliberately parked here (e.g. to use a downed ally's potions)
 	}
 	if g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
 		if m := g.party.Members[g.selectedChar]; m != nil && m.CanAct() {
@@ -1795,10 +2081,23 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 // MonsterWrapper implements entities.MonsterUpdateInterface
 type MonsterWrapper struct {
 	Monster         *monster.Monster3D
-	collisionSystem *collision.CollisionSystem
-	game            *MMGame // Added to access camera position for tethering system
+	collisionSystem *collision.CollisionSystem   // LIVE system — touched only by ApplyCollisionUpdate (Phase 2, serial)
+	snapshot        *collision.CollisionSnapshot // frozen view for THIS tick — the only thing Update (Phase 1, parallel) may query
+	game            *MMGame                      // Added to access camera position for tethering system
+
+	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
 }
 
+// Update is the canonical RT monster tick: AI movement + the desired
+// collision-solidity decision — COMPUTED ONLY here, against the frozen
+// snapshot; nothing shared is written. Code that steps monsters manually
+// (including tests) must call this AND ApplyCollisionUpdate, not the bare
+// Monster3D.Update — that alone leaves the collision type stale.
+//
+// Runs in a worker goroutine (see entities.EntityUpdater.UpdateMonstersParallel):
+// every read here must come from mw.Monster's own fields or mw.snapshot (frozen
+// before the parallel phase started), never mw.collisionSystem — the live
+// system is being written by every OTHER monster's own worker at the same time.
 func (mw *MonsterWrapper) Update() {
 	oldX, oldY := mw.Monster.X, mw.Monster.Y
 
@@ -1812,12 +2111,15 @@ func (mw *MonsterWrapper) Update() {
 	// refreshBoundUndeadCache to keep this parallel update race-free.
 	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
 
-	// Use collision-aware update with the chosen AI target for tethering
-	mw.Monster.Update(mw.collisionSystem, targetX, targetY)
+	// Use collision-aware update with the chosen AI target for tethering. Reads
+	// the frozen snapshot only — never the live, concurrently-mutating system.
+	mw.Monster.Update(mw.snapshot, targetX, targetY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
-	mw.updateCollisionEngagement(playerX, playerY)
+	// Compute (don't apply) the desired collision type — a pure function of this
+	// monster's own state, safe from a worker. ApplyCollisionUpdate writes it.
+	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster, playerX, playerY)
 
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
@@ -1891,31 +2193,34 @@ func (mw *MonsterWrapper) Update() {
 		}
 	}
 
-	// Update collision system if position changed
-	if oldX != newX || oldY != newY {
-		if mw.collisionSystem != nil {
-			mw.collisionSystem.UpdateEntity(mw.Monster.ID, newX, newY)
-		}
-	}
+	// The collision-system write for the new position happens in
+	// ApplyCollisionUpdate (Phase 2) — oldX/oldY above were only for the debug
+	// block.
 }
 
-func (mw *MonsterWrapper) updateCollisionEngagement(playerX, playerY float64) {
-	if mw.game == nil || mw.Monster == nil {
+// ApplyCollisionUpdate writes this monster's Update()-computed position and
+// collision type to the LIVE collision system. Phase 2 of the two-phase RT
+// tick (see entities.EntityUpdater.UpdateMonstersParallel): called serially,
+// once every monster's Update() has returned — never from a worker.
+func (mw *MonsterWrapper) ApplyCollisionUpdate() {
+	if mw.collisionSystem == nil || mw.Monster == nil {
 		return
 	}
-	mw.game.updateMonsterCollisionEngagement(mw.Monster, playerX, playerY)
+	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
+	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
 }
 
-func (g *MMGame) updateMonsterCollisionEngagement(m *monster.Monster3D, playerX, playerY float64) {
-	if g == nil || g.collisionSystem == nil || m == nil {
-		return
-	}
-	entity := g.collisionSystem.GetEntityByID(m.ID)
-	if entity == nil {
-		return
-	}
+// desiredMonsterCollisionType computes what m's collision type SHOULD be this
+// tick, from m's own fields and the (fixed, read-only for the duration of the
+// parallel phase) player position alone — no shared-state access, so it is
+// safe to call concurrently from any monster's own worker.
+func desiredMonsterCollisionType(m *monster.Monster3D, playerX, playerY float64) collision.CollisionType {
 	engaged := m.IsEngagingPlayer || m.State == monster.StateAttacking
-	if !engaged {
+	// Proximity alone must not solidify a DORMANT passive monster still within
+	// its own (possibly long, for ranged) attack range — it isn't actually
+	// fighting. Mirrors the dormancy check in updatePlayerEngagementWithVision.
+	dormant := m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait()
+	if !engaged && !dormant {
 		attackRange := m.GetAttackRangePixels()
 		if attackRange > 0 {
 			distSq := DistanceSquared(m.X, m.Y, playerX, playerY)
@@ -1924,13 +2229,38 @@ func (g *MMGame) updateMonsterCollisionEngagement(m *monster.Monster3D, playerX,
 			}
 		}
 	}
-	desired := collision.CollisionTypeMonster
 	if engaged {
-		desired = collision.CollisionTypeMonsterEngaged
+		return collision.CollisionTypeMonsterEngaged
+	}
+	return collision.CollisionTypeMonster
+}
+
+// applyMonsterCollisionType writes a monster's collision type to the live
+// system. Must only run single-threaded (main goroutine, or another
+// non-parallel context) — never from a monster-update worker; see
+// desiredMonsterCollisionType for the race-free compute half.
+func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
+	if g == nil || g.collisionSystem == nil {
+		return
+	}
+	entity := g.collisionSystem.GetEntityByID(monsterID)
+	if entity == nil {
+		return
 	}
 	if entity.CollisionType != desired {
 		entity.CollisionType = desired
 	}
+}
+
+// refreshMonsterCollisionSolidity computes AND immediately applies m's desired
+// collision type. Used by single-threaded call sites OUTSIDE the parallel RT
+// tick (turn-based monster processing, boss summons, combat triggers) where
+// there is no separate apply phase to defer to.
+func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D, playerX, playerY float64) {
+	if g == nil || m == nil {
+		return
+	}
+	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m, playerX, playerY))
 }
 
 func (mw *MonsterWrapper) IsAlive() bool {
@@ -1956,6 +2286,14 @@ type MagicProjectileWrapper struct {
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
 	game            *MMGame
+
+	// pendingImpact/impactX/impactY: OnCollision (runs in a worker) only
+	// records that a hit happened here — spawning the hit effect touches shared
+	// state (g.spellHitEffects, g.screenShake) that must be written serially.
+	// ApplyCollisionEffects (Phase 2, main goroutine) does the actual spawn.
+	pendingImpact bool
+	impactX       float64
+	impactY       float64
 }
 
 func (mpw *MagicProjectileWrapper) Update() {
@@ -1991,16 +2329,31 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 	mpw.MagicProjectile.VelY = vy
 }
 
+// OnCollision runs in a worker goroutine — it only touches this projectile's
+// own fields. The actual hit effect (shared state: particle list, screen
+// shake) is spawned later by ApplyCollisionEffects, serially.
 func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
 		return
 	}
 	mpw.MagicProjectile.Active = false
-	if mpw.game == nil {
+	mpw.pendingImpact = true
+	mpw.impactX, mpw.impactY = hitX, hitY
+}
+
+// ApplyCollisionEffects spawns the hit effect for any impact OnCollision
+// recorded this tick. Phase 2 of the two-phase projectile tick (see
+// entities.EntityUpdater.UpdateProjectilesParallel): called serially, once
+// every projectile's Update()/OnCollision has returned — never from a worker.
+func (mpw *MagicProjectileWrapper) ApplyCollisionEffects() {
+	if !mpw.pendingImpact {
 		return
 	}
-
-	mpw.game.CreateSpellHitEffectFromSpell(hitX, hitY, mpw.MagicProjectile.SpellType)
+	mpw.pendingImpact = false
+	if mpw.MagicProjectile == nil || mpw.game == nil {
+		return
+	}
+	mpw.game.CreateSpellHitEffectFromSpell(mpw.impactX, mpw.impactY, mpw.MagicProjectile.SpellType)
 }
 
 // ArrowWrapper implements entities.ProjectileUpdateInterface
@@ -2009,6 +2362,11 @@ type ArrowWrapper struct {
 	collisionSystem *collision.CollisionSystem
 	projectileID    string
 	game            *MMGame
+
+	// See MagicProjectileWrapper's pendingImpact fields for the rationale.
+	pendingImpact bool
+	impactX       float64
+	impactY       float64
 }
 
 func (aw *ArrowWrapper) Update() {
@@ -2044,18 +2402,33 @@ func (aw *ArrowWrapper) SetVelocity(vx, vy float64) {
 	aw.Arrow.VelY = vy
 }
 
+// OnCollision runs in a worker goroutine — it only touches this projectile's
+// own fields. The actual impact burst (shared state) is spawned later by
+// ApplyCollisionEffects, serially.
 func (aw *ArrowWrapper) OnCollision(hitX, hitY float64) {
 	if aw.Arrow == nil || !aw.Arrow.Active {
 		return
 	}
 	aw.Arrow.Active = false
-	if aw.game == nil {
+	aw.pendingImpact = true
+	aw.impactX, aw.impactY = hitX, hitY
+}
+
+// ApplyCollisionEffects spawns the impact burst for any hit OnCollision
+// recorded this tick. Phase 2 of the two-phase projectile tick — see
+// MagicProjectileWrapper.ApplyCollisionEffects.
+func (aw *ArrowWrapper) ApplyCollisionEffects() {
+	if !aw.pendingImpact {
+		return
+	}
+	aw.pendingImpact = false
+	if aw.Arrow == nil || aw.game == nil {
 		return
 	}
 	// Staff/book bolt → magical burst on wall/terrain impact, not an arrow puff
 	// (shares the monster-hit decision so the staff never "explodes like an arrow").
 	def, _ := config.GetWeaponDefinition(aw.Arrow.BowKey)
-	aw.game.spawnWeaponBoltImpact(hitX, hitY, def, SpellParticleCount, SpellParticleSize)
+	aw.game.spawnWeaponBoltImpact(aw.impactX, aw.impactY, def, SpellParticleCount, SpellParticleSize)
 }
 
 func (aw *ArrowWrapper) GetLifetime() int {

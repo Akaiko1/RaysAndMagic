@@ -20,6 +20,25 @@ type GameLoop struct {
 	renderer           *Renderer
 	lastUpdateDuration time.Duration
 	lastDrawDuration   time.Duration
+
+	// timedBuffRegistry caches the timedBuffs() registry: its pointers are
+	// stable for the MMGame lifetime, so it is built once on first use.
+	timedBuffRegistry []timedBuff
+
+	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
+	monsterFrameBuf []monsterFramePosition
+	sepEngagedBuf   []int
+	bandersBuf      []*monster.Monster3D
+	bandSinglesBuf  []*monster.Monster3D
+	bandIDsBuf      []int
+	bandParentBuf   []int
+	bandHandled     map[*monster.Monster3D]bool
+	bandUsedSingles map[*monster.Monster3D]bool
+}
+
+type monsterFramePosition struct {
+	monster *monster.Monster3D
+	x, y    float64
 }
 
 // NewGameLoop creates a new game loop manager. Combat is shared via
@@ -77,6 +96,10 @@ func (gl *GameLoop) updateExploration() {
 	// rather than silently no-opping for one frame.
 	gl.game.ensureSelectedCharCanAct()
 
+	// Resolve the Space-to-interact focus target before input reads it. Uses
+	// the camera as rendered last frame — exactly what the player is seeing.
+	gl.game.updateFocusedNPC()
+
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
@@ -85,12 +108,13 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.advanceViewTurn()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
+	gl.game.combat.knockOutLethalDoTVictims()
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
@@ -105,6 +129,8 @@ func (gl *GameLoop) updateExploration() {
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
 	// retaliation) stays cheap when none exist — the overwhelmingly common case.
 	gl.game.refreshBoundUndeadCache()
+
+	monsterFrameStart := gl.captureMonsterFramePositions()
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
@@ -125,6 +151,11 @@ func (gl *GameLoop) updateExploration() {
 	// each vetoes the other's every move — so resolve it here instead.
 	gl.separateOverlappingMonsters()
 
+	// Banding: stack calm same-key flockers onto their leader (or scatter a band
+	// whose member just engaged/was hit). Runs after movement+separation so it has
+	// the final positions to snap/fan.
+	gl.updateMonsterBands()
+
 	// Update monster hit tint timers
 	gl.game.UpdateMonsterHitTintTimers()
 
@@ -132,6 +163,17 @@ func (gl *GameLoop) updateExploration() {
 	if !gl.game.turnBasedMode {
 		gl.game.combat.HandleMonsterInteractions()
 	}
+
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+
+	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
+	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
+	// TickPoisonTurn can zero a monster's HP with no CombatSystem in scope to run
+	// finishMonsterKill itself. Anything left in world.Monsters with IsAlive()
+	// false and not already queued in deadMonsterIDs died this way — finish it
+	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
+	// (steam zones and traps already self-finish via finishIndirectKill).
+	gl.finalizeIndirectKills()
 
 	// Update projectiles - skip if no active projectiles to save CPU
 	if gl.hasActiveProjectiles() {
@@ -156,6 +198,47 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update performance metrics
 	gl.updatePerformanceMetrics()
+}
+
+func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
+	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
+		return nil
+	}
+	positions := gl.monsterFrameBuf[:0]
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		positions = append(positions, monsterFramePosition{
+			monster: m,
+			x:       m.X,
+			y:       m.Y,
+		})
+	}
+	gl.monsterFrameBuf = positions
+	return positions
+}
+
+// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
+// it points each monster along its net displacement this tick, derived from actual
+// motion (so axis-slides and band snaps read correctly). Movement helpers therefore
+// don't set m.Direction themselves — only no-move state transitions (idle/alert/flee)
+// still set an intent facing, since there's no motion here to derive it from.
+func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
+	const minMoveForFacing = 0.25
+	minMoveSq := minMoveForFacing * minMoveForFacing
+	for _, pos := range start {
+		m := pos.monster
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		dx := m.X - pos.x
+		dy := m.Y - pos.y
+		if dx*dx+dy*dy < minMoveSq {
+			continue
+		}
+		m.Direction = math.Atan2(dy, dx)
+	}
 }
 
 // Draw handles all rendering for one frame
@@ -307,56 +390,104 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 		return true
 	}
+	resolvePair := func(i int, a, b *monster.Monster3D, aw, ah float64) {
+		bw, bh := b.GetSize()
+		dx := b.X - a.X
+		dy := b.Y - a.Y
+		sepX := (aw+bw)/2 - math.Abs(dx)
+		sepY := (ah+bh)/2 - math.Abs(dy)
+		if sepX <= 0 || sepY <= 0 {
+			return // no overlap
+		}
+		// Signed pushes per axis (b gets the positive direction); perfectly
+		// stacked pairs get a deterministic tiebreak.
+		sx := pushPerTick
+		if dx < 0 || (dx == 0 && i%2 == 0) {
+			sx = -sx
+		}
+		sy := pushPerTick
+		if dy < 0 || (dy == 0 && i%2 == 0) {
+			sy = -sy
+		}
+		// Prefer the axis of least penetration (standard AABB resolve), but
+		// fall back to the other one when terrain blocks it: in a one-wide
+		// gap between trees the cross-corridor push hits a trunk on both
+		// sides, and the pair could only ever separate ALONG the corridor.
+		var prim, sec [2]float64
+		if sepX < sepY {
+			prim, sec = [2]float64{sx, 0}, [2]float64{0, sy}
+		} else {
+			prim, sec = [2]float64{0, sy}, [2]float64{sx, 0}
+		}
+		// a moves opposite to b.
+		if !pushOne(a, -prim[0], -prim[1]) {
+			pushOne(a, -sec[0], -sec[1])
+		}
+		if !pushOne(b, prim[0], prim[1]) {
+			pushOne(b, sec[0], sec[1])
+		}
+	}
+	// Every processed pair has an engaged side, so collect the engaged alive
+	// subset once (reusable buffer): the common calm case exits without any
+	// pair scan, and the scan walks all×engaged instead of all×all.
+	engagedIdx := gl.sepEngagedBuf[:0]
+	for i, m := range monsters {
+		if m.IsAlive() && engaged(m) {
+			engagedIdx = append(engagedIdx, i)
+		}
+	}
+	gl.sepEngagedBuf = engagedIdx
+	if len(engagedIdx) == 0 {
+		return
+	}
+	// Pairs run in the original (i,j) order: an engaged a pairs with every
+	// alive j>i; a calm a pairs only with the engaged mobs after it. Pushes
+	// change positions only, so engagement/liveness are constant mid-pass.
+	nextEngaged := 0
 	for i := 0; i < len(monsters); i++ {
+		for nextEngaged < len(engagedIdx) && engagedIdx[nextEngaged] <= i {
+			nextEngaged++
+		}
 		a := monsters[i]
 		if !a.IsAlive() {
 			continue
 		}
 		aw, ah := a.GetSize()
-		for j := i + 1; j < len(monsters); j++ {
-			b := monsters[j]
-			if !b.IsAlive() {
-				continue
+		if engaged(a) {
+			for j := i + 1; j < len(monsters); j++ {
+				b := monsters[j]
+				if !b.IsAlive() {
+					continue
+				}
+				resolvePair(i, a, b, aw, ah)
 			}
-			if !engaged(a) && !engaged(b) {
-				continue // calm pair: pass-through is intended, no shoving
-			}
-			bw, bh := b.GetSize()
-			dx := b.X - a.X
-			dy := b.Y - a.Y
-			sepX := (aw+bw)/2 - math.Abs(dx)
-			sepY := (ah+bh)/2 - math.Abs(dy)
-			if sepX <= 0 || sepY <= 0 {
-				continue // no overlap
-			}
-			// Signed pushes per axis (b gets the positive direction); perfectly
-			// stacked pairs get a deterministic tiebreak.
-			sx := pushPerTick
-			if dx < 0 || (dx == 0 && i%2 == 0) {
-				sx = -sx
-			}
-			sy := pushPerTick
-			if dy < 0 || (dy == 0 && i%2 == 0) {
-				sy = -sy
-			}
-			// Prefer the axis of least penetration (standard AABB resolve), but
-			// fall back to the other one when terrain blocks it: in a one-wide
-			// gap between trees the cross-corridor push hits a trunk on both
-			// sides, and the pair could only ever separate ALONG the corridor.
-			var prim, sec [2]float64
-			if sepX < sepY {
-				prim, sec = [2]float64{sx, 0}, [2]float64{0, sy}
-			} else {
-				prim, sec = [2]float64{0, sy}, [2]float64{sx, 0}
-			}
-			// a moves opposite to b.
-			if !pushOne(a, -prim[0], -prim[1]) {
-				pushOne(a, -sec[0], -sec[1])
-			}
-			if !pushOne(b, prim[0], prim[1]) {
-				pushOne(b, sec[0], sec[1])
+		} else {
+			for _, j := range engagedIdx[nextEngaged:] {
+				resolvePair(i, a, monsters[j], aw, ah)
 			}
 		}
+	}
+}
+
+// finalizeIndirectKills sweeps for monsters that died from an autonomous tick
+// with no CombatSystem in scope to finish the kill itself (RT poison/ignite via
+// Monster3D.Update's TickPoison, TB's TickPoisonTurn) — anything left in
+// world.Monsters with IsAlive() false and not already queued in deadMonsterIDs
+// died this way this frame. Reuses the same scratch set removeDeadMonstersByID
+// rebuilds right after, so this costs one extra O(n) pass, no new allocation.
+func (gl *GameLoop) finalizeIndirectKills() {
+	queued := gl.game.reusableDeadSet
+	for k := range queued {
+		delete(queued, k)
+	}
+	for _, id := range gl.game.deadMonsterIDs {
+		queued[id] = true
+	}
+	for _, m := range gl.game.world.Monsters {
+		if m == nil || m.IsAlive() || queued[m.ID] {
+			continue
+		}
+		gl.game.combat.finishIndirectKill(m)
 	}
 }
 
@@ -426,7 +557,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 			// Award gold to party
 			if questRewards.Gold > 0 {
-				gl.game.party.Gold += questRewards.Gold
+				gl.game.awardGold(questRewards.Gold)
 			}
 
 			// Award experience to all party members
@@ -448,7 +579,7 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 
 	// Award gold to party
 	if rewards.Gold > 0 {
-		gl.game.party.Gold += rewards.Gold
+		gl.game.awardGold(rewards.Gold)
 		gl.game.AddCombatMessage(fmt.Sprintf("Party found %d gold!", rewards.Gold))
 	}
 
@@ -469,7 +600,7 @@ func (gl *GameLoop) freeCaptivesFromRewards(rewards *monster.EncounterRewards) {
 		return
 	}
 	for _, c := range gl.game.party.FreeCaptives() {
-		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed — they'll wait at the tavern.", c.Name, c.Class.String()))
+		gl.game.AddCombatMessage(fmt.Sprintf("%s the %s is freed - they'll wait at the tavern.", c.Name, c.Class.String()))
 	}
 }
 
@@ -526,6 +657,9 @@ func (gl *GameLoop) updateSpecialEffects() {
 		}
 	}
 
+	// Buff-cast overlay animations age out.
+	gl.game.tickBuffFx()
+
 	// Impact light flashes burn down and expire.
 	if len(gl.game.impactLights) > 0 {
 		gl.game.hitEffectsMu.Lock()
@@ -566,7 +700,8 @@ func (gl *GameLoop) updateSpecialEffects() {
 
 	// Walk-on-water / water-breathing drive world flags every frame.
 	if gl.game.world != nil {
-		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive)
+		// The Medusa Card grants permanent walk-on-water on top of the spell.
+		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
 	}
 
@@ -584,10 +719,24 @@ type timedBuff struct {
 	onExpire func()
 }
 
-// timedBuffs is the SINGLE registry of duration-based buffs. To add a new timed
-// buff, add one entry here — it then ticks, shows its HUD icon, and is restored
-// on load automatically, with no other code changes.
+// timedBuffs returns the SINGLE registry of duration-based buffs. Its pointers
+// are stable for the MMGame lifetime, so the registry is built once and cached
+// on the game loop.
 func (g *MMGame) timedBuffs() []timedBuff {
+	gl := g.gameLoop
+	if gl == nil {
+		return g.buildTimedBuffs()
+	}
+	if gl.timedBuffRegistry == nil {
+		gl.timedBuffRegistry = g.buildTimedBuffs()
+	}
+	return gl.timedBuffRegistry
+}
+
+// buildTimedBuffs assembles the registry. To add a new timed buff, add one
+// entry here — it then ticks, shows its HUD icon, and is restored on load
+// automatically, with no other code changes.
+func (g *MMGame) buildTimedBuffs() []timedBuff {
 	return []timedBuff{
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
@@ -664,10 +813,8 @@ func (gl *GameLoop) returnFromUnderwater() {
 	// Find nearest walkable tile to the stored return position - MUST succeed for safety
 	returnX, returnY := gl.game.FindNearestWalkableTileMustSucceed(gl.game.underwaterReturnX, gl.game.underwaterReturnY)
 
-	// Teleport to the safe position
-	gl.game.camera.X = returnX
-	gl.game.camera.Y = returnY
-	gl.game.collisionSystem.UpdateEntity("player", returnX, returnY)
+	// Teleport to the safe position (single arrival path: position + autosave).
+	gl.inputHandler.finishMapArrival(returnX, returnY, gl.game.camera.Angle)
 
 	fmt.Println("Water Breathing expired! Returned to surface.")
 }

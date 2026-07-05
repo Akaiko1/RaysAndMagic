@@ -65,6 +65,13 @@ type Item struct {
 	Attributes  map[string]int
 	Description string
 	Rarity      string
+	// InstanceID uniquely identifies THIS physical item across save/load and the
+	// cross-save stash. Assigned once at creation (the factories) and carried for
+	// life. 0 means "untracked" (a pre-InstanceID save/stash item): it never
+	// triggers stash reconciliation and is stamped lazily on load. Lets the stash
+	// recognise "the copy I already hold" and strip it from a reloaded bag,
+	// closing the save-scum dupe.
+	InstanceID uint64 `json:"instance_id,omitempty"`
 	// For armor
 	ArmorCategory string
 	// For spells
@@ -93,11 +100,12 @@ const (
 	ItemQuest
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
-	ItemTrinket      // Collectible cards/curios — non-equippable, discardable, sellable.
-	// ItemTrap MUST stay at the END: saves serialize Type as an int, so
-	// inserting mid-enum re-types every item after the insertion point
-	// (trinkets were briefly read back as traps).
+	ItemTrinket      // Collectible curios (gems, trophies) — non-equippable, discardable, sellable.
+	// ItemTrap and ItemCard are APPENDED at the end and must never be reordered:
+	// saves serialize Type as an int, so inserting mid-enum re-types every item
+	// after the insertion point (trinkets were briefly read back as traps).
 	ItemTrap // Thief traps (quick-slot devices armed with Space/F)
+	ItemCard // Collectible monster cards (party-wide collection via the card collector)
 )
 
 // String returns the display name of the item type (Stringer interface).
@@ -121,6 +129,8 @@ func (t ItemType) String() string {
 		return "Trap"
 	case ItemTrinket:
 		return "Trinket"
+	case ItemCard:
+		return "Card"
 	default:
 		return "Unknown"
 	}
@@ -201,6 +211,7 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		Description: desc,
 		Rarity:      weaponDef.Rarity,
 		Attributes:  make(map[string]int),
+		InstanceID:  NewInstanceID(),
 	}
 	if weaponDef.Value > 0 {
 		it.Attributes["value"] = weaponDef.Value
@@ -330,6 +341,8 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		t = ItemQuest
 	case "trinket":
 		t = ItemTrinket
+	case "card":
+		t = ItemCard
 	default:
 		return Item{}, fmt.Errorf("unknown item type for '%s': %s", itemKey, def.Type)
 	}
@@ -420,6 +433,7 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		Rarity:        def.Rarity,
 		Attributes:    attrs,
 		ArmorCategory: def.ArmorType,
+		InstanceID:    NewInstanceID(),
 	}, nil
 }
 

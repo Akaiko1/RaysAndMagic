@@ -6,6 +6,7 @@ monsters:
   # Basic Monsters
   goblin:
     name: "Goblin"
+    banding: true
     level: 1
     max_hit_points: 50
     armor_class: 13
@@ -29,6 +30,7 @@ monsters:
 
   orc:
     name: "Orc"
+    banding: true
     level: 3
     max_hit_points: 96
     armor_class: 19
@@ -58,6 +60,7 @@ monsters:
 
   wolf:
     name: "Wolf"
+    banding: true
     level: 2
     max_hit_points: 76
     armor_class: 16
@@ -126,6 +129,7 @@ monsters:
   skeleton:
     type: "undead"
     name: "Skeleton"
+    banding: true
     level: 3
     max_hit_points: 86
     armor_class: 20
@@ -172,10 +176,11 @@ monsters:
     size_multiplier: 5.0
     biomes: ["pyramid"]
     resistances:
-      mind: 100
-      body: 40
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       fire: -25
       dark: 50
+      light: -50     # undead: vulnerable to light
     habitat_preferences:
       - "pyramid_floor"
 
@@ -295,11 +300,10 @@ monsters:
       - "desert_dune"
       - "large_dune"
 
-  # Elemental dragon variants — the 4 main-quest dragons in the desert corners
-  # are one of each (base `dragon` = fire, plus the three below). ALL share
-  # name "Dragon" so the dragon_slayer quest (matches by name) counts every
-  # color toward the 4-kill victory. Same lvl-15 power tier as the base dragon;
-  # they differ only in element (resists / projectile / proc) for variety.
+  # Elemental dragon variants — wild dragons (dragon_cliffs biome + the two cliff
+  # lair caves) and the desert-statue ELITES are built from these. The 4 elite
+  # `elder_dragon*` entries below summon from the statues; these base entries are
+  # the ordinary dragons. They differ only in element (resists/projectile/proc).
   dragon_red:
     type: "dragon"
     name: "Dragon"
@@ -336,6 +340,7 @@ monsters:
   dragon_green:
     type: "dragon"
     name: "Dragon"
+    banding: true
     level: 15
     max_hit_points: 1100
     armor_class: 67            # tankier: melee-only, no ranged attack
@@ -399,9 +404,136 @@ monsters:
     habitat_preferences:
       - "empty"
 
+  # ── Elder Dragons (ELITE) ────────────────────────────────────────────────
+  # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
+  # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
+  # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
+  # wild "Dragon"s never count). No letter/biome: never map-placed or wild-spawned.
+  elder_dragon:
+    type: "dragon"
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
+    armor_class: 50
+    experience: 3000
+    damage_min: 38
+    damage_max: 62
+    true_damage: 22
+    fireburst_chance: 0.15
+    fireburst_damage_min: 10
+    fireburst_damage_max: 16
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "firebolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 1000
+    gold_max: 2500
+    sprite: "dragon"
+    tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
+    flying: true
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    resistances:
+      fire: 100
+      physical: 50
+      air: 75
+
+  elder_dragon_red:
+    type: "dragon"
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
+    armor_class: 50
+    experience: 3000
+    damage_min: 38
+    damage_max: 62
+    true_damage: 15
+    ignite_chance: 0.30
+    ignite_duration_seconds: 30
+    alert_radius: 5
+    attack_radius: 2
+    projectile_spell: "darkbolt"
+    ranged_attack_range: 3
+    speed: 3.75
+    gold_min: 1000
+    gold_max: 2500
+    sprite: "dragon_red"
+    tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
+    flying: true
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    resistances:
+      dark: 100
+      physical: 50
+      fire: 40
+
+  elder_dragon_green:
+    type: "dragon"
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1650
+    armor_class: 67
+    experience: 3000
+    damage_min: 40
+    damage_max: 65
+    true_damage: 15
+    attack_cooldown_multiplier: 0.6
+    poison_chance: 0.33
+    poison_duration_seconds: 45
+    alert_radius: 5
+    attack_radius: 2
+    speed: 3.75
+    gold_min: 1000
+    gold_max: 2500
+    sprite: "dragon_green"
+    tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
+    flying: true
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    resistances:
+      earth: 100
+      physical: 60
+      fire: -25
+
+  elder_dragon_gold:
+    type: "dragon"
+    name: "Elder Dragon"
+    level: 18
+    max_hit_points: 1575
+    armor_class: 50
+    experience: 3000
+    damage_min: 35
+    damage_max: 58
+    true_damage: 15
+    stun_char_chance: 0.10
+    stun_char_seconds: 4
+    stun_char_turns: 2
+    alert_radius: 6
+    attack_radius: 2
+    projectile_spell: "lightning"
+    ranged_attack_range: 4
+    speed: 4.5
+    gold_min: 1000
+    gold_max: 2500
+    sprite: "dragon_gold"
+    tint_color: [1.5, 1.3, 0.5]   # elder amber cast
+    flying: true
+    box_w: 48
+    box_h: 48
+    size_multiplier: 12.0
+    resistances:
+      air: 100
+      physical: 50
+      water: -25
+
   # Forest-specific monsters
   forest_orc:
     name: "Forest Orc"
+    banding: true
     level: 4
     max_hit_points: 100
     armor_class: 19
@@ -668,6 +800,7 @@ monsters:
   # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
   puma:
     name: "Puma"
+    banding: true
     level: 6
     max_hit_points: 150
     armor_class: 20
@@ -699,6 +832,7 @@ monsters:
   # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
+    banding: true
     level: 7
     max_hit_points: 190
     armor_class: 14
@@ -730,6 +864,7 @@ monsters:
   # L9 — armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
+    banding: true
     level: 9
     max_hit_points: 320
     armor_class: 32
@@ -842,9 +977,12 @@ monsters:
     size_multiplier: 7.0
     biomes: ["highlands", "lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 75
       physical: 40
       fire: -25
+      light: -50     # undead: vulnerable to light
     habitat_preferences:
       - "highlands_floor"
       - "lich_nexus_floor"
@@ -855,6 +993,7 @@ monsters:
   revenant:
     type: "undead"
     name: "Revenant"
+    banding: true
     level: 10
     max_hit_points: 420
     armor_class: 32
@@ -873,6 +1012,8 @@ monsters:
     size_multiplier: 7.0
     biomes: ["lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 60
       physical: 35
       fire: -20
@@ -903,6 +1044,8 @@ monsters:
     size_multiplier: 8.0
     biomes: ["lich_nexus"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 90
       physical: 45
       fire: -20
@@ -914,6 +1057,7 @@ monsters:
   # Bug is the boss (see ignores_armor / inferno_chance / teleport_* / passive_until_quest). ---
   rat:
     name: "Sewer Rat"
+    banding: true
     level: 5
     max_hit_points: 95
     armor_class: 7
@@ -958,6 +1102,7 @@ monsters:
 
   thief_bug:
     name: "Thief Bug"
+    banding: true
     level: 7
     max_hit_points: 165
     armor_class: 20
@@ -981,6 +1126,7 @@ monsters:
       physical: 15
 
   golden_thief_bug:
+    type: "formless"
     name: "Golden Thief Bug"
     level: 10
     max_hit_points: 1200
@@ -1021,7 +1167,9 @@ monsters:
 
   # --- Japanese Castle (eastern islands) mobs (L12-18) ---
   ashigaru_firelock:
+    type: "undead"
     name: "Ashigaru Arquebusier"
+    banding: true
     level: 12
     max_hit_points: 420
     armor_class: 18
@@ -1044,9 +1192,13 @@ monsters:
     size_multiplier: 6.0
     biomes: ["japanese_castle"]
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       physical: 10
+      light: -50     # undead: vulnerable to light
 
   ronin_marksman:
+    type: "undead"
     name: "Ronin Marksman"
     level: 15
     max_hit_points: 640
@@ -1072,9 +1224,13 @@ monsters:
     biomes: ["japanese_castle"]
     tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       physical: 15
+      light: -50     # undead: vulnerable to light
 
   ningyo:
+    type: "undead"
     name: "Miyabi Ningyo"
     level: 13
     max_hit_points: 500
@@ -1100,10 +1256,13 @@ monsters:
     size_multiplier: 6.5
     biomes: ["japanese_castle"]
     resistances:
-      mind: 30
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 20
+      light: -50     # undead: vulnerable to light
 
   vengeful_ningyo:
+    type: "undead"
     name: "Vengeful Ningyo"
     level: 16
     max_hit_points: 740
@@ -1130,12 +1289,15 @@ monsters:
     biomes: ["japanese_castle"]
     tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
-      mind: 40
+      mind: 100      # undead: immune to mind
+      body: 50       # undead: resist body
       dark: 30
+      light: -50     # undead: vulnerable to light
 
   # Boss: dormant on the throne (visible, inert) until the castle_armory quest
   # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
   old_samurai:
+    type: "formless"
     name: "Samurai Warlord"
     level: 17
     max_hit_points: 1600
@@ -1173,6 +1335,7 @@ monsters:
   # ---- Deep Jungle (Amazon) zone, party L18-24 ----
   ocelot:
     name: "Ocelot"
+    banding: true
     level: 18
     max_hit_points: 640
     armor_class: 20
@@ -1222,6 +1385,7 @@ monsters:
 
   masked_huntress:
     name: "Masked Huntress"
+    banding: true
     type: "human"
     level: 20
     max_hit_points: 800
@@ -1252,6 +1416,7 @@ monsters:
 
   masked_serpent_dancer:
     name: "Masked Serpent Dancer"
+    banding: true
     type: "human"
     level: 21
     max_hit_points: 720
@@ -1313,6 +1478,7 @@ monsters:
 
   # Elite: huge territorial ape guarding the oxbow grove. Ground-pound shockwave.
   gorilla_titan:
+    type: "formless"
     name: "Gorilla Titan"
     level: 23
     max_hit_points: 1700
@@ -1351,6 +1517,7 @@ monsters:
   # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
   # enrage_at_hp once active (enrage is HP-driven, not the ward).
   orc_hero_boss:
+    type: "formless"
     name: "Orc Warlord"
     level: 24
     max_hit_points: 2400

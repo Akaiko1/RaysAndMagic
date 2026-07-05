@@ -1328,6 +1328,11 @@ func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.It
 // the endgame fight, tested explicitly with the right spell per resist profile.
 var dragonKeys = []string{"dragon", "dragon_red", "dragon_green", "dragon_gold"}
 
+// elderDragonKeys are the ELITE statue-summoned dragons (the actual endgame
+// fight). The VsDragon sims target these; both base and elite are kept out of
+// the grind XP/loot (they're never farmed).
+var elderDragonKeys = []string{"elder_dragon", "elder_dragon_red", "elder_dragon_green", "elder_dragon_gold"}
+
 // grindMaps simulates clearing all given maps (path, biome) end-to-end:
 // awards XP to each party member (split /4), rolls loot per kill, plus
 // the church_skeleton_chest weapon if the church map is in the list.
@@ -1348,7 +1353,10 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 		if err != nil {
 			t.Fatalf("count %s: %v", mapInfo.path, err)
 		}
-		for _, dk := range dragonKeys { // all 4 dragon variants = endgame target, never auto-cleared
+		for _, dk := range dragonKeys { // base dragons = endgame target, never auto-cleared
+			delete(counts, dk)
+		}
+		for _, dk := range elderDragonKeys { // elite dragons are never farmed either
 			delete(counts, dk)
 		}
 		// Mirror the live kill path: each member gets monster.Experience/len(party)
@@ -1802,7 +1810,7 @@ func TestCombatBalance_ClearedForestPartyVsDragon(t *testing.T) {
 		t.Fatalf("load loots: %v", err)
 	}
 	rand.Seed(time.Now().UnixNano())
-	for _, dk := range dragonKeys {
+	for _, dk := range elderDragonKeys {
 		runEndgameSim(t, cs, buildClearedForestParty, []string{dk}, "Cleared-forest party vs "+dk, 10, true)
 	}
 }
@@ -1831,6 +1839,19 @@ func buildFullClearCasterSpeedParty(t *testing.T, cs *CombatSystem) []*character
 		{"../../assets/forest.map", "forest"},
 		{"../../assets/church.map", "church"},
 		{"../../assets/water.map", "water"},
+	}, statSpeedOnlyForCasters)
+}
+
+// buildFullProgressionParty grinds the realistic pre-dragon path: forest,
+// church, water, PLUS the culverts and highlands — the closest fixture to a
+// party that has actually earned the dragon statuettes. Same caster-speed strategy.
+func buildFullProgressionParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
+	return buildClearedMapsParty(t, cs, []struct{ path, biome string }{
+		{"../../assets/forest.map", "forest"},
+		{"../../assets/church.map", "church"},
+		{"../../assets/water.map", "water"},
+		{"../../assets/culverts.map", "culverts"},
+		{"../../assets/highlands.map", "highlands"},
 	}, statSpeedOnlyForCasters)
 }
 
@@ -2068,11 +2089,29 @@ func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
 		t.Fatalf("load loots: %v", err)
 	}
 	rand.Seed(time.Now().UnixNano())
-	for _, dk := range dragonKeys {
+	for _, dk := range elderDragonKeys {
 		runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{dk},
 			"Full-clear party (all 3 maps) vs "+dk+" (no Bless)", 0, false)
 		runEndgameSim(t, cs, buildFullClearCasterSpeedParty, []string{dk},
 			"Full-clear party (all 3 maps) vs "+dk+" (Bless +10)", 10, true)
+	}
+}
+
+// TestCombatBalance_FullProgressionPartyVsDragon — the strongest fixture: a party
+// that also cleared the culverts and highlands (the realistic pre-dragon path)
+// vs each Elder Dragon, with and without Bless.
+func TestCombatBalance_FullProgressionPartyVsDragon(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	rand.Seed(time.Now().UnixNano())
+	for _, dk := range elderDragonKeys {
+		runEndgameSim(t, cs, buildFullProgressionParty, []string{dk},
+			"Full-progression party (+culverts +highlands) vs "+dk+" (no Bless)", 0, false)
+		runEndgameSim(t, cs, buildFullProgressionParty, []string{dk},
+			"Full-progression party (+culverts +highlands) vs "+dk+" (Bless +10)", 10, true)
 	}
 }
 

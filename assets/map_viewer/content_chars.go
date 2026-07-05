@@ -88,7 +88,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			if race == "" {
 				race = "human"
 			}
-			hdr(fmt.Sprintf("%s — %s", e.Name, titleCase(key)))
+			hdr(fmt.Sprintf("%s - %s", e.Name, titleCase(key)))
 			txt(fmt.Sprintf("%s   ·   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
 			txt("")
 			for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
@@ -128,7 +128,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				for _, sid := range ms.KnownSpells {
 					spellRows = append(spellRows, panelRow{
 						hasIcon: true, iconKind: cardSpell, iconKey: string(sid),
-						text: fmt.Sprintf("%s — %s", school.DisplayName(), spellDisplayName(string(sid))),
+						text: fmt.Sprintf("%s - %s", school.DisplayName(), spellDisplayName(string(sid))),
 					})
 				}
 			}
@@ -166,7 +166,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				}
 				equipRows = append(equipRows, panelRow{
 					hasIcon: true, iconKind: kind, iconKey: key,
-					text: fmt.Sprintf("%s — %s", s.label, it.Name),
+					text: fmt.Sprintf("%s - %s", s.label, it.Name),
 				})
 			}
 			txt("")

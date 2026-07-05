@@ -441,15 +441,23 @@ func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	statue := &character.NPC{Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
 	w.NPCs = append(w.NPCs, statue)
 	game := newTestGame(cfg, w)
+	game.renderHelper = NewRenderingHelper(game)
+	prevWM := world.GlobalWorldManager
+	world.GlobalWorldManager = nil // interact focus reads GetCurrentWorld; pin it to w
+	t.Cleanup(func() { world.GlobalWorldManager = prevWM })
+	game.camera.Angle = 0 // face the statue: it sits at +X from the camera
+	game.camera.FOV = cfg.GetCameraFOV()
 
-	if game.GetNearestInteractableNPC() != statue {
-		t.Fatalf("unspent statue should be interactable")
+	game.updateFocusedNPC()
+	if game.focusedNPC != statue {
+		t.Fatalf("unspent statue should take interact focus")
 	}
 
 	statue.Visited = true // mirrors summonDragonFromStatue: mark spent, keep in world
 
-	if game.GetNearestInteractableNPC() != nil {
-		t.Errorf("spent hide_when_visited statue must not be interactable")
+	game.updateFocusedNPC()
+	if game.focusedNPC != nil {
+		t.Errorf("spent hide_when_visited statue must not take interact focus")
 	}
 	kept := false
 	for _, n := range w.NPCs {

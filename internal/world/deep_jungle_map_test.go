@@ -37,8 +37,8 @@ func TestDeepJungleMapLoads(t *testing.T) {
 	if md.StartX < 0 || md.StartY < 0 {
 		t.Errorf("no start position parsed (%d,%d)", md.StartX, md.StartY)
 	}
-	if len(md.NPCSpawns) != 1 || md.NPCSpawns[0].NPCKey != "deep_jungle_exit" {
-		t.Errorf("want exactly the deep_jungle_exit NPC, got %d: %+v", len(md.NPCSpawns), md.NPCSpawns)
+	if !hasNPCKey(md.NPCSpawns, "deep_jungle_exit") {
+		t.Errorf("deep_jungle_exit NPC missing: %+v", md.NPCSpawns)
 	}
 	boss, idols := 0, 0
 	for _, m := range md.MonsterSpawns {

@@ -37,8 +37,13 @@ func TestDragonCliffsMapLoads(t *testing.T) {
 	if md.StartX < 0 {
 		t.Errorf("no start position parsed (StartX=%d)", md.StartX)
 	}
-	if len(md.NPCSpawns) != 4 {
-		t.Errorf("want 4 NPC spawns, got %d: %+v", len(md.NPCSpawns), md.NPCSpawns)
+	for _, key := range []string{
+		"dragon_cliffs_ranger", "dragon_cliffs_bone_hermit",
+		"dragon_cliffs_ember_lair", "dragon_cliffs_bone_lair",
+	} {
+		if !hasNPCKey(md.NPCSpawns, key) {
+			t.Errorf("key NPC %q missing: %+v", key, md.NPCSpawns)
+		}
 	}
 	if len(md.SpecialTileSpawns) != 1 || md.SpecialTileSpawns[0].TileKey != "vteleporter" {
 		t.Errorf("want 1 vteleporter special tile, got %+v", md.SpecialTileSpawns)

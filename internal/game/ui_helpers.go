@@ -152,6 +152,20 @@ func (ui *UISystem) drawInterfaceIcon(screen *ebiten.Image, name string, x, y, w
 	drawImageScaled(screen, icon, x, y, w, h)
 }
 
+// drawPopupCloseButton draws the standard red close-X button (hover-brightened)
+// and reports whether a queued left click landed on it. canClick=false still
+// draws but leaves any queued click unconsumed (e.g. mid-drag, popup just opened).
+func (ui *UISystem) drawPopupCloseButton(screen *ebiten.Image, x, y, size int, canClick bool) bool {
+	mouseX, mouseY := ebiten.CursorPosition()
+	btnCol := color.RGBA{120, 60, 60, 180}
+	if mouseX >= x && mouseX < x+size && mouseY >= y && mouseY < y+size {
+		btnCol = color.RGBA{200, 60, 60, 220}
+	}
+	drawFilledRect(screen, x, y, size, size, btnCol)
+	ui.drawInterfaceIcon(screen, "icon_close", x+2, y+2, size-4, size-4)
+	return canClick && ui.game.consumeLeftClickIn(x, y, x+size, y+size)
+}
+
 func drawNineSlice(dst, src *ebiten.Image, x, y, w, h, slice int) {
 	if src == nil || w <= 0 || h <= 0 || slice <= 0 {
 		return
@@ -672,14 +686,48 @@ func drawDebugText(screen *ebiten.Image, text string, x, y int) {
 	drawDebugTextColored(screen, text, x, y, color.White)
 }
 
-// drawDebugTextColored draws left-aligned text wrapped in a dark 8-direction
-// outline (the character-sheet look, now game-wide). The glyphs are rasterized
-// ONCE into the scratch and blitted 9× (8 black offsets + the body), so the
-// outline costs cheap GPU blits, not 9 font re-rasters.
-func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color.Color) {
-	if text == "" {
-		return
+// Outlined labels are composed once per (text, color) into small cached images
+// so each on-screen label costs ONE DrawImage per frame instead of 9-10 blits
+// (the party HUD alone emits ~40 labels/frame). Two-generation eviction: when
+// the live map fills it becomes the fallback generation and hits promote back,
+// so per-frame-unique strings (FPS counter, ticking HP) age out without ever
+// re-rasterizing the stable HUD set.
+const outlinedLabelCacheMax = 256
+
+type outlinedLabelKey struct {
+	text       string
+	r, g, b, a uint32
+}
+
+var (
+	outlinedLabelCache     = make(map[outlinedLabelKey]*ebiten.Image)
+	outlinedLabelCachePrev = map[outlinedLabelKey]*ebiten.Image{}
+)
+
+func outlinedLabelImage(text string, col color.Color) *ebiten.Image {
+	r, g, b, a := col.RGBA()
+	key := outlinedLabelKey{text, r, g, b, a}
+	if img, ok := outlinedLabelCache[key]; ok {
+		return img
 	}
+	img, ok := outlinedLabelCachePrev[key]
+	if !ok {
+		img = renderOutlinedLabel(text, col)
+	}
+	// Dropped images are reclaimed by GC (ebiten deallocates on collect); no
+	// explicit Deallocate — an evicted image may already be enqueued this frame.
+	if len(outlinedLabelCache) >= outlinedLabelCacheMax {
+		outlinedLabelCachePrev = outlinedLabelCache
+		outlinedLabelCache = make(map[outlinedLabelKey]*ebiten.Image, outlinedLabelCacheMax)
+	}
+	outlinedLabelCache[key] = img
+	return img
+}
+
+// renderOutlinedLabel rasterizes text once into the scratch and composes the
+// 8-direction dark outline + colored body into a (w+2)×(h+2) image; the body
+// sits at (1,1) so the outline fits inside the bounds.
+func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 	w := debugTextWidth(text) + 2
 	h := debugTextCharHeight
 	ensureDebugTextScratch(w, h)
@@ -689,12 +737,13 @@ func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color
 	ebitenutil.DebugPrintAt(debugTextScratch, text, -1, 0)
 	glyphs := debugTextScratch.SubImage(image.Rect(0, 0, w, h)).(*ebiten.Image)
 
+	img := ebiten.NewImage(w+2, h+2)
 	blit := func(dx, dy int, c color.Color) {
 		opts := &ebiten.DrawImageOptions{}
 		r, g, b, a := c.RGBA()
 		opts.ColorScale.Scale(float32(r)/65535, float32(g)/65535, float32(b)/65535, float32(a)/65535)
-		opts.GeoM.Translate(float64(x+dx), float64(y+dy))
-		screen.DrawImage(glyphs, opts)
+		opts.GeoM.Translate(float64(1+dx), float64(1+dy))
+		img.DrawImage(glyphs, opts)
 	}
 	outline := color.RGBA{0, 0, 0, 235}
 	for _, d := range textOutlineOffsets {
@@ -702,10 +751,22 @@ func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color
 	}
 	// Rarity metals render as a vertical gradient (shiny); everything else flat.
 	if base, ok := asMetal(col); ok {
-		drawMetalBody(screen, x, y, w, h, base)
+		drawMetalBody(img, 1, 1, w, h, base)
+	} else {
+		blit(0, 0, col)
+	}
+	return img
+}
+
+// drawDebugTextColored draws left-aligned text wrapped in a dark 8-direction
+// outline (the character-sheet look, now game-wide) via the label cache.
+func drawDebugTextColored(screen *ebiten.Image, text string, x, y int, col color.Color) {
+	if text == "" {
 		return
 	}
-	blit(0, 0, col)
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(x-1), float64(y-1))
+	screen.DrawImage(outlinedLabelImage(text, col), opts)
 }
 
 func lerpByte(a, b uint8, t float64) uint8 {
@@ -805,7 +866,7 @@ func lootMessageColor(drops []items.Item) color.Color {
 	return combatMessageGold
 }
 
-func (ui *UISystem) itemRarity(item items.Item) string {
+func itemRarity(item items.Item) string {
 	if item.Rarity != "" {
 		return item.Rarity
 	}
@@ -818,7 +879,21 @@ func (ui *UISystem) itemRarity(item items.Item) string {
 }
 
 func (ui *UISystem) itemRarityColor(item items.Item) color.Color {
-	return rarityColor(ui.itemRarity(item))
+	return rarityColor(itemRarity(item))
+}
+
+// rarityTier ranks rarities for "highest wins" comparisons (higher = rarer).
+func rarityTier(rarity string) int {
+	switch strings.ToLower(rarity) {
+	case "uncommon":
+		return 1
+	case "rare":
+		return 2
+	case "legendary":
+		return 3
+	default:
+		return 0
+	}
 }
 
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area

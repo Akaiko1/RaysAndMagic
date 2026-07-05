@@ -9,6 +9,7 @@ type NPC struct {
 	Description      string
 	Sprite           string
 	RenderType       string
+	WallMounted      bool // render as a flush wall standee (slides to the nearest solid neighbour)
 	Transparent      bool
 	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
 	SizeMultiplier   float64

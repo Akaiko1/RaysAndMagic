@@ -182,7 +182,7 @@ func isStyleDivergent(line string) bool {
 		strings.HasPrefix(line, "Current resistance:") ||
 		strings.HasPrefix(line, "Current stat bonus:") ||
 		strings.HasPrefix(line, "Mastery:") || // editor "Mastery: +20% duration per tier"
-		strings.Contains(line, " Mastery — ") // game "<School> Mastery — Tier: +N%"
+		strings.Contains(line, " Mastery - ") // game "<School> Mastery - Tier: +N%"
 }
 
 // diff reports comparable-field mismatches. includeCooldown is false for weapons:

@@ -36,6 +36,7 @@ func CreateMagicProjectileWrapper(magicProjectile *MagicProjectile, collisionSys
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
 	wrapper.game = game
+	wrapper.pendingImpact = false // defensive: Phase 2 always clears this before recycling, but don't trust it across pool reuse
 	return wrapper
 }
 
@@ -46,14 +47,19 @@ func CreateArrowWrapper(arrow *Arrow, collisionSystem *collision.CollisionSystem
 	wrapper.collisionSystem = collisionSystem
 	wrapper.projectileID = projectileID
 	wrapper.game = game
+	wrapper.pendingImpact = false // defensive: Phase 2 always clears this before recycling, but don't trust it across pool reuse
 	return wrapper
 }
 
-// CreateMonsterWrapper creates a wrapper for monster entities using pool
-func CreateMonsterWrapper(m *monster.Monster3D, collisionSystem *collision.CollisionSystem, game *MMGame) entities.MonsterUpdateInterface {
+// CreateMonsterWrapper creates a wrapper for monster entities using pool.
+// snapshot is the frozen collision view Update() (Phase 1, parallel) must read
+// from; collisionSystem is the live system ApplyCollisionUpdate (Phase 2,
+// serial) writes to — see MonsterWrapper's doc.
+func CreateMonsterWrapper(m *monster.Monster3D, collisionSystem *collision.CollisionSystem, snapshot *collision.CollisionSnapshot, game *MMGame) entities.MonsterUpdateInterface {
 	wrapper := monsterWrapperPool.Get().(*MonsterWrapper)
 	wrapper.Monster = m
 	wrapper.collisionSystem = collisionSystem
+	wrapper.snapshot = snapshot
 	wrapper.game = game
 	return wrapper
 }
@@ -106,9 +112,14 @@ func (g *MMGame) ConvertMonstersToWrappers() []entities.MonsterUpdateInterface {
 		g.reusableMonsterWrappers = make([]entities.MonsterUpdateInterface, 0, len(g.world.Monsters))
 	}
 
+	// ONE frozen view for the whole tick, taken here (single-threaded, before
+	// dispatch) — every monster's worker reads this same snapshot instead of the
+	// live system, so no synchronization is needed between them. See
+	// collision.CollisionSnapshot's doc.
+	snapshot := g.collisionSystem.Snapshot()
 	for _, m := range g.world.Monsters {
 		g.reusableMonsterWrappers = append(g.reusableMonsterWrappers,
-			CreateMonsterWrapper(m, g.collisionSystem, g))
+			CreateMonsterWrapper(m, g.collisionSystem, snapshot, g))
 	}
 	return g.reusableMonsterWrappers
 }

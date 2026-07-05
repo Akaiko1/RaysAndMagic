@@ -10,7 +10,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %..T....S..T................................%
 %....T..SS....................e.......D.....%
-%.T.....SS.VVVV...................z.@.z..H..%  > [npc:dragon_cliffs_bone_lair]
+%.T.....SS.VVVV...................z.@.z..H..%  >[npc:dragon_cliffs_bone_lair]
 %.......SD.VVVV...y.........H.....D...z.....%
 %..T..e.SS.VVVT...A...................D.....%
 %...H...SS.VVTA.R.....e.===.................%
@@ -23,7 +23,7 @@
 %......RS.....SS..............VVVVVVVVVV#VV.%
 %...y...SS...SS...........H...VVV#VVVVVVVVV.%
 %..T....SSR.SS....H...........VVVVVVVVVVVVV.%
-%.......S..SSR................VVVVVV@VVVVVV.%  > [npc:dragon_cliffs_ember_lair]
+%.......S..SSR................VVVVVV@VVVVVV.%  >[npc:dragon_cliffs_ember_lair]
 %.......SSSS.....vv...........VVVVVVVVVVVVV.%
 %.......SS.......vv...........VVV#VVVVVVeVV.%
 %.......S.....................VVVVVVVVVV#VV.%
@@ -33,10 +33,10 @@
 %CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
 %%%%%%%%%%%%%%%%%%%%%MM%%%%%%%%%%%%%%%%%BBNBB
 %T.........................................T%
-%T...T..H....H....H.....................AT.T%
-%T.TT.........H.@..H..........H....HH......T%  > [npc:dragon_cliffs_ranger]
-%T......T.............@........H......RT...T%  > [stile:vteleporter]
-%T.....T....H....H..........@....H...H.....T%  > [npc:dragon_cliffs_bone_hermit]
+%T...T..H....H..@.H.....................AT.T%  >[npc:tavern]
+%T.TT.........H.@..H..........H....HH......T%  >[npc:dragon_cliffs_ranger]
+%T......T.............@........H......RT...T%  >[stile:vteleporter]
+%T.....T....H....H..........@....H...H.....T%  >[npc:dragon_cliffs_bone_hermit]
 %T....R...T.......H...+........HH.....H..T.T%
 %T......TT.................................T%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

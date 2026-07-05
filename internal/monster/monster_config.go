@@ -33,7 +33,10 @@ type MonsterDefinition struct {
 	BoxW                float64           `yaml:"box_w"`
 	BoxH                float64           `yaml:"box_h"`
 	SizeMultiplier      float64           `yaml:"size_multiplier,omitempty"`
-	SizeGame            float64           `yaml:"size_game"`
+	// size_game is retired (was a legacy alias of size_multiplier). The field
+	// exists only so content still authoring it FAILS LOUD in validation
+	// instead of silently rendering at 1.0 scale.
+	DeprecatedSizeGame float64 `yaml:"size_game,omitempty"`
 	Resistances         map[string]int    `yaml:"resistances"`
 	HabitatPrefs        []string          `yaml:"habitat_preferences"`
 	HabitatNear         []HabitatNearRule `yaml:"habitat_near"`
@@ -91,6 +94,10 @@ type MonsterDefinition struct {
 	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE — once active, relentlessly chases from anywhere (else relentless only after normal aggro)
 	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
 	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
+	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
+	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
+	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
+	Banding bool `yaml:"banding,omitempty"`
 	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
@@ -146,6 +153,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
+		if monster.DeprecatedSizeGame != 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game — rename it to size_multiplier", key))
+		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
@@ -407,6 +417,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.AggroWholeMap = def.AggroWholeMap
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
+	m.Banding = def.Banding
 	if len(def.TintColor) == 3 {
 		m.TintR = float32(def.TintColor[0])
 		m.TintG = float32(def.TintColor[1])
@@ -431,15 +442,11 @@ func (def *MonsterDefinition) GetSizeFromConfig() (width, height float64) {
 	return def.BoxW, def.BoxH
 }
 
-// GetSizeGameMultiplier returns the visual size multiplier from config.
-// size_multiplier is the canonical YAML key; size_game is accepted for
-// backward compatibility with older content.
+// GetSizeGameMultiplier returns the visual size multiplier from config
+// (size_multiplier in YAML), defaulting to 1.0 when unset.
 func (def *MonsterDefinition) GetSizeGameMultiplier() float64 {
 	if def.SizeMultiplier > 0 {
 		return def.SizeMultiplier
-	}
-	if def.SizeGame > 0 {
-		return def.SizeGame
 	}
 	return 1.0
 }

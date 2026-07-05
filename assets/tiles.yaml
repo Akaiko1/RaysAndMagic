@@ -7,7 +7,8 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [60, 180, 60]  # Green grass
+    # No floor_color on purpose: empty ground is tinted per-map by
+    # default_floor_color (map_configs.yaml); a color here is never read.
     floor_texture_group: "default"  # overridden to "beach" near water at runtime
     letter: "."
 
@@ -773,9 +774,9 @@ tiles:
     solid: true
     transparent: true
     walkable: false
-    size_multiplier: 1.2
+    size_multiplier: 2.0
     sprite: "city_fountain"
-    render_type: "environment_sprite"
+    render_type: "landmark"
     wall_color: [120, 120, 110]
     floor_texture_group: "default"
     letter: "O"
@@ -1263,7 +1264,8 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [255, 0, 0]  # Bright red for spawn point
+    floor_color: [255, 0, 0]  # Red — now used only as the spawn-tile border tint
+    inherit_floor: true       # ground takes the surrounding biome floor; red shows as a border
     letter: "+"
 
   # Variable height walls

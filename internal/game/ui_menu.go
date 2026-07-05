@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image/color"
+	"strings"
 	"time"
 
 	"ugataima/internal/character"
@@ -42,12 +43,8 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 	// Dim background
 	drawFilledRect(screen, 0, 0, w, h, color.RGBA{0, 0, 0, 128})
 
-	// Panel
-	panelW, panelH := 300, 220
-	if ui.game.mainMenuMode == MenuMain {
-		panelW = 360
-		panelH = 320
-	}
+	// Panel size per mode (shared with the input hit-testing via menuPanelSize).
+	panelW, panelH := menuPanelSize(ui.game.mainMenuMode)
 	px := (w - panelW) / 2
 	py := (h - panelH) / 2
 	drawFilledRect(screen, px, py, panelW, panelH, color.RGBA{20, 20, 40, 230})
@@ -58,13 +55,12 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 		// Title
 		drawDebugText(screen, "Main Menu", px+16, py+14)
 		// Options
-		startY := py + 56
 		for i, label := range mainMenuOptions {
-			y := startY + i*32
+			box, tx, ty := menuRowRect(px, py, panelW, mainMenuListTopY, mainMenuRowPitch, i)
 			if i == ui.game.mainMenuSelection {
-				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{60, 120, 180, 200})
+				drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, color.RGBA{60, 120, 180, 200})
 			}
-			drawDebugText(screen, label, px+28, y)
+			drawDebugText(screen, label, tx, ty)
 		}
 		tips := []string{
 			"Controls:",
@@ -74,70 +70,159 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			"1-4: Select",
 			"Tab: Toggle Mode (TB/RT)",
 		}
-		tipsY := startY + len(mainMenuOptions)*32 + 10
+		tipsY := py + mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
 		for i, tip := range tips {
 			drawDebugText(screen, tip, px+16, tipsY+i*14)
 		}
 	case MenuSaveSelect:
 		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
-		drawDebugText(screen, "Enter: Save  R: Rename", px+16, py+32)
-		startY := py + 56
-		for i := 0; i < 5; i++ {
-			y := startY + i*32
-			sum := GetSaveSlotSummary(i)
-			label := fmt.Sprintf("Slot %d", i+1)
-			if sum.Name != "" {
-				name := truncateSaveName(sum.Name, 18)
-				label = fmt.Sprintf("Slot %d: %s", i+1, name)
-			}
-			if sum.Exists {
-				mode := "RT"
-				if sum.TurnBased {
-					mode = "TB"
-				}
-				// show time (short) and mode
-				t := sum.SavedAt
-				if len(t) > 19 {
-					t = t[:19]
-				} // RFC3339 short
-				label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
-			}
-			if i == ui.game.slotSelection {
-				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{80, 180, 80, 200})
-			}
-			drawDebugText(screen, label, px+28, y)
-		}
+		drawDebugText(screen, "Enter: Save  R: Rename  Left/Right: Page", px+16, py+32)
+		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{80, 180, 80, 200})
 		if ui.game.saveRenameOpen {
 			ui.drawSaveRenameDialog(screen)
+		} else {
+			ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
 		}
 	case MenuLoadSelect:
 		drawDebugText(screen, "Load Game - Select Slot", px+16, py+14)
-		startY := py + 56
-		for i := 0; i < 5; i++ {
-			y := startY + i*32
-			sum := GetSaveSlotSummary(i)
-			label := fmt.Sprintf("Slot %d", i+1)
-			if sum.Name != "" {
-				name := truncateSaveName(sum.Name, 18)
-				label = fmt.Sprintf("Slot %d: %s", i+1, name)
+		drawDebugText(screen, "Enter: Load  Left/Right: Page", px+16, py+32)
+		ui.drawSaveRowList(screen, px, py, panelW, panelH, color.RGBA{180, 120, 60, 200})
+		ui.drawSaveRowHoverTooltip(screen, px, py, panelW)
+	}
+}
+
+// pagerRect is a button hitbox shared between the save-menu draw and input code.
+type pagerRect struct{ x1, y1, x2, y2 int }
+
+// savePagerButtonRects returns the Prev and Next button boxes for the save/load
+// menus: a strip just below the panel, buttons pinned to the left and right
+// edges. Shared by drawSaveRowList (render) and navigateSavePage (clicks).
+func savePagerButtonRects(px, py, panelW, panelH int) (prev, next pagerRect) {
+	const bw, bh = 84, 26
+	y := py + panelH + 6
+	prev = pagerRect{px, y, px + bw, y + bh}
+	next = pagerRect{px + panelW - bw, y, px + panelW, y + bh}
+	return
+}
+
+// drawSaveRowList renders the saveRowsPerPage rows of the current page (row 0 of
+// page 0 is the load-only Autosave) plus a Prev/Next pager strip below the panel.
+// highlight tints the selected row.
+func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH int, highlight color.RGBA) {
+	g := ui.game
+	for i := 0; i < saveRowsPerPage; i++ {
+		row := g.savePage*saveRowsPerPage + i
+		box, tx, ty := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
+		sum := GetSaveRowSummary(row)
+		label := saveRowLabel(row)
+		if sum.Name != "" && !saveRowIsAutosave(row) {
+			label = fmt.Sprintf("%s: %s", label, truncateSaveName(sum.Name, 18))
+		}
+		if sum.Exists {
+			mode := "RT"
+			if sum.TurnBased {
+				mode = "TB"
 			}
-			if sum.Exists {
-				mode := "RT"
-				if sum.TurnBased {
-					mode = "TB"
-				}
-				t := sum.SavedAt
-				if len(t) > 19 {
-					t = t[:19]
-				}
-				label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
+			t := sum.SavedAt
+			if len(t) > 19 {
+				t = t[:19]
 			}
-			if i == ui.game.slotSelection {
-				drawFilledRect(screen, px+16, y-4, panelW-32, 28, color.RGBA{180, 120, 60, 200})
-			}
-			drawDebugText(screen, label, px+28, y)
+			label = fmt.Sprintf("%s  [%s %s]", label, mode, t)
+		} else if saveRowIsAutosave(row) {
+			label = fmt.Sprintf("%s  (empty)", label)
+		}
+		if i == g.slotSelection {
+			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
+		}
+		drawDebugText(screen, label, tx, ty)
+	}
+	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
+	// Note: the hover tooltip is drawn by the menu case AFTER this, so it sits on
+	// top of the pager strip instead of being covered by it.
+}
+
+// drawSaveRowHoverTooltip shows play time + the saved party (name, level, class)
+// for the row under the cursor, so you can tell saves apart before loading.
+func (ui *UISystem) drawSaveRowHoverTooltip(screen *ebiten.Image, px, py, panelW int) {
+	mx, my := ebiten.CursorPosition()
+	for i := 0; i < saveRowsPerPage; i++ {
+		box, _, _ := menuRowRect(px, py, panelW, saveMenuListTopY, saveMenuRowPitch, i)
+		if mx < box.x1 || mx >= box.x2 || my < box.y1 || my >= box.y2 {
+			continue
+		}
+		sum := GetSaveRowSummary(ui.game.savePage*saveRowsPerPage + i)
+		if !sum.Exists {
+			return
+		}
+		var lines []string
+		if sum.PlayTime != "" {
+			lines = append(lines, "Play time: "+sum.PlayTime)
+		}
+		for _, m := range sum.Party {
+			lines = append(lines, fmt.Sprintf("%s  Lv.%d %s", m.Name, m.Level, character.CharacterClass(m.Class).String()))
+		}
+		if len(lines) > 0 {
+			ui.drawTooltipLines(screen, mx+16, my+16, lines)
+		}
+		return
+	}
+}
+
+// drawTooltipLines renders a small bordered tooltip box of text lines, clamped to
+// the screen so it never spills off the edge.
+func (ui *UISystem) drawTooltipLines(screen *ebiten.Image, x, y int, lines []string) {
+	boxW := 0
+	for _, l := range lines {
+		if lw := debugTextWidth(l); lw > boxW {
+			boxW = lw
 		}
 	}
+	boxW += 16
+	boxH := len(lines)*16 + 10
+	sw := ui.game.config.GetScreenWidth()
+	sh := ui.game.config.GetScreenHeight()
+	if x+boxW > sw {
+		x = sw - boxW
+	}
+	if y+boxH > sh {
+		y = sh - boxH
+	}
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	drawFilledRect(screen, x, y, boxW, boxH, color.RGBA{12, 12, 28, 240})
+	drawRectBorder(screen, x, y, boxW, boxH, 1, color.RGBA{120, 120, 180, 230})
+	for i, l := range lines {
+		drawDebugText(screen, l, x+8, y+6+i*16)
+	}
+}
+
+// drawSavePagerStrip draws the Prev/Next buttons and the page indicator on a
+// short strip below the menu panel. Inactive buttons (at the first/last page) are
+// dimmed. Mirrors the hitboxes from savePagerButtonRects.
+func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, panelH int) {
+	g := ui.game
+	prev, next := savePagerButtonRects(px, py, panelW, panelH)
+	stripY := prev.y1
+	stripH := prev.y2 - prev.y1
+	drawFilledRect(screen, px, stripY, panelW, stripH, color.RGBA{18, 18, 34, 235})
+	drawRectBorder(screen, px, stripY, panelW, stripH, 1, color.RGBA{100, 100, 160, 220})
+
+	drawPagerBtn := func(r pagerRect, label string, enabled bool) {
+		fill := color.RGBA{60, 60, 100, 230}
+		if !enabled {
+			fill = color.RGBA{35, 35, 55, 200}
+		}
+		drawFilledRect(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, fill)
+		drawRectBorder(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, 1, color.RGBA{120, 120, 180, 230})
+		drawCenteredDebugText(screen, label, r.x1, r.y1+(stripH-12)/2, r.x2-r.x1, 12)
+	}
+	drawPagerBtn(prev, "< Prev", g.savePage > 0)
+	drawPagerBtn(next, "Next >", g.savePage < savePageCount-1)
+	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
 }
 
 func truncateSaveName(name string, max int) string {
@@ -162,7 +247,7 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 	drawFilledRect(screen, x, y, dialogW, dialogH, color.RGBA{15, 15, 35, 235})
 	drawRectBorder(screen, x, y, dialogW, dialogH, 2, color.RGBA{120, 120, 180, 255})
 
-	title := fmt.Sprintf("Rename Slot %d", ui.game.saveRenameSlot+1)
+	title := fmt.Sprintf("Rename %s", saveRowLabel(ui.game.saveRenameSlot))
 	drawCenteredDebugText(screen, title, x, y+10, dialogW, 20)
 
 	inputBoxX := x + 24
@@ -208,6 +293,7 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		{TabCharacters, "Characters", "(C)"},
 		{TabSpellbook, "Spellbook", "(M)"},
 		{TabQuests, "Quests", "(J)"},
+		{TabCards, "Cards", "(K)"},
 	}
 
 	for i, tabInfo := range tabs {
@@ -264,10 +350,69 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
 	case TabQuests:
 		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
+	case TabCards:
+		ui.drawCardsContent(screen, panelX, contentY, contentHeight)
 	}
 
 	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
 	ui.drawDragCarried(screen)
+}
+
+// drawCardsContent shows the party's active monster-card collection as an
+// art grid (icon + name + effect per slot) plus a combined-effects summary.
+// View-only: cards are slotted/removed at the Card Collector NPC.
+func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ int) {
+	const panelWidth = 700
+	drawDebugText(screen, "Active Card Collection", panelX+30, contentY+6)
+	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", panelX+30, contentY+24)
+
+	const (
+		cols   = 4
+		icon   = 84
+		colGap = 28
+		rowGap = 64
+	)
+	gridW := cols*icon + (cols-1)*colGap
+	startX := panelX + (panelWidth-gridW)/2
+	startY := contentY + 56
+	mouseX, mouseY := ebiten.CursorPosition()
+	var hover []string
+
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		r, c := slot/cols, slot%cols
+		x := startX + c*(icon+colGap)
+		y := startY + r*(icon+rowGap)
+		key := ui.game.cardCollection[slot]
+		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
+		if def := cardDef(key); def != nil {
+			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
+			drawCenteredDebugText(screen, cardEffectText(def), x-20, y+icon+16, icon+40, 14)
+			if hovered {
+				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
+			}
+		}
+	}
+
+	// Combined active effects: list EVERY equipped card's effect via the same
+	// cardEffectText formatter the cells use (not just move speed / bonus actions,
+	// which omitted Samurai/Ningyo/Medusa/etc. and falsely read "none active").
+	var totals []string
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(ui.game.cardCollection[slot]); def != nil {
+			if eff := cardEffectText(def); eff != "" {
+				totals = append(totals, eff)
+			}
+		}
+	}
+	summary := "No active card effects."
+	if len(totals) > 0 {
+		summary = "Active: " + strings.Join(totals, ", ")
+	}
+	drawDebugText(screen, summary, panelX+30, startY+2*(icon+rowGap)+6)
+
+	if hover != nil {
+		ui.queueTooltip(hover, mouseX+16, mouseY+8)
+	}
 }
 
 // handleTabClick checks if mouse clicked on a tab and switches to it
@@ -347,6 +492,7 @@ func (ui *UISystem) updateMouseState() {
 	now := time.Now().UnixMilli()
 	ui.game.pruneClickQueues(now)
 	ui.updateQuickDrag()
+	ui.updateStashDrag()
 
 	if leftJustPressed {
 		x, y := ebiten.CursorPosition()

@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
 	"ugataima/internal/config"
+	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -25,6 +26,112 @@ const DefaultSavePath = "savegame.json"
 
 // slotPath returns a filename for a numbered save slot (0-based index)
 func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.json", slot+1)) }
+
+// Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
+// pages. Global row 0 is the shared Autosave (written automatically on map change
+// and stash use; load-only — never manually overwritten). Rows 1..N are manual
+// slots and map to save1.json.. unchanged, so existing saves stay reachable.
+const (
+	saveRowsPerPage = 7
+	savePageCount   = 3
+	saveRowCount    = saveRowsPerPage * savePageCount
+	autosaveFile    = "autosave.json"
+
+	// Shared geometry for the save/load menus, used by both the draw code and
+	// the layout-collision test so the two never drift. Panels are sized to fit
+	// saveRowsPerPage rows (the pager sits on a strip just below the in-game panel).
+	saveMenuPanelW = 340
+	saveMenuPanelH = 320
+	// saveMenuListTopY centers the saveRowsPerPage-row block vertically between
+	// the header text (ends ~py+48) and the panel bottom (py+saveMenuPanelH):
+	// the highlight block is (rows-1)*pitch + 28 tall, so equal top/bottom gaps
+	// put the first row at py+78. Recompute if panelH / row count / pitch change.
+	saveMenuListTopY = 78
+	saveMenuRowPitch = 32 // vertical pitch between rows
+	entryLoadPanelW  = 460
+	entryLoadPanelH  = 480
+	entryLoadRowH    = 44
+
+	// Main-menu panel + option-list layout (its own size, distinct from the
+	// save/load panel). Shared by the draw code and the input hit-testing.
+	mainMenuPanelW   = 360
+	mainMenuPanelH   = 320
+	mainMenuListTopY = 56
+	mainMenuRowPitch = 32
+
+	// menuRowHeight is the highlight/hitbox height of one vertical-menu row,
+	// shared by Main-menu options and save/load slots (see menuRowRect).
+	menuRowHeight = 28
+)
+
+// menuPanelSize returns the panel dimensions for a main-menu mode. Shared by the
+// draw code (drawMainMenu) and the input hit-testing (handleMainMenuInput) so
+// the drawn panel and its click regions can't drift.
+func menuPanelSize(mode MainMenuMode) (w, h int) {
+	if mode == MenuMain {
+		return mainMenuPanelW, mainMenuPanelH
+	}
+	return saveMenuPanelW, saveMenuPanelH
+}
+
+// menuRowRect returns the highlight/click box and the text baseline for row i of
+// a vertical menu list (Main-menu options, save/load slots). ONE geometry so the
+// draw highlight, hover-select and click hit-tests never drift (cf.
+// savePagerButtonRects). startY is the first row's baseline offset from py; pitch
+// is the row spacing.
+func menuRowRect(px, py, panelW, startY, pitch, i int) (box pagerRect, textX, textY int) {
+	y := py + startY + i*pitch
+	return pagerRect{px + 16, y - 4, px + panelW - 16, y - 4 + menuRowHeight}, px + 28, y
+}
+
+// saveRowPath maps a global save-row index to its file. Row 0 is the autosave.
+func saveRowPath(row int) string {
+	if row == 0 {
+		return storage.AppSavePath(autosaveFile)
+	}
+	return storage.AppSavePath(fmt.Sprintf("save%d.json", row))
+}
+
+// saveRowIsAutosave reports whether a row is the load-only autosave slot.
+func saveRowIsAutosave(row int) bool { return row == 0 }
+
+// selectedSaveRow is the global save-row index the save/load menu cursor points
+// at: the row-within-page (slotSelection) offset by the current page.
+func (g *MMGame) selectedSaveRow() int {
+	return g.savePage*saveRowsPerPage + g.slotSelection
+}
+
+// saveRowLabel is the slot's display name ("Autosave" or "Slot N").
+func saveRowLabel(row int) string {
+	if row == 0 {
+		return "Autosave"
+	}
+	return fmt.Sprintf("Slot %d", row)
+}
+
+// GetSaveRowSummary reads minimal display info for a global save-row index.
+func GetSaveRowSummary(row int) SaveSummary {
+	return summaryFromPath(saveRowPath(row))
+}
+
+// Autosave writes the shared autosave slot (row 0). Best-effort and silent: a
+// failure must never interrupt play. No-op outside live gameplay so it can't fire
+// mid-load or before the world exists.
+func (g *MMGame) Autosave() {
+	_ = g.autosaveErr()
+}
+
+// autosaveErr is Autosave that reports a real write failure, so callers needing
+// the bag/game state committed in step with another store (the stash) can detect
+// it and roll back. A guard miss returns nil: there is no in-game state to
+// autosave (the stash only opens in play, so this is the unit-test / not-in-game
+// case), which is "nothing to commit", not a failure.
+func (g *MMGame) autosaveErr() error {
+	if g.appScreen != AppScreenInGame || world.GlobalWorldManager == nil || g.party == nil {
+		return nil
+	}
+	return g.SaveGameToFile(saveRowPath(0))
+}
 
 // mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
 // returns to the title screen (not a full app quit — that's the title's "Quit").
@@ -50,6 +157,9 @@ type GameSave struct {
 	// need to remember which character is owed a choice at which level.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
+	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
+	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
 
 	// Turn-based state
 	CurrentTurn           int  `json:"current_turn,omitempty"`
@@ -98,12 +208,13 @@ type QuestSave struct {
 }
 
 type PartySave struct {
-	Gold      int             `json:"gold"`
-	Food      int             `json:"food"`
-	Inventory []items.Item    `json:"inventory"`
-	Members   []CharacterSave `json:"members"`
-	Reserve   []CharacterSave `json:"reserve,omitempty"`
-	Captive   []CharacterSave `json:"captive,omitempty"`
+	Gold           int             `json:"gold"`
+	Food           int             `json:"food"`
+	Inventory      []items.Item    `json:"inventory"`
+	Members        []CharacterSave `json:"members"`
+	Reserve        []CharacterSave `json:"reserve,omitempty"`
+	Captive        []CharacterSave `json:"captive,omitempty"`
+	CardCollection []string        `json:"card_collection,omitempty"` // party-wide monster-card slots (keys; "" = empty)
 }
 
 type CharacterSave struct {
@@ -206,8 +317,9 @@ type MonsterSave struct {
 	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
-	StunFramesRemaining int `json:"stun_frames_remaining,omitempty"`
-	StunTurnsRemaining  int `json:"stun_turns_remaining,omitempty"`
+	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
+	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
+	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
 	// Stun diminishing-returns chain — persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
@@ -360,11 +472,19 @@ type SaveSummary struct {
 	MapKey    string
 	TurnBased bool
 	Name      string
+	PlayTime  string           // formatted elapsed play time ("" if unknown)
+	Party     []SavePartyBrief // active roster for the hover tooltip
 }
 
-// GetSaveSlotSummary reads minimal info from a save slot for UI display
-func GetSaveSlotSummary(slot int) SaveSummary {
-	path := slotPath(slot)
+// SavePartyBrief is the per-member info shown in the save hover tooltip.
+type SavePartyBrief struct {
+	Name  string
+	Level int
+	Class int
+}
+
+// summaryFromPath reads minimal display info from a save file path.
+func summaryFromPath(path string) SaveSummary {
 	f, err := os.Open(path)
 	if err != nil {
 		return SaveSummary{Exists: false}
@@ -374,7 +494,14 @@ func GetSaveSlotSummary(slot int) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	return SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	if s.PlayedTimeNs > 0 {
+		sum.PlayTime = highscore.FormatPlayTime(time.Duration(s.PlayedTimeNs))
+	}
+	for _, m := range s.Party.Members {
+		sum.Party = append(sum.Party, SavePartyBrief{Name: m.Name, Level: m.Level, Class: m.Class})
+	}
+	return sum
 }
 
 // SaveGameToFile writes the current game state to a JSON file
@@ -401,9 +528,10 @@ func (g *MMGame) SaveGameToFile(path string) error {
 	return enc.Encode(&save)
 }
 
-// RenameSaveSlot updates the stored save name for an existing slot.
-func RenameSaveSlot(slot int, name string) error {
-	path := slotPath(slot)
+// RenameSaveSlot updates the stored save name for an existing slot, identified
+// by its global save-row index (rows 1..; the autosave row is never renamed).
+func RenameSaveSlot(row int, name string) error {
+	path := saveRowPath(row)
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -441,7 +569,19 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 	if wm == nil {
 		return errors.New("world manager not available")
 	}
-	return g.applySave(wm, &save)
+	g.loadNeedsResave = false
+	if err := g.applySave(wm, &save); err != nil {
+		return err
+	}
+	// One-time migration write: a load that stamped legacy items with instance
+	// ids re-saves the slot so the ids stick (SaveGameToFile preserves the slot's
+	// name). Without this the reloaded slot would revert to id-less items and stay
+	// dupe-able. Best-effort — a write failure just defers the migration.
+	if g.loadNeedsResave {
+		g.loadNeedsResave = false
+		_ = g.SaveGameToFile(path)
+	}
+	return nil
 }
 
 func normalizeItemFromConfig(item *items.Item) {
@@ -457,7 +597,7 @@ func normalizeItemFromConfig(item *items.Item) {
 		return
 	}
 	switch item.Type {
-	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket:
+	case items.ItemArmor, items.ItemAccessory, items.ItemConsumable, items.ItemQuest, items.ItemTrinket, items.ItemCard:
 	default:
 		return
 	}
@@ -469,6 +609,9 @@ func normalizeItemFromConfig(item *items.Item) {
 	if err != nil {
 		return
 	}
+	// Adopt the def's current type, so cards saved before they became their own
+	// type (was "trinket") migrate to items.ItemCard on load.
+	item.Type = template.Type
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
 	// the change. Items carry no instance state in Attributes — merging only
@@ -626,10 +769,11 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
-		Gold:      g.party.Gold,
-		Food:      g.party.Food,
-		Inventory: g.party.Inventory,
-		Members:   make([]CharacterSave, 0, len(g.party.Members)),
+		Gold:           g.party.Gold,
+		Food:           g.party.Food,
+		Inventory:      g.party.Inventory,
+		Members:        make([]CharacterSave, 0, len(g.party.Members)),
+		CardCollection: g.cardCollection[:],
 	}
 	for _, m := range g.party.Members {
 		ps.Members = append(ps.Members, buildCharacterSave(m))
@@ -678,25 +822,26 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
-				WasAttacked:          mon.WasAttacked,
-				Relentless:           mon.Relentless,
-				QuestProgressIgnored: mon.QuestProgressIgnored,
-				StunFramesRemaining:  mon.StunFramesRemaining,
-				StunTurnsRemaining:   mon.StunTurnsRemaining,
-				StunDRStacks:         mon.StunDRStacks,
-				StunDRMemoryTurns:    mon.StunDRMemoryTurns,
-				StunDRMemoryFrames:   mon.StunDRMemoryFrames,
-				RootFramesRemaining:  mon.RootFramesRemaining,
-				RootTurnsRemaining:   mon.RootTurnsRemaining,
-				Pilfered:             mon.Pilfered,
-				PounceCDFrames:       mon.PounceCDFrames,
-				PounceCDTurns:        mon.PounceCDTurns,
-				BossCD:               mon.BossCD,
-				BossHurtPending:      mon.BossHurtPending,
-				BossLastHP:           mon.BossLastHP,
-				SummonFirstDone:      mon.SummonFirstDone,
-				SummonedBy:           mon.SummonedBy,
-				CrossfireCD:          mon.CrossfireCD,
+				WasAttacked:             mon.WasAttacked,
+				Relentless:              mon.Relentless,
+				QuestProgressIgnored:    mon.QuestProgressIgnored,
+				StunFramesRemaining:     mon.StunFramesRemaining,
+				StunTurnsRemaining:      mon.StunTurnsRemaining,
+				PoisonedFramesRemaining: mon.PoisonedFramesRemaining,
+				StunDRStacks:            mon.StunDRStacks,
+				StunDRMemoryTurns:       mon.StunDRMemoryTurns,
+				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
+				RootFramesRemaining:     mon.RootFramesRemaining,
+				RootTurnsRemaining:      mon.RootTurnsRemaining,
+				Pilfered:                mon.Pilfered,
+				PounceCDFrames:          mon.PounceCDFrames,
+				PounceCDTurns:           mon.PounceCDTurns,
+				BossCD:                  mon.BossCD,
+				BossHurtPending:         mon.BossHurtPending,
+				BossLastHP:              mon.BossLastHP,
+				SummonFirstDone:         mon.SummonFirstDone,
+				SummonedBy:              mon.SummonedBy,
+				CrossfireCD:             mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -799,6 +944,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:      groundContainerSaves,
 		PendingLevelUpChoices: pendingChoices,
 		PlayedTimeNs:          playedTime.Nanoseconds(),
+		TotalGoldEarned:       g.totalGoldEarned,
+		TotalExperienceEarned: g.totalExperienceEarned,
+		VictoryAcknowledged:   g.victoryAcknowledged,
 		CurrentTurn:           g.currentTurn,
 		PartyActionsUsed:      g.partyActionsUsed,
 		TurnBasedMoveCooldown: g.turnBasedMoveCooldown,
@@ -873,6 +1021,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
+	// Restore the monster-card collection (party-wide). Unknown/empty keys clear.
+	g.cardCollection = [MaxCardSlots]string{}
+	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
+		if cardDef(save.Party.CardCollection[i]) != nil {
+			g.cardCollection[i] = save.Party.CardCollection[i]
+		}
+	}
 	for _, cs := range save.Party.Members {
 		g.party.Members = append(g.party.Members, restoreCharacterSave(cs))
 	}
@@ -882,6 +1037,27 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, cs := range save.Party.Captive {
 		g.party.Captive = append(g.party.Captive, restoreCharacterSave(cs))
 	}
+	if save.TotalExperienceEarned > 0 {
+		g.totalExperienceEarned = save.TotalExperienceEarned
+	} else {
+		g.totalExperienceEarned = earnedExperienceForParty(g.party)
+	}
+	if save.TotalGoldEarned > 0 {
+		g.totalGoldEarned = save.TotalGoldEarned
+	} else {
+		g.totalGoldEarned = save.Party.Gold - g.config.Characters.StartingGold
+		if g.totalGoldEarned < 0 {
+			g.totalGoldEarned = 0
+		}
+	}
+	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
+	// the bag anything the shared chest already owns. A stamp means this slot was
+	// migrated — flag it so LoadGameFromFile persists the ids once (the strip is
+	// idempotent per load and needs no resave).
+	if g.stampPartyInstanceIDs() {
+		g.loadNeedsResave = true
+	}
+	g.reconcilePartyAgainstStash()
 	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too —
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members
@@ -949,6 +1125,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
+				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
 				m.StunDRStacks = ms.StunDRStacks
 				m.StunDRMemoryTurns = ms.StunDRMemoryTurns
 				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
@@ -1138,6 +1315,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.gameOver = false
 	g.gameVictory = false
+	g.victoryAcknowledged = save.VictoryAcknowledged
 	g.showHighScores = false
 
 	if g.world != nil {
@@ -1164,6 +1342,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			Gold:           c.Gold,
 			Sprite:         c.Sprite,
 			SizeMultiplier: c.SizeMultiplier,
+		}
+		// Legacy saves baked the kind's default sprite name in; blank it so the
+		// live effectiveSprite() (rarity-aware for loot bags) applies to old bags.
+		if restored.Sprite == groundContainerDefaults[restored.Kind].sprite {
+			restored.Sprite = ""
 		}
 		if len(c.Items) > 0 {
 			restored.Items = make([]items.Item, len(c.Items))
@@ -1198,9 +1381,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		for _, qs := range save.Quests {
 			g.questManager.RestoreQuestProgress(qs.ID, quests.QuestStatus(qs.Status), qs.CurrentCount, qs.DynamicTarget, qs.RewardsClaimed)
 		}
-		// Re-apply world changes of completed quests — maps reload pristine from
-		// disk, so e.g. the wolf-cull bridge must be laid again.
-		g.applyCompletedQuestTiles()
+		// Sync world changes to the LOADED quest state, both ways: completed
+		// quests re-lay their tiles, and tiles of quests NOT completed in this
+		// save revert to pristine. Loading does NOT reload maps from disk
+		// (SwitchToMap flips a key on the shared instances), so a bridge laid
+		// earlier this session must be actively taken back out here.
+		g.syncQuestTiles()
 	}
 
 	// Restore played time by adjusting session start

@@ -187,62 +187,24 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 }
 
 // resolveUnderEntityFloors replaces the auto-default floor under placed entities
-// (monster spawns, '@' NPC/placeholder cells) with the DOMINANT floor tile among
-// the 8 neighbours, so an entity dropped onto a floor-variant patch blends in
-// instead of stamping the biome default '.'. Only explicitly-authored floor tiles
-// vote (other auto-floored cells are skipped); orthogonal neighbours count double.
-// Falls back to the biome '.' floor when no floor neighbour exists. On uniform
-// floors the dominant neighbour IS the biome default, so behaviour is unchanged.
+// (monster spawns, '@' NPC/placeholder cells) with the dominant nearby floor, so an
+// entity dropped onto a floor-variant patch blends in instead of stamping the biome
+// default '.'. Other entity cells are skipped from the vote. Falls back to the biome
+// '.' floor when no floor neighbour exists. Uses the same vote as inherit_floor
+// markers — see TileManager.DominantNeighbourFloor.
 func (ml *MapLoader) resolveUnderEntityFloors(md *MapData, autoFloored map[[2]int]bool) {
 	if GlobalTileManager == nil || len(autoFloored) == 0 {
 		return
 	}
 	defFloor, hasDef := GlobalTileManager.GetTileTypeFromLetterForBiome(".", ml.biome)
-	// A floor candidate must be BOTH a real ground tile (render_type "floor_only"
-	// — excludes walkable "environment_sprite" decorations like fern_patch /
-	// clearing / firefly_swarm / mushroom_ring) AND actually steppable (excludes
-	// "floor_only" but impassable water / deep_water / chasm-floor tiles). Neither
-	// check alone is enough.
-	isFloor := func(t TileType3D) bool {
-		return GlobalTileManager.GetRenderType(t) == "floor_only" &&
-			GlobalTileManager.IsWalkable(t) && !GlobalTileManager.IsSolid(t)
-	}
-	// Fixed neighbour order (orthogonal first) so tie-breaks are deterministic.
-	type off struct{ dx, dy, w int }
-	neighbours := []off{
-		{0, -1, 2}, {0, 1, 2}, {-1, 0, 2}, {1, 0, 2}, // orthogonal, weight 2
-		{-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1}, // diagonal, weight 1
-	}
+	skip := func(nx, ny int) bool { return autoFloored[[2]int{nx, ny}] }
 	for cell := range autoFloored {
 		x, y := cell[0], cell[1]
-		counts := make(map[TileType3D]int)
-		best := TileEmpty
-		bestScore := 0
-		for _, n := range neighbours {
-			nx, ny := x+n.dx, y+n.dy
-			if nx < 0 || ny < 0 || ny >= md.Height || nx >= md.Width {
-				continue
-			}
-			if autoFloored[[2]int{nx, ny}] {
-				continue // ignore other entity cells — vote on authored floor only
-			}
-			t := md.Tiles[ny][nx]
-			if !isFloor(t) {
-				continue
-			}
-			counts[t] += n.w
-			if counts[t] > bestScore {
-				bestScore = counts[t]
-				best = t
-			}
+		if best, ok := GlobalTileManager.DominantNeighbourFloor(md.Tiles, md.Width, md.Height, x, y, skip); ok {
+			md.Tiles[y][x] = best
+		} else if hasDef {
+			md.Tiles[y][x] = defFloor
 		}
-		if bestScore == 0 {
-			if hasDef {
-				md.Tiles[y][x] = defFloor
-			}
-			continue
-		}
-		md.Tiles[y][x] = best
 	}
 }
 

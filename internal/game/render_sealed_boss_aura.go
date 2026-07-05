@@ -73,6 +73,9 @@ func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {
 				color:        auraColor,
 				centerDepth:  centerDepth,
 				hasCenter:    centerOK,
+				// Boss sprites are far wider than a tile; keep the blanket depth cull.
+				centerSpanL: math.MinInt,
+				centerSpanR: math.MaxInt,
 			})
 		}
 	}

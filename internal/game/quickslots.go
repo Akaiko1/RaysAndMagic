@@ -48,6 +48,7 @@ const (
 	dragFromQuickSlot
 	dragFromSpell
 	dragFromTrap
+	dragFromEquip // an equipped item dragged off the paperdoll
 )
 
 // quickSlotRects returns the bar height and the 5 cell rects for a bar drawn at
@@ -81,6 +82,12 @@ func (ui *UISystem) drawQuickSlotBar(screen *ebiten.Image, charIdx, barX, barY, 
 		r := slots[i]
 		ui.quickSlotCellInteract(charIdx, i, r)
 		item := ch.QuickSlots[i]
+		// Right-click a spell/trap in the bar to bind it as the Space quick-spell
+		// (the single quick slot); the item stays in the bar.
+		if item != nil && (item.Type == items.ItemBattleSpell || item.Type == items.ItemUtilitySpell || item.Type == items.ItemTrap) &&
+			ui.game.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+			ui.game.bindQuickSpellFromPanel(charIdx, *item)
+		}
 		// Hide the icon of the cell the cursor is currently carrying out of.
 		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromQuickSlot &&
 			ui.game.dragQuickChar == charIdx && ui.game.dragQuickSlot == i
@@ -163,13 +170,38 @@ func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
 	}
 }
 
+// bindQuickSpellFromPanel binds a spell/trap sitting in the quick-slot BAR (the
+// panel) as the character's single Space quick-spell (Equipment[SlotSpell]),
+// leaving the item in the bar. Right-click entry point for the bar cells.
+func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
+	if charIdx < 0 || charIdx >= len(g.party.Members) {
+		return
+	}
+	ch := g.party.Members[charIdx]
+	switch it.Type {
+	case items.ItemBattleSpell, items.ItemUtilitySpell:
+		ch.Equipment[items.SlotSpell] = it
+		g.AddCombatMessage(fmt.Sprintf("%s set as %s's quick spell", it.Name, ch.Name))
+	case items.ItemTrap:
+		if equipTrap(ch, string(it.SpellEffect)) {
+			g.AddCombatMessage(fmt.Sprintf("%s armed in %s's quick slot", it.Name, ch.Name))
+		} else {
+			g.AddCombatMessage(fmt.Sprintf("%s can't arm %s yet", ch.Name, it.Name))
+		}
+	}
+}
+
+// dragOver reports whether an in-flight drag is being released over the given
+// rect — the shared guard for every drop zone.
+func (g *MMGame) dragOver(x, y, w, h int) bool {
+	return g.menuOpen && g.dragDropAt == 1 && g.dragSrc != dragNone &&
+		ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h))
+}
+
 // quickInvDropZone resolves a quick-slot item dropped back onto the inventory grid.
 func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 	g := ui.game
-	if !g.menuOpen || g.dragDropAt != 1 || g.dragSrc == dragNone {
-		return
-	}
-	if !ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h)) {
+	if !g.dragOver(x, y, w, h) {
 		return
 	}
 	if g.dragSrc == dragFromQuickSlot {
@@ -179,7 +211,98 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 			sch.QuickSlots[g.dragQuickSlot] = nil
 		}
 	}
-	// inventory→inventory and spell→inventory are no-ops (spells are book-owned).
+	// Equipped item dropped anywhere on the grid → unequip its OWNER (the char it
+	// was dragged from, not the possibly-switched selectedChar) back to the bag.
+	if g.dragSrc == dragFromEquip {
+		g.party.UnequipItemToInventory(g.dragEquipSlot, g.dragEquipChar)
+	}
+	// inventory→inventory (handled per-cell) and spell→inventory are no-ops here.
+	g.clearDrag()
+}
+
+// equipItemMatchesSlot reports whether item would equip into paperdoll slot for c
+// — used for both drag-drop validation and the drag-time compatible-slot
+// highlight. Thin alias over the model's ItemFitsSlot (the SSoT; EquipItemToSlot
+// enforces the same check, so the UI gate is a preview, not the guard).
+func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.EquipSlot) bool {
+	return c.ItemFitsSlot(item, slot)
+}
+
+// equipSlotDragSource arms a drag that begins on charIdx's equipped paperdoll
+// slot. charIdx is remembered so switching character mid-drag can't unequip the
+// wrong hero on drop.
+func (ui *UISystem) equipSlotDragSource(charIdx int, slot items.EquipSlot, item items.Item, x, y, w, h int) {
+	g := ui.game
+	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
+		return
+	}
+	if ptInRect(g.dragStartX, g.dragStartY, image.Rect(x, y, x+w, y+h)) {
+		g.dragSrc = dragFromEquip
+		g.dragEquipSlot = slot
+		g.dragEquipChar = charIdx
+		g.dragItem = item
+	}
+}
+
+// equipSlotDropZone equips a dragged inventory item onto a paperdoll slot it fits.
+func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) {
+		return
+	}
+	if g.dragSrc == dragFromInventory && g.dragInvIndex >= 0 && g.dragInvIndex < len(g.party.Inventory) {
+		ch := g.party.Members[g.selectedChar]
+		if equipItemMatchesSlot(ch, g.party.Inventory[g.dragInvIndex], slot) {
+			// Equip into the EXACT slot dropped on (so a ring lands on the finger
+			// under the cursor, not whichever one EquipItem would auto-pick).
+			g.party.EquipItemFromInventoryToSlot(g.dragInvIndex, g.selectedChar, slot)
+		}
+	}
+	// Equipped item dragged onto ANOTHER compatible slot (e.g. a ring between the
+	// two fingers): move it there rather than only allowing a return to the bag.
+	// Gated on the drag owner still being displayed (1-4 mid-drag switch), same
+	// as the slot glow — otherwise the move would fire on the wrong character.
+	if g.dragSrc == dragFromEquip && g.dragEquipChar == g.selectedChar && g.dragEquipSlot != slot {
+		ch := g.party.Members[g.dragEquipChar]
+		if equipItemMatchesSlot(ch, g.dragItem, slot) {
+			g.party.MoveEquippedSlot(g.dragEquipSlot, slot, g.dragEquipChar)
+		}
+	}
+	g.clearDrag()
+}
+
+// inventoryCellDropZone swaps two bag items when one is dragged onto another
+// (reorder within the inventory).
+func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+		return
+	}
+	src := g.dragInvIndex
+	inv := g.party.Inventory
+	if src >= 0 && src < len(inv) && dstIndex >= 0 && dstIndex < len(inv) && src != dstIndex {
+		inv[src], inv[dstIndex] = inv[dstIndex], inv[src]
+	}
+	g.clearDrag()
+}
+
+// inventoryEmptyDropZone moves a dragged bag item to the end of the inventory when
+// dropped onto an empty grid cell (the bag is a packed slice, so empty cells are
+// the tail — "put it in a free slot" = append at the end).
+func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
+	g := ui.game
+	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
+		return
+	}
+	src := g.dragInvIndex
+	inv := g.party.Inventory
+	if src >= 0 && src < len(inv) {
+		it := inv[src]
+		rest := make([]items.Item, 0, len(inv))
+		rest = append(rest, inv[:src]...)
+		rest = append(rest, inv[src+1:]...)
+		g.party.Inventory = append(rest, it)
+	}
 	g.clearDrag()
 }
 
@@ -309,7 +432,7 @@ func (ui *UISystem) drawDragCarried(screen *ebiten.Image) {
 // label above it. Callers position it in the free space of the open tab so it
 // clears the panel art.
 func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW int) {
-	drawCenteredDebugText(screen, "Quick Slots — drag items / spells here", barX, barY-15, barW, 14)
+	drawCenteredDebugText(screen, "Quick Slots - drag items / spells here", barX, barY-15, barW, 14)
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW)
 }
 
@@ -419,11 +542,31 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		return
 	}
 
-	if !g.quickSlotCharReady(charIdx) {
+	// Potions are passive: usable regardless of cooldown / turn budget /
+	// consciousness, and never spend an action (matches inventory use). A heal
+	// used by an unconscious owner routes to a target picker (see
+	// UseConsumableFromInventory); a revive opens the revival picker.
+	if item.Type == items.ItemConsumable {
+		drink := *item
+		g.party.AddItem(drink)
+		idx := len(g.party.Inventory) - 1
+		used := g.UseConsumableFromInventory(idx, charIdx)
+		switch {
+		case used:
+			ch.QuickSlots[slotIdx] = nil // consumed outright (no picker)
+		case g.revivalPickerOpen || g.healPickerOpen:
+			// A picker owns the temp bag copy at idx; keep the slot filled until it
+			// resolves (confirm clears it, cancel drops the temp copy & keeps it).
+			g.pickerQuickChar, g.pickerQuickSlot = charIdx, slotIdx
+		default:
+			g.party.RemoveItem(idx) // refused (full HP etc.): keep it, spend nothing
+		}
 		return
 	}
-	acted := false
-	cdFrames := 0
+
+	// Equipping a weapon/armor/accessory is a gear SWAP, not a combat action: it
+	// works regardless of cooldown / turn budget and never spends one (matches the
+	// inventory double-click). Handled BEFORE the readiness gate.
 	switch item.Type {
 	case items.ItemWeapon, items.ItemArmor, items.ItemAccessory:
 		prev, had, ok := ch.EquipItem(*item)
@@ -439,20 +582,17 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		} else {
 			ch.QuickSlots[slotIdx] = nil
 		}
-		acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
-	case items.ItemConsumable:
-		// Route through the shared inventory consumable path: drop into the bag,
-		// use by index, then reconcile so the slot empties iff it was consumed.
-		drink := *item
-		g.party.AddItem(drink)
-		idx := len(g.party.Inventory) - 1
-		used := g.UseConsumableFromInventory(idx, charIdx)
-		if used || g.revivalPickerOpen {
-			ch.QuickSlots[slotIdx] = nil // consumed (or the revive picker now owns it)
-			acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
-		} else {
-			g.party.RemoveItem(idx) // refused (full HP etc.): keep it, spend nothing
-		}
+		return
+	}
+
+	// Spells and traps ARE combat actions: gated by readiness, and a successful one
+	// spends the action (TB) / sets the cooldown (RT).
+	if !g.quickSlotCharReady(charIdx) {
+		return
+	}
+	acted := false
+	cdFrames := 0
+	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		spellID := spells.SpellID(item.SpellEffect)
 		def, err := spells.GetSpellDefinitionByID(spellID)
@@ -465,8 +605,9 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	case items.ItemTrap:
 		// Arm the trap recipe in the world (same path as the trap-book double-click).
 		// The recipe is book-owned, so the slot keeps the trap for reuse.
-		if _, placed := g.combat.placeTrapByKey(ch, string(item.SpellEffect), true); placed {
-			acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
+		trapKey := string(item.SpellEffect)
+		if _, placed := g.combat.placeTrapByKey(ch, trapKey, true); placed {
+			acted, cdFrames = true, g.combat.TrapCooldownFrames(ch, trapKey)
 		}
 	}
 	if acted {

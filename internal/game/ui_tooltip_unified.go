@@ -191,13 +191,13 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	}
 	if armsBonus > 0 {
 		_, tierName := masteryTier(char, character.SkillArmsMaster)
-		dmg.AddDetail("Arms Master — %s: +%d", tierName, armsBonus)
+		dmg.AddDetail("Arms Master - %s: +%d", tierName, armsBonus)
 	}
 	dmg.AddDetail("Normal Damage: %d", normal)
 	if trueDmg > 0 {
 		if skill, ok := character.WeaponSkillForCategory(strings.ToLower(def.Category)); ok {
 			_, tierName := masteryTier(char, skill)
-			dmg.AddDetail("%s Mastery — %s: +%d True", skill.String(), tierName, trueDmg)
+			dmg.AddDetail("%s Mastery - %s: +%d True", skill.String(), tierName, trueDmg)
 		}
 	}
 	// Active party buffs add a flat bonus after crit doubling; filter by the
@@ -273,7 +273,7 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 		}
 		if cat, catOK := armorMasterySkill(item); catOK && char != nil {
 			if tier, tierName := masteryTier(char, cat); tier > 0 {
-				defense.AddDetail("%s Mastery — %s: +%d", cat.String(), tierName, tier*character.MasteryArmorACPerLevel)
+				defense.AddDetail("%s Mastery - %s: +%d", cat.String(), tierName, tier*character.MasteryArmorACPerLevel)
 			}
 		}
 		defense.Add("Total Armor Class: %d", totalAC)
@@ -401,7 +401,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			statContribDetail(&dmg, "Personality", char.GetEffectivePersonality(), spells.SpellIntellectDivisor)
 		}
 		if mastery > 0 {
-			dmg.AddDetail("%s Mastery — %s: +%d", formatSchoolName(def.School), tierName, mastery)
+			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
 		// Active party buffs add a flat bonus after crit doubling; Heroism is
 		// physical-only, so spell schools get only all-damage buffs like Hour of Power.
@@ -432,7 +432,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			statContribDetail(&heal, "Personality", char.GetEffectivePersonality(), spells.HealingPersonalityDivisor)
 		}
 		if mastery > 0 {
-			heal.AddDetail("%s Mastery — %s: +%d", formatSchoolName(def.School), tierName, mastery)
+			heal.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
 		heal.Add("Total Healing: %d", totalHeal)
 	}
@@ -460,7 +460,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			statContribDetail(&dmg, "Intellect", char.GetEffectiveIntellect(), spells.SpellIntellectDivisor)
 		}
 		if mastery > 0 {
-			dmg.AddDetail("%s Mastery — %s: +%d", formatSchoolName(def.School), tierName, mastery)
+			dmg.AddDetail("%s Mastery - %s: +%d", formatSchoolName(def.School), tierName, mastery)
 		}
 		dmg.Add("Total per tick: %d", def.ZoneTickDamage+intBonus+mastery)
 		dmg.Title = "DAMAGE PER TICK"
@@ -500,7 +500,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		current := cs.CalculateSpellDurationSeconds(def.ID, char)
 		effects.AddDetail("Base Duration: %ds", def.Duration)
 		if tier > 0 {
-			effects.AddDetail("%s Mastery — %s: +%d%%", formatSchoolName(def.School), tierName, tier*SpellMasteryDurationBonusPct)
+			effects.AddDetail("%s Mastery - %s: +%d%%", formatSchoolName(def.School), tierName, tier*SpellMasteryDurationBonusPct)
 		}
 		effects.Add("Current Duration: %ds", current)
 	}
@@ -565,7 +565,17 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 		cost = cs.effectiveSpellCost(char, def.SPCost)
 	}
 	placement.Add("Cost: %d SP", cost)
-	placement.Add("%s", character.CooldownLine(def.CooldownSeconds))
+	if cs != nil {
+		if cd := cooldownLine(cs, cs.TrapCooldownFrames(char, key)); cd != "" {
+			placement.Add("%s", cd)
+			placement.AddDetail("Scales with caster Speed")
+			if wl := spellCooldownWeaponLine(char); wl != "" {
+				placement.AddDetail("%s", wl)
+			}
+		}
+	} else {
+		placement.Add("%s", character.CooldownLine(def.CooldownSeconds))
+	}
 	placement.Add("Range: %d tiles", TrapPlaceRangeTiles)
 	placement.AddDetail("Armed Lifetime: %ds", def.LifetimeSeconds)
 
@@ -581,7 +591,7 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 				character.TrapStatScalingDivisor, intAcc/character.TrapStatScalingDivisor)
 		}
 		if tier > 0 {
-			dmg.AddDetail("Trapper — %s: +%d", tierName, tier*character.TrapperDamagePerTier)
+			dmg.AddDetail("Trapper - %s: +%d", tierName, tier*character.TrapperDamagePerTier)
 		}
 		dmg.Add("Total Damage: %d", trapDamage(def, char))
 	}
@@ -591,7 +601,7 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 		t, s := trapControlDuration(def.StunTurns, def.StunSeconds, char)
 		effect.AddDetail("Base Stun: %d TB turns / %ds", def.StunTurns, def.StunSeconds)
 		if tier > 0 {
-			effect.AddDetail("Trapper — %s: +%d turns / +%ds", tierName, t-def.StunTurns, s-def.StunSeconds)
+			effect.AddDetail("Trapper - %s: +%d turns / +%ds", tierName, t-def.StunTurns, s-def.StunSeconds)
 		}
 		effect.Add("Total Stun: %d TB turns / %ds", t, s)
 	}
@@ -599,7 +609,7 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 		t, s := trapControlDuration(def.RootTurns, def.RootSeconds, char)
 		effect.AddDetail("Base Root: %d TB turns / %ds", def.RootTurns, def.RootSeconds)
 		if tier > 0 {
-			effect.AddDetail("Trapper — %s: +%d turns / +%ds", tierName, t-def.RootTurns, s-def.RootSeconds)
+			effect.AddDetail("Trapper - %s: +%d turns / +%ds", tierName, t-def.RootTurns, s-def.RootSeconds)
 		}
 		effect.Add("Total Root: %d TB turns / %ds", t, s)
 	}
