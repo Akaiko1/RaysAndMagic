@@ -349,3 +349,7 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 	}
 	return clampRTCooldown(int(math.Round(frames)))
 }
+
+func (cs *CombatSystem) TrapCooldownFrames(char *character.MMCharacter, trapKey string) int {
+	return cs.SpellCooldownFrames(char, spells.SpellID(trapKey))
+}

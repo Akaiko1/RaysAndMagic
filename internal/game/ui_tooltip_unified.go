@@ -565,7 +565,17 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 		cost = cs.effectiveSpellCost(char, def.SPCost)
 	}
 	placement.Add("Cost: %d SP", cost)
-	placement.Add("%s", character.CooldownLine(def.CooldownSeconds))
+	if cs != nil {
+		if cd := cooldownLine(cs, cs.TrapCooldownFrames(char, key)); cd != "" {
+			placement.Add("%s", cd)
+			placement.AddDetail("Scales with caster Speed")
+			if wl := spellCooldownWeaponLine(char); wl != "" {
+				placement.AddDetail("%s", wl)
+			}
+		}
+	} else {
+		placement.Add("%s", character.CooldownLine(def.CooldownSeconds))
+	}
 	placement.Add("Range: %d tiles", TrapPlaceRangeTiles)
 	placement.AddDetail("Armed Lifetime: %ds", def.LifetimeSeconds)
 

@@ -605,8 +605,9 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	case items.ItemTrap:
 		// Arm the trap recipe in the world (same path as the trap-book double-click).
 		// The recipe is book-owned, so the slot keeps the trap for reuse.
-		if _, placed := g.combat.placeTrapByKey(ch, string(item.SpellEffect), true); placed {
-			acted, cdFrames = true, g.combat.WeaponCooldownFrames(ch)
+		trapKey := string(item.SpellEffect)
+		if _, placed := g.combat.placeTrapByKey(ch, trapKey, true); placed {
+			acted, cdFrames = true, g.combat.TrapCooldownFrames(ch, trapKey)
 		}
 	}
 	if acted {

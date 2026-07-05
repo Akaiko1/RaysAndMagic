@@ -179,6 +179,45 @@ func TestTrap_OwnerLimit(t *testing.T) {
 	}
 }
 
+func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
+	placeFromQuickSlot := func(speed int) int {
+		g, thief := newThiefTestGame(t)
+		g.turnBasedMode = false
+		thief.Speed = speed
+
+		trap, ok := config.TrapItem("cleave_trap")
+		if !ok {
+			t.Fatal("cleave_trap missing")
+		}
+		thief.QuickSlots[0] = &trap
+		want := g.combat.TrapCooldownFrames(thief, "cleave_trap")
+
+		g.useQuickSlot(0, 0)
+
+		if len(g.traps) != 1 {
+			t.Fatalf("quick-slot trap should be armed once, got %d traps", len(g.traps))
+		}
+		if thief.RTCooldown != want {
+			t.Fatalf("RT cooldown = %d, want %d", thief.RTCooldown, want)
+		}
+
+		tip := GetItemTooltip(trap, thief, g.combat, true)
+		if line := cooldownLine(g.combat, want); !strings.Contains(tip, line) {
+			t.Fatalf("trap tooltip must show effective cooldown %q:\n%s", line, tip)
+		}
+		if !strings.Contains(tip, "Scales with caster Speed") {
+			t.Fatalf("trap tooltip must disclose Speed scaling:\n%s", tip)
+		}
+		return thief.RTCooldown
+	}
+
+	slow := placeFromQuickSlot(5)
+	fast := placeFromQuickSlot(50)
+	if fast >= slow {
+		t.Fatalf("faster trapper should arm traps sooner: fast=%d slow=%d", fast, slow)
+	}
+}
+
 // Trap damage formula: base + (Int+Acc)/divisor + Trapper mastery — the same
 // function drives combat and the trap-book tooltip.
 func TestTrapDamage_ScalesWithStatsAndMastery(t *testing.T) {
