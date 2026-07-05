@@ -313,9 +313,14 @@ func truncate(s string, maxRunes int) string {
 	if utf8.RuneCountInString(s) <= maxRunes {
 		return s
 	}
-	r := []rune(s)
 	if maxRunes < 1 {
 		return ""
 	}
-	return string(r[:maxRunes-1]) + "…"
+	r := []rune(s)
+	// "..." is 3 runes; reserve room for it so the result never exceeds
+	// maxRunes. Too narrow for text + ellipsis -> hard-cut to maxRunes.
+	if maxRunes <= 3 {
+		return string(r[:maxRunes])
+	}
+	return string(r[:maxRunes-3]) + "..."
 }

@@ -6,7 +6,7 @@ package game
 //  2. weaponEffectsSummary (in-game compare-tooltip)
 //
 // The map-viewer card and the main in-game tooltip both call EffectLines
-// directly, so structural consistency there is guaranteed by code — these
+// directly, so structural consistency there is guaranteed by code - these
 // tests focus on the join-and-render layer that could silently drift.
 
 import (
@@ -30,7 +30,7 @@ func loadWeaponConfigsForTest(t *testing.T) {
 	bridge.SetupItemBridge()
 }
 
-// TestWeaponEffectLines_ExpectedFieldsPerWeapon — locks the canonical
+// TestWeaponEffectLines_ExpectedFieldsPerWeapon - locks the canonical
 // shape of EffectLines for known-effect weapons. If a future refactor
 // drops a field from EffectLines, every consumer downstream loses it
 // silently, so we assert per-weapon here.
@@ -41,15 +41,15 @@ func TestWeaponEffectLines_ExpectedFieldsPerWeapon(t *testing.T) {
 		weaponKey string
 		mustHave  []string // substrings every EffectLines output must contain
 	}{
-		// Steel Mace — uncommon stun proc. Crit is a base attribute now,
+		// Steel Mace - uncommon stun proc. Crit is a base attribute now,
 		// rendered by each consumer separately (not via EffectLines).
 		{"steel_mace", []string{"Stun Chance:"}},
-		// Bow of Hellfire — dark damage type, AoE, max projectiles
-		// (no bonus_vs — that's Elven Bow).
+		// Bow of Hellfire - dark damage type, AoE, max projectiles
+		// (no bonus_vs - that's Elven Bow).
 		{"bow_of_hellfire", []string{"Damage Type: Dark", "AoE radius:", "Max Airborne:"}},
-		// Elven Bow — bonus vs dragon, physical so no damage-type line.
+		// Elven Bow - bonus vs dragon, physical so no damage-type line.
 		{"elven_bow", []string{"Bonus vs Dragon"}},
-		// Alien Blaster — spirit damage type + disintegrate.
+		// Alien Blaster - spirit damage type + disintegrate.
 		{"alien_blaster", []string{"Damage Type: Spirit", "Disintegrate Chance:"}},
 	}
 
@@ -61,7 +61,7 @@ func TestWeaponEffectLines_ExpectedFieldsPerWeapon(t *testing.T) {
 		}
 		lines := def.EffectLines()
 		if len(lines) == 0 {
-			t.Errorf("weapon %q has zero EffectLines — expected %v", tc.weaponKey, tc.mustHave)
+			t.Errorf("weapon %q has zero EffectLines - expected %v", tc.weaponKey, tc.mustHave)
 			continue
 		}
 		joined := strings.Join(lines, "\n")
@@ -73,7 +73,7 @@ func TestWeaponEffectLines_ExpectedFieldsPerWeapon(t *testing.T) {
 	}
 }
 
-// TestWeaponEffectsSummary_DelegatesToEffectLines — the compare-tooltip
+// TestWeaponEffectsSummary_DelegatesToEffectLines - the compare-tooltip
 // (joined comma form) MUST contain every line from EffectLines, otherwise
 // the comparison panel hides effects from the main tooltip.
 func TestWeaponEffectsSummary_DelegatesToEffectLines(t *testing.T) {
@@ -95,7 +95,7 @@ func TestWeaponEffectsSummary_DelegatesToEffectLines(t *testing.T) {
 	}
 }
 
-// TestWeaponEffectLines_OrderIsStable — map iteration over BonusVs is
+// TestWeaponEffectLines_OrderIsStable - map iteration over BonusVs is
 // non-deterministic in Go, but EffectLines sorts keys. Two calls must
 // produce byte-identical output so tests and golden files don't flake.
 func TestWeaponEffectLines_OrderIsStable(t *testing.T) {

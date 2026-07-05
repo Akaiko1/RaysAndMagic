@@ -4,7 +4,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-// Valve steam fills the whole tile of a shut culvert valve with rising columns —
+// Valve steam fills the whole tile of a shut culvert valve with rising columns -
 // same look as the impassable-tile aura but ~2x taller and sampled across the
 // tile interior (not just its edges).
 const (
@@ -15,7 +15,7 @@ const (
 	valveSteamColMin       = 0.45
 	valveSteamBaseAlpha    = 0.6
 	valveSteamJitterMin    = 0.6 // rise-speed jitter band lower bound
-	valveSteamJitterSpan   = 0.8 // ... and width: speed ∈ [0.6, 1.4]×base
+	valveSteamJitterSpan   = 0.8 // ... and width: speed in [0.6, 1.4]xbase
 )
 
 var valveSteamColor = [3]int{225, 230, 236} // pale gray-white

@@ -66,7 +66,7 @@ func TestSetupBundleRuntime_SeedsAndChdirs(t *testing.T) {
 		t.Fatalf("dataRoot = %q, want an isolated dir under %q", dataRoot, home)
 	}
 	cwd, _ := os.Getwd()
-	// EvalSymlinks: on macOS the temp dir is /var → /private/var symlinked.
+	// EvalSymlinks: on macOS the temp dir is /var -> /private/var symlinked.
 	evalCwd, _ := filepath.EvalSymlinks(cwd)
 	evalRoot, _ := filepath.EvalSymlinks(dataRoot)
 	if evalCwd != evalRoot {
@@ -156,7 +156,7 @@ func TestSeedUserData_AuthorUpdateWinsEditSurvivesOtherwise(t *testing.T) {
 	}
 
 	// Player edits castle.map. Update A ships a new forest but does NOT touch
-	// castle — the digest change alone must trigger the reseed.
+	// castle - the digest change alone must trigger the reseed.
 	writeFile(t, filepath.Join(user, "assets", "castle.map"), "castle-edited")
 	writeFile(t, filepath.Join(content, "assets", "forest.map"), "forest-v2")
 

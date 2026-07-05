@@ -111,7 +111,7 @@ func (w *World3D) loadFromMapFile() {
 }
 
 // CanProjectileMoveTo reports whether a projectile (or spell) may occupy (x,y).
-// Projectiles fly OVER floor-level obstacles — chasms and water (render_type
+// Projectiles fly OVER floor-level obstacles - chasms and water (render_type
 // "floor_only") are ground-level, so a bolt sails across them; only solid
 // wall/billboard tiles stop it. Player/monster movement still uses CanMoveTo.
 func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
@@ -124,7 +124,7 @@ func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
 	if !w.IsTileBlocking(tileX, tileY) {
 		return true // walkable ground
 	}
-	// Blocking tile: a floor-only blocker (pit/water) is ground-level — fly over
+	// Blocking tile: a floor-only blocker (pit/water) is ground-level - fly over
 	// it; a wall/billboard blocker stops the projectile.
 	if GlobalTileManager != nil && GlobalTileManager.GetRenderType(w.Tiles[tileY][tileX]) == "floor_only" {
 		return true
@@ -194,7 +194,7 @@ func (w *World3D) GetStartingPosition() (float64, float64) {
 		panic("Map has no starting position defined! Maps must have a '+' symbol to be used as starting maps.")
 	}
 	tileSize := w.config.GetTileSize()
-	// Return the CENTER of the start tile, not its corner — every other
+	// Return the CENTER of the start tile, not its corner - every other
 	// positioning path (movement, teleporters) centers on the tile, and an
 	// off-centre spawn drops the party into the corner of the doorway.
 	return float64(w.StartX)*tileSize + tileSize/2, float64(w.StartY)*tileSize + tileSize/2

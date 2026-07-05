@@ -34,7 +34,7 @@ camera:
 ui:
   spell_input_cooldown: 10
   party_portrait_height: 100
-  party_portrait_width: 256   # Fixed portrait width — 4× this = total party row width, centered horizontally
+  party_portrait_width: 256   # Fixed portrait width - 4x this = total party row width, centered horizontally
   compass_radius: 20
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
 
@@ -157,6 +157,35 @@ characters:
       armor: leather_armor
       quick_trap: cleave_trap
 
+    arms_master:
+      might: 15
+      intellect: 8
+      personality: 8
+      endurance: 14
+      accuracy: 13
+      speed: 12
+      luck: 10
+      skills: [sword, dagger, axe, spear, bow, mace, staff, shield, leather, bodybuilding, arms_master, dual_wielding]
+      skill_start_mastery: { arms_master: expert }
+      main_hand: iron_sword
+
+    monk:
+      might: 13
+      intellect: 8
+      personality: 12
+      endurance: 11
+      accuracy: 11
+      speed: 14
+      luck: 10
+      skills: [learning, iron_body, spiritual_training, martial_arts]
+      skill_start_mastery: { learning: expert }
+      magic:
+        - { school: body,   spells: [heal_other, harm] }
+        - { school: mind,   spells: [mind_blast] }
+        - { school: spirit, spells: [spirit_lash] }
+      main_hand: monk_fists
+      quick_spell: mind_blast
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -165,7 +194,7 @@ characters:
     celestial: { personality: 3, intellect: 1, luck: 1, might: -2, endurance: -2 }
 
   # Starting roster (data-driven). class is a class key; name is the display
-  # name and (lowercased) the portrait sprite key — falls back to the class
+  # name and (lowercased) the portrait sprite key - falls back to the class
   # sprite if no per-name portrait exists.
   starting_party:
     - { name: Gareth,    class: knight }
@@ -178,13 +207,15 @@ characters:
     - { name: Auberon, class: paladin }
     - { name: Mirelle, class: druid }
   # The second hero set: benched at the tavern from the very start of a new
-  # game — same classes as the starting party, stats shifted by race.
+  # game - same classes as the starting party, stats shifted by race.
   tavern_recruits:
     - { name: Nyra,    class: thief,    race: dark_elf }
     - { name: Grikka,  class: knight,   race: half_orc }
     - { name: Vaelith, class: sorcerer, race: dark_elf }
     - { name: Auralis, class: cleric,   race: celestial }
     - { name: Brinna,  class: archer,   race: halfling }
+    - { name: Gwen,    class: arms_master }
+    - { name: Sora,    class: monk }
 
 
 # Monster stats and AI
@@ -251,6 +282,7 @@ graphics:
   standee:
     enabled: true
     thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
+    core_tint: 1.0              # 0 = wood core, 1 = sprite-average core color
     turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
     npc_spin_deg_per_sec: 12    # showcase spin of NPC/NPC-like tokens (0 = off); scenery never spins
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
@@ -269,7 +301,7 @@ graphics:
     size_distance_multiplier: 150
 
   # Rising "bubble" particles along the ground edges of impassable billboard
-  # tiles (rocks/cliffs — not trees, which already read as solid). Signals which
+  # tiles (rocks/cliffs - not trees, which already read as solid). Signals which
   # tiles block movement without cluttering the view. Bubbles take the tile's
   # own floor colour so they blend in.
   impassable_aura:
@@ -290,7 +322,7 @@ graphics:
     # out sprites whose purple/magenta is real art. List those here (basenames;
     # animation sheets as "<name>_<animType>") to despill ONLY their edge fringe
     # within edge_despill_radius px, preserving the interior. Curated from the
-    # despill audit — extend as new purple art is added.
+    # despill audit - extend as new purple art is added.
     edge_despill_radius: 3
     edge_only_despill:
       # Purple/magenta creatures

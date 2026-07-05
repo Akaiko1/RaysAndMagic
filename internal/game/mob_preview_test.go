@@ -9,7 +9,7 @@ import (
 // TestTB_SightAggroScattersBand: sight aggro must scatter a band in ANY mode.
 // RT sets IsEngagingPlayer in updatePlayerEngagementWithVision; the TB
 // scheduler never runs it, so without its own engagement mark a band stayed
-// "calm" by flags, re-stacked every frame and chased the party as one pile —
+// "calm" by flags, re-stacked every frame and chased the party as one pile -
 // scattering only when a member took damage.
 func TestTB_SightAggroScattersBand(t *testing.T) {
 	cfg := setupPreviewSandboxTest(t)
@@ -22,7 +22,7 @@ func TestTB_SightAggroScattersBand(t *testing.T) {
 	ts := float64(cfg.GetTileSize())
 
 	// Three banding wolves stacked on one tile, 4 tiles in front of the party
-	// (inside TB vision, outside melee reach). NOT passive — this is the real
+	// (inside TB vision, outside melee reach). NOT passive - this is the real
 	// game scenario, unlike the preview's staged mobs.
 	for i := 0; i < 3; i++ {
 		m := monster.NewMonster3DFromConfig(g.camera.X+4*ts, g.camera.Y, "wolf", cfg)

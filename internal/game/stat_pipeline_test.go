@@ -32,7 +32,7 @@ func TestEnduranceDivisor_ACOnly_NoStatFeedback(t *testing.T) {
 }
 
 // Flat equipment stat bonuses flow into MaxHP/MaxSP, but equip changes are
-// REVERSIBLE: the maxima move, current values never grow — an equip/unequip
+// REVERSIBLE: the maxima move, current values never grow - an equip/unequip
 // cycle must net exactly zero (the old +delta grant was an infinite-heal pump).
 func TestEquipmentStats_DriveMaxHPandSP(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -58,7 +58,7 @@ func TestEquipmentStats_DriveMaxHPandSP(t *testing.T) {
 		t.Errorf("current HP must not grow on equip (pump exploit): %d -> %d", hpBefore, char.HitPoints)
 	}
 
-	// Unequip: max drops back, current capped — the full cycle nets zero.
+	// Unequip: max drops back, current capped - the full cycle nets zero.
 	char.UnequipItem(items.SlotBelt)
 	if char.MaxHitPoints != maxBefore || char.HitPoints != hpBefore {
 		t.Errorf("after unequip = %d/%d, want %d/%d (no pump)", char.HitPoints, char.MaxHitPoints, hpBefore, maxBefore)
@@ -198,7 +198,7 @@ func TestStatBuffs_StackAcrossSpellsAndGear(t *testing.T) {
 		t.Errorf("recast should refresh duration: %d, want 900", b.Frames)
 	}
 
-	// One expires → only its share is removed.
+	// One expires -> only its share is removed.
 	g.removeStatBuff("war_chant")
 	might, _, _, _, _, _, _ = char.GetEffectiveStats()
 	if want := baseMight + 2 + 10; might != want {
@@ -207,7 +207,7 @@ func TestStatBuffs_StackAcrossSpellsAndGear(t *testing.T) {
 }
 
 // A save's benched heroes re-derive MaxHP/MaxSP under the CURRENT formula on
-// load — stale pre-rebalance maxima must not survive on the bench.
+// load - stale pre-rebalance maxima must not survive on the bench.
 func TestLoad_RecalcsReserveMaxima(t *testing.T) {
 	cfg := loadTestConfig(t)
 

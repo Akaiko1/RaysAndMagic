@@ -16,7 +16,7 @@ import (
 // replaying the early game. Values intentionally live here, not in YAML: this
 // is a developer fixture, not shipped game balance.
 //
-// The party LEVEL is NOT set here — it emerges from the experience actually
+// The party LEVEL is NOT set here - it emerges from the experience actually
 // earned clearing the forest + church + shipwreck (mirroring the live award
 // rules), which lands the party around level 6. The stat points those level-ups
 // hand out (StatPointsPerLevel each) are then SPENT level-consistently: up to
@@ -53,7 +53,7 @@ func (g *MMGame) ApplyTestArena() {
 	g.awardGold(gold)
 
 	g.completeTestEncounters()   // shipwreck quest (gold + XP) + church chest reward
-	g.grantSharedXP(perMemberXP) // forest + church kill XP → natural level-ups
+	g.grantSharedXP(perMemberXP) // forest + church kill XP -> natural level-ups
 	g.setupTestParty()           // pump stats / full heal on top of the earned level
 
 	level := 0
@@ -81,7 +81,7 @@ func addMainDamageStat(c *character.MMCharacter, v int) {
 		c.Personality += v
 	case character.ClassArcher, character.ClassThief:
 		c.Accuracy += v
-	default: // Knight, Paladin — melee weapon scaling on Might
+	default: // Knight, Paladin - melee weapon scaling on Might
 		c.Might += v
 	}
 }
@@ -105,7 +105,7 @@ func raiseStat(stat *int, target, budget int) int {
 // pending level-3 skill choice queued by the level-up path) are already in
 // place. The points are spent level-consistently: speed up to testArenaSpeed,
 // endurance up to testArenaEndurance, and whatever remains into the primary
-// damage stat — so a higher level yields a higher damage stat.
+// damage stat - so a higher level yields a higher damage stat.
 func (g *MMGame) setupTestParty() {
 	for _, m := range g.party.Members {
 		if m == nil {
@@ -114,7 +114,7 @@ func (g *MMGame) setupTestParty() {
 		pts := m.FreeStatPoints
 		pts -= raiseStat(&m.Speed, testArenaSpeed, pts)
 		pts -= raiseStat(&m.Endurance, testArenaEndurance, pts)
-		addMainDamageStat(m, pts) // remainder → primary damage stat
+		addMainDamageStat(m, pts) // remainder -> primary damage stat
 		m.FreeStatPoints = 0
 
 		learnAllSchoolSpells(m) // every spell of each school the member already has
@@ -126,7 +126,7 @@ func (g *MMGame) setupTestParty() {
 }
 
 // learnAllSchoolSpells fills in every available spell of each magic school the
-// member already knows — a test-arena convenience so casters can exercise their
+// member already knows - a test-arena convenience so casters can exercise their
 // full kit without buying/levelling into spells. Monster-only spells are already
 // excluded by AvailableSpellIDs.
 func learnAllSchoolSpells(m *character.MMCharacter) {
@@ -144,7 +144,7 @@ func learnAllSchoolSpells(m *character.MMCharacter) {
 
 // completeTestEncounters finishes the two forest-side encounters the way the
 // game would, reading every value from config so it can't drift:
-//   - shipwreck bandits: an NPC encounter quest (npcs.yaml) — registered and
+//   - shipwreck bandits: an NPC encounter quest (npcs.yaml) - registered and
 //     completed in the quest log, gold + experience granted.
 //   - abandoned church: its chest reward (map_configs.yaml). The skeletons
 //     themselves are cleared (and tallied for XP/gold) in clearMapAndTally.
@@ -164,8 +164,8 @@ func (g *MMGame) completeShipwreckEncounter() {
 	enc := data.Encounter
 
 	// Defeat the encounter's bandits: spawn the same random count the live
-	// encounter rolls (count_min..count_max per monster) and tally each kill —
-	// loot, gold and per-kill XP — exactly like clearing a map.
+	// encounter rolls (count_min..count_max per monster) and tally each kill -
+	// loot, gold and per-kill XP - exactly like clearing a map.
 	for _, em := range enc.Monsters {
 		if em == nil {
 			continue
@@ -265,7 +265,7 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 // experience the party earns for the kills (per-member share, mirroring the
 // live monster.Experience/len(party) split) plus the total gold the monsters
 // carried. Each monster's loot is ROLLED by its real drop chances via the same
-// checkMonsterLootDrop path the live game uses — not handed out one-of-each —
+// checkMonsterLootDrop path the live game uses - not handed out one-of-each -
 // so a clear yields a believable haul. Dead monsters on the active map are
 // unregistered from collision; other maps don't have theirs registered yet.
 func (g *MMGame) clearMapAndTally(mapKey string) (perMemberXP, gold int) {
@@ -295,7 +295,7 @@ func (g *MMGame) clearMapAndTally(mapKey string) (perMemberXP, gold int) {
 // tallyMonsterKill resolves one monster kill the way the live combat path does:
 // rolls its loot table (by real drop chance) into the party inventory and
 // returns the gold it carried plus the per-member XP share
-// (monster.Experience / party size, floored — matching awardExperienceAndGold).
+// (monster.Experience / party size, floored - matching awardExperienceAndGold).
 func (g *MMGame) tallyMonsterKill(mon *monster.Monster3D) (perMemberXP, gold int) {
 	if mon == nil {
 		return 0, 0

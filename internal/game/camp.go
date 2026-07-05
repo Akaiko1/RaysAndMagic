@@ -7,7 +7,7 @@ import (
 )
 
 // restParty fully restores every living member's HP/SP and wakes the
-// unconscious. The dead and eradicated stay down — revival is a separate rite.
+// unconscious. The dead and eradicated stay down - revival is a separate rite.
 func (g *MMGame) restParty() {
 	for i, m := range g.party.Members {
 		if m == nil || m.HasCondition(character.ConditionDead) || m.HasCondition(character.ConditionEradicated) {
@@ -40,7 +40,7 @@ func (g *MMGame) TryCamp() (string, bool) {
 		if m.IsEngagingPlayer {
 			return "Enemies are upon you - you cannot rest mid-fight.", false
 		}
-		// Measure to the monster's box EDGE, not its center — a large monster
+		// Measure to the monster's box EDGE, not its center - a large monster
 		// whose body pokes into the radius counts as near.
 		mw, mh := m.GetSize()
 		if math.Hypot(m.X-g.camera.X, m.Y-g.camera.Y) <= radius+math.Max(mw, mh)/2 {
@@ -54,7 +54,7 @@ func (g *MMGame) TryCamp() (string, bool) {
 
 // applyPartyStatBonuses pushes the aggregate buff bonuses (g.statBonuses) onto
 // every active member and re-derives MaxHP/MaxSP preserving current values.
-// MUST be called after every change to g.statBonuses — it is what makes buffs
+// MUST be called after every change to g.statBonuses - it is what makes buffs
 // behave like real stats everywhere (combat formulas AND HP/SP maxima).
 func (g *MMGame) applyPartyStatBonuses() {
 	for _, m := range g.party.Members {

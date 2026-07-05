@@ -53,11 +53,11 @@ func NewMobPreview(cfg *config.Config) (*MobPreview, error) {
 }
 
 // Select stages a monster: banding mobs get a whole flock (stacked on one
-// tile — the banding pass owns fanning them out), everyone else a single
+// tile - the banding pass owns fanning them out), everyone else a single
 // specimen. Preview mobs are passive-until-attacked (a zeroed alert radius
 // does NOT work: detection falls back to the configured default radius), so
 // the calm patrol/band behaviour keeps playing instead of a charge at the
-// camera — or, for a ranged band, a scatter/reposition teleport frenzy.
+// camera - or, for a ranged band, a scatter/reposition teleport frenzy.
 func (p *MobPreview) Select(key string) {
 	p.key = key
 	g := p.g
@@ -87,7 +87,7 @@ func (p *MobPreview) Select(key string) {
 	p.arena.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 }
 
-// Step advances the sandbox one tick — the same monster sub-updates the RT
+// Step advances the sandbox one tick - the same monster sub-updates the RT
 // game loop runs: movement AI, overlap separation, band flocking, and the
 // frame-motion facing pass (without it walkers moonwalk on stale Direction).
 func (p *MobPreview) Step() {

@@ -22,7 +22,7 @@ func absI(n int) int {
 	return n
 }
 
-// tbBehaviorGame builds a turn-based game on an empty w×h world with the combat
+// tbBehaviorGame builds a turn-based game on an empty wxh world with the combat
 // system wired, and returns it plus a GameLoop and the tile size.
 func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
 	t.Helper()
@@ -31,7 +31,7 @@ func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
 	game := newTestGame(cfg, worldTest)
 	game.turnBasedMode = true
 	game.combat = NewCombatSystem(game)
-	// Zero party Luck so perfect-dodge (luck/5 % RNG) never fires — these tests
+	// Zero party Luck so perfect-dodge (luck/5 % RNG) never fires - these tests
 	// assert that a melee/pounce hit lands, which must be deterministic.
 	for _, c := range game.party.Members {
 		c.Luck = 0
@@ -258,7 +258,7 @@ func TestTurnBased_CentersOnTileEachTurn(t *testing.T) {
 // Ranged monsters fire only when on the player's row or column; from a diagonal
 // tile they reposition instead of shooting.
 func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
-	// Diagonal → must NOT shoot.
+	// Diagonal -> must NOT shoot.
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	diag := spawnMonsterAtTile(game, "elf_archer", 12, 12, ts)
@@ -274,7 +274,7 @@ func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
 		t.Fatalf("diagonal ranged monster should reposition toward alignment, but stayed put")
 	}
 
-	// Aligned and in range → must shoot.
+	// Aligned and in range -> must shoot.
 	game2, gl2, ts2 := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game2, 10, 10, ts2)
 	spawnMonsterAtTile(game2, "elf_archer", 13, 10, ts2) // same row, 3 tiles (range 5)
@@ -330,8 +330,8 @@ func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *t
 	}
 }
 
-// A pouncing monster (puma) leaps onto an adjacent tile — never onto the
-// player's tile — and strikes. Turn-based path.
+// A pouncing monster (puma) leaps onto an adjacent tile - never onto the
+// player's tile - and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
@@ -466,7 +466,7 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	if got := game.combatBuffResistPct(); got != 10 {
 		t.Fatalf("expected 10%% resist active, got %d", got)
 	}
-	// Day of the Gods boosts every school's resist → 100 fire → 90 at Novice.
+	// Day of the Gods boosts every school's resist -> 100 fire -> 90 at Novice.
 	m := game.party.Members[0]
 	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 90 {
 		t.Errorf("100 incoming with 10%% resist should be 90, got %d", got)
@@ -474,7 +474,7 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
 	buff, ok := game.combatBuffByID("day_of_the_gods")
 	if want := def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds × TPS)", buff.Frames, ok, want, def.Duration)
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, def.Duration)
 	}
 }
 
@@ -504,7 +504,7 @@ func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 fire → 10% resist → 90 → flat -1 → 89
+	// 100 fire -> 10% resist -> 90 -> flat -1 -> 89
 	m := game.party.Members[0]
 	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 89 {
 		t.Errorf("100 with 10%% resist then -1 should be 89, got %d", got)
@@ -591,7 +591,7 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 }
 
 // alien_dark_bolt is a monster-only projectile (the alien's attack) and must
-// never appear in a player-learnable school list — e.g. the Lich Dark picks.
+// never appear in a player-learnable school list - e.g. the Lich Dark picks.
 func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
 	loadTestConfig(t)
 	dark, err := spells.GetSpellIDsBySchool("dark")
@@ -621,7 +621,7 @@ func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
 func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
-	placePlayerAtTile(game, 5, 5, ts) // far — the two monsters only see each other
+	placePlayerAtTile(game, 5, 5, ts) // far - the two monsters only see each other
 	cfg := game.config
 	skel := monster.NewMonster3DFromConfig(float64(20)*ts+ts/2, float64(20)*ts+ts/2, "skeleton", cfg)
 	gob := monster.NewMonster3DFromConfig(float64(21)*ts+ts/2, float64(21)*ts+ts/2, "goblin", cfg) // diagonal neighbour
@@ -686,7 +686,7 @@ func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
 	}
 }
 
-// A normal mob retaliates against a bound undead in its midst — they trade blows,
+// A normal mob retaliates against a bound undead in its midst - they trade blows,
 // and the party is never touched.
 func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
@@ -717,13 +717,13 @@ func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	}
 }
 
-// monsterStrikeMonster rewards the party only when an ENEMY falls — a bound ally
+// monsterStrikeMonster rewards the party only when an ENEMY falls - a bound ally
 // cut down by a mob yields nothing.
 func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cfg := game.config
 
-	// Bound undead slays an enemy → party gains XP.
+	// Bound undead slays an enemy -> party gains XP.
 	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	enemy := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	enemy.HitPoints = 1
@@ -739,7 +739,7 @@ func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
 		t.Errorf("party should gain XP when a bound ally slays an enemy")
 	}
 
-	// A mob cuts down the bound undead → NO party XP (an ally died).
+	// A mob cuts down the bound undead -> NO party XP (an ally died).
 	skel2 := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	skel2.HitPoints = 1
 	mob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
@@ -800,7 +800,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 
 // Crossfire symmetry: a ranged mob looses a visible bolt at the bound undead
 // (owner-tagged so it hits only the undead, never the party); the bolt resolves
-// as monster-vs-monster and grants NO party XP when a bound ally falls — but a
+// as monster-vs-monster and grants NO party XP when a bound ally falls - but a
 // bound undead's bolt slaying an enemy DOES reward the party.
 func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
@@ -826,7 +826,7 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 		t.Errorf("mob bolt should be owner MonsterAtBound, got %v", bolt.Owner)
 	}
 
-	// Resolve the bolt on the bound undead → it takes damage, party gains NO XP.
+	// Resolve the bolt on the bound undead -> it takes damage, party gains NO XP.
 	xp0, undeadHP0 := game.party.Members[0].Experience, undead.HitPoints
 	game.combat.resolveMonsterProjectileVsMonster(bolt, "arrow", undead, bolt.ID)
 	if undead.HitPoints >= undeadHP0 {
@@ -873,11 +873,11 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 	game.refreshBoundUndeadCache()
 
-	// Out of melee reach (3 tiles) → must NOT strike yet…
+	// Out of melee reach (3 tiles) -> must NOT strike yet...
 	if game.combat.boundAttackNearest(skel) {
 		t.Errorf("bound melee undead should not strike from 3 tiles away")
 	}
-	// …but it should be seeking that enemy (its pursuit target is the enemy).
+	// ...but it should be seeking that enemy (its pursuit target is the enemy).
 	if tx, ty := game.combat.monsterAITargetPoint(skel); tx != enemy.X || ty != enemy.Y {
 		t.Errorf("bound undead should target the enemy to hunt it, got (%.0f,%.0f)", tx, ty)
 	}
@@ -900,7 +900,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
-	placePlayerAtTile(game, 5, 5, ts) // far away — the bound undead, not the player, drives this
+	placePlayerAtTile(game, 5, 5, ts) // far away - the bound undead, not the player, drives this
 	cfg := game.config
 	skel := monster.NewMonster3DFromConfig(float64(10)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
 	enemy := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg) // 4 tiles east, outside skel's alert radius
@@ -911,7 +911,7 @@ func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 	game.combat.applyBindUndead(skel, 999, "Bind Undead")
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
-	for f := 0; f < 1500; f++ { // ~12s at 120 TPS — plenty to close 3 tiles and strike
+	for f := 0; f < 1500; f++ { // ~12s at 120 TPS - plenty to close 3 tiles and strike
 		game.refreshBoundUndeadCache()
 		// Fresh snapshot + wrapper each tick, mirroring the real two-phase RT
 		// tick (a snapshot taken once at the top of the loop would go stale).
@@ -948,7 +948,7 @@ func TestBindUndead_MapLeaveGrantsXPNoGold(t *testing.T) {
 	}
 }
 
-// Resurrect restores a fallen ally — even an eradicated one — to full HP.
+// Resurrect restores a fallen ally - even an eradicated one - to full HP.
 func TestResurrect_RestoresFallenAlly(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	fallen := game.party.Members[1]
@@ -975,8 +975,8 @@ func TestResurrect_RestoresFallenAlly(t *testing.T) {
 }
 
 // Magic Ring (intellect_scaling_divisor 6, personality_scaling_divisor 8) boosts
-// the wearer's effective Intellect and Personality — confirming the scaling-
-// divisor accessory chain (YAML → Attributes → calculateEquipmentBonuses) works.
+// the wearer's effective Intellect and Personality - confirming the scaling-
+// divisor accessory chain (YAML -> Attributes -> calculateEquipmentBonuses) works.
 func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	c := game.party.Members[0]
@@ -1003,7 +1003,7 @@ func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 
 // Status-icon resolution: a legacy token maps to its dedicated status_* sprite;
 // an unknown token (no status_ art, no sprite manager in tests) degrades to a
-// text fallback rather than crashing. (The real status_<token> → icon_spell_<token>
+// text fallback rather than crashing. (The real status_<token> -> icon_spell_<token>
 // preference is exercised at runtime where sprites/CWD are available.)
 func TestStatusIconResolver_LegacyAndFallback(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
@@ -1069,7 +1069,7 @@ func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
 	}
 	game.spellInputCooldown = 50
 
-	game.ToggleTurnBasedMode() // TB → RT
+	game.ToggleTurnBasedMode() // TB -> RT
 
 	if game.turnBasedMode {
 		t.Fatalf("expected real-time mode after the toggle")

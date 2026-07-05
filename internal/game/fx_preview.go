@@ -17,7 +17,7 @@ import (
 
 // FxPreview is the map editor's window into the game's special effects: a tiny
 // sandbox MMGame whose REAL combat/render code casts, shoots and draws into an
-// offscreen scene. Single source of truth by construction — the editor never
+// offscreen scene. Single source of truth by construction - the editor never
 // re-implements an effect, it plays the game's own.
 type FxPreview struct {
 	g         *MMGame
@@ -110,13 +110,13 @@ func (p *FxPreview) resetCamera() {
 // buildArena creates a flat 17x17 world with tile exhibits along the north row.
 func (p *FxPreview) buildArena(cfg *config.Config) (*world.World3D, error) {
 	w := buildFlatArena(cfg, 17)
-	// Spawn-tile border FX anchors here — kept BEHIND the default camera (which
+	// Spawn-tile border FX anchors here - kept BEHIND the default camera (which
 	// stands at x=3.5 facing east) so exhibits never photobomb the spell stage.
 	w.StartX, w.StartY = 1, 12
 	return w, nil
 }
 
-// buildFlatArena creates an all-floor square world — the empty stage every
+// buildFlatArena creates an all-floor square world - the empty stage every
 // editor preview sandbox (FX, mobs) builds on.
 func buildFlatArena(cfg *config.Config, size int) *world.World3D {
 	w := world.NewWorld3D(cfg)
@@ -147,8 +147,8 @@ func buildFlatArena(cfg *config.Config, size int) *world.World3D {
 func (p *FxPreview) fxTileExhibits(cfg *config.Config) []FxItem {
 	ts := float64(cfg.GetTileSize())
 	items := []FxItem{}
-	// All exhibits live along the WEST edge — behind the default east-facing
-	// camera — and are viewed by their own west-facing poses.
+	// All exhibits live along the WEST edge - behind the default east-facing
+	// camera - and are viewed by their own west-facing poses.
 	place := func(label string, tx, ty int, candidates ...string) {
 		for _, key := range candidates {
 			tt, ok := world.GlobalTileManager.GetTileTypeFromKey(key)
@@ -167,7 +167,7 @@ func (p *FxPreview) fxTileExhibits(cfg *config.Config) []FxItem {
 	place("Impassable aura", 1, 4, "moss_rock", "rock", "cliff")
 	// Teleporter glow + inherit-floor tint.
 	place("Teleporter glow", 1, 8, "vteleporter", "rteleporter")
-	// Spawn-tile border sits at StartX/StartY — camera-only entry.
+	// Spawn-tile border sits at StartX/StartY - camera-only entry.
 	items = append(items, FxItem{
 		Kind: FxTile, Key: "spawn", Label: "Spawn tile border",
 		camX: (1.0 + 3.5) * ts, camY: 12.5 * ts, camA: math.Pi,
@@ -284,15 +284,15 @@ func (p *FxPreview) spawn() {
 			return
 		}
 		buffAnimsBefore := len(g.buffFxAnims)
-		g.combat.castResolvedSpell(id, def, m, 0, false)
+		g.combat.castResolvedSpell(id, def, m, 0, false, false)
 		// A sandbox cast can no-op (buff already active from the previous loop,
-		// hero lacks the school) and refund — the gate then skips the overlay.
+		// hero lacks the school) and refund - the gate then skips the overlay.
 		// The tab's job is showing the art, so force-play it in that case.
 		if cfgDef, ok := config.GetSpellDefinition(p.sel.Key); ok && cfgDef != nil &&
 			cfgDef.BuffFxSprite != "" && len(g.buffFxAnims) == buffAnimsBefore {
 			g.playBuffFx(cfgDef.BuffFxSprite)
 		}
-		// Impact burst at the stage point — ONLY for damage-dealing projectile
+		// Impact burst at the stage point - ONLY for damage-dealing projectile
 		// spells (in the game this burst fires when the bolt lands on a target;
 		// the sandbox has no targets). Utility/buff/zone spells show exactly
 		// what the game shows for them: their cast visuals, no explosion.
@@ -328,7 +328,7 @@ func (p *FxPreview) spawn() {
 			})
 		}
 	case FxTile:
-		// Static world FX — nothing to spawn; the camera already points at it.
+		// Static world FX - nothing to spawn; the camera already points at it.
 	case FxCard:
 		idx := 0
 		switch p.sel.Key {
@@ -348,7 +348,7 @@ func (p *FxPreview) spawn() {
 	}
 }
 
-// Step advances the sandbox one tick — the same sub-updates the game loop runs
+// Step advances the sandbox one tick - the same sub-updates the game loop runs
 // for effects, minus input/monsters.
 func (p *FxPreview) Step() {
 	// Editor preview sandboxes share the global world manager; re-pin our stage
@@ -408,7 +408,7 @@ func (p *FxPreview) Scene() *ebiten.Image {
 }
 
 // drawCardStage draws one oversized party-card box centre-screen and plays the
-// selected card FX over it — the same UISystem draw calls the HUD uses.
+// selected card FX over it - the same UISystem draw calls the HUD uses.
 func (p *FxPreview) drawCardStage(screen *ebiten.Image) {
 	cw, ch := p.g.config.GetScreenWidth(), p.g.config.GetScreenHeight()
 	w, h := 220, 300

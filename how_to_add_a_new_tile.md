@@ -28,11 +28,11 @@ tiles:
 ```
 
 Sprite files live in `assets/sprites/environment/` (no `.png` suffix in YAML).
-A missing sprite does NOT error — it renders as a placeholder image, so verify
+A missing sprite does NOT error - it renders as a placeholder image, so verify
 the file exists.
 
 Advanced optional fields: `impassable_aura` (rising-bubble hint on blockers),
-`light` (`enabled`, `radius_tiles`, `intensity` — the tile lights the scene),
+`light` (`enabled`, `radius_tiles`, `intensity` - the tile lights the scene),
 `floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
@@ -75,13 +75,13 @@ Floor textures are biome-driven. The named texture groups live per-biome in the
 top-level `biomes:` section of `assets/map_configs.yaml` (NOT on the tile and
 NOT per-map). A tile picks a group with `floor_texture_group`:
 - Set `floor_texture_group: "water"` (etc.) to use that biome group.
-- Omit it and the tile borrows the biome's `"default"` group — UNLESS the tile
+- Omit it and the tile borrows the biome's `"default"` group - UNLESS the tile
   sets a `floor_color`, in which case the color IS its look and stays
   untextured (teleporters, traps, spawn are coloured squares this way).
 - Empty `.` (and any tile on the biome default) bordering water auto-uses the
   biome's `"beach"` group, if defined, for shoreline sand.
 
-`floor_color` is a BASE color blended UNDER the texture (≈80% texture up close,
+`floor_color` is a BASE color blended UNDER the texture (~80% texture up close,
 fading to more color with distance), and shown 100% when no texture resolves
 (no group, or the group isn't defined for the current biome). `floor_near_color`
 is different: it tints ADJACENT empty floor tiles (grass darkens near trees).

@@ -49,7 +49,7 @@ func TestMeleeTargetsRandomLiving(t *testing.T) {
 	t.Logf("melee target distribution: %v", hits)
 	for j := 0; j < n; j++ {
 		if hits[j] == 0 {
-			t.Errorf("member %d never targeted by melee — not random", j)
+			t.Errorf("member %d never targeted by melee - not random", j)
 		}
 	}
 }
@@ -93,7 +93,7 @@ func TestRangedRT_AlwaysTank(t *testing.T) {
 		x.Luck = 0 // no dodge
 	}
 	for i := 0; i < 40; i++ {
-		for _, x := range m { // reset so the tank never dies → never falls back
+		for _, x := range m { // reset so the tank never dies -> never falls back
 			x.HitPoints = x.MaxHitPoints
 		}
 		cs.applyMonsterProjectileDamage(nil, "Test", 999, "true", 0) // sourceless; tests targeting only

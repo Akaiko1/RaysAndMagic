@@ -14,17 +14,17 @@ import (
 // EffectLines returns user-facing description lines for the non-base
 // special effects of a weapon (damage type override, stun, disintegrate,
 // AoE splash, max airborne projectiles, per-monster bonus multipliers).
-// Single source of truth — both the in-game tooltip and the map-viewer
+// Single source of truth - both the in-game tooltip and the map-viewer
 // card pull from here so any new effect surfaces everywhere automatically.
 //
 // Base attributes (Damage, Range, BonusStat, CritChance) are shown
-// separately by each consumer because their formatting differs — e.g.
+// separately by each consumer because their formatting differs - e.g.
 // the in-game tooltip renders crit as "Critical Chance: total% (Base: X,
 // Luck: +N)" using character context, while the map-viewer card shows
 // the raw "Crit Chance: X%". Listing crit here too would render it
 // twice in every in-game tooltip.
-// cooldownMultLine renders a cooldown multiplier as a ±% line ("Spell cooldown
-// −20%"); 0 (unset) and exactly 1.0 produce nothing.
+// cooldownMultLine renders a cooldown multiplier as a +/-% line ("Spell cooldown
+// -20%"); 0 (unset) and exactly 1.0 produce nothing.
 func cooldownMultLine(label string, mult float64) string {
 	if mult <= 0 || mult == 1.0 {
 		return ""
@@ -46,7 +46,7 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		if turns <= 0 {
 			turns = 1
 		}
-		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns × TPS frames).
+		// RT stun lasts one second per TB turn (tryApplyWeaponStun: turns x TPS frames).
 		lines = append(lines, fmt.Sprintf("Stun Chance: %.0f%% (%ds RT / %d turns TB)", w.StunChance*100, turns, turns))
 	}
 	if w.DisintegrateChance > 0 {
@@ -58,7 +58,7 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w.MaxProjectiles > 0 {
 		lines = append(lines, fmt.Sprintf("Max Airborne: %d", w.MaxProjectiles))
 	}
-	// Attack-speed lines live in character.WeaponCombatLines (the category→
+	// Attack-speed lines live in character.WeaponCombatLines (the category->
 	// skill mapping needed for the default multiplier lives there); only the
 	// spell-cooldown perk is computable at this layer.
 	if line := cooldownMultLine("Spell cooldown", w.SpellCooldownMultiplier); line != "" {
@@ -148,7 +148,7 @@ func (p *ProjectilePhysicsConfig) GetLifetimeFrames() int {
 		return GetTargetTPS() // Default 1 second if speed is invalid
 	}
 	// lifetime = range / speed * tps (frames per second). Round (not truncate) so
-	// the projectile travels as close to range_tiles as discrete frames allow —
+	// the projectile travels as close to range_tiles as discrete frames allow -
 	// truncation left a few weapons ~1 frame short of their stated range.
 	return int((p.RangeTiles/p.SpeedTiles)*float64(GetTargetTPS()) + 0.5)
 }
@@ -167,7 +167,7 @@ func (p *ProjectilePhysicsConfig) GetCollisionSizePixels(tileSize float64) float
 // shape (1-4): 1 strikes only straight ahead, 2 front + one flank, 3 front + both
 // diagonals, 4 front + diagonals + both sides. Combined with Range (tiles, with
 // diagonals counting as one step) it defines how many surrounding foes a swing
-// catches — e.g. arc 3 at range 2 sweeps a 90° cone two ranks deep.
+// catches - e.g. arc 3 at range 2 sweeps a 90deg cone two ranks deep.
 type MeleeAttackConfig struct {
 	ArcType         int `yaml:"arc_type"`         // 1=single, 2=front+flank, 3=three, 4=five
 	AnimationFrames int `yaml:"animation_frames"` // Frames for animation
@@ -218,8 +218,8 @@ type CharacterConfig struct {
 
 // RosterEntry defines one starting hero (active party, imprisoned captive, or
 // tavern recruit). Class is a class key (knight/paladin/...); Name is the
-// display name (and, lowercased, the portrait sprite key — falls back to the
-// class sprite); Race (optional) keys characters.races stat modifiers — empty
+// display name (and, lowercased, the portrait sprite key - falls back to the
+// class sprite); Race (optional) keys characters.races stat modifiers - empty
 // means human/baseline.
 type RosterEntry struct {
 	Name  string `yaml:"name"`
@@ -261,7 +261,7 @@ type ClassStats struct {
 	Accuracy    int `yaml:"accuracy"`
 	Speed       int `yaml:"speed"`
 	Luck        int `yaml:"luck"`
-	// Starting kit (skills/magic/equipment), data-driven — used to live as
+	// Starting kit (skills/magic/equipment), data-driven - used to live as
 	// per-class Go setup functions.
 	Skills     []string          `yaml:"skills,omitempty"`      // skill keys: sword, plate, bodybuilding, disarm_trap, ...
 	Magic      []ClassMagicEntry `yaml:"magic,omitempty"`       // starting schools with known spells
@@ -269,6 +269,10 @@ type ClassStats struct {
 	Armor      string            `yaml:"armor,omitempty"`       // items.yaml key worn at start
 	QuickSpell string            `yaml:"quick_spell,omitempty"` // spells.yaml id slotted into the quick slot
 	QuickTrap  string            `yaml:"quick_trap,omitempty"`  // traps.yaml key pre-selected in the trap book
+	// SkillStartMastery overrides a kit skill's starting mastery above the
+	// default Novice (e.g. Arms Master's class-defining "arms_master: expert").
+	// Values: novice/expert/master/grandmaster. Keys not listed here start Novice.
+	SkillStartMastery map[string]string `yaml:"skill_start_mastery,omitempty"`
 }
 
 // SpellSystemConfig contains the complete unified spell system configuration
@@ -301,16 +305,16 @@ type SpellDefinitionConfig struct {
 	IsUtility      bool    `yaml:"is_utility"`
 	StatusIcon     string  `yaml:"status_icon,omitempty"`
 	// MonsterOnly spells are cast by monsters (as projectile_spell) but never
-	// offered to the player — excluded from every learnable school list.
+	// offered to the player - excluded from every learnable school list.
 	MonsterOnly bool `yaml:"monster_only,omitempty"`
 
 	// Damage-formula modifiers (data-driven; default behaviour when unset).
-	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost × SpellDamagePerSP × this (default 1)
+	DamageCostMultiplier  int  `yaml:"damage_cost_multiplier,omitempty"`  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool `yaml:"scales_with_personality,omitempty"` // also add Personality/divisor to spell damage
 
 	// AoE-stun effect (e.g. Darkness): when StunRadiusTiles > 0 the spell stuns
-	// every monster within that radius of the caster — no damage. RT uses
-	// seconds×TPS frames, TB uses StunDurationTurns.
+	// every monster within that radius of the caster - no damage. RT uses
+	// secondsxTPS frames, TB uses StunDurationTurns.
 	StunRadiusTiles     float64 `yaml:"stun_radius_tiles,omitempty"`
 	StunDurationSeconds int     `yaml:"stun_duration_seconds,omitempty"`
 	StunDurationTurns   int     `yaml:"stun_duration_turns,omitempty"`
@@ -329,7 +333,7 @@ type SpellDefinitionConfig struct {
 	IncomingDamageReduction            int    `yaml:"incoming_damage_reduction,omitempty"`             // base flat reduction of incoming damage (floors at 0)
 	IncomingDamageReductionGrandmaster int    `yaml:"incoming_damage_reduction_grandmaster,omitempty"` // optional GM-scaled flat reduction cap
 
-	// Bind Undead: on hit, takes control of an UNDEAD target for the duration — it
+	// Bind Undead: on hit, takes control of an UNDEAD target for the duration - it
 	// hunts other monsters and ignores the party. No effect on non-undead. Dies
 	// (party XP, no loot) when the party leaves the map.
 	BindUndead          bool `yaml:"bind_undead,omitempty"`
@@ -351,7 +355,7 @@ type SpellDefinitionConfig struct {
 	// monster for StunDurationSeconds/Turns (Psychic Shock). Single-target.
 	StunChance float64 `yaml:"stun_chance,omitempty"`
 
-	// Charm: pacifies a LIVING target — it simply STOPS attacking (does not fight
+	// Charm: pacifies a LIVING target - it simply STOPS attacking (does not fight
 	// others) and breaks free on any hit it takes. Undead-only Bind Undead is the
 	// separate spell above; the two never mix.
 	Pacify                bool `yaml:"pacify,omitempty"`
@@ -359,7 +363,7 @@ type SpellDefinitionConfig struct {
 
 	// PartyAoeRadiusTiles > 0 makes the spell an instant nova centered on the party
 	// that damages every monster AND every party member within the radius (Inferno).
-	// Damage = SpellPointsCost × SpellDamagePerSP.
+	// Damage = SpellPointsCost x SpellDamagePerSP.
 	PartyAoeRadiusTiles float64 `yaml:"party_aoe_radius_tiles,omitempty"`
 
 	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
@@ -373,7 +377,7 @@ type SpellDefinitionConfig struct {
 
 	// Persistent damage zone (Hot Steam): on cast, spawns a fixed zone of
 	// ZoneRadiusTiles centered on the party that lasts `duration` seconds and deals
-	// ZoneTickDamage to monsters inside it — every turn in TB, every ZoneTickSeconds in RT.
+	// ZoneTickDamage to monsters inside it - every turn in TB, every ZoneTickSeconds in RT.
 	ZoneRadiusTiles float64 `yaml:"zone_radius_tiles,omitempty"`
 	ZoneTickDamage  int     `yaml:"zone_tick_damage,omitempty"`
 	ZoneTickSeconds float64 `yaml:"zone_tick_seconds,omitempty"`
@@ -384,7 +388,7 @@ type SpellDefinitionConfig struct {
 	StatBonusGrandmaster int `yaml:"stat_bonus_grandmaster,omitempty"`
 	// StatBonuses is the per-stat alternative to the uniform stat_bonus
 	// (lowercase keys: might/intellect/personality/endurance/accuracy/speed/
-	// luck). Authored absolute — mastery does not scale it. Mutually exclusive
+	// luck). Authored absolute - mastery does not scale it. Mutually exclusive
 	// with stat_bonus; validated at load.
 	StatBonuses       map[string]int `yaml:"stat_bonuses,omitempty"`
 	VisionRadiusTiles float64        `yaml:"vision_radius_tiles,omitempty"`
@@ -427,8 +431,8 @@ type MonsterAIConfig struct {
 	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
 	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
 	AlertLosBlockedMultiplier    float64 `yaml:"alert_los_blocked_multiplier"`    // reduced detection through trees/walls
-	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection × this (hysteresis)
-	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at ≤ range × this (exit at > range)
+	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection x this (hysteresis)
+	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at <= range x this (exit at > range)
 
 	// Flee cycle: after this many consecutive attacks, roll this chance to flee
 	FleeAfterAttacks       int     `yaml:"flee_after_attacks"`
@@ -456,7 +460,7 @@ type GraphicsConfig struct {
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
 
 	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
-	// standee degrades to a single (non-crossed) standee plane — ~4× fewer draws
+	// standee degrades to a single (non-crossed) standee plane - ~4x fewer draws
 	// for distant trees whose cross is sub-pixel anyway. <=0 disables the LOD
 	// (always full crossed standee). Trees only; other standees are unaffected.
 	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
@@ -469,6 +473,9 @@ type StandeeConfig struct {
 	// the front and back sticker faces, with the core layer visible between
 	// them at viewing angles.
 	ThicknessTiles float64 `yaml:"thickness_tiles"`
+	// CoreTint blends the standee core from wood tone to the sprite's average
+	// color: 0 = pure wood, 1 = pure sprite average.
+	CoreTint float64 `yaml:"core_tint"`
 	// TurnSpeedDegPerSec caps how fast a monster token turns toward its travel
 	// direction (degrees per second), so tokens swivel smoothly instead of
 	// snapping.
@@ -490,15 +497,15 @@ type StandeeConfig struct {
 // clearing stray magenta from imperfect background removal.
 type ColorKeyConfig struct {
 	Enabled   bool   `yaml:"enabled"`
-	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent → magenta (255,0,255)
+	Color     [3]int `yaml:"color"`     // RGB of the key color; [0,0,0]/absent -> magenta (255,0,255)
 	Tolerance int    `yaml:"tolerance"` // per-channel max abs difference for the transparent core (0 = exact)
 	Despill   bool   `yaml:"despill"`   // fringe pixels: subtract the cast, keep the base tone opaque
 	// EdgeOnlyDespill lists sprite names (basenames; animation sheets as
 	// "<name>_<animType>") whose interior magenta is intentional art. For these,
-	// despill runs ONLY within EdgeDespillRadius px of a transparent edge — the
+	// despill runs ONLY within EdgeDespillRadius px of a transparent edge - the
 	// key-bleed halo is cleaned while the body's purple/magenta is preserved.
 	EdgeOnlyDespill   []string `yaml:"edge_only_despill,omitempty"`
-	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 → default
+	EdgeDespillRadius int      `yaml:"edge_despill_radius,omitempty"` // px band; <=0 -> default
 }
 
 // ImpassableAuraConfig tunes the rising "bubble" particles drawn along the
@@ -526,7 +533,7 @@ type SpriteConfig struct {
 
 type MonsterRenderConfig struct {
 	// MaxSpriteSize bounds the PERSPECTIVE-SCALED COLLISION boxes in combat
-	// (projectile hits); rendering is uncapped — a render-side pixel cap makes
+	// (projectile hits); rendering is uncapped - a render-side pixel cap makes
 	// sprites sink at close range as the floor anchor outgrows the capped size.
 	MaxSpriteSize          int `yaml:"max_sprite_size"`
 	MinSpriteSize          int `yaml:"min_sprite_size"`
@@ -580,11 +587,11 @@ type TileData struct {
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
 	// this tile type. Empty = no texture overlay (renderer falls back to base
 	// color). The "beach" group is picked dynamically for empty tiles
-	// bordering water — see the renderer.
+	// bordering water - see the renderer.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
 	// InheritFloor makes a floor_only marker tile (spawn point, teleporter) take
 	// the surrounding biome floor colour + texture instead of painting its own
-	// floor_color square — like the ground under a mob spawn. The floor_color is
+	// floor_color square - like the ground under a mob spawn. The floor_color is
 	// then reused only as the tint for the tile's decoration (spawn border /
 	// teleporter glow), not the floor itself.
 	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
@@ -593,7 +600,7 @@ type TileData struct {
 	Biomes       []string `yaml:"biomes,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor_only) that blocks movement but reads like walkable
-	// ground — e.g. a chasm pit. Wall/billboard blockers get the aura
+	// ground - e.g. a chasm pit. Wall/billboard blockers get the aura
 	// automatically; ordinary impassable floors (water) leave this false.
 	ImpassableAura      bool                   `yaml:"impassable_aura,omitempty"`
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
@@ -620,10 +627,10 @@ type MapConfig struct {
 	// It keeps open areas at normal map ambient while making forests feel shaded.
 	CanopyShade *MapCanopyShadeConfig `yaml:"canopy_shade,omitempty"`
 	// WallTorches places a flickering torch (particle flame + point light) at
-	// every inner wall corner of the map — the classic dungeon/temple dressing
+	// every inner wall corner of the map - the classic dungeon/temple dressing
 	// for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
-	// ClearEncounter: a single map-wide encounter — ALL monsters on the map
+	// ClearEncounter: a single map-wide encounter - ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
 	// ClearEncounters: multiple independent encounters on one map. Each
@@ -647,7 +654,7 @@ type MapCanopyShadeConfig struct {
 type BiomeConfig struct {
 	FloorTextureGroups map[string][]string `yaml:"floor_texture_groups,omitempty"`
 	// OutOfBoundsTile is the tile key painted beyond the map edges for maps of
-	// this biome (the off-map backdrop wall). Empty → the global "seaview"
+	// this biome (the off-map backdrop wall). Empty -> the global "seaview"
 	// default. Lets each biome frame itself (jungle = dense foliage wall, etc.).
 	OutOfBoundsTile string `yaml:"out_of_bounds_tile,omitempty"`
 }
@@ -707,7 +714,7 @@ type WeaponSystemConfig struct {
 }
 
 // WeaponCooldownMultiplierForSkill returns the attack-cooldown multiplier for a
-// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown — so a
+// weapon-skill noun (see SkillType.WeaponNoun), or 1.0 if unset/unknown - so a
 // weapon whose category maps to no skill (e.g. the alien blaster) is neutral.
 func WeaponCooldownMultiplierForSkill(skillNoun string) float64 {
 	if GlobalWeapons != nil {
@@ -753,7 +760,7 @@ type WeaponDefinitionConfig struct {
 	CooldownMultiplier float64 `yaml:"cooldown_multiplier,omitempty"`
 	// SpellCooldownMultiplier, when > 0, scales the cooldown of EVERY spell the
 	// wielder casts while this weapon is in their main hand (e.g. Archmage
-	// Staff = 0.8 → −20% spell cooldown). 0 = no effect.
+	// Staff = 0.8 -> -20% spell cooldown). 0 = no effect.
 	SpellCooldownMultiplier float64 `yaml:"spell_cooldown_multiplier,omitempty"`
 	// ProjectileSchool, when set ("arcane"/"dark"/...), makes a ranged weapon's
 	// projectile render as a glowing spell-style orb of that school instead of a
@@ -804,6 +811,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
 	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to a single plane
+	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
@@ -908,14 +916,14 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	return &weaponConfig, nil
 }
 
-// weapon name → definition / yaml key, populated at config load.
+// weapon name -> definition / yaml key, populated at config load.
 var (
 	weaponDefByName map[string]*WeaponDefinitionConfig
 	weaponKeyByName map[string]string
 )
 
 // StatNames is THE canonical, ordered list of the seven character stats
-// (lowercase — the YAML key convention), DERIVED from the StatBonuses struct
+// (lowercase - the YAML key convention), DERIVED from the StatBonuses struct
 // in internal/stats. Adding a stat = adding one struct field there.
 var StatNames = stats.Names
 
@@ -1083,8 +1091,25 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 		return nil, err
 	}
 	GlobalItems = &itemCfg
+
+	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
+	// called per-hit and per-frame via the card collection (cardCollectionKey),
+	// where a linear scan of every item showed up as a hot-path cost.
+	itemDefByName = make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
+	itemKeyByName = make(map[string]string, len(itemCfg.Items))
+	for key, def := range itemCfg.Items {
+		itemDefByName[def.Name] = def
+		itemKeyByName[def.Name] = key
+	}
+
 	return &itemCfg, nil
 }
+
+// item name -> definition / yaml key, populated at config load.
+var (
+	itemDefByName map[string]*ItemDefinitionConfig
+	itemKeyByName map[string]string
+)
 
 func MustLoadItemConfig(filename string) *ItemSystemConfig {
 	cfg, err := LoadItemConfig(filename)
@@ -1095,7 +1120,7 @@ func MustLoadItemConfig(filename string) *ItemSystemConfig {
 }
 
 // validateItemConfig enforces per-type required attributes for consumables.
-// equip_slot names validate against the ONE mapping in the items package — a
+// equip_slot names validate against the ONE mapping in the items package - a
 // typo would otherwise silently route the item to the armor slot.
 func validateItemConfig(cfg *ItemSystemConfig) error {
 	for key, def := range cfg.Items {
@@ -1115,7 +1140,7 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			}
 			// If no known consumable attributes are present, warn but allow
 			if def.HealBase == 0 && def.SummonDistanceTiles == 0 && !def.Revive {
-				// Allow “vanilla” consumables for future behaviors; no hard error
+				// Allow "vanilla" consumables for future behaviors; no hard error
 			}
 		}
 	}
@@ -1131,15 +1156,11 @@ func GetItemDefinition(itemKey string) (*ItemDefinitionConfig, bool) {
 }
 
 func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) {
-	if GlobalItems == nil {
+	def, ok := itemDefByName[name]
+	if !ok {
 		return nil, "", false
 	}
-	for key, def := range GlobalItems.Items {
-		if def.Name == name {
-			return def, key, true
-		}
-	}
-	return nil, "", false
+	return def, itemKeyByName[name], true
 }
 
 // ---------------- Loot Tables ----------------
@@ -1148,7 +1169,7 @@ type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
 	// Named weighted pools (distinct from the per-monster Loots lists above):
 	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
-	// containers (sword racks) that grant a random ZONE item, never a unique —
+	// containers (sword racks) that grant a random ZONE item, never a unique -
 	// uniques are simply not listed, so they can't leak in.
 	WeightedLootTables map[string]*WeightedLootTable `yaml:"loot_tables"`
 }

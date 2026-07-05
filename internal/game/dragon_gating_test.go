@@ -13,7 +13,7 @@ import (
 //     dragons (name "Dragon"),
 //   - the four desert statues summon the ELITE "Elder Dragon"s (no biome/letter,
 //     so they never spawn wild),
-//   - and the dragon_slayer win quest credits ONLY a flagged Elder Dragon —
+//   - and the dragon_slayer win quest credits ONLY a flagged Elder Dragon -
 //     never an ordinary dragon, never an unflagged one.
 func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -102,7 +102,7 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 		m.EncounterRewards = &monsterPkg.EncounterRewards{QuestID: "dragon_slayer"}
 	}
 
-	// An ordinary dragon must NEVER count — even if (somehow) flagged.
+	// An ordinary dragon must NEVER count - even if (somehow) flagged.
 	base := monsterPkg.NewMonster3DFromConfig(0, 0, "dragon", cs.game.config)
 	flag(base)
 	cs.updateQuestProgress(base)

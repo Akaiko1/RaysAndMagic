@@ -5,9 +5,9 @@ package game
 // turn-based fights against each monster to estimate threat level.
 //
 // The roster values were originally seeded from a save file but are now a
-// standalone balance baseline — edit them by hand if you want to retune.
+// standalone balance baseline - edit them by hand if you want to retune.
 //
-// Output is informational (t.Logf) — no balance assertions, since "fair" is
+// Output is informational (t.Logf) - no balance assertions, since "fair" is
 // subjective. Run with `go test ./internal/game -run CombatBalance -v` to see
 // the numbers.
 
@@ -29,7 +29,7 @@ import (
 
 // balanceRosterEntry is one character in the balance baseline party.
 // MaxHP and MaxSP are derived (HP=End*2+Lvl*3; SP=Int+Per/3+Lvl*2)
-// so we don't pin them here — CalculateDerivedStats reconstructs them after
+// so we don't pin them here - CalculateDerivedStats reconstructs them after
 // equipment is applied.
 type balanceRosterEntry struct {
 	Name      string
@@ -44,7 +44,7 @@ type balanceRosterEntry struct {
 	Luck      int
 	WeaponKey string   // main-hand weapon (YAML key)
 	SpellID   string   // equipped spell ("" = weapon-only)
-	ItemKeys  []string // armor/accessory keys — auto-routed by EquipItem
+	ItemKeys  []string // armor/accessory keys - auto-routed by EquipItem
 }
 
 var balanceRoster = []balanceRosterEntry{
@@ -89,7 +89,7 @@ func buildBalanceParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter 
 			}
 			c.Equipment[items.SlotSpell] = sp
 		}
-		// Armor/accessories — EquipItem routes each item to its YAML slot.
+		// Armor/accessories - EquipItem routes each item to its YAML slot.
 		for _, key := range tpl.ItemKeys {
 			it := items.CreateItemFromYAML(key)
 			if _, _, ok := c.EquipItem(it); !ok {
@@ -193,7 +193,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 					char.SpellPoints -= def.SpellPointsCost
 					return
 				}
-				// No one to heal — fall through to weapon.
+				// No one to heal - fall through to weapon.
 			} else {
 				_, _, dmg := cs.CalculateSpellDamage(spellID, char)
 				target.TakeDamage(dmg, spellSchoolToDamageType(def.School), 0, 0)
@@ -295,11 +295,32 @@ func monsterActOnce(cs *CombatSystem, m *monsterPkg.Monster3D, party []*characte
 		if len(alive) == 0 {
 			return
 		}
+		// Dragon Breath: a DragonBreathChance proc (33%) that REPLACES this attack
+		// with a whole-party hit of DragonBreathDamageType (runtime
+		// tryMonsterDragonBreath returns before the normal attack). TrueDamage is
+		// folded in like every monsterHitCharacter hit and IgnoresArmor carries
+		// through. NOT tied to ProjectileSpell - green dragons (no projectile)
+		// breathe too, and the element is the breath's, not the projectile's.
+		if m.DragonBreathChance > 0 && rand.Float64() < m.DragonBreathChance {
+			breathType := normalizeDamageTypeStr(m.DragonBreathDamageType)
+			breathDmg := m.GetAttackDamage()
+			for _, c := range alive {
+				d := cs.mitigateCharacterDamage(breathDmg, breathType, c, m.IgnoresArmor) + m.TrueDamage
+				c.HitPoints -= d
+				if c.HitPoints < 0 {
+					c.HitPoints = 0
+				}
+				if c.HitPoints == 0 {
+					c.AddCondition(character.ConditionUnconscious)
+				}
+			}
+			continue
+		}
 		target := alive[rand.Intn(len(alive))]
 		var dmg int
 		if m.HasRangedAttack() && m.ProjectileSpell != "" {
 			// A ranged monster ALWAYS uses its elemental breath (combat.go dispatch
-			// uses ranged whenever HasRangedAttack, even point-blank — it never
+			// uses ranged whenever HasRangedAttack, even point-blank - it never
 			// melees). Mitigate it by the breath's element so the target's armor
 			// (elemental cap), resists, and buffs actually apply.
 			school := "physical"
@@ -437,7 +458,7 @@ func turnBasedActionSlotsForParty(party []*character.MMCharacter) map[*character
 func runOneFight(cs *CombatSystem, party []*character.MMCharacter, monsters []*monsterPkg.Monster3D) (killed, wiped bool, rounds int) {
 	const maxRounds = 30
 	for ; rounds < maxRounds; rounds++ {
-		// Party turn — each char uses their action slots on the
+		// Party turn - each char uses their action slots on the
 		// lowest-HP alive monster (focus-fire).
 		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
@@ -567,7 +588,7 @@ func TestCombatBalance_RosterDerivedStats(t *testing.T) {
 // using class-typical strategy. StatPointsPerLevel (5) is split across each
 // class's two priority stats. L3 choice applies the more offensive option.
 func applyLevelInvestment(c *character.MMCharacter, level int) {
-	// Per-level stat investment — applied for every level beyond 1.
+	// Per-level stat investment - applied for every level beyond 1.
 	for lvl := 2; lvl <= level; lvl++ {
 		switch c.Class {
 		case character.ClassKnight:
@@ -584,7 +605,7 @@ func applyLevelInvestment(c *character.MMCharacter, level int) {
 			c.Speed += 2
 		}
 	}
-	// L3 unlocks one mastery/spell choice from level_up.yaml — pick the
+	// L3 unlocks one mastery/spell choice from level_up.yaml - pick the
 	// offensive option per class.
 	if level >= 3 {
 		switch c.Class {
@@ -644,7 +665,7 @@ func singleMonsterScenarios(keys ...string) []fightScenario {
 }
 
 func logFightTable(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, scenarios []fightScenario, blessStates []bool, trials int, header string) {
-	t.Logf("%s — %d trials each.", header, trials)
+	t.Logf("%s - %d trials each.", header, trials)
 	t.Logf("%-14s | %-9s | %-7s | %-7s | %-7s | %s",
 		"encounter", "bless", "wins%", "wipes%", "rounds", "HP left avg%")
 	for _, sc := range scenarios {
@@ -805,7 +826,7 @@ func buildCastleVeteranL17Party(t *testing.T, cs *CombatSystem) []*character.MMC
 	return party
 }
 
-// buildRealPlayParty reconstructs the EXACT party from save1 — the author's real
+// buildRealPlayParty reconstructs the EXACT party from save1 - the author's real
 // playthrough: same classes, levels, BASE stats (gear bonuses apply on top, as
 // in-game), gear and spell books. Gives the zone tables a real progression party
 // alongside the synthetic entry/veteran loadouts. Silvelyn's wizard_eye is a
@@ -934,7 +955,7 @@ func runFixedPartySim(t *testing.T, cs *CombatSystem, build func(t *testing.T, c
 	if wins > 0 {
 		avgRoundsWin = float64(sumRoundsWin) / float64(wins)
 	}
-	t.Logf("%s — %d trials, fixed party", label, trials)
+	t.Logf("%s - %d trials, fixed party", label, trials)
 	t.Logf("  avg party level: %.1f", sumLevel/float64(trials))
 	t.Logf("  wins:  %d/%d  (%.0f%%)", wins, trials, float64(wins)*100/float64(trials))
 	t.Logf("  wipes: %d/%d  (%.0f%%)", wipes, trials, float64(wipes)*100/float64(trials))
@@ -967,14 +988,14 @@ func TestCombatBalance_L5PartyVsMonsters(t *testing.T) {
 }
 
 // forestMonsters lists every monster letter that can spawn in the forest
-// biome. Medusa (m) and octopus (o-water) are excluded — they are biome=water.
+// biome. Medusa (m) and octopus (o-water) are excluded - they are biome=water.
 var forestMonsters = []string{
 	"goblin", "orc", "wolf", "bear", "spider", "skeleton", "troll",
 	"forest_orc", "dire_wolf", "forest_spider", "treant", "pixie",
 	"bandit", "alien", "dragon",
 }
 
-// countMonsterSpawns parses a .map file and returns monster_key → count
+// countMonsterSpawns parses a .map file and returns monster_key -> count
 // using the biome-aware letter resolution from monster_config. Mirrors
 // map_loader's parsing rules: skip comment lines ('#'), strip the
 // `  >[npc:...]`/`[stile:...]` suffix from each line (otherwise the YAML
@@ -1010,7 +1031,7 @@ func countMonsterSpawns(mapPath, biome string) (map[string]int, error) {
 // different player builds (all-speed vs casters-only-speed etc).
 type statStrategy func(c *character.MMCharacter)
 
-// statSpeedFloorThenPrimary: Spd→16, End→15, then class primary.
+// statSpeedFloorThenPrimary: Spd->16, End->15, then class primary.
 func statSpeedFloorThenPrimary(c *character.MMCharacter) {
 	primary := classPrimaryStat(c)
 	switch {
@@ -1024,14 +1045,14 @@ func statSpeedFloorThenPrimary(c *character.MMCharacter) {
 }
 
 // statSpeedOnlyForCasters: Sorc + Archer follow the speed-floor path;
-// Knight and Cleric skip Speed and only build End→15 → primary.
+// Knight and Cleric skip Speed and only build End->15 -> primary.
 func statSpeedOnlyForCasters(c *character.MMCharacter) {
 	primary := classPrimaryStat(c)
 	switch c.Class {
 	case character.ClassSorcerer, character.ClassArcher:
 		statSpeedFloorThenPrimary(c)
 	default:
-		// Knight/Cleric: End→15 floor, then primary. No Speed.
+		// Knight/Cleric: End->15 floor, then primary. No Speed.
 		switch {
 		case c.Endurance < 15:
 			c.Endurance++
@@ -1055,7 +1076,7 @@ func classPrimaryStat(c *character.MMCharacter) *int {
 	return &c.Might
 }
 
-// ──────────────────────────────────────────────────────────────────────────
+// --------------------------------------------------------------------------
 // Verbose simulation tracing (opt-in). When simTrace is non-nil, the build +
 // fight helpers emit a detailed lifecycle log: loot drops, level-ups, stat
 // gains, level-3 picks, equips, inventory contents, and item use. Tests turn
@@ -1070,7 +1091,7 @@ func tracef(format string, args ...any) {
 }
 
 // l3PicksThisTrial collects the level-3 choices made during the current build
-// ("Name→pick") so runEndgameSim can log, per trial, what each char picked.
+// ("Name->pick") so runEndgameSim can log, per trial, what each char picked.
 // Reset at the start of every trial; appended to by applyRandomL3Choice.
 var l3PicksThisTrial []string
 
@@ -1113,7 +1134,7 @@ func applyRandomL3Choice(c *character.MMCharacter) {
 	}
 	choice := choices[rand.Intn(len(choices))]
 	desc := applyLevelUpChoice(c, choice)
-	l3PicksThisTrial = append(l3PicksThisTrial, fmt.Sprintf("%s→%s", c.Name, desc))
+	l3PicksThisTrial = append(l3PicksThisTrial, fmt.Sprintf("%s->%s", c.Name, desc))
 	tracef("      L3 choice: %s picks %s", c.Name, desc)
 }
 
@@ -1162,7 +1183,7 @@ func traceInventory(p *character.Party) {
 	sort.Strings(order)
 	tracef("  inventory after build (%d items):", len(p.Inventory))
 	for _, name := range order {
-		tracef("    %2d × %s", counts[name], name)
+		tracef("    %2d x %s", counts[name], name)
 	}
 }
 
@@ -1268,7 +1289,7 @@ func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.It
 					score = def.Damage * 10
 				}
 			case items.ItemAccessory:
-				// Accessories — heuristic by class fit
+				// Accessories - heuristic by class fit
 				switch c.Class {
 				case character.ClassKnight:
 					score = it.Attributes["bonus_might"]*5 + it.Attributes["bonus_endurance"]*4
@@ -1313,7 +1334,7 @@ func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.It
 			}
 		}
 		// Otherwise prev item goes back to leftover for other chars or discard.
-		tracef("    equip: %-18s → %s", party[bestChar].Name, it.Name)
+		tracef("    equip: %-18s -> %s", party[bestChar].Name, it.Name)
 		if hadPrev {
 			tracef("      (replaced %s, back to pool)", previous.Name)
 			leftover = append(leftover, previous)
@@ -1324,7 +1345,7 @@ func autoEquipPool(party []*character.MMCharacter, pool []items.Item) []items.It
 
 // dragonKeys are the 4 main-quest dragons (one per desert corner). They all
 // share name "Dragon" but differ by element: base=fire, red=dark,
-// green=poison/nature, gold=air. Never auto-cleared during a grind — they're
+// green=poison/nature, gold=air. Never auto-cleared during a grind - they're
 // the endgame fight, tested explicitly with the right spell per resist profile.
 var dragonKeys = []string{"dragon", "dragon_red", "dragon_green", "dragon_gold"}
 
@@ -1394,7 +1415,7 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 
 	// Shipwreck encounter (forest-side): 2-5 bandits + 500 XP completion.
 	// Real game: each member gets per-kill XP (bandit.Experience/len(party)) for
-	// the bandits PLUS the full 500 completion XP — awardEncounterRewards grants
+	// the bandits PLUS the full 500 completion XP - awardEncounterRewards grants
 	// the encounter XP in full to every living member, it is NOT divided.
 	shipwreckBandits := 2 + rand.Intn(4)
 	banditDef, _ := monsterPkg.MonsterConfig.GetMonsterByKey("bandit")
@@ -1423,7 +1444,7 @@ func grindMaps(t *testing.T, cs *CombatSystem, party []*character.MMCharacter, m
 // equipBestOffensiveSpellVs picks the spell with the highest effective
 // damage against `target`, accounting for the monster's resistances by
 // school. Used to make casters "prepare the right spell" before a fight
-// — e.g. ice_bolt against a fire-90-resistant dragon beats fireball
+// - e.g. ice_bolt against a fire-90-resistant dragon beats fireball
 // despite higher SP cost.
 func equipBestOffensiveSpellVs(c *character.MMCharacter, target *monsterPkg.Monster3D) {
 	bestID := spells.SpellID("")
@@ -1521,7 +1542,7 @@ func runOneFightWithPotions(cs *CombatSystem, party []*character.MMCharacter, mo
 	const maxRounds = 30
 	for ; rounds < maxRounds; rounds++ {
 		tryUsePotions(cs)
-		// Party turn — each char uses their action slots on the
+		// Party turn - each char uses their action slots on the
 		// lowest-HP alive monster.
 		actionSlots := turnBasedActionSlotsForParty(party)
 		for _, c := range party {
@@ -1648,12 +1669,12 @@ func autoEquipPartyInventory(party *character.Party) {
 		}
 		equippedName := party.Inventory[bestInvIdx].Name
 		party.EquipItemFromInventory(bestInvIdx, bestCharIdx)
-		tracef("    equip: %-18s → %s", party.Members[bestCharIdx].Name, equippedName)
+		tracef("    equip: %-18s -> %s", party.Members[bestCharIdx].Name, equippedName)
 	}
 }
 
-// equipFitScore: armor → AC + class-priority bonus; weapon → damage;
-// accessory → class-relevant stat bonuses.
+// equipFitScore: armor -> AC + class-priority bonus; weapon -> damage;
+// accessory -> class-relevant stat bonuses.
 func equipFitScore(c *character.MMCharacter, it items.Item) int {
 	switch it.Type {
 	case items.ItemArmor:
@@ -1701,15 +1722,15 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 		traceThis := verbose && trial == 0
 		if traceThis {
 			simTrace = t.Logf
-			tracef("════════ detailed trace · trial 0 · %s ════════", label)
-			tracef("  [grind: drops → level-ups → equips]")
+			tracef("======== detailed trace - trial 0 - %s ========", label)
+			tracef("  [grind: drops -> level-ups -> equips]")
 		}
 
 		party := build(t, cs)
 
 		// Spawn monsters first so the caster picks a spell that targets
 		// their resistance profile (water vs dragon, water vs alien
-		// — both have 0% water resist).
+		// - both have 0% water resist).
 		monsters := make([]*monsterPkg.Monster3D, 0, len(monsterKeys))
 		for _, key := range monsterKeys {
 			m := monsterPkg.NewMonster3DFromConfig(0, 0, key, cs.game.config)
@@ -1737,7 +1758,7 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 		resetPartyForSim(party)
 
 		if traceThis {
-			tracef("  [fight begins — %d enemy(s), Bless +%d]", len(monsters), statBonus)
+			tracef("  [fight begins - %d enemy(s), Bless +%d]", len(monsters), statBonus)
 		}
 		killed, wiped, rounds := runOneFightWithPotions(cs, party, monsters)
 		if traceThis {
@@ -1784,7 +1805,7 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 	if wins > 0 {
 		avgRoundsWin = float64(sumRoundsWin) / float64(wins)
 	}
-	t.Logf("%s — %d trials, fresh loot RNG per trial", label, trials)
+	t.Logf("%s - %d trials, fresh loot RNG per trial", label, trials)
 	t.Logf("  avg party level after grind: %.1f", sumLevel/float64(trials))
 	t.Logf("  wins:  %d/%d  (%.0f%%)", wins, trials, float64(wins)*100/float64(trials))
 	t.Logf("  wipes: %d/%d  (%.0f%%)", wipes, trials, float64(wipes)*100/float64(trials))
@@ -1798,7 +1819,7 @@ func runEndgameSim(t *testing.T, cs *CombatSystem, build func(t *testing.T, cs *
 	t.Logf("  avg party HP left: %.0f%%", sumHPLeft*100/float64(trials))
 }
 
-// TestCombatBalance_ClearedForestPartyVsDragon — cleared forest+church
+// TestCombatBalance_ClearedForestPartyVsDragon - cleared forest+church
 // party (Spd/End floor + GM caster + full potions + Bless) vs EACH of the
 // 4 elemental dragons (HP 1100, 30-50 dmg). The caster auto-prepares the
 // best spell per dragon's resist profile (e.g. fireball vs the fire-weak
@@ -1815,11 +1836,11 @@ func TestCombatBalance_ClearedForestPartyVsDragon(t *testing.T) {
 	}
 }
 
-// TestCombatBalance_ClearedForestPartyVsTwoAliens — same cleared-forest
+// TestCombatBalance_ClearedForestPartyVsTwoAliens - same cleared-forest
 // party against TWO L5 aliens (HP 500 each, 25-35 dmg, alien_dark_bolt
-// 4-tile projectile, fire 25%/dark 30%/physical −50% vulnerability).
+// 4-tile projectile, fire 25%/dark 30%/physical -50% vulnerability).
 // Two of them double the burst damage but also double the kill load
-// — focus-fire usually finishes one before the second activates.
+// - focus-fire usually finishes one before the second activates.
 func TestCombatBalance_ClearedForestPartyVsTwoAliens(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -1843,7 +1864,7 @@ func buildFullClearCasterSpeedParty(t *testing.T, cs *CombatSystem) []*character
 }
 
 // buildFullProgressionParty grinds the realistic pre-dragon path: forest,
-// church, water, PLUS the culverts and highlands — the closest fixture to a
+// church, water, PLUS the culverts and highlands - the closest fixture to a
 // party that has actually earned the dragon statuettes. Same caster-speed strategy.
 func buildFullProgressionParty(t *testing.T, cs *CombatSystem) []*character.MMCharacter {
 	return buildClearedMapsParty(t, cs, []struct{ path, biome string }{
@@ -1878,7 +1899,7 @@ func buildHighlandsReadyParty(t *testing.T, cs *CombatSystem) []*character.MMCha
 	if banditDef, err := monsterPkg.MonsterConfig.GetMonsterByKey("bandit"); err == nil && banditDef != nil {
 		const oasisBandits = 10
 		// Per-kill floor split, matching the live award path (the oases grant no
-		// completion XP of their own — only treasure chests).
+		// completion XP of their own - only treasure chests).
 		xpEach := (banditDef.Experience / len(party)) * oasisBandits
 		for _, c := range party {
 			applyXPAndLevelUp(c, cfg, xpEach, statSpeedFloorThenPrimary)
@@ -1891,7 +1912,7 @@ func buildHighlandsReadyParty(t *testing.T, cs *CombatSystem) []*character.MMCha
 		}
 	}
 
-	// Bought from Seabright Arms (city weapon shop) — one class-fit upgrade each.
+	// Bought from Seabright Arms (city weapon shop) - one class-fit upgrade each.
 	for _, name := range []string{"Silver Sword", "Steel Mace", "Battle Staff", "Elven Bow"} {
 		if it, err := items.TryCreateWeaponFromYAML(items.GetWeaponKeyByName(name)); err == nil {
 			cs.game.party.AddItem(it)
@@ -1913,7 +1934,7 @@ func buildHighlandsReadyParty(t *testing.T, cs *CombatSystem) []*character.MMCha
 	return party
 }
 
-// TestCombatBalance_HighlandsPartyVsMobs — a party that cleared forest, church,
+// TestCombatBalance_HighlandsPartyVsMobs - a party that cleared forest, church,
 // the shipwreck and both desert oases and bought city gear, fought 1-on-1
 // against every new highlands monster (50 trials each, Bless on).
 func TestCombatBalance_HighlandsPartyVsMobs(t *testing.T) {
@@ -1929,7 +1950,7 @@ func TestCombatBalance_HighlandsPartyVsMobs(t *testing.T) {
 	}
 }
 
-// TestCombatBalance_HighlandsPartyVs2Mobs — same highlands-ready party, but vs
+// TestCombatBalance_HighlandsPartyVs2Mobs - same highlands-ready party, but vs
 // PAIRS of each mob (zone ambushes stack damage). 50 trials each, no-Bless and
 // Bless. This is where the zone's real threat shows vs the trivial 1-on-1.
 func TestCombatBalance_HighlandsPartyVs2Mobs(t *testing.T) {
@@ -2024,7 +2045,7 @@ func jungleMobScenarios() []fightScenario {
 	}
 }
 
-// TestCombatBalance_JungleL8PartyVsMobs — a LOW (L8) starter party wandering into
+// TestCombatBalance_JungleL8PartyVsMobs - a LOW (L8) starter party wandering into
 // the L18-24 jungle. It SHOULD struggle/wipe on the zone's mobs; if it facerolls
 // ocelots/goblins while they pay big XP, the trash is undertuned (farmable). Note
 // the sim doesn't model the warlord's idol-ward (BossWarded is set only by the
@@ -2047,7 +2068,7 @@ func TestCombatBalance_JungleL8PartyVsMobs(t *testing.T) {
 	}
 }
 
-// TestCombatBalance_JungleVeteranPartyVsMobs — a well-geared L17 veteran (the
+// TestCombatBalance_JungleVeteranPartyVsMobs - a well-geared L17 veteran (the
 // castle-veteran loadout, the kind of party that would actually attempt the
 // jungle) vs the same scenarios, as the at-level reference.
 func TestCombatBalance_JungleVeteranPartyVsMobs(t *testing.T) {
@@ -2076,10 +2097,10 @@ func TestCombatBalance_JungleRealPlayPartyVsMobs(t *testing.T) {
 	}
 }
 
-// TestCombatBalance_FullClearCasterSpeedPartyVsDragon — party clears
+// TestCombatBalance_FullClearCasterSpeedPartyVsDragon - party clears
 // forest + church + water (everything except dragon), then fights the
-// dragon. Stat strategy: only Sorcerer/Archer invest Spd→16; Knight
-// and Cleric pour everything into End→15 then primary stat. Tests
+// dragon. Stat strategy: only Sorcerer/Archer invest Spd->16; Knight
+// and Cleric pour everything into End->15 then primary stat. Tests
 // whether the extra water-map XP/loot offsets the lost action slots
 // on the two melee chars.
 func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
@@ -2097,7 +2118,7 @@ func TestCombatBalance_FullClearCasterSpeedPartyVsDragon(t *testing.T) {
 	}
 }
 
-// TestCombatBalance_FullProgressionPartyVsDragon — the strongest fixture: a party
+// TestCombatBalance_FullProgressionPartyVsDragon - the strongest fixture: a party
 // that also cleared the culverts and highlands (the realistic pre-dragon path)
 // vs each Elder Dragon, with and without Bless.
 func TestCombatBalance_FullProgressionPartyVsDragon(t *testing.T) {
@@ -2117,9 +2138,9 @@ func TestCombatBalance_FullProgressionPartyVsDragon(t *testing.T) {
 
 // TestCombatBalance_LowLevelPartyVsForest runs the default starter party at
 // L1/L2/L3 (with class-appropriate stat investment) against every monster
-// that can spawn in the forest biome — both 1v1 and 1v2 of the trainer
+// that can spawn in the forest biome - both 1v1 and 1v2 of the trainer
 // mobs (goblin, spider, wolf, forest_spider, pixie) so we can see how
-// pack-spawns scale difficulty. Bless is off — fresh parties typically
+// pack-spawns scale difficulty. Bless is off - fresh parties typically
 // don't have it up. Prints one table per level.
 func TestCombatBalance_LowLevelPartyVsForest(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -2148,7 +2169,7 @@ func TestCombatBalance_LowLevelPartyVsForest(t *testing.T) {
 
 // TestMonsterDamageVsArmorTiers reports, for EVERY current monster, the physical
 // melee damage it deals to a level-6 / 20-Endurance character wearing a full set
-// of each armor tier — leather, chain, plate. Each monster's min..max is run
+// of each armor tier - leather, chain, plate. Each monster's min..max is run
 // through the real percentage armor path (armorMitigationPctFromAC: physical%
 // = min(75, 100*AC/(AC+K)), floored at 1). Output is a table (run with
 // -run MonsterDamageVsArmorTiers -v); it also asserts AC rises leather<chain<plate,
@@ -2191,7 +2212,7 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 		tanks[s.name] = newTank(s.pieces)
 		ac[s.name] = cs.CalculateTotalArmorClass(tanks[s.name])
 	}
-	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC — leather:%d  chain:%d  plate:%d (phys mitigation leather:%d%% chain:%d%% plate:%d%%)",
+	t.Logf("L6 Knight, 20-END (incl. class armor mastery) total AC - leather:%d  chain:%d  plate:%d (phys mitigation leather:%d%% chain:%d%% plate:%d%%)",
 		ac["leather"], ac["chain"], ac["plate"],
 		armorMitigationPctFromAC(ac["leather"], true), armorMitigationPctFromAC(ac["chain"], true), armorMitigationPctFromAC(ac["plate"], true))
 	if !(ac["leather"] < ac["chain"] && ac["chain"] < ac["plate"]) {
@@ -2238,13 +2259,13 @@ func TestMonsterDamageVsArmorTiers(t *testing.T) {
 
 // The Golden Thief Bug Carapace grants +100% resist to all non-physical schools
 // (full immunity) to its wearer, while physical damage still goes through armor.
-// Exercises the resist_nonphysical attribute end-to-end (config→bridge→item→
+// Exercises the resist_nonphysical attribute end-to-end (config->bridge->item->
 // character) and the mitigateCharacterDamage chokepoint.
 func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	member := cs.game.party.Members[0]
 
-	// Baseline: no resist gear → non-physical passes through untouched.
+	// Baseline: no resist gear -> non-physical passes through untouched.
 	if got := cs.mitigateCharacterDamage(40, "fire", member, false); got != 40 {
 		t.Errorf("no resist gear: fire 40 should pass, got %d", got)
 	}
@@ -2258,7 +2279,7 @@ func TestGoldenCarapace_NonPhysicalImmunity(t *testing.T) {
 			t.Errorf("%s 40 should be fully resisted by the carapace, got %d", school, got)
 		}
 	}
-	// Physical is NOT in the carapace's resistances → still reduced by armor only (>=1).
+	// Physical is NOT in the carapace's resistances -> still reduced by armor only (>=1).
 	if got := cs.mitigateCharacterDamage(40, "physical", member, false); got < 1 {
 		t.Errorf("physical must still apply via armor, got %d", got)
 	}

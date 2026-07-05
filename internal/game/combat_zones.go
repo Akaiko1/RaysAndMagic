@@ -14,7 +14,7 @@ import (
 // and once per monster turn in turn-based.
 type SteamZone struct {
 	SpellID        string
-	MapKey         string  // map the zone was cast on — it never follows the party
+	MapKey         string  // map the zone was cast on - it never follows the party
 	X, Y           float64 // world center (fixed at cast)
 	Radius         float64 // pixels
 	FramesLeft     int     // total lifetime remaining (frames)
@@ -37,7 +37,7 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 		interval = tps // default: once per second
 	}
 	// Duration scales with mastery (CalculateSpellDurationFrames), matching the
-	// in-game tooltip — same source of truth as every other timed spell.
+	// in-game tooltip - same source of truth as every other timed spell.
 	frames := cs.CalculateSpellDurationFrames(spellID, caster)
 	newZone := SteamZone{
 		SpellID:        string(spellID),
@@ -110,7 +110,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 		return
 	}
 	// Several zones can share one spell id (recasts at different spots), but
-	// the HUD has ONE status per id — aggregate to the LONGEST-lived survivor,
+	// the HUD has ONE status per id - aggregate to the LONGEST-lived survivor,
 	// and clear an id only when its last zone expired (per-zone updates let a
 	// short zone wipe the icon of a longer one, order-dependent).
 	maxLeft := map[string]int{}
@@ -135,7 +135,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 			}
 		}
 		// Ambient steam is now a per-tile procedural bubble field drawn each
-		// frame (Renderer.drawSteamZoneBubbles) — no sparse particle spawns here.
+		// frame (Renderer.drawSteamZoneBubbles) - no sparse particle spawns here.
 		zones[w] = *z
 		w++
 	}
@@ -150,7 +150,7 @@ func (gl *GameLoop) updateSteamZonesRT() {
 	}
 }
 
-// tickSteamZonesTB applies one steam damage tick per zone — called once per
+// tickSteamZonesTB applies one steam damage tick per zone - called once per
 // monster turn in turn-based combat.
 func (gl *GameLoop) tickSteamZonesTB() {
 	for i := range gl.game.steamZones {
@@ -159,7 +159,7 @@ func (gl *GameLoop) tickSteamZonesTB() {
 }
 
 // spawnSteamPuff emits a small cluster of rising, fading whitish-gray particles
-// at a point — the look of scalding steam.
+// at a point - the look of scalding steam.
 func (g *MMGame) spawnSteamPuff(x, y float64) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()

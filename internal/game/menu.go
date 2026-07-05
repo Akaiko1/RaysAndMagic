@@ -29,7 +29,7 @@ func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.
 
 // Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
 // pages. Global row 0 is the shared Autosave (written automatically on map change
-// and stash use; load-only — never manually overwritten). Rows 1..N are manual
+// and stash use; load-only - never manually overwritten). Rows 1..N are manual
 // slots and map to save1.json.. unchanged, so existing saves stay reachable.
 const (
 	saveRowsPerPage = 7
@@ -134,7 +134,7 @@ func (g *MMGame) autosaveErr() error {
 }
 
 // mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
-// returns to the title screen (not a full app quit — that's the title's "Quit").
+// returns to the title screen (not a full app quit - that's the title's "Quit").
 var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
 
 // GameSave captures minimal persistent state for save/load
@@ -208,13 +208,14 @@ type QuestSave struct {
 }
 
 type PartySave struct {
-	Gold           int             `json:"gold"`
-	Food           int             `json:"food"`
-	Inventory      []items.Item    `json:"inventory"`
-	Members        []CharacterSave `json:"members"`
-	Reserve        []CharacterSave `json:"reserve,omitempty"`
-	Captive        []CharacterSave `json:"captive,omitempty"`
-	CardCollection []string        `json:"card_collection,omitempty"` // party-wide monster-card slots (keys; "" = empty)
+	Gold                int             `json:"gold"`
+	Food                int             `json:"food"`
+	Inventory           []items.Item    `json:"inventory"`
+	Members             []CharacterSave `json:"members"`
+	Reserve             []CharacterSave `json:"reserve,omitempty"`
+	Captive             []CharacterSave `json:"captive,omitempty"`
+	CardCollection      []string        `json:"card_collection,omitempty"`       // legacy/card UI keys
+	CardCollectionItems []items.Item    `json:"card_collection_items,omitempty"` // physical cards with InstanceID
 }
 
 type CharacterSave struct {
@@ -249,9 +250,15 @@ type CharacterSave struct {
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
-	// RTCooldown preserves the real-time action cooldown — reload must not
+	// RTCooldown preserves the real-time action cooldown - reload must not
 	// reset the party's swing timers mid-fight.
 	RTCooldown int `json:"rt_cooldown,omitempty"`
+	// OffHandRTCooldown mirrors RTCooldown for a Dual Wielding character's
+	// off-hand weapon.
+	OffHandRTCooldown int `json:"off_hand_rt_cooldown,omitempty"`
+	// NextTBAttackOffHand preserves which hand a Dual Wielding character prefers
+	// next, so save/reload can't be used to re-pick the preferred weapon.
+	NextTBAttackOffHand bool `json:"next_tb_attack_off_hand,omitempty"`
 }
 
 type SkillEntry struct {
@@ -262,7 +269,7 @@ type SkillEntry struct {
 
 // PendingLevelUpChoiceSave records that party member CharIndex has earned a
 // level-up choice at Level but hasn't picked one yet. Options themselves are
-// not stored — they're rebuilt from the character's class config on load.
+// not stored - they're rebuilt from the character's class config on load.
 type PendingLevelUpChoiceSave struct {
 	CharIndex int `json:"char_index"`
 	Level     int `json:"level"`
@@ -320,7 +327,7 @@ type MonsterSave struct {
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
 	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
-	// Stun diminishing-returns chain — persisted so save/reload can't reset it
+	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
 	StunDRMemoryTurns   int                  `json:"stun_dr_memory_turns,omitempty"`
@@ -425,7 +432,7 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 }
 
 // NPCSave tracks persistent NPC flags across maps. Identity is MapKey + spawn
-// coordinates (deterministic from the map file) — display names can repeat on
+// coordinates (deterministic from the map file) - display names can repeat on
 // one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
@@ -576,7 +583,7 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 	// One-time migration write: a load that stamped legacy items with instance
 	// ids re-saves the slot so the ids stick (SaveGameToFile preserves the slot's
 	// name). Without this the reloaded slot would revert to id-less items and stay
-	// dupe-able. Best-effort — a write failure just defers the migration.
+	// dupe-able. Best-effort - a write failure just defers the migration.
 	if g.loadNeedsResave {
 		g.loadNeedsResave = false
 		_ = g.SaveGameToFile(path)
@@ -614,7 +621,7 @@ func normalizeItemFromConfig(item *items.Item) {
 	item.Type = template.Type
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
-	// the change. Items carry no instance state in Attributes — merging only
+	// the change. Items carry no instance state in Attributes - merging only
 	// missing keys left old saves frozen on their original balance forever.
 	item.Attributes = make(map[string]int, len(template.Attributes))
 	for k, v := range template.Attributes {
@@ -701,6 +708,8 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
+	m.OffHandRTCooldown = cs.OffHandRTCooldown
+	m.NextTBAttackOffHand = cs.NextTBAttackOffHand
 	return m
 }
 
@@ -759,6 +768,8 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.RTCooldown = m.RTCooldown
+	cs.OffHandRTCooldown = m.OffHandRTCooldown
+	cs.NextTBAttackOffHand = m.NextTBAttackOffHand
 	return cs
 }
 
@@ -769,11 +780,15 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
-		Gold:           g.party.Gold,
-		Food:           g.party.Food,
-		Inventory:      g.party.Inventory,
-		Members:        make([]CharacterSave, 0, len(g.party.Members)),
-		CardCollection: g.cardCollection[:],
+		Gold:                g.party.Gold,
+		Food:                g.party.Food,
+		Inventory:           g.party.Inventory,
+		Members:             make([]CharacterSave, 0, len(g.party.Members)),
+		CardCollection:      g.cardCollection[:],
+		CardCollectionItems: make([]items.Item, MaxCardSlots),
+	}
+	for i := 0; i < MaxCardSlots; i++ {
+		ps.CardCollectionItems[i] = g.cardCollectionItem(i)
 	}
 	for _, m := range g.party.Members {
 		ps.Members = append(ps.Members, buildCharacterSave(m))
@@ -815,7 +830,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
-			// Save the monster's own key (always set) — a name lookup is
+			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
 			saveEntry := MonsterSave{
@@ -996,7 +1011,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	g.clearTransientCombatState()
 
-	// A loaded game starts with a clean combat log — the previous slot's history
+	// A loaded game starts with a clean combat log - the previous slot's history
 	// must not bleed into it (clearTransientCombatState runs on every map switch
 	// too, so the log reset lives here, on the load path, not in it).
 	g.combatLogHistory = g.combatLogHistory[:0]
@@ -1021,11 +1036,36 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
-	// Restore the monster-card collection (party-wide). Unknown/empty keys clear.
+	// Restore the monster-card collection (party-wide). New saves carry the
+	// physical card item + InstanceID; the legacy key-only field is load-only
+	// migration and cannot prove ownership against the shared stash.
 	g.cardCollection = [MaxCardSlots]string{}
+	g.cardCollectionItems = [MaxCardSlots]items.Item{}
+	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollectionItems); i++ {
+		it := save.Party.CardCollectionItems[i]
+		if it.Name == "" {
+			continue
+		}
+		normalizeItemFromConfig(&it)
+		hadID := it.InstanceID != 0
+		if g.setCardCollectionSlot(i, it) && !hadID {
+			g.loadNeedsResave = true
+		}
+	}
 	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
-		if cardDef(save.Party.CardCollection[i]) != nil {
-			g.cardCollection[i] = save.Party.CardCollection[i]
+		if g.cardCollectionKey(i) != "" {
+			continue
+		}
+		key := save.Party.CardCollection[i]
+		if cardDef(key) == nil {
+			continue
+		}
+		if g.stashOwnsCardKey(key) {
+			g.loadNeedsResave = true
+			continue
+		}
+		if g.setCardCollectionSlot(i, items.CreateItemFromYAML(key)) {
+			g.loadNeedsResave = true
 		}
 	}
 	for _, cs := range save.Party.Members {
@@ -1052,13 +1092,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
 	// the bag anything the shared chest already owns. A stamp means this slot was
-	// migrated — flag it so LoadGameFromFile persists the ids once (the strip is
+	// migrated - flag it so LoadGameFromFile persists the ids once (the strip is
 	// idempotent per load and needs no resave).
 	if g.stampPartyInstanceIDs() {
 		g.loadNeedsResave = true
 	}
 	g.reconcilePartyAgainstStash()
-	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too —
+	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too -
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members
 	// get theirs via applyPartyStatBonuses below; bench carries no buffs.)
@@ -1073,7 +1113,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
 		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
-		// radius) never legitimately moves while its quest is unfinished — it holds
+		// radius) never legitimately moves while its quest is unfinished - it holds
 		// its map spawn. Saves written before the dormant-freeze fix captured it
 		// wandered off (e.g. the Samurai Warlord drifted off his throne), so on
 		// restore we snap any still-sealed boss back to its map spawn. Idempotent
@@ -1105,14 +1145,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				x, y := ms.X, ms.Y
 				if sp, ok := sealedSpawn[key]; ok {
-					x, y = sp[0], sp[1] // sealed boss → back to its throne
+					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 				if ms.ID != "" {
 					m.ID = ms.ID
 				}
 				// Seal a dormant boss immediately. refreshBoundUndeadCache recomputes
-				// BossDormant every frame, but that runs AFTER input — so without this a
+				// BossDormant every frame, but that runs AFTER input - so without this a
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
 				// throne snap-back above.
@@ -1142,7 +1182,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.CrossfireCD = ms.CrossfireCD
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
-				// player opened) never stands down live — restore that hostility, or a
+				// player opened) never stands down live - restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
 				// A quest-bearing encounter monster only exists because the player
 				// started that fight (lair/shipwreck/statue), so it counts as provoked
@@ -1174,7 +1214,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				w.Monsters = append(w.Monsters, m)
 			}
 			// Idol-ward immediately at restore. Unlike BossDormant (per-monster
-			// above), it's cross-monster — it counts the live idols on THIS map — so
+			// above), it's cross-monster - it counts the live idols on THIS map - so
 			// it must run after the loop. Same first-frame reason: refreshBoundUndead-
 			// Cache recomputes it every frame but runs AFTER input, so without this the
 			// warded boss would be hittable on the first frame after a load.
@@ -1255,7 +1295,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
-	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) —
+	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) -
 	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive {
@@ -1292,7 +1332,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	// The aggregate is DERIVED from the restored registry (never trusted from
-	// the save) — a drifted legacy save can't turn a buff expiry into a
+	// the save) - a drifted legacy save can't turn a buff expiry into a
 	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
 	g.recomputeStatBonuses()
 	g.mapReturnPoses = save.MapReturnPoses
@@ -1329,7 +1369,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		mapKey := c.MapKey
 		if mapKey == "" {
 			// Legacy saves: loot bags were stored without a map and leaked onto
-			// every map. Pin them to the map the save was made on — imperfect for
+			// every map. Pin them to the map the save was made on - imperfect for
 			// bags dropped elsewhere, but they stop following the party around.
 			mapKey = save.MapKey
 		}
@@ -1374,7 +1414,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 
 	// Restore quest progress. Reset to the baseline (starting quests only) first
-	// so quests taken AFTER this save — and therefore absent from it — don't
+	// so quests taken AFTER this save - and therefore absent from it - don't
 	// linger on the live manager; then lay the saved snapshot back on top.
 	if g.questManager != nil {
 		g.questManager.Reset()
@@ -1410,7 +1450,7 @@ func findMonsterKeyByName(name string) string {
 }
 
 // statBonusesToMap serializes a StatBonuses block for saves (nonzero entries
-// only, lowercase keys — same shape spells.yaml authors).
+// only, lowercase keys - same shape spells.yaml authors).
 func statBonusesToMap(b character.StatBonuses) map[string]int {
 	if b.IsZero() {
 		return nil

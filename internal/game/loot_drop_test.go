@@ -75,10 +75,10 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 			t.Fatalf("expected %s to drop %s over %d trials", monsterKey, dropName, trials)
 		}
 
-		// Allow a 4σ window to keep the test stable while still validating the chance.
+		// Allow a 4sigma window to keep the test stable while still validating the chance.
 		tolerance := 4.0 * stdDev
 		if observedRate < expectedRate-tolerance || observedRate > expectedRate+tolerance {
-			t.Fatalf("%s loot rate for %s out of bounds: expected %.2f%% ± %.2f%%, observed %.2f%%",
+			t.Fatalf("%s loot rate for %s out of bounds: expected %.2f%% +/- %.2f%%, observed %.2f%%",
 				monsterKey, dropName, expectedRate*100, tolerance*100, observedRate*100)
 		}
 	}

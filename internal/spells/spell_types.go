@@ -35,7 +35,7 @@ type SpellDefinition struct {
 	StatBonusGrandmaster int            // optional GM-scaled uniform stat bonus cap
 	StatBonuses          map[string]int // Per-stat alternative (lowercase stat keys)
 	// Damage-formula modifiers (default behaviour when zero/false)
-	DamageCostMultiplier  int  // base = cost × SpellDamagePerSP × this (default 1)
+	DamageCostMultiplier  int  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool // also add Personality/divisor to spell damage
 	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
 	StunRadiusTiles     float64
@@ -51,9 +51,9 @@ type SpellDefinition struct {
 	IncomingDamageReduction            int // base flat incoming damage reduction
 	IncomingDamageReductionGrandmaster int // optional GM-scaled flat reduction cap
 	// Bind Undead and Charm are two DISTINCT control spells (never mixed):
-	BindUndead            bool    // Bind Undead: take control of an UNDEAD target — it hunts other monsters for you
+	BindUndead            bool    // Bind Undead: take control of an UNDEAD target - it hunts other monsters for you
 	BindDurationSeconds   int     // Bind Undead duration (RT seconds)
-	Pacify                bool    // Charm: pacify a LIVING target — it stops attacking; breaks on any hit it takes
+	Pacify                bool    // Charm: pacify a LIVING target - it stops attacking; breaks on any hit it takes
 	PacifyDurationSeconds int     // Charm duration (RT seconds)
 	Revive                bool    // resurrect: restore a fallen ally (incl. eradicated)
 	FullHeal              bool    // resurrect: restore to maximum HP
@@ -140,7 +140,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 	}, nil
 }
 
-// IsOffensive reports whether this spell harms or disables enemies — i.e. it
+// IsOffensive reports whether this spell harms or disables enemies - i.e. it
 // is a "combat" spell for the smart-attack autocast (Space). Decided purely by
 // mechanical effect, NOT by the IsUtility flag: AoE-stun (Stun/Darkness) and
 // damage zones (Hot Steam) are flagged utility yet are clearly offensive.
@@ -158,11 +158,11 @@ func (d SpellDefinition) IsOffensive() bool {
 }
 
 // EffectLines returns the character-INDEPENDENT mechanics of a spell as
-// human-readable lines — the SINGLE SOURCE shared by the in-game tooltip and the
+// human-readable lines - the SINGLE SOURCE shared by the in-game tooltip and the
 // map-editor spell card so the two can never drift. It excludes values that
 // scale with the caster (projectile damage/heal totals, current buff magnitudes,
 // buff duration); those are rendered per-consumer because the editor has no
-// character context. Range lines read SpellDefinition fields — add a YAML field,
+// character context. Range lines read SpellDefinition fields - add a YAML field,
 // add a line here, never name-switch.
 func (d SpellDefinition) EffectLines() []string {
 	var out []string
@@ -197,7 +197,7 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.ZoneRadiusTiles > 0 {
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
 		// section (and filtered out of EFFECTS), so this summary line states only
-		// who it hits — monsters, never the party.
+		// who it hits - monsters, never the party.
 		out = append(out, "Leaves a lingering zone that scalds any monster inside (your party is unharmed)")
 	}
 	switch {
@@ -256,7 +256,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, "Wakes all unconscious allies (back to 1 HP)")
 	}
 
-	// Scaling source — character-INDEPENDENT (which stat & mastery the effect
+	// Scaling source - character-INDEPENDENT (which stat & mastery the effect
 	// grows with), so the map-editor card and the in-game tooltip both surface
 	// what a spell scales from. The numeric bonus itself is caster-dependent and
 	// shown only by the in-game tooltip.
@@ -277,7 +277,7 @@ func (d SpellDefinition) EffectLines() []string {
 		}
 	}
 	if len(d.StatBonuses) > 0 {
-		// Per-stat buffs are authored absolute (no mastery scaling) — the exact
+		// Per-stat buffs are authored absolute (no mastery scaling) - the exact
 		// numbers are character-independent, so they belong in this shared SSoT.
 		for _, key := range config.StatNames {
 			if v, ok := d.StatBonuses[key]; ok && v != 0 {
@@ -289,7 +289,7 @@ func (d SpellDefinition) EffectLines() []string {
 }
 
 // SchoolScalesWithPersonality reports whether a school's spells scale with
-// Personality instead of Intellect — the self-magic schools (body/mind/spirit).
+// Personality instead of Intellect - the self-magic schools (body/mind/spirit).
 func SchoolScalesWithPersonality(school string) bool {
 	switch school {
 	case "body", "mind", "spirit":

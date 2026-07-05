@@ -29,7 +29,7 @@ func newRegenTestCharacter(personality int) *MMCharacter {
 }
 
 func TestCalculateManaRegenAmountFloorsAtOne(t *testing.T) {
-	c := newRegenTestCharacter(0) // Personality 0 → 1 + 0/10 = 1
+	c := newRegenTestCharacter(0) // Personality 0 -> 1 + 0/10 = 1
 	if got := c.CalculateManaRegenAmount(); got != 1 {
 		t.Fatalf("min regen should be 1, got %d", got)
 	}
@@ -51,9 +51,9 @@ func TestCalculateManaRegenAmountScalesWithPersonality(t *testing.T) {
 }
 
 func TestCalculateManaRegenAmountUsesBuffBonuses(t *testing.T) {
-	c := newRegenTestCharacter(10) // Personality 10 → +1 → base regen 2
+	c := newRegenTestCharacter(10) // Personality 10 -> +1 -> base regen 2
 	c.BuffBonuses = UniformStatBonuses(20)
-	// +20 buff → effective 30 → 1 + 30/10 = 4
+	// +20 buff -> effective 30 -> 1 + 30/10 = 4
 	if got := c.CalculateManaRegenAmount(); got != 4 {
 		t.Errorf("buff +20 with Personality=10: regen=%d, want 4", got)
 	}
@@ -105,7 +105,7 @@ func TestRealtimeRegenTimerCadence(t *testing.T) {
 	c.MaxSpellPoints = 100
 	c.SpellPoints = 0
 
-	// One frame short of the interval — no regen yet.
+	// One frame short of the interval - no regen yet.
 	for i := 0; i < ManaRegenIntervalFrames-1; i++ {
 		c.Update()
 	}
@@ -119,7 +119,7 @@ func TestRealtimeRegenTimerCadence(t *testing.T) {
 		t.Errorf("after %d ticks: SP=%d, want 2", ManaRegenIntervalFrames, c.SpellPoints)
 	}
 
-	// Another full interval → another +2.
+	// Another full interval -> another +2.
 	for i := 0; i < ManaRegenIntervalFrames; i++ {
 		c.Update()
 	}

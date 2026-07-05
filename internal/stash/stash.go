@@ -37,7 +37,7 @@ func IsEmpty(it items.Item) bool { return it.Name == "" }
 // Load reads the stash from disk. A MISSING file yields an empty stash (first
 // run). A present-but-unparseable file returns an error instead of an empty
 // stash: a corrupted chest (e.g. an interrupted write) is surfaced to the player
-// ("Could not open the stash") rather than silently emptied — which would let
+// ("Could not open the stash") rather than silently emptied - which would let
 // the next transfer overwrite the file with a blank state, permanently losing
 // the deposited items.
 func Load() (*Stash, error) {

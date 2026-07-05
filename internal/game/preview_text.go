@@ -16,7 +16,7 @@ func DrawShadedText(dst *ebiten.Image, text string, x, y int, col color.Color) {
 	drawDebugTextColored(dst, text, x, y, col)
 }
 
-// RarityColor is the game's single rarity→tint mapping (metal tiers render as
+// RarityColor is the game's single rarity->tint mapping (metal tiers render as
 // gradients through DrawShadedText).
 func RarityColor(rarity string) color.Color { return rarityColor(rarity) }
 

@@ -72,7 +72,7 @@ const rtActionStagger = 8
 
 // rtHoldRepeatDelay is how long (frames) an attack key must be HELD before it
 // starts auto-repeating (cycling the party). Set well above a normal tap (even a
-// slow ~0.3s one) so single presses fire exactly once — only a deliberate hold
+// slow ~0.3s one) so single presses fire exactly once - only a deliberate hold
 // cycles. ~0.45s at 120 TPS.
 const rtHoldRepeatDelay = 54
 
@@ -138,7 +138,7 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
-	// Promotion picker: same deal — clicks handled inside its Draw; just suppress
+	// Promotion picker: same deal - clicks handled inside its Draw; just suppress
 	// gameplay input while the player chooses who to promote.
 	if ih.game.promotionPickerOpen {
 		return
@@ -176,7 +176,7 @@ func (ih *InputHandler) HandleInput() {
 	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
 		// The save-rename dialog is a modal ON TOP of the Save menu: Escape
 		// cancels it before backing out of the submenu. It must be handled here
-		// because this block consumes the Escape edge — the shared key tracker
+		// because this block consumes the Escape edge - the shared key tracker
 		// only reports "just pressed" once per frame, so the modal's own handler
 		// (reached later via handleMainMenuInput) would never see it.
 		if ih.game.saveRenameOpen {
@@ -893,16 +893,16 @@ func (ih *InputHandler) handleMovementInput() {
 
 // handleCombatInput processes real-time combat input. Keys (all modes):
 //
-//	R     — melee/ranged WEAPON attack
-//	Space — smart attack: cast the slotted spell if it's offensive, else weapon
-//	F     — cast the slotted spell (heal spells target via mouse)
-//	C     — cast the strongest known heal from the spellbook
+//	R     - melee/ranged WEAPON attack
+//	Space - smart attack: cast the slotted spell if it's offensive, else weapon
+//	F     - cast the slotted spell (heal spells target via mouse)
+//	C     - cast the strongest known heal from the spellbook
 //
 // Every action gates on the SELECTED character being off their own cooldown
 // (RTCooldown) plus a short global stagger, then advances selection to the next
-// ready member — so holding a key fires the party in turn, not one machine-gun.
+// ready member - so holding a key fires the party in turn, not one machine-gun.
 func (ih *InputHandler) handleCombatInput() {
-	// Edge state for every action key — read EVERY frame so tracker state stays
+	// Edge state for every action key - read EVERY frame so tracker state stays
 	// synced (must not be short-circuited by an early return below).
 	rJust := ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR)
 	spaceJust := ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace)
@@ -915,10 +915,10 @@ func (ih *InputHandler) handleCombatInput() {
 	cHeld := ebiten.IsKeyPressed(ebiten.KeyC)
 	hHeld := ebiten.IsKeyPressed(ebiten.KeyH)
 
-	// No attacks/casts/shots while running — you must stop sprinting to act.
+	// No attacks/casts/shots while running - you must stop sprinting to act.
 	running := ih.isRunning()
 
-	// Space also picks up ground loot — works while sprinting. The input cooldown
+	// Space also picks up ground loot - works while sprinting. The input cooldown
 	// paces held-Space to one container per press, so a fanned pile of bags is
 	// picked up one at a time rather than vanishing in a few frames.
 	if spaceHeld && ih.game.spellInputCooldown == 0 {
@@ -928,7 +928,7 @@ func (ih *InputHandler) handleCombatInput() {
 		}
 	}
 	// Space interacts with the NPC in focus (centred + adjacent tile). Loot at
-	// the feet wins above so an NPC can never block a pickup. Fresh press only —
+	// the feet wins above so an NPC can never block a pickup. Fresh press only -
 	// a held Space keeps its combat meaning.
 	if spaceJust && ih.game.spellInputCooldown == 0 && ih.tryFocusedNPCInteraction() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
@@ -976,7 +976,7 @@ func (ih *InputHandler) handleCombatInput() {
 	// holding F only visits casters, C only healers, R only the armed.
 	ih.game.ensureSelectedCanActRT()
 	// (1) If the selected member can't do this action AT ALL, park on a capable
-	// one (preferring a ready one) — a single move so the waiting frame sits on a
+	// one (preferring a ready one) - a single move so the waiting frame sits on a
 	// real actor, not a per-frame churn.
 	if !ih.game.rtActionCapable(ih.game.selectedChar, kind) {
 		// Explicit F with nothing castable: say WHY once per fresh press (the
@@ -988,7 +988,7 @@ func (ih *InputHandler) handleCombatInput() {
 		ih.game.advanceRTActor(kind)
 	}
 	// (2) Selected is capable. If it's on cooldown, jump to another member who is
-	// ready RIGHT NOW; if nobody is ready, hold still and wait quietly — do NOT
+	// ready RIGHT NOW; if nobody is ready, hold still and wait quietly - do NOT
 	// shuffle the selection among on-cooldown members (that was the jitter).
 	if !ih.game.rtActionReady(ih.game.selectedChar, kind) {
 		if i := ih.game.nextReadyRTActor(kind); i >= 0 {
@@ -1006,19 +1006,27 @@ func (ih *InputHandler) handleCombatInput() {
 	switch kind {
 	case rtActWeapon:
 		if ih.game.combat.EquipmentMeleeAttack() {
-			ih.commitRTAction(rtActWeapon, ih.game.combat.WeaponCooldownFrames(sel))
+			ih.commitRTWeaponAttack(rtActWeapon, sel)
 		} else {
 			// No weapon after all (capability raced an unequip): pass the turn
 			// on without a cooldown so a held key doesn't stick here.
 			ih.game.advanceRTActor(rtActWeapon)
 		}
 	case rtActSmart:
+		if sel.RTCooldown > 0 && sel.AnyWeaponHandReady() {
+			if ih.game.combat.EquipmentMeleeAttack() {
+				ih.commitRTWeaponAttack(rtActSmart, sel)
+			} else {
+				ih.game.advanceRTActor(rtActSmart)
+			}
+			break
+		}
 		acted, spellID := ih.game.combat.SmartAttack()
 		switch {
 		case spellID != "":
 			ih.commitRTAction(rtActSmart, ih.game.combat.SpellCooldownFrames(sel, spellID))
 		case acted:
-			ih.commitRTAction(rtActSmart, ih.game.combat.WeaponCooldownFrames(sel))
+			ih.commitRTWeaponAttack(rtActSmart, sel)
 		default:
 			// Nothing this hero could do (no weapon, no castable spell, no one
 			// to heal): hand the selection on instead of looping on them.
@@ -1037,6 +1045,23 @@ func (ih *InputHandler) handleCombatInput() {
 func (ih *InputHandler) commitRTAction(kind rtActionKind, cooldownFrames int) {
 	sel := ih.game.party.Members[ih.game.selectedChar]
 	sel.RTCooldown = cooldownFrames
+	ih.game.spellInputCooldown = rtActionStagger
+	ih.game.advanceRTActor(kind)
+}
+
+// commitRTWeaponAttack is commitRTAction specialized for a weapon swing: Dual
+// Wielding hits ONE hand per swing (attackSlotFor decides which, matching
+// whichever hand EquipmentMeleeAttack just swung), so only that hand's
+// cooldown starts - the other keeps counting down independently. Everyone
+// else always swings (and cools down) the main hand, same as before.
+func (ih *InputHandler) commitRTWeaponAttack(kind rtActionKind, sel *character.MMCharacter) {
+	slot := ih.game.combat.attackSlotFor(sel)
+	if slot == items.SlotOffHand {
+		sel.OffHandRTCooldown = ih.game.combat.OffHandWeaponCooldownFrames(sel)
+	} else {
+		sel.RTCooldown = ih.game.combat.WeaponCooldownFrames(sel)
+	}
+	sel.NextTBAttackOffHand = slot == items.SlotMainHand
 	ih.game.spellInputCooldown = rtActionStagger
 	ih.game.advanceRTActor(kind)
 }
@@ -1230,7 +1255,7 @@ func (ih *InputHandler) movementScale() float64 {
 	return 60.0 / float64(tps)
 }
 
-// moveSpeed is the per-frame real-time translation speed: base move speed × the
+// moveSpeed is the per-frame real-time translation speed: base move speed x the
 // tick-rate scale, sprinted by the run multiplier while Shift is held. Sprint is
 // real-time only (turn-based movement is tile-stepped) and applies to translation,
 // not rotation.
@@ -1247,7 +1272,7 @@ func (ih *InputHandler) moveSpeed() float64 {
 }
 
 // isRunning reports whether the party is sprinting (run key held) in real time.
-// All attacks/casts/shots are disabled while running — you must stop to act.
+// All attacks/casts/shots are disabled while running - you must stop to act.
 // Always false in turn-based mode (movement there is tile-stepped, not sprinted).
 func (ih *InputHandler) isRunning() bool {
 	return !ih.game.turnBasedMode &&
@@ -1330,7 +1355,7 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Bound UNDEAD can't follow across maps: they crumble as the party departs,
-	// granting their XP but no loot or gold. (Pacified mobs aren't yours — they're
+	// granting their XP but no loot or gold. (Pacified mobs aren't yours - they're
 	// simply left behind.) Card-collection allies (SummonedBy == cardSummonOwner)
 	// are exempt: they're permanent summons that persist on their map (re-summoned
 	// fresh on the new one via the proc), not disposable spell-bound undead.
@@ -1382,7 +1407,7 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 // finishMapArrival is the single "arrived on a new map" path: it places the
 // party at (x,y,angle), re-registers collision, snaps to a cardinal heading in
 // turn-based mode, and autosaves. Keeping position + autosave together here is
-// what guarantees the autosave can't capture stale pre-switch coordinates — the
+// what guarantees the autosave can't capture stale pre-switch coordinates - the
 // ordering invariant lives in one place instead of being copy-pasted per caller.
 func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
 	ih.game.camera.X = x
@@ -1392,7 +1417,7 @@ func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
 		ih.game.collisionSystem.UpdateEntity("player", x, y)
 	}
 	// Turn-based facing must be cardinal; a restored return-pose / free RT heading
-	// would otherwise leave the party at 45° on the new map.
+	// would otherwise leave the party at 45deg on the new map.
 	if ih.game.turnBasedMode {
 		ih.game.snapToCardinalDirection()
 	}
@@ -1512,7 +1537,7 @@ func (ih *InputHandler) handleMouseInput() {
 	}
 
 	// World-object clicks (only during gameplay, no overlays). Containers get
-	// first claim — they're small and usually in front of whoever dropped them.
+	// first claim - they're small and usually in front of whoever dropped them.
 	if ih.game.worldClickAllowed() {
 		if clickX, clickY, ok := ih.game.leftClickPosition(); ok {
 			pickupRange := ih.game.groundContainerPickupRange()
@@ -1684,7 +1709,7 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 func (ih *InputHandler) handleSpellbookNavigation() {
 	currentChar := ih.game.party.Members[ih.game.selectedChar]
 
-	// Trap book (thief): spell-like controls — Up/Down browse, Enter/F equips
+	// Trap book (thief): spell-like controls - Up/Down browse, Enter/F equips
 	// the selection into the quick slot. MUST run before the magic-school
 	// checks: a trapper has no schools and would bail out early.
 	if hasTrapBook(currentChar) {
@@ -1714,14 +1739,14 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 	}
 
 	// The school list is PER CHARACTER: switching members (keys 1-4, mouse)
-	// can shrink it under a stale index — clamp before any schools[...] access.
+	// can shrink it under a stale index - clamp before any schools[...] access.
 	if ih.game.selectedSchool >= len(schools) || ih.game.selectedSchool < 0 {
 		ih.game.selectedSchool = 0
 		ih.game.selectedSpell = -1
 	}
 
 	// Navigation: step one spell per key press so the user can't overshoot.
-	// No cooldown needed — IsKeyJustPressed already debounces to one step per press.
+	// No cooldown needed - IsKeyJustPressed already debounces to one step per press.
 	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
 		ih.navigateSpellbookUp(schools)
 	}
@@ -1749,12 +1774,12 @@ func (ih *InputHandler) tryFocusedNPCInteraction() bool {
 	return true
 }
 
-// openNPCInteraction starts a dialog with the given NPC — the single entry
+// openNPCInteraction starts a dialog with the given NPC - the single entry
 // point shared by the T key, Space-in-focus, and mouse click paths.
 func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// A Light-aligned ward that flags rejects_lich (the Mage Tower) won't speak to
 	// a party containing a Lich. Gated on the NPC's own flag, NOT "is a quest
-	// giver" — other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
+	// giver" - other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
 	if npc.RejectsLich && ih.game.party.HasLich() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead - it will not answer a Lich.")
 		return
@@ -1949,7 +1974,7 @@ func (ih *InputHandler) purchaseSelectedSpell() {
 }
 
 // addSpellToCharacter teaches a shop spell; reports whether the spellbook
-// actually changed (false: unresolvable spell or already known — the caller
+// actually changed (false: unresolvable spell or already known - the caller
 // must not charge for it). Resolution and learning go through the ONE path
 // (LearnSpell), which also picks the school from spells.yaml rather than the
 // trader catalog.
@@ -1971,7 +1996,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	dlg := npcDialogLayout(ih.game)
 	dialogX, dialogY, dialogWidth, dialogHeight := dlg.x, dlg.y, dlg.w, dlg.h
 
-	// Card collector — double-click a slotted card to take it back, a loose card
+	// Card collector - double-click a slotted card to take it back, a loose card
 	// to slot it (matches the inventory's equip/unequip double-click). Reset after
 	// each action since the lists shift underneath the cursor.
 	if npcIsCardCollector(ih.game.dialogNPC) {
@@ -2009,9 +2034,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Spell trader — portrait strip + icon grid.
+	// Spell trader - portrait strip + icon grid.
 	if ih.game.dialogNPC != nil && npcHasSpellTrading(ih.game.dialogNPC) {
-		// On the Quests tab the shop widgets aren't drawn — don't let their
+		// On the Quests tab the shop widgets aren't drawn - don't let their
 		// hidden rects swallow clicks meant for the quest choices/tabs.
 		if ih.game.dialogTab == 1 && npcHasChoiceDialog(ih.game.dialogNPC) {
 			return
@@ -2025,7 +2050,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 		spellKeys := npcSpellKeys(ih.game.dialogNPC)
 		// Match the renderer's pagination: only the current page's icons are
-		// clickable, mapping page-slot → global spell index.
+		// clickable, mapping page-slot -> global spell index.
 		pageStart := ih.game.spellTraderPage * spellTraderPerPage
 		for slot := 0; slot < spellTraderPerPage; slot++ {
 			i := pageStart + slot
@@ -2047,7 +2072,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		return
 	}
 
-	// Skill trainer — portrait click opens the per-character popup with
+	// Skill trainer - portrait click opens the per-character popup with
 	// trainable masteries. Popup option clicks select/purchase. Clicks
 	// outside the popup close it (back to portrait grid).
 	if ih.game.dialogNPC != nil && npcHasSkillTraining(ih.game.dialogNPC) {
@@ -2067,7 +2092,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					return
 				}
 			}
-			// Click outside popup → close.
+			// Click outside popup -> close.
 			if ih.game.consumeLeftClick() {
 				_ = px
 				_ = py
@@ -2077,7 +2102,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			}
 			return
 		}
-		// No popup → portrait click opens it.
+		// No popup -> portrait click opens it.
 		for i := range ih.game.party.Members {
 			x, y, w, h := skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i)
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
@@ -2180,7 +2205,7 @@ func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 }
 
 // resetDialogDoubleClick clears the tracker after a completed action, so a
-// follow-up click can't pair with the consumed one — crucial when the action
+// follow-up click can't pair with the consumed one - crucial when the action
 // shifted the list (selling removes the row; the next row slides under the
 // cursor and a stray click would sell it too).
 func (ih *InputHandler) resetDialogDoubleClick() {
@@ -2189,7 +2214,7 @@ func (ih *InputHandler) resetDialogDoubleClick() {
 
 // resetDialogClickTracker clears the dialog double-click tracker. Shared with
 // the renderer so a merchant page flip (consumed in the Draw pass) also breaks
-// the chain — otherwise click-item → flip page → click same index could pair as
+// the chain - otherwise click-item -> flip page -> click same index could pair as
 // a double-click buy/sell despite the navigation in between.
 func (g *MMGame) resetDialogClickTracker() {
 	g.dialogLastClickTime = 0
@@ -2289,7 +2314,7 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	switch {
 	case ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR): // melee/ranged weapon attack
 		if ih.game.combat.EquipmentMeleeAttack() {
-			ih.game.consumeSelectedCharAction()
+			ih.game.consumeSelectedCharWeaponAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
@@ -2301,8 +2326,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			ih.game.spellInputCooldown = ih.actionCooldown(15)
 			return
 		}
-		if acted, _ := ih.game.combat.SmartAttack(); acted {
-			ih.game.consumeSelectedCharAction()
+		if acted, spellID := ih.game.combat.SmartAttack(); acted {
+			if spellID == "" {
+				ih.game.consumeSelectedCharWeaponAction()
+			} else {
+				ih.game.consumeSelectedCharAction()
+			}
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
@@ -2347,7 +2376,7 @@ func (ih *InputHandler) moveTurnBasedStrafeRight() bool {
 
 // getDirectionFromAngle converts an angle to grid movement direction
 func (ih *InputHandler) getDirectionFromAngle(angle float64) (int, int) {
-	// Normalize angle to 0-2π range
+	// Normalize angle to 0-2pi range
 	for angle < 0 {
 		angle += 2 * math.Pi
 	}
@@ -2357,9 +2386,9 @@ func (ih *InputHandler) getDirectionFromAngle(angle float64) (int, int) {
 
 	// Convert angle to grid direction
 	// East (0): +X (1, 0)
-	// South (π/2): +Y (0, 1)
-	// West (π): -X (-1, 0)
-	// North (3π/2): -Y (0, -1)
+	// South (pi/2): +Y (0, 1)
+	// West (pi): -X (-1, 0)
+	// North (3pi/2): -Y (0, -1)
 
 	if angle < math.Pi/4 || angle >= 7*math.Pi/4 {
 		return 1, 0 // East
@@ -2416,7 +2445,7 @@ func (ih *InputHandler) canMoveToTile(tileX, tileY int) bool {
 
 // rotateTurnBased rotates the camera in 90-degree increments
 func (ih *InputHandler) rotateTurnBased(direction int) {
-	// Rotate by 90 degrees (π/2 radians)
+	// Rotate by 90 degrees (pi/2 radians)
 	rotationAmount := math.Pi / 2
 	if direction < 0 {
 		rotationAmount = -rotationAmount
@@ -2424,7 +2453,7 @@ func (ih *InputHandler) rotateTurnBased(direction int) {
 
 	ih.game.camera.Angle += rotationAmount
 
-	// Normalize angle to keep it between 0 and 2π
+	// Normalize angle to keep it between 0 and 2pi
 	for ih.game.camera.Angle < 0 {
 		ih.game.camera.Angle += 2 * math.Pi
 	}
@@ -2542,7 +2571,7 @@ func (ih *InputHandler) purchaseSelectedTraining() {
 			trained = skill.IncreaseMastery()
 		}
 	} else {
-		// trainSkill bumps mastery AND refreshes derived stats (Bodybuilding → Max HP).
+		// trainSkill bumps mastery AND refreshes derived stats (Bodybuilding -> Max HP).
 		trained = ih.game.trainSkill(selectedChar, option.SkillType)
 	}
 	if !trained {
@@ -2561,13 +2590,13 @@ func (ih *InputHandler) handleEncounterInput() {
 		return
 	}
 
-	// Only the choices valid in the NPC's current state. None → concluded /
+	// Only the choices valid in the NPC's current state. None -> concluded /
 	// non-actionable; ESC leaves.
 	choices := ih.game.visibleNPCChoices(npc)
 	if len(choices) == 0 {
 		return
 	}
-	// State may have shrunk the list since the dialog opened — keep the cursor valid.
+	// State may have shrunk the list since the dialog opened - keep the cursor valid.
 	if ih.game.selectedChoice >= len(choices) {
 		ih.game.selectedChoice = len(choices) - 1
 	}
@@ -2719,7 +2748,7 @@ func (ih *InputHandler) executeEncounterChoice() {
 }
 
 // countLivingQuestTargets returns living, quest-eligible monsters whose name maps
-// to target (the same name→key normalization quest kills use). Dead monsters are
+// to target (the same name->key normalization quest kills use). Dead monsters are
 // dropped from the world slice, so HP>0 means alive. targetMap scopes the search
 // to one map; empty scans every loaded map (suits a unique boss). Runtime/ad-hoc
 // summons can opt out so they do not distort map-clear quest progress.
@@ -2784,7 +2813,7 @@ func (g *MMGame) syncExterminationQuestProgressForTarget(target string) {
 }
 
 // creditQuestIfCleared marks an active kill quest completed when none of its
-// targets remain alive — a quest taken (or held) after the killing was already
+// targets remain alive - a quest taken (or held) after the killing was already
 // done can be turned in instead of showing 0/N forever. Returns whether it
 // completed the quest just now.
 func (g *MMGame) creditQuestIfCleared(questID string) bool {
@@ -2797,7 +2826,7 @@ func (g *MMGame) creditQuestIfCleared(questID string) bool {
 		return false
 	}
 	living := g.syncExterminationQuestProgress(questID)
-	if living < 0 { // not an exterminate quest — sync didn't scan, so do it here
+	if living < 0 { // not an exterminate quest - sync didn't scan, so do it here
 		living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
 	}
 	if living > 0 {
@@ -2808,7 +2837,7 @@ func (g *MMGame) creditQuestIfCleared(questID string) bool {
 }
 
 // creditClearedKillQuests completes any of the NPC's active kill quests whose
-// targets are all already dead — so a quest taken after its targets were slain
+// targets are all already dead - so a quest taken after its targets were slain
 // (or one whose remaining targets number fewer than its quota) can still be
 // turned in. Only kill quests with a target qualify; other types complete through
 // their own progress.
@@ -2874,7 +2903,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 
 	// Targets already wiped out before the quest was taken? Credit it on the
 	// spot (and apply any world changes) instead of showing 0/N until the next
-	// chat — the journal should never say "0/21" on a finished job.
+	// chat - the journal should never say "0/21" on a finished job.
 	if g.creditQuestIfCleared(questID) {
 		g.applyCompletedQuestTiles()
 		g.AddCombatMessage(fmt.Sprintf("'%s' is already done! Return to claim your reward.", name))
@@ -2887,7 +2916,7 @@ func (ih *InputHandler) handleGiveQuest(questID string) {
 // stops re-offering.
 func (ih *InputHandler) handleTurnInQuest(questID string) {
 	g := ih.game
-	npc := g.dialogNPC // capture before clearing — we conclude it on success
+	npc := g.dialogNPC // capture before clearing - we conclude it on success
 	g.dialogActive = false
 	g.dialogNPC = nil
 	if questID == "" || g.questManager == nil {
@@ -2999,7 +3028,7 @@ func (ih *InputHandler) handleOpenSwordRack(questID string) {
 }
 
 // handleTavernRest charges the room price and fully restores the party (the
-// dead stay dead), then closes the dialog — the night passes.
+// dead stay dead), then closes the dialog - the night passes.
 func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	g := ih.game
 	if g.party.Gold < choice.Cost {
@@ -3053,7 +3082,7 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 }
 
 // summonDragonFromStatue consumes the chosen statuette, spawns its dragon next
-// to the statue (flagged so it — and only it — counts toward the win quest),
+// to the statue (flagged so it - and only it - counts toward the win quest),
 // and removes the spent statue from the world.
 func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int) {
 	g := ih.game
@@ -3088,7 +3117,7 @@ func (ih *InputHandler) summonDragonFromStatue(npc *character.NPC, summonIdx int
 
 	// Mark spent (hide_when_visited makes it vanish from render + interaction).
 	// We keep the NPC in the world so its Visited=true is saved and the statue
-	// stays spent across reloads — dropping it from the world would lose that.
+	// stays spent across reloads - dropping it from the world would lose that.
 	npc.Visited = true
 	g.AddCombatMessage(fmt.Sprintf("The %s Dragon erupts from the shattering statue!", s.Label))
 }
@@ -3213,7 +3242,7 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				monster.IsEncounterMonster = true
 				monster.EncounterRewards = npc.EncounterData.Rewards
 				// Encounter monsters are hostile from the start (the player
-				// initiated the fight) — this also wakes passive_until_attacked
+				// initiated the fight) - this also wakes passive_until_attacked
 				// types like the prison's elf swordsmen.
 				monster.WasAttacked = true
 				monster.IsEngagingPlayer = true

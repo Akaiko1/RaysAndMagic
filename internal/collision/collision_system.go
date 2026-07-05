@@ -78,18 +78,18 @@ type TileChecker interface {
 //
 // CONCURRENCY CONTRACT (deliberately lock-free): the parallel PROJECTILE
 // updater calls UpdateEntity/CanMoveTo* directly on the live system from worker
-// goroutines. That is safe only while (1) updates are stop-the-world — no other
+// goroutines. That is safe only while (1) updates are stop-the-world - no other
 // game mutation runs concurrently, (2) each worker touches a DISJOINT set of
-// entities (chunked partitioning) AND never reads another worker's entities —
+// entities (chunked partitioning) AND never reads another worker's entities -
 // projectile movement only checks TILES (world.CanProjectileMoveTo), never
-// other entities, so this holds — and (3) the entities map itself is never
+// other entities, so this holds - and (3) the entities map itself is never
 // mutated (Register/Unregister) inside a parallel phase. Breaking any of these
 // requires adding a lock here first.
 //
 // The parallel MONSTER updater does NOT qualify for the above: a monster's
 // movement/AI decision reads OTHER entities' bounding boxes and collision types
-// (CanMoveToWithHabitat → canMoveToEntityPosition scans the whole map), which
-// violates (2) — those other entities are concurrently being written by their
+// (CanMoveToWithHabitat -> canMoveToEntityPosition scans the whole map), which
+// violates (2) - those other entities are concurrently being written by their
 // OWN workers. It instead uses Snapshot(): each worker reads an immutable,
 // frozen CollisionSnapshot (taken once, single-threaded, before the parallel
 // phase) and the live system is only touched afterward, serially, once all
@@ -184,7 +184,7 @@ func (cs *CollisionSystem) canMoveToWorldPosition(boundingBox *BoundingBox) bool
 }
 
 // tilesAllowPosition is the tile-only half of CanMoveTo: a pure function of the
-// (immutable, per-map) tile checker — never touches cs.entities — so it is
+// (immutable, per-map) tile checker - never touches cs.entities - so it is
 // shared verbatim by the live CollisionSystem and by CollisionSnapshot, which
 // queries it from parallel workers against a frozen entity view.
 func tilesAllowPosition(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox) bool {
@@ -223,7 +223,7 @@ func (cs *CollisionSystem) canMoveToWorldPositionWithHabitat(boundingBox *Boundi
 }
 
 // tilesAllowPositionWithHabitat is the habitat-aware counterpart of
-// tilesAllowPosition — same sharing rationale (see its doc comment).
+// tilesAllowPosition - same sharing rationale (see its doc comment).
 func tilesAllowPositionWithHabitat(tileChecker TileChecker, tileSize float64, boundingBox *BoundingBox, habitatPrefs []string, flying bool) bool {
 	width, height := tileChecker.GetWorldBounds()
 
@@ -282,7 +282,7 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, moving
 // shouldIgnoreCollisionTypes is the type-only decision behind
 // shouldIgnoreEntityCollision, factored out so CollisionSnapshot (which holds
 // value copies, not *Entity pointers) can share it. CollisionTypeMonsterEngaged
-// must reflect a monster genuinely fighting — callers that derive it (e.g.
+// must reflect a monster genuinely fighting - callers that derive it (e.g.
 // game.refreshMonsterCollisionSolidity) need a real combat signal, not mere
 // proximity, or two calm/dormant monsters stop passing through each other here.
 func shouldIgnoreCollisionTypes(moving, other CollisionType) bool {
@@ -374,7 +374,7 @@ func (cs *CollisionSystem) CastRay(x1, y1, x2, y2 float64, sightOnly bool) (Rayc
 	return castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, sightOnly)
 }
 
-// castRayTiles is CastRay's body, parametrized over (tileChecker, tileSize) —
+// castRayTiles is CastRay's body, parametrized over (tileChecker, tileSize) -
 // both immutable for the lifetime of a map, so it needs no entity access and is
 // shared verbatim by CollisionSnapshot.CheckLineOfSight.
 func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 float64, sightOnly bool) (RaycastHit, bool) {
@@ -438,7 +438,7 @@ func castRayTiles(tileChecker TileChecker, tileSize float64, x1, y1, x2, y2 floa
 	// Check starting tile. A sight ray always sees OUT of the observer's own
 	// tile: the only way to occupy an opaque tile is a flying mob perched on a
 	// solid-but-transparent sprite tile (boulder/canopy), which IsTileOpaque
-	// reports opaque — bailing here would blind it to its own line of fire and
+	// reports opaque - bailing here would blind it to its own line of fire and
 	// make ranged flyers shuffle instead of shooting. Movement is still blocked
 	// by the start tile.
 	if !sightOnly && tileChecker.IsTileBlocking(tx, ty) {

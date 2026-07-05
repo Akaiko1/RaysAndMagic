@@ -269,15 +269,14 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1100
-    armor_class: 50
+    max_hit_points: 1400
+    armor_class: 52
     experience: 2000
-    damage_min: 30
-    damage_max: 50
-    true_damage: 15  # black dragon: +15 unmitigable per hit
-    fireburst_chance: 0.15
-    fireburst_damage_min: 10
-    fireburst_damage_max: 16
+    damage_min: 34
+    damage_max: 54
+    true_damage: 12  # black dragon: +12 unmitigable per hit
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "fire"
     alert_radius: 5
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
@@ -300,7 +299,7 @@ monsters:
       - "desert_dune"
       - "large_dune"
 
-  # Elemental dragon variants — wild dragons (dragon_cliffs biome + the two cliff
+  # Elemental dragon variants - wild dragons (dragon_cliffs biome + the two cliff
   # lair caves) and the desert-statue ELITES are built from these. The 4 elite
   # `elder_dragon*` entries below summon from the statues; these base entries are
   # the ordinary dragons. They differ only in element (resists/projectile/proc).
@@ -308,12 +307,14 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1100
-    armor_class: 50
+    max_hit_points: 1400
+    armor_class: 52
     experience: 2000
-    damage_min: 30
-    damage_max: 50
+    damage_min: 34
+    damage_max: 54
     true_damage: 10  # red dragon: +10 unmitigable per hit
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "dark"
     ignite_chance: 0.30           # 30% to set a character ablaze
     ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
     alert_radius: 5
@@ -342,13 +343,15 @@ monsters:
     name: "Dragon"
     banding: true
     level: 15
-    max_hit_points: 1100
-    armor_class: 67            # tankier: melee-only, no ranged attack
+    max_hit_points: 1500
+    armor_class: 70            # tankier: melee-only, no ranged attack
     experience: 2000
-    damage_min: 32
-    damage_max: 52
+    damage_min: 36
+    damage_max: 58
     true_damage: 10  # green dragon: +10 unmitigable per hit
     attack_cooldown_multiplier: 0.6  # attacks fast
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "earth"
     poison_chance: 0.33
     poison_duration_seconds: 45
     alert_radius: 5
@@ -374,13 +377,16 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1050       # a bit squishier but faster + longer reach
-    armor_class: 50
+    max_hit_points: 1350       # a bit squishier but faster + longer reach
+    armor_class: 52
     experience: 2000
-    damage_min: 28
-    damage_max: 46
+    damage_min: 32
+    damage_max: 52
     true_damage: 10  # gold dragon: +10 unmitigable per hit
-    stun_char_chance: 0.10        # 10% to stun the struck character
+    attack_cooldown_multiplier: 0.85
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "air"
+    stun_char_chance: 0.15        # 15% to stun the struck character
     stun_char_seconds: 4          # RT stun duration
     stun_char_turns: 2            # TB stun duration
     alert_radius: 6
@@ -404,7 +410,7 @@ monsters:
     habitat_preferences:
       - "empty"
 
-  # ── Elder Dragons (ELITE) ────────────────────────────────────────────────
+  # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
   # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
   # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
@@ -413,19 +419,19 @@ monsters:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 50
+    max_hit_points: 3600
+    armor_class: 55
     experience: 3000
-    damage_min: 38
-    damage_max: 62
-    true_damage: 22
-    fireburst_chance: 0.15
-    fireburst_damage_min: 10
-    fireburst_damage_max: 16
+    damage_min: 48
+    damage_max: 76
+    true_damage: 18
+    attack_cooldown_multiplier: 0.75
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "fire"
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "firebolt"
-    ranged_attack_range: 3
+    ranged_attack_range: 4
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
@@ -437,25 +443,28 @@ monsters:
     size_multiplier: 12.0
     resistances:
       fire: 100
-      physical: 50
+      physical: 55
       air: 75
 
   elder_dragon_red:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 50
+    max_hit_points: 3400
+    armor_class: 55
     experience: 3000
-    damage_min: 38
-    damage_max: 62
+    damage_min: 46
+    damage_max: 72
     true_damage: 15
-    ignite_chance: 0.30
-    ignite_duration_seconds: 30
+    attack_cooldown_multiplier: 0.75
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "dark"
+    ignite_chance: 0.35
+    ignite_duration_seconds: 40
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
-    ranged_attack_range: 3
+    ranged_attack_range: 4
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
@@ -467,22 +476,24 @@ monsters:
     size_multiplier: 12.0
     resistances:
       dark: 100
-      physical: 50
+      physical: 55
       fire: 40
 
   elder_dragon_green:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 67
+    max_hit_points: 3500
+    armor_class: 72
     experience: 3000
-    damage_min: 40
-    damage_max: 65
+    damage_min: 48
+    damage_max: 76
     true_damage: 15
-    attack_cooldown_multiplier: 0.6
-    poison_chance: 0.33
-    poison_duration_seconds: 45
+    attack_cooldown_multiplier: 0.55
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "earth"
+    poison_chance: 0.40
+    poison_duration_seconds: 60
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
@@ -503,19 +514,22 @@ monsters:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1575
-    armor_class: 50
+    max_hit_points: 3300
+    armor_class: 55
     experience: 3000
-    damage_min: 35
-    damage_max: 58
+    damage_min: 44
+    damage_max: 70
     true_damage: 15
-    stun_char_chance: 0.10
+    attack_cooldown_multiplier: 0.65
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "air"
+    stun_char_chance: 0.20
     stun_char_seconds: 4
     stun_char_turns: 2
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
-    ranged_attack_range: 4
+    ranged_attack_range: 5
     speed: 4.5
     gold_min: 1000
     gold_max: 2500
@@ -527,7 +541,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       air: 100
-      physical: 50
+      physical: 55
       water: -25
 
   # Forest-specific monsters
@@ -794,10 +808,10 @@ monsters:
   # Highlands monsters (target party levels 6-12), ascending power. Biome-scoped
   # to "highlands" and distributed by habitat: beasts/archers in heather & rocks,
   # knights/casters near ruins, the lich by the slate tombs. HP/AC/dmg/xp
-  # interpolate the existing curve (troll L6 ~160 HP → dragon L15 ~1100 HP).
+  # interpolate the existing curve (troll L6 ~160 HP -> dragon L15 ~1100 HP).
   # ---------------------------------------------------------------------------
 
-  # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
+  # L6 - fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
   puma:
     name: "Puma"
     banding: true
@@ -829,7 +843,7 @@ monsters:
       - type: "highlands_rock_outcrop"
         radius: 4
 
-  # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
+  # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
     banding: true
@@ -861,7 +875,7 @@ monsters:
       - type: "highlands_pine"
         radius: 3
 
-  # L9 — armored elf knight. High AC + physical resist, melee bruiser.
+  # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
     banding: true
@@ -891,7 +905,7 @@ monsters:
       - type: "highlands_ruin_wall"
         radius: 4
 
-  # L10 — brute. Huge HP, hits hard, slow; resists physical, burns to fire.
+  # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
     level: 10
@@ -920,7 +934,7 @@ monsters:
       - type: "highlands_boulder"
         radius: 3
 
-  # L11 — glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
+  # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
     level: 11
@@ -952,7 +966,7 @@ monsters:
       - type: "highlands_ruin_wall"
         radius: 4
 
-  # L12 — undead caster mini-boss (top of the 6-12 band, below dragons). Dark
+  # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
     type: "undead"
@@ -1295,7 +1309,7 @@ monsters:
       light: -50     # undead: vulnerable to light
 
   # Boss: dormant on the throne (visible, inert) until the castle_armory quest
-  # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
+  # completes, then aggressive - ignores armor, rallies adds, enrages below 480 HP.
   old_samurai:
     type: "formless"
     name: "Samurai Warlord"
@@ -1513,7 +1527,7 @@ monsters:
       physical: 30
 
   # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
-  # (warlord_idol) lives — break all idols and he ACTIVATES as a normal aggressive
+  # (warlord_idol) lives - break all idols and he ACTIVATES as a normal aggressive
   # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
   # enrage_at_hp once active (enrage is HP-driven, not the ward).
   orc_hero_boss:
@@ -1541,7 +1555,7 @@ monsters:
     summon_count: 2
     summon_max: 4
     # Revenge: when the Warlord dies, every human on the map (Amazons, NOT goblins
-    # or beasts) flies into a relentless map-wide hunt for the party — a surprise.
+    # or beasts) flies into a relentless map-wide hunt for the party - a surprise.
     death_rallies_type: "human"
     gold_min: 5000
     gold_max: 8000

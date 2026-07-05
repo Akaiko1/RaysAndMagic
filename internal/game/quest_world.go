@@ -18,7 +18,7 @@ func questTileKey(tc quests.QuestTileChange) string {
 // applied, so what it sees IS the original. Needed to make syncQuestTiles
 // reversible: without the originals, a bridge laid in one run could never be
 // taken back off a world instance that outlives the quest state (e.g. loading
-// an older save — maps are NOT reloaded from disk on load).
+// an older save - maps are NOT reloaded from disk on load).
 func (g *MMGame) ensureQuestTileOriginals() {
 	if g.questTileOriginals != nil || g.questManager == nil {
 		return
@@ -38,7 +38,7 @@ func (g *MMGame) ensureQuestTileOriginals() {
 // syncQuestTiles makes the loaded maps MATCH quest state, both ways: a
 // completed quest's on_complete_tiles are applied, and a NOT-completed quest's
 // positions revert to their pristine originals. The revert half is what keeps
-// world changes save-safe — loading a save where the quest isn't done (or
+// world changes save-safe - loading a save where the quest isn't done (or
 // resetting quests for a new run) must take the bridge back out of the shared
 // loaded-map instances, which persist across loads. Idempotent; called
 // whenever a quest may have just completed and after a save restores quest
@@ -86,14 +86,14 @@ func (g *MMGame) syncQuestTiles() {
 		}
 	}
 	// The floor renderer bakes tile colors/textures into per-map images at map
-	// entry — a swapped tile keeps DRAWING as the old one (walkable water!)
+	// entry - a swapped tile keeps DRAWING as the old one (walkable water!)
 	// until the bake reruns. Other maps re-bake on switch.
 	if changedCurrent && g.gameLoop != nil && g.gameLoop.renderer != nil {
 		g.gameLoop.renderer.precomputeFloorColorCache()
 	}
 }
 
-// applyCompletedQuestTiles is the historical name for syncQuestTiles — kept so
+// applyCompletedQuestTiles is the historical name for syncQuestTiles - kept so
 // call sites read naturally at quest-completion triggers.
 func (g *MMGame) applyCompletedQuestTiles() { g.syncQuestTiles() }
 
@@ -107,7 +107,7 @@ func (g *MMGame) worldByKey(mapKey string) *world.World3D {
 }
 
 // completeExterminationQuests finishes map-scoped kill quests the moment their
-// last living target dies, regardless of the kill counter — "clear the map"
+// last living target dies, regardless of the kill counter - "clear the map"
 // semantics (the counter can drift: targets slain before the quest was taken,
 // or killed on other maps). Mirrors creditClearedKillQuests, which grants the
 // same credit at dialogue time.
@@ -121,7 +121,7 @@ func (g *MMGame) completeExterminationQuests(monsterType string) {
 			continue
 		}
 		living := g.syncExterminationQuestProgress(q.ID)
-		if living < 0 { // not an exterminate quest — sync didn't scan, so do it here
+		if living < 0 { // not an exterminate quest - sync didn't scan, so do it here
 			living = g.countLivingQuestTargets(q.Definition.TargetMonster, q.Definition.TargetMap)
 		}
 		if living == 0 {

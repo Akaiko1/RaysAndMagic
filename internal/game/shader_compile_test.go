@@ -7,7 +7,7 @@ import (
 )
 
 // Kage sources compile at runtime, so a Go build can't catch shader syntax
-// errors — compile them here so a broken shader fails the suite, not the game.
+// errors - compile them here so a broken shader fails the suite, not the game.
 func TestKageShadersCompile(t *testing.T) {
 	for name, src := range map[string]string{
 		"floor":    floorShaderSrc,

@@ -12,7 +12,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// The thief's trap book — rendered in the spellbook tab slot for characters
+// The thief's trap book - rendered in the spellbook tab slot for characters
 // with the Trapper skill (they have no magic schools). Spell-like controls:
 // click / Up-Down browse a selection, Enter/F or double-click equip it as the
 // QuickTrap that Space arms in the world.

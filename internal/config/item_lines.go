@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Presentation lines for items — the ONE formatter behind the in-game item
+// Presentation lines for items - the ONE formatter behind the in-game item
 // tooltip and the map-editor card (same contract as the weapon/spell/trap
 // EffectLines). New YAML fields get a line HERE, and every consumer shows it.
 
@@ -14,7 +14,7 @@ import (
 var nonPhysicalSchools = []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
 
 // StatBonusLines lists the item's flat stat bonuses and scaling-divisor
-// bonuses (divisors are STAT bonuses computed from the base stat — they feed
+// bonuses (divisors are STAT bonuses computed from the base stat - they feed
 // everything the stat feeds).
 func (d *ItemDefinitionConfig) StatBonusLines() []string {
 	var parts []string
@@ -124,7 +124,7 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
 // text, derived from its Card* fields. Shared by the item tooltip (via
-// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only —
+// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string

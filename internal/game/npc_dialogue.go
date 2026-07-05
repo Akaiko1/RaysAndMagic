@@ -15,7 +15,7 @@ const (
 )
 
 // linkedQuestID returns the quest_id of the NPC's give_quest / turn_in_quest
-// choice — the quest whose status drives the dialogue. "" for non-quest NPCs.
+// choice - the quest whose status drives the dialogue. "" for non-quest NPCs.
 func linkedQuestID(npc *character.NPC) string {
 	if npc == nil || npc.DialogueData == nil {
 		return ""
@@ -91,7 +91,7 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 			return d.CompletedMessage
 		}
 	case npcStateConcluded:
-		return d.VisitedMessage // may be "" → renderer shows just "Press ESC"
+		return d.VisitedMessage // may be "" -> renderer shows just "Press ESC"
 	default:
 		// Offer state. On a spell-trader's Quests tab, lead with the quest hook
 		// rather than the shop-welcome Greeting (Spells tab keeps the Greeting).
@@ -113,7 +113,7 @@ const (
 	dialoguePromptHeight = 20
 
 	// The standard centered NPC dialog box. Renderer and every mouse handler
-	// must use npcDialogLayout — a hardcoded copy that drifts desyncs click
+	// must use npcDialogLayout - a hardcoded copy that drifts desyncs click
 	// rects from drawn pixels.
 	npcDialogWidth  = 600
 	npcDialogHeight = 400
@@ -134,7 +134,7 @@ func npcDialogLayout(g *MMGame) npcDialogRect {
 // npcDialogKind classifies which dialog UI/input an NPC gets. The input
 // dispatcher, the dialog renderer and the HUD interaction prompt all switch on
 // THIS, so the priority order (a spell trader with quest choices is still a
-// spell trader — choices live on its Quests tab) can never drift between them.
+// spell trader - choices live on its Quests tab) can never drift between them.
 type npcDialogKind int
 
 const (

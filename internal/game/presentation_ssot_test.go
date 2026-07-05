@@ -12,7 +12,7 @@ import (
 )
 
 // The weapon tooltip's cooldown line must quote the SAME frames the RT loop
-// charges (WeaponCooldownFramesFor) — including weapon-type multipliers.
+// charges (WeaponCooldownFramesFor) - including weapon-type multipliers.
 func TestTooltip_WeaponCooldownMatchesCombat(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	weapon := thief.Equipment[items.SlotMainHand] // magic dagger
@@ -24,7 +24,7 @@ func TestTooltip_WeaponCooldownMatchesCombat(t *testing.T) {
 }
 
 // The spell tooltip's cooldown line must quote SpellCooldownFrames (per-spell
-// cooldown_seconds × speed factor × staff modifier), not a generic curve.
+// cooldown_seconds x speed factor x staff modifier), not a generic curve.
 func TestTooltip_SpellCooldownMatchesCombat(t *testing.T) {
 	cfg := loadTestConfig(t)
 	w := newTestWorld(cfg)
@@ -40,7 +40,7 @@ func TestTooltip_SpellCooldownMatchesCombat(t *testing.T) {
 	}
 }
 
-// Archmage Staff carries spell_cooldown_multiplier 0.8 → its EffectLines must
+// Archmage Staff carries spell_cooldown_multiplier 0.8 -> its EffectLines must
 // surface "Spell cooldown -20%" (combat applies it in SpellCooldownFrames).
 func TestWeaponEffectLines_CooldownModifiers(t *testing.T) {
 	loadTestConfig(t)
@@ -54,7 +54,7 @@ func TestWeaponEffectLines_CooldownModifiers(t *testing.T) {
 	}
 }
 
-// Golden Thief Bug Carapace's defining power is its resistances — the shared
+// Golden Thief Bug Carapace's defining power is its resistances - the shared
 // item formatter must list them.
 func TestItemEffectLines_CarapaceResistances(t *testing.T) {
 	loadTestConfig(t)
@@ -68,7 +68,7 @@ func TestItemEffectLines_CarapaceResistances(t *testing.T) {
 	}
 }
 
-// Stat descriptions must quote the REAL balance constants — hand-typed
+// Stat descriptions must quote the REAL balance constants - hand-typed
 // divisors drifted twice (Intellect/3 and Personality/4 were both invented).
 func TestStatDescriptions_QuoteRealConstants(t *testing.T) {
 	intDesc := character.StatDescription("intellect")

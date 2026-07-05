@@ -3,7 +3,7 @@ package game
 import "math"
 
 // AngleNorth is the camera angle that faces north (up). Cardinal convention:
-// East=0, South=π/2, West=π, North=3π/2 (see snapToCardinalDirection).
+// East=0, South=pi/2, West=pi, North=3pi/2 (see snapToCardinalDirection).
 const AngleNorth = 3 * math.Pi / 2
 
 // Distance calculates the Euclidean distance between two 2D points.

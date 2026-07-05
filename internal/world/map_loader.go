@@ -191,7 +191,7 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 // entity dropped onto a floor-variant patch blends in instead of stamping the biome
 // default '.'. Other entity cells are skipped from the vote. Falls back to the biome
 // '.' floor when no floor neighbour exists. Uses the same vote as inherit_floor
-// markers — see TileManager.DominantNeighbourFloor.
+// markers - see TileManager.DominantNeighbourFloor.
 func (ml *MapLoader) resolveUnderEntityFloors(md *MapData, autoFloored map[[2]int]bool) {
 	if GlobalTileManager == nil || len(autoFloored) == 0 {
 		return

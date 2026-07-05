@@ -53,7 +53,7 @@ func TestMapLoader_SpecialTileByKey(t *testing.T) {
 
 // TestMapLoader_UnderEntityFloorDominantNeighbour: the auto-default floor under a
 // placed entity ('@') matches the dominant FLOOR variant around it, not the bare
-// biome '.' default — and stays the '.' default when neighbours are uniform.
+// biome '.' default - and stays the '.' default when neighbours are uniform.
 func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	tm := NewTileManager()
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
@@ -89,20 +89,20 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 		return md
 	}
 
-	// '@' ringed by wood → under-tile becomes wood (dominant), not the '.' cobble default.
+	// '@' ringed by wood -> under-tile becomes wood (dominant), not the '.' cobble default.
 	md := load(t, ",,,\n,@,\n,,,\n")
 	if got := md.Tiles[1][1]; got != wood {
 		t.Fatalf("under-entity tile = %v, want dominant wood %v", got, wood)
 	}
 
-	// '@' ringed by the default '.' floor → unchanged (cobble).
+	// '@' ringed by the default '.' floor -> unchanged (cobble).
 	md = load(t, "...\n.@.\n...\n")
 	if got := md.Tiles[1][1]; got != cobble {
 		t.Fatalf("under-entity tile = %v, want default cobble %v", got, cobble)
 	}
 
 	// 'W' (water) is render_type "floor_only" but NOT walkable: it must never be
-	// voted as floor. '@' ringed only by water → no floor neighbour → biome '.'
+	// voted as floor. '@' ringed only by water -> no floor neighbour -> biome '.'
 	// fallback (cobble), never the impassable water tile.
 	water, ok := tm.GetTileTypeFromLetterForBiome("W", "japanese_castle")
 	if !ok {

@@ -19,7 +19,7 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 	delete(knight.Skills, character.SkillBow)
 
 	g.selectedChar = 3
-	cs.createArrowAttack(20)
+	cs.createArrowAttack(20, items.SlotMainHand)
 	if len(g.arrows) == 0 {
 		t.Fatal("no arrow spawned")
 	}
@@ -28,14 +28,14 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 		t.Fatalf("arrow stamped with %v, want the archer", arrow.Attacker)
 	}
 
-	// Selection auto-advances to the knight — and the tavern even swaps the
-	// archer out — while the arrow flies: the POINTER still names the shooter.
+	// Selection auto-advances to the knight - and the tavern even swaps the
+	// archer out - while the arrow flies: the POINTER still names the shooter.
 	g.selectedChar = 0
 	g.party.Members[3] = knight
 	bowDef := lookupWeaponConfigByKey(arrow.BowKey)
 	trueDmg, ignoreDodge := cs.weaponMasteryStrike(arrow.Attacker, bowDef)
 	if trueDmg != 3*MasteryWeaponTrueDamagePerTier || !ignoreDodge {
-		t.Errorf("impact mastery = (%d,%v), want GM archer's (%d,true) — not the selected knight's",
+		t.Errorf("impact mastery = (%d,%v), want GM archer's (%d,true) - not the selected knight's",
 			trueDmg, ignoreDodge, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }

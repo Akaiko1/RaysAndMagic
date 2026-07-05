@@ -285,7 +285,7 @@ loots:
       key: "lich_king_card"
       chance: 0.01
 
-  # Highlands mid-tier mobs (L6-12) — gear + monster-trophy cards.
+  # Highlands mid-tier mobs (L6-12) - gear + monster-trophy cards.
   puma:
     - type: "weapon"
       key: "agility_katar"
@@ -358,7 +358,7 @@ loots:
       key: "lich_card"
       chance: 0.03
 
-  # Elemental dragons — each hoards a signature gem (base dragon: ruby, above).
+  # Elemental dragons - each hoards a signature gem (base dragon: ruby, above).
   dragon_red:
     - type: "item"
       key: "diamond"
@@ -678,7 +678,7 @@ loot_tables:
         weight: 3
 
   # Lost-city treasury, rolled by the deep_jungle boss-clear chest (loot_table).
-  # ZONE gear + gold only — no uniques listed, so legendaries can't leak.
+  # ZONE gear + gold only - no uniques listed, so legendaries can't leak.
   lost_city_cache:
     rolls: 3
     gold_min: 400

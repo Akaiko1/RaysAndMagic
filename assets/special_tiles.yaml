@@ -9,7 +9,7 @@ special_tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [138, 43, 226]  # Violet — now the teleporter-glow tint, not the floor
+    floor_color: [138, 43, 226]  # Violet - now the teleporter-glow tint, not the floor
     inherit_floor: true          # ground takes the surrounding biome floor; colour shows as a glow
     properties:
       cooldown_seconds: 5
@@ -29,7 +29,7 @@ special_tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [220, 20, 60]  # Crimson — now the teleporter-glow tint, not the floor
+    floor_color: [220, 20, 60]  # Crimson - now the teleporter-glow tint, not the floor
     inherit_floor: true          # ground takes the surrounding biome floor; colour shows as a glow
     properties:
       cooldown_seconds: 5

@@ -14,7 +14,7 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
-	// Completeness check = the FULL (Shift-held) view: the Base→Stat→Mastery
+	// Completeness check = the FULL (Shift-held) view: the Base->Stat->Mastery
 	// decomposition and the universal RULES are detail-only, hidden in the
 	// default compact tooltip.
 	lines := func(id string) string {
@@ -47,7 +47,7 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		// Scaling is now a structured decomposition line ("Stat (value /
 		// divisor): +N") instead of a prose "scales with" sentence.
 		{"firebolt", "Intellect ("},
-		{"psychic_shock", "Personality ("}, // self-magic school → Personality
+		{"psychic_shock", "Personality ("}, // self-magic school -> Personality
 		{"hot_steam", "Intellect ("},
 		{"heal", "Personality ("},
 		{"inferno", "within 7.0 tiles for 45 damage"},

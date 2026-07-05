@@ -16,7 +16,7 @@ import (
 // that each effect family (damage projectile, heal, party-heal, revive, awaken,
 // AoE-stun, zone, party-nova, buff, utility) actually fires. Projectile on-hit
 // riders (charm/disintegrate/psychic-shock) are covered by asserting the
-// projectile spawns — the hit itself resolves on collision elsewhere.
+// projectile spawns - the hit itself resolves on collision elsewhere.
 func TestEverySpell_CastsAndApplies(t *testing.T) {
 	// tbBehaviorGame loads the YAML configs (populating config.GlobalSpells).
 	tbBehaviorGame(t, 5, 5)
@@ -124,7 +124,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 			default:
 				// Pure utility (torch_light, wizard_eye, walk_on_water,
 				// water_breathing): the cast firing + SP consumption above is the
-				// guarantee — they have no combat-state effect to probe here.
+				// guarantee - they have no combat-state effect to probe here.
 			}
 		})
 	}

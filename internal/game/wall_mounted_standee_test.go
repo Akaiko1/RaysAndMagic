@@ -11,7 +11,7 @@ import (
 // MIDDLE of its tile. The NPC render loop uses a one-tile near-cull for normal
 // floor-anchored sprites, while the env-sprite metrics also drop anything closer
 // than ~5px. When the anchor was the tile CENTRE, a camera at the centre sat at
-// distance ~0 and the gate was culled upstream — before any wall-mount draw code
+// distance ~0 and the gate was culled upstream - before any wall-mount draw code
 // ran. After moving the anchor to the wall, the distance is still only half a
 // tile, so wall-mounted NPCs must bypass the one-tile near-cull specifically.
 //
@@ -35,7 +35,7 @@ func TestWallStickPose_AnchorClearsNearCullAtTileCentre(t *testing.T) {
 		t.Fatal(`"wall" tile key missing from tiles.yaml`)
 	}
 	if !tm.IsSolid(wallType) {
-		t.Fatal(`"wall" tile is not solid — pick another for the fixture`)
+		t.Fatal(`"wall" tile is not solid - pick another for the fixture`)
 	}
 	floorType, ok := tm.GetTileTypeFromKey("grass")
 	if !ok {
@@ -83,7 +83,7 @@ func TestWallStickPose_AnchorClearsNearCullAtTileCentre(t *testing.T) {
 	// to wall-mounted NPCs.
 	wallDist := math.Hypot(wx-camX, wy-camY)
 	if wallDist < 5 {
-		t.Fatalf("wall anchor only %.1fpx from a centred camera — still inside the near-cull", wallDist)
+		t.Fatalf("wall anchor only %.1fpx from a centred camera - still inside the near-cull", wallDist)
 	}
 	if wallDist >= ts {
 		t.Fatalf("fixture wrong: wall anchor %.1fpx should still be inside the generic one-tile near-cull %.1f", wallDist, ts)
@@ -92,11 +92,11 @@ func TestWallStickPose_AnchorClearsNearCullAtTileCentre(t *testing.T) {
 		t.Errorf("wall anchor %.1fpx from centre, expected ~half a tile (%.1f)", wallDist, ts*0.5)
 	}
 
-	// East wall ⇒ anchor slides east, slab axis runs along the wall (yaw = π/2).
+	// East wall => anchor slides east, slab axis runs along the wall (yaw = pi/2).
 	if wx <= npcX {
 		t.Errorf("east wall: anchor should be east of centre (wx=%.1f npcX=%.1f)", wx, npcX)
 	}
 	if math.Abs(yaw-math.Pi/2) > 1e-6 {
-		t.Errorf("east/west wall yaw should be π/2, got %.4f", yaw)
+		t.Errorf("east/west wall yaw should be pi/2, got %.4f", yaw)
 	}
 }

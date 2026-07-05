@@ -9,7 +9,7 @@ import (
 )
 
 // The unified card template, shared by the in-game tooltips and the map
-// editor: UPPERCASE sections, base → scaling → total decomposition, RULES
+// editor: UPPERCASE sections, base -> scaling -> total decomposition, RULES
 // always spelling out armor/resistance interaction. The game renders it with
 // the CASTER's numbers (internal/game/ui_tooltip_unified.go); the editor
 // renders the character-independent variant below (formulas instead of
@@ -25,10 +25,10 @@ type cardLine struct {
 // CardSection is one titled block of the template. Lines keep INSERTION ORDER
 // with a per-line compact/detail flag: Add() lines show always (totals, costs,
 // the item's special effects + must-see flags), AddDetail() lines only in the
-// full view (Shift held in-game) — the Base→Stat→Mastery decomposition and the
+// full view (Shift held in-game) - the Base->Stat->Mastery decomposition and the
 // universal armor/resistance RULES. Keeping one ordered list (not two arrays)
 // means the full view renders in the SAME order the builder added them, so a
-// decomposition added before its Total reads "Base → … → Total", not reversed.
+// decomposition added before its Total reads "Base -> ... -> Total", not reversed.
 type CardSection struct {
 	Title string
 	lines []cardLine
@@ -66,7 +66,7 @@ func SectionsHaveDetail(sections []CardSection) bool {
 
 // RenderCardLines flattens sections into display lines, hiding empty sections.
 // Lines render in insertion order; compact (full=false) skips detail lines.
-// The map editor always passes true — it's a reference panel, not a tooltip.
+// The map editor always passes true - it's a reference panel, not a tooltip.
 func RenderCardLines(sections []CardSection, full bool) []string {
 	var out []string
 	for _, sec := range sections {
@@ -89,7 +89,7 @@ func RenderCardLines(sections []CardSection, full bool) []string {
 	return out
 }
 
-// DamageTypeAoELine composes "Fire Damage · 2-tile AoE" (any element).
+// DamageTypeAoELine composes "Fire Damage - 2-tile AoE" (any element).
 func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	dt := damageType
 	if dt == "" {
@@ -97,7 +97,7 @@ func DamageTypeAoELine(damageType string, aoeTiles float64) string {
 	}
 	line := strings.Title(dt) + " Damage"
 	if aoeTiles > 0 {
-		line += fmt.Sprintf(" · %.0f-tile AoE", aoeTiles)
+		line += fmt.Sprintf(" - %.0f-tile AoE", aoeTiles)
 	}
 	return line
 }
@@ -152,7 +152,7 @@ func MeleeArcShortLabel(def *config.WeaponDefinitionConfig) string {
 	}
 }
 
-// ProjectileHitboxLine reports a projectile's collision footprint in tiles — its
+// ProjectileHitboxLine reports a projectile's collision footprint in tiles - its
 // accuracy size, a wider box is easier to land. Mirrors GetCollisionSizePixels'
 // 0.5-tile floor. Returns "" when there is no projectile physics.
 func ProjectileHitboxLine(physics *config.ProjectilePhysicsConfig) string {
@@ -174,14 +174,14 @@ const SplashCritRule = "A critical hit on the primary target boosts the splash d
 // CooldownLine formats a real-time cooldown, noting that turn-based combat
 // ignores the seconds and spends the actor's single action for the turn instead.
 func CooldownLine(seconds float64) string {
-	return fmt.Sprintf("RT Cooldown: %.1fs · TB: 1 action", seconds)
+	return fmt.Sprintf("RT Cooldown: %.1fs - TB: 1 action", seconds)
 }
 
 // ArmorInteractionLines spells out how a damage type meets the target's defenses
 // under the percentage armor model: armor mitigates physical up to its cap and
 // elemental up to a lower cap (diminishing returns), elemental also meets
 // Resistance, ranged physical shots can pierce armor. Universal/educational RULES
-// → DETAIL tier (full view only); the map editor renders full and still shows them.
+// -> DETAIL tier (full view only); the map editor renders full and still shows them.
 func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTrueDmg bool) {
 	dt := strings.ToLower(damageType)
 	if dt == "" || dt == "physical" {
@@ -193,14 +193,14 @@ func ArmorInteractionLines(sec *CardSection, damageType string, isRanged, hasTru
 		sec.AddDetail("Reduced by target Armor (up to %d%%) and %s Resistance", ArmorElementalMitigationCap, strings.Title(dt))
 	}
 	if hasTrueDmg {
-		// Resistance still applies to the summed hit — true damage only
+		// Resistance still applies to the summed hit - true damage only
 		// bypasses ARMOR and lands through Perfect Dodge.
 		sec.AddDetail("True Damage ignores armor and lands through dodges")
 	}
 }
 
 // FilteredSpellEffectLines drops the EffectLines entries the unified template
-// renders STRUCTURED elsewhere (the composed "X Damage · AoE" line and the
+// renders STRUCTURED elsewhere (the composed "X Damage - AoE" line and the
 // decomposed DAMAGE/HEALING sections), so they don't appear twice.
 func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 	var out []string
@@ -222,14 +222,14 @@ func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 // build*TooltipUnified (internal/game/ui_tooltip_unified.go), instead of one
 // unified builder:
 //
-//  1. Dependency direction. Every live number on the game card — the damage
+//  1. Dependency direction. Every live number on the game card - the damage
 //     decomposition, crit breakdown, the cooldown computed from the caster's
 //     Speed, effective stats, mastery bonuses, the active-buff bonus, the
-//     Meditation discount — is produced by CombatSystem, which lives in package
+//     Meditation discount - is produced by CombatSystem, which lives in package
 //     `game`. The map editor (assets/map_viewer) imports `character` but MUST
 //     NOT import `game`. A single builder living here would therefore have to
 //     pull ~14 combat operations back through an injected interface that
-//     `character` defines and `game` implements — which makes the tooltip a
+//     `character` defines and `game` implements - which makes the tooltip a
 //     second, full API surface over the entire combat system. That coupling is
 //     worse than the duplication it removes.
 //
@@ -243,13 +243,13 @@ func FilteredSpellEffectLines(sd spells.SpellDefinition) []string {
 // So the two builders are kept deliberately parallel: SAME section order, SHARED
 // EffectLines / rule helpers / constants, but each owns its own term rendering.
 // The risk of that arrangement is drift (one builder forgetting a term the other
-// has — exactly how Ray of Light lost its Personality term and the editor lost
+// has - exactly how Ray of Light lost its Personality term and the editor lost
 // its Arms Master and crit lines). TestCardParity_* (internal/game) re-derives a
 // normalized mechanic skeleton from BOTH rendered cards and fails the suite if
 // they disagree, turning this convention into an enforced contract. The eventual
 // clean unification is "spec + precomputed CardFacts" (the game computes facts
 // once via CombatSystem; the editor builds the same facts with nil values; one
-// renderer picks value-or-formula) — NOT an injected CombatSystem.
+// renderer picks value-or-formula) - NOT an injected CombatSystem.
 
 // WeaponCardSections renders a weapon in template shape with formulas in
 // place of caster numbers.
@@ -302,7 +302,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 		crit.Add("Grandmaster weapon: +%d%%", WeaponGMCritBonus)
 	}
 	crit.Add("Grandmaster Arms Master: +%d%%", ArmsMasterGMCritBonus)
-	crit.Add("Critical hits deal ×%d damage", CritDamageMultiplier)
+	crit.Add("Critical hits deal x%d damage", CritDamageMultiplier)
 
 	effects := CardSection{Title: "EFFECTS"}
 	effects.Add("%s", DamageTypeAoELine(def.DamageType, def.AoeRadiusTiles))
@@ -360,9 +360,9 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	if sd.IsProjectile && !sd.DealsNoDamage {
 		mult := def.DamageCostMultiplier
 		if mult <= 1 {
-			dmg.Add("Base (%d SP × %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, def.SpellPointsCost*spells.SpellDamagePerSP)
+			dmg.Add("Base (%d SP x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, def.SpellPointsCost*spells.SpellDamagePerSP)
 		} else {
-			dmg.Add("Base (%d SP × %d × %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, def.SpellPointsCost*spells.SpellDamagePerSP*mult)
+			dmg.Add("Base (%d SP x %d x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, def.SpellPointsCost*spells.SpellDamagePerSP*mult)
 		}
 		stat := "Intellect"
 		if spells.SchoolScalesWithPersonality(def.School) {
@@ -395,12 +395,12 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 	}
 
 	// Damage projectiles crit on a Luck-based roll (no base crit for spells) for
-	// ×CritDamageMultiplier — the in-game card shows the same block, so it must
+	// xCritDamageMultiplier - the in-game card shows the same block, so it must
 	// appear here too (character-independent form).
 	crit := CardSection{Title: "CRITICAL"}
 	if sd.IsProjectile && !sd.DealsNoDamage {
 		crit.Add("Chance: Luck / %d", LuckToCritDivisor)
-		crit.Add("Critical hits deal ×%d damage", CritDamageMultiplier)
+		crit.Add("Critical hits deal x%d damage", CritDamageMultiplier)
 	}
 
 	zone := CardSection{Title: "ZONE"}
@@ -467,8 +467,8 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 }
 
 // MonsterSpellCardSections renders a MONSTER-ONLY spell. Monsters cast these
-// with their OWN attack damage (combat.go spawnMonsterSpellProjectile) — no SP
-// cost, no Intellect/mastery scaling, no crit — so the player-formula card would
+// with their OWN attack damage (combat.go spawnMonsterSpellProjectile) - no SP
+// cost, no Intellect/mastery scaling, no crit - so the player-formula card would
 // be a fiction. Disintegrate / AoE / stun riders still fire, so the EffectLines
 // stay.
 func MonsterSpellCardSections(def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {

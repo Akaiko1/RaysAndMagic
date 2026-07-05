@@ -11,7 +11,7 @@ import (
 
 // spawnWeaponBoltImpact spawns the impact effect for a ranged WEAPON projectile:
 // a magical school burst for a staff/book (projectile_school set), a fire/element
-// burst for an AoE bow (e.g. Bow of Hellfire), and nothing for a plain arrow —
+// burst for an AoE bow (e.g. Bow of Hellfire), and nothing for a plain arrow -
 // the arrow simply vanishes on hit. Single source for the monster- and wall-hit paths.
 func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDefinitionConfig, count, size int) {
 	if weaponDef == nil {
@@ -29,7 +29,7 @@ func (g *MMGame) spawnWeaponBoltImpact(x, y float64, weaponDef *config.WeaponDef
 		}
 		g.CreateSpellHitEffect(x, y, el, count, size)
 	}
-	// Plain arrow: no impact effect — it just disappears.
+	// Plain arrow: no impact effect - it just disappears.
 }
 
 const (
@@ -46,7 +46,7 @@ func (g *MMGame) CreateSpellHitEffectFromSpell(x, y float64, spellID string) {
 	damage := 1
 	if err == nil {
 		element = def.School
-		// Use the canonical damage formula (cost × SpellDamagePerSP) so the
+		// Use the canonical damage formula (cost x SpellDamagePerSP) so the
 		// visual scales follow the same balance lever as actual damage.
 		if base := def.SpellPointsCost * spells.SpellDamagePerSP; base > 0 {
 			damage = base
@@ -135,7 +135,7 @@ func spellHitStyle(element string) string {
 	}
 }
 
-// ImpactLight is a short-lived point light left where a spell lands — fed into
+// ImpactLight is a short-lived point light left where a spell lands - fed into
 // the floor shader and sprite brightness, so impacts visibly flash the world.
 type ImpactLight struct {
 	X, Y          float64
@@ -179,7 +179,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 	})
 	style := spellHitStyle(element)
 	// Bigger spells (larger particleSize, set from damage+radius) throw their
-	// burst WIDER, not just denser — a fireball blast dwarfs a bolt's.
+	// burst WIDER, not just denser - a fireball blast dwarfs a bolt's.
 	spread := 1.0 + float64(particleSize-SpellParticleSize)*0.14
 	if spread < 1 {
 		spread = 1
@@ -223,7 +223,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 			life -= 4
 			tint = mixColor(baseColor, [3]int{255, 255, 235}, rand.Float64()*0.6)
 		case "static": // air = lightning/sparks: jagged electric crackle, gone in a snap
-			vx *= 1.4 + rand.Float64()*1.4 // wildly uneven speeds → spiky, not a round star
+			vx *= 1.4 + rand.Float64()*1.4 // wildly uneven speeds -> spiky, not a round star
 			vy *= 1.4 + rand.Float64()*1.4
 			life -= 6
 			tint = mixColor(baseColor, [3]int{255, 255, 255}, rand.Float64()*0.7)
@@ -264,7 +264,7 @@ func (g *MMGame) createSpellHitEffectStyled(x, y float64, element string, partic
 			Gravity:  grav,
 			Color:    particleColor,
 			LifeTime: life,
-			MaxLife:  life, // fade ratio uses LifeTime/MaxLife — must match the per-particle life
+			MaxLife:  life, // fade ratio uses LifeTime/MaxLife - must match the per-particle life
 			Size:     particleSize,
 			Star:     stars,
 			Active:   true,
@@ -302,8 +302,8 @@ func (g *MMGame) spawnBlinkLightColumn(x, y float64) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true, Particles: parts})
 }
 
-// spawnImpactSparks throws a quick radial burst of bright white→gold sparks at
-// a world point — the weapon-hit feedback when the party strikes a monster.
+// spawnImpactSparks throws a quick radial burst of bright white->gold sparks at
+// a world point - the weapon-hit feedback when the party strikes a monster.
 func (g *MMGame) spawnImpactSparks(x, y float64) {
 	g.hitEffectsMu.Lock()
 	defer g.hitEffectsMu.Unlock()
@@ -336,7 +336,7 @@ func (g *MMGame) spawnImpactSparks(x, y float64) {
 
 // spawnStarburstFx drops a small star into every tile within `radiusTiles` of
 // the impact point: each star is a cluster of bright particles that begins above
-// the tile and falls into it (Starburst). Purely visual — damage is handled by
+// the tile and falls into it (Starburst). Purely visual - damage is handled by
 // the spell's AoE splash.
 func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
 	g.hitEffectsMu.Lock()
@@ -358,7 +358,7 @@ func (g *MMGame) spawnStarburstFx(cx, cy, radiusTiles float64) {
 			}
 			particles := make([]SpellHitParticle, 0, 6)
 			for i := 0; i < 6; i++ {
-				tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white→gold sparkle
+				tint := mixColor(star, [3]int{255, 230, 140}, rand.Float64()*0.5) // white->gold sparkle
 				life := SpellParticleLife + rand.Intn(8)
 				particles = append(particles, SpellHitParticle{
 					X:        wx,
@@ -395,7 +395,7 @@ func clampColor(c int) int {
 // UpdateHitEffects updates all hit effects (called from game loop)
 func (g *MMGame) UpdateHitEffects() {
 	// Trail breadcrumbs spawned this frame (collected, then appended AFTER the
-	// in-place compaction below — never mutate g.spellHitEffects mid-iteration).
+	// in-place compaction below - never mutate g.spellHitEffects mid-iteration).
 	var trail []SpellHitEffect
 
 	// Update spell hit effects

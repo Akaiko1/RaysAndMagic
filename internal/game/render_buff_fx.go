@@ -12,7 +12,7 @@ import (
 
 // Buff-cast overlay: a short 4-frame animation (w==h*4 sheet, white keyed to
 // alpha) played once, centred in the party's view, when a buff spell resolves.
-// Screen-space like the melee flourish — no camera/depth involvement.
+// Screen-space like the melee flourish - no camera/depth involvement.
 
 const (
 	buffFxTotalFrames  = 56  // ~0.9s at 60 TPS
@@ -79,7 +79,7 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 
 		fw, fh := img.Bounds().Dx(), img.Bounds().Dy()
 		// Stay close to native size (never upscale past 1:1) and shrink with the
-		// same linear filter the portraits use — nearest at fractional scales
+		// same linear filter the portraits use - nearest at fractional scales
 		// visibly mushes the pixel art.
 		scale := sh * buffFxHeightFrac / float64(fh)
 		if scale > 1 {
@@ -95,7 +95,7 @@ func (r *Renderer) drawBuffFx(screen *ebiten.Image) {
 }
 
 // validateBuffFxSprites fails fast on a buff_fx_sprite that points at a sheet
-// missing from the sprite index — a YAML typo would otherwise show the
+// missing from the sprite index - a YAML typo would otherwise show the
 // placeholder box mid-screen at the first cast. Skipped when no sprite assets
 // are present at the working dir (headless test runs).
 func (g *MMGame) validateBuffFxSprites() {

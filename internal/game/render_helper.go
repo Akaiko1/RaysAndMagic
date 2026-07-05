@@ -28,7 +28,7 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	// Division guard only — collision keeps the camera farther away than this.
+	// Division guard only - collision keeps the camera farther away than this.
 	// The wall's vanish-at-point-blank bug came from CAPPING the height while
 	// the floor anchor kept growing (the capped top sank below the screen);
 	// with the height uncapped the projection stays correct at any range, and
@@ -381,9 +381,9 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 // so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
 //
 // sizeMultiplier scales maxSize (how big a "size 4" NPC gets up close) and the
-// distance multiplier (so it grows proportionally), but NOT minSize — the floor
+// distance multiplier (so it grows proportionally), but NOT minSize - the floor
 // stays absolute so far-away NPCs recede to the same pixel size as small ones,
-// instead of clamping at a sizeMultiplier×bigger floor and appearing oversized
+// instead of clamping at a sizeMultiplierxbigger floor and appearing oversized
 // relative to the receding background.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeMultiplier <= 0 {
@@ -419,11 +419,11 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 //
 // Math notes:
 //   - Culling uses the Euclidean distance parameter; sizing uses PERPENDICULAR
-//     distance from projectToScreenX — Euclidean sizing would create fisheye
+//     distance from projectToScreenX - Euclidean sizing would create fisheye
 //     distortion at screen edges
 //   - The size cap is a numeric sanity bound only: any screen-pixel cap
 //     reachable at playable range makes the sprite SINK as the camera closes
-//     in — the floor anchor keeps growing ~1/d while the capped size stops,
+//     in - the floor anchor keeps growing ~1/d while the capped size stops,
 //     dragging the top below the viewport. The GPU clips oversize sprites.
 //   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
 //     so sprites appear grounded rather than floating
@@ -473,7 +473,7 @@ func (rh *RenderingHelper) spriteNearCull() float64 {
 // building, not the same size as a "size 1" NPC).
 //
 // There is deliberately NO maximum at playable range: a screen-pixel cap makes
-// the sprite SINK as the camera closes in — the floor anchor keeps growing
+// the sprite SINK as the camera closes in - the floor anchor keeps growing
 // ~1/d while the capped size stops, dragging the top below the viewport.
 func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
 	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
@@ -484,7 +484,7 @@ func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, dista
 // using a SCREEN-RELATIVE scaling model.
 //
 // Use this for entities that should grow freely as the player approaches
-// until they fill the viewport — environment props (trees, ferns, moss),
+// until they fill the viewport - environment props (trees, ferns, moss),
 // monsters, and ground containers (loot bags, treasure chests). There are
 // no per-instance bounds; the sprite is allowed to scale up to one screen
 // height (so a big monster fills the screen at point-blank range) and is
@@ -519,21 +519,21 @@ func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
 // floorShaderSrc is a Kage fragment shader that renders the perspective
 // floor. Per-fragment logic:
 //
-//	samplePx = floor(px/2)·2 + 1               # 2×2 block quantization
+//	samplePx = floor(px/2)-2 + 1               # 2x2 block quantization
 //	rowDist  = RowDistFactor / (samplePx.y - Horizon)
-//	s        = 2·samplePx.x / ScreenSize.x - 1
-//	floorX   = camX + rowDist·DirCos + rowDist·PlaneCos·s
-//	floorY   = camY + rowDist·DirSin + rowDist·PlaneSin·s
+//	s        = 2-samplePx.x / ScreenSize.x - 1
+//	floorX   = camX + rowDist-DirCos + rowDist-PlaneCos-s
+//	floorY   = camY + rowDist-DirSin + rowDist-PlaneSin-s
 //	tx, ty   = floor(floor[XY] / TileSize)
 //	base     = floorColorMap[tx, ty]
 //	idx      = floorTextureIndexMap[tx, ty].r - 1
-//	texel    = atlas[idx·TexW + int(localX·TexW), int(localY·TexH)]
-//	weight   = 0.8 · (1 - smoothstep(1.5, 5.0, texelsPerPixel))
-//	color    = mix(base, texel, weight) · brightness(dist, lights)
+//	texel    = atlas[idx-TexW + int(localX-TexW), int(localY-TexH)]
+//	weight   = 0.8 - (1 - smoothstep(1.5, 5.0, texelsPerPixel))
+//	color    = mix(base, texel, weight) - brightness(dist, lights)
 //
 // Inputs:
 //
-//	Images[0] = floorColorMap (worldW×worldH RGBA8 base colors)
+//	Images[0] = floorColorMap (worldWxworldH RGBA8 base colors)
 //	Images[1] = floorTexAtlas (horizontal strip of N floor textures)
 //	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
 const floorShaderSrc = `//kage:unit pixels
@@ -689,7 +689,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // manual bilinear filtering and X-axis wrap. Doing this in a custom shader
 // lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
 // (which break batching and force the source out of the texture atlas).
-// turnBlurShaderSrc is a horizontal directional blur — camera motion blur for a
+// turnBlurShaderSrc is a horizontal directional blur - camera motion blur for a
 // yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
 // averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
 // scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
@@ -754,7 +754,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // drawSkyPanorama draws the sky with an isotropic pixel scale (horizontal scale
 // equals vertical scale) so panorama features don't appear stretched at any
 // resolution. The visible source span auto-adapts to screen width, which means
-// the texture repeats more times per 360° turn on wider screens — classic
+// the texture repeats more times per 360deg turn on wider screens - classic
 // Doom-style behavior, but without anisotropy.
 //
 // Sampling is done by skyShader, which performs bilinear filtering + X-wrap in

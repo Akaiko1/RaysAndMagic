@@ -20,7 +20,7 @@ func TestAoESplash_DamagesNearbyMonsters_NotFarOnes(t *testing.T) {
 		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
 	}
 	near := &monsterPkg.Monster3D{
-		Name: "Near", X: tileSize, Y: 0, // 1 tile away — inside 2-tile radius
+		Name: "Near", X: tileSize, Y: 0, // 1 tile away - inside 2-tile radius
 		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
 	}
 	edge := &monsterPkg.Monster3D{
@@ -28,7 +28,7 @@ func TestAoESplash_DamagesNearbyMonsters_NotFarOnes(t *testing.T) {
 		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
 	}
 	far := &monsterPkg.Monster3D{
-		Name: "Far", X: tileSize * 3, Y: 0, // 3 tiles away — outside
+		Name: "Far", X: tileSize * 3, Y: 0, // 3 tiles away - outside
 		HitPoints: 100, MaxHitPoints: 100, ArmorClass: 0,
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{primary, near, edge, far}
@@ -92,7 +92,7 @@ func TestAoESplash_ZeroRadius_NoOp(t *testing.T) {
 }
 
 // TestFireballYAML_AdvertisesAoE guards against silently dropping the AoE
-// field from fireball's YAML — combat and tooltip both read it via
+// field from fireball's YAML - combat and tooltip both read it via
 // spells.SpellDefinition.AoeRadiusTiles, so a missing field would quietly
 // revert Fireball to single-target.
 func TestFireballYAML_AdvertisesAoE(t *testing.T) {

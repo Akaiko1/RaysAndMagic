@@ -17,14 +17,14 @@ func TestMeleeWeaponsHaveSlashGraphics(t *testing.T) {
 			continue // ranged weapon, uses projectile FX
 		}
 		if def.Graphics == nil {
-			t.Errorf("melee weapon %q has no graphics block — no slash effect would spawn", key)
+			t.Errorf("melee weapon %q has no graphics block - no slash effect would spawn", key)
 		}
 	}
 }
 
 // TestRangedWeaponTravelsStatedRange: a ranged weapon's projectile must actually
-// travel its configured range_tiles (lifetime × speed), and the display `range`
-// field must match range_tiles — so "6 tiles" really reaches 6 tiles.
+// travel its configured range_tiles (lifetime x speed), and the display `range`
+// field must match range_tiles - so "6 tiles" really reaches 6 tiles.
 func TestRangedWeaponTravelsStatedRange(t *testing.T) {
 	cfg, err := LoadWeaponConfig("../../assets/weapons.yaml")
 	if err != nil {
@@ -36,7 +36,7 @@ func TestRangedWeaponTravelsStatedRange(t *testing.T) {
 		if p == nil || p.RangeTiles <= 0 || p.SpeedTiles <= 0 {
 			continue // melee weapon, no projectile
 		}
-		// Actual travel = per-frame speed × lifetime frames (tileSize cancels out).
+		// Actual travel = per-frame speed x lifetime frames (tileSize cancels out).
 		travel := p.GetSpeedPixels(tile) * float64(p.GetLifetimeFrames()) / tile
 		if math.Abs(travel-p.RangeTiles) > 0.1 {
 			t.Errorf("%s travels %.3f tiles, want range_tiles %.1f (>0.1 off)", key, travel, p.RangeTiles)

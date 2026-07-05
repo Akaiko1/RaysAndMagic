@@ -62,7 +62,7 @@ type NPCDialogue struct {
 	CompletedMessage string `yaml:"completed_message,omitempty"`
 	// QuestGreeting is the offer-state body shown on a spell-trader's QUESTS tab,
 	// so the quest hook there differs from the shop-welcome Greeting on the Spells
-	// tab. Unset → the Quests tab falls back to Greeting (fine for pure quest NPCs,
+	// tab. Unset -> the Quests tab falls back to Greeting (fine for pure quest NPCs,
 	// which have no tabs).
 	QuestGreeting string               `yaml:"quest_greeting,omitempty"`
 	ChoicePrompt  string               `yaml:"choice_prompt,omitempty"`
@@ -76,7 +76,7 @@ type NPCDialogueChoice struct {
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
 	// Branching dialogue (action "info"): when this choice is picked the dialog
-	// does NOT close — it shows Response as the NPC's reply and Choices as the
+	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
 	// or on to a give_quest. Nest freely; "back" pops one level.
 	Response string               `yaml:"response,omitempty"`

@@ -16,9 +16,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Portrait recess of party_member_panel.png in panel-source pixels (256×100),
+// Portrait recess of party_member_panel.png in panel-source pixels (256x100),
 // measured off the art: the inner dark box of the left frame, whose corners are
-// trimmed at 45° by panelRecessCut pixels.
+// trimmed at 45deg by panelRecessCut pixels.
 const (
 	panelRecessX0  = 16.0
 	panelRecessY0  = 19.0
@@ -27,7 +27,7 @@ const (
 	panelRecessCut = 5.0
 )
 
-// hudWhiteImg is a 1×1 opaque source for triangle fills (corner bevel cuts).
+// hudWhiteImg is a 1x1 opaque source for triangle fills (corner bevel cuts).
 var hudWhiteImg = func() *ebiten.Image {
 	img := ebiten.NewImage(1, 1)
 	img.Fill(color.White)
@@ -60,7 +60,7 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 	}
 	img.DrawImage(src, opts)
 
-	// Bevel the corners: erase a 45° triangle in each.
+	// Bevel the corners: erase a 45deg triangle in each.
 	if cut > 0 {
 		c := float32(cut)
 		fw, fh := float32(w), float32(h)
@@ -115,7 +115,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	}
 
 	// Draw party member portraits and stats at bottom of screen.
-	// Fixed portrait width, centered horizontally — does not stretch in fullscreen.
+	// Fixed portrait width, centered horizontally - does not stretch in fullscreen.
 	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
 
 	for i, member := range ui.game.party.Members {
@@ -124,15 +124,43 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Highlight selected character and heal target. In turn-based mode an
 		// alive character that has already spent all their action slots gets
 		// a gray frame so the player can see at a glance who still has a
-		// move left. KO characters are skipped — they get no frame at all.
+		// move left. KO characters are skipped - they get no frame at all.
+		// Dual Wielding gets a third, amber state: one weapon already used
+		// this round but the other is still available - distinct from "fully
+		// spent" gray, so the player can tell "acted once" from "acted twice".
 		highlightColor := color.RGBA{0, 0, 0, 0}
-		if ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0 {
-			highlightColor = color.RGBA{120, 120, 120, 220}
-		}
-		// Real-time: a member on action cooldown gets the same gray frame so the
-		// player can see at a glance who's busy and who's free to act next.
-		if !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0 {
-			highlightColor = color.RGBA{120, 120, 120, 220}
+		grayBusy := color.RGBA{120, 120, 120, 220}
+		amberOneHandBusy := color.RGBA{225, 205, 40, 220}
+		switch {
+		case ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
+			switch member.ActionsRemaining {
+			case 0:
+				highlightColor = grayBusy
+			case 1:
+				highlightColor = amberOneHandBusy
+			}
+		case ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0:
+			highlightColor = grayBusy
+		case !ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
+			// An empty main hand isn't a "busy hand" - it just isn't a hand at
+			// all, so don't let its stale cooldown paint a false amber "one hand
+			// busy". Only hands that actually hold a weapon count toward the
+			// two-tone ring. (IsDualWielding already guarantees an off-hand weapon.)
+			_, mainHasWeapon := member.Equipment[items.SlotMainHand]
+			mainReady := mainHasWeapon && member.RTCooldown <= 0
+			offReady := member.OffHandRTCooldown <= 0
+			switch {
+			case !mainHasWeapon:
+				if !offReady { // only the off-hand weapon remains - treat as single-weapon
+					highlightColor = grayBusy
+				}
+			case !mainReady && !offReady:
+				highlightColor = grayBusy
+			case mainReady != offReady:
+				highlightColor = amberOneHandBusy
+			}
+		case !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0:
+			highlightColor = grayBusy
 		}
 		if i == ui.game.selectedChar {
 			highlightColor = color.RGBA{210, 170, 80, 220}
@@ -151,10 +179,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
 		}
 
-		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich
+		// Draw character portrait (Column 1) - promotion-aware (Archmage/Lich
 		// variant). Fitted exactly into the panel's left recess (measured off
 		// party_member_panel.png) and bevel-cut at the corners to match the
-		// frame's 45° corner trims.
+		// frame's 45deg corner trims.
 		portraitName := ui.game.portraitSpriteName(member)
 		portraitColWidth := 82 // text columns start after the portrait recess
 
@@ -256,6 +284,17 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			drawDebugText(screen, "S:None", equipColX, startY+30)
 		}
 
+		// Dual Wielding: show the off-hand weapon on the row below (empty for
+		// everyone else, who only ever has one weapon to show).
+		if member.IsDualWielding() {
+			offWeapon := member.Equipment[items.SlotOffHand]
+			offText := fmt.Sprintf("O:%s", offWeapon.Name)
+			if len(offText) > 12 {
+				offText = offText[:9] + "..."
+			}
+			drawDebugText(screen, offText, equipColX, startY+45)
+		}
+
 		// Draw + button for stat points if available (under portrait)
 		if member.FreeStatPoints > 0 {
 			plusBtnX := x + 20
@@ -313,14 +352,14 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 // drawCardFlames draws rising flame-tongue particles over a party card while
 // that member's Inferno scorch timer burns (set by TriggerPartyFlame). Each
-// tongue rises on its own phase, flickers sideways, and shifts yellow→red and
+// tongue rises on its own phase, flickers sideways, and shifts yellow->red and
 // fades as it climbs; the whole effect dims as the timer runs out.
 func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx int) {
 	t := ui.game.cardFxActive(fxFlame, idx)
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(PartyFlameFrames) // 1 → 0 overall fade
+	intensity := float64(t) / float64(PartyFlameFrames) // 1 -> 0 overall fade
 	f := int(ui.game.frameCount)
 	const n = 14
 	for k := 0; k < n; k++ {
@@ -333,21 +372,21 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.2+float64(k))*3
 		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
 		sz := float32(3 + 3*rise)
-		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow→orange→red
+		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow->orange->red
 		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
 	}
 }
 
 // drawCardSparks draws the hit feedback on a party card after the member takes a
 // hit (fxSpark, set by TriggerDamageBlink): the WHOLE card flashes
-// red, plus a big radial spark burst flies outward — both fading over the timer.
+// red, plus a big radial spark burst flies outward - both fading over the timer.
 func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx int) {
 	t := ui.game.cardFxActive(fxSpark, idx)
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(HitSparkFrames) // 1 → 0 fade
-	prog := 1.0 - intensity                           // 0 → 1 as sparks fly out
+	intensity := float64(t) / float64(HitSparkFrames) // 1 -> 0 fade
+	prog := 1.0 - intensity                           // 0 -> 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
 	vector.FillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
@@ -380,7 +419,7 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 	if t <= 0 {
 		return
 	}
-	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 → 1 as they rise & fade
+	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 -> 1 as they rise & fade
 	const n = 5
 	for k := 0; k < n; k++ {
 		// Each "+" rises on its own staggered phase so they don't move in lockstep.
@@ -422,7 +461,7 @@ func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h 
 	}
 }
 
-// hashNoise is a cheap deterministic [0,1) hash — gives ignite its per-particle
+// hashNoise is a cheap deterministic [0,1) hash - gives ignite its per-particle
 // randomness without rand (so the flame is reproducible frame-to-frame, not pure
 // flicker). seed blends a particle index with a per-card salt.
 func hashNoise(seed float64) float64 {
@@ -432,7 +471,7 @@ func hashNoise(seed float64) float64 {
 
 // drawCardIgnite draws a living, layered fire climbing a burning member's card:
 // each tongue has its own randomized rise/lick cycle, three colour layers
-// (dark-red glow → orange body → hot yellow-white core near the base) plus a few
+// (dark-red glow -> orange body -> hot yellow-white core near the base) plus a few
 // embers that float up and wink out. Built to read as real fire, not a recolour
 // of the poison bubbles. Runs continuously while ConditionBurning.
 func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
@@ -486,7 +525,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 }
 
 // drawCardStunStars wheels a ring of twinkling four-point stars around a stunned
-// member's portrait head — the classic "seeing stars" daze. Each star orbits,
+// member's portrait head - the classic "seeing stars" daze. Each star orbits,
 // pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
 	f := float64(ui.game.frameCount)
@@ -665,7 +704,7 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 // dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
 func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 	// Flag effects (torch / wizard eye / water): zero the duration and let the
-	// next tick expire it naturally — onExpire side effects (e.g. the
+	// next tick expire it naturally - onExpire side effects (e.g. the
 	// underwater return teleport) fire exactly as on a normal timeout.
 	for _, b := range ui.game.timedBuffs() {
 		if b.id != spellID {

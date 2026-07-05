@@ -20,7 +20,7 @@ func randomInstanceID() uint64 {
 	}
 	id := binary.LittleEndian.Uint64(b[:])
 	if id == 0 {
-		id = 1 // 0 is the "untracked" sentinel — never hand it out
+		id = 1 // 0 is the "untracked" sentinel - never hand it out
 	}
 	return id
 }

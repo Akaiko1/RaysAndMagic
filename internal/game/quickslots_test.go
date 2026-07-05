@@ -6,7 +6,7 @@ import (
 	"ugataima/internal/items"
 )
 
-// Quick slots: drink/equip dispatch, inventory↔slot drag resolution, and the
+// Quick slots: drink/equip dispatch, inventory<->slot drag resolution, and the
 // save round-trip. Casting is exercised by the spellbook tests (shared path).
 func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 20, 20)
@@ -53,7 +53,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 		t.Fatalf("inventory item was not moved into the quick slot")
 	}
 	if len(game.party.Inventory) != bagLen-1 {
-		t.Fatalf("item should have left the bag (len %d → %d)", bagLen, len(game.party.Inventory))
+		t.Fatalf("item should have left the bag (len %d -> %d)", bagLen, len(game.party.Inventory))
 	}
 
 	// Drag it back out onto the inventory: slot empties, bag regrows.
@@ -73,7 +73,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	}
 
 	// Potions are passive: a quick-slot potion works even on RT cooldown and
-	// never spends an action (free, by design — unlike weapons/spells/traps).
+	// never spends an action (free, by design - unlike weapons/spells/traps).
 	game.turnBasedMode = false
 	gated := items.CreateItemFromYAML("health_potion")
 	ch.QuickSlots[4] = &gated
@@ -109,7 +109,7 @@ func TestQuickSlots_UseDropAndPersist(t *testing.T) {
 	}
 }
 
-// Equipping gear via a quick slot is a free swap — it must not spend a turn-based
+// Equipping gear via a quick slot is a free swap - it must not spend a turn-based
 // action or set a real-time cooldown (only spells/traps are combat actions).
 func TestQuickSlot_EquipIsFree(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 20, 20)

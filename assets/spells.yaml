@@ -5,8 +5,8 @@
 # - Visual appearance (colors, sizes, effects)
 #
 # DAMAGE NOTE: offensive spell damage is NOT specified here. It is derived
-# from spell_points_cost as: base = cost × spells.SpellDamagePerSP (default 3).
-# Designer-facing knob is therefore spell_points_cost — to make a spell hit
+# from spell_points_cost as: base = cost x spells.SpellDamagePerSP (default 3).
+# Designer-facing knob is therefore spell_points_cost - to make a spell hit
 # harder, raise its cost. Healing spells use heal_amount explicitly.
 
 # Add new spells here without needing any code changes!
@@ -108,7 +108,7 @@ spells:
     projectile_size: 12
     is_projectile: true
     is_utility: false
-    monster_only: true          # alien projectile — never offered to the player (e.g. Lich Dark picks)
+    monster_only: true          # alien projectile - never offered to the player (e.g. Lich Dark picks)
 
     # Projectile physics (tile-based units)
     physics:
@@ -194,7 +194,7 @@ spells:
     projectile_size: 8
     is_projectile: true
     is_utility: false
-    damage_cost_multiplier: 2      # base damage = cost × SpellDamagePerSP × 2
+    damage_cost_multiplier: 2      # base damage = cost x SpellDamagePerSP x 2
     scales_with_personality: true  # adds Personality/divisor on top of Intellect/divisor
 
     # Projectile physics (tile-based units)
@@ -467,7 +467,7 @@ spells:
     # No physics or graphics needed - utility spell
 
   # ===========================================================================
-  # NEW SPELLS — batch 1 (pure data-driven: damage / AoE-damage / AoE-stun)
+  # NEW SPELLS - batch 1 (pure data-driven: damage / AoE-damage / AoE-stun)
   # ===========================================================================
 
   sparks:
@@ -614,7 +614,7 @@ spells:
       color: [210, 185, 255]   # pale violet
 
   # ===========================================================================
-  # NEW SPELLS — batch 2/3 (party buffs, heals, charm, nova, zone, VFX)
+  # NEW SPELLS - batch 2/3 (party buffs, heals, charm, nova, zone, VFX)
   # ===========================================================================
 
   stone_skin:
@@ -731,7 +731,7 @@ spells:
     description: "Engulfs everything around the party in flame - friend and foe alike take heavy fire damage"
     school: "fire"
     level: 7
-    spell_points_cost: 15       # 45 damage (cost × 3) to all in radius, including the party
+    spell_points_cost: 15       # 45 damage (cost x 3) to all in radius, including the party
     cooldown_seconds: 3.0
     duration: 0
     is_projectile: false

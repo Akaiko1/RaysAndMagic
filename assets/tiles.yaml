@@ -164,7 +164,7 @@ tiles:
 
   # Off-map backdrop: GetTileAt returns this for out-of-bounds instead of the
   # (empty-sprite, gray, per-frame-regenerated) stone wall. Rendered as a normal
-  # textured wall (like thicket) so the sprite is cached — no lag — and shows a
+  # textured wall (like thicket) so the sprite is cached - no lag - and shows a
   # sea horizon behind the map's tree/dune border. Not placeable (no letter).
   seaview:
     name: "Sea View"
@@ -464,8 +464,8 @@ tiles:
 
   # ---- Deep Jungle (Amazon) zone ----
   # Floors: terra-firme is the universal "." (jungle default group). These two
-  # add the deliberate looks — mossy ruin flagstone for the lost-city plaza, and
-  # wet flooded ground for the várzea floodplain. The river itself reuses the
+  # add the deliberate looks - mossy ruin flagstone for the lost-city plaza, and
+  # wet flooded ground for the varzea floodplain. The river itself reuses the
   # universal water/deep_water tiles (W/Q, impassable); S is a walkable ford.
   jungle_ruin_floor:
     name: "Mossy Flagstone"
@@ -506,7 +506,7 @@ tiles:
     letter: "S"
     biomes: ["jungle"]
 
-  # Jungle walls (biome-scoped — override the universal wall/rock letters on
+  # Jungle walls (biome-scoped - override the universal wall/rock letters on
   # jungle maps): # dense foliage, R Maya carved-stone ruin, T buttress trunks,
   # K dark cliff with waterfalls.
   jungle_wall_foliage:
@@ -576,7 +576,7 @@ tiles:
   jungle_palm:
     name: "Jungle Palms"
     solid: true
-    transparent: true         # see-through like the desert palm — scattered decor, not a sight wall
+    transparent: true         # see-through like the desert palm - scattered decor, not a sight wall
     walkable: false
     size_multiplier: 2.0
     sprite: "three_intertwined_palms"
@@ -950,7 +950,7 @@ tiles:
   # designer places a specific look deliberately. Variant 0 keeps the original
   # letter (and is what's already on the map); variant 1 is a new letter with a
   # distinct floor_color so the two read apart in the editor legend.
-  # Quest-spawned bridge planks (applied via quests.yaml on_complete_tiles —
+  # Quest-spawned bridge planks (applied via quests.yaml on_complete_tiles -
   # never placed by map letter, hence no letter).
   quest_bridge:
     name: "Wooden Bridge"
@@ -1155,7 +1155,7 @@ tiles:
     letter: "D"
     biomes: ["dragon_cliffs"]
 
-  # Forest→Highlands portal dressing (forest biome only). Two rock-outcrop
+  # Forest->Highlands portal dressing (forest biome only). Two rock-outcrop
   # posts (K) flank a shimmering stream tile (J); an invisible gate NPC sits on
   # the tile below the stream and opens the travel dialog when the party is near.
   forest_portal_rock:
@@ -1264,7 +1264,7 @@ tiles:
     walkable: true
     sprite: ""
     render_type: "floor_only"
-    floor_color: [255, 0, 0]  # Red — now used only as the spawn-tile border tint
+    floor_color: [255, 0, 0]  # Red - now used only as the spawn-tile border tint
     inherit_floor: true       # ground takes the surrounding biome floor; red shows as a border
     letter: "+"
 

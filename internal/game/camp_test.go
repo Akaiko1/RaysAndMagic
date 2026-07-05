@@ -12,7 +12,7 @@ func TestTryCamp_RefusedNearEnemiesAndWithoutFood(t *testing.T) {
 	g := newTestGame(cfg, newTestWorld(cfg))
 	g.party.Food = 5
 
-	// A living monster within 5 tiles of the camera → no rest.
+	// A living monster within 5 tiles of the camera -> no rest.
 	near := &monster.Monster3D{Name: "Goblin", HitPoints: 10, MaxHitPoints: 10,
 		X: g.camera.X + 3*float64(cfg.World.TileSize), Y: g.camera.Y}
 	g.world.Monsters = append(g.world.Monsters, near)

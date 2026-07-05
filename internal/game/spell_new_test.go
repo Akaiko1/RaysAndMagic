@@ -1,6 +1,6 @@
 package game
 
-// Tests for the spells added to bring every magic school to ≥4: the code-backed
+// Tests for the spells added to bring every magic school to >=4: the code-backed
 // ones (Raise Dead, Mass Heal, Inferno, buff stacking). Pure-YAML damage spells
 // are exercised by the generic projectile path already.
 
@@ -154,7 +154,7 @@ func TestInferno_OutgoingBuffAppliesOnlyToMonsters(t *testing.T) {
 	}
 }
 
-// Stone Skin, Heroism and Hour of Power must STACK — the refactored buff list
+// Stone Skin, Heroism and Hour of Power must STACK - the refactored buff list
 // sums their bonuses instead of clobbering a single slot.
 func TestPartyBuffs_Stack(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
@@ -193,7 +193,7 @@ func TestHotSteam_DamagesInTurnBased(t *testing.T) {
 	if len(game.steamZones) == 0 {
 		t.Fatalf("no steam zone created")
 	}
-	// Run a monster turn — the zone should sear the monster inside it.
+	// Run a monster turn - the zone should sear the monster inside it.
 	game.turnBasedMode = true
 	game.currentTurn = 1
 	game.monsterTurnResolved = false

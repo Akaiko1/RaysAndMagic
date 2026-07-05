@@ -235,7 +235,7 @@ func TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors(t *testing.T) {
 }
 
 // TestScatterBandOnMemberDeath_FightingSurvivorsStayPut: survivors already in
-// combat must not be teleported by the death burst — scatter repositions only
+// combat must not be teleported by the death burst - scatter repositions only
 // still-calm members.
 func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
 	game := newBandingTestGame()
@@ -260,7 +260,7 @@ func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
 
 // Regression: monsterStrikeMonster (monster-vs-monster melee, e.g. a bound
 // undead striking an enemy) hand-rolls its own kill bookkeeping and used to
-// skip scatterBandOnMemberDeath — a bound ally could snipe a banded mob's
+// skip scatterBandOnMemberDeath - a bound ally could snipe a banded mob's
 // members one by one without the survivors ever waking up.
 func TestMonsterStrikeMonster_ScattersVictimsBand(t *testing.T) {
 	game := newBandingTestGame()

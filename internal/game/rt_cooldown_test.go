@@ -15,8 +15,8 @@ func charWithSpeed(speed int) *character.MMCharacter {
 }
 
 // TestSpellCooldownFrames_MatchesAuthoredSeconds checks that at the reference
-// Speed every spell's RT cooldown equals its authored cooldown_seconds (×TPS),
-// proving the agreed table (firebolt 0.8s … buffs 5s) is what actually fires —
+// Speed every spell's RT cooldown equals its authored cooldown_seconds (xTPS),
+// proving the agreed table (firebolt 0.8s ... buffs 5s) is what actually fires -
 // i.e. the safety clamp no longer crushes the long spells.
 func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -63,7 +63,7 @@ func TestSpellCooldownFrames_SpeedScales(t *testing.T) {
 }
 
 // TestWeaponCooldown_TypeMultipliers checks the weapon-type ordering (dagger
-// fast … axe slow) and that the Bow of Hellfire legendary override makes it
+// fast ... axe slow) and that the Bow of Hellfire legendary override makes it
 // SLOWER than an ordinary bow despite both being bows.
 func TestWeaponCooldown_TypeMultipliers(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -88,20 +88,20 @@ func TestWeaponCooldown_TypeMultipliers(t *testing.T) {
 		t.Errorf("Bow of Hellfire (%d) should be SLOWER than a plain bow (%d)", hellfire, bow)
 	}
 
-	// "throwing" is not a real weapon type — it resolves to the dagger SKILL, so
+	// "throwing" is not a real weapon type - it resolves to the dagger SKILL, so
 	// the throwing knife must share the dagger cooldown.
 	if throwingKnife := frames("throwing_knife"); throwingKnife != dagger {
-		t.Errorf("throwing_knife cooldown (%d) should equal dagger (%d) — throwing maps to the dagger skill", throwingKnife, dagger)
+		t.Errorf("throwing_knife cooldown (%d) should equal dagger (%d) - throwing maps to the dagger skill", throwingKnife, dagger)
 	}
 	// "blaster" maps to no weapon skill, so the alien blaster gets the neutral
 	// 1.0 multiplier (same as the sword baseline).
 	if blaster := frames("alien_blaster"); blaster != sword {
-		t.Errorf("alien_blaster cooldown (%d) should be neutral 1.0 == sword (%d) — blaster is not a real weapon type", blaster, sword)
+		t.Errorf("alien_blaster cooldown (%d) should be neutral 1.0 == sword (%d) - blaster is not a real weapon type", blaster, sword)
 	}
 }
 
 // TestArchmageStaff_ReducesSpellCooldown verifies the legendary staff's
-// spell_cooldown_multiplier (−20%) lowers the caster's spell cooldown.
+// spell_cooldown_multiplier (-20%) lowers the caster's spell cooldown.
 func TestArchmageStaff_ReducesSpellCooldown(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	bare := charWithSpeed(25)

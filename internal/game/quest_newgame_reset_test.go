@@ -10,8 +10,8 @@ import (
 
 // User-reported repro: party A finishes the wolf cull (the bridge planks
 // appear on the forest lake), the player exits to the entry menu, builds a
-// NEW party and starts a fresh game — the bridge must be GONE (the new run
-// hasn't earned it). Exercises the real reset path: startNewGameWithParty →
+// NEW party and starts a fresh game - the bridge must be GONE (the new run
+// hasn't earned it). Exercises the real reset path: startNewGameWithParty ->
 // quests.Reset + WorldManager.Reset.
 func TestNewGame_RevertsQuestBridge(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -54,7 +54,7 @@ func TestNewGame_RevertsQuestBridge(t *testing.T) {
 		got := freshForest.Tiles[tc.Y][tc.X]
 		key := world.GlobalTileManager.GetTileKey(got)
 		if got == bridgeType {
-			t.Errorf("new game kept the quest bridge at (%d,%d) — world state leaked across runs", tc.X, tc.Y)
+			t.Errorf("new game kept the quest bridge at (%d,%d) - world state leaked across runs", tc.X, tc.Y)
 		} else {
 			t.Logf("tile (%d,%d) after new game = %s (reverted ok)", tc.X, tc.Y, key)
 		}
@@ -66,13 +66,13 @@ func TestNewGame_RevertsQuestBridge(t *testing.T) {
 		}
 	}
 
-	// The wolves respawn with the map reset — party B taking the cull must see
+	// The wolves respawn with the map reset - party B taking the cull must see
 	// a full census, NOT the instant "already done" credit (which would lay the
 	// bridge at accept time on a wolf-less map).
 	g.world = freshForest
 	living := g.countLivingQuestTargets("wolf", "forest")
 	if living == 0 {
-		t.Fatal("no living wolves after new game — accept would instantly credit the cull")
+		t.Fatal("no living wolves after new game - accept would instantly credit the cull")
 	}
 	t.Logf("wolves after new game: %d", living)
 	if err := qm.ActivateQuest("forest_wolf_cull"); err != nil {
@@ -89,7 +89,7 @@ func TestNewGame_RevertsQuestBridge(t *testing.T) {
 
 // Loading a save where the quest is NOT completed must take the bridge back
 // out: SwitchToMap does NOT reload maps from disk, so the shared forest
-// instance still carries the planks laid earlier this session — syncQuestTiles
+// instance still carries the planks laid earlier this session - syncQuestTiles
 // has to actively revert them (the forward-only apply left them forever).
 func TestLoadOlderSave_RevertsQuestBridge(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -116,7 +116,7 @@ func TestLoadOlderSave_RevertsQuestBridge(t *testing.T) {
 	}
 
 	// Load an OLDER save: quest state resets to baseline (not completed) and
-	// applySave calls syncQuestTiles — maps are NOT reloaded on this path.
+	// applySave calls syncQuestTiles - maps are NOT reloaded on this path.
 	qm.Reset()
 	g.syncQuestTiles()
 

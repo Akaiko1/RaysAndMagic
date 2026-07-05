@@ -78,7 +78,7 @@ func TestDeepJungleMonstersFitGaps(t *testing.T) {
 		}
 		found = true
 		if def.BoxW >= tile || def.BoxH >= tile {
-			t.Errorf("%s collision box %gx%g >= tile %g — can wedge in 1-wide gaps", key, def.BoxW, def.BoxH, tile)
+			t.Errorf("%s collision box %gx%g >= tile %g - can wedge in 1-wide gaps", key, def.BoxW, def.BoxH, tile)
 		}
 	}
 	if !found {

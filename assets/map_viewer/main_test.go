@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/config"
+	"ugataima/internal/monster"
 )
 
 // Spells page must group purely BY SCHOOL (no Battle/Utility split) and order
@@ -34,10 +35,45 @@ func TestBuildSpellCards_BySchoolByLevel(t *testing.T) {
 	}
 }
 
+func TestMobInfo_GoldDragonShowsOnlyMonsterFacingStun(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+
+	rowsFor := func(key string) string {
+		def, ok := monster.MonsterConfig.Monsters[key]
+		if !ok {
+			t.Fatalf("monster %q missing", key)
+		}
+		lines := buildMobInfo(key, def)
+		rows := make([]string, 0, len(lines))
+		for _, line := range lines {
+			rows = append(rows, line.text)
+		}
+		return strings.Join(rows, "\n")
+	}
+
+	for key, wantStun := range map[string]string{
+		"dragon_gold":       "Stun: 15% (4s / 2 turns)",
+		"elder_dragon_gold": "Stun: 20% (4s / 2 turns)",
+	} {
+		got := rowsFor(key)
+		for _, want := range []string{"Ranged spell: Lightning Bolt (air)", wantStun} {
+			if !strings.Contains(got, want) {
+				t.Errorf("editor mob %s missing %q. rows:\n%s", key, want, got)
+			}
+		}
+		if strings.Contains(got, "Stun on hit: 20% (2s / 1 turns)") {
+			t.Errorf("editor mob %s shows spell stun as monster-facing stun. rows:\n%s", key, got)
+		}
+	}
+}
+
 // TestSpellCard_SharesMechanicsWithGame verifies the editor's spell card pulls
 // its mechanics from spells.EffectLines (the same source as the in-game
 // tooltip), so previously-missing fields (stun chance, buff bonuses, charm,
-// zone, revive…) now appear and can't drift from the game.
+// zone, revive...) now appear and can't drift from the game.
 func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
 		t.Fatalf("load spells: %v", err)
@@ -64,10 +100,43 @@ func TestSpellCard_SharesMechanicsWithGame(t *testing.T) {
 			t.Errorf("editor %s card missing %q. rows:\n%s", key, sub, got)
 		}
 	}
-	// Charm/Disintegrate are deals_no_damage → no damage row in the editor either.
+	// Charm/Disintegrate are deals_no_damage -> no damage row in the editor either.
 	for _, key := range []string{"charm", "disintegrate"} {
 		if got := rowsFor(key); strings.Contains(got, "Base damage") {
 			t.Errorf("editor %s card shows damage but it's deals_no_damage:\n%s", key, got)
+		}
+	}
+}
+
+func TestMobInfo_UsesMonsterCombatEffectLines(t *testing.T) {
+	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+
+	rowsFor := func(key string) string {
+		def, ok := monster.MonsterConfig.Monsters[key]
+		if !ok {
+			t.Fatalf("monster %q missing", key)
+		}
+		lines := buildMobInfo(key, def)
+		rows := make([]string, 0, len(lines))
+		for _, line := range lines {
+			rows = append(rows, line.text)
+		}
+		return strings.Join(rows, "\n")
+	}
+
+	want := map[string][]string{
+		"archmage": {"Ranged spell: Fireball (fire)", "Projectile AoE: whole party on hit"},
+		"dragon":   {"Ranged spell: Fire Bolt (fire)", "Dragon Breath: 33% fire attack to whole party"},
+	}
+	for key, subs := range want {
+		got := rowsFor(key)
+		for _, sub := range subs {
+			if !strings.Contains(got, sub) {
+				t.Errorf("editor mob %s missing %q. rows:\n%s", key, sub, got)
+			}
 		}
 	}
 }

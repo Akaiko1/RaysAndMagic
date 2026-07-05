@@ -1,7 +1,7 @@
 package collision
 
 // EntitySnapshot is a value copy of one entity's mutable state, frozen at
-// Snapshot() time — safe to read concurrently no matter what happens to the
+// Snapshot() time - safe to read concurrently no matter what happens to the
 // live Entity afterward.
 type EntitySnapshot struct {
 	Box           BoundingBox
@@ -14,7 +14,7 @@ type EntitySnapshot struct {
 // immutable for the lifetime of a map). Build ONE per tick with Snapshot()
 // BEFORE dispatching parallel workers; every worker then queries this frozen
 // copy instead of the live CollisionSystem, so any number of goroutines can
-// read it concurrently with zero locking — including while OTHER goroutines
+// read it concurrently with zero locking - including while OTHER goroutines
 // are writing their own entities on the LIVE system, since a snapshot and the
 // system it was taken from share no mutable memory.
 //
@@ -30,7 +30,7 @@ type CollisionSnapshot struct {
 }
 
 // Snapshot copies the current entity state into an immutable view. O(entities)
-// — call once per tick, never per query; a fresh copy per call is what makes
+// - call once per tick, never per query; a fresh copy per call is what makes
 // concurrent reads free of locks afterward.
 func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 	snap := &CollisionSnapshot{
@@ -76,7 +76,7 @@ func (cs *CollisionSnapshot) CanMoveToWithHabitat(entityID string, newX, newY fl
 }
 
 // CanOccupyTilesWithHabitat mirrors CollisionSystem.CanOccupyTilesWithHabitat
-// (tiles only, no entity check) — see that method's doc for why.
+// (tiles only, no entity check) - see that method's doc for why.
 func (cs *CollisionSnapshot) CanOccupyTilesWithHabitat(entityID string, x, y float64, habitatPrefs []string, flying bool) bool {
 	entity, exists := cs.entities[entityID]
 	if !exists {
@@ -88,7 +88,7 @@ func (cs *CollisionSnapshot) CanOccupyTilesWithHabitat(entityID string, x, y flo
 
 // CheckLineOfSight mirrors CollisionSystem.CheckLineOfSight. Rays only ever
 // consult tiles (never entities), so this was already race-free against the
-// live system too — implemented here for interface parity and so callers
+// live system too - implemented here for interface parity and so callers
 // don't need to special-case which collision source they're holding.
 func (cs *CollisionSnapshot) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	hit, _ := castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, true)

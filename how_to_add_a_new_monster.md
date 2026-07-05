@@ -40,7 +40,7 @@ monsters:
 
 Key requirements:
 - `letter` must be lowercase (map spawns recognize a-z). It must be unique
-  within its biome scope — see "Biome restriction" below.
+  within its biome scope - see "Biome restriction" below.
 - `sprite` must exist in `assets/sprites/mobs/` (without `.png`).
 - `alert_radius` and `attack_radius` are in tiles.
 
@@ -56,7 +56,7 @@ a universal monster that can appear in any biome.
 A map letter is resolved biome-aware (`GetMonsterByLetterForBiome`): a
 biome-specific monster wins for that biome, and a universal monster (no
 `biomes`) is the fallback. So the SAME letter may map to different monsters in
-different biomes — `letter` only has to be unique among monsters sharing a
+different biomes - `letter` only has to be unique among monsters sharing a
 biome (and among the universal set). A letter on a map whose biome no monster
 matches resolves to nothing (no spawn).
 
@@ -87,15 +87,15 @@ Supported fields (from `monsters.yaml`):
 - `attack_cooldown_multiplier`, `attacks_per_round`
 
 ### Boss kit (all data-driven; see golden_thief_bug)
-- `ignores_armor` — melee bypasses party armor class
-- `inferno_chance` + `inferno_damage` — party-wide fire nova
-- `teleport_at_hp` + `teleport_chance` — low-HP blink to a random tile
-- `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` —
+- `ignores_armor` - melee bypasses party armor class
+- `inferno_chance` + `inferno_damage` - party-wide fire nova
+- `teleport_at_hp` + `teleport_chance` - low-HP blink to a random tile
+- `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -
   evades (blinks away, never attacks) until the named quest completes
 
 Paired boss fields are validated at load: a chance without its magnitude (or an
 evasive phase without its tuning) fails startup. Beware: any OTHER unknown YAML
-field is silently ignored — a typo won't error, the feature just won't work.
+field is silently ignored - a typo won't error, the feature just won't work.
 
 ## Step 5: Add loot
 Loot is controlled by `assets/loots.yaml` using the monster key.

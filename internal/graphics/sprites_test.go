@@ -78,7 +78,7 @@ func TestGetSpriteVariants(t *testing.T) {
 // (default magenta), leave others untouched, and no-op when disabled.
 func TestApplyColorKey(t *testing.T) {
 	const ( // pixel x-positions
-		magenta        = 0 // (255,0,255) exact key → transparent core
+		magenta        = 0 // (255,0,255) exact key -> transparent core
 		darkEdge       = 1 // dark magenta fringe from generated PNG edges
 		fringe         = 2 // (170,40,170) magenta-tinted edge, OUTSIDE the core
 		green          = 3 // unrelated colour, must survive
@@ -112,7 +112,7 @@ func TestApplyColorKey(t *testing.T) {
 	}
 
 	// Despill ON: core still erased; fringe keeps its base tone but loses the
-	// magenta cast (R,B drop to the green level) and stays opaque — edge not eaten.
+	// magenta cast (R,B drop to the green level) and stays opaque - edge not eaten.
 	sm.SetColorKey(true, 255, 0, 255, 60, true)
 	on := sm.applyColorKey("", mk()).(*image.NRGBA)
 	if on.NRGBAAt(magenta, 0).A != 0 {
@@ -133,7 +133,7 @@ func TestApplyColorKey(t *testing.T) {
 		}
 	}
 
-	// Disabled → unchanged.
+	// Disabled -> unchanged.
 	sm.SetColorKey(false, 255, 0, 255, 60, true)
 	if got := sm.applyColorKey("", mk()).At(magenta, 0); got != (color.NRGBA{255, 0, 255, 255}) {
 		t.Errorf("disabled key must not alter pixels, got %v", got)

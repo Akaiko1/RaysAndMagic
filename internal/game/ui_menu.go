@@ -382,7 +382,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 		r, c := slot/cols, slot%cols
 		x := startX + c*(icon+colGap)
 		y := startY + r*(icon+rowGap)
-		key := ui.game.cardCollection[slot]
+		key := ui.game.cardCollectionKey(slot)
 		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
 		if def := cardDef(key); def != nil {
 			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
@@ -398,7 +398,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 	// which omitted Samurai/Ningyo/Medusa/etc. and falsely read "none active").
 	var totals []string
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(ui.game.cardCollection[slot]); def != nil {
+		if def := cardDef(ui.game.cardCollectionKey(slot)); def != nil {
 			if eff := cardEffectText(def); eff != "" {
 				totals = append(totals, eff)
 			}
@@ -441,7 +441,7 @@ func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, sc
 		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex && delta < doubleClickWindowMs
 
 		ui.game.selectedSchool = schoolIndex
-		// Don't auto-select a spell — wait for the user to click one.
+		// Don't auto-select a spell - wait for the user to click one.
 		ui.game.selectedSpell = -1
 
 		if doubleClick {

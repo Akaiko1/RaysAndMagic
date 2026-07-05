@@ -1,6 +1,6 @@
 package character
 
-// Equipment slot routing tests — exercise the real MMCharacter.EquipItem /
+// Equipment slot routing tests - exercise the real MMCharacter.EquipItem /
 // UnequipItem path against items loaded from items.yaml. Damage-reduction
 // formulas are NOT tested here (they live in internal/game/CombatSystem and
 // are covered by internal/game/armor_reduction_test.go).
@@ -66,8 +66,8 @@ func TestEquipmentStatBonusesFromYAML(t *testing.T) {
 	}
 
 	// magic_ring (items.yaml) provides:
-	//   intellect_scaling_divisor: 6  → +Intellect/6
-	//   personality_scaling_divisor: 8 → +Personality/8
+	//   intellect_scaling_divisor: 6  -> +Intellect/6
+	//   personality_scaling_divisor: 8 -> +Personality/8
 	magicRing := items.CreateItemFromYAML("magic_ring")
 	character.EquipItem(magicRing)
 
@@ -143,7 +143,7 @@ func TestTwoRingsUseBothSlots(t *testing.T) {
 		t.Errorf("SlotRing2 should be occupied by the second ring")
 	}
 
-	// Both fingers full → a third ring overwrites SlotRing1 and returns it.
+	// Both fingers full -> a third ring overwrites SlotRing1 and returns it.
 	ring3 := items.CreateItemFromYAML("magic_ring")
 	if _, hadPrev, ok := character.EquipItem(ring3); !ok || !hadPrev {
 		t.Errorf("third ring should replace SlotRing1 and return the previous item (ok=%v hadPrev=%v)", ok, hadPrev)
@@ -190,7 +190,7 @@ func TestMoveRingBetweenFingers(t *testing.T) {
 	}
 }
 
-// TestTwoRingsStackBonuses: both worn rings contribute — magic_ring's
+// TestTwoRingsStackBonuses: both worn rings contribute - magic_ring's
 // intellect/personality scaling-divisor bonuses sum across SlotRing1+SlotRing2,
 // so two rings double a single ring's bonus (calculateEquipmentBonuses ranges
 // the whole Equipment map, not per-slot).
@@ -198,8 +198,8 @@ func TestTwoRingsStackBonuses(t *testing.T) {
 	newMage := func() *MMCharacter {
 		return &MMCharacter{
 			Name:        "TestMage",
-			Intellect:   30, // /6 → +5 spell-power per magic_ring
-			Personality: 32, // /8 → +4 per magic_ring
+			Intellect:   30, // /6 -> +5 spell-power per magic_ring
+			Personality: 32, // /8 -> +4 per magic_ring
 			Equipment:   make(map[items.EquipSlot]items.Item),
 		}
 	}

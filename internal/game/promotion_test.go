@@ -98,7 +98,7 @@ func TestStavesAndBooksAreRangedMagic(t *testing.T) {
 		t.Fatalf("load weapons: %v", err)
 	}
 	// projectile_school is cosmetic; it must name the weapon's REAL magic element
-	// (no fake "arcane" school, which would mislead — staves deal these types).
+	// (no fake "arcane" school, which would mislead - staves deal these types).
 	cases := map[string]string{
 		"oak_staff":        "air",
 		"battle_staff":     "air",

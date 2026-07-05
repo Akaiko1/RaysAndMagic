@@ -21,12 +21,12 @@ type statMeta struct {
 	Ptr  *int
 }
 
-// statHoldInitialDelay — frames the user has to hold the mouse on a +button
+// statHoldInitialDelay - frames the user has to hold the mouse on a +button
 // before hold-to-repeat starts firing. Configured for the game's 120 TPS so
 // ~340 ms keeps single clicks pure (no accidental double-spend) while a
 // deliberate hold takes over fast.
-// statHoldRepeatRate — frames between hold-fired increments after the delay.
-// At 120 TPS ≈ 67 ms / ~15 stats per second when held.
+// statHoldRepeatRate - frames between hold-fired increments after the delay.
+// At 120 TPS ~ 67 ms / ~15 stats per second when held.
 const (
 	statHoldInitialDelay = 40
 	statHoldRepeatRate   = 8
@@ -61,7 +61,7 @@ func (ui *UISystem) drawStatPointRow(screen *ebiten.Image, name string, valuePtr
 
 // drawStatDistributionPopup draws the stat allocation popup for the selected character
 func (ui *UISystem) drawStatDistributionPopup(screen *ebiten.Image) {
-	// Bound to statPopupCharIdx — the character whose "+" button was clicked
+	// Bound to statPopupCharIdx - the character whose "+" button was clicked
 	// (set at the open site in ui_hud.go). NOT selectedChar: in turn-based mode
 	// selectedChar tracks the active turn, so binding to it opened the wrong
 	// character's popup when you clicked "+" on someone who had already acted.
@@ -219,7 +219,7 @@ func (ui *UISystem) drawRevivalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
 	targets := g.RevivablePartyIndices()
 	if len(targets) == 0 {
-		// No one left to revive (cured externally?) — close cleanly.
+		// No one left to revive (cured externally?) - close cleanly.
 		g.resolvePickerQuickSource(g.revivalPickerItemIdx, false)
 		g.revivalPickerOpen = false
 		return
@@ -352,7 +352,7 @@ func (ui *UISystem) drawRosterScreen(screen *ebiten.Image) {
 
 // drawPromotionPickerPopup lists the party members eligible for the pending
 // promotion (Archmage/Lich) and applies it to whomever the player clicks.
-// Mirrors the revival picker. Cannot be cancelled — a quest/phylactery has
+// Mirrors the revival picker. Cannot be cancelled - a quest/phylactery has
 // already committed to the promotion by the time this opens.
 func (ui *UISystem) drawPromotionPickerPopup(screen *ebiten.Image) {
 	g := ui.game
@@ -474,9 +474,9 @@ func (ui *UISystem) drawLevelUpChoicePopup(screen *ebiten.Image) {
 			drawFilledRect(screen, popupX+16, cy-2, popupW-32, rowH, color.RGBA{60, 120, 180, 200})
 		}
 		drawDebugTextColored(screen, "Confirm", popupX+40, cy, confirmCol)
-		drawDebugText(screen, "↑/↓ move · Space toggles · Enter confirms", popupX+16, popupY+popupH-22)
+		drawDebugText(screen, "Up/Down move - Space toggles - Enter confirms", popupX+16, popupY+popupH-22)
 	} else {
-		drawDebugText(screen, "Use ↑/↓ or click, Enter to choose", popupX+16, popupY+popupH-22)
+		drawDebugText(screen, "Use Up/Down or click, Enter to choose", popupX+16, popupY+popupH-22)
 	}
 }
 
@@ -533,21 +533,21 @@ func (ui *UISystem) drawEncounterDialog(screen *ebiten.Image, dialogX, dialogY, 
 }
 
 // drawDialogueChoicesBody renders the state-driven dialogue text and the
-// currently valid choices — shared by encounter dialogs and the spell trader's
+// currently valid choices - shared by encounter dialogs and the spell trader's
 // Quests tab so both stay aligned with the input handler's choice list.
 func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character.NPC, dialogX, textY, dialogWidth int) {
 	if npc.DialogueData == nil {
 		return
 	}
 	// Body text is state-driven (offer greeting / in-progress / completed /
-	// concluded) — see npcDialogueText.
+	// concluded) - see npcDialogueText.
 	lines := ui.wrapText(ui.game.npcDialogueText(npc), dialogueWrapColumns)
 	for i, line := range lines {
 		drawDebugText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
 	}
 
 	// Only the choices valid in this state (give_quest while offering,
-	// turn_in_quest once completed, etc.) — same list the input handler acts on.
+	// turn_in_quest once completed, etc.) - same list the input handler acts on.
 	choices := ui.game.visibleNPCChoices(npc)
 	if len(choices) == 0 {
 		drawDebugText(screen, "Press ESC to leave.", dialogX+20, textY+len(lines)*dialogueLineHeight+20)
@@ -579,7 +579,7 @@ const (
 	spellTraderIconSize     = 48
 	spellTraderIconGap      = 10
 	spellTraderGridCols     = 6
-	// Portrait strip sits this far below the dialog top — low enough that a
+	// Portrait strip sits this far below the dialog top - low enough that a
 	// two-line greeting clears the selected-character frame above it.
 	spellTraderPortraitTop = 92
 	// Two icon rows per page is the most that fits between the grid top and the
@@ -605,7 +605,7 @@ func spellTraderPortraitRect(dialogX, dialogY, i int) (x, y, w, h int) {
 }
 
 // spellTraderIconRect returns the screen rect for the spell icon in page-slot
-// `slot` (0..spellTraderPerPage-1) — NOT the global spell index. Renderer and
+// `slot` (0..spellTraderPerPage-1) - NOT the global spell index. Renderer and
 // input both map page*perPage+slot to the global spell, so the grid only ever
 // shows one page's worth and click rects line up with what's drawn.
 func spellTraderIconRect(dialogX, dialogY, slot int) (x, y, w, h int) {
@@ -673,7 +673,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
 	drawDebugText(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
 
-	// Portrait strip — click to switch active character.
+	// Portrait strip - click to switch active character.
 	mouseX, mouseY := ebiten.CursorPosition()
 	for i, member := range ui.game.party.Members {
 		x, y, w, h := spellTraderPortraitRect(dialogX, dialogY, i)
@@ -696,7 +696,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	}
 
 	// Paginate: only the current page's icons are drawn (two rows), the rest
-	// reached via the pager below — so the grid never runs into the instructions.
+	// reached via the pager below - so the grid never runs into the instructions.
 	pages := pageCount(len(spellKeys), spellTraderPerPage)
 	clampPage(&ui.game.spellTraderPage, pages)
 	pageStart := ui.game.spellTraderPage * spellTraderPerPage
@@ -750,7 +750,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		}
 	}
 
-	// Hover tooltip — name + school + cost + requirements.
+	// Hover tooltip - name + school + cost + requirements.
 	if hoverSpellIdx >= 0 {
 		spellKey := spellKeys[hoverSpellIdx]
 		npcSpell := ui.game.dialogNPC.SpellData[spellKey]
@@ -1009,14 +1009,14 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			pagerChanged = true
 		}
 	}
-	// A page flip is a navigation action between item clicks — break any in-flight
+	// A page flip is a navigation action between item clicks - break any in-flight
 	// double-click so the same absolute index across pages can't buy/sell by surprise.
 	if pagerChanged {
 		ui.game.resetDialogClickTracker()
 	}
 
 	// Full item card on hover, floating at the cursor (drawn over everything via
-	// the queued tooltip pass). selectedChar is bounds-guarded — a stale index
+	// the queued tooltip pass). selectedChar is bounds-guarded - a stale index
 	// (party shrank) must not panic on this per-frame hover path. We resolve to a
 	// real member (clamping a stale index) so the formatter never sees a nil char.
 	if tooltipHasItem {
@@ -1076,7 +1076,7 @@ func cardCollectorInvRect(dialogX, dialogY, slot int) (x, y, w, h int) {
 	return startX + c*(cardInvSize+cardInvGap), dialogY + cardInvTop + r*cardInvRowPitch, cardInvSize, cardInvSize
 }
 
-// drawCardCell draws one card cell — the card's art when key is set, else a
+// drawCardCell draws one card cell - the card's art when key is set, else a
 // placeholder frame (with emptyLabel). Returns whether the cursor is over it.
 // Shared by the collector dialog and the Cards menu tab so the cell looks and
 // hit-tests identically in both.
@@ -1150,7 +1150,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	drawDebugText(screen, "Collection (active effects)", dialogX+20, dialogY+96)
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		x, y, w, h := cardCollectorSlotRect(dialogX, dialogY, slot)
-		key := ui.game.cardCollection[slot]
+		key := ui.game.cardCollectionKey(slot)
 		if ui.drawCardCell(screen, key, x, y, w, "+") {
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 235})
 			if def := cardDef(key); def != nil {
@@ -1159,7 +1159,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 		}
 	}
 
-	// Loose cards in the party inventory (paginated — the pack can hold more than
+	// Loose cards in the party inventory (paginated - the pack can hold more than
 	// one page of cards).
 	cardIdx := ui.game.inventoryCardIndices()
 	drawDebugText(screen, "Your cards (double-click to add)", dialogX+20, dialogY+176)
@@ -1430,7 +1430,7 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 				matched = false
 			}
 			// Dynamic tiles (corals, sand dunes, etc.) aren't in the predefined
-			// constants — pull their colour from the tile manager so they show
+			// constants - pull their colour from the tile manager so they show
 			// up on the map overlay too.
 			if !matched && world.GlobalTileManager != nil {
 				if td := world.GlobalTileManager.GetTileData(tile); td != nil {
@@ -1660,7 +1660,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		// Bottom row: Progress on left, Rewards on right
 		bottomY := questY + 54
 
-		// Progress for counted quests (kill / interact) — both advance a
+		// Progress for counted quests (kill / interact) - both advance a
 		// CurrentCount toward TargetCount, so they share the bar.
 		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 			progressText := quest.GetProgressString()

@@ -43,7 +43,7 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	}
 	item := g.party.Inventory[itemIdx]
 	if item.Type != items.ItemConsumable || item.Attributes["revive"] <= 0 {
-		// Slot now holds something else — inventory shifted under us.
+		// Slot now holds something else - inventory shifted under us.
 		return false
 	}
 	ch := g.party.Members[targetIdx]
@@ -60,7 +60,7 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 }
 
 // HealablePartyIndices returns conscious, wounded members (HP below max, alive,
-// not unconscious/dead/eradicated) — valid targets for a heal potion. Used by
+// not unconscious/dead/eradicated) - valid targets for a heal potion. Used by
 // the heal picker when an unconscious owner can't heal themselves.
 func (g *MMGame) HealablePartyIndices() []int {
 	if g == nil || g.party == nil {
@@ -85,7 +85,7 @@ func (g *MMGame) HealablePartyIndices() []int {
 
 // applyFlatHeal adds a heal_base(+Endurance/div) amount to the member at
 // charIdx, clamped to MaxHitPoints, firing the rising "+" VFX if it actually
-// raised HP. Refuses on Unconscious/Dead/Eradicated — heals never revive,
+// raised HP. Refuses on Unconscious/Dead/Eradicated - heals never revive,
 // Eradicated needs the Resurrect spell. Shared by applyHealTo and any
 // consumable that carries a secondary heal (e.g. antivenom's minor heal) so
 // there is exactly one clamp/VFX/revive-guard implementation, not per-caller
@@ -128,11 +128,11 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	base := item.Attributes["heal_base"]
 	div := item.Attributes["heal_endurance_divisor"]
 	if item.Type != items.ItemConsumable || base <= 0 || div <= 0 {
-		return false // slot now holds something else — inventory shifted under us
+		return false // slot now holds something else - inventory shifted under us
 	}
 	ch := g.party.Members[targetIdx]
 	if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
-		return false // heals never revive — Eradicated needs the Resurrect spell
+		return false // heals never revive - Eradicated needs the Resurrect spell
 	}
 	if ch.HitPoints >= ch.MaxHitPoints {
 		return false
@@ -147,7 +147,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 // resolvePickerQuickSource finishes a heal/revival picker that was opened FROM a
 // quick slot. consumed=true (potion spent) clears the source slot; consumed=false
 // (cancelled / not applied) drops the temp bag copy at itemIdx and leaves the slot
-// filled — so cancelling never silently moves the potion to the backpack. No-op
+// filled - so cancelling never silently moves the potion to the backpack. No-op
 // when the picker was opened from the inventory (pickerQuickChar < 0).
 func (g *MMGame) resolvePickerQuickSource(itemIdx int, consumed bool) {
 	if g.pickerQuickChar < 0 {
@@ -188,9 +188,9 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	}
 	// Attribute-driven behaviors (single source of truth)
 	// Revive consumable: branch on number of revivable party members.
-	//   0 → nothing to do, don't waste the potion
-	//   1 → revive immediately (no picker needed)
-	//   N → open revivalPicker, target gets revived when user confirms
+	//   0 -> nothing to do, don't waste the potion
+	//   1 -> revive immediately (no picker needed)
+	//   N -> open revivalPicker, target gets revived when user confirms
 	if item.Attributes["revive"] > 0 {
 		targets := g.RevivablePartyIndices()
 		switch len(targets) {
@@ -231,8 +231,8 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		}
 		ch := g.party.Members[selectedChar]
 		// An unconscious owner can't heal themselves (plain heals never revive), so
-		// route the potion to a conscious, wounded ally: 0 → keep it, 1 → heal them,
-		// N → let the player choose (heal picker).
+		// route the potion to a conscious, wounded ally: 0 -> keep it, 1 -> heal them,
+		// N -> let the player choose (heal picker).
 		if ch.HasCondition(character.ConditionUnconscious) {
 			targets := g.HealablePartyIndices()
 			switch len(targets) {

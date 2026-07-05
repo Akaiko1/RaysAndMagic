@@ -178,7 +178,7 @@ func TestAutoDistributeSecondarySoftCapsAt50WhilePrimaryClimbs(t *testing.T) {
 	autoDistributeStatPoints(member, cfg)
 
 	// 80 pts bring both to 50 (alternating); the secondary then stops at 50 and the
-	// remaining 40 pts climb the primary alone (50 → 90). Primary not yet maxed, so
+	// remaining 40 pts climb the primary alone (50 -> 90). Primary not yet maxed, so
 	// the secondary is NOT lifted past 50.
 	if member.Personality != autoSecondarySoftCap {
 		t.Fatalf("secondary personality = %d, want soft cap %d", member.Personality, autoSecondarySoftCap)

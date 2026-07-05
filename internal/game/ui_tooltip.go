@@ -15,7 +15,7 @@ import (
 // It collects fields in a simple map and glues them together in a stable order
 // to keep the function compact and easy to extend.
 // tooltipDetailHeld reports whether the player is holding Shift to expand a
-// tooltip to its full Base→Stat→Mastery breakdown + universal RULES.
+// tooltip to its full Base->Stat->Mastery breakdown + universal RULES.
 func tooltipDetailHeld() bool {
 	return ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 }
@@ -26,9 +26,9 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	}
 
 	// Every category renders through the unified template (=== Name ===,
-	// Category · Rarity, sections, RULES). Compact by default; the UI passes
-	// full=true (Shift held) to reveal the Base→Stat→Mastery decomposition +
-	// universal RULES (keeps tall cards on screen). Pure formatter — no input read.
+	// Category - Rarity, sections, RULES). Compact by default; the UI passes
+	// full=true (Shift held) to reveal the Base->Stat->Mastery decomposition +
+	// universal RULES (keeps tall cards on screen). Pure formatter - no input read.
 	var core string
 	switch item.Type {
 	case items.ItemTrap:
@@ -42,7 +42,7 @@ func GetItemTooltip(item items.Item, char *character.MMCharacter, combatSystem *
 	case items.ItemConsumable:
 		core = buildSimpleItemTooltipUnified(item, "EFFECT", []string{"Double-click to use", "Single use"}, full)
 	case items.ItemQuest:
-		// Only ACTIVATABLE quest items get a usage hint — plain story tokens
+		// Only ACTIVATABLE quest items get a usage hint - plain story tokens
 		// (statuettes etc.) just sit in the inventory.
 		usage := []string{"Cannot be sold or dropped"}
 		if def, _, ok := config.GetItemDefinitionByName(item.Name); ok && def != nil && (def.OpensMap || def.PromotesLich) {
@@ -220,7 +220,7 @@ func getArmorRequirementLine(item items.Item, char *character.MMCharacter) strin
 	if category == "cloth" {
 		return "Requires: None"
 	}
-	// Category → required skill via the character package's authoritative map.
+	// Category -> required skill via the character package's authoritative map.
 	skill, ok := character.ArmorSkillForCategory(category)
 	if !ok {
 		return ""
@@ -243,7 +243,7 @@ func joinTooltipLines(lines []string) string {
 }
 
 // armorBonusParts lists flat stat bonuses + resistances via the config-level
-// formatter (ItemDefinitionConfig.StatBonusLines/ResistLines) — one source
+// formatter (ItemDefinitionConfig.StatBonusLines/ResistLines) - one source
 // with the map editor; a hand-rolled attribute walk here drifted twice.
 func armorBonusParts(item items.Item) []string {
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
@@ -262,7 +262,7 @@ func armorBonusParts(item items.Item) []string {
 }
 
 // itemKindLabel names the item for the player: wearable pieces are labeled by
-// their SLOT (Belt / Amulet / Cloak / Ring …) instead of the internal type —
+// their SLOT (Belt / Amulet / Cloak / Ring ...) instead of the internal type -
 // "Accessory" told you nothing about where it goes.
 func itemKindLabel(item items.Item) string {
 	if item.Type == items.ItemArmor || item.Type == items.ItemAccessory {
@@ -466,7 +466,7 @@ func armorEffectsSummary(item items.Item) string {
 }
 
 // spellEffectsSummary compresses the spell's mechanics into one comparison
-// cell — the SAME EffectLines the tooltip and editor print (a hand-picked
+// cell - the SAME EffectLines the tooltip and editor print (a hand-picked
 // field list here once showed only Disintegrate and lost AoE/stun/buffs).
 func spellEffectsSummary(def spells.SpellDefinition) string {
 	return strings.Join(def.EffectLines(), "; ")
@@ -493,7 +493,7 @@ func formatSchoolName(school string) string {
 }
 
 // spellGMPierceLine renders the Grandmaster resist-pierce note when the caster
-// is GM in the spell's school — shared by the projectile and zone sections
+// is GM in the spell's school - shared by the projectile and zone sections
 // (the two paths that actually apply spellResistPierce).
 func spellGMPierceLine(def spells.SpellDefinition, char *character.MMCharacter) string {
 	if char == nil || def.School == "" {

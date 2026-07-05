@@ -1,9 +1,9 @@
 package game
 
-// Armor mitigation tests — exercise the REAL CombatSystem path:
-// CalculateTotalArmorClass → armorMitigationPct (% with diminishing returns,
-// capped 75% physical / 33% elemental) → mitigateCharacterDamage pipeline
-// (armor % → resist % → flat buff → floor; 100% resist = immune).
+// Armor mitigation tests - exercise the REAL CombatSystem path:
+// CalculateTotalArmorClass -> armorMitigationPct (% with diminishing returns,
+// capped 75% physical / 33% elemental) -> mitigateCharacterDamage pipeline
+// (armor % -> resist % -> flat buff -> floor; 100% resist = immune).
 
 import (
 	"testing"
@@ -69,7 +69,7 @@ func TestArmorMitigationPct_FormulaAndCaps(t *testing.T) {
 func TestMitigateCharacterDamage_FloorsAt1(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
-	// Capped armor (≤75%) can never fully negate without 100% resist, so a tiny
+	// Capped armor (<=75%) can never fully negate without 100% resist, so a tiny
 	// physical hit always chips at least 1.
 	equipArmorPieces(t, char, "leather_armor", "leather_helmet", "leather_pants")
 	if got := cs.mitigateCharacterDamage(1, "physical", char, false); got != 1 {
@@ -83,7 +83,7 @@ func TestTotalArmorClass_MultiSlotIsAdditive(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]
 
-	// Measure AC after each piece is added — should grow strictly monotonically.
+	// Measure AC after each piece is added - should grow strictly monotonically.
 	zeroAC := cs.CalculateTotalArmorClass(char)
 	if zeroAC != 0 {
 		t.Fatalf("starter has unexpected baseline AC: %d", zeroAC)
@@ -96,7 +96,7 @@ func TestTotalArmorClass_MultiSlotIsAdditive(t *testing.T) {
 	threeAC := cs.CalculateTotalArmorClass(char)
 
 	if !(oneAC > zeroAC && twoAC > oneAC && threeAC > twoAC) {
-		t.Errorf("AC should grow with each armor piece, got %d → %d → %d → %d",
+		t.Errorf("AC should grow with each armor piece, got %d -> %d -> %d -> %d",
 			zeroAC, oneAC, twoAC, threeAC)
 	}
 
@@ -109,7 +109,7 @@ func TestTotalArmorClass_MultiSlotIsAdditive(t *testing.T) {
 		}
 	}
 	if sum != threeAC {
-		t.Errorf("per-slot contributions sum %d ≠ total AC %d", sum, threeAC)
+		t.Errorf("per-slot contributions sum %d != total AC %d", sum, threeAC)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 			mob.DamageMin, mob.DamageMax = raw, raw
 			mob.State = monsterPkg.StateAttacking
 			mob.StateTimer = 1
-			mob.AttackCDFrames = 0 // force a fresh hit each iteration — this test measures mitigation, not cadence
+			mob.AttackCDFrames = 0 // force a fresh hit each iteration - this test measures mitigation, not cadence
 			target.HitPoints = 1000
 
 			cs.HandleMonsterInteractions()
@@ -248,7 +248,7 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 	for name, tc := range tests {
 		got := results[name]
 		for raw := 24; raw <= 38; raw++ {
-			// Mirror mitigateCharacterDamage: armor % (capped 75) → flat buff → floor.
+			// Mirror mitigateCharacterDamage: armor % (capped 75) -> flat buff -> floor.
 			mit := 100 * got.armorClass / (got.armorClass + ArmorMitigationK)
 			if mit > ArmorPhysicalMitigationCap {
 				mit = ArmorPhysicalMitigationCap

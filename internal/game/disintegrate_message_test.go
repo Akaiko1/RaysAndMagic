@@ -10,7 +10,7 @@ import (
 
 // Disintegrate is a NO-DAMAGE projectile: a hit either instakills (the proc) or
 // does nothing. It must NOT fall into the normal damage path, which used to spam
-// "hit for 0 damage" — even prefixed "Critical!" — on every non-proc hit. An
+// "hit for 0 damage" - even prefixed "Critical!" - on every non-proc hit. An
 // undead is immune to disintegrate, so the proc can never apply: a deterministic
 // "no effect" outcome, no RNG.
 func TestDisintegrate_NoDamageSpamOnImmuneTarget(t *testing.T) {
@@ -28,7 +28,7 @@ func TestDisintegrate_NoDamageSpamOnImmuneTarget(t *testing.T) {
 	if mob == nil {
 		t.Fatal("failed to build test monster")
 	}
-	mob.MonsterType = "undead" // immune to disintegrate → the instakill never applies
+	mob.MonsterType = "undead" // immune to disintegrate -> the instakill never applies
 	mob.PerfectDodge = 0       // don't let a dodge preempt the outcome
 	mob.MaxHitPoints, mob.HitPoints = 100, 100
 	mob.Pacified = true // a hit must break Charm even when it deals no damage

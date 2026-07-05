@@ -115,7 +115,7 @@ npcs:
 Notes on encounters:
 - Monsters are spawned dynamically near the NPC on trigger (count rolled in
   `[count_min, count_max]`). The encounter `type` (e.g. `bandit_camp`) is just
-  a label — it is not branched on in code.
+  a label - it is not branched on in code.
 - `rewards` may also carry a `treasure_chest` (same shape as map encounters,
   see below) that spawns when the encounter is cleared.
 
@@ -124,7 +124,7 @@ A different mechanism lives in `assets/map_configs.yaml`, for monsters
 PRE-PLACED in the `.map` grid (not spawned by an NPC). Killing the group drops
 a treasure chest. Use `clear_encounter` (singular) to tie EVERY monster on the
 map to one reward, or `clear_encounters` (plural) for several independent
-groups — each declares `monsters: [{type, count}]` and a `treasure_chest`, and
+groups - each declares `monsters: [{type, count}]` and a `treasure_chest`, and
 the engine binds the `count` nearest monsters of each type to that chest:
 ```yaml
 maps:

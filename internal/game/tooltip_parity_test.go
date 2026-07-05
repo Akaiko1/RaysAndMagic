@@ -12,24 +12,24 @@ import (
 	"ugataima/internal/spells"
 )
 
-// Why this test exists — read internal/character/cardtemplate.go's "two parallel
+// Why this test exists - read internal/character/cardtemplate.go's "two parallel
 // builders" note first. The in-game card (buildWeaponTooltipUnified /
 // buildSpellTooltipUnified, package game, CombatSystem numbers) and the map-editor
 // card (character.WeaponCardSections / SpellCardSections, character-independent
 // formulas) are built by SEPARATE functions because the editor cannot import the
 // combat package. They share section order, EffectLines and rule helpers, but the
-// term-EXISTENCE logic is written twice — which is exactly where they drifted
+// term-EXISTENCE logic is written twice - which is exactly where they drifted
 // (Ray of Light's missing Personality term, the absent Arms Master line, the
 // stub crit block).
 //
-// Raw-string comparison is wrong here: the cards intentionally differ in STYLE —
+// Raw-string comparison is wrong here: the cards intentionally differ in STYLE -
 // the game prints values ("Intellect (40 / 3): +13") and a numeric Total, the
 // editor prints formulas ("Intellect / 3: scales") and no Total. So we extract a
 // normalized mechanicSkeleton from each rendered card and compare only what must
 // agree: the ordered set of scaling stats, the shared EffectLines, the damage
 // type, and presence of the mastery / arms-master / crit / cooldown blocks.
 // Adding a mechanic to one builder and not the other makes a skeleton field
-// diverge and fails the suite — the architectural agreement becomes a contract.
+// diverge and fails the suite - the architectural agreement becomes a contract.
 
 type mechanicSkeleton struct {
 	scalingStats  []string        // ORDERED "Stat/divisor" terms (order is meaningful)
@@ -79,7 +79,7 @@ func extractSkeleton(card string) mechanicSkeleton {
 		} else if m := reEditorStat.FindStringSubmatch(ln); m != nil {
 			sk.scalingStats = append(sk.scalingStats, m[1]+"/"+m[2])
 		}
-		// Mastery means the DAMAGE/HEAL mastery CONTRIBUTION specifically — scoped to
+		// Mastery means the DAMAGE/HEAL mastery CONTRIBUTION specifically - scoped to
 		// the damage sections so the EFFECTS duration-mastery line ("Mastery: +20%
 		// duration per tier") can't mask a removed damage-mastery term, and so the
 		// word appearing in RULES/CRITICAL text never counts.
@@ -87,7 +87,7 @@ func extractSkeleton(card string) mechanicSkeleton {
 			(section == "DAMAGE" || section == "HEALING" || section == "DAMAGE PER TICK") {
 			sk.hasMastery = true
 		}
-		// Arms Master must be the DAMAGE contribution — scoped, else the CRITICAL
+		// Arms Master must be the DAMAGE contribution - scoped, else the CRITICAL
 		// "GM Arms Master" line would keep it true after the damage term is dropped.
 		if section == "DAMAGE" && strings.Contains(ln, "Arms Master") {
 			sk.hasArmsMaster = true
@@ -96,14 +96,14 @@ func extractSkeleton(card string) mechanicSkeleton {
 			sk.hasCooldown = true
 		}
 		// Weapon ATTACK mechanics (arc, attack-speed multiplier, projectile speed,
-		// hitbox, max projectiles, range) — the shared/identical lines. The ABSOLUTE
+		// hitbox, max projectiles, range) - the shared/identical lines. The ABSOLUTE
 		// "RT Cooldown: Xs" is excluded (editor has no Speed to compute it).
 		if section == "ATTACK" && !strings.HasPrefix(ln, "RT Cooldown:") {
 			sk.attack[ln] = true
 		}
-		// Spell CASTING delivery mechanics — whitelist the lines whose TEXT is shared
+		// Spell CASTING delivery mechanics - whitelist the lines whose TEXT is shared
 		// (Range/Projectile Speed/Hitbox/Target). Cost (Meditation discount), the
-		// cooldown seconds and the Speed/staff notes legitimately diverge → excluded.
+		// cooldown seconds and the Speed/staff notes legitimately diverge -> excluded.
 		if section == "CASTING" {
 			for _, p := range []string{"Range:", "Projectile Speed:", "Hitbox:", "Target:"} {
 				if strings.HasPrefix(ln, p) {
@@ -138,9 +138,9 @@ func extractSkeleton(card string) mechanicSkeleton {
 			sk.rules[normalizeRule(ln)] = true
 		}
 	}
-	// The ×CritDamageMultiplier component: game prints "Critical Damage: N" (DAMAGE),
-	// the editor prints "Critical hits deal ×N damage" (CRITICAL) — same mechanic.
-	if strings.Contains(card, "Critical Damage:") || strings.Contains(card, "Critical hits deal ×") {
+	// The xCritDamageMultiplier component: game prints "Critical Damage: N" (DAMAGE),
+	// the editor prints "Critical hits deal xN damage" (CRITICAL) - same mechanic.
+	if strings.Contains(card, "Critical Damage:") || strings.Contains(card, "Critical hits deal x") {
 		sk.crit["mult"] = true
 	}
 	return sk
@@ -172,7 +172,7 @@ func isSectionHeader(ln string) bool {
 }
 
 // isStyleDivergent flags the EFFECTS lines that the two builders render
-// differently BY DESIGN (value vs formula) — duration decomposition.
+// differently BY DESIGN (value vs formula) - duration decomposition.
 func isStyleDivergent(line string) bool {
 	return strings.HasPrefix(line, "Base Duration:") ||
 		strings.HasPrefix(line, "Current Duration:") ||
@@ -186,7 +186,7 @@ func isStyleDivergent(line string) bool {
 }
 
 // diff reports comparable-field mismatches. includeCooldown is false for weapons:
-// the editor weapon card can't show an ABSOLUTE cooldown (no character → no Speed
+// the editor weapon card can't show an ABSOLUTE cooldown (no character -> no Speed
 // curve), only the relative attack-speed multiplier, so its presence legitimately
 // differs from the game's "RT Cooldown: Xs". Spells DO carry an authored
 // cooldown_seconds the editor can render, so there it's compared.
@@ -264,7 +264,7 @@ func TestCardParity_SpellsGameVsEditor(t *testing.T) {
 		}
 		processed++
 		// Monster-only spells use a distinct editor profile (no player formula) and
-		// are never shown in the in-game spellbook — assert the Monster profile
+		// are never shown in the in-game spellbook - assert the Monster profile
 		// instead of player parity.
 		if def.MonsterOnly {
 			assertMonsterProfile(t, key, def, sd)
@@ -287,19 +287,19 @@ func TestCardParity_SpellsGameVsEditor(t *testing.T) {
 
 // TestCardParity_TrapsGameVsEditor covers the third combat-ability card pair
 // (buildTrapTooltipUnified vs character.TrapCardSections). Traps scale on a
-// COMPOUND stat — "(Intellect + Accuracy) / N" — that the weapon/spell scaling
+// COMPOUND stat - "(Intellect + Accuracy) / N" - that the weapon/spell scaling
 // regexes don't model, so instead of the generic skeleton this asserts each card
 // surfaces what the YAML def declares (a drift in EITHER card vs the source of
 // truth fails). The SP Cost (GM-Meditation-discounted in-game, raw in the editor)
 // and the LOCKED level-gate line are intentional value/state divergences and are
-// not compared — same rationale as the spell-cost / weapon-cooldown exclusions.
+// not compared - same rationale as the spell-cost / weapon-cooldown exclusions.
 func TestCardParity_TrapsGameVsEditor(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := gmReferenceChar(cs.game.config)
 
 	keys := config.TrapKeysOrdered()
 	if len(keys) == 0 {
-		t.Fatal("no traps loaded — newTestCombatSystemWithConfig must LoadTrapConfig")
+		t.Fatal("no traps loaded - newTestCombatSystemWithConfig must LoadTrapConfig")
 	}
 	processed := 0
 	for _, key := range keys {
@@ -312,7 +312,7 @@ func TestCardParity_TrapsGameVsEditor(t *testing.T) {
 		editorCard := strings.Join(character.RenderCardLines(
 			character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true), "\n")
 
-		// A mechanic the def declares must appear in BOTH cards — requiring presence
+		// A mechanic the def declares must appear in BOTH cards - requiring presence
 		// (not mere equality) catches the case where BOTH builders drop it.
 		mustMatch := func(when bool, name, sub string) {
 			if !when {
@@ -329,7 +329,7 @@ func TestCardParity_TrapsGameVsEditor(t *testing.T) {
 		mustMatch(def.StunTurns > 0, "stun", "Stun")
 		mustMatch(def.RootTurns > 0, "root", "Root")
 		mustMatch(def.AoeRadiusTiles > 0, "AoE", "AoE")
-		// Element/AoE EFFECTS line is the shared DamageTypeAoELine — must be identical.
+		// Element/AoE EFFECTS line is the shared DamageTypeAoELine - must be identical.
 		want := character.DamageTypeAoELine(def.Element, def.AoeRadiusTiles)
 		if def.DamageBase > 0 && (!strings.Contains(gameCard, want) || !strings.Contains(editorCard, want)) {
 			t.Errorf("trap %q: element/AoE line %q missing from a card", key, want)
@@ -370,7 +370,7 @@ func assertMonsterProfile(t *testing.T, key string, def *config.SpellDefinitionC
 // gmReferenceChar is a "grandmaster everything" caster: every skill and magic
 // school at GM, high stats. The editor formula card always lists the skill-gated
 // lines (mastery, true damage, arms master); the game card only shows them when
-// the caster actually has the skill — so without GM skills the comparison would
+// the caster actually has the skill - so without GM skills the comparison would
 // false-positive on legitimately absent lines.
 func gmReferenceChar(cfg *config.Config) *character.MMCharacter {
 	c := character.CreateCharacter("Parity", character.ClassSorcerer, cfg)

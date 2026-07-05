@@ -451,7 +451,7 @@ items:
     value: 0
     promotes_lich: true   # using it offers a compatible party member the path of the Lich
 
-  # --- Gauntlets (hands slot) — first items to fill the previously-empty
+  # --- Gauntlets (hands slot) - first items to fill the previously-empty
   # gauntlets slot. Armor-type, so they add to total armor class and gate on the
   # matching armor skill; "cloth" is universally wearable (caster-friendly).
   goblin_hide_gauntlets:
@@ -588,8 +588,8 @@ items:
     value: 700
 
   # Golden Thief Bug boss drop (1%): a cloth breastplate set with the golden card.
-  # Cloth ⇒ no skill requirement and no endurance scaling (flat AC). Its real worth
-  # is the resistances map — every non-physical school at 100 (full immunity), the
+  # Cloth => no skill requirement and no endurance scaling (flat AC). Its real worth
+  # is the resistances map - every non-physical school at 100 (full immunity), the
   # same per-element model monsters use. Physical is intentionally omitted.
   golden_thiefbug_carapace:
     name: "Golden Thief Bug Carapace"
@@ -613,7 +613,7 @@ items:
       dark: 100
 
   # --- Japanese Castle (eastern islands) loot ---
-  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate ⇒ gates on
+  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate => gates on
   # plate skill and follows the category-wide END/5 AC scaling.
   onryo_lamellar:
     name: "Onryo Lamellar"
@@ -808,7 +808,7 @@ items:
     rarity: "legendary"
     value: 2500
 
-  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate ⇒
+  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate =>
   # gates on plate skill and follows the category-wide END/5 AC scaling.
   mantle_of_the_idol_king:
     name: "Mantle of the Idol-King"

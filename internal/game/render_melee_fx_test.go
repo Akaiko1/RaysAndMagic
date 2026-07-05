@@ -6,7 +6,7 @@ import (
 	"ugataima/internal/config"
 )
 
-// The bespoke legendary swing styles are wired YAML→renderer by name; these
+// The bespoke legendary swing styles are wired YAML->renderer by name; these
 // tests pin the contract: every slash_fx resolves to a registered renderer
 // and validation rejects typos instead of silently falling back.
 func TestSlashFxStylesResolve(t *testing.T) {

@@ -1,12 +1,12 @@
 package game
 
-// Headless overlap/jitter simulation — a DEBUG MODULE, not a regression test.
+// Headless overlap/jitter simulation - a DEBUG MODULE, not a regression test.
 // Loads the real forest map, steps the real monster AI + separation pass and
 // reports overlap and jitter metrics:
 //
-//	Phase A (2 sim-minutes): party parked far away — calm monsters patrol.
+//	Phase A (2 sim-minutes): party parked far away - calm monsters patrol.
 //	Phase B (1 sim-minute):  party standing next to the densest monster
-//	                         cluster — monsters engage and crowd in.
+//	                         cluster - monsters engage and crowd in.
 //
 // Run with:  RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_ForestOverlap -v
 // Skipped by default so the normal suite stays fast.
@@ -208,7 +208,7 @@ func TestDebugSim_ForestOverlap(t *testing.T) {
 		ov.report(t, label, ticks)
 	}
 
-	// Phase A: party parked in a far corner — calm monsters patrol for 2 min.
+	// Phase A: party parked in a far corner - calm monsters patrol for 2 min.
 	runPhase("A calm", 120, 64+32, 64+32)
 
 	// Phase B: party standing next to the densest monster cluster for 1 min.

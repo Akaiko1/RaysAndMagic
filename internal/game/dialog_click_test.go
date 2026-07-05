@@ -55,7 +55,7 @@ func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
 	g.dialogTab = 1 // Quests tab
 	g.selectedChoice = 0
 
-	// First click: must SELECT only — quest not taken, dialog still open.
+	// First click: must SELECT only - quest not taken, dialog still open.
 	queueClickAtChoice(g, npc, 0)
 	ih.handleSpellTraderInput()
 	if q := g.questManager.GetQuest("forest_wolf_cull"); q != nil {

@@ -35,7 +35,7 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 }
 
 // validateSlashFxStyles fails fast on a slash_fx naming a style with no
-// renderer — a YAML typo would otherwise silently fall back to the stock swing.
+// renderer - a YAML typo would otherwise silently fall back to the stock swing.
 func validateSlashFxStyles() {
 	if config.GlobalWeapons == nil {
 		return
@@ -50,8 +50,8 @@ func validateSlashFxStyles() {
 }
 
 // Dissolve-stroke tuning: a stroke section painted at path parameter t was
-// born at t·meleeSweepFrac and flakes away at a birth-ordered, per-section-
-// jittered die time — the start of the stroke dissolves first, the leading
+// born at t-meleeSweepFrac and flakes away at a birth-ordered, per-section-
+// jittered die time - the start of the stroke dissolves first, the leading
 // edge last.
 const (
 	dissolveStepPx   = 3.5  // cross-section spacing = dissolve bite size
@@ -132,7 +132,7 @@ func (r *Renderer) drawDissolveStroke(screen *ebiten.Image, st dissolveStroke, l
 		if baseA > 0 {
 			pinch = a / baseA
 		}
-		// half-width; ×1.8 offsets the soft cross-section falloff
+		// half-width; x1.8 offsets the soft cross-section falloff
 		w := st.width(t) * 1.8 * (0.35 + 0.65*pinch) / 2
 		col := st.color(t)
 		cr, cg, cb, ca := float32(col[0])/255, float32(col[1])/255, float32(col[2])/255, float32(a)
@@ -175,7 +175,7 @@ func (r *Renderer) drawSparkStar(screen *ebiten.Image, x, y, size float64, col, 
 	}
 }
 
-// Muramasa, the Thirsting Edge — a single razor-flat iaijutsu cut: a solid
+// Muramasa, the Thirsting Edge - a single razor-flat iaijutsu cut: a solid
 // white-hot line over a crimson echo, dissolving from hilt to tip while blood
 // teardrops fall and a crimson mist breathes off the wake.
 func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
@@ -229,7 +229,7 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 	}
 
 	// The thirsting edge: blood beads form where the blade passed and fall as
-	// teardrops — a head with a stretched tail up the fall path — while a low
+	// teardrops - a head with a stretched tail up the fall path - while a low
 	// crimson mist swells off the wake.
 	dropPos := func(k int, u float64) (float64, float64) {
 		tb := auraHash(seed, k, 21, 0) // arc parameter where this bead forms
@@ -273,8 +273,8 @@ func (r *Renderer) drawMeleeFxMuramasa(screen *ebiten.Image, s SlashEffect, cx, 
 	}
 }
 
-// Tonbogiri, the Dragonfly Spear — an extra-long lean thrust drawn as a solid
-// iridescent green↔cyan line, mirrored wing-sparks fluttering off the shaft,
+// Tonbogiri, the Dragonfly Spear - an extra-long lean thrust drawn as a solid
+// iridescent green<->cyan line, mirrored wing-sparks fluttering off the shaft,
 // and a brief cross-flash at full extension (the dragonfly, cut in two).
 func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	progress, fade, _, lead := meleeFxTiming(s)
@@ -346,7 +346,7 @@ func (r *Renderer) drawMeleeFxTonbogiri(screen *ebiten.Image, s SlashEffect, cx,
 	}
 }
 
-// Kage-kunai, the Twin Shadows — mirrored twin stabs, the right blade a
+// Kage-kunai, the Twin Shadows - mirrored twin stabs, the right blade a
 // heartbeat behind the left: a solid darkening shadow line under a violet
 // edge (both dissolving in strike order), with wisps curling up between them.
 func (r *Renderer) drawMeleeFxKageKunai(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
@@ -450,7 +450,7 @@ func (r *Renderer) drawMeleeFxKageKunai(screen *ebiten.Image, s SlashEffect, cx,
 	}
 }
 
-// Idol-Breaker, the Warlord's Maul — a ponderous overhead smash drawn as a
+// Idol-Breaker, the Warlord's Maul - a ponderous overhead smash drawn as a
 // heavy solid stone-to-amber line that lands in an impact flash, a flattened
 // ground shockwave, lingering dust and a fountain of stone shards flecked
 // with golden idol-glints.

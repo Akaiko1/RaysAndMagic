@@ -7,7 +7,7 @@ import (
 )
 
 // TimedCombatBuff is one active, timed party combat buff. Multiple buffs STACK
-// additively (Day of the Gods, Hour of Power, Stone Skin, Heroism, …): their
+// additively (Day of the Gods, Hour of Power, Stone Skin, Heroism, ...): their
 // ResistPct / OutBonus / InReduce sum across all active entries. This replaces
 // the old single-slot dayGods*/hourPower* fields, so casting one buff no longer
 // clobbers another and any number of buff spells can coexist.

@@ -61,7 +61,7 @@ func (g *MMGame) updateUtilityStatus(spellID spells.SpellID, duration int, activ
 }
 
 // resolveStatusIconSprite picks the HUD status-bar icon for a token. A known
-// legacy token (bless, torch, …) maps to its dedicated status_* sprite. For any
+// legacy token (bless, torch, ...) maps to its dedicated status_* sprite. For any
 // other token (e.g. a spell key) it PREFERS a dedicated "status_<token>" sprite
 // if one exists, otherwise falls back to the spellbook icon "icon_spell_<token>"
 // (which drawSpellIcon shrinks to the bar), and finally to a text label.

@@ -75,7 +75,7 @@ func TestSpriteUsesPerpendicularDistance(t *testing.T) {
 					perpDist, euclideanDist)
 			}
 
-			t.Logf("Euclidean=%.2f, Perpendicular=%.2f, Ratio=%.3f, AngleDiff=%.2f°",
+			t.Logf("Euclidean=%.2f, Perpendicular=%.2f, Ratio=%.3f, AngleDiff=%.2fdeg",
 				euclideanDist, perpDist, perpDist/euclideanDist, angleDiff*180/math.Pi)
 		})
 	}

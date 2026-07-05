@@ -64,7 +64,7 @@ func TestEnsureSelectedCharCanAct_AdvancesWhenSelectedIsDead(t *testing.T) {
 
 func TestEnsureSelectedCharCanAct_SkipsDeadMembersInOrder(t *testing.T) {
 	g := selectionTestGame(t)
-	// Kill 0 and 1 — should snap to 2.
+	// Kill 0 and 1 - should snap to 2.
 	for i := 0; i < 2; i++ {
 		g.party.Members[i].HitPoints = 0
 		g.party.Members[i].AddCondition(character.ConditionUnconscious)

@@ -9,7 +9,7 @@ import (
 
 // turnBasedRegenSetup builds a game with a 4-member party where every member
 // has Personality=10 (regen=2 per tick), SP=20/100, and is alive+conscious.
-// Loads weapon/item configs because newTestGame → NewParty → CreateCharacter
+// Loads weapon/item configs because newTestGame -> NewParty -> CreateCharacter
 // pulls starter equipment from those YAML files; without them setup* panics.
 func turnBasedRegenSetup(t *testing.T) *MMGame {
 	t.Helper()
@@ -55,7 +55,7 @@ func TestTurnBasedRegenFiresEveryNRounds(t *testing.T) {
 		}
 	}
 
-	// Another N rounds → another tick.
+	// Another N rounds -> another tick.
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
 		g.endPartyTurn()
 	}
@@ -80,7 +80,7 @@ func TestTurnBasedRegenSkipsUnconscious(t *testing.T) {
 		t.Errorf("unconscious char regenerated SP from %d to %d in turn-based", startSP, got)
 	}
 
-	// Healthy members should have regenerated 3 times → +6.
+	// Healthy members should have regenerated 3 times -> +6.
 	for i, m := range g.party.Members {
 		if i == 0 {
 			continue
@@ -125,7 +125,7 @@ func TestTurnBasedRegenCapsAtMax(t *testing.T) {
 
 func TestTurnBasedRegenUsesEffectivePersonalityViaStatBonus(t *testing.T) {
 	g := turnBasedRegenSetup(t)
-	g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(20)}) // Personality 10 → effective 30 → regen 4
+	g.addStatBuff(TimedStatBuff{SpellID: "bless", Frames: 1 << 30, Bonuses: character.UniformStatBonuses(20)}) // Personality 10 -> effective 30 -> regen 4
 
 	for i := 0; i < TurnBasedSpRegenEveryNRounds; i++ {
 		g.endPartyTurn()

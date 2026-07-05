@@ -153,3 +153,38 @@ func TestPadLevelUpOptions_NoDuplicateSkill(t *testing.T) {
 		t.Errorf("skill %v appears %d times after padding, want exactly 1", pick, seen)
 	}
 }
+
+func TestLevelUpChoice_FiltersMaxedExplicitMasteriesAndShowsRemainingUpgrades(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	member := g.party.Members[0] // knight: explicit L3 choices are sword/spear.
+
+	for _, skill := range member.Skills {
+		skill.Mastery = character.MasteryGrandMaster
+	}
+	member.Skills[character.SkillLeather].Mastery = character.MasteryMaster
+	member.Skills[character.SkillChain].Mastery = character.MasteryExpert
+
+	g.queueLevelUpChoices(member, 3, config.GetLevelUpChoices(member.GetClassKey(), 3))
+	req := lastLevelUpRequest(t, g)
+	if len(req.options) != 2 {
+		t.Fatalf("options = %d, want exactly the two remaining non-maxed masteries: %#v", len(req.options), req.options)
+	}
+
+	seen := map[character.SkillType]bool{}
+	for _, opt := range req.options {
+		if !opt.hasMastery {
+			t.Fatalf("maxed or non-upgrade option leaked into popup: %#v", opt)
+		}
+		seen[opt.skillType] = true
+		if opt.skillType == character.SkillSword || opt.skillType == character.SkillSpear {
+			t.Fatalf("maxed explicit option leaked into popup: %s", opt.skillType)
+		}
+	}
+	for _, want := range []character.SkillType{character.SkillLeather, character.SkillChain} {
+		if !seen[want] {
+			t.Fatalf("missing remaining upgrade %s; got %#v", want, req.options)
+		}
+	}
+}

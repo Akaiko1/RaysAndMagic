@@ -15,7 +15,7 @@ import (
 // consumer picks it up.
 
 // Skill-effect balance constants. These live here (not in the game package) so
-// the SAME numbers drive combat, the in-game skill tooltip, AND the map editor —
+// the SAME numbers drive combat, the in-game skill tooltip, AND the map editor -
 // one source of truth. (Bodybuilding/Meditation-regen constants live alongside
 // CalculateMaxHP in character.go.) The game package re-exports these as aliases
 // so existing combat references keep working unchanged.
@@ -51,7 +51,7 @@ const (
 	// TrapperDamagePerTier: bonus damage of damage traps per Trapper tier.
 	TrapperDamagePerTier = 5
 	// TrapperSecondsPerTier: extra RT seconds of control (stun/root) per Trapper
-	// tier — linear (base 2 → 2/4/6/8). TB turns scale separately and
+	// tier - linear (base 2 -> 2/4/6/8). TB turns scale separately and
 	// NON-linearly; see TrapperTurnBonus.
 	TrapperSecondsPerTier = 2
 	// TrapStatScalingDivisor: trap damage gains (Intellect+Accuracy)/this.
@@ -61,7 +61,7 @@ const (
 	// loot roll pays consolation gold instead.
 	SleightChancePctPerTier = 10
 	// SleightGoldHighLevel / SleightGoldLow: consolation gold when the pick
-	// succeeds but the loot roll misses — split by SleightHighLevelThreshold.
+	// succeeds but the loot roll misses - split by SleightHighLevelThreshold.
 	SleightGoldHighLevel      = 35
 	SleightGoldLow            = 5
 	SleightHighLevelThreshold = 5
@@ -72,11 +72,11 @@ const (
 	// ArmorPierceRangedChancePct: a ranged physical hit has this % chance to
 	// ignore the target's armor entirely.
 	ArmorPierceRangedChancePct = 33
-	// Party armor mitigation — a PERCENTAGE model with diminishing returns:
+	// Party armor mitigation - a PERCENTAGE model with diminishing returns:
 	//   physical% = min(ArmorPhysicalMitigationCap, 100*AC/(AC+ArmorMitigationK))
 	//   elemental% = physical% * ArmorElementalMitigationCap / ArmorPhysicalMitigationCap
 	// Elemental is the SAME curve scaled down, so it reaches its 33% cap at the
-	// exact AC where physical reaches 75% — not capping out far earlier.
+	// exact AC where physical reaches 75% - not capping out far earlier.
 	// K sets the curve (AC == K gives 50% pre-cap).
 	ArmorMitigationK            = 45
 	ArmorPhysicalMitigationCap  = 75
@@ -94,6 +94,19 @@ const (
 	// MerchantPricePctPerTier: % better buy AND sell prices per the party's best
 	// Merchant tier.
 	MerchantPricePctPerTier = 5
+	// DualWieldingCDReductionPerTier: % off BOTH weapons' cooldown per tier ABOVE
+	// Novice (Novice just unlocks the off-hand weapon slot, no reduction yet).
+	DualWieldingCDReductionPerTier = 10
+	// IronBodyACPerTier: flat Armor Class per Iron Body tier, INCLUDING Novice
+	// (tier+1)*this - a Monk has no armor slots, so this is their main AC source
+	// besides Endurance scaling.
+	IronBodyACPerTier = 10
+	// IronBodyGMDodgeBonus: extra Perfect Dodge % at Grandmaster Iron Body.
+	IronBodyGMDodgeBonus = 10
+	// SpiritualTrainingProcPctPerTier: chance per tier, INCLUDING Novice
+	// ((tier+1)*this), that a melee hit also fires the slotted quick-spell for
+	// free (0 SP), mirroring the Pixie Card's free Fire Bolt proc.
+	SpiritualTrainingProcPctPerTier = 10
 )
 
 // TrapperTurnBonus is the EXTRA TB turns a control trap (stun/root) gains at the
@@ -110,6 +123,7 @@ func TrapperTurnBonus(tier int) int {
 // PlayableClasses is every playable class in canonical (enum) order.
 var PlayableClasses = []CharacterClass{
 	ClassKnight, ClassPaladin, ClassArcher, ClassCleric, ClassSorcerer, ClassDruid, ClassThief,
+	ClassArmsMaster, ClassMonk,
 }
 
 // Key returns the lowercase class key (knight/paladin/...).
@@ -129,6 +143,10 @@ func (c CharacterClass) Key() string {
 		return "druid"
 	case ClassThief:
 		return "thief"
+	case ClassArmsMaster:
+		return "arms_master"
+	case ClassMonk:
+		return "monk"
 	default:
 		return "unknown"
 	}
@@ -151,13 +169,17 @@ func (c CharacterClass) Blurb() string {
 		return "Nature hybrid - Water, Mind and Earth magic; staff and wilderness skills."
 	case ClassThief:
 		return "No magic - a trap book instead: deadly tile traps, daggers and quick fingers."
+	case ClassArmsMaster:
+		return "Master of every weapon - dual-wields for two independent attacks, expert from level 1."
+	case ClassMonk:
+		return "Unarmed fighter and self-magic adept - no weapons or armor, fists scale with Might and Speed."
 	default:
 		return ""
 	}
 }
 
 // StatDescription is the canonical player-facing explanation of a primary
-// stat — quoted by the in-game stat tooltip AND the map editor, built from the
+// stat - quoted by the in-game stat tooltip AND the map editor, built from the
 // same balance constants combat uses.
 func StatDescription(stat string) string {
 	switch strings.ToLower(stat) {
@@ -177,7 +199,7 @@ func StatDescription(stat string) string {
 		return fmt.Sprintf("Improves damage for weapons that scale from Accuracy; "+
 			"feeds trap damage (+(Int+Acc)/%d).", TrapStatScalingDivisor)
 	case "speed":
-		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode the fastest living party member grants party bonus actions (Speed >%d → +1, >%d → +2). Improves damage for weapons that scale from Speed.",
+		return fmt.Sprintf("Reduces real-time action cooldowns. In turn-based mode the fastest living party member grants party bonus actions (Speed >%d -> +1, >%d -> +2). Improves damage for weapons that scale from Speed.",
 			SpeedBonusAction1Threshold, SpeedBonusAction2Threshold)
 	case "luck":
 		return "Improves critical chance and Perfect Dodge."
@@ -187,7 +209,7 @@ func StatDescription(stat string) string {
 }
 
 // WeaponCombatLines lists the game-side combat traits of a weapon that the
-// config-level EffectLines can't compute (the category→skill mapping lives
+// config-level EffectLines can't compute (the category->skill mapping lives
 // here): the effective attack-speed multiplier (per-weapon override OR the
 // category multiplier from weapons.yaml) and the ranged armor-pierce chance.
 // Shared by the in-game weapon tooltip and the map-editor card.
@@ -204,7 +226,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 	}
 	if mult > 0 && mult != 1.0 {
 		// Show the raw multiplier + how it compares to the baseline weapon
-		// (a sword, x1.00) — "+10%" alone read as "vs my current weapon" or
+		// (a sword, x1.00) - "+10%" alone read as "vs my current weapon" or
 		// "+10% of 1s". The actual cooldown in seconds is shown alongside.
 		d := mult - 1.0
 		rel := "slower"
@@ -219,7 +241,7 @@ func WeaponCombatLines(def *config.WeaponDefinitionConfig) []string {
 	return out
 }
 
-// MagicMasteryDescription explains what a magic school's mastery grants — one
+// MagicMasteryDescription explains what a magic school's mastery grants - one
 // text for the in-game tooltip and the map editor.
 func MagicMasteryDescription() string {
 	return fmt.Sprintf(
@@ -230,17 +252,18 @@ func MagicMasteryDescription() string {
 
 // AllSkills is every skill in canonical (enum) order.
 var AllSkills = []SkillType{
-	SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff,
+	SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillMartialArts,
 	SkillLeather, SkillChain, SkillPlate, SkillShield,
 	SkillBodybuilding, SkillMeditation, SkillMerchant, SkillRepair,
 	SkillIdentifyItem, SkillDisarmTrap, SkillLearning, SkillArmsMaster,
 	SkillTrapper, SkillSleightOfHand,
+	SkillDualWielding, SkillIronBody, SkillSpiritualTraining,
 }
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
 func (s SkillType) Category() string {
 	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff:
+	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillMartialArts:
 		return "Weapon"
 	case SkillLeather, SkillChain, SkillPlate, SkillShield:
 		return "Armor"
@@ -250,7 +273,7 @@ func (s SkillType) Category() string {
 }
 
 // Description is the player-facing explanation of a skill, built from the SAME
-// balance constants the combat code uses — so the in-game tooltip, combat, and
+// balance constants the combat code uses - so the in-game tooltip, combat, and
 // the map editor can never drift. Mastery tiers: Novice 0 / Expert 1 / Master 2
 // / Grandmaster 3 (bonuses scale per tier above Novice unless noted).
 func (s SkillType) Description() string {
@@ -260,6 +283,11 @@ func (s SkillType) Description() string {
 			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit with this weapon and "+
 			"strikes ignore Perfect Dodge.",
 			weaponNoun(s), MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
+	case SkillMartialArts:
+		return fmt.Sprintf("Proficiency fighting unarmed. Weapon Mastery: +%d true damage per level "+
+			"(ignores armor, lands through dodges). Grandmaster: +%d%% crit unarmed and "+
+			"strikes ignore Perfect Dodge.",
+			MasteryWeaponTrueDamagePerTier, WeaponGMCritBonus)
 	case SkillLeather, SkillChain, SkillPlate:
 		return fmt.Sprintf("Required to wear %s armor. Armor Mastery: +%d base AC per level. "+
 			"Grandmaster: +%d%% Perfect Dodge while wearing this armor type.",
@@ -273,7 +301,7 @@ func (s SkillType) Description() string {
 			BodybuildingHPPerTier, BodybuildingGMMaxHPPct)
 	case SkillMeditation:
 		return fmt.Sprintf("Meditation: +%d spell points per regen tick per level (faster mana recovery). "+
-			"Grandmaster: −%d%% spell point cost on all spells and traps.",
+			"Grandmaster: -%d%% spell point cost on all spells and traps.",
 			MeditationRegenPerTier, MeditationGMSpellCostReductionPct)
 	case SkillLearning:
 		return fmt.Sprintf("Learning: +%d%% experience gained per level. "+
@@ -287,7 +315,7 @@ func (s SkillType) Description() string {
 		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level "+
 			"(the party's best Merchant applies).", MerchantPricePctPerTier)
 	case SkillDisarmTrap:
-		return fmt.Sprintf("Disarm Trap: −%d incoming damage per mastery level "+
+		return fmt.Sprintf("Disarm Trap: -%d incoming damage per mastery level "+
 			"(placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
 	case SkillTrapper:
 		return fmt.Sprintf("Trapper: traps deal +%d damage per mastery level; control traps "+
@@ -303,21 +331,32 @@ func (s SkillType) Description() string {
 		return "Repair: no effect yet (planned: equipment durability)."
 	case SkillIdentifyItem:
 		return "Identify Item: no effect yet (planned: reveal unidentified loot)."
+	case SkillDualWielding:
+		return fmt.Sprintf("Dual Wielding: Novice unlocks a second weapon in the off-hand, each with its "+
+			"own cooldown. From Expert on, -%d%% cooldown on both weapons per level above Novice.",
+			DualWieldingCDReductionPerTier)
+	case SkillIronBody:
+		return fmt.Sprintf("Iron Body: +%d Armor Class per level, Novice included. Grandmaster: +%d%% Perfect Dodge.",
+			IronBodyACPerTier, IronBodyGMDodgeBonus)
+	case SkillSpiritualTraining:
+		return fmt.Sprintf("Spiritual Training: %d-%d%% chance (by mastery, Novice included) that a melee "+
+			"attack also casts the slotted quick-spell for free (no spell points spent).",
+			SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
 	default:
 		return ""
 	}
 }
 
 // WeaponNoun is the exported canonical lowercase noun for a weapon skill
-// ("sword", "dagger", …) — the single key other packages use to look up
+// ("sword", "dagger", ...) - the single key other packages use to look up
 // per-weapon-type tuning (e.g. attack-cooldown multipliers in weapons.yaml).
 func (s SkillType) WeaponNoun() string { return weaponNoun(s) }
 
 // weaponNoun returns the lowercase noun for a weapon/armor skill ("sword",
-// "leather", …) used in skill descriptions.
+// "leather", ...) used in skill descriptions.
 func weaponNoun(s SkillType) string {
 	// Derive from String() (lowercased) so the noun can never drift from the
-	// canonical name — load-bearing: WeaponNoun() keys the cooldown table.
+	// canonical name - load-bearing: WeaponNoun() keys the cooldown table.
 	switch s {
 	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff,
 		SkillLeather, SkillChain, SkillPlate:

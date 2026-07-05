@@ -16,7 +16,7 @@ const (
 	ManaRegenPersonalityDivisor = 10
 	MaxSPPersonalityDivisor     = 3
 	// MeditationRegenPerTier: extra SP restored per regen tick per Meditation
-	// mastery tier (Novice=0 → bonus from Expert up), making mana recovery faster.
+	// mastery tier (Novice=0 -> bonus from Expert up), making mana recovery faster.
 	MeditationRegenPerTier = 3
 	// BodybuildingHPPerTier: bonus Max HP per Bodybuilding mastery tier.
 	BodybuildingHPPerTier = 8
@@ -108,7 +108,7 @@ type MMCharacter struct {
 
 	// QuickSlots is a small per-character container (like a 5-cell pocket) for
 	// mouse-driven quick use: weapons to swap to, potions to drink, spells to
-	// cast — all by double-click. An item dragged here LEAVES the shared party
+	// cast - all by double-click. An item dragged here LEAVES the shared party
 	// inventory and lives in the slot (nil = empty). Spells hold a temporary
 	// spell item (spellbook-owned; never returned to inventory). Independent of
 	// the Space/SmartAttack quick-spell (Equipment[SlotSpell]).
@@ -156,13 +156,26 @@ type MMCharacter struct {
 	// ticked down once per frame. Unused in turn-based mode (which uses
 	// ActionsRemaining instead).
 	RTCooldown int
+
+	// OffHandRTCooldown mirrors RTCooldown for the off-hand weapon (Dual
+	// Wielding only) - the two cooldowns run independently, so a dual-wielder
+	// stays "ready" (rtCharReady) as long as EITHER hand is off cooldown. Unused
+	// by anyone without a weapon in SlotOffHand.
+	OffHandRTCooldown int
+
+	// NextTBAttackOffHand is the Dual Wielding hand cursor: false = the next
+	// attack prefers the main hand, true = the off hand. TB flips after every
+	// weapon action; RT sets it to the opposite hand after each weapon swing but
+	// still lets a ready hand act if the preferred hand is cooling down. Reset
+	// false at the start of every party turn. Unused without Dual Wielding.
+	NextTBAttackOffHand bool
 }
 
 // Turn-based party bonus-action thresholds on effective Speed. Single source
 // shared by MMGame.startPartyTurn (mechanic) and the Speed stat tooltip.
 const (
-	SpeedBonusAction1Threshold = 25 // Any living Speed > this → +1 party bonus action
-	SpeedBonusAction2Threshold = 50 // Any living Speed > this → +2 party bonus actions
+	SpeedBonusAction1Threshold = 25 // Any living Speed > this -> +1 party bonus action
+	SpeedBonusAction2Threshold = 50 // Any living Speed > this -> +2 party bonus actions
 )
 
 // SpeedBonusActionTier returns how many party-wide bonus action slots this
@@ -177,6 +190,49 @@ func (c *MMCharacter) SpeedBonusActionTier() int {
 	default:
 		return 0
 	}
+}
+
+// IsDualWielding reports whether c has the Dual Wielding skill AND an actual
+// weapon (not a shield or nothing) in the off-hand. Dual Wielding's perks -
+// the personal extra TB action, the independent off-hand RT cooldown - only
+// kick in while both hold. The skill check is load-bearing: save restore does
+// not revalidate equipment slots, so a crafted/legacy save with an off-hand
+// weapon on a skill-less character would otherwise hand out every perk for
+// free. Without the skill the off-hand weapon simply sits inert.
+func (c *MMCharacter) IsDualWielding() bool {
+	if c == nil || !c.HasSkill(SkillDualWielding) {
+		return false
+	}
+	off, ok := c.Equipment[items.SlotOffHand]
+	return ok && off.Type == items.ItemWeapon
+}
+
+// AnyWeaponHandReady reports whether at least one hand that ACTUALLY carries
+// a weapon is off cooldown in real time - an unequipped main hand can't be
+// "ready" just because its stale cooldown happens to have cleared. For most
+// characters that's just RTCooldown; a Dual Wielding character with a weapon
+// in the off-hand is ALSO ready once that hand's own cooldown clears, even
+// while the main hand is still cycling.
+func (c *MMCharacter) AnyWeaponHandReady() bool {
+	if c == nil {
+		return false
+	}
+	if _, ok := c.Equipment[items.SlotMainHand]; ok && c.RTCooldown <= 0 {
+		return true
+	}
+	return c.IsDualWielding() && c.OffHandRTCooldown <= 0
+}
+
+// HasWeaponInEitherHand reports whether a weapon (not a shield/nothing) is
+// equipped in the main hand or, for a Dual Wielding character, the off-hand.
+func (c *MMCharacter) HasWeaponInEitherHand() bool {
+	if c == nil {
+		return false
+	}
+	if _, ok := c.Equipment[items.SlotMainHand]; ok {
+		return true
+	}
+	return c.IsDualWielding()
 }
 
 // CanAct reports whether this character can take actions this turn: alive
@@ -204,6 +260,8 @@ const (
 	ClassSorcerer
 	ClassDruid
 	ClassThief
+	ClassArmsMaster
+	ClassMonk
 )
 
 // Promotion is a mutually-exclusive elite status a spellcaster can earn:
@@ -252,7 +310,7 @@ func CreateCharacter(name string, class CharacterClass, cfg *config.Config) *MMC
 
 // applyClassKit applies the YAML class kit (config.yaml characters.classes):
 // base attributes, starting skills, magic schools with known spells, main-hand
-// weapon and quick-slot spell. Unknown keys panic at character creation —
+// weapon and quick-slot spell. Unknown keys panic at character creation -
 // content bugs must surface immediately, not as a silently gimped hero.
 func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	key := c.Class.Key()
@@ -274,7 +332,15 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 		if !ok {
 			panic(fmt.Sprintf("class %q: unknown skill key %q in config.yaml", key, sk))
 		}
-		c.Skills[st] = &Skill{Mastery: MasteryNovice}
+		mastery := MasteryNovice
+		if startTier, ok := stats.SkillStartMastery[sk]; ok {
+			m, ok := masteryFromKey(startTier)
+			if !ok {
+				panic(fmt.Sprintf("class %q: unknown skill_start_mastery value %q for %q in config.yaml", key, startTier, sk))
+			}
+			mastery = m
+		}
+		c.Skills[st] = &Skill{Mastery: mastery}
 	}
 
 	for _, entry := range stats.Magic {
@@ -300,7 +366,7 @@ func (c *MMCharacter) applyClassKit(cfg *config.Config) {
 	}
 	if stats.QuickTrap != "" {
 		// The starting trap occupies the SAME quick slot as quick spells.
-		// Fail fast on a bad key, but only when traps.yaml is loaded —
+		// Fail fast on a bad key, but only when traps.yaml is loaded -
 		// config-less unit tests build parties without the trap catalog.
 		if it, ok := config.TrapItem(stats.QuickTrap); ok {
 			c.Equipment[items.SlotSpell] = it
@@ -360,10 +426,10 @@ func derivedStatMultipliers(cfg *config.Config) (endurMult, levelHPMult, levelSP
 }
 
 // recomputeMaxFromEffective derives MaxHP/MaxSP from the EFFECTIVE stats
-// (base + equipment + buffs) — the single formula every recalc path shares:
+// (base + equipment + buffs) - the single formula every recalc path shares:
 //
-//	MaxHP = effEndurance×endurMult + Level×levelHPMult (+ Bodybuilding)
-//	MaxSP = effIntellect + effPersonality/MaxSPPersonalityDivisor + Level×levelSPMult
+//	MaxHP = effEndurancexendurMult + LevelxlevelHPMult (+ Bodybuilding)
+//	MaxSP = effIntellect + effPersonality/MaxSPPersonalityDivisor + LevelxlevelSPMult
 func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 	endurMult, levelHPMult, levelSPMult := derivedStatMultipliers(cfg)
 	_, effInt, effPers, effEnd, _, _, _ := c.GetEffectiveStats()
@@ -373,7 +439,7 @@ func (c *MMCharacter) recomputeMaxFromEffective(cfg *config.Config) {
 }
 
 // CalculateDerivedStats recomputes MaxHP/MaxSP and FULLY RESTORES current
-// HP/SP — character creation and level-up only. Everything else (equip, stat
+// HP/SP - character creation and level-up only. Everything else (equip, stat
 // spend, buff change) goes through RecalculateMaxStatsKeepingCurrent.
 func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 	c.recomputeMaxFromEffective(cfg)
@@ -383,9 +449,9 @@ func (c *MMCharacter) CalculateDerivedStats(cfg *config.Config) {
 
 // RecalculateMaxStatsKeepingCurrent recomputes MaxHP/MaxSP for REVERSIBLE
 // stat changes (equip/unequip, buff apply/expire): the maxima move, the
-// CURRENT values never grow — only get capped. Granting current on a gain
-// here would be a pump: equip +End (+HP granted) → unequip (cap can't take it
-// back) → repeat until full. Irreversible gains (spending a stat point,
+// CURRENT values never grow - only get capped. Granting current on a gain
+// here would be a pump: equip +End (+HP granted) -> unequip (cap can't take it
+// back) -> repeat until full. Irreversible gains (spending a stat point,
 // training Bodybuilding) go through RecalculateMaxStatsGrantingGain.
 func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
 	c.recomputeMaxFromEffective(cfg)
@@ -400,7 +466,7 @@ func (c *MMCharacter) RecalculateMaxStatsKeepingCurrent(cfg *config.Config) {
 
 // RecalculateMaxStatsGrantingGain is the IRREVERSIBLE-change variant: a max
 // increase is also added to the current value (spending an Endurance point
-// immediately gives its HP). Never use for equip/buff changes — those can be
+// immediately gives its HP). Never use for equip/buff changes - those can be
 // reverted and would pump current HP/SP through cycles.
 func (c *MMCharacter) RecalculateMaxStatsGrantingGain(cfg *config.Config) {
 	oldMaxHP := c.MaxHitPoints
@@ -428,7 +494,7 @@ func (c *MMCharacter) Update() {
 
 // UpdateWithMode updates the character with knowledge of the current game mode
 func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
-	// Turn-based mode: skip timer-based regen AND poison/burn — those advance
+	// Turn-based mode: skip timer-based regen AND poison/burn - those advance
 	// once per party turn (TickPoisonTurn/TickBurnTurn, called from
 	// startPartyTurn) so deliberating over a move doesn't bleed real-time HP,
 	// mirroring monster poison's RT-frame-vs-TB-turn split.
@@ -440,10 +506,10 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 	c.updateRegenAndPoison()
 }
 
-// A stun carries both a RT (seconds→frames) and a TB (turns) counter; only the
+// A stun carries both a RT (seconds->frames) and a TB (turns) counter; only the
 // current mode's counter is ticked. The stun ends when the ACTIVE counter
 // expires (clearing the other), so it lasts its full single-mode duration and a
-// mode switch ends it on whichever runs out first — never permanent.
+// mode switch ends it on whichever runs out first - never permanent.
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
 func (c *MMCharacter) tickStunFrames() {
@@ -469,7 +535,7 @@ func (c *MMCharacter) TickStunTurn() {
 	}
 }
 
-// TickPoisonTurn advances poison by one TURN (TB mode) — one damage tick per
+// TickPoisonTurn advances poison by one TURN (TB mode) - one damage tick per
 // turn, duration measured in the same frame units ApplyPoison used. Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
 func (c *MMCharacter) TickPoisonTurn(framesPerTurn int) {
@@ -598,7 +664,7 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 	c.AddCondition(ConditionPoisoned)
 }
 
-// CurePoison ends an active poison outright — zeroing the frame timer, not just
+// CurePoison ends an active poison outright - zeroing the frame timer, not just
 // the Poisoned condition/icon. RemoveCondition alone leaves PoisonFramesRemaining
 // ticking in the background (updatePoison keys off the timer, not the
 // condition), so a cure item would look like it worked while 1 HP/sec kept
@@ -609,7 +675,7 @@ func (c *MMCharacter) CurePoison() {
 	c.RemoveCondition(ConditionPoisoned)
 }
 
-// ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison —
+// ApplyBurn applies or refreshes ignite (fire DoT). It is INDEPENDENT of poison -
 // both can run at once. The tick is desynced (starts half a second in) so burn
 // and poison ticks don't land on the same frame.
 func (c *MMCharacter) ApplyBurn(frames int) {
@@ -623,7 +689,7 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	c.AddCondition(ConditionBurning)
 }
 
-// BurnDamagePerTick is how much ignite deals each second — 3x poison's 1/sec.
+// BurnDamagePerTick is how much ignite deals each second - 3x poison's 1/sec.
 const BurnDamagePerTick = 3
 
 func (c *MMCharacter) updateBurn(tps int) {
@@ -769,6 +835,10 @@ func (c CharacterClass) String() string {
 		return "Druid"
 	case ClassThief:
 		return "Thief"
+	case ClassArmsMaster:
+		return "Arms Master"
+	case ClassMonk:
+		return "Monk"
 	default:
 		return "Unknown"
 	}
@@ -797,6 +867,10 @@ func ClassFromKey(key string) (CharacterClass, bool) {
 		return ClassDruid, true
 	case "thief":
 		return ClassThief, true
+	case "arms_master":
+		return ClassArmsMaster, true
+	case "monk":
+		return ClassMonk, true
 	default:
 		return 0, false
 	}
@@ -851,7 +925,7 @@ func (c *MMCharacter) GetAvailableSchools() []MagicSchoolID {
 // LearnSpell adds a spell to the school its DEFINITION declares (spells.yaml
 // is the source of truth, not the caller), opening that school at Novice if
 // needed. Reports whether the spellbook changed (false: unknown spell or
-// already known) — the ONE learn path for level-ups, promotions and shops.
+// already known) - the ONE learn path for level-ups, promotions and shops.
 func (c *MMCharacter) LearnSpell(spellID spells.SpellID) bool {
 	def, err := spells.GetSpellDefinitionByID(spellID)
 	if err != nil {
@@ -889,8 +963,8 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 		return false // Unknown weapon cannot be equipped
 	}
 
-	if weaponDef.Category == "blaster" {
-		return true // universally usable
+	if weaponDef.Category == "blaster" && c.HasAnyWeaponSkill() {
+		return true // universally usable - but not for a class trained in NO weapon at all
 	}
 	requiredSkill, ok := WeaponSkillForCategory(weaponDef.Category)
 	if !ok {
@@ -906,7 +980,7 @@ func (c *MMCharacter) CanEquipArmor(item items.Item) bool {
 		return false
 	}
 	if category == "cloth" {
-		return true // universally wearable
+		return true // cloth carries no skill requirement - wearable by anyone (a Monk's robes)
 	}
 	requiredSkill, ok := ArmorSkillForCategory(category)
 	if !ok {
@@ -930,6 +1004,13 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 	switch item.Type {
 	case items.ItemWeapon:
 		slot = items.SlotMainHand
+		// Dual Wielding: a second weapon overflows to the off-hand, mirroring
+		// how a second ring overflows to Ring2 below.
+		if _, mainTaken := c.Equipment[items.SlotMainHand]; mainTaken && c.HasSkill(SkillDualWielding) {
+			if _, offTaken := c.Equipment[items.SlotOffHand]; !offTaken {
+				slot = items.SlotOffHand
+			}
+		}
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		slot = items.SlotSpell
 	case items.ItemArmor:
@@ -942,7 +1023,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 
 	// Rings share two interchangeable slots, but equip_slot resolves every ring
 	// to SlotRing1. If that finger is taken, fall to the free SlotRing2 so a
-	// second ring can be worn — only overwrite SlotRing1 when both are full.
+	// second ring can be worn - only overwrite SlotRing1 when both are full.
 	if slot == items.SlotRing1 {
 		if _, ring1Taken := c.Equipment[items.SlotRing1]; ring1Taken {
 			if _, ring2Taken := c.Equipment[items.SlotRing2]; !ring2Taken {
@@ -956,12 +1037,19 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 }
 
 // ItemFitsSlot reports whether item can legally occupy slot for this character:
-// the type→slot mapping plus the class/armor gates. Single source of truth for
+// the type->slot mapping plus the class/armor gates. Single source of truth for
 // the model equip paths and the UI drag highlight / drop validation.
 func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 	switch item.Type {
 	case items.ItemWeapon:
-		return slot == items.SlotMainHand && c.CanEquipWeaponByName(item.Name)
+		if !c.CanEquipWeaponByName(item.Name) {
+			return false
+		}
+		if slot == items.SlotMainHand {
+			return true
+		}
+		// A second weapon only fits the off-hand with Dual Wielding.
+		return slot == items.SlotOffHand && c.HasSkill(SkillDualWielding)
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		return slot == items.SlotSpell
 	case items.ItemArmor:
@@ -978,7 +1066,7 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 
 // EquipItemToSlot forces item into a specific equipment slot, returning any
 // displaced item. Used when the UI drop target is an exact slot (e.g. dragging a
-// ring onto the Ring2 finger) — unlike EquipItem, which resolves the slot itself
+// ring onto the Ring2 finger) - unlike EquipItem, which resolves the slot itself
 // and would send a ring to Ring1. Refuses a slot the item can't legally occupy.
 func (c *MMCharacter) EquipItemToSlot(item items.Item, slot items.EquipSlot) (items.Item, bool, bool) {
 	if !c.ItemFitsSlot(item, slot) {
@@ -1016,8 +1104,34 @@ func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
 	return true
 }
 
+// HasAnyWeaponSkill reports whether c has a REPLACEABLE weapon-category skill -
+// deliberately EXCLUDING Martial Arts, which only ever gates the Monk's fists
+// (the same weapon already sitting in the slot). Guards UnequipItem: a
+// character whose only weapon skill is Martial Arts could never equip anything
+// else, so unequipping SlotMainHand would leave them permanently weaponless -
+// everyone else can always re-equip some other weapon they know. Also gates
+// the "blaster" universal-weapon fallback (see CanEquipWeaponByName): every
+// class in the current roster already has a real weapon skill, so this is a
+// no-op for them and only keeps a Monk-like class unarmed.
+//
+// Membership goes through Category() (the single source of what's a weapon
+// skill) rather than a numeric SkillType range - a range silently drops any
+// weapon skill appended past its end, which is exactly where new skills MUST
+// go for save compatibility (Martial Arts already had to).
+func (c *MMCharacter) HasAnyWeaponSkill() bool {
+	for skill := range c.Skills {
+		if skill.Category() == "Weapon" && skill != SkillMartialArts {
+			return true
+		}
+	}
+	return false
+}
+
 // UnequipItem removes an item from an equipment slot and returns it
 func (c *MMCharacter) UnequipItem(slot items.EquipSlot) (items.Item, bool) {
+	if slot == items.SlotMainHand && !c.HasAnyWeaponSkill() {
+		return items.Item{}, false
+	}
 	if item, exists := c.Equipment[slot]; exists {
 		delete(c.Equipment, slot)
 
@@ -1137,9 +1251,9 @@ func (c *MMCharacter) GearResistPct(school string) int {
 }
 
 // updateDerivedStatsForEquipment re-derives MaxHP/MaxSP after an equip change,
-// preserving current HP/SP (gain is added, loss only caps — no free healing).
+// preserving current HP/SP (gain is added, loss only caps - no free healing).
 // Same formula as every other recalc path: effective stats drive both maxima,
 // so endurance/intellect gear finally shows up in HP/SP.
 func (c *MMCharacter) updateDerivedStatsForEquipment() {
-	c.RecalculateMaxStatsKeepingCurrent(nil) // nil → config.GlobalConfig / defaults
+	c.RecalculateMaxStatsKeepingCurrent(nil) // nil -> config.GlobalConfig / defaults
 }

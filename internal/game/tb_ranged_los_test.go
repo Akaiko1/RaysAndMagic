@@ -9,7 +9,7 @@ import (
 
 // TestTurnBasedRangedRequiresLineOfSight guards the TB anti-kite fix: a ranged
 // monster that is row/column-aligned and in range but separated from the party
-// by a wall (no line of sight) must REPOSITION instead of plinking the wall —
+// by a wall (no line of sight) must REPOSITION instead of plinking the wall -
 // otherwise the party hides round a corner and regens mana for free. With a
 // clear shot it still fires.
 func TestTurnBasedRangedRequiresLineOfSight(t *testing.T) {

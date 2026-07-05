@@ -15,8 +15,8 @@ import (
 )
 
 // FX page: live preview of the game's special effects. The heavy lifting is
-// game.FxPreview — a sandbox MMGame whose real combat/render code plays the
-// selected effect — so the editor stays a thin list + viewport around it.
+// game.FxPreview - a sandbox MMGame whose real combat/render code plays the
+// selected effect - so the editor stays a thin list + viewport around it.
 
 const (
 	fxListW    = 340
@@ -201,6 +201,6 @@ func (v *viewer) drawFXPage(screen *ebiten.Image) {
 
 	sel := fxPage.items[fxPage.selIdx]
 	ebitenutil.DebugPrintAt(screen,
-		fmt.Sprintf("%s %s  (key: %s)  — Up/Down select, wheel scroll", fxKindTag(sel.Kind), sel.Label, sel.Key),
+		fmt.Sprintf("%s %s  (key: %s)  - Up/Down select, wheel scroll", fxKindTag(sel.Kind), sel.Label, sel.Key),
 		panelX, windowHeight-20)
 }

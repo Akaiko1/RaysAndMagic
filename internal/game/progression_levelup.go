@@ -90,8 +90,8 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 	})
 }
 
-// grantSharedXP gives `amount` experience to every LIVING hero — active party,
-// tavern reserve, and imprisoned captives — and applies any level-ups. Benched
+// grantSharedXP gives `amount` experience to every LIVING hero - active party,
+// tavern reserve, and imprisoned captives - and applies any level-ups. Benched
 // heroes thus "train alongside the party" (their stat points / L3 choice bank
 // unspent). The living-only rule is uniform, so a downed hero (even benched)
 // gains nothing. Single source for all XP-award sites. No-op without combat.
@@ -167,10 +167,10 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 		return false
 	}
 	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
-	// current bonuses, the benched one sheds them — otherwise a swap freezes a
+	// current bonuses, the benched one sheds them - otherwise a swap freezes a
 	// buff on the bench forever (or the newcomer fights unbuffed). Route through
 	// applyPartyStatBonuses (not a partial hand-roll) so the incoming member also
-	// picks up card-granted BonusMaxHP/BonusRegenPct — a member benched before the
+	// picks up card-granted BonusMaxHP/BonusRegenPct - a member benched before the
 	// party found a Jungle Idol/Troll Card would otherwise swap back in with
 	// stale (zero) values until some unrelated change happened to recompute them.
 	outgoing.BuffBonuses = character.StatBonuses{}
@@ -404,6 +404,12 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 	var options []levelUpChoiceOption
 	add := func(opt levelUpChoiceOption) {
 		setLevelUpOptionDisplay(char, &opt)
+		switch strings.ToLower(opt.choice.Type) {
+		case "weapon_mastery", "armor_mastery", "magic_mastery":
+			if !opt.hasMastery {
+				return
+			}
+		}
 		options = append(options, opt)
 	}
 	for _, choice := range choices {
@@ -467,7 +473,7 @@ func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOptio
 	var candidates []levelUpChoiceOption
 	addCandidate := func(opt levelUpChoiceOption) {
 		setLevelUpOptionDisplay(char, &opt)
-		if !opt.hasMastery { // already Grandmaster → not a real upgrade
+		if !opt.hasMastery { // already Grandmaster -> not a real upgrade
 			return
 		}
 		candidates = append(candidates, opt)
@@ -580,7 +586,7 @@ func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillT
 }
 
 // trainSkill raises a skill's mastery and refreshes derived stats so any
-// stat-feeding skill (e.g. Bodybuilding → Max HP) updates immediately, just
+// stat-feeding skill (e.g. Bodybuilding -> Max HP) updates immediately, just
 // like spending an Endurance point. Single entry point for both the level-up
 // choice and the NPC trainer. Returns false if already at max mastery.
 func (g *MMGame) trainSkill(char *character.MMCharacter, skillType character.SkillType) bool {

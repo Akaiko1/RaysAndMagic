@@ -10,7 +10,7 @@ import (
 // reaping sweep earns one despite its tier). Same building blocks as the
 // legendaries: dissolve-stroke ribbons + deterministic particles.
 
-// Silver Sword — a slim, holy-bright crescent of moonlit silver; tiny white
+// Silver Sword - a slim, holy-bright crescent of moonlit silver; tiny white
 // star-glints kindle along the wake and sink softly as they gutter out.
 func (r *Renderer) drawMeleeFxSilverSword(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	progress, fade, sweepT, lead := meleeFxTiming(s)
@@ -69,7 +69,7 @@ func (r *Renderer) drawMeleeFxSilverSword(screen *ebiten.Image, s SlashEffect, c
 	}
 }
 
-// Gold Sword — a warm gilded crescent shedding a slow rain of twinkling gold
+// Gold Sword - a warm gilded crescent shedding a slow rain of twinkling gold
 // dust, wealth spilling off the edge.
 func (r *Renderer) drawMeleeFxGoldSword(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	progress, fade, sweepT, lead := meleeFxTiming(s)
@@ -129,7 +129,7 @@ func (r *Renderer) drawMeleeFxGoldSword(screen *ebiten.Image, s SlashEffect, cx,
 	}
 }
 
-// Agility Katar — three staggered lightning-quick punches, each a thin green
+// Agility Katar - three staggered lightning-quick punches, each a thin green
 // streak in a narrow fan, with speed-lines whipping past the fist.
 func (r *Renderer) drawMeleeFxAgilityKatar(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	progress, fade, _, _ := meleeFxTiming(s)
@@ -200,7 +200,7 @@ func (r *Renderer) drawMeleeFxAgilityKatar(screen *ebiten.Image, s SlashEffect, 
 	}
 }
 
-// Gorehorn Greataxe — a brutal full chop trailing heavy gore: fat dark-red
+// Gorehorn Greataxe - a brutal full chop trailing heavy gore: fat dark-red
 // chunks tumble off the edge with wet trails, and the landing bursts red.
 func (r *Renderer) drawMeleeFxGorehorn(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
 	progress, fade, sweepT, lead := meleeFxTiming(s)
@@ -275,7 +275,7 @@ func (r *Renderer) drawMeleeFxGorehorn(screen *ebiten.Image, s SlashEffect, cx, 
 	}
 }
 
-// Serpent-Fang — the stab itself snakes: a sinuous venom-green line weaving to
+// Serpent-Fang - the stab itself snakes: a sinuous venom-green line weaving to
 // the target, twin fang-prongs flashing at full extension, venom beads
 // dripping off the wave.
 func (r *Renderer) drawMeleeFxSerpentFang(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {
@@ -344,7 +344,7 @@ func (r *Renderer) drawMeleeFxSerpentFang(screen *ebiten.Image, s SlashEffect, c
 	}
 }
 
-// Naginata — "a moon's edge on a pole": the widest, flattest reaping crescent
+// Naginata - "a moon's edge on a pole": the widest, flattest reaping crescent
 // of all, pale moonlight with a faint outer halo, thin slivers spinning off
 // the edge like cut stalks.
 func (r *Renderer) drawMeleeFxNaginata(screen *ebiten.Image, s SlashEffect, cx, cy, screenH float64) {

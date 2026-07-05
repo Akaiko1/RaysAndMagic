@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Boss effect flags travel in pairs — a half-specified pair must fail at load
+// Boss effect flags travel in pairs - a half-specified pair must fail at load
 // time, not silently zero out in code.
 func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	cases := []struct {

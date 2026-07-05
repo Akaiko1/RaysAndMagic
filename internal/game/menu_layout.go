@@ -5,7 +5,7 @@ import "fmt"
 // Menu layout boxes. Each collision-prone menu exposes its sections (headings,
 // item grids, buttons, pagers) as labelled rectangles derived from the SAME
 // constants the renderer uses. menu_layout_test.go iterates these to guarantee
-// no section overlaps another or spills outside its container — a regression
+// no section overlaps another or spills outside its container - a regression
 // guard against the text/grid/button collisions that creep in when a panel is
 // resized or a row added. To cover a new menu, add a builder and list it in the
 // test's table.

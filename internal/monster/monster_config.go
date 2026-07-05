@@ -12,31 +12,31 @@ import (
 
 // MonsterDefinition holds the configuration for a monster type from YAML
 type MonsterDefinition struct {
-	Name                string            `yaml:"name"`
-	Type                string            `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
-	Level               int               `yaml:"level"`
-	MaxHitPoints        int               `yaml:"max_hit_points"`
-	ArmorClass          int               `yaml:"armor_class"`
-	PerfectDodge        int               `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
-	Experience          int               `yaml:"experience"`
-	DamageMin           int               `yaml:"damage_min"`
-	DamageMax           int               `yaml:"damage_max"`
-	TrueDamage          int               `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
-	AlertRadius         float64           `yaml:"alert_radius"`
-	AttackRadius        float64           `yaml:"attack_radius"`
-	Speed               float64           `yaml:"speed"`
-	GoldMin             int               `yaml:"gold_min"`
-	GoldMax             int               `yaml:"gold_max"`
-	Sprite              string            `yaml:"sprite"`
-	Letter              string            `yaml:"letter"`
-	Biomes              []string          `yaml:"biomes,omitempty"`
-	BoxW                float64           `yaml:"box_w"`
-	BoxH                float64           `yaml:"box_h"`
-	SizeMultiplier      float64           `yaml:"size_multiplier,omitempty"`
+	Name           string   `yaml:"name"`
+	Type           string   `yaml:"type,omitempty"` // creature category, e.g. "undead" (empty = generic, for now)
+	Level          int      `yaml:"level"`
+	MaxHitPoints   int      `yaml:"max_hit_points"`
+	ArmorClass     int      `yaml:"armor_class"`
+	PerfectDodge   int      `yaml:"perfect_dodge"` // Chance (0-100) to completely avoid an attack
+	Experience     int      `yaml:"experience"`
+	DamageMin      int      `yaml:"damage_min"`
+	DamageMax      int      `yaml:"damage_max"`
+	TrueDamage     int      `yaml:"true_damage,omitempty"` // added per attack, bypasses ALL mitigation (armor/resist/flat/dodge)
+	AlertRadius    float64  `yaml:"alert_radius"`
+	AttackRadius   float64  `yaml:"attack_radius"`
+	Speed          float64  `yaml:"speed"`
+	GoldMin        int      `yaml:"gold_min"`
+	GoldMax        int      `yaml:"gold_max"`
+	Sprite         string   `yaml:"sprite"`
+	Letter         string   `yaml:"letter"`
+	Biomes         []string `yaml:"biomes,omitempty"`
+	BoxW           float64  `yaml:"box_w"`
+	BoxH           float64  `yaml:"box_h"`
+	SizeMultiplier float64  `yaml:"size_multiplier,omitempty"`
 	// size_game is retired (was a legacy alias of size_multiplier). The field
 	// exists only so content still authoring it FAILS LOUD in validation
 	// instead of silently rendering at 1.0 scale.
-	DeprecatedSizeGame float64 `yaml:"size_game,omitempty"`
+	DeprecatedSizeGame  float64           `yaml:"size_game,omitempty"`
 	Resistances         map[string]int    `yaml:"resistances"`
 	HabitatPrefs        []string          `yaml:"habitat_preferences"`
 	HabitatNear         []HabitatNearRule `yaml:"habitat_near"`
@@ -50,6 +50,8 @@ type MonsterDefinition struct {
 	FireburstChance     float64           `yaml:"fireburst_chance"`
 	FireburstDamageMin  int               `yaml:"fireburst_damage_min"`
 	FireburstDamageMax  int               `yaml:"fireburst_damage_max"`
+	DragonBreathChance  float64           `yaml:"dragon_breath_chance,omitempty"`
+	DragonBreathType    string            `yaml:"dragon_breath_damage_type,omitempty"`
 	PiercingShotChance  float64           `yaml:"piercing_shot_chance,omitempty"`
 	PiercingShotTargets int               `yaml:"piercing_shot_targets,omitempty"`
 	AllyHealChance      float64           `yaml:"ally_heal_chance,omitempty"`
@@ -91,14 +93,14 @@ type MonsterDefinition struct {
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
 	WardedByIdols    bool   `yaml:"warded_by_idols,omitempty"`    // boss: warded while any idol lives
-	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE — once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
 	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
 	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
 	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
 	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
 	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
 	Banding bool `yaml:"banding,omitempty"`
-	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) — marks an elite
+	// Persistent sprite colour cast [r,g,b] (multipliers, ~0..1.5) - marks an elite
 	// or variant apart from a base mob that shares its sprite.
 	TintColor []float64 `yaml:"tint_color,omitempty"`
 }
@@ -154,7 +156,7 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
 		if monster.DeprecatedSizeGame != 0 {
-			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game — rename it to size_multiplier", key))
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game - rename it to size_multiplier", key))
 		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
@@ -179,6 +181,14 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.StunCharChance > 0 && monster.StunCharSeconds <= 0 && monster.StunCharTurns <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has stun_char_chance but no stun_char_seconds/turns", key))
+		}
+		if monster.DragonBreathChance > 0 && strings.TrimSpace(monster.DragonBreathType) == "" {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has dragon_breath_chance but no dragon_breath_damage_type", key))
+		}
+		if monster.DragonBreathType != "" && config.DamageTypes[strings.TrimSpace(monster.DragonBreathType)] == 0 && strings.TrimSpace(monster.DragonBreathType) != "physical" {
+			if _, err := config.ConvertDamageType(strings.TrimSpace(monster.DragonBreathType)); err != nil {
+				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
+			}
 		}
 		// An evasive boss (blinks away while its quest is unfinished) needs a blink
 		// cadence. A dormant boss (passive_until_quest with no evade_radius_tiles)
@@ -374,6 +384,8 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	if def.FireburstDamageMax > 0 {
 		m.FireburstDamageMax = def.FireburstDamageMax
 	}
+	m.DragonBreathChance = def.DragonBreathChance
+	m.DragonBreathDamageType = def.DragonBreathType
 	m.PiercingShotChance = def.PiercingShotChance
 	m.PiercingShotTargets = def.PiercingShotTargets
 	m.AllyHealChance = def.AllyHealChance

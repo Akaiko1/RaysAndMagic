@@ -48,7 +48,7 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 }
 
 // Merchant remainders persist per NPC, and NPC identity in saves is spawn
-// coordinates — two same-named NPCs must not share state.
+// coordinates - two same-named NPCs must not share state.
 func TestSaveLoad_PersistsMerchantStockByNPCCoordinates(t *testing.T) {
 	cfg := loadTestConfig(t)
 

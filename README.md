@@ -13,17 +13,17 @@ A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org
 | ![Paperdoll equipment and Culverts dungeon loot](src/inventory.png) | ![The fire spellbook with spell cards and tooltips](src/spellbook.png) |
 | *Paperdoll equipment & data-driven loot tooltips* | *Spellbook with per-school cards and live stats* |
 | ![Sorcerer character sheet](src/character.png) | |
-| *Full character sheet — stats, skills, and status* | |
+| *Full character sheet - stats, skills, and status* | |
 
 ## Features
 
-- **Explore a hand-built realm** — the seaside city of Seabright, forests and deserts, ancient pyramids, the ocean depths, a lich's nexus, windswept dragon cliffs, and the sewers beneath it all
+- **Explore a hand-built realm** - the seaside city of Seabright, forests and deserts, ancient pyramids, the ocean depths, a lich's nexus, windswept dragon cliffs, and the sewers beneath it all
 - **Build your party** from six classes: Knight, Paladin, Archer, Cleric, Sorcerer, and Druid
-- **Fight your way** — switch between real-time and turn-based combat whenever the moment calls for it
-- **Master nine schools of magic** spanning the elements, mind and body, and light and dark — then choose your damage to exploit what each foe can't withstand
+- **Fight your way** - switch between real-time and turn-based combat whenever the moment calls for it
+- **Master nine schools of magic** spanning the elements, mind and body, and light and dark - then choose your damage to exploit what each foe can't withstand
 - **Loot and outfit your party** with weapons, armor, and consumables, each with the full stats laid bare before you commit
 - **Take on quests** from the realm's townsfolk and traders, and the bosses that lurk in the depths
-- **Retro raycast visuals** — sprite enemies, scrolling skies, biome textures, and spell-effect particles
+- **Retro raycast visuals** - sprite enemies, scrolling skies, biome textures, and spell-effect particles
 
 ## Quick Start
 
@@ -60,15 +60,15 @@ The game and map viewer locate `config.yaml`/`assets/` next to the binary or one
 
 The `.app` bundles are **not code-signed or notarized**, so a freshly downloaded
 copy is blocked by Gatekeeper. As of macOS Sequoia (15) and macOS Tahoe (26, the
-current release in 2026), the old Control-click → *Open* shortcut **no longer
-bypasses** this — you must approve the app in System Settings.
+current release in 2026), the old Control-click -> *Open* shortcut **no longer
+bypasses** this - you must approve the app in System Settings.
 
 **To run it:**
 
 1. Move `RaysAndMagic.app` (and `RaysAndMagicMapViewer.app`) out of the download
    archive into a normal folder such as `~/Applications`.
-2. Double-click it once — macOS refuses and shows a security prompt.
-3. Open **System Settings → Privacy & Security**, scroll to the **Security**
+2. Double-click it once - macOS refuses and shows a security prompt.
+3. Open **System Settings -> Privacy & Security**, scroll to the **Security**
    section, and click **Open Anyway** next to RaysAndMagic, then confirm. You
    only do this once per app.
 
@@ -94,7 +94,7 @@ Both the game and the map editor run out of that folder, so **saves persist** an
 (sprites, YAML) refreshes from the bundle when the app updates; your edited `.map`
 files are preserved. Delete that folder to reset to the shipped content.
 
-> Bare binaries (and the Windows `.exe`) are unaffected — they read/write
+> Bare binaries (and the Windows `.exe`) are unaffected - they read/write
 > `assets/` and `saves/` next to the executable exactly as before.
 
 ## Controls
@@ -107,7 +107,7 @@ files are preserved. Delete that folder to reset to the shipped content.
 | Space           | Smart attack / confirm action       |
 | F               | Cast the selected spell             |
 | C or H          | Cast your best healing spell        |
-| 1–4             | Select active party member          |
+| 1-4             | Select active party member          |
 | Tab             | Toggle real-time / turn-based       |
 | I               | Inventory & paperdoll               |
 | P               | Character sheets                    |
@@ -119,26 +119,26 @@ files are preserved. Delete that folder to reset to the shipped content.
 ## Project Structure
 
 ```text
-├── main.go              # Entry point
-├── assets/              # Game data (YAML configs, maps, sprites)
-│   ├── *.yaml           # Items, weapons, spells, monsters, quests, NPCs, tiles, maps
-│   ├── *.map            # ASCII map files
-│   ├── sprites/         # Character, monster, and tile sprites
-│   └── map_viewer/      # Standalone map viewer tool
-└── internal/            # Game packages
-    ├── game/            # Core loop, combat, UI, rendering, effects
-    ├── character/       # Party, classes, stats, equipment, NPCs
-    ├── monster/         # Monster & boss AI and configuration
-    ├── items/           # Item system
-    ├── spells/          # Spell casting system
-    ├── quests/          # Quest tracking
-    ├── world/           # Map loading and tile system
-    └── config/          # YAML loaders
++-- main.go              # Entry point
++-- assets/              # Game data (YAML configs, maps, sprites)
+|   +-- *.yaml           # Items, weapons, spells, monsters, quests, NPCs, tiles, maps
+|   +-- *.map            # ASCII map files
+|   +-- sprites/         # Character, monster, and tile sprites
+|   +-- map_viewer/      # Standalone map viewer tool
++-- internal/            # Game packages
+    +-- game/            # Core loop, combat, UI, rendering, effects
+    +-- character/       # Party, classes, stats, equipment, NPCs
+    +-- monster/         # Monster & boss AI and configuration
+    +-- items/           # Item system
+    +-- spells/          # Spell casting system
+    +-- quests/          # Quest tracking
+    +-- world/           # Map loading and tile system
+    +-- config/          # YAML loaders
 ```
 
 ## Content Files
 
-All game content is data-driven — add or tune content by editing YAML, no code changes required for most additions.
+All game content is data-driven - add or tune content by editing YAML, no code changes required for most additions.
 
 | File               | Purpose                                                              | Guide                                           |
 | ------------------ | ------------------------------------------------------------------- | ----------------------------------------------- |

@@ -350,7 +350,7 @@ func (tm *TileManager) GetRenderType(tileType TileType3D) string {
 // GetFloorColor returns the floor color for a tile type, or [0,0,0] when no
 // floor_color is configured. Callers use the zero sentinel to mean "unset" and
 // fall back to the current map's default_floor_color, so do NOT bake a green
-// (or any other) default here — that would override the map's biome colour.
+// (or any other) default here - that would override the map's biome colour.
 func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 	data := tm.GetTileData(tileType)
 	if data == nil {
@@ -360,7 +360,7 @@ func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 }
 
 // InheritsFloor reports whether a tile should take the surrounding biome floor
-// (colour + texture) rather than painting its own floor_color — see
+// (colour + texture) rather than painting its own floor_color - see
 // config.TileData.InheritFloor. Marker tiles (spawn, teleporters) set this so
 // they blend into the ground like a mob-spawn cell.
 func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
@@ -377,7 +377,7 @@ var floorVoteNeighbours = []struct{ dx, dy, w int }{
 }
 
 // DominantNeighbourFloor returns the dominant authored, steppable floor tile among
-// the 8 neighbours of (x,y) — orthogonal neighbours weighted double, with a
+// the 8 neighbours of (x,y) - orthogonal neighbours weighted double, with a
 // deterministic tie-break by neighbour order. Only real ground votes: render_type
 // "floor_only" AND walkable, non-solid, and not itself an inherit_floor marker
 // (so spawn/teleporters never stamp their own square under an entity). Cells where

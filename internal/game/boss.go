@@ -31,13 +31,13 @@ func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
 
 // bossEvasive reports whether the boss is in its evasive phase: it has a
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
-// never attacks or chases — it only blinks away when the party closes in.
+// never attacks or chases - it only blinks away when the party closes in.
 func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 	if m == nil || m.PassiveUntilQuest == "" {
 		return false
 	}
 	if cs.game.questManager == nil {
-		return true // no quest manager → treat as not-yet-done (stay evasive)
+		return true // no quest manager -> treat as not-yet-done (stay evasive)
 	}
 	q := cs.game.questManager.GetQuest(m.PassiveUntilQuest)
 	return q == nil || q.Status != quests.QuestStatusCompleted
@@ -57,9 +57,9 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	m.BossLastHP = m.HitPoints
 
 	if cs.bossEvasive(m) {
-		// Quest unfinished → the boss never attacks. An evasive boss
+		// Quest unfinished -> the boss never attacks. An evasive boss
 		// (evade_radius_tiles set) blinks away when crowded or hit; a dormant boss
-		// (no evade radius — e.g. the sealed Samurai Warlord) just holds its ground
+		// (no evade radius - e.g. the sealed Samurai Warlord) just holds its ground
 		// until the quest completes, then turns aggressive.
 		if m.EvadeRadiusTiles > 0 {
 			near := Distance(cs.game.camera.X, cs.game.camera.Y, m.X, m.Y) <= m.EvadeRadiusTiles*float64(cs.game.config.GetTileSize())
@@ -83,7 +83,7 @@ func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bo
 	// range still rallies adds instead of standing helpless, so it can't be safely
 	// kited down. (In TB attackTick is already always true, so this adds nothing
 	// there.) CC is filtered by the caller loops; bossDisabled is belt-and-
-	// suspenders. One roll per damage event — BossHurtPending is latched from the
+	// suspenders. One roll per damage event - BossHurtPending is latched from the
 	// HP delta at the top of this func and consumed here. Skip the roll entirely at
 	// the SummonMax cap (a passed roll would spawn nothing and fall through anyway).
 	hurtProvoke := m.BossHurtPending && !cs.bossDisabled(m)

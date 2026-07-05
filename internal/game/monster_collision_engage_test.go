@@ -23,10 +23,10 @@ func openArena(w *world.World3D, n int) {
 
 // TestPassiveRangedInRange_StaysPassThrough guards the map-editor mob-preview
 // jitter fix: a DORMANT passive monster within its (long, for ranged) attack
-// range of the player must NOT be flagged engaged/solid by proximity — else a
+// range of the player must NOT be flagged engaged/solid by proximity - else a
 // stacked calm band turns solid against its own members and thrashes (unstuck
 // vs banding). Drives the REAL RT per-monster step (MonsterWrapper.Update, which
-// updateMonstersParallel uses) — the collision-engagement side-effect my first
+// updateMonstersParallel uses) - the collision-engagement side-effect my first
 // headless repro missed by calling Monster3D.Update directly.
 func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -36,7 +36,7 @@ func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
 	ts := float64(cfg.GetTileSize())
 
 	// elf_archer: ranged (attack radius 5 tiles). Place it 3 tiles from the
-	// camera/player — inside its range, like the preview stage.
+	// camera/player - inside its range, like the preview stage.
 	m := monsterPkg.NewMonster3DFromConfig(g.camera.X+3*ts, g.camera.Y, "elf_archer", cfg)
 	if !m.HasRangedAttack() {
 		t.Fatal("setup: elf_archer should be ranged")
@@ -48,14 +48,14 @@ func TestPassiveRangedInRange_StaysPassThrough(t *testing.T) {
 
 	mw := &MonsterWrapper{Monster: m, collisionSystem: g.collisionSystem, game: g}
 	mw.snapshot = g.collisionSystem.Snapshot()
-	mw.Update() // the real RT step, Phase 1: AI + desired collision type
+	mw.Update()               // the real RT step, Phase 1: AI + desired collision type
 	mw.ApplyCollisionUpdate() // Phase 2: write it
 
 	if got := g.collisionSystem.GetEntityByID(m.ID).CollisionType; got != collision.CollisionTypeMonster {
 		t.Fatalf("dormant passive ranged mob in range = collision type %v, want Monster (pass-through)", got)
 	}
 
-	// Once provoked it is genuinely fighting → solid, so the proximity engage
+	// Once provoked it is genuinely fighting -> solid, so the proximity engage
 	// still works for real combatants.
 	m.WasAttacked = true
 	mw.snapshot = g.collisionSystem.Snapshot()
@@ -78,7 +78,7 @@ func TestPassiveRangedBand_NoTeleportThrash(t *testing.T) {
 	gl := &GameLoop{game: g}
 	ts := float64(cfg.GetTileSize())
 
-	const n = 4 // preview stages a flock; band caps at 3 → 3 stacked + 1 solo
+	const n = 4 // preview stages a flock; band caps at 3 -> 3 stacked + 1 solo
 	sx, sy := g.camera.X+3*ts, g.camera.Y
 	wraps := make([]*MonsterWrapper, n)
 	for i := 0; i < n; i++ {

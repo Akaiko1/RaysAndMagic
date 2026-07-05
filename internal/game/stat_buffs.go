@@ -5,7 +5,7 @@ import (
 )
 
 // TimedStatBuff is one active, timed party STAT buff (Bless, and any spell
-// authored with stat_bonus / stat_bonuses). Different spells STACK additively —
+// authored with stat_bonus / stat_bonuses). Different spells STACK additively -
 // with each other AND with equipment bonuses (effective stat = base + gear +
 // the sum of all active stat buffs). Recasting the same spell refreshes its
 // entry instead of stacking a duplicate. This replaces the old single-slot
@@ -26,7 +26,7 @@ func (g *MMGame) addStatBuff(b TimedStatBuff) {
 }
 
 // recomputeStatBonuses derives g.statBonuses as the SUM of active stat buffs
-// and pushes it onto every member — the only legal way the aggregate changes,
+// and pushes it onto every member - the only legal way the aggregate changes,
 // so it can never drift from its sources (the old save-format bless bug).
 func (g *MMGame) recomputeStatBonuses() {
 	sum := character.StatBonuses{}
@@ -84,7 +84,7 @@ func buildStatBuffSaves(buffs []TimedStatBuff) []StatBuffSave {
 }
 
 // restoreStatBuffs rebuilds the stat-buff list from a save. Legacy saves
-// (pre-registry) carry bless_* fields instead — the caller converts those to
+// (pre-registry) carry bless_* fields instead - the caller converts those to
 // a single "bless" entry.
 func restoreStatBuffs(saves []StatBuffSave) []TimedStatBuff {
 	if len(saves) == 0 {

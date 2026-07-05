@@ -8,7 +8,7 @@ import (
 )
 
 // Regression: a monster's TB stun (StunTurnsRemaining) expiring must also clear
-// its RT counterpart (StunFramesRemaining) — that field only ticks down inside
+// its RT counterpart (StunFramesRemaining) - that field only ticks down inside
 // the RT-only Monster3D.Update, which never runs while turnBasedMode is true, so
 // it was left stuck nonzero after the TB stun wore off. The stun-star overlay
 // and bossDisabled both read "StunFramesRemaining > 0 OR StunTurnsRemaining > 0",
@@ -40,16 +40,16 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 		t.Fatalf("expected TB stun to expire after its one turn, got %d", m.StunTurnsRemaining)
 	}
 	if m.StunFramesRemaining != 0 {
-		t.Errorf("StunFramesRemaining still %d after TB stun expired — stun-star overlay and bossDisabled would still read this monster as stunned", m.StunFramesRemaining)
+		t.Errorf("StunFramesRemaining still %d after TB stun expired - stun-star overlay and bossDisabled would still read this monster as stunned", m.StunFramesRemaining)
 	}
 }
 
-// Regression: the mirror image of the test above — a monster's RT stun
+// Regression: the mirror image of the test above - a monster's RT stun
 // (StunFramesRemaining) expiring must also clear its TB counterpart
 // (StunTurnsRemaining). A trap or any other stun source that authors both
 // stun_turns/stun_seconds (every one in this codebase does) leaves
 // StunTurnsRemaining stuck nonzero forever in PURE RT play (never entering TB
-// at all) — nothing decrements it outside the TB scheduler. Reported live: a
+// at all) - nothing decrements it outside the TB scheduler. Reported live: a
 // bandit stunned by a Stasis Trap in real-time recovered and walked off with
 // the stun-star overlay still floating over it, because that overlay reads
 // "StunFramesRemaining > 0 OR StunTurnsRemaining > 0". Mirrors
@@ -57,13 +57,13 @@ func TestMonsterTBStunExpiry_ClearsRTCounterpartToo(t *testing.T) {
 func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	game := cs.game
-	game.turnBasedMode = false // pure RT — this player never touches TB
+	game.turnBasedMode = false // pure RT - this player never touches TB
 
 	m := &monsterPkg.Monster3D{ID: "bandit_1", Name: "Bandit", X: 64, Y: 0, HitPoints: 10, MaxHitPoints: 10}
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	// Stasis Trap: stun_turns=1, stun_seconds=2 — authored as a pair, like
+	// Stasis Trap: stun_turns=1, stun_seconds=2 - authored as a pair, like
 	// every stun source in this codebase.
 	tps := game.config.GetTPS()
 	cs.applyStunDR(m, 1, 2*tps, false)
@@ -82,14 +82,14 @@ func TestMonsterRTStunExpiry_ClearsTBCounterpartToo(t *testing.T) {
 		t.Fatalf("expected RT stun to expire after %d frames, got %d remaining", 2*tps, m.StunFramesRemaining)
 	}
 	if m.StunTurnsRemaining != 0 {
-		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play — stun-star overlay would still read this monster as stunned", m.StunTurnsRemaining)
+		t.Errorf("StunTurnsRemaining still %d after RT stun expired in pure RT play - stun-star overlay would still read this monster as stunned", m.StunTurnsRemaining)
 	}
 }
 
 // Regression: a monster's RT poison DoT ticks inside the parallel
 // Monster3D.Update (TickPoison), which has no CombatSystem in scope to run
 // finishMonsterKill itself. Before finalizeIndirectKills existed, a monster
-// poisoned to death this way never got queued in deadMonsterIDs — no XP/loot,
+// poisoned to death this way never got queued in deadMonsterIDs - no XP/loot,
 // no quest kill-credit, no band scatter, and its collision entity was never
 // unregistered (removeDeadMonstersByID only clears queued IDs), leaving a
 // permanent invisible collision blocker on the map.
@@ -159,14 +159,14 @@ func TestMonsterPoisonKillTB_FinalizesKill(t *testing.T) {
 
 	gl.finalizeIndirectKills() // same-frame sweep, as the real Update loop runs it
 	if len(game.deadMonsterIDs) != before+1 {
-		t.Error("TB poison kill should register in deadMonsterIDs via finalizeIndirectKills — monster was never finalized")
+		t.Error("TB poison kill should register in deadMonsterIDs via finalizeIndirectKills - monster was never finalized")
 	}
 }
 
 func TestMonsterPoisonAppliesStatus(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 
-	// Melee picks a random LIVING member — KO everyone but slot 0 so the hit is
+	// Melee picks a random LIVING member - KO everyone but slot 0 so the hit is
 	// deterministic, then assert that survivor gets poisoned.
 	for i, m := range cs.game.party.Members {
 		if i != 0 {
@@ -221,6 +221,61 @@ func TestMonsterFireburstDamagesParty(t *testing.T) {
 	}
 }
 
+func TestMonsterDragonBreathHitsWholePartyThroughNormalHitPath(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+
+	wantHP := make([]int, len(cs.game.party.Members))
+	for i, member := range cs.game.party.Members {
+		member.HitPoints = 50
+		member.MaxHitPoints = 50
+		member.Luck = 0
+		member.Equipment = nil
+		wantHP[i] = member.HitPoints - cs.mitigateCharacterDamage(10, "fire", member, false) - 2
+	}
+
+	monster := &monsterPkg.Monster3D{
+		Name:                   "Dragon",
+		DamageMin:              10,
+		DamageMax:              10,
+		TrueDamage:             2,
+		DragonBreathChance:     1.0,
+		DragonBreathDamageType: "fire",
+		PoisonChance:           1.0,
+		PoisonDurationSec:      5,
+	}
+
+	cs.applyMonsterMeleeDamage(monster)
+
+	for i, member := range cs.game.party.Members {
+		if member.HitPoints != wantHP[i] {
+			t.Fatalf("member %d expected HP %d after dragon breath, got %d", i, wantHP[i], member.HitPoints)
+		}
+		if !member.HasCondition(character.ConditionPoisoned) {
+			t.Fatalf("member %d expected poison rider from dragon breath", i)
+		}
+	}
+}
+
+func TestMonsterProjectileAoEUsesDamageablePartyMembersNotCanAct(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+
+	for _, member := range cs.game.party.Members {
+		member.HitPoints = 50
+		member.MaxHitPoints = 50
+		member.Luck = 0
+		member.Equipment = nil
+	}
+	cs.game.party.Members[1].AddCondition(character.ConditionUnconscious)
+
+	cs.applyMonsterProjectileDamageAoE(nil, "Archmage", 10, "fire", 0)
+
+	for i, member := range cs.game.party.Members {
+		if member.HitPoints >= 50 {
+			t.Fatalf("member %d expected to take AoE damage, got HP %d", i, member.HitPoints)
+		}
+	}
+}
+
 // Regression: antivenom (cure_poison) must stop the background HP drain, not
 // just clear the Poisoned icon. RemoveCondition alone left PoisonFramesRemaining
 // ticking, so the cure looked like it worked while damage kept landing.
@@ -242,12 +297,12 @@ func TestCurePoison_StopsBackgroundTick(t *testing.T) {
 		member.UpdateWithMode(true) // TB path ticks poison directly every frame too
 	}
 	if member.HitPoints != before {
-		t.Errorf("HP dropped from %d to %d after cure — background poison timer kept ticking", before, member.HitPoints)
+		t.Errorf("HP dropped from %d to %d after cure - background poison timer kept ticking", before, member.HitPoints)
 	}
 }
 
 // Regression: startPartyTurn's TB poison/burn tick can drop a member to 0 HP,
-// and the lethal-DoT KO sweep must run BEFORE ActionsRemaining is handed out —
+// and the lethal-DoT KO sweep must run BEFORE ActionsRemaining is handed out -
 // not next frame, from the main loop's separate knockOutLethalDoTVictims call.
 // Reported failure mode: a member the tick killed showed 0 HP with no
 // Unconscious condition and no "falls unconscious!" message until the frame

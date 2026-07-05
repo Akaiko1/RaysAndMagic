@@ -52,7 +52,7 @@ func TestRevivablePartyIndices_IncludesZeroHP(t *testing.T) {
 
 func TestRevivablePartyIndices_ExcludesEradicated(t *testing.T) {
 	g := selectionTestGame(t)
-	// Dead AND Eradicated → not revivable (eradication is permanent).
+	// Dead AND Eradicated -> not revivable (eradication is permanent).
 	g.party.Members[0].HitPoints = 0
 	g.party.Members[0].AddCondition(character.ConditionDead)
 	g.party.Members[0].AddCondition(character.ConditionEradicated)
@@ -122,7 +122,7 @@ func TestApplyReviveTo_BoundsChecks(t *testing.T) {
 func TestApplyReviveTo_RejectsStaleNonReviveItem(t *testing.T) {
 	g := revivalTestGame(t)
 	// Replace the revive potion at idx 0 with a heal potion. Picker thinks
-	// it's still pointing at a revive item — applyReviveTo must refuse.
+	// it's still pointing at a revive item - applyReviveTo must refuse.
 	heal := items.CreateItemFromYAML("health_potion")
 	g.party.Inventory[0] = heal
 	g.party.Members[1].HitPoints = 0
@@ -130,7 +130,7 @@ func TestApplyReviveTo_RejectsStaleNonReviveItem(t *testing.T) {
 	if g.applyReviveTo(0, 1) {
 		t.Errorf("applyReviveTo should refuse when slot no longer holds a revive item")
 	}
-	// Inventory length unchanged — item not consumed on rejection.
+	// Inventory length unchanged - item not consumed on rejection.
 	if g.party.Inventory[0].Name != heal.Name {
 		t.Errorf("inventory mutated on rejected revive")
 	}
@@ -187,7 +187,7 @@ func TestUseConsumable_RevivePath_MultipleTargets_OpensPicker(t *testing.T) {
 	if len(g.party.Inventory) != startLen {
 		t.Errorf("potion consumed prematurely; should wait for picker confirm")
 	}
-	// Members still down — picker hasn't applied yet.
+	// Members still down - picker hasn't applied yet.
 	if !g.party.Members[1].HasCondition(character.ConditionUnconscious) {
 		t.Errorf("member 1 revived without picker confirm")
 	}

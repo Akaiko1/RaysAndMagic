@@ -50,7 +50,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 		x, y, w, h := scaleInventorySourceRect(paperX, paperY, paperW, paperH, inventoryPaperdollSourceW, inventoryPaperdollSourceH, slotInfo.rect)
 		item, equipped := currentChar.Equipment[slotInfo.slot]
 		isHovering := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
-		// While dragging an equippable item, glow every slot it can go into — from
+		// While dragging an equippable item, glow every slot it can go into - from
 		// the bag, or from another paperdoll slot (a ring to its other finger). The
 		// source slot itself never glows.
 		if ui.game.dragActive && equipItemMatchesSlot(currentChar, ui.game.dragItem, slotInfo.slot) &&
@@ -94,7 +94,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	for slot := 0; slot < pageSize; slot++ {
 		idx := pageStart + slot
 		x, y, w, h := scaleInventorySourceRect(gridX, gridY, gridSize, gridSize, inventoryGridSourceSize, inventoryGridSourceSize, inventoryGridSlots[slot])
-		// Empty cell (guard against the LIVE length — a double-click below can
+		// Empty cell (guard against the LIVE length - a double-click below can
 		// equip/use mid-loop and shrink the bag). Dropping a dragged item on an
 		// empty cell moves it to the end (bag is a packed slice).
 		if idx >= len(ui.game.party.Inventory) {
@@ -257,7 +257,7 @@ type inventoryPaperdollSlot struct {
 	rect inventorySourceRect
 }
 
-// Paper-doll slots: uniform 39×39 so every equipped icon renders at the same
+// Paper-doll slots: uniform 39x39 so every equipped icon renders at the same
 // size. Each rect is centered on the original (variable-sized) slot's center so
 // it still lines up with the drawn slot boxes on inventory_paperdoll_panel.
 var inventoryPaperdollSlots = []inventoryPaperdollSlot{
@@ -275,7 +275,7 @@ var inventoryPaperdollSlots = []inventoryPaperdollSlot{
 	{items.SlotBoots, inventorySourceRect{131, 358, 39, 39}},
 }
 
-// Grid slots: uniform 45×45 (the dominant size; were sloppily 44 in column 2
+// Grid slots: uniform 45x45 (the dominant size; were sloppily 44 in column 2
 // and the bottom row). Positions kept as authored so they stay on the panel art.
 var inventoryGridSlots = []inventorySourceRect{
 	{43, 42, 45, 45}, {100, 42, 45, 45}, {156, 42, 45, 45}, {212, 42, 45, 45},
@@ -391,7 +391,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	// A local closure shadows the package draw so every call below is covered.
 	drawDebugTextColored := drawDebugTextShadowed
 
-	// Character layout — centre the portrait+scroll block within the 700-wide panel.
+	// Character layout - centre the portrait+scroll block within the 700-wide panel.
 	const (
 		portraitSize = 180
 		portraitGap  = 24
@@ -449,19 +449,29 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	// Column layout for the scroll body: two columns side-by-side fit within
 	// scrollW=420 (minus padding). All sections below stay within scrollH=300.
 	const (
-		rowH      = 14
-		colGap    = 190
-		statRows  = 4 // 7 stats split 4 + 3 across two columns
-		skillRows = 4 // up to 8 skills shown across two columns
-		magicRows = 3 // up to 6 magic schools shown across two columns
+		rowH     = 14
+		colGap   = 190
+		statRows = 4 // 7 stats split 4 + 3 across two columns
+		// skillRowsWithMagic / skillRowsNoMagic: a class with no magic schools
+		// at all (Arms Master, Knight, Thief, ...) never draws that section, so
+		// its rows go to skills instead - Arms Master alone has 12 skills,
+		// more than the 8-slot budget a magic-using class leaves room for.
+		skillRowsWithMagic = 4 // up to 8 skills shown across two columns
+		skillRowsNoMagic   = 7 // up to 14 skills shown across two columns
+		magicRows          = 3 // up to 6 magic schools shown across two columns
 	)
 	col1X := scrollTextX
 	col2X := scrollTextX + colGap
+	hasMagic := len(member.MagicSchools) > 0
+	skillRows := skillRowsWithMagic
+	if !hasMagic {
+		skillRows = skillRowsNoMagic
+	}
 
-	// Stats — 2 columns
+	// Stats - 2 columns
 	drawDebugTextColored(screen, "STATS", scrollTextX, scrollTextY+60, mutedTextColor)
 	statY := scrollTextY + 76
-	// Combat runs on EFFECTIVE stats — show them, with the gear/buff delta in
+	// Combat runs on EFFECTIVE stats - show them, with the gear/buff delta in
 	// brackets so the player sees both ("Might: 18 (+3)").
 	effMight, effInt, effPers, effEnd, effAcc, effSpeed, effLuck := member.GetEffectiveStats()
 	statLines := []struct {
@@ -498,7 +508,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		}
 	}
 
-	// Skills — 2 columns
+	// Skills - 2 columns
 	skillY := statY + statRows*rowH + 12
 	drawDebugTextColored(screen, "SKILLS", col1X, skillY, mutedTextColor)
 	skillY += rowH + 2
@@ -529,36 +539,40 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		drawDebugTextColored(screen, "None", col1X, skillY, textColor)
 	}
 
-	// Magic schools — 2 columns
-	magicY := skillY + skillRows*rowH + 12
-	drawDebugTextColored(screen, "MAGIC SCHOOLS", col1X, magicY, mutedTextColor)
-	magicY += rowH + 2
-	schoolIdx := 0
-	for _, school := range character.AllMagicSchools {
-		if schoolIdx >= magicRows*2 {
-			break
+	// Magic schools - 2 columns. Skipped entirely for a class with none at
+	// all (see skillRowsNoMagic above): no header, no "None" filler, no
+	// reserved space - those characters never had a school to show.
+	if hasMagic {
+		magicY := skillY + skillRows*rowH + 12
+		drawDebugTextColored(screen, "MAGIC SCHOOLS", col1X, magicY, mutedTextColor)
+		magicY += rowH + 2
+		schoolIdx := 0
+		for _, school := range character.AllMagicSchools {
+			if schoolIdx >= magicRows*2 {
+				break
+			}
+			ms, ok := member.MagicSchools[school]
+			if !ok || ms == nil {
+				continue
+			}
+			line := fmt.Sprintf("%s %d (%s)",
+				school.DisplayName(), ms.Level(), ms.Mastery)
+			x := col1X
+			if schoolIdx >= magicRows {
+				x = col2X
+			}
+			y := magicY + (schoolIdx%magicRows)*rowH
+			drawDebugTextColored(screen, line, x, y, textColor)
+			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
+				tooltip = magicMasteryTooltipText()
+				tooltipX = mouseX + 16
+				tooltipY = mouseY + 8
+			}
+			schoolIdx++
 		}
-		ms, ok := member.MagicSchools[school]
-		if !ok || ms == nil {
-			continue
+		if schoolIdx == 0 {
+			drawDebugTextColored(screen, "None", col1X, magicY, textColor)
 		}
-		line := fmt.Sprintf("%s %d (%s)",
-			school.DisplayName(), ms.Level(), ms.Mastery)
-		x := col1X
-		if schoolIdx >= magicRows {
-			x = col2X
-		}
-		y := magicY + (schoolIdx%magicRows)*rowH
-		drawDebugTextColored(screen, line, x, y, textColor)
-		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
-			tooltip = magicMasteryTooltipText()
-			tooltipX = mouseX + 16
-			tooltipY = mouseY + 8
-		}
-		schoolIdx++
-	}
-	if schoolIdx == 0 {
-		drawDebugTextColored(screen, "None", col1X, magicY, textColor)
 	}
 
 	// Instructions
@@ -796,7 +810,7 @@ func (ui *UISystem) drawSpellbookSchoolTabs(screen *ebiten.Image, schools []char
 			// Pull the selected bookmark slightly further up.
 			tabY -= int(10 * scaleY)
 		}
-		// Click region covers the entire bookmark sprite — the lower portion is
+		// Click region covers the entire bookmark sprite - the lower portion is
 		// only visually hidden by the book, the bookmark itself is still the target.
 		ui.handleSpellbookSchoolClick(tabX, tabY, tabW, tabH, i, school)
 		drawImageScaled(screen, ui.game.sprites.GetSprite("spellbook_tab_"+school.String()), tabX, tabY, tabW, tabH)
@@ -970,7 +984,7 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 }
 
 // drawCampButton renders the Camp button under the inventory grid: spend
-// CampFoodCost food to fully restore the party in the field — unless enemies
+// CampFoodCost food to fully restore the party in the field - unless enemies
 // are within CampEnemyRadiusTiles (TryCamp refuses). The result line stays
 // visible under the button.
 func (ui *UISystem) drawCampButton(screen *ebiten.Image, gridX, y, gridW int) {

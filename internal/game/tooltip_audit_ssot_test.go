@@ -13,7 +13,7 @@ import (
 // These cover the second SSoT audit round: arc/mass-hit, RT-vs-TB cooldown,
 // disintegrate immunity, monster-only cards, dual stat scaling, splash-crit and
 // dodge rules, projectile hitbox, the active-buff bump and the Meditation
-// discount — every line that combat (or a YAML field) actually drives.
+// discount - every line that combat (or a YAML field) actually drives.
 
 func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
 	g, thief := newThiefTestGame(t)
@@ -23,7 +23,7 @@ func TestTooltip_WeaponArcCooldownStun(t *testing.T) {
 	}
 	full := GetItemTooltip(mace, thief, g.combat, true)
 
-	// Swing arc is a core melee differentiator → visible without Shift. The steel
+	// Swing arc is a core melee differentiator -> visible without Shift. The steel
 	// mace is arc type 2 (front + one flank).
 	compact := GetItemTooltip(mace, thief, g.combat, false)
 	if !strings.Contains(compact, "front and one flank") {

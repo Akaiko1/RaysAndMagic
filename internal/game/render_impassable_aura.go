@@ -14,15 +14,15 @@ import (
 const (
 	auraRiseFraction   = 0.55 // fraction of the tile's floor-rise used as bubble travel
 	auraBubblesPerCol  = 2    // particles per sampled column (staggered phases)
-	auraRisePeriodTick = 95.0 // ticks for one bubble to travel bottom→top
+	auraRisePeriodTick = 95.0 // ticks for one bubble to travel bottom->top
 	auraColorBoost     = 1.35 // brighten the tile colour so bubbles read as a glow
 	auraMinDepth       = 12.0 // near clip (world units) to avoid huge close-up blobs
 	auraColBrightMin   = 0.4  // dimmest a stream can be (1.0 = full); rest is random per stream
-	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]×base period
+	auraSpeedJitterMin = 0.55 // per-bubble rise speed varies in [min, 2-min]xbase period
 )
 
 // auraEdgeParams returns the edge-bubble tuning from the impassable-aura
-// config with defaults applied — shared by the impassable aura, trap borders,
+// config with defaults applied - shared by the impassable aura, trap borders,
 // and the spawn tile marker.
 func (r *Renderer) auraEdgeParams() (baseAlpha float64, perEdge, radius int) {
 	cfg := r.game.config.Graphics.ImpassableAura
@@ -43,7 +43,7 @@ func (r *Renderer) auraEdgeParams() (baseAlpha float64, perEdge, radius int) {
 
 // drawImpassableTileAura draws a subtle stream of rising "bubble" pixels along
 // the ground edges of impassable billboard tiles (rocks/cliffs) that border a
-// walkable tile. Trees and textured walls are skipped — they already read as
+// walkable tile. Trees and textured walls are skipped - they already read as
 // solid. The effect tells the player which tiles block movement without
 // cluttering the scene; bubbles take the tile's own floor colour so they blend
 // in, and are depth-tested against walls so they hide correctly behind geometry.
@@ -83,7 +83,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 				continue // trees, textured walls, ordinary floors: not ambiguous
 			}
 			// Interior tiles of a blocker cluster (all four neighbours also
-			// block) have no walkable-facing edge — skip before the colour work.
+			// block) have no walkable-facing edge - skip before the colour work.
 			interior := true
 			for _, d := range dirs {
 				if !r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
@@ -109,7 +109,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 			r.statAuraTiles++
 			for _, d := range dirs {
 				if r.game.world.IsTileBlocking(tx+d[0], ty+d[1]) {
-					continue // edge faces another blocker → interior, skip
+					continue // edge faces another blocker -> interior, skip
 				}
 				r.emitAuraEdge(screen, tx, ty, d, ts, perEdge, baseAlpha, maxDepth, rgb)
 			}
@@ -123,7 +123,7 @@ func (r *Renderer) drawImpassableTileAura(screen *ebiten.Image) {
 func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts float64, perEdge int, baseAlpha, maxDepth float64, rgb [3]int) {
 	// The billboard sprite stands at the tile centre. Bubbles on the FAR side of
 	// that plane are hidden by the sprite (which doesn't write the depth buffer),
-	// so cull them geometrically against the centre's perpendicular depth — but
+	// so cull them geometrically against the centre's perpendicular depth - but
 	// only where the sprite's silhouette actually covers them on screen: a
 	// side-on edge extends past the billboard, and a depth-only cull erased the
 	// far half of the barrier.
@@ -240,7 +240,7 @@ func (r *Renderer) computeAuraTileColor(tileType world.TileType3D) ([3]int, bool
 	img.ReadPixels(buf)
 	var rs, gs, bs, n uint64
 	for i := 0; i+3 < len(buf); i += 4 {
-		if buf[i+3] < 32 { // skip (near-)transparent texels — they aren't the rock
+		if buf[i+3] < 32 { // skip (near-)transparent texels - they aren't the rock
 			continue
 		}
 		rs += uint64(buf[i])

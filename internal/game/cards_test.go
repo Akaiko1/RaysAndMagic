@@ -7,10 +7,11 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/stash"
 	"ugataima/internal/world"
 )
 
-// mkTestMonster builds a bare, alive monster with no resistances — the common
+// mkTestMonster builds a bare, alive monster with no resistances - the common
 // case for card-proc tests that don't care about mitigation.
 func mkTestMonster(name string, hp int) *monster.Monster3D {
 	return &monster.Monster3D{
@@ -187,7 +188,7 @@ func TestCardEffects_BatchB(t *testing.T) {
 }
 
 // AoE lethal damage routes through knockOut, so the Lich Card can cheat death on
-// it too — not just plain melee. Fireburst stands in for the AoE/Inferno branches
+// it too - not just plain melee. Fireburst stands in for the AoE/Inferno branches
 // that previously set ConditionUnconscious directly. Statistical: with a 10% save
 // over 400 lethal hits, both outcomes must appear (a direct KO would never save).
 func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
@@ -208,15 +209,15 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 		member.SpellPoints = 0
 		member.Conditions = nil
 		cs.applyMonsterFireburst(mon)
-		if member.HitPoints > 0 { // reviveHalf left HP up → cheated death (direct KO would be 0)
+		if member.HitPoints > 0 { // reviveHalf left HP up -> cheated death (direct KO would be 0)
 			saves++
 		}
 	}
 	if saves == 0 {
-		t.Fatalf("Lich Card never cheated death over %d AoE Fireburst hits — the AoE branch bypasses knockOut", trials)
+		t.Fatalf("Lich Card never cheated death over %d AoE Fireburst hits - the AoE branch bypasses knockOut", trials)
 	}
 	if saves == trials {
-		t.Fatalf("every AoE hit cheated death (%d/%d) — the save roll isn't being applied", saves, trials)
+		t.Fatalf("every AoE hit cheated death (%d/%d) - the save roll isn't being applied", saves, trials)
 	}
 }
 
@@ -244,7 +245,7 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
 
 	if got := 1000 - near.HitPoints; got != 100 {
-		t.Fatalf("splash dealt %d, want 100 (75 phys + 25 fire) — the fire share is dropped if this is 75", got)
+		t.Fatalf("splash dealt %d, want 100 (75 phys + 25 fire) - the fire share is dropped if this is 75", got)
 	}
 }
 
@@ -271,7 +272,7 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits FOES only — never the party's own bound allies
+// The Gorilla move-burst hits FOES only - never the party's own bound allies
 // (card summons / bind-undead) or charmed (pacified) monsters.
 func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -303,7 +304,7 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	if charmed.HitPoints != 100 {
 		t.Errorf("pacified monster must NOT be hit by the burst (hp=%d, want 100)", charmed.HitPoints)
 	}
-	// Invulnerable boss is skipped entirely — no flash/hit/message, not just 0 damage.
+	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.
 	if warded.HitPoints != 100 || warded.HitTintFrames != 0 {
 		t.Errorf("warded boss must be skipped (hp=%d hitTint=%d)", warded.HitPoints, warded.HitTintFrames)
 	}
@@ -404,7 +405,7 @@ func TestResetCardCollection_ClearsEffects(t *testing.T) {
 }
 
 // All loose cards are enumerated (even past one collector page) so pagination can
-// reach every one — there are 11 card types, the page shows cardInvMaxShown(8).
+// reach every one - there are 11 card types, the page shows cardInvMaxShown(8).
 func TestInventoryCardIndices_EnumeratesPastOnePage(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -455,8 +456,63 @@ func TestSaveLoad_PersistsCardCollection(t *testing.T) {
 	}
 }
 
+func TestCardCollection_PreservesInstanceIDWhenRemoved(t *testing.T) {
+	loadTestConfig(t)
+	g := &MMGame{party: &character.Party{}}
+	card := items.CreateItemFromYAML("puma_card")
+	card.InstanceID = 123
+	g.party.Inventory = []items.Item{card}
+
+	if !g.placeCardFromInventory(0) {
+		t.Fatal("placeCardFromInventory failed")
+	}
+	if len(g.party.Inventory) != 0 {
+		t.Fatalf("card should leave inventory, got %+v", g.party.Inventory)
+	}
+	if got := g.cardCollectionItems[0].InstanceID; got != 123 {
+		t.Fatalf("collection card id = %d, want 123", got)
+	}
+
+	if !g.removeCardToInventory(0) {
+		t.Fatal("removeCardToInventory failed")
+	}
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].InstanceID != 123 {
+		t.Fatalf("removed card should keep original id, got %+v", g.party.Inventory)
+	}
+}
+
+func TestSaveLoad_LegacyCardCollectionClearsStashOwnedKey(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+
+	source := newTestGame(cfg, w)
+	source.cardCollection[0] = "puma_card"
+	save := source.buildSave(wm)
+	save.Party.CardCollection = []string{"puma_card"}
+	save.Party.CardCollectionItems = nil // pre-InstanceID collection save
+
+	owned := items.CreateItemFromYAML("puma_card")
+	owned.InstanceID = 777
+	loaded := newTestGame(cfg, w)
+	loaded.stash = &stash.Stash{}
+	loaded.stash.CardSlots[0] = owned
+
+	if err := loaded.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if key := loaded.cardCollectionKey(0); key != "" {
+		t.Fatalf("legacy card collection should clear key already owned by stash, got %q", key)
+	}
+	if loaded.cardMoveSpeedPct() != 0 {
+		t.Fatalf("cleared legacy card should not grant speed, got %d", loaded.cardMoveSpeedPct())
+	}
+}
+
 // Every card added in the 2026-07-03 roster expansion must parse into a real
-// item def with a non-empty, non-"not implemented" effect line — catches a
+// item def with a non-empty, non-"not implemented" effect line - catches a
 // typo'd card_* field name or a key mismatch across all 41 in one pass.
 func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
@@ -486,7 +542,7 @@ func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
 	}
 }
 
-// Alien Card: statistical — 2% of hits should instantly zero HP, but not all.
+// Alien Card: statistical - 2% of hits should instantly zero HP, but not all.
 func TestAlienCard_DisintegrateOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -511,12 +567,12 @@ func TestAlienCard_DisintegrateOnHit(t *testing.T) {
 		t.Fatalf("disintegrate never triggered over %d hits", trials)
 	}
 	if survived == 0 {
-		t.Fatalf("disintegrate triggered on every hit (%d/%d) — should be ~2%%", killed, trials)
+		t.Fatalf("disintegrate triggered on every hit (%d/%d) - should be ~2%%", killed, trials)
 	}
 }
 
 // Golden Thief Bug Card: 100 flat fire resist through mitigateCharacterDamage
-// hits the existing >=100 immunity clamp — full fire immunity.
+// hits the existing >=100 immunity clamp - full fire immunity.
 func TestGoldenThiefBugCard_FireImmunity(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -662,7 +718,7 @@ func TestTrollCards_RegenPct(t *testing.T) {
 }
 
 // Regression: the Troll Card's HP regen only lived in the RT-only
-// updateRegenAndPoison — UpdateWithMode(true) (TB) returned before reaching it,
+// updateRegenAndPoison - UpdateWithMode(true) (TB) returned before reaching it,
 // so equipping the card and fighting in turn-based mode silently regenerated
 // nothing all fight. The TB path now ticks it via ApplyCardRegenTick on the
 // same round counter as SP regen (endPartyTurn).
@@ -730,7 +786,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	}
 }
 
-// Hexer/Isis Cards divert a share of physical damage into dark/light instead —
+// Hexer/Isis Cards divert a share of physical damage into dark/light instead -
 // same split mechanism as Archmage's fire conversion, different element.
 func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -776,7 +832,7 @@ func TestHexerCard_AoESplashCarriesDarkConversion(t *testing.T) {
 
 	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
 	if got := 1000 - near.HitPoints; got != 100 {
-		t.Errorf("splash dealt %d, want 100 (80 phys + 20 dark) — the dark share is dropped if this is 80", got)
+		t.Errorf("splash dealt %d, want 100 (80 phys + 20 dark) - the dark share is dropped if this is 80", got)
 	}
 }
 
@@ -825,11 +881,11 @@ func TestElfArcherSkeletonCards_BonusVs(t *testing.T) {
 	_ = cs
 }
 
-// Regression: Name/Key/MonsterType often name the same identity — the real
+// Regression: Name/Key/MonsterType often name the same identity - the real
 // Dragon monster (assets/monsters.yaml) has Name="Dragon", Key="dragon", AND
 // MonsterType="dragon". A single card_bonus_vs: {dragon: 1.25} entry matched
-// all three candidate fields and multiplied in three times (1.25^3 ≈ 1.95)
-// instead of once — one matching entry means "this card applies," not
+// all three candidate fields and multiplied in three times (1.25^3 ~ 1.95)
+// instead of once - one matching entry means "this card applies," not
 // "multiply once per field that happened to match."
 func TestCardBonusVs_SameIdentityAcrossFieldsAppliesOnce(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -843,7 +899,7 @@ func TestCardBonusVs_SameIdentityAcrossFieldsAppliesOnce(t *testing.T) {
 	}
 }
 
-// Forest Orc Card: statistical armor-ignore chance — some hits should land at
+// Forest Orc Card: statistical armor-ignore chance - some hits should land at
 // full (armor-bypassed) damage against a heavily armored target.
 func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -872,7 +928,7 @@ func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
 		t.Fatalf("armor-pierce never triggered over %d hits", trials)
 	}
 	if mitigated == 0 {
-		t.Fatalf("armor-pierce triggered on every hit (%d/%d) — should be ~10%%", bypassed, trials)
+		t.Fatalf("armor-pierce triggered on every hit (%d/%d) - should be ~10%%", bypassed, trials)
 	}
 }
 
@@ -898,7 +954,7 @@ func TestMummyCard_PoisonImmunity(t *testing.T) {
 }
 
 // Rat/Spider Cards inflict a real poison DoT on the STRUCK MONSTER (not the
-// party) — a genuinely new status, ticking HP down over time via TickPoison.
+// party) - a genuinely new status, ticking HP down over time via TickPoison.
 func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -928,7 +984,7 @@ func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 		t.Fatalf("poison proc never triggered over %d hits", trials)
 	}
 	if poisoned == trials {
-		t.Fatalf("poison proc triggered on every hit (%d/%d) — should be ~12%%", poisoned, trials)
+		t.Fatalf("poison proc triggered on every hit (%d/%d) - should be ~12%%", poisoned, trials)
 	}
 
 	// A poisoned monster loses HP over (simulated) time via TickPoison.
@@ -936,7 +992,7 @@ func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 	m = mkTestMonster("Ticking", 1000)
 	m.ApplyPoison(tps * 2) // 2 seconds of poison
 	before := m.HitPoints
-	for i := 0; i < tps; i++ { // 1 second — one tick should have fired
+	for i := 0; i < tps; i++ { // 1 second - one tick should have fired
 		m.TickPoison()
 	}
 	if m.HitPoints >= before {
@@ -967,7 +1023,7 @@ func TestMinotaurCard_StunOnHit(t *testing.T) {
 		t.Fatalf("stun-on-hit never triggered over %d hits", trials)
 	}
 	if stunned == trials {
-		t.Fatalf("stun-on-hit triggered on every hit (%d/%d) — should be ~8%%", stunned, trials)
+		t.Fatalf("stun-on-hit triggered on every hit (%d/%d) - should be ~8%%", stunned, trials)
 	}
 }
 

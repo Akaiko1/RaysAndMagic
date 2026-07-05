@@ -1,6 +1,6 @@
 package main
 
-// Characters page: a scrollable, full-detail panel per playable class — portrait,
+// Characters page: a scrollable, full-detail panel per playable class - portrait,
 // stats, skills, and starting spells/equipment shown inline with icons (no hover
 // needed). Built by instantiating each class so it always matches the live game.
 
@@ -38,8 +38,8 @@ type panelRow struct {
 }
 
 type charDetail struct {
-	portrait    string // canonical hero name (lowercased) — preferred portrait art
-	portraitKey string // class key — fallback art (recruits like paladin/druid)
+	portrait    string // canonical hero name (lowercased) - preferred portrait art
+	portraitKey string // class key - fallback art (recruits like paladin/druid)
 	rows        []panelRow
 }
 
@@ -61,7 +61,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 	var out []charDetail
 	// One card per SHIPPED hero (starting party, captives, tavern recruits),
 	// built through the SAME roster path the game uses (class kit + race
-	// modifiers) — per-class approximations hid the recruits and their races.
+	// modifiers) - per-class approximations hid the recruits and their races.
 	groups := []struct {
 		label   string
 		entries []config.RosterEntry
@@ -79,7 +79,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 			class, _ := character.ClassFromKey(e.Class)
 			key := e.Class
 			// Portrait art is keyed by the lowercased hero name with a
-			// class-key fallback — same resolution the game uses.
+			// class-key fallback - same resolution the game uses.
 			d := charDetail{portrait: strings.ToLower(e.Name), portraitKey: key}
 			txt := func(s string) { d.rows = append(d.rows, panelRow{text: s}) }
 			hdr := func(s string) { d.rows = append(d.rows, panelRow{text: s, header: true}) }
@@ -89,7 +89,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				race = "human"
 			}
 			hdr(fmt.Sprintf("%s - %s", e.Name, titleCase(key)))
-			txt(fmt.Sprintf("%s   ·   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
+			txt(fmt.Sprintf("%s   -   Race: %s", grp.label, titleCase(strings.ReplaceAll(race, "_", " "))))
 			txt("")
 			for _, ln := range wrapTooltipLines(class.Blurb(), cols) {
 				txt(ln)
@@ -149,7 +149,7 @@ func buildCharacterDetails(cfg *config.Config) []charDetail {
 				d.rows = append(d.rows, spellRows...)
 			}
 
-			// Starting equipment (with icons). The equipped spell slot is skipped —
+			// Starting equipment (with icons). The equipped spell slot is skipped -
 			// it just duplicates a spell already listed under "Starting spells".
 			equipRows := []panelRow{}
 			for _, s := range equipSlotOrder {
@@ -294,7 +294,7 @@ func (v *viewer) iconKindKey(kind contentKind, key string) *ebiten.Image {
 
 // charPortrait loads a class portrait, preferring the large "_full" art. It
 // tries the canonical hero name first, then the class-key fallback (recruits
-// like paladin/druid ship art under the class key) — the same resolution the
+// like paladin/druid ship art under the class key) - the same resolution the
 // game uses (basePortraitSpriteName). Cached.
 func (v *viewer) charPortrait(name, fallbackKey string) *ebiten.Image {
 	cacheKey := "portrait:" + name + "|" + fallbackKey

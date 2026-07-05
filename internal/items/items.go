@@ -82,7 +82,7 @@ type Item struct {
 
 // PreferredSlot resolves where this item equips from its equip_slot attribute,
 // falling back to the given slot when unset. Single source for the
-// equip_slot→slot mapping (used by EquipItem and the class-kit loader).
+// equip_slot->slot mapping (used by EquipItem and the class-kit loader).
 func (it Item) PreferredSlot(fallback EquipSlot) EquipSlot {
 	if code, ok := it.Attributes["equip_slot"]; ok {
 		return EquipSlot(code)
@@ -100,7 +100,7 @@ const (
 	ItemQuest
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
-	ItemTrinket      // Collectible curios (gems, trophies) — non-equippable, discardable, sellable.
+	ItemTrinket      // Collectible curios (gems, trophies) - non-equippable, discardable, sellable.
 	// ItemTrap and ItemCard are APPENDED at the end and must never be reordered:
 	// saves serialize Type as an int, so inserting mid-enum re-types every item
 	// after the insertion point (trinkets were briefly read back as traps).
@@ -250,7 +250,7 @@ func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 var GlobalWeaponAccessor func(string) (*WeaponDefinitionFromYAML, bool)
 
 // GlobalWeaponKeyByName is set by the config bridge to resolve a weapon's display
-// name to its YAML key via the real name index — handles flavor names the naive
+// name to its YAML key via the real name index - handles flavor names the naive
 // transform below can't (e.g. "Kage-kunai, the Twin Shadows" -> "kage_kunai",
 // "Kanabo" -> "kanabo"). Unset in isolated tests, where the fallback applies.
 var GlobalWeaponKeyByName func(string) (string, bool)
@@ -259,7 +259,7 @@ var GlobalWeaponKeyByName func(string) (string, bool)
 // exact config name index (punctuation/flavor-name safe); falls back to a
 // lower+underscore transform only when the bridge is unset or the name is unknown.
 // The fallback is why a weapon whose display name isn't its key-with-spaces (a
-// comma or an "of the ...") was previously unequippable — now resolved.
+// comma or an "of the ...") was previously unequippable - now resolved.
 func GetWeaponKeyByName(name string) string {
 	if GlobalWeaponKeyByName != nil {
 		if key, ok := GlobalWeaponKeyByName(name); ok {
@@ -295,7 +295,7 @@ type ItemDefinitionFromYAML struct {
 	SummonDistanceTiles       int
 	EquipSlot                 string
 	BonusMight                int
-	Resistances               map[string]int // per-school % damage resist (school→percent)
+	Resistances               map[string]int // per-school % damage resist (school->percent)
 	Value                     int
 	Revive                    bool
 	FullHeal                  bool
@@ -437,7 +437,7 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}, nil
 }
 
-// equipSlotByName is the ONE equip_slot name → slot mapping. Config validation
+// equipSlotByName is the ONE equip_slot name -> slot mapping. Config validation
 // (validateItemConfig) checks names against it too, so a YAML typo fails at
 // load instead of silently routing to the armor slot.
 var equipSlotByName = map[string]EquipSlot{

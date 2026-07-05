@@ -1,6 +1,6 @@
 // Package stats holds the ONE definition of the seven character stats: the
-// StatBonuses struct. The canonical ordered name list, the name→field mapping
-// and the name validator are all DERIVED from its fields via reflection —
+// StatBonuses struct. The canonical ordered name list, the name->field mapping
+// and the name validator are all DERIVED from its fields via reflection -
 // adding a stat means adding exactly one struct field, nothing to sync.
 package stats
 
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// StatBonuses is a per-stat additive bonus block — the unit of every temporary
+// StatBonuses is a per-stat additive bonus block - the unit of every temporary
 // stat buff. Spells author either a uniform `stat_bonus: N` (all seven stats,
 // e.g. Bless) or a per-stat `stat_bonuses:` map; the game aggregates active
 // buffs into one StatBonuses and pushes it onto each member's BuffBonuses, so

@@ -12,8 +12,8 @@ import (
 // movement path (monsterMoveTurnBased), not just the A* helper: a mob is cut off
 // from the party by an impassable barrier (a wall stands in for the river) with a
 // single walkable gap (the ford/bridge). Stepping turn by turn it must cross via
-// the gap and reach the party — not oscillate at the bank, the bug that let the
-// stranded gorilla be ranged down for free. Guards the greedy→A* fallthrough.
+// the gap and reach the party - not oscillate at the bank, the bug that let the
+// stranded gorilla be ranged down for free. Guards the greedy->A* fallthrough.
 func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 	cfg := loadTestConfig(t)
 	tile := float64(cfg.GetTileSize())
@@ -88,7 +88,7 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 		t.Fatalf("mob never reached the party (oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	if !crossed {
-		t.Fatal("mob reached the party without ever crossing the barrier column — setup is wrong")
+		t.Fatal("mob reached the party without ever crossing the barrier column - setup is wrong")
 	}
 	t.Logf("mob crossed the ford and reached the party in %d turn-based steps", steps)
 }
@@ -96,8 +96,8 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 // TestMonsterMoveTurnBased_EscapesPocketAwayFromParty reproduces the exact bug the
 // real gorilla hit: it sat in a pocket whose only opening faced AWAY from the
 // party (its party-side neighbor was an impassable log). A greedy-first mover
-// oscillates — the naive step keeps pulling it toward the party (back into the
-// pocket) while A* pulls it out the far side — so it never escapes and gets ranged
+// oscillates - the naive step keeps pulling it toward the party (back into the
+// pocket) while A* pulls it out the far side - so it never escapes and gets ranged
 // down. A*-primary follows the path out. The straight-across ford test above does
 // NOT catch this (there the naive step points into the wall and is simply blocked).
 func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
@@ -157,7 +157,7 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 		gl.monsterMoveTurnBased(mob)
 	}
 	if manhattan() > 1 {
-		t.Fatalf("mob never escaped the pocket / reached the party (greedy↔A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
+		t.Fatalf("mob never escaped the pocket / reached the party (greedy<->A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	t.Logf("mob escaped the pocket and reached the party in %d turn-based steps", steps)
 }

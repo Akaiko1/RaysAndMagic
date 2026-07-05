@@ -399,7 +399,7 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 }
 
 // drawNPCHoverTooltip shows who an `@` marker is when the mouse is over a tile
-// holding an NPC spawn — name/type/description pulled from the shared npcs.yaml
+// holding an NPC spawn - name/type/description pulled from the shared npcs.yaml
 // config (no hardcoded list), so it stays in sync with the game.
 func drawNPCHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
 	if lay.tileSize <= 0 || m.Data == nil {
@@ -649,7 +649,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 			tile := m.Data.Tiles[ty][tx]
 			drawX := originX + tx*tileSize
 			drawY := originY + ty*tileSize
-			// Tiles with a sprite (objects: trees, palms, houses…) draw the
+			// Tiles with a sprite (objects: trees, palms, houses...) draw the
 			// sprite over the floor color, so the map reads like the game,
 			// not just colored squares. Floors stay flat color. Skip sprites
 			// when cells are too tiny to be legible (keeps it fast + clean).
@@ -819,7 +819,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 	}
 }
 
-// drawImageInBox draws img scaled to fit a sw×sw box at (bx,by).
+// drawImageInBox draws img scaled to fit a swxsw box at (bx,by).
 func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int) {
 	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
 	if iw == 0 || ih == 0 {
@@ -831,7 +831,7 @@ func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int)
 	screen.DrawImage(img, op)
 }
 
-// clipText truncates text with an ellipsis to fit availPx (≈6px per glyph in
+// clipText truncates text with an ellipsis to fit availPx (~6px per glyph in
 // the debug font).
 func clipText(text string, availPx int) string {
 	const glyphW = 6
@@ -842,10 +842,12 @@ func clipText(text string, availPx int) string {
 	if len(text) <= maxChars {
 		return text
 	}
-	if maxChars <= 1 {
+	// "..." is 3 glyphs; reserve room for it so the result never exceeds
+	// maxChars. Too narrow for text + ellipsis -> hard-cut to maxChars.
+	if maxChars <= 3 {
 		return text[:maxChars]
 	}
-	return text[:maxChars-1] + "…"
+	return text[:maxChars-3] + "..."
 }
 
 // legendSwatchColor returns the preview color for a legend entry: the map
@@ -1390,8 +1392,8 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 
 // floorUnderObjectColor is the ground shown under an object sprite. A tile
 // that authors its own floor_color (flooring objects) keeps it; otherwise the
-// ground is dynamic — the same dominant-neighbour vote the game uses for
-// under-entity and inherit_floor ground — so a tree in a road patch sits on
+// ground is dynamic - the same dominant-neighbour vote the game uses for
+// under-entity and inherit_floor ground - so a tree in a road patch sits on
 // road, not on the biome default.
 func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[string]*config.TileData, tx, ty int, base color.RGBA) color.RGBA {
 	tile := m.Data.Tiles[ty][tx]
@@ -1554,7 +1556,7 @@ type legendBuildItem struct {
 // emitBiomeScoped flattens per-letter build items into sorted legend entries,
 // dropping universal entries for any letter that ALSO has a biome-specific one.
 // This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
-// where a biome-specific def wins over the universal fallback for that letter —
+// where a biome-specific def wins over the universal fallback for that letter -
 // so the palette shows only what would actually be placed.
 func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
 	letters := make([]string, 0, len(byLetter))
@@ -1652,7 +1654,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		entries = append(entries, emitBiomeScoped(monsterItems)...)
 	}
 
-	// Special NPCs (quest givers, encounters, merchants, portals, …) — every NPC
+	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
 	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
 	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
@@ -1707,7 +1709,7 @@ func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
 }
 
-// drawImageScaled scales src into the w×h box at (x,y). Mirrors the game's
+// drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's
 // helper (ui_helpers.go): linear filtering when SHRINKING (mipmaps) so thin
 // baked-in details/frames aren't dropped, nearest when upscaling so pixel art
 // stays crisp. Used for sprite icons and portraits so the editor renders them

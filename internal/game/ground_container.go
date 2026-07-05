@@ -29,7 +29,7 @@ type containerKindDefaults struct {
 	sprite         string
 	sizeMultiplier float64
 	openMessage    string // multi-part "Picked up loot bag:" / "Opened chest:" prefix
-	emptyMessage   string // shown if container is empty when opened ("" → silent)
+	emptyMessage   string // shown if container is empty when opened ("" -> silent)
 }
 
 var groundContainerDefaults = map[ContainerKind]containerKindDefaults{
@@ -47,18 +47,18 @@ var groundContainerDefaults = map[ContainerKind]containerKindDefaults{
 	},
 }
 
-// GroundContainer is the unified on-floor reward container — replaces both
+// GroundContainer is the unified on-floor reward container - replaces both
 // the loot bag (monster drop) and treasure chest (encounter reward) systems
 // that previously had near-identical parallel implementations.
 type GroundContainer struct {
 	Kind           ContainerKind
 	ID             string // optional dedup key; "" disables dedup
-	MapKey         string // "" → current map only; set for cross-map containers
+	MapKey         string // "" -> current map only; set for cross-map containers
 	X, Y           float64
 	Gold           int
 	Items          []items.Item
-	Sprite         string  // "" → default per Kind
-	SizeMultiplier float64 // 0 → default per Kind
+	Sprite         string  // "" -> default per Kind
+	SizeMultiplier float64 // 0 -> default per Kind
 }
 
 // GroundContainerRenderInfo holds the projected screen geometry used by both
@@ -72,7 +72,7 @@ type GroundContainerRenderInfo struct {
 }
 
 // effectiveSprite returns the sprite name to draw / hit-test for this container.
-// A loot bag holding an item shows a rarity-specific sack (bag_common/…/legendary);
+// A loot bag holding an item shows a rarity-specific sack (bag_common/.../legendary);
 // an item-less (gold-only) bag keeps the default sack. Chests are unaffected.
 func (c *GroundContainer) effectiveSprite() string {
 	if c != nil && c.Sprite != "" {
@@ -92,7 +92,7 @@ func (c *GroundContainer) effectiveSizeMultiplier() float64 {
 	return groundContainerDefaults[c.Kind].sizeMultiplier
 }
 
-// groundContainerPickupRange is shared across all ground containers — both
+// groundContainerPickupRange is shared across all ground containers - both
 // "press Space to pick up" and "click to open" use the same reach.
 func (g *MMGame) groundContainerPickupRange() float64 {
 	if g == nil {
@@ -200,7 +200,7 @@ func (g *MMGame) addTreasureChestsFromRewards(rewards *monster.EncounterRewards)
 }
 
 // randomWeaponRewards rolls `count` random weapons uniformly from weapons.yaml.
-// Used by encounter-chest spawn — balance filtering (rarity tier, loot tables)
+// Used by encounter-chest spawn - balance filtering (rarity tier, loot tables)
 // is a separate concern tracked elsewhere.
 func randomWeaponRewards(count int) []items.Item {
 	if count <= 0 {
@@ -257,7 +257,7 @@ func fixedItemRewards(keys []string) []items.Item {
 
 // rollWeightedLootTable rolls a named weighted pool: `Rolls` weighted picks (with
 // replacement) plus gold in [GoldMin,GoldMax]. Zone containers (sword racks) use
-// this for "one random zone item, never a unique" — uniques aren't in the pool,
+// this for "one random zone item, never a unique" - uniques aren't in the pool,
 // unlike randomWeaponRewards which draws from ALL weapons. Keys are validated at
 // load (config.validateWeightedLootTables), so creation failures here are unexpected.
 func rollWeightedLootTable(name string) ([]items.Item, int) {
@@ -435,7 +435,7 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 }
 
 // groundContainerRenderOffset returns the render-only fan offset for a container
-// sharing its tile with others, so a pile of loot bags reads as a band — the same
+// sharing its tile with others, so a pile of loot bags reads as a band - the same
 // visual (and formula) as monster banding. Solo containers get (0,0).
 func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float64) {
 	if g == nil || c == nil {
@@ -458,7 +458,7 @@ func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float
 		return 0, 0
 	}
 	// Arrange same-tile containers evenly on a ring around the tile CENTRE so a
-	// pile from several kills reads as several bags side by side — regardless of
+	// pile from several kills reads as several bags side by side - regardless of
 	// where each mob actually died (they don't snap together like monster bands).
 	// Offset = ring slot - drop position.
 	ox, oy := containerFanOffset(idx, count, tile)
@@ -471,7 +471,7 @@ const containerFanRadiusTiles = 0.32
 
 // containerFanOffset spreads count containers evenly on a ring of radius
 // containerFanRadiusTiles. Every member sits ON the ring (so two bags land
-// opposite each other — side by side, not one behind the other). The radius grows
+// opposite each other - side by side, not one behind the other). The radius grows
 // slightly with the count so a bigger pile stays legible.
 func containerFanOffset(idx, count int, tile float64) (float64, float64) {
 	if count <= 1 {
@@ -524,7 +524,7 @@ func currentMapKey() string {
 }
 
 // groundContainerTileIsValid returns false if (tileX, tileY) on the named map
-// is blocking or out of bounds — both cases would leave the container
+// is blocking or out of bounds - both cases would leave the container
 // unreachable. Used for fail-fast YAML validation at spawn time.
 func groundContainerTileIsValid(mapKey string, tileX, tileY int) bool {
 	if world.GlobalWorldManager == nil {

@@ -161,10 +161,10 @@ biomes:
       default:
         - "deep_jungle_floor_0"
         - "deep_jungle_floor_3"
-      # Mossy carved flagstone — the lost-city plaza/causeways (tile letter ':').
+      # Mossy carved flagstone - the lost-city plaza/causeways (tile letter ':').
       ruin:
         - "deep_jungle_floor_1"
-      # Wet flooded floodplain ground — várzea (tile letter ',').
+      # Wet flooded floodplain ground - varzea (tile letter ',').
       varzea:
         - "deep_jungle_floor_2"
       water:
@@ -373,12 +373,12 @@ maps:
     sky_texture: "deep_jungle_panorama"
     default_floor_color: [34, 78, 40]   # Dark jungle green
     ambient_light: 1.0   # full daylight; no ambient darkening
-    # Slay the warlord (only possible once his idols are broken) → the lost
+    # Slay the warlord (only possible once his idols are broken) -> the lost
     # city's treasury opens in the plaza. Zone gear + gold only; his uniques
     # drop from the boss itself (loots.yaml), so none can leak here.
     # PLURAL clear_encounters: binds only the N-nearest monsters of the listed
     # type to the chest. The SINGULAR `clear_encounter` ignores `monsters:` and
-    # binds EVERY mob on the map (chest fires only when the LAST one dies) — wrong
+    # binds EVERY mob on the map (chest fires only when the LAST one dies) - wrong
     # here: we want the chest the instant the warlord dies, not after the whole
     # zone is swept.
     clear_encounters:

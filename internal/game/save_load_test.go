@@ -35,7 +35,7 @@ func loadTestConfig(t *testing.T) *config.Config {
 	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
 		t.Fatalf("load items: %v", err)
 	}
-	// Wire the items↔config bridges so party setup can create weapons/items.
+	// Wire the items<->config bridges so party setup can create weapons/items.
 	// Without this, newTestGame-based tests only worked when another test
 	// happened to run first and set these global accessors.
 	bridge.SetupWeaponBridge()
@@ -433,7 +433,7 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 
 // A spent hide_when_visited statue must vanish from interaction yet stay in the
 // world, so its Visited=true is captured by the save (NPC states only persist
-// NPCs still present). Dropping it from the world — the old RemoveNPC behaviour —
+// NPCs still present). Dropping it from the world - the old RemoveNPC behaviour -
 // lost the spent state and resurrected the statue unspent on reload.
 func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -479,7 +479,7 @@ func TestSeparateOverlappingMonsters(t *testing.T) {
 	g := newTestGame(cfg, w)
 	gl := &GameLoop{game: g}
 
-	// Park the player away from the pair — pushes refuse to land on the player.
+	// Park the player away from the pair - pushes refuse to land on the player.
 	g.camera.X, g.camera.Y = 8, 8
 	g.collisionSystem.UpdateEntity("player", 8, 8)
 	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
@@ -503,7 +503,7 @@ func TestSeparateOverlappingMonsters(t *testing.T) {
 }
 
 // In a one-wide corridor (trees above and below) the least-penetration push is
-// blocked on both sides — the pair must fall back to separating ALONG the
+// blocked on both sides - the pair must fall back to separating ALONG the
 // corridor instead of staying glued (the goblins-stuck-between-trees bug).
 func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -547,7 +547,7 @@ func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
 }
 
 // creditClearedKillQuests completes a region kill quest when its target_map is
-// clear, even if the same monster type still lives on another map — so culling
+// clear, even if the same monster type still lives on another map - so culling
 // the cliff trolls turns the quest in despite trolls roaming the highlands, and
 // a target slain before the quest was taken can still be credited.
 func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
@@ -590,7 +590,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	old := world.GlobalWorldManager
 	defer func() { world.GlobalWorldManager = old }()
 
-	// Trolls only in the highlands: the cliff region is clear → quest completes.
+	// Trolls only in the highlands: the cliff region is clear -> quest completes.
 	g := setup("highlands")
 	g.creditClearedKillQuests(npc)
 	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || !q.Completed {
@@ -607,7 +607,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 
 // Hostility must survive save/load: a provoked monster (WasAttacked) stays
 // provoked, and an old save's quest-bearing encounter monster (no was_attacked
-// field — e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
+// field - e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
 // mob without a QuestID keeps normal aggro.
 func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -668,7 +668,7 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 
 // A sealed boss (passive-until-quest, no evade radius) that wandered off its
 // throne in a pre-fix save must snap back to its MAP spawn on load while its
-// quest is unfinished — the saved (wandered) position is discarded. Once the
+// quest is unfinished - the saved (wandered) position is discarded. Once the
 // quest completes the boss has gone aggressive and may have legitimately moved,
 // so it keeps its saved position. Regression for save 1, where the Samurai
 // Warlord was baked in mid-castle far from his throne.
@@ -721,7 +721,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
 	} else if !b.BossDormant {
 		// Set at restore time, not waiting for refreshBoundUndeadCache (which runs
-		// after input) — else a first-frame player action could damage the sealed boss.
+		// after input) - else a first-frame player action could damage the sealed boss.
 		t.Error("sealed boss must be flagged BossDormant immediately on load")
 	}
 	if b := restoreBoss(quests.QuestStatusCompleted); b.X != wanderX || b.Y != wanderY {

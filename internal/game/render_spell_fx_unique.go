@@ -10,7 +10,7 @@ import (
 )
 
 // Bespoke flying-body renderers for signature spells, selected by
-// graphics.projectile_fx in spells.yaml (spellFxProfile → profile.style →
+// graphics.projectile_fx in spells.yaml (spellFxProfile -> profile.style ->
 // dispatch at the top of drawSpellProjectileFx). Impact FX stay school-driven.
 // Animation cycles run on frameCount; per-particle constants come from
 // auraHash so nothing needs state.
@@ -27,7 +27,7 @@ var spellFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, float64, float6
 }
 
 // validateProjectileFxStyles fails fast on a projectile_fx naming a style with
-// no renderer — a YAML typo would silently fall back to the school default.
+// no renderer - a YAML typo would silently fall back to the school default.
 func validateProjectileFxStyles() {
 	if config.GlobalSpells == nil {
 		return
@@ -41,10 +41,10 @@ func validateProjectileFxStyles() {
 	}
 }
 
-// frac returns the fractional part — the loop clock for cycling particles.
+// frac returns the fractional part - the loop clock for cycling particles.
 func frac(v float64) float64 { return v - math.Floor(v) }
 
-// Fireball — a burning SPHERE built the card-ignite way: stable fire puffs
+// Fireball - a burning SPHERE built the card-ignite way: stable fire puffs
 // slowly churning inside a round silhouette (three layers each: deep-red
 // shell, orange body, white-hot heart), flame tongues rising off the crown on
 // their own life-cycles, and a cooling puff wake behind.
@@ -55,7 +55,7 @@ func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX,
 	deep := [3]int{200, 40, 10}
 	soot := [3]int{80, 25, 8}
 
-	// Cooling wake: shed fire puffs drifting behind, orange → soot as they age.
+	// Cooling wake: shed fire puffs drifting behind, orange -> soot as they age.
 	for k := 0; k < 7; k++ {
 		ph := frac(fc*0.02*(0.7+auraHash(id, k, 61, 0)*0.6) + auraHash(id, k, 62, 0))
 		px := cx - dirX*ph*size*3.4 + (auraHash(id, k, 63, 0)-0.5)*size*0.8
@@ -64,7 +64,7 @@ func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX,
 			mixColor(deep, soot, ph), (1-ph)*0.5, additiveGlowBlend)
 	}
 
-	// Round silhouette first — the unifying ball the puffs churn inside.
+	// Round silhouette first - the unifying ball the puffs churn inside.
 	r.drawGlowSprite(screen, cx, cy, size*1.55, deep, 0.55, additiveGlowBlend)
 
 	// Fire puffs: STABLE positions churning slowly around the centre (no
@@ -112,7 +112,7 @@ func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX,
 	}
 }
 
-// Lightning — not an orb but a crackling bolt: a jagged chain re-rolled every
+// Lightning - not an orb but a crackling bolt: a jagged chain re-rolled every
 // few frames, with dim forks and the previous shape lingering as an afterglow.
 func (r *Renderer) drawSpellFxLightning(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	fc := int(r.game.frameCount)
@@ -163,7 +163,7 @@ func (r *Renderer) drawSpellFxLightning(screen *ebiten.Image, cx, cy, size, dirX
 	drawBolt(fc/3, 0.9*critBoost)
 }
 
-// Harm — a pulsing blight: a dark membrane beating around a toxic heart,
+// Harm - a pulsing blight: a dark membrane beating around a toxic heart,
 // viscous drips sliding off it and stray life-motes spiralling in to be eaten.
 func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
@@ -199,7 +199,7 @@ func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size, dirX, dir
 		}
 	}
 
-	// Life-motes spiralling inward — the harm feeds.
+	// Life-motes spiralling inward - the harm feeds.
 	for k := 0; k < 6; k++ {
 		v := frac(fc/50 + auraHash(id, k, 80, 0))
 		a := auraHash(id, k, 81, 0)*2*math.Pi + v*3.2
@@ -209,14 +209,14 @@ func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size, dirX, dir
 	}
 }
 
-// Psychic Shock — a trembling mind-mote emitting flattened sonar rings, with
+// Psychic Shock - a trembling mind-mote emitting flattened sonar rings, with
 // three thought-orbs circling it and dragging short trails.
 func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
 	lav := [3]int{190, 170, 255}
 	white := [3]int{245, 240, 255}
 
-	// Core trembles — a mind under strain.
+	// Core trembles - a mind under strain.
 	wx := cx + math.Sin(fc*0.31)*size*0.12
 	wy := cy + math.Sin(fc*0.43+1.3)*size*0.1
 	r.drawGlowSprite(screen, wx, wy, size*1.1*critBoost, lav, 0.7, additiveGlowBlend)
@@ -247,7 +247,7 @@ func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size, dirX,
 	}
 }
 
-// Starburst — the projectile IS a star: a slowly spinning eight-pointed glint
+// Starburst - the projectile IS a star: a slowly spinning eight-pointed glint
 // shedding twinkling stardust (the impact scatter stays the classic spray).
 func (r *Renderer) drawSpellFxStarburst(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
@@ -282,7 +282,7 @@ func (r *Renderer) drawSpellFxStarburst(screen *ebiten.Image, cx, cy, size, dirX
 	}
 }
 
-// Disintegrate — a void bolt: a near-black heart in a violet rim, streaming a
+// Disintegrate - a void bolt: a near-black heart in a violet rim, streaming a
 // wake of matter chunks that scatter and shrink into nothing, with unmaking
 // scan-flickers snapping across the core.
 func (r *Renderer) drawSpellFxDisintegrate(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
@@ -319,7 +319,7 @@ func (r *Renderer) drawSpellFxDisintegrate(screen *ebiten.Image, cx, cy, size, d
 	}
 }
 
-// Ray of Light — lore: a plasma charge. The blaster bolt's big brother: a
+// Ray of Light - lore: a plasma charge. The blaster bolt's big brother: a
 // longer, wider, brighter golden energy rod with an outer radiance halo and
 // star-glints crackling along the sheath.
 func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
@@ -336,7 +336,7 @@ func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dir
 		n = 8
 	}
 	for k := 0; k <= n; k++ {
-		t := float64(k) / float64(n) // 0 head → 1 tail
+		t := float64(k) / float64(n) // 0 head -> 1 tail
 		endCap := 1.0
 		if t < 0.1 {
 			endCap = t / 0.1
@@ -362,14 +362,14 @@ func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dir
 }
 
 // drawBulletTracer renders a blaster shot as a laser bolt: a uniform
-// elongated energy rod along the flight line — colored sheath around a
-// white-hot core, soft-capped at both ends — not a fletched arrow.
+// elongated energy rod along the flight line - colored sheath around a
+// white-hot core, soft-capped at both ends - not a fletched arrow.
 func (r *Renderer) drawBulletTracer(screen *ebiten.Image, cx, cy, size, vx, vy float64, col [3]int, critBoost float64, id int) {
 	hot := mixColor(col, [3]int{255, 255, 255}, 0.75)
 	pulse := 0.92 + 0.08*math.Sin(float64(r.game.frameCount)*0.6+float64(id))
 	dx, dy, ok := r.projectileScreenDir(vx, vy)
 	if !ok {
-		// Head-on: the bolt seen down the barrel — a bright core in a halo.
+		// Head-on: the bolt seen down the barrel - a bright core in a halo.
 		r.drawGlowSprite(screen, cx, cy, size*1.7*critBoost, col, 0.8*pulse, additiveGlowBlend)
 		r.drawGlowSprite(screen, cx, cy, size*0.7, hot, pulse, additiveGlowBlend)
 		return
@@ -380,7 +380,7 @@ func (r *Renderer) drawBulletTracer(screen *ebiten.Image, cx, cy, size, vx, vy f
 		n = 6
 	}
 	for k := 0; k <= n; k++ {
-		t := float64(k) / float64(n) // 0 head → 1 tail
+		t := float64(k) / float64(n) // 0 head -> 1 tail
 		endCap := 1.0
 		if t < 0.12 {
 			endCap = t / 0.12

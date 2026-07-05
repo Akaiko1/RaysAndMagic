@@ -17,6 +17,12 @@ func autoEnduranceTarget(class character.CharacterClass) int {
 	switch class {
 	case character.ClassKnight:
 		return 28
+	case character.ClassMonk:
+		// No armor slots at all (Iron Body is the only AC source besides
+		// Endurance) - target as high as the tankiest class to compensate.
+		return 28
+	case character.ClassArmsMaster:
+		return 26
 	case character.ClassPaladin:
 		return 24
 	case character.ClassCleric:
@@ -44,6 +50,8 @@ func primaryDamageStat(member *character.MMCharacter) *int {
 	case character.ClassArcher, character.ClassThief:
 		return &member.Accuracy
 	default:
+		// Knight, Paladin, Arms Master, Monk: Might drives their weapon damage
+		// (fists included - Might/3 is the larger of the Monk's two terms).
 		return &member.Might
 	}
 }
@@ -59,6 +67,10 @@ func secondaryAutoStat(member *character.MMCharacter) *int {
 		return &member.Intellect
 	case character.ClassDruid:
 		return &member.Personality
+	case character.ClassMonk:
+		// Speed/4 is the Monk's other direct damage term (fists), unlike a
+		// normal melee class where Speed is only cooldown/initiative.
+		return &member.Speed
 	default:
 		return nil
 	}
@@ -97,7 +109,7 @@ func autoDistributeStatPoints(member *character.MMCharacter, cfg *config.Config)
 		}
 	}
 
-	// 3) Primary → 99, alternating with the secondary capped at 50: once the
+	// 3) Primary -> 99, alternating with the secondary capped at 50: once the
 	//    secondary hits its soft cap the primary keeps climbing alone.
 	if secondary == nil {
 		for spendOne(primary, MaxStatValue) {
@@ -112,8 +124,8 @@ func autoDistributeStatPoints(member *character.MMCharacter, cfg *config.Config)
 		}
 	}
 
-	// 4) Only after the primary is maxed: lift the secondary past 50 → 99 and fill
-	//    Endurance → 99, alternating.
+	// 4) Only after the primary is maxed: lift the secondary past 50 -> 99 and fill
+	//    Endurance -> 99, alternating.
 	for member.FreeStatPoints > 0 {
 		spent := false
 		if secondary != nil {

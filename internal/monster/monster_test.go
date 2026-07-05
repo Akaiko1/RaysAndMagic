@@ -1,6 +1,7 @@
 package monster
 
 import (
+	"math"
 	"testing"
 )
 
@@ -21,6 +22,8 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		{"evasive fully configured", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
 		{"summon chance without monsters", MonsterDefinition{SummonChance: 0.2}, true},
 		{"summon configured", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
+		{"dragon breath chance without damage type", MonsterDefinition{DragonBreathChance: 0.33}, true},
+		{"dragon breath configured", MonsterDefinition{DragonBreathChance: 0.33, DragonBreathType: "fire"}, false},
 		{"enrage without effect", MonsterDefinition{EnrageAtHP: 100}, true},
 		{"enrage with damage mult", MonsterDefinition{EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
 		{"fully configured boss", MonsterDefinition{
@@ -31,7 +34,10 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		}, false},
 	}
 	for _, tc := range cases {
-		cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"boss": tc.def}}
+		cfg := &MonsterYAMLConfig{
+			Monsters:    map[string]MonsterDefinition{"boss": tc.def},
+			DamageTypes: map[string]int{"physical": 0, "fire": 1},
+		}
 		err := validateMonsterConfiguration(cfg)
 		if tc.wantErr && err == nil {
 			t.Errorf("%s: expected validation error, got nil", tc.name)
@@ -111,6 +117,37 @@ func TestNewMonster3DFromConfig_Valid(t *testing.T) {
 	m := NewMonster3DFromConfig(1, 2, "goblin", nil)
 	if m == nil || m.Name == "" {
 		t.Error("Expected valid Monster3D instance with name")
+	}
+}
+
+func TestDragonBreathLoadedFromConfig(t *testing.T) {
+	tests := []struct {
+		key        string
+		damageType string
+	}{
+		{"dragon", "fire"},
+		{"dragon_red", "dark"},
+		{"dragon_green", "earth"},
+		{"dragon_gold", "air"},
+		{"elder_dragon", "fire"},
+		{"elder_dragon_red", "dark"},
+		{"elder_dragon_green", "earth"},
+		{"elder_dragon_gold", "air"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			m := NewMonster3DFromConfig(0, 0, tt.key, nil)
+			if math.Abs(m.DragonBreathChance-0.33) > 0.0001 {
+				t.Fatalf("DragonBreathChance = %v, want 0.33", m.DragonBreathChance)
+			}
+			if m.DragonBreathDamageType != tt.damageType {
+				t.Fatalf("DragonBreathDamageType = %q, want %q", m.DragonBreathDamageType, tt.damageType)
+			}
+			if (tt.key == "dragon" || tt.key == "elder_dragon") && m.FireburstChance != 0 {
+				t.Fatalf("%s still has FireburstChance %v", tt.key, m.FireburstChance)
+			}
+		})
 	}
 }
 
