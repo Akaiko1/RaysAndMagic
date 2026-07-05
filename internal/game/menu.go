@@ -595,6 +595,19 @@ func normalizeItemFromConfig(item *items.Item) {
 	if item == nil {
 		return
 	}
+	// Weapons refresh from weapons.yaml (name/rarity/stat rebalances reach saved
+	// slots), keyed by display name. Type-gated so a non-weapon that happens to
+	// share a name can't be force-converted into a weapon.
+	if item.Type == items.ItemWeapon {
+		if _, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
+			if template, err := items.TryCreateWeaponFromYAML(key); err == nil {
+				instanceID := item.InstanceID
+				*item = template
+				item.InstanceID = instanceID
+			}
+		}
+		return
+	}
 	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
 	// reach saved slots), keyed by SpellEffect.
 	if item.Type == items.ItemTrap {
@@ -628,12 +641,12 @@ func normalizeItemFromConfig(item *items.Item) {
 		item.Attributes[k] = v
 	}
 	item.ArmorCategory = template.ArmorCategory
-	if item.Description == "" {
-		item.Description = template.Description
-	}
-	if item.Rarity == "" {
-		item.Rarity = template.Rarity
-	}
+	// rarity/description are definitional too (items carry no per-instance
+	// override - nothing sets them outside YAML adoption), so adopt them
+	// wholesale like attributes: a rebalanced rarity/desc reaches old saves,
+	// matching the weapon branch above.
+	item.Description = template.Description
+	item.Rarity = template.Rarity
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.

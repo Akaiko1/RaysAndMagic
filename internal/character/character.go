@@ -192,6 +192,14 @@ func (c *MMCharacter) SpeedBonusActionTier() int {
 	}
 }
 
+// CanDualWield reports whether c is ALLOWED an off-hand weapon at all: the ONE
+// "an off-hand weapon requires the Dual Wielding skill" rule, shared by
+// IsDualWielding, the equip overflow, and the slot-fit check so the rule can't
+// drift between them.
+func (c *MMCharacter) CanDualWield() bool {
+	return c != nil && c.HasSkill(SkillDualWielding)
+}
+
 // IsDualWielding reports whether c has the Dual Wielding skill AND an actual
 // weapon (not a shield or nothing) in the off-hand. Dual Wielding's perks -
 // the personal extra TB action, the independent off-hand RT cooldown - only
@@ -200,7 +208,7 @@ func (c *MMCharacter) SpeedBonusActionTier() int {
 // weapon on a skill-less character would otherwise hand out every perk for
 // free. Without the skill the off-hand weapon simply sits inert.
 func (c *MMCharacter) IsDualWielding() bool {
-	if c == nil || !c.HasSkill(SkillDualWielding) {
+	if !c.CanDualWield() {
 		return false
 	}
 	off, ok := c.Equipment[items.SlotOffHand]
@@ -1006,7 +1014,7 @@ func (c *MMCharacter) EquipItem(item items.Item) (items.Item, bool, bool) {
 		slot = items.SlotMainHand
 		// Dual Wielding: a second weapon overflows to the off-hand, mirroring
 		// how a second ring overflows to Ring2 below.
-		if _, mainTaken := c.Equipment[items.SlotMainHand]; mainTaken && c.HasSkill(SkillDualWielding) {
+		if _, mainTaken := c.Equipment[items.SlotMainHand]; mainTaken && c.CanDualWield() {
 			if _, offTaken := c.Equipment[items.SlotOffHand]; !offTaken {
 				slot = items.SlotOffHand
 			}
@@ -1049,7 +1057,7 @@ func (c *MMCharacter) ItemFitsSlot(item items.Item, slot items.EquipSlot) bool {
 			return true
 		}
 		// A second weapon only fits the off-hand with Dual Wielding.
-		return slot == items.SlotOffHand && c.HasSkill(SkillDualWielding)
+		return slot == items.SlotOffHand && c.CanDualWield()
 	case items.ItemBattleSpell, items.ItemUtilitySpell:
 		return slot == items.SlotSpell
 	case items.ItemArmor:
@@ -1120,7 +1128,11 @@ func (c *MMCharacter) MoveEquipmentSlot(srcSlot, dstSlot items.EquipSlot) bool {
 // go for save compatibility (Martial Arts already had to).
 func (c *MMCharacter) HasAnyWeaponSkill() bool {
 	for skill := range c.Skills {
-		if skill.Category() == "Weapon" && skill != SkillMartialArts {
+		// Martial Arts IS a weapon skill but is excluded here on purpose: it only
+		// ever gates the Monk's fists (already in the slot), so it can't rescue an
+		// unequipped main hand or justify the blaster fallback. Explicit exclusion,
+		// not a range accident.
+		if skill.IsWeaponSkill() && skill != SkillMartialArts {
 			return true
 		}
 	}

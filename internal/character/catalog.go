@@ -262,10 +262,10 @@ var AllSkills = []SkillType{
 
 // Category groups a skill for display: "Weapon", "Armor", or "Misc".
 func (s SkillType) Category() string {
-	switch s {
-	case SkillSword, SkillDagger, SkillAxe, SkillSpear, SkillBow, SkillMace, SkillStaff, SkillMartialArts:
+	switch {
+	case s.IsWeaponSkill():
 		return "Weapon"
-	case SkillLeather, SkillChain, SkillPlate, SkillShield:
+	case s.IsArmorSkill():
 		return "Armor"
 	default:
 		return "Misc"

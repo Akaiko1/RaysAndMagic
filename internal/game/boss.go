@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 
+	"ugataima/internal/character"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/world"
@@ -300,21 +301,10 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 // applyMonsterInferno scorches the whole party with fire (flat, mitigated).
 func (cs *CombatSystem) applyMonsterInferno(m *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts in a wave of fire!", m.Name))
-	for idx, member := range cs.game.party.Members {
-		if member == nil || member.HitPoints <= 0 {
-			continue
-		}
-		dmg := cs.mitigateCharacterDamage(m.InfernoDamage, "fire", member, false)
-		member.HitPoints -= dmg
-		if member.HitPoints < 0 {
-			member.HitPoints = 0
-		}
+	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
+		dealt := cs.damagePartyMemberElement(idx, member, m.InfernoDamage, "fire", false)
 		cs.game.AddCombatMessage(fmt.Sprintf("Inferno scorches %s for %d! (HP: %d/%d)",
-			member.Name, dmg, member.HitPoints, member.MaxHitPoints))
-		if member.HitPoints == 0 {
-			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
-		}
-		cs.game.TriggerDamageBlink(idx)
+			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx)
-	}
+	})
 }

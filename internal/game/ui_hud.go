@@ -268,7 +268,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(weaponText) > 12 { // Truncate if too long
 				weaponText = weaponText[:9] + "..."
 			}
-			drawDebugText(screen, weaponText, equipColX, startY+15)
+			drawDebugTextColored(screen, weaponText, equipColX, startY+15, ui.itemRarityColor(weapon))
 		} else {
 			drawDebugText(screen, "W:None", equipColX, startY+15)
 		}
@@ -292,7 +292,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(offText) > 12 {
 				offText = offText[:9] + "..."
 			}
-			drawDebugText(screen, offText, equipColX, startY+45)
+			drawDebugTextColored(screen, offText, equipColX, startY+45, ui.itemRarityColor(offWeapon))
 		}
 
 		// Draw + button for stat points if available (under portrait)

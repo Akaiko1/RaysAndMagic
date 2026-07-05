@@ -47,6 +47,34 @@ func loadTestConfig(t *testing.T) *config.Config {
 	return cfg
 }
 
+func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
+	loadTestConfig(t)
+
+	item := items.Item{
+		Name:        "Fists",
+		Type:        items.ItemWeapon,
+		Description: "old saved description",
+		Rarity:      "common",
+		Attributes:  map[string]int{"value": 999},
+		InstanceID:  42,
+	}
+
+	normalizeItemFromConfig(&item)
+
+	if item.Rarity != "legendary" {
+		t.Fatalf("saved Fists rarity = %q, want YAML legendary", item.Rarity)
+	}
+	if item.InstanceID != 42 {
+		t.Fatalf("normalizing a weapon must preserve instance id, got %d", item.InstanceID)
+	}
+	if item.Description == "old saved description" {
+		t.Fatal("weapon description was not refreshed from YAML")
+	}
+	if len(item.Attributes) != 0 {
+		t.Fatalf("weapon attributes should be refreshed from YAML, got %+v", item.Attributes)
+	}
+}
+
 func newTestWorld(cfg *config.Config) *world.World3D {
 	w := world.NewWorld3D(cfg)
 	w.Width = 2

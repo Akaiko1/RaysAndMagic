@@ -603,7 +603,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		if isCrit {
 			totalDamage *= CritDamageMultiplier
 		}
-		cs.createMeleeAttack(weapon, totalDamage, isCrit) // close-range, always lands
+		hits := cs.createMeleeAttack(weapon, totalDamage, isCrit) // instant swing; may catch no one (arc/reach)
 		acted = true
 		// Octopus Card: chance to strike again immediately with a fresh swing.
 		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
@@ -612,7 +612,12 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 			if isCrit2 {
 				dmg2 *= CritDamageMultiplier
 			}
-			cs.createMeleeAttack(weapon, dmg2, isCrit2)
+			hits += cs.createMeleeAttack(weapon, dmg2, isCrit2)
+		}
+		// A whiff still spends the cooldown/action - say so instead of silence,
+		// or the player reads it as a phantom miss.
+		if hits == 0 {
+			cs.game.AddCombatMessage(fmt.Sprintf("%s swings at air!", attacker.Name))
 		}
 		// Spiritual Training (Monk): a genuine melee swing can channel a free
 		// quick-spell. Kept in THIS branch on purpose - never on a ranged shot
@@ -740,18 +745,19 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot) bool
 	return true
 }
 
-// createMeleeAttack creates an instant melee attack with proper arc-based hit detection
-func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
+// createMeleeAttack creates an instant melee attack with proper arc-based hit
+// detection; reports how many monsters the swing connected with.
+func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) int {
 	// Get weapon definition from YAML
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
-		return // Weapon not found, skip attack
+		return 0 // Weapon not found, skip attack
 	}
 
 	// Check if weapon has melee configuration
 	if weaponDef.Melee == nil {
 		fmt.Printf("[WARN] weapon '%s' has no melee configuration in weapons.yaml\n", weapon.Name)
-		return
+		return 0
 	}
 
 	meleeConfig := weaponDef.Melee
@@ -789,7 +795,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	}
 
 	// Perform instant hit detection in arc
-	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
+	return cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
 }
 
 // Melee swing cone half-angles (radians) per discrete arc type. Front is a thin
@@ -808,9 +814,12 @@ type meleeHitCandidate struct {
 }
 
 // performMeleeHitDetection applies the swing to every monster inside the weapon's
-// arc. Reach is measured in TILE steps (Chebyshev: a diagonal neighbour is one
-// step), so range 1 covers all 8 adjacent tiles and range 2 reaches two tiles in
-// every direction including diagonals. Direction follows the camera continuously.
+// arc and reports how many it connected with. Reach is TILE-step Chebyshev (a
+// diagonal neighbour is one step: range 1 covers all 8 adjacent tiles), with a
+// true-distance fallback: a mob straddling tile boundaries can sit ~1 tile away
+// yet 2 tile-indices over, so anything within (range+0.5) tiles pixel-Chebyshev
+// (the far edge of the covered tile ring) is in reach regardless of where
+// inside the tiles both sides stand. Direction follows the camera continuously.
 //
 // Arc types (counts are for range 1, aligned to an axis):
 //
@@ -818,7 +827,7 @@ type meleeHitCandidate struct {
 //	2 - front + ONE flank (2 foes; the side with a foe, random when both have one)
 //	3 - front + both diagonals (3 foes; range 2 sweeps 3+5=8)
 //	4 - front + diagonals + both sides (5 foes)
-func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) {
+func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, meleeConfig *config.MeleeAttackConfig, isCrit bool) int {
 	playerX := cs.game.camera.X
 	playerY := cs.game.camera.Y
 	playerAngle := cs.game.camera.Angle
@@ -845,7 +854,11 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 			cheb = dy
 		}
 		if cheb > rangeTiles {
-			continue
+			// Tile adjacency missed - fall back to true pixel reach (see doc).
+			reachPx := (float64(rangeTiles) + 0.5) * tileSize
+			if math.Max(math.Abs(monster.X-playerX), math.Abs(monster.Y-playerY)) > reachPx {
+				continue
+			}
 		}
 		ang := 0.0
 		if cheb > 0 {
@@ -860,13 +873,17 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		cands = append(cands, meleeHitCandidate{monster, ang})
 	}
 
-	hit := func(m *monsterPkg.Monster3D) { cs.ApplyDamageToMonster(m, damage, weapon.Name, isCrit) }
+	hits := 0
+	hit := func(m *monsterPkg.Monster3D) {
+		cs.ApplyDamageToMonster(m, damage, weapon.Name, isCrit)
+		hits++
+	}
 
 	if targets, ok := cs.turnBasedPulledMeleeTargets(cands, meleeConfig.ArcType); ok {
 		for _, m := range targets {
 			hit(m)
 		}
-		return
+		return hits
 	}
 
 	switch meleeConfig.ArcType {
@@ -922,6 +939,7 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 			hit(frontDiagonalAssist[rand.Intn(len(frontDiagonalAssist))])
 		}
 	}
+	return hits
 }
 
 func (cs *CombatSystem) turnBasedPulledMeleeTargets(cands []meleeHitCandidate, arcType int) ([]*monsterPkg.Monster3D, bool) {
@@ -1781,11 +1799,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if cs.tryMonsterSpecialAbility(monster) {
 		return
 	}
-	if cs.tryMonsterDragonBreath(monster) {
-		return
-	}
-	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
-		cs.applyMonsterFireburst(monster)
+	if cs.tryMonsterAoeAttack(monster) {
 		return
 	}
 
@@ -2049,6 +2063,25 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 	cs.game.AddColoredCombatMessage(fmt.Sprintf("%s rips %s from the party!", monster.Name, name), combatMessagePurple)
 }
 
+// damagePartyMemberElement applies one elemental hit to a single party member
+// through the shared pipeline and returns the damage actually dealt: mitigate
+// (armor%/resist/buffs), subtract, clamp at 0, knock out at 0 (the Lich Card
+// cheat-death chokepoint), and flash the damage-blink. The ONE body behind
+// every whole-party elemental attack (Fireburst, Inferno, the Inferno nova);
+// callers supply their own flavor line and any extra VFX (e.g. party flame).
+func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string, ignoresArmor bool) int {
+	dealt := cs.mitigateCharacterDamage(rawDamage, school, member, ignoresArmor)
+	member.HitPoints -= dealt
+	if member.HitPoints < 0 {
+		member.HitPoints = 0
+	}
+	if member.HitPoints == 0 {
+		cs.knockOut(member)
+	}
+	cs.game.TriggerDamageBlink(idx)
+	return dealt
+}
+
 func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s casts Fireburst!", monster.Name))
 
@@ -2061,24 +2094,13 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage < minDamage {
 			maxDamage = minDamage
 		}
-		damage := minDamage
+		raw := minDamage
 		if maxDamage > minDamage {
-			damage = minDamage + rand.Intn(maxDamage-minDamage+1)
+			raw = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
-		damage = cs.mitigateCharacterDamage(damage, "fire", member, false)
-		member.HitPoints -= damage
-		if member.HitPoints < 0 {
-			member.HitPoints = 0
-		}
-
+		dealt := cs.damagePartyMemberElement(idx, member, raw, "fire", false)
 		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
-			member.Name, damage, member.HitPoints, member.MaxHitPoints))
-
-		if member.HitPoints == 0 {
-			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
-		}
-
-		cs.game.TriggerDamageBlink(idx)
+			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 	})
 }
 
@@ -2104,14 +2126,26 @@ func (cs *CombatSystem) spawnMonsterRangedAttack(monster *monsterPkg.Monster3D) 
 }
 
 func (cs *CombatSystem) spawnMonsterRangedAttackNormal(monster *monsterPkg.Monster3D) {
-	if cs.tryMonsterDragonBreath(monster) {
-		return
-	}
-	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
-		cs.applyMonsterFireburst(monster)
+	if cs.tryMonsterAoeAttack(monster) {
 		return
 	}
 	cs.spawnMonsterRangedAttackAt(monster, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster)
+}
+
+// tryMonsterAoeAttack runs a monster's whole-party attacks that preempt its
+// normal single-target hit - Dragon Breath, then Fireburst, in that order.
+// Returns true if one fired (the caller then skips its normal melee/ranged
+// attack). Shared by the melee and ranged paths so a new whole-party attack is
+// added in ONE place, not copy-pasted into both in the right order.
+func (cs *CombatSystem) tryMonsterAoeAttack(monster *monsterPkg.Monster3D) bool {
+	if cs.tryMonsterDragonBreath(monster) {
+		return true
+	}
+	if monster.FireburstChance > 0 && rand.Float64() < monster.FireburstChance {
+		cs.applyMonsterFireburst(monster)
+		return true
+	}
+	return false
 }
 
 func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bool {
@@ -3533,23 +3567,12 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 	}
 
 	// The party is caught in the blast too (each member's resistances apply).
-	for idx, member := range cs.game.party.Members {
-		if member == nil || member.HitPoints <= 0 {
-			continue
-		}
-		mdmg := cs.mitigateCharacterDamage(dmg, damageTypeStr, member, false)
-		member.HitPoints -= mdmg
-		if member.HitPoints < 0 {
-			member.HitPoints = 0
-		}
+	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
+		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr, false)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
-			member.Name, mdmg, member.HitPoints, member.MaxHitPoints))
-		if member.HitPoints == 0 {
-			cs.knockOut(member) // shared lethal chokepoint: Lich Card cheat-death roll, else unconscious
-		}
-		cs.game.TriggerDamageBlink(idx)
+			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
-	}
+	})
 	return true
 }
 

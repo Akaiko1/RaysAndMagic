@@ -227,6 +227,29 @@ func SkillTypeFromKey(key string) (SkillType, bool) {
 	return t, ok
 }
 
+// weaponSkills / armorSkills are the ONE canonical membership sets for "which
+// SkillTypes are weapon- / armor-proficiency skills". Every "is this a weapon
+// (or armor) skill" decision reads these instead of re-listing the skills or
+// range-checking their enum values: a numeric range silently drops any skill
+// appended past its end, which is exactly where new skills MUST go for
+// save-compat (that is why SkillMartialArts already sits outside the old
+// Sword..Staff range). Whether a given site ALSO counts Martial Arts stays an
+// explicit decision there (e.g. HasAnyWeaponSkill excludes it), not a side
+// effect of which idiom - list vs range - the site happened to use.
+var weaponSkills = map[SkillType]bool{
+	SkillSword: true, SkillDagger: true, SkillAxe: true, SkillSpear: true,
+	SkillBow: true, SkillMace: true, SkillStaff: true, SkillMartialArts: true,
+}
+
+var armorSkills = map[SkillType]bool{
+	SkillLeather: true, SkillChain: true, SkillPlate: true, SkillShield: true,
+}
+
+// IsWeaponSkill reports whether s is a weapon-proficiency skill (INCLUDES
+// Martial Arts). IsArmorSkill is the armor-proficiency analogue.
+func (s SkillType) IsWeaponSkill() bool { return weaponSkills[s] }
+func (s SkillType) IsArmorSkill() bool  { return armorSkills[s] }
+
 // WeaponSkillForCategory maps a weapon category string (lowercased) to the
 // SkillType that gates wielding/proficiency bonuses. The "blaster" category
 // returns (0, false) because it's universally usable - callers handle that
@@ -236,13 +259,7 @@ func WeaponSkillForCategory(category string) (SkillType, bool) {
 		return SkillDagger, true // throwing weapons use the dagger skill
 	}
 	t, ok := skillTypeByKey[category]
-	if !ok {
-		return 0, false
-	}
-	if t == SkillMartialArts {
-		return t, true // appended after the misc skills, so it's outside the Sword..Staff range below
-	}
-	if t < SkillSword || t > SkillStaff {
+	if !ok || !t.IsWeaponSkill() {
 		return 0, false
 	}
 	return t, true
@@ -253,7 +270,7 @@ func WeaponSkillForCategory(category string) (SkillType, bool) {
 // because it's universally wearable.
 func ArmorSkillForCategory(category string) (SkillType, bool) {
 	t, ok := skillTypeByKey[category]
-	if !ok || t < SkillLeather || t > SkillShield {
+	if !ok || !t.IsArmorSkill() {
 		return 0, false
 	}
 	return t, true
