@@ -340,7 +340,7 @@ func (s SkillType) Description() string {
 			IronBodyACPerTier, IronBodyGMDodgeBonus)
 	case SkillSpiritualTraining:
 		return fmt.Sprintf("Spiritual Training: %d-%d%% chance (by mastery, Novice included) that a melee "+
-			"attack also casts the slotted quick-spell for free (no spell points spent).",
+			"attack also casts the slotted offensive quick-spell for free (no spell points spent).",
 			SpiritualTrainingProcPctPerTier, 4*SpiritualTrainingProcPctPerTier)
 	default:
 		return ""

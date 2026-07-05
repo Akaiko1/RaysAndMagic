@@ -292,7 +292,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       fire: 90
-      physical: 50
+      physical: 10
       air: 75
     habitat_preferences:
       - "empty"
@@ -333,7 +333,7 @@ monsters:
     biomes: ["desert"]
     resistances:
       dark: 90
-      physical: 50
+      physical: 10
       fire: 40
     habitat_preferences:
       - "empty"
@@ -368,7 +368,7 @@ monsters:
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
-      physical: 60
+      physical: 25
       fire: -25                # nature dragon: vulnerable to fire
     habitat_preferences:
       - "empty"
@@ -386,7 +386,7 @@ monsters:
     attack_cooldown_multiplier: 0.85
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "air"
-    stun_char_chance: 0.15        # 15% to stun the struck character
+    stun_char_chance: 0.10        # 10% to stun the struck character
     stun_char_seconds: 4          # RT stun duration
     stun_char_turns: 2            # TB stun duration
     alert_radius: 6
@@ -405,7 +405,7 @@ monsters:
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
-      physical: 50
+      physical: 10
       water: -25               # vulnerable to water/ice
     habitat_preferences:
       - "empty"
@@ -443,7 +443,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       fire: 100
-      physical: 55
+      physical: 10
       air: 75
 
   elder_dragon_red:
@@ -476,7 +476,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       dark: 100
-      physical: 55
+      physical: 10
       fire: 40
 
   elder_dragon_green:
@@ -507,7 +507,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       earth: 100
-      physical: 60
+      physical: 25
       fire: -25
 
   elder_dragon_gold:
@@ -523,7 +523,7 @@ monsters:
     attack_cooldown_multiplier: 0.65
     dragon_breath_chance: 0.33
     dragon_breath_damage_type: "air"
-    stun_char_chance: 0.20
+    stun_char_chance: 0.10
     stun_char_seconds: 4
     stun_char_turns: 2
     alert_radius: 6
@@ -541,7 +541,7 @@ monsters:
     size_multiplier: 12.0
     resistances:
       air: 100
-      physical: 55
+      physical: 10
       water: -25
 
   # Forest-specific monsters
@@ -1524,7 +1524,7 @@ monsters:
     size_multiplier: 12.0
     biomes: ["jungle"]
     resistances:
-      physical: 30
+      physical: 20
 
   # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
   # (warlord_idol) lives - break all idols and he ACTIVATES as a normal aggressive

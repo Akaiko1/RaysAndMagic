@@ -177,7 +177,7 @@ characters:
       accuracy: 11
       speed: 14
       luck: 10
-      skills: [learning, iron_body, spiritual_training, martial_arts]
+      skills: [learning, meditation, iron_body, spiritual_training, martial_arts]
       skill_start_mastery: { learning: expert }
       magic:
         - { school: body,   spells: [heal_other, harm] }
