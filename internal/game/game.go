@@ -341,10 +341,12 @@ type MMGame struct {
 	merchantSellPage     int // Merchant sell-grid page (0-based)
 	spellTraderPage      int // Spell-trader icon-grid page (0-based); shared by renderer and input
 	cardCollectorInvPage int // Card-collector loose-card grid page (0-based); shared by renderer and input
-	// cardCollection is the party-wide monster-card collection (MaxCardSlots).
-	// Cards held here grant passive effects; only the card collector mutates it.
-	cardCollection      [MaxCardSlots]string
-	cardCollectionItems [MaxCardSlots]items.Item
+	// cardSlots is the party-wide monster-card collection (MaxCardSlots).
+	// Cards held here grant passive effects; only the card collector mutates it,
+	// through setCardCollectionSlot/clearCardCollectionSlot, which keep key and
+	// item consistent - key is the gameplay truth (O(1) hot-path reads), item
+	// carries the physical card's InstanceID for stash reconciliation.
+	cardSlots [MaxCardSlots]cardSlot
 	// cardBurstTile is the last party tile the Gorilla Titan move-burst rolled on,
 	// so the on-move proc fires once per tile entered, not every frame.
 	cardBurstTileX, cardBurstTileY int

@@ -581,8 +581,8 @@ func setupSummonableWorld(t *testing.T, cs *CombatSystem) {
 // turning a probabilistic proc into a deterministic "did this even attempt
 // to roll at all".
 func forceOrcWarlordSummonAlways(g *MMGame) {
-	for i := range g.cardCollection {
-		g.cardCollection[i] = "orc_warlord_card"
+	for i := range g.cardSlots {
+		g.cardSlots[i].key = "orc_warlord_card"
 	}
 }
 

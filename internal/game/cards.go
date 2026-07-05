@@ -80,14 +80,21 @@ func itemCardKey(it items.Item) string {
 	return ""
 }
 
+// cardSlot is one collection slot: the resolved card key (gameplay truth,
+// read on hot combat/frame paths) plus the physical card item whose
+// InstanceID survives into saves for stash reconciliation. The key is
+// resolved ONCE in setCardCollectionSlot - never re-derived from the item's
+// name at read time (GetItemDefinitionByName is a linear scan).
+type cardSlot struct {
+	key  string
+	item items.Item
+}
+
 func (g *MMGame) cardCollectionKey(slot int) string {
 	if slot < 0 || slot >= MaxCardSlots {
 		return ""
 	}
-	if key := itemCardKey(g.cardCollectionItems[slot]); key != "" {
-		return key
-	}
-	return g.cardCollection[slot]
+	return g.cardSlots[slot].key
 }
 
 func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
@@ -100,8 +107,7 @@ func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
 		return false
 	}
 	items.EnsureInstanceID(&it)
-	g.cardCollection[slot] = key
-	g.cardCollectionItems[slot] = it
+	g.cardSlots[slot] = cardSlot{key: key, item: it}
 	return true
 }
 
@@ -109,22 +115,23 @@ func (g *MMGame) clearCardCollectionSlot(slot int) {
 	if slot < 0 || slot >= MaxCardSlots {
 		return
 	}
-	g.cardCollection[slot] = ""
-	g.cardCollectionItems[slot] = items.Item{}
+	g.cardSlots[slot] = cardSlot{}
 }
 
 func (g *MMGame) cardCollectionItem(slot int) items.Item {
 	if slot < 0 || slot >= MaxCardSlots {
 		return items.Item{}
 	}
-	if itemCardKey(g.cardCollectionItems[slot]) != "" {
-		return g.cardCollectionItems[slot]
+	s := g.cardSlots[slot]
+	if s.item.Name != "" {
+		return s.item
 	}
-	key := g.cardCollection[slot]
-	if cardDef(key) == nil {
+	// Key without a physical item (legacy save migrated, or a test seeding the
+	// key directly): rebuild the card fresh from its definition.
+	if cardDef(s.key) == nil {
 		return items.Item{}
 	}
-	it := items.CreateItemFromYAML(key)
+	it := items.CreateItemFromYAML(s.key)
 	items.EnsureInstanceID(&it)
 	return it
 }
@@ -406,8 +413,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 // when a new game starts so a fresh party never inherits the old run's card
 // effects (move speed, actions, stat bonuses, walk-on-water, summons...).
 func (g *MMGame) resetCardCollection() {
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollectionItems = [MaxCardSlots]items.Item{}
+	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
 	g.recomputeStatBonuses()
 }

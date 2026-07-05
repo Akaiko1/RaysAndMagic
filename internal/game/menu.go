@@ -797,10 +797,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		Food:                g.party.Food,
 		Inventory:           g.party.Inventory,
 		Members:             make([]CharacterSave, 0, len(g.party.Members)),
-		CardCollection:      g.cardCollection[:],
+		CardCollection:      make([]string, MaxCardSlots),
 		CardCollectionItems: make([]items.Item, MaxCardSlots),
 	}
+	// The key list is derived (legacy readers only); cardSlots is the truth.
 	for i := 0; i < MaxCardSlots; i++ {
+		ps.CardCollection[i] = g.cardCollectionKey(i)
 		ps.CardCollectionItems[i] = g.cardCollectionItem(i)
 	}
 	for _, m := range g.party.Members {
@@ -1052,8 +1054,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore the monster-card collection (party-wide). New saves carry the
 	// physical card item + InstanceID; the legacy key-only field is load-only
 	// migration and cannot prove ownership against the shared stash.
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollectionItems = [MaxCardSlots]items.Item{}
+	g.cardSlots = [MaxCardSlots]cardSlot{}
 	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollectionItems); i++ {
 		it := save.Party.CardCollectionItems[i]
 		if it.Name == "" {

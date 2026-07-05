@@ -153,7 +153,7 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 		stripMember(m)
 	}
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		if chestOwns(g.cardCollectionItems[slot]) {
+		if chestOwns(g.cardSlots[slot].item) {
 			g.clearCardCollectionSlot(slot)
 		}
 	}

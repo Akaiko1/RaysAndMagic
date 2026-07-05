@@ -919,6 +919,7 @@ weapons:
     name: "Fists"
     description: "A Monk's bare hands, trained to strike like honed steel"
     category: "martial_arts"
+    cooldown_multiplier: 0.7
     damage: 3
     range: 1
     bonus_stat: "Might"

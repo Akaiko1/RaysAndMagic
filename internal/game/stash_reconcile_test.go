@@ -101,14 +101,14 @@ func TestReconcileAgainstStash_StripsOwnedCardCollectionSlot(t *testing.T) {
 		party: &character.Party{},
 		stash: &stash.Stash{},
 	}
-	g.cardCollection[0] = "medusa_card"
-	g.cardCollectionItems[0] = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
+	g.cardSlots[0].key = "medusa_card"
+	g.cardSlots[0].item = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
 	g.stash.CardSlots[0] = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
 
 	g.reconcilePartyAgainstStash()
 
-	if g.cardCollection[0] != "" || g.cardCollectionItems[0].Name != "" {
-		t.Fatalf("card collection slot should be stripped when vault owns the card, key=%q item=%+v", g.cardCollection[0], g.cardCollectionItems[0])
+	if g.cardSlots[0].key != "" || g.cardSlots[0].item.Name != "" {
+		t.Fatalf("card collection slot should be stripped when vault owns the card, key=%q item=%+v", g.cardSlots[0].key, g.cardSlots[0].item)
 	}
 }
 
