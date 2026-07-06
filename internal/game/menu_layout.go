@@ -115,3 +115,27 @@ func entryLoadLayoutBoxes(screenW, screenH, page int) (uiBox, []uiBox) {
 	)
 	return region, boxes
 }
+
+// skillTrainerPopupLayoutBoxes returns the mastery-trainer popup's region and
+// its sections with a FULL page of option rows: header, gold label, rows,
+// pager strip and instructions line. The dialog itself is fixed-size but the
+// page size is geometry-derived, so this guards the row-count/footer contract.
+func skillTrainerPopupLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	dialogX := (screenW - npcDialogWidth) / 2
+	dialogY := (screenH - npcDialogHeight) / 2
+	px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, npcDialogWidth, npcDialogHeight)
+	region := uiBox{"trainer-popup", px, py, pw, ph}
+
+	boxes := []uiBox{
+		centeredTextBox("header", "Charname - Trainable Masteries", px, py+10, pw, 18),
+		textLineBox("gold", "Gold: 999999", px+12, py+30),
+		{Name: "pager", X: px + 12, Y: py + ph - 46, W: 396, H: 18},
+		textLineBox("instructions", "Click to select  |  Double-click: train  |  ESC/Back: party list", px+12, py+ph-22),
+	}
+	for row := 0; row < skillTrainerPageSize(ph); row++ {
+		x, y, w, h := skillTrainerOptionRect(px, py, row)
+		// -2/+4: the hover/selection background pads the row rect vertically.
+		boxes = append(boxes, uiBox{fmt.Sprintf("option-row-%d", row), x, y - 2, w, h + 4})
+	}
+	return region, boxes
+}

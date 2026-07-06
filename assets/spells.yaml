@@ -227,6 +227,7 @@ spells:
     stun_radius_tiles: 5.0
     stun_duration_seconds: 5
     stun_duration_turns: 3
+    message: "Darkness engulfs the area"
 
   disintegrate:
     # Basic spell properties
@@ -548,6 +549,7 @@ spells:
     stun_radius_tiles: 3.0
     stun_duration_seconds: 4
     stun_duration_turns: 2
+    message: "A stunning shockwave rips outward"
 
   harm:
     name: "Harm"

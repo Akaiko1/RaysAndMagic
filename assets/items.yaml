@@ -450,6 +450,7 @@ items:
     rarity: "legendary"
     value: 0
     promotes_lich: true   # using it offers a compatible party member the path of the Lich
+    discardable: true     # a refusable choice: the party may throw the vessel away
 
   # --- Gauntlets (hands slot) - first items to fill the previously-empty
   # gauntlets slot. Armor-type, so they add to total armor class and gate on the

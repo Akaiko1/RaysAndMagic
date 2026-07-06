@@ -74,6 +74,17 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 			},
 		},
 		{
+			name: "trainer-popup",
+			build: func(w, h int) []func() (string, uiBox, []uiBox) {
+				return []func() (string, uiBox, []uiBox){
+					func() (string, uiBox, []uiBox) {
+						r, b := skillTrainerPopupLayoutBoxes(w, h)
+						return "trainer-popup", r, b
+					},
+				}
+			},
+		},
+		{
 			name: "entry-load",
 			build: func(w, h int) []func() (string, uiBox, []uiBox) {
 				var cases []func() (string, uiBox, []uiBox)

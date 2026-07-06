@@ -790,7 +790,20 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 const (
 	skillTrainerPortraitSize = 80
 	skillTrainerPortraitGap  = 24
+	skillTrainerListTop      = 56 // first mastery row offset inside the popup
+	skillTrainerFooterH      = 68 // pager row + instructions line at the popup bottom
 )
+
+// skillTrainerPageSize is how many mastery rows fit between the popup header
+// and its footer. Geometry-derived and shared by renderer and input, so the
+// list can never run over the pager/instructions.
+func skillTrainerPageSize(popupH int) int {
+	n := (popupH - skillTrainerListTop - skillTrainerFooterH) / UIRowSpacing
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
 
 func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h int) {
 	stripW := 4*skillTrainerPortraitSize + 3*skillTrainerPortraitGap
@@ -801,10 +814,10 @@ func skillTrainerPortraitRect(dialogX, dialogY, dialogWidth, i int) (x, y, w, h 
 		skillTrainerPortraitSize
 }
 
-// skillTrainerOptionRect returns the rect for the i-th mastery option
-// inside the modal popup (top-anchored).
-func skillTrainerOptionRect(popupX, popupY, i int) (x, y, w, h int) {
-	return popupX + 12, popupY + 56 + i*UIRowSpacing, 396, UIRowHeight
+// skillTrainerOptionRect returns the rect for the row-th mastery option ON THE
+// CURRENT PAGE inside the modal popup (top-anchored).
+func skillTrainerOptionRect(popupX, popupY, row int) (x, y, w, h int) {
+	return popupX + 12, popupY + skillTrainerListTop + row*UIRowSpacing, 396, UIRowHeight
 }
 
 func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, y, w, h int) {
@@ -866,12 +879,19 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 		drawCenteredDebugText(screen, "All known masteries are already maxed.", px, py+ph/2-8, pw, 16)
 	} else {
 		mouseX, mouseY := ebiten.CursorPosition()
-		maxOptions := (ph - 90) / UIRowSpacing
-		for i := 0; i < len(options) && i < maxOptions; i++ {
-			option := options[i]
-			x, y, w, h := skillTrainerOptionRect(px, py, i)
+		pageSize := skillTrainerPageSize(ph)
+		pages := pageCount(len(options), pageSize)
+		clampPage(&ui.game.skillTrainerPage, pages)
+		start := ui.game.skillTrainerPage * pageSize
+		for row := 0; row < pageSize; row++ {
+			idx := start + row
+			if idx >= len(options) {
+				break
+			}
+			option := options[idx]
+			x, y, w, h := skillTrainerOptionRect(px, py, row)
 			hover := isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h)
-			if i == ui.game.dialogSelectedSpell {
+			if idx == ui.game.dialogSelectedSpell {
 				ui.drawUIBackground(screen, x, y-2, w, h+4, color.RGBA{80, 130, 70, 200})
 			} else if hover {
 				ui.drawUIBackground(screen, x, y-2, w, h+4, color.RGBA{60, 70, 100, 160})
@@ -881,6 +901,13 @@ func (ui *UISystem) drawSkillTrainerPopup(screen *ebiten.Image, dialogX, dialogY
 				label += "  (Need Gold)"
 			}
 			drawDebugText(screen, label, x+6, y)
+		}
+		// Pager sits between the last row slot and the instructions line; it
+		// consumes its own clicks in the draw pass (drawPager convention).
+		if ui.drawPager(screen, px+12, py+ph-46, 396, &ui.game.skillTrainerPage, pages, true) {
+			// Keep the highlight on the visible page so Enter / double-click
+			// always act on what's shown.
+			ui.game.dialogSelectedSpell = ui.game.skillTrainerPage * pageSize
 		}
 	}
 

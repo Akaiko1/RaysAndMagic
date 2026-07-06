@@ -603,7 +603,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		if isCrit {
 			totalDamage *= CritDamageMultiplier
 		}
-		hits := cs.createMeleeAttack(weapon, totalDamage, isCrit) // instant swing; may catch no one (arc/reach)
+		cs.createMeleeAttack(weapon, totalDamage, isCrit) // instant swing; may catch no one (arc/reach) - a whiff still spends the cooldown/action, silently
 		acted = true
 		// Octopus Card: chance to strike again immediately with a fresh swing.
 		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
@@ -612,12 +612,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 			if isCrit2 {
 				dmg2 *= CritDamageMultiplier
 			}
-			hits += cs.createMeleeAttack(weapon, dmg2, isCrit2)
-		}
-		// A whiff still spends the cooldown/action - say so instead of silence,
-		// or the player reads it as a phantom miss.
-		if hits == 0 {
-			cs.game.AddCombatMessage(fmt.Sprintf("%s swings at air!", attacker.Name))
+			cs.createMeleeAttack(weapon, dmg2, isCrit2)
 		}
 		// Spiritual Training (Monk): a genuine melee swing can channel a free
 		// quick-spell. Kept in THIS branch on purpose - never on a ranged shot
@@ -1672,7 +1667,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.BossCD > 0 {
 				monster.BossCD--
 			}
-			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 && dist <= attackRange
+			// attackTick mirrors the normal-attack gate below (same
+			// monsterCanAttackParty reach): a melee boss parked on an adjacent
+			// tile is in real contact at >1 tile of pixel distance, and a
+			// stricter pixel-range check here silently starves the specials.
+			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 &&
+				cs.monsterCanAttackParty(monster, dist, attackRange)
 			if cs.updateBoss(monster, ready, attackTick) {
 				continue
 			}
@@ -3966,7 +3966,13 @@ func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellD
 			stunned++
 		}
 	}
-	cs.game.AddCombatMessage(fmt.Sprintf("%s engulfs the area - %d foe(s) stunned!", def.Name, stunned))
+	// Flavor lead comes from the spell's own `message:` (Darkness engulfs, a
+	// shockwave rips...); the count suffix is shared.
+	lead := def.Message
+	if lead == "" {
+		lead = def.Name
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s - %d foe(s) stunned!", lead, stunned))
 	cs.game.setUtilityStatus(spellID, frames)
 	return true
 }

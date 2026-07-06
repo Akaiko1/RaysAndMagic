@@ -4,9 +4,9 @@ package game
 // Each test pins the behavior of one concrete miss cause, across arc types
 // 1-4 where the arc matters. Causes 2-4 (arc dead zones, one-flank arc 2,
 // off-hand arc/range) are deliberate design and pinned as such; cause 1
-// (tile-index reach) and cause 5 (silent whiff) are FIXED and these tests pin
-// the fix: true pixel reach within (range+0.5) tiles, and a "swings at air"
-// combat message on an empty swing.
+// (tile-index reach) is FIXED and pinned: true pixel reach within (range+0.5)
+// tiles. Whiffs spend the action/cooldown but stay SILENT - the "swings at
+// air" message was tried and removed as combat-log spam.
 
 import (
 	"math"
@@ -275,15 +275,14 @@ func TestRTMelee_OffHandSwing_UsesOffHandRange_AndWhiffStillActs(t *testing.T) {
 	if !acted {
 		t.Errorf("whiffed swing still reports acted=true (cooldown gets charged) by design")
 	}
-	if !hasCombatMsg(game, "swings at air") {
-		t.Errorf("whiffed off-hand swing must announce itself in the combat log")
+	if hasCombatMsg(game, "swings at air") {
+		t.Errorf("whiffs are silent by design (the message was combat-log spam)")
 	}
 }
 
-// Cause 5 (FIXED, standalone): a swing with the only mob BEHIND the player
-// connects with nothing and still costs the action - but now says so in the
-// combat log instead of failing silently.
-func TestRTMelee_WhiffBehindIsAnnounced(t *testing.T) {
+// A swing with the only mob BEHIND the player connects with nothing, still
+// costs the action, and logs nothing.
+func TestRTMelee_WhiffBehindIsSilentButActs(t *testing.T) {
 	game, cs, ts := rtMeleeGame(t)
 	const ptx, pty = 10, 10
 	placePlayerAtTile(game, ptx, pty, ts)
@@ -302,8 +301,8 @@ func TestRTMelee_WhiffBehindIsAnnounced(t *testing.T) {
 	if hurt(mob) {
 		t.Errorf("no arc reaches a mob directly behind; if it got hit, the dead-zone matrix changed")
 	}
-	if !hasCombatMsg(game, "swings at air") {
-		t.Errorf("empty swing must log a 'swings at air' message")
+	if hasCombatMsg(game, "swings at air") {
+		t.Errorf("whiffs are silent by design (the message was combat-log spam)")
 	}
 }
 

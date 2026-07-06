@@ -3257,6 +3257,19 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 	}
 }
 
+// stunStarRingGeometry places the stun ring above the monster's head. A
+// point-blank monster is raised above the HUD bar, pushing its head (and this
+// ring) past the top of the screen - the clamp keeps the ring in view so a
+// stunned melee-range monster still shows its stars.
+func stunStarRingGeometry(topY, spriteSize float64) (cy, rx, ry float64) {
+	rx, ry = spriteSize*0.30, spriteSize*0.12
+	cy = topY - spriteSize*0.08
+	if minCy := ry + spriteSize*0.05; cy < minCy {
+		cy = minCy
+	}
+	return cy, rx, ry
+}
+
 // drawMonsterStunStars wheels a ring of twinkling four-point stars above a
 // stunned monster - the world-space sibling of the character HUD's
 // drawCardStunStars (ui_hud.go), same visual, anchored over a monster sprite
@@ -3264,8 +3277,7 @@ func (r *Renderer) drawMonsterPoisonBubbles(screen *ebiten.Image, centerX, topY,
 func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spriteSize float64) {
 	f := float64(r.game.frameCount)
 	cx := centerX
-	cy := topY - spriteSize*0.08
-	rx, ry := spriteSize*0.30, spriteSize*0.12
+	cy, rx, ry := stunStarRingGeometry(topY, spriteSize)
 	const n = 5
 	for k := 0; k < n; k++ {
 		ang := f*0.06 + 2*math.Pi*float64(k)/float64(n)

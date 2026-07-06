@@ -338,6 +338,13 @@ func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item,
 	}
 }
 
+// itemDiscardable: quest items are undiscardable unless the item itself opts
+// out via `discardable: true` (e.g. the Lich Phylactery - a choice the player
+// may refuse and toss).
+func itemDiscardable(item items.Item) bool {
+	return item.Type != items.ItemQuest || item.Attributes["discardable"] > 0
+}
+
 func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	if !ui.inventoryContextOpen {
 		return
@@ -354,7 +361,7 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 		idx := ui.inventoryContextIndex
 		if idx >= 0 && idx < len(ui.game.party.Inventory) {
 			item := ui.game.party.Inventory[idx]
-			if item.Type == items.ItemQuest {
+			if !itemDiscardable(item) {
 				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
 			} else {
 				ui.game.party.RemoveItem(idx)

@@ -1803,6 +1803,7 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	ih.game.merchantBuyPage = 0
 	ih.game.merchantSellPage = 0
 	ih.game.spellTraderPage = 0
+	ih.game.skillTrainerPage = 0
 	ih.game.cardCollectorInvPage = 0
 
 	// If NPC has spells, select the first one (deterministic order)
@@ -1862,6 +1863,15 @@ func (ih *InputHandler) syncSpellTraderPageToSelection(spellKeys []string) {
 			return
 		}
 	}
+}
+
+// syncSkillTrainerPageToSelection flips the trainer popup to the page holding
+// the keyboard-selected mastery, so the highlight is always on-screen and an
+// Enter purchase matches what's shown.
+func (ih *InputHandler) syncSkillTrainerPageToSelection() {
+	dlg := npcDialogLayout(ih.game)
+	_, _, _, ph := skillTrainerPopupRect(dlg.x, dlg.y, dlg.w, dlg.h)
+	ih.game.skillTrainerPage = ih.game.dialogSelectedSpell / skillTrainerPageSize(ph)
 }
 
 // getAvailableSpellKeys returns the list of spell keys available from the current NPC in deterministic order
@@ -2081,23 +2091,32 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			ih.game.selectedCharIdx < len(ih.game.party.Members) {
 			px, py, pw, ph := skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight)
 			options := trainerOptions(ih.game.party.Members[ih.game.selectedCharIdx])
-			for i := range options {
-				x, y, w, h := skillTrainerOptionRect(px, py, i)
+			// Only the current page's rows are clickable; idx (absolute list
+			// position) keys the selection and double-click so an option keeps
+			// its identity across pages (merchant-grid convention).
+			pageSize := skillTrainerPageSize(ph)
+			start := ih.game.skillTrainerPage * pageSize
+			for row := 0; row < pageSize; row++ {
+				idx := start + row
+				if idx >= len(options) {
+					break
+				}
+				x, y, w, h := skillTrainerOptionRect(px, py, row)
 				if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
-					ih.game.dialogSelectedSpell = i
-					if ih.dialogDoubleClick("trainer_option", i) {
+					ih.game.dialogSelectedSpell = idx
+					if ih.dialogDoubleClick("trainer_option", idx) {
 						ih.purchaseSelectedTraining()
 						ih.resetDialogDoubleClick()
 					}
 					return
 				}
 			}
-			// Click outside popup -> close.
-			if ih.game.consumeLeftClick() {
-				_ = px
-				_ = py
-				_ = pw
-				_ = ph
+			// Click outside the popup -> close. Clicks INSIDE it stay
+			// unconsumed so the pager buttons (consumed in the draw pass)
+			// still see them.
+			if mx, my, ok := ih.game.leftClickPosition(); ok &&
+				!isMouseHoveringBox(mx, my, px, py, px+pw, py+ph) &&
+				ih.game.consumeLeftClick() {
 				ih.game.skillTrainerPopup = false
 			}
 			return
@@ -2108,6 +2127,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				ih.game.selectedCharIdx = i
 				ih.game.dialogSelectedSpell = 0
+				ih.game.skillTrainerPage = 0
 				ih.game.skillTrainerPopup = true
 				return
 			}
@@ -2531,6 +2551,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		} else {
 			ih.game.dialogSelectedSpell = len(options) - 1
 		}
+		ih.syncSkillTrainerPageToSelection()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyDown) && ih.game.spellInputCooldown == 0 {
@@ -2539,6 +2560,7 @@ func (ih *InputHandler) handleSkillTrainerInput() {
 		} else {
 			ih.game.dialogSelectedSpell = 0
 		}
+		ih.syncSkillTrainerPageToSelection()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {

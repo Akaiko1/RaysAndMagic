@@ -1013,6 +1013,7 @@ type ItemDefinitionConfig struct {
 	Rarity       string `yaml:"rarity,omitempty"`
 	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
 	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Discardable  bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`

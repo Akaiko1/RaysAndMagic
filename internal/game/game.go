@@ -330,6 +330,7 @@ type MMGame struct {
 	dialogSelectedSpell int            // Currently selected spell in dialog
 	selectedCharIdx     int            // Selected character index for spell learning
 	skillTrainerPopup   bool           // Skill trainer: per-character mastery popup open
+	skillTrainerPage    int            // Skill trainer: mastery-list page (0-based); shared by renderer and input
 	selectedSpellKey    string         // Selected spell key for learning
 	selectedChoice      int            // Selected choice in encounter dialogs
 	// dialogNodePath is the chain of "info" choices the player has descended into
