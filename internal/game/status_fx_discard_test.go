@@ -6,10 +6,8 @@ import (
 	"ugataima/internal/items"
 )
 
-// The stun-star ring must stay on screen for a point-blank monster: the sprite
-// is raised above the HUD bar (screenY goes negative for a big close sprite),
-// which used to push the ring past the top edge - stars "disappeared" on any
-// stun of a melee-range monster while the stun itself was working.
+// The stun-star ring must stay on screen for a point-blank monster, whose
+// sprite is raised above the HUD bar (screenY can go negative).
 func TestStunStarRingStaysOnScreen(t *testing.T) {
 	// Far monster: ring sits above the head, untouched by the clamp.
 	cy, _, ry := stunStarRingGeometry(260, 200)

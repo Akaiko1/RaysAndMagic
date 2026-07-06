@@ -2652,39 +2652,17 @@ func (ih *InputHandler) handleEncounterInput() {
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
 
-	// Select choice with Enter or number keys
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) && ih.game.spellInputCooldown == 0 {
+	// Select with Enter or a number key (1-9). Edge-triggered: executing a
+	// choice replaces the window's choice list, and a key still held past the
+	// input cooldown would fire again on the NEXT window.
+	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 		ih.executeEncounterChoice()
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		return
 	}
-
-	// Number key shortcuts (1-9)
 	for i := 0; i < len(choices) && i < 9; i++ {
-		var key ebiten.Key
-		switch i {
-		case 0:
-			key = ebiten.Key1
-		case 1:
-			key = ebiten.Key2
-		case 2:
-			key = ebiten.Key3
-		case 3:
-			key = ebiten.Key4
-		case 4:
-			key = ebiten.Key5
-		case 5:
-			key = ebiten.Key6
-		case 6:
-			key = ebiten.Key7
-		case 7:
-			key = ebiten.Key8
-		case 8:
-			key = ebiten.Key9
-		}
-		if ebiten.IsKeyPressed(key) && ih.game.spellInputCooldown == 0 {
+		if inpututil.IsKeyJustPressed(ebiten.Key1 + ebiten.Key(i)) {
 			ih.game.selectedChoice = i
 			ih.executeEncounterChoice()
-			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			break
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"ugataima/internal/config"
 	"ugataima/internal/mathutil"
+	"ugataima/internal/status"
 )
 
 // CollisionChecker interface for checking movement validity
@@ -157,14 +158,8 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
 	if m.StunFramesRemaining > 0 {
-		m.StunFramesRemaining--
-		if m.StunFramesRemaining <= 0 {
-			// TB's StunTurnsRemaining never ticks down here (only the TB scheduler
-			// does that) - clear it too, mirroring character.tickStunFrames, or a
-			// pure-RT stun (e.g. a trap authoring both stun_turns/stun_seconds)
-			// leaves it stuck nonzero and the stun-star overlay never turns off.
-			m.StunTurnsRemaining = 0
-		}
+		// Expiry clears the TB clock too, or the stun-star overlay stays on.
+		status.TickFrame(&m.StunFramesRemaining, &m.StunTurnsRemaining)
 		return
 	}
 	// Stun-free this frame: count toward clearing the stun diminishing-returns chain.
@@ -532,11 +527,9 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		m.stallTimer = 0
 	}
 
-	// Movement arbitration invariant: the committed A* route moves first; the
-	// greedy fallbacks below run ONLY on a tick the route produced no move.
-	// Any greedy step that can preempt a live path 2-cycles with it at an
-	// obstacle corner (path pulls along the route, greedy pulls at the player;
-	// each undoes the other) - the "monster shaking against a tree" livelock.
+	// Arbitration invariant: the A* route moves first; greedy fallbacks run
+	// ONLY when it produced no move - a greedy step that can preempt a live
+	// path 2-cycles with it at an obstacle corner.
 	if m.followPathToTarget(collisionChecker, playerX, playerY) {
 		return
 	}

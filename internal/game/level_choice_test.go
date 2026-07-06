@@ -188,3 +188,82 @@ func TestLevelUpChoice_FiltersMaxedExplicitMasteriesAndShowsRemainingUpgrades(t 
 		}
 	}
 }
+
+// twoOwnedSkills returns two distinct skills the member already has.
+func twoOwnedSkills(t *testing.T, member *character.MMCharacter) (a, b character.SkillType) {
+	t.Helper()
+	got := make([]character.SkillType, 0, 2)
+	for st := range member.Skills {
+		got = append(got, st)
+		if len(got) == 2 {
+			return got[0], got[1]
+		}
+	}
+	t.Fatalf("test member needs at least two skills, has %d", len(got))
+	return
+}
+
+// Options that went stale between queueing and opening (an earlier stacked
+// popup maxed the skill) are pruned from the popup instead of being shown as
+// "(Max)"; a request whose every option went stale dissolves without opening.
+func TestLevelUpChoice_MaxedOptionsPrunedOnOpen(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	member := g.party.Members[0]
+
+	maxed, valid := twoOwnedSkills(t, member)
+	member.Skills[maxed].Mastery = character.MasteryGrandMaster
+	member.Skills[valid].Mastery = character.MasteryNovice
+
+	g.levelUpChoiceQueue = []levelUpChoiceRequest{{
+		charIndex: 0,
+		options: []levelUpChoiceOption{
+			{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: maxed},
+			{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: valid},
+		},
+	}}
+	g.openLevelUpChoiceForChar(0)
+
+	req := g.currentLevelUpChoice()
+	if req == nil {
+		t.Fatal("popup with one valid option must open")
+	}
+	if len(req.options) != 1 || req.options[0].skillType != valid {
+		t.Fatalf("maxed option must be pruned, got %+v", req.options)
+	}
+
+	g.consumeLevelUpChoice(0)
+	if len(g.levelUpChoiceQueue) != 0 {
+		t.Fatal("the remaining valid option must consume the choice")
+	}
+	if member.Skills[valid].Mastery != character.MasteryExpert {
+		t.Fatalf("skill mastery = %v, want Expert", member.Skills[valid].Mastery)
+	}
+	if member.Skills[maxed].Mastery != character.MasteryGrandMaster {
+		t.Fatal("maxed skill must be untouched")
+	}
+}
+
+// A request whose every option is stale never opens - and never costs anything.
+func TestLevelUpChoice_AllMaxedRequestDissolves(t *testing.T) {
+	cfg := loadTestConfig(t)
+	loadTestArenaData(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	member := g.party.Members[0]
+
+	maxed, _ := twoOwnedSkills(t, member)
+	member.Skills[maxed].Mastery = character.MasteryGrandMaster
+
+	g.levelUpChoiceQueue = []levelUpChoiceRequest{{
+		charIndex: 0,
+		options: []levelUpChoiceOption{
+			{choice: config.LevelUpChoice{Type: "weapon_mastery"}, skillType: maxed},
+		},
+	}}
+	g.openLevelUpChoiceForChar(0)
+
+	if g.currentLevelUpChoice() != nil || len(g.levelUpChoiceQueue) != 0 {
+		t.Fatal("an all-stale request must dissolve instead of opening")
+	}
+}

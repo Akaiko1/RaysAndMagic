@@ -6,6 +6,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
+	"ugataima/internal/status"
 )
 
 // Mana regeneration tunables. SP regenerates by (1 + Personality/divisor +
@@ -521,24 +522,14 @@ func (c *MMCharacter) UpdateWithMode(turnBasedMode bool) {
 
 // tickStunFrames counts down a real-time stun, clearing it when the timer ends.
 func (c *MMCharacter) tickStunFrames() {
-	if c.StunFramesRemaining <= 0 {
-		return
-	}
-	c.StunFramesRemaining--
-	if c.StunFramesRemaining <= 0 {
-		c.StunTurnsRemaining = 0
+	if status.TickFrame(&c.StunFramesRemaining, &c.StunTurnsRemaining) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
 
 // TickStunTurn counts down a turn-based stun at the start of the party's turn.
 func (c *MMCharacter) TickStunTurn() {
-	if c.StunTurnsRemaining <= 0 {
-		return
-	}
-	c.StunTurnsRemaining--
-	if c.StunTurnsRemaining <= 0 {
-		c.StunFramesRemaining = 0
+	if status.TickTurn(&c.StunTurnsRemaining, &c.StunFramesRemaining) {
 		c.RemoveCondition(ConditionStunned)
 	}
 }
@@ -547,44 +538,35 @@ func (c *MMCharacter) TickStunTurn() {
 // turn, duration measured in the same frame units ApplyPoison used. Mirrors
 // monster.TickPoisonTurn; called once per party turn from startPartyTurn.
 func (c *MMCharacter) TickPoisonTurn(framesPerTurn int) {
-	if c.PoisonFramesRemaining <= 0 {
-		return
-	}
-	if framesPerTurn <= 0 {
-		framesPerTurn = 60
-	}
-	c.PoisonFramesRemaining -= framesPerTurn
-	if c.PoisonFramesRemaining <= 0 {
-		c.PoisonFramesRemaining = 0
-		c.poisonTickTimer = 0
+	deal, expired := status.TickDoTTurn(&c.PoisonFramesRemaining, &c.poisonTickTimer, framesPerTurn)
+	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
-	if c.HitPoints > 0 {
-		c.HitPoints--
-		if c.HitPoints < 0 {
-			c.HitPoints = 0
-		}
+	if deal {
+		c.dotDamage(PoisonDamagePerTick)
 	}
 }
 
 // TickBurnTurn advances ignite by one TURN (TB mode), mirroring TickPoisonTurn.
 func (c *MMCharacter) TickBurnTurn(framesPerTurn int) {
-	if c.BurnFramesRemaining <= 0 {
-		return
-	}
-	if framesPerTurn <= 0 {
-		framesPerTurn = 60
-	}
-	c.BurnFramesRemaining -= framesPerTurn
-	if c.BurnFramesRemaining <= 0 {
-		c.BurnFramesRemaining = 0
+	deal, expired := status.TickDoTTurn(&c.BurnFramesRemaining, &c.burnTickTimer, framesPerTurn)
+	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
-	if c.HitPoints > 0 {
-		c.HitPoints -= BurnDamagePerTick
-		if c.HitPoints < 0 {
-			c.HitPoints = 0
-		}
+	if deal {
+		c.dotDamage(BurnDamagePerTick)
+	}
+}
+
+// dotDamage lands one DoT tick on a still-standing character; Unconscious is
+// set by the game loop's knockOut sweep, not here.
+func (c *MMCharacter) dotDamage(amount int) {
+	if c.HitPoints <= 0 {
+		return
+	}
+	c.HitPoints -= amount
+	if c.HitPoints < 0 {
+		c.HitPoints = 0
 	}
 }
 
@@ -666,10 +648,9 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 	if frames <= 0 {
 		return
 	}
-	if frames > c.PoisonFramesRemaining {
-		c.PoisonFramesRemaining = frames
+	if status.Refresh(&c.PoisonFramesRemaining, frames) {
+		c.AddCondition(ConditionPoisoned)
 	}
-	c.AddCondition(ConditionPoisoned)
 }
 
 // CurePoison ends an active poison outright - zeroing the frame timer, not just
@@ -678,8 +659,7 @@ func (c *MMCharacter) ApplyPoison(frames int) {
 // condition), so a cure item would look like it worked while 1 HP/sec kept
 // draining until the poison's natural expiry.
 func (c *MMCharacter) CurePoison() {
-	c.PoisonFramesRemaining = 0
-	c.poisonTickTimer = 0
+	status.Clear(&c.PoisonFramesRemaining, &c.poisonTickTimer)
 	c.RemoveCondition(ConditionPoisoned)
 }
 
@@ -690,36 +670,25 @@ func (c *MMCharacter) ApplyBurn(frames int) {
 	if frames <= 0 {
 		return
 	}
-	if frames > c.BurnFramesRemaining {
-		c.BurnFramesRemaining = frames
+	if status.Refresh(&c.BurnFramesRemaining, frames) {
+		c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
+		c.AddCondition(ConditionBurning)
 	}
-	c.burnTickTimer = config.GetTargetTPS() / 2 // desync from poison
-	c.AddCondition(ConditionBurning)
 }
 
-// BurnDamagePerTick is how much ignite deals each second - 3x poison's 1/sec.
-const BurnDamagePerTick = 3
+// PoisonDamagePerTick / BurnDamagePerTick: DoT damage per tick (once per RT
+// second, once per TB turn). Ignite burns 3x as hard as poison.
+const (
+	PoisonDamagePerTick = 1
+	BurnDamagePerTick   = 3
+)
 
 func (c *MMCharacter) updateBurn(tps int) {
-	if c.BurnFramesRemaining <= 0 {
-		return
+	deal, expired := status.TickDoTFrame(&c.BurnFramesRemaining, &c.burnTickTimer, tps)
+	if deal {
+		c.dotDamage(BurnDamagePerTick)
 	}
-	if tps <= 0 {
-		tps = 60
-	}
-	c.BurnFramesRemaining--
-	c.burnTickTimer++
-	if c.burnTickTimer >= tps {
-		c.burnTickTimer = 0
-		if c.HitPoints > 0 {
-			c.HitPoints -= BurnDamagePerTick
-			if c.HitPoints < 0 {
-				c.HitPoints = 0
-			}
-			// Unconscious is set by the game loop's knockOut sweep, not here.
-		}
-	}
-	if c.BurnFramesRemaining <= 0 {
+	if expired {
 		c.RemoveCondition(ConditionBurning)
 	}
 }
@@ -727,13 +696,7 @@ func (c *MMCharacter) updateBurn(tps int) {
 // ApplyCharStun stuns the character for the given RT frames / TB turns (max with
 // any existing stun). A stunned character takes no action until it wears off.
 func (c *MMCharacter) ApplyCharStun(frames, turns int) {
-	if frames > c.StunFramesRemaining {
-		c.StunFramesRemaining = frames
-	}
-	if turns > c.StunTurnsRemaining {
-		c.StunTurnsRemaining = turns
-	}
-	if frames > 0 || turns > 0 {
+	if status.RefreshDual(&c.StunFramesRemaining, &c.StunTurnsRemaining, frames, turns) {
 		c.AddCondition(ConditionStunned)
 	}
 }
@@ -744,29 +707,11 @@ func (c *MMCharacter) IsStunned() bool {
 }
 
 func (c *MMCharacter) updatePoison(tps int) {
-	if c.PoisonFramesRemaining <= 0 {
-		return
+	deal, expired := status.TickDoTFrame(&c.PoisonFramesRemaining, &c.poisonTickTimer, tps)
+	if deal {
+		c.dotDamage(PoisonDamagePerTick)
 	}
-	if tps <= 0 {
-		tps = 60
-	}
-	c.PoisonFramesRemaining--
-	c.poisonTickTimer++
-
-	if c.poisonTickTimer >= tps {
-		c.poisonTickTimer = 0
-		if c.HitPoints > 0 {
-			c.HitPoints--
-			if c.HitPoints < 0 {
-				c.HitPoints = 0
-			}
-			// Unconscious is set by the game loop's knockOut sweep, not here.
-		}
-	}
-
-	if c.PoisonFramesRemaining <= 0 {
-		c.PoisonFramesRemaining = 0
-		c.poisonTickTimer = 0
+	if expired {
 		c.RemoveCondition(ConditionPoisoned)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	"ugataima/internal/status"
 )
 
 // EncounterRewards represents rewards for completing an encounter
@@ -368,9 +369,7 @@ func (m *Monster3D) ApplyPoison(frames int) {
 	if frames <= 0 {
 		return
 	}
-	if frames > m.PoisonedFramesRemaining {
-		m.PoisonedFramesRemaining = frames
-	}
+	status.Refresh(&m.PoisonedFramesRemaining, frames)
 }
 
 // poisonTickDamage deals one poison tick: 1% of max HP, minimum 1.
@@ -391,44 +390,23 @@ func (m *Monster3D) poisonTickDamage() {
 // TickPoison advances the poison timer by one REAL-TIME frame (RT mode),
 // dealing a tick once per second of real time.
 func (m *Monster3D) TickPoison() {
-	if m.PoisonedFramesRemaining <= 0 {
-		return
-	}
 	tps := 60
 	if m.config != nil {
 		tps = m.config.GetTPS()
 	} else {
 		tps = config.GetTargetTPS()
 	}
-	if tps <= 0 {
-		tps = 60
-	}
-	m.PoisonedFramesRemaining--
-	m.poisonTickTimer++
-	if m.poisonTickTimer >= tps {
-		m.poisonTickTimer = 0
+	if deal, _ := status.TickDoTFrame(&m.PoisonedFramesRemaining, &m.poisonTickTimer, tps); deal {
 		m.poisonTickDamage()
-	}
-	if m.PoisonedFramesRemaining <= 0 {
-		m.PoisonedFramesRemaining = 0
-		m.poisonTickTimer = 0
 	}
 }
 
 // TickPoisonTurn advances the poison timer by one TURN (TB mode) - one damage
 // tick per turn, duration measured in the same frame units ApplyPoison used.
 func (m *Monster3D) TickPoisonTurn(framesPerTurn int) {
-	if m.PoisonedFramesRemaining <= 0 {
-		return
+	if deal, _ := status.TickDoTTurn(&m.PoisonedFramesRemaining, &m.poisonTickTimer, framesPerTurn); deal {
+		m.poisonTickDamage()
 	}
-	if framesPerTurn <= 0 {
-		framesPerTurn = 60
-	}
-	m.PoisonedFramesRemaining -= framesPerTurn
-	if m.PoisonedFramesRemaining < 0 {
-		m.PoisonedFramesRemaining = 0
-	}
-	m.poisonTickDamage()
 }
 
 func (m *Monster3D) IsAlive() bool {

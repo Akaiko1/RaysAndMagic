@@ -603,7 +603,7 @@ func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 		if isCrit {
 			totalDamage *= CritDamageMultiplier
 		}
-		cs.createMeleeAttack(weapon, totalDamage, isCrit) // instant swing; may catch no one (arc/reach) - a whiff still spends the cooldown/action, silently
+		cs.createMeleeAttack(weapon, totalDamage, isCrit) // instant swing; a whiff (arc/reach) still spends the cooldown/action, silently
 		acted = true
 		// Octopus Card: chance to strike again immediately with a fresh swing.
 		if pct := cs.game.cardDoubleAttackPct(); pct > 0 && rand.Intn(100) < pct {
@@ -1667,10 +1667,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.BossCD > 0 {
 				monster.BossCD--
 			}
-			// attackTick mirrors the normal-attack gate below (same
-			// monsterCanAttackParty reach): a melee boss parked on an adjacent
-			// tile is in real contact at >1 tile of pixel distance, and a
-			// stricter pixel-range check here silently starves the specials.
+			// Same reach gate as the normal attack below: a melee boss on an
+			// adjacent tile is in real contact at >1 tile of pixel distance.
 			attackTick := monster.State == monsterPkg.StateAttacking && monster.StateTimer == 1 &&
 				cs.monsterCanAttackParty(monster, dist, attackRange)
 			if cs.updateBoss(monster, ready, attackTick) {

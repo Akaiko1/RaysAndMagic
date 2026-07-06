@@ -130,8 +130,7 @@ func (gl *GameLoop) updateExploration() {
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshBoundUndeadCache()
 
-	// Capture positions so the facing pass below sees ONLY the movement pass's
-	// displacement - separation shoves and band snaps fall outside the window.
+	// The facing pass must see only the movement pass's displacement.
 	monsterFrameStart := gl.captureMonsterFramePositions()
 
 	// Update monsters (turn-based or real-time)
@@ -202,16 +201,13 @@ func (gl *GameLoop) updateExploration() {
 	gl.updatePerformanceMetrics()
 }
 
-// faceMonstersAlongFrameMotion is the single source of truth for movement-facing.
-// It is fed the positions captured BEFORE the movement pass and runs right after
-// it, so each per-tick delta is the monster's own WALK - separation shoves, band
-// stack snaps and combat blinks land outside the capture window and can never
-// flip a walker backwards. Deltas ACCUMULATE (FaceAcc) until they amount to a
-// real step, so slow walkers (patrol steps far under any per-frame threshold)
-// still turn instead of gliding on a stale facing, while back-and-forth jitter
-// cancels itself out before ever committing. Standing still drops the leftover
-// momentum. Movement helpers therefore don't set m.Direction themselves - only
-// no-move state transitions (idle/alert/flee) still set an intent facing.
+// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
+// each monster faces its accumulated walk displacement. The capture->face window
+// spans only the movement pass, so separation shoves, band snaps and combat
+// blinks can never flip a walker. Accumulation (FaceAcc) lets sub-threshold
+// walkers still turn while back-and-forth jitter cancels out; standing still
+// drops the momentum. Movement helpers don't set m.Direction themselves - only
+// no-move state transitions (idle/alert/flee) set an intent facing.
 func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
 	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
 		return nil

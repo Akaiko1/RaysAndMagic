@@ -8,13 +8,9 @@ import (
 	"ugataima/internal/world"
 )
 
-// Regression: a melee mob whose straight line to the party is blocked by a tree
-// must route around it and reach attack range - not livelock at the blocked
-// diagonal. Repro of the save2 wolf jitter: standing on the tile diagonal to
-// the party with LoS through the tree corner blocked, the blocked-diagonal
-// escape step nudges the wolf 2px across the tile boundary and resets its path;
-// next tick A* leads it straight back into the diagonal tile, and the two moves
-// oscillate forever (the in-game "shaking in the tree").
+// A melee mob whose straight line to the party is blocked by a tree must route
+// around it and reach attack range - not livelock shaking at the blocked
+// diagonal.
 func TestWolfRoutesAroundTreeToParty(t *testing.T) {
 	cfg := loadTestConfig(t)
 

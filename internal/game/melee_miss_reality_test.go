@@ -5,8 +5,7 @@ package game
 // 1-4 where the arc matters. Causes 2-4 (arc dead zones, one-flank arc 2,
 // off-hand arc/range) are deliberate design and pinned as such; cause 1
 // (tile-index reach) is FIXED and pinned: true pixel reach within (range+0.5)
-// tiles. Whiffs spend the action/cooldown but stay SILENT - the "swings at
-// air" message was tried and removed as combat-log spam.
+// tiles. Whiffs spend the action/cooldown but stay silent.
 
 import (
 	"math"
@@ -276,7 +275,7 @@ func TestRTMelee_OffHandSwing_UsesOffHandRange_AndWhiffStillActs(t *testing.T) {
 		t.Errorf("whiffed swing still reports acted=true (cooldown gets charged) by design")
 	}
 	if hasCombatMsg(game, "swings at air") {
-		t.Errorf("whiffs are silent by design (the message was combat-log spam)")
+		t.Errorf("whiffs are silent by design")
 	}
 }
 
@@ -302,7 +301,7 @@ func TestRTMelee_WhiffBehindIsSilentButActs(t *testing.T) {
 		t.Errorf("no arc reaches a mob directly behind; if it got hit, the dead-zone matrix changed")
 	}
 	if hasCombatMsg(game, "swings at air") {
-		t.Errorf("whiffs are silent by design (the message was combat-log spam)")
+		t.Errorf("whiffs are silent by design")
 	}
 }
 

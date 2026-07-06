@@ -61,8 +61,7 @@ func TestFaceMonstersAlongFrameMotionIgnoresTinyJitter(t *testing.T) {
 }
 
 // A slow walker whose per-tick step is far under the facing threshold must
-// still turn once its walk ACCUMULATES - gliding backwards on a stale
-// Direction (the treant patrol bug) is exactly what the accumulator prevents.
+// still turn once its walk accumulates past it.
 func TestFaceMonstersAlongFrameMotionAccumulatesSlowWalk(t *testing.T) {
 	m := &monsterPkg.Monster3D{
 		X:         5,
@@ -81,9 +80,8 @@ func TestFaceMonstersAlongFrameMotionAccumulatesSlowWalk(t *testing.T) {
 	}
 }
 
-// A shove landing OUTSIDE the capture->face window (separation, band snap,
-// blink) must not touch facing - that was the "walking backwards in a crowd"
-// bug.
+// A shove landing outside the capture->face window (separation, band snap,
+// blink) must not touch facing.
 func TestFaceMonstersAlongFrameMotionIgnoresOutOfWindowShoves(t *testing.T) {
 	m := &monsterPkg.Monster3D{
 		X:         5,
