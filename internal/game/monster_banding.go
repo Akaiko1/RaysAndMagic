@@ -319,6 +319,13 @@ func (gl *GameLoop) stackMonsterBand(id int, band []*monster.Monster3D) {
 			continue // leader keeps its own wandering position
 		}
 		m.X, m.Y = leader.X, leader.Y
+		// The band owns a stacked member's position, so it owns its facing too:
+		// the member's own wander is overridden by the snap, and the walk-only
+		// facing pass (which rightly ignores snaps) would leave it pointing
+		// wherever its private wander went - a pack gliding one way with members
+		// facing random ways. Mirror the leader and drop the stray walk momentum.
+		m.Direction = leader.Direction
+		m.FaceAccX, m.FaceAccY = 0, 0
 		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 	}
 }

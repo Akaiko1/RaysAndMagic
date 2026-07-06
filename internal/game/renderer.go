@@ -2404,6 +2404,23 @@ func (r *Renderer) getMonsterStandeeSprite(mon *monster.Monster3D) (*ebiten.Imag
 	return r.game.sprites.GetSprite(name), false
 }
 
+// standeeMirrorFor decides whether a standee's texture must be mirrored so the
+// depicted creature faces its walk direction on screen: it compares the token
+// plane's on-screen U direction (sDot) with the heading's on-screen direction
+// (dDot). decisive=false while the heading points at/away from the camera
+// (|dDot| small) - the caller keeps the previous mirror so it can't flicker
+// mid-charge.
+func standeeMirrorFor(camAngle, standeeYaw, direction float64, artFacesLeft bool) (mirror, decisive bool) {
+	camRightX := -math.Sin(camAngle)
+	camRightY := math.Cos(camAngle)
+	sDot := math.Cos(standeeYaw)*camRightX + math.Sin(standeeYaw)*camRightY
+	dDot := math.Cos(direction)*camRightX + math.Sin(direction)*camRightY
+	if math.Abs(dDot) <= 0.1 {
+		return false, false
+	}
+	return ((sDot > 0) != (dDot > 0)) != artFacesLeft, true
+}
+
 func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
 	moveX := math.Cos(mon.Direction)
 	moveY := math.Sin(mon.Direction)
@@ -3159,12 +3176,8 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		if sprite == nil {
 			sprite = s.sprite
 		}
-		camRightX := -math.Sin(r.game.camera.Angle)
-		camRightY := math.Cos(r.game.camera.Angle)
-		sDot := math.Cos(m.StandeeYaw)*camRightX + math.Sin(m.StandeeYaw)*camRightY
-		dDot := math.Cos(m.Direction)*camRightX + math.Sin(m.Direction)*camRightY
-		if math.Abs(dDot) > 0.1 {
-			m.StandeeMirror = ((sDot > 0) != (dDot > 0)) != artFacesLeft
+		if mirror, decisive := standeeMirrorFor(r.game.camera.Angle, m.StandeeYaw, m.Direction, artFacesLeft); decisive {
+			m.StandeeMirror = mirror
 		}
 
 		// Hit shake, standee edition: rattle the token along its own axis in

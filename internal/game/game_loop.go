@@ -130,6 +130,8 @@ func (gl *GameLoop) updateExploration() {
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshBoundUndeadCache()
 
+	// Capture positions so the facing pass below sees ONLY the movement pass's
+	// displacement - separation shoves and band snaps fall outside the window.
 	monsterFrameStart := gl.captureMonsterFramePositions()
 
 	// Update monsters (turn-based or real-time)
@@ -143,6 +145,8 @@ func (gl *GameLoop) updateExploration() {
 			gl.updateMonstersParallel()
 		})
 	}
+
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
 
 	// Gently push overlapping monsters apart. Overlap is reachable two ways:
 	// non-engaged monsters deliberately pass through each other (pathfinding
@@ -163,8 +167,6 @@ func (gl *GameLoop) updateExploration() {
 	if !gl.game.turnBasedMode {
 		gl.game.combat.HandleMonsterInteractions()
 	}
-
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
 
 	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
 	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
@@ -200,6 +202,16 @@ func (gl *GameLoop) updateExploration() {
 	gl.updatePerformanceMetrics()
 }
 
+// faceMonstersAlongFrameMotion is the single source of truth for movement-facing.
+// It is fed the positions captured BEFORE the movement pass and runs right after
+// it, so each per-tick delta is the monster's own WALK - separation shoves, band
+// stack snaps and combat blinks land outside the capture window and can never
+// flip a walker backwards. Deltas ACCUMULATE (FaceAcc) until they amount to a
+// real step, so slow walkers (patrol steps far under any per-frame threshold)
+// still turn instead of gliding on a stale facing, while back-and-forth jitter
+// cancels itself out before ever committing. Standing still drops the leftover
+// momentum. Movement helpers therefore don't set m.Direction themselves - only
+// no-move state transitions (idle/alert/flee) still set an intent facing.
 func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
 	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
 		return nil
@@ -209,24 +221,15 @@ func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		positions = append(positions, monsterFramePosition{
-			monster: m,
-			x:       m.X,
-			y:       m.Y,
-		})
+		positions = append(positions, monsterFramePosition{monster: m, x: m.X, y: m.Y})
 	}
 	gl.monsterFrameBuf = positions
 	return positions
 }
 
-// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
-// it points each monster along its net displacement this tick, derived from actual
-// motion (so axis-slides and band snaps read correctly). Movement helpers therefore
-// don't set m.Direction themselves - only no-move state transitions (idle/alert/flee)
-// still set an intent facing, since there's no motion here to derive it from.
 func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
-	const minMoveForFacing = 0.25
-	minMoveSq := minMoveForFacing * minMoveForFacing
+	const minMoveForFacing = 1.5
+	const minMoveSq = minMoveForFacing * minMoveForFacing
 	for _, pos := range start {
 		m := pos.monster
 		if m == nil || !m.IsAlive() {
@@ -234,10 +237,17 @@ func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
 		}
 		dx := m.X - pos.x
 		dy := m.Y - pos.y
-		if dx*dx+dy*dy < minMoveSq {
+		if dx == 0 && dy == 0 {
+			m.FaceAccX, m.FaceAccY = 0, 0
 			continue
 		}
-		m.Direction = math.Atan2(dy, dx)
+		m.FaceAccX += dx
+		m.FaceAccY += dy
+		if m.FaceAccX*m.FaceAccX+m.FaceAccY*m.FaceAccY < minMoveSq {
+			continue
+		}
+		m.Direction = math.Atan2(m.FaceAccY, m.FaceAccX)
+		m.FaceAccX, m.FaceAccY = 0, 0
 	}
 }
 

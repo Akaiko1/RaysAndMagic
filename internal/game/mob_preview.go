@@ -99,9 +99,9 @@ func (p *MobPreview) Step() {
 	g.frameCount++
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.updateMonstersParallel()
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart) // walk-only window, matching the game loop
 	gl.separateOverlappingMonsters()
 	gl.updateMonsterBands()
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
 }
 
 // Monsters exposes the staged monsters (the editor shows live HP/state).

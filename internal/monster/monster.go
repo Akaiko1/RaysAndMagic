@@ -140,15 +140,17 @@ type Monster3D struct {
 	StandeeYaw          float64 // Render-only: displayed token yaw (eases toward heading)
 	StandeeYawTick      int64   // Render-only: frame the token yaw was last advanced
 	StandeeMirror       bool    // Render-only: art flip so the walk faces the heading (held while heading is camera-aligned)
-	StunTurnsRemaining  int     // Turn-based stun duration (monster skips turns)
-	StunFramesRemaining int     // Real-time stun duration in frames
-	StunDRStacks        int     // Stun diminishing-returns chain length (0=fresh; caps -> immune)
-	StunDRMemoryTurns   int     // TB: stun-free turns left before the DR chain resets
-	StunDRMemoryFrames  int     // RT: stun-free frames left before the DR chain resets
-	RootTurnsRemaining  int     // TB root (bear trap): can't move, CAN attack
-	RootFramesRemaining int     // RT root in frames: position pinned, attacks work
-	rootHeldThisTurn    bool    // TB: rooted at the start of the current turn (runtime-only)
-	Pilfered            bool    // Sleight of Hand already succeeded on this monster
+	FaceAccX            float64 // Render-only: accumulated per-tick WALK displacement since the last facing commit (separation shoves / band snaps excluded)
+	FaceAccY            float64
+	StunTurnsRemaining  int  // Turn-based stun duration (monster skips turns)
+	StunFramesRemaining int  // Real-time stun duration in frames
+	StunDRStacks        int  // Stun diminishing-returns chain length (0=fresh; caps -> immune)
+	StunDRMemoryTurns   int  // TB: stun-free turns left before the DR chain resets
+	StunDRMemoryFrames  int  // RT: stun-free frames left before the DR chain resets
+	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
+	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
+	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
+	Pilfered            bool // Sleight of Hand already succeeded on this monster
 	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
 	// serpent dancer cards) - separate from monster-inflicted PoisonChance on
 	// characters. Ticks 1% of MaxHitPoints (min 1) per second of real time (RT)

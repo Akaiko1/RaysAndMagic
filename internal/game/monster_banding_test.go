@@ -314,3 +314,29 @@ func TestResolveMonsterProjectileVsMonster_ScattersVictimsBand(t *testing.T) {
 			survivor.IsEngagingPlayer, survivor.WasAttacked)
 	}
 }
+
+// A stacked band member's position is band-owned (snapped to the leader), so
+// its facing must be too: the walk-only facing pass rightly ignores snaps, and
+// without this sync each member kept pointing wherever its private (overridden)
+// wander went - a pack gliding one way with members facing random ways.
+func TestStackMonsterBandSyncsMemberFacing(t *testing.T) {
+	game := newBandingTestGame()
+	addBandingTestMonster(game, "lead", "wolf", 128, 128, 3)
+	addBandingTestMonster(game, "tail", "wolf", 129, 128, 3)
+	lead, tail := game.world.Monsters[0], game.world.Monsters[1]
+	lead.Direction = 1.25
+	tail.Direction = -2.5
+	tail.FaceAccX, tail.FaceAccY = 3, -3 // stray private-wander momentum
+
+	(&GameLoop{game: game}).stackMonsterBand(3, []*monsterPkg.Monster3D{lead, tail})
+
+	if tail.Direction != lead.Direction {
+		t.Fatalf("stacked member direction = %.2f, want leader's %.2f", tail.Direction, lead.Direction)
+	}
+	if tail.FaceAccX != 0 || tail.FaceAccY != 0 {
+		t.Fatalf("stacked member walk momentum must be dropped, got (%.1f,%.1f)", tail.FaceAccX, tail.FaceAccY)
+	}
+	if lead.Direction != 1.25 {
+		t.Fatalf("leader direction must stay its own, got %.2f", lead.Direction)
+	}
+}
