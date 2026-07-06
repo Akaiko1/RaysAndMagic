@@ -518,19 +518,6 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		return
 	}
 
-	// Final approach: steer straight at the target. A*'s goals are TILE
-	// CENTERS within attack reach, and that ring can be empty - an off-center
-	// player puts adjacent centers just past reach while their own tile center
-	// is blocked by the player's body - leaving a melee monster frozen a few
-	// pixels out of range. A direct collision-checked step has no such
-	// quantization; walls still win, and we fall through to A* when blocked.
-	if m.stepOutOfBlockedMeleeDiagonal(collisionChecker, playerX, playerY) {
-		return
-	}
-	if distanceToPlayer <= m.tileSize()*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
-		return
-	}
-
 	// Stall watchdog: the cached path is only recomputed when the target tile
 	// changes, so a route that an engaged packmate now bodily blocks (wedged
 	// behind it in a one-tile corridor) is micro-danced on forever. No net
@@ -545,8 +532,29 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 		m.stallTimer = 0
 	}
 
-	// Use A* pathfinding toward the player
-	m.followPathToTarget(collisionChecker, playerX, playerY)
+	// Movement arbitration invariant: the committed A* route moves first; the
+	// greedy fallbacks below run ONLY on a tick the route produced no move.
+	// Any greedy step that can preempt a live path 2-cycles with it at an
+	// obstacle corner (path pulls along the route, greedy pulls at the player;
+	// each undoes the other) - the "monster shaking against a tree" livelock.
+	if m.followPathToTarget(collisionChecker, playerX, playerY) {
+		return
+	}
+
+	// Final approach: steer straight at the target. A*'s goals are TILE
+	// CENTERS within attack reach, and that ring can be empty - an off-center
+	// player puts adjacent centers just past reach while their own tile center
+	// is blocked by the player's body - leaving a melee monster frozen a few
+	// pixels out of range. A direct collision-checked step has no such
+	// quantization; walls still win.
+	if distanceToPlayer <= m.tileSize()*1.5 && m.stepToward(collisionChecker, playerX, playerY) {
+		return
+	}
+
+	// Last resort: wedged at a diagonal whose LoS a wall/tree corner seals,
+	// with no walkable route this tick - nudge out of the diagonal so the next
+	// repath can route around.
+	m.stepOutOfBlockedMeleeDiagonal(collisionChecker, playerX, playerY)
 }
 
 // entersTargetTile reports whether (x, y) would land a MELEE monster on the

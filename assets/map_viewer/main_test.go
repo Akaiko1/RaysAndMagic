@@ -55,8 +55,8 @@ func TestMobInfo_GoldDragonShowsOnlyMonsterFacingStun(t *testing.T) {
 	}
 
 	for key, wantStun := range map[string]string{
-		"dragon_gold":       "Stun: 15% (4s / 2 turns)",
-		"elder_dragon_gold": "Stun: 20% (4s / 2 turns)",
+		"dragon_gold":       "Stun: 10% (4s / 2 turns)",
+		"elder_dragon_gold": "Stun: 10% (4s / 2 turns)",
 	} {
 		got := rowsFor(key)
 		for _, want := range []string{"Ranged spell: Lightning Bolt (air)", wantStun} {
