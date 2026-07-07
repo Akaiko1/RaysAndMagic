@@ -29,6 +29,7 @@ type contentCard struct {
 	key      string // YAML key (used to resolve icon filename)
 	name     string
 	subtitle string // short stat line shown on the card
+	rarity   string // item/weapon rarity - tints the name on the card and in the tooltip
 
 	// Tooltip-only fields (full data).
 	description string
@@ -214,20 +215,24 @@ func buildTrapCards() []contentCard {
 		if !ok {
 			continue
 		}
-		rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
-		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
-		cards = append(cards, contentCard{
-			kind:        cardSpell,
-			section:     "Traps (Thief)",
-			key:         key,
-			name:        def.Name,
-			subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
-			description: def.Description,
-			tooltipRows: rows,
-			icon:        def.Icon,
-		})
+		cards = append(cards, trapCard("Traps (Thief)", key, def))
 	}
 	return cards
+}
+
+func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard {
+	rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
+	rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
+	return contentCard{
+		kind:        cardSpell,
+		section:     section,
+		key:         key,
+		name:        def.Name,
+		subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
+		description: def.Description,
+		tooltipRows: rows,
+		icon:        def.Icon,
+	}
 }
 
 func weaponCard(section, key string, def *config.WeaponDefinitionConfig) contentCard {
@@ -237,6 +242,9 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	}
 	if def.BonusStat != "" {
 		subtitle += "  +" + def.BonusStat
+	}
+	if def.BonusStatSecondary != "" {
+		subtitle += fmt.Sprintf("  +%s/%d", def.BonusStatSecondary, character.WeaponSecondaryStatDivisor)
 	}
 	// Unified template (shared engine in character/cardtemplate.go): the
 	// editor shows the character-independent variant - formulas in place of
@@ -254,6 +262,7 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 		key:         key,
 		name:        def.Name,
 		subtitle:    subtitle,
+		rarity:      def.Rarity,
 		description: def.Description,
 		flavor:      def.Flavor,
 		tooltipRows: rows,
@@ -310,6 +319,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 		key:         key,
 		name:        def.Name,
 		subtitle:    subtitle,
+		rarity:      def.Rarity,
 		description: def.Description,
 		flavor:      def.Flavor,
 		tooltipRows: rows,

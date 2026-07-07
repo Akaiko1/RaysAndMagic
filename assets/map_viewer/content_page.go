@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ugataima/internal/game"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -220,7 +222,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
 	if maxChars < 6 {
 		maxChars = 6
 	}
-	ebitenutil.DebugPrintAt(dst, truncate(c.name, maxChars), textX, textY)
+	game.DrawShadedText(dst, truncate(c.name, maxChars), textX, textY, game.RarityColor(c.rarity))
 	lines := wrapTooltipLines(c.subtitle, maxChars)
 	const maxSubtitleLines = 4 // card height fits name + ~4 wrapped lines
 	for i, ln := range lines {
@@ -279,6 +281,11 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
 	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 120, 150, 255})
 	for i, ln := range lines {
+		if i == 0 {
+			// Name line wears the game's rarity metal (gradient for metal tiers).
+			game.DrawShadedText(screen, ln, boxX+8, boxY+6, game.RarityColor(c.rarity))
+			continue
+		}
 		ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
 	}
 }

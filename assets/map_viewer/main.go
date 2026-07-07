@@ -38,6 +38,7 @@ const (
 	pageSkills = 4 // all skills with detailed descriptions
 	pageFX     = 5 // live preview of the game's special effects (fx_page.go)
 	pageMobs   = 6 // monster stat sheets + live animated preview (mobs_page.go)
+	pageSaves  = 7 // save-slot browser + shared stash + archive (saves_page.go)
 )
 
 // pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
@@ -53,6 +54,7 @@ var pageTabDefs = []struct {
 	{pageSkills, "Skills", "F5"},
 	{pageFX, "FX", "F6"},
 	{pageMobs, "Mobs", "F7"},
+	{pageSaves, "Save Stashes", "F8"},
 }
 
 type mapInfo struct {
@@ -244,6 +246,14 @@ func (v *viewer) Update() error {
 		return nil
 	}
 
+	// The Saves page reloads from disk on every re-entry (stale flag), so slot
+	// changes made by a running game show up without restarting the editor.
+	if v.page == pageSaves {
+		v.updateSavesPage()
+		return nil
+	}
+	savesPage.stale = true
+
 	if v.page != pageMaps {
 		scroll := v.pageScroll[v.page]
 		_, wheelY := ebiten.Wheel()
@@ -356,6 +366,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	}
 	if v.page == pageMobs {
 		v.drawMobsPage(screen)
+		return
+	}
+	if v.page == pageSaves {
+		v.drawSavesPage(screen)
 		return
 	}
 	if v.page == pageChars {
