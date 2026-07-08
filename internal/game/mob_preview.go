@@ -45,7 +45,8 @@ func NewMobPreview(cfg *config.Config) (*MobPreview, error) {
 	p.g.turnBasedMode = false
 
 	ts := float64(cfg.GetTileSize())
-	p.g.camera.X, p.g.camera.Y, p.g.camera.Angle = 1.5*ts, 8.5*ts, 0 // west edge, looking east at the stage
+	p.g.camera.X, p.g.camera.Y = 1.5*ts, 8.5*ts // west edge, looking east at the stage
+	p.g.snapFacing(0)
 	if e := p.g.collisionSystem.GetEntityByID("player"); e != nil {
 		p.g.collisionSystem.UpdateEntity("player", p.g.camera.X, p.g.camera.Y)
 	}

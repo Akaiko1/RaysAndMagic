@@ -286,12 +286,19 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.showHighScores = false
 	g.frameCount = 0
 
+	// Fresh run starts the day/night clock at noon; the first pack spawns at
+	// the first phase flip, never at game start.
+	g.dayNightFrames = 0
+	g.dayNightIsNight = false
+	g.cancelSkyFade()
+
 	// Clear combat/projectile state (shared cleaner: also unregisters
 	// projectile collision entities and drops impact lights)
 	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
 	g.traps = nil
 	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogVersion++
 	g.combatLogOpen = false
 	g.combatLogScroll = 0
 	g.cardFxTimers = [cardFxCount][4]int{}
@@ -383,7 +390,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		}
 		g.camera.X = startX
 		g.camera.Y = startY
-		g.camera.Angle = 0
+		g.snapFacing(0)
 		g.camera.FOV = g.config.GetCameraFOV()
 		g.camera.ViewDist = g.config.GetViewDistance()
 
@@ -1412,7 +1419,7 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 func (ih *InputHandler) finishMapArrival(x, y, angle float64) {
 	ih.game.camera.X = x
 	ih.game.camera.Y = y
-	ih.game.camera.Angle = angle
+	ih.game.snapFacing(angle)
 	if ih.game.collisionSystem != nil {
 		ih.game.collisionSystem.UpdateEntity("player", x, y)
 	}

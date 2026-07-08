@@ -756,7 +756,10 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
 }
 
-// drawCompassMinimap renders the nearby tiles on the compass as a minimap
+// drawCompassMinimap renders the nearby tiles on the compass as a minimap.
+// The tile layer is cached (see rebuildCompassTileLayer) and only rebuilt when
+// the player crosses a tile boundary or the world changes; NPC dots move
+// smoothly relative to the player, so they stay live (few per map).
 func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, radius int) {
 	if ui.game.world == nil {
 		return
@@ -777,6 +780,46 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		miniTileSize = 8
 	}
 
+	if ui.compassTileLayer == nil ||
+		ui.compassCacheWorld != ui.game.world ||
+		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
+		ui.rebuildCompassTileLayer(playerTileX, playerTileY, viewRange, miniTileSize, radius)
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(centerX-radius), float64(centerY-radius))
+	screen.DrawImage(ui.compassTileLayer, opts)
+
+	// Draw NPCs on minimap
+	for _, npc := range ui.game.world.NPCs {
+		npcTileX := int(npc.X / tileSize)
+		npcTileY := int(npc.Y / tileSize)
+		dx := npcTileX - playerTileX
+		dy := npcTileY - playerTileY
+
+		// Only show NPCs within view range
+		if dx*dx+dy*dy <= viewRange*viewRange {
+			screenX := float32(centerX) + float32(dx)*miniTileSize
+			screenY := float32(centerY) + float32(dy)*miniTileSize
+			// Draw NPC as yellow dot
+			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+		}
+	}
+}
+
+// rebuildCompassTileLayer bakes the compass minimap's tile fills into a
+// 2R x 2R layer image centered on the player's tile.
+func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
+	side := 2 * radius
+	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
+		ui.compassTileLayer = ebiten.NewImage(side, side)
+	} else {
+		ui.compassTileLayer.Clear()
+	}
+	ui.compassCacheWorld = ui.game.world
+	ui.compassCacheTileX = playerTileX
+	ui.compassCacheTileY = playerTileY
+
 	// Get floor color from map config
 	floorColor := color.RGBA{60, 110, 60, 180}
 	if world.GlobalWorldManager != nil {
@@ -785,7 +828,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		}
 	}
 
-	// Render tiles around the player
+	center := float32(radius)
 	for dy := -viewRange; dy <= viewRange; dy++ {
 		for dx := -viewRange; dx <= viewRange; dx++ {
 			tileX := playerTileX + dx
@@ -796,13 +839,8 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 				continue
 			}
 
-			// Calculate screen position (offset from compass center)
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-
 			// Check if this tile is within the circular compass area
-			distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
-			if distFromCenter > float64(viewRange) {
+			if dx*dx+dy*dy > viewRange*viewRange {
 				continue
 			}
 
@@ -810,26 +848,11 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 			tile := ui.game.world.Tiles[tileY][tileX]
 			tileColor := ui.getMinimapTileColor(tile, floorColor)
 
-			// Draw the minimap tile
+			// Draw the minimap tile (layer coords: player tile at the center)
+			screenX := center + float32(dx)*miniTileSize
+			screenY := center + float32(dy)*miniTileSize
 			halfSize := miniTileSize / 2
-			vector.FillRect(screen, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
-		}
-	}
-
-	// Draw NPCs on minimap
-	for _, npc := range ui.game.world.NPCs {
-		npcTileX := int(npc.X / tileSize)
-		npcTileY := int(npc.Y / tileSize)
-		dx := npcTileX - playerTileX
-		dy := npcTileY - playerTileY
-
-		// Only show NPCs within view range
-		distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
-		if distFromCenter <= float64(viewRange) {
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-			// Draw NPC as yellow dot
-			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+			vector.FillRect(ui.compassTileLayer, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
 		}
 	}
 }

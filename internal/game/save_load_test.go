@@ -922,3 +922,60 @@ func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 		}
 	}
 }
+
+// The entry menu loads saves from the DRAW pass, where the camera angle is
+// swapped to the eased display angle for rendering. The end-of-draw restore
+// must not clobber the facing a mid-draw load just applied, and the load must
+// snap the rendered view too (no easing from the pre-load heading).
+func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wm
+	defer func() { world.GlobalWorldManager = oldWorldManager }()
+
+	saved := newTestGame(cfg, w)
+	saved.camera.Angle = 2.5
+	save := saved.buildSave(wm)
+
+	// Cold boot: the fresh game faces the default heading with a stale glide.
+	g := newTestGame(cfg, w)
+	g.camera.Angle = 0
+	g.viewAngleRender = 0
+	g.viewTurnFramesLeft = 3
+
+	restore := g.beginViewAngleSwap()
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	restore()
+
+	if g.camera.Angle != 2.5 {
+		t.Fatalf("camera.Angle after draw-time load = %v, want the saved 2.5", g.camera.Angle)
+	}
+	if g.viewAngleRender != 2.5 || g.viewTurnFramesLeft != 0 {
+		t.Fatalf("load must snap the rendered view: render=%v framesLeft=%d, want 2.5/0", g.viewAngleRender, g.viewTurnFramesLeft)
+	}
+}
+
+// Without a mid-draw camera write the swap still restores the logical angle.
+func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.camera.Angle = 1.0
+	g.viewAngleRender = 0.5 // mid-glide display angle
+
+	restore := g.beginViewAngleSwap()
+	if g.camera.Angle != 0.5 {
+		t.Fatalf("draw must render at the display angle, got %v", g.camera.Angle)
+	}
+	restore()
+	if g.camera.Angle != 1.0 {
+		t.Fatalf("restore must return the logical angle, got %v", g.camera.Angle)
+	}
+}

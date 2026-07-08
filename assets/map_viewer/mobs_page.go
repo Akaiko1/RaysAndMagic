@@ -31,10 +31,12 @@ const (
 
 // infoLine is one stat-sheet row with its tint (the game's line-color idiom:
 // whole lines carry meaning colors - damage red, HP green, resists by school,
-// drops by rarity).
+// drops by rarity). Header lines render on a filled band (the editor/game
+// section-header convention).
 type infoLine struct {
-	text string
-	col  color.Color
+	text   string
+	col    color.Color
+	header bool
 }
 
 var mobsPage struct {
@@ -253,7 +255,13 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 			game.DrawShadedText(info, "...", x, infoY, mobStatHeader)
 			break
 		}
-		game.DrawShadedText(info, line.text, x, infoY+row*mobInfoRowH, line.col)
+		y := infoY + row*mobInfoRowH
+		// Section headers render on a filled band (editor/game convention).
+		if line.header {
+			drawFilledRect(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2, color.RGBA{40, 40, 60, 255})
+			drawRectBorder(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2, 1, color.RGBA{70, 70, 100, 255})
+		}
+		game.DrawShadedText(info, line.text, x, y, line.col)
 	}
 }
 
@@ -263,9 +271,12 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	var out []infoLine
 	addc := func(col color.Color, format string, args ...any) {
-		out = append(out, infoLine{fmt.Sprintf(format, args...), col})
+		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
 	add := func(format string, args ...any) { addc(mobStatDefault, format, args...) }
+	addHeader := func(format string, args ...any) {
+		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+	}
 
 	add("%s  (key: %s)", def.Name, key)
 	if def.Type != "" {
@@ -359,7 +370,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	// Resistances: one line per school in the school's tint, sorted for a
 	// stable sheet.
 	if len(def.Resistances) > 0 {
-		addc(mobStatHeader, "Resists:")
+		addHeader("Resists")
 		resKeys := make([]string, 0, len(def.Resistances))
 		for r := range def.Resistances {
 			resKeys = append(resKeys, r)
@@ -381,7 +392,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	// Drop table: each entry tinted by its rarity (metal tiers render as the
 	// game's gradient).
 	addc(mobStatHeader, "")
-	addc(mobStatHeader, "--- Drops ---")
+	addHeader("Drops")
 	if def.GoldMax > 0 {
 		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)
 	}

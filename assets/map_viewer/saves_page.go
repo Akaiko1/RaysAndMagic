@@ -52,11 +52,13 @@ type saveListEntry struct {
 }
 
 // saveDetailLine is one row of a detail panel; lines that show an item carry
-// it so hovering can raise the same tooltip the Items page uses.
+// it so hovering can raise the same tooltip the Items page uses. Header lines
+// render on a filled band (the editor/game section-header convention).
 type saveDetailLine struct {
-	text string
-	col  color.Color
-	item *items.Item
+	text   string
+	col    color.Color
+	item   *items.Item
+	header bool
 }
 
 var savesPage struct {
@@ -144,9 +146,9 @@ func (v *viewer) refreshSavesPage() {
 // slot (empty ones dimmed), then the archive. Pure so it is testable.
 func buildSaveListEntries(rows []game.SaveSummary, archived []game.ArchivedSave) []saveListEntry {
 	out := []saveListEntry{
-		{kind: saveEntryHeader, label: "--- SHARED ---"},
+		{kind: saveEntryHeader, label: "Shared"},
 		{kind: saveEntryStash, label: "Shared Stash"},
-		{kind: saveEntryHeader, label: "--- GAME SLOTS ---"},
+		{kind: saveEntryHeader, label: "Game Slots"},
 	}
 	for row := range rows {
 		sum := rows[row]
@@ -163,7 +165,7 @@ func buildSaveListEntries(rows []game.SaveSummary, archived []game.ArchivedSave)
 		}
 		out = append(out, saveListEntry{kind: saveEntrySlot, row: row, label: label, dim: dim})
 	}
-	out = append(out, saveListEntry{kind: saveEntryHeader, label: fmt.Sprintf("--- ARCHIVE (%d) ---", len(archived))})
+	out = append(out, saveListEntry{kind: saveEntryHeader, label: fmt.Sprintf("Archive (%d)", len(archived))})
 	for i := range archived {
 		out = append(out, saveListEntry{kind: saveEntryArchive, arch: i, label: archiveDisplayName(archived[i])})
 	}
@@ -368,6 +370,9 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 	addp := func(col color.Color, format string, args ...any) {
 		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: col})
 	}
+	addpHeader := func(format string, args ...any) {
+		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+	}
 	addpItem := func(it items.Item, format string, args ...any) {
 		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
 	}
@@ -386,7 +391,7 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 			return
 		}
 		addp(mobStatHeader, "")
-		addp(mobStatHeader, "=== %s ===", title)
+		addpHeader("%s", title)
 		for _, cs := range members {
 			addp(color.White, "%s  Lv.%d %s", cs.Name, cs.Level, character.CharacterClass(cs.Class).String())
 			addp(mobStatHP, "  HP %d/%d   SP %d/%d", cs.HitPoints, cs.MaxHitPoints, cs.SpellPoints, cs.MaxSpellPoints)
@@ -419,10 +424,13 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 	addl := func(col color.Color, format string, args ...any) {
 		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: col})
 	}
+	addlHeader := func(format string, args ...any) {
+		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+	}
 	addlItem := func(it items.Item, format string, args ...any) {
 		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
 	}
-	addl(mobStatHeader, "=== Inventory (%d) ===", len(gs.Party.Inventory))
+	addlHeader("Inventory (%d)", len(gs.Party.Inventory))
 	if len(gs.Party.Inventory) == 0 {
 		addl(mobStatHeader, "(empty)")
 	}
@@ -432,7 +440,7 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 	}
 
 	addl(mobStatHeader, "")
-	addl(mobStatHeader, "=== Card Collection ===")
+	addlHeader("Card Collection")
 	cards := 0
 	for _, it := range gs.Party.CardCollectionItems {
 		if it.Name == "" {
@@ -480,7 +488,7 @@ func buildStashDetail() (party, loot []saveDetailLine) {
 				used++
 			}
 		}
-		addl(mobStatHeader, "=== %s (%d/%d) ===", title, used, len(slots))
+		loot = append(loot, saveDetailLine{text: fmt.Sprintf("%s (%d/%d)", title, used, len(slots)), col: color.White, header: true})
 		for i, it := range slots {
 			if stash.IsEmpty(it) {
 				addl(mobStatHeader, "  %d: -", i+1)
@@ -583,7 +591,10 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 		col := mobStatDefault
 		switch {
 		case entry.kind == saveEntryHeader:
-			col = mobStatHeader
+			// Section headers render on a filled band (editor/game convention).
+			drawFilledRect(list, 4, ry-2, saveListW-8, saveListRowH, color.RGBA{40, 40, 60, 255})
+			drawRectBorder(list, 4, ry-2, saveListW-8, saveListRowH, 1, color.RGBA{70, 70, 100, 255})
+			col = color.RGBA{255, 255, 255, 255}
 		case entry.dim:
 			col = color.RGBA{110, 110, 125, 255}
 		}
@@ -635,6 +646,11 @@ func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []saveDetailLin
 		ry := panel.y + 8 + i*saveDetailRowH - scroll
 		if ry < panel.y-saveDetailRowH || ry > panel.y+panel.h {
 			continue
+		}
+		// Section headers render on a filled band (editor/game convention).
+		if line.header {
+			drawFilledRect(clip, panel.x+4, ry-2, panel.w-8, saveDetailRowH+2, color.RGBA{40, 40, 60, 255})
+			drawRectBorder(clip, panel.x+4, ry-2, panel.w-8, saveDetailRowH+2, 1, color.RGBA{70, 70, 100, 255})
 		}
 		game.DrawShadedText(clip, clipText(line.text, maxTextW), panel.x+10, ry, line.col)
 	}

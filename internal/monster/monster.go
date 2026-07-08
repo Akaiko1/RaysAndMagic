@@ -254,6 +254,7 @@ type Monster3D struct {
 	SummonCount           int      // adds spawned per summon (default 1)
 	SummonMax             int      // cap on simultaneously-live summons (0 = uncapped)
 	SummonedBy            string   // ID of the boss that summoned this monster ("" = not a summon)
+	PackKey               string   // ambient day/night pack tag ("" = not a pack spawn); despawned on phase flips
 	// Enrage: at/below EnrageAtHP the boss hits harder and/or faster. The effect is
 	// derived LIVE from current HP in GetAttackDamage/AttackCooldownFrames, so it is
 	// save-safe (no mutated stats stored); Enraged is only the one-shot announce latch.
@@ -271,6 +272,13 @@ type Monster3D struct {
 
 	// Configuration reference
 	config *config.Config
+
+	// Config-derived size, cached at SetupMonsterFromConfig (never changes).
+	// The separation pass calls GetSize per overlapping pair every tick - a
+	// by-name scan of monsters.yaml there cost ~10^5 string compares/tick.
+	cachedSizeW    float64
+	cachedSizeH    float64
+	cachedSizeMult float64
 }
 
 // NewMonster3DFromConfig creates a monster from YAML configuration
@@ -527,7 +535,11 @@ func (m *Monster3D) GetSpriteType() string {
 }
 
 func (m *Monster3D) GetSize() (width, height float64) {
-	// Get size from config
+	// Cached at SetupMonsterFromConfig; the scan below only serves hand-built
+	// test monsters that never went through config setup.
+	if m.cachedSizeW > 0 && m.cachedSizeH > 0 {
+		return m.cachedSizeW, m.cachedSizeH
+	}
 	if MonsterConfig != nil {
 		for _, def := range MonsterConfig.Monsters {
 			if def.Name == m.Name {
@@ -542,7 +554,9 @@ func (m *Monster3D) GetSize() (width, height float64) {
 
 // GetSizeGameMultiplier returns the visual size multiplier from config
 func (m *Monster3D) GetSizeGameMultiplier() float64 {
-	// Get size multiplier from config
+	if m.cachedSizeMult > 0 {
+		return m.cachedSizeMult
+	}
 	if MonsterConfig != nil {
 		for _, def := range MonsterConfig.Monsters {
 			if def.Name == m.Name {

@@ -157,6 +157,7 @@ type GameSave struct {
 	// need to remember which character is owed a choice at which level.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
 	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
@@ -321,6 +322,7 @@ type MonsterSave struct {
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
 	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
+	PackKey                 string  `json:"pack_key,omitempty"`   // ambient day/night pack tag
 	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
@@ -854,6 +856,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				WasAttacked:             mon.WasAttacked,
 				Relentless:              mon.Relentless,
+				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				StunFramesRemaining:     mon.StunFramesRemaining,
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
@@ -974,6 +977,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:      groundContainerSaves,
 		PendingLevelUpChoices: pendingChoices,
 		PlayedTimeNs:          playedTime.Nanoseconds(),
+		DayNightFrames:        g.dayNightFrames,
 		TotalGoldEarned:       g.totalGoldEarned,
 		TotalExperienceEarned: g.totalExperienceEarned,
 		VictoryAcknowledged:   g.victoryAcknowledged,
@@ -1026,10 +1030,17 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	g.clearTransientCombatState()
 
+	// Restore the day/night clock BEFORE the sky refresh below so the panorama
+	// resolves to the saved phase. Recomputed silently (no flip side effects):
+	// the save's pack monsters are restored as part of MapMonsters.
+	g.dayNightFrames = save.DayNightFrames
+	g.dayNightIsNight = dayNightIsNightAt(g.dayNightFrac())
+
 	// A loaded game starts with a clean combat log - the previous slot's history
 	// must not bleed into it (clearTransientCombatState runs on every map switch
 	// too, so the log reset lives here, on the load path, not in it).
 	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogVersion++
 	g.combatLogScroll = 0
 	g.combatLogOpen = false
 
@@ -1043,7 +1054,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore player
 	g.camera.X = save.PlayerX
 	g.camera.Y = save.PlayerY
-	g.camera.Angle = save.PlayerAngle
+	g.snapFacing(save.PlayerAngle)
 	g.collisionSystem.UpdateEntity("player", save.PlayerX, save.PlayerY)
 
 	// Restore party
@@ -1193,6 +1204,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
+				m.PackKey = ms.PackKey
 				m.CrossfireCD = ms.CrossfireCD
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the

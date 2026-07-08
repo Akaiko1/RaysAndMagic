@@ -165,9 +165,13 @@ func (w *World3D) CanMoveTo(x, y float64) bool {
 // GetTileAt returns the tile type at the given world coordinates
 func (w *World3D) GetTileAt(x, y float64) TileType3D {
 	tileSize := w.config.GetTileSize()
-	tileX := int(x / tileSize)
-	tileY := int(y / tileSize)
+	return w.GetTileAtGrid(int(x/tileSize), int(y/tileSize))
+}
 
+// GetTileAtGrid is GetTileAt for already-computed tile coordinates. The
+// raycaster's DDA maintains grid coords natively; re-deriving them through
+// world coordinates cost a divide + a world map lookup per ray step.
+func (w *World3D) GetTileAtGrid(tileX, tileY int) TileType3D {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		// Off-map backdrop: render the biome's out-of-bounds wall (cached sprite)
 		// rather than the empty-sprite stone wall, whose per-column gray

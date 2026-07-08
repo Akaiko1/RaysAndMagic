@@ -17,7 +17,7 @@ func (r *Renderer) clearCanopyShadeCache() {
 	r.canopyShadeW = 0
 	r.canopyShadeH = 0
 	r.canopyViewerReady = false
-	r.canopyViewerAmbient = 1
+	r.canopyViewerShade = 1
 	r.canopyViewerFrame = 0
 }
 
@@ -149,18 +149,24 @@ func (r *Renderer) canopyShadeFactorTile(tx, ty int) float64 {
 	return factor
 }
 
+// canopyAmbient composes the map ambient with the canopy shade (the deeper of
+// the surface's and the viewer's factor). Multiplicative, so the shade scales
+// with the day/night light level: full-strength contrast at noon, dimming with
+// dusk, nearly gone in the 0.7 night ambient. At full daylight (ambient 1.0)
+// this is identical to the old min() composition.
 func canopyAmbient(mapAmbient, surfaceShade, viewerShade float64) float64 {
 	ambient := 1.0
 	if mapAmbient > 0 {
 		ambient = mapAmbient
 	}
-	if surfaceShade > 0 && surfaceShade < ambient {
-		ambient = surfaceShade
+	shade := 1.0
+	if surfaceShade > 0 && surfaceShade < shade {
+		shade = surfaceShade
 	}
-	if viewerShade > 0 && viewerShade < ambient {
-		ambient = viewerShade
+	if viewerShade > 0 && viewerShade < shade {
+		shade = viewerShade
 	}
-	return ambient
+	return ambient * shade
 }
 
 func (r *Renderer) mapAmbient() float64 {
@@ -177,10 +183,14 @@ func (r *Renderer) viewerCanopyShadeFactor() float64 {
 	return r.canopyShadeFactorAt(r.game.camera.X, r.game.camera.Y)
 }
 
-func (r *Renderer) viewerAmbient() float64 {
-	target := canopyAmbient(r.mapAmbient(), 1, r.viewerCanopyShadeFactor())
+// viewerShadeSmoothed is the viewer's PURE canopy shade factor with temporal
+// smoothing - deliberately not composed with the map ambient, so callers can
+// feed it back into canopyAmbient without applying ambient twice (that
+// double-count made sprites darker than the floor on night forests).
+func (r *Renderer) viewerShadeSmoothed() float64 {
+	target := r.viewerCanopyShadeFactor()
 	if !r.canopyViewerReady {
-		r.canopyViewerAmbient = target
+		r.canopyViewerShade = target
 		r.canopyViewerFrame = r.game.frameCount
 		r.canopyViewerReady = true
 		return target
@@ -189,21 +199,28 @@ func (r *Renderer) viewerAmbient() float64 {
 	dtFrames := r.game.frameCount - r.canopyViewerFrame
 	r.canopyViewerFrame = r.game.frameCount
 	if dtFrames <= 0 {
-		return r.canopyViewerAmbient
+		return r.canopyViewerShade
 	}
 	tps := r.game.config.GetTPS()
 	if tps <= 0 {
 		tps = 60
 	}
 	if dtFrames > int64(tps) {
-		r.canopyViewerAmbient = target
+		r.canopyViewerShade = target
 		return target
 	}
 	alpha := 1 - math.Exp(-4.0*float64(dtFrames)/float64(tps))
-	r.canopyViewerAmbient += (target - r.canopyViewerAmbient) * alpha
-	return r.canopyViewerAmbient
+	r.canopyViewerShade += (target - r.canopyViewerShade) * alpha
+	return r.canopyViewerShade
+}
+
+// viewerAmbient is the composed ambient-x-viewer-shade value the floor shader
+// consumes (its min(Ambient, ViewerAmbient) picks this when the viewer stands
+// under canopy, matching the CPU surfaces lit via localAmbientAt).
+func (r *Renderer) viewerAmbient() float64 {
+	return canopyAmbient(r.mapAmbient(), 1, r.viewerShadeSmoothed())
 }
 
 func (r *Renderer) localAmbientAt(worldX, worldY float64) float64 {
-	return canopyAmbient(r.mapAmbient(), r.canopyShadeFactorAt(worldX, worldY), r.viewerAmbient())
+	return canopyAmbient(r.mapAmbient(), r.canopyShadeFactorAt(worldX, worldY), r.viewerShadeSmoothed())
 }

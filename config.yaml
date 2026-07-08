@@ -383,3 +383,15 @@ graphics:
       - icon_weapon_book_of_darkness
       - icon_weapon_battle_staff
       - icon_weapon_archmage_staff
+
+day_night:
+  half_cycle_seconds: 420
+  day_light: 1.0
+  night_light: 0.7
+  panorama_fade_seconds: 3
+  packs:
+    - map: forest
+      day_monster: wolf
+      night_monster: forest_spider
+      count: 8
+      min_player_dist_tiles: 8

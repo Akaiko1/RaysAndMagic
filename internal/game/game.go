@@ -232,6 +232,15 @@ type MMGame struct {
 	currentSkyTexture string
 	skyShader         *ebiten.Shader // lazily compiled, reused across frames
 
+	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
+	// during the phase-flip crossfade.
+	dayNightFrames  int
+	dayNightIsNight bool
+	dayNightOutdoor bool // current map's sky ships a _day/_night variant
+	skyPanoramaPrev *ebiten.Image
+	skyFadeFrames   int
+	skyFadeTotal    int
+
 	// Combat effects
 	magicProjectiles []MagicProjectile
 	arrows           []Arrow
@@ -366,6 +375,12 @@ type MMGame struct {
 	combatLogScroll    int
 	lastCombatLogClick int64
 	maxMessages        int
+	// hudMessageLines cache: the wrapped HUD tail is requested at least twice
+	// per frame (draw + click hit-region) but only changes when the log does.
+	combatLogVersion int
+	hudLinesCache    []combatLogEntry
+	hudLinesCacheVer int
+	hudLinesCacheOK  bool
 
 	// Per-member, per-effect card-overlay timers (frames remaining): blink/scorch/
 	// spark/heal. One table instead of four parallel arrays - see cardFx and
@@ -585,19 +600,26 @@ type FirstPersonCamera struct {
 	ViewDist float64 // Maximum view distance
 }
 
+// ApplySpriteColorKey wires the config's load-time color key into a sprite
+// manager: stray magenta (from imperfect sprite background removal) turns
+// transparent; edge-only sprites despill just their rims. Shared by the game
+// and the map editor so both render sprites identically.
+func ApplySpriteColorKey(sprites *graphics.SpriteManager, cfg *config.Config) {
+	ck := cfg.Graphics.ColorKey
+	if !ck.Enabled {
+		return
+	}
+	r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
+	if r == 0 && g == 0 && b == 0 {
+		r, g, b = 255, 0, 255 // default key = magenta
+	}
+	sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
+	sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
+}
+
 func NewMMGame(cfg *config.Config) *MMGame {
 	sprites := graphics.NewSpriteManager()
-	// Load-time color key: make stray magenta (from imperfect sprite background
-	// removal) transparent. Data-driven via config; [0,0,0]/absent key -> magenta.
-	if ck := cfg.Graphics.ColorKey; ck.Enabled {
-		r, g, b := ck.Color[0], ck.Color[1], ck.Color[2]
-		if r == 0 && g == 0 && b == 0 {
-			r, g, b = 255, 0, 255 // default key = magenta
-		}
-		sprites.SetColorKey(true, r, g, b, ck.Tolerance, ck.Despill)
-		// Sprites whose interior magenta is intentional art: despill edges only.
-		sprites.SetDespillEdgeOnly(ck.EdgeOnlyDespill, ck.EdgeDespillRadius)
-	}
+	ApplySpriteColorKey(sprites, cfg)
 
 	// Get world from WorldManager instead of creating new one
 	currentWorld := world.GlobalWorldManager.GetCurrentWorld()
@@ -996,7 +1018,11 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 
 	// Update sky image
 	g.skyImg.Fill(color.RGBA{uint8(skyColor[0]), uint8(skyColor[1]), uint8(skyColor[2]), 255})
-	g.updateSkyPanorama(skyTexture)
+	// Map switches swap the sky instantly (no crossfade) and re-derive whether
+	// the day/night light cycle applies here (outdoor = phase variants exist).
+	g.dayNightOutdoor = skyHasDayNightVariants(skyTexture)
+	g.cancelSkyFade()
+	g.updateSkyPanorama(g.skyTextureForPhase(skyTexture))
 
 	// Update ground image
 	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
@@ -1134,6 +1160,31 @@ func (g *MMGame) turnViewFrames() int {
 	return 1
 }
 
+// snapFacing is the single point for instant heading changes (loads, map
+// arrivals, new-game resets, TB cardinal snaps): it moves the logical angle AND
+// the rendered view together and cancels any in-flight turn glide, so the view
+// can never ease from a stale heading. Gliding turns go through rotateTurnBased.
+func (g *MMGame) snapFacing(angle float64) {
+	g.camera.Angle = angle
+	g.viewAngleRender = angle
+	g.viewTurnFramesLeft = 0
+}
+
+// beginViewAngleSwap points the camera at the eased display angle for a draw
+// pass and returns the restore for the logical angle. The restore only undoes
+// OUR swap: a Draw-time handler (the entry menu loads saves from its draw pass)
+// may re-aim the camera mid-Draw, and that write must survive the frame.
+func (g *MMGame) beginViewAngleSwap() (restore func()) {
+	logicalAngle := g.camera.Angle
+	displayAngle := g.viewAngleRender
+	g.camera.Angle = displayAngle
+	return func() {
+		if g.camera.Angle == displayAngle {
+			g.camera.Angle = logicalAngle
+		}
+	}
+}
+
 // advanceViewTurn eases the rendered view angle toward the logical camera angle.
 // During a TB turn (viewTurnFramesLeft > 0) it moves at most one step per frame so
 // the scene glides; otherwise it tracks the angle exactly - real-time rotation,
@@ -1160,9 +1211,7 @@ func (g *MMGame) Draw(screen *ebiten.Image) {
 	// observes the display angle. In real time viewAngleRender == camera.Angle, so
 	// this is a no-op.
 	if g.camera != nil {
-		logicalAngle := g.camera.Angle
-		g.camera.Angle = g.viewAngleRender
-		defer func() { g.camera.Angle = logicalAngle }()
+		defer g.beginViewAngleSwap()()
 	}
 
 	// Screen shake: nudge the camera sideways (perpendicular to the view) for
@@ -1181,10 +1230,13 @@ func (g *MMGame) Draw(screen *ebiten.Image) {
 		// recover the logical camera. Otherwise the per-frame +/- jitter flips the
 		// pull's LOS near walls and the pulled monster blinks when struck.
 		g.screenShakeOffsetX, g.screenShakeOffsetY = ox, oy
-		defer func(x, y float64) {
-			g.camera.X, g.camera.Y = x, y
+		// Same only-undo-our-own-write rule as the angle swap above.
+		defer func(shakenX, shakenY, x, y float64) {
+			if g.camera.X == shakenX && g.camera.Y == shakenY {
+				g.camera.X, g.camera.Y = x, y
+			}
 			g.screenShakeOffsetX, g.screenShakeOffsetY = 0, 0
-		}(g.camera.X-ox, g.camera.Y-oy)
+		}(g.camera.X, g.camera.Y, g.camera.X-ox, g.camera.Y-oy)
 	}
 	g.gameLoop.Draw(screen)
 }
@@ -1294,6 +1346,7 @@ func (g *MMGame) AddCombatMessage(message string) {
 // color. The HUD slice is derived on demand (GetCombatMessages), so text and
 // color can never fall out of sync.
 func (g *MMGame) AddColoredCombatMessage(message string, messageColor color.Color) {
+	g.combatLogVersion++
 	g.combatLogHistory = append(g.combatLogHistory, combatLogEntry{Text: message, Color: messageColor})
 	if len(g.combatLogHistory) > maxCombatLogHistory {
 		g.combatLogHistory = g.combatLogHistory[len(g.combatLogHistory)-maxCombatLogHistory:]
@@ -1361,6 +1414,9 @@ const (
 // most recent maxHudMessageLines lines. Shared by the HUD renderer and its click
 // hit-region so the drawn block and the clickable area stay the same height.
 func (g *MMGame) hudMessageLines() []combatLogEntry {
+	if g.hudLinesCacheOK && g.hudLinesCacheVer == g.combatLogVersion {
+		return g.hudLinesCache
+	}
 	maxChars := (hudMessageWidth - 10) / debugTextCharWidth
 	var lines []combatLogEntry
 	for _, e := range g.hudLog() {
@@ -1371,6 +1427,9 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 	if len(lines) > maxHudMessageLines {
 		lines = lines[len(lines)-maxHudMessageLines:]
 	}
+	g.hudLinesCache = lines
+	g.hudLinesCacheVer = g.combatLogVersion
+	g.hudLinesCacheOK = true
 	return lines
 }
 
@@ -2071,7 +2130,7 @@ func (g *MMGame) snapToCardinalDirection() {
 		}
 	}
 
-	g.camera.Angle = closestDirection
+	g.snapFacing(closestDirection)
 }
 
 // snapMonstersToTileCenters moves all monsters to the center of their current tiles
@@ -2139,6 +2198,10 @@ type MonsterWrapper struct {
 // (including tests) must call this AND ApplyCollisionUpdate, not the bare
 // Monster3D.Update - that alone leaves the collision type stale.
 //
+// debugMonsterFilter caches the DEBUG_MONSTER env filter once at startup: the
+// parallel monster update must not pay an env lookup + alloc per monster per tick.
+var debugMonsterFilter = strings.ToLower(strings.TrimSpace(os.Getenv("DEBUG_MONSTER")))
+
 // Runs in a worker goroutine (see entities.EntityUpdater.UpdateMonstersParallel):
 // every read here must come from mw.Monster's own fields or mw.snapshot (frozen
 // before the parallel phase started), never mw.collisionSystem - the live
@@ -2168,10 +2231,9 @@ func (mw *MonsterWrapper) Update() {
 
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
-	if filter := strings.TrimSpace(os.Getenv("DEBUG_MONSTER")); filter != "" {
+	if debugMonsterFilter != "" {
 		name := strings.ToLower(mw.Monster.Name)
-		needle := strings.ToLower(filter)
-		if strings.Contains(name, needle) {
+		if strings.Contains(name, debugMonsterFilter) {
 			// Throttle logs to avoid spamming.
 			if mw.Monster.StateTimer%60 == 0 {
 				withinTether := mw.Monster.IsWithinTetherRadius()

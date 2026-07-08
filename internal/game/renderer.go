@@ -1,11 +1,13 @@
 package game
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -74,7 +76,7 @@ type Renderer struct {
 	canopyShadeFactors   []float64
 	canopyShadeW         int
 	canopyShadeH         int
-	canopyViewerAmbient  float64
+	canopyViewerShade    float64 // smoothed PURE viewer shade factor (no ambient - see viewerShadeSmoothed)
 	canopyViewerFrame    int64
 	canopyViewerReady    bool
 	// Per-frame reusable uniform buffer for floor shader light data, avoids
@@ -410,6 +412,12 @@ func (r *Renderer) updateActiveLights() {
 			r.ambientLight = mc.AmbientLight
 		}
 	}
+	// Outdoor maps breathe with the day/night clock (1.0 noon -> 0.7 midnight);
+	// interiors keep their authored ambient. Flows into the floor shader's
+	// Ambient uniform and every CPU brightness path via mapAmbient().
+	if r.game.dayNightOutdoor {
+		r.ambientLight *= r.game.dayNightLightScaleNow()
+	}
 
 	camX := r.game.camera.X
 	camY := r.game.camera.Y
@@ -514,11 +522,10 @@ func (r *Renderer) updateActiveLights() {
 	// halls the list can exceed that, and blind truncation would drop the
 	// NEAREST lights as easily as the farthest. Keep the closest ones first.
 	if len(r.activeLights) > maxFloorShaderLights {
-		sort.Slice(r.activeLights, func(i, j int) bool {
-			a, b := r.activeLights[i], r.activeLights[j]
+		slices.SortFunc(r.activeLights, func(a, b LightSource) int {
 			da := (a.X-camX)*(a.X-camX) + (a.Y-camY)*(a.Y-camY)
 			db := (b.X-camX)*(b.X-camX) + (b.Y-camY)*(b.Y-camY)
-			return da < db
+			return cmp.Compare(da, db)
 		})
 	}
 }
@@ -1288,6 +1295,9 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 	// cold path or a reused per-ray buffer for hot path).
 	maxSteps := int(r.game.camera.ViewDist/tileSize) + 2 // A little margin
 	wallSide := 0
+	// One world resolve per ray, not per step: GetCurrentWorld is a string-map
+	// lookup and the world cannot change mid-frame.
+	currentWorld := r.game.GetCurrentWorld()
 
 	for steps := 0; steps < maxSteps; steps++ {
 		// Choose which direction to step
@@ -1302,8 +1312,7 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 		}
 
 		// Check what tile we've stepped into
-		worldX, worldY := TileCenterFromTile(currentTileX, currentTileY, tileSize)
-		tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
+		tileType := currentWorld.GetTileAtGrid(currentTileX, currentTileY)
 
 		// If we hit an empty tile, we can just continue
 		if tileType == world.TileEmpty {
@@ -2859,9 +2868,10 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
-	// Sort all sprites by depth (back to front)
-	sort.Slice(sprites, func(i, j int) bool {
-		return sprites[i].depthPerp > sprites[j].depthPerp
+	// Sort all sprites by depth (back to front). slices.SortFunc: no reflect
+	// swaps and no closure alloc, unlike sort.Slice - this runs every frame.
+	slices.SortFunc(sprites, func(a, b UnifiedSpriteRenderData) int {
+		return cmp.Compare(b.depthPerp, a.depthPerp)
 	})
 
 	// Update buffer for next frame

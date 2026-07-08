@@ -156,7 +156,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 0.8
+    wall_height_multiplier: 1.0
     sprite: "thicket"
     render_type: "textured_wall"
     wall_color: [34, 80, 34]  # Dark green thicket
@@ -800,7 +800,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 1.2
+    wall_height_multiplier: 1.0
     sprite: "highlands_cliff_wall"
     render_type: "textured_wall"
     wall_color: [82, 86, 80]
@@ -836,7 +836,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 0.7
+    wall_height_multiplier: 1.0
     sprite: "highlands_slate_wall"
     render_type: "textured_wall"
     wall_color: [74, 78, 74]
@@ -1049,7 +1049,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 1.25
+    wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_cliff_wall"
     render_type: "textured_wall"
     wall_color: [78, 82, 78]
@@ -1061,7 +1061,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 1.1
+    wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_basalt_wall"
     render_type: "textured_wall"
     wall_color: [46, 44, 42]
@@ -1085,7 +1085,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 0.75
+    wall_height_multiplier: 1.0
     sprite: "dragon_cliffs_slate_wall"
     render_type: "textured_wall"
     wall_color: [56, 58, 60]
@@ -1274,7 +1274,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 0.5
+    wall_height_multiplier: 1.0
     sprite: "low_wall"
     render_type: "textured_wall"
     wall_color: [120, 120, 120]  # Light gray low wall
@@ -1285,7 +1285,7 @@ tiles:
     solid: true
     transparent: false
     walkable: false
-    wall_height_multiplier: 1.5
+    wall_height_multiplier: 1.0
     sprite: "high_wall"
     render_type: "textured_wall"
     wall_color: [40, 40, 40]  # Dark gray high wall

@@ -96,6 +96,70 @@ type Config struct {
 	MonsterAI  MonsterAIConfig `yaml:"monster_ai"`
 	Graphics   GraphicsConfig  `yaml:"graphics"`
 	Tiles      TileConfig      `yaml:"tiles"`
+	DayNight   DayNightConfig  `yaml:"day_night"`
+}
+
+// DayNightConfig tunes the day/night cycle. Zero values fall back to the
+// defaults below, so configs (and tests) that omit the block keep working.
+type DayNightConfig struct {
+	HalfCycleSeconds    int                  `yaml:"half_cycle_seconds"`    // length of one day (and one night)
+	DayLight            float64              `yaml:"day_light"`             // outdoor ambient scale at noon
+	NightLight          float64              `yaml:"night_light"`           // outdoor ambient scale at midnight
+	PanoramaFadeSeconds float64              `yaml:"panorama_fade_seconds"` // sky crossfade at each phase flip
+	Packs               []DayNightPackConfig `yaml:"packs"`
+}
+
+// DayNightPackConfig is an ambient monster pack that swaps with the phase:
+// day_monster roams by day, night_monster by night (either may be empty).
+type DayNightPackConfig struct {
+	Map                string  `yaml:"map"`
+	DayMonster         string  `yaml:"day_monster"`
+	NightMonster       string  `yaml:"night_monster"`
+	Count              int     `yaml:"count"`
+	MinPlayerDistTiles float64 `yaml:"min_player_dist_tiles"`
+}
+
+const (
+	defaultDayNightHalfCycleSeconds = 7 * 60
+	defaultDayNightDayLight         = 1.0
+	defaultDayNightNightLight       = 0.7
+	defaultDayNightFadeSeconds      = 3.0
+	defaultDayNightPackDistTiles    = 8.0
+)
+
+func (d DayNightConfig) HalfCycleSecondsOrDefault() int {
+	if d.HalfCycleSeconds > 0 {
+		return d.HalfCycleSeconds
+	}
+	return defaultDayNightHalfCycleSeconds
+}
+
+func (d DayNightConfig) DayLightOrDefault() float64 {
+	if d.DayLight > 0 {
+		return d.DayLight
+	}
+	return defaultDayNightDayLight
+}
+
+func (d DayNightConfig) NightLightOrDefault() float64 {
+	if d.NightLight > 0 {
+		return d.NightLight
+	}
+	return defaultDayNightNightLight
+}
+
+func (d DayNightConfig) PanoramaFadeSecondsOrDefault() float64 {
+	if d.PanoramaFadeSeconds > 0 {
+		return d.PanoramaFadeSeconds
+	}
+	return defaultDayNightFadeSeconds
+}
+
+func (p DayNightPackConfig) MinPlayerDistTilesOrDefault() float64 {
+	if p.MinPlayerDistTiles > 0 {
+		return p.MinPlayerDistTiles
+	}
+	return defaultDayNightPackDistTiles
 }
 
 type DisplayConfig struct {

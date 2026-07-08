@@ -101,7 +101,8 @@ func NewFxPreview(cfg *config.Config) (*FxPreview, error) {
 }
 
 func (p *FxPreview) resetCamera() {
-	p.g.camera.X, p.g.camera.Y, p.g.camera.Angle = p.homeX, p.homeY, p.homeA
+	p.g.camera.X, p.g.camera.Y = p.homeX, p.homeY
+	p.g.snapFacing(p.homeA)
 	if e := p.g.collisionSystem.GetEntityByID("player"); e != nil {
 		p.g.collisionSystem.UpdateEntity("player", p.g.camera.X, p.g.camera.Y)
 	}
@@ -231,7 +232,8 @@ func (p *FxPreview) Select(item FxItem) {
 	p.tick = 0
 	p.clearTransient()
 	if item.Kind == FxTile {
-		p.g.camera.X, p.g.camera.Y, p.g.camera.Angle = item.camX, item.camY, item.camA
+		p.g.camera.X, p.g.camera.Y = item.camX, item.camY
+		p.g.snapFacing(item.camA)
 	} else {
 		p.resetCamera()
 	}

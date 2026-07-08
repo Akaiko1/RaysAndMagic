@@ -1,5 +1,7 @@
 package collision
 
+import "math"
+
 // EntitySnapshot is a value copy of one entity's mutable state, frozen at
 // Snapshot() time - safe to read concurrently no matter what happens to the
 // live Entity afterward.
@@ -27,6 +29,28 @@ type CollisionSnapshot struct {
 	tileChecker TileChecker
 	tileSize    float64
 	entities    map[string]EntitySnapshot
+	// Spatial index over the SOLID entities: tileSize-sided cells -> indices
+	// into solids. Entity passability queries (A* expands thousands of nodes
+	// per tick) test only the buckets the probe box overlaps instead of
+	// scanning every entity. An entity is inserted into every bucket its box
+	// overlaps, so two intersecting boxes always share a bucket - results are
+	// identical to the linear scan. Nil when tileSize is 0 (hand-built test
+	// snapshots): queries fall back to the linear path.
+	solids  []snapEntity
+	buckets map[bucketKey][]int32
+}
+
+// snapEntity is one solid entity in the snapshot's spatial index.
+type snapEntity struct {
+	id            string
+	box           BoundingBox
+	collisionType CollisionType
+}
+
+type bucketKey struct{ x, y int32 }
+
+func bucketCoord(v, size float64) int32 {
+	return int32(math.Floor(v / size))
 }
 
 // Snapshot copies the current entity state into an immutable view. O(entities)
@@ -38,11 +62,29 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 		tileSize:    cs.tileSize,
 		entities:    make(map[string]EntitySnapshot, len(cs.entities)),
 	}
+	if snap.tileSize > 0 {
+		snap.solids = make([]snapEntity, 0, len(cs.entities))
+		snap.buckets = make(map[bucketKey][]int32, len(cs.entities)*2)
+	}
 	for id, e := range cs.entities {
 		snap.entities[id] = EntitySnapshot{
 			Box:           *e.BoundingBox,
 			CollisionType: e.CollisionType,
 			Solid:         e.Solid,
+		}
+		if snap.buckets == nil || !e.Solid {
+			continue
+		}
+		idx := int32(len(snap.solids))
+		snap.solids = append(snap.solids, snapEntity{id: id, box: *e.BoundingBox, collisionType: e.CollisionType})
+		minX, minY, maxX, maxY := e.BoundingBox.GetBounds()
+		bx0, by0 := bucketCoord(minX, snap.tileSize), bucketCoord(minY, snap.tileSize)
+		bx1, by1 := bucketCoord(maxX, snap.tileSize), bucketCoord(maxY, snap.tileSize)
+		for by := by0; by <= by1; by++ {
+			for bx := bx0; bx <= bx1; bx++ {
+				k := bucketKey{bx, by}
+				snap.buckets[k] = append(snap.buckets[k], idx)
+			}
 		}
 	}
 	return snap
@@ -96,18 +138,43 @@ func (cs *CollisionSnapshot) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 }
 
 // canMoveToEntityPosition is CollisionSystem.canMoveToEntityPosition adapted to
-// the snapshot's value-copy entities (no *Entity pointers to share).
+// the snapshot's value-copy entities (no *Entity pointers to share). Queries
+// the spatial index when available; an entity spanning several buckets may be
+// tested more than once, which only repeats the same cheap intersect test.
 func (cs *CollisionSnapshot) canMoveToEntityPosition(movingID string, movingType CollisionType, box *BoundingBox) bool {
-	for id, other := range cs.entities {
-		if id == movingID || !other.Solid {
-			continue
+	if cs.buckets == nil {
+		for id, other := range cs.entities {
+			if id == movingID || !other.Solid {
+				continue
+			}
+			if shouldIgnoreCollisionTypes(movingType, other.CollisionType) {
+				continue
+			}
+			otherBox := other.Box
+			if box.Intersects(&otherBox) {
+				return false
+			}
 		}
-		if shouldIgnoreCollisionTypes(movingType, other.CollisionType) {
-			continue
-		}
-		otherBox := other.Box
-		if box.Intersects(&otherBox) {
-			return false
+		return true
+	}
+
+	minX, minY, maxX, maxY := box.GetBounds()
+	bx0, by0 := bucketCoord(minX, cs.tileSize), bucketCoord(minY, cs.tileSize)
+	bx1, by1 := bucketCoord(maxX, cs.tileSize), bucketCoord(maxY, cs.tileSize)
+	for by := by0; by <= by1; by++ {
+		for bx := bx0; bx <= bx1; bx++ {
+			for _, idx := range cs.buckets[bucketKey{bx, by}] {
+				other := &cs.solids[idx]
+				if other.id == movingID {
+					continue
+				}
+				if shouldIgnoreCollisionTypes(movingType, other.collisionType) {
+					continue
+				}
+				if box.Intersects(&other.box) {
+					return false
+				}
+			}
 		}
 	}
 	return true

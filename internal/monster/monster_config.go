@@ -331,6 +331,10 @@ func (c *MonsterYAMLConfig) ConvertTileType(tileTypeStr string) (int, error) {
 func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.Name = def.Name
 	m.MonsterType = def.Type
+	// Size never changes after setup; cached so the per-tick callers (monster
+	// separation runs GetSize per overlapping pair) skip the config scan.
+	m.cachedSizeW, m.cachedSizeH = def.GetSizeFromConfig()
+	m.cachedSizeMult = def.GetSizeGameMultiplier()
 	m.Level = def.Level
 	m.MaxHitPoints = def.MaxHitPoints
 	m.ArmorClass = def.ArmorClass

@@ -765,7 +765,17 @@ func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
 	if panorama == nil {
 		return false
 	}
+	// Day/night phase flip: crossfade the incoming panorama over the outgoing one.
+	if prev := rh.game.skyPanoramaPrev; prev != nil && rh.game.skyFadeFrames > 0 {
+		drew := rh.drawSkyLayer(screen, prev, 1)
+		return rh.drawSkyLayer(screen, panorama, rh.game.skyFadeAlpha()) || drew
+	}
+	return rh.drawSkyLayer(screen, panorama, 1)
+}
 
+// drawSkyLayer draws one panorama at the given opacity (premultiplied vertex
+// colors, so layered draws source-over into a crossfade).
+func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.Image, alpha float32) bool {
 	shader, err := rh.game.ensureSkyShader()
 	if err != nil || shader == nil {
 		return false
@@ -800,11 +810,12 @@ func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
 	dx1 := float32(screenWidth)
 	dy1 := float32(skyHeight)
 
+	a := alpha
 	vertices := [4]ebiten.Vertex{
-		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
 	}
 	indices := [6]uint16{0, 1, 2, 1, 3, 2}
 	op := &ebiten.DrawTrianglesShaderOptions{}

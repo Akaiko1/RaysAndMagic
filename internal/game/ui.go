@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"ugataima/internal/items"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -61,6 +62,14 @@ type UISystem struct {
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
 	radarDotFar    *ebiten.Image // Yellow dot for far enemies
+	// Compass minimap tile-layer cache: the ~80 static tile fills only change
+	// when the player crosses a tile boundary (or the world swaps), so they're
+	// baked into one image and blitted per frame instead of re-emitting a
+	// vector.FillRect per tile every frame.
+	compassTileLayer  *ebiten.Image
+	compassCacheTileX int
+	compassCacheTileY int
+	compassCacheWorld *world.World3D
 }
 
 // NewUISystem creates a new UI system

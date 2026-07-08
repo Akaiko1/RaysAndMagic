@@ -116,6 +116,9 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 	gl.game.combat.knockOutLethalDoTVictims()
 
+	// Day/night clock: runs in both RT and TB, pauses with menus (above).
+	gl.game.updateDayNight()
+
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
 
