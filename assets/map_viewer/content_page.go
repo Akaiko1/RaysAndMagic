@@ -190,8 +190,7 @@ func (v *viewer) maxContentScroll() int {
 }
 
 func drawSectionHeader(dst *ebiten.Image, label string, x, y, w int) {
-	drawFilledRect(dst, x, y, w, contentSectionH, color.RGBA{40, 40, 60, 255})
-	drawRectBorder(dst, x, y, w, contentSectionH, 1, color.RGBA{70, 70, 100, 255})
+	drawHeaderBandRect(dst, x, y, w, contentSectionH)
 	ebitenutil.DebugPrintAt(dst, label, x+10, y+7)
 }
 

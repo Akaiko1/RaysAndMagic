@@ -562,6 +562,18 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 	return nil
 }
 
+// npcSpriteDims returns a sprite's pixel size (0,0 if unresolved). Used to
+// classify animated NPC sheets (width == height * frames) for the palette's
+// display-type grouping; the image is cached by tileSpriteThumbnail.
+func (v *viewer) npcSpriteDims(sprite string) (w, h int) {
+	img := v.tileSpriteThumbnail(sprite)
+	if img == nil {
+		return 0, 0
+	}
+	b := img.Bounds()
+	return b.Dx(), b.Dy()
+}
+
 // iconForCard loads the per-card sprite by naming convention
 // (icon_<kind>_<key>), resolved anywhere under assets/sprites via the shared
 // index. Returns nil if no file.

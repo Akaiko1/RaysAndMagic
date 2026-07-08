@@ -2542,17 +2542,12 @@ func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float
 	if mon == nil {
 		return 0, 0
 	}
-	x, y := mon.X, mon.Y
+	// The on-screen anchor (pulled slot + banded-stack fan) is owned by
+	// combat.monsterVisualPos so impact/splash FX land on the same spot.
 	if r != nil && r.game != nil && r.game.combat != nil {
-		x, y = r.game.combat.monsterVisualPos(mon)
+		return r.game.combat.monsterVisualPos(mon)
 	}
-	// Banded stack: fan members around the tile centre so a pile of mobs snapped
-	// onto one leader reads as several, not one (render-only; positions unchanged).
-	if mon.BandStackCount > 1 && r.game != nil && r.game.config != nil {
-		ox, oy := bandFanOffset(mon.BandStackIndex, mon.BandStackCount, float64(r.game.config.GetTileSize()))
-		x, y = x+ox, y+oy
-	}
-	return x, y
+	return mon.X, mon.Y
 }
 
 // monsterHitShakeSizePx clamps the sprite size that scales the on-hit shudder so
@@ -4002,7 +3997,6 @@ func (r *Renderer) drawSlashEffects(screen *ebiten.Image) {
 func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 	screenWidth := r.game.config.GetScreenWidth()
 	screenHeight := r.game.config.GetScreenHeight()
-	centerX := float64(screenWidth) / 2
 	centerY := float64(screenHeight) / 2
 
 	// Draw spell hit particles
@@ -4018,23 +4012,21 @@ func (r *Renderer) drawHitEffects(screen *ebiten.Image) {
 				continue
 			}
 
-			// Project the anchor (impact point), then add the particle's screen-space
-			// offset so the burst spreads in 2D (up/down/sideways), not a ground line.
-			dx := particle.X - r.game.camera.X
-			dy := particle.Y - r.game.camera.Y
-
-			cosAngle := math.Cos(r.game.camera.Angle)
-			sinAngle := math.Sin(r.game.camera.Angle)
-			relY := dx*cosAngle + dy*sinAngle
-			relX := -dx*sinAngle + dy*cosAngle
-
-			if relY <= 0.1 {
+			// Anchor the burst on the SAME horizontal projection the sprite uses
+			// (camera-plane, via projectToScreenX) - the old centerX+relX*scale
+			// used a screenHeight/fov lateral coefficient that disagreed with the
+			// sprite's screenW/(2*tan(fov/2)), so off-axis impacts (e.g. an AoE
+			// splash on a mob to the side) drew pulled toward screen center.
+			anchorX, depth, ok := r.game.renderHelper.projectToScreenX(particle.X, particle.Y)
+			if !ok {
 				continue
 			}
 
 			fov := r.game.camera.FOV
-			scale := float64(screenHeight) / (relY * fov)
-			screenX := centerX + relX*scale + particle.OffsetX*scale
+			// Screen-space burst spread scales with perspective; the anchor is
+			// already correct, so only the OFFSET rides this scale.
+			scale := float64(screenHeight) / (depth * fov)
+			screenX := float64(anchorX) + particle.OffsetX*scale
 			screenY := centerY + particle.OffsetY*scale
 
 			if screenX < -20 || screenX > float64(screenWidth)+20 {

@@ -144,7 +144,27 @@ type legendEntry struct {
 	NPCKey      string
 	NPCName     string
 	IsHeader    bool
+	// Continuation marks a wrapped continuation of the entry above it: same
+	// brush fields (so click + highlight span the whole wrapped block) but
+	// drawn indented under the text column with no swatch. Keeps the strict
+	// 1-entry-per-row model that the scroll + click hit-test math relies on.
+	Continuation bool
+	// Section marks a real GROUP header (Tiles / Monsters / Special NPCs /
+	// [category] / ...), drawn on a filled band with green text like the game's
+	// item-section headers. Distinct from IsHeader, which also covers blank
+	// spacers and the plain Notes lines - those stay unbanded.
+	Section bool
 }
+
+// sectionHeader builds a banded green group header (see legendEntry.Section).
+func sectionHeader(text string) legendEntry {
+	return legendEntry{Text: text, IsHeader: true, Section: true}
+}
+
+// legendTextCols is the character budget for one legend text line: the panel
+// width minus the swatch column and margins, at ~6px/glyph. Used to wrap long
+// NPC labels into Continuation rows at build time.
+const legendTextCols = (sidebarWidth - 34) / 6
 
 type layout struct {
 	mapAreaX  int
@@ -1033,13 +1053,26 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		if brushMatchesEntry(currentBrush, entry) {
 			drawFilledRect(screen, x+4, drawY-2, w-8, lineHeight+2, color.RGBA{70, 70, 95, 255})
 		}
+		// Group headers render on a filled band with green text, like the game's
+		// item-section headers. The band leaves 1px top+bottom padding inside the
+		// row (shared viewerHeaderBand style).
+		if entry.Section {
+			drawHeaderBandRect(screen, x+4, drawY-2, w-8, lineHeight+2)
+			avail := (x + w) - (x + 10) - 8
+			game.DrawShadedText(screen, clipText(entry.Text, avail), x+10, drawY, viewerHeaderTextColor)
+			continue
+		}
 		// Preview showing how the tile/monster looks on the map, so the
 		// letter isn't the only cue: a sprite thumbnail for tiles that have
 		// one (objects), otherwise a color swatch matching the map grid.
 		// Floors have no sprite, so they stay color-only (no atlas overload).
 		const sw = 12
 		textX := x + 10
-		if !entry.IsHeader {
+		if entry.Continuation {
+			// Wrapped tail of the entry above: no swatch, indented to align under
+			// the parent's text column (swatch x + swatch width + gap).
+			textX = x + 8 + sw + 6
+		} else if !entry.IsHeader {
 			sx, sy := x+8, drawY
 			drawn := false
 			if entry.Kind == brushTile && thumb != nil {
@@ -1789,7 +1822,7 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
-	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome())
+	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome(), v.npcSpriteDims)
 	v.legendScroll = 0
 }
 
@@ -1840,9 +1873,9 @@ func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
 // entries are hidden so a forest tree can't be painted into a desert map, and
 // when a biome-specific def shares a letter with a universal one, only the
 // biome-specific (the def that actually resolves) is shown.
-func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string) []legendEntry {
+func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string, npcSpriteDims func(sprite string) (w, h int)) []legendEntry {
 	var entries []legendEntry
-	entries = append(entries, legendEntry{Text: "Tools", IsHeader: true})
+	entries = append(entries, sectionHeader("Tools"))
 	entries = append(entries, legendEntry{Text: "Eraser", Kind: brushEraser})
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 
@@ -1850,7 +1883,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	if biomeLabel == "" {
 		biomeLabel = "-"
 	}
-	entries = append(entries, legendEntry{Text: fmt.Sprintf("Tiles - biome: %s", biomeLabel), IsHeader: true})
+	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
 
 	tileItems := make(map[string][]legendBuildItem)
 	for key, data := range tm.ListTiles() {
@@ -1875,7 +1908,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	entries = append(entries, emitBiomeScoped(tileItems)...)
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "Monsters (letter -> key/name)", IsHeader: true})
+	entries = append(entries, sectionHeader("Monsters (letter -> key/name)"))
 
 	if mc != nil {
 		monsterItems := make(map[string][]legendBuildItem)
@@ -1905,51 +1938,86 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
 	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
 	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
+	// Grouped by DISPLAY TYPE (standee / animated / wall / landmark / scenery /
+	// invisible) via game.NPCDisplayCategory - the same classification the game's
+	// renderer uses, so a new render branch surfaces as its own palette group
+	// automatically (see that function).
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, legendEntry{Text: "Special NPCs (@ -> key/name)", IsHeader: true})
-		// Grouped by NPC type (merchant/tavern/portal/...), untyped last.
-		keysByType := map[string][]string{}
+		entries = append(entries, sectionHeader("Special NPCs (@ by display type)"))
+
+		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
-			typ := "other"
-			if data != nil && data.Type != "" {
-				typ = data.Type
+			sprite, renderType, wallMounted := "", "", false
+			if data != nil {
+				sprite, renderType, wallMounted = data.Sprite, data.RenderType, data.WallMounted
 			}
-			keysByType[typ] = append(keysByType[typ], key)
+			w, h := 0, 0
+			if npcSpriteDims != nil {
+				w, h = npcSpriteDims(sprite)
+			}
+			cat := game.NPCDisplayCategory(sprite, renderType, wallMounted, w, h)
+			keysByCat[cat] = append(keysByCat[cat], key)
 		}
-		types := make([]string, 0, len(keysByType))
-		for typ := range keysByType {
-			if typ != "other" {
-				types = append(types, typ)
+
+		// Canonical order first, then any category not in the known list (a
+		// freshly added render branch) appended alphabetically so it still shows.
+		cats := make([]string, 0, len(keysByCat))
+		seen := map[string]bool{}
+		for _, cat := range game.NPCDisplayCategoryOrder {
+			if _, ok := keysByCat[cat]; ok {
+				cats = append(cats, cat)
+				seen[cat] = true
 			}
 		}
-		sort.Strings(types)
-		if _, ok := keysByType["other"]; ok {
-			types = append(types, "other")
+		var extra []string
+		for cat := range keysByCat {
+			if !seen[cat] {
+				extra = append(extra, cat)
+			}
 		}
-		for _, typ := range types {
-			entries = append(entries, legendEntry{Text: "  [" + typ + "]", IsHeader: true})
-			keys := keysByType[typ]
+		sort.Strings(extra)
+		cats = append(cats, extra...)
+
+		for _, cat := range cats {
+			keys := keysByCat[cat]
+			entries = append(entries, sectionHeader(fmt.Sprintf("  [%s] (%d)", cat, len(keys))))
 			sort.Strings(keys)
 			for _, key := range keys {
 				data := character.NPCConfigInstance.NPCs[key]
 				name := key
-				if data != nil && data.Name != "" {
-					name = data.Name
+				typ := ""
+				if data != nil {
+					if data.Name != "" {
+						name = data.Name
+					}
+					typ = data.Type
 				}
-				entries = append(entries, legendEntry{
-					Text:    fmt.Sprintf("@  %s (%s)", key, name),
-					Kind:    brushNPC,
-					Letter:  "@",
-					NPCKey:  key,
-					NPCName: name,
-				})
+				label := fmt.Sprintf("@  %s (%s)", key, name)
+				if typ != "" {
+					label += " [" + typ + "]"
+				}
+				// Wrap long labels into continuation rows (word-wrap) instead of
+				// truncating with an ellipsis, so the full name + [type] stays
+				// readable in the narrow sidebar. Every wrapped row carries the
+				// same NPC brush, so click + highlight cover the whole block.
+				wrapped := wrapTooltipLines(label, legendTextCols)
+				for li, ln := range wrapped {
+					entries = append(entries, legendEntry{
+						Text:         ln,
+						Kind:         brushNPC,
+						Letter:       "@",
+						NPCKey:       key,
+						NPCName:      name,
+						Continuation: li > 0,
+					})
+				}
 			}
 		}
 	}
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "Notes", IsHeader: true})
+	entries = append(entries, sectionHeader("Notes"))
 	entries = append(entries, legendEntry{Text: "+ = start position", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "@ = NPC/special-tile placeholder in map lines", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "a-z = monster letters (tile underneath is empty)", IsHeader: true})
@@ -1974,6 +2042,22 @@ func colorFromRGB(rgb [3]int, a uint8) color.RGBA {
 
 func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
+}
+
+// Shared header styling for every panel in the map viewer (legend / saves /
+// mobs / content grid), so group headers read identically everywhere.
+var (
+	viewerHeaderFill      = color.RGBA{40, 40, 60, 255}
+	viewerHeaderBorder    = color.RGBA{70, 70, 100, 255}
+	viewerHeaderTextColor = color.RGBA{110, 220, 110, 255} // green, like the game's item-section headers
+)
+
+// drawHeaderBandRect draws a group-header band inside the given row rect, inset
+// 1px at top and bottom so consecutive headers never touch (the 1px breathing
+// room the whole viewer's headers share). Caller draws the label over it.
+func drawHeaderBandRect(screen *ebiten.Image, x, y, w, h int) {
+	drawFilledRect(screen, x, y+1, w, h-2, viewerHeaderFill)
+	drawRectBorder(screen, x, y+1, w, h-2, 1, viewerHeaderBorder)
 }
 
 // drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's

@@ -1147,18 +1147,33 @@ func (cs *CombatSystem) pulledFrontSlot(mon *monsterPkg.Monster3D) (side int, x,
 	return 0, 0, 0, false, false
 }
 
-// monsterVisualPos returns where a monster is DRAWN - its true spot, or the
-// turn-based front-diagonal pulled slot. Instant-hit FX (melee impact sparks)
-// must anchor here so they land where the player SEES the monster, not at its
-// real off-to-the-side tile. Shares pulledFrontSlot with the renderer.
+// monsterVisualPos is the single source of truth for where a monster is DRAWN:
+// its true spot, shifted by the turn-based front-diagonal pulled slot and by
+// the banded-stack fan offset (a band snaps its members onto one tile, then the
+// renderer fans them out to read as several). Every impact/splash FX anchors
+// here so it lands where the player SEES the monster, not at its real tile -
+// the renderer's monsterVisualPosition delegates to this so the two can't drift.
 func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, float64) {
 	if mon == nil {
 		return 0, 0
 	}
-	if _, x, y, pulled, ok := cs.pulledFrontSlot(mon); ok && pulled {
-		return x, y
+	x, y := mon.X, mon.Y
+	if _, px, py, pulled, ok := cs.pulledFrontSlot(mon); ok && pulled {
+		x, y = px, py
 	}
-	return mon.X, mon.Y
+	if mon.BandStackCount > 1 && cs.game != nil && cs.game.config != nil {
+		ox, oy := bandFanOffset(mon.BandStackIndex, mon.BandStackCount, float64(cs.game.config.GetTileSize()))
+		x, y = x+ox, y+oy
+	}
+	return x, y
+}
+
+// spawnMonsterHitBurst bursts generic impact particles where a monster is DRAWN
+// (banded-stack / pulled-slot aware, via monsterVisualPos). Shared by AoE splash
+// and party-nova victims so both anchor on the sprite, not the raw tile.
+func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element string) {
+	x, y := cs.monsterVisualPos(m)
+	cs.game.CreateSpellHitEffect(x, y, element, SpellParticleCount, SpellParticleSize)
 }
 
 // ApplyDamageToMonster applies damage to a monster and handles combat messages
@@ -2321,7 +2336,8 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		sourceName = "A bolt"
 	}
 	if spellFx != "" {
-		cs.game.CreateSpellHitEffectFromSpell(target.X, target.Y, spellFx)
+		tx, ty := cs.monsterVisualPos(target) // banded/pulled: burst where the mob is DRAWN
+		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx)
 	}
 
 	// kill finalizes a slain target: a fallen enemy rewards the party; a fallen
@@ -3009,7 +3025,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 		reduced := applyMonsterArmor(damage, damageTypeStr, m.ArmorClass, false)
 		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
 		cs.markMonsterHit(m)
-		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		cs.spawnMonsterHitBurst(m, damageTypeStr)
 
 		if !m.IsAlive() {
 			xpAwarded := cs.finishMonsterKill(m)
@@ -3556,7 +3572,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 		reduced := applyMonsterArmor(monsterDmg, damageTypeStr, m.ArmorClass, false)
 		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
 		cs.markMonsterHit(m)
-		cs.game.CreateSpellHitEffect(m.X, m.Y, damageTypeStr, SpellParticleCount, SpellParticleSize)
+		cs.spawnMonsterHitBurst(m, damageTypeStr)
 		if !m.IsAlive() {
 			cs.game.collisionSystem.UnregisterEntity(m.ID)
 			xpAwarded := cs.finishMonsterKill(m)

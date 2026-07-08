@@ -88,8 +88,16 @@ func (g *MMGame) syncQuestTiles() {
 	// The floor renderer bakes tile colors/textures into per-map images at map
 	// entry - a swapped tile keeps DRAWING as the old one (walkable water!)
 	// until the bake reruns. Other maps re-bake on switch.
-	if changedCurrent && g.gameLoop != nil && g.gameLoop.renderer != nil {
-		g.gameLoop.renderer.precomputeFloorColorCache()
+	if changedCurrent && g.gameLoop != nil {
+		if g.gameLoop.renderer != nil {
+			g.gameLoop.renderer.precomputeFloorColorCache()
+		}
+		// The compass minimap tile layer is cached the same way and goes stale
+		// for the same reason (a quest can swap a tile under a standing
+		// player, who never crosses the cache's tile-boundary trigger).
+		if g.gameLoop.ui != nil {
+			g.gameLoop.ui.invalidateCompassTileLayer()
+		}
 	}
 }
 

@@ -592,8 +592,7 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 		switch {
 		case entry.kind == saveEntryHeader:
 			// Section headers render on a filled band (editor/game convention).
-			drawFilledRect(list, 4, ry-2, saveListW-8, saveListRowH, color.RGBA{40, 40, 60, 255})
-			drawRectBorder(list, 4, ry-2, saveListW-8, saveListRowH, 1, color.RGBA{70, 70, 100, 255})
+			drawHeaderBandRect(list, 4, ry-2, saveListW-8, saveListRowH)
 			col = color.RGBA{255, 255, 255, 255}
 		case entry.dim:
 			col = color.RGBA{110, 110, 125, 255}
@@ -649,8 +648,7 @@ func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []saveDetailLin
 		}
 		// Section headers render on a filled band (editor/game convention).
 		if line.header {
-			drawFilledRect(clip, panel.x+4, ry-2, panel.w-8, saveDetailRowH+2, color.RGBA{40, 40, 60, 255})
-			drawRectBorder(clip, panel.x+4, ry-2, panel.w-8, saveDetailRowH+2, 1, color.RGBA{70, 70, 100, 255})
+			drawHeaderBandRect(clip, panel.x+4, ry-2, panel.w-8, saveDetailRowH+2)
 		}
 		game.DrawShadedText(clip, clipText(line.text, maxTextW), panel.x+10, ry, line.col)
 	}

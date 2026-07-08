@@ -258,8 +258,7 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 		y := infoY + row*mobInfoRowH
 		// Section headers render on a filled band (editor/game convention).
 		if line.header {
-			drawFilledRect(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2, color.RGBA{40, 40, 60, 255})
-			drawRectBorder(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2, 1, color.RGBA{70, 70, 100, 255})
+			drawHeaderBandRect(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2)
 		}
 		game.DrawShadedText(info, line.text, x, y, line.col)
 	}

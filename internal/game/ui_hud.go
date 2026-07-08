@@ -756,6 +756,13 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
 }
 
+// invalidateCompassTileLayer forces the next drawCompassMinimap call to
+// rebuild the cached tile layer, even though the player is still on the same
+// tile - needed when a quest swaps a tile out from under a standing player.
+func (ui *UISystem) invalidateCompassTileLayer() {
+	ui.compassCacheWorld = nil
+}
+
 // drawCompassMinimap renders the nearby tiles on the compass as a minimap.
 // The tile layer is cached (see rebuildCompassTileLayer) and only rebuilt when
 // the player crosses a tile boundary or the world changes; NPC dots move

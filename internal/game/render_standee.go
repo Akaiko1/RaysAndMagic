@@ -254,6 +254,24 @@ func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image,
 	return true
 }
 
+// standeeShellCount is the number of core silhouette layers a slab needs at
+// the given half-thickness/depth so shells never sit more than ~1.5 screen
+// pixels apart (the die-cut wood rim reads solid, not banded). Pure geometry -
+// extracted so a perf diagnostic can compute the SAME per-tree cost the
+// renderer will pay without touching any texture (see
+// debug_standee_cost_sim_test.go).
+func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, centerDepth float64) int {
+	thicknessPx := 2 * halfThicknessWorld * float64(screenW) / (2 * halfFovTan * centerDepth)
+	shells := int(thicknessPx/1.5) + 1
+	if shells < 2 {
+		shells = 2
+	}
+	if shells > standeeMaxShells {
+		shells = standeeMaxShells
+	}
+	return shells
+}
+
 // prepareStandeeSlab builds a token slab for one yaw into dst (a reused
 // surface buffer): the far/near stickers with the wood shells between them, plus
 // the unclipped screen span and the billboard metrics. ok=false means the slab
@@ -308,14 +326,7 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	// The wood between the stickers is a real volume: a dense stack of
 	// silhouette shells (shell texturing) spaced <= ~1.5 screen pixels apart, so
 	// at any viewing angle the rim reads as solid die-cut wood, not a plane.
-	thicknessPx := 2 * h * float64(screenW) / (2 * halfFovTan * centerDepth)
-	shells := int(thicknessPx/1.5) + 1
-	if shells < 2 {
-		shells = 2
-	}
-	if shells > standeeMaxShells {
-		shells = standeeMaxShells
-	}
+	shells := standeeShellCount(h, screenW, halfFovTan, centerDepth)
 	// Painter's order per column is fixed for parallel surfaces: build far -> near.
 	surfaces := dst[:0]
 	surfaces = append(surfaces, surface(-h*camSide, sprite, standeeCoreShadeFar)) // far sticker (its edge sliver)
@@ -515,6 +526,14 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 // metrics (depth/size/floor anchor), so they stay grounded. The texture is the
 // TILE's own configured sprite (data-driven), so each tree tile (forest oak,
 // ancient tree, ...) keeps its own art.
+// treeIsBillboardLOD reports whether a tree at this distance collapses to a
+// single camera-facing plane instead of the crossed pair. Extracted (see
+// standeeShellCount) so the perf diagnostic test applies the exact same
+// distance cutoff the renderer does.
+func treeIsBillboardLOD(distance, tileSize, lodTiles float64) bool {
+	return lodTiles > 0 && distance > lodTiles*tileSize
+}
+
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	spriteName := "tree"
 	if world.GlobalTileManager != nil {
@@ -547,7 +566,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// is sub-pixel, so collapse to a SINGLE camera-facing plane - ~4x fewer draws,
 	// full silhouette from any angle. Static (no easing): trees don't sway, they
 	// just present face-on to the camera this frame.
-	if lod := r.game.config.Graphics.TreeStandeeLODTiles; lod > 0 && distance > lod*tileSize {
+	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
 		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, -1, -1)
 		return
