@@ -1514,7 +1514,20 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		if spellDef.Duration > 0 {
 			duration = cs.CalculateSpellDurationFrames(spellID, caster)
 		}
-		cs.game.AddCombatMessage(result.Message)
+
+		// Stat-buff spells (Bless, ...) announce the ACTUAL granted bonus -
+		// mastery-scaled and caster-dependent - so the chat can never drift from
+		// the number really applied (e.g. Bless is +5 base, +10 only at GM).
+		isStatBuff := spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0
+		var statBuff character.StatBonuses
+		msg := result.Message
+		if isStatBuff {
+			statBuff = cs.spellStatBuffBonuses(spellID, caster)
+			if suffix := statBuff.Summary(); suffix != "" {
+				msg = fmt.Sprintf("%s (%s)", strings.TrimSpace(result.Message), suffix)
+			}
+		}
+		cs.game.AddCombatMessage(msg)
 
 		// Apply healing
 		if spellDef.HealAmount > 0 {
@@ -1561,9 +1574,10 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 
 		// Stat-buff spells, by DATA (stat_bonus / stat_bonuses), not by ID -
 		// any spell authored with a bonus block applies it; different buff
-		// spells stack, recasting one refreshes it.
-		if spellDef.StatBonus > 0 || len(spellDef.StatBonuses) > 0 {
-			cs.applyStatBuffSpell(spellID, duration, cs.spellStatBuffBonuses(spellID, caster))
+		// spells stack, recasting one refreshes it. Reuses the block already
+		// resolved for the announcement above (this cast only, not the aggregate).
+		if isStatBuff {
+			cs.applyStatBuffSpell(spellID, duration, statBuff)
 		}
 
 		cs.game.setUtilityStatus(spellID, duration)
@@ -3207,17 +3221,14 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 	// that type into a relentless map-wide hunt.
 	cs.rallyOnPatronDeath(monster)
 
-	// Drop gold/items into a loot bag on the ground
+	// Drop gold/items into a loot bag on the ground (fixed size from config, not
+	// scaled by the monster).
 	if monster.Gold > 0 || len(drops) > 0 {
-		sizeMultiplier := monster.GetSizeGameMultiplier() / 2.0
-		if sizeMultiplier < 0.1 {
-			sizeMultiplier = 0.1
-		}
 		gold := monster.Gold
 		if pct := cs.game.cardGoldFindPct(); pct != 0 && gold > 0 {
 			gold = gold * (100 + pct) / 100 // Jungle Goblin Card
 		}
-		cs.game.addLootBagDrop(monster.X, monster.Y, drops, gold, sizeMultiplier)
+		cs.game.addLootBagDrop(monster.X, monster.Y, drops, gold)
 	}
 
 	return xpAwarded

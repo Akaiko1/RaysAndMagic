@@ -110,13 +110,40 @@ type DayNightConfig struct {
 }
 
 // DayNightPackConfig is an ambient monster pack that swaps with the phase:
-// day_monster roams by day, night_monster by night (either may be empty).
+// day_monster roams by day, night_monster by night (either may be empty). For a
+// MIXED phase (several monster kinds at once, e.g. 4 grunts + 1 elite), author
+// day_monsters/night_monsters as a list instead; when present the list wins over
+// the single-monster+count shorthand for that phase.
 type DayNightPackConfig struct {
-	Map                string  `yaml:"map"`
-	DayMonster         string  `yaml:"day_monster"`
-	NightMonster       string  `yaml:"night_monster"`
-	Count              int     `yaml:"count"`
-	MinPlayerDistTiles float64 `yaml:"min_player_dist_tiles"`
+	Map                string             `yaml:"map"`
+	DayMonster         string             `yaml:"day_monster"`
+	NightMonster       string             `yaml:"night_monster"`
+	Count              int                `yaml:"count"`
+	DayMonsters        []PackMemberConfig `yaml:"day_monsters,omitempty"`
+	NightMonsters      []PackMemberConfig `yaml:"night_monsters,omitempty"`
+	MinPlayerDistTiles float64            `yaml:"min_player_dist_tiles"`
+}
+
+// PackMemberConfig is one monster kind and its count within a mixed pack phase.
+type PackMemberConfig struct {
+	Monster string `yaml:"monster"`
+	Count   int    `yaml:"count"`
+}
+
+// PhaseMembers resolves the monster kinds this pack spawns for the given phase:
+// the explicit list when authored, else the single-monster+count shorthand.
+func (p DayNightPackConfig) PhaseMembers(night bool) []PackMemberConfig {
+	list, mono, count := p.DayMonsters, p.DayMonster, p.Count
+	if night {
+		list, mono = p.NightMonsters, p.NightMonster
+	}
+	if len(list) > 0 {
+		return list
+	}
+	if mono != "" && count > 0 {
+		return []PackMemberConfig{{Monster: mono, Count: count}}
+	}
+	return nil
 }
 
 const (
@@ -504,12 +531,19 @@ type MonsterAIConfig struct {
 }
 
 type GraphicsConfig struct {
-	RaysPerScreenWidth int                  `yaml:"rays_per_screen_width"`
-	Colors             ColorsConfig         `yaml:"colors"`
-	Sprite             SpriteConfig         `yaml:"sprite"`
-	BrightnessMin      float64              `yaml:"brightness_min"`
-	Monster            MonsterRenderConfig  `yaml:"monster"`
-	NPC                NPCRenderConfig      `yaml:"npc"`
+	RaysPerScreenWidth int                 `yaml:"rays_per_screen_width"`
+	Colors             ColorsConfig        `yaml:"colors"`
+	Sprite             SpriteConfig        `yaml:"sprite"`
+	BrightnessMin      float64             `yaml:"brightness_min"`
+	Monster            MonsterRenderConfig `yaml:"monster"`
+	NPC                NPCRenderConfig     `yaml:"npc"`
+	// SizeClasses maps a size class (small/medium/person/large/huge) to sprite
+	// height in tile units (1.0 == a 1-tile wall). Monsters and person-NPCs pick
+	// a class instead of a raw number so sizes stay quantized and readable.
+	SizeClasses map[string]float64 `yaml:"size_classes"`
+	// ContainerSizeTiles maps a ground-container kind (loot_bag/treasure_chest)
+	// to sprite height in tile units.
+	ContainerSizeTiles map[string]float64   `yaml:"container_size_tiles"`
 	ImpassableAura     ImpassableAuraConfig `yaml:"impassable_aura"`
 	ColorKey           ColorKeyConfig       `yaml:"color_key"`
 	// Standee renders monsters, NPCs and scenery objects as flat two-sided
@@ -605,8 +639,7 @@ type MonsterRenderConfig struct {
 }
 
 type NPCRenderConfig struct {
-	MinSpriteSize          int `yaml:"min_sprite_size"`
-	SizeDistanceMultiplier int `yaml:"size_distance_multiplier"`
+	MinSpriteSize int `yaml:"min_sprite_size"`
 }
 
 type ProjectileRenderConfig struct {
@@ -642,7 +675,7 @@ type TileData struct {
 	// HeightMultiplier is a legacy fallback for old tile YAML.
 	WallHeightMultiplier float64 `yaml:"wall_height_multiplier,omitempty"`
 	HeightMultiplier     float64 `yaml:"height_multiplier,omitempty"`
-	SizeMultiplier       float64 `yaml:"size_multiplier,omitempty"`
+	SizeTiles            float64 `yaml:"size_tiles,omitempty"`
 	Sprite               string  `yaml:"sprite"`
 	RenderType           string  `yaml:"render_type"`
 	FloorColor           [3]int  `yaml:"floor_color"`
@@ -662,6 +695,18 @@ type TileData struct {
 	WallColor    [3]int   `yaml:"wall_color"`
 	Letter       string   `yaml:"letter"`
 	Biomes       []string `yaml:"biomes,omitempty"`
+	// ShortLabel is a multi-char placement token for GENERAL (universal) tiles
+	// that have no single-char letter - placed in maps via a >[tile:short_label]
+	// def at an '@' position, like NPCs/special tiles. Frees such tiles from the
+	// scarce single-char letter space; the map editor's "general" palette uses it.
+	ShortLabel string `yaml:"short_label,omitempty"`
+	// WallMounted makes an ordinary standee tile (render_type environment_sprite)
+	// stick flush to the nearest solid neighbour and orient along that wall - the
+	// tile-side twin of NPC wall_mounted, for decorations (banners, paintings, a
+	// mounted skull). Placed on a walkable floor cell adjacent to a wall; falls
+	// back to a centred standee when no wall is adjacent. Animated sheets
+	// (w == h*4) cycle frames like any standee.
+	WallMounted bool `yaml:"wall_mounted,omitempty"`
 	// ImpassableAura forces the rising "impassable" bubble glow on a FLOOR tile
 	// (render_type floor_only) that blocks movement but reads like walkable
 	// ground - e.g. a chasm pit. Wall/billboard blockers get the aura
@@ -753,7 +798,7 @@ type MapTreasureChestRewardConfig struct {
 	TileX             int      `yaml:"tile_x"`
 	TileY             int      `yaml:"tile_y"`
 	Sprite            string   `yaml:"sprite,omitempty"`
-	SizeMultiplier    float64  `yaml:"size_multiplier,omitempty"` // Visual scale; defaults to 0.45 if unset
+	SizeTiles         float64  `yaml:"size_tiles,omitempty"` // sprite height in tiles; unset -> graphics.container_size_tiles.treasure_chest
 	RandomWeaponCount int      `yaml:"random_weapon_count,omitempty"`
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`

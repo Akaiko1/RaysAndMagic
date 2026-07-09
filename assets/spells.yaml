@@ -396,7 +396,7 @@ spells:
     is_utility: true
     status_icon: "bless"
     buff_fx_sprite: "buff_fx_bless"
-    message: "The party feels blessed! (+10 to all stats)"
+    message: "The party feels blessed!"
 
     # No physics or graphics needed - utility spell
 

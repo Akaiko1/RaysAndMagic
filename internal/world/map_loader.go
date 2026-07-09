@@ -9,6 +9,36 @@ import (
 	"ugataima/internal/monster"
 )
 
+// Map-file entity tokens, shared by the loader (parse) and the map editor
+// (emit) so the round-trip never drifts. A placeholder char sits on the tile
+// row; it is bound to a bracketed def ("[tag:body]") appended after the row.
+const (
+	MapCellInteractive = '@' // NPC / special-tile cell -> [npc:key] or [stile:key]
+	MapCellGeneral     = '$' // general decoration cell -> [tile:short_label]
+
+	MapDefNPC   = "npc"   // [npc:key]
+	MapDefStile = "stile" // [stile:key]
+	MapDefTile  = "tile"  // [tile:short_label]
+)
+
+// FormatMapDef builds a bracketed entity def, e.g. FormatMapDef(MapDefNPC,
+// "goblin") -> "[npc:goblin]".
+func FormatMapDef(tag, body string) string { return "[" + tag + ":" + body + "]" }
+
+// ParseMapDef splits a bracketed entity def into its tag and body. ok is false
+// if s is not a well-formed "[tag:body]".
+func ParseMapDef(s string) (tag, body string, ok bool) {
+	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
+		return "", "", false
+	}
+	inner := s[1 : len(s)-1]
+	i := strings.IndexByte(inner, ':')
+	if i < 0 {
+		return "", "", false
+	}
+	return inner[:i], inner[i+1:], true
+}
+
 // MapLoader handles loading world maps from files
 type MapLoader struct {
 	config interface{} // Will be *config.Config
@@ -74,7 +104,8 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 	var lines []string
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
-	var atCells [][2]int // [x,y] of every '@' placeholder (auto-floored under an entity)
+	var generalTileSpawns []SpecialTileSpawn // letterless general tiles ([tile:short_label])
+	var atCells [][2]int                     // [x,y] of every '@' placeholder (auto-floored under an entity)
 	scanner := bufio.NewScanner(file)
 
 	// Read all non-comment lines and process as tile tokens
@@ -85,11 +116,12 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 			continue
 		}
 
-		// Parse line into tiles and extract NPCs and special tiles
+		// Parse line into tiles and extract NPCs, special tiles, general tiles
 		y := len(lines)
-		parsedLine, lineNPCs, lineSpecialTiles, lineAt := ml.parseTileTokens(line, y)
+		parsedLine, lineNPCs, lineSpecialTiles, lineGeneralTiles, lineAt := ml.parseTileTokens(line, y)
 		npcSpawns = append(npcSpawns, lineNPCs...)
 		specialTileSpawns = append(specialTileSpawns, lineSpecialTiles...)
+		generalTileSpawns = append(generalTileSpawns, lineGeneralTiles...)
 		for _, ax := range lineAt {
 			atCells = append(atCells, [2]int{ax, y})
 		}
@@ -183,6 +215,15 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 		}
 	}
 
+	// Apply general (letterless) tile spawns to the grid. Not stored on MapData:
+	// they live in the grid like any tile, distinguished by their short_label,
+	// and the editor re-encodes them by scanning the grid.
+	for _, gt := range generalTileSpawns {
+		if gt.Y >= 0 && gt.Y < mapData.Height && gt.X >= 0 && gt.X < mapData.Width {
+			mapData.Tiles[gt.Y][gt.X] = gt.TileType
+		}
+	}
+
 	return mapData, nil
 }
 
@@ -273,9 +314,10 @@ func (ml *MapLoader) LoadForestMap() (*MapData, error) {
 
 // parseTileTokens parses a line into tiles, handling both NPCs and special tiles:
 // Map tiles use single characters, definitions are at line end with >[npc:key] or >[stile:key] format
-func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []int) {
+func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn, []SpecialTileSpawn, []SpecialTileSpawn, []int) {
 	var npcSpawns []NPCSpawn
 	var specialTileSpawns []SpecialTileSpawn
+	var generalTileSpawns []SpecialTileSpawn
 
 	// Split line into tile data and entity definitions
 	// Look for the first '>]' which indicates start of entity definitions
@@ -289,66 +331,72 @@ func (ml *MapLoader) parseTileTokens(line string, lineY int) (string, []NPCSpawn
 
 	// Parse entity definitions from the end of the line
 	entityDefs := strings.Split(entityDefinitions, ", ")
-	npcIndex := 0
-	specialTileIndex := 0
 
-	// Find all '@' positions first
-	var atPositions []int
+	// Placeholders (left to right = ascending X). '@' = INTERACTIVE entities
+	// (NPCs, special tiles); '$' = non-interactive GENERAL decoration tiles.
+	// Separate symbols so decorations never consume an interactive slot.
+	var atPositions, dollarPositions []int
 	for pos, char := range tilesPart {
-		if char == '@' {
+		switch char {
+		case MapCellInteractive:
 			atPositions = append(atPositions, pos)
+		case MapCellGeneral:
+			dollarPositions = append(dollarPositions, pos)
 		}
 	}
 
-	// Match each entity definition to an '@' position
+	// Match defs to placeholders in order: npc/stile consume '@' (shared counter
+	// - a line may mix them), [tile:] consumes '$'. Def lists are emitted in
+	// ascending-X order to match the placeholder scan.
+	atIndex, dollarIndex := 0, 0
 	for _, def := range entityDefs {
 		def = strings.TrimSpace(def)
+		cleanDef := strings.TrimSpace(strings.TrimPrefix(def, ">"))
+		tag, body, ok := ParseMapDef(cleanDef)
+		if !ok {
+			continue
+		}
 
-		// Remove leading '>' if present
-		cleanDef := strings.TrimPrefix(def, ">")
-		cleanDef = strings.TrimSpace(cleanDef)
-
-		if strings.HasPrefix(cleanDef, "[npc:") && strings.HasSuffix(cleanDef, "]") {
-			// Handle NPC placement
-			npcKey := strings.TrimSuffix(strings.TrimPrefix(cleanDef, "[npc:"), "]")
-
-			// Place NPC at the next available '@' position
-			if npcIndex < len(atPositions) {
-				npcSpawn := NPCSpawn{
-					X:      atPositions[npcIndex],
-					Y:      lineY,
-					NPCKey: npcKey,
-				}
-				npcSpawns = append(npcSpawns, npcSpawn)
-				npcIndex++
+		switch tag {
+		case MapDefNPC:
+			if atIndex < len(atPositions) {
+				npcSpawns = append(npcSpawns, NPCSpawn{X: atPositions[atIndex], Y: lineY, NPCKey: body})
+				atIndex++
 			}
-		} else if strings.HasPrefix(cleanDef, "[stile:") && strings.HasSuffix(cleanDef, "]") {
-			// Handle special tile placement (data-driven)
-			tileKey := strings.TrimSuffix(strings.TrimPrefix(cleanDef, "[stile:"), "]")
+		case MapDefStile:
 			if GlobalTileManager == nil {
 				continue
 			}
-			tileType, ok := GlobalTileManager.GetTileTypeFromKey(tileKey)
+			tileType, ok := GlobalTileManager.GetTileTypeFromKey(body)
 			if !ok {
-				continue // Skip unknown special tile keys
+				continue // unknown special tile key
 			}
-
-			// Place special tile at the next available '@' position
-			if specialTileIndex < len(atPositions) {
-				specialTileSpawn := SpecialTileSpawn{
-					X:        atPositions[specialTileIndex],
-					Y:        lineY,
-					TileKey:  tileKey,
-					TileType: tileType,
-				}
-				specialTileSpawns = append(specialTileSpawns, specialTileSpawn)
-				specialTileIndex++
+			if atIndex < len(atPositions) {
+				specialTileSpawns = append(specialTileSpawns, SpecialTileSpawn{X: atPositions[atIndex], Y: lineY, TileKey: body, TileType: tileType})
+				atIndex++
+			}
+		case MapDefTile:
+			// General (universal, letterless) decoration tile placed by short_label.
+			if GlobalTileManager == nil {
+				continue
+			}
+			tileType, ok := GlobalTileManager.GetTileTypeFromShortLabel(body)
+			if !ok {
+				continue // unknown general tile short_label
+			}
+			if dollarIndex < len(dollarPositions) {
+				generalTileSpawns = append(generalTileSpawns, SpecialTileSpawn{X: dollarPositions[dollarIndex], Y: lineY, TileKey: body, TileType: tileType})
+				dollarIndex++
 			}
 		}
 	}
 
-	// Replace '@' characters with '.' (empty walkable tiles) in the result
-	resultTiles := strings.ReplaceAll(tilesPart, "@", ".")
+	// Replace both placeholders with '.' (empty walkable) in the tile grid.
+	resultTiles := strings.ReplaceAll(tilesPart, string(MapCellInteractive), ".")
+	resultTiles = strings.ReplaceAll(resultTiles, string(MapCellGeneral), ".")
 
-	return resultTiles, npcSpawns, specialTileSpawns, atPositions
+	// Return all placeholder X's (interactive + general) so the caller floors
+	// the ground beneath every entity cell.
+	placeholders := append(append([]int(nil), atPositions...), dollarPositions...)
+	return resultTiles, npcSpawns, specialTileSpawns, generalTileSpawns, placeholders
 }

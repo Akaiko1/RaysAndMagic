@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"ugataima/internal/character"
+	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -363,35 +365,54 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 	return color.RGBA{101, 67, 33, 255}
 }
 
-// CalculateMonsterSpriteMetrics calculates sprite position and size for 3D rendering with monster-specific size multiplier
-func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeGameMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
-	distanceMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
-	heightMultiplier := distanceMultiplier / float64(rh.game.config.GetScreenHeight())
-	screenX, screenY, spriteSize, visible = rh.calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier)
-
-	// screenY is now correctly calculated by calculateScreenCappedSpriteMetrics to anchor
-	// the sprite's bottom to the floor at its distance
-
-	return screenX, screenY, spriteSize, visible
+// billboardMetrics sizes a floor-anchored creature/person billboard by tile
+// height (1.0 == a 1-tile wall) with the monster/NPC near-cull exemption. The
+// only knob that varies by subject is the minimum pixel floor (how small a far
+// sprite is allowed to recede to). Monster and NPC share this core; env sprites
+// use CalculateEnvironmentSpriteMetrics (fixed near-cull, tile-driven scale).
+func (rh *RenderingHelper) billboardMetrics(entityX, entityY, distance, sizeTiles float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeTiles <= 0 {
+		sizeTiles = 1
+	}
+	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), sizeTiles, minSize)
 }
 
-// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters).
-// People-sized NPCs use this; buildings should set render_type: environment_sprite in YAML
-// so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
-//
-// sizeMultiplier scales maxSize (how big a "size 4" NPC gets up close) and the
-// distance multiplier (so it grows proportionally), but NOT minSize - the floor
-// stays absolute so far-away NPCs recede to the same pixel size as small ones,
-// instead of clamping at a sizeMultiplierxbigger floor and appearing oversized
-// relative to the receding background.
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	if sizeMultiplier <= 0 {
-		sizeMultiplier = 1
+// CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
+// distant mobs shrink freely). sizeTiles is height in tiles.
+func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+}
+
+// CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
+// distant NPCs stay readable). sizeTiles is height in tiles.
+func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.NPC.MinSpriteSize)
+}
+
+// npcSizeTiles resolves an NPC's sprite height in tiles: a shared size_class
+// (same table as monsters) wins, else the raw size_tiles number.
+func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
+	if npc.SizeClass != "" {
+		if h, ok := monster.SizeClassTiles(npc.SizeClass); ok {
+			return h
+		}
 	}
-	minSize := rh.game.config.Graphics.NPC.MinSpriteSize
-	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, minSize, effectiveMultiplier)
+	return npc.SizeTiles
+}
+
+// NPCSpriteMetrics projects an NPC billboard through the correct path
+// (environment/landmark props vs person NPCs). Single source for both the
+// renderer and click hit-testing so drawing and hit-tests never diverge.
+func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
+	size := rh.npcSizeTiles(npc)
+	// Props (scenery/landmark/wall standees) size on the environment path; people
+	// on the NPC path. Independent of the animated distinction, so 0,0 dims here.
+	switch npcRenderCatOf(npc, 0, 0) {
+	case catScenery, catLandmark, catWall:
+		return rh.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, size)
+	default:
+		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)
+	}
 }
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
@@ -402,7 +423,7 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
 	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		heightMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+		heightMultiplier = world.GlobalTileManager.GetSizeTiles(tileType)
 	}
 	heightMultiplier *= sizeScale
 
@@ -464,36 +485,6 @@ func (rh *RenderingHelper) spriteNearCull() float64 {
 		return 1.0
 	}
 	return 5.0
-}
-
-// calculateBoundedSpriteMetrics projects an entity and sizes its sprite with a
-// caller-supplied minimum (far-away sprites stay readable). NPCs use this path
-// because they carry a per-NPC `size_multiplier` scaling both the projection
-// coefficient and the minimum together (so a "size 4" NPC reads as a tall
-// building, not the same size as a "size 1" NPC).
-//
-// There is deliberately NO maximum at playable range: a screen-pixel cap makes
-// the sprite SINK as the camera closes in - the floor anchor keeps growing
-// ~1/d while the capped size stops, dragging the top below the viewport.
-func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
-	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
-	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, minSize)
-}
-
-// calculateScreenCappedSpriteMetrics projects an entity and sizes its sprite
-// using a SCREEN-RELATIVE scaling model.
-//
-// Use this for entities that should grow freely as the player approaches
-// until they fill the viewport - environment props (trees, ferns, moss),
-// monsters, and ground containers (loot bags, treasure chests). There are
-// no per-instance bounds; the sprite is allowed to scale up to one screen
-// height (so a big monster fills the screen at point-blank range) and is
-// floored at 8 px so distant sprites don't vanish to a single row.
-//
-// For the alternative (per-instance min/max bounds, NPCs), see
-// calculateBoundedSpriteMetrics.
-func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, 8)
 }
 
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the

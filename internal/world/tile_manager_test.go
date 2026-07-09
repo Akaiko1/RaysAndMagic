@@ -88,13 +88,13 @@ func TestTileManagerProperties(t *testing.T) {
 	// Create some default tile data for testing
 	tm.tileData = map[string]*config.TileData{
 		"tree": {
-			Name:           "Forest Tree",
-			Solid:          true,
-			Transparent:    false,
-			Walkable:       false,
-			SizeMultiplier: 2.0,
-			Sprite:         "tree",
-			RenderType:     "tree_sprite",
+			Name:        "Forest Tree",
+			Solid:       true,
+			Transparent: false,
+			Walkable:    false,
+			SizeTiles:   2.0,
+			Sprite:      "tree",
+			RenderType:  "tree_sprite",
 		},
 		"forest_stream": {
 			Name:        "Flowing Water",
@@ -122,8 +122,8 @@ func TestTileManagerProperties(t *testing.T) {
 	if tm.GetHeightMultiplier(TileTree) != 1.0 {
 		t.Errorf("Expected tree height multiplier to default to 1.0, got %f", tm.GetHeightMultiplier(TileTree))
 	}
-	if tm.GetSizeMultiplier(TileTree) != 2.0 {
-		t.Errorf("Expected tree size multiplier to be 2.0, got %f", tm.GetSizeMultiplier(TileTree))
+	if tm.GetSizeTiles(TileTree) != 2.0 {
+		t.Errorf("Expected tree size multiplier to be 2.0, got %f", tm.GetSizeTiles(TileTree))
 	}
 
 	// Test stream properties
@@ -147,12 +147,12 @@ func TestTileManagerProperties(t *testing.T) {
 		t.Errorf("Expected tree to be walkable after setting property")
 	}
 
-	err = tm.SetTileProperty(TileTree, "size_multiplier", 2.5)
+	err = tm.SetTileProperty(TileTree, "size_tiles", 2.5)
 	if err != nil {
 		t.Errorf("Failed to set tile size multiplier: %v", err)
 	}
-	if tm.GetSizeMultiplier(TileTree) != 2.5 {
-		t.Errorf("Expected tree size multiplier to be 2.5, got %f", tm.GetSizeMultiplier(TileTree))
+	if tm.GetSizeTiles(TileTree) != 2.5 {
+		t.Errorf("Expected tree size multiplier to be 2.5, got %f", tm.GetSizeTiles(TileTree))
 	}
 
 	// Test invalid property
@@ -162,7 +162,7 @@ func TestTileManagerProperties(t *testing.T) {
 	}
 }
 
-func TestTileSizeMultiplierFallback(t *testing.T) {
+func TestTileSizeTilesFallback(t *testing.T) {
 	tm := NewTileManager()
 	tm.tileData = map[string]*config.TileData{
 		"tree": {
@@ -178,10 +178,10 @@ func TestTileSizeMultiplierFallback(t *testing.T) {
 	}
 	tm.createTypeMapping()
 
-	if got := tm.GetSizeMultiplier(TileTree); got != 2.25 {
+	if got := tm.GetSizeTiles(TileTree); got != 2.25 {
 		t.Fatalf("expected legacy billboard height_multiplier fallback 2.25, got %f", got)
 	}
-	if got := tm.GetSizeMultiplier(TileWall); got != 1.0 {
+	if got := tm.GetSizeTiles(TileWall); got != 1.0 {
 		t.Fatalf("expected wall size multiplier default 1.0, got %f", got)
 	}
 	if got := tm.GetHeightMultiplier(TileWall); got != 1.5 {

@@ -27,7 +27,7 @@ type TreasureChestReward struct {
 	TileX             int      `yaml:"tile_x"`
 	TileY             int      `yaml:"tile_y"`
 	Sprite            string   `yaml:"sprite,omitempty"`
-	SizeMultiplier    float64  `yaml:"size_multiplier,omitempty"`
+	SizeTiles         float64  `yaml:"size_tiles,omitempty"`
 	RandomWeaponCount int      `yaml:"random_weapon_count,omitempty"`
 	Items             []string `yaml:"items,omitempty"`
 	Weapons           []string `yaml:"weapons,omitempty"`

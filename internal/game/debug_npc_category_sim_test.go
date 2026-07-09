@@ -62,16 +62,16 @@ func TestDebugSim_NPCCategories(t *testing.T) {
 	byCat := map[string][]string{}
 	unresolved := 0
 	for key, data := range character.NPCConfigInstance.NPCs {
-		sprite, rt, wall := "", "", false
+		sprite, rt, rc, wall := "", "", "", false
 		if data != nil {
-			sprite, rt, wall = data.Sprite, data.RenderType, data.WallMounted
+			sprite, rt, rc, wall = data.Sprite, data.RenderType, data.RenderCategory, data.WallMounted
 		}
 		w, h := dims(sprite)
 		if sprite != "" && sprite != "none" && (w == 0 || h == 0) {
 			unresolved++
 			t.Logf("  WARN sprite %q for npc %q did not resolve", sprite, key)
 		}
-		cat := NPCDisplayCategory(sprite, rt, wall, w, h)
+		cat := NPCDisplayCategory(rc, sprite, rt, wall, w, h)
 		byCat[cat] = append(byCat[cat], key)
 	}
 

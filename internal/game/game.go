@@ -801,12 +801,19 @@ func (g *MMGame) partyInCombat() bool {
 // else stays at their tile. Interaction focus and hit-tests MUST use this,
 // not the raw tile position, or they miss the visible sprite.
 func (g *MMGame) npcEffectivePos(npc *character.NPC) (float64, float64) {
-	if npc.WallMounted && g.config.Graphics.Standee.Enabled {
+	if g.npcIsWall(npc) {
 		if wx, wy, _, ok := g.wallStickPose(npc.X, npc.Y); ok {
 			return wx, wy
 		}
 	}
 	return npc.X, npc.Y
+}
+
+// npcIsWall is the single test for the wall-mounted render class - the wall
+// render category (from wall_mounted or an explicit render_category), and only
+// while standees are on. Every wall render/position/hit-test path uses it.
+func (g *MMGame) npcIsWall(npc *character.NPC) bool {
+	return g.config.Graphics.Standee.Enabled && npcRenderCatOf(npc, 0, 0) == catWall
 }
 
 // updateFocusedNPC recomputes the Space-to-interact target once per tick:
@@ -878,13 +885,7 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 // effective (rendered) position - see npcEffectivePos. Occlusion is checked
 // against the wall depth buffer at the sprite's centre column.
 func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, x, y int) bool {
-	var screenX, screenY, spriteSize int
-	var visible bool
-	if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
-		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
-	} else {
-		screenX, screenY, spriteSize, visible = g.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
-	}
+	screenX, screenY, spriteSize, visible := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 	if !visible || spriteSize <= 0 {
 		return false
 	}
@@ -894,7 +895,7 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, 
 			// with the backing wall's and the comparison flips with tiny angle
 			// changes. Bias toward the camera exactly like the renderer's
 			// standeeDepthBias does when drawing them.
-			if npc.WallMounted {
+			if g.npcIsWall(npc) {
 				depth -= float64(g.config.GetTileSize()) * 0.6
 			}
 			if depth >= g.depthBuffer[screenX] {

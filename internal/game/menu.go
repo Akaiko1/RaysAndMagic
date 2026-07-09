@@ -298,15 +298,15 @@ type QuickSlotEntry struct {
 // treasure chest) for save/load. Kind drives the presentation defaults; the
 // rest of the fields are the runtime state.
 type GroundContainerSave struct {
-	Kind           int          `json:"kind"`
-	ID             string       `json:"id,omitempty"`
-	MapKey         string       `json:"map_key,omitempty"`
-	X              float64      `json:"x"`
-	Y              float64      `json:"y"`
-	Gold           int          `json:"gold"`
-	Items          []items.Item `json:"items,omitempty"`
-	Sprite         string       `json:"sprite,omitempty"`
-	SizeMultiplier float64      `json:"size_multiplier"`
+	Kind      int          `json:"kind"`
+	ID        string       `json:"id,omitempty"`
+	MapKey    string       `json:"map_key,omitempty"`
+	X         float64      `json:"x"`
+	Y         float64      `json:"y"`
+	Gold      int          `json:"gold"`
+	Items     []items.Item `json:"items,omitempty"`
+	Sprite    string       `json:"sprite,omitempty"`
+	SizeTiles float64      `json:"size_tiles"`
 }
 
 type MonsterSave struct {
@@ -365,7 +365,7 @@ type TreasureChestRewardSave struct {
 	TileX             int      `json:"tile_x"`
 	TileY             int      `json:"tile_y"`
 	Sprite            string   `json:"sprite,omitempty"`
-	SizeMultiplier    float64  `json:"size_multiplier,omitempty"`
+	SizeTiles         float64  `json:"size_tiles,omitempty"`
 	RandomWeaponCount int      `json:"random_weapon_count,omitempty"`
 	Items             []string `json:"items,omitempty"`
 	Weapons           []string `json:"weapons,omitempty"`
@@ -384,7 +384,7 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		TileX:             reward.TileX,
 		TileY:             reward.TileY,
 		Sprite:            reward.Sprite,
-		SizeMultiplier:    reward.SizeMultiplier,
+		SizeTiles:         reward.SizeTiles,
 		RandomWeaponCount: reward.RandomWeaponCount,
 		Items:             append([]string(nil), reward.Items...),
 		Weapons:           append([]string(nil), reward.Weapons...),
@@ -404,7 +404,7 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		TileX:             save.TileX,
 		TileY:             save.TileY,
 		Sprite:            save.Sprite,
-		SizeMultiplier:    save.SizeMultiplier,
+		SizeTiles:         save.SizeTiles,
 		RandomWeaponCount: save.RandomWeaponCount,
 		Items:             append([]string(nil), save.Items...),
 		Weapons:           append([]string(nil), save.Weapons...),
@@ -823,14 +823,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		groundContainerSaves = make([]GroundContainerSave, len(g.groundContainers))
 		for i, c := range g.groundContainers {
 			entry := GroundContainerSave{
-				Kind:           int(c.Kind),
-				ID:             c.ID,
-				MapKey:         c.MapKey,
-				X:              c.X,
-				Y:              c.Y,
-				Gold:           c.Gold,
-				Sprite:         c.Sprite,
-				SizeMultiplier: c.SizeMultiplier,
+				Kind:      int(c.Kind),
+				ID:        c.ID,
+				MapKey:    c.MapKey,
+				X:         c.X,
+				Y:         c.Y,
+				Gold:      c.Gold,
+				Sprite:    c.Sprite,
+				SizeTiles: c.SizeTiles,
 			}
 			if len(c.Items) > 0 {
 				entry.Items = append([]items.Item(nil), c.Items...)
@@ -1400,14 +1400,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			mapKey = save.MapKey
 		}
 		restored := GroundContainer{
-			Kind:           ContainerKind(c.Kind),
-			ID:             c.ID,
-			MapKey:         mapKey,
-			X:              c.X,
-			Y:              c.Y,
-			Gold:           c.Gold,
-			Sprite:         c.Sprite,
-			SizeMultiplier: c.SizeMultiplier,
+			Kind:      ContainerKind(c.Kind),
+			ID:        c.ID,
+			MapKey:    mapKey,
+			X:         c.X,
+			Y:         c.Y,
+			Gold:      c.Gold,
+			Sprite:    c.Sprite,
+			SizeTiles: c.SizeTiles,
 		}
 		// Legacy saves baked the kind's default sprite name in; blank it so the
 		// live effectiveSprite() (rarity-aware for loot bags) applies to old bags.

@@ -121,6 +121,8 @@ const (
 	brushTile
 	brushMonster
 	brushNPC
+	brushSpecialTile // teleporters / traps / triggers from special_tiles.yaml, placed as [stile:key]
+	brushGeneral     // universal letterless decoration tiles, placed as [tile:short_label] at a '$'
 	brushEraser
 )
 
@@ -550,21 +552,17 @@ func (v *viewer) hoveredSprite(m mapInfo, lay layout) (caption, sprite string) {
 
 	if entry := v.legendEntryAt(lay, mouseX, mouseY); entry != nil && !entry.IsHeader {
 		switch entry.Kind {
-		case brushTile:
+		case brushTile, brushGeneral, brushSpecialTile:
 			if data := v.tileDataByKey[entry.TileKey]; data != nil {
 				return entry.TileKey, data.Sprite
 			}
 		case brushMonster:
-			if v.monsterCfg != nil {
-				if def, ok := v.monsterCfg.Monsters[entry.MonsterKey]; ok {
-					return entry.MonsterName, def.Sprite
-				}
+			if s := monsterSpriteForKey(entry.MonsterKey); s != "" {
+				return entry.MonsterName, s
 			}
 		case brushNPC:
-			if character.NPCConfigInstance != nil {
-				if def, ok := character.NPCConfigInstance.NPCs[entry.NPCKey]; ok && def != nil {
-					return entry.NPCName, def.Sprite
-				}
+			if s := npcSpriteForKey(entry.NPCKey); s != "" {
+				return entry.NPCName, s
 			}
 		}
 		return "", ""
@@ -578,16 +576,16 @@ func (v *viewer) hoveredSprite(m mapInfo, lay layout) (caption, sprite string) {
 		return "", ""
 	}
 	for _, npc := range m.Data.NPCSpawns {
-		if npc.X == tileX && npc.Y == tileY && character.NPCConfigInstance != nil {
-			if def, ok := character.NPCConfigInstance.NPCs[npc.NPCKey]; ok && def != nil {
-				return npc.NPCKey, def.Sprite
+		if npc.X == tileX && npc.Y == tileY {
+			if s := npcSpriteForKey(npc.NPCKey); s != "" {
+				return npc.NPCKey, s
 			}
 		}
 	}
 	for _, spawn := range m.Data.MonsterSpawns {
-		if spawn.X == tileX && spawn.Y == tileY && v.monsterCfg != nil {
-			if def, ok := v.monsterCfg.Monsters[spawn.MonsterKey]; ok {
-				return spawn.MonsterKey, def.Sprite
+		if spawn.X == tileX && spawn.Y == tileY {
+			if s := monsterSpriteForKey(spawn.MonsterKey); s != "" {
+				return spawn.MonsterKey, s
 			}
 		}
 	}
@@ -928,7 +926,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 				}
 			}
 			if tileSize >= 6 && sprite != "" && thumb != nil {
-				if img := thumb(sprite); img != nil {
+				if img := firstFrame(thumb(sprite)); img != nil {
 					under := floorUnderObjectColor(m, tm, tileDataByKey, tx, ty, floorColor)
 					vector.FillRect(clip, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), under, false)
 					drawImageInBox(clip, img, drawX, drawY, tileSize, tileSize)
@@ -940,7 +938,7 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileMan
 		}
 	}
 
-	drawOverlays(clip, m, lay.originX, lay.originY, tileSize)
+	drawOverlays(clip, m, lay.originX, lay.originY, tileSize, thumb)
 	drawMapHeader(screen, m, x, y)
 }
 
@@ -953,28 +951,62 @@ func drawMapHeader(screen *ebiten.Image, m mapInfo, x, y int) {
 	ebitenutil.DebugPrintAt(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
 }
 
-func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize int) {
+// firstFrame returns the left h*h square of a horizontal animation sheet
+// (w == h*N), else the image unchanged - so animated mob/NPC sheets show a
+// single readable frame as a map thumbnail instead of a squished strip.
+func firstFrame(img *ebiten.Image) *ebiten.Image {
+	if img == nil {
+		return nil
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if h > 0 && w > h && w%h == 0 {
+		return img.SubImage(image.Rect(b.Min.X, b.Min.Y, b.Min.X+h, b.Min.Y+h)).(*ebiten.Image)
+	}
+	return img
+}
+
+// drawTileThumb draws a sprite thumbnail (first frame) filling a tile cell,
+// with a thin type-coloured outline so mobs/NPCs stay distinguishable at a
+// glance. Falls back to a marker+letter when the sprite can't be resolved.
+func drawTileThumb(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, sprite string, outline color.RGBA, fallbackLetter string, thumb func(string) *ebiten.Image) {
+	var img *ebiten.Image
+	if sprite != "" && thumb != nil {
+		img = firstFrame(thumb(sprite))
+	}
+	if img == nil {
+		drawTileMarkerCircle(screen, originX, originY, tileSize, tx, ty, outline, false)
+		if fallbackLetter != "" {
+			drawTileLetter(screen, originX, originY, tileSize, tx, ty, fallbackLetter)
+		}
+		return
+	}
+	drawX := originX + tx*tileSize
+	drawY := originY + ty*tileSize
+	drawImageInBox(screen, img, drawX, drawY, tileSize, tileSize)
+	if tileSize >= 6 {
+		drawRectBorder(screen, drawX, drawY, tileSize, tileSize, 1, outline)
+	}
+}
+
+func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize int, thumb func(sprite string) *ebiten.Image) {
 	// Start position
 	if m.Data.StartX >= 0 && m.Data.StartY >= 0 {
 		drawTileMarkerCircle(screen, originX, originY, tileSize, m.Data.StartX, m.Data.StartY, color.RGBA{50, 200, 255, 255}, true)
 	}
 
-	// NPCs
+	// NPCs - sprite thumbnail (yellow outline), letter '@' fallback.
 	for _, npc := range m.Data.NPCSpawns {
-		drawTileMarkerRect(screen, originX, originY, tileSize, npc.X, npc.Y, color.RGBA{255, 220, 0, 255})
-		drawTileLetter(screen, originX, originY, tileSize, npc.X, npc.Y, "@")
+		sprite := strings.TrimSuffix(npcSpriteForKey(npc.NPCKey), ".png")
+		drawTileThumb(screen, originX, originY, tileSize, npc.X, npc.Y, sprite, color.RGBA{255, 220, 0, 255}, "@", thumb)
 	}
 
-	// Monsters
+	// Monsters - sprite thumbnail (red outline), monster letter fallback.
 	for _, spawn := range m.Data.MonsterSpawns {
-		drawTileMarkerCircle(screen, originX, originY, tileSize, spawn.X, spawn.Y, color.RGBA{230, 80, 80, 255}, false)
-		letter := monsterLetterForKey(spawn.MonsterKey)
-		if letter != "" {
-			drawTileLetter(screen, originX, originY, tileSize, spawn.X, spawn.Y, letter)
-		}
+		drawTileThumb(screen, originX, originY, tileSize, spawn.X, spawn.Y, monsterSpriteForKey(spawn.MonsterKey), color.RGBA{230, 80, 80, 255}, monsterLetterForKey(spawn.MonsterKey), thumb)
 	}
 
-	// Special tiles (teleporters, etc.)
+	// Special tiles (teleporters, etc.) - keep the letter marker (floor glow, no sprite).
 	for _, special := range m.Data.SpecialTileSpawns {
 		label := strings.ToUpper(string([]rune(special.TileKey)[0]))
 		drawTileLetter(screen, originX, originY, tileSize, special.X, special.Y, label)
@@ -1039,6 +1071,45 @@ func drawSidebarTabs(screen *ebiten.Image, x, y, w, h int, active int) {
 	drawCenteredLabel(screen, "Legend (2)", rect{x: x + tabW, y: y, w: w - tabW, h: h})
 }
 
+// legendEntrySprite resolves the sprite basename to preview for a legend entry
+// (tile/general = tile sprite, monster/NPC = their config sprite). "" = no
+// sprite (floor tiles, teleporters, eraser) -> caller draws a colour swatch.
+// monsterSpriteForKey / npcSpriteForKey resolve a spawn key to its raw sprite
+// name from the loaded configs - the single lookup the legend, overlay
+// thumbnails and hover popup all share. Callers strip the ".png" suffix when
+// they need the thumbnail-key form.
+func monsterSpriteForKey(key string) string {
+	if monster.MonsterConfig != nil {
+		if def, ok := monster.MonsterConfig.Monsters[key]; ok {
+			return def.Sprite
+		}
+	}
+	return ""
+}
+
+func npcSpriteForKey(key string) string {
+	if character.NPCConfigInstance != nil {
+		if def, ok := character.NPCConfigInstance.NPCs[key]; ok && def != nil {
+			return def.Sprite
+		}
+	}
+	return ""
+}
+
+func legendEntrySprite(entry legendEntry, tileDataByKey map[string]*config.TileData) string {
+	switch entry.Kind {
+	case brushTile, brushGeneral:
+		if data := tileDataByKey[entry.TileKey]; data != nil {
+			return data.Sprite
+		}
+	case brushMonster:
+		return monsterSpriteForKey(entry.MonsterKey)
+	case brushNPC:
+		return strings.TrimSuffix(npcSpriteForKey(entry.NPCKey), ".png")
+	}
+	return ""
+}
+
 func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, floorColor color.RGBA, thumb func(sprite string) *ebiten.Image) {
 	lineHeight := 14
 	startY := y - scroll
@@ -1075,9 +1146,12 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		} else if !entry.IsHeader {
 			sx, sy := x+8, drawY
 			drawn := false
-			if entry.Kind == brushTile && thumb != nil {
-				if data := tileDataByKey[entry.TileKey]; data != nil && data.Sprite != "" {
-					if img := thumb(data.Sprite); img != nil {
+			// Sprite thumbnail (first frame) for anything that HAS a sprite: tiles
+			// + general decorations (tile sprite), monsters, NPCs. Falls back to a
+			// colour swatch (floor tiles, teleporters, eraser) below.
+			if thumb != nil {
+				if sprite := legendEntrySprite(entry, tileDataByKey); sprite != "" {
+					if img := firstFrame(thumb(sprite)); img != nil {
 						drawImageInBox(screen, img, sx, sy, sw, sw)
 						drawn = true
 					}
@@ -1136,7 +1210,9 @@ func clipText(text string, availPx int) string {
 // visual (eraser / unresolved).
 func legendSwatchColor(entry legendEntry, tileDataByKey map[string]*config.TileData, floorColor color.RGBA) (color.RGBA, bool) {
 	switch entry.Kind {
-	case brushTile:
+	case brushTile, brushSpecialTile, brushGeneral:
+		// All tile-keyed brushes: the tile's map colour (teleporters keep their
+		// violet/red glow tint), else the biome floor.
 		if c, ok := tileSwatchColor(entry.TileKey, tileDataByKey[entry.TileKey], floorColor); ok {
 			return c, true
 		}
@@ -1203,6 +1279,10 @@ func formatBrushLabel(b brush) string {
 			return fmt.Sprintf("NPC @ (%s)", b.npcName)
 		}
 		return fmt.Sprintf("NPC @ (%s)", b.npcKey)
+	case brushSpecialTile:
+		return fmt.Sprintf("Special @ (%s)", b.tileKey)
+	case brushGeneral:
+		return fmt.Sprintf("General $ (%s)", b.tileKey)
 	default:
 		return "None"
 	}
@@ -1221,6 +1301,10 @@ func brushMatchesEntry(b brush, entry legendEntry) bool {
 		return entry.Kind == brushMonster && entry.MonsterKey == b.monsterKey
 	case brushNPC:
 		return entry.Kind == brushNPC && entry.NPCKey == b.npcKey
+	case brushSpecialTile:
+		return entry.Kind == brushSpecialTile && entry.TileKey == b.tileKey
+	case brushGeneral:
+		return entry.Kind == brushGeneral && entry.TileKey == b.tileKey
 	default:
 		return false
 	}
@@ -1337,6 +1421,10 @@ func brushFromEntry(entry legendEntry) brush {
 		return brush{kind: brushMonster, letter: entry.Letter, monsterKey: entry.MonsterKey, monsterName: entry.MonsterName}
 	case brushNPC:
 		return brush{kind: brushNPC, letter: "@", npcKey: entry.NPCKey, npcName: entry.NPCName}
+	case brushSpecialTile:
+		return brush{kind: brushSpecialTile, letter: "@", tileKey: entry.TileKey}
+	case brushGeneral:
+		return brush{kind: brushGeneral, letter: "$", tileKey: entry.TileKey}
 	default:
 		return brush{kind: brushNone}
 	}
@@ -1408,6 +1496,31 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 				Y:      ty,
 				NPCKey: v.brush.npcKey,
 			})
+		}
+	case brushSpecialTile:
+		// Special tile (teleporter/trap/...) sits on empty ground; saved as an
+		// `@` bound to a [stile:key] def. TileType is resolved so the on-map
+		// overlay + teleporter registration match the game.
+		v.setTile(m, tx, ty, ".")
+		if v.brush.tileKey != "" {
+			tileType, ok := v.tileManager.GetTileTypeFromKey(v.brush.tileKey)
+			if ok {
+				m.Data.SpecialTileSpawns = append(m.Data.SpecialTileSpawns, world.SpecialTileSpawn{
+					X:        tx,
+					Y:        ty,
+					TileKey:  v.brush.tileKey,
+					TileType: tileType,
+				})
+			}
+		}
+	case brushGeneral:
+		// General letterless decoration tile: written straight into the grid by
+		// TYPE (no letter). encodeMapLines re-emits it as a `$` + [tile:label] def.
+		if v.brush.tileKey != "" {
+			if tileType, ok := v.tileManager.GetTileTypeFromKey(v.brush.tileKey); ok &&
+				ty >= 0 && ty < len(m.Data.Tiles) && tx >= 0 && tx < len(m.Data.Tiles[ty]) {
+				m.Data.Tiles[ty][tx] = tileType
+			}
 		}
 	}
 }
@@ -1557,31 +1670,51 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 			}
 		}
 
-		var defs []string
-		if npcs := npcByRow[y]; len(npcs) > 0 {
-			for _, npc := range npcs {
-				if npc.X < 0 || npc.X >= width {
-					continue
-				}
-				row[npc.X] = '@'
-				defs = append(defs, fmt.Sprintf("[npc:%s]", npc.NPCKey))
+		// Interactive defs ('@': npc + stile) and general defs ('$': [tile:label])
+		// are collected separately and each emitted in ascending-X order, matching
+		// the loader's per-placeholder scan.
+		type xdef struct {
+			x int
+			s string
+		}
+		var atDefs, dollarDefs []xdef
+		for _, npc := range npcByRow[y] {
+			if npc.X < 0 || npc.X >= width {
+				continue
+			}
+			row[npc.X] = world.MapCellInteractive
+			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, npc.NPCKey)})
+		}
+		for _, sp := range specialByRow[y] {
+			if sp.X < 0 || sp.X >= width {
+				continue
+			}
+			key := sp.TileKey
+			if key == "" {
+				key = tm.GetTileKey(sp.TileType)
+			}
+			if key == "" {
+				continue
+			}
+			row[sp.X] = world.MapCellInteractive
+			atDefs = append(atDefs, xdef{sp.X, world.FormatMapDef(world.MapDefStile, key)})
+		}
+		// General letterless tiles live in the grid: any cell whose type carries a
+		// short_label is re-emitted as a '$' placeholder + [tile:label] def.
+		for x := 0; x < width; x++ {
+			if label := tm.GetShortLabelFromType(m.Data.Tiles[y][x]); label != "" {
+				row[x] = world.MapCellGeneral
+				dollarDefs = append(dollarDefs, xdef{x, world.FormatMapDef(world.MapDefTile, label)})
 			}
 		}
-		if specials := specialByRow[y]; len(specials) > 0 {
-			for _, sp := range specials {
-				if sp.X < 0 || sp.X >= width {
-					continue
-				}
-				row[sp.X] = '@'
-				key := sp.TileKey
-				if key == "" {
-					key = tm.GetTileKey(sp.TileType)
-				}
-				if key == "" {
-					continue
-				}
-				defs = append(defs, fmt.Sprintf("[stile:%s]", key))
-			}
+		sort.Slice(atDefs, func(i, j int) bool { return atDefs[i].x < atDefs[j].x })
+		sort.Slice(dollarDefs, func(i, j int) bool { return dollarDefs[i].x < dollarDefs[j].x })
+		var defs []string
+		for _, d := range atDefs {
+			defs = append(defs, d.s)
+		}
+		for _, d := range dollarDefs {
+			defs = append(defs, d.s)
 		}
 
 		line := string(row)
@@ -1834,18 +1967,18 @@ type legendBuildItem struct {
 	specific bool
 }
 
-// emitBiomeScoped flattens per-letter build items into sorted legend entries,
-// dropping universal entries for any letter that ALSO has a biome-specific one.
-// This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
-// where a biome-specific def wins over the universal fallback for that letter -
-// so the palette shows only what would actually be placed.
-func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
+// emitBiomeScopedSplit is emitBiomeScoped partitioned into biome-SPECIFIC and
+// universal ("general") entries, so the editor can list universally-placeable
+// objects (fern patches, wall props, ...) under their own "biome: general"
+// header instead of repeating them in every biome section. The letter-collision
+// rule is unchanged: when a biome-specific def claims a letter, the universal
+// entry for that letter is dropped from BOTH buckets (it never resolves here).
+func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, general []legendEntry) {
 	letters := make([]string, 0, len(byLetter))
 	for l := range byLetter {
 		letters = append(letters, l)
 	}
 	sort.Strings(letters)
-	var out []legendEntry
 	for _, l := range letters {
 		items := byLetter[l]
 		hasSpecific := false
@@ -1863,9 +1996,24 @@ func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
 			kept = append(kept, it.entry)
 		}
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Text < kept[j].Text })
-		out = append(out, kept...)
+		if hasSpecific {
+			specific = append(specific, kept...)
+		} else {
+			general = append(general, kept...)
+		}
 	}
-	return out
+	return specific, general
+}
+
+// emitBiomeScoped flattens per-letter build items into sorted legend entries,
+// dropping universal entries for any letter that ALSO has a biome-specific one.
+// This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
+// where a biome-specific def wins over the universal fallback for that letter -
+// so the palette shows only what would actually be placed. Callers that don't
+// need the specific/general split just get them concatenated.
+func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
+	specific, general := emitBiomeScopedSplit(byLetter)
+	return append(specific, general...)
 }
 
 // buildLegendEntries builds the editor palette scoped to one biome: universal
@@ -1883,29 +2031,48 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	if biomeLabel == "" {
 		biomeLabel = "-"
 	}
-	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
 
 	tileItems := make(map[string][]legendBuildItem)
+	var generalLabelTiles []legendEntry // letterless universal tiles ([tile:short_label])
 	for key, data := range tm.ListTiles() {
-		letter := data.Letter
-		if letter == "" {
+		// Letterless general tiles are placed by short_label, not a grid letter.
+		if data.Letter == "" {
+			if data.ShortLabel != "" {
+				generalLabelTiles = append(generalLabelTiles, legendEntry{
+					Text:    fmt.Sprintf("$  %s (%s)", data.ShortLabel, data.Name),
+					Kind:    brushGeneral,
+					Letter:  "$",
+					TileKey: key,
+				})
+			}
 			continue
 		}
 		if !matchesBiome(data.Biomes, biome) {
 			continue
 		}
-		text := fmt.Sprintf("%s  %s (%s)", letter, key, data.Name)
-		tileItems[letter] = append(tileItems[letter], legendBuildItem{
+		text := fmt.Sprintf("%s  %s (%s)", data.Letter, key, data.Name)
+		tileItems[data.Letter] = append(tileItems[data.Letter], legendBuildItem{
 			entry: legendEntry{
 				Text:    text,
 				Kind:    brushTile,
-				Letter:  letter,
+				Letter:  data.Letter,
 				TileKey: key,
 			},
 			specific: len(data.Biomes) > 0,
 		})
 	}
-	entries = append(entries, emitBiomeScoped(tileItems)...)
+	sort.Slice(generalLabelTiles, func(i, j int) bool { return generalLabelTiles[i].Text < generalLabelTiles[j].Text })
+	// Biome-specific tiles under "biome: X"; universal ones (no biomes list, by
+	// letter OR short_label) under their own "biome: general" section.
+	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
+	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
+	entries = append(entries, tileSpecific...)
+	if len(tileGeneral) > 0 || len(generalLabelTiles) > 0 {
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader("Tiles - biome: general (any map)"))
+		entries = append(entries, tileGeneral...)
+		entries = append(entries, generalLabelTiles...)
+	}
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 	entries = append(entries, sectionHeader("Monsters (letter -> key/name)"))
@@ -1948,15 +2115,15 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
-			sprite, renderType, wallMounted := "", "", false
+			sprite, renderType, renderCategory, wallMounted := "", "", "", false
 			if data != nil {
-				sprite, renderType, wallMounted = data.Sprite, data.RenderType, data.WallMounted
+				sprite, renderType, renderCategory, wallMounted = data.Sprite, data.RenderType, data.RenderCategory, data.WallMounted
 			}
 			w, h := 0, 0
 			if npcSpriteDims != nil {
 				w, h = npcSpriteDims(sprite)
 			}
-			cat := game.NPCDisplayCategory(sprite, renderType, wallMounted, w, h)
+			cat := game.NPCDisplayCategory(renderCategory, sprite, renderType, wallMounted, w, h)
 			keysByCat[cat] = append(keysByCat[cat], key)
 		}
 
@@ -1979,7 +2146,14 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		sort.Strings(extra)
 		cats = append(cats, extra...)
 
-		for _, cat := range cats {
+		for ci, cat := range cats {
+			// Blank spacer before each category after the first, so a subheader's
+			// band doesn't butt against the previous category's last NPC line.
+			// (The first category follows the "Special NPCs" header - header to
+			// header, already spaced by the bands themselves.)
+			if ci > 0 {
+				entries = append(entries, legendEntry{Text: "", IsHeader: true})
+			}
 			keys := keysByCat[cat]
 			entries = append(entries, sectionHeader(fmt.Sprintf("  [%s] (%d)", cat, len(keys))))
 			sort.Strings(keys)
@@ -2012,6 +2186,37 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 						Continuation: li > 0,
 					})
 				}
+			}
+		}
+	}
+
+	// Special tiles (teleporters / traps / triggers from special_tiles.yaml) -
+	// letterless, placed as `@` bound to a >[stile:key] def, same as NPCs. Own
+	// brush category (brushSpecialTile) so portals etc. are placeable, not just
+	// visible on already-authored maps. Not biome-scoped.
+	if specials := tm.ListSpecialTiles(); len(specials) > 0 {
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader("Special tiles (@ -> [stile:key])"))
+		specialKeys := make([]string, 0, len(specials))
+		for key := range specials {
+			specialKeys = append(specialKeys, key)
+		}
+		sort.Strings(specialKeys)
+		for _, key := range specialKeys {
+			name := key
+			if data := specials[key]; data != nil && data.Name != "" {
+				name = data.Name
+			}
+			label := fmt.Sprintf("@  %s (%s)", key, name)
+			wrapped := wrapTooltipLines(label, legendTextCols)
+			for li, ln := range wrapped {
+				entries = append(entries, legendEntry{
+					Text:         ln,
+					Kind:         brushSpecialTile,
+					Letter:       "@",
+					TileKey:      key,
+					Continuation: li > 0,
+				})
 			}
 		}
 	}

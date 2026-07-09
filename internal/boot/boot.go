@@ -10,6 +10,7 @@ import (
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/game"
 	"ugataima/internal/monster"
 	"ugataima/internal/storage"
 	"ugataima/internal/world"
@@ -39,8 +40,25 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	}
 
 	config.MustLoadTrapConfig("assets/traps.yaml")
+	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
+	if err := monster.ValidateSizeClassHeights(); err != nil {
+		log.Fatalf("Size class config: %v", err)
+	}
 	monsterCfg := monster.MustLoadMonsterConfig("assets/monsters.yaml")
 	character.MustLoadNPCConfig("assets/npcs.yaml")
+
+	// Fail fast on an NPC naming a size_class the config doesn't define (a typo
+	// would otherwise silently render it at fallback wall height).
+	for key, npc := range character.NPCConfigInstance.NPCs {
+		if npc.SizeClass != "" {
+			if _, ok := monster.SizeClassTiles(npc.SizeClass); !ok {
+				log.Fatalf("NPC %q has unknown size_class %q", key, npc.SizeClass)
+			}
+		}
+		if npc.RenderCategory != "" && !game.ValidNPCRenderCategories[npc.RenderCategory] {
+			log.Fatalf("NPC %q has unknown render_category %q", key, npc.RenderCategory)
+		}
+	}
 
 	return cfg, monsterCfg
 }

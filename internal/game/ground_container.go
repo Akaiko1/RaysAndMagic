@@ -24,41 +24,51 @@ const (
 )
 
 // containerKindDefaults bundles the look-and-feel that a kind chooses when the
-// caller doesn't override Sprite or SizeMultiplier explicitly.
+// caller doesn't override Sprite explicitly. Default size is config-driven
+// (graphics.container_size_tiles), resolved via containerDefaultSizeTiles.
 type containerKindDefaults struct {
-	sprite         string
-	sizeMultiplier float64
-	openMessage    string // multi-part "Picked up loot bag:" / "Opened chest:" prefix
-	emptyMessage   string // shown if container is empty when opened ("" -> silent)
+	sprite       string
+	sizeKey      string // key into graphics.container_size_tiles
+	openMessage  string // multi-part "Picked up loot bag:" / "Opened chest:" prefix
+	emptyMessage string // shown if container is empty when opened ("" -> silent)
 }
 
 var groundContainerDefaults = map[ContainerKind]containerKindDefaults{
 	ContainerKindLootBag: {
-		sprite:         "bag",
-		sizeMultiplier: 0.33,
-		openMessage:    "Picked up loot bag",
-		emptyMessage:   "", // empty loot bags are silently removed (legacy behavior)
+		sprite:       "bag",
+		sizeKey:      "loot_bag",
+		openMessage:  "Picked up loot bag",
+		emptyMessage: "", // empty loot bags are silently removed (legacy behavior)
 	},
 	ContainerKindTreasureChest: {
-		sprite:         "chest",
-		sizeMultiplier: 3.0, // matches a "big" loot bag (mid-tier monster ~size_multiplier 6)
-		openMessage:    "Opened chest",
-		emptyMessage:   "The chest is empty.",
+		sprite:       "chest",
+		sizeKey:      "treasure_chest",
+		openMessage:  "Opened chest",
+		emptyMessage: "The chest is empty.",
 	},
+}
+
+// containerDefaultSizeTiles resolves a kind's default sprite height (tiles) from
+// config, with a small fallback if the map is absent (e.g. a config-less test).
+func (g *MMGame) containerDefaultSizeTiles(kind ContainerKind) float64 {
+	if h, ok := g.config.Graphics.ContainerSizeTiles[groundContainerDefaults[kind].sizeKey]; ok && h > 0 {
+		return h
+	}
+	return 0.3
 }
 
 // GroundContainer is the unified on-floor reward container - replaces both
 // the loot bag (monster drop) and treasure chest (encounter reward) systems
 // that previously had near-identical parallel implementations.
 type GroundContainer struct {
-	Kind           ContainerKind
-	ID             string // optional dedup key; "" disables dedup
-	MapKey         string // "" -> current map only; set for cross-map containers
-	X, Y           float64
-	Gold           int
-	Items          []items.Item
-	Sprite         string  // "" -> default per Kind
-	SizeMultiplier float64 // 0 -> default per Kind
+	Kind      ContainerKind
+	ID        string // optional dedup key; "" disables dedup
+	MapKey    string // "" -> current map only; set for cross-map containers
+	X, Y      float64
+	Gold      int
+	Items     []items.Item
+	Sprite    string  // "" -> default per Kind
+	SizeTiles float64 // 0 -> default per Kind
 }
 
 // GroundContainerRenderInfo holds the projected screen geometry used by both
@@ -84,12 +94,13 @@ func (c *GroundContainer) effectiveSprite() string {
 	return groundContainerDefaults[c.Kind].sprite
 }
 
-// effectiveSizeMultiplier returns the visual scale for this container.
-func (c *GroundContainer) effectiveSizeMultiplier() float64 {
-	if c != nil && c.SizeMultiplier > 0 {
-		return c.SizeMultiplier
+// containerRenderSizeTiles returns the visual scale for this container: an
+// explicit per-instance size wins, else the kind's config default.
+func (g *MMGame) containerRenderSizeTiles(c *GroundContainer) float64 {
+	if c != nil && c.SizeTiles > 0 {
+		return c.SizeTiles
 	}
-	return groundContainerDefaults[c.Kind].sizeMultiplier
+	return g.containerDefaultSizeTiles(c.Kind)
 }
 
 // groundContainerPickupRange is shared across all ground containers - both
@@ -120,26 +131,26 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 	}
 	// Sprite is left empty for kind defaults so effectiveSprite() resolves it live
 	// (rarity-aware for loot bags); only an explicit override is stored.
-	if c.SizeMultiplier <= 0 {
-		c.SizeMultiplier = groundContainerDefaults[c.Kind].sizeMultiplier
+	if c.SizeTiles <= 0 {
+		c.SizeTiles = g.containerDefaultSizeTiles(c.Kind)
 	}
 	g.groundContainers = append(g.groundContainers, c)
 }
 
 // addLootBagDrop creates a loot-bag-kind container at the given world coords
-// from a monster's drops and gold. Replaces the legacy addLootBag.
-func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int, sizeMultiplier float64) {
+// from a monster's drops and gold. Size comes from the kind's config default
+// (addGroundContainer fills it) - bags are not scaled by the dropping monster.
+func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
 	if len(drops) == 0 && gold <= 0 {
 		return
 	}
 	g.addGroundContainer(GroundContainer{
-		Kind:           ContainerKindLootBag,
-		MapKey:         currentMapKey(), // bags belong to the map they dropped on
-		X:              x,
-		Y:              y,
-		Gold:           gold,
-		Items:          append([]items.Item{}, drops...),
-		SizeMultiplier: sizeMultiplier,
+		Kind:   ContainerKindLootBag,
+		MapKey: currentMapKey(), // bags belong to the map they dropped on
+		X:      x,
+		Y:      y,
+		Gold:   gold,
+		Items:  append([]items.Item{}, drops...),
 	})
 }
 
@@ -174,15 +185,15 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	}
 
 	g.addGroundContainer(GroundContainer{
-		Kind:           ContainerKindTreasureChest,
-		ID:             reward.ID,
-		MapKey:         chestMap,
-		X:              x,
-		Y:              y,
-		Gold:           chestGold,
-		Items:          chestItems,
-		Sprite:         reward.Sprite,
-		SizeMultiplier: reward.SizeMultiplier,
+		Kind:      ContainerKindTreasureChest,
+		ID:        reward.ID,
+		MapKey:    chestMap,
+		X:         x,
+		Y:         y,
+		Gold:      chestGold,
+		Items:     chestItems,
+		Sprite:    reward.Sprite,
+		SizeTiles: reward.SizeTiles,
 	})
 	if reward.CompletionMessage != "" {
 		g.AddCombatMessage(reward.CompletionMessage)
@@ -430,7 +441,7 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, c.effectiveSizeMultiplier())
+	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
 	return info
 }
 

@@ -587,6 +587,23 @@ func debugTextWidth(text string) int {
 	return utf8.RuneCountInString(text) * debugTextCharWidth
 }
 
+// clipDebugText shortens text with a trailing ".." so it fits maxW pixels in the
+// fixed-width debug font - for grid labels that must not overrun their cell.
+func clipDebugText(text string, maxW int) string {
+	if maxW <= 0 || debugTextWidth(text) <= maxW {
+		return text
+	}
+	maxRunes := maxW / debugTextCharWidth
+	if maxRunes <= 2 {
+		return ""
+	}
+	r := []rune(text)
+	if len(r) <= maxRunes {
+		return text
+	}
+	return string(r[:maxRunes-2]) + ".."
+}
+
 // humanizeKey turns a snake/kebab content key into a display label:
 // "dark_elf" -> "Dark Elf". Shared UI helper for races, schools, etc.
 func humanizeKey(s string) string {

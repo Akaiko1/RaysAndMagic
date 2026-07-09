@@ -30,6 +30,9 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.def.SizeClass == "" {
+				tc.def.SizeClass = "person" // these cases exercise teleport pairs, not size
+			}
 			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"test_boss": tc.def}}
 			err := validateMonsterConfiguration(cfg)
 			if tc.wantErr == "" {

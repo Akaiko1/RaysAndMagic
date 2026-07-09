@@ -654,6 +654,18 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 	r.standeeSurfacesB = slabs[1].surfaces[:0]
 }
 
+// drawWallStandee draws a token flush to a wall (pose from wallStickPose),
+// applying the backing-wall depth bias so the sprite-vs-wall test doesn't reject
+// it. bottomY sets the vertical anchor: floor-anchored for full NPC gates,
+// mid-wall for shrunk decoration tiles. Single source for both wall-mount draw
+// sites (NPC + wall_prop tile). Returns drawStandeeSprite's drawn flag.
+func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32) bool {
+	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * 0.6
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, 0, -1, -1, -1)
+	r.standeeDepthBias = 0
+	return drew
+}
+
 // wallStickPose returns the render position + slab yaw for a wall-mounted standee:
 // it slides from the tile centre toward the nearest SOLID (wall) orthogonal
 // neighbour and orients the slab ALONG that wall, so the token sits flush on the

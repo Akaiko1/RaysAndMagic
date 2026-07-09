@@ -43,6 +43,7 @@ func loadTestConfig(t *testing.T) *config.Config {
 	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
 		t.Fatalf("load traps: %v", err)
 	}
+	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
 	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
 	return cfg
 }
@@ -375,8 +376,8 @@ func TestSaveLoad_PersistsLootBags(t *testing.T) {
 
 	game := newTestGame(cfg, worldTest)
 	game.groundContainers = []GroundContainer{
-		{Kind: ContainerKindLootBag, X: 100, Y: 200, Gold: 42, SizeMultiplier: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
-		{Kind: ContainerKindLootBag, X: 320, Y: 256, Gold: 0, SizeMultiplier: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
+		{Kind: ContainerKindLootBag, X: 100, Y: 200, Gold: 42, SizeTiles: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
+		{Kind: ContainerKindLootBag, X: 320, Y: 256, Gold: 0, SizeTiles: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
 	}
 
 	save := game.buildSave(wm)
@@ -393,8 +394,8 @@ func TestSaveLoad_PersistsLootBags(t *testing.T) {
 	if loaded.groundContainers[0].Gold != 42 || loaded.groundContainers[0].X != 100 || loaded.groundContainers[0].Y != 200 {
 		t.Fatalf("first container mismatch: %+v", loaded.groundContainers[0])
 	}
-	if loaded.groundContainers[0].SizeMultiplier != 0.5 {
-		t.Fatalf("size multiplier not preserved: %v", loaded.groundContainers[0].SizeMultiplier)
+	if loaded.groundContainers[0].SizeTiles != 0.5 {
+		t.Fatalf("size multiplier not preserved: %v", loaded.groundContainers[0].SizeTiles)
 	}
 	if len(loaded.groundContainers[0].Items) != 1 || loaded.groundContainers[0].Items[0].Name != "Iron Sword" {
 		t.Fatalf("first container items mismatch: %+v", loaded.groundContainers[0].Items)

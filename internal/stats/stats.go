@@ -6,6 +6,7 @@ package stats
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -106,4 +107,40 @@ func (b StatBonuses) ValueByName(name string) int {
 		return *p
 	}
 	return 0
+}
+
+// Summary renders a resolved bonus block as human text: "+N to all stats" when
+// every stat carries the same non-zero bonus (the Bless shape), otherwise a
+// per-stat list ("+3 Might, +2 Luck"). Empty for a zero block. This is the ONE
+// formatter for an applied StatBonuses value - cast messages and tooltips share
+// it so the displayed number can't drift from the real one.
+func (b StatBonuses) Summary() string {
+	if b.IsZero() {
+		return ""
+	}
+	first := b.ValueByName(Names[0])
+	uniform := first != 0
+	for _, n := range Names[1:] {
+		if b.ValueByName(n) != first {
+			uniform = false
+			break
+		}
+	}
+	if uniform {
+		return signed(first) + " to all stats"
+	}
+	parts := make([]string, 0, len(Names))
+	for _, n := range Names {
+		if v := b.ValueByName(n); v != 0 {
+			parts = append(parts, signed(v)+" "+strings.ToUpper(n[:1])+n[1:])
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func signed(n int) string {
+	if n >= 0 {
+		return "+" + strconv.Itoa(n)
+	}
+	return strconv.Itoa(n)
 }

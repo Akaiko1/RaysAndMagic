@@ -34,6 +34,9 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		}, false},
 	}
 	for _, tc := range cases {
+		if tc.def.SizeClass == "" {
+			tc.def.SizeClass = "person" // these cases exercise other rules, not size
+		}
 		cfg := &MonsterYAMLConfig{
 			Monsters:    map[string]MonsterDefinition{"boss": tc.def},
 			DamageTypes: map[string]int{"physical": 0, "fire": 1},
@@ -65,6 +68,9 @@ func TestValidateMonsterConfiguration_AttackCadenceAllowsExplicitTurnBasedOverri
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.def.SizeClass == "" {
+				tt.def.SizeClass = "person" // these cases exercise cadence, not size
+			}
 			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{"monster": tt.def}}
 			err := validateMonsterConfiguration(cfg)
 			if tt.wantErr && err == nil {

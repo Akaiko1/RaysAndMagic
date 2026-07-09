@@ -23,10 +23,12 @@ type NPCData struct {
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
 	RenderType       string               `yaml:"render_type,omitempty"`
+	RenderCategory   string               `yaml:"render_category,omitempty"` // explicit render class (standee/animated/wall/landmark/scenery/invisible); derived if empty
 	WallMounted      bool                 `yaml:"wall_mounted,omitempty"`
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
-	SizeMultiplier   float64              `yaml:"size_multiplier,omitempty"`
+	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
+	SizeTiles        float64              `yaml:"size_tiles,omitempty"`
 	SellAvailable    bool                 `yaml:"sell_available,omitempty"`
 	SteamWhenVisited bool                 `yaml:"steam_when_visited,omitempty"` // emit steam particles once Visited (e.g. a shut culvert valve)
 	HideWhenVisited  bool                 `yaml:"hide_when_visited,omitempty"`  // stop rendering/interacting once Visited (e.g. a spent dragon statue), so the spent state persists via the saved Visited flag
@@ -270,10 +272,12 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Description:      data.Description,
 		Sprite:           data.Sprite,
 		RenderType:       data.RenderType,
+		RenderCategory:   data.RenderCategory,
 		WallMounted:      data.WallMounted,
 		Transparent:      data.Transparent,
 		GroundTile:       data.GroundTile,
-		SizeMultiplier:   data.SizeMultiplier,
+		SizeClass:        data.SizeClass,
+		SizeTiles:        data.SizeTiles,
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,

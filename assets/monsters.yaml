@@ -22,7 +22,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -48,7 +48,7 @@ monsters:
     letter: "o"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -76,7 +76,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -99,7 +99,7 @@ monsters:
     letter: "b"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -121,7 +121,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -145,7 +145,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
@@ -173,7 +173,7 @@ monsters:
     letter: "m"
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: person
     biomes: ["pyramid"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -203,7 +203,7 @@ monsters:
     letter: "n"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: large
     biomes: ["pyramid"]
     resistances:
       physical: 25
@@ -230,7 +230,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["pyramid"]
     resistances:
       air: 50
@@ -258,7 +258,7 @@ monsters:
     letter: "l"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
@@ -289,7 +289,7 @@ monsters:
     letter: "d"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: 90
       physical: 10
@@ -329,7 +329,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert"]
     resistances:
       dark: 90
@@ -364,7 +364,7 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
@@ -401,7 +401,7 @@ monsters:
     letter: "y"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
@@ -440,7 +440,7 @@ monsters:
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: 100
       physical: 10
@@ -473,7 +473,7 @@ monsters:
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       dark: 100
       physical: 10
@@ -504,7 +504,7 @@ monsters:
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       earth: 100
       physical: 25
@@ -538,7 +538,7 @@ monsters:
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       air: 100
       physical: 10
@@ -563,7 +563,7 @@ monsters:
     letter: "f"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     resistances:
       earth: 25
     habitat_preferences:
@@ -591,7 +591,7 @@ monsters:
     letter: "u"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -616,7 +616,7 @@ monsters:
     letter: "x"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances:
       fire: 25
       dark: 30
@@ -641,7 +641,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "fern_patch"
@@ -668,7 +668,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       earth: 75
       water: 50
@@ -704,7 +704,7 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_multiplier: 3.0
+    size_class: small
     light:
       enabled: true
       radius_tiles: 3.0
@@ -739,7 +739,7 @@ monsters:
     letter: "n"       # Bandit
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -768,7 +768,7 @@ monsters:
     passive_until_attacked: true
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: person
     resistances:
       water: 60
       air: 35
@@ -796,7 +796,7 @@ monsters:
     biomes: ["water"]
     box_w: 48
     box_h: 48
-    size_multiplier: 10.0
+    size_class: large
     resistances:
       water: 60
       physical: 10
@@ -831,7 +831,7 @@ monsters:
     letter: "c"
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: medium
     biomes: ["highlands"]
     pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
     pounce_cooldown_seconds: 4
@@ -865,7 +865,7 @@ monsters:
     letter: "h"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["highlands"]
     resistances: {}
     habitat_preferences:
@@ -895,7 +895,7 @@ monsters:
     letter: "j"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["highlands"]
     resistances:
       physical: 30
@@ -923,7 +923,7 @@ monsters:
     letter: "v"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       physical: 40
@@ -955,7 +955,7 @@ monsters:
     letter: "z"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       fire: 50
@@ -988,7 +988,7 @@ monsters:
     letter: "q"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["highlands", "lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1023,7 +1023,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1055,7 +1055,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     biomes: ["lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1087,7 +1087,7 @@ monsters:
     letter: "r"
     box_w: 40
     box_h: 40
-    size_multiplier: 3.5
+    size_class: small
     biomes: ["culverts"]
     resistances: {}
 
@@ -1110,7 +1110,7 @@ monsters:
     letter: "v"
     box_w: 40
     box_h: 40
-    size_multiplier: 3.2
+    size_class: small
     biomes: ["culverts"]
     resistances: {}
 
@@ -1134,7 +1134,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     biomes: ["culverts"]
     resistances:
       physical: 15
@@ -1169,10 +1169,10 @@ monsters:
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
     # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide
-    # corridors, freezing the boss. 48 fits one tile; size_multiplier keeps it big visually.
+    # corridors, freezing the boss. 48 fits one tile; size_class keeps it big visually.
     box_w: 48
     box_h: 48
-    size_multiplier: 9.0
+    size_class: large
     biomes: ["culverts"]
     resistances:
       physical: 20
@@ -1203,7 +1203,7 @@ monsters:
     letter: "a"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["japanese_castle"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1234,7 +1234,7 @@ monsters:
     letter: "m"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["japanese_castle"]
     tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
@@ -1267,7 +1267,7 @@ monsters:
     letter: "n"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.5
+    size_class: person
     biomes: ["japanese_castle"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1299,7 +1299,7 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.5
+    size_class: person
     biomes: ["japanese_castle"]
     tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
@@ -1339,7 +1339,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["japanese_castle"]
     resistances:
       physical: 20
@@ -1370,7 +1370,7 @@ monsters:
     letter: "o"
     box_w: 40
     box_h: 40
-    size_multiplier: 4.0
+    size_class: medium
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1392,7 +1392,7 @@ monsters:
     letter: "j"
     box_w: 44
     box_h: 44
-    size_multiplier: 5.0
+    size_class: medium
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1422,7 +1422,7 @@ monsters:
     letter: "h"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1452,7 +1452,7 @@ monsters:
     letter: "d"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       physical: 15
@@ -1483,7 +1483,7 @@ monsters:
     letter: "x"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       fire: 40
@@ -1521,7 +1521,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["jungle"]
     resistances:
       physical: 20
@@ -1563,7 +1563,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["jungle"]
     resistances:
       physical: 25
@@ -1590,7 +1590,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: large
     biomes: ["jungle"]
     resistances:
       physical: 20

@@ -369,7 +369,7 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 	const (
 		cols   = 4
 		icon   = 84
-		colGap = 28
+		colGap = 44
 		rowGap = 64
 	)
 	gridW := cols*icon + (cols-1)*colGap
@@ -385,30 +385,28 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 		key := ui.game.cardCollectionKey(slot)
 		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
 		if def := cardDef(key); def != nil {
-			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
-			drawCenteredDebugText(screen, cardEffectText(def), x-20, y+icon+16, icon+40, 14)
+			// Label box = one column pitch minus a small gutter, centered on the
+			// card, with text clipped to fit - so neighbouring labels never collide.
+			const labelW = icon + colGap - 6
+			labelX := x - (labelW-icon)/2
+			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
+			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+16, labelW, 14)
 			if hovered {
 				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
 			}
 		}
 	}
 
-	// Combined active effects: list EVERY equipped card's effect via the same
-	// cardEffectText formatter the cells use (not just move speed / bonus actions,
-	// which omitted Samurai/Ningyo/Medusa/etc. and falsely read "none active").
-	var totals []string
-	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(ui.game.cardCollectionKey(slot)); def != nil {
-			if eff := cardEffectText(def); eff != "" {
-				totals = append(totals, eff)
-			}
-		}
-	}
+	// Combined totals: fold the active cards, format via the shared CardEffectLines.
 	summary := "No active card effects."
-	if len(totals) > 0 {
-		summary = "Active: " + strings.Join(totals, ", ")
+	if parts := ui.game.cardCollectionAggregate().CardEffectLines(); len(parts) > 0 {
+		summary = "Active: " + strings.Join(parts, ", ")
 	}
-	drawDebugText(screen, summary, panelX+30, startY+2*(icon+rowGap)+6)
+	// Wrap to the panel width so a full 8-card list doesn't run off the edge.
+	summaryY := startY + 2*(icon+rowGap) + 6
+	for i, line := range wrapText(summary, (panelWidth-60)/debugTextCharWidth) {
+		drawDebugText(screen, line, panelX+30, summaryY+i*14)
+	}
 
 	if hover != nil {
 		ui.queueTooltip(hover, mouseX+16, mouseY+8)

@@ -298,7 +298,21 @@ graphics:
   # NPC rendering (larger than monsters for better visibility)
   npc:
     min_sprite_size: 16
-    size_distance_multiplier: 150
+
+  # Monster size classes -> sprite height in tile units (1.0 == a 1-tile wall).
+  # Monsters set size_class instead of a raw number so sizes stay quantized.
+  size_classes:
+    small: 0.35    # rat, bat, pixie
+    medium: 0.45   # wolf, spider, goblin and other beasts
+    person: 0.60   # all humanoids alike - enemy people/undead/orcs AND human NPCs
+    large: 0.85    # bear, minotaur, giant beasts
+    huge: 1.20     # dragons, trolls, treants, bosses
+
+  # Ground container sprite heights in tile units (dropped loot / reward chests).
+  # Fixed - not scaled by the dropping monster. Chests read bigger than bags.
+  container_size_tiles:
+    loot_bag: 0.25
+    treasure_chest: 0.5
 
   # Rising "bubble" particles along the ground edges of impassable billboard
   # tiles (rocks/cliffs - not trees, which already read as solid). Signals which
@@ -395,3 +409,14 @@ day_night:
       night_monster: forest_spider
       count: 8
       min_player_dist_tiles: 8
+    - map: desert
+      night_monster: mummy
+      count: 5
+    - map: deep_jungle
+      day_monster: ocelot
+      night_monster: masked_huntress
+      count: 5
+    - map: japanese_castle
+      night_monsters:
+        - { monster: ningyo, count: 4 }
+        - { monster: vengeful_ningyo, count: 1 }

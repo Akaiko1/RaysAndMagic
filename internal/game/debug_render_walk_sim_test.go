@@ -358,7 +358,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 	w.Monsters = nil
 	for _, p := range deadAt {
-		g.addLootBagDrop(p[0], p[1], nil, 5, 0)
+		g.addLootBagDrop(p[0], p[1], nil, 5)
 	}
 	t.Logf("phase B: %d monsters removed, %d loot bags dropped", len(deadAt), len(g.groundContainers))
 

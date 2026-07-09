@@ -8,6 +8,15 @@ NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
 - NPC types supported: `spell_trader`, `merchant`, `encounter`, `quest_giver`
   (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
 
+### Render category and size
+- `render_category` sets how the NPC renders: `standee`, `animated` (a person with a
+  `w == h*4` idle sheet, turns to face the party), `scenery` (a prop), `landmark`
+  (tall crossed monument), `wall` (a flush wall standee), or `invisible` (no sprite).
+- Size: people use `size_class: person` (shared with monsters, from
+  `config.yaml graphics.size_classes`); props use `size_tiles` (height in tiles,
+  `1.0` == a 1-tile wall). Set exactly one.
+- A wall standee also needs `wall_mounted: true` so it slides onto the adjacent wall.
+
 ## Step 1: Define the NPC
 Add an entry under `npcs:` in `assets/npcs.yaml`.
 
@@ -18,7 +27,8 @@ npcs:
     name: "Archmage Merlin"
     type: "spell_trader"
     sprite: "elf_warrior"
-    size_multiplier: 4
+    render_category: "animated"  # a person with a 4-frame idle sheet; see "Render category" below
+    size_class: "person"         # people use the shared person size (config graphics.size_classes)
     dialogue:
       greeting: "Greetings, traveler!"
       insufficient_gold: "You need {cost} gold."
@@ -85,7 +95,8 @@ npcs:
     name: "Abandoned Shipwreck"
     type: "encounter"
     sprite: "shipwreck"
-    render_type: "environment_sprite"
+    render_category: "scenery"   # standee/animated/wall/landmark/scenery/invisible
+    size_tiles: 1.0              # props use size_tiles; people use size_class
     transparent: true
     dialogue:
       greeting: "You hear voices inside the wreck."

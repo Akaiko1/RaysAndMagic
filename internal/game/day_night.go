@@ -188,14 +188,15 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 		}
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, !night))
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, night)) // no double-stacking on odd flows (load edge cases)
-		key := pack.DayMonster
-		if night {
-			key = pack.NightMonster
+		tag := dayNightPackTag(pack.Map, night)
+		// One tag covers every member of the phase, so a mixed pack (e.g. grunts
+		// + an elite) despawns together and never self-clears mid-spawn.
+		for _, mem := range pack.PhaseMembers(night) {
+			if mem.Monster == "" || mem.Count <= 0 {
+				continue
+			}
+			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, pack.MinPlayerDistTilesOrDefault())
 		}
-		if key == "" || pack.Count <= 0 {
-			continue
-		}
-		g.spawnPackMonsters(w, dayNightPackTag(pack.Map, night), key, pack.Count, pack.MinPlayerDistTilesOrDefault())
 	}
 }
 

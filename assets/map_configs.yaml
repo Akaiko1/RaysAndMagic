@@ -212,7 +212,6 @@ maps:
             tile_x: 12
             tile_y: 8
             sprite: "chest"
-            size_multiplier: 5.0
             gold: 500
       - monsters:
           - type: "bandit"
@@ -225,7 +224,6 @@ maps:
             tile_x: 37
             tile_y: 41
             sprite: "chest"
-            size_multiplier: 5.0
             gold: 500
 
   water:
@@ -254,7 +252,6 @@ maps:
           tile_x: 15
           tile_y: 1
           sprite: "chest"
-          size_multiplier: 5.0
           random_weapon_count: 1
 
   pyramid_1:
@@ -289,28 +286,24 @@ maps:
             tile_x: 9
             tile_y: 3
             sprite: "pyramid_chest"
-            size_multiplier: 5.0
             items: ["black_dragon_statuette"]
           - id: "pyramid_red_dragon_statuette_chest"
             map: "pyramid_3"
             tile_x: 13
             tile_y: 3
             sprite: "pyramid_chest"
-            size_multiplier: 5.0
             items: ["red_dragon_statuette"]
           - id: "pyramid_green_dragon_statuette_chest"
             map: "pyramid_3"
             tile_x: 17
             tile_y: 3
             sprite: "pyramid_chest"
-            size_multiplier: 5.0
             items: ["green_dragon_statuette"]
           - id: "pyramid_gold_dragon_statuette_chest"
             map: "pyramid_3"
             tile_x: 21
             tile_y: 3
             sprite: "pyramid_chest"
-            size_multiplier: 5.0
             items: ["gold_dragon_statuette"]
 
   lich_nexus:
@@ -338,8 +331,7 @@ maps:
     sky_color: [18, 22, 40]              # moonlit night
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
-    ambient_light: 0.5   # moonlit courtyard; lantern glow carries the halls
-    wall_torches: true   # paper lanterns flicker at inner wall corners
+    wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
 
   city:
     name: "Seabright"
@@ -372,7 +364,6 @@ maps:
     sky_color: [54, 84, 64]             # Humid green canopy haze
     sky_texture: "deep_jungle_panorama"
     default_floor_color: [34, 78, 40]   # Dark jungle green
-    ambient_light: 1.0   # full daylight; no ambient darkening
     # Slay the warlord (only possible once his idols are broken) -> the lost
     # city's treasury opens in the plaza. Zone gear + gold only; his uniques
     # drop from the boss itself (loots.yaml), so none can leak here.
@@ -393,5 +384,4 @@ maps:
             tile_x: 38
             tile_y: 13
             sprite: "chest"
-            size_multiplier: 5.0
             loot_table: "lost_city_cache"   # 3 rolls of zone gear + 400-900 gold

@@ -127,15 +127,16 @@ const (
 
 // Speed-stat -> action cooldown curve. Cooldown in frames is a linear function
 // of the character's effective Speed stat, clamped to [Min, Max] frames.
-// The formula `frames = Intercept - Slope * Speed` was originally fit through
-// two anchor points: Speed=5 => ~60 frames, Speed=50 => ~30 frames. Adjusting
-// these knobs changes how much Speed matters for action cadence in realtime
-// combat.
+// The formula `frames = Intercept - Slope * Speed` reaches the minimum cooldown
+// at AttackCooldownCapSpeed. Adjusting these knobs changes how much Speed
+// matters for action cadence in realtime combat.
 const (
 	AttackCooldownIntercept  = 63.333333 // frames at Speed=0 (before clamp)
-	AttackCooldownSpeedSlope = 2.0 / 3.0 // frames lost per +1 Speed
+	AttackCooldownCapSpeed   = 150.0     // Speed where the curve first reaches MinFrames
 	AttackCooldownMinFrames  = 15        // floor: ~0.125s at 120 TPS
 	AttackCooldownMaxFrames  = 90        // ceiling: ~0.75s at 120 TPS
+	AttackCooldownSpeedSlope = (AttackCooldownIntercept - AttackCooldownMinFrames) /
+		AttackCooldownCapSpeed // frames lost per +1 Speed
 )
 
 // Real-time per-character cooldown model. In RT every character has their OWN

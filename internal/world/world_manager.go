@@ -326,7 +326,7 @@ func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapK
 		TileX:             chestCfg.TileX,
 		TileY:             chestCfg.TileY,
 		Sprite:            chestCfg.Sprite,
-		SizeMultiplier:    chestCfg.SizeMultiplier,
+		SizeTiles:         chestCfg.SizeTiles,
 		RandomWeaponCount: chestCfg.RandomWeaponCount,
 		Items:             append([]string(nil), chestCfg.Items...),
 		Weapons:           append([]string(nil), chestCfg.Weapons...),

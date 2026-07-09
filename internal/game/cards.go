@@ -1,6 +1,7 @@
 package game
 
 import (
+	"reflect"
 	"strings"
 
 	"ugataima/internal/character"
@@ -174,6 +175,87 @@ func (g *MMGame) cardCollectionBonus(get func(*config.ItemDefinitionConfig) int)
 		}
 	}
 	return total
+}
+
+// cardCollectionAggregate folds the active cards into one synthetic definition
+// so CardEffectLines can render combined totals. Combine rules match the
+// mechanics: int fields sum, stat/resist maps merge-sum, CardBonusVs multiplies
+// per key, bools OR, strings take the first; poison duration/resist below.
+func (g *MMGame) cardCollectionAggregate() *config.ItemDefinitionConfig {
+	var defs []*config.ItemDefinitionConfig
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
+			defs = append(defs, def)
+		}
+	}
+	return foldCardDefs(defs)
+}
+
+// foldCardDefs is the pure fold behind cardCollectionAggregate (see its doc).
+func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionConfig {
+	agg := &config.ItemDefinitionConfig{}
+	av := reflect.ValueOf(agg).Elem()
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		dv := reflect.ValueOf(def).Elem()
+		dt := dv.Type()
+		for i := 0; i < dv.NumField(); i++ {
+			if !strings.HasPrefix(dt.Field(i).Name, "Card") {
+				continue
+			}
+			af, df := av.Field(i), dv.Field(i)
+			switch df.Kind() {
+			case reflect.Int:
+				af.SetInt(af.Int() + df.Int())
+			case reflect.Bool:
+				if df.Bool() {
+					af.SetBool(true)
+				}
+			case reflect.String:
+				if af.String() == "" && df.String() != "" {
+					af.Set(df)
+				}
+			case reflect.Map:
+				if df.Len() == 0 {
+					continue
+				}
+				if af.IsNil() {
+					af.Set(reflect.MakeMap(df.Type()))
+				}
+				multiply := df.Type().Elem().Kind() == reflect.Float64 // bonus_vs multiplies
+				for _, k := range df.MapKeys() {
+					cur := af.MapIndex(k)
+					if multiply {
+						base := 1.0
+						if cur.IsValid() {
+							base = cur.Float()
+						}
+						af.SetMapIndex(k, reflect.ValueOf(base*df.MapIndex(k).Float()))
+					} else {
+						base := int64(0)
+						if cur.IsValid() {
+							base = cur.Int()
+						}
+						af.SetMapIndex(k, reflect.ValueOf(int(base+df.MapIndex(k).Int())))
+					}
+				}
+			}
+		}
+	}
+	// Not sums: poison duration is the max (cardPoisonProc), poison resist caps
+	// at 100% (the combat roll is rand(100) < pct).
+	agg.CardPoisonDurationSec = 0
+	for _, def := range defs {
+		if def != nil && def.CardPoisonDurationSec > agg.CardPoisonDurationSec {
+			agg.CardPoisonDurationSec = def.CardPoisonDurationSec
+		}
+	}
+	if agg.CardPoisonResistPct > 100 {
+		agg.CardPoisonResistPct = 100
+	}
+	return agg
 }
 
 func (g *MMGame) cardMoveSpeedPct() int {

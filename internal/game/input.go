@@ -46,7 +46,8 @@ type InputHandler struct {
 	hKeyTracker          keytracker.KeyStateTracker
 	rKeyTracker          keytracker.KeyStateTracker
 	cKeyTracker          keytracker.KeyStateTracker
-	attackHoldFrames     int // frames an RT attack key has been held (tap vs hold-repeat)
+	attackHoldFrames     int  // frames an RT attack key has been held (tap vs hold-repeat)
+	spacePressActed      bool // this Space press already fired a combat action (blocks same-press loot pickup)
 	menuKeyTracker       keytracker.KeyStateTracker
 	inventoryKeyTracker  keytracker.KeyStateTracker
 	charactersKeyTracker keytracker.KeyStateTracker
@@ -78,7 +79,8 @@ const rtHoldRepeatDelay = 54
 
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
-// In real-time mode, uses Speed-based scaling: Speed 5 => ~60 frames, Speed 50 => ~30 frames.
+// In real-time mode, uses Speed-based scaling; the underlying curve reaches its
+// minimum at AttackCooldownCapSpeed.
 func (ih *InputHandler) actionCooldown(_ int) int {
 	if ih == nil || ih.game == nil || ih.game.combat == nil {
 		return inputDebounceCooldown
@@ -925,10 +927,19 @@ func (ih *InputHandler) handleCombatInput() {
 	// No attacks/casts/shots while running - you must stop sprinting to act.
 	running := ih.isRunning()
 
+	// The guard holds only for the duration of one press AFTER it acted: a fresh
+	// press (spaceJust) or a released key clears it.
+	if spaceJust || !spaceHeld {
+		ih.spacePressActed = false
+	}
+
 	// Space also picks up ground loot - works while sprinting. The input cooldown
 	// paces held-Space to one container per press, so a fanned pile of bags is
-	// picked up one at a time rather than vanishing in a few frames.
-	if spaceHeld && ih.game.spellInputCooldown == 0 {
+	// picked up one at a time rather than vanishing in a few frames. Skipped once
+	// this press has fired a combat action, so the SAME tap that killed a mob
+	// can't immediately grab the bag it dropped (release + press again to pick up;
+	// a deliberate hold with no target still picks up).
+	if spaceHeld && !ih.spacePressActed && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			return
@@ -1043,6 +1054,12 @@ func (ih *InputHandler) handleCombatInput() {
 		ih.castSlottedSpell(sel)
 	case rtActHeal:
 		ih.castBestHeal(sel)
+	}
+
+	// This Space press just fired a combat action - block loot pickup for the
+	// rest of THIS press (see the pickup guard above).
+	if kind == rtActSmart {
+		ih.spacePressActed = true
 	}
 }
 

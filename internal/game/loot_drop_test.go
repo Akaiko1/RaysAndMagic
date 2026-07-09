@@ -30,7 +30,7 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, cs.game.config)
 		drops := cs.checkMonsterLootDrop(monster)
 		if len(drops) > 0 {
-			cs.game.addLootBagDrop(monster.X, monster.Y, drops, 0, 0.33)
+			cs.game.addLootBagDrop(monster.X, monster.Y, drops, 0)
 		}
 	}
 

@@ -405,18 +405,18 @@ func (r *Renderer) updateActiveLights() {
 
 	// Cache the current map's ambient level for this frame: every brightness
 	// path multiplies by it, making dark maps (low ambient_light) genuinely
-	// dark until a torch / spell glow lifts them.
+	// dark until a torch / spell glow lifts them. Flows into the floor shader's
+	// Ambient uniform and every CPU brightness path via mapAmbient().
 	r.ambientLight = 1.0
-	if world.GlobalWorldManager != nil {
+	if r.game.dayNightOutdoor {
+		// Day/night maps light STRICTLY by the day/night clock (day_light noon
+		// -> night_light midnight); their authored ambient_light (an interior
+		// darkening knob) is ignored so the cycle alone sets brightness.
+		r.ambientLight = r.game.dayNightLightScaleNow()
+	} else if world.GlobalWorldManager != nil {
 		if mc := world.GlobalWorldManager.GetCurrentMapConfig(); mc != nil && mc.AmbientLight > 0 {
 			r.ambientLight = mc.AmbientLight
 		}
-	}
-	// Outdoor maps breathe with the day/night clock (1.0 noon -> 0.7 midnight);
-	// interiors keep their authored ambient. Flows into the floor shader's
-	// Ambient uniform and every CPU brightness path via mapAmbient().
-	if r.game.dayNightOutdoor {
-		r.ambientLight *= r.game.dayNightLightScaleNow()
 	}
 
 	camX := r.game.camera.X
@@ -1684,11 +1684,11 @@ func (r *Renderer) drawTreeSprite(screen *ebiten.Image, x int, distance float64,
 
 	// Calculate tree height and position
 	// distance is already perpendicular distance from the raycast
-	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	sizeTiles := r.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+		sizeTiles = world.GlobalTileManager.GetSizeTiles(tileType)
 	}
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeTiles)
 	if spriteHeight < 8 {
 		spriteHeight = 8
 	}
@@ -1820,11 +1820,11 @@ func applyBrightnessToAlpha(sprite *ebiten.Image, strength float64) *ebiten.Imag
 
 // drawEnvironmentSprite draws environment sprites in the 3D world
 func (r *Renderer) drawEnvironmentSprite(screen *ebiten.Image, x int, distance float64, tileType world.TileType3D) {
-	sizeMultiplier := r.game.config.Graphics.Sprite.TreeHeightMultiplier
+	sizeTiles := r.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		sizeMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+		sizeTiles = world.GlobalTileManager.GetSizeTiles(tileType)
 	}
-	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeMultiplier)
+	spriteHeight := r.game.renderHelper.calculateSpriteSizeWithHeightMultiplier(distance, sizeTiles)
 	if spriteHeight > r.game.config.GetScreenHeight() {
 		spriteHeight = r.game.config.GetScreenHeight()
 	}
@@ -2617,16 +2617,33 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		for i := range r.transparentSpritesCache {
 			spriteData := &r.transparentSpritesCache[i]
 
-			if spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
+			// Wall-mounted decorations render on the ADJACENT wall, so the party
+			// standing in their own tile is within one tile of the anchor - same
+			// exemption wall-mounted NPCs get: no on-tile skip, no near-cull, or the
+			// decoration vanishes the moment you walk up to it.
+			wallMounted := world.GlobalTileManager != nil && world.GlobalTileManager.IsWallMounted(spriteData.tileType)
+			if !wallMounted && spriteData.tileX == playerTileX && spriteData.tileY == playerTileY {
 				continue
 			}
-
-			distance, depthPerp, ok := cullAndProject(spriteData.worldX, spriteData.worldY, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+			near := minDistSq
+			// Wall-mounted decorations are drawn on the adjacent wall (wallStickPose),
+			// so cull/size from there - the tile centre culls when you stand on it.
+			// Same effective-position rule as npcEffectivePos.
+			ex, ey := spriteData.worldX, spriteData.worldY
+			if wallMounted {
+				near = 0
+				if r.game.config.Graphics.Standee.Enabled {
+					if wx, wy, _, ok := r.game.wallStickPose(ex, ey); ok {
+						ex, ey = wx, wy
+					}
+				}
+			}
+			distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, near, viewDistSq)
 			if !ok {
 				continue
 			}
 
-			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(spriteData.worldX, spriteData.worldY, distance, spriteData.tileType, 1.0)
+			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
 			}
@@ -2728,8 +2745,8 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 
-		sizeMultiplier := mon.GetSizeGameMultiplier()
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeMultiplier)
+		sizeTiles := mon.GetSizeGameMultiplier()
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeTiles)
 		if visible && mon.Flying {
 			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
 		}
@@ -2765,22 +2782,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
-		// Wall-mounted tokens render AT the wall (offset from their tile centre), so
-		// anchor culling/metrics there too - otherwise standing in the tile centre
-		// puts the camera ~0 from npc.X/Y and the near-cull deletes the gate.
-		ex, ey := npc.X, npc.Y
-		if npc.WallMounted {
-			if wx, wy, _, ok := r.game.wallStickPose(npc.X, npc.Y); ok {
-				ex, ey = wx, wy
-			}
-		}
-		// Same near-cull as environment sprites for floor-anchored NPCs, so
-		// shipwrecks/churches/exits disappear cleanly when the player walks into
-		// them. Wall-mounted NPCs are different: their visual anchor is on the
-		// adjacent wall, so a player standing in the NPC tile is intentionally
-		// within one tile of the anchor and the gate/grate must remain visible.
+		// Cull/project from where the NPC is drawn (wall face for wall tokens);
+		// wall tokens skip the on-tile near-cull since their anchor is on the wall.
+		ex, ey := r.game.npcEffectivePos(npc)
 		nearSq := minDistSq
-		if npc.WallMounted {
+		if r.game.npcIsWall(npc) {
 			nearSq = 0
 		}
 		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
@@ -2788,14 +2794,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 
-		var screenX, screenY, spriteSize int
-		var visible bool
-
-		if npc.RenderType == "environment_sprite" || npc.RenderType == "landmark" {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, npc.SizeMultiplier)
-		} else {
-			screenX, screenY, spriteSize, visible = r.game.renderHelper.CalculateNPCSpriteMetrics(ex, ey, distance, npc.SizeMultiplier)
-		}
+		screenX, screenY, spriteSize, visible := r.game.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
 		if !visible {
 			continue
 		}
@@ -3042,10 +3041,30 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 	brightness := r.calculateBrightnessWithTorchLight(worldX, worldY, distance)
 	b := float32(brightness)
 
+	// Animate ordinary standee tiles: a sprite whose sheet is w == h*4 cycles
+	// frames like an NPC idle; single-frame sprites come back unchanged. Every
+	// draw path below uses the current frame.
+	frame, _, _ := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+
 	// Standee mode: scenery tokens slowly turn to face the camera (a lazy
 	// billboard - the turn rate makes them feel like propped-up cutouts being
 	// nudged, not glued to the view). Rate 0 = fixed diagonal.
 	if r.game.config.Graphics.Standee.Enabled {
+		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
+		// Wall-mounted decoration tile: stick flush to the nearest solid neighbour
+		// and orient along that wall (the tile twin of NPC wall_mounted). Falls
+		// through to a centred standee when no wall is adjacent.
+		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWallMounted(s.tileType) {
+			if wx, wy, wyaw, ok := r.game.wallStickPose(worldX, worldY); ok {
+				wkey := standeeCoreKey{name: "wallprop:" + name, bounds: frame.Bounds()}
+				// Centre on the wall, not floor-anchored: bottom = horizon + half
+				// height puts the sprite centre on the horizon (the wall's mid-line).
+				centeredBottom := r.game.config.GetScreenHeight()/2 + s.spriteSize/2
+				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b) {
+					return
+				}
+			}
+		}
 		yaw := standeeStaticYaw
 		// Landmark tiles (e.g. the city fountain) render as a TALL crossed standee
 		// spinning in place - same monument treatment as the landmark NPCs (they
@@ -3055,8 +3074,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
 				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 			}
-			name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
-			if r.drawLandmarkStandee(screen, s.sprite, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.spriteSize, s.screenY, b) {
+			if r.drawLandmarkStandee(screen, frame, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.spriteSize, s.screenY, b) {
 				return
 			}
 		}
@@ -3075,16 +3093,15 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// not the base name: variants share dimensions, and a base-name key let
 		// whichever variant rendered first stamp its wood slab onto all of them
 		// (short grass tuft wearing the tall variant's silhouette).
-		name := r.selectEnvironmentSpriteName(s.tileType, s.tileX, s.tileY)
-		key := standeeCoreKey{name: "tile:" + name, bounds: s.sprite.Bounds()}
-		if r.drawStandeeSprite(screen, s.sprite, key, worldX, worldY, yaw,
+		key := standeeCoreKey{name: "tile:" + name, bounds: frame.Bounds()}
+		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
 			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0, -1, -1, -1) {
 			return
 		}
 	}
 
 	drawLeft := s.screenX - s.spriteSize/2
-	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
+	r.drawTintedSprite(screen, frame, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
 }
 
 // drawUnifiedMonsterSprite draws a monster sprite from unified data
@@ -3319,6 +3336,9 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
+	// One source of truth for how this NPC renders (shared with the map editor);
+	// dims from the full sheet feed the animated distinction.
+	cat := npcRenderCatOf(s.npc, s.sprite.Bounds().Dx(), s.sprite.Bounds().Dy())
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -3359,13 +3379,11 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// sprite-vs-wall test can see the NPC at the same depth as that wall and
 		// reject it before the wall-mounted draw path gets to apply its backing
 		// wall bias.
-		if s.npc.WallMounted {
+		if r.game.npcIsWall(s.npc) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
-				ts := float64(r.game.config.GetTileSize())
 				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
-				r.standeeDepthBias = ts * 0.6
-				r.drawStandeeSprite(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1)
-				r.standeeDepthBias = 0
+				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br)
 				return
 			}
 		}
@@ -3377,7 +3395,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
-		animated := frameW != s.sprite.Bounds().Dx() // a frame was cut from a sheet
+		animated := cat == catAnimated // creatures face the party; static objects spin
 		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; animated && speed > 0 {
 			target := math.Atan2(r.game.camera.Y-s.npc.Y, r.game.camera.X-s.npc.X) + math.Pi/2
 			if r.standeeNPCYaw == nil {
@@ -3394,7 +3412,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// Landmarks (towers, churches, the city gate, the lich nexus) render as a
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
 		// instead of a flat token.
-		if s.npc.RenderType == "landmark" {
+		if cat == catLandmark {
 			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, br) {
 				return
 			}
