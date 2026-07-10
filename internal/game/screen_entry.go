@@ -149,11 +149,11 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
 	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) && g.savePage > 0 {
-		g.savePage--
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyRight) && g.savePage < savePageCount-1 {
-		g.savePage++
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
+		g.savePage = (g.savePage + 1) % savePageCount
 	}
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -220,8 +220,8 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			onClick()
 		}
 	}
-	drawEntryPagerBtn(rowX, "< Prev", g.savePage > 0, func() { g.savePage-- })
-	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", g.savePage < savePageCount-1, func() { g.savePage++ })
+	drawEntryPagerBtn(rowX, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
+	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
 
 	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })

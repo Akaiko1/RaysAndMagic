@@ -92,6 +92,10 @@ func fileSHA256(path string) (string, bool) {
 	return hex.EncodeToString(h.Sum(nil)), true
 }
 
+// SetDataRootForTesting points the writable data root at a temp dir so tests
+// never touch the real saves directory. Pass "" to restore default resolution.
+func SetDataRootForTesting(dir string) { dataRoot = dir }
+
 // dataRoot is the writable runtime root when running as a .app bundle (empty
 // otherwise). Set once by SetupBundleRuntime; AppSaveDir writes saves under it.
 var dataRoot string

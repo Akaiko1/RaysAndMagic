@@ -64,6 +64,12 @@ biomes:
         - "church_floor_2"
         - "church_floor_3"
 
+  arena:
+    floor_texture_groups:
+      default:
+        - "arena_sand_0"
+        - "arena_sand_1"
+
   pyramid:
     floor_texture_groups:
       default:
@@ -253,6 +259,20 @@ maps:
           tile_y: 1
           sprite: "chest"
           random_weapon_count: 1
+
+  arena:
+    name: "The Grand Arena"
+    file: "arena.map"
+    biome: "arena"
+    sky_color: [140, 185, 230]
+    sky_texture: "arena_panorama"   # roofless: _day/_night variants drive the cycle
+    default_floor_color: [196, 164, 98]
+    # Champion-duel staging: start_arena_duel places the party and spawns the
+    # challenged champion at these tiles (the sand hall, facing each other).
+    duel:
+      party_tile: [11, 4]
+      champion_tile: [16, 4]
+      facing_deg: 0   # party looks east, straight at the champion
 
   pyramid_1:
     name: "Pyramid - Level 1"

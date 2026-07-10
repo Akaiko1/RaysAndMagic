@@ -25,36 +25,14 @@ import (
 
 // InputHandler handles all user input for the game
 type InputHandler struct {
-	game                 *MMGame
-	slashKeyTracker      keytracker.KeyStateTracker
-	apostropheKeyTracker keytracker.KeyStateTracker
-	enterKeyTracker      keytracker.KeyStateTracker
-	tabKeyTracker        keytracker.KeyStateTracker
-	escapeKeyTracker     keytracker.KeyStateTracker
-	upKeyTracker         keytracker.KeyStateTracker
-	downKeyTracker       keytracker.KeyStateTracker
-	leftKeyTracker       keytracker.KeyStateTracker
-	rightKeyTracker      keytracker.KeyStateTracker
-	wKeyTracker          keytracker.KeyStateTracker
-	aKeyTracker          keytracker.KeyStateTracker
-	sKeyTracker          keytracker.KeyStateTracker
-	dKeyTracker          keytracker.KeyStateTracker
-	qKeyTracker          keytracker.KeyStateTracker
-	eKeyTracker          keytracker.KeyStateTracker
-	spaceKeyTracker      keytracker.KeyStateTracker
-	fKeyTracker          keytracker.KeyStateTracker
-	hKeyTracker          keytracker.KeyStateTracker
-	rKeyTracker          keytracker.KeyStateTracker
-	cKeyTracker          keytracker.KeyStateTracker
-	attackHoldFrames     int  // frames an RT attack key has been held (tap vs hold-repeat)
-	spacePressActed      bool // this Space press already fired a combat action (blocks same-press loot pickup)
-	menuKeyTracker       keytracker.KeyStateTracker
-	inventoryKeyTracker  keytracker.KeyStateTracker
-	charactersKeyTracker keytracker.KeyStateTracker
-	questsKeyTracker     keytracker.KeyStateTracker
-	cardsKeyTracker      keytracker.KeyStateTracker
-	newGameKeyTracker    keytracker.KeyStateTracker
-	loadKeyTracker       keytracker.KeyStateTracker
+	game *MMGame
+	// keys is the ONE edge source for every keyboard press in the gameplay
+	// input tree: Consume claims a press for its call site, so the priority
+	// ladder in HandleInput doubles as the key-priority order.
+	keys             keytracker.Consumer
+	attackHoldFrames int  // frames an RT attack key has been held (tap vs hold-repeat)
+	spaceHoldFrames  int  // frames Space specifically has been held (tap vs hold-repeat for loot pickup; unlike attackHoldFrames it ticks while sprinting)
+	spacePressActed  bool // this Space press already fired a combat action (blocks same-press loot pickup)
 }
 
 // NewInputHandler creates a new input handler
@@ -77,6 +55,15 @@ const rtActionStagger = 8
 // cycles. ~0.45s at 120 TPS.
 const rtHoldRepeatDelay = 54
 
+// spacePickupWanted gates the ground-loot pickup on Space with the same
+// tap-vs-hold discipline as the combat keys: a fresh tap fires exactly once; a
+// sustained hold auto-repeats only after rtHoldRepeatDelay (paced further by
+// the input cooldown at the call site). Must NOT key off the raw held state -
+// a normal tap outlives the input cooldown.
+func spacePickupWanted(just bool, holdFrames int) bool {
+	return just || holdFrames >= rtHoldRepeatDelay
+}
+
 // actionCooldown returns the number of frames to wait before the next action.
 // In turn-based mode, returns a minimal debounce value since actions are limited by turns.
 // In real-time mode, uses Speed-based scaling; the underlying curve reaches its
@@ -91,14 +78,16 @@ func (ih *InputHandler) actionCooldown(_ int) int {
 
 // HandleInput processes all input for the current frame
 func (ih *InputHandler) HandleInput() {
+	ih.keys.BeginFrame()
+
 	// Game over: the on-screen buttons (New Game / Load / Main Menu / Quit) are
 	// handled in drawGameOverOverlay via consumeLeftClickIn; these keys mirror them.
 	if ih.game.gameOver {
-		if ih.newGameKeyTracker.IsKeyJustPressed(ebiten.KeyN) {
+		if ih.keys.Consume(ebiten.KeyN) {
 			ih.restartNewGame()
 			return
 		}
-		if ih.loadKeyTracker.IsKeyJustPressed(ebiten.KeyL) {
+		if ih.keys.Consume(ebiten.KeyL) {
 			ih.game.returnToMainMenu()
 			ih.game.entryMenuMode = EntryMenuLoad
 			ih.game.slotSelection = 0
@@ -116,7 +105,7 @@ func (ih *InputHandler) HandleInput() {
 
 	// Handle high scores overlay
 	if ih.game.showHighScores {
-		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.game.showHighScores = false
 		}
 		return
@@ -150,7 +139,7 @@ func (ih *InputHandler) HandleInput() {
 	// ESC closes the screen here (edge-tracked + consumed) so it can't leak to the
 	// menu-open handler below on the next frame.
 	if ih.game.rosterScreenOpen {
-		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.game.rosterScreenOpen = false
 			ih.game.rosterSelectedActive = -1
 		}
@@ -159,7 +148,7 @@ func (ih *InputHandler) HandleInput() {
 
 	// Tavern stash screen: drag + clicks handled inside its Draw; suppress gameplay.
 	if ih.game.stashScreenOpen {
-		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.game.stashScreenOpen = false
 			ih.game.clearStashDrag()
 		}
@@ -167,7 +156,7 @@ func (ih *InputHandler) HandleInput() {
 	}
 
 	// Close map overlay with ESC before other UI handling
-	if ih.game.mapOverlayOpen && ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ih.game.mapOverlayOpen && ih.keys.Consume(ebiten.KeyEscape) {
 		ih.game.mapOverlayOpen = false
 		return
 	}
@@ -175,12 +164,11 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 	// ESC handling: close current overlay before opening menu
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ih.keys.Consume(ebiten.KeyEscape) {
 		// The save-rename dialog is a modal ON TOP of the Save menu: Escape
 		// cancels it before backing out of the submenu. It must be handled here
-		// because this block consumes the Escape edge - the shared key tracker
-		// only reports "just pressed" once per frame, so the modal's own handler
-		// (reached later via handleMainMenuInput) would never see it.
+		// because this block claims the Escape edge for the frame - the modal's
+		// own handler (reached later via handleMainMenuInput) would never see it.
 		if ih.game.saveRenameOpen {
 			ih.game.closeSaveRename()
 			return
@@ -292,6 +280,9 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	// the first phase flip, never at game start.
 	g.dayNightFrames = 0
 	g.dayNightIsNight = false
+	g.dayNightDay = 0
+	g.arenaTierFoughtDay = nil
+	g.playthroughID = mintPlaythroughID()
 	g.cancelSkyFade()
 
 	// Clear combat/projectile state (shared cleaner: also unregisters
@@ -420,7 +411,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 func (ih *InputHandler) handleVictoryInput() {
 	// If high scores overlay is open during victory, allow ESC to close it first.
 	if ih.game.showHighScores {
-		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.game.showHighScores = false
 		}
 		return
@@ -429,11 +420,11 @@ func (ih *InputHandler) handleVictoryInput() {
 	// If score already saved, handle post-save options
 	if ih.game.victoryScoreSaved {
 		// H to view high scores
-		if ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH) {
+		if ih.keys.Consume(ebiten.KeyH) {
 			ih.game.showHighScores = true
 		}
 		// ESC closes the victory overlay and continues the finished save.
-		if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+		if ih.keys.Consume(ebiten.KeyEscape) {
 			ih.closeVictoryOverlay()
 		}
 		return
@@ -448,7 +439,7 @@ func (ih *InputHandler) handleVictoryInput() {
 	}
 
 	// ESC skips saving and continues the finished save.
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ih.keys.Consume(ebiten.KeyEscape) {
 		ih.closeVictoryOverlay()
 	}
 }
@@ -556,12 +547,12 @@ func (ih *InputHandler) handleMainMenuInput() {
 		px := (w - panelW) / 2
 		py := (h - panelH) / 2
 		// Navigate options (debounced)
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
+		if ih.keys.Consume(ebiten.KeyUp) {
 			if ih.game.mainMenuSelection > 0 {
 				ih.game.mainMenuSelection--
 			}
 		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
+		if ih.keys.Consume(ebiten.KeyDown) {
 			if ih.game.mainMenuSelection < len(mainMenuOptions)-1 {
 				ih.game.mainMenuSelection++
 			}
@@ -571,7 +562,7 @@ func (ih *InputHandler) handleMainMenuInput() {
 		ih.mainMenuHoverSelect(mouseX, mouseY, len(mainMenuOptions), panelW, panelH, mainMenuListTopY, mainMenuRowPitch)
 
 		// Activate selection with Enter or a mouse click on the panel
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+		if ih.keys.Consume(ebiten.KeyEnter) {
 			ih.activateMainMenuSelection()
 		}
 		if ih.game.consumeLeftClickIn(px, py, px+panelW, py+panelH) {
@@ -604,10 +595,10 @@ func (ih *InputHandler) handleSaveLoadMenuInput(mouseX, mouseY, w, h, panelW, pa
 	}
 	// Mouse hover selection (row within page).
 	ih.mainMenuHoverSelect(mouseX, mouseY, saveRowsPerPage, panelW, panelH, saveMenuListTopY, saveMenuRowPitch)
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ih.keys.Consume(ebiten.KeyEnter) {
 		activate()
 	}
-	if allowRename && inpututil.IsKeyJustPressed(ebiten.KeyR) {
+	if allowRename && ih.keys.Consume(ebiten.KeyR) {
 		ih.openSaveRename(ih.game.selectedSaveRow())
 	}
 	// Mouse click activation
@@ -670,22 +661,19 @@ func (ih *InputHandler) handleSaveRowRename(px, py, panelW int) bool {
 // the draw side via savePagerButtonRects.
 func (ih *InputHandler) navigateSavePage(px, py, panelW, panelH int) {
 	g := ih.game
-	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && g.slotSelection > 0 {
+	if ih.keys.Consume(ebiten.KeyUp) && g.slotSelection > 0 {
 		g.slotSelection--
 	}
-	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
+	if ih.keys.Consume(ebiten.KeyDown) && g.slotSelection < saveRowsPerPage-1 {
 		g.slotSelection++
 	}
 	pl, pr := savePagerButtonRects(px, py, panelW, panelH)
-	prev := inpututil.IsKeyJustPressed(ebiten.KeyLeft) ||
-		(g.savePage > 0 && g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2))
-	next := inpututil.IsKeyJustPressed(ebiten.KeyRight) ||
-		(g.savePage < savePageCount-1 && g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2))
-	if prev && g.savePage > 0 {
-		g.savePage--
+	// Pages wrap in both directions: Prev on the first page jumps to the last.
+	if ih.keys.Consume(ebiten.KeyLeft) || g.consumeLeftClickIn(pl.x1, pl.y1, pl.x2, pl.y2) {
+		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
 	}
-	if next && g.savePage < savePageCount-1 {
-		g.savePage++
+	if ih.keys.Consume(ebiten.KeyRight) || g.consumeLeftClickIn(pr.x1, pr.y1, pr.x2, pr.y2) {
+		g.savePage = (g.savePage + 1) % savePageCount
 	}
 }
 
@@ -741,7 +729,7 @@ func (ih *InputHandler) handleSaveRenameInput() {
 			}
 		}
 	}
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ih.keys.Consume(ebiten.KeyEnter) {
 		name := strings.TrimSpace(ih.game.saveRenameInput)
 		if err := RenameSaveSlot(ih.game.saveRenameSlot, name); err != nil {
 			ih.game.AddCombatMessage("Rename failed")
@@ -781,7 +769,7 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	if req == nil {
 		return
 	}
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ih.keys.Consume(ebiten.KeyEscape) {
 		ih.game.closeLevelUpChoice()
 		return
 	}
@@ -798,10 +786,10 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	}
 
 	// Keyboard navigation
-	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) && req.selection > 0 {
+	if ih.keys.Consume(ebiten.KeyUp) && req.selection > 0 {
 		req.selection--
 	}
-	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) && req.selection < maxSel {
+	if ih.keys.Consume(ebiten.KeyDown) && req.selection < maxSel {
 		req.selection++
 	}
 
@@ -825,7 +813,7 @@ func (ih *InputHandler) handleLevelUpChoiceInput() {
 	}
 
 	// Single-select: Enter or click applies immediately.
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ih.keys.Consume(ebiten.KeyEnter) {
 		ih.game.consumeLevelUpChoice(req.selection)
 		return
 	}
@@ -845,10 +833,10 @@ func (ih *InputHandler) handleMultiSelectInput(req *levelUpChoiceRequest, popupX
 	optionCount := len(req.options)
 	confirmIdx := req.confirmRowIndex()
 
-	if ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace) && req.selection < optionCount {
+	if ih.keys.Consume(ebiten.KeySpace) && req.selection < optionCount {
 		ih.game.toggleLevelUpSelection(req.selection)
 	}
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ih.keys.Consume(ebiten.KeyEnter) {
 		if req.selection == confirmIdx {
 			ih.game.confirmLevelUpSelections()
 		} else {
@@ -911,13 +899,13 @@ func (ih *InputHandler) handleMovementInput() {
 // (RTCooldown) plus a short global stagger, then advances selection to the next
 // ready member - so holding a key fires the party in turn, not one machine-gun.
 func (ih *InputHandler) handleCombatInput() {
-	// Edge state for every action key - read EVERY frame so tracker state stays
-	// synced (must not be short-circuited by an early return below).
-	rJust := ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR)
-	spaceJust := ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace)
-	fJust := ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF)
-	cJust := ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC)
-	hJust := ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH)
+	// Claim every action key's edge up front - the locals feed several branches
+	// below, and an early return must not leave a half-read set.
+	rJust := ih.keys.Consume(ebiten.KeyR)
+	spaceJust := ih.keys.Consume(ebiten.KeySpace)
+	fJust := ih.keys.Consume(ebiten.KeyF)
+	cJust := ih.keys.Consume(ebiten.KeyC)
+	hJust := ih.keys.Consume(ebiten.KeyH)
 	rHeld := ebiten.IsKeyPressed(ebiten.KeyR)
 	spaceHeld := ebiten.IsKeyPressed(ebiten.KeySpace)
 	fHeld := ebiten.IsKeyPressed(ebiten.KeyF)
@@ -932,14 +920,19 @@ func (ih *InputHandler) handleCombatInput() {
 	if spaceJust || !spaceHeld {
 		ih.spacePressActed = false
 	}
+	if spaceHeld {
+		ih.spaceHoldFrames++
+	} else {
+		ih.spaceHoldFrames = 0
+	}
 
-	// Space also picks up ground loot - works while sprinting. The input cooldown
-	// paces held-Space to one container per press, so a fanned pile of bags is
-	// picked up one at a time rather than vanishing in a few frames. Skipped once
-	// this press has fired a combat action, so the SAME tap that killed a mob
-	// can't immediately grab the bag it dropped (release + press again to pick up;
-	// a deliberate hold with no target still picks up).
-	if spaceHeld && !ih.spacePressActed && ih.game.spellInputCooldown == 0 {
+	// Space also picks up ground loot - works while sprinting. Same tap-vs-hold
+	// discipline as the combat keys below: a tap picks up exactly ONE container;
+	// a deliberate hold (rtHoldRepeatDelay) vacuums a fanned pile paced by the
+	// input cooldown. Skipped once this press has fired a combat action, so the
+	// SAME tap that killed a mob can't immediately grab the bag it dropped
+	// (release + press again to pick up).
+	if spacePickupWanted(spaceJust, ih.spaceHoldFrames) && !ih.spacePressActed && ih.game.spellInputCooldown == 0 {
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 			return
@@ -1189,33 +1182,33 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 // handleUIInput processes UI-related input
 func (ih *InputHandler) handleUIInput() {
 	// Toggle FPS counter with '/' key (slash)
-	if ih.slashKeyTracker.IsKeyJustPressed(ebiten.KeySlash) {
+	if ih.keys.Consume(ebiten.KeySlash) {
 		ih.game.showFPS = !ih.game.showFPS
 	}
 	// Toggle collision box visibility with apostrophe key (')
-	if ih.apostropheKeyTracker.IsKeyJustPressed(ebiten.KeyApostrophe) {
+	if ih.keys.Consume(ebiten.KeyApostrophe) {
 		ih.game.showCollisionBoxes = !ih.game.showCollisionBoxes
 	}
 	// Tab hotkeys (Spellbook/Inventory/Characters/Quests/Cards): same toggle
 	// body, one per key. Characters is on P ('party'); C casts the best combat heal.
-	if ih.menuKeyTracker.IsKeyJustPressed(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyM) && ih.game.spellInputCooldown == 0 {
 		ih.toggleTabbedMenu(TabSpellbook)
 	}
-	if ih.inventoryKeyTracker.IsKeyJustPressed(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyI) && ih.game.spellInputCooldown == 0 {
 		ih.toggleTabbedMenu(TabInventory)
 	}
-	if ih.charactersKeyTracker.IsKeyJustPressed(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyP) && ih.game.spellInputCooldown == 0 {
 		ih.toggleTabbedMenu(TabCharacters)
 	}
-	if ih.questsKeyTracker.IsKeyJustPressed(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyJ) && ih.game.spellInputCooldown == 0 {
 		ih.toggleTabbedMenu(TabQuests)
 	}
-	if ih.cardsKeyTracker.IsKeyJustPressed(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
+	if ih.keys.Consume(ebiten.KeyK) && ih.game.spellInputCooldown == 0 {
 		ih.toggleTabbedMenu(TabCards)
 	}
 
 	// Toggle turn-based mode with Tab key
-	if ih.tabKeyTracker.IsKeyJustPressed(ebiten.KeyTab) {
+	if ih.keys.Consume(ebiten.KeyTab) {
 		ih.toggleTurnBasedMode()
 	}
 }
@@ -1744,13 +1737,13 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 		if ih.game.selectedTrap >= len(keys) || ih.game.selectedTrap < 0 {
 			ih.game.selectedTrap = 0
 		}
-		if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) || ih.wKeyTracker.IsKeyJustPressed(ebiten.KeyW) {
+		if ih.keys.Consume(ebiten.KeyUp) || ih.keys.Consume(ebiten.KeyW) {
 			ih.game.selectedTrap = (ih.game.selectedTrap - 1 + len(keys)) % len(keys)
 		}
-		if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) || ih.sKeyTracker.IsKeyJustPressed(ebiten.KeyS) {
+		if ih.keys.Consume(ebiten.KeyDown) || ih.keys.Consume(ebiten.KeyS) {
 			ih.game.selectedTrap = (ih.game.selectedTrap + 1) % len(keys)
 		}
-		if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
+		if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
 			equipTrap(currentChar, keys[ih.game.selectedTrap])
 			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 		}
@@ -1771,17 +1764,17 @@ func (ih *InputHandler) handleSpellbookNavigation() {
 
 	// Navigation: step one spell per key press so the user can't overshoot.
 	// No cooldown needed - IsKeyJustPressed already debounces to one step per press.
-	if ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) {
+	if ih.keys.Consume(ebiten.KeyUp) {
 		ih.navigateSpellbookUp(schools)
 	}
 
-	if ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) {
+	if ih.keys.Consume(ebiten.KeyDown) {
 		ih.navigateSpellbookDown(schools)
 	}
 
 	// Equip spell to the fast spell slot. Keep the spellbook open so the player
 	// can keep browsing after binding the fast slot.
-	if ih.enterKeyTracker.IsKeyJustPressed(ebiten.KeyEnter) || ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF) {
+	if ih.keys.Consume(ebiten.KeyEnter) || ih.keys.Consume(ebiten.KeyF) {
 		ih.game.combat.EquipSelectedSpell()
 		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
 	}
@@ -1870,6 +1863,8 @@ func (ih *InputHandler) handleDialogInput() {
 			ih.handleSkillTrainerInput()
 		case dialogKindChoices:
 			ih.handleEncounterInput()
+		case dialogKindArenaGladiator:
+			ih.handleArenaGladiatorInput()
 		}
 	}
 
@@ -2165,6 +2160,11 @@ func (ih *InputHandler) handleDialogMouseInput() {
 	// here falls through to flip the page. idx (absolute list position) keys the
 	// double-click so the same item keeps its identity across pages.
 	if ih.game.dialogNPC != nil && npcHasMerchant(ih.game.dialogNPC) {
+		// Gladiator tabbed dialog: the shop grids exist only on the Shop tab -
+		// their hidden rects must not swallow Talk/Board clicks.
+		if npcDialogKindFor(ih.game.dialogNPC) == dialogKindArenaGladiator && ih.game.dialogTab != 1 {
+			return
+		}
 		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
 
 		// Buy from merchant (left grid).
@@ -2179,8 +2179,22 @@ func (ih *InputHandler) handleDialogMouseInput() {
 			if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 				if ih.dialogDoubleClick("merchant_buy", idx) {
 					entry := stock[idx]
-					if entry.Quantity <= 0 {
+					if !entry.InStock() {
 						ih.game.AddCombatMessage("That item is sold out.")
+						return
+					}
+					// Arena-points merchants trade at flat prices in the victory
+					// currency; gold merchants keep the Merchant-skill discount.
+					if ih.game.dialogNPC.Currency == character.CurrencyArenaPoints {
+						if entry.Cost > ih.game.party.ArenaPoints {
+							ih.game.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", entry.Cost, entry.Item.Name))
+							return
+						}
+						ih.game.party.ArenaPoints -= entry.Cost
+						ih.game.party.AddItem(entry.Item)
+						entry.Take()
+						ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d arena points.", entry.Item.Name, entry.Cost))
+						ih.resetDialogDoubleClick()
 						return
 					}
 					cost := ih.game.merchantBuyPrice(entry.Cost) // Merchant skill discount
@@ -2190,7 +2204,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					}
 					ih.game.party.Gold -= cost
 					ih.game.party.AddItem(entry.Item)
-					entry.Quantity--
+					entry.Take()
 					ih.game.AddCombatMessage(fmt.Sprintf("Bought %s for %d gold.", entry.Item.Name, cost))
 					ih.resetDialogDoubleClick()
 				}
@@ -2301,10 +2315,10 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// Handle movement (counts as using the turn) - only if cooldown is ready
 	moved := false
 	if ih.game.turnBasedMoveCooldown == 0 {
-		moveForward := ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp) || ih.wKeyTracker.IsKeyJustPressed(ebiten.KeyW)
-		moveBackward := ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown) || ih.sKeyTracker.IsKeyJustPressed(ebiten.KeyS)
-		strafeLeft := ih.qKeyTracker.IsKeyJustPressed(ebiten.KeyQ)
-		strafeRight := ih.eKeyTracker.IsKeyJustPressed(ebiten.KeyE)
+		moveForward := ih.keys.Consume(ebiten.KeyUp) || ih.keys.Consume(ebiten.KeyW)
+		moveBackward := ih.keys.Consume(ebiten.KeyDown) || ih.keys.Consume(ebiten.KeyS)
+		strafeLeft := ih.keys.Consume(ebiten.KeyQ)
+		strafeRight := ih.keys.Consume(ebiten.KeyE)
 
 		if moveForward {
 			moved = ih.moveTurnBasedForward()
@@ -2324,8 +2338,8 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	// 90-degree rotation with cooldown (doesn't use turn)
 	if ih.game.turnBasedRotCooldown == 0 {
 		rotated := false
-		rotateLeft := ih.leftKeyTracker.IsKeyJustPressed(ebiten.KeyLeft) || ih.aKeyTracker.IsKeyJustPressed(ebiten.KeyA)
-		rotateRight := ih.rightKeyTracker.IsKeyJustPressed(ebiten.KeyRight) || ih.dKeyTracker.IsKeyJustPressed(ebiten.KeyD)
+		rotateLeft := ih.keys.Consume(ebiten.KeyLeft) || ih.keys.Consume(ebiten.KeyA)
+		rotateRight := ih.keys.Consume(ebiten.KeyRight) || ih.keys.Consume(ebiten.KeyD)
 		if rotateLeft {
 			ih.rotateTurnBased(-1) // Counter-clockwise
 			rotated = true
@@ -2356,12 +2370,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 	}
 
 	switch {
-	case ih.rKeyTracker.IsKeyJustPressed(ebiten.KeyR): // melee/ranged weapon attack
+	case ih.keys.Consume(ebiten.KeyR): // melee/ranged weapon attack
 		if ih.game.combat.EquipmentMeleeAttack() {
 			ih.game.consumeSelectedCharWeaponAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
-	case ih.spaceKeyTracker.IsKeyJustPressed(ebiten.KeySpace): // smart attack
+	case ih.keys.Consume(ebiten.KeySpace): // smart attack
 		if ih.game.tryPickupNearestGroundContainer(ih.game.groundContainerPickupRange()) {
 			return
 		}
@@ -2378,12 +2392,12 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			}
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
-	case ih.fKeyTracker.IsKeyJustPressed(ebiten.KeyF): // cast slotted spell
+	case ih.keys.Consume(ebiten.KeyF): // cast slotted spell
 		if fired, _ := ih.castSlottedSpellResolved(selected); fired {
 			ih.game.consumeSelectedCharAction()
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
-	case ih.cKeyTracker.IsKeyJustPressed(ebiten.KeyC) || ih.hKeyTracker.IsKeyJustPressed(ebiten.KeyH): // cast best known heal (H = legacy alias)
+	case ih.keys.Consume(ebiten.KeyC) || ih.keys.Consume(ebiten.KeyH): // cast best known heal (H = legacy alias)
 		if cast, _ := ih.castBestHealResolved(); cast {
 			ih.game.consumeSelectedCharAction()
 		}
@@ -2521,12 +2535,32 @@ func (ih *InputHandler) resolveHealTarget(spell items.Item, mouseX, mouseY int) 
 	return ih.game.selectedChar
 }
 
+// handleArenaGladiatorInput drives the tabbed gladiator dialog: Tab cycles
+// Talk/Shop/Board; the Talk tab runs the normal encounter choices, the Shop
+// tab's grid clicks are handled by the shared merchant mouse path, the Board
+// tab only reads (Shift detail at draw time).
+func (ih *InputHandler) handleArenaGladiatorInput() {
+	if ih.keys.Consume(ebiten.KeyTab) {
+		ih.game.dialogTab = (ih.game.dialogTab + 1) % 3
+		ih.game.selectedChoice = 0
+	}
+	switch ih.game.dialogTab {
+	case 0:
+		ih.handleEncounterInput()
+	case 2:
+		// Wheel scrolls the board; the draw pass clamps against line count.
+		if _, wy := ebiten.Wheel(); wy != 0 {
+			ih.game.arenaBoardScroll -= int(wy) * 3
+		}
+	}
+}
+
 // handleSpellTraderInput handles input for spell trader NPCs
 func (ih *InputHandler) handleSpellTraderInput() {
 	// Quest-giving traders (e.g. Aldric) carry a second "Quests" tab; Tab
 	// switches, and on that tab the encounter-style choice input takes over.
 	if npcHasChoiceDialog(ih.game.dialogNPC) {
-		if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+		if ih.keys.Consume(ebiten.KeyTab) {
 			ih.game.dialogTab = 1 - ih.game.dialogTab
 			ih.game.selectedChoice = 0
 		}
@@ -2679,12 +2713,12 @@ func (ih *InputHandler) handleEncounterInput() {
 	// Select with Enter or a number key (1-9). Edge-triggered: executing a
 	// choice replaces the window's choice list, and a key still held past the
 	// input cooldown would fire again on the NEXT window.
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ih.keys.Consume(ebiten.KeyEnter) {
 		ih.executeEncounterChoice()
 		return
 	}
 	for i := 0; i < len(choices) && i < 9; i++ {
-		if inpututil.IsKeyJustPressed(ebiten.Key1 + ebiten.Key(i)) {
+		if ih.keys.Consume(ebiten.Key1 + ebiten.Key(i)) {
 			ih.game.selectedChoice = i
 			ih.executeEncounterChoice()
 			break
@@ -2731,6 +2765,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 
 	case "enter_map":
 		ih.enterEncounterMap(choice.Map)
+
+	case "start_arena_duel":
+		ih.startArenaDuel(choice)
 
 	case "give_quest":
 		ih.handleGiveQuest(choice.QuestID)

@@ -2361,11 +2361,43 @@ func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
 
 func (r *Renderer) getMonsterSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
 	spriteName := mon.GetSpriteType()
-	anim, flip := r.getMonsterWalkAnimation(spriteName, mon)
+	// A striking monster with a dedicated attack sheet plays it as a one-shot
+	// over the strike window; monsters without one fall through to the walk
+	// cycle (its AttackAnimFrames branch still reads as a brief lunge).
+	if mon.AttackAnimFrames > 0 {
+		if anim, flip := r.getMonsterDirectionalAnimation(spriteName, mon, "attacking"); anim != nil && len(anim.Frames) > 0 {
+			return r.attackAnimFrameImage(anim, mon), flip
+		}
+	}
+	anim, flip := r.getMonsterDirectionalAnimation(spriteName, mon, "walking")
 	if anim != nil && len(anim.Frames) > 0 {
 		return r.monsterAnimFrameImage(anim, mon), flip
 	}
 	return r.game.sprites.GetSprite(spriteName), false
+}
+
+// attackAnimFrameImage sweeps an attack animation ONCE across the strike window:
+// AttackAnimFrames counts down from MonsterAttackAnimFrames to 0, mapped to
+// frames 0..n-1. Unlike the free-running walk cycle, the strike plays start to
+// finish so a wind-up/release reads correctly.
+func (r *Renderer) attackAnimFrameImage(anim *graphics.SpriteAnimation, mon *monster.Monster3D) *ebiten.Image {
+	n := len(anim.Frames)
+	if n <= 1 {
+		return anim.Frames[0]
+	}
+	total := int64(MonsterAttackAnimFrames)
+	if total < 1 {
+		total = 1
+	}
+	elapsed := total - int64(mon.AttackAnimFrames)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	idx := int(elapsed * int64(n) / total)
+	if idx >= n {
+		idx = n - 1
+	}
+	return anim.Frames[idx]
 }
 
 // monsterAnimFrameImage picks the animation frame for the monster's current
@@ -2404,6 +2436,16 @@ func (r *Renderer) monsterAnimFrameImage(anim *graphics.SpriteAnimation, mon *mo
 // otherwise the two independent flips combine into backwards walking.
 func (r *Renderer) getMonsterStandeeSprite(mon *monster.Monster3D) (*ebiten.Image, bool) {
 	name := mon.GetSpriteType()
+	// A striking monster with an attack sheet sweeps it once over the strike;
+	// otherwise the walk set (mirrored by world heading upstream).
+	if mon.AttackAnimFrames > 0 {
+		if anim := r.game.sprites.GetAnimation(name, "attacking_r"); anim != nil && len(anim.Frames) > 0 {
+			return r.attackAnimFrameImage(anim, mon), false
+		}
+		if anim := r.game.sprites.GetAnimation(name, "attacking_l"); anim != nil && len(anim.Frames) > 0 {
+			return r.attackAnimFrameImage(anim, mon), true
+		}
+	}
 	if anim := r.game.sprites.GetAnimation(name, "walking_r"); anim != nil && len(anim.Frames) > 0 {
 		return r.monsterAnimFrameImage(anim, mon), false
 	}
@@ -2448,29 +2490,34 @@ func (r *Renderer) monsterScreenDir(mon *monster.Monster3D) (int, bool) {
 	return -1, true
 }
 
-func (r *Renderer) getMonsterWalkAnimation(spriteName string, mon *monster.Monster3D) (*graphics.SpriteAnimation, bool) {
+// getMonsterDirectionalAnimation returns the "<animType>_r"/"<animType>_l"
+// animation (walking, attacking, ...) picked by which way the monster slides on
+// screen, plus whether the art must be mirrored. Falls back to either direction
+// when the monster has no clear left/right on-screen motion.
+func (r *Renderer) getMonsterDirectionalAnimation(spriteName string, mon *monster.Monster3D, animType string) (*graphics.SpriteAnimation, bool) {
+	rKey, lKey := animType+"_r", animType+"_l"
 	if dir, ok := r.monsterScreenDir(mon); ok {
 		if dir > 0 {
-			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, rKey); anim != nil && len(anim.Frames) > 0 {
 				return anim, false
 			}
-			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, lKey); anim != nil && len(anim.Frames) > 0 {
 				return anim, true
 			}
 		} else {
-			if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, lKey); anim != nil && len(anim.Frames) > 0 {
 				return anim, false
 			}
-			if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+			if anim := r.game.sprites.GetAnimation(spriteName, rKey); anim != nil && len(anim.Frames) > 0 {
 				return anim, true
 			}
 		}
 	}
 	// No clear left/right direction: fall back to any available directional animation.
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking_r"); anim != nil && len(anim.Frames) > 0 {
+	if anim := r.game.sprites.GetAnimation(spriteName, rKey); anim != nil && len(anim.Frames) > 0 {
 		return anim, false
 	}
-	if anim := r.game.sprites.GetAnimation(spriteName, "walking_l"); anim != nil && len(anim.Frames) > 0 {
+	if anim := r.game.sprites.GetAnimation(spriteName, lKey); anim != nil && len(anim.Frames) > 0 {
 		return anim, false
 	}
 	return nil, false
@@ -2782,11 +2829,17 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if npc.HideWhenVisited && npc.Visited {
 			continue
 		}
+		// An open door is invisible (portcullis raised) - and non-interactive,
+		// the focus/click resolvers share this same test.
+		if r.game.npcDoorOpen(npc) {
+			continue
+		}
 		// Cull/project from where the NPC is drawn (wall face for wall tokens);
 		// wall tokens skip the on-tile near-cull since their anchor is on the wall.
+		// A closed door skips it too: the party walks right up to the bars.
 		ex, ey := r.game.npcEffectivePos(npc)
 		nearSq := minDistSq
-		if r.game.npcIsWall(npc) {
+		if r.game.npcIsWall(npc) || r.game.npcIsDoor(npc) {
 			nearSq = 0
 		}
 		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
@@ -3336,9 +3389,8 @@ func (r *Renderer) drawMonsterStunStars(screen *ebiten.Image, centerX, topY, spr
 func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	drawLeft := s.screenX - s.spriteSize/2
 	sprite, frameW, frameH := r.selectAnimatedSpriteFrame(s.sprite, r.game.frameCount)
-	// One source of truth for how this NPC renders (shared with the map editor);
-	// dims from the full sheet feed the animated distinction.
-	cat := npcRenderCatOf(s.npc, s.sprite.Bounds().Dx(), s.sprite.Bounds().Dy())
+	// One source of truth for how this NPC renders (shared with the map editor).
+	cat := npcRenderCatOf(s.npc)
 
 	distance := Distance(s.npc.X, s.npc.Y, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(s.npc.X, s.npc.Y, distance)
@@ -3383,6 +3435,18 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br)
+				return
+			}
+		}
+		// Closed door: a slab centered on the doorway tile, spanning the two
+		// flanking walls (doorPose) - perpendicular to a wall standee. Same
+		// backing-bias draw as walls so the slab ends aren't depth-rejected
+		// against the walls they touch. Falls through when mis-authored (no
+		// flanking wall pair).
+		if cat == catDoor {
+			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
+				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br)
 				return
 			}

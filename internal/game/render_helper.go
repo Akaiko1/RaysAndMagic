@@ -405,10 +405,10 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 // renderer and click hit-testing so drawing and hit-tests never diverge.
 func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
 	size := rh.npcSizeTiles(npc)
-	// Props (scenery/landmark/wall standees) size on the environment path; people
-	// on the NPC path. Independent of the animated distinction, so 0,0 dims here.
-	switch npcRenderCatOf(npc, 0, 0) {
-	case catScenery, catLandmark, catWall:
+	// Props (scenery/landmark/wall standees) size on the environment path;
+	// people on the NPC path.
+	switch npcRenderCatOf(npc) {
+	case catScenery, catLandmark, catWall, catDoor:
 		return rh.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, size)
 	default:
 		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)

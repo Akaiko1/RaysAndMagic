@@ -101,6 +101,7 @@ type Arrow struct {
 	BowKey             string // YAML key of the bow used to fire this arrow
 	DamageType         string // Damage element type ("physical", "dark", etc.)
 	Crit               bool   // Critical hit flag
+	SuppressAoE        bool   // volley darts past the first: whole-party AoE fires once per volley
 	DisintegrateChance float64
 	Owner              ProjectileOwner
 	SourceName         string
@@ -183,6 +184,10 @@ type MMGame struct {
 	mouseRightClickAt int64
 	mouseLeftClicks   []queuedClick
 	mouseRightClicks  []queuedClick
+	// prevWorldClickAllowed tracks worldClickAllowed() across frames: the click
+	// queues flush on every modal<->world flip so a buffered click never
+	// outlives the UI layer it was aimed at.
+	prevWorldClickAllowed bool
 
 	// Double-click support for spellbook
 	lastSpellClickTime int64 // Time of last spell click in milliseconds
@@ -310,6 +315,22 @@ type MMGame struct {
 	// O(n^2) scan in the common (no-bind) case. Rebuilt each frame before the
 	// monster update; see refreshBoundUndeadCache.
 	boundUndead []*monster.Monster3D
+
+	// Door state (render_category "door"): closed iff a living champion is on
+	// the current map; doorEntityIDs tracks the solid collision entities the
+	// per-frame reconciler currently has registered. See doors.go.
+	doorsClosed   bool
+	doorEntityIDs map[string]bool
+
+	// dayNightDay counts sunrises (the arena's "come back tomorrow" clock).
+	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
+	// a tier unlocks again when the day advances. Both persisted in saves.
+	dayNightDay        int
+	arenaTierFoughtDay map[string]int
+	// playthroughID identifies this run (minted on new game, persisted; JSON
+	// key stays arena_run_id for save compat). Consumed by the save-row glow
+	// and, with the in-game day, by the leaderboard's anti-farm credit token.
+	playthroughID string
 
 	// Water Breathing effect
 	waterBreathingActive   bool    // Whether water breathing is currently active
@@ -531,7 +552,14 @@ type MMGame struct {
 	totalExperienceEarned int
 
 	// High scores state
-	showHighScores    bool
+	showHighScores   bool
+	arenaBoardScroll int // champions' board scroll offset (lines)
+	// Board tab render cache: the leaderboard file is read and flattened to
+	// display lines only when stale (victory recorded / dialog opened) or when
+	// the Shift-detail mode flips - never per frame.
+	arenaBoardLines   []string
+	arenaBoardDetail  bool
+	arenaBoardStale   bool
 	victoryNameInput  string
 	victoryScoreSaved bool
 
@@ -625,6 +653,11 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	currentWorld := world.GlobalWorldManager.GetCurrentWorld()
 	if currentWorld == nil {
 		panic("No world available from WorldManager")
+	}
+	// Content check that needs loaded MAPS (boot sees only configs): every
+	// duel-offering NPC must stand on a map with a duel: block.
+	if err := ValidateDuelGrounds(world.GlobalWorldManager); err != nil {
+		panic(err)
 	}
 
 	// Create a 4-character party
@@ -809,11 +842,11 @@ func (g *MMGame) npcEffectivePos(npc *character.NPC) (float64, float64) {
 	return npc.X, npc.Y
 }
 
-// npcIsWall is the single test for the wall-mounted render class - the wall
-// render category (from wall_mounted or an explicit render_category), and only
-// while standees are on. Every wall render/position/hit-test path uses it.
+// npcIsWall is the single test for the wall-mounted render class (the
+// wall_mounted render category), and only while standees are on. Every wall
+// render/position/hit-test path uses it.
 func (g *MMGame) npcIsWall(npc *character.NPC) bool {
-	return g.config.Graphics.Standee.Enabled && npcRenderCatOf(npc, 0, 0) == catWall
+	return g.config.Graphics.Standee.Enabled && npcRenderCatOf(npc) == catWall
 }
 
 // updateFocusedNPC recomputes the Space-to-interact target once per tick:
@@ -833,6 +866,9 @@ func (g *MMGame) updateFocusedNPC() {
 	bestDist := maxDist
 	for _, npc := range currentWorld.NPCs {
 		if npc.HideWhenVisited && npc.Visited {
+			continue
+		}
+		if g.npcDoorOpen(npc) { // raised portcullis: nothing to interact with
 			continue
 		}
 		ex, ey := g.npcEffectivePos(npc)
@@ -864,6 +900,9 @@ func (g *MMGame) findNPCAtScreen(clickX, clickY int) (npc *character.NPC, inRang
 		}
 		if n.Sprite == "" || n.Sprite == "none" {
 			continue // invisible portal NPCs aren't clickable
+		}
+		if g.npcDoorOpen(n) { // raised portcullis: not drawn, not clickable
+			continue
 		}
 		ex, ey := g.npcEffectivePos(n)
 		dist := Distance(g.camera.X, g.camera.Y, ex, ey)
@@ -1575,6 +1614,12 @@ func (g *MMGame) refreshBoundUndeadCache() {
 	for _, m := range g.world.Monsters {
 		if m == nil {
 			continue
+		}
+		// Champion mobs mirror their character build's combat stats. Runs before
+		// the monster update (both RT and TB) so damage/cadence/HP are ready by
+		// the mob's first action, and covers every spawn source and save-load.
+		if m.IsChampion() {
+			g.mirrorChampionStats(m)
 		}
 		m.AIFoe = g.combat.monsterAIFoeMonster(m)
 		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)

@@ -708,7 +708,6 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot) bool
 	}
 	ang := cs.game.camera.Angle
 	dirX, dirY := math.Cos(ang), math.Sin(ang)
-	const volleySpacingFrac = 0.45 // tiles between successive darts
 	spacing := volleySpacingFrac * float64(tileSize)
 	for i := 0; i < volley; i++ {
 		back := spacing * float64(i) // trail later darts behind the first
@@ -1650,6 +1649,9 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		if monster.AttackCDFrames > 0 {
 			monster.AttackCDFrames--
 		}
+		if monster.OffHandCDFrames > 0 {
+			monster.OffHandCDFrames--
+		}
 
 		// Pacified (Charm): stands and does nothing, never attacks the party.
 		if monster.Pacified {
@@ -1732,6 +1734,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// also count diagonally-adjacent tiles as point-blank so they can surround
 		// the party instead of queueing only on N/S/E/W.
 		if monster.State == monsterPkg.StateAttacking && cs.monsterCanAttackParty(monster, dist, attackRange) {
+			// Melee champions run two independent hand streams (party dual-wield
+			// parity); everyone else fires on the single attack tick below.
+			if monster.IsChampion() && !monster.HasRangedAttack() &&
+				cs.championRTDualStrike(monster, monster.StateTimer == 1) {
+				continue
+			}
 			// Fire on the first frame of the attacking state, but only if the
 			// persistent attack cooldown has elapsed - re-entering the attacking
 			// state (e.g. after chasing a kiting player back into range) no longer
@@ -1830,6 +1838,12 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 		return
 	}
 
+	// Champion melee resolves through the character pipeline with the weapon's
+	// arc width (and the once-per-swing AoE rule) instead of a single target.
+	if monster.IsChampion() && cs.championAlternatingStrike(monster) {
+		return
+	}
+
 	// Melee hits a random living party member (both RT and TB) through the shared
 	// monster->character choke point (dodge, KO, blink, poison rider). Armour-
 	// piercing attackers (Golden Thief Bug) bypass the party's armor class;
@@ -1838,7 +1852,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if currentChar == nil {
 		return
 	}
-	cs.monsterHitCharacter(monster, currentChar, monster.Name, monster.GetAttackDamage(), "physical", monster.IgnoresArmor, 0)
+	cs.monsterHitCharacter(monster, currentChar, monster.Name, cs.monsterAttackDamage(monster), "physical", monster.IgnoresArmor, 0)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
 }
@@ -1865,7 +1879,9 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 	// Perfect Dodge: luck/5% to avoid the hit. The dodge evades the mitigable part,
 	// but a monster's TRUE damage lands anyway (mirrors party weapon-mastery true,
 	// which pierces a monster's dodge) - no riders, just the unmitigable chunk.
-	if dodged, _ := cs.RollPerfectDodge(target); dodged {
+	// IgnoresDodge (champion GM weapon mastery) pierces the dodge entirely -
+	// the same rule a GM party member enjoys against monsters.
+	if dodged, _ := cs.RollPerfectDodge(target); dodged && (monster == nil || !monster.IgnoresDodge) {
 		trueDmg := 0
 		if monster != nil {
 			trueDmg = monster.TrueDamage
@@ -2180,7 +2196,7 @@ func (cs *CombatSystem) tryMonsterDragonBreath(monster *monsterPkg.Monster3D) bo
 		return false
 	}
 	damageType := normalizeDamageTypeStr(monster.DragonBreathDamageType)
-	damage := monster.GetAttackDamage()
+	damage := cs.monsterAttackDamage(monster)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s breathes %s over the whole party!", monster.Name, damageType))
 	cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
 		cs.monsterHitCharacter(monster, member, fmt.Sprintf("%s's Dragon Breath", monster.Name), damage, damageType, monster.IgnoresArmor, 0)
@@ -2223,7 +2239,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 		target := cs.game.party.Members[targetIndex]
 		// Piercing Shot ignores armor; the shared choke point applies the poison
 		// rider (a poisonous monster now poisons via Piercing Shot, like melee).
-		cs.monsterHitCharacter(monster, target, "Piercing Shot", monster.GetAttackDamage(), "physical", true, 0)
+		cs.monsterHitCharacter(monster, target, "Piercing Shot", cs.monsterAttackDamage(monster), "physical", true, 0)
 	}
 	return true
 }
@@ -2420,7 +2436,7 @@ func (cs *CombatSystem) spawnMonsterSpellProjectile(monster *monsterPkg.Monster3
 		Y:                  monster.Y,
 		VelX:               projectile.VelX,
 		VelY:               projectile.VelY,
-		Damage:             monster.GetAttackDamage(),
+		Damage:             cs.monsterAttackDamage(monster),
 		LifeTime:           projectile.LifeTime,
 		Active:             projectile.Active,
 		SpellType:          string(spellID),
@@ -2458,28 +2474,40 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	}
 
 	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
-	arrow := Arrow{
-		ID:                 cs.game.GenerateProjectileID("monster_arrow"),
-		X:                  monster.X,
-		Y:                  monster.Y,
-		VelX:               math.Cos(angle) * arrowSpeed,
-		VelY:               math.Sin(angle) * arrowSpeed,
-		Damage:             monster.GetAttackDamage(),
-		LifeTime:           arrowLifetime,
-		Active:             true,
-		BowKey:             weaponKey,
-		DamageType:         damageType,
-		Crit:               false,
-		DisintegrateChance: weaponDef.DisintegrateChance,
-		Owner:              owner,
-		SourceName:         monster.Name,
-		SourceMonster:      monster,
+	dirX, dirY := math.Cos(angle), math.Sin(angle)
+
+	// Volley: same rule as the party's bows - the weapon looses several darts
+	// per shot, trailed back along the aim line so they read as a quick stream.
+	// Each dart rolls its own damage (champions crit per dart).
+	volley := 1
+	if weaponDef.Volley > 1 {
+		volley = weaponDef.Volley
 	}
-
-	cs.game.arrows = append(cs.game.arrows, arrow)
-
-	arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
-	cs.game.collisionSystem.RegisterEntity(arrowEntity)
+	spacing := volleySpacingFrac * float64(tileSize)
+	for i := 0; i < volley; i++ {
+		back := spacing * float64(i)
+		arrow := Arrow{
+			ID:                 cs.game.GenerateProjectileID("monster_arrow"),
+			SuppressAoE:        i > 0, // an AoE-rider weapon engulfs the party once per VOLLEY, not per dart
+			X:                  monster.X - dirX*back,
+			Y:                  monster.Y - dirY*back,
+			VelX:               dirX * arrowSpeed,
+			VelY:               dirY * arrowSpeed,
+			Damage:             cs.monsterAttackDamage(monster),
+			LifeTime:           arrowLifetime,
+			Active:             true,
+			BowKey:             weaponKey,
+			DamageType:         damageType,
+			Crit:               false,
+			DisintegrateChance: weaponDef.DisintegrateChance,
+			Owner:              owner,
+			SourceName:         monster.Name,
+			SourceMonster:      monster,
+		}
+		cs.game.arrows = append(cs.game.arrows, arrow)
+		arrowEntity := collision.NewEntity(arrow.ID, arrow.X, arrow.Y, collisionSize, collisionSize, collision.CollisionTypeProjectile, false)
+		cs.game.collisionSystem.RegisterEntity(arrowEntity)
+	}
 }
 
 // CheckProjectileMonsterCollisions checks for collisions between projectiles and monsters
@@ -2605,7 +2633,16 @@ func (cs *CombatSystem) CheckProjectilePlayerCollisions() {
 		}
 		if cs.projectileHitsPlayer(ar.ID, playerEntity) {
 			damageTypeStr := normalizeDamageTypeStr(ar.DamageType)
-			cs.applyMonsterProjectileDamage(ar.SourceMonster, ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
+			// Riders resolve from the weapon that FIRED this dart - a swing landing
+			// mid-flight may have re-armed the mob's rider fields for another hand.
+			cs.stampChampionProjectileRiders(ar.SourceMonster, ar.BowKey)
+			// An AoE-rider weapon (bow_of_hellfire) engulfs the WHOLE party once
+			// per volley - the champion rule: arc/AoE never multiply.
+			if def, ok := config.GetWeaponDefinition(ar.BowKey); ok && def != nil && def.AoeRadiusTiles > 0 && !ar.SuppressAoE {
+				cs.applyMonsterProjectileDamageAoE(ar.SourceMonster, ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
+			} else {
+				cs.applyMonsterProjectileDamage(ar.SourceMonster, ar.SourceName, ar.Damage, damageTypeStr, ar.DisintegrateChance)
+			}
 			ar.Active = false
 			cs.game.collisionSystem.UnregisterEntity(ar.ID)
 		}
@@ -3165,6 +3202,9 @@ func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, m.ID)
 	cs.scatterBandOnMemberDeath(m)
+	if m.IsChampion() {
+		cs.recordChampionVictory(m)
+	}
 	return cs.awardExperienceAndGold(m)
 }
 
@@ -3910,7 +3950,7 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 	if !target.IsAlive() {
 		return // already slain this frame - no double damage/reward
 	}
-	dmg := attacker.GetAttackDamage()
+	dmg := cs.monsterAttackDamage(attacker)
 	actual := target.TakeDamage(dmg, monsterPkg.DamagePhysical, attacker.X, attacker.Y)
 	target.HitTintFrames = MonsterHitFlashFrames
 	verb := "strikes"
@@ -4346,6 +4386,21 @@ func (cs *CombatSystem) randomLivingMember() *character.MMCharacter {
 		return nil
 	}
 	return cs.game.party.Members[alive[rand.Intn(len(alive))]]
+}
+
+// randomLivingMembers returns up to n DISTINCT living members in random order -
+// the target set of a champion's melee arc (each catches the same swing once).
+func (cs *CombatSystem) randomLivingMembers(n int) []*character.MMCharacter {
+	alive := alivePartyIndices(cs.game.party.Members)
+	rand.Shuffle(len(alive), func(i, j int) { alive[i], alive[j] = alive[j], alive[i] })
+	if n > len(alive) {
+		n = len(alive)
+	}
+	out := make([]*character.MMCharacter, 0, n)
+	for _, idx := range alive[:n] {
+		out = append(out, cs.game.party.Members[idx])
+	}
+	return out
 }
 
 // tankIndex returns the party slot that counts as the "tank": the FRONT slot

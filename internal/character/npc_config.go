@@ -3,6 +3,7 @@ package character
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
@@ -22,9 +23,7 @@ type NPCData struct {
 	Type             string               `yaml:"type"`
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
-	RenderType       string               `yaml:"render_type,omitempty"`
-	RenderCategory   string               `yaml:"render_category,omitempty"` // explicit render class (standee/animated/wall/landmark/scenery/invisible); derived if empty
-	WallMounted      bool                 `yaml:"wall_mounted,omitempty"`
+	RenderCategory   string               `yaml:"render_category"` // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
 	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
@@ -36,8 +35,20 @@ type NPCData struct {
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
-	Encounter        *NPCEncounter        `yaml:"encounter,omitempty"`
-	Summons          []*NPCSummon         `yaml:"summons,omitempty"`
+	// Currency the merchant trades in: "" = gold, "arena_points" = the arena
+	// victory currency (party.ArenaPoints). Purchases branch on it.
+	Currency string `yaml:"currency,omitempty"`
+	// ArenaBoard grants the NPC the champions' leaderboard dialog tab (the
+	// arena gladiators). Authored explicitly - a shop+choices combo alone must
+	// not leak the arena board onto unrelated NPCs.
+	ArenaBoard bool `yaml:"arena_board,omitempty"`
+	// StockWeaponsRarity + StockWeaponsCost auto-append EVERY weapons.yaml
+	// weapon of that rarity to the stock at that price (unlimited) - the
+	// arena quartermaster's uncommon-weapon rack stays in sync with content.
+	StockWeaponsRarity string        `yaml:"stock_weapons_rarity,omitempty"`
+	StockWeaponsCost   int           `yaml:"stock_weapons_cost,omitempty"`
+	Encounter          *NPCEncounter `yaml:"encounter,omitempty"`
+	Summons            []*NPCSummon  `yaml:"summons,omitempty"`
 }
 
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
@@ -77,6 +88,7 @@ type NPCDialogueChoice struct {
 	Action  string `yaml:"action"`
 	Map     string `yaml:"map,omitempty"`
 	QuestID string `yaml:"quest_id,omitempty"` // for give_quest / turn_in_quest actions
+	Tier    string `yaml:"tier,omitempty"`     // for start_arena_duel: champions.yaml difficulty tier (champion is rolled randomly)
 	// Branching dialogue (action "info"): when this choice is picked the dialog
 	// does NOT close - it shows Response as the NPC's reply and Choices as the
 	// follow-up options, so "ask about X" actually answers and can lead deeper
@@ -164,6 +176,13 @@ func LoadNPCConfig(filename string) error {
 	}
 	if err := validatePricedChoices(); err != nil {
 		return err
+	}
+	// A rarity weapon rack without a positive price would sell every listed
+	// weapon for free - fail the load instead.
+	for key, npc := range config.NPCs {
+		if npc != nil && npc.StockWeaponsRarity != "" && npc.StockWeaponsCost <= 0 {
+			return fmt.Errorf("NPC %q: stock_weapons_rarity needs a positive stock_weapons_cost", key)
+		}
 	}
 	return nil
 }
@@ -271,9 +290,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Type:             data.Type,
 		Description:      data.Description,
 		Sprite:           data.Sprite,
-		RenderType:       data.RenderType,
 		RenderCategory:   data.RenderCategory,
-		WallMounted:      data.WallMounted,
 		Transparent:      data.Transparent,
 		GroundTile:       data.GroundTile,
 		SizeClass:        data.SizeClass,
@@ -286,12 +303,24 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		Summons:          data.Summons,
 	}
 
+	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an
+	// inventory (or a rarity weapon rack) trades - the arena gladiators carry a
+	// points shop alongside their dialogue choices.
+	if len(data.Inventory) > 0 || data.StockWeaponsRarity != "" {
+		npc.MerchantStock = buildMerchantStock(data.Inventory)
+		npc.Currency = data.Currency
+		npc.ArenaBoard = data.ArenaBoard
+		if data.StockWeaponsRarity != "" {
+			npc.MerchantStock = append(npc.MerchantStock,
+				buildRarityWeaponStock(data.StockWeaponsRarity, data.StockWeaponsCost)...)
+		}
+		groupMerchantWeapons(npc.MerchantStock)
+	}
+
 	// Set up type-specific data
 	switch data.Type {
 	case "spell_trader":
 		npc.SpellData = data.Spells
-	case "merchant":
-		npc.MerchantStock = buildMerchantStock(data.Inventory)
 	case "encounter":
 		npc.EncounterData = data.Encounter
 	}
@@ -317,14 +346,58 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 			cost = item.Attributes["value"]
 		}
 		qty := entry.Quantity
-		if qty <= 0 {
-			qty = 1
+		if qty == 0 {
+			qty = 1 // authored without quantity: single copy; negative = unlimited
 		}
 		stock = append(stock, &MerchantStockItem{
 			Item:     item,
 			Cost:     cost,
 			Quantity: qty,
 		})
+	}
+	return stock
+}
+
+// groupMerchantWeapons orders a merchant's stock for browsing: non-weapons
+// keep their authored order up front, weapons follow GROUPED by category
+// (sword/bow/mace/...) and named alphabetically within each group.
+func groupMerchantWeapons(stock []*MerchantStockItem) {
+	weaponCat := func(m *MerchantStockItem) string {
+		if m.Item.Type != items.ItemWeapon {
+			return "" // non-weapon: sorts before every weapon, keeps authored order
+		}
+		if def, _, ok := config.GetWeaponDefinitionByName(m.Item.Name); ok && def != nil {
+			return def.Category
+		}
+		return "zzz" // unknown weapon def: park at the end
+	}
+	sort.SliceStable(stock, func(i, j int) bool {
+		ci, cj := weaponCat(stock[i]), weaponCat(stock[j])
+		if (ci == "") != (cj == "") {
+			return ci == ""
+		}
+		if ci == "" && cj == "" {
+			return false // both non-weapons: stable keeps authored order
+		}
+		if ci != cj {
+			return ci < cj
+		}
+		return stock[i].Item.Name < stock[j].Item.Name
+	})
+}
+
+// buildRarityWeaponStock lists every weapons.yaml weapon of the given rarity
+// as UNLIMITED stock (quantity -1) at one flat price, sorted by name so the
+// rack renders stably.
+func buildRarityWeaponStock(rarity string, cost int) []*MerchantStockItem {
+	keys := config.WeaponKeysByRarity(rarity)
+	stock := make([]*MerchantStockItem, 0, len(keys))
+	for _, key := range keys {
+		weapon, err := items.TryCreateWeaponFromYAML(key)
+		if err != nil {
+			continue
+		}
+		stock = append(stock, &MerchantStockItem{Item: weapon, Cost: cost, Quantity: UnlimitedStock})
 	}
 	return stock
 }

@@ -1,10 +1,14 @@
 package game
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
+	"sort"
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -114,6 +118,17 @@ func GetSaveRowSummary(row int) SaveSummary {
 	return summaryFromPath(saveRowPath(row))
 }
 
+// saveSummaryCache memoizes summaries by path + (mtime, size): the save/load
+// menus redraw every frame, and a cold summary is a FULL GameSave decode -
+// without the cache the open menu re-parsed up to 8 save files per frame.
+var saveSummaryCache = map[string]cachedSaveSummary{}
+
+type cachedSaveSummary struct {
+	modTime int64
+	size    int64
+	sum     SaveSummary
+}
+
 // Autosave writes the shared autosave slot (row 0). Best-effort and silent: a
 // failure must never interrupt play. No-op outside live gameplay so it can't fire
 // mid-load or before the world exists.
@@ -158,6 +173,9 @@ type GameSave struct {
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
+	DayNightDay           int                        `json:"day_night_day,omitempty"`
+	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
+	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
 	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
@@ -211,6 +229,7 @@ type QuestSave struct {
 type PartySave struct {
 	Gold                int             `json:"gold"`
 	Food                int             `json:"food"`
+	ArenaPoints         int             `json:"arena_points,omitempty"`
 	Inventory           []items.Item    `json:"inventory"`
 	Members             []CharacterSave `json:"members"`
 	Reserve             []CharacterSave `json:"reserve,omitempty"`
@@ -346,6 +365,7 @@ type MonsterSave struct {
 	SummonedBy          string               `json:"summoned_by,omitempty"`
 	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
+	ChampionTier        string               `json:"champion_tier,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
 	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
@@ -443,8 +463,20 @@ type NPCSave struct {
 	X       float64 `json:"x,omitempty"`
 	Y       float64 `json:"y,omitempty"`
 	Visited bool    `json:"visited"`
-	// Remaining merchant quantities, aligned with the YAML stock order.
+	// Remaining merchant stock, keyed by item NAME in stock order (duplicate
+	// names consume sequentially). Index-aligned restore was abandoned: stock
+	// ORDER is a presentation detail (grouping can reorder it between versions)
+	// and an index-keyed save would stamp quantities onto the wrong items.
+	Stock []NPCStockSave `json:"stock,omitempty"`
+	// StockQuantities is the retired index-aligned format; old saves carrying
+	// it reset to full stock rather than risk mis-assignment.
 	StockQuantities []int `json:"stock_quantities,omitempty"`
+}
+
+// NPCStockSave is one merchant stock line in a save.
+type NPCStockSave struct {
+	Name     string `json:"name"`
+	Quantity int    `json:"quantity"`
 }
 
 // clearTransientCombatState drops every in-flight transient tied to the
@@ -452,6 +484,9 @@ type NPCSave struct {
 // world swap (map switch, save load) or leftovers keep updating against the
 // new map and can hit monsters there.
 func (g *MMGame) clearTransientCombatState() {
+	// Door state is per-map: entities unregister and closed-ness resets, so the
+	// "portcullises rise" transition can't fire on the destination map.
+	g.clearDoorState()
 	g.projectileMutex.Lock()
 	if g.collisionSystem != nil {
 		// applySave rebuilds the collision system anyway; switchToMap keeps it,
@@ -481,6 +516,7 @@ type SaveSummary struct {
 	MapKey    string
 	TurnBased bool
 	Name      string
+	RunID     string           // playthrough id (GameSave.ArenaRunID) - names collide across runs (default roster), the run id doesn't
 	PlayTime  string           // formatted elapsed play time ("" if unknown)
 	Party     []SavePartyBrief // active roster for the hover tooltip
 }
@@ -493,7 +529,53 @@ type SavePartyBrief struct {
 }
 
 // summaryFromPath reads minimal display info from a save file path.
+// mintPlaythroughID mints the identity of a new run (random; persisted in
+// every save as arena_run_id). See legacyRunID for pre-feature saves.
+func mintPlaythroughID() string {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// adoptPlaythroughID resolves the run identity when a save is loaded: a saved
+// id is adopted VERBATIM; a pre-run-id save derives the DETERMINISTIC legacy
+// id from its roster. Determinism here is load-bearing - an interim build that
+// minted a RANDOM id on legacy load poisoned sibling saves of one run with
+// divergent ids (the save-glow bug). Never mint randomness on this path.
+func adoptPlaythroughID(saved string, memberNames []string) string {
+	if saved != "" {
+		return saved
+	}
+	return legacyRunID(memberNames)
+}
+
+// legacyRunID is the deterministic playthrough id for saves written BEFORE
+// run ids existed: a hash of the sorted member names. Two legacy saves of the
+// same roster map to the SAME id (so they highlight together and keep doing so
+// after either is loaded); the default-roster name collision this reintroduces
+// is confined to legacy saves, which carry no better signal.
+func legacyRunID(names []string) string {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	h := fnv.New64a()
+	for _, n := range sorted {
+		h.Write([]byte(n))
+		h.Write([]byte{'|'})
+	}
+	return fmt.Sprintf("legacy-%x", h.Sum64())
+}
+
 func summaryFromPath(path string) SaveSummary {
+	st, err := os.Stat(path)
+	if err != nil {
+		delete(saveSummaryCache, path)
+		return SaveSummary{Exists: false}
+	}
+	if c, ok := saveSummaryCache[path]; ok && c.modTime == st.ModTime().UnixNano() && c.size == st.Size() {
+		return c.sum
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return SaveSummary{Exists: false}
@@ -503,13 +585,21 @@ func summaryFromPath(path string) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName, RunID: s.ArenaRunID}
+	if sum.RunID == "" { // pre-run-id save: derive the deterministic legacy id
+		names := make([]string, 0, len(s.Party.Members))
+		for _, m := range s.Party.Members {
+			names = append(names, m.Name)
+		}
+		sum.RunID = legacyRunID(names)
+	}
 	if s.PlayedTimeNs > 0 {
 		sum.PlayTime = highscore.FormatPlayTime(time.Duration(s.PlayedTimeNs))
 	}
 	for _, m := range s.Party.Members {
 		sum.Party = append(sum.Party, SavePartyBrief{Name: m.Name, Level: m.Level, Class: m.Class})
 	}
+	saveSummaryCache[path] = cachedSaveSummary{modTime: st.ModTime().UnixNano(), size: st.Size(), sum: sum}
 	return sum
 }
 
@@ -797,6 +887,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	ps := PartySave{
 		Gold:                g.party.Gold,
 		Food:                g.party.Food,
+		ArenaPoints:         g.party.ArenaPoints,
 		Inventory:           g.party.Inventory,
 		Members:             make([]CharacterSave, 0, len(g.party.Members)),
 		CardCollection:      make([]string, MaxCardSlots),
@@ -856,6 +947,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				WasAttacked:             mon.WasAttacked,
 				Relentless:              mon.Relentless,
+				ChampionTier:            mon.ChampionTier,
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				StunFramesRemaining:     mon.StunFramesRemaining,
@@ -924,9 +1016,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			for _, npc := range w.NPCs {
 				ns := NPCSave{MapKey: mapKey, Name: npc.Name, X: npc.X, Y: npc.Y, Visited: npc.Visited}
 				if len(npc.MerchantStock) > 0 {
-					ns.StockQuantities = make([]int, len(npc.MerchantStock))
+					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
-						ns.StockQuantities[i] = entry.Quantity
+						ns.Stock[i] = NPCStockSave{Name: entry.Item.Name, Quantity: entry.Quantity}
 					}
 				}
 				nstates = append(nstates, ns)
@@ -978,6 +1070,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		PendingLevelUpChoices: pendingChoices,
 		PlayedTimeNs:          playedTime.Nanoseconds(),
 		DayNightFrames:        g.dayNightFrames,
+		DayNightDay:           g.dayNightDay,
+		ArenaTierFoughtDay:    g.arenaTierFoughtDay,
+		ArenaRunID:            g.playthroughID,
 		TotalGoldEarned:       g.totalGoldEarned,
 		TotalExperienceEarned: g.totalExperienceEarned,
 		VictoryAcknowledged:   g.victoryAcknowledged,
@@ -1034,6 +1129,15 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// resolves to the saved phase. Recomputed silently (no flip side effects):
 	// the save's pack monsters are restored as part of MapMonsters.
 	g.dayNightFrames = save.DayNightFrames
+	g.dayNightDay = save.DayNightDay
+	g.arenaTierFoughtDay = save.ArenaTierFoughtDay
+	{
+		names := make([]string, 0, len(save.Party.Members))
+		for _, m := range save.Party.Members {
+			names = append(names, m.Name)
+		}
+		g.playthroughID = adoptPlaythroughID(save.ArenaRunID, names)
+	}
 	g.dayNightIsNight = dayNightIsNightAt(g.dayNightFrac())
 
 	// A loaded game starts with a clean combat log - the previous slot's history
@@ -1058,7 +1162,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.collisionSystem.UpdateEntity("player", save.PlayerX, save.PlayerY)
 
 	// Restore party
-	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, Inventory: save.Party.Inventory}
+	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
@@ -1184,6 +1288,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossDormant = m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
+				m.ChampionTier = ms.ChampionTier
+				if m.IsChampion() {
+					// Mirror at restore (not next frame): the first post-load
+					// input tick must already see tier HP pool and real armor.
+					g.mirrorChampionStats(m)
+				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
@@ -1297,11 +1407,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					continue
 				}
 				npc.Visited = ns.Visited
-				// Stock layout comes from YAML; apply saved quantities only
-				// while the lengths agree (a YAML edit invalidates the save).
-				if len(ns.StockQuantities) == len(npc.MerchantStock) {
-					for i, q := range ns.StockQuantities {
-						npc.MerchantStock[i].Quantity = q
+				// Stock restores by item NAME (order is presentation-only and can
+				// change between versions); duplicate names consume sequentially.
+				// A saved name missing from the current YAML is simply dropped.
+				if len(ns.Stock) > 0 {
+					cursor := make(map[string]int, len(ns.Stock))
+					for _, saved := range ns.Stock {
+						from := cursor[saved.Name]
+						for i := from; i < len(npc.MerchantStock); i++ {
+							if npc.MerchantStock[i].Item.Name == saved.Name {
+								npc.MerchantStock[i].Quantity = saved.Quantity
+								cursor[saved.Name] = i + 1
+								break
+							}
+						}
 					}
 				}
 			}

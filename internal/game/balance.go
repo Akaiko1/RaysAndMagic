@@ -198,6 +198,10 @@ const MonsterHitFlashFrames = 12
 // cycle (a readable lunge) - without it attackers froze on the rest pose.
 const MonsterAttackAnimFrames = 18
 
+// volleySpacingFrac: tiles between successive darts of a volley (party bows and
+// monster/champion projectiles trail their darts by the same stream spacing).
+const volleySpacingFrac = 0.45
+
 // MonsterHitShakeAmplitudeFrac is the peak left-right sprite jitter on hit, as a
 // fraction of the sprite's on-screen size. Driven by the same HitTintFrames timer
 // as the red flash and decaying with it, it makes a struck monster shudder in

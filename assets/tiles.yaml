@@ -212,6 +212,43 @@ tiles:
     letter: "%"
     biomes: ["church"]
 
+  arena_floor:
+    name: "Arena Sand"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [196, 164, 98]
+    floor_near_color: [214, 182, 112]
+    floor_texture_group: "default"
+    letter: "."
+    biomes: ["arena"]
+
+  arena_wall:
+    name: "Arena Grandstand"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "arena_grandstand_wall"
+    render_type: "textured_wall"
+    wall_color: [168, 140, 96]
+    letter: "%"
+    biomes: ["arena"]
+
+  arena_corridor_wall:
+    name: "Arena Corridor Wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "arena_corridor_wall"
+    render_type: "textured_wall"
+    wall_color: [142, 122, 92]
+    letter: "&"
+    biomes: ["arena"]
+
   pyramid_floor:
     name: "Pyramid Floor"
     solid: false

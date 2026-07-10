@@ -148,6 +148,9 @@ func (m SkillMastery) String() string {
 
 // masteryFromKey resolves a lowercase config.yaml mastery key (class kit
 // skill_start_mastery) to its SkillMastery. Returns false for an unknown key.
+// MasteryFromKey resolves a YAML mastery key (novice/expert/master/grandmaster).
+func MasteryFromKey(key string) (SkillMastery, bool) { return masteryFromKey(key) }
+
 func masteryFromKey(key string) (SkillMastery, bool) {
 	switch key {
 	case "novice":

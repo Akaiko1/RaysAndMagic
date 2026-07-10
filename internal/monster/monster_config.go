@@ -35,6 +35,10 @@ type MonsterDefinition struct {
 	// SizeClass picks a quantized sprite height (small/medium/person/large/huge);
 	// the tile-height value per class lives in config graphics.monster_size_classes.
 	SizeClass string `yaml:"size_class"`
+	// Champion, when set, names a champions.yaml build (a real character on the
+	// monster AI). game.mirrorChampionStats mirrors that character's weapon
+	// damage, attack cadence, HP and armor onto this monster at spawn.
+	Champion string `yaml:"champion,omitempty"`
 	// size_game and size_multiplier are retired. The fields exist only so content
 	// still authoring them FAILS LOUD in validation instead of silently rendering
 	// at the wrong scale.
@@ -455,6 +459,9 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.LightRadius = def.Light.RadiusTiles * tileSize
 		m.LightIntensity = def.Light.Intensity
 	}
+
+	// Champion mobs derive combat stats from a character build (game champion paths).
+	m.ChampionKey = def.Champion
 }
 
 // GetSpriteFromConfig returns sprite type from config

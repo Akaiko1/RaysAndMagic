@@ -144,6 +144,7 @@ const (
 	dialogKindChoices
 	dialogKindMerchant
 	dialogKindCardCollector
+	dialogKindArenaGladiator
 )
 
 // npcIsCardCollector reports whether the NPC runs the monster-card collection UI.
@@ -159,6 +160,11 @@ func npcDialogKindFor(npc *character.NPC) npcDialogKind {
 		return dialogKindSpellTrader
 	case npcHasSkillTraining(npc):
 		return dialogKindSkillTrainer
+	case npc.ArenaBoard && npcHasChoiceDialog(npc) && npcHasMerchant(npc):
+		// Arena gladiators (authored arena_board: true): dialogue choices + a
+		// points shop + the champions' board in one tabbed dialog. The explicit
+		// flag keeps the board off future shop+choices NPCs.
+		return dialogKindArenaGladiator
 	case npcHasChoiceDialog(npc):
 		return dialogKindChoices
 	case npcHasMerchant(npc):

@@ -133,6 +133,10 @@ func (gl *GameLoop) updateExploration() {
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshBoundUndeadCache()
 
+	// Reconcile door state (closed iff a living champion is on this map) and the
+	// solid collision entities behind it, before either monster update runs.
+	gl.game.refreshDoors()
+
 	// The facing pass must see only the movement pass's displacement.
 	monsterFrameStart := gl.captureMonsterFramePositions()
 

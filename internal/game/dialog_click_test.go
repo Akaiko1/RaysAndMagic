@@ -11,8 +11,9 @@ import (
 // aldricLikeNPC builds a spell-trader with quest choices (the Aldric shape).
 func aldricLikeNPC() *character.NPC {
 	return &character.NPC{
-		Name: "Aldric",
-		Type: "spell_trader",
+		Name:           "Aldric",
+		Type:           "spell_trader",
+		RenderCategory: "standee",
 		SpellData: map[string]*character.NPCSpell{
 			"walk_on_water": {Name: "Walk on Water", Cost: 500},
 		},

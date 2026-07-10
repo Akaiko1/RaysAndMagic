@@ -279,7 +279,34 @@ type Monster3D struct {
 	cachedSizeW    float64
 	cachedSizeH    float64
 	cachedSizeMult float64
+
+	// ChampionKey names this mob's champions.yaml character build ("" = not a
+	// champion). Set once from the monster def at spawn/load - the single
+	// stored truth the champion combat paths key off.
+	ChampionKey string
+	// ChampionTier is the arena difficulty this champion was challenged at
+	// (champions.yaml tiers key; "" = the default tier). Set by the duel
+	// starter and PERSISTED in saves - it picks the build template, HP pool
+	// and victory rewards.
+	ChampionTier string
+	// ChampionMirrored: the static champion mirror (game.mirrorChampionStats)
+	// has run for this instance. Fresh structs (spawn and save-load both
+	// rebuild the monster) reset it, so the mirror re-applies exactly once.
+	ChampionMirrored bool
+	// IgnoresDodge: this monster's strikes pierce the party's Perfect Dodge
+	// (champion GM weapon mastery, mirroring the party-side rule).
+	IgnoresDodge bool
+	// OffHandCDFrames: a dual-wield champion's SECOND real-time attack stream,
+	// independent of AttackCDFrames like the party's OffHandRTCooldown - each
+	// hand swings on its own weapon's cadence. Ticks beside AttackCDFrames.
+	OffHandCDFrames int
+	// NextHandOff: turn-based strict hand alternation cursor (party
+	// NextTBAttackOffHand parity) - main, off, main, off across TB swings.
+	NextHandOff bool
 }
+
+// IsChampion reports whether this mob rides a champions.yaml character build.
+func (m *Monster3D) IsChampion() bool { return m.ChampionKey != "" }
 
 // NewMonster3DFromConfig creates a monster from YAML configuration
 func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config) *Monster3D {

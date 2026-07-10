@@ -136,7 +136,7 @@ func TestMonsterCrowd_BillboardSpriteFacesWalkDirection(t *testing.T) {
 				if !decisive {
 					continue // moving at/away from the camera: either sheet is fine
 				}
-				anim, flip := r.getMonsterWalkAnimation(name, mon)
+				anim, flip := r.getMonsterDirectionalAnimation(name, mon, "walking")
 				if anim == nil {
 					t.Fatalf("%s: no walk animation resolved", name)
 				}

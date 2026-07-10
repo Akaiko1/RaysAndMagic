@@ -747,6 +747,17 @@ type MapConfig struct {
 	// nearest, so spatially-clustered groups (e.g. bandits per oasis) each
 	// trigger their own reward. Takes precedence over ClearEncounter.
 	ClearEncounters []MapClearEncounterConfig `yaml:"clear_encounters,omitempty"`
+	// Duel stages this map's champion duels (arena): where the party is placed
+	// and where the challenged champion spawns when a start_arena_duel dialogue
+	// choice fires. Required on any map whose NPCs offer that action.
+	Duel *MapDuelConfig `yaml:"duel,omitempty"`
+}
+
+// MapDuelConfig is the duel staging geometry, in tile coordinates.
+type MapDuelConfig struct {
+	PartyTile    [2]int  `yaml:"party_tile"`
+	ChampionTile [2]int  `yaml:"champion_tile"`
+	FacingDeg    float64 `yaml:"facing_deg"` // party heading on arrival (degrees; 0 = east)
 }
 
 type MapCanopyShadeConfig struct {
@@ -1508,6 +1519,22 @@ func (c *Config) GetViewDistance() float64 {
 }
 
 // GetWeaponDefinition retrieves weapon definition from global weapon config
+// WeaponKeysByRarity returns every weapons.yaml key of the given rarity,
+// sorted for stable presentation (merchant racks, tooltips).
+func WeaponKeysByRarity(rarity string) []string {
+	if GlobalWeapons == nil {
+		return nil
+	}
+	keys := make([]string, 0, 16)
+	for key, def := range GlobalWeapons.Weapons {
+		if def != nil && def.Rarity == rarity {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func GetWeaponDefinition(weaponKey string) (*WeaponDefinitionConfig, bool) {
 	if GlobalWeapons == nil {
 		return nil, false

@@ -2105,25 +2105,21 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
 	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
 	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
-	// Grouped by DISPLAY TYPE (standee / animated / wall / landmark / scenery /
-	// invisible) via game.NPCDisplayCategory - the same classification the game's
-	// renderer uses, so a new render branch surfaces as its own palette group
-	// automatically (see that function).
+	// Grouped by DISPLAY TYPE (standee / animated / wall_mounted / landmark /
+	// scenery / door / invisible) via game.NPCDisplayCategory - the same
+	// classification the game's renderer uses, so a new render branch surfaces
+	// as its own palette group automatically (see that function).
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
 		entries = append(entries, sectionHeader("Special NPCs (@ by display type)"))
 
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
-			sprite, renderType, renderCategory, wallMounted := "", "", "", false
+			renderCategory := ""
 			if data != nil {
-				sprite, renderType, renderCategory, wallMounted = data.Sprite, data.RenderType, data.RenderCategory, data.WallMounted
+				renderCategory = data.RenderCategory
 			}
-			w, h := 0, 0
-			if npcSpriteDims != nil {
-				w, h = npcSpriteDims(sprite)
-			}
-			cat := game.NPCDisplayCategory(renderCategory, sprite, renderType, wallMounted, w, h)
+			cat := game.NPCDisplayCategory(renderCategory)
 			keysByCat[cat] = append(keysByCat[cat], key)
 		}
 

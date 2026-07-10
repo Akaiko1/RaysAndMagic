@@ -27,7 +27,7 @@ func (ih *InputHandler) handleCombatLogOpenInput() bool {
 
 func (ih *InputHandler) handleCombatLogInput() {
 	g := ih.game
-	if ih.escapeKeyTracker.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ih.keys.Consume(ebiten.KeyEscape) {
 		g.combatLogOpen = false
 		return
 	}
@@ -41,9 +41,9 @@ func (ih *InputHandler) handleCombatLogInput() {
 
 	_, wheelY := ebiten.Wheel()
 	switch {
-	case wheelY > 0 || ih.upKeyTracker.IsKeyJustPressed(ebiten.KeyUp):
+	case wheelY > 0 || ih.keys.Consume(ebiten.KeyUp):
 		g.combatLogScroll += 3
-	case wheelY < 0 || ih.downKeyTracker.IsKeyJustPressed(ebiten.KeyDown):
+	case wheelY < 0 || ih.keys.Consume(ebiten.KeyDown):
 		g.combatLogScroll -= 3
 	}
 

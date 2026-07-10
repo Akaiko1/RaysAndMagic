@@ -521,7 +521,7 @@ npcs:
     description: "The cold doorway back to the forest"
     sprite: "church_exit"
     size_tiles: 1.0
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     dialogue:
       greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
@@ -556,7 +556,7 @@ npcs:
     type: "encounter"
     description: "The stairway back out of the pyramid"
     sprite: "pyramid_stairs_up"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -574,7 +574,7 @@ npcs:
     type: "encounter"
     description: "Sandstone stairs leading upward"
     sprite: "pyramid_stairs_up"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -592,7 +592,7 @@ npcs:
     type: "encounter"
     description: "Sandstone stairs leading deeper"
     sprite: "pyramid_stairs_down"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -610,7 +610,7 @@ npcs:
     type: "encounter"
     description: "A narrow stairway toward the sealed sanctum"
     sprite: "pyramid_stairs_down"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -689,7 +689,7 @@ npcs:
     type: "encounter"
     description: "A great barred storm-drain venting into the harbor"
     sprite: "culvert_outlet"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -707,7 +707,7 @@ npcs:
     type: "encounter"
     description: "The barred outflow back up to Seabright harbor"
     sprite: "culvert_outlet"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -1007,7 +1007,7 @@ npcs:
     type: "encounter"
     description: "The main gate back to the forest road"
     sprite: "city_gate"
-    wall_mounted: true
+    render_category: wall_mounted
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -1094,22 +1094,22 @@ npcs:
       fireball: { cost: 400 }
       firebolt: { cost: 250 }
       torch_light: { cost: 150 }
-      inferno: { cost: 2500 }
+      inferno: { cost: 1500 }
       # Water
       ice_bolt: { cost: 250 }
-      walk_on_water: { cost: 750 }
-      water_breathing: { cost: 800 }
-      hot_steam: { cost: 1500 }
+      walk_on_water: { cost: 500 }
+      water_breathing: { cost: 1000 }
+      hot_steam: { cost: 2000 }
       # Air
       sparks: { cost: 150 }
       lightning: { cost: 600 }
-      wizard_eye: { cost: 700 }
+      wizard_eye: { cost: 150 }
       starburst: { cost: 2000 }
       # Earth
       rock_blast: { cost: 350 }
       deadly_swarm: { cost: 700 }
-      stun: { cost: 600 }
-      stone_skin: { cost: 500 }
+      stun: { cost: 1500 }
+      stone_skin: { cost: 2000 }
 
   city_mastery_trainer:
     name: "Master Ilyra"
@@ -1156,14 +1156,15 @@ npcs:
       greeting: "The arena's iron gates tower above you, banners snapping in the wind. From within comes the clash of steel and the roar of a crowd."
       choice_prompt: "What do you want to do?"
       choices:
-        - text: "Approach the gates"
-          action: "info"
-          response: "A gatekeeper bars the way. 'The games are not open to you yet, challenger. Come back when the season opens.'"
+        - text: "Enter the arena"
+          action: "enter_map"
+          map: "arena"
         - text: "Leave"
           action: "leave"
 
-  # Gladiator gatekeeper - the fight-starter NPC. Real challenge flow comes with
-  # the arena phase; for now the offer is an info stub.
+  # Gladiator gatekeeper - ushers challengers into the arena interior. Carries
+  # the arena points shop + champions' board as dialog tabs (shared &arena_shop
+  # block with the duel master inside).
   gladiator_gatekeeper:
     name: "Arena Gatekeeper"
     type: "encounter"
@@ -1172,13 +1173,34 @@ npcs:
     render_category: animated
     transparent: true
     size_class: person
+    currency: "arena_points"
+    arena_board: true
+    stock_weapons_rarity: "uncommon"
+    stock_weapons_cost: 750
+    inventory: &arena_shop # quantity -1 = unlimited stock (never sells out)
+      - type: "potion"
+        name: "Health Potion"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Sake Flask"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Antivenom"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Revival Potion"
+        cost: 1000
+        quantity: -1
     dialogue:
       greeting: "The gatekeeper looks you over, one hand on her halberd. 'So. You think you have what it takes to fight in the arena?'"
       choice_prompt: "What do you say?"
       choices:
-        - text: "Start a fight?"
-          action: "info"
-          response: "She laughs. 'Eager. Good. But the pit isn't ready for challengers yet - sharpen your blades and come back soon.'"
+        - text: "Take me inside"
+          action: "enter_map"
+          map: "arena"
         - text: "Not today"
           action: "leave"
 
@@ -1198,4 +1220,89 @@ npcs:
         - text: "Manage your stash"
           action: "manage_stash"
         - text: "Leave"
+          action: "leave"
+
+  # Arena interior: the duel master (the gatekeeper's twin inside the pit).
+  # start_arena_duel picks the difficulty; the champion is rolled randomly from
+  # the registry. Each tier can be challenged once per day (resets at sunrise).
+  arena_duel_master:
+    name: "Arena Duel Master"
+    type: "encounter"
+    description: "A scarred gladiator in gilded armour, keeper of the pit's rules"
+    sprite: "gladiator_gatekeeper"
+    render_category: animated
+    transparent: true
+    size_class: person
+    currency: "arena_points"
+    arena_board: true
+    stock_weapons_rarity: "uncommon"
+    stock_weapons_cost: 750
+    inventory: *arena_shop
+    dialogue:
+      greeting: "The duel master raps her halberd on the flagstones. 'Name your stakes, challenger. The pit picks your opponent - and each wager stands once a day. Once you step onto the sand, the gates stay down until one of you falls.'"
+      choice_prompt: "What stakes?"
+      choices:
+        - text: "An easy bout"
+          action: "start_arena_duel"
+          tier: "easy"
+        - text: "A proper duel"
+          action: "start_arena_duel"
+          tier: "normal"
+        - text: "An impossible match"
+          action: "start_arena_duel"
+          tier: "impossible"
+        - text: "Not yet"
+          action: "leave"
+
+  # Portcullis barring a chamber doorway while a duel champion lives on the map.
+  # render_category "door": stands ACROSS the opening (oriented by the flanking
+  # walls), draws + blocks only while closed.
+  arena_gate:
+    name: "Arena Portcullis"
+    type: "encounter"
+    description: "A spiked iron portcullis between stone pillars"
+    sprite: "arena_gate"
+    render_category: door
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "The portcullis is bolted down. Beyond the bars, the duel must end before it rises."
+      choice_prompt: "What do you do?"
+      choices:
+        - text: "Step back"
+          action: "leave"
+
+  # Way back out of the arena: a barred gate wall standee on the west chamber wall.
+  arena_exit:
+    name: "Arena Gates"
+    type: "encounter"
+    description: "The barred gateway back out to the desert"
+    sprite: "arena_gate_wall"
+    render_category: wall_mounted
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "Beyond the barred gateway, the desert glare waits."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the desert"
+          action: "enter_map"
+          map: "desert"
+        - text: "Stay"
+          action: "leave"
+
+  # Fallen-fighter remains half-buried in the sand.
+  arena_bones:
+    name: "Bleached Bones"
+    type: "encounter"
+    description: "A gladiator's remains - helm, shield and bones half-swallowed by the sand"
+    sprite: "arena_bones"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.4
+    dialogue:
+      greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike."
+      choice_prompt: "What do you do?"
+      choices:
+        - text: "Leave them be"
           action: "leave"

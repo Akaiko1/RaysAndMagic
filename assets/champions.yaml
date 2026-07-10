@@ -1,0 +1,96 @@
+# Champion mobs: real characters that ride the monster AI. Each build here is
+# constructed via character.BuildChampion at every DIFFICULTY TIER and drives
+# the mob that names it with a `champion:` field in monsters.yaml. Champions
+# always get 4 turn-based attacks; everything else follows the character combat
+# pipeline live.
+#
+# tiers: shared difficulty ladder. Per tier: character level, the mastery EVERY
+# authored skill is set to, the boss HP pool, and the victory rewards
+# (experience + arena points). Champions drop NO gold (monsters.yaml gold 0).
+# A defeated difficulty unlocks again next morning.
+#
+# Per champion:
+#   class      - config.yaml characters.classes key
+#   skills     - skill KEYS only; mastery comes from the tier
+#   equipment  - per-tier lists; first weapon = main hand, second = off hand.
+#                Gear must pass the class/skill equip gates (validated at boot).
+#   ranged     - fires the main-hand weapon as a projectile
+tiers:
+  easy:
+    level: 20
+    mastery: expert
+    hp: 1200
+    experience: 1000
+    arena_points: 500
+  normal:
+    level: 23
+    mastery: master
+    hp: 2000
+    experience: 2000
+    arena_points: 1000
+  impossible:
+    level: 25
+    mastery: grandmaster
+    hp: 3000
+    experience: 3000
+    arena_points: 2000
+
+champions:
+  hobbit_archer:
+    name: "Hobbit Archer"
+    class: "archer"
+    skills: [bow, leather, dagger, bodybuilding]
+    ranged: true
+    equipment:
+      easy:
+        - "hunting_bow"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+      normal:
+        - "long_bow"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "accuracy_talisman"
+      impossible:
+        - "blowgun"
+        - "jaguar_pelt_jerkin"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "accuracy_talisman"
+
+  weapon_master:
+    name: "Weapon Master"
+    class: "arms_master"
+    skills: [sword, mace, dual_wielding, leather, bodybuilding, arms_master]
+    equipment:
+      easy:
+        - "iron_sword"
+        - "iron_sword"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+      normal:
+        - "steel_mace"
+        - "katana"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "sonar_pendant"
+      impossible:
+        - "steel_mace"
+        - "muramasa"
+        - "jaguar_pelt_jerkin"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "belt_of_speed"
+        - "sonar_pendant"

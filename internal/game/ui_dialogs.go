@@ -514,6 +514,8 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 		ui.drawSkillTrainerDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindMerchant:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+	case dialogKindArenaGladiator:
+		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindCardCollector:
 		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	default:
@@ -559,7 +561,7 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	dialogY := textY - dialogueBodyTextY
 	for i, choice := range choices {
 		x, y, w, h := ui.game.dialogueChoiceRect(npc, i, dialogX, dialogY, dialogWidth)
-		choiceText := fmt.Sprintf("%d. %s", i+1, choice.Text)
+		choiceText := fmt.Sprintf("%d. %s", i+1, ui.game.dialogueChoiceLabel(choice))
 		if i == ui.game.selectedChoice {
 			drawFilledRect(screen, x, y, w, h, color.RGBA{100, 100, 0, 128})
 		}
@@ -627,6 +629,28 @@ func spellTraderPagerY(dialogY int) int {
 	return spellTraderGridTop(dialogY) + spellTraderGridRows*(cellH+8) + 4
 }
 
+// drawDialogFolderTabs renders the clickable folder tabs along a dialog's top
+// edge (plain rect placeholders until the dedicated tab sprites land) and
+// switches g.dialogTab on click. Tab-key cycling stays in the input handlers.
+func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY int, labels []string) {
+	const tabW, tabH = 110, 32
+	tabY := dialogY - tabH + 4 // tucked into the panel edge like folder tabs
+	for i, label := range labels {
+		tabX := dialogX + 16 + i*(tabW+6)
+		fill := color.RGBA{30, 30, 45, 255}
+		if ui.game.dialogTab == i {
+			fill = color.RGBA{70, 70, 100, 255}
+		}
+		drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
+		drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
+		drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
+		if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
+			ui.game.dialogTab = i
+			ui.game.selectedChoice = 0
+		}
+	}
+}
+
 // drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
 // portrait strip at top, icon grid for spells below, tooltip on hover.
 func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
@@ -637,23 +661,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	// dialog's top edge (same sprites as the party menu); Tab key also switches
 	// (see handleSpellTraderInput).
 	if npcHasChoiceDialog(ui.game.dialogNPC) {
-		const tabW, tabH = 110, 32
-		tabY := dialogY - tabH + 4 // tucked into the panel edge like folder tabs
-		for i, label := range [...]string{"Spells (Tab)", "Quests (Tab)"} {
-			tabX := dialogX + 16 + i*(tabW+6)
-			// Plain rect placeholders until the dedicated tab sprites land.
-			fill := color.RGBA{30, 30, 45, 255}
-			if ui.game.dialogTab == i {
-				fill = color.RGBA{70, 70, 100, 255}
-			}
-			drawFilledRect(screen, tabX, tabY, tabW, tabH, fill)
-			drawRectBorder(screen, tabX, tabY, tabW, tabH, 2, color.RGBA{100, 100, 120, 255})
-			drawCenteredDebugText(screen, label, tabX, tabY, tabW, tabH)
-			if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
-				ui.game.dialogTab = i
-				ui.game.selectedChoice = 0
-			}
-		}
+		ui.drawDialogFolderTabs(screen, dialogX, dialogY, []string{"Spells", "Quests"})
 		if ui.game.dialogTab == 1 {
 			ui.drawDialogueChoicesBody(screen, ui.game.dialogNPC, dialogX, dialogY+50, dialogWidth)
 			return
@@ -949,14 +957,22 @@ func (g *MMGame) merchantSellPrice(base int) int {
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
 	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
-	greeting := "Bring your wares. I pay fair coin."
-	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
-		greeting = ui.game.dialogNPC.DialogueData.Greeting
+	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
+	// the Shop tab goes straight to the grids or the text floods them.
+	if npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
+		greeting := "Bring your wares. I pay fair coin."
+		if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
+			greeting = ui.game.dialogNPC.DialogueData.Greeting
+		}
+		for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
+			drawDebugText(screen, line, dialogX+20, dialogY+46+i*dialogueLineHeight)
+		}
 	}
-	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
-		drawDebugText(screen, line, dialogX+20, dialogY+46+i*dialogueLineHeight)
+	balanceText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
+	if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
+		balanceText = fmt.Sprintf("Arena Points: %d", ui.game.party.ArenaPoints)
 	}
-	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
+	drawDebugText(screen, balanceText, dialogX+dialogWidth-160, dialogY+20)
 
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -985,7 +1001,7 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			entry := stock[idx]
 			x, y, w, h := merchantCellRect(leftX, gridTop, slot)
-			soldOut := entry.Quantity <= 0
+			soldOut := !entry.InStock()
 			if isMouseHoveringBox(mouseX, mouseY, x, y, x+w, y+h) {
 				drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, color.RGBA{210, 170, 80, 230})
 				tooltipItem = entry.Item
@@ -993,6 +1009,9 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			}
 			ui.drawInventoryItemIcon(screen, entry.Item, x, y, w, h, 4, !soldOut)
 			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
+			if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
+				priceText = fmt.Sprintf("%d ap", entry.Cost) // flat price, victory currency
+			}
 			if soldOut {
 				priceText = "sold out"
 			}
@@ -1047,13 +1066,10 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	// (party shrank) must not panic on this per-frame hover path. We resolve to a
 	// real member (clamping a stale index) so the formatter never sees a nil char.
 	if tooltipHasItem {
-		members := ui.game.party.Members
-		idx := ui.game.selectedChar
-		if idx < 0 || idx >= len(members) {
-			idx = 0
-		}
-		if idx < len(members) && members[idx] != nil {
-			tip := GetItemTooltip(tooltipItem, members[idx], ui.game.combat, tooltipDetailHeld())
+		{
+			// Shop tooltips show the ITEM's own base numbers (nil char = base
+			// view) - never scaled by whichever party member is selected.
+			tip := GetItemTooltip(tooltipItem, nil, ui.game.combat, tooltipDetailHeld())
 			if tip != "" {
 				lines := ui.appendCardArtHint(strings.Split(tip, "\n"), itemCardKey(tooltipItem))
 				plate, titleText := ui.itemTitleColors(tooltipItem)

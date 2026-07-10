@@ -8,14 +8,14 @@ type NPC struct {
 	Type             string
 	Description      string
 	Sprite           string
-	RenderType       string
-	RenderCategory   string // explicit render class (standee/animated/wall/landmark/scenery/invisible); derived if empty
-	WallMounted      bool   // render as a flush wall standee (slides to the nearest solid neighbour)
+	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	Transparent      bool
 	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
 	SizeClass        string // shared size tier (person, etc.); wins over SizeTiles
 	SizeTiles        float64
 	MerchantStock    []*MerchantStockItem
+	Currency         string // "" = gold; "arena_points" = arena victory currency
+	ArenaBoard       bool   // carries the champions' leaderboard dialog tab
 	SellAvailable    bool
 	SteamWhenVisited bool
 	HideWhenVisited  bool
@@ -30,7 +30,23 @@ type NPC struct {
 type MerchantStockItem struct {
 	Item     items.Item
 	Cost     int
-	Quantity int
+	Quantity int // UnlimitedStock (negative) = never sells out
+}
+
+// UnlimitedStock marks a merchant entry that never sells out.
+const UnlimitedStock = -1
+
+// CurrencyArenaPoints is the arena victory currency (party.ArenaPoints).
+const CurrencyArenaPoints = "arena_points"
+
+// InStock reports whether the entry can still be bought.
+func (m *MerchantStockItem) InStock() bool { return m.Quantity != 0 }
+
+// Take consumes one unit (no-op for unlimited stock).
+func (m *MerchantStockItem) Take() {
+	if m.Quantity > 0 {
+		m.Quantity--
+	}
 }
 
 type WorldItem struct {

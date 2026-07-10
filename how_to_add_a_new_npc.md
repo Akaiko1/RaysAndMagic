@@ -9,13 +9,15 @@ NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
   (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
 
 ### Render category and size
-- `render_category` sets how the NPC renders: `standee`, `animated` (a person with a
-  `w == h*4` idle sheet, turns to face the party), `scenery` (a prop), `landmark`
-  (tall crossed monument), `wall` (a flush wall standee), or `invisible` (no sprite).
+- `render_category` is REQUIRED and sets how the NPC renders: `standee`, `animated`
+  (a person with a `w == h*4` idle sheet, turns to face the party), `scenery` (a
+  prop), `landmark` (tall crossed monument), `wall_mounted` (a flush wall standee,
+  slides onto the adjacent wall), `door` (a doorway blocker - stands ACROSS the
+  opening between two flanking walls, drawn and solid only while a living champion
+  mob is on the map; see the arena portcullis), or `invisible` (no sprite).
 - Size: people use `size_class: person` (shared with monsters, from
   `config.yaml graphics.size_classes`); props use `size_tiles` (height in tiles,
   `1.0` == a 1-tile wall). Set exactly one.
-- A wall standee also needs `wall_mounted: true` so it slides onto the adjacent wall.
 
 ## Step 1: Define the NPC
 Add an entry under `npcs:` in `assets/npcs.yaml`.

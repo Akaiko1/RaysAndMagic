@@ -113,9 +113,7 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 		for key, data := range character.NPCConfigInstance.NPCs {
 			npc := &character.NPC{
 				Sprite:         data.Sprite,
-				RenderType:     data.RenderType,
 				RenderCategory: data.RenderCategory,
-				WallMounted:    data.WallMounted,
 				SizeClass:      data.SizeClass,
 				SizeTiles:      data.SizeTiles,
 			}

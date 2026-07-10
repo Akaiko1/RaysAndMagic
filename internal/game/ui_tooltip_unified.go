@@ -150,8 +150,10 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if arc := character.MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
 	}
-	if cd := cooldownLine(cs, cs.WeaponCooldownFramesFor(char, item.Name)); cd != "" {
-		attack.Add("%s", cd)
+	if char != nil {
+		if cd := cooldownLine(cs, cs.WeaponCooldownFramesFor(char, item.Name)); cd != "" {
+			attack.Add("%s", cd)
+		}
 	}
 	// Explain WHY the cooldown differs from the bare Speed curve (category
 	// multiplier or a legendary override) - the editor shows the same line.
@@ -178,16 +180,27 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if char != nil {
 		armsBonus = char.ArmsMasterTier() * ArmsMasterDamagePerTier
 	}
-	_, _, normal := cs.CalculateWeaponDamage(item, char)
-	trueDmg, _ := cs.weaponMasteryStrike(char, def)
+	// A nil char is the SHOP view: the item's own base numbers, no bearer scaling.
+	normal, trueDmg := def.Damage, 0
+	if char != nil {
+		_, _, normal = cs.CalculateWeaponDamage(item, char)
+		trueDmg, _ = cs.weaponMasteryStrike(char, def)
+	}
 	dmg.AddDetail("Base: %d", def.Damage)
 	primaryStat := def.BonusStat
 	if primaryStat == "" {
 		primaryStat = "Might"
 	}
-	statContribDetail(&dmg, primaryStat, getEffectiveStatValue(primaryStat, char), WeaponPrimaryStatDivisor)
-	if def.BonusStatSecondary != "" {
-		statContribDetail(&dmg, def.BonusStatSecondary, getEffectiveStatValue(def.BonusStatSecondary, char), WeaponSecondaryStatDivisor)
+	if char != nil {
+		statContribDetail(&dmg, primaryStat, getEffectiveStatValue(primaryStat, char), WeaponPrimaryStatDivisor)
+		if def.BonusStatSecondary != "" {
+			statContribDetail(&dmg, def.BonusStatSecondary, getEffectiveStatValue(def.BonusStatSecondary, char), WeaponSecondaryStatDivisor)
+		}
+	} else {
+		dmg.AddDetail("Scales with %s", primaryStat)
+		if def.BonusStatSecondary != "" {
+			dmg.AddDetail("Also scales with %s", def.BonusStatSecondary)
+		}
 	}
 	if armsBonus > 0 {
 		_, tierName := masteryTier(char, character.SkillArmsMaster)
@@ -203,28 +216,36 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	// Active party buffs add a flat bonus after crit doubling; filter by the
 	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
 	// e.g. Heroism (physical) does not boost a light/fire weapon.
-	outBonus := cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+	outBonus := 0
+	if char != nil {
+		outBonus = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+	}
 	if outBonus > 0 {
 		dmg.AddDetail("Active party buff: +%d", outBonus)
 	}
 	dmg.Add("Total Damage: %d", normal+trueDmg+outBonus)
-	totalCrit := cs.CalculateWeaponCritChance(item, char)
+	totalCrit := def.CritChance
+	if char != nil {
+		totalCrit = cs.CalculateWeaponCritChance(item, char)
+	}
 	if totalCrit > 0 {
 		dmg.Add("Critical Damage: %d", normal*CritDamageMultiplier+trueDmg+outBonus)
 	}
 
 	crit := ttSection{Title: "CRITICAL"}
 	if totalCrit > 0 {
-		baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
 		crit.Add("Chance: %d%%", totalCrit)
-		parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
-		if gmWeapon > 0 {
-			parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))
+		if char != nil {
+			baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
+			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
+			if gmWeapon > 0 {
+				parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))
+			}
+			if gmArms > 0 {
+				parts = append(parts, fmt.Sprintf("GM Arms Master: +%d%%", gmArms))
+			}
+			crit.AddDetail("%s", strings.Join(parts, " - "))
 		}
-		if gmArms > 0 {
-			parts = append(parts, fmt.Sprintf("GM Arms Master: +%d%%", gmArms))
-		}
-		crit.AddDetail("%s", strings.Join(parts, " - "))
 	}
 
 	effects := ttSection{Title: "EFFECTS"}
@@ -266,7 +287,10 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	defense := ttSection{Title: "DEFENSE"}
 	totalAC := 0
 	if ok && def != nil && cs != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
-		totalAC = cs.CalculateArmorClassContribution(item, char)
+		totalAC = item.Attributes["armor_class_base"] // shop view: the piece's own base
+		if char != nil {
+			totalAC = cs.CalculateArmorClassContribution(item, char)
+		}
 		defense.AddDetail("Base Armor Class: %d", def.ArmorClassBase)
 		if enduranceDiv, scalingOK := armorEnduranceScalingDivisor(item); scalingOK && char != nil {
 			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), enduranceDiv)

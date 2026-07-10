@@ -1596,6 +1596,58 @@ monsters:
       physical: 20
       mind: 50
 
+  # Champion mobs: a real character build (champions.yaml) on the monster AI.
+  # HP / armor / damage / attack cadence are mirrored from the character at
+  # spawn (game.applyChampionStats); the values below are pre-mirror placeholders.
+  # Arena-scoped so their letters never collide with wild spawns.
+  hobbit_archer:
+    name: "Hobbit Archer"
+    type: human
+    champion: hobbit_archer
+    level: 25
+    max_hit_points: 3000
+    armor_class: 25
+    perfect_dodge: 10
+    experience: 2400
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.7
+    gold_min: 0
+    gold_max: 0
+    sprite: hobbit_archer
+    letter: "A"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    resistances: {}
+
+  weapon_master:
+    name: "Weapon Master"
+    type: human
+    champion: weapon_master
+    level: 25
+    max_hit_points: 3000
+    armor_class: 30
+    perfect_dodge: 10
+    experience: 3000
+    damage_min: 40
+    damage_max: 40
+    attack_radius: 2
+    alert_radius: 9
+    speed: 1.8
+    gold_min: 0
+    gold_max: 0
+    sprite: weapon_master
+    letter: "W"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    resistances: {}
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0

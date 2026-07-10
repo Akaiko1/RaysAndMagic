@@ -84,6 +84,7 @@ func (g *MMGame) updateDayNight() {
 	if night {
 		g.AddCombatMessage("Night falls.")
 	} else {
+		g.dayNightDay++ // a new arena day: per-tier duel lockouts expire
 		g.AddCombatMessage("The sun rises.")
 	}
 }

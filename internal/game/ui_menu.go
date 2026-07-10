@@ -134,6 +134,13 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 		if i == g.slotSelection {
 			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
 		}
+		// Saves from THIS playthrough glow so your own run stands out. Matched
+		// by run id: member names collide across runs (the default roster is
+		// identical every new game) and shift within one (tavern swaps).
+		if sum.Exists && sum.RunID != "" && sum.RunID == g.playthroughID {
+			drawFilledRect(screen, box.x1, box.y1, 4, box.y2-box.y1, color.RGBA{110, 200, 110, 255})
+			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, color.RGBA{110, 200, 110, 160})
+		}
 		drawDebugText(screen, label, tx, ty)
 	}
 	ui.drawSavePagerStrip(screen, px, py, panelW, panelH)
@@ -220,8 +227,8 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 		drawRectBorder(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, 1, color.RGBA{120, 120, 180, 230})
 		drawCenteredDebugText(screen, label, r.x1, r.y1+(stripH-12)/2, r.x2-r.x1, 12)
 	}
-	drawPagerBtn(prev, "< Prev", g.savePage > 0)
-	drawPagerBtn(next, "Next >", g.savePage < savePageCount-1)
+	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
+	drawPagerBtn(next, "Next >", true)
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
 }
 
@@ -488,6 +495,15 @@ func (ui *UISystem) updateMouseState() {
 	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
+	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
+	// drop the queues (a click aimed at one layer must not fire in the next).
+	// Runs before this frame's clicks enqueue; within one layer (dialog
+	// double-clicks) no flip occurs.
+	if allowed := ui.game.worldClickAllowed(); allowed != ui.game.prevWorldClickAllowed {
+		ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
+		ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
+		ui.game.prevWorldClickAllowed = allowed
+	}
 	ui.game.pruneClickQueues(now)
 	ui.updateQuickDrag()
 	ui.updateStashDrag()

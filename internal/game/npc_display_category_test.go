@@ -1,48 +1,55 @@
 package game
 
-import "testing"
+import (
+	"testing"
 
-func TestNPCDisplayCategory(t *testing.T) {
-	anim := 64 * SpriteSheetFrameCount // animated sheet width for a 64px frame
-	tests := []struct {
-		name           string
-		renderCategory string
-		sprite         string
-		renderType     string
-		wallMounted    bool
-		w, h           int
-		want           npcRenderCat
-	}{
-		// Derived (render_category empty) - the legacy classification.
-		{"spriteless anchor", "", "", "", false, 0, 0, catInvisible},
-		{"sprite none", "", "none", "", false, 0, 0, catInvisible},
-		{"wall beats everything", "", "grate", "landmark", true, anim, 64, catWall},
-		{"landmark", "", "mage_tower", "landmark", false, 128, 256, catLandmark},
-		{"scenery", "", "shipwreck", "environment_sprite", false, 128, 128, catScenery},
-		{"animated sheet", "", "elf", "", false, anim, 64, catAnimated},
-		{"plain standee single frame", "", "oldman", "", false, 64, 64, catStandee},
-		{"unresolved sprite stays standee", "", "missing", "", false, 0, 0, catStandee},
-		// Explicit render_category WINS over the derived signals.
-		{"explicit scenery over animated sheet", "scenery", "elf", "", false, anim, 64, catScenery},
-		{"explicit standee over env render_type", "standee", "shipwreck", "environment_sprite", false, 128, 128, catStandee},
-		// A bogus explicit value falls back to derivation.
-		{"bad explicit falls back to derived", "bogus", "elf", "", false, anim, 64, catAnimated},
+	"ugataima/internal/character"
+)
+
+// render_category is REQUIRED: every canonical value parses to its category,
+// and a missing or unknown one is rejected by validation (no silent fallback).
+func TestNPCRenderCategoryParsing(t *testing.T) {
+	for cat, name := range npcCatName {
+		if got := resolveNPCRenderCat(name); got != cat {
+			t.Errorf("resolveNPCRenderCat(%q) = %d, want %d", name, got, cat)
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := resolveNPCRenderCat(tt.renderCategory, tt.sprite, tt.renderType, tt.wallMounted, tt.w, tt.h)
-			if got != tt.want {
-				t.Fatalf("resolveNPCRenderCat(%q,%q,%q,%v,%d,%d) = %q, want %q",
-					tt.renderCategory, tt.sprite, tt.renderType, tt.wallMounted, tt.w, tt.h, npcCatName[got], npcCatName[tt.want])
-			}
-		})
+}
+
+func TestNPCRenderCategoryValidation(t *testing.T) {
+	valid := map[string]*character.NPCData{
+		"gate": {RenderCategory: "wall_mounted"},
+		"elf":  {RenderCategory: "animated"},
 	}
+	if err := ValidateNPCRenderCategories(valid); err != nil {
+		t.Errorf("valid categories rejected: %v", err)
+	}
+
+	for name, npcs := range map[string]map[string]*character.NPCData{
+		"missing":           {"gate": {}},
+		"unknown":           {"gate": {RenderCategory: "bogus"}},
+		"legacy wall value": {"gate": {RenderCategory: "wall"}},
+	} {
+		if err := ValidateNPCRenderCategories(npcs); err == nil {
+			t.Errorf("%s render_category passed validation", name)
+		}
+	}
+}
+
+// An unvalidated value reaching the render path must fail loud, not guess.
+func TestResolveNPCRenderCatPanicsOnUnknown(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("resolveNPCRenderCat(\"\") did not panic")
+		}
+	}()
+	resolveNPCRenderCat("")
 }
 
 // Every canonical category must have a label, a YAML name, and appear in the
 // sort order, so the editor never drops a group and content can always name it.
 func TestNPCRenderCatTablesCoverAll(t *testing.T) {
-	all := []npcRenderCat{catStandee, catAnimated, catWall, catLandmark, catScenery, catInvisible}
+	all := []npcRenderCat{catStandee, catAnimated, catWall, catDoor, catLandmark, catScenery, catInvisible}
 	inOrder := map[string]bool{}
 	for _, c := range NPCDisplayCategoryOrder {
 		inOrder[c] = true

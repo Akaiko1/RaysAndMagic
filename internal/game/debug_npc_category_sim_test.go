@@ -1,11 +1,10 @@
 package game
 
 // Headless NPC-category diagnostic - a DEBUG MODULE, not a regression test.
-// Loads the REAL npcs.yaml, resolves each NPC's sprite size via stdlib image
+// Loads the REAL npcs.yaml, checks each NPC's sprite resolves via stdlib image
 // decode (no render context needed), and prints the display-category buckets
-// the map editor's `@` palette will group by. Confirms sprites actually
-// resolve (a path-resolution bug would dump everything into "Standee") and
-// that the real distribution reads sensibly.
+// the map editor's `@` palette will group by, so the real distribution can be
+// eyeballed.
 //
 // Run with:  RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_NPCCategories -v
 
@@ -62,16 +61,16 @@ func TestDebugSim_NPCCategories(t *testing.T) {
 	byCat := map[string][]string{}
 	unresolved := 0
 	for key, data := range character.NPCConfigInstance.NPCs {
-		sprite, rt, rc, wall := "", "", "", false
+		sprite, rc := "", ""
 		if data != nil {
-			sprite, rt, rc, wall = data.Sprite, data.RenderType, data.RenderCategory, data.WallMounted
+			sprite, rc = data.Sprite, data.RenderCategory
 		}
 		w, h := dims(sprite)
 		if sprite != "" && sprite != "none" && (w == 0 || h == 0) {
 			unresolved++
 			t.Logf("  WARN sprite %q for npc %q did not resolve", sprite, key)
 		}
-		cat := NPCDisplayCategory(rc, sprite, rt, wall, w, h)
+		cat := NPCDisplayCategory(rc)
 		byCat[cat] = append(byCat[cat], key)
 	}
 

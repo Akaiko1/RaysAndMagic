@@ -11,12 +11,11 @@ import (
 	"ugataima/internal/graphics"
 )
 
-// TestNPCRenderCategorySpriteConsistency pins the invariant that a NPC's
-// explicit render_category agrees with its sprite: an "animated" NPC must be a
-// w==h*SpriteSheetFrameCount sheet, and a "standee" must NOT be (else it should
-// be "animated"). This guards the one-time seed AND catches a future hand-edit
-// that declares a category the sprite can't back - the fail-fast the explicit
-// field is meant to provide.
+// TestNPCRenderCategorySpriteConsistency pins two invariants: every NPC has a
+// valid render_category (the field is required), and the category agrees with
+// its sprite - an "animated" NPC must be a w==h*SpriteSheetFrameCount sheet,
+// and a "standee" must NOT be (else it should be "animated"). Catches a
+// hand-edit that declares a category the sprite can't back.
 func TestNPCRenderCategorySpriteConsistency(t *testing.T) {
 	t.Chdir("../..") // ResolveSpritePath is repo-root relative
 	if _, err := config.LoadConfig("config.yaml"); err != nil {
@@ -49,9 +48,13 @@ func TestNPCRenderCategorySpriteConsistency(t *testing.T) {
 		return cfg.Width, cfg.Height
 	}
 
+	if err := ValidateNPCRenderCategories(character.NPCConfigInstance.NPCs); err != nil {
+		t.Fatalf("render_category validation: %v", err)
+	}
+
 	for key, data := range character.NPCConfigInstance.NPCs {
 		w, h := dims(data.Sprite)
-		cat := resolveNPCRenderCat(data.RenderCategory, data.Sprite, data.RenderType, data.WallMounted, w, h)
+		cat := resolveNPCRenderCat(data.RenderCategory)
 		is4 := h > 0 && w == h*SpriteSheetFrameCount
 		switch cat {
 		case catAnimated:
