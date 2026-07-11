@@ -1466,11 +1466,11 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 		cs.game.AddCombatMessage(fmt.Sprintf("%s needs the open sky.", spellDef.Name))
 		return false
 	}
-	// Town Portal with no known tavern is a no-op - refuse it BEFORE the SP spend
+	// Town Portal with no known destination is a no-op - refuse it BEFORE the SP spend
 	// and the action-proc roll (Orc Warlord summon), or a failed cast would still
 	// pay SP and free-summon before the deep refund runs.
-	if spellDef.TownPortal && len(cs.game.sortedVisitedTavernMaps()) == 0 {
-		cs.game.AddCombatMessage("The portal finds no hearth it knows - visit a tavern first.")
+	if spellDef.TownPortal && len(cs.game.sortedTownPortalDestinations()) == 0 {
+		cs.game.AddCombatMessage("The portal finds no destination it knows - visit a town or tavern first.")
 		return false
 	}
 	caster.SpellPoints -= spellCost
@@ -1631,8 +1631,8 @@ func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spell
 			cs.game.flyActive = true
 			cs.game.flyDuration = duration
 		}
-		// Town Portal: open the visited-tavern picker; the teleport happens on
-		// confirm. The no-tavern case was already refused before the SP spend.
+		// Town Portal: open the visited-destination picker; the teleport happens
+		// on confirm. The no-destination case was already refused before the SP spend.
 		if spellDef.TownPortal {
 			cs.game.townPortalPickerOpen = true
 		}

@@ -84,7 +84,7 @@ type SpellDefinition struct {
 	WaterBreathing    bool     // For water breathing spell
 	Fly               bool     // Fly: walk through non-border tiles
 	OutdoorOnly       bool     // castable only under a day/night sky
-	TownPortal        bool     // opens the visited-tavern picker
+	TownPortal        bool     // opens the visited-destination picker
 	Message           string   // Effect message to display
 }
 
@@ -246,7 +246,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, "Only under an open sky (never in dungeons)")
 	}
 	if d.TownPortal {
-		out = append(out, "Opens a portal to any tavern the party has visited")
+		out = append(out, "Opens a portal to any town or tavern the party has visited")
 	}
 	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
 		out = append(out, fmt.Sprintf("Party resists %s +%d%% for the duration",

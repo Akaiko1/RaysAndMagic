@@ -17,10 +17,19 @@ func npcOffersTavernRest(npc *character.NPC) bool {
 	return npcDialogueHasAction(npc, "tavern_rest")
 }
 
-// registerVisitedTavern records the current map as a Town Portal destination
-// if it hosts a tavern. Called on every map entry (including game start).
-func (g *MMGame) registerVisitedTavern() {
+// registerVisitedTownPortalDestination records the current map as a Town
+// Portal destination if it hosts a tavern or is explicitly marked in
+// map_configs.yaml. Called on every map entry (including game start).
+func (g *MMGame) registerVisitedTownPortalDestination() {
 	if g.world == nil || world.GlobalWorldManager == nil {
+		return
+	}
+	mapKey := world.GlobalWorldManager.CurrentMapKey
+	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination {
+		if g.visitedTavernMaps == nil {
+			g.visitedTavernMaps = map[string]bool{}
+		}
+		g.visitedTavernMaps[mapKey] = true
 		return
 	}
 	for _, npc := range g.world.NPCs {
@@ -28,15 +37,15 @@ func (g *MMGame) registerVisitedTavern() {
 			if g.visitedTavernMaps == nil {
 				g.visitedTavernMaps = map[string]bool{}
 			}
-			g.visitedTavernMaps[world.GlobalWorldManager.CurrentMapKey] = true
+			g.visitedTavernMaps[mapKey] = true
 			return
 		}
 	}
 }
 
-// sortedVisitedTavernMaps returns the Town Portal destination list in stable
-// order (map keys the party has visited that host a tavern).
-func (g *MMGame) sortedVisitedTavernMaps() []string {
+// sortedTownPortalDestinations returns the Town Portal destination list in
+// stable order.
+func (g *MMGame) sortedTownPortalDestinations() []string {
 	keys := make([]string, 0, len(g.visitedTavernMaps))
 	for k, ok := range g.visitedTavernMaps {
 		if ok {
@@ -47,8 +56,9 @@ func (g *MMGame) sortedVisitedTavernMaps() []string {
 	return keys
 }
 
-// townPortalTeleport moves the party to the tavern on the chosen map: switch
-// maps, then stand one tile in front of the tavern (nearest walkable neighbor).
+// townPortalTeleport moves the party to the chosen map. Explicit map
+// destinations arrive at the '+' start tile; tavern maps arrive one tile in
+// front of their tavern.
 func (g *MMGame) townPortalTeleport(mapKey string) {
 	g.townPortalPickerOpen = false
 	if g.gameLoop == nil || g.gameLoop.inputHandler == nil {
@@ -61,6 +71,13 @@ func (g *MMGame) townPortalTeleport(mapKey string) {
 	// Every arrival must complete through finishMapArrival - it re-registers the
 	// player's collision entity and autosaves; a raw camera write would leave
 	// collisions/projectiles resolving against the previous map's position.
+	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination &&
+		g.world.StartX >= 0 && g.world.StartY >= 0 {
+		x, y := g.world.GetStartingPosition()
+		g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
+		g.AddCombatMessage("The portal closes behind the party.")
+		return
+	}
 	for _, npc := range g.world.NPCs {
 		if !npcOffersTavernRest(npc) {
 			continue
@@ -98,11 +115,11 @@ func (g *MMGame) nearestWalkableNeighbor(px, py float64) (float64, float64, bool
 }
 
 // drawTownPortalPickerPopup is the Town Portal destination chooser: one row
-// per visited tavern. Reuses the shared member-picker overlay with indices
+// per visited destination. Reuses the shared member-picker overlay with indices
 // into the destination list.
 func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	g := ui.game
-	dests := g.sortedVisitedTavernMaps()
+	dests := g.sortedTownPortalDestinations()
 	if len(dests) == 0 {
 		g.townPortalPickerOpen = false
 		return
@@ -111,7 +128,7 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 	for i := range dests {
 		rows[i] = i
 	}
-	ui.drawMemberPickerPopup(screen, "Town Portal", "Choose a tavern to travel to.", 360, rows,
+	ui.drawMemberPickerPopup(screen, "Town Portal", "Choose a destination.", 360, rows,
 		func(idx int) string {
 			return fmt.Sprintf("%d) %s", idx+1, townPortalDestinationLabel(dests[idx]))
 		},
@@ -127,6 +144,9 @@ func (ui *UISystem) drawTownPortalPickerPopup(screen *ebiten.Image) {
 func townPortalDestinationLabel(mapKey string) string {
 	if world.GlobalWorldManager != nil {
 		if mc := world.GlobalWorldManager.MapConfigs[mapKey]; mc != nil && mc.Name != "" {
+			if mc.TownPortalDestination {
+				return mc.Name
+			}
 			return fmt.Sprintf("%s Tavern", mc.Name)
 		}
 	}

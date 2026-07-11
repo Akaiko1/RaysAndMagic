@@ -505,7 +505,7 @@ type SpellDefinitionConfig struct {
 	Fly         bool `yaml:"fly,omitempty"`
 	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
 
-	// TownPortal opens the visited-tavern picker; confirming teleports the party.
+	// TownPortal opens the visited-destination picker; confirming teleports the party.
 	TownPortal bool `yaml:"town_portal,omitempty"`
 
 	// MortarRangeTiles (Stone Blossom): the projectile arcs over everything -
@@ -778,12 +778,16 @@ type SpecialTileConfig struct {
 }
 
 type MapConfig struct {
-	Name              string `yaml:"name"`
-	File              string `yaml:"file"`
-	Biome             string `yaml:"biome"`
-	SkyColor          [3]int `yaml:"sky_color"`
-	SkyTexture        string `yaml:"sky_texture,omitempty"`
-	DefaultFloorColor [3]int `yaml:"default_floor_color"`
+	Name  string `yaml:"name"`
+	File  string `yaml:"file"`
+	Biome string `yaml:"biome"`
+	// TownPortalDestination makes this map a Town Portal destination after the
+	// party has visited it, even when it has no tavern. Arrival uses the map's
+	// '+' start tile; tavern maps still arrive beside their tavern.
+	TownPortalDestination bool   `yaml:"town_portal_destination,omitempty"`
+	SkyColor              [3]int `yaml:"sky_color"`
+	SkyTexture            string `yaml:"sky_texture,omitempty"`
+	DefaultFloorColor     [3]int `yaml:"default_floor_color"`
 	// AmbientLight scales the map's base (distance) brightness: 1.0 (or absent)
 	// = normal daylight, low values make a dungeon genuinely dark so torch
 	// light and spell glow become essential. Point lights add on top.

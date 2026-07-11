@@ -373,7 +373,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		}
 		g.world = wm.GetCurrentWorld()
 	}
-	g.registerVisitedTavern() // the fresh run's start map may host a tavern (Town Portal)
+	g.registerVisitedTownPortalDestination() // the fresh run's start map may be a Town Portal destination
 
 	// Move player to start position (fallback to nearest walkable tile if map has no '+')
 	if currentWorld := g.GetCurrentWorld(); currentWorld != nil {
@@ -1400,8 +1400,8 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update world reference and collision system
 	oldWorld := ih.game.world
 	ih.game.world = ih.game.GetCurrentWorld()
-	ih.game.registerVisitedTavern() // Town Portal learns this map's tavern
-	ih.game.dropFlyWithoutOpenSky() // wings fade indoors (dungeons have no sky)
+	ih.game.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
+	ih.game.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
 	// Sync the new world's Fly flag to the party NOW (not next frame): it may
 	// carry a stale flyActive from a previous visit, which would make walls read
 	// as passable to anything querying it before the frame's buff sync runs.

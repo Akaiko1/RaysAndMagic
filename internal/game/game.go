@@ -318,10 +318,11 @@ type MMGame struct {
 	// (the arc ignores everything until it lands). Transient - not saved.
 	pendingMortars []pendingMortar
 
-	// Town Portal picker (visited taverns). Transient UI state.
+	// Town Portal picker (visited destinations). Transient UI state.
 	townPortalPickerOpen bool
-	// visitedTavernMaps: map keys where the party has stood in a tavern's map -
-	// the Town Portal destination registry. Persisted.
+	// visitedTavernMaps retains its legacy save-field name. It contains map keys
+	// of all Town Portal destinations the party has visited: tavern maps plus
+	// maps explicitly marked town_portal_destination in map_configs.yaml.
 	visitedTavernMaps map[string]bool
 
 	// Bless effect
@@ -809,7 +810,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
 
-	game.registerVisitedTavern() // the starting map may host a tavern (Town Portal)
+	game.registerVisitedTownPortalDestination() // the starting map may be a Town Portal destination
 
 	return game
 }

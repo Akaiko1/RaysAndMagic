@@ -52,7 +52,7 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"heal", "Personality ("},
 		{"inferno", "Burns EVERY monster on the map for 45 damage"},
 		{"fly", "Only under an open sky"},
-		{"town_portal", "any tavern the party has visited"},
+		{"town_portal", "any town or tavern the party has visited"},
 		{"fire_shield", "Party resists Fire +50%"},
 		{"stone_blossom", "blooms exactly 7 tiles out"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},

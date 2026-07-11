@@ -1113,7 +1113,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		WalkOnWaterDuration:   g.walkOnWaterDuration,
 		FlyActive:             g.flyActive,
 		FlyDuration:           g.flyDuration,
-		VisitedTavernMaps:     g.sortedVisitedTavernMaps(),
+		VisitedTavernMaps:     g.sortedTownPortalDestinations(),
 		StatBuffs:             buildStatBuffSaves(g.statBuffs),
 		BlessActive:           legacyBless.Frames > 0,
 		BlessDuration:         legacyBless.Frames,
@@ -1498,10 +1498,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	for _, k := range save.VisitedTavernMaps {
 		g.visitedTavernMaps[k] = true
 	}
-	// Pre-registry saves carry no tavern list: seed it with the loaded map's own
-	// tavern (if any), like every map entry does, so Town Portal works without
-	// forcing a map change first.
-	g.registerVisitedTavern()
+	// Pre-registry saves carry no destination list: seed it with the loaded
+	// map's current Town Portal destination, if any, without forcing a map
+	// change first.
+	g.registerVisitedTownPortalDestination()
 	g.statBuffs = restoreStatBuffs(save.StatBuffs)
 	if len(g.statBuffs) == 0 && save.BlessActive && save.BlessDuration > 0 {
 		// Pre-registry save: bless lived in dedicated fields.

@@ -802,7 +802,7 @@ spells:
 
   town_portal:
     name: "Town Portal"
-    description: "Opens a portal to any tavern the party has ever visited"
+    description: "Opens a portal to any town or tavern the party has ever visited"
     school: "earth"
     schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
     level: 4
@@ -811,7 +811,7 @@ spells:
     duration: 0
     is_projectile: false
     is_utility: true
-    town_portal: true          # opens the visited-tavern picker
+    town_portal: true          # opens the visited-destination picker
     message: "A portal shimmers open!"
 
   fire_shield:
