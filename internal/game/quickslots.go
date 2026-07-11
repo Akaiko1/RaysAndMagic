@@ -480,7 +480,8 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 		r := slots[i]
 		if g.consumeLeftClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 			now := g.mouseLeftClickAt
-			if g.lastQuickClickedCh == g.selectedChar && g.lastQuickClickedSl == i && now-g.lastQuickClickTime < doubleClickWindowMs {
+			if g.lastQuickClickedCh == g.selectedChar && g.lastQuickClickedSl == i &&
+				withinDoubleClickWindow(now, g.lastQuickClickTime) {
 				g.useQuickSlot(g.selectedChar, i)
 				g.lastQuickClickTime = 0
 				g.lastQuickClickedSl = -1

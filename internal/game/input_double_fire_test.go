@@ -52,3 +52,16 @@ func TestClickQueueFlushedOnModalTransition(t *testing.T) {
 		t.Fatalf("click within one UI layer must survive (%d left in queue)", n)
 	}
 }
+
+func TestDoubleClickWindowRequiresAQuickSecondClick(t *testing.T) {
+	const now int64 = 10_000
+	if !withinDoubleClickWindow(now, now-doubleClickWindowMs) {
+		t.Fatal("click at the window boundary must count as a double-click")
+	}
+	if withinDoubleClickWindow(now, now-doubleClickWindowMs-1) {
+		t.Fatal("a click after the short double-click window must be a new selection")
+	}
+	if withinDoubleClickWindow(now, 0) {
+		t.Fatal("the initial click tracker must never count as a double-click")
+	}
+}

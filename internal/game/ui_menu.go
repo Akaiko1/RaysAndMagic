@@ -442,8 +442,8 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchoolID) {
 	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
 		currentTime := ui.game.mouseLeftClickAt
-		delta := currentTime - ui.game.lastSchoolClickTime
-		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex && delta < doubleClickWindowMs
+		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
+			withinDoubleClickWindow(currentTime, ui.game.lastSchoolClickTime)
 
 		ui.game.selectedSchool = schoolIndex
 		// Don't auto-select a spell - wait for the user to click one.
@@ -451,6 +451,9 @@ func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, sc
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
+			ui.game.lastSchoolClickTime = 0
+			ui.game.lastSchoolClickedIdx = -1
+			return
 		}
 
 		ui.game.lastSchoolClickTime = currentTime
@@ -463,11 +466,10 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
 		currentTime := ui.game.mouseLeftClickAt
 
-		// Check for double-click (within 500ms of last click on same spell)
-		delta := currentTime - ui.game.lastSpellClickTime
+		// Check for a fast second click on the same spell.
 		doubleClick := ui.game.lastClickedSpell == spellIndex &&
 			ui.game.lastClickedSchool == schoolIndex &&
-			delta < doubleClickWindowMs
+			withinDoubleClickWindow(currentTime, ui.game.lastSpellClickTime)
 
 		// Update selection for highlight and keyboard navigation
 		ui.game.selectedSchool = schoolIndex
@@ -481,6 +483,10 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 			if ui.game.combat.CastSelectedSpell() {
 				ui.game.consumeSelectedCharAction()
 			}
+			ui.game.lastSpellClickTime = 0
+			ui.game.lastClickedSpell = -1
+			ui.game.lastClickedSchool = -1
+			return
 		}
 
 		// Update click tracking

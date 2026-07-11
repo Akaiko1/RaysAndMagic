@@ -10,8 +10,15 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-const doubleClickWindowMs = 700
-const doubleClickWindow = doubleClickWindowMs * time.Millisecond
+// doubleClickWindowMs deliberately stays short: a second click after a pause
+// is another selection, not an action. Every mutating double-click handler
+// resets its tracker after acting so a third click cannot spill onto a row that
+// moved underneath the cursor.
+const doubleClickWindowMs = 350
+
+func withinDoubleClickWindow(current, previous int64) bool {
+	return previous > 0 && current >= previous && current-previous <= doubleClickWindowMs
+}
 
 // UI Dimension constants
 const (

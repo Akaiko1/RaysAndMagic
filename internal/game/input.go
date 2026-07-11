@@ -2275,9 +2275,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 // fast clicks on the same index of DIFFERENT lists never count.
 func (ih *InputHandler) dialogDoubleClick(zone string, index int) bool {
 	currentTime := time.Now().UnixMilli()
-	delta := currentTime - ih.game.dialogLastClickTime
 	doubleClick := ih.game.dialogLastClickZone == zone &&
-		ih.game.dialogLastClickedIdx == index && delta < doubleClickWindowMs
+		ih.game.dialogLastClickedIdx == index &&
+		withinDoubleClickWindow(currentTime, ih.game.dialogLastClickTime)
 	ih.game.dialogLastClickTime = currentTime
 	ih.game.dialogLastClickedIdx = index
 	ih.game.dialogLastClickZone = zone

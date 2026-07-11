@@ -885,9 +885,9 @@ func (ui *UISystem) handleInventoryItemClick(itemIndex int, x1, y1, x2, y2 int) 
 	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
 
-		// Check for double-click (same item clicked within 500ms)
-		delta := currentTime.Sub(ui.lastClickTime)
-		doubleClick := itemIndex == ui.lastClickedItem && delta < doubleClickWindow
+		// Only a fast second click acts; a pause leaves this as selection.
+		doubleClick := itemIndex == ui.lastClickedItem &&
+			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastClickTime.UnixMilli())
 		if doubleClick {
 			// Double-click detected - try to equip or use the item
 			item := ui.game.party.Inventory[itemIndex]
@@ -961,9 +961,9 @@ func (ui *UISystem) handleEquippedItemClick(slot items.EquipSlot, x1, y1, x2, y2
 	if ui.game.consumeLeftClickIn(x1, y1, x2, y2) {
 		currentTime := time.UnixMilli(ui.game.mouseLeftClickAt)
 
-		// Check for double-click (same slot clicked within 500ms)
-		delta := currentTime.Sub(ui.lastEquipClickTime)
-		doubleClick := slot == ui.lastClickedSlot && delta < doubleClickWindow
+		// Only a fast second click acts; a pause leaves this as selection.
+		doubleClick := slot == ui.lastClickedSlot &&
+			withinDoubleClickWindow(currentTime.UnixMilli(), ui.lastEquipClickTime.UnixMilli())
 		if doubleClick {
 			// Double-click detected - try to unequip the item
 			currentChar := ui.game.party.Members[ui.game.selectedChar]

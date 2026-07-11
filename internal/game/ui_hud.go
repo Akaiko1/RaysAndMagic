@@ -684,9 +684,9 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 	if ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
 		currentTime := ui.game.mouseLeftClickAt
 
-		// Check for double-click (within 500ms and same icon)
-		delta := currentTime - ui.game.lastUtilitySpellClickTime
-		doubleClick := delta < doubleClickWindowMs && ui.game.lastClickedUtilitySpell == string(spellID)
+		// Check for a fast double-click on the same icon.
+		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastUtilitySpellClickTime) &&
+			ui.game.lastClickedUtilitySpell == string(spellID)
 		if doubleClick {
 			// Double-click detected - dispel the spell
 			ui.dispelUtilitySpell(spellID)

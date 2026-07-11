@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"ugataima/internal/character"
 	"ugataima/internal/spells"
 )
 
@@ -71,5 +72,34 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		if got := lines(id); strings.Contains(got, "Total Damage") || strings.Contains(got, "Base Damage") {
 			t.Errorf("%s is deals_no_damage but tooltip shows damage:\n%s", id, got)
 		}
+	}
+}
+
+func TestCompactSpellTooltipShowsResultsWithoutFormulaDetails(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+
+	tooltip := func(id string) string {
+		def, err := spells.GetSpellDefinitionByID(spells.SpellID(id))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		return buildSpellTooltipUnified(def, char, cs, false)
+	}
+
+	char.MagicSchools[character.MagicSchoolAir] = &character.MagicSkill{Mastery: character.MasteryExpert}
+	if got := tooltip("fly"); !strings.Contains(got, "Current Duration: 144s") || strings.Contains(got, "Air Mastery -") {
+		t.Errorf("Fly compact tooltip must show the scaled result, not its formula:\n%s", got)
+	}
+
+	char.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryMaster}
+	if got := tooltip("fire_shield"); !strings.Contains(got, "Current Duration: 420s") || strings.Contains(got, "Fire Mastery -") {
+		t.Errorf("Fire Shield compact tooltip must show the scaled result, not its formula:\n%s", got)
+	}
+
+	char.MagicSchools[character.MagicSchoolEarth] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
+	if got := tooltip("stone_blossom"); !strings.Contains(got, "Total Damage:") ||
+		strings.Contains(got, "Earth Mastery -") || strings.Contains(got, "GM: ignores") {
+		t.Errorf("Stone Blossom compact tooltip must show total damage, not mastery details:\n%s", got)
 	}
 }
