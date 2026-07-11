@@ -403,6 +403,8 @@ day_night:
   day_light: 1.0
   night_light: 0.7
   panorama_fade_seconds: 3
+  days_per_week: 7
+  days_per_month: 28
   packs:
     - map: forest
       day_monster: wolf

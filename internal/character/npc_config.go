@@ -36,6 +36,9 @@ type NPCData struct {
 	Dialogue         *NPCDialogue         `yaml:"dialogue"`
 	Spells           map[string]*NPCSpell `yaml:"spells,omitempty"`
 	Inventory        []*NPCItem           `yaml:"inventory,omitempty"`
+	// StockRefreshWeeks refills this merchant's authored finite inventory every
+	// N calendar weeks. Zero keeps the stock permanent until sold out.
+	StockRefreshWeeks int `yaml:"stock_refresh_weeks,omitempty"`
 	// Currency the merchant trades in: "" = gold, "arena_points" = the arena
 	// victory currency (party.ArenaPoints). Purchases branch on it.
 	Currency string `yaml:"currency,omitempty"`
@@ -184,6 +187,12 @@ func LoadNPCConfig(filename string) error {
 	// A rarity weapon rack without a positive price would sell every listed
 	// weapon for free - fail the load instead.
 	for key, npc := range config.NPCs {
+		if npc != nil && npc.StockRefreshWeeks < 0 {
+			return fmt.Errorf("NPC %q: stock_refresh_weeks cannot be negative", key)
+		}
+		if npc != nil && npc.StockRefreshWeeks > 0 && len(npc.Inventory) == 0 {
+			return fmt.Errorf("NPC %q: stock_refresh_weeks requires an authored inventory", key)
+		}
 		if npc != nil && npc.StockWeaponsRarity != "" && npc.StockWeaponsCost <= 0 {
 			return fmt.Errorf("NPC %q: stock_weapons_rarity needs a positive stock_weapons_cost", key)
 		}

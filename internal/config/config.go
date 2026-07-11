@@ -135,6 +135,8 @@ type DayNightConfig struct {
 	DayLight            float64              `yaml:"day_light"`             // outdoor ambient scale at noon
 	NightLight          float64              `yaml:"night_light"`           // outdoor ambient scale at midnight
 	PanoramaFadeSeconds float64              `yaml:"panorama_fade_seconds"` // sky crossfade at each phase flip
+	DaysPerWeek         int                  `yaml:"days_per_week"`         // calendar days; weekly events fire on this boundary
+	DaysPerMonth        int                  `yaml:"days_per_month"`        // calendar days; monthly events fire on this boundary
 	Packs               []DayNightPackConfig `yaml:"packs"`
 }
 
@@ -183,6 +185,8 @@ const (
 	defaultDayNightNightLight       = 0.7
 	defaultDayNightFadeSeconds      = 3.0
 	defaultDayNightPackDistTiles    = 8.0
+	defaultCalendarDaysPerWeek      = 7
+	defaultCalendarDaysPerMonth     = 28
 )
 
 func (d DayNightConfig) HalfCycleSecondsOrDefault() int {
@@ -211,6 +215,20 @@ func (d DayNightConfig) PanoramaFadeSecondsOrDefault() float64 {
 		return d.PanoramaFadeSeconds
 	}
 	return defaultDayNightFadeSeconds
+}
+
+func (d DayNightConfig) DaysPerWeekOrDefault() int {
+	if d.DaysPerWeek > 0 {
+		return d.DaysPerWeek
+	}
+	return defaultCalendarDaysPerWeek
+}
+
+func (d DayNightConfig) DaysPerMonthOrDefault() int {
+	if d.DaysPerMonth > 0 {
+		return d.DaysPerMonth
+	}
+	return defaultCalendarDaysPerMonth
 }
 
 func (p DayNightPackConfig) MinPlayerDistTilesOrDefault() float64 {

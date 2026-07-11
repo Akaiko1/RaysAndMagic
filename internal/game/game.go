@@ -248,12 +248,15 @@ type MMGame struct {
 
 	// Day/night cycle (day_night.go). skyPanoramaPrev is the outgoing panorama
 	// during the phase-flip crossfade.
-	dayNightFrames  int
-	dayNightIsNight bool
-	dayNightOutdoor bool // current map's sky ships a _day/_night variant
-	skyPanoramaPrev *ebiten.Image
-	skyFadeFrames   int
-	skyFadeTotal    int
+	dayNightFrames          int
+	dayNightIsNight         bool
+	dayNightSkipActive      bool
+	dayNightSkipTargetFrame int
+	dayNightSkipPhases      []bool
+	dayNightOutdoor         bool // current map's sky ships a _day/_night variant
+	skyPanoramaPrev         *ebiten.Image
+	skyFadeFrames           int
+	skyFadeTotal            int
 
 	// Combat effects
 	magicProjectiles []MagicProjectile
@@ -353,11 +356,16 @@ type MMGame struct {
 	doorsClosed   bool
 	doorEntityIDs map[string]bool
 
-	// dayNightDay counts sunrises (the arena's "come back tomorrow" clock).
+	// dayNightDay counts day/night phase changes (the arena's refresh clock).
 	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
 	// a tier unlocks again when the day advances. Both persisted in saves.
 	dayNightDay        int
 	arenaTierFoughtDay map[string]int
+	// Calendar advances only at dawn. Unlike dayNightDay it represents real
+	// calendar boundaries for weekly/monthly content events and is save-backed.
+	calendarDay   int
+	calendarWeek  int
+	calendarMonth int
 	// playthroughID identifies this run (minted on new game, persisted; JSON
 	// key stays arena_run_id for save compat). Consumed by the save-row glow
 	// and, with the in-game day, by the leaderboard's anti-farm credit token.

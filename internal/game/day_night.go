@@ -61,44 +61,69 @@ func (g *MMGame) dayNightLightScaleNow() float64 {
 // updateDayNight advances the clock one tick and fires the phase flip
 // (panorama crossfade + pack swap) when day turns to night or back.
 func (g *MMGame) updateDayNight() {
+	if g.dayNightSkipActive {
+		if g.advanceSkyFadeFrame() {
+			return
+		}
+		if len(g.dayNightSkipPhases) > 0 {
+			g.beginNextDayNightSkipPhase()
+			return
+		}
+		g.dayNightFrames = g.dayNightSkipTargetFrame
+		g.dayNightSkipActive = false
+		return
+	}
+	// A normal phase fade is visual only; it must not pause the running clock.
+	g.advanceSkyFadeFrame()
 	cycle := g.dayNightCycleFrames()
 	if cycle <= 0 {
 		return
 	}
 	g.dayNightFrames = (g.dayNightFrames + 1) % cycle
 
-	if g.skyFadeFrames > 0 {
-		g.skyFadeFrames--
-		if g.skyFadeFrames <= 0 {
-			g.skyPanoramaPrev = nil
-		}
-	}
-
 	night := dayNightIsNightAt(g.dayNightFrac())
 	if night == g.dayNightIsNight {
 		return
 	}
+	g.applyDayNightPhase(night)
+}
+
+func (g *MMGame) advanceSkyFadeFrame() bool {
+	if g.skyFadeFrames <= 0 {
+		return false
+	}
+	g.skyFadeFrames--
+	if g.skyFadeFrames <= 0 {
+		g.skyPanoramaPrev = nil
+	}
+	return true
+}
+
+// applyDayNightPhase performs one real dusk/dawn boundary. The arena refreshes
+// at either boundary; weekly merchant stock converts those phase ticks to full
+// calendar days in refreshScheduledMerchantStocks.
+func (g *MMGame) applyDayNightPhase(night bool) {
 	g.dayNightIsNight = night
 	g.applySkyForPhase(true)
 	g.syncDayNightPacks(night)
-	// EVERY phase flip (dusk AND dawn) advances the arena clock: per-tier duel
-	// lockouts expire at any day/night change, not once per full day.
 	g.dayNightDay++
 	if night {
 		g.AddCombatMessage("Night falls.")
-	} else {
-		g.AddCombatMessage("The sun rises.")
+		return
 	}
+	if weekChanged, _ := g.advanceCalendarAtDawn(); weekChanged {
+		g.refreshScheduledMerchantStocks()
+	}
+	g.AddCombatMessage("The sun rises.")
 }
 
-// advanceDayNightToPhase FAST-FORWARDS the clock to the next occurrence of the
-// requested phase start (night=true -> nightfall, false -> dawn), always moving
-// FORWARD (wrapping a full cycle when already at/past that mark) so a paid rest
-// can never rewind time. Every dusk/dawn boundary the forward span crosses bumps
-// the arena-day counter (per-tier duel lockouts expire at any phase change).
-// Used by the arena-bones paid rests. No-op maps without a cycle still advance -
-// the phase state is global.
+// advanceDayNightToPhase queues every crossed phase start and lets the normal
+// panorama fade play each one. A daytime wait to the next dawn therefore shows
+// day -> night -> day while the game clock moves only forward.
 func (g *MMGame) advanceDayNightToPhase(night bool) {
+	if g.dayNightSkipActive {
+		return
+	}
 	cycle := g.dayNightCycleFrames()
 	if cycle <= 0 {
 		return
@@ -114,36 +139,65 @@ func (g *MMGame) advanceDayNightToPhase(night bool) {
 	if delta <= 0 {
 		delta += cycle // already at/past it: advance a full cycle, never backward
 	}
-	// Count phase flips in the half-open forward arc (now, now+delta]; delta <=
-	// cycle so each boundary is crossed at most once.
-	inArc := func(boundary int) bool {
-		d := boundary - g.dayNightFrames
-		if d <= 0 {
-			d += cycle
+	phaseAt, remaining := g.dayNightFrames, delta
+	for remaining > 0 {
+		duskDist := dayNightForwardDistance(phaseAt, duskFrame, cycle)
+		dawnDist := dayNightForwardDistance(phaseAt, dawnFrame, cycle)
+		nextDist, nextNight := duskDist, true
+		if dawnDist < duskDist {
+			nextDist, nextNight = dawnDist, false
 		}
-		return d <= delta
+		if nextDist > remaining {
+			break
+		}
+		g.dayNightSkipPhases = append(g.dayNightSkipPhases, nextNight)
+		phaseAt = (phaseAt + nextDist) % cycle
+		remaining -= nextDist
 	}
-	flips := 0
-	if inArc(duskFrame) {
-		flips++
+	g.dayNightSkipTargetFrame = (g.dayNightFrames + delta) % cycle
+	g.dayNightSkipActive = true
+	g.beginNextDayNightSkipPhase()
+}
+
+func dayNightForwardDistance(from, to, cycle int) int {
+	d := to - from
+	if d <= 0 {
+		d += cycle
 	}
-	if inArc(dawnFrame) {
-		flips++
+	return d
+}
+
+func (g *MMGame) beginNextDayNightSkipPhase() {
+	if len(g.dayNightSkipPhases) == 0 {
+		return
 	}
-	g.dayNightFrames = (g.dayNightFrames + delta) % cycle
-	g.dayNightDay += flips
-	if flips == 0 {
-		return // no boundary crossed: nothing to re-render or respawn
+	night := g.dayNightSkipPhases[0]
+	g.dayNightSkipPhases = g.dayNightSkipPhases[1:]
+	cycle := g.dayNightCycleFrames()
+	if night {
+		g.dayNightFrames = cycle/4 + 1
+	} else {
+		g.dayNightFrames = 3*cycle/4 + 1
 	}
-	// Any boundary crossing refreshes the mob packs: a same-phase full-cycle
-	// skip (night -> next night) still ends on a FRESH night, so the stale pack
-	// must despawn and respawn (syncDayNightPacks despawns both phases first).
-	// The sky panorama only needs re-applying when the visible phase flipped.
-	if night != g.dayNightIsNight {
-		g.dayNightIsNight = night
-		g.applySkyForPhase(true)
+	g.applyDayNightPhase(night)
+}
+
+// finishDayNightSkipImmediately commits a paid time skip before a save. The
+// visual crossfades are transient, but every skipped phase has gameplay work
+// (ambient packs, arena refreshes, calendar boundaries) that must be included
+// in the saved world.
+func (g *MMGame) finishDayNightSkipImmediately() {
+	if !g.dayNightSkipActive {
+		return
 	}
-	g.syncDayNightPacks(night)
+	g.cancelSkyFade()
+	for len(g.dayNightSkipPhases) > 0 {
+		g.beginNextDayNightSkipPhase()
+		g.cancelSkyFade()
+	}
+	g.dayNightFrames = g.dayNightSkipTargetFrame
+	g.dayNightSkipActive = false
+	g.dayNightSkipTargetFrame = 0
 }
 
 // --- Sky panorama phase variants -------------------------------------------

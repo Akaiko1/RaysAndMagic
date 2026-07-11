@@ -174,6 +174,9 @@ type GameSave struct {
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
 	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
 	DayNightDay           int                        `json:"day_night_day,omitempty"`
+	CalendarDay           int                        `json:"calendar_day,omitempty"`
+	CalendarWeek          int                        `json:"calendar_week,omitempty"`
+	CalendarMonth         int                        `json:"calendar_month,omitempty"`
 	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
 	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
@@ -894,6 +897,10 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
+	// A paid arena doze may be midway through a visual sky fade. Commit its
+	// remaining gameplay phase transitions before taking the snapshot rather
+	// than persisting a transient renderer queue with the save.
+	g.finishDayNightSkipImmediately()
 	// Legacy bless_* fields mirror the registry's bless entry so an older
 	// binary can still read this save.
 	legacyBless, _ := g.statBuffByID("bless")
@@ -1092,6 +1099,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		PlayedTimeNs:          playedTime.Nanoseconds(),
 		DayNightFrames:        g.dayNightFrames,
 		DayNightDay:           g.dayNightDay,
+		CalendarDay:           g.calendarDay,
+		CalendarWeek:          g.calendarWeek,
+		CalendarMonth:         g.calendarMonth,
 		ArenaTierFoughtDay:    g.arenaTierFoughtDay,
 		ArenaRunID:            g.playthroughID,
 		TotalGoldEarned:       g.totalGoldEarned,
@@ -1154,6 +1164,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// the save's pack monsters are restored as part of MapMonsters.
 	g.dayNightFrames = save.DayNightFrames
 	g.dayNightDay = save.DayNightDay
+	g.calendarDay, g.calendarWeek, g.calendarMonth = calendarFromSave(save.CalendarDay, save.CalendarWeek, save.CalendarMonth, save.DayNightDay, g.config.DayNight)
 	g.arenaTierFoughtDay = save.ArenaTierFoughtDay
 	{
 		names := make([]string, 0, len(save.Party.Members))

@@ -442,8 +442,6 @@ func (g *MMGame) dialogueChoiceLabel(choice *character.NPCDialogueChoice) string
 		return ""
 	}
 	if choice.Action == "start_arena_duel" && g.arenaTierSpentToday(choice.Tier) {
-		// The lockout expires at the NEXT phase flip: dawn during the night,
-		// dusk during the day.
 		if g.dayNightIsNight {
 			return choice.Text + " - spent, returns at dawn"
 		}

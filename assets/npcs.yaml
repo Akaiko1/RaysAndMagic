@@ -1083,6 +1083,7 @@ npcs:
     render_category: animated
     size_class: person
     sell_available: true
+    stock_refresh_weeks: 1
     dialogue:
       greeting: "Welcome to Harbor Remedies. I'm Wrenna - careful bottles, clear labels, no mystery brews. What ails the party?"
     inventory:

@@ -281,6 +281,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.dayNightFrames = 0
 	g.dayNightIsNight = false
 	g.dayNightDay = 0
+	g.calendarDay, g.calendarWeek, g.calendarMonth = 1, 1, 1
 	g.arenaTierFoughtDay = nil
 	g.playthroughID = mintPlaythroughID()
 	// Town Portal knows only THIS run's taverns.
@@ -3136,6 +3137,10 @@ func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 // the per-tier duel lockout all flip with it). No rest - just time passing.
 func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, night bool) {
 	g := ih.game
+	if g.dayNightSkipActive {
+		g.AddCombatMessage("Time is already passing.")
+		return
+	}
 	if g.party.Gold < choice.Cost {
 		g.AddCombatMessage(fmt.Sprintf("The pit crew charges %d gold for an undisturbed doze - you cannot afford it.", choice.Cost))
 		return

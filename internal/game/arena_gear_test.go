@@ -357,12 +357,24 @@ func TestFireShieldBuff(t *testing.T) {
 	}
 }
 
-// TestArenaDayFlips: the arena clock advances on BOTH dusk and dawn, and the
-// paid bones doze jumps straight to the requested phase.
+func finishDayNightSkip(t *testing.T, game *MMGame) {
+	t.Helper()
+	maxFrames := 4 * game.dayNightCycleFrames()
+	for frames := 0; game.dayNightSkipActive && frames < maxFrames; frames++ {
+		game.updateDayNight()
+	}
+	if game.dayNightSkipActive {
+		t.Fatal("day/night skip did not finish")
+	}
+}
+
+// TestArenaDayFlips: the arena clock advances at BOTH dusk and dawn, while
+// paid waits retain intermediate phases so long skips visibly fade through them.
 func TestArenaDayFlips(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	day0 := game.dayNightDay
 	game.advanceDayNightToPhase(true) // doze until nightfall
+	finishDayNightSkip(t, game)
 	if !game.dayNightIsNight {
 		t.Fatal("expected night after dozing to nightfall")
 	}
@@ -370,11 +382,29 @@ func TestArenaDayFlips(t *testing.T) {
 		t.Fatalf("arena day = %d, want %d (dusk counts)", game.dayNightDay, day0+1)
 	}
 	game.advanceDayNightToPhase(false) // doze until dawn
+	finishDayNightSkip(t, game)
 	if game.dayNightIsNight {
 		t.Fatal("expected day after dozing to dawn")
 	}
 	if game.dayNightDay != day0+2 {
 		t.Fatalf("arena day = %d, want %d (dawn counts too)", game.dayNightDay, day0+2)
+	}
+}
+
+func TestArenaDaytimeWaitToNextDawnPlaysThroughNight(t *testing.T) {
+	game, _, _ := tbBehaviorGame(t, 5, 5)
+	day0 := game.dayNightDay
+
+	game.advanceDayNightToPhase(false) // already day: must pass through the next night first
+	if !game.dayNightSkipActive || !game.dayNightIsNight {
+		t.Fatal("daytime wait to dawn must start with a visible night transition")
+	}
+	finishDayNightSkip(t, game)
+	if game.dayNightIsNight {
+		t.Fatal("daytime wait to dawn must finish in daylight")
+	}
+	if game.dayNightDay != day0+2 {
+		t.Fatalf("arena day = %d, want %d after the intervening night and dawn", game.dayNightDay, day0+2)
 	}
 }
 
@@ -392,6 +422,10 @@ func TestDayNightDozeNeverRewinds(t *testing.T) {
 	before := game.dayNightFrames
 	day0 := game.dayNightDay
 	game.advanceDayNightToPhase(true)
+	if game.dayNightIsNight {
+		t.Fatal("day skip should visibly pass through dawn before the next nightfall")
+	}
+	finishDayNightSkip(t, game)
 	if !game.dayNightIsNight {
 		t.Fatal("still night after dozing to the next nightfall")
 	}
