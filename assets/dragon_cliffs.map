@@ -8,16 +8,16 @@
 #   + = start   @ = bound NPC/stile (see >[...])
 # Monster spawns: e = dragon_green  y = dragon_gold  v = mountain_troll  z = archmage
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%..T....S..T................................%
+%.@T....S..T................................%  >[npc:chest_wooden]
 %....T..SS....................e.......D.....%
 %.T.....SS.VVVV...................z.@.z..H..%  >[npc:dragon_cliffs_bone_lair]
 %.......SD.VVVV...y.........H.....D...z.....%
 %..T..e.SS.VVVT...A...................D.....%
-%...H...SS.VVTA.R.....e.===.................%
-%....T..S..TTAA.........=D=..A...R....H.....%
+%...H...SS.V@TA.R.....e.===.................%  >[npc:chest_iron]
+%....T..S..TTAA.........=@=..A...R....H.....%  >[npc:chest_golden]
 %.......SS.AAAA..T......===.............e...%
 %.T.....SS......H............R.BBB..........%
-%.....T.SA........D............B..y.........%
+%.....T.SA........D............B@.y.........%  >[npc:spell_lectern]
 %.......SS..e...SSS...........HBBB....A...T.%
 %.......SS.....SSR.......D....VVVVVVVV#VVVV.%
 %......RS.....SS..............VVVVVVVVVV#VV.%
@@ -33,7 +33,7 @@
 %CCCCCCCCCCCCCCCCCCCCMMCCCCCCCCCCCCCCCCCCCNC%
 %%%%%%%%%%%%%%%%%%%%%MM%%%%%%%%%%%%%%%%%BBNBB
 %T.........................................T%
-%T...T..H....H..@.H.....................AT.T%  >[npc:tavern]
+%T..@T..H....H..@.H.....................AT.T%  >[npc:chest_wooden], [npc:tavern]
 %T.TT.........H.@..H..........H....HH......T%  >[npc:dragon_cliffs_ranger]
 %T......T.............@........H......RT...T%  >[stile:vteleporter]
 %T.....T....H....H..........@....H...H.....T%  >[npc:dragon_cliffs_bone_hermit]

@@ -255,6 +255,34 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		return g.applyHealTo(itemIndex, selectedChar)
 	}
 
+	// Mana consumable (mana potion): restores mana_base + Personality/divisor SP.
+	// Mirrors the heal branch: refused at full SP so the potion isn't wasted.
+	if base, okBase := item.Attributes["mana_base"]; okBase {
+		div, okDiv := item.Attributes["mana_personality_divisor"]
+		if !okDiv || base <= 0 || div <= 0 {
+			g.AddCombatMessage(fmt.Sprintf("%s is misconfigured (mana attributes)", item.Name))
+			return false
+		}
+		ch := g.party.Members[selectedChar]
+		if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+			g.AddCombatMessage(fmt.Sprintf("%s can't drink right now.", ch.Name))
+			return false
+		}
+		if ch.SpellPoints >= ch.MaxSpellPoints {
+			g.AddCombatMessage(fmt.Sprintf("%s is already brimming with mana.", ch.Name))
+			return false
+		}
+		restore := base + ch.GetEffectivePersonality()/div
+		before := ch.SpellPoints
+		ch.SpellPoints += restore
+		if ch.SpellPoints > ch.MaxSpellPoints {
+			ch.SpellPoints = ch.MaxSpellPoints
+		}
+		g.party.RemoveItem(itemIndex)
+		g.AddCombatMessage(fmt.Sprintf("%s drinks %s and recovers %d SP!", ch.Name, item.Name, ch.SpellPoints-before))
+		return true
+	}
+
 	// Summoning consumable
 	if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
 		if dist > 0 {

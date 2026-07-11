@@ -2836,10 +2836,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 		// Cull/project from where the NPC is drawn (wall face for wall tokens);
 		// wall tokens skip the on-tile near-cull since their anchor is on the wall.
-		// A closed door skips it too: the party walks right up to the bars.
+		// Closed doors and loot crates skip it too: the party walks right up to
+		// the bars/chest and still needs to see the interactable object.
 		ex, ey := r.game.npcEffectivePos(npc)
 		nearSq := minDistSq
-		if r.game.npcIsWall(npc) || r.game.npcIsDoor(npc) {
+		if r.game.npcIsWall(npc) || r.game.npcIsDoor(npc) || r.game.npcIsWalkUpProp(npc) {
 			nearSq = 0
 		}
 		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
@@ -2876,9 +2877,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if c.MapKey != "" && c.MapKey != activeMapKey {
 			continue
 		}
-		// Same one-tile cull as env sprites / NPCs so a container at the
-		// player's feet disappears cleanly instead of sliding under the camera.
-		distance, depthPerp, ok := cullAndProject(c.X, c.Y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq)
+		// Loot containers are interactable, so they do NOT use the one-tile
+		// near-cull that scenery does. Keep them visible when the party steps
+		// into their tile; project from the same fanned position the draw/hit
+		// test uses for stacked containers.
+		ox, oy := r.game.groundContainerRenderOffset(c)
+		distance, depthPerp, ok := cullAndProject(c.X+ox, c.Y+oy, camX, camY, camDirX, camDirY, 0, viewDistSq)
 		if !ok {
 			continue
 		}

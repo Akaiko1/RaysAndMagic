@@ -755,7 +755,7 @@ func TestVengefulNingyoCard_Thorns(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 500, 500
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
-	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0)
+	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0, false)
 	if attacker.HitPoints >= 1000 {
 		t.Errorf("attacker HP = %d, should have taken thorns reflect damage", attacker.HitPoints)
 	}
@@ -779,7 +779,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
 	before := len(g.deadMonsterIDs)
-	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0)
+	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0, false)
 	if attacker.IsAlive() {
 		t.Fatal("setup: reflected damage should have killed the attacker")
 	}

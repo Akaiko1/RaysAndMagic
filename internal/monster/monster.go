@@ -151,7 +151,12 @@ type Monster3D struct {
 	RootTurnsRemaining  int  // TB root (bear trap): can't move, CAN attack
 	RootFramesRemaining int  // RT root in frames: position pinned, attacks work
 	rootHeldThisTurn    bool // TB: rooted at the start of the current turn (runtime-only)
-	Pilfered            bool // Sleight of Hand already succeeded on this monster
+	// Armor shred (Pit Labrys): while active, EffectiveArmorClass drops by
+	// ArmorShredPct percent. Refreshes on hit, never stacks.
+	ArmorShredPct             int
+	ArmorShredTurnsRemaining  int
+	ArmorShredFramesRemaining int
+	Pilfered                  bool // Sleight of Hand already succeeded on this monster
 	// PoisonedFramesRemaining is a party Venom-proc card DoT (rat/spider/masked
 	// serpent dancer cards) - separate from monster-inflicted PoisonChance on
 	// characters. Ticks 1% of MaxHitPoints (min 1) per second of real time (RT)
@@ -303,6 +308,17 @@ type Monster3D struct {
 	// NextHandOff: turn-based strict hand alternation cursor (party
 	// NextTBAttackOffHand parity) - main, off, main, off across TB swings.
 	NextHandOff bool
+	// OpeningSpellDone: the champion's authored opening spell (champions.yaml
+	// opening_spell) has been cast. PERSISTED in saves - the config contract is
+	// one opener per DUEL, so a mid-duel reload must not grant a second one.
+	OpeningSpellDone bool
+	// SoakDamage is a flat reduction of every incoming hit (champion Stone
+	// Skin - the mob dual of the party's incoming_damage_reduction buff),
+	// active while its dual-clock timers run (stun convention: RT frames,
+	// TB turns).
+	SoakDamage int
+	SoakFrames int
+	SoakTurns  int
 }
 
 // IsChampion reports whether this mob rides a champions.yaml character build.
@@ -370,6 +386,15 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 			resistance = resistance * (100 - resistPiercePct) / 100
 		}
 		damage = damage * (100 - resistance) / 100
+		if damage < 0 {
+			damage = 0
+		}
+	}
+
+	// Flat soak (champion Stone Skin) after resists, like the party's
+	// incoming-damage-reduction buff ordering.
+	if m.SoakDamage > 0 && (m.SoakFrames > 0 || m.SoakTurns > 0) {
+		damage -= m.SoakDamage
 		if damage < 0 {
 			damage = 0
 		}
@@ -498,6 +523,50 @@ func (m *Monster3D) TickRootTurn() {
 
 // RootHeld reports whether this turn's movement is pinned by a root.
 func (m *Monster3D) RootHeld() bool { return m.rootHeldThisTurn }
+
+// EffectiveArmorClass is the armor value damage mitigation must use: base AC
+// minus any active shred debuff (Pit Labrys). The ONE read point for AC in
+// combat math - reading m.ArmorClass directly bypasses the debuff.
+func (m *Monster3D) EffectiveArmorClass() int {
+	if m.ArmorShredPct > 0 && (m.ArmorShredFramesRemaining > 0 || m.ArmorShredTurnsRemaining > 0) {
+		return m.ArmorClass * (100 - m.ArmorShredPct) / 100
+	}
+	return m.ArmorClass
+}
+
+// ApplyArmorShred refreshes the shred debuff (never stacks; the strongest
+// percent wins if two sources ever overlap).
+func (m *Monster3D) ApplyArmorShred(pct, frames, turns int) {
+	if pct > m.ArmorShredPct {
+		m.ArmorShredPct = pct
+	}
+	if frames > m.ArmorShredFramesRemaining {
+		m.ArmorShredFramesRemaining = frames
+	}
+	if turns > m.ArmorShredTurnsRemaining {
+		m.ArmorShredTurnsRemaining = turns
+	}
+}
+
+// TickArmorShredFrame burns one RT frame of the shred debuff.
+func (m *Monster3D) TickArmorShredFrame() {
+	if m.ArmorShredFramesRemaining > 0 {
+		m.ArmorShredFramesRemaining--
+		if m.ArmorShredFramesRemaining == 0 && m.ArmorShredTurnsRemaining == 0 {
+			m.ArmorShredPct = 0
+		}
+	}
+}
+
+// TickArmorShredTurn burns one TB turn of the shred debuff.
+func (m *Monster3D) TickArmorShredTurn() {
+	if m.ArmorShredTurnsRemaining > 0 {
+		m.ArmorShredTurnsRemaining--
+		if m.ArmorShredTurnsRemaining == 0 && m.ArmorShredFramesRemaining == 0 {
+			m.ArmorShredPct = 0
+		}
+	}
+}
 
 func (m *Monster3D) CanPounce() bool {
 	// A rooted monster is pinned to its tile - the leap is a movement.

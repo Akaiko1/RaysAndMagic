@@ -160,6 +160,10 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 		if tickTurnStatuses {
 			m.TickPoisonTurn(gl.game.config.GetTPS()) // Venom-proc cards; ticks regardless of stun
+			m.TickArmorShredTurn()                    // Pit Labrys shred decays regardless of stun
+			if m.SoakTurns > 0 {                      // Stone Skin soak: stun dual-clock convention
+				status.TickTurn(&m.SoakTurns, &m.SoakFrames)
+			}
 			if !m.IsAlive() {
 				// Matches RT: HandleMonsterInteractions skips a monster the parallel
 				// Update's TickPoison just killed. finalizeIndirectKills (end of

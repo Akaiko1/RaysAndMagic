@@ -49,6 +49,21 @@ func BuildChampion(def *config.ChampionDefinition, tier *config.ChampionTier, ti
 		char.Skills[st] = &Skill{Mastery: mastery}
 	}
 
+	// Authored spell schools sit at the tier's mastery too - the caster dual of
+	// the weapon skills above. A school the class kit already opened is raised
+	// in place so its kit-known spells survive.
+	for _, schoolKey := range def.SpellSchools {
+		school := MagicSchoolID(schoolKey)
+		if !isKnownMagicSchool(school) {
+			return nil, fmt.Errorf("champion %q: unknown spell school %q", def.Name, schoolKey)
+		}
+		if ms, ok := char.MagicSchools[school]; ok && ms != nil {
+			ms.Mastery = mastery
+		} else {
+			char.MagicSchools[school] = &MagicSkill{Mastery: mastery}
+		}
+	}
+
 	// The tier's equipment is authoritative - drop the class-kit loadout first.
 	// The first weapon lands in the main hand, a second weapon in the off hand
 	// (dual wield); everything else routes by its own equip_slot. The same

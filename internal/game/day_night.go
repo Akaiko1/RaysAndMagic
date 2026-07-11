@@ -81,12 +81,69 @@ func (g *MMGame) updateDayNight() {
 	g.dayNightIsNight = night
 	g.applySkyForPhase(true)
 	g.syncDayNightPacks(night)
+	// EVERY phase flip (dusk AND dawn) advances the arena clock: per-tier duel
+	// lockouts expire at any day/night change, not once per full day.
+	g.dayNightDay++
 	if night {
 		g.AddCombatMessage("Night falls.")
 	} else {
-		g.dayNightDay++ // a new arena day: per-tier duel lockouts expire
 		g.AddCombatMessage("The sun rises.")
 	}
+}
+
+// advanceDayNightToPhase FAST-FORWARDS the clock to the next occurrence of the
+// requested phase start (night=true -> nightfall, false -> dawn), always moving
+// FORWARD (wrapping a full cycle when already at/past that mark) so a paid rest
+// can never rewind time. Every dusk/dawn boundary the forward span crosses bumps
+// the arena-day counter (per-tier duel lockouts expire at any phase change).
+// Used by the arena-bones paid rests. No-op maps without a cycle still advance -
+// the phase state is global.
+func (g *MMGame) advanceDayNightToPhase(night bool) {
+	cycle := g.dayNightCycleFrames()
+	if cycle <= 0 {
+		return
+	}
+	// Cycle: frac 0 = noon, night = (0.25, 0.75] (see dayNightIsNightAt); the
+	// phase flips entering the frame just past 1/4 (dusk) and 3/4 (dawn).
+	duskFrame, dawnFrame := cycle/4+1, 3*cycle/4+1
+	target := dawnFrame
+	if night {
+		target = duskFrame
+	}
+	delta := target - g.dayNightFrames
+	if delta <= 0 {
+		delta += cycle // already at/past it: advance a full cycle, never backward
+	}
+	// Count phase flips in the half-open forward arc (now, now+delta]; delta <=
+	// cycle so each boundary is crossed at most once.
+	inArc := func(boundary int) bool {
+		d := boundary - g.dayNightFrames
+		if d <= 0 {
+			d += cycle
+		}
+		return d <= delta
+	}
+	flips := 0
+	if inArc(duskFrame) {
+		flips++
+	}
+	if inArc(dawnFrame) {
+		flips++
+	}
+	g.dayNightFrames = (g.dayNightFrames + delta) % cycle
+	g.dayNightDay += flips
+	if flips == 0 {
+		return // no boundary crossed: nothing to re-render or respawn
+	}
+	// Any boundary crossing refreshes the mob packs: a same-phase full-cycle
+	// skip (night -> next night) still ends on a FRESH night, so the stale pack
+	// must despawn and respawn (syncDayNightPacks despawns both phases first).
+	// The sky panorama only needs re-applying when the visible phase flipped.
+	if night != g.dayNightIsNight {
+		g.dayNightIsNight = night
+		g.applySkyForPhase(true)
+	}
+	g.syncDayNightPacks(night)
 }
 
 // --- Sky panorama phase variants -------------------------------------------
@@ -110,6 +167,57 @@ func skyHasDayNightVariants(base string) bool {
 		return false
 	}
 	return skyTextureExists(skyVariantName(base, false)) || skyTextureExists(skyVariantName(base, true))
+}
+
+// currentMapHasOpenSky reports whether the current map is outdoor by the
+// day/night convention (its sky has a phase variant). Gates Fly.
+func (g *MMGame) currentMapHasOpenSky() bool {
+	if world.GlobalWorldManager == nil {
+		return false
+	}
+	mc := world.GlobalWorldManager.GetCurrentMapConfig()
+	return mc != nil && skyHasDayNightVariants(mc.SkyTexture)
+}
+
+// dropFlyWithoutOpenSky ends an active Fly the moment the party stands on a
+// map without an open sky (dungeon entry, loading an indoor save): wings need
+// the sky the cast gate demands, and a lingering Fly indoors lets the party
+// phase into walls it can then be trapped in when the buff expires.
+func (g *MMGame) dropFlyWithoutOpenSky() {
+	if !g.flyActive || g.currentMapHasOpenSky() {
+		return
+	}
+	g.flyActive = false
+	g.flyDuration = 0
+	if g.world != nil {
+		g.world.SetFlyActive(false)
+	}
+	g.AddCombatMessage("The close air presses down - Fly fades.")
+}
+
+// ejectFromWallAfterFly surfaces the party to the nearest walkable tile when
+// Fly lapses while they hover inside solid terrain (Fly lets movement pass
+// through walls). Without it the party is stuck against a wall bbox with no
+// legal move out. Walkability here is terrain-only, so it works regardless of
+// the world's Fly flag sync order.
+func (g *MMGame) ejectFromWallAfterFly() {
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	ts := float64(g.config.GetTileSize())
+	if !w.IsTileBlockingTerrainAt(int(g.camera.X/ts), int(g.camera.Y/ts)) {
+		return // already on open ground
+	}
+	sx, sy := g.findNearestWalkableTileWithMaxRadius(g.camera.X, g.camera.Y, 12)
+	if sx < 0 || sy < 0 {
+		return // no walkable tile nearby (shouldn't happen on a real map)
+	}
+	g.camera.X, g.camera.Y = sx, sy
+	if g.collisionSystem != nil {
+		g.collisionSystem.UpdateEntity("player", sx, sy)
+	}
+	g.AddCombatMessage("The wings fade - the party settles onto solid ground.")
 }
 
 // skyTextureForPhase resolves the phase variant when it exists on disk, else

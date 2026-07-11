@@ -61,6 +61,9 @@ type ProjectileUpdateInterface interface {
 	SetVelocity(vx, vy float64)
 	GetLifetime() int
 	SetLifetime(lifetime int)
+	// IgnoresWalls: the projectile flies through solid terrain (a mortar's
+	// display bolt on its ballistic arc) - the mover skips the wall check.
+	IgnoresWalls() bool
 	OnCollision(hitX, hitY float64)
 	ApplyCollisionEffects()
 }
@@ -136,7 +139,7 @@ func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdat
 			x, y := p.GetPosition()
 			vx, vy := p.GetVelocity()
 			newX, newY := x+vx, y+vy
-			if canMoveTo(newX, newY) {
+			if p.IgnoresWalls() || canMoveTo(newX, newY) {
 				p.SetPosition(newX, newY)
 			} else {
 				p.OnCollision(x, y)

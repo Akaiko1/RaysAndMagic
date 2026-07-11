@@ -197,6 +197,9 @@ type GameSave struct {
 	WizardEyeDuration      int              `json:"wizard_eye_duration,omitempty"`
 	WalkOnWaterActive      bool             `json:"walk_on_water_active,omitempty"`
 	WalkOnWaterDuration    int              `json:"walk_on_water_duration,omitempty"`
+	FlyActive              bool             `json:"fly_active,omitempty"`
+	FlyDuration            int              `json:"fly_duration,omitempty"`
+	VisitedTavernMaps      []string         `json:"visited_tavern_maps,omitempty"`
 	BlessActive            bool             `json:"bless_active,omitempty"`
 	BlessDuration          int              `json:"bless_duration,omitempty"`
 	BlessStatBonus         int              `json:"bless_stat_bonus,omitempty"`
@@ -355,6 +358,9 @@ type MonsterSave struct {
 	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
 	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
 	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
+	ArmorShredPct       int                  `json:"armor_shred_pct,omitempty"`
+	ArmorShredFrames    int                  `json:"armor_shred_frames,omitempty"`
+	ArmorShredTurns     int                  `json:"armor_shred_turns,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
 	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
@@ -366,6 +372,10 @@ type MonsterSave struct {
 	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	ChampionTier        string               `json:"champion_tier,omitempty"`
+	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`
+	SoakDamage          int                  `json:"soak_damage,omitempty"`
+	SoakFrames          int                  `json:"soak_frames,omitempty"`
+	SoakTurns           int                  `json:"soak_turns,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
 	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
@@ -501,6 +511,10 @@ func (g *MMGame) clearTransientCombatState() {
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.arrows = g.arrows[:0]
 	g.projectileMutex.Unlock()
+	// Stone Blossom blooms scheduled mid-flight belong to the map they were
+	// aimed on - a map switch/load must not detonate them at the same
+	// coordinates of the destination map.
+	g.pendingMortars = g.pendingMortars[:0]
 	g.slashEffects = g.slashEffects[:0]
 	g.hitEffectsMu.Lock()
 	g.spellHitEffects = g.spellHitEffects[:0]
@@ -948,6 +962,10 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				WasAttacked:             mon.WasAttacked,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
+				OpeningSpellDone:        mon.OpeningSpellDone,
+				SoakDamage:              mon.SoakDamage,
+				SoakFrames:              mon.SoakFrames,
+				SoakTurns:               mon.SoakTurns,
 				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				StunFramesRemaining:     mon.StunFramesRemaining,
@@ -958,6 +976,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
 				RootFramesRemaining:     mon.RootFramesRemaining,
 				RootTurnsRemaining:      mon.RootTurnsRemaining,
+				ArmorShredPct:           mon.ArmorShredPct,
+				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
+				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
 				Pilfered:                mon.Pilfered,
 				PounceCDFrames:          mon.PounceCDFrames,
 				PounceCDTurns:           mon.PounceCDTurns,
@@ -1090,6 +1111,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		WizardEyeDuration:     g.wizardEyeDuration,
 		WalkOnWaterActive:     g.walkOnWaterActive,
 		WalkOnWaterDuration:   g.walkOnWaterDuration,
+		FlyActive:             g.flyActive,
+		FlyDuration:           g.flyDuration,
+		VisitedTavernMaps:     g.sortedVisitedTavernMaps(),
 		StatBuffs:             buildStatBuffSaves(g.statBuffs),
 		BlessActive:           legacyBless.Frames > 0,
 		BlessDuration:         legacyBless.Frames,
@@ -1289,6 +1313,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
 				m.ChampionTier = ms.ChampionTier
+				// Duel-cast state survives the reload: the opener fires once per
+				// DUEL (config contract), and an active Stone Skin keeps soaking.
+				m.OpeningSpellDone = ms.OpeningSpellDone
+				m.SoakDamage = ms.SoakDamage
+				m.SoakFrames = ms.SoakFrames
+				m.SoakTurns = ms.SoakTurns
 				if m.IsChampion() {
 					// Mirror at restore (not next frame): the first post-load
 					// input tick must already see tier HP pool and real armor.
@@ -1306,6 +1336,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
 				m.RootFramesRemaining = ms.RootFramesRemaining
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
+				m.ArmorShredPct = ms.ArmorShredPct
+				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
+				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
 				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
@@ -1459,6 +1492,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.walkOnWaterActive = save.WalkOnWaterActive
 	g.walkOnWaterDuration = save.WalkOnWaterDuration
+	g.flyActive = save.FlyActive
+	g.flyDuration = save.FlyDuration
+	g.visitedTavernMaps = map[string]bool{}
+	for _, k := range save.VisitedTavernMaps {
+		g.visitedTavernMaps[k] = true
+	}
+	// Pre-registry saves carry no tavern list: seed it with the loaded map's own
+	// tavern (if any), like every map entry does, so Town Portal works without
+	// forcing a map change first.
+	g.registerVisitedTavern()
 	g.statBuffs = restoreStatBuffs(save.StatBuffs)
 	if len(g.statBuffs) == 0 && save.BlessActive && save.BlessDuration > 0 {
 		// Pre-registry save: bless lived in dedicated fields.
@@ -1505,6 +1548,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
+		g.world.SetFlyActive(g.flyActive)
+		g.dropFlyWithoutOpenSky() // an indoor save (or a pre-rule one) must not restore wings
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}
 
@@ -1542,6 +1587,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		}
 		g.groundContainers = append(g.groundContainers, restored)
 	}
+	g.invalidateContainerFanCache()
 
 	// Rebuild HUD buff icons from the single timed-buff registry (same source the
 	// per-frame update uses), so a restored buff shows its timer immediately.

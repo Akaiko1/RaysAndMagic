@@ -265,6 +265,7 @@ npcs:
     description: "A grim stockade of black iron, two elf jailers pacing the gate"
     sprite: "prison"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -295,6 +296,7 @@ npcs:
     description: "A cozy timber tavern; off-duty heroes nurse their drinks here"
     sprite: "tavern"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -321,6 +323,7 @@ npcs:
     description: "A slender spire of pale stone, humming faintly with warded power"
     sprite: "mage_tower"
     render_category: landmark
+    prompt_verb: enter
     transparent: true
     size_tiles: 2.0
     rejects_lich: true
@@ -437,6 +440,7 @@ npcs:
     description: "A cliff cave framed by fossilized dragon jaws and scattered ribs"
     sprite: "dragon_cliffs_bone_lair"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -470,6 +474,7 @@ npcs:
     description: "A basalt dragon den split by glowing ember cracks"
     sprite: "dragon_cliffs_ember_lair"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -503,6 +508,7 @@ npcs:
     description: "A ruined stone church whose broken doorway descends into darkness"
     sprite: "abandoned_church"
     render_category: landmark
+    prompt_verb: enter
     transparent: true
     size_tiles: 2.0
     dialogue:
@@ -522,6 +528,7 @@ npcs:
     sprite: "church_exit"
     size_tiles: 1.0
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     dialogue:
       greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
@@ -539,6 +546,7 @@ npcs:
     description: "A sun-baked pyramid with a narrow stairway descending into darkness"
     sprite: "pyramid_entrance"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -557,6 +565,7 @@ npcs:
     description: "The stairway back out of the pyramid"
     sprite: "pyramid_stairs_up"
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -575,6 +584,7 @@ npcs:
     description: "Sandstone stairs leading upward"
     sprite: "pyramid_stairs_up"
     render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -593,6 +603,7 @@ npcs:
     description: "Sandstone stairs leading deeper"
     sprite: "pyramid_stairs_down"
     render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -611,6 +622,7 @@ npcs:
     description: "A narrow stairway toward the sealed sanctum"
     sprite: "pyramid_stairs_down"
     render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -629,6 +641,7 @@ npcs:
     description: "A black stone arch humming with trapped souls"
     sprite: "lich_nexus_entrance"
     render_category: landmark
+    prompt_verb: enter
     transparent: true
     size_tiles: 2.0
     dialogue:
@@ -647,6 +660,7 @@ npcs:
     description: "A portal back to the living world"
     sprite: "lich_nexus_exit"
     render_category: scenery
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -665,6 +679,7 @@ npcs:
     description: "A stone road gate leading toward the sea city of Seabright"
     sprite: "city_exterior"
     render_category: landmark
+    prompt_verb: enter
     transparent: true
     size_tiles: 2.0
     dialogue:
@@ -690,6 +705,7 @@ npcs:
     description: "A great barred storm-drain venting into the harbor"
     sprite: "culvert_outlet"
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -708,6 +724,7 @@ npcs:
     description: "The barred outflow back up to Seabright harbor"
     sprite: "culvert_outlet"
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -847,6 +864,7 @@ npcs:
     description: "The ship that bore you east, waiting at the castle dock"
     sprite: "forest_gate"
     render_category: scenery
+    prompt_verb: board
     transparent: true
     size_tiles: 4.0
     dialogue:
@@ -970,6 +988,7 @@ npcs:
     description: "A shimmer over the stream - a path toward the misty highlands"
     sprite: ""
     render_category: invisible
+    prompt_verb: take
     ground_tile: "forest_portal_stream"
     transparent: true
     size_tiles: 0.2
@@ -989,6 +1008,7 @@ npcs:
     description: "The shimmer that leads back down to the forest"
     sprite: ""
     render_category: invisible
+    prompt_verb: take
     ground_tile: "highlands_stream"
     transparent: true
     size_tiles: 0.2
@@ -1008,6 +1028,7 @@ npcs:
     description: "The main gate back to the forest road"
     sprite: "city_gate"
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -1068,11 +1089,15 @@ npcs:
       - type: "potion"
         name: "Health Potion"
         cost: 50
-        quantity: 12
+        quantity: 20
+      - type: "potion"
+        name: "Mana Potion"
+        cost: 60
+        quantity: 20
       - type: "potion"
         name: "Revival Potion"
         cost: 500
-        quantity: 3
+        quantity: 10
 
   city_spell_shop:
     name: "Scrivener Oletta"
@@ -1130,6 +1155,7 @@ npcs:
     description: "The shallow-draught riverboat that bore you upriver, tied at the landing"
     sprite: "deep_jungle_arch"
     render_category: scenery
+    prompt_verb: board
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -1150,6 +1176,7 @@ npcs:
     description: "A towering stone colosseum; the roar of unseen crowds drifts over its walls"
     sprite: "arena_building"
     render_category: landmark
+    prompt_verb: enter
     transparent: true
     size_tiles: 2.0
     dialogue:
@@ -1183,6 +1210,10 @@ npcs:
         cost: 250
         quantity: -1
       - type: "potion"
+        name: "Mana Potion"
+        cost: 250
+        quantity: -1
+      - type: "potion"
         name: "Sake Flask"
         cost: 250
         quantity: -1
@@ -1194,6 +1225,97 @@ npcs:
         name: "Revival Potion"
         cost: 1000
         quantity: -1
+      # Pit Fighter's Quilt (padded set) - 1500 ap per piece
+      - type: "item"
+        name: "Padded Cap"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Vest"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Greaves"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Gloves"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Boots"
+        cost: 1500
+        quantity: -1
+      # Coliseum Ringmail (ringmail set) - 2500 ap per piece
+      - type: "item"
+        name: "Ringmail Coif"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Hauberk"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Vambraces"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Gloves"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Boots"
+        cost: 2500
+        quantity: -1
+      # Arena unique weapons (emerald tier) - 5000 ap, ONE copy each
+      - type: "weapon"
+        name: "Gladius"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Pit Labrys"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Morningstar"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Hasta"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Retiarius Trident"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Parrying Dagger"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Lion-Crest Warhammer"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Skirmisher Recurve"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Arena Arbalest"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Lanista's Scepter"
+        cost: 5000
+        quantity: 1
+      - type: "weapon"
+        name: "Bronze Cesti"
+        cost: 5000
+        quantity: 1
+      - type: "item"
+        name: "Parma"
+        cost: 5000
+        quantity: 1
     dialogue:
       greeting: "The gatekeeper looks you over, one hand on her halberd. 'So. You think you have what it takes to fight in the arena?'"
       choice_prompt: "What do you say?"
@@ -1279,6 +1401,7 @@ npcs:
     description: "The barred gateway back out to the desert"
     sprite: "arena_gate_wall"
     render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     size_tiles: 1.0
     dialogue:
@@ -1292,6 +1415,55 @@ npcs:
           action: "leave"
 
   # Fallen-fighter remains half-buried in the sand.
+  # --- Loot crates: one-shot chests placed via @ on any map. Direct line of
+  # sight required to open (no walls, no diagonal gaps). Loot + trap rules
+  # live in loots.yaml `crates:` keyed by these NPC keys.
+  chest_wooden:
+    name: "Wooden Chest"
+    type: "loot_crate"
+    description: "A banded wooden chest, its lock long since given up"
+    sprite: "chest_wooden"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  chest_iron:
+    name: "Iron Chest"
+    type: "loot_crate"
+    description: "A black iron strongbox - the lock looks untouched, which is worse"
+    sprite: "chest_iron"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  chest_golden:
+    name: "Golden Chest"
+    type: "loot_crate"
+    description: "A sun-chased golden chest that has clearly outlived its owners"
+    sprite: "chest_golden"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  # Spell lectern: a book on a stone stand that teaches ONE spell to the first
+  # party member with the school open who doesn't know it. Not consumed while
+  # nobody can learn. Author `spell:` on a copy for a fixed spell.
+  spell_lectern:
+    name: "Ancient Tome"
+    type: "spell_lectern"
+    description: "An open tome chained to a carved stone lectern, its script slowly rearranging itself"
+    sprite: "spell_lectern"
+    render_category: standee
+    prompt_verb: study
+    transparent: true
+    size_tiles: 0.7
+    hide_when_visited: true
+    lectern:
+      pool: [fly, town_portal, fire_shield, stone_blossom]
+
   arena_bones:
     name: "Bleached Bones"
     type: "encounter"
@@ -1301,8 +1473,14 @@ npcs:
     transparent: true
     size_tiles: 0.4
     dialogue:
-      greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike."
+      greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike - and, strangely, the hollow they left looks almost comfortable. A pit hand materializes at your elbow: 'Undisturbed rest on the sand costs coin.'"
       choice_prompt: "What do you do?"
       choices:
+        - text: "Doze until nightfall (750 gold)"
+          action: "wait_until_night"
+          cost: 750
+        - text: "Doze until dawn (750 gold)"
+          action: "wait_until_dawn"
+          cost: 750
         - text: "Leave them be"
           action: "leave"

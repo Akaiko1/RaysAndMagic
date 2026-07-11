@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"ugataima/internal/items"
@@ -73,6 +74,34 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 		for _, k := range keys {
 			lines = append(lines, fmt.Sprintf("Bonus vs %s: x%.1f", titleCaseLower(k), w.BonusVs[k]))
 		}
+	}
+	// Arena unique-tier signature riders.
+	if w.BonusVsStunned > 0 && w.BonusVsStunned != 1.0 {
+		lines = append(lines, fmt.Sprintf("Bonus vs stunned targets: x%.1f", w.BonusVsStunned))
+	}
+	if w.ArmorShredPct > 0 && w.ArmorShredSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Sunder: hits strip %d%% of the target's armor for %ds", w.ArmorShredPct, w.ArmorShredSeconds))
+	}
+	if w.RootChance > 0 && w.RootSeconds > 0 {
+		lines = append(lines, fmt.Sprintf("Root Chance: %.0f%% (pins in place %ds - not a stun)", w.RootChance*100, w.RootSeconds))
+	}
+	if w.ArmorClassBonus > 0 {
+		lines = append(lines, fmt.Sprintf("Armor Class %+d while wielded", w.ArmorClassBonus))
+	}
+	if w.ThornsPct > 0 {
+		lines = append(lines, fmt.Sprintf("Riposte: attackers take %d%% of the melee damage they deal you", w.ThornsPct))
+	}
+	if w.ArmorPiercePct > 0 {
+		lines = append(lines, fmt.Sprintf("Ignores %d%% of the target's armor", w.ArmorPiercePct))
+	}
+	if w.PierceCount > 0 {
+		lines = append(lines, fmt.Sprintf("Pierces through %d target(s) and flies on", w.PierceCount))
+	}
+	if w.DoubleStrike {
+		lines = append(lines, "Pair: every swing strikes twice at half damage")
+	}
+	if w.EquipPersonalityMin > 0 {
+		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
 	}
 	return lines
 }
@@ -374,11 +403,16 @@ type SpellSystemConfig struct {
 // SpellDefinitionConfig represents a complete spell definition with embedded physics and graphics
 type SpellDefinitionConfig struct {
 	// Basic spell properties
-	Name            string `yaml:"name"`
-	Description     string `yaml:"description"`
-	School          string `yaml:"school"`
-	Level           int    `yaml:"level"`
-	SpellPointsCost int    `yaml:"spell_points_cost"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	School      string `yaml:"school"`
+	// Schools lists EVERY school the spell belongs to (dual-school spells like
+	// Town Portal: earth AND air). Empty = just School. The spell is learnable
+	// through, and listed under, any of them; it files into whichever open
+	// school the learner has.
+	Schools         []string `yaml:"schools,omitempty"`
+	Level           int      `yaml:"level"`
+	SpellPointsCost int      `yaml:"spell_points_cost"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
 	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
 	// fall back to SpellCooldownDefaultSecondsForLevel(level).
@@ -456,6 +490,28 @@ type SpellDefinitionConfig struct {
 	// that damages every monster AND every party member within the radius (Inferno).
 	// Damage = SpellPointsCost x SpellDamagePerSP.
 	PartyAoeRadiusTiles float64 `yaml:"party_aoe_radius_tiles,omitempty"`
+
+	// MapWide (Inferno rework): no radius at all - the nova burns EVERY monster
+	// on the current map AND the whole party. Fire resistance is the answer.
+	MapWide bool `yaml:"map_wide,omitempty"`
+
+	// Per-school party resist buff (Fire Shield: fire +50 for the duration).
+	// Distinct from ResistBuffPct, which reduces ALL incoming damage.
+	ResistBuffSchool    string `yaml:"resist_buff_school,omitempty"`
+	ResistBuffSchoolPct int    `yaml:"resist_buff_school_pct,omitempty"`
+
+	// Fly: the party walks through any tile except the map's border while the
+	// buff lasts. OutdoorOnly gates casting to maps with a day/night sky.
+	Fly         bool `yaml:"fly,omitempty"`
+	OutdoorOnly bool `yaml:"outdoor_only,omitempty"`
+
+	// TownPortal opens the visited-tavern picker; confirming teleports the party.
+	TownPortal bool `yaml:"town_portal,omitempty"`
+
+	// MortarRangeTiles (Stone Blossom): the projectile arcs over everything -
+	// no collisions in flight - and detonates exactly this many tiles out (or
+	// at the wall that cuts the arc short), splashing AoeRadiusTiles + stun.
+	MortarRangeTiles float64 `yaml:"mortar_range_tiles,omitempty"`
 
 	// StarburstFx triggers the falling-star impact VFX: a star drops into each tile
 	// within the spell's AoE radius (Starburst). Purely visual; damage uses AoeRadiusTiles.
@@ -887,6 +943,33 @@ type WeaponDefinitionConfig struct {
 	// plain arrow. Cosmetic only; damage stays weapon-based.
 	ProjectileSchool string `yaml:"projectile_school,omitempty"`
 
+	// --- Arena unique-tier signature riders ---
+	// BonusVsStunned multiplies damage against a currently-stunned target (Gladius).
+	BonusVsStunned float64 `yaml:"bonus_vs_stunned,omitempty"`
+	// ArmorShredPct strips this share of the target's armor for ArmorShredSeconds
+	// on every hit; refreshes, never stacks (Pit Labrys).
+	ArmorShredPct     int `yaml:"armor_shred_pct,omitempty"`
+	ArmorShredSeconds int `yaml:"armor_shred_seconds,omitempty"`
+	// RootChance pins the target in place for RootSeconds (root, not stun: no
+	// stun DR, the target can still attack) - the Retiarius Trident's net.
+	RootChance  float64 `yaml:"root_chance,omitempty"`
+	RootSeconds int     `yaml:"root_seconds,omitempty"`
+	// ArmorClassBonus adds flat AC to the BEARER while equipped (Hasta).
+	ArmorClassBonus int `yaml:"armor_class_bonus,omitempty"`
+	// ThornsPct reflects this share of melee damage the bearer takes back at the
+	// attacker (Parrying Dagger riposte).
+	ThornsPct int `yaml:"thorns_pct,omitempty"`
+	// ArmorPiercePct ignores this share of the target's armor (Lion-Crest Warhammer).
+	ArmorPiercePct int `yaml:"armor_pierce_pct,omitempty"`
+	// PierceCount lets a projectile pass through that many targets and fly on
+	// (Arena Arbalest: 1 = hits up to two monsters in a line).
+	PierceCount int `yaml:"pierce_count,omitempty"`
+	// DoubleStrike: each swing lands twice at half damage (Bronze Cesti pair).
+	DoubleStrike bool `yaml:"double_strike,omitempty"`
+	// EquipPersonalityMin, when > 0, lets ANY character with this much effective
+	// Personality wield the weapon even without its category skill (Lanista's Scepter).
+	EquipPersonalityMin int `yaml:"equip_personality_min,omitempty"`
+
 	// Embedded physics configuration (for projectile weapons like bows) - uses tile-based units
 	Physics *ProjectilePhysicsConfig `yaml:"physics"`
 
@@ -992,6 +1075,11 @@ func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 		case "", "all", "physical":
 		default:
 			return fmt.Errorf("spell '%s': unsupported outgoing_damage_type %q", id, def.OutgoingDamageType)
+		}
+		// A mortar spell's arc timing is derived from its projectile speed; require
+		// it so the flight never silently falls back to a code default.
+		if def.MortarRangeTiles > 0 && (def.Physics == nil || def.Physics.SpeedTiles <= 0) {
+			return fmt.Errorf("spell '%s': mortar_range_tiles needs physics.speed_tiles > 0", id)
 		}
 	}
 	return nil
@@ -1120,6 +1208,33 @@ func MustLoadWeaponConfig(filename string) *WeaponSystemConfig {
 
 type ItemSystemConfig struct {
 	Items map[string]*ItemDefinitionConfig `yaml:"items"`
+	// Sets: armor-set bonus definitions (items opt in via their `set:` key).
+	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
+}
+
+// ItemSetConfig is one armor set: once PiecesRequired items carrying the set
+// key are equipped on a single character, the bonuses apply to that character.
+type ItemSetConfig struct {
+	Name           string `yaml:"name"`
+	PiecesRequired int    `yaml:"pieces_required"`
+	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
+	// halves them - the padded set's quilting).
+	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
+	BonusMight       int `yaml:"bonus_might,omitempty"`
+	BonusIntellect   int `yaml:"bonus_intellect,omitempty"`
+	BonusPersonality int `yaml:"bonus_personality,omitempty"`
+	BonusEndurance   int `yaml:"bonus_endurance,omitempty"`
+	BonusAccuracy    int `yaml:"bonus_accuracy,omitempty"`
+	BonusSpeed       int `yaml:"bonus_speed,omitempty"`
+	BonusLuck        int `yaml:"bonus_luck,omitempty"`
+}
+
+// GetItemSet returns a set definition by key, or nil if unknown.
+func GetItemSet(key string) *ItemSetConfig {
+	if GlobalItems == nil || key == "" {
+		return nil
+	}
+	return GlobalItems.Sets[key]
 }
 
 type ItemDefinitionConfig struct {
@@ -1134,6 +1249,7 @@ type ItemDefinitionConfig struct {
 	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
 	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
 	Discardable  bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
+	Set          string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -1183,12 +1299,16 @@ type ItemDefinitionConfig struct {
 	CardResistBonus       map[string]int     `yaml:"card_resist_bonus,omitempty"`        // flat party elemental resist, e.g. {fire: 50}
 	CardGoldFindPct       int                `yaml:"card_gold_find_pct,omitempty"`       // +N% gold from monster kills
 	CardBonusBoltPct      int                `yaml:"card_bonus_bolt_pct,omitempty"`      // N% chance on any attack to also fire a bonus bolt (Accuracy/3 dmg)
+	CardBonusBoltLabel    string             `yaml:"card_bonus_bolt_label,omitempty"`    // chat name of that bolt (defaults to a generic label)
 	CardVolleyBonusPct    int                `yaml:"card_volley_bonus_pct,omitempty"`    // N% chance a bow shot looses one extra arrow
 	CardStunOnHitPct      int                `yaml:"card_stun_on_hit_pct,omitempty"`     // N% chance on hit to stun the monster
 	CardPoisonResistPct   int                `yaml:"card_poison_resist_pct,omitempty"`   // N% chance to resist an incoming monster poison proc
 	CardCritBonusPct      int                `yaml:"card_crit_bonus_pct,omitempty"`      // +N critical hit chance
 	CardBonusVs           map[string]float64 `yaml:"card_bonus_vs,omitempty"`            // dmg multiplier vs monster Name/Key/Type, mirrors weapon bonus_vs
 	CardArmorPiercePct    int                `yaml:"card_armor_pierce_pct,omitempty"`    // N% chance a melee hit ignores the target's armor entirely
+	// PartyArmorBonus: flat AC granted to every OTHER party member while this
+	// item is equipped (the Parma's shield wall).
+	PartyArmorBonus int `yaml:"party_armor_bonus,omitempty"`
 	// Optional consumable attributes
 	HealBase             int  `yaml:"heal_base,omitempty"`
 	HealEnduranceDivisor int  `yaml:"heal_endurance_divisor,omitempty"`
@@ -1196,6 +1316,10 @@ type ItemDefinitionConfig struct {
 	Revive               bool `yaml:"revive,omitempty"`
 	FullHeal             bool `yaml:"full_heal,omitempty"`
 	CurePoison           bool `yaml:"cure_poison,omitempty"` // clears the Poisoned condition on use
+	// Mana restoration (mirror of heal_base/heal_endurance_divisor for SP):
+	// restores mana_base + Personality/mana_personality_divisor spell points.
+	ManaBase               int `yaml:"mana_base,omitempty"`
+	ManaPersonalityDivisor int `yaml:"mana_personality_divisor,omitempty"`
 }
 
 func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
@@ -1250,6 +1374,9 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 				return fmt.Errorf("item '%s' has unknown equip_slot %q", key, def.EquipSlot)
 			}
 		}
+		if def.Set != "" && cfg.Sets[def.Set] == nil {
+			return fmt.Errorf("item '%s' references unknown set %q", key, def.Set)
+		}
 		switch def.Type {
 		case "consumable":
 			// If heal_base is set, heal_endurance_divisor must be set and positive (unless revive)
@@ -1259,10 +1386,22 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 			if def.HealEnduranceDivisor > 0 && def.HealBase <= 0 && !def.Revive {
 				return fmt.Errorf("consumable '%s' missing heal_base", key)
 			}
+			// Mana restoration requires the full attribute pair, like healing.
+			if def.ManaBase > 0 && def.ManaPersonalityDivisor <= 0 {
+				return fmt.Errorf("consumable '%s' missing mana_personality_divisor", key)
+			}
+			if def.ManaPersonalityDivisor > 0 && def.ManaBase <= 0 {
+				return fmt.Errorf("consumable '%s' missing mana_base", key)
+			}
 			// If no known consumable attributes are present, warn but allow
 			if def.HealBase == 0 && def.SummonDistanceTiles == 0 && !def.Revive {
 				// Allow "vanilla" consumables for future behaviors; no hard error
 			}
+		}
+	}
+	for name, set := range cfg.Sets {
+		if set == nil || set.Name == "" || set.PiecesRequired <= 0 {
+			return fmt.Errorf("item set '%s': name and positive pieces_required are required", name)
 		}
 	}
 	return nil
@@ -1293,6 +1432,56 @@ type LootTablesConfig struct {
 	// containers (sword racks) that grant a random ZONE item, never a unique -
 	// uniques are simply not listed, so they can't leak in.
 	WeightedLootTables map[string]*WeightedLootTable `yaml:"loot_tables"`
+	// Crates: loot behavior per loot_crate NPC key (chests placed via @).
+	// Loot lives HERE, with all other loot, not on the NPC definition.
+	Crates map[string]*CrateConfig `yaml:"crates"`
+}
+
+// CrateConfig is one chest's loot + trap behavior. Tier semantics are data:
+//   - loot_table: roll that weighted pool (authored treasure) - overrides
+//     roll_sources.
+//   - roll_sources: the SINGLE per-roll source model. Each of `rolls` rolls
+//     picks one weighted CrateRollSource, then draws from it. A no-mix crate is
+//     just a one-element list. See CrateRollSource for the pool kinds.
+//   - special_rolls: per-CHEST chance sources that REPLACE one normal roll (a
+//     rare/legendary/gold/arena-points jackpot), never add a fourth item.
+//
+// trap_damage blasts the party flat on opening; trap_ignite sets it burning
+// for TrapIgniteSeconds (DefaultTrapIgniteSeconds when unset). Disarm Trap
+// mastery avoids either entirely at 40/60/80/100%.
+type CrateConfig struct {
+	Rolls             int               `yaml:"rolls"`
+	LootTable         string            `yaml:"loot_table,omitempty"`
+	RollSources       []CrateRollSource `yaml:"roll_sources,omitempty"`
+	SpecialRolls      []CrateRollSource `yaml:"special_rolls,omitempty"`
+	TrapDamage        int               `yaml:"trap_damage,omitempty"`
+	TrapIgnite        bool              `yaml:"trap_ignite,omitempty"`
+	TrapIgniteSeconds int               `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
+}
+
+// DefaultTrapIgniteSeconds is the burn duration for a trap_ignite crate that
+// authors no trap_ignite_seconds. Named here so the default lives with the
+// field, not as a literal in the trap code.
+const DefaultTrapIgniteSeconds = 10
+
+type CrateRollSource struct {
+	Pool         string `yaml:"pool"` // "map" | "rare" | "catalog" | "gold" | "arena_points"
+	Weight       int    `yaml:"weight"`
+	ItemType     string `yaml:"item_type,omitempty"`  // catalog: armor|accessory|consumable|trinket
+	Rarity       string `yaml:"rarity,omitempty"`     // map/catalog: exact rarity
+	MinRarity    string `yaml:"min_rarity,omitempty"` // map/catalog: drop entries below this rarity
+	MaxRarity    string `yaml:"max_rarity,omitempty"` // map/catalog: drop entries above this rarity
+	LegendaryPct int    `yaml:"legendary_pct,omitempty"`
+	Amount       int    `yaml:"amount,omitempty"`     // gold/arena_points: currency awarded instead of an item
+	ChancePct    int    `yaml:"chance_pct,omitempty"` // special_rolls: per-chest replacement chance
+}
+
+// GetCrateConfig returns the crate behavior for a loot_crate NPC key.
+func GetCrateConfig(npcKey string) *CrateConfig {
+	if GlobalLoots == nil {
+		return nil
+	}
+	return GlobalLoots.Crates[npcKey]
 }
 
 type LootEntry struct {
@@ -1325,6 +1514,9 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	}
 	if err := validateWeightedLootTables(&loots); err != nil {
 		return nil, err // don't publish invalid data to the process global
+	}
+	if err := validateCrates(&loots); err != nil {
+		return nil, err
 	}
 	GlobalLoots = &loots
 	return &loots, nil
@@ -1373,6 +1565,125 @@ func validateWeightedLootTables(lt *LootTablesConfig) error {
 		}
 	}
 	return nil
+}
+
+// validateCrates fail-fasts every crate: a chest with no loot source, an
+// unknown pool, or a loot_table that doesn't exist is a content bug.
+func validateCrates(lt *LootTablesConfig) error {
+	for key, c := range lt.Crates {
+		if c == nil {
+			return fmt.Errorf("crate %q is empty", key)
+		}
+		if c.LootTable != "" {
+			if _, ok := lt.WeightedLootTables[c.LootTable]; !ok {
+				return fmt.Errorf("crate %q: unknown loot_table %q", key, c.LootTable)
+			}
+			continue
+		}
+		if c.Rolls <= 0 {
+			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table)", key)
+		}
+		if len(c.RollSources) == 0 {
+			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
+		}
+		for i, src := range c.RollSources {
+			if err := validateCrateRollSource(key, "roll_sources", i, src, true); err != nil {
+				return err
+			}
+		}
+		for i, src := range c.SpecialRolls {
+			if err := validateCrateRollSource(key, "special_rolls", i, src, false); err != nil {
+				return err
+			}
+			if src.ChancePct < 1 || src.ChancePct > 100 {
+				return fmt.Errorf("crate %q special_rolls[%d]: chance_pct must be 1..100", key, i)
+			}
+		}
+	}
+	return nil
+}
+
+func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {
+	if requireWeight && src.Weight <= 0 {
+		return fmt.Errorf("crate %q %s[%d]: weight must be > 0", crate, sourceName, idx)
+	}
+	switch src.Pool {
+	case "map", "rare":
+		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
+			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+		}
+		return nil
+	case "catalog":
+		if src.ItemType == "" {
+			return fmt.Errorf("crate %q %s[%d]: catalog source needs item_type", crate, sourceName, idx)
+		}
+		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
+			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)
+		}
+		if !catalogItemFilterHasCandidates(src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity) {
+			return fmt.Errorf("crate %q %s[%d]: no catalog items match item_type=%q rarity=%q min_rarity=%q max_rarity=%q", crate, sourceName, idx, src.ItemType, src.Rarity, src.MinRarity, src.MaxRarity)
+		}
+		return nil
+	case "gold", "arena_points":
+		if src.Amount <= 0 {
+			return fmt.Errorf("crate %q %s[%d]: %s source needs a positive amount", crate, sourceName, idx, src.Pool)
+		}
+		return nil
+	default:
+		return fmt.Errorf("crate %q %s[%d]: pool must be \"map\", \"rare\", \"catalog\", \"gold\", or \"arena_points\"", crate, sourceName, idx)
+	}
+}
+
+func validRarityFilter(rarity string) bool {
+	switch rarity {
+	case "", "common", "uncommon", "rare", "legendary", "unique":
+		return true
+	default:
+		return false
+	}
+}
+
+func catalogItemFilterHasCandidates(itemType, rarity, minRarity, maxRarity string) bool {
+	if GlobalItems == nil {
+		return false
+	}
+	minTier := RarityTier(minRarity)
+	maxTier := RarityTier(maxRarity)
+	for _, def := range GlobalItems.Items {
+		if def == nil || def.Type != itemType {
+			continue
+		}
+		if rarity != "" && def.Rarity != rarity {
+			continue
+		}
+		if minTier > 0 && RarityTier(def.Rarity) < minTier {
+			continue
+		}
+		if maxRarity != "" && RarityTier(def.Rarity) > maxTier {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// RarityTier maps a rarity name to its ordinal (common/unset=0, uncommon=1,
+// rare=2, legendary=3, unique=4). THE single source of truth for rarity
+// ordering - every rarity gate (crate min/max filters, best-loot picks) uses
+// it, so a new tier is a one-place edit. Case-insensitive.
+func RarityTier(r string) int {
+	switch strings.ToLower(r) {
+	case "uncommon":
+		return 1
+	case "rare":
+		return 2
+	case "legendary":
+		return 3
+	case "unique":
+		return 4
+	default:
+		return 0
+	}
 }
 
 // GetWeightedLootTable returns a named weighted pool, ok=false if absent.
@@ -1500,7 +1811,10 @@ func GetSpellsBySchool(schoolKey string) []string {
 	}
 	var spells []string
 	for key, def := range GlobalSpells.Spells {
-		if def.School == schoolKey && !def.MonsterOnly {
+		if def.MonsterOnly {
+			continue
+		}
+		if def.School == schoolKey || slices.Contains(def.Schools, schoolKey) {
 			spells = append(spells, key)
 		}
 	}

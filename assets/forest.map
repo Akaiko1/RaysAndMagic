@@ -14,12 +14,12 @@
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%.@..T...T....T.PPPPP...T.....fffT....T.PPWQQQQQQ%  >[npc:mtrader0]
+%.@..T...T....T.PPPPP...T.....fffT....T.PPWQQQQQ@%  >[npc:mtrader0], [npc:chest_iron]
 %..........T......................T........WQQQQQ%
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%
 %..........T.CCCCCCl..T.........T.....T........WW%
-%tT.....T...CCCCCC.l..T.......T.....T...........@%  >[npc:seabright_gate]
+%tT.....T...CCCCCC@l..T.......T.....T...........@%  >[npc:chest_wooden], [npc:seabright_gate]
 %....T.......CCCCCC.....T.........T.....T........%
 %..........T.......T.....T.......T...............%
 %tT.....T.......T.....T.......T.....T............%
@@ -37,7 +37,7 @@
 %t.........T......TAWWWAT...T.......T............%
 %.T.....T.......T.TWWWWWT..MM...T...w.T....P.....%
 %....T.........TTTTWWWWWTf........T.w...T........%
-%t....ww...T....T..WW@WW.f..T.......T........P...%  >[npc:spell_trader_mage]
+%t....ww...T....T@.WW@WW.f..T.......T........P...%  >[npc:chest_iron], [npc:spell_trader_mage]
 %.T.....T.......TTTWWWWWTf......T..ww.T..........%
 %....T.........T..TWWWWWT...MM....Tww...T........%
 %t...M.....T......TAWWWAT...T.......T.......P....%
@@ -51,7 +51,7 @@
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
-%..P.T....P....T.....TgggPP....TFFFFFT...........%
+%..P.T....P....T.....TgggPP....T@FFFFT...........%  >[npc:chest_golden]
 T..P.......T.......T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
 T.P..T.Mggg....T..@..T........CCCCCC............R%  >[npc:tavern]
@@ -62,5 +62,5 @@ T......T...T.......CCCCCC.....CCCCCC.........P.nR%
 T.T.....TT......T..CCCCCC.....CCCCCC...........RR%
 TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
 TpFFp...FF.TM....................................%
-TTTTTTTTTT..T..TTP......PP......................@%  >[npc:abandoned_church]
+T@TTTTTTTT..T..TTP......PP......................@%  >[npc:spell_lectern], [npc:abandoned_church]
 TTTTTTTTTTTTTTTTTTTT%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

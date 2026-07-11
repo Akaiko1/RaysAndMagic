@@ -1648,6 +1648,56 @@ monsters:
     biomes: ["arena"]
     resistances: {}
 
+  dark_elf_sorceress:
+    name: "Dark Elf Sorceress"
+    type: human
+    champion: dark_elf_sorceress
+    level: 25
+    max_hit_points: 3000
+    armor_class: 12
+    perfect_dodge: 10
+    experience: 2600
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.9
+    gold_min: 0
+    gold_max: 0
+    sprite: dark_elf_sorceress
+    letter: "S"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    # Shadow-caster: shrugs off her own schools, holy weapons punish her.
+    resistances: { dark: 50, air: 40, light: -25 }
+
+  wild_druid:
+    name: "Wild Druid"
+    type: human
+    champion: wild_druid
+    level: 25
+    max_hit_points: 3000
+    armor_class: 20
+    perfect_dodge: 10
+    experience: 2600
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.5
+    gold_min: 0
+    gold_max: 0
+    sprite: druid_enemy
+    letter: "D"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    # Warden of root and rain: nature schools bounce off, fire burns through.
+    resistances: { earth: 50, water: 50, body: 30, fire: -25 }
+
 # Damage type mappings for resistances
 damage_types:
   physical: 0

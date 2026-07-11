@@ -18,6 +18,10 @@ type TimedCombatBuff struct {
 	OutDamageType string // empty/"all" applies to all damage; "physical" applies only to physical attacks
 	InReduce      int    // flat reduction of incoming damage (after ResistPct)
 	ResistPct     int    // % reduction of incoming damage (applied before InReduce)
+	// Per-school resistance (Fire Shield: fire +50): joins the party's gear and
+	// card resists in that school's mitigation slot, not the all-damage slot.
+	ResistSchool    string
+	ResistSchoolPct int
 }
 
 func (b TimedCombatBuff) buffSpellID() string { return b.SpellID }
@@ -77,6 +81,19 @@ func (g *MMGame) combatBuffResistPct() int {
 	return total
 }
 
+// combatBuffSchoolResistPct sums per-school resistance from active buffs
+// (Fire Shield) for the given damage school.
+func (g *MMGame) combatBuffSchoolResistPct(school string) int {
+	school = strings.ToLower(strings.TrimSpace(school))
+	total := 0
+	for i := range g.combatBuffs {
+		if strings.ToLower(strings.TrimSpace(g.combatBuffs[i].ResistSchool)) == school {
+			total += g.combatBuffs[i].ResistSchoolPct
+		}
+	}
+	return total
+}
+
 // combatBuffByID returns the active buff for a spell, if any (used by tests/UI).
 func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 	return buffByID(g.combatBuffs, spellID)
@@ -87,11 +104,12 @@ func (g *MMGame) combatBuffByID(spellID string) (TimedCombatBuff, bool) {
 // spell property re-derived from the spell definition on restore (SSoT), so it
 // can never drift from spells.yaml.
 type CombatBuffSave struct {
-	SpellID   string `json:"spell_id"`
-	Frames    int    `json:"frames"`
-	OutBonus  int    `json:"out_bonus,omitempty"`
-	InReduce  int    `json:"in_reduce,omitempty"`
-	ResistPct int    `json:"resist_pct,omitempty"`
+	SpellID         string `json:"spell_id"`
+	Frames          int    `json:"frames"`
+	OutBonus        int    `json:"out_bonus,omitempty"`
+	InReduce        int    `json:"in_reduce,omitempty"`
+	ResistPct       int    `json:"resist_pct,omitempty"`
+	ResistSchoolPct int    `json:"resist_school_pct,omitempty"` // school itself re-derived from spells.yaml
 }
 
 // buildCombatBuffSaves serializes the active buff list for saving.
@@ -101,7 +119,7 @@ func buildCombatBuffSaves(buffs []TimedCombatBuff) []CombatBuffSave {
 	}
 	out := make([]CombatBuffSave, len(buffs))
 	for i, b := range buffs {
-		out[i] = CombatBuffSave{b.SpellID, b.Frames, b.OutBonus, b.InReduce, b.ResistPct}
+		out[i] = CombatBuffSave{b.SpellID, b.Frames, b.OutBonus, b.InReduce, b.ResistPct, b.ResistSchoolPct}
 	}
 	return out
 }
@@ -114,17 +132,20 @@ func restoreCombatBuffs(saves []CombatBuffSave) []TimedCombatBuff {
 	out := make([]TimedCombatBuff, len(saves))
 	for i, s := range saves {
 		b := TimedCombatBuff{
-			SpellID:   s.SpellID,
-			Frames:    s.Frames,
-			OutBonus:  s.OutBonus,
-			InReduce:  s.InReduce,
-			ResistPct: s.ResistPct,
+			SpellID:         s.SpellID,
+			Frames:          s.Frames,
+			OutBonus:        s.OutBonus,
+			InReduce:        s.InReduce,
+			ResistPct:       s.ResistPct,
+			ResistSchoolPct: s.ResistSchoolPct,
 		}
-		// OutDamageType is static spell data, not run-state: re-derive from the
-		// spell definition so it can't drift from spells.yaml (a buff cast before
-		// a yaml edit would otherwise restore with the stale type).
+		// OutDamageType and the resist school are static spell data, not
+		// run-state: re-derive from the spell definition so they can't drift
+		// from spells.yaml (a buff cast before a yaml edit would otherwise
+		// restore with the stale type).
 		if def, err := spells.GetSpellDefinitionByID(spells.SpellID(s.SpellID)); err == nil {
 			b.OutDamageType = def.OutgoingDamageType
+			b.ResistSchool = def.ResistBuffSchool
 		}
 		out[i] = b
 	}

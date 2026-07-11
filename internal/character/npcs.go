@@ -4,11 +4,13 @@ import "ugataima/internal/items"
 
 type NPC struct {
 	X, Y             float64
+	Key              string // npcs.yaml key this NPC was created from
 	Name             string
 	Type             string
 	Description      string
 	Sprite           string
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
 	Transparent      bool
 	GroundTile       string // optional tile key to paint under the NPC (e.g. a portal stream)
 	SizeClass        string // shared size tier (person, etc.); wins over SizeTiles
@@ -24,7 +26,34 @@ type NPC struct {
 	DialogueData     *NPCDialogue
 	EncounterData    *NPCEncounter
 	Summons          []*NPCSummon
+	Lectern          *NPCLectern // spell-teaching book (loot-crate cousin); crate loot lives in loots.yaml
 	Visited          bool
+}
+
+// NPC type discriminators that carry behavior (the authored `type:` field).
+// One canonical spelling each - every consumer (validation, interaction
+// dispatch, render treatment, editor palette) references these, never a bare
+// literal, so a rename or a new walk-up prop is a single-site change.
+const (
+	NPCTypeLootCrate    = "loot_crate"
+	NPCTypeSpellLectern = "spell_lectern"
+)
+
+// IsWalkUpPropType reports whether a `type:` is a walk-up interactable prop
+// (chest, lectern): the party walks right onto its tile and uses it. These
+// share render treatment (no on-tile skip, no near-cull) and an immediate-use
+// interaction, distinct from person/scenery NPCs. Single source of truth for
+// that membership, shared by the game and the map editor.
+func IsWalkUpPropType(npcType string) bool {
+	return npcType == NPCTypeLootCrate || npcType == NPCTypeSpellLectern
+}
+
+// NPCLectern is a spell-teaching book (type "spell_lectern"): teaches Spell
+// (or a random spell from Pool) to the first party member with the school
+// open who doesn't know it. Not consumed when nobody can learn.
+type NPCLectern struct {
+	Spell string   `yaml:"spell,omitempty"`
+	Pool  []string `yaml:"pool,omitempty"`
 }
 
 type MerchantStockItem struct {

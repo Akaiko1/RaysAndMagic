@@ -30,23 +30,26 @@ func TestRTMonsterAttackCadence_KitingCannotBypassCooldown(t *testing.T) {
 	}
 
 	frames := cd * 5
-	hits := 0
+	attacks := 0
 	for i := 0; i < frames; i++ {
 		mob.State = monsterPkg.StateAttacking
 		mob.StateTimer = 1 // the exploit: every frame looks like a fresh attack entry
-		before := thief.HitPoints
+		before := mob.AttackCDFrames
 		g.combat.HandleMonsterInteractions()
-		if thief.HitPoints < before {
-			hits++
+		// An attack RESOLVED iff the cooldown was re-armed (jumped up). Counting
+		// by the victim's HP was flaky: the minotaur's random damage roll can be
+		// mitigated to zero, making a real attack invisible to an HP check.
+		if mob.AttackCDFrames > before {
+			attacks++
 		}
 	}
 
-	if hits == 0 {
-		t.Fatal("monster never landed a hit")
+	if attacks == 0 {
+		t.Fatal("monster never attacked")
 	}
-	// Capped at ~one hit per cooldown, not one per frame (the old bug -> ~frames hits).
-	if maxHits := frames/cd + 2; hits > maxHits {
-		t.Fatalf("monster hit %d times in %d frames (cd=%d) - kiting bypassed the cooldown; want <= %d",
-			hits, frames, cd, maxHits)
+	// Capped at ~one attack per cooldown, not one per frame (the old bug -> ~frames attacks).
+	if maxAttacks := frames/cd + 2; attacks > maxAttacks {
+		t.Fatalf("monster attacked %d times in %d frames (cd=%d) - kiting bypassed the cooldown; want <= %d",
+			attacks, frames, cd, maxAttacks)
 	}
 }

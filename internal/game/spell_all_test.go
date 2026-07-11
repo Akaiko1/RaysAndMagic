@@ -8,6 +8,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 // TestEverySpell_CastsAndApplies casts EVERY spell in spells.yaml through the
@@ -55,6 +56,20 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 
 			// Scene prep per effect class.
 			switch {
+			case def.TownPortal:
+				// A destination must be known or the cast refunds itself.
+				game.visitedTavernMaps = map[string]bool{"forest": true}
+			case def.OutdoorOnly:
+				// The sky-variant check stats assets/ relative to the repo root.
+				t.Chdir("../..")
+				// Fly is gated to open-sky maps: point the world manager at a
+				// map whose sky ships day/night variants (arena_panorama_*).
+				prev := world.GlobalWorldManager
+				world.GlobalWorldManager = &world.WorldManager{
+					MapConfigs:    map[string]*config.MapConfig{"arena": {SkyTexture: "arena_panorama"}},
+					CurrentMapKey: "arena",
+				}
+				t.Cleanup(func() { world.GlobalWorldManager = prev })
 			case def.ReviveHpPct > 0 || def.Revive: // raise_dead / resurrect
 				ally.MaxHitPoints, ally.HitPoints = 40, 0
 				ally.AddCondition(character.ConditionDead)
@@ -104,7 +119,7 @@ func TestEverySpell_CastsAndApplies(t *testing.T) {
 				if len(game.steamZones) == 0 {
 					t.Errorf("no damage zone created")
 				}
-			case def.PartyAoeRadiusTiles > 0:
+			case def.PartyAoeRadiusTiles > 0 || def.MapWide:
 				if mon.HitPoints >= 500 {
 					t.Errorf("party-nova did not damage the monster")
 				}

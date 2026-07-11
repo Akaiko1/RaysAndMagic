@@ -311,6 +311,12 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 		for _, ln := range def.ResistLines() {
 			effects.Add("%s", ln)
 		}
+		if ln := def.PartyArmorLine(); ln != "" {
+			effects.Add("%s", ln)
+		}
+		for _, ln := range def.SetLines() {
+			effects.Add("%s", ln)
+		}
 	}
 	if totalAC > 0 && cs != nil && char != nil {
 		phys := cs.armorMitigationPct(char, true)

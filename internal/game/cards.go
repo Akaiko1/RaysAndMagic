@@ -426,6 +426,18 @@ func (g *MMGame) cardBonusBoltPct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardBonusBoltPct })
 }
 
+// cardBonusBoltLabel is the chat name for a bonus-bolt proc: the authored label
+// of the first collected card that grants the bonus (so the credit follows the
+// card, not a hardcoded name). Falls back to a generic label.
+func (g *MMGame) cardBonusBoltLabel() string {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardBonusBoltPct > 0 && def.CardBonusBoltLabel != "" {
+			return def.CardBonusBoltLabel
+		}
+	}
+	return "Bonus Bolt"
+}
+
 func (g *MMGame) cardVolleyBonusPct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardVolleyBonusPct })
 }

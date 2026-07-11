@@ -884,20 +884,68 @@ func (c *MMCharacter) LearnSpell(spellID spells.SpellID) bool {
 	if err != nil {
 		return false
 	}
+	// Dual-school spells (Town Portal: earth AND air) file into whichever of
+	// their schools the learner already has open, so learning through Air
+	// never silently opens Earth. Single-school spells keep the old behavior
+	// (open the school at Novice if absent).
 	school := MagicSchoolID(def.School)
+	for _, s := range def.SchoolList() {
+		if c.MagicSchools[MagicSchoolID(s)] != nil {
+			school = MagicSchoolID(s)
+			break
+		}
+	}
 	if c.MagicSchools[school] == nil {
 		c.MagicSchools[school] = &MagicSkill{
 			Mastery:     MasteryNovice,
 			KnownSpells: make([]spells.SpellID, 0),
 		}
 	}
-	for _, existing := range c.MagicSchools[school].KnownSpells {
-		if existing == spellID {
-			return false
+	// Already known under ANY of its schools counts as known.
+	for _, s := range def.SchoolList() {
+		if ms := c.MagicSchools[MagicSchoolID(s)]; ms != nil {
+			for _, existing := range ms.KnownSpells {
+				if existing == spellID {
+					return false
+				}
+			}
 		}
 	}
 	c.MagicSchools[school].KnownSpells = append(c.MagicSchools[school].KnownSpells, spellID)
 	return true
+}
+
+// KnowsSpell reports whether the spell is filed under any of its schools.
+func (c *MMCharacter) KnowsSpell(spellID spells.SpellID) bool {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return false
+	}
+	for _, s := range def.SchoolList() {
+		if ms := c.MagicSchools[MagicSchoolID(s)]; ms != nil {
+			for _, existing := range ms.KnownSpells {
+				if existing == spellID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// HasSchoolOpenFor reports whether the character has ANY of the spell's
+// schools open (the lectern/dual-school learn gate).
+func (c *MMCharacter) HasSchoolOpenFor(spellID spells.SpellID) bool {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return false
+	}
+	for _, s := range def.SchoolList() {
+		if c.MagicSchools[MagicSchoolID(s)] != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *MMCharacter) GetSpellsForSchool(school MagicSchoolID) []spells.SpellID {
@@ -918,6 +966,11 @@ func (c *MMCharacter) CanEquipWeaponByName(weaponName string) bool {
 
 	if weaponDef.Category == "blaster" && c.HasAnyWeaponSkill() {
 		return true // universally usable - but not for a class trained in NO weapon at all
+	}
+	// Personality-gated weapons (Lanista's Scepter): force of presence replaces
+	// weapon training entirely.
+	if weaponDef.EquipPersonalityMin > 0 && c.GetEffectivePersonality() >= weaponDef.EquipPersonalityMin {
+		return true
 	}
 	requiredSkill, ok := WeaponSkillForCategory(weaponDef.Category)
 	if !ok {
@@ -1194,7 +1247,62 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 			luckBonus += bonus
 		}
 	}
+	// Armor-set bonuses: this loop is the only place that sees the whole
+	// equipped kit together, so completed sets add their bonuses here.
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		mightBonus += set.BonusMight
+		intellectBonus += set.BonusIntellect
+		personalityBonus += set.BonusPersonality
+		enduranceBonus += set.BonusEndurance
+		accuracyBonus += set.BonusAccuracy
+		speedBonus += set.BonusSpeed
+		luckBonus += set.BonusLuck
+	})
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
+}
+
+// forEachCompletedSet visits every armor set whose pieces_required is met by
+// the equipped items. Zero allocations on purpose: this runs inside
+// calculateEquipmentBonuses, i.e. inside EVERY effective-stat read. Each set
+// is visited once - counted at its lowest-slot piece (the "owner"); the inner
+// rescan is bounded by the handful of equipment slots.
+func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
+	for slot, it := range c.Equipment {
+		if it.Set == "" {
+			continue
+		}
+		owner := true
+		count := 0
+		for slot2, it2 := range c.Equipment {
+			if it2.Set != it.Set {
+				continue
+			}
+			if slot2 < slot {
+				owner = false
+				break
+			}
+			count++
+		}
+		if !owner {
+			continue
+		}
+		if set := config.GetItemSet(it.Set); set != nil && count >= set.PiecesRequired {
+			fn(set)
+		}
+	}
+}
+
+// SetStunDurationPct sums stun-duration shifts from completed armor sets
+// (padded quilt: -50 halves stuns suffered by the wearer). Clamped at -90.
+func (c *MMCharacter) SetStunDurationPct() int {
+	total := 0
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		total += set.StunDurationPct
+	})
+	if total < -90 {
+		total = -90
+	}
+	return total
 }
 
 // GearResistPct sums the character's % resistance to a damage school from equipped gear.

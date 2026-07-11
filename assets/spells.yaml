@@ -730,16 +730,16 @@ spells:
 
   inferno:
     name: "Inferno"
-    description: "Engulfs everything around the party in flame - friend and foe alike take heavy fire damage"
+    description: "Sets the whole battlefield ablaze - every monster on the map AND the party take heavy fire damage"
     school: "fire"
     level: 7
-    spell_points_cost: 15       # 45 damage (cost x 3) to all in radius, including the party
+    spell_points_cost: 15       # 45 damage (cost x 3) to every monster on the map, and the party
     cooldown_seconds: 3.0
     duration: 0
     is_projectile: false
     is_utility: true
-    party_aoe_radius_tiles: 7.0
-    message: "Inferno erupts in a ring of fire!"
+    map_wide: true              # no radius: burns the entire current map, party included (fire resist is the answer)
+    message: "Inferno sweeps the whole battlefield!"
 
   starburst:
     name: "Starburst"
@@ -780,6 +780,80 @@ spells:
     zone_tick_seconds: 3.0     # RT cadence (TB ticks once per turn)
     status_icon: "hot_steam"
     message: "Scalding steam billows around the party!"
+
+  # ===========================================================================
+  # NEW SPELLS - batch 4 (taught ONLY by spell lecterns, never sold in shops)
+  # ===========================================================================
+
+  fly:
+    name: "Fly"
+    description: "The party takes wing: walk through anything but the map's edge. Only under an open sky."
+    school: "air"
+    level: 5
+    spell_points_cost: 12
+    cooldown_seconds: 3.0
+    duration: 120              # 2 minutes
+    is_projectile: false
+    is_utility: true
+    fly: true                  # pass through all non-edge tiles; the tile you occupy turns transparent from inside
+    outdoor_only: true         # castable only on maps with a day/night sky (never in dungeons)
+    status_icon: "fly"
+    message: "The party rises on unseen wings!"
+
+  town_portal:
+    name: "Town Portal"
+    description: "Opens a portal to any tavern the party has ever visited"
+    school: "earth"
+    schools: [earth, air]      # dual-school: lives in BOTH spellbooks, either school can learn it
+    level: 4
+    spell_points_cost: 20
+    cooldown_seconds: 5.0
+    duration: 0
+    is_projectile: false
+    is_utility: true
+    town_portal: true          # opens the visited-tavern picker
+    message: "A portal shimmers open!"
+
+  fire_shield:
+    name: "Fire Shield"
+    description: "Wreathes the party in tame flame: +50 Fire resistance for all"
+    school: "fire"
+    level: 4
+    spell_points_cost: 10
+    cooldown_seconds: 5.0
+    duration: 300              # 5 minutes
+    is_projectile: false
+    is_utility: true
+    resist_buff_school: "fire"
+    resist_buff_school_pct: 50
+    status_icon: "fire_shield"
+    message: "Flames curl around the party without burning!"
+
+  stone_blossom:
+    name: "Stone Blossom"
+    description: "Lobs a granite bud in a high arc; it lands 7 tiles out and blooms - crushing and stunning everything nearby"
+    school: "earth"
+    level: 5
+    spell_points_cost: 20      # 60 damage (cost x 3) across the bloom
+    cooldown_seconds: 3.0
+    duration: 0
+    projectile_size: 14
+    is_projectile: true
+    is_utility: false
+    mortar_range_tiles: 7      # ballistic: ignores everything in flight, detonates exactly here (or at the wall that cuts the arc short)
+    aoe_radius_tiles: 3.0
+    stun_chance: 1.0           # the bloom stuns like Darkness does
+    stun_duration_seconds: 5
+    stun_duration_turns: 3
+    physics:
+      speed_tiles: 9.0
+      range_tiles: 7.0
+      collision_size_tiles: 2.0
+    graphics:
+      max_size: 48
+      min_size: 4
+      base_size: 16
+      color: [150, 190, 130]   # mossy granite-green
 
 # =============================================================================
 # SPELL ADDING INSTRUCTIONS

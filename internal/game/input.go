@@ -125,7 +125,7 @@ func (ih *InputHandler) HandleInput() {
 	// Revival potion target picker: clicks are consumed inside the popup's
 	// own Draw call (it lives in ui_dialogs.go). Just suppress gameplay input
 	// so the player can't move/attack/cast while choosing a revive target.
-	if ih.game.revivalPickerOpen || ih.game.healPickerOpen {
+	if ih.game.revivalPickerOpen || ih.game.healPickerOpen || ih.game.townPortalPickerOpen {
 		return
 	}
 
@@ -283,12 +283,16 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 	g.dayNightDay = 0
 	g.arenaTierFoughtDay = nil
 	g.playthroughID = mintPlaythroughID()
+	// Town Portal knows only THIS run's taverns.
+	g.visitedTavernMaps = nil
+	g.townPortalPickerOpen = false
 	g.cancelSkyFade()
 
 	// Clear combat/projectile state (shared cleaner: also unregisters
 	// projectile collision entities and drops impact lights)
 	g.clearTransientCombatState()
 	g.groundContainers = g.groundContainers[:0]
+	g.invalidateContainerFanCache()
 	g.traps = nil
 	g.combatLogHistory = g.combatLogHistory[:0]
 	g.combatLogVersion++
@@ -369,6 +373,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		}
 		g.world = wm.GetCurrentWorld()
 	}
+	g.registerVisitedTavern() // the fresh run's start map may host a tavern (Town Portal)
 
 	// Move player to start position (fallback to nearest walkable tile if map has no '+')
 	if currentWorld := g.GetCurrentWorld(); currentWorld != nil {
@@ -1395,6 +1400,14 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	// Update world reference and collision system
 	oldWorld := ih.game.world
 	ih.game.world = ih.game.GetCurrentWorld()
+	ih.game.registerVisitedTavern() // Town Portal learns this map's tavern
+	ih.game.dropFlyWithoutOpenSky() // wings fade indoors (dungeons have no sky)
+	// Sync the new world's Fly flag to the party NOW (not next frame): it may
+	// carry a stale flyActive from a previous visit, which would make walls read
+	// as passable to anything querying it before the frame's buff sync runs.
+	if ih.game.world != nil {
+		ih.game.world.SetFlyActive(ih.game.flyActive)
+	}
 	ih.game.clearTransientCombatState()
 	if ih.game.collisionSystem != nil {
 		ih.game.collisionSystem.UpdateTileChecker(ih.game.world)
@@ -1799,6 +1812,15 @@ func (ih *InputHandler) openNPCInteraction(npc *character.NPC) {
 	// giver" - other quest givers (e.g. the Dragon Cliffs hermits) are unaffected.
 	if npc.RejectsLich && ih.game.party.HasLich() {
 		ih.game.AddCombatMessage("The tower's wards flare against the undead - it will not answer a Lich.")
+		return
+	}
+	// Immediate-use world objects: no dialog opens - interacting IS the effect.
+	if npc.Type == character.NPCTypeLootCrate {
+		ih.game.useLootCrate(npc)
+		return
+	}
+	if npc.Type == character.NPCTypeSpellLectern {
+		ih.game.useSpellLectern(npc)
 		return
 	}
 	// Credit any of this NPC's kill quests whose targets are already gone, so the
@@ -2784,6 +2806,12 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "tavern_rest":
 		ih.handleTavernRest(choice)
 
+	case "wait_until_night":
+		ih.handleArenaWait(choice, true)
+
+	case "wait_until_dawn":
+		ih.handleArenaWait(choice, false)
+
 	case "buy_food":
 		ih.handleBuyFood(choice)
 
@@ -3101,6 +3129,26 @@ func (ih *InputHandler) handleTavernRest(choice *character.NPCDialogueChoice) {
 	g.dialogActive = false
 	g.dialogNPC = nil
 	g.AddCombatMessage(fmt.Sprintf("The party sleeps soundly (-%d gold). HP and spell points restored.", choice.Cost))
+}
+
+// handleArenaWait dozes on the arena bones until the next nightfall or dawn
+// for Cost gold: the day/night clock jumps to that phase (packs, panorama and
+// the per-tier duel lockout all flip with it). No rest - just time passing.
+func (ih *InputHandler) handleArenaWait(choice *character.NPCDialogueChoice, night bool) {
+	g := ih.game
+	if g.party.Gold < choice.Cost {
+		g.AddCombatMessage(fmt.Sprintf("The pit crew charges %d gold for an undisturbed doze - you cannot afford it.", choice.Cost))
+		return
+	}
+	g.party.Gold -= choice.Cost
+	g.advanceDayNightToPhase(night)
+	g.dialogActive = false
+	g.dialogNPC = nil
+	if night {
+		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until the stars come out (-%d gold).", choice.Cost))
+	} else {
+		g.AddCombatMessage(fmt.Sprintf("You doze among the old bones until first light (-%d gold).", choice.Cost))
+	}
 }
 
 // handleBuyFood sells Amount food for Cost gold; the dialog stays open so the

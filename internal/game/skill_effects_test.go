@@ -39,6 +39,15 @@ func TestSkillTooltips_UseRealConstants(t *testing.T) {
 	}
 }
 
+func TestDisarmTrapTooltipMatchesChestMechanic(t *testing.T) {
+	tip := masteryTooltipTextForSkill(character.SkillDisarmTrap)
+	for _, want := range []string{"best active user", "40/60/80/100%", "0/1/2/3"} {
+		if !strings.Contains(tip, want) {
+			t.Errorf("Disarm Trap tooltip %q should contain %q", tip, want)
+		}
+	}
+}
+
 // TestSpeedTooltip_NoTurnBasedLie: Speed grants party-wide turn-based bonus
 // action slots, so its tooltip must not claim it has no turn-based effect.
 func TestSpeedTooltip_NoTurnBasedLie(t *testing.T) {

@@ -617,6 +617,81 @@ loots:
       key: "orc_warlord_card"
       chance: 0.03
 
+# Loot crates (chests placed via @ on any map), keyed by their npcs.yaml NPC
+# key. Loot rules live HERE with all other loot. Per crate: either a
+# loot_table (authored treasure) or rolls over a pool - "map" draws from the
+# drop tables of the monster kinds on the current map (min_rarity filters low
+# tiers), "rare" draws catalog rares with a legendary_pct upgrade chance
+# (quest items and arena uniques never roll; cards are ordinary loot).
+# trap_damage = flat party blast,
+# trap_ignite = party burn for trap_ignite_seconds; Disarm Trap mastery avoids
+# either entirely at 40/60/80/100%.
+crates:
+  chest_wooden:
+    rolls: 3
+    roll_sources:
+      - pool: "map"
+        max_rarity: "uncommon"
+        weight: 70
+      - pool: "catalog"
+        item_type: "consumable"
+        weight: 20
+      - pool: "catalog"
+        item_type: "armor"
+        rarity: "common"
+        weight: 10
+    special_rolls:
+      # These replace one of the three normal slots, never add a fourth item.
+      # Map rarity is exact, so neither tier can leak from the global catalog.
+      - pool: "map"
+        rarity: "rare"
+        chance_pct: 7
+      - pool: "map"
+        rarity: "legendary"
+        chance_pct: 3
+      - pool: "gold"
+        amount: 1000
+        chance_pct: 5
+  chest_iron:
+    rolls: 3
+    roll_sources:
+      - pool: "map"
+        min_rarity: "uncommon"
+        max_rarity: "uncommon"
+        weight: 60
+      - pool: "catalog"
+        item_type: "accessory"
+        rarity: "uncommon"
+        weight: 20
+      - pool: "catalog"
+        item_type: "armor"
+        rarity: "uncommon"
+        weight: 20
+    special_rolls:
+      - pool: "map"
+        rarity: "rare"
+        chance_pct: 25
+      - pool: "map"
+        rarity: "legendary"
+        chance_pct: 5
+      - pool: "gold"
+        amount: 1500
+        chance_pct: 5
+    trap_ignite: true
+    trap_ignite_seconds: 10
+  chest_golden:
+    rolls: 3
+    roll_sources:
+      # Every roll is a catalog rare, upgraded to a legendary at legendary_pct.
+      - pool: "rare"
+        legendary_pct: 15
+        weight: 1
+    special_rolls:
+      - pool: "arena_points"
+        amount: 5000
+        chance_pct: 5
+    trap_damage: 150
+
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
 loot_tables:

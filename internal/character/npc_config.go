@@ -23,7 +23,8 @@ type NPCData struct {
 	Type             string               `yaml:"type"`
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
-	RenderCategory   string               `yaml:"render_category"` // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	RenderCategory   string               `yaml:"render_category"`       // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string               `yaml:"prompt_verb,omitempty"` // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
 	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
@@ -49,6 +50,9 @@ type NPCData struct {
 	StockWeaponsCost   int           `yaml:"stock_weapons_cost,omitempty"`
 	Encounter          *NPCEncounter `yaml:"encounter,omitempty"`
 	Summons            []*NPCSummon  `yaml:"summons,omitempty"`
+	// Lectern (type "spell_lectern") behavior block. Loot-crate behavior lives
+	// in loots.yaml `crates:` keyed by the NPC key.
+	Lectern *NPCLectern `yaml:"lectern,omitempty"`
 }
 
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
@@ -184,6 +188,43 @@ func LoadNPCConfig(filename string) error {
 			return fmt.Errorf("NPC %q: stock_weapons_rarity needs a positive stock_weapons_cost", key)
 		}
 	}
+	if err := validateCratesAndLecterns(&config); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateCratesAndLecterns fail-fasts crate/lectern content: a chest with no
+// loot source or a book naming an unknown spell is a content bug, not a
+// runtime surprise. Spells must already be loaded (boot order).
+func validateCratesAndLecterns(cfg *NPCConfig) error {
+	for key, npc := range cfg.NPCs {
+		if npc == nil {
+			continue
+		}
+		switch npc.Type {
+		case NPCTypeLootCrate:
+			// Crate loot lives in loots.yaml `crates:`; when the loot config is
+			// loaded (boot order guarantees it; isolated tests may skip it), a
+			// crate NPC without an entry is a content bug.
+			if config.GlobalLoots != nil && config.GetCrateConfig(key) == nil {
+				return fmt.Errorf("NPC %q: type loot_crate has no loots.yaml crates: entry", key)
+			}
+		case NPCTypeSpellLectern:
+			l := npc.Lectern
+			if l == nil || (l.Spell == "" && len(l.Pool) == 0) {
+				return fmt.Errorf("NPC %q: type spell_lectern requires lectern.spell or lectern.pool", key)
+			}
+			for _, id := range append([]string{l.Spell}, l.Pool...) {
+				if id == "" {
+					continue
+				}
+				if _, ok := config.GetSpellDefinition(id); !ok {
+					return fmt.Errorf("NPC %q: lectern spell %q is not defined in spells.yaml", key, id)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -202,6 +243,10 @@ func validatePricedChoices() error {
 			case "tavern_rest":
 				if c.Cost <= 0 {
 					return fmt.Errorf("npc %q: tavern_rest choice requires cost > 0", npcKey)
+				}
+			case "wait_until_night", "wait_until_dawn":
+				if c.Cost <= 0 {
+					return fmt.Errorf("npc %q: %s choice requires cost > 0", npcKey, c.Action)
 				}
 			case "buy_food":
 				if c.Cost <= 0 || c.Amount <= 0 {
@@ -286,11 +331,13 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 	npc := &NPC{
 		X:                x,
 		Y:                y,
+		Key:              key,
 		Name:             data.Name,
 		Type:             data.Type,
 		Description:      data.Description,
 		Sprite:           data.Sprite,
 		RenderCategory:   data.RenderCategory,
+		PromptVerb:       data.PromptVerb,
 		Transparent:      data.Transparent,
 		GroundTile:       data.GroundTile,
 		SizeClass:        data.SizeClass,
@@ -301,6 +348,7 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
+		Lectern:          data.Lectern,
 	}
 
 	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an

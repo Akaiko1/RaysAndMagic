@@ -23,7 +23,7 @@ const (
 	//   Bodybuilding -> +Max HP, Meditation -> faster mana regen,
 	//   Learning -> +% XP gained, ArmsMaster -> +weapon damage,
 	//   Merchant -> better buy/sell prices,
-	//   DisarmTrap -> PLACEHOLDER incoming-damage reduction (see TODO below).
+	//   DisarmTrap -> chest-trap disarm chance + personal flat damage reduction.
 	SkillBodybuilding
 	SkillMeditation
 	SkillMerchant
@@ -33,8 +33,8 @@ const (
 	// SkillIdentifyItem: no effect yet. TODO: implement unidentified loot (dropped
 	// items start with hidden stats until a party member with Identify inspects).
 	SkillIdentifyItem
-	// SkillDisarmTrap: currently a placeholder damage reduction. TODO: implement
-	// trap special-tiles on maps that a DisarmTrap check defuses.
+	// SkillDisarmTrap: the party's best active user can disarm chest traps; each
+	// trained character also gains personal flat damage reduction.
 	SkillDisarmTrap
 	SkillLearning
 	SkillArmsMaster

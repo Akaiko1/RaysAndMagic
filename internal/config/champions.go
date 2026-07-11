@@ -31,12 +31,43 @@ type ChampionDefinition struct {
 	Skills    []string            `yaml:"skills"`           // skill keys; mastery comes from the tier
 	Equipment map[string][]string `yaml:"equipment"`        // tier -> weapon/item keys; first weapon is main hand
 	Ranged    bool                `yaml:"ranged,omitempty"` // fires its main-hand weapon as a projectile
+
+	// Spellcasting: the champion knows every spell of SpellSchools (school
+	// mastery = the tier's mastery, mirroring weapon skills) and with
+	// SpellCastChance per attack casts a random NON-utility spell from those
+	// schools (plus ExtraSpells) at the party through the real player spell
+	// pipeline. OpeningSpell (e.g. stone_skin) is cast once as the champion's
+	// first action on the tiers listed in OpeningSpellTiers (empty = all).
+	SpellSchools      []string `yaml:"spell_schools,omitempty"`
+	SpellCastChance   float64  `yaml:"spell_cast_chance,omitempty"`
+	ExtraSpells       []string `yaml:"extra_spells,omitempty"`
+	OpeningSpell      string   `yaml:"opening_spell,omitempty"`
+	OpeningSpellTiers []string `yaml:"opening_spell_tiers,omitempty"`
 }
 
 // ChampionSystemConfig is the full champions.yaml document.
 type ChampionSystemConfig struct {
 	Tiers     map[string]*ChampionTier       `yaml:"tiers"`
 	Champions map[string]*ChampionDefinition `yaml:"champions"`
+	// SetDrops: the champion trophy ladder, IN AUTHORED ORDER - every piece of
+	// every listed set rolls in turn at its set's percent, and the first
+	// success ends the rolling (one piece max per kill). A list, not a map:
+	// the roll order is gameplay data and must be author-controlled.
+	SetDrops []ChampionSetDrop `yaml:"set_drops,omitempty"`
+}
+
+// ChampionSetDrop is one rung of the trophy ladder.
+type ChampionSetDrop struct {
+	Set string `yaml:"set"`
+	Pct int    `yaml:"pct"`
+}
+
+// ChampionSetDrops returns the trophy ladder in authored order.
+func ChampionSetDrops() []ChampionSetDrop {
+	if GlobalChampionConfig == nil {
+		return nil
+	}
+	return GlobalChampionConfig.SetDrops
 }
 
 // ChampionDefaultTier is the tier assumed when a champion mob carries no
@@ -116,6 +147,19 @@ func validateChampionConfig(cfg *ChampionSystemConfig) error {
 	}
 	if cfg.Tiers[ChampionDefaultTier] == nil {
 		return fmt.Errorf("champion tiers must include %q (the default for tierless spawns)", ChampionDefaultTier)
+	}
+	for _, drop := range cfg.SetDrops {
+		if drop.Set == "" {
+			return fmt.Errorf("champion set_drops: every entry needs a set key")
+		}
+		if drop.Pct <= 0 || drop.Pct > 100 {
+			return fmt.Errorf("champion set_drops %q: pct must be in (0,100], got %d", drop.Set, drop.Pct)
+		}
+		// Set keys are validated against items.yaml at boot when both configs
+		// are loaded (isolated tests may load champions alone).
+		if GlobalItems != nil && GetItemSet(drop.Set) == nil {
+			return fmt.Errorf("champion set_drops references unknown item set %q", drop.Set)
+		}
 	}
 	for name, t := range cfg.Tiers {
 		if t == nil || t.Level <= 0 || t.Mastery == "" || t.HP <= 0 {

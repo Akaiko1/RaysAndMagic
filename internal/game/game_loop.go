@@ -108,7 +108,7 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.advanceViewTurn()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.townPortalPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 
@@ -714,14 +714,17 @@ func (gl *GameLoop) updateSpecialEffects() {
 	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
 	gl.updateSteamZonesRT()
+	// Stone Blossom mortars in flight (detonate on landing; flies in RT and TB).
+	gl.game.tickPendingMortars()
 	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.
 	gl.updateTraps()
 
-	// Walk-on-water / water-breathing drive world flags every frame.
+	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
+		gl.game.world.SetFlyActive(gl.game.flyActive)
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
@@ -760,6 +763,11 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
 		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
+		{"fly", &g.flyActive, &g.flyDuration, func() {
+			// Fly let the party pass through walls; if it lapses while they hover
+			// inside solid terrain, surface them or movement stays wall-locked.
+			g.ejectFromWallAfterFly()
+		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
 			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {

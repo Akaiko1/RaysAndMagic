@@ -62,19 +62,49 @@ type SpellDefinition struct {
 	StunChance            float64 // Psychic Shock: chance to stun the struck monster on hit
 	// Party-centered instant nova (Inferno): damages all monsters AND the party in radius.
 	PartyAoeRadiusTiles float64
+	// MapWide (Inferno rework): the nova burns EVERY monster on the map AND the party.
+	MapWide bool
 	// Persistent damage zone (Hot Steam).
 	StarburstFx     bool
 	ZoneRadiusTiles float64
 	ZoneTickDamage  int
 	ZoneTickSeconds float64
+	// Per-school party resist buff (Fire Shield).
+	ResistBuffSchool    string
+	ResistBuffSchoolPct int
+	// Mortar (Stone Blossom): no collisions in flight, detonates at a fixed distance.
+	MortarRangeTiles float64
 	// Effect configuration
-	HealAmount        int     // For healing spells
-	VisionRadiusTiles float64 // vision spells: torch glow / wizard-eye radar radius (tiles)
-	TargetSelf        bool    // Whether spell targets self or others
-	Awaken            bool    // For awaken spell
-	WaterWalk         bool    // For water walking spell
-	WaterBreathing    bool    // For water breathing spell
-	Message           string  // Effect message to display
+	Schools           []string // every school the spell belongs to (dual-school); empty = just School
+	HealAmount        int      // For healing spells
+	VisionRadiusTiles float64  // vision spells: torch glow / wizard-eye radar radius (tiles)
+	TargetSelf        bool     // Whether spell targets self or others
+	Awaken            bool     // For awaken spell
+	WaterWalk         bool     // For water walking spell
+	WaterBreathing    bool     // For water breathing spell
+	Fly               bool     // Fly: walk through non-border tiles
+	OutdoorOnly       bool     // castable only under a day/night sky
+	TownPortal        bool     // opens the visited-tavern picker
+	Message           string   // Effect message to display
+}
+
+// SchoolList returns every school the spell belongs to: Schools when authored,
+// else the single School. The ONE place dual-school membership is resolved.
+func (d SpellDefinition) SchoolList() []string {
+	if len(d.Schools) > 0 {
+		return d.Schools
+	}
+	return []string{d.School}
+}
+
+// BelongsToSchool reports whether the spell is a member of the given school key.
+func (d SpellDefinition) BelongsToSchool(school string) bool {
+	for _, s := range d.SchoolList() {
+		if s == school {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSpellDefinitionByID retrieves spell definition from YAML config
@@ -125,17 +155,25 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		HealParty:                          configDef.HealParty,
 		StunChance:                         configDef.StunChance,
 		PartyAoeRadiusTiles:                configDef.PartyAoeRadiusTiles,
+		MapWide:                            configDef.MapWide,
 		StarburstFx:                        configDef.StarburstFx,
 		ZoneRadiusTiles:                    configDef.ZoneRadiusTiles,
 		ZoneTickDamage:                     configDef.ZoneTickDamage,
 		ZoneTickSeconds:                    configDef.ZoneTickSeconds,
+		ResistBuffSchool:                   configDef.ResistBuffSchool,
+		ResistBuffSchoolPct:                configDef.ResistBuffSchoolPct,
+		MortarRangeTiles:                   configDef.MortarRangeTiles,
 		// Effect configuration from YAML
+		Schools:           configDef.Schools,
 		HealAmount:        configDef.HealAmount,
 		VisionRadiusTiles: configDef.VisionRadiusTiles,
 		TargetSelf:        configDef.TargetSelf,
 		Awaken:            configDef.Awaken,
 		WaterWalk:         configDef.WaterWalk,
 		WaterBreathing:    configDef.WaterBreathing,
+		Fly:               configDef.Fly,
+		OutdoorOnly:       configDef.OutdoorOnly,
+		TownPortal:        configDef.TownPortal,
 		Message:           configDef.Message,
 	}, nil
 }
@@ -151,6 +189,7 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunRadiusTiles > 0 ||
 		d.ZoneRadiusTiles > 0 ||
 		d.PartyAoeRadiusTiles > 0 ||
+		d.MapWide ||
 		d.BindUndead ||
 		d.Pacify ||
 		d.DisintegrateChance > 0 ||
@@ -193,6 +232,25 @@ func (d SpellDefinition) EffectLines() []string {
 	}
 	if d.PartyAoeRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
+	}
+	if d.MapWide {
+		out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage - your party too", d.SpellPointsCost*SpellDamagePerSP))
+	}
+	if d.MortarRangeTiles > 0 {
+		out = append(out, fmt.Sprintf("Arcs over everything and blooms exactly %.0f tiles out", d.MortarRangeTiles))
+	}
+	if d.Fly {
+		out = append(out, "The party walks through anything but the map's edge")
+	}
+	if d.OutdoorOnly {
+		out = append(out, "Only under an open sky (never in dungeons)")
+	}
+	if d.TownPortal {
+		out = append(out, "Opens a portal to any tavern the party has visited")
+	}
+	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+		out = append(out, fmt.Sprintf("Party resists %s +%d%% for the duration",
+			strings.ToUpper(d.ResistBuffSchool[:1])+d.ResistBuffSchool[1:], d.ResistBuffSchoolPct))
 	}
 	if d.ZoneRadiusTiles > 0 {
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE

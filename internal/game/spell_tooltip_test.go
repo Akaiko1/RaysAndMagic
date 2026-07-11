@@ -50,7 +50,11 @@ func TestSpellTooltipMechanics_Complete(t *testing.T) {
 		{"psychic_shock", "Personality ("}, // self-magic school -> Personality
 		{"hot_steam", "Intellect ("},
 		{"heal", "Personality ("},
-		{"inferno", "within 7.0 tiles for 45 damage"},
+		{"inferno", "Burns EVERY monster on the map for 45 damage"},
+		{"fly", "Only under an open sky"},
+		{"town_portal", "any tavern the party has visited"},
+		{"fire_shield", "Party resists Fire +50%"},
+		{"stone_blossom", "blooms exactly 7 tiles out"},
 		{"raise_dead", "Revives a fallen ally to 25% HP"},
 		{"resurrect", "full HP"},
 		{"mass_heal", "Heals the entire party"},

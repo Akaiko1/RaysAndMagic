@@ -354,7 +354,7 @@ func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, elemen
 	}
 	// Trap damage runs the same armor->resist path as any hit: armor mitigates by
 	// element (physical fully, elemental on the reduced cap), then resistances.
-	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
+	dmg = applyMonsterArmor(dmg, element, m.EffectiveArmorClass(), false)
 	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
 	actual += cs.applyPhysConversionShares(m, convShares, false)
 	cs.markMonsterHit(m)

@@ -162,6 +162,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.healPickerOpen {
 		ui.drawHealPickerPopup(screen)
 	}
+	if ui.game.townPortalPickerOpen {
+		ui.drawTownPortalPickerPopup(screen)
+	}
 
 	// Draw promotion picker (which member becomes Archmage/Lich) if open
 	if ui.game.promotionPickerOpen {

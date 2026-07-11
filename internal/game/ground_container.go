@@ -135,6 +135,7 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 		c.SizeTiles = g.containerDefaultSizeTiles(c.Kind)
 	}
 	g.groundContainers = append(g.groundContainers, c)
+	g.invalidateContainerFanCache()
 }
 
 // addLootBagDrop creates a loot-bag-kind container at the given world coords
@@ -271,39 +272,32 @@ func fixedItemRewards(keys []string) []items.Item {
 // this for "one random zone item, never a unique" - uniques aren't in the pool,
 // unlike randomWeaponRewards which draws from ALL weapons. Keys are validated at
 // load (config.validateWeightedLootTables), so creation failures here are unexpected.
+// createLootItem instantiates one loot entry (weapon or item) by type+key -
+// the ONE creation switch shared by per-monster drops, weighted pools and
+// crate rolls.
+func createLootItem(typ, key string) (items.Item, error) {
+	switch typ {
+	case "weapon":
+		return items.TryCreateWeaponFromYAML(key)
+	case "item":
+		return items.TryCreateItemFromYAML(key)
+	}
+	return items.Item{}, fmt.Errorf("unknown loot entry type %q for %q", typ, key)
+}
+
 func rollWeightedLootTable(name string) ([]items.Item, int) {
 	t, ok := config.GetWeightedLootTable(name)
 	if !ok {
 		fmt.Printf("[WARN] rollWeightedLootTable: unknown table %q\n", name)
 		return nil, 0
 	}
-	total := 0
-	for _, e := range t.Entries {
-		total += e.Weight
-	}
 	out := make([]items.Item, 0, t.Rolls)
-	for r := 0; r < t.Rolls && total > 0; r++ {
-		pick := rand.Intn(total)
-		var chosen *config.WeightedLootEntry
-		for i := range t.Entries {
-			if pick -= t.Entries[i].Weight; pick < 0 {
-				chosen = &t.Entries[i]
-				break
-			}
+	for r := 0; r < t.Rolls; r++ {
+		i := weightedPick(len(t.Entries), func(i int) int { return t.Entries[i].Weight })
+		if i < 0 {
+			break // no positive-weight entries
 		}
-		if chosen == nil {
-			continue
-		}
-		var it items.Item
-		var err error
-		switch chosen.Type {
-		case "weapon":
-			it, err = items.TryCreateWeaponFromYAML(chosen.Key)
-		case "item":
-			it, err = items.TryCreateItemFromYAML(chosen.Key)
-		default:
-			continue
-		}
+		it, err := createLootItem(t.Entries[i].Type, t.Entries[i].Key)
 		if err != nil {
 			fmt.Printf("[WARN] rollWeightedLootTable %q: %v\n", name, err)
 			continue
@@ -392,6 +386,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 			g.AddCombatMessage(defaults.emptyMessage)
 		}
 		g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
+		g.invalidateContainerFanCache()
 		return
 	}
 
@@ -427,6 +422,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	}
 
 	g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
+	g.invalidateContainerFanCache()
 }
 
 // groundContainerRenderInfo projects a container's world position to screen. The
@@ -441,41 +437,62 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
 	return info
 }
 
 // groundContainerRenderOffset returns the render-only fan offset for a container
 // sharing its tile with others, so a pile of loot bags reads as a band - the same
-// visual (and formula) as monster banding. Solo containers get (0,0).
+// visual (and formula) as monster banding. Solo containers get (0,0). O(1): reads
+// the per-frame cache built by ensureContainerFanOffsets.
 func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float64) {
 	if g == nil || c == nil {
 		return 0, 0
 	}
+	g.ensureContainerFanOffsets()
+	if off, ok := g.containerFanOffsets[c]; ok {
+		return off[0], off[1]
+	}
+	return 0, 0 // solo container (absent from the cache) or stale pointer
+}
+
+// invalidateContainerFanCache marks the fan-offset cache stale after the
+// container slice is added to or removed from (containers never move).
+func (g *MMGame) invalidateContainerFanCache() { g.containerFanDirty = true }
+
+// ensureContainerFanOffsets (re)builds the fan-offset cache in ONE O(n) pass:
+// group container indices by (map, tile), then place each tile's group evenly
+// on a ring - the same formula the old per-container O(n) scan used, so output
+// is identical. Solo containers are simply absent (offset 0,0).
+func (g *MMGame) ensureContainerFanOffsets() {
+	if !g.containerFanDirty && g.containerFanOffsets != nil {
+		return
+	}
 	tile := float64(g.config.GetTileSize())
-	ctx, cty := int(c.X/tile), int(c.Y/tile)
-	idx, count := 0, 0
+	type tileKey struct {
+		mapKey string
+		tx, ty int
+	}
+	groups := make(map[tileKey][]int, len(g.groundContainers))
 	for i := range g.groundContainers {
 		o := &g.groundContainers[i]
-		if o.MapKey != c.MapKey || int(o.X/tile) != ctx || int(o.Y/tile) != cty {
-			continue
-		}
-		if o == c {
-			idx = count
-		}
-		count++
+		k := tileKey{o.MapKey, int(o.X / tile), int(o.Y / tile)}
+		groups[k] = append(groups[k], i)
 	}
-	if count <= 1 {
-		return 0, 0
+	g.containerFanOffsets = make(map[*GroundContainer][2]float64)
+	for k, idxs := range groups {
+		if len(idxs) <= 1 {
+			continue // solo: (0,0), left out of the cache
+		}
+		cx := (float64(k.tx) + 0.5) * tile
+		cy := (float64(k.ty) + 0.5) * tile
+		for slot, ci := range idxs {
+			c := &g.groundContainers[ci]
+			ox, oy := containerFanOffset(slot, len(idxs), tile)
+			g.containerFanOffsets[c] = [2]float64{cx + ox - c.X, cy + oy - c.Y}
+		}
 	}
-	// Arrange same-tile containers evenly on a ring around the tile CENTRE so a
-	// pile from several kills reads as several bags side by side - regardless of
-	// where each mob actually died (they don't snap together like monster bands).
-	// Offset = ring slot - drop position.
-	ox, oy := containerFanOffset(idx, count, tile)
-	cx := (float64(ctx) + 0.5) * tile
-	cy := (float64(cty) + 0.5) * tile
-	return cx + ox - c.X, cy + oy - c.Y
+	g.containerFanDirty = false
 }
 
 const containerFanRadiusTiles = 0.32

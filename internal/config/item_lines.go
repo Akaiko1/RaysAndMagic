@@ -44,6 +44,16 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 	return parts
 }
 
+// PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
+// the item grants none. One formatter for the wording, shared by EffectLines
+// and the unified armor tooltip (which builds its own EFFECTS section).
+func (d *ItemDefinitionConfig) PartyArmorLine() string {
+	if d.PartyArmorBonus <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("Shield wall: +%d AC to every other party member", d.PartyArmorBonus)
+}
+
 // ResistLines lists per-school resistances, collapsing to one "all except
 // physical" line when every non-physical school shares a value.
 func (d *ItemDefinitionConfig) ResistLines() []string {
@@ -97,6 +107,16 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 			lines = append(lines, fmt.Sprintf("Heals %d HP", d.HealBase))
 		}
 	}
+	if d.ManaBase > 0 {
+		if d.ManaPersonalityDivisor > 0 {
+			lines = append(lines, fmt.Sprintf("Restores %d + Personality/%d SP", d.ManaBase, d.ManaPersonalityDivisor))
+		} else {
+			lines = append(lines, fmt.Sprintf("Restores %d SP", d.ManaBase))
+		}
+	}
+	if ln := d.PartyArmorLine(); ln != "" {
+		lines = append(lines, ln)
+	}
 	if d.CurePoison {
 		lines = append(lines, "Cures poison")
 	}
@@ -118,6 +138,36 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	}
 	if cl := d.CardEffectLines(); len(cl) > 0 {
 		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
+	}
+	lines = append(lines, d.SetLines()...)
+	return lines
+}
+
+// SetLines describes the armor set this piece belongs to and its completed-set
+// bonus - shared by the item tooltip and the map-editor card.
+func (d *ItemDefinitionConfig) SetLines() []string {
+	set := GetItemSet(d.Set)
+	if set == nil {
+		return nil
+	}
+	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.PiecesRequired)}
+	var parts []string
+	for _, b := range []struct {
+		label string
+		val   int
+	}{
+		{"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
+		{"Endurance", set.BonusEndurance}, {"Accuracy", set.BonusAccuracy}, {"Speed", set.BonusSpeed}, {"Luck", set.BonusLuck},
+	} {
+		if b.val != 0 {
+			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
+		}
+	}
+	if set.StunDurationPct != 0 {
+		parts = append(parts, fmt.Sprintf("stuns suffered %d%% duration", 100+set.StunDurationPct))
+	}
+	if len(parts) > 0 {
+		lines = append(lines, "Set bonus: "+strings.Join(parts, ", "))
 	}
 	return lines
 }

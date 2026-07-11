@@ -383,6 +383,17 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
+// CalculateGroundContainerSpriteMetrics sizes an interactable loot container.
+// Unlike monsters/NPCs/env props, containers remain visible when the party steps
+// into their tile; otherwise the player loses sight of the thing they are about
+// to pick up or open.
+func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeTiles <= 0 {
+		sizeTiles = 1
+	}
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+}
+
 // CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
 // distant NPCs stay readable). sizeTiles is height in tiles.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
@@ -405,6 +416,9 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 // renderer and click hit-testing so drawing and hit-tests never diverge.
 func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
 	size := rh.npcSizeTiles(npc)
+	if rh.game.npcIsWalkUpProp(npc) {
+		return rh.CalculateGroundContainerSpriteMetrics(ex, ey, distance, size)
+	}
 	// Props (scenery/landmark/wall standees) size on the environment path;
 	// people on the NPC path.
 	switch npcRenderCatOf(npc) {

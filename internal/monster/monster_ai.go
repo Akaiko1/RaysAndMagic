@@ -153,7 +153,11 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	if m.BossDormant || m.WarlordIdol || m.BossWarded {
 		return
 	}
-	m.TickPoison() // Venom-proc cards; ticks regardless of stun/root state
+	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
+	m.TickArmorShredFrame() // Pit Labrys shred decays regardless of stun/root state
+	if m.SoakFrames > 0 {   // Stone Skin soak runs on the stun dual-clock convention
+		status.TickFrame(&m.SoakFrames, &m.SoakTurns)
+	}
 	// RT roots run on frames; a TB-turn hold left over from a mode switch
 	// must not keep gating pounce here.
 	m.rootHeldThisTurn = false
@@ -1138,17 +1142,21 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 	}
 
 	var goals []TileCoord
+	// Ranged approach fallback: walkable tiles adjacent to the target, used only
+	// when NO in-reach tile has a fire lane - the mob then closes distance to
+	// win a line of sight instead of freezing parked-but-blind (see below).
+	var approach []TileCoord
 	for dy := -radiusTiles; dy <= radiusTiles; dy++ {
 		for dx := -radiusTiles; dx <= radiusTiles; dx++ {
 			tileX := targetTileX + dx
 			tileY := targetTileY + dy
 			centerX, centerY := m.tileToWorldCenter(tileX, tileY)
+			adx, ady := mathutil.IntAbs(dx), mathutil.IntAbs(dy)
+			adjacent := adx <= 1 && ady <= 1 && !(dx == 0 && dy == 0)
 			if melee {
-				adx, ady := mathutil.IntAbs(dx), mathutil.IntAbs(dy)
 				if dx == 0 && dy == 0 {
 					continue
 				}
-				adjacent := adx <= 1 && ady <= 1
 				if adjacent && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
 					continue
 				}
@@ -1160,12 +1168,28 @@ func (m *Monster3D) collectGoalTiles(collisionChecker CollisionChecker, targetX,
 					continue
 				}
 			}
-			if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
-				goals = append(goals, TileCoord{X: tileX, Y: tileY})
+			if !collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+				continue
 			}
+			if !melee && adjacent {
+				approach = append(approach, TileCoord{X: tileX, Y: tileY}) // no-LOS fallback
+			}
+			// Ranged: a goal needs a FIRE LANE, not just range - a tile within
+			// reach but walled off leaves the mob parked there, in range yet
+			// forever unable to shoot (the attack gate requires LOS). LOS is the
+			// costliest test, so it runs last and only on walkable candidates.
+			if !melee && !collisionChecker.CheckLineOfSight(centerX, centerY, targetX, targetY) {
+				continue
+			}
+			goals = append(goals, TileCoord{X: tileX, Y: tileY})
 		}
 	}
 
+	// No firing lane anywhere in reach: fall back to closing on the target so a
+	// walled-off ranged mob repositions for LOS instead of standing still.
+	if len(goals) == 0 && !melee {
+		return approach
+	}
 	return goals
 }
 

@@ -98,6 +98,14 @@ func npcRenderCatOf(npc *character.NPC) npcRenderCat {
 	return resolveNPCRenderCat(npc.RenderCategory)
 }
 
+// npcIsPerson reports whether the NPC is a figure (a person you talk TO), as
+// opposed to a prop/landmark/anchor you investigate. Driven by the authored
+// render_category, so prompts can never disagree with what is drawn.
+func npcIsPerson(npc *character.NPC) bool {
+	cat := npcRenderCatOf(npc)
+	return cat == catStandee || cat == catAnimated
+}
+
 // NPCDisplayCategory returns the editor grouping label for an NPC definition.
 // Same classification the renderer dispatches on, so a new render branch
 // surfaces as its own palette group.

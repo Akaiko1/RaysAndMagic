@@ -265,6 +265,11 @@ func TestChampionMeleeAoEOnce(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	primeTestChampions(t, cs.game)
 	fillTestParty(t, cs.game)
+	// Perfect Dodge is luck/5% - a lucky member would evade the sweep and
+	// read as "untouched". Zero it for determinism.
+	for _, mem := range cs.game.party.Members {
+		mem.Luck = 0
+	}
 
 	// Re-arm the cached template with the AoE polearm for this test only.
 	orig := championTemplates[championTemplateKey("weapon_master", "impossible")]
@@ -446,14 +451,36 @@ func checkArenaShop(t *testing.T, npc *character.NPC) {
 		t.Fatalf("%s currency = %q, want arena_points", npc.Name, npc.Currency)
 	}
 	uncommon := config.WeaponKeysByRarity("uncommon")
-	wantTotal := 4 + len(uncommon)
+	unique := config.WeaponKeysByRarity("unique")
+	// 5 unlimited consumables + 10 unlimited set-armor pieces + the unique
+	// weapons (single copies, incl. the Parma shield item) + the uncommon rack.
+	wantTotal := 5 + 10 + len(unique) + 1 + len(uncommon)
 	if len(npc.MerchantStock) != wantTotal {
-		t.Fatalf("stock size = %d, want %d (4 consumables + %d uncommon weapons)", len(npc.MerchantStock), wantTotal, len(uncommon))
+		t.Fatalf("stock size = %d, want %d (5 consumables + 10 armor + %d uniques + parma + %d uncommon weapons)",
+			len(npc.MerchantStock), wantTotal, len(unique), len(uncommon))
 	}
-	weaponRack := 0
+	weaponRack, uniqueRack := 0, 0
 	for _, entry := range npc.MerchantStock {
 		if !entry.InStock() {
-			t.Fatalf("%s not in stock (unlimited expected)", entry.Item.Name)
+			t.Fatalf("%s not in stock", entry.Item.Name)
+		}
+		rarity := entry.Item.Rarity
+		if entry.Item.Type == items.ItemWeapon {
+			if def, _, ok := config.GetWeaponDefinitionByName(entry.Item.Name); ok && def != nil {
+				rarity = def.Rarity
+			}
+		}
+		if rarity == "unique" {
+			// Arena uniques: 5000 ap, exactly ONE copy - they DO sell out.
+			uniqueRack++
+			if entry.Cost != 5000 {
+				t.Fatalf("unique %s costs %d, want 5000", entry.Item.Name, entry.Cost)
+			}
+			entry.Take()
+			if entry.InStock() {
+				t.Fatalf("unique %s still in stock after purchase - must be a single copy", entry.Item.Name)
+			}
+			continue
 		}
 		entry.Take()
 		if !entry.InStock() {
@@ -465,6 +492,9 @@ func checkArenaShop(t *testing.T, npc *character.NPC) {
 				t.Fatalf("weapon %s costs %d, want the flat rack price 750", entry.Item.Name, entry.Cost)
 			}
 		}
+	}
+	if uniqueRack != len(unique)+1 {
+		t.Fatalf("unique rack = %d, want every unique weapon + the Parma (%d)", uniqueRack, len(unique)+1)
 	}
 	if weaponRack != len(uncommon) {
 		t.Fatalf("weapon rack = %d, want every uncommon weapon (%d)", weaponRack, len(uncommon))

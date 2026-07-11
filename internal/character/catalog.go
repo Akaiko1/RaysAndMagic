@@ -46,8 +46,13 @@ const (
 	// melee, ranged, and spells alike).
 	CritDamageMultiplier = 2
 	// DisarmTrapDamageReductionPerTier: flat incoming-damage reduction per tier
-	// (PLACEHOLDER until trap tiles exist).
+	// after armor and resistance. Novice has tier 0, then Expert/Master/GM get
+	// 1/2/3 reduction.
 	DisarmTrapDamageReductionPerTier = 1
+	// Disarm Trap fully AVOIDS a chest/door trap at base + per-tier percent:
+	// Novice/Expert/Master/GM -> 40/60/80/100.
+	DisarmTrapAvoidBasePct    = 40
+	DisarmTrapAvoidPerTierPct = 20
 	// TrapperDamagePerTier: bonus damage of damage traps per Trapper tier.
 	TrapperDamagePerTier = 5
 	// TrapperSecondsPerTier: extra RT seconds of control (stun/root) per Trapper
@@ -315,8 +320,15 @@ func (s SkillType) Description() string {
 		return fmt.Sprintf("Merchant: %d%% better buy/sell prices per mastery level "+
 			"(the party's best Merchant applies).", MerchantPricePctPerTier)
 	case SkillDisarmTrap:
-		return fmt.Sprintf("Disarm Trap: -%d incoming damage per mastery level "+
-			"(placeholder until trap tiles are added).", DisarmTrapDamageReductionPerTier)
+		return fmt.Sprintf("Disarm Trap: the party's best active user disarms chest traps with %d/%d/%d/%d%% chance at Novice/Expert/Master/Grandmaster. "+
+			"Each trained character also reduces all damage taken by 0/%d/%d/%d after armor and resistance.",
+			DisarmTrapAvoidBasePct,
+			DisarmTrapAvoidBasePct+DisarmTrapAvoidPerTierPct,
+			DisarmTrapAvoidBasePct+2*DisarmTrapAvoidPerTierPct,
+			DisarmTrapAvoidBasePct+3*DisarmTrapAvoidPerTierPct,
+			DisarmTrapDamageReductionPerTier,
+			2*DisarmTrapDamageReductionPerTier,
+			3*DisarmTrapDamageReductionPerTier)
 	case SkillTrapper:
 		return fmt.Sprintf("Trapper: traps deal +%d damage per mastery level; control traps "+
 			"last +%d RT sec per level and up to +%d TB turns at Grandmaster. "+

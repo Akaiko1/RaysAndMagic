@@ -24,8 +24,8 @@
 # (combat.go updateQuestProgress: target "elder_dragon" + the summoned-dragon flag),
 # so ordinary wild dragons never win the game.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTAARTRTA................................ATRTRTAAT
-TTAA@....................................AA.T.TAAT  >[npc:dragon_statue_black]
+T.@ARTRTA................................ATRTRTAAT  >[npc:chest_golden]
+TTAA@....................................AA.T@TAAT  >[npc:dragon_statue_black], [npc:spell_lectern]
 TTAA.T.TA...................................@.TAAT  >[npc:dragon_statue_red]
 TTAA.T.TA................................AT.T.TAAT
 T................................................T
@@ -46,7 +46,7 @@ T................................................T
 T.................................P..............T
 T................................................T
 T....................AAAAAAA............@@.......T  >[npc:gladiator_gatekeeper], [npc:storage_clerk]
-T...................A.WWWWW.A...........@........T  >[npc:arena]
+T...................A.WWWWW@A...........@........T  >[npc:chest_wooden], [npc:arena]
 T..................@.WWWWWWW.....................T  >[npc:desert_merchant]
 T.......................@WW..A...................T  >[stile:rteleporter]
 T....................WWWWWWW.A...................T
@@ -70,6 +70,6 @@ T.................................PPPP..n........T
 T..................................n.............T
 T................................................T
 TTAA@....................................AA...TAAT  >[npc:dragon_statue_green]
-TTAA.....................................AT.@.TAAT  >[npc:dragon_statue_gold]
-TTAARTRTA................................ATRTRTAAT
+TTAA.....................................AT.@@TAAT  >[npc:dragon_statue_gold], [npc:chest_iron]
+T.@ARTRTA................................ATRTRTAAT  >[npc:chest_golden]
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT

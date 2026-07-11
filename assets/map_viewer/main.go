@@ -2074,14 +2074,17 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		entries = append(entries, generalLabelTiles...)
 	}
 
-	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, sectionHeader("Monsters (letter -> key/name)"))
-
 	if mc != nil {
 		monsterItems := make(map[string][]legendBuildItem)
 		for key, def := range mc.Monsters {
 			letter := def.Letter
 			if letter == "" {
+				continue
+			}
+			// Champion carriers only work through the arena duel flow
+			// (startArenaDuel spawns + mirrors them) - placing one by hand
+			// yields a broken mob, so keep them out of the palette.
+			if def.Champion != "" {
 				continue
 			}
 			if !matchesBiome(def.Biomes, biome) {
@@ -2099,7 +2102,17 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 				specific: len(def.Biomes) > 0,
 			})
 		}
-		entries = append(entries, emitBiomeScoped(monsterItems)...)
+		// Same split as tiles: biome-specific monsters under "biome: X",
+		// universal ones under their own "biome: general" section.
+		monSpecific, monGeneral := emitBiomeScopedSplit(monsterItems)
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader(fmt.Sprintf("Monsters - biome: %s", biomeLabel)))
+		entries = append(entries, monSpecific...)
+		if len(monGeneral) > 0 {
+			entries = append(entries, legendEntry{Text: "", IsHeader: true})
+			entries = append(entries, sectionHeader("Monsters - biome: general (any map)"))
+			entries = append(entries, monGeneral...)
+		}
 	}
 
 	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
@@ -2116,10 +2129,17 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
 			renderCategory := ""
+			npcType := ""
 			if data != nil {
 				renderCategory = data.RenderCategory
+				npcType = data.Type
 			}
 			cat := game.NPCDisplayCategory(renderCategory)
+			// Loot crates (and their lectern cousins) are a gameplay family,
+			// not a render class - group them under their own header.
+			if character.IsWalkUpPropType(npcType) {
+				cat = "loot crates"
+			}
 			keysByCat[cat] = append(keysByCat[cat], key)
 		}
 

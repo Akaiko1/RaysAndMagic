@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
 
@@ -61,6 +62,9 @@ func PrimeChampions(cfg *config.Config) error {
 		return nil
 	}
 	for key, def := range config.GlobalChampionConfig.Champions {
+		if err := validateChampionSpells(key, def); err != nil {
+			return err
+		}
 		for tierName := range config.GlobalChampionConfig.Tiers {
 			ch, err := buildChampionTemplate(def, tierName, cfg)
 			if err != nil {
@@ -165,6 +169,9 @@ func (cs *CombatSystem) championAlternatingStrike(m *monster.Monster3D) bool {
 	if ch == nil {
 		return false
 	}
+	if cs.championTryCastSpell(m) { // a melee caster's swing can become a cast too
+		return true
+	}
 	off := false
 	if _, dual := championOffHandWeapon(ch); dual {
 		off = m.NextHandOff
@@ -192,7 +199,7 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	if wd != nil && wd.AoeRadiusTiles > 0 {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's sweep engulfs the whole party!", m.Name))
 		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
-			cs.monsterHitCharacter(m, member, m.Name, dmg, dtype, m.IgnoresArmor, 0)
+			cs.monsterHitCharacter(m, member, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
 		})
 		return true
 	}
@@ -209,7 +216,7 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	}
 	targets := cs.randomLivingMembers(n)
 	for _, t := range targets {
-		cs.monsterHitCharacter(m, t, m.Name, dmg, dtype, m.IgnoresArmor, 0)
+		cs.monsterHitCharacter(m, t, m.Name, dmg, dtype, m.IgnoresArmor, 0, true)
 	}
 	return len(targets) > 0
 }
@@ -245,7 +252,9 @@ func (cs *CombatSystem) championRTDualStrike(m *monster.Monster3D, attackTick bo
 	struck := false
 	if attackTick && m.AttackCDFrames == 0 {
 		m.AttackCDFrames = m.AttackCooldownFrames()
-		cs.championMeleeStrike(m, false)
+		if !cs.championTryCastSpell(m) { // a melee caster's swing can become a cast
+			cs.championMeleeStrike(m, false)
+		}
 		struck = true
 	}
 	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 {
@@ -358,7 +367,7 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 	if tier == nil {
 		return
 	}
-	cs.game.party.ArenaPoints += tier.ArenaPoints
+	cs.game.awardArenaPoints(tier.ArenaPoints)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s falls! The crowd roars: +%d arena points.", m.Name, tier.ArenaPoints))
 
 	members := make([]arena.Member, 0, len(cs.game.party.Members))
@@ -371,6 +380,51 @@ func (cs *CombatSystem) recordChampionVictory(m *monster.Monster3D) {
 		cs.game.AddCombatMessage("The board already honors this day's victory.")
 	}
 	cs.game.arenaBoardStale = true
+	cs.rollChampionSetDrops(m)
+}
+
+// rollChampionSetDrops rolls the armor-set trophy a fallen champion can yield
+// (any tier): each SET listed in champions.yaml `set_drops:` rolls ONCE in turn
+// at its authored percent, and the FIRST success ends the rolling by dropping a
+// RANDOM piece of that set. So `pct` is the set's real per-kill drop chance,
+// independent of how many pieces the set has (a per-piece roll would inflate it
+// to 1-(1-pct)^n). Set membership comes from items.yaml `set:` keys.
+func (cs *CombatSystem) rollChampionSetDrops(m *monster.Monster3D) {
+	ladder := config.ChampionSetDrops()
+	if len(ladder) == 0 {
+		return
+	}
+	for _, drop := range ladder {
+		if rand.Intn(100) >= drop.Pct {
+			continue
+		}
+		keys := itemKeysOfSet(drop.Set)
+		if len(keys) == 0 {
+			continue // empty set (content edit): fall through to the next rung
+		}
+		it, err := items.TryCreateItemFromYAML(keys[rand.Intn(len(keys))])
+		if err != nil {
+			continue
+		}
+		cs.game.AddColoredCombatMessage(fmt.Sprintf("%s's %s drops on the sand!", m.Name, it.Name), combatMessageGold)
+		cs.game.addLootBagDrop(m.X, m.Y, []items.Item{it}, 0)
+		return // first successful set ends the rolling: one piece max per kill
+	}
+}
+
+// itemKeysOfSet lists items.yaml keys carrying the given set key, sorted.
+func itemKeysOfSet(set string) []string {
+	if config.GlobalItems == nil {
+		return nil
+	}
+	var keys []string
+	for key, def := range config.GlobalItems.Items {
+		if def != nil && def.Set == set {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // arenaTierSpentToday reports whether the difficulty was already challenged
@@ -388,7 +442,12 @@ func (g *MMGame) dialogueChoiceLabel(choice *character.NPCDialogueChoice) string
 		return ""
 	}
 	if choice.Action == "start_arena_duel" && g.arenaTierSpentToday(choice.Tier) {
-		return choice.Text + " - spent, returns at dawn"
+		// The lockout expires at the NEXT phase flip: dawn during the night,
+		// dusk during the day.
+		if g.dayNightIsNight {
+			return choice.Text + " - spent, returns at dawn"
+		}
+		return choice.Text + " - spent, returns at dusk"
 	}
 	return choice.Text
 }
@@ -401,24 +460,9 @@ func ValidateDuelGrounds(wm *world.WorldManager) error {
 	if wm == nil {
 		return nil
 	}
-	offersDuel := func(npc *character.NPC) bool {
-		if npc == nil || npc.DialogueData == nil {
-			return false
-		}
-		var walk func([]*character.NPCDialogueChoice) bool
-		walk = func(cs []*character.NPCDialogueChoice) bool {
-			for _, c := range cs {
-				if c != nil && (c.Action == "start_arena_duel" || walk(c.Choices)) {
-					return true
-				}
-			}
-			return false
-		}
-		return walk(npc.DialogueData.Choices)
-	}
 	for mapKey, w := range wm.LoadedMaps {
 		for _, npc := range w.NPCs {
-			if offersDuel(npc) {
+			if npcDialogueHasAction(npc, "start_arena_duel") {
 				if mc := wm.MapConfigs[mapKey]; mc == nil || mc.Duel == nil {
 					return fmt.Errorf("map %q places duel NPC %q but authors no duel: block in map_configs.yaml", mapKey, npc.Name)
 				}
@@ -514,4 +558,174 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	m.IsEngagingPlayer = true
 	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("%s (%s) steps onto the sand. The portcullises slam down!", m.Name, choice.Tier))
+}
+
+// championSpellPool resolves a champion's castable pool: every non-utility
+// (combat) spell of its authored spell_schools plus the explicitly authored
+// extra_spells (which may be utility-effect spells like the earth Stun).
+// Deterministic order - schools as authored, spells sorted by the catalog.
+func championSpellPool(def *config.ChampionDefinition) []spells.SpellID {
+	var pool []spells.SpellID
+	seen := map[spells.SpellID]bool{}
+	add := func(id spells.SpellID) {
+		if !seen[id] {
+			seen[id] = true
+			pool = append(pool, id)
+		}
+	}
+	for _, school := range def.SpellSchools {
+		for _, key := range config.GetSpellsBySchool(school) {
+			// Combat spells only: no utility, and no behavior-effect projectiles
+			// (deals_no_damage - Charm's pacify / Disintegrate's instakill have no
+			// party-side meaning and would land as bare damage-less hits).
+			if sd, ok := config.GetSpellDefinition(key); ok && sd != nil && !sd.IsUtility && !sd.DealsNoDamage {
+				add(spells.SpellID(key))
+			}
+		}
+	}
+	for _, key := range def.ExtraSpells {
+		add(spells.SpellID(key))
+	}
+	return pool
+}
+
+// championOpensWith reports whether the champion's authored opening spell
+// applies at this tier (empty tier list = every tier).
+func championOpensWith(def *config.ChampionDefinition, tierName string) bool {
+	if def.OpeningSpell == "" {
+		return false
+	}
+	if len(def.OpeningSpellTiers) == 0 {
+		return true
+	}
+	for _, t := range def.OpeningSpellTiers {
+		if t == tierName {
+			return true
+		}
+	}
+	return false
+}
+
+// validateChampionSpells fail-fasts the spellcasting block of one build:
+// every named spell must exist, and a cast chance needs a non-empty pool.
+// School keys are validated by BuildChampion. Called from PrimeChampions.
+func validateChampionSpells(key string, def *config.ChampionDefinition) error {
+	for _, sk := range def.ExtraSpells {
+		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(sk)); err != nil {
+			return fmt.Errorf("champion %q: unknown extra spell %q", key, sk)
+		}
+	}
+	if def.OpeningSpell != "" {
+		if _, err := spells.GetSpellDefinitionByID(spells.SpellID(def.OpeningSpell)); err != nil {
+			return fmt.Errorf("champion %q: unknown opening spell %q", key, def.OpeningSpell)
+		}
+		for _, t := range def.OpeningSpellTiers {
+			if config.GetChampionTier(t) == nil {
+				return fmt.Errorf("champion %q: opening_spell_tiers names unknown tier %q", key, t)
+			}
+		}
+	}
+	if def.SpellCastChance > 0 && len(championSpellPool(def)) == 0 {
+		return fmt.Errorf("champion %q: spell_cast_chance authored but the spell pool is empty", key)
+	}
+	return nil
+}
+
+// championTryCastSpell is the cast-instead-of-attack gate, run at every
+// champion attack moment (the RT attack tick and each TB swing both funnel
+// through the shared attack entries). The authored opening spell always
+// claims the FIRST action of the duel; afterwards each attack rolls
+// spell_cast_chance to become a random pool cast. Returns whether a cast
+// consumed the attack.
+func (cs *CombatSystem) championTryCastSpell(m *monster.Monster3D) bool {
+	if m == nil || !m.IsChampion() {
+		return false
+	}
+	def := config.GetChampionDefinition(m.ChampionKey)
+	ch := cs.game.championTemplateFor(m)
+	if def == nil || ch == nil {
+		return false
+	}
+	if !m.OpeningSpellDone && championOpensWith(def, championTierOf(m)) {
+		m.OpeningSpellDone = true
+		cs.championCastSpell(m, ch, spells.SpellID(def.OpeningSpell))
+		return true
+	}
+	if def.SpellCastChance <= 0 || rand.Float64() >= def.SpellCastChance {
+		return false
+	}
+	pool := championSpellPool(def)
+	if len(pool) == 0 {
+		return false
+	}
+	cs.championCastSpell(m, ch, pool[rand.Intn(len(pool))])
+	return true
+}
+
+// championCastSpell resolves ONE champion cast through the real player spell
+// pipeline - the caster is the champion's character template, so effective
+// stats, school mastery and Luck crit all apply - dispatched by the spell's
+// mechanical effect the same way the party cast path dispatches:
+//   - Stone Skin family (incoming_damage_reduction): mastery-scaled flat soak
+//     on the mob for the spell's duration (the monster dual of the party buff).
+//   - AoE stun family (stun_radius_tiles): stuns every party member while the
+//     party stands inside the shockwave radius.
+//   - everything else: a real spell projectile at the party; AoE spells engulf
+//     the whole party at impact, stun riders re-stamp at impact.
+func (cs *CombatSystem) championCastSpell(m *monster.Monster3D, ch *character.MMCharacter, spellID spells.SpellID) {
+	def, err := spells.GetSpellDefinitionByID(spellID)
+	if err != nil {
+		return
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s casts %s!", m.Name, def.Name))
+
+	switch {
+	case def.IncomingDamageReduction > 0:
+		m.SoakDamage = scaledIncomingDamageReduction(def, ch)
+		m.SoakFrames = cs.CalculateSpellDurationFrames(spellID, ch)
+		// Stun convention: 1s per TB turn, floored at 1 whenever the soak is
+		// active (a sub-1s duration would truncate to 0 turns and, since TB never
+		// ticks SoakFrames, never expire in turn-based play).
+		m.SoakTurns = m.SoakFrames / cs.game.config.GetTPS()
+		if m.SoakTurns < 1 && m.SoakFrames > 0 {
+			m.SoakTurns = 1
+		}
+		cs.game.AddCombatMessage(fmt.Sprintf("%s's skin hardens to stone!", m.Name))
+
+	case def.StunRadiusTiles > 0:
+		radius := def.StunRadiusTiles * float64(cs.game.config.GetTileSize())
+		if Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) > radius {
+			cs.game.AddCombatMessage("The shockwave dissipates short of the party.")
+			return
+		}
+		frames := def.StunDurationSeconds * cs.game.config.GetTPS()
+		stunned := 0
+		cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
+			cs.applyScaledCharStun(member, frames, def.StunDurationTurns)
+			stunned++
+		})
+		cs.game.AddColoredCombatMessage(fmt.Sprintf("The shockwave stuns %d hero(es)!", stunned), combatMessageYellow)
+
+	default:
+		_, _, total := cs.CalculateSpellDamage(spellID, ch)
+		total, _ = cs.rollSpellCritDamage(spellID, ch, total)
+		cs.spawnMonsterSpellProjectileDamage(m, spellID, cs.game.camera.X, cs.game.camera.Y, ProjectileOwnerMonster, total)
+	}
+}
+
+// stampChampionSpellRiders re-arms a champion's char-stun riders from the
+// SPELL that actually flew (lightning, psychic_shock), at impact time - the
+// spell dual of stampChampionProjectileRiders, because weapon bolts landing
+// mid-flight re-stamp the same rider fields for their hand.
+func (cs *CombatSystem) stampChampionSpellRiders(src *monster.Monster3D, spellType string) {
+	if src == nil || !src.IsChampion() || spellType == "" {
+		return
+	}
+	def, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType))
+	if err != nil {
+		return
+	}
+	src.StunCharChance = def.StunChance
+	src.StunCharSeconds = def.StunDurationSeconds
+	src.StunCharTurns = def.StunDurationTurns
 }

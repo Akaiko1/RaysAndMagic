@@ -73,6 +73,7 @@ type MagicProjectile struct {
 	SourceName         string
 	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) - carries true-damage + on-hit rider flags to impact
 	AoE                bool               // monster projectile: on hit, splash damage to the whole party
+	NoCollide          bool               // mortar visual (Stone Blossom): the display bolt never collides
 }
 
 // SlashEffect represents a visual melee swing (a per-weapon pixel-particle
@@ -99,6 +100,7 @@ type Arrow struct {
 	LifeTime           int                    // Frames remaining
 	Active             bool
 	BowKey             string // YAML key of the bow used to fire this arrow
+	Label              string // chat display name override (card-proc bolts); "" = the weapon's name
 	DamageType         string // Damage element type ("physical", "dark", etc.)
 	Crit               bool   // Critical hit flag
 	SuppressAoE        bool   // volley darts past the first: whole-party AoE fires once per volley
@@ -106,8 +108,12 @@ type Arrow struct {
 	Owner              ProjectileOwner
 	SourceName         string
 	SourceMonster      *monster.Monster3D // monster that fired it (nil = party/none) - carries true-damage + on-hit rider flags to impact
-	RenderAngle        float64            // Render-only: smoothed on-screen shaft angle
-	RenderAngleSet     bool               // Render-only: RenderAngle initialised
+	// Pierce-through (Arena Arbalest): a hit with PierceLeft > 0 consumes this
+	// arrow and spawns a continuation bolt that skips the monster it went through.
+	PierceLeft     int
+	SkipMonster    *monster.Monster3D
+	RenderAngle    float64 // Render-only: smoothed on-screen shaft angle
+	RenderAngleSet bool    // Render-only: RenderAngle initialised
 }
 
 // SpellHitParticle represents a single particle from a spell impact
@@ -172,6 +178,9 @@ type MMGame struct {
 	nextProjectileID int64
 	selectedChar     int
 	frameCount       int64
+	// entombedMsgFrame throttles the "can't fight inside stone" explanation
+	// (see partyEntombed) so held attack keys don't spam the log.
+	entombedMsgFrame int64
 
 	// Tabbed menu system
 	menuOpen          bool
@@ -250,6 +259,13 @@ type MMGame struct {
 	magicProjectiles []MagicProjectile
 	arrows           []Arrow
 	groundContainers []GroundContainer // unified loot bags + treasure chests on the ground
+	// containerFanOffsets caches each container's render-only fan offset for the
+	// current frame (see groundContainerRenderOffset): rebuilt in one O(n) tile
+	// grouping pass, then O(1) per lookup - the render + hit-test paths query
+	// every container several times a frame. Invalidated (containerFanDirty) on
+	// any container add/remove; containers never move, so nothing else dirties it.
+	containerFanOffsets map[*GroundContainer][2]float64
+	containerFanDirty   bool
 
 	// Spellbook UI state
 	collapsedSpellSchools map[character.MagicSchoolID]bool
@@ -293,6 +309,20 @@ type MMGame struct {
 	// Walk on Water effect
 	walkOnWaterActive   bool // Whether walk on water is currently active
 	walkOnWaterDuration int  // Remaining duration in frames
+
+	// Fly effect: the party passes through any non-border tile (outdoor maps only).
+	flyActive   bool
+	flyDuration int // Remaining duration in frames
+
+	// Stone Blossom mortars in flight: detonation is scheduled at cast time
+	// (the arc ignores everything until it lands). Transient - not saved.
+	pendingMortars []pendingMortar
+
+	// Town Portal picker (visited taverns). Transient UI state.
+	townPortalPickerOpen bool
+	// visitedTavernMaps: map keys where the party has stood in a tavern's map -
+	// the Town Portal destination registry. Persisted.
+	visitedTavernMaps map[string]bool
 
 	// Bless effect
 	// statBuffs is the registry of active stat-buff spells (Bless, ...): different
@@ -778,6 +808,8 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Update sky and ground colors for initial map
 	game.UpdateSkyAndGroundColors()
+
+	game.registerVisitedTavern() // the starting map may host a tavern (Town Portal)
 
 	return game
 }
@@ -2485,6 +2517,12 @@ func (mpw *MagicProjectileWrapper) SetVelocity(vx, vy float64) {
 // OnCollision runs in a worker goroutine - it only touches this projectile's
 // own fields. The actual hit effect (shared state: particle list, screen
 // shake) is spawned later by ApplyCollisionEffects, serially.
+// IgnoresWalls: a mortar's display bolt (NoCollide) sails its whole arc; the
+// deferred detonation, not terrain, ends it.
+func (mpw *MagicProjectileWrapper) IgnoresWalls() bool {
+	return mpw.MagicProjectile.NoCollide
+}
+
 func (mpw *MagicProjectileWrapper) OnCollision(hitX, hitY float64) {
 	if mpw.MagicProjectile == nil || !mpw.MagicProjectile.Active {
 		return
@@ -2532,6 +2570,9 @@ func (aw *ArrowWrapper) Update() {
 func (aw *ArrowWrapper) IsActive() bool {
 	return aw.Arrow.Active && aw.Arrow.LifeTime > 0
 }
+
+// IgnoresWalls: arrows always stop at solid terrain.
+func (aw *ArrowWrapper) IgnoresWalls() bool { return false }
 
 func (aw *ArrowWrapper) GetPosition() (float64, float64) {
 	return aw.Arrow.X, aw.Arrow.Y

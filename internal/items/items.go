@@ -74,6 +74,8 @@ type Item struct {
 	InstanceID uint64 `json:"instance_id,omitempty"`
 	// For armor
 	ArmorCategory string
+	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
+	Set string `json:"set,omitempty"`
 	// For spells
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
@@ -238,6 +240,9 @@ type WeaponDefinitionFromYAML struct {
 	Category    string
 	Rarity      string
 	Value       int
+	// EquipPersonalityMin: any character with this much effective Personality
+	// may wield the weapon without its category skill (Lanista's Scepter).
+	EquipPersonalityMin int
 }
 
 // getGlobalWeaponDef accesses the global weapon configuration
@@ -303,6 +308,10 @@ type ItemDefinitionFromYAML struct {
 	OpensMap                  bool
 	PromotesLich              bool
 	Discardable               bool
+	Set                       string // armor-set key this piece belongs to
+	PartyArmorBonus           int    // flat AC to every OTHER party member while equipped
+	ManaBase                  int    // consumable: SP restored (+ Personality/divisor)
+	ManaPersonalityDivisor    int
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -389,6 +398,15 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	if def.SummonDistanceTiles != 0 {
 		attrs["summon_distance_tiles"] = def.SummonDistanceTiles
 	}
+	if def.ManaBase != 0 {
+		attrs["mana_base"] = def.ManaBase
+	}
+	if def.ManaPersonalityDivisor != 0 {
+		attrs["mana_personality_divisor"] = def.ManaPersonalityDivisor
+	}
+	if def.PartyArmorBonus != 0 {
+		attrs["party_armor_bonus"] = def.PartyArmorBonus
+	}
 	// Map equip_slot string to EquipSlot constant and store in attributes
 	if def.EquipSlot != "" {
 		slotCode := mapEquipSlotStringToCode(def.EquipSlot)
@@ -437,6 +455,7 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		Rarity:        def.Rarity,
 		Attributes:    attrs,
 		ArmorCategory: def.ArmorType,
+		Set:           def.Set,
 		InstanceID:    NewInstanceID(),
 	}, nil
 }

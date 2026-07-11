@@ -14,6 +14,25 @@ const (
 	npcStateConcluded                       // turned in / reward claimed / encounter cleared
 )
 
+// npcDialogueHasAction reports whether the NPC's dialogue tree contains a
+// choice with the given action, at any nesting depth. One recursive walker for
+// every "does this NPC offer capability X" test (duel grounds, tavern rest).
+func npcDialogueHasAction(npc *character.NPC, action string) bool {
+	if npc == nil || npc.DialogueData == nil {
+		return false
+	}
+	var walk func([]*character.NPCDialogueChoice) bool
+	walk = func(choices []*character.NPCDialogueChoice) bool {
+		for _, c := range choices {
+			if c != nil && (c.Action == action || walk(c.Choices)) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(npc.DialogueData.Choices)
+}
+
 // linkedQuestID returns the quest_id of the NPC's give_quest / turn_in_quest
 // choice - the quest whose status drives the dialogue. "" for non-quest NPCs.
 func linkedQuestID(npc *character.NPC) string {

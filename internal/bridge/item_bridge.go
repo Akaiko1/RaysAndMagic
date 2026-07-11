@@ -46,6 +46,10 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		OpensMap:                  def.OpensMap,
 		PromotesLich:              def.PromotesLich,
 		Discardable:               def.Discardable,
+		Set:                       def.Set,
+		PartyArmorBonus:           def.PartyArmorBonus,
+		ManaBase:                  def.ManaBase,
+		ManaPersonalityDivisor:    def.ManaPersonalityDivisor,
 	}
 	return adapted, true
 }

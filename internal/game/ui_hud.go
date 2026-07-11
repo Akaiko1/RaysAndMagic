@@ -1155,19 +1155,34 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 
 	// Create interaction message based on NPC capabilities
 	var message string
-	switch npcDialogKindFor(nearestNPC) {
-	case dialogKindSpellTrader:
-		message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
-	case dialogKindChoices:
-		message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
-	case dialogKindSkillTrainer:
-		message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
-	case dialogKindMerchant:
-		message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
-	case dialogKindCardCollector:
-		message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
-	default:
-		message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+	if verb := nearestNPC.PromptVerb; verb != "" {
+		// Authored override (npcs.yaml prompt_verb): "enter" for the tavern etc.
+		message = fmt.Sprintf("Press SPACE to %s %s", verb, nearestNPC.Name)
+	} else if ui.game.npcIsWalkUpProp(nearestNPC) {
+		// Chests and lecterns are immediate-use props, not conversations - never
+		// fall into the "talk to" ladder (a standee-sprited lectern would).
+		message = fmt.Sprintf("Press SPACE to interact with %s", nearestNPC.Name)
+	} else {
+		switch npcDialogKindFor(nearestNPC) {
+		case dialogKindSpellTrader:
+			message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
+		case dialogKindChoices:
+			// A person with a choice dialog is still a conversation; only
+			// props/landmarks (wrecks, bones, valves) are "investigated".
+			if npcIsPerson(nearestNPC) {
+				message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+			} else {
+				message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
+			}
+		case dialogKindSkillTrainer:
+			message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
+		case dialogKindMerchant:
+			message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
+		case dialogKindCardCollector:
+			message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
+		default:
+			message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+		}
 	}
 
 	// Calculate text dimensions for background sizing

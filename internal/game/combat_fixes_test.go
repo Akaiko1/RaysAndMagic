@@ -19,7 +19,7 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 	delete(knight.Skills, character.SkillBow)
 
 	g.selectedChar = 3
-	cs.createArrowAttack(20, items.SlotMainHand)
+	cs.createArrowAttack(20, items.SlotMainHand, "")
 	if len(g.arrows) == 0 {
 		t.Fatal("no arrow spawned")
 	}

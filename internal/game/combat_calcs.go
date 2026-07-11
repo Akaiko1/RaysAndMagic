@@ -56,6 +56,20 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	return baseDamage, intellectBonus, totalDamage
 }
 
+// rollSpellCritDamage rolls Luck-based spell crit (no base crit) and returns the
+// possibly-boosted damage plus whether it crit. No-damage spells (Disintegrate)
+// never crit - the ONE place that rule lives, shared by every cast path (player
+// projectile, champion cast, mortar) so none can drift.
+func (cs *CombatSystem) rollSpellCritDamage(spellID spells.SpellID, caster *character.MMCharacter, base int) (int, bool) {
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.DealsNoDamage {
+		return base, false
+	}
+	if crit, _ := cs.RollCriticalChance(0, caster); crit {
+		return base * CritDamageMultiplier, true
+	}
+	return base, false
+}
+
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
 // Base and total include mastery bonus to match tooltip display and actual healing.
 func (cs *CombatSystem) CalculateSpellHealing(spellID spells.SpellID, char *character.MMCharacter) (int, int, int) {
@@ -213,11 +227,52 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 			total += cs.armorClassContributionWithEnd(armorPiece, char, effEnd)
 		}
 	}
-	total += cs.game.cardArmorBonus() // Treant Card: flat party Armor Class
+	// Hasta: an equipped weapon can grant its bearer flat AC (either hand).
+	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
+		if w, ok := char.Equipment[slot]; ok && w.Type == items.ItemWeapon {
+			if def := lookupWeaponConfigByName(w.Name); def != nil {
+				total += def.ArmorClassBonus
+			}
+		}
+	}
+	total += cs.game.cardArmorBonus()             // Treant Card: flat party Armor Class
+	total += cs.game.partyArmorAuraBonusFor(char) // Parma shield wall: aura from OTHER members' gear
 	if char.HasSkill(character.SkillIronBody) {
 		// Iron Body: flat AC per tier, Novice included - a Monk's only AC
 		// source besides Endurance, since they wear no armor at all.
 		total += (char.SkillTier(character.SkillIronBody) + 1) * character.IronBodyACPerTier
+	}
+	return total
+}
+
+// partyArmorAuraBonusFor sums party_armor_bonus from every OTHER member's
+// equipped items (the Parma's shield wall: the bearer shelters the line, not
+// themselves - the shield's own armor_class_base already covers them). Only
+// PARTY MEMBERS stand in the wall: champion templates and other non-party
+// characters run through CalculateTotalArmorClass too and must never borrow
+// the party's shields.
+func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
+	if g == nil || g.party == nil {
+		return 0
+	}
+	inParty := false
+	for _, member := range g.party.Members {
+		if member == char {
+			inParty = true
+			break
+		}
+	}
+	if !inParty {
+		return 0
+	}
+	total := 0
+	for _, member := range g.party.Members {
+		if member == nil || member == char {
+			continue
+		}
+		for _, it := range member.Equipment {
+			total += it.Attributes["party_armor_bonus"]
+		}
 	}
 	return total
 }

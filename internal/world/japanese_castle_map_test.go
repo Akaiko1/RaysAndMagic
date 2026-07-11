@@ -9,9 +9,11 @@ import (
 )
 
 // TestJapaneseCastleMapLoads parses assets/japanese_castle.map with the
-// japanese_castle biome and verifies it wires up: 50x50, a start, the 7 NPCs
-// (exit, old retainer, 5 sword racks), and exactly one dormant Samurai Warlord
-// among the spawns. Catches unresolved tile letters / NPC keys end-to-end.
+// japanese_castle biome and verifies it wires up: 50x50, a start, the QUEST
+// NPCs (exit, old retainer, 5 sword racks), and exactly one dormant Samurai
+// Warlord among the spawns. Quest NPCs are asserted by KEY, never by a total
+// spawn count - incidental content (chests, lecterns) comes and goes freely.
+// Catches unresolved tile letters / NPC keys end-to-end.
 func TestJapaneseCastleMapLoads(t *testing.T) {
 	tm := NewTileManager()
 	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
@@ -38,13 +40,17 @@ func TestJapaneseCastleMapLoads(t *testing.T) {
 	if md.StartX < 0 || md.StartY < 0 {
 		t.Errorf("no start position parsed (%d,%d)", md.StartX, md.StartY)
 	}
-	if len(md.NPCSpawns) != 7 {
-		t.Errorf("want 7 NPC spawns (exit, retainer, 5 racks), got %d", len(md.NPCSpawns))
-	}
 	racks, boss := 0, 0
+	quest := map[string]int{}
 	for _, n := range md.NPCSpawns {
+		quest[n.NPCKey]++
 		if strings.HasPrefix(n.NPCKey, "sword_rack_") {
 			racks++
+		}
+	}
+	for _, key := range []string{"japanese_castle_exit", "castle_oldman"} {
+		if quest[key] != 1 {
+			t.Errorf("want exactly 1 %q NPC spawn, got %d", key, quest[key])
 		}
 	}
 	for _, m := range md.MonsterSpawns {

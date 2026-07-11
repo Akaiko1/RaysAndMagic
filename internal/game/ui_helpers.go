@@ -832,16 +832,18 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 // drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
 // rather than a flat fill.
 var (
-	raritySilver = color.RGBA{210, 216, 230, 255} // uncommon
-	rarityGold   = color.RGBA{255, 215, 0, 255}   // rare
-	rarityFire   = color.RGBA{220, 80, 20, 255}   // legendary
+	raritySilver  = color.RGBA{210, 216, 230, 255} // uncommon
+	rarityGold    = color.RGBA{255, 215, 0, 255}   // rare
+	rarityFire    = color.RGBA{220, 80, 20, 255}   // legendary
+	rarityEmerald = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
 )
 
 // metallicColors marks which base tints get the metal-gradient text treatment.
 var metallicColors = map[color.RGBA]bool{
-	raritySilver: true,
-	rarityGold:   true,
-	rarityFire:   true,
+	raritySilver:  true,
+	rarityGold:    true,
+	rarityFire:    true,
+	rarityEmerald: true,
 }
 
 // asMetal reports whether col is a registered rarity metal (so the text renders
@@ -861,6 +863,8 @@ func rarityColor(rarity string) color.Color {
 		return rarityGold
 	case "legendary":
 		return rarityFire
+	case "unique":
+		return rarityEmerald
 	default:
 		return color.White // Common/default
 	}
@@ -900,18 +904,8 @@ func (ui *UISystem) itemRarityColor(item items.Item) color.Color {
 }
 
 // rarityTier ranks rarities for "highest wins" comparisons (higher = rarer).
-func rarityTier(rarity string) int {
-	switch strings.ToLower(rarity) {
-	case "uncommon":
-		return 1
-	case "rare":
-		return 2
-	case "legendary":
-		return 3
-	default:
-		return 0
-	}
-}
+// rarityTier delegates to config.RarityTier (the single rarity-ordering SSoT).
+func rarityTier(rarity string) int { return config.RarityTier(rarity) }
 
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area
 func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
