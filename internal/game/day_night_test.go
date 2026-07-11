@@ -106,3 +106,28 @@ func TestDespawnPackMonstersCurrentMapQueuesIDs(t *testing.T) {
 		t.Fatalf("queued dead IDs = %v", g.deadMonsterIDs)
 	}
 }
+
+func TestWorldHasLivingMonsters(t *testing.T) {
+	w := &world.World3D{Monsters: []*monster.Monster3D{{HitPoints: 0}, nil}}
+	if worldHasLivingMonsters(w) {
+		t.Fatal("dead monsters must not block a clear-gated pack")
+	}
+	w.Monsters = append(w.Monsters, &monster.Monster3D{HitPoints: 1})
+	if !worldHasLivingMonsters(w) {
+		t.Fatal("a living monster must block a clear-gated pack")
+	}
+}
+
+func TestDragonCliffsNightPackRequiresFullClear(t *testing.T) {
+	cfg := loadTestConfig(t)
+	for _, pack := range cfg.DayNight.Packs {
+		if pack.Map != "dragon_cliffs" {
+			continue
+		}
+		if pack.NightMonster != "dragon" || pack.Count != 5 || !pack.RequireMapClear {
+			t.Fatalf("dragon cliffs night pack = %+v, want black dragon x5 after a full clear", pack)
+		}
+		return
+	}
+	t.Fatal("dragon cliffs night pack missing")
+}

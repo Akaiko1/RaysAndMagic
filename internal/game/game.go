@@ -804,7 +804,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Fail fast on buff_fx_sprite / slash_fx / projectile_fx typos (sprite
 	// index is ready by now).
 	game.validateBuffFxSprites()
-	validateSlashFxStyles()
+	validateWeaponFxStyles()
 	validateProjectileFxStyles()
 
 	// Update sky and ground colors for initial map

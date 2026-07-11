@@ -1267,55 +1267,55 @@ npcs:
         name: "Ringmail Boots"
         cost: 2500
         quantity: -1
-      # Arena unique weapons (emerald tier) - 5000 ap, ONE copy each
+      # Arena unique weapons (emerald tier) - 5000 ap, THREE copies each
       - type: "weapon"
         name: "Gladius"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Pit Labrys"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Morningstar"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Hasta"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Retiarius Trident"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Parrying Dagger"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Lion-Crest Warhammer"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Skirmisher Recurve"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Arena Arbalest"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Lanista's Scepter"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "weapon"
         name: "Bronze Cesti"
         cost: 5000
-        quantity: 1
+        quantity: 3
       - type: "item"
         name: "Parma"
         cost: 5000
-        quantity: 1
+        quantity: 3
     dialogue:
       greeting: "The gatekeeper looks you over, one hand on her halberd. 'So. You think you have what it takes to fight in the arena?'"
       choice_prompt: "What do you say?"

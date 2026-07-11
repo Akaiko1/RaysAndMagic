@@ -934,6 +934,7 @@ weapons:
       slash_color: [230, 225, 215]
       slash_width: 34
       slash_length: 50
+      slash_fx: arena_gladius
 
   arena_labrys:
     name: "Pit Labrys"
@@ -956,6 +957,7 @@ weapons:
       slash_color: [210, 190, 130]
       slash_width: 48
       slash_length: 64
+      slash_fx: arena_labrys
 
   morningstar:
     name: "Morningstar"
@@ -978,6 +980,7 @@ weapons:
       slash_color: [200, 200, 210]
       slash_width: 42
       slash_length: 56
+      slash_fx: arena_morningstar
 
   hasta:
     name: "Hasta"
@@ -999,6 +1002,7 @@ weapons:
       slash_color: [190, 180, 170]
       slash_width: 20
       slash_length: 84
+      slash_fx: arena_hasta
 
   trident:
     name: "Retiarius Trident"
@@ -1022,6 +1026,7 @@ weapons:
       slash_color: [180, 200, 210]
       slash_width: 22
       slash_length: 86
+      slash_fx: arena_trident
 
   parry_dagger:
     name: "Parrying Dagger"
@@ -1044,6 +1049,7 @@ weapons:
       slash_color: [220, 220, 235]
       slash_width: 22
       slash_length: 36
+      slash_fx: arena_parry
 
   lion_warhammer:
     name: "Lion-Crest Warhammer"
@@ -1066,6 +1072,7 @@ weapons:
       slash_color: [220, 205, 160]
       slash_width: 46
       slash_length: 58
+      slash_fx: arena_lion
 
   arena_shortbow:
     name: "Skirmisher Recurve"
@@ -1088,6 +1095,7 @@ weapons:
       min_size: 2
       base_size: 12
       color: [210, 170, 110]
+      projectile_fx: arena_recurve
 
   arbalest:
     name: "Arena Arbalest"
@@ -1111,6 +1119,7 @@ weapons:
       min_size: 2
       base_size: 10
       color: [190, 180, 160]
+      projectile_fx: arena_arbalest
 
   lanista_scepter:
     name: "Lanista's Scepter"
@@ -1136,6 +1145,7 @@ weapons:
       min_size: 4
       base_size: 15
       color: [255, 235, 170]
+      projectile_fx: arena_lanista
 
   bronze_cesti:
     name: "Bronze Cesti"
@@ -1159,6 +1169,7 @@ weapons:
       slash_color: [210, 160, 110]
       slash_width: 24
       slash_length: 34
+      slash_fx: arena_cesti
 
   monk_fists:
     # Monk class weapon: auto-equipped at creation (config.yaml main_hand),

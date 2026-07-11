@@ -453,7 +453,7 @@ func checkArenaShop(t *testing.T, npc *character.NPC) {
 	uncommon := config.WeaponKeysByRarity("uncommon")
 	unique := config.WeaponKeysByRarity("unique")
 	// 5 unlimited consumables + 10 unlimited set-armor pieces + the unique
-	// weapons (single copies, incl. the Parma shield item) + the uncommon rack.
+	// weapons (three copies, incl. the Parma shield item) + the uncommon rack.
 	wantTotal := 5 + 10 + len(unique) + 1 + len(uncommon)
 	if len(npc.MerchantStock) != wantTotal {
 		t.Fatalf("stock size = %d, want %d (5 consumables + 10 armor + %d uniques + parma + %d uncommon weapons)",
@@ -471,14 +471,16 @@ func checkArenaShop(t *testing.T, npc *character.NPC) {
 			}
 		}
 		if rarity == "unique" {
-			// Arena uniques: 5000 ap, exactly ONE copy - they DO sell out.
+			// Arena uniques: 5000 ap, exactly three copies - they do sell out.
 			uniqueRack++
 			if entry.Cost != 5000 {
 				t.Fatalf("unique %s costs %d, want 5000", entry.Item.Name, entry.Cost)
 			}
-			entry.Take()
+			for range 3 {
+				entry.Take()
+			}
 			if entry.InStock() {
-				t.Fatalf("unique %s still in stock after purchase - must be a single copy", entry.Item.Name)
+				t.Fatalf("unique %s still in stock after three purchases", entry.Item.Name)
 			}
 			continue
 		}

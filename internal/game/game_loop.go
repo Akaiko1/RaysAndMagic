@@ -566,11 +566,14 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 			if rewards.CompletionMessage != "" {
 				gl.game.AddCombatMessage(rewards.CompletionMessage)
 			}
-			gl.game.AddCombatMessage(fmt.Sprintf("Quest Completed: Received %d gold and %d experience!", questRewards.Gold, questRewards.Experience))
+			gl.game.AddCombatMessage("Quest Completed: Received " + questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience) + "!")
 
 			// Award gold to party
 			if questRewards.Gold > 0 {
 				gl.game.awardGold(questRewards.Gold)
+			}
+			if questRewards.ArenaPoints > 0 {
+				gl.game.awardArenaPoints(questRewards.ArenaPoints)
 			}
 
 			// Award experience to all party members

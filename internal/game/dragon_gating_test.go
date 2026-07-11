@@ -123,3 +123,31 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 		t.Errorf("flagged Elder Dragon must credit dragon_slayer, got %d", prog())
 	}
 }
+
+func TestDragonSlayerQuestAwardsArenaPoints(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	qc, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	qm := quests.NewQuestManager(qc)
+	qm.InitializeStartingQuests()
+	cs.game.questManager = qm
+
+	quest := qm.GetQuest("dragon_slayer")
+	if quest == nil {
+		t.Fatal("dragon_slayer quest missing")
+	}
+	if quest.Definition.Rewards.Gold != 0 || quest.Definition.Rewards.ArenaPoints != 5000 {
+		t.Fatalf("dragon slayer reward = %+v, want 0 gold and 5000 arena points", quest.Definition.Rewards)
+	}
+	qm.MarkCompleted("dragon_slayer")
+
+	before := cs.game.party.ArenaPoints
+	if !cs.game.claimQuestReward("dragon_slayer") {
+		t.Fatal("claim dragon slayer reward")
+	}
+	if got := cs.game.party.ArenaPoints - before; got != 5000 {
+		t.Fatalf("arena points awarded = %d, want 5000", got)
+	}
+}

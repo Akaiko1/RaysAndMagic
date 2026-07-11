@@ -142,7 +142,8 @@ type DayNightConfig struct {
 // day_monster roams by day, night_monster by night (either may be empty). For a
 // MIXED phase (several monster kinds at once, e.g. 4 grunts + 1 elite), author
 // day_monsters/night_monsters as a list instead; when present the list wins over
-// the single-monster+count shorthand for that phase.
+// the single-monster+count shorthand for that phase. require_map_clear gates a
+// phase pack until every living monster on its map has been defeated.
 type DayNightPackConfig struct {
 	Map                string             `yaml:"map"`
 	DayMonster         string             `yaml:"day_monster"`
@@ -151,6 +152,7 @@ type DayNightPackConfig struct {
 	DayMonsters        []PackMemberConfig `yaml:"day_monsters,omitempty"`
 	NightMonsters      []PackMemberConfig `yaml:"night_monsters,omitempty"`
 	MinPlayerDistTiles float64            `yaml:"min_player_dist_tiles"`
+	RequireMapClear    bool               `yaml:"require_map_clear,omitempty"`
 }
 
 // PackMemberConfig is one monster kind and its count within a mixed pack phase.
@@ -296,10 +298,11 @@ type MeleeAttackConfig struct {
 
 // WeaponGraphicsConfig for melee slash effects and projectile weapon rendering.
 type WeaponGraphicsConfig struct {
-	SlashColor  [3]int `yaml:"slash_color"`        // RGB color for slash effect
-	SlashWidth  int    `yaml:"slash_width"`        // Width of slash line
-	SlashLength int    `yaml:"slash_length"`       // Length of slash line
-	SlashFx     string `yaml:"slash_fx,omitempty"` // bespoke swing style (legendaries); empty = category default
+	SlashColor   [3]int `yaml:"slash_color"`             // RGB color for slash effect
+	SlashWidth   int    `yaml:"slash_width"`             // Width of slash line
+	SlashLength  int    `yaml:"slash_length"`            // Length of slash line
+	SlashFx      string `yaml:"slash_fx,omitempty"`      // bespoke swing style; empty = category default
+	ProjectileFx string `yaml:"projectile_fx,omitempty"` // bespoke accent for a weapon projectile; empty = category default
 
 	MaxSize  int    `yaml:"max_size"`
 	MinSize  int    `yaml:"min_size"`

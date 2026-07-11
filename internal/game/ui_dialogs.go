@@ -1752,7 +1752,7 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 
 		// Rewards section (right side)
 		rewardsX := panelX + 300
-		rewardsText := fmt.Sprintf("Reward: %dg / %dxp", quest.Definition.Rewards.Gold, quest.Definition.Rewards.Experience)
+		rewardsText := "Reward: " + questRewardSummary(quest.Definition.Rewards.Gold, quest.Definition.Rewards.ArenaPoints, quest.Definition.Rewards.Experience)
 		drawDebugText(screen, rewardsText, rewardsX, bottomY)
 
 		// Claim button for completed quests with unclaimed rewards
@@ -1809,9 +1809,26 @@ func (ui *UISystem) claimQuestReward(questID string) {
 	ui.game.claimQuestReward(questID)
 }
 
-// claimQuestReward claims a completed quest's reward: gold + shared XP, marking it
-// claimed. Single source of truth for both the quest journal (J) and an NPC
-// turn-in, so the two can't diverge. Returns true if a reward was actually paid.
+// questRewardSummary is the shared UI/log wording for quest currencies and XP.
+func questRewardSummary(gold, arenaPoints, experience int) string {
+	parts := make([]string, 0, 3)
+	if gold > 0 {
+		parts = append(parts, fmt.Sprintf("%d gold", gold))
+	}
+	if arenaPoints > 0 {
+		parts = append(parts, fmt.Sprintf("%d arena points", arenaPoints))
+	}
+	if experience > 0 {
+		parts = append(parts, fmt.Sprintf("%d XP", experience))
+	}
+	if len(parts) == 0 {
+		return "no reward"
+	}
+	return strings.Join(parts, " / ")
+}
+
+// claimQuestReward claims a completed quest's reward and marks it claimed.
+// This is the single source of truth for the quest journal (J) and NPC turn-in.
 func (g *MMGame) claimQuestReward(questID string) bool {
 	if g.questManager == nil {
 		return false
@@ -1824,14 +1841,17 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	if rewards.Gold > 0 {
 		g.awardGold(rewards.Gold)
 	}
+	if rewards.ArenaPoints > 0 {
+		g.awardArenaPoints(rewards.ArenaPoints)
+	}
 	// Single XP source so Learning bonuses and bench training apply (active party,
 	// reserve, and captives all share quest XP).
 	if rewards.Experience > 0 {
 		g.grantSharedXP(rewards.Experience)
 	}
 	if quest := g.questManager.GetQuest(questID); quest != nil {
-		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %d gold and %d XP!",
-			quest.Definition.Name, rewards.Gold, rewards.Experience))
+		g.AddCombatMessage(fmt.Sprintf("Quest '%s' completed! Received %s!",
+			quest.Definition.Name, questRewardSummary(rewards.Gold, rewards.ArenaPoints, rewards.Experience)))
 	}
 	return true
 }

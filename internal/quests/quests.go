@@ -35,8 +35,9 @@ const (
 
 // QuestRewards defines the rewards for completing a quest
 type QuestRewards struct {
-	Gold       int `yaml:"gold"`
-	Experience int `yaml:"experience"`
+	Gold        int `yaml:"gold"`
+	ArenaPoints int `yaml:"arena_points,omitempty"`
+	Experience  int `yaml:"experience"`
 	// Future: Items []string `yaml:"items"`
 }
 

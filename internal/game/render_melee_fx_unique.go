@@ -22,28 +22,44 @@ const meleeFxStyledLingerFrames = 44
 // meleeFxStyleDraw maps graphics.slash_fx to its bespoke renderer
 // (legendaries here, rares + naginata in render_melee_fx_rare.go).
 var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, float64, float64, float64){
-	"muramasa":      (*Renderer).drawMeleeFxMuramasa,
-	"tonbogiri":     (*Renderer).drawMeleeFxTonbogiri,
-	"kage_kunai":    (*Renderer).drawMeleeFxKageKunai,
-	"idol_breaker":  (*Renderer).drawMeleeFxIdolBreaker,
-	"silver_sword":  (*Renderer).drawMeleeFxSilverSword,
-	"gold_sword":    (*Renderer).drawMeleeFxGoldSword,
-	"agility_katar": (*Renderer).drawMeleeFxAgilityKatar,
-	"gorehorn":      (*Renderer).drawMeleeFxGorehorn,
-	"serpent_fang":  (*Renderer).drawMeleeFxSerpentFang,
-	"naginata":      (*Renderer).drawMeleeFxNaginata,
+	"muramasa":          (*Renderer).drawMeleeFxMuramasa,
+	"tonbogiri":         (*Renderer).drawMeleeFxTonbogiri,
+	"kage_kunai":        (*Renderer).drawMeleeFxKageKunai,
+	"idol_breaker":      (*Renderer).drawMeleeFxIdolBreaker,
+	"silver_sword":      (*Renderer).drawMeleeFxSilverSword,
+	"gold_sword":        (*Renderer).drawMeleeFxGoldSword,
+	"agility_katar":     (*Renderer).drawMeleeFxAgilityKatar,
+	"gorehorn":          (*Renderer).drawMeleeFxGorehorn,
+	"serpent_fang":      (*Renderer).drawMeleeFxSerpentFang,
+	"naginata":          (*Renderer).drawMeleeFxNaginata,
+	"arena_gladius":     (*Renderer).drawMeleeFxArenaGladius,
+	"arena_labrys":      (*Renderer).drawMeleeFxArenaLabrys,
+	"arena_morningstar": (*Renderer).drawMeleeFxArenaMorningstar,
+	"arena_hasta":       (*Renderer).drawMeleeFxArenaHasta,
+	"arena_trident":     (*Renderer).drawMeleeFxArenaTrident,
+	"arena_parry":       (*Renderer).drawMeleeFxArenaParry,
+	"arena_lion":        (*Renderer).drawMeleeFxArenaLion,
+	"arena_cesti":       (*Renderer).drawMeleeFxArenaCesti,
 }
 
-// validateSlashFxStyles fails fast on a slash_fx naming a style with no
-// renderer - a YAML typo would otherwise silently fall back to the stock swing.
-func validateSlashFxStyles() {
+// validateWeaponFxStyles fails fast when a weapon effect names a style with no
+// renderer - a YAML typo would otherwise silently fall back to the stock FX.
+func validateWeaponFxStyles() {
 	if config.GlobalWeapons == nil {
 		return
 	}
 	for key, def := range config.GlobalWeapons.Weapons {
-		if def.Graphics != nil && def.Graphics.SlashFx != "" {
+		if def.Graphics == nil {
+			continue
+		}
+		if def.Graphics.SlashFx != "" {
 			if _, ok := meleeFxStyleDraw[def.Graphics.SlashFx]; !ok {
 				panic(fmt.Sprintf("weapon %q: unknown slash_fx style %q", key, def.Graphics.SlashFx))
+			}
+		}
+		if def.Graphics.ProjectileFx != "" {
+			if _, ok := weaponProjectileFxStyleDraw[def.Graphics.ProjectileFx]; !ok {
+				panic(fmt.Sprintf("weapon %q: unknown weapon projectile_fx style %q", key, def.Graphics.ProjectileFx))
 			}
 		}
 	}

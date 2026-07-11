@@ -295,8 +295,15 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 		if w == nil {
 			continue
 		}
+		// Evaluate the clear gate before removing the previous phase's pack: a
+		// surviving pack member is still a living monster and must prevent a
+		// fresh pack from replacing it at the next phase refresh.
+		spawnAllowed := !pack.RequireMapClear || !worldHasLivingMonsters(w)
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, !night))
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, night)) // no double-stacking on odd flows (load edge cases)
+		if !spawnAllowed {
+			continue
+		}
 		tag := dayNightPackTag(pack.Map, night)
 		// One tag covers every member of the phase, so a mixed pack (e.g. grunts
 		// + an elite) despawns together and never self-clears mid-spawn.
@@ -307,6 +314,18 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, pack.MinPlayerDistTilesOrDefault())
 		}
 	}
+}
+
+func worldHasLivingMonsters(w *world.World3D) bool {
+	if w == nil {
+		return false
+	}
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() {
+			return true
+		}
+	}
+	return false
 }
 
 // despawnPackMonsters removes a pack without the death path (no XP/loot). On

@@ -3928,6 +3928,9 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			if !ok {
 				dirX, dirY = 1, 0
 			}
+			if style := bowDef.Graphics.ProjectileFx; style != "" {
+				r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), dirX, dirY, critBoost, idx)
+			}
 			r.drawSpellProjectileFx(screen, centerX, centerY, float64(arrowSize), dirX, dirY,
 				arrowColor, fxProfile, critBoost, idx)
 			continue
@@ -3980,6 +3983,9 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			ar.RenderAngle = approachAngle(ar.RenderAngle, target, arrowAngleMaxStep)
 		}
 		angle := ar.RenderAngle
+		if style := bowDef.Graphics.ProjectileFx; style != "" {
+			r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), math.Cos(angle), math.Sin(angle), critBoost, idx)
+		}
 		shaftLen := float64(arrowSize) * 1.7
 		for g := 2; g >= 1; g-- {
 			off := shaftLen * 0.5 * float64(g)

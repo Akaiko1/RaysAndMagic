@@ -420,3 +420,9 @@ day_night:
       night_monsters:
         - { monster: ningyo, count: 4 }
         - { monster: vengeful_ningyo, count: 1 }
+
+    # Black dragons return only after the cliffs have been completely cleared.
+    - map: dragon_cliffs
+      night_monster: dragon
+      count: 5
+      require_map_clear: true

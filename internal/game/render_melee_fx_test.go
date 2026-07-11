@@ -6,15 +6,14 @@ import (
 	"ugataima/internal/config"
 )
 
-// The bespoke legendary swing styles are wired YAML->renderer by name; these
-// tests pin the contract: every slash_fx resolves to a registered renderer
-// and validation rejects typos instead of silently falling back.
+// Bespoke weapon effects are wired YAML->renderer by name; these tests pin the
+// contract so a typo cannot silently fall back to a stock effect.
 func TestSlashFxStylesResolve(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
 
-	validateSlashFxStyles() // must not panic on shipped content
+	validateWeaponFxStyles() // must not panic on shipped content
 
 	styled := map[string]string{}
 	for key, def := range config.GlobalWeapons.Weapons {
@@ -28,9 +27,25 @@ func TestSlashFxStylesResolve(t *testing.T) {
 	for _, key := range []string{
 		"muramasa", "tonbogiri", "kage_kunai", "idol_breakers_maul",
 		"silver_sword", "gold_sword", "agility_katar", "gorehorn_greataxe", "serpent_fang", "naginata",
+		"gladius", "arena_labrys", "morningstar", "hasta", "trident", "parry_dagger", "lion_warhammer", "bronze_cesti",
 	} {
 		if styled[key] == "" {
 			t.Errorf("weapon %q lost its slash_fx style", key)
+		}
+	}
+}
+
+func TestArenaWeaponProjectileFxStylesResolve(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+
+	validateWeaponFxStyles() // validates both weapon FX fields
+
+	for _, key := range []string{"arena_shortbow", "arbalest", "lanista_scepter"} {
+		def := config.GlobalWeapons.Weapons[key]
+		if def.Graphics == nil || def.Graphics.ProjectileFx == "" {
+			t.Errorf("weapon %q lost its projectile_fx style", key)
 		}
 	}
 }
@@ -58,7 +73,7 @@ func TestProjectileFxStylesResolve(t *testing.T) {
 	}
 }
 
-func TestValidateSlashFxStylesRejectsUnknown(t *testing.T) {
+func TestValidateWeaponFxStylesRejectsUnknown(t *testing.T) {
 	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
 		t.Fatalf("load weapons: %v", err)
 	}
@@ -71,5 +86,21 @@ func TestValidateSlashFxStylesRejectsUnknown(t *testing.T) {
 			t.Fatal("expected panic on unknown slash_fx style")
 		}
 	}()
-	validateSlashFxStyles()
+	validateWeaponFxStyles()
+}
+
+func TestValidateWeaponFxStylesRejectsUnknownProjectile(t *testing.T) {
+	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	def := config.GlobalWeapons.Weapons["arena_shortbow"]
+	orig := def.Graphics.ProjectileFx
+	def.Graphics.ProjectileFx = "no_such_style"
+	defer func() {
+		def.Graphics.ProjectileFx = orig
+		if recover() == nil {
+			t.Fatal("expected panic on unknown weapon projectile_fx style")
+		}
+	}()
+	validateWeaponFxStyles()
 }
