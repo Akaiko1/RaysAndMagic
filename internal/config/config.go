@@ -1450,15 +1450,17 @@ type LootTablesConfig struct {
 //   - special_rolls: per-CHEST chance sources that REPLACE one normal roll (a
 //     rare/legendary/gold/arena-points jackpot), never add a fourth item.
 //
-// trap_damage blasts the party flat on opening; trap_ignite sets it burning
-// for TrapIgniteSeconds (DefaultTrapIgniteSeconds when unset). Disarm Trap
-// mastery avoids either entirely at 40/60/80/100%.
+// trap_damage blasts the party flat on opening. trap_damage_types chooses one
+// of its listed damage types at random (empty means physical). trap_ignite
+// sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
+// unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
 	Rolls             int               `yaml:"rolls"`
 	LootTable         string            `yaml:"loot_table,omitempty"`
 	RollSources       []CrateRollSource `yaml:"roll_sources,omitempty"`
 	SpecialRolls      []CrateRollSource `yaml:"special_rolls,omitempty"`
 	TrapDamage        int               `yaml:"trap_damage,omitempty"`
+	TrapDamageTypes   []string          `yaml:"trap_damage_types,omitempty"`
 	TrapIgnite        bool              `yaml:"trap_ignite,omitempty"`
 	TrapIgniteSeconds int               `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
 }
@@ -1578,6 +1580,14 @@ func validateCrates(lt *LootTablesConfig) error {
 		if c == nil {
 			return fmt.Errorf("crate %q is empty", key)
 		}
+		if len(c.TrapDamageTypes) > 0 && c.TrapDamage <= 0 {
+			return fmt.Errorf("crate %q: trap_damage_types requires trap_damage", key)
+		}
+		for i, damageType := range c.TrapDamageTypes {
+			if !validCrateTrapDamageType(damageType) {
+				return fmt.Errorf("crate %q: trap_damage_types[%d] has unsupported damage type %q", key, i, damageType)
+			}
+		}
 		if c.LootTable != "" {
 			if _, ok := lt.WeightedLootTables[c.LootTable]; !ok {
 				return fmt.Errorf("crate %q: unknown loot_table %q", key, c.LootTable)
@@ -1605,6 +1615,15 @@ func validateCrates(lt *LootTablesConfig) error {
 		}
 	}
 	return nil
+}
+
+func validCrateTrapDamageType(damageType string) bool {
+	switch strings.TrimSpace(damageType) {
+	case "physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSource, requireWeight bool) error {

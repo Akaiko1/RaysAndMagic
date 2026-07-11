@@ -209,6 +209,20 @@ func TestCrateRarityAndCurrencyRulesComeFromYAML(t *testing.T) {
 	}
 }
 
+func TestGoldenChestTrapDamageTypesComeFromYAML(t *testing.T) {
+	crateTestGame(t)
+	crate := config.GetCrateConfig("chest_golden")
+	if crate == nil {
+		t.Fatal("golden chest config missing")
+	}
+	if crate.TrapDamage != 150 {
+		t.Fatalf("golden chest trap damage = %d, want 150", crate.TrapDamage)
+	}
+	if got := crate.TrapDamageTypes; len(got) != 2 || got[0] != "physical" || got[1] != "fire" {
+		t.Fatalf("golden chest trap damage types = %v, want [physical fire]", got)
+	}
+}
+
 // TestGoldenChestPool: catalog rares (or upgraded legendaries) only. Cards are
 // valid collectible loot, while quest items and arena uniques stay excluded.
 func TestGoldenChestPool(t *testing.T) {

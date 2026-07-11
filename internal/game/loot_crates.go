@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 
 	"ugataima/internal/character"
 	"ugataima/internal/config"
@@ -91,9 +92,14 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 		})
 		return
 	}
-	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden charge!", npc.Name), combatMessageOrange)
+	damageType := "physical"
+	if len(crate.TrapDamageTypes) > 0 {
+		damageType = crate.TrapDamageTypes[rand.Intn(len(crate.TrapDamageTypes))]
+	}
+	damageLabel := strings.ToUpper(damageType[:1]) + damageType[1:]
+	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden %s charge!", npc.Name, damageLabel), combatMessageOrange)
 	g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, "physical", false)
+		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType, false)
 		g.AddCombatMessage(fmt.Sprintf("%s takes %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 	})
