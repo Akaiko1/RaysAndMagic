@@ -2580,15 +2580,11 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx)
 	}
 
-	// kill finalizes a slain target. awardExperienceAndGold credits an enemy or a
-	// bound undead (a former enemy) but nothing for a pure card ally - the reward
-	// rule lives there, so this path just calls it.
+	// kill finalizes a slain crossfire target through the same kill choke point as
+	// a party hit, so a bound summon can earn champion rewards for the party too.
 	kill := func() {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
-		cs.game.collisionSystem.UnregisterEntity(target.ID)
-		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
-		cs.scatterBandOnMemberDeath(target)
-		cs.awardExperienceAndGold(target)
+		cs.finishMonsterKillImmediately(target)
 	}
 
 	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
@@ -3555,6 +3551,17 @@ func (cs *CombatSystem) finishMonsterKill(m *monsterPkg.Monster3D) int {
 	return cs.awardExperienceAndGold(m)
 }
 
+// finishMonsterKillImmediately finalizes a death that must stop colliding in
+// the current frame (traps, crossfire projectiles, direct monster-vs-monster
+// hits). Rewards still flow through finishMonsterKill, including champions.
+func (cs *CombatSystem) finishMonsterKillImmediately(m *monsterPkg.Monster3D) {
+	if m == nil {
+		return
+	}
+	cs.game.collisionSystem.UnregisterEntity(m.ID)
+	cs.finishMonsterKill(m)
+}
+
 // scatterBandOnMemberDeath bursts the victim's band the moment a member is
 // slain. The hit-propagation path (TakeDamage -> non-calm member -> next-tick
 // scatter) never fires on a one-shot kill: the dead member drops out of the
@@ -4335,12 +4342,7 @@ func (cs *CombatSystem) strikeMonsterFor(attacker, target *monsterPkg.Monster3D,
 		return
 	}
 	cs.game.AddCombatMessage(fmt.Sprintf("%s slays %s!", attacker.Name, target.Name))
-	cs.game.collisionSystem.UnregisterEntity(target.ID)
-	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
-	cs.scatterBandOnMemberDeath(target)
-	// A slain enemy or bound undead (a former enemy) rewards the party; a pure
-	// card ally yields nothing - the rule lives in awardExperienceAndGold.
-	cs.awardExperienceAndGold(target)
+	cs.finishMonsterKillImmediately(target)
 }
 
 // boundAttackNearest makes a bound undead attack the nearest enemy monster -

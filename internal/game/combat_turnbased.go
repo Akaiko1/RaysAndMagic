@@ -381,16 +381,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 
 // monsterAttackTurnBased handles a monster attack in turn-based mode
 func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
-	monster.AttackAnimFrames = MonsterAttackAnimFrames
-	monster.LastMoveTick = gl.game.frameCount
-
-	attacks := monster.GetTurnBasedAttackCount()
-	for hit := 0; hit < attacks; hit++ {
-		// Re-filter every iteration: a previous attack may have just KO'd
-		// the only remaining target, in which case the rest are no-ops.
-		if len(alivePartyIndices(gl.game.party.Members)) == 0 {
-			return
-		}
+	gl.forEachMonsterAttackTurnBased(monster, func() bool {
+		return len(alivePartyIndices(gl.game.party.Members)) > 0
+	}, func() {
 		// Same attack wrappers as RT so TB gets the identical roll chain:
 		// special ability -> Fireburst -> the shared monster->character hit hub.
 		if monster.HasRangedAttack() {
@@ -398,7 +391,7 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		} else {
 			gl.game.combat.applyMonsterMeleeDamage(monster)
 		}
-	}
+	})
 }
 
 // monsterAttackFoeTurnBased resolves a full monster turn against a controlled
@@ -406,26 +399,36 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 // parity as attacks against the party; otherwise fast monsters silently lose
 // swings whenever their target is a bound ally or card summon.
 func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) {
-	if attacker == nil || foe == nil {
-		return
-	}
-	attacker.AttackAnimFrames = MonsterAttackAnimFrames
-	attacker.LastMoveTick = gl.game.frameCount
-
-	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && foe.IsAlive(); hit++ {
+	gl.forEachMonsterAttackTurnBased(attacker, func() bool {
+		return foe != nil && foe.IsAlive()
+	}, func() {
 		if attacker.HasRangedAttack() {
 			owner := ProjectileOwnerMonsterAtBound
 			if attacker.Bound {
 				owner = ProjectileOwnerBoundUndead
 			}
 			gl.game.combat.spawnMonsterRangedAttackAtMonster(attacker, foe, owner)
-			continue
+			return
 		}
 		if attacker.IsChampion() {
 			gl.game.combat.championAlternatingCrossfireStrike(attacker, foe)
-			continue
+			return
 		}
 		gl.game.combat.monsterStrikeMonster(attacker, foe)
+	})
+}
+
+// forEachMonsterAttackTurnBased is the sole action-count loop for attacks in a
+// monster turn. The party and crossfire branches deliberately differ only in
+// target selection and delivery; authored attacks-per-round must not drift.
+func (gl *GameLoop) forEachMonsterAttackTurnBased(attacker *monster.Monster3D, targetAlive func() bool, attack func()) {
+	if attacker == nil || targetAlive == nil || attack == nil {
+		return
+	}
+	attacker.AttackAnimFrames = MonsterAttackAnimFrames
+	attacker.LastMoveTick = gl.game.frameCount
+	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && targetAlive(); hit++ {
+		attack()
 	}
 }
 

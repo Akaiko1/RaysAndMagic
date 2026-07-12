@@ -368,8 +368,7 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 	if m.IsAlive() {
 		return
 	}
-	cs.game.collisionSystem.UnregisterEntity(m.ID)
-	cs.finishMonsterKill(m)
+	cs.finishMonsterKillImmediately(m)
 }
 
 // updateTraps runs once per frame from the game loop: ambient swirl VFX in

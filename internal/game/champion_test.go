@@ -399,6 +399,34 @@ func TestChampionVictoryRewards(t *testing.T) {
 	}
 }
 
+// A card summon killing the champion is still the party's arena victory. The
+// crossfire death path must reach the same champion-reward choke point as a
+// direct party strike.
+func TestChampionVictoryRewardsFromCardSummonKill(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, cs.game)
+	fillTestParty(t, cs.game)
+
+	champion := monsterPkg.NewMonster3DFromConfig(128, 128, "weapon_master", cs.game.config)
+	champion.ChampionTier = "easy"
+	champion.MaxHitPoints, champion.HitPoints = 1, 1
+	summon := monsterPkg.NewMonster3DFromConfig(192, 128, "masked_huntress", cs.game.config)
+	markCardAlly(summon)
+	cs.game.world.Monsters = []*monsterPkg.Monster3D{champion, summon}
+	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+
+	tier := config.GetChampionTier("easy")
+	if tier == nil {
+		t.Fatal("easy champion tier missing")
+	}
+	before := cs.game.party.ArenaPoints
+	cs.strikeMonsterFor(summon, champion, 9999, monsterPkg.DamagePhysical)
+
+	if got, want := cs.game.party.ArenaPoints-before, tier.ArenaPoints; got != want {
+		t.Fatalf("arena points from card-summon champion kill = %d, want %d", got, want)
+	}
+}
+
 // TestArenaGladiatorShop: BOTH gladiators (gatekeeper outside, duel master
 // inside) carry the points shop as a dialog tab: the authored unlimited
 // consumables plus EVERY uncommon weapon at the flat rack price - counts and
