@@ -297,34 +297,40 @@ maps:
     sky_color: [55, 42, 32]
     sky_texture: "pyramid_panorama"
     default_floor_color: [132, 100, 64]
-    clear_encounter:
-      rewards:
-        completion_message: "The last Isis falls. Four sealed dragon reliquaries slide open behind the dais."
-        treasure_chests:
-          - id: "pyramid_black_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 9
-            tile_y: 3
-            sprite: "pyramid_chest"
-            items: ["black_dragon_statuette"]
-          - id: "pyramid_red_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 13
-            tile_y: 3
-            sprite: "pyramid_chest"
-            items: ["red_dragon_statuette"]
-          - id: "pyramid_green_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 17
-            tile_y: 3
-            sprite: "pyramid_chest"
-            items: ["green_dragon_statuette"]
-          - id: "pyramid_gold_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 21
-            tile_y: 3
-            sprite: "pyramid_chest"
-            items: ["gold_dragon_statuette"]
+    # The four Isis at the sanctum dais open the reliquaries. The lower pyramid
+    # inhabitants, including the hidden dragon, are normal map content and must
+    # not hold these chests hostage.
+    clear_encounters:
+      - monsters:
+          - type: "isis"
+            count: 4
+        rewards:
+          completion_message: "The last Isis falls. Four sealed dragon reliquaries slide open behind the dais."
+          treasure_chests:
+            - id: "pyramid_black_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 9
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["black_dragon_statuette"]
+            - id: "pyramid_red_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 13
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["red_dragon_statuette"]
+            - id: "pyramid_green_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 17
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["green_dragon_statuette"]
+            - id: "pyramid_gold_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 21
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["gold_dragon_statuette"]
 
   lich_nexus:
     name: "Lich Nexus"

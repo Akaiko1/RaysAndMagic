@@ -72,13 +72,13 @@ func (g *MMGame) separateStackedMonstersTB() {
 		sortMonstersByID(cluster)
 		owner := 0
 		for i, m := range cluster {
-			if m.BossDormant || m.BossWarded || m.WarlordIdol {
+			if m.IsInertSetPiece() {
 				owner = i
 				break
 			}
 		}
 		for i, m := range cluster {
-			if i == owner || m.BossDormant || m.BossWarded || m.WarlordIdol {
+			if i == owner || m.IsInertSetPiece() {
 				continue
 			}
 			g.scatterMonsterToFreeTile(m, k[0], k[1], tile, used)
@@ -197,7 +197,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Match real-time AI: sealed bosses, warded warlords, and ward idols are
 		// inert in TB too. They hold their placed tile and never spend the monster
 		// turn moving or attacking while the seal/ward condition is active.
-		if m.BossDormant || m.BossWarded || m.WarlordIdol {
+		if m.IsInertSetPiece() {
 			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}

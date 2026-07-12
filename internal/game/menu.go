@@ -1287,6 +1287,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 
 	// Restore monsters (all loaded maps)
+	var migratedPyramidReliquaries *monster.EncounterRewards
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
 		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
@@ -1435,6 +1436,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					continue
 				}
 				restoreMonsters(w, monsters)
+				if mapKey == "pyramid_3" {
+					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
+				}
 			}
 		} else if g.world != nil {
 			restoreMonsters(g.world, save.Monsters)
@@ -1614,6 +1618,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.groundContainers = append(g.groundContainers, restored)
 	}
 	g.invalidateContainerFanCache()
+	// A pre-fix pyramid save bound the reliquaries to every static mob on the
+	// map. Ground containers restore first so their IDs can suppress duplicates;
+	// then a fully cleared dais receives the reliquaries it was already owed.
+	if migratedPyramidReliquaries != nil {
+		g.addTreasureChestsFromRewards(migratedPyramidReliquaries)
+	}
 
 	// Rebuild HUD buff icons from the single timed-buff registry (same source the
 	// per-frame update uses), so a restored buff shows its timer immediately.
@@ -1651,6 +1661,62 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.sessionStartTime = time.Now().Add(-time.Duration(save.PlayedTimeNs))
 	}
 
+	return nil
+}
+
+// migrateLegacyPyramidSanctumEncounter repairs saves written while pyramid_3
+// used a map-wide clear encounter. Only a save that still binds a lower Isis,
+// Minotaur, or Dragon to the reliquaries enters this path. The upper-dais Isis
+// keep the reward; if all four are already dead, the reward is returned so the
+// caller can spawn the overdue chests after ground containers are restored.
+func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster.EncounterRewards {
+	if g == nil || w == nil || g.config == nil {
+		return nil
+	}
+	tileSize := float64(g.config.GetTileSize())
+	isDaisIsis := func(m *monster.Monster3D) bool {
+		return m != nil && m.Key == "isis" && int(m.Y/tileSize) == 5
+	}
+	isReliquaryReward := func(rewards *monster.EncounterRewards) bool {
+		if rewards == nil || len(rewards.TreasureChests) != 4 {
+			return false
+		}
+		for _, chest := range rewards.TreasureChests {
+			if chest.ID == "pyramid_black_dragon_statuette_chest" {
+				return true
+			}
+		}
+		return false
+	}
+
+	var legacy *monster.EncounterRewards
+	for _, m := range w.Monsters {
+		if m != nil && m.IsEncounterMonster && isReliquaryReward(m.EncounterRewards) && !isDaisIsis(m) {
+			legacy = m.EncounterRewards
+			break
+		}
+	}
+	if legacy == nil {
+		return nil // new-format save, or an already-completed old-format save
+	}
+	g.loadNeedsResave = true
+
+	daisAlive := 0
+	for _, m := range w.Monsters {
+		if m == nil || m.EncounterRewards != legacy {
+			continue
+		}
+		if isDaisIsis(m) {
+			m.IsEncounterMonster = true
+			daisAlive++
+			continue
+		}
+		m.IsEncounterMonster = false
+		m.EncounterRewards = nil
+	}
+	if daisAlive == 0 {
+		return legacy
+	}
 	return nil
 }
 

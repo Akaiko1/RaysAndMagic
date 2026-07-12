@@ -138,8 +138,8 @@ func TestDragonSlayerQuestAwardsArenaPoints(t *testing.T) {
 	if quest == nil {
 		t.Fatal("dragon_slayer quest missing")
 	}
-	if quest.Definition.Rewards.Gold != 0 || quest.Definition.Rewards.ArenaPoints != 5000 {
-		t.Fatalf("dragon slayer reward = %+v, want 0 gold and 5000 arena points", quest.Definition.Rewards)
+	if quest.Definition.Rewards.Gold != 0 || quest.Definition.Rewards.Experience != 0 || quest.Definition.Rewards.ArenaPoints != 5000 {
+		t.Fatalf("dragon slayer reward = %+v, want 0 gold, 0 experience, and 5000 arena points", quest.Definition.Rewards)
 	}
 	qm.MarkCompleted("dragon_slayer")
 

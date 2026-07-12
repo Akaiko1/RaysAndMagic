@@ -112,4 +112,3 @@ quests:
     is_starting_quest: true
     rewards:
       arena_points: 5000
-      experience: 10000

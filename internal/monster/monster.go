@@ -365,6 +365,13 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	return monster
 }
 
+// IsInertSetPiece reports whether this monster is a scripted encounter prop for
+// the current frame. Dormant bosses, idol-warded bosses, and their ward idols
+// must neither move nor acquire/strike crossfire targets.
+func (m *Monster3D) IsInertSetPiece() bool {
+	return m != nil && (m.BossDormant || m.BossWarded || m.WarlordIdol)
+}
+
 func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
 	return m.TakeDamageResist(damage, damageType, 0)
 }

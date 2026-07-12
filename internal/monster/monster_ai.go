@@ -150,7 +150,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// A warlord idol is likewise immobile - it stands where placed and never moves.
 	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
 	// without this it would chase the party clear across the map at load.
-	if m.BossDormant || m.WarlordIdol || m.BossWarded {
+	if m.IsInertSetPiece() {
 		return
 	}
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state

@@ -241,6 +241,12 @@ func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, m
 			ax, ay := 0.0, 0.0
 			if ec.Rewards.TreasureChest != nil {
 				ax, ay = tileCenterFromTile(ec.Rewards.TreasureChest.TileX, ec.Rewards.TreasureChest.TileY, tileSize)
+			} else if len(ec.Rewards.TreasureChests) > 0 {
+				// A multi-chest reward still needs a spatial anchor to bind the
+				// intended nearby monster group. The first authored chest is the
+				// encounter's anchor; all chests fire together on its clear.
+				chest := ec.Rewards.TreasureChests[0]
+				ax, ay = tileCenterFromTile(chest.TileX, chest.TileY, tileSize)
 			}
 			rewards := buildEncounterRewards(ec, mapKey)
 			for _, req := range ec.Monsters {

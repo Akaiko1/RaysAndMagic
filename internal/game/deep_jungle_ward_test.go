@@ -90,3 +90,47 @@ func TestDeepJungleWard_TBApproachRetreatDoesNotMoveBossOrIdol(t *testing.T) {
 		assertWardEncounterHeld(t, boss, idol, start)
 	}
 }
+
+// A warded warlord and its idols are scripted set pieces, not merely rooted
+// monsters. The shared RT crossfire loop runs separately from Monster.Update;
+// without the action gate it gave both an AIFoe and let the warlord strike a
+// nearby bound revenant despite the ward still being active.
+func TestDeepJungleWard_InertSetPiecesIgnoreBoundAlliesRT(t *testing.T) {
+	cfg := loadTestConfig(t)
+	worldTest := newTestWorldSized(cfg, 12, 12)
+	game := newTestGame(cfg, worldTest)
+	game.combat = NewCombatSystem(game)
+	ts := float64(cfg.GetTileSize())
+	boss, idol, _ := spawnWardedWarlordEncounter(t, game, ts)
+
+	// One tile between the boss and idol: both would previously select this card
+	// summon as their nearest foe. The boss can deal real melee damage here.
+	ally := monster.NewMonster3DFromConfig(7*ts+ts/2, 6*ts+ts/2, "revenant", game.config)
+	if ally == nil {
+		t.Fatal("revenant must load from monsters.yaml")
+	}
+	markCardAlly(ally)
+	game.world.Monsters = append(game.world.Monsters, ally)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	placePlayerAtTile(game, 0, 0, ts)
+
+	game.refreshBoundAllyCache()
+	if boss.AIFoe != nil || idol.AIFoe != nil {
+		t.Fatalf("inactive ward encounter must not acquire bound allies: boss=%v idol=%v", boss.AIFoe, idol.AIFoe)
+	}
+	if ally.AIFoe == boss {
+		t.Fatal("bound ally must not select an invulnerable warded boss")
+	}
+
+	// Defend the action loop too: it must hold even if a target from a previous
+	// frame somehow survives until the ward state is refreshed again.
+	boss.AIFoe, idol.AIFoe = ally, ally
+	hp := ally.HitPoints
+	game.combat.HandleMonsterInteractions()
+	if ally.HitPoints != hp {
+		t.Fatalf("warded encounter damaged bound revenant: hp=%d, want %d", ally.HitPoints, hp)
+	}
+	if boss.AttackAnimFrames != 0 || idol.AttackAnimFrames != 0 {
+		t.Fatalf("inactive ward encounter played attack animation: boss=%d idol=%d", boss.AttackAnimFrames, idol.AttackAnimFrames)
+	}
+}

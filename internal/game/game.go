@@ -1670,14 +1670,27 @@ func (g *MMGame) refreshBoundAllyCache() {
 		if m.IsChampion() {
 			g.mirrorChampionStats(m)
 		}
-		m.AIFoe = g.combat.monsterAIFoeMonster(m)
-		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
 		// Idol-warded boss: invulnerable AND HOLDS its plaza (its idols' power roots
 		// it in place) until every idol is broken - then it activates as a normal
 		// aggressive boss. Computed first so it can gate BossAggro/freeze below.
 		// Without this hold an aggressive boss beelines across the whole map to the
 		// party at the landing the instant the map loads.
 		m.BossWarded = m.WardedByIdols && liveIdols > 0
+		// Sealed boss (passive-until-quest, no evade radius) -> freeze on its spawn
+		// until the quest unseals it. An evasive boss WITH an evade radius still
+		// skitters and blinks, so it is excluded.
+		m.BossDormant = g.combat.isBoss(m) && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
+		if m.IsInertSetPiece() {
+			// Do not hand a scripted inactive actor a crossfire foe. The RT combat
+			// loop is separate from movement AI, so leaving this populated lets it
+			// bypass the movement freeze and strike a nearby bound ally.
+			m.AIFoe = nil
+			m.AITargetX, m.AITargetY = m.X, m.Y
+			m.BossAggro = false
+			continue
+		}
+		m.AIFoe = g.combat.monsterAIFoeMonster(m)
+		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
 		// Relentless chase (ignores detection range). Most bosses go relentless only
 		// AFTER normal aggro - within their (larger) alert radius or once the party
 		// has hit them (WasAttacked is sticky) - so they don't beeline across the
@@ -1685,10 +1698,6 @@ func (g *MMGame) refreshBoundAllyCache() {
 		// (Golden Thief Bug) that DOES chase from anywhere on activation.
 		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m) && !m.BossWarded &&
 			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
-		// Sealed boss (passive-until-quest, no evade radius) -> freeze on its spawn
-		// until the quest unseals it. An evasive boss WITH an evade radius still
-		// skitters and blinks, so it is excluded.
-		m.BossDormant = g.combat.isBoss(m) && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
 	}
 	g.ejectPartyTargetingMonsters()
 }

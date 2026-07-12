@@ -1453,8 +1453,8 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 		if !m.IsAlive() {
 			continue
 		}
-		if m.BossDormant {
-			continue // a sealed boss never pack-aggros
+		if m.IsInertSetPiece() {
+			continue // scripted inactive encounter pieces never pack-aggro
 		}
 		if m.Key != hitKey {
 			continue
@@ -1776,7 +1776,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		if !monster.IsAlive() {
 			continue
 		}
-
+		// Movement AI and TB already hold scripted inactive encounter pieces.
+		// RT crossfire is a separate action path, so it must enforce the same gate
+		// before a precomputed bound-ally foe can trigger an attack.
+		if monster.IsInertSetPiece() {
+			continue
+		}
 		// Stunned monsters take no action (the TB path already skips them; the
 		// real-time path must too, or a stun frozen at StateTimer==1 would let a
 		// monster pounce/strike every frame for the whole stun). Update() decrements
@@ -1806,6 +1811,18 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			if monster.AttackCDFrames == 0 && cs.boundAttackNearest(monster) {
 				monster.AttackCDFrames = monster.AttackCooldownFrames()
 			}
+			continue
+		}
+		// An evasive quest boss is not dormant (it must still blink away from
+		// the PARTY), but it is just as inactive toward summons. This stays after
+		// the shared stun/charm/bind gates, preserving their suppression of boss
+		// actions, while still running before the crossfire branch below.
+		if cs.bossEvasive(monster) {
+			ready := monster.BossCD == 0
+			if monster.BossCD > 0 {
+				monster.BossCD--
+			}
+			cs.updateBoss(monster, ready, false)
 			continue
 		}
 
@@ -4242,7 +4259,8 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 	var target *monsterPkg.Monster3D
 	best := maxDist
 	for _, other := range cs.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.Bound || other.Pacified {
+		if other == nil || other == m || !other.IsAlive() || other.Bound || other.Pacified ||
+			other.BossDormant || other.BossWarded || cs.bossEvasive(other) {
 			continue
 		}
 		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
@@ -4259,7 +4277,7 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 //   - normal monster: the nearest bound undead within its alert radius, if one is
 //     no farther than the party - so mobs turn on the bound undead in their midst.
 func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg.Monster3D {
-	if m.Pacified {
+	if m == nil || m.IsInertSetPiece() || cs.bossEvasive(m) || m.Pacified {
 		return nil
 	}
 	if m.Bound {
@@ -4298,6 +4316,9 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 // foe if it has one, else the party. Reads the per-frame cached AIFoe (set in
 // refreshBoundAllyCache) - never recomputes the foe.
 func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
+	if m.IsInertSetPiece() {
+		return m.X, m.Y
+	}
 	if m.Pacified {
 		return m.X, m.Y // pacified: never chase the party - hold position
 	}
