@@ -22,30 +22,6 @@ func absI(n int) int {
 	return n
 }
 
-// tbBehaviorGame builds a turn-based game on an empty wxh world with the combat
-// system wired, and returns it plus a GameLoop and the tile size.
-func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
-	t.Helper()
-	cfg := loadTestConfig(t)
-	worldTest := newTestWorldSized(cfg, w, h)
-	game := newTestGame(cfg, worldTest)
-	game.turnBasedMode = true
-	game.combat = NewCombatSystem(game)
-	// Zero party Luck so perfect-dodge (luck/5 % RNG) never fires - these tests
-	// assert that a melee/pounce hit lands, which must be deterministic.
-	for _, c := range game.party.Members {
-		c.Luck = 0
-	}
-	gl := &GameLoop{game: game}
-	return game, gl, float64(cfg.GetTileSize())
-}
-
-func placePlayerAtTile(game *MMGame, tx, ty int, ts float64) {
-	game.camera.X = float64(tx)*ts + ts/2
-	game.camera.Y = float64(ty)*ts + ts/2
-	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
-}
-
 func spawnMonsterAtTile(game *MMGame, key string, tx, ty int, ts float64) *monster.Monster3D {
 	m := monster.NewMonster3DFromConfig(float64(tx)*ts+ts/2, float64(ty)*ts+ts/2, key, game.config)
 	m.IsEngagingPlayer = true // ensure it participates regardless of vision
@@ -53,12 +29,6 @@ func spawnMonsterAtTile(game *MMGame, key string, tx, ty int, ts float64) *monst
 	game.world.Monsters = []*monster.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	return m
-}
-
-func runOneMonsterTurn(game *MMGame, gl *GameLoop) {
-	game.currentTurn = 1
-	game.monsterTurnResolved = false
-	gl.updateMonstersTurnBased()
 }
 
 func partyHPSum(game *MMGame) int {

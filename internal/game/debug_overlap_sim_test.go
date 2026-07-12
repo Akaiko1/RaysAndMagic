@@ -1,3 +1,6 @@
+//go:build debug
+
+// Debug diagnostics are opt-in: run `go test -tags debug ./internal/game`.
 package game
 
 // Headless overlap/jitter simulation - a DEBUG MODULE, not a regression test.

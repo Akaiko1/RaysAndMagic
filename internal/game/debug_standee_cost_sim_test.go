@@ -1,3 +1,6 @@
+//go:build debug
+
+// Debug diagnostics are opt-in: run `go test -tags debug ./internal/game`.
 package game
 
 // Pure-math standee cost proxy for TREES only - a DEBUG MODULE, not a

@@ -1,3 +1,6 @@
+//go:build debug
+
+// Debug diagnostics are opt-in: run `go test -tags debug ./internal/game`.
 package game
 
 // Debug module (not a regression test): loads the real app save and reports how

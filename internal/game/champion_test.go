@@ -11,20 +11,6 @@ import (
 	"ugataima/internal/storage"
 )
 
-// primeTestChampions loads champions.yaml and builds the templates on top of a
-// combat-system test fixture (which already loaded config/weapons/items/monsters).
-func primeTestChampions(t *testing.T, g *MMGame) {
-	t.Helper()
-	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	if _, err := config.LoadChampionConfig("../../assets/champions.yaml"); err != nil {
-		t.Fatalf("load champions: %v", err)
-	}
-	championTemplates = map[string]*character.MMCharacter{}
-	if err := PrimeChampions(g.config); err != nil {
-		t.Fatalf("prime champions: %v", err)
-	}
-}
-
 // TestChampionBuilds verifies both champions build as auto-leveled L25 fighters:
 // every level-up stat point spent by the party's own auto-distribution, authored
 // gear equipped, authored skill tiers applied.
@@ -128,22 +114,6 @@ func TestApplyChampionStatsMirror(t *testing.T) {
 	}
 	if wm.HasRangedAttack() {
 		t.Error("weapon_master must stay melee")
-	}
-}
-
-// fillTestParty puts four living level-1 knights in the party - melee-arc
-// targets for champion strikes.
-func fillTestParty(t *testing.T, g *MMGame) {
-	t.Helper()
-	class, ok := character.ClassFromKey("knight")
-	if !ok {
-		t.Fatal("knight class missing")
-	}
-	g.party.Members = g.party.Members[:0]
-	for i := 0; i < 4; i++ {
-		ch := character.CreateCharacter("T", class, g.config)
-		ch.HitPoints = ch.MaxHitPoints
-		g.party.Members = append(g.party.Members, ch)
 	}
 }
 

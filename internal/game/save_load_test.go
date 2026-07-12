@@ -4,49 +4,14 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
-	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
-
-	"ugataima/internal/bridge"
 	"ugataima/internal/character"
-	"ugataima/internal/collision"
-	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
-
-func loadTestConfig(t *testing.T) *config.Config {
-	t.Helper()
-
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
-		t.Fatalf("load weapons: %v", err)
-	}
-	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
-		t.Fatalf("load items: %v", err)
-	}
-	// Wire the items<->config bridges so party setup can create weapons/items.
-	// Without this, newTestGame-based tests only worked when another test
-	// happened to run first and set these global accessors.
-	bridge.SetupWeaponBridge()
-	bridge.SetupItemBridge()
-	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
-		t.Fatalf("load traps: %v", err)
-	}
-	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
-	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	return cfg
-}
 
 func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
 	loadTestConfig(t)
@@ -74,35 +39,6 @@ func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
 	if len(item.Attributes) != 0 {
 		t.Fatalf("weapon attributes should be refreshed from YAML, got %+v", item.Attributes)
 	}
-}
-
-func newTestWorld(cfg *config.Config) *world.World3D {
-	w := world.NewWorld3D(cfg)
-	w.Width = 2
-	w.Height = 2
-	w.Tiles = make([][]world.TileType3D, w.Height)
-	for y := 0; y < w.Height; y++ {
-		w.Tiles[y] = make([]world.TileType3D, w.Width)
-		for x := 0; x < w.Width; x++ {
-			w.Tiles[y][x] = world.TileEmpty
-		}
-	}
-	return w
-}
-
-func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
-	game := &MMGame{
-		config:           cfg,
-		world:            w,
-		party:            character.NewParty(cfg),
-		camera:           &FirstPersonCamera{X: 64, Y: 64, Angle: 1.25},
-		skyImg:           ebiten.NewImage(2, 2),
-		groundImg:        ebiten.NewImage(2, 2),
-		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),
-		sessionStartTime: time.Now(),
-	}
-	game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-	return game
 }
 
 func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {

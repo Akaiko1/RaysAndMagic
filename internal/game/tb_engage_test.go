@@ -3,24 +3,8 @@ package game
 import (
 	"testing"
 
-	"ugataima/internal/config"
 	"ugataima/internal/monster"
-	"ugataima/internal/world"
 )
-
-func newTestWorldSized(cfg *config.Config, width, height int) *world.World3D {
-	w := world.NewWorld3D(cfg)
-	w.Width = width
-	w.Height = height
-	w.Tiles = make([][]world.TileType3D, w.Height)
-	for y := 0; y < w.Height; y++ {
-		w.Tiles[y] = make([]world.TileType3D, w.Width)
-		for x := 0; x < w.Width; x++ {
-			w.Tiles[y][x] = world.TileEmpty
-		}
-	}
-	return w
-}
 
 func TestTurnBasedHitEngagesPack(t *testing.T) {
 	cfg := loadTestConfig(t)
