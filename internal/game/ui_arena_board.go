@@ -162,6 +162,35 @@ func arenaBoardScrollForAnchor(lines []arenaBoardLine, entryKey string, visible 
 	return scroll
 }
 
+// arenaBoardWheelDelta returns the vertical intent for the board. macOS maps a
+// Shift+wheel gesture to the horizontal axis, while Shift is also the board's
+// detail modifier, so use x only in that mode.
+func arenaBoardWheelDelta(wheelX, wheelY float64, detailHeld bool) float64 {
+	if wheelY != 0 {
+		return wheelY
+	}
+	if detailHeld {
+		return wheelX
+	}
+	return 0
+}
+
+// arenaBoardScrollAfterWheel turns either a mouse-wheel notch or a fractional
+// trackpad delta into one predictable page-step. Casting Wheel() to int loses
+// small trackpad deltas entirely, leaving the board stuck one line off the top.
+func arenaBoardScrollAfterWheel(scroll int, wheelY float64) int {
+	switch {
+	case wheelY < 0:
+		return scroll + 3
+	case wheelY > 0:
+		scroll -= 3
+		if scroll < 0 {
+			return 0
+		}
+	}
+	return scroll
+}
+
 // drawArenaBoardContent renders the scrollable leaderboard (mouse wheel; the
 // scroll offset is clamped here against the current line count, so releasing
 // Shift or a shrinking board self-heals the view).

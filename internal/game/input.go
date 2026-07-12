@@ -2549,8 +2549,16 @@ func (ih *InputHandler) handleArenaGladiatorInput() {
 		ih.handleEncounterInput()
 	case 2:
 		// Wheel scrolls the board; the draw pass clamps against line count.
-		if _, wy := ebiten.Wheel(); wy != 0 {
-			ih.game.arenaBoardScroll -= int(wy) * 3
+		wheelX, wheelY := ebiten.Wheel()
+		detailHeld := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+		if wheel := arenaBoardWheelDelta(wheelX, wheelY, detailHeld); wheel != 0 {
+			ih.game.arenaBoardScroll = arenaBoardScrollAfterWheel(ih.game.arenaBoardScroll, wheel)
+		}
+		if ih.keys.Consume(ebiten.KeyUp) {
+			ih.game.arenaBoardScroll = arenaBoardScrollAfterWheel(ih.game.arenaBoardScroll, 1)
+		}
+		if ih.keys.Consume(ebiten.KeyDown) {
+			ih.game.arenaBoardScroll = arenaBoardScrollAfterWheel(ih.game.arenaBoardScroll, -1)
 		}
 	}
 }

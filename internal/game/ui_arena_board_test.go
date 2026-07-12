@@ -48,3 +48,27 @@ func TestArenaBoardDetailToggleKeepsCenteredEntry(t *testing.T) {
 		t.Fatalf("detail toggle centered %q, want %q", got, anchor)
 	}
 }
+
+func TestArenaBoardScrollAcceptsFractionalWheelAndReturnsToTop(t *testing.T) {
+	if got := arenaBoardScrollAfterWheel(0, -0.2); got != 3 {
+		t.Fatalf("fractional down-scroll = %d, want 3", got)
+	}
+	if got := arenaBoardScrollAfterWheel(1, 0.2); got != 0 {
+		t.Fatalf("fractional up-scroll from line 2 = %d, want 0", got)
+	}
+	if got := arenaBoardScrollAfterWheel(0, 0.2); got != 0 {
+		t.Fatalf("up-scroll at top = %d, want 0", got)
+	}
+}
+
+func TestArenaBoardShiftWheelUsesHorizontalDeltaOnMac(t *testing.T) {
+	if got := arenaBoardWheelDelta(0.25, 0, true); got != 0.25 {
+		t.Fatalf("shift wheel delta = %v, want horizontal 0.25", got)
+	}
+	if got := arenaBoardWheelDelta(0.25, 0, false); got != 0 {
+		t.Fatalf("plain horizontal scroll delta = %v, want 0", got)
+	}
+	if got := arenaBoardWheelDelta(0.25, -0.5, true); got != -0.5 {
+		t.Fatalf("vertical delta must win over horizontal delta, got %v", got)
+	}
+}
