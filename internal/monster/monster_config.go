@@ -198,8 +198,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if monster.DragonBreathChance > 0 && strings.TrimSpace(monster.DragonBreathType) == "" {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has dragon_breath_chance but no dragon_breath_damage_type", key))
 		}
-		if monster.DragonBreathType != "" && config.DamageTypes[strings.TrimSpace(monster.DragonBreathType)] == 0 && strings.TrimSpace(monster.DragonBreathType) != "physical" {
-			if _, err := config.ConvertDamageType(strings.TrimSpace(monster.DragonBreathType)); err != nil {
+		breathType := strings.ToLower(strings.TrimSpace(monster.DragonBreathType))
+		if breathType != "" && config.DamageTypes[breathType] == 0 && breathType != DamageSchoolPhysical {
+			if _, err := config.ConvertDamageType(breathType); err != nil {
 				conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has unknown dragon_breath_damage_type %q", key, monster.DragonBreathType))
 			}
 		}
@@ -326,6 +327,7 @@ func (c *MonsterYAMLConfig) GetAllMonsterKeys() []string {
 
 // ConvertDamageType converts string damage type to DamageType enum
 func (c *MonsterYAMLConfig) ConvertDamageType(damageTypeStr string) (DamageType, error) {
+	damageTypeStr = strings.ToLower(strings.TrimSpace(damageTypeStr))
 	if typeInt, exists := c.DamageTypes[damageTypeStr]; exists {
 		return DamageType(typeInt), nil
 	}

@@ -2336,18 +2336,18 @@ func (r *Renderer) drawGlowRect(screen *ebiten.Image, x, y, size float64, rgb [3
 	screen.DrawImage(r.whiteImg, opts)
 }
 
-func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, float64, bool) {
+func (r *Renderer) projectileScreenDir(vx, vy float64) (float64, bool) {
 	if vx == 0 && vy == 0 {
-		return 0, 0, false
+		return 0, false
 	}
 	camRightX := -math.Sin(r.game.camera.Angle)
 	camRightY := math.Cos(r.game.camera.Angle)
 	right := vx*camRightX + vy*camRightY
 	if math.Abs(right) < 0.01 {
-		return 0, 0, false
+		return 0, false
 	}
 	dirX := math.Copysign(1, right)
-	return dirX, 0, true
+	return dirX, true
 }
 
 func (r *Renderer) shouldAnimateMonster(mon *monster.Monster3D) bool {
@@ -3045,7 +3045,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 		key := standeeCoreKey{name: "container:" + c.effectiveSprite(), bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0, -1, -1, -1) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0) {
 			return
 		}
 	}
@@ -3147,7 +3147,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// (short grass tuft wearing the tall variant's silhouette).
 		key := standeeCoreKey{name: "tile:" + name, bounds: frame.Bounds()}
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0, -1, -1, -1) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0) {
 			return
 		}
 	}
@@ -3277,7 +3277,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the pointer (stable for them) is what tells frames apart in the cache.
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
-			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0, -1, -1, -1) {
+			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0) {
 			r.drawMonsterStatusFX(screen, s, screenY)
 			return
 		}
@@ -3482,7 +3482,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0, -1, -1, -1) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0) {
 			return
 		}
 	}
@@ -3758,9 +3758,10 @@ func (r *Renderer) drawMagicProjectiles(screen *ebiten.Image) {
 		glowSize := float64(projectileSize) * fxProfile.glowScale * pulse * critBoost
 		r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
 
-		dirX, dirY, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
+		dirX, hasDir := r.projectileScreenDir(magicProjectile.VelX, magicProjectile.VelY)
+		dirY := 0.0
 		if !hasDir {
-			dirX, dirY = 1, 0 // default trail direction when motion is head-on
+			dirX = 1 // default trail direction when motion is head-on
 		}
 
 		// Spells are always magical -> particle body + evaporating trail (never the
@@ -3919,9 +3920,10 @@ func (r *Renderer) drawArrows(screen *ebiten.Image) {
 			// spells, mirrored (R->L) for arcane. Reuses the spell FX renderer.
 			glowSize := float64(arrowSize) * fxProfile.glowScale * critBoost
 			r.drawGlowSprite(screen, centerX, centerY, glowSize, fxProfile.glowColor, 0.6*critBoost, glowBlend)
-			dirX, dirY, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			dirX, ok := r.projectileScreenDir(arrow.VelX, arrow.VelY)
+			dirY := 0.0
 			if !ok {
-				dirX, dirY = 1, 0
+				dirX = 1
 			}
 			if style := bowDef.Graphics.ProjectileFx; style != "" {
 				r.drawWeaponProjectileFx(style, screen, centerX, centerY, float64(arrowSize), dirX, dirY, critBoost, idx)

@@ -40,6 +40,23 @@ func TestProjectileKeepsItsAuthor(t *testing.T) {
 	}
 }
 
+func TestDamageSchoolNormalizationUsesOneCanonicalKey(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
+	cs.game.cardSlots[0].key = "golden_thief_bug_card"
+	member := cs.game.party.Members[0]
+
+	if got := normalizeDamageTypeStr(" FIRE "); got != "fire" {
+		t.Fatalf("normalized school = %q, want fire", got)
+	}
+	if got := cs.game.schoolResistPct(member, " FIRE "); got != 100 {
+		t.Fatalf("card fire resistance through spaced/mixed-case key = %d, want 100", got)
+	}
+	if got := convertToMonsterDamageType(" FIRE "); got != monsterPkg.DamageFire {
+		t.Fatalf("normalized monster damage type = %v, want fire", got)
+	}
+}
+
 // An off-hand shield's armor_class_base counts toward total AC.
 func TestShieldContributesAC(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)

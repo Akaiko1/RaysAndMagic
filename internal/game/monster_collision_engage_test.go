@@ -135,11 +135,17 @@ func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
 		t.Fatal("peaceful monster must be walkable for the party")
 	}
+	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+		t.Fatal("peaceful monster must be able to move through the party")
+	}
 
 	calm.IsEngagingPlayer, calm.WasAttacked = true, true
 	game.refreshMonsterCollisionSolidity(calm)
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || !entity.Solid {
 		t.Fatal("monster targeting the party must block the party")
+	}
+	if game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+		t.Fatal("monster targeting the party must not move through the party")
 	}
 
 	ally := monsterPkg.NewMonster3DFromConfig(6*ts+ts/2, 3*ts+ts/2, "masked_huntress", game.config)
@@ -154,6 +160,9 @@ func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
 	game.refreshMonsterCollisionSolidity(calm)
 	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
 		t.Fatal("monster fighting a summon must be temporarily walkable for the party")
+	}
+	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(calm.ID, game.camera.X, game.camera.Y, calm.HabitatPrefs, calm.Flying) {
+		t.Fatal("monster fighting a summon must be able to move through the party")
 	}
 }
 
@@ -175,5 +184,53 @@ func TestPartyTargetingMonsterIsEjectedFromPlayerCell(t *testing.T) {
 	ptx, pty := game.GetPlayerTilePosition()
 	if mtx == ptx && mty == pty {
 		t.Fatal("party-targeting monster remained on the player tile")
+	}
+}
+
+func TestHitFleeingMonsterCannotPathThroughParty(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := monsterPkg.NewMonster3DFromConfig(9*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
+	m.State = monsterPkg.StateFleeing
+	m.WasAttacked = true
+	game.world.Monsters = []*monsterPkg.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshMonsterCollisionSolidity(m)
+
+	entity := game.collisionSystem.GetEntityByID(m.ID)
+	if entity == nil || !entity.Solid || entity.CollisionType != collision.CollisionTypeMonsterEngaged {
+		t.Fatal("a hit fleeing monster must remain an engaged solid blocker")
+	}
+	if player := game.collisionSystem.GetEntityByID("player"); player == nil || !player.Solid {
+		t.Fatal("the player must block hostile monster pathfinding")
+	}
+	if game.collisionSystem.Snapshot().CanMoveToWithHabitat(m.ID, game.camera.X, game.camera.Y, m.HabitatPrefs, m.Flying) {
+		t.Fatal("a hit fleeing monster can path through the party")
+	}
+}
+
+func TestTeleportFallbackOnlyProtectsPartyFromCurrentTarget(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := monsterPkg.NewMonster3DFromConfig(9*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
+	game.world.Monsters = []*monsterPkg.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	// A monster chasing the party must keep its fallback destination outside
+	// the party tile even when that tile would be geometrically closest.
+	m.IsEngagingPlayer, m.WasAttacked = true, true
+	game.refreshMonsterCollisionSolidity(m)
+	x, y, _ := gl.pickBestTeleportOffset(m, ts, game.camera.X, game.camera.Y, [][2]int{{1, 0}}, 1e300)
+	if int(x/ts) == 10 && int(y/ts) == 10 {
+		t.Fatal("party-targeting monster teleported onto the party")
+	}
+
+	// When redirected to a summon, the party is walkable in both directions.
+	foe := monsterPkg.NewMonster3DFromConfig(12*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
+	m.AIFoe = foe
+	game.refreshMonsterCollisionSolidity(m)
+	x, y, _ = gl.pickBestTeleportOffset(m, ts, foe.X, foe.Y, [][2]int{{1, 0}}, 1e300)
+	if int(x/ts) != 10 || int(y/ts) != 10 {
+		t.Fatalf("summon-targeting monster teleport = (%d,%d), want player tile (10,10)", int(x/ts), int(y/ts))
 	}
 }

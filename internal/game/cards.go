@@ -393,22 +393,10 @@ func (g *MMGame) cardMaxHPBonus() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMaxHPBonus })
 }
 
-// cardResistBonus sums the party's card-granted elemental resist bonuses.
-func (g *MMGame) cardResistBonus() map[string]int {
-	sum := make(map[string]int)
-	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
-			for school, pct := range def.CardResistBonus {
-				sum[school] += pct
-			}
-		}
-	}
-	return sum
-}
-
 // cardResistBonusFor returns the party's card-granted resist bonus for a single
 // damage school (the hot path used by combat, avoiding a map alloc per hit).
 func (g *MMGame) cardResistBonusFor(school string) int {
+	school = normalizeDamageTypeStr(school)
 	total := 0
 	for slot := 0; slot < MaxCardSlots; slot++ {
 		if def := cardDef(g.cardCollectionKey(slot)); def != nil {

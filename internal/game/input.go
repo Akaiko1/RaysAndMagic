@@ -395,8 +395,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 
 		// Rebuild collision system and register entities
 		g.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(g.config.World.TileSize))
-		playerEntity := collision.NewEntity("player", startX, startY, 16, 16, collision.CollisionTypePlayer, false)
-		g.collisionSystem.RegisterEntity(playerEntity)
+		g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(startX, startY))
 		currentWorld.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 
 		g.UpdateSkyAndGroundColors()

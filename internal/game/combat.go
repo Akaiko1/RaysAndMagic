@@ -197,7 +197,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 		}
 		// Pure: bypass armor (TakeDamage skips AC) AND resistance (100% resist-pierce),
 		// so physical-resistant/immune mobs still take the full advertised amount.
-		m.TakeDamageResist(dmg, monsterPkg.DamagePhysical, 100, px, py)
+		m.TakeDamageResist(dmg, monsterPkg.DamagePhysical, 100)
 		m.HitTintFrames = MonsterHitFlashFrames
 		hit = true
 		if !m.IsAlive() {
@@ -768,9 +768,9 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
 	// Determine damage type from weapon
-	damageType := "physical" // Default
+	damageType := monsterPkg.DamageSchoolPhysical
 	if equippedDef != nil && equippedDef.DamageType != "" {
-		damageType = equippedDef.DamageType
+		damageType = normalizeDamageTypeStr(equippedDef.DamageType)
 	}
 
 	// Volley: a weapon may loose several projectiles per shot (e.g. the blowgun
@@ -822,18 +822,18 @@ func (cs *CombatSystem) createArrowAttack(damage int, slot items.EquipSlot, labe
 }
 
 // createMeleeAttack creates an instant melee attack with proper arc-based hit
-// detection; reports how many monsters the swing connected with.
-func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) int {
+// detection.
+func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, isCrit bool) {
 	// Get weapon definition from YAML
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	if weaponDef == nil {
-		return 0 // Weapon not found, skip attack
+		return // Weapon not found, skip attack
 	}
 
 	// Check if weapon has melee configuration
 	if weaponDef.Melee == nil {
 		fmt.Printf("[WARN] weapon '%s' has no melee configuration in weapons.yaml\n", weapon.Name)
-		return 0
+		return
 	}
 
 	meleeConfig := weaponDef.Melee
@@ -871,7 +871,7 @@ func (cs *CombatSystem) createMeleeAttack(weapon items.Item, totalDamage int, is
 	}
 
 	// Perform instant hit detection in arc
-	return cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
+	cs.performMeleeHitDetection(weapon, totalDamage, meleeConfig, isCrit)
 }
 
 // Melee swing cone half-angles (radians) per discrete arc type. Front is a thin
@@ -1294,7 +1294,7 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 // despite the target's Perfect Dodge, with the usual hit bookkeeping (tint, pack
 // aggro, death/XP). Caller is responsible for any projectile cleanup.
 func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, trueDmg int, damageType monsterPkg.DamageType, attackerName string) {
-	actual := monster.TakeDamage(trueDmg, damageType, cs.game.camera.X, cs.game.camera.Y)
+	actual := monster.TakeDamage(trueDmg, damageType)
 	cs.markMonsterHit(monster)
 	if !monster.IsAlive() {
 		xpAwarded := cs.finishMonsterKill(monster)
@@ -1356,7 +1356,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// traps all go through splitPhysConversions; each share is mitigated as its
 	// own element (elemental armor cap, then that element's resistance).
 	var convShares []physConvShare
-	if damageTypeStr == "physical" {
+	if damageTypeStr == monsterPkg.DamageSchoolPhysical {
 		damage, convShares = cs.game.splitPhysConversions(damage)
 	}
 
@@ -1390,7 +1390,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 
 	// Apply damage with resistances and distance-aware AI response
-	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
+	finalDamage := monster.TakeDamage(reducedDamage, damageType)
 	finalDamage += cs.applyPhysConversionShares(monster, convShares, false)
 	cs.markMonsterHit(monster)
 	cs.trySleightOfHand(attacker, monster)
@@ -1860,7 +1860,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 			}
 			if monster.PounceCDFrames == 0 && dist > attackRange && dist <= monster.PounceRangePixels &&
 				(!monster.PassiveUntilAttacked || monster.WasAttacked || monster.HatesActiveTrait()) {
-				if _, landed := cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y); landed {
+				if cs.executePounce(monster, cs.game.camera.X, cs.game.camera.Y) {
 					cs.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", monster.Name))
 					cs.applyMonsterMeleeDamage(monster)
 					tps := cs.game.config.GetTPS()
@@ -1904,10 +1904,9 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 // executePounce leaps a pouncing monster onto the nearest walkable tile
 // adjacent to the player - never inside the player's own tile (where the sprite
-// would vanish). Diagonal-adjacent tiles are valid melee contact. Returns the new
-// center-to-center distance and whether a landing tile was found; callers must
-// only resolve the strike when landed is true. Shared by RT and TB pounce hooks.
-func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) (float64, bool) {
+// would vanish). Diagonal-adjacent tiles are valid melee contact. Callers must
+// only resolve the strike when it returns true. Shared by RT and TB pounce hooks.
+func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY float64) bool {
 	tileSize := float64(cs.game.config.GetTileSize())
 	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
 
@@ -1927,12 +1926,12 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 		}
 	}
 	if !found {
-		return Distance(playerX, playerY, m.X, m.Y), false // no free adjacent tile - can't pounce
+		return false // no free adjacent tile - can't pounce
 	}
 	m.X, m.Y = bestX, bestY
 	cs.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
 	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
-	return Distance(playerX, playerY, bestX, bestY), true
+	return true
 }
 
 func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dist, attackRange float64) bool {
@@ -2003,7 +2002,7 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 	if currentChar == nil {
 		return
 	}
-	cs.monsterHitCharacter(monster, currentChar, monster.Name, cs.monsterAttackDamage(monster), "physical", monster.IgnoresArmor, 0, true)
+	cs.monsterHitCharacter(monster, currentChar, monster.Name, cs.monsterAttackDamage(monster), monsterPkg.DamageSchoolPhysical, monster.IgnoresArmor, 0, true)
 	// No knockback: monster attacks are already gated to once per attacking state
 	// (StateTimer==1) plus pounce cooldowns, so the old anti-spam pushback is moot.
 }
@@ -2016,14 +2015,13 @@ func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
 // SourceName, not a back-reference to the attacker, so a ranged poisonous monster
 // (e.g. masked_huntress) can't poison via its projectile. Wiring a source-monster
 // ref onto MagicProjectile/Arrow would close that gap if ranged poison is wanted.
-// disintegrateChance > 0 enables the eradicate roll (projectiles only). Returns
-// true if the hit landed (false on a perfect dodge).
+// disintegrateChance > 0 enables the eradicate roll (projectiles only).
 // monsterHitCharacter resolves one monster-on-party hit. melee=true marks a
 // melee blow (vs an arrow / magic bolt / breath), which gates weapon-riposte
 // thorns (Parrying Dagger answers a BLOW, not a projectile - see its tooltip).
-func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, damage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee bool) bool {
+func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, target *character.MMCharacter, sourceName string, damage int, damageType string, ignoresArmor bool, disintegrateChance float64, melee bool) {
 	if target == nil {
-		return false
+		return
 	}
 	if sourceName == "" {
 		sourceName = "Monster"
@@ -2042,7 +2040,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		}
 		if trueDmg <= 0 {
 			cs.game.AddCombatMessage(fmt.Sprintf("Perfect Dodge! %s evades %s's attack!", target.Name, sourceName))
-			return false
+			return
 		}
 		target.HitPoints -= trueDmg
 		if target.HitPoints < 0 {
@@ -2054,7 +2052,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			cs.knockOut(target)
 		}
 		cs.game.TriggerDamageBlink(targetIndex)
-		return true
+		return
 	}
 
 	if disintegrateChance > 0 && rand.Float64() < disintegrateChance {
@@ -2062,7 +2060,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		target.Conditions = []character.Condition{character.ConditionEradicated}
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is eradicated by %s!", target.Name, sourceName))
 		cs.game.TriggerDamageBlink(targetIndex)
-		return true
+		return
 	}
 
 	finalDamage := cs.mitigateCharacterDamage(damage, damageType, target, ignoresArmor)
@@ -2094,7 +2092,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		}
 		if pct > 0 && finalDamage > 0 && monster.IsAlive() {
 			if reflected := finalDamage * pct / 100; reflected > 0 {
-				dealt := monster.TakeDamage(reflected, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+				dealt := monster.TakeDamage(reflected, monsterPkg.DamagePhysical)
 				if !monster.IsAlive() {
 					xpAwarded := cs.finishMonsterKill(monster)
 					cs.game.AddCombatMessage(fmt.Sprintf("%s's reflected wrath destroys %s!", target.Name, monster.Name))
@@ -2105,7 +2103,7 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 			}
 		}
 	}
-	return true
+	return
 }
 
 // weaponThornsPct sums thorns_pct across the character's equipped weapons
@@ -2302,8 +2300,8 @@ func (cs *CombatSystem) tryApplyMonsterDispel(monster *monsterPkg.Monster3D, _ *
 // cheat-death chokepoint), and flash the damage-blink. The ONE body behind
 // every whole-party elemental attack (Fireburst, Inferno, the Inferno nova);
 // callers supply their own flavor line and any extra VFX (e.g. party flame).
-func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string, ignoresArmor bool) int {
-	dealt := cs.mitigateCharacterDamage(rawDamage, school, member, ignoresArmor)
+func (cs *CombatSystem) damagePartyMemberElement(idx int, member *character.MMCharacter, rawDamage int, school string) int {
+	dealt := cs.mitigateCharacterDamage(rawDamage, school, member, false)
 	member.HitPoints -= dealt
 	if member.HitPoints < 0 {
 		member.HitPoints = 0
@@ -2331,7 +2329,7 @@ func (cs *CombatSystem) applyMonsterFireburst(monster *monsterPkg.Monster3D) {
 		if maxDamage > minDamage {
 			raw = minDamage + rand.Intn(maxDamage-minDamage+1)
 		}
-		dealt := cs.damagePartyMemberElement(idx, member, raw, "fire", false)
+		dealt := cs.damagePartyMemberElement(idx, member, raw, monsterPkg.DamageSchoolFire)
 		cs.game.AddCombatMessage(fmt.Sprintf("Fireburst hits %s for %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 	})
@@ -2435,7 +2433,7 @@ func (cs *CombatSystem) tryMonsterPiercingShot(monster *monsterPkg.Monster3D) bo
 		target := cs.game.party.Members[targetIndex]
 		// Piercing Shot ignores armor; the shared choke point applies the poison
 		// rider (a poisonous monster now poisons via Piercing Shot, like melee).
-		cs.monsterHitCharacter(monster, target, "Piercing Shot", cs.monsterAttackDamage(monster), "physical", true, 0, false)
+		cs.monsterHitCharacter(monster, target, "Piercing Shot", cs.monsterAttackDamage(monster), monsterPkg.DamageSchoolPhysical, true, 0, false)
 	}
 	return true
 }
@@ -2597,7 +2595,7 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	}
 
 	if damage > 0 {
-		target.TakeDamage(damage, dmgType, target.X, target.Y)
+		target.TakeDamage(damage, dmgType)
 		target.HitTintFrames = MonsterHitFlashFrames
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's bolt hits %s for %d!", sourceName, target.Name, damage))
 	}
@@ -2716,9 +2714,9 @@ func (cs *CombatSystem) spawnMonsterWeaponProjectile(monster *monsterPkg.Monster
 	arrowLifetime := weaponDef.Physics.GetLifetimeFrames()
 	collisionSize := weaponDef.Physics.GetCollisionSizePixels(tileSize)
 
-	damageType := "physical"
+	damageType := monsterPkg.DamageSchoolPhysical
 	if weaponDef.DamageType != "" {
-		damageType = weaponDef.DamageType
+		damageType = normalizeDamageTypeStr(weaponDef.DamageType)
 	}
 
 	angle := math.Atan2(targetY-monster.Y, targetX-monster.X)
@@ -3226,7 +3224,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Bind/Charm are handled earlier; this is the Disintegrate case.
 	if dealsNoDamage {
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
-		monster.TakeDamageResist(0, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+		monster.TakeDamageResist(0, damageType, resistPierce)
 		cs.markMonsterHit(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has no effect on %s.", weaponName, monster.Name))
 		cs.game.collisionSystem.UnregisterEntity(entityID)
@@ -3239,7 +3237,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// Phys-to-element conversion cards apply to every physical source (see
 	// splitPhysConversions) - spells aren't physical, so they're excluded here.
 	var convShares []physConvShare
-	if !isSpell && damageTypeStr == "physical" {
+	if !isSpell && damageTypeStr == monsterPkg.DamageSchoolPhysical {
 		damage, convShares = cs.game.splitPhysConversions(damage)
 	}
 
@@ -3267,7 +3265,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	reducedDamage += trueDmg // weapon-mastery true damage bypasses armor
 
 	// GM spell mastery pierces part of the target's resistance.
-	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+	actualDamage := monster.TakeDamageResist(reducedDamage, damageType, resistPierce)
 	actualDamage += cs.applyPhysConversionShares(monster, convShares, isRanged)
 	cs.markMonsterHit(monster)
 	if monster.IsAlive() {
@@ -3328,7 +3326,7 @@ func (cs *CombatSystem) applyPhysConversionShares(monster *monsterPkg.Monster3D,
 	total := 0
 	for _, s := range shares {
 		reduced := applyMonsterArmor(s.amount, s.element, monster.EffectiveArmorClass(), isRanged)
-		total += monster.TakeDamage(reduced, convertToMonsterDamageType(s.element), cs.game.camera.X, cs.game.camera.Y)
+		total += monster.TakeDamage(reduced, convertToMonsterDamageType(s.element))
 	}
 	return total
 }
@@ -3363,7 +3361,7 @@ func (cs *CombatSystem) applyAoeSplash(center *monsterPkg.Monster3D, damage int,
 			continue
 		}
 		reduced := applyMonsterArmor(damage, damageTypeStr, m.EffectiveArmorClass(), false)
-		actual := m.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+		actual := m.TakeDamageResist(reduced, damageType, resistPierce)
 		cs.markMonsterHit(m)
 		cs.spawnMonsterHitBurst(m, damageTypeStr)
 
@@ -3950,20 +3948,20 @@ func (cs *CombatSystem) absorbIfSealed(m *monsterPkg.Monster3D) bool {
 // the cast. Returns true if one did - callers must then skip the
 // projectile/utility paths. Single place to register a new effect-spell type.
 func (cs *CombatSystem) tryCastSpecialEffect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
-	return cs.tryCastAoeStun(spellID, def, caster) ||
-		cs.tryCastInferno(spellID, def, caster) ||
+	return cs.tryCastAoeStun(spellID, def) ||
+		cs.tryCastInferno(def) ||
 		cs.tryCastSteamZone(spellID, def, caster) ||
 		cs.tryCastPartyBuff(spellID, def, caster) ||
-		cs.tryCastRaiseDead(spellID, def, caster) ||
-		cs.tryCastResurrect(spellID, def, caster) ||
-		cs.tryCastAwaken(spellID, def, caster)
+		cs.tryCastRaiseDead(def, caster) ||
+		cs.tryCastResurrect(def, caster) ||
+		cs.tryCastAwaken(def, caster)
 }
 
 // tryCastInferno handles party-centered nova spells (Inferno): every monster AND
 // every party member takes the spell's full damage (cost x SpellDamagePerSP).
 // MapWide burns the ENTIRE current map - no radius; the party always burns too
 // (fire resistance is the intended answer). Gated on either trigger field.
-func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
 	if def.PartyAoeRadiusTiles <= 0 && !def.MapWide {
 		return false
 	}
@@ -3986,7 +3984,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 			continue
 		}
 		reduced := applyMonsterArmor(monsterDmg, damageTypeStr, m.EffectiveArmorClass(), false)
-		m.TakeDamageResist(reduced, damageType, 0, cx, cy)
+		m.TakeDamageResist(reduced, damageType, 0)
 		cs.markMonsterHit(m)
 		cs.spawnMonsterHitBurst(m, damageTypeStr)
 		if !m.IsAlive() {
@@ -3998,7 +3996,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 
 	// The party is caught in the blast too (each member's resistances apply).
 	cs.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr, false)
+		dealt := cs.damagePartyMemberElement(idx, member, dmg, damageTypeStr)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is scorched for %d! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 		cs.game.TriggerPartyFlame(idx) // flame-particle overlay on the burned card
@@ -4010,7 +4008,7 @@ func (cs *CombatSystem) tryCastInferno(spellID spells.SpellID, def spells.SpellD
 // Unconscious or Dead (NOT eradicated - that's Resurrect's domain) to
 // ReviveHpPct% of max HP, clearing both conditions. Returns true if it handled
 // the spell. Gated on ReviveHpPct > 0 so it never collides with Resurrect.
-func (cs *CombatSystem) tryCastRaiseDead(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastRaiseDead(def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if def.ReviveHpPct <= 0 {
 		return false
 	}
@@ -4044,7 +4042,7 @@ func (cs *CombatSystem) tryCastRaiseDead(spellID spells.SpellID, def spells.Spel
 // tryCastAwaken handles the Awaken spell: rouses EVERY unconscious party member
 // back to 1 HP (does not touch the truly dead/eradicated - that's Resurrect).
 // Shared by both cast paths. Returns true if it handled the spell.
-func (cs *CombatSystem) tryCastAwaken(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastAwaken(def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if !def.Awaken {
 		return false
 	}
@@ -4072,7 +4070,7 @@ func (cs *CombatSystem) tryCastAwaken(spellID spells.SpellID, def spells.SpellDe
 // tryCastResurrect handles the Resurrect spell: restores the first fallen party
 // member (unconscious, dead, or even eradicated) - to full HP if FullHeal.
 // Shared by both cast paths. Returns true if it handled the spell.
-func (cs *CombatSystem) tryCastResurrect(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastResurrect(def spells.SpellDefinition, caster *character.MMCharacter) bool {
 	if !def.Revive {
 		return false
 	}
@@ -4331,7 +4329,7 @@ func (cs *CombatSystem) strikeMonsterFor(attacker, target *monsterPkg.Monster3D,
 	if !target.IsAlive() {
 		return // already slain this frame - no double damage/reward
 	}
-	actual := target.TakeDamage(dmg, dtype, attacker.X, attacker.Y)
+	actual := target.TakeDamage(dmg, dtype)
 	target.HitTintFrames = MonsterHitFlashFrames
 	verb := "strikes"
 	if attacker.Bound {
@@ -4386,7 +4384,7 @@ func (cs *CombatSystem) awardExperienceOnly(monster *monsterPkg.Monster3D) {
 // has StunRadiusTiles > 0, every alive monster within that radius of the caster
 // is stunned (RT frames + TB turns), no damage dealt. Shared by both cast
 // paths. Returns true if it handled the spell (caller should stop).
-func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition, caster *character.MMCharacter) bool {
+func (cs *CombatSystem) tryCastAoeStun(spellID spells.SpellID, def spells.SpellDefinition) bool {
 	if def.StunRadiusTiles <= 0 {
 		return false
 	}
@@ -4575,15 +4573,31 @@ func (cs *CombatSystem) armorMitigationPct(char *character.MMCharacter, physical
 //
 // Armor and Resist are both multiplicative, so their order doesn't change the
 // result; the additive flat step is applied last by design.
+// schoolResistPct is the SINGLE source of truth for a party member's total
+// percentage resistance to `school`: equipped gear (resistances map) + the
+// all-damage party buff (Day of the Gods) + per-school spell buffs (Fire Shield)
+// + card wards (Dragon Cards, Golden Thief Bug). Capped at 100 (100 = immune).
+// Both damage mitigation and the character sheet read this, so the number the
+// sheet shows always equals what actually reduces the hit.
+func (g *MMGame) schoolResistPct(char *character.MMCharacter, school string) int {
+	if char == nil {
+		return 0
+	}
+	school = normalizeDamageTypeStr(school)
+	total := char.GearResistPct(school) + g.combatBuffResistPct() +
+		g.combatBuffSchoolResistPct(school) + g.cardResistBonusFor(school)
+	if total > 100 {
+		total = 100
+	}
+	return total
+}
+
 func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string, char *character.MMCharacter, ignoreArmor bool) int {
 	if damage <= 0 || char == nil {
 		return damage
 	}
-	school := strings.ToLower(strings.TrimSpace(damageTypeStr))
-	if school == "" {
-		school = "physical"
-	}
-	physical := school == "physical"
+	school := normalizeDamageTypeStr(damageTypeStr)
+	physical := school == monsterPkg.DamageSchoolPhysical
 
 	// 1) Armor (% mitigation; also blunts elemental on a scaled-down curve).
 	if !ignoreArmor {
@@ -4591,13 +4605,10 @@ func (cs *CombatSystem) mitigateCharacterDamage(damage int, damageTypeStr string
 			damage = damage * (100 - mit) / 100
 		}
 	}
-	// 2) Resistance: per-element gear resist + the party-wide buff + per-school
-	//    buffs (Fire Shield) + the card collection's elemental wards (Dragon
-	//    Cards, Golden Thief Bug). 100% = immune.
-	resist := char.GearResistPct(school) + cs.game.combatBuffResistPct() + cs.game.combatBuffSchoolResistPct(school) + cs.game.cardResistBonusFor(school)
-	if resist > 100 {
-		resist = 100
-	}
+	// 2) Resistance: the single school-resist total (gear + party buff + per-school
+	//    buffs + card wards), computed once so the character sheet shows exactly
+	//    what reduces the hit. 100% = immune.
+	resist := cs.game.schoolResistPct(char, school)
 	if resist > 0 {
 		damage = damage * (100 - resist) / 100
 	}
@@ -4639,43 +4650,42 @@ func (cs *CombatSystem) PhysicalMitigationBreakdown(char *character.MMCharacter)
 	if cs == nil || char == nil {
 		return PhysicalMitigation{}
 	}
-	resist := char.GearResistPct("physical") + cs.game.combatBuffResistPct() + cs.game.combatBuffSchoolResistPct("physical")
-	if resist > 100 {
-		resist = 100
-	}
 	return PhysicalMitigation{
 		ArmorClass: cs.CalculateTotalArmorClass(char),
 		ArmorPct:   cs.armorMitigationPct(char, true),
 		SkillFlat:  char.DisarmTrapTier() * DisarmTrapDamageReductionPerTier,
-		ResistPct:  resist,
+		ResistPct:  cs.game.schoolResistPct(char, monsterPkg.DamageSchoolPhysical),
 		FlatBuff:   cs.game.combatBuffInReduce(),
 	}
 }
 
 func isPhysicalDamageType(damageTypeStr string) bool {
-	return strings.EqualFold(strings.TrimSpace(damageTypeStr), "physical")
+	return normalizeDamageTypeStr(damageTypeStr) == monsterPkg.DamageSchoolPhysical
 }
 
+// normalizeDamageTypeStr is the game-side data boundary for damage schools.
+// YAML/UI values are strings, while monster damage uses an enum; normalize once
+// before either resistance lookup or enum conversion so both stay consistent.
 func normalizeDamageTypeStr(damageTypeStr string) string {
-	normalized := strings.TrimSpace(damageTypeStr)
+	normalized := strings.ToLower(strings.TrimSpace(damageTypeStr))
 	if normalized == "" {
-		return "physical"
+		return monsterPkg.DamageSchoolPhysical
 	}
 	return normalized
 }
 
 func weaponDamageTypeStr(weaponDef *config.WeaponDefinitionConfig) string {
 	if weaponDef != nil && weaponDef.DamageType != "" {
-		return weaponDef.DamageType
+		return normalizeDamageTypeStr(weaponDef.DamageType)
 	}
-	return "physical"
+	return monsterPkg.DamageSchoolPhysical
 }
 
 func spellDamageTypeStr(spellType string) string {
 	if spellDef, err := spells.GetSpellDefinitionByID(spells.SpellID(spellType)); err == nil {
 		return normalizeDamageTypeStr(spellDef.School)
 	}
-	return "physical"
+	return monsterPkg.DamageSchoolPhysical
 }
 
 func convertToMonsterDamageType(damageTypeStr string) monsterPkg.DamageType {

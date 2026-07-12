@@ -48,7 +48,7 @@ func frac(v float64) float64 { return v - math.Floor(v) }
 // slowly churning inside a round silhouette (three layers each: deep-red
 // shell, orange body, white-hot heart), flame tongues rising off the crown on
 // their own life-cycles, and a cooling puff wake behind.
-func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
 	heart := [3]int{255, 240, 180}
 	flame := [3]int{255, 150, 40}
@@ -114,7 +114,7 @@ func (r *Renderer) drawSpellFxFireball(screen *ebiten.Image, cx, cy, size, dirX,
 
 // Lightning - not an orb but a crackling bolt: a jagged chain re-rolled every
 // few frames, with dim forks and the previous shape lingering as an afterglow.
-func (r *Renderer) drawSpellFxLightning(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxLightning(screen *ebiten.Image, cx, cy, size, dirX float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := int(r.game.frameCount)
 	hot := [3]int{240, 250, 255}
 	blue := [3]int{120, 170, 255}
@@ -165,7 +165,7 @@ func (r *Renderer) drawSpellFxLightning(screen *ebiten.Image, cx, cy, size, dirX
 
 // Harm - a pulsing blight: a dark membrane beating around a toxic heart,
 // viscous drips sliding off it and stray life-motes spiralling in to be eaten.
-func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size float64, _ float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
 	toxic := [3]int{150, 255, 160}
 	murk := [3]int{40, 95, 45}
@@ -211,7 +211,7 @@ func (r *Renderer) drawSpellFxHarm(screen *ebiten.Image, cx, cy, size, dirX, dir
 
 // Psychic Shock - a trembling mind-mote emitting flattened sonar rings, with
 // three thought-orbs circling it and dragging short trails.
-func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size float64, _ float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, _ int) {
 	fc := float64(r.game.frameCount)
 	lav := [3]int{190, 170, 255}
 	white := [3]int{245, 240, 255}
@@ -249,7 +249,7 @@ func (r *Renderer) drawSpellFxPsyshock(screen *ebiten.Image, cx, cy, size, dirX,
 
 // Starburst - the projectile IS a star: a slowly spinning eight-pointed glint
 // shedding twinkling stardust (the impact scatter stays the classic spray).
-func (r *Renderer) drawSpellFxStarburst(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxStarburst(screen *ebiten.Image, cx, cy, size, dirX float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
 	icy := [3]int{200, 225, 255}
 	white := [3]int{255, 255, 250}
@@ -285,7 +285,7 @@ func (r *Renderer) drawSpellFxStarburst(screen *ebiten.Image, cx, cy, size, dirX
 // Disintegrate - a void bolt: a near-black heart in a violet rim, streaming a
 // wake of matter chunks that scatter and shrink into nothing, with unmaking
 // scan-flickers snapping across the core.
-func (r *Renderer) drawSpellFxDisintegrate(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxDisintegrate(screen *ebiten.Image, cx, cy, size, dirX float64, _ float64, _ [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := int(r.game.frameCount)
 	violet := [3]int{190, 90, 230}
 	grey := [3]int{120, 120, 130}
@@ -322,7 +322,7 @@ func (r *Renderer) drawSpellFxDisintegrate(screen *ebiten.Image, cx, cy, size, d
 // Ray of Light - lore: a plasma charge. The blaster bolt's big brother: a
 // longer, wider, brighter golden energy rod with an outer radiance halo and
 // star-glints crackling along the sheath.
-func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, p projectileFxProfile, critBoost float64, id int) {
+func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dirX, dirY float64, core [3]int, _ projectileFxProfile, critBoost float64, id int) {
 	fc := float64(r.game.frameCount)
 	hot := mixColor(core, [3]int{255, 255, 255}, 0.8)
 	pulse := 0.92 + 0.08*math.Sin(fc*0.5+float64(id))
@@ -367,7 +367,8 @@ func (r *Renderer) drawSpellFxRayOfLight(screen *ebiten.Image, cx, cy, size, dir
 func (r *Renderer) drawBulletTracer(screen *ebiten.Image, cx, cy, size, vx, vy float64, col [3]int, critBoost float64, id int) {
 	hot := mixColor(col, [3]int{255, 255, 255}, 0.75)
 	pulse := 0.92 + 0.08*math.Sin(float64(r.game.frameCount)*0.6+float64(id))
-	dx, dy, ok := r.projectileScreenDir(vx, vy)
+	dx, ok := r.projectileScreenDir(vx, vy)
+	dy := 0.0
 	if !ok {
 		// Head-on: the bolt seen down the barrel - a bright core in a halo.
 		r.drawGlowSprite(screen, cx, cy, size*1.7*critBoost, col, 0.8*pulse, additiveGlowBlend)

@@ -719,12 +719,8 @@ func createTestMonster(x, y float64) *Monster3D {
 	}
 }
 
-// TestMonsterEngagesWhenHitFromCloseRange tests monster engagement when hit from close range
-func TestMonsterEngagesWhenHitFromCloseRange(t *testing.T) {
+func TestMonsterEngagesWhenHit(t *testing.T) {
 	m := createTestMonster(100.0, 100.0)
-
-	// Player at close range (2 tiles away)
-	playerX, playerY := 228.0, 100.0
 
 	// Initial state should be idle
 	if m.State != StateIdle {
@@ -735,7 +731,7 @@ func TestMonsterEngagesWhenHitFromCloseRange(t *testing.T) {
 	}
 
 	// Monster takes damage from close range
-	damage := m.TakeDamage(10, DamagePhysical, playerX, playerY)
+	damage := m.TakeDamage(10, DamagePhysical)
 
 	// Verify damage was applied
 	if damage != 10 {
@@ -754,33 +750,6 @@ func TestMonsterEngagesWhenHitFromCloseRange(t *testing.T) {
 	}
 	if !m.WasAttacked {
 		t.Errorf("WasAttacked flag should be true after taking damage")
-	}
-}
-
-// TestMonsterEngagesWhenHitFromLongRange tests monster engagement when hit from long range
-func TestMonsterEngagesWhenHitFromLongRange(t *testing.T) {
-	m := createTestMonster(100.0, 100.0)
-
-	// Player at long range (10 tiles away = 640 pixels)
-	playerX, playerY := 740.0, 100.0
-
-	// Initial state
-	if m.IsEngagingPlayer {
-		t.Fatalf("Expected IsEngagingPlayer to be false initially")
-	}
-
-	// Monster takes damage from long range
-	m.TakeDamage(15, DamageFire, playerX, playerY)
-
-	// Monster should engage regardless of distance when hit
-	if !m.IsEngagingPlayer {
-		t.Errorf("Monster should engage player when hit from long range")
-	}
-	if m.State != StateAlert {
-		t.Errorf("Expected state Alert after being hit from long range, got %v", m.State)
-	}
-	if !m.WasAttacked {
-		t.Errorf("WasAttacked flag should be true after taking damage from long range")
 	}
 }
 
@@ -830,7 +799,7 @@ func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 	playerX, playerY := 1060.0, 100.0
 
 	// Hit the monster from long range
-	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+	m.TakeDamage(10, DamagePhysical)
 
 	// Verify initial engagement
 	if !m.IsEngagingPlayer {
@@ -883,7 +852,7 @@ func TestMonsterResistanceReducesDamage(t *testing.T) {
 	m.Resistances[DamageFire] = 50 // 50% fire resistance
 
 	// Hit with fire damage
-	damage := m.TakeDamage(20, DamageFire, 200.0, 100.0)
+	damage := m.TakeDamage(20, DamageFire)
 
 	// Should receive only 50% of damage
 	if damage != 10 {
@@ -909,7 +878,7 @@ func TestMonsterDoesNotReengageWhenAlreadyEngaged(t *testing.T) {
 	m.StateTimer = 50
 
 	// Take more damage
-	m.TakeDamage(10, DamagePhysical, 200.0, 100.0)
+	m.TakeDamage(10, DamagePhysical)
 
 	// State should not change (still pursuing, not reset to alert)
 	if m.State != StatePursuing {
@@ -929,7 +898,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 	playerX, playerY := 800.0, 100.0
 
 	// First hit
-	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+	m.TakeDamage(10, DamagePhysical)
 
 	// Run some AI updates
 	for i := 0; i < 30; i++ {
@@ -937,7 +906,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 	}
 
 	// Second hit
-	m.TakeDamage(10, DamagePhysical, playerX, playerY)
+	m.TakeDamage(10, DamagePhysical)
 
 	// Run more AI updates
 	for i := 0; i < 30; i++ {
@@ -962,7 +931,7 @@ func TestMonsterChasesPlayerAfterRangedHit(t *testing.T) {
 	playerX, playerY := 612.0, 100.0
 
 	// Hit the monster
-	m.TakeDamage(10, DamageFire, playerX, playerY)
+	m.TakeDamage(10, DamageFire)
 
 	initialX := m.X
 

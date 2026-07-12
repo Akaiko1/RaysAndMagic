@@ -517,7 +517,7 @@ func (ui *UISystem) drawNPCDialog(screen *ebiten.Image) {
 	case dialogKindArenaGladiator:
 		ui.drawArenaGladiatorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case dialogKindCardCollector:
-		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
+		ui.drawCardCollectorDialog(screen, dialogX, dialogY, dialogHeight)
 	default:
 		ui.drawGenericDialog(screen, dialogX, dialogY, dialogHeight)
 	}
@@ -1176,7 +1176,7 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 // drawCardCollectorDialog draws the monster-card collection UI: the 8 active
 // slots on top, the party's loose cards below. Double-click a loose card to slot
 // it, double-click a slotted card to take it back. Art-based with hover tooltips.
-func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
 	drawDebugText(screen, fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), dialogX+20, dialogY+20)
 	greeting := "Cards, is it? Hand them here and I'll pin them to your collection."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {

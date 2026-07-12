@@ -223,10 +223,10 @@ func RegisterTeleportersFromMapData(specialTileSpawns []SpecialTileSpawn, mapKey
 			tileKey := GlobalTileManager.GetTileKey(tile)
 			group := getTeleporterString(tileData.Properties, "teleporter_group", tileKey)
 			cooldownSeconds := getTeleporterFloat(tileData.Properties, "cooldown_seconds", 5)
-			autoActivate := getTeleporterBool(tileData.Properties, "auto_activate", true)
-			randomDestination := getTeleporterBool(tileData.Properties, "random_destination", true)
-			excludeSelf := getTeleporterBool(tileData.Properties, "exclude_self", true)
-			crossMap := getTeleporterBool(tileData.Properties, "cross_map", true)
+			autoActivate := getTeleporterBool(tileData.Properties, "auto_activate")
+			randomDestination := getTeleporterBool(tileData.Properties, "random_destination")
+			excludeSelf := getTeleporterBool(tileData.Properties, "exclude_self")
+			crossMap := getTeleporterBool(tileData.Properties, "cross_map")
 
 			label := fmt.Sprintf("%s_%s_%d_%d", mapKey, group, x, y)
 			teleporter := TeleporterLocation{
@@ -272,13 +272,13 @@ func getTeleporterString(props map[string]interface{}, key, fallback string) str
 	return fallback
 }
 
-func getTeleporterBool(props map[string]interface{}, key string, fallback bool) bool {
+func getTeleporterBool(props map[string]interface{}, key string) bool {
 	if props == nil {
-		return fallback
+		return true
 	}
 	val, ok := props[key]
 	if !ok {
-		return fallback
+		return true
 	}
 	switch v := val.(type) {
 	case bool:
@@ -298,7 +298,7 @@ func getTeleporterBool(props map[string]interface{}, key string, fallback bool) 
 			return false
 		}
 	}
-	return fallback
+	return true
 }
 
 func getTeleporterFloat(props map[string]interface{}, key string, fallback float64) float64 {

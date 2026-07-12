@@ -1430,7 +1430,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		// Re-register current map monsters with collision system
 		if g.world != nil {
 			g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
-			g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
+			g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(g.camera.X, g.camera.Y))
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 		}
 	}

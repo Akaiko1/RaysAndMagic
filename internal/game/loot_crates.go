@@ -12,10 +12,6 @@ import (
 	"ugataima/internal/spells"
 )
 
-func (g *MMGame) npcIsLootCrate(npc *character.NPC) bool {
-	return npc != nil && npc.Type == character.NPCTypeLootCrate
-}
-
 // npcIsWalkUpProp: interactables the party walks right up to (chests,
 // lecterns). They share the loot-crate render treatment: no on-tile skip and
 // no near-cull, so they can't vanish just as the party reaches them.
@@ -99,7 +95,7 @@ func (g *MMGame) springCrateTrap(npc *character.NPC, crate *config.CrateConfig) 
 	damageLabel := strings.ToUpper(damageType[:1]) + damageType[1:]
 	g.AddColoredCombatMessage(fmt.Sprintf("The %s detonates a hidden %s charge!", npc.Name, damageLabel), combatMessageOrange)
 	g.combat.forEachDamageablePartyMember(func(idx int, member *character.MMCharacter) {
-		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType, false)
+		dealt := g.combat.damagePartyMemberElement(idx, member, crate.TrapDamage, damageType)
 		g.AddCombatMessage(fmt.Sprintf("%s takes %d damage! (HP: %d/%d)",
 			member.Name, dealt, member.HitPoints, member.MaxHitPoints))
 	})

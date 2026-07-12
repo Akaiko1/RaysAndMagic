@@ -74,11 +74,7 @@ func NewFxPreview(cfg *config.Config) (*FxPreview, error) {
 	}
 
 	p := &FxPreview{}
-	arena, err := p.buildArena(cfg)
-	if err != nil {
-		return nil, err
-	}
-	p.arena = arena
+	p.arena = p.buildArena(cfg)
 	// Exhibits must land in the world BEFORE the game/renderer exist: the
 	// renderer snapshots tile-driven caches (floor colors, teleporter glow
 	// anchors) at construction time.
@@ -86,7 +82,7 @@ func NewFxPreview(cfg *config.Config) (*FxPreview, error) {
 	if world.GlobalWorldManager == nil {
 		world.GlobalWorldManager = world.NewWorldManager(cfg)
 	}
-	world.GlobalWorldManager.LoadedMaps[fxStageMapKey] = arena
+	world.GlobalWorldManager.LoadedMaps[fxStageMapKey] = p.arena
 	world.GlobalWorldManager.CurrentMapKey = fxStageMapKey
 
 	p.g = NewMMGame(cfg)
@@ -109,12 +105,12 @@ func (p *FxPreview) resetCamera() {
 }
 
 // buildArena creates a flat 17x17 world with tile exhibits along the north row.
-func (p *FxPreview) buildArena(cfg *config.Config) (*world.World3D, error) {
+func (p *FxPreview) buildArena(cfg *config.Config) *world.World3D {
 	w := buildFlatArena(cfg, 17)
 	// Spawn-tile border FX anchors here - kept BEHIND the default camera (which
 	// stands at x=3.5 facing east) so exhibits never photobomb the spell stage.
 	w.StartX, w.StartY = 1, 12
-	return w, nil
+	return w
 }
 
 // buildFlatArena creates an all-floor square world - the empty stage every

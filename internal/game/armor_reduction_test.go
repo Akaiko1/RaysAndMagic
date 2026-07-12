@@ -3,7 +3,7 @@ package game
 // Armor mitigation tests - exercise the REAL CombatSystem path:
 // CalculateTotalArmorClass -> armorMitigationPct (% with diminishing returns,
 // capped 75% physical / 33% elemental) -> mitigateCharacterDamage pipeline
-// (armor % -> resist % -> flat buff -> floor; 100% resist = immune).
+// (armor % -> resist % -> floor -> flat reductions; 100% resist = immune).
 
 import (
 	"testing"
@@ -63,6 +63,37 @@ func TestArmorMitigationPct_FormulaAndCaps(t *testing.T) {
 	}
 	if got := cs.armorMitigationPct(char, false); got != wantElem {
 		t.Errorf("elemental mit: got %d%%, want %d%% (scaled to cap %d)", got, wantElem, ArmorElementalMitigationCap)
+	}
+}
+
+// This input makes every pipeline step observable: moving either percentage
+// step, the floor, or the flat reduction changes the result. In particular the
+// 1-damage floor applies before flat reductions, so a sufficiently strong flat
+// ward may still reduce a non-immune hit to zero.
+func TestMitigateCharacterDamage_ArmorResistFloorThenFlat(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	char := cs.game.party.Members[0]
+	equipArmorPieces(t, char, "leather_armor")
+	char.Equipment[items.SlotRing1] = items.Item{Attributes: map[string]int{"resist_physical": 50}}
+	cs.game.combatBuffs = []TimedCombatBuff{{InReduce: 2}}
+
+	const raw = 3
+	armorPct := cs.armorMitigationPct(char, true)
+	afterArmor := raw * (100 - armorPct) / 100
+	afterResist := afterArmor * 50 / 100
+	if afterResist < 1 {
+		afterResist = 1
+	}
+	want := afterResist - 2
+	if want < 0 {
+		want = 0
+	}
+
+	if got := cs.mitigateCharacterDamage(raw, "physical", char, false); got != want {
+		t.Fatalf("pipeline damage = %d, want %d (armor=%d%%, resist=50%%, flat=2)", got, want, armorPct)
+	}
+	if want != 0 {
+		t.Fatalf("test setup must distinguish floor-before-flat, got expected %d", want)
 	}
 }
 
@@ -248,17 +279,20 @@ func TestRealMonsterAttack_ArmorBlessAndStoneSkin(t *testing.T) {
 	for name, tc := range tests {
 		got := results[name]
 		for raw := 24; raw <= 38; raw++ {
-			// Mirror mitigateCharacterDamage: armor % (capped 75) -> flat buff -> floor.
+			// Mirror mitigateCharacterDamage: armor % (capped 75) -> floor -> flat buff.
 			mit := 100 * got.armorClass / (got.armorClass + ArmorMitigationK)
 			if mit > ArmorPhysicalMitigationCap {
 				mit = ArmorPhysicalMitigationCap
 			}
 			want := raw * (100 - mit) / 100
+			if want < 1 {
+				want = 1
+			}
 			if tc.stoneSkin {
 				want -= 4
 			}
-			if want < 1 {
-				want = 1
+			if want < 0 {
+				want = 0
 			}
 			if damage := got.damageByRaw[raw]; damage != want {
 				t.Errorf("%s: raw=%d dealt %d, want %d (AC=%d stone=%v)",

@@ -137,7 +137,7 @@ func (cs *CombatSystem) detonateMortar(m pendingMortar) {
 			continue
 		}
 		reduced := applyMonsterArmor(dmg, damageTypeStr, target.EffectiveArmorClass(), false)
-		actual := target.TakeDamageResist(reduced, damageType, resistPierce, cs.game.camera.X, cs.game.camera.Y)
+		actual := target.TakeDamageResist(reduced, damageType, resistPierce)
 		cs.markMonsterHit(target)
 		cs.spawnMonsterHitBurst(target, damageTypeStr)
 		if !target.IsAlive() {

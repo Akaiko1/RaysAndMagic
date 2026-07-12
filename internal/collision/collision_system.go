@@ -286,6 +286,13 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, moving
 // game.refreshMonsterCollisionSolidity) need a real combat signal, not mere
 // proximity, or two calm/dormant monsters stop passing through each other here.
 func shouldIgnoreCollisionTypes(moving, other CollisionType) bool {
+	// A non-engaged monster is walkable to and through the party. Once it is
+	// promoted to MonsterEngaged, the player blocks its path so it cannot flee
+	// or pursue through the party.
+	if moving == CollisionTypeMonster && other == CollisionTypePlayer {
+		return true
+	}
+
 	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
 	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
 		(other == CollisionTypeMonster || other == CollisionTypeMonsterEngaged) {

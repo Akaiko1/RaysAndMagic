@@ -6,9 +6,8 @@ import (
 	"ugataima/internal/monster"
 )
 
-// P1a regression: the turn-based "stuck -> teleport toward player" fallback must
-// never land a monster on the player's tile. The player collision entity is
-// non-solid, so CanMoveToWithHabitat alone allows the overlap; the diagonal
+// P1a regression: the turn-based "stuck -> teleport toward player" fallback
+// must never land a party-targeting monster on the player's tile. The diagonal
 // offset set includes the player tile when the mob is diagonal-adjacent.
 func TestTBTeleportFallbackSkipsPlayerTile(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -22,6 +21,7 @@ func TestTBTeleportFallbackSkipsPlayerTile(t *testing.T) {
 
 	mx, my := TileCenterFromTile(5, 5, tile) // diagonal-adjacent: (+1,+1) == player tile (6,6)
 	m := monster.NewMonster3DFromConfig(mx, my, "goblin", cfg)
+	m.IsEngagingPlayer, m.WasAttacked = true, true
 	game.registerSpawnedMonster(m)
 
 	gl := &GameLoop{game: game}

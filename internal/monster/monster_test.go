@@ -51,6 +51,13 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 	}
 }
 
+func TestConvertDamageTypeNormalizesExternalKeys(t *testing.T) {
+	cfg := &MonsterYAMLConfig{DamageTypes: map[string]int{"physical": 0, "fire": 1}}
+	if got, err := cfg.ConvertDamageType(" FIRE "); err != nil || got != DamageFire {
+		t.Fatalf("ConvertDamageType( FIRE ) = (%v, %v), want (%v, nil)", got, err, DamageFire)
+	}
+}
+
 func TestValidateMonsterConfiguration_AttackCadenceAllowsExplicitTurnBasedOverride(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -307,7 +307,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 			pounceTiles := int(m.PounceRangePixels / tileSize)
 			if m.PounceCDTurns == 0 && manhattan >= 2 && manhattan <= pounceTiles {
-				if _, landed := gl.game.combat.executePounce(m, playerX, playerY); landed {
+				if gl.game.combat.executePounce(m, playerX, playerY) {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
 					m.PounceCDTurns = 2
@@ -771,10 +771,10 @@ func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playe
 	for _, offset := range offsets {
 		testX := m.X + float64(offset[0])*tileSize
 		testY := m.Y + float64(offset[1])*tileSize
-		// Never teleport onto the player's tile: the player collision entity is
-		// non-solid, so CanMoveToWithHabitat would otherwise allow a mob to stand
-		// inside the party - the blocked-diagonal fallback's offsets can include it.
-		if int(testX/tileSize) == ptx && int(testY/tileSize) == pty {
+		// A monster currently fighting the party must not teleport onto its tile.
+		// A peaceful monster or one redirected to a summon is intentionally
+		// walkable in both directions, including this fallback.
+		if monsterTargetsParty(m) && int(testX/tileSize) == ptx && int(testY/tileSize) == pty {
 			continue
 		}
 		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {

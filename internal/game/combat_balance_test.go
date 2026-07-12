@@ -196,7 +196,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 				// No one to heal - fall through to weapon.
 			} else {
 				_, _, dmg := cs.CalculateSpellDamage(spellID, char)
-				target.TakeDamage(dmg, spellSchoolToDamageType(def.School), 0, 0)
+				target.TakeDamage(dmg, spellSchoolToDamageType(def.School))
 				char.SpellPoints -= def.SpellPointsCost
 				return
 			}
@@ -210,7 +210,7 @@ func playerActSlot(cs *CombatSystem, char *character.MMCharacter, target *monste
 	weaponDef := lookupWeaponConfigByName(weapon.Name)
 	isRanged := weaponDef != nil && weaponDef.Category == "bow"
 	dmg = applyMonsterArmor(dmg, "physical", target.ArmorClass, isRanged)
-	target.TakeDamage(dmg, monsterPkg.DamagePhysical, 0, 0)
+	target.TakeDamage(dmg, monsterPkg.DamagePhysical)
 }
 
 func trySimMonsterAllyHeal(m *monsterPkg.Monster3D, monsters []*monsterPkg.Monster3D, cfg *config.Config) bool {

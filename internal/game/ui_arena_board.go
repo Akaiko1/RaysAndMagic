@@ -31,7 +31,7 @@ func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dial
 	case 1:
 		ui.drawMerchantDialog(screen, dialogX, dialogY, dialogWidth, dialogHeight)
 	case 2:
-		ui.drawArenaBoardContent(screen, dialogX+20, dialogY+20, dialogY+dialogHeight-20)
+		ui.drawArenaBoardContent(screen, dialogX+20, dialogY+20, dialogX+dialogWidth-20, dialogY+dialogHeight-20)
 	default:
 		ui.game.arenaBoardScroll = 0   // leaving the board resets the view
 		ui.game.arenaBoardStale = true // re-entry re-reads the board file
@@ -43,10 +43,10 @@ func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dial
 // per party, expanded (detail) with member roster and per-champion victories.
 // Building lines first makes scrolling trivial and overlap impossible: rows
 // only ever push each other down.
-func buildArenaBoardLines(detail bool) []string {
+func buildArenaBoardLines(detail bool, maxWidth int) []string {
 	board := arena.Load()
 	if len(board.Entries) == 0 {
-		return []string{"No victories recorded yet. The sand waits."}
+		return wrapArenaBoardLine("No victories recorded yet. The sand waits.", maxWidth)
 	}
 	lines := make([]string, 0, len(board.Entries)*2)
 	for rank, e := range board.Entries {
@@ -72,25 +72,68 @@ func buildArenaBoardLines(detail bool) []string {
 		}
 		lines = append(lines, "")
 	}
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		wrapped = append(wrapped, wrapArenaBoardLine(line, maxWidth)...)
+	}
+	return wrapped
+}
+
+// wrapArenaBoardLine keeps leaderboard text inside the board frame while
+// preserving the detail lines' indentation. Entries are generated from player
+// names and champion keys, so their length cannot be bounded by authored UI
+// copy.
+func wrapArenaBoardLine(line string, maxWidth int) []string {
+	if line == "" || debugTextWidth(line) <= maxWidth {
+		return []string{line}
+	}
+	indentLen := 0
+	for indentLen < len(line) && line[indentLen] == ' ' {
+		indentLen++
+	}
+	indent := line[:indentLen]
+	words := strings.Fields(line[indentLen:])
+	lines := make([]string, 0, 1+len(words)/3)
+	current := indent
+	for _, word := range words {
+		candidate := word
+		if current != indent {
+			candidate = current + " " + word
+		} else {
+			candidate = indent + word
+		}
+		if debugTextWidth(candidate) > maxWidth && current != indent {
+			lines = append(lines, current)
+			current = indent + word
+			continue
+		}
+		current = candidate
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
 	return lines
 }
 
 // drawArenaBoardContent renders the scrollable leaderboard (mouse wheel; the
 // scroll offset is clamped here against the current line count, so releasing
 // Shift or a shrinking board self-heals the view).
-func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxY int) {
+func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY int) {
 	drawDebugText(screen, "ARENA CHAMPIONS' BOARD (hold SHIFT for details, wheel to scroll)", x, y)
 	y += 22
 
 	detail := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
-	if ui.game.arenaBoardStale || ui.game.arenaBoardLines == nil || detail != ui.game.arenaBoardDetail {
-		ui.game.arenaBoardLines = buildArenaBoardLines(detail)
+	width := maxX - x
+	if ui.game.arenaBoardStale || ui.game.arenaBoardLines == nil || detail != ui.game.arenaBoardDetail || width != ui.game.arenaBoardWidth {
+		ui.game.arenaBoardLines = buildArenaBoardLines(detail, width)
 		ui.game.arenaBoardDetail = detail
+		ui.game.arenaBoardWidth = width
 		ui.game.arenaBoardStale = false
 	}
 	lines := ui.game.arenaBoardLines
-	const lineH = 14
-	visible := (maxY - y) / lineH
+	const lineH = debugTextCharHeight
+	contentMaxY := maxY - lineH // reserve the final row for the scroll indicator
+	visible := (contentMaxY - y) / lineH
 	if visible < 1 {
 		visible = 1
 	}
@@ -110,6 +153,6 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxY int) 
 		y += lineH
 	}
 	if maxScroll > 0 {
-		drawDebugText(screen, fmt.Sprintf("(%d-%d of %d)", start+1, min(start+visible, len(lines)), len(lines)), x, maxY+6)
+		drawDebugText(screen, fmt.Sprintf("(%d-%d of %d)", start+1, min(start+visible, len(lines)), len(lines)), x, contentMaxY)
 	}
 }

@@ -4,10 +4,8 @@ import (
 	"testing"
 )
 
-// A pursuing melee monster must hold one tile out: the player is a non-solid
-// collision entity, so without the entersTargetTile guard a pixel final-approach
-// step would carry the monster onto the party tile and overlap their sprite
-// ("wolf on the head"). This asserts the guarantee for every melee archetype:
+// A pursuing melee monster must hold one tile out. This asserts the guarantee
+// for every melee archetype:
 // during RT pursuit of a stationary party the monster (a) never occupies the
 // player's tile and (b) still closes to tile-adjacency and lands a hit - proving
 // the standoff distance is a real attack position, independent of attack_radius

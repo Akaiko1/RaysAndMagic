@@ -94,7 +94,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 		if Distance(z.X, z.Y, m.X, m.Y) > z.Radius {
 			continue
 		}
-		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce, cs.game.camera.X, cs.game.camera.Y)
+		m.TakeDamageResist(tickDamage, dmgType, z.ResistPierce)
 		cs.markMonsterHit(m)
 		cs.game.spawnSteamPuff(m.X, m.Y)
 		cs.finishIndirectKill(m)

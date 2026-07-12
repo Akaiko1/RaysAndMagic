@@ -95,7 +95,7 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 		ui.drawEntryLoadList(screen, w, h)
 	case EntryMenuScores:
 		ui.drawHighScoresOverlay(screen)
-		ui.drawBackHint(screen, w, h)
+		ui.drawBackHint(screen, h)
 	case EntryMenuAchievements:
 		ui.drawAchievementsScreen(screen, w, h)
 	}
@@ -425,6 +425,6 @@ func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func(
 
 // drawBackHint prints a small return hint at the bottom for full-bleed sub
 // screens (e.g. high scores) that draw their own background.
-func (ui *UISystem) drawBackHint(screen *ebiten.Image, w, h int) {
+func (ui *UISystem) drawBackHint(screen *ebiten.Image, h int) {
 	ui.drawBackButton(screen, 20, h-44, func() { ui.game.entryMenuMode = EntryMenuRoot })
 }

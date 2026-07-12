@@ -238,17 +238,15 @@ type treeArm struct {
 // Returns false when the token can't be built this frame so the caller falls
 // back to the billboard.
 // worldLengthOverride (>0) forces the token's world footprint length instead of
-// deriving it from the billboard width; halfThicknessOverride (>=0) forces the
-// slab half-thickness instead of using config.Standee.ThicknessTiles. Both are
-// used by the crossed-standee tree (full-tile footprint + full-tile thickness so
-// the four faces land on the tile edges and the core fills the square).
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize int, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride, halfThicknessOverride float64, clipMinX, clipMaxX int) bool {
+// deriving it from the billboard width. Crossed trees use it for their full-tile
+// footprint so their arms land on the tile edges.
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize int, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
-	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, halfThicknessOverride, r.standeeSurfaces[:0])
+	slab, ok := r.prepareStandeeSlab(sprite, coreKey, entX, entY, yaw, centerDepth, centerSize, bottomY, rr, gg, bb, mirrorBySide, mirroredIn, worldLengthOverride, r.standeeSurfaces[:0])
 	if ok {
-		r.drawStandeeSlabColumns(screen, slab, clipMinX, clipMaxX)
+		r.drawStandeeSlabColumns(screen, slab, -1, -1)
 	}
 	r.standeeSurfaces = slab.surfaces[:0] // reclaim the backing array (cap grows to the max needed)
 	return true
@@ -278,7 +276,7 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 // projects fully off-screen (nothing to draw). The returned slab's `surfaces`
 // aliases dst (grown), so the caller reclaims it after drawing. See
 // drawStandeeSprite's doc for the parameter meanings.
-func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride, halfThicknessOverride float64, dst []standeeSurface) (standeeSlab, bool) {
+func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
 	screenW := r.game.config.GetScreenWidth()
 	cam := r.game.camera
 	halfFovTan := math.Tan(cam.FOV / 2)
@@ -294,9 +292,6 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	// Slab normal and half-thickness: the front/back faces sit at +/-h along it.
 	nx, ny := -sy, sx
 	h := r.game.config.Graphics.Standee.ThicknessTiles * float64(r.game.config.GetTileSize()) / 2
-	if halfThicknessOverride >= 0 {
-		h = halfThicknessOverride
-	}
 
 	// Which side faces the camera?
 	camSide := 1.0
@@ -568,7 +563,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// just present face-on to the camera this frame.
 	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
-		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag, -1, -1, -1)
+		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag)
 		return
 	}
 
@@ -594,8 +589,8 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightPx, bottomY int, b float32) {
 	slabs := [2]standeeSlab{}
 	slabOK := [2]bool{}
-	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, -1, r.standeeSurfaces[:0])
-	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, -1, r.standeeSurfacesB[:0])
+	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, r.standeeSurfaces[:0])
+	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, r.standeeSurfacesB[:0])
 
 	cam := r.game.camera
 	screenW := r.game.config.GetScreenWidth()
@@ -661,7 +656,7 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 // sites (NPC + wall_prop tile). Returns drawStandeeSprite's drawn flag.
 func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32) bool {
 	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * 0.6
-	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, 0, -1, -1, -1)
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, 0)
 	r.standeeDepthBias = 0
 	return drew
 }

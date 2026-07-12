@@ -199,7 +199,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	case StateIdle:
 		m.updateIdle(playerX, playerY)
 	case StatePatrolling:
-		m.updatePatrolling(collisionChecker, playerX, playerY)
+		m.updatePatrolling(collisionChecker)
 	case StatePursuing:
 		m.updatePursuing(collisionChecker, playerX, playerY)
 	case StateAlert:
@@ -420,7 +420,7 @@ func (m *Monster3D) updateIdle(playerX, playerY float64) {
 }
 
 // updatePatrolling moves monster randomly for normal wandering behavior using pathfinding
-func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker, playerX, playerY float64) {
+func (m *Monster3D) updatePatrolling(collisionChecker CollisionChecker) {
 	// Get AI config values
 	var patrolIdleTimer int = 600 // Default value
 

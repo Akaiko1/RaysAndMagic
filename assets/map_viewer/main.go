@@ -1742,19 +1742,6 @@ func drawTileMarkerCircle(screen *ebiten.Image, originX, originY, tileSize, tx, 
 	}
 }
 
-func drawTileMarkerRect(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, clr color.RGBA) {
-	if tileSize < 2 {
-		return
-	}
-	size := tileSize
-	if size < 3 {
-		size = 3
-	}
-	drawX := originX + tx*tileSize + (tileSize-size)/2
-	drawY := originY + ty*tileSize + (tileSize-size)/2
-	vector.FillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), clr, false)
-}
-
 func drawTileLetter(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, letter string) {
 	if tileSize < 6 || letter == "" {
 		return
@@ -1782,7 +1769,7 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 				return floorColor, true
 			}
 			if data.FloorColor != [3]int{} {
-				return colorFromRGB(data.FloorColor, 255), true
+				return colorFromRGB(data.FloorColor), true
 			}
 			return floorColor, true
 		}
@@ -1793,12 +1780,12 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 			// Use the obstacle's own wall_color so different obstacles
 			// (tree vs dune vs house) are distinguishable, not a flat gray.
 			if data.WallColor != [3]int{} {
-				return colorFromRGB(data.WallColor, 255), true
+				return colorFromRGB(data.WallColor), true
 			}
 			return obstacle, true
 		}
 		if data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255), true
+			return colorFromRGB(data.FloorColor), true
 		}
 	}
 	return color.RGBA{}, false
@@ -1813,14 +1800,14 @@ func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[s
 	tile := m.Data.Tiles[ty][tx]
 	if key := tm.GetTileKey(tile); key != "" {
 		if data := tileDataByKey[key]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	// TileEmpty's authored floor_color is ignored, same as the game renderer:
 	// empty ground always shows the map's default floor color.
 	if t, ok := tm.DominantNeighbourFloor(m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	return base
@@ -1835,13 +1822,13 @@ func effectiveFloorColor(m mapInfo, tm *world.TileManager, tileDataByKey map[str
 	if m.Config == nil {
 		return def
 	}
-	def = colorFromRGB(m.Config.DefaultFloorColor, 255)
+	def = colorFromRGB(m.Config.DefaultFloorColor)
 	if tm == nil {
 		return def
 	}
 	if t, ok := tm.GetTileTypeFromLetterForBiome(".", m.Config.Biome); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	return def
@@ -1955,7 +1942,7 @@ func (v *viewer) currentBiome() string {
 // refreshLegend rebuilds the (biome-scoped) tile/monster palette for the
 // current map. Call after any change to mapIndex.
 func (v *viewer) refreshLegend() {
-	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome(), v.npcSpriteDims)
+	v.legendLines = buildLegendEntries(v.tileManager, v.monsterCfg, v.currentBiome())
 	v.legendScroll = 0
 }
 
@@ -1967,8 +1954,8 @@ type legendBuildItem struct {
 	specific bool
 }
 
-// emitBiomeScopedSplit is emitBiomeScoped partitioned into biome-SPECIFIC and
-// universal ("general") entries, so the editor can list universally-placeable
+// emitBiomeScopedSplit partitions biome-SPECIFIC and universal ("general")
+// entries so the editor can list universally-placeable
 // objects (fern patches, wall props, ...) under their own "biome: general"
 // header instead of repeating them in every biome section. The letter-collision
 // rule is unchanged: when a biome-specific def claims a letter, the universal
@@ -2005,23 +1992,12 @@ func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, gene
 	return specific, general
 }
 
-// emitBiomeScoped flattens per-letter build items into sorted legend entries,
-// dropping universal entries for any letter that ALSO has a biome-specific one.
-// This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
-// where a biome-specific def wins over the universal fallback for that letter -
-// so the palette shows only what would actually be placed. Callers that don't
-// need the specific/general split just get them concatenated.
-func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
-	specific, general := emitBiomeScopedSplit(byLetter)
-	return append(specific, general...)
-}
-
 // buildLegendEntries builds the editor palette scoped to one biome: universal
 // tiles/monsters plus those whose biome list contains `biome`. Other biomes'
 // entries are hidden so a forest tree can't be painted into a desert map, and
 // when a biome-specific def shares a letter with a universal one, only the
 // biome-specific (the def that actually resolves) is shown.
-func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string, npcSpriteDims func(sprite string) (w, h int)) []legendEntry {
+func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string) []legendEntry {
 	var entries []legendEntry
 	entries = append(entries, sectionHeader("Tools"))
 	entries = append(entries, legendEntry{Text: "Eraser", Kind: brushEraser})
@@ -2257,8 +2233,8 @@ func monsterLetterForKey(key string) string {
 	return def.Letter
 }
 
-func colorFromRGB(rgb [3]int, a uint8) color.RGBA {
-	return color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), a}
+func colorFromRGB(rgb [3]int) color.RGBA {
+	return color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), 255}
 }
 
 func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {

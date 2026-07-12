@@ -598,6 +598,7 @@ type MMGame struct {
 	// the Shift-detail mode flips - never per frame.
 	arenaBoardLines   []string
 	arenaBoardDetail  bool
+	arenaBoardWidth   int
 	arenaBoardStale   bool
 	victoryNameInput  string
 	victoryScoreSaved bool
@@ -792,9 +793,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 	// Initialize collision system
 	game.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(cfg.World.TileSize))
 
-	// Register player entity in collision system (small collision box for good movement freedom)
-	playerEntity := collision.NewEntity("player", startX, startY, 16, 16, collision.CollisionTypePlayer, false)
-	game.collisionSystem.RegisterEntity(playerEntity)
+	game.collisionSystem.RegisterEntity(newPlayerCollisionEntity(startX, startY))
 
 	// Register all monsters with collision system
 	currentWorld.RegisterMonstersWithCollisionSystem(game.collisionSystem)
@@ -850,6 +849,14 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	entityType, solid := desiredMonsterCollisionState(m)
 	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, solid)
 	g.collisionSystem.RegisterEntity(entity)
+}
+
+// newPlayerCollisionEntity keeps the party's collision contract consistent
+// across a new game, map arrival, and save load. The player blocks hostile
+// monster pathfinding, while a monster's own solidity still controls whether
+// the party can walk through it.
+func newPlayerCollisionEntity(x, y float64) *collision.Entity {
+	return collision.NewEntity("player", x, y, 16, 16, collision.CollisionTypePlayer, true)
 }
 
 // partyInCombat reports whether a live engaging monster is NEAR the party

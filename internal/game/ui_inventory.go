@@ -622,10 +622,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 	schools := []string{"physical", "fire", "water", "air", "earth", "spirit", "mind", "body", "light", "dark"}
 	const colGap = 190
 	for i, school := range schools {
-		total := member.GearResistPct(school) + buffResist
-		if total > 100 {
-			total = 100
-		}
+		total := ui.game.schoolResistPct(member, school)
 		colX := x
 		if i >= 5 {
 			colX += colGap

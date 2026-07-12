@@ -365,14 +365,14 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 	return monster
 }
 
-func (m *Monster3D) TakeDamage(damage int, damageType DamageType, playerX, playerY float64) int {
-	return m.TakeDamageResist(damage, damageType, 0, playerX, playerY)
+func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
+	return m.TakeDamageResist(damage, damageType, 0)
 }
 
 // TakeDamageResist is TakeDamage with resistance piercing: resistPiercePct (0..100)
 // of the target's resistance to damageType is ignored before reduction. Used by
 // Grandmaster spell mastery; TakeDamage passes 0 for the normal path.
-func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int, playerX, playerY float64) int {
+func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPiercePct int) int {
 	// An invulnerable boss absorbs all damage from every source: a sealed (dormant)
 	// boss until its quest unseals it, or an idol-warded boss until its idols fall.
 	// Both flags are set per-frame in the game's pre-pass; this is the backstop for

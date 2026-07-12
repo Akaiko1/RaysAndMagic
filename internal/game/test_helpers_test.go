@@ -71,7 +71,7 @@ func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
 		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),
 		sessionStartTime: time.Now(),
 	}
-	game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
+	game.collisionSystem.RegisterEntity(newPlayerCollisionEntity(game.camera.X, game.camera.Y))
 	return game
 }
 
