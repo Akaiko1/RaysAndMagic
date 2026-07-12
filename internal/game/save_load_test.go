@@ -749,7 +749,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 	if b := restoreBoss(quests.QuestStatusActive); b.X != throneX || b.Y != throneY {
 		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
 	} else if !b.BossDormant {
-		// Set at restore time, not waiting for refreshBoundUndeadCache (which runs
+		// Set at restore time, not waiting for refreshBoundAllyCache (which runs
 		// after input) - else a first-frame player action could damage the sealed boss.
 		t.Error("sealed boss must be flagged BossDormant immediately on load")
 	}
@@ -761,7 +761,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 }
 
 // TestSaveLoad_IdolWardSetOnRestore guards the idol-ward immediate-init: a warded
-// boss must be flagged BossWarded the instant a save loads (refreshBoundUndeadCache
+// boss must be flagged BossWarded the instant a save loads (refreshBoundAllyCache
 // runs AFTER input, so without the restore-time pass a first-frame player action
 // could damage a still-warded warlord). And with no live idol it must NOT be warded.
 func TestSaveLoad_IdolWardSetOnRestore(t *testing.T) {
@@ -821,6 +821,7 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 	}
 	boss.SummonFirstDone = true
 	add.SummonedBy = boss.ID
+	add.CharmedByParty = true
 	add.IsEngagingPlayer = true
 	add.WasAttacked = true
 	wSave.Monsters = []*monster.Monster3D{boss, add}
@@ -854,6 +855,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 			foundAdd = true
 			if m.SummonedBy != boss.ID {
 				t.Fatalf("summoned add SummonedBy = %q, want %q", m.SummonedBy, boss.ID)
+			}
+			if !m.CharmedByParty {
+				t.Fatal("charmed provenance must survive save/load")
 			}
 		}
 	}

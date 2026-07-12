@@ -345,6 +345,7 @@ type MonsterSave struct {
 	BoundFramesRemaining    int     `json:"bound_frames_remaining,omitempty"`
 	Pacified                bool    `json:"pacified,omitempty"`
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
+	CharmedByParty          bool    `json:"charmed_by_party,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
 	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	PackKey                 string  `json:"pack_key,omitempty"`   // ambient day/night pack tag
@@ -966,6 +967,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
+				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
@@ -1315,7 +1317,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				if ms.ID != "" {
 					m.ID = ms.ID
 				}
-				// Seal a dormant boss immediately. refreshBoundUndeadCache recomputes
+				// Seal a dormant boss immediately. refreshBoundAllyCache recomputes
 				// BossDormant every frame, but that runs AFTER input - so without this a
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
@@ -1339,6 +1341,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				// Old saves have no provenance bit, but an actively pacified monster
+				// was necessarily charmed by the party.
+				m.CharmedByParty = ms.CharmedByParty || ms.Pacified
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
 				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining

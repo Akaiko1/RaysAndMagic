@@ -21,7 +21,7 @@ func spawnWardedWarlordEncounter(t *testing.T, game *MMGame, ts float64) (*monst
 	}
 	game.world.Monsters = []*monster.Monster3D{boss, idol}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !boss.BossWarded {
 		t.Fatal("warlord must start warded while an idol lives")
 	}
@@ -57,7 +57,7 @@ func TestDeepJungleWard_RTApproachRetreatDoesNotMoveBossOrIdol(t *testing.T) {
 		{2, 6}, // retreat again
 	} {
 		placePlayerAtTile(game, pos[0], pos[1], ts)
-		game.refreshBoundUndeadCache()
+		game.refreshBoundAllyCache()
 		// Mirror the real two-phase RT tick: one snapshot for every monster's
 		// Update() (Phase 1), then apply all the resulting writes (Phase 2).
 		snapshot := game.collisionSystem.Snapshot()
@@ -85,7 +85,7 @@ func TestDeepJungleWard_TBApproachRetreatDoesNotMoveBossOrIdol(t *testing.T) {
 		{2, 6}, // retreat again
 	} {
 		placePlayerAtTile(game, pos[0], pos[1], ts)
-		game.refreshBoundUndeadCache()
+		game.refreshBoundAllyCache()
 		runOneMonsterTurn(game, gl)
 		assertWardEncounterHeld(t, boss, idol, start)
 	}

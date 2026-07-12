@@ -147,53 +147,60 @@ func fillTestParty(t *testing.T, g *MMGame) {
 	}
 }
 
-// TestChampionMeleeArc: a champion swing catches as many members as the
-// striking hand's arc authors - the mace (arc 2) hits two, Muramasa (arc 3)
-// hits three; per-hand mastery true damage lands even through a dodge, so the
-// count is exact. Both hands must show up across swings (random hand pick).
-func TestChampionMeleeArc(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
-	primeTestChampions(t, cs.game)
-	fillTestParty(t, cs.game)
-
-	m := monsterPkg.NewMonster3DFromConfig(0, 0, "weapon_master", cs.game.config)
-	cs.game.mirrorChampionStats(m)
-
-	// TB swings alternate hands STRICTLY (party parity): expected arc widths
-	// derive from each hand's weapon def, main first.
-	ch := cs.game.championTemplate("weapon_master", "impossible")
-	arcOf := func(name string) int {
-		wd := lookupWeaponConfigByName(name)
-		if wd == nil || wd.Melee == nil {
-			t.Fatalf("no melee def for %q", name)
-		}
-		return wd.Melee.ArcType
+// overrideChampionMainHand makes a single champion attack test data-driven by
+// swapping only its weapon. The cached production template is restored when
+// the test completes.
+func overrideChampionMainHand(t *testing.T, g *MMGame, championKey, tierName, weaponKey string) {
+	t.Helper()
+	key := championTemplateKey(championKey, tierName)
+	original := championTemplates[key]
+	if original == nil {
+		t.Fatalf("missing champion template %q", key)
 	}
-	mainArc := arcOf(ch.Equipment[items.SlotMainHand].Name)
-	offArc := arcOf(ch.Equipment[items.SlotOffHand].Name)
+	replacement := character.CreateCharacter("Test Champion", original.Class, g.config)
+	replacement.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML(weaponKey)
+	championTemplates[key] = replacement
+	t.Cleanup(func() { championTemplates[key] = original })
+}
 
-	for i := 0; i < 8; i++ {
-		for _, mem := range cs.game.party.Members {
-			mem.HitPoints = mem.MaxHitPoints
-			mem.Conditions = mem.Conditions[:0] // clear last swing's KO
-			mem.StunFramesRemaining, mem.StunTurnsRemaining = 0, 0
-		}
-		if !cs.championAlternatingStrike(m) {
-			t.Fatal("champion melee strike failed")
-		}
-		hit := 0
-		for _, mem := range cs.game.party.Members {
-			if mem.HitPoints < mem.MaxHitPoints {
-				hit++
+// TestChampionMeleeArc checks every authored arc width against a clean party.
+// The champion's formation targeting must remain independent from crossfire
+// targets: arc 1/2/3/4 catch 1/2/3/all living party members respectively.
+func TestChampionMeleeArc(t *testing.T) {
+	for _, tc := range []struct {
+		name, weapon string
+		want         int
+	}{
+		{name: "arc_1", weapon: "magic_dagger", want: 1},
+		{name: "arc_2", weapon: "steel_mace", want: 2},
+		{name: "arc_3", weapon: "muramasa", want: 3},
+		{name: "arc_4", weapon: "gorehorn_greataxe", want: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := newTestCombatSystemWithConfig(t)
+			primeTestChampions(t, cs.game)
+			fillTestParty(t, cs.game)
+			overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", tc.weapon)
+
+			// Eliminate perfect-dodge variance so the struck formation is observable.
+			for _, mem := range cs.game.party.Members {
+				mem.Luck = 0
 			}
-		}
-		want := mainArc
-		if i%2 == 1 {
-			want = offArc
-		}
-		if hit != want {
-			t.Fatalf("swing %d hit %d members, want the %s hand's arc %d", i, hit, map[bool]string{true: "off", false: "main"}[i%2 == 1], want)
-		}
+			m := monsterPkg.NewMonster3DFromConfig(0, 0, "weapon_master", cs.game.config)
+			if !cs.championMeleeStrike(m, false) {
+				t.Fatal("champion melee strike failed")
+			}
+
+			hit := 0
+			for _, mem := range cs.game.party.Members {
+				if mem.HitPoints < mem.MaxHitPoints {
+					hit++
+				}
+			}
+			if hit != tc.want {
+				t.Fatalf("%s hit %d party members, want %d", tc.weapon, hit, tc.want)
+			}
+		})
 	}
 }
 
@@ -271,12 +278,7 @@ func TestChampionMeleeAoEOnce(t *testing.T) {
 		mem.Luck = 0
 	}
 
-	// Re-arm the cached template with the AoE polearm for this test only.
-	orig := championTemplates[championTemplateKey("weapon_master", "impossible")]
-	aoeChar := character.CreateCharacter("AoE Test", orig.Class, cs.game.config)
-	aoeChar.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("tonbogiri")
-	championTemplates[championTemplateKey("weapon_master", "impossible")] = aoeChar
-	defer func() { championTemplates[championTemplateKey("weapon_master", "impossible")] = orig }()
+	overrideChampionMainHand(t, cs.game, "weapon_master", "impossible", "tonbogiri")
 
 	m := monsterPkg.NewMonster3DFromConfig(0, 0, "weapon_master", cs.game.config)
 	for _, mem := range cs.game.party.Members {

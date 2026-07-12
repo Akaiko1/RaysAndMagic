@@ -146,7 +146,7 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
 	// its throne until its quest unseals it. The RT attack loop already no-ops via
 	// updateBoss; without this the patrol state would still drift the boss off its
-	// spawn tile. Flag is set single-threaded in refreshBoundUndeadCache.
+	// spawn tile. Flag is set single-threaded in refreshBoundAllyCache.
 	// A warlord idol is likewise immobile - it stands where placed and never moves.
 	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
 	// without this it would chase the party clear across the map at load.
@@ -275,8 +275,18 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	// enemy, picked by the game's AI-target logic) regardless of normal detection
 	// range - it actively hunts, and never flees. It only enters its attack stance
 	// once within real attack range; beyond that it keeps closing. When it has no
-	// enemy the target is its own position, so this just parks it (dist 0).
+	// enemy the game hands it the party position, so the ally follows the party.
 	if m.Bound {
+		m.pursueRelentlessly(collisionChecker, playerX, playerY)
+		return
+	}
+
+	// A monster handed a bound-ally FOE (playerX/Y is that foe's position, set as
+	// the AI target) hunts it relentlessly, exactly like a bound ally hunts its
+	// own enemy - ignoring this mob's detection range. A small-sighted mob (a
+	// goblin sees 3 tiles) would otherwise never engage a ranged summon peppering
+	// it from beyond that, and would wander off instead of closing.
+	if m.AIFoe != nil && m.AIFoe.IsAlive() {
 		m.pursueRelentlessly(collisionChecker, playerX, playerY)
 		return
 	}

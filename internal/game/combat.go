@@ -240,13 +240,13 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 	}
 }
 
-// markCardAlly turns a spawned monster into a permanent party ally summoned by
-// the card collection: Bound (hunts enemy monsters, ignores the party), tagged
-// for the summon limit, and excluded from map-clear quest counts.
+// markCardAlly turns a spawned monster into a party ally summoned by the card
+// collection: Bound (hunts enemy monsters, ignores the party), tagged for the
+// summon limit, and excluded from map-clear quest counts.
 // BoundFramesRemaining 0 = never expires (the bind tick only counts down > 0).
-// Unlike spell-bound undead these are MAP-LOCAL permanent: they don't crumble on
-// a map switch (switchToMap exempts SummonedBy == cardSummonOwner) - they stay on
-// their map and are re-summoned fresh on the new one via the proc.
+// A card ally is a PURE summon (never was an enemy): it yields the party no
+// XP/gold/loot on death and does not follow across maps - it simply crumbles
+// when the party leaves (a fresh set is re-summoned there via the proc).
 func markCardAlly(m *monsterPkg.Monster3D) {
 	m.Bound = true
 	m.BoundFramesRemaining = 0
@@ -254,6 +254,43 @@ func markCardAlly(m *monsterPkg.Monster3D) {
 	m.WasAttacked = false
 	m.SummonedBy = cardSummonOwner
 	m.QuestProgressIgnored = true
+}
+
+// isCardAlly reports whether a monster is a card-collection summon (Orc Warlord
+// Card huntresses) - a pure ally, distinct from a spell-bound undead (a former
+// ENEMY that still yields its reward). The single source of truth for the
+// "yields the party nothing / crumbles on map exit" rules.
+func isCardAlly(m *monsterPkg.Monster3D) bool {
+	return m != nil && m.SummonedBy == cardSummonOwner
+}
+
+// crumbleBoundAlliesOnDeparture removes the party's bound allies from the world
+// being left. A bound undead (a former enemy) grants XP but no loot or gold; a
+// pure card ally yields nothing. The removal is immediate because the normal
+// end-of-frame death sweep runs only on the newly entered world.
+func (g *MMGame) crumbleBoundAlliesOnDeparture(departing *world.World3D) {
+	if departing == nil || g.combat == nil {
+		return
+	}
+	kept := departing.Monsters[:0]
+	for _, m := range departing.Monsters {
+		if m == nil || !m.Bound || !m.IsAlive() {
+			kept = append(kept, m)
+			continue
+		}
+		if !isCardAlly(m) {
+			g.combat.awardExperienceOnly(m)
+			g.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
+		}
+		// The departing world's monsters live in the single shared collision system
+		// (switchToMap unregisters the old map's monsters one by one); a crumbled
+		// ally is dropped from departing.Monsters here, so it would escape that sweep
+		// and leave a ghost collision entity on the new map unless we unregister now.
+		if g.collisionSystem != nil {
+			g.collisionSystem.UnregisterEntity(m.ID)
+		}
+	}
+	departing.Monsters = kept
 }
 
 // summonCardAllies spawns up to n permanent allied (Bound) monsters of `key` near
@@ -853,6 +890,103 @@ type meleeHitCandidate struct {
 	ang float64
 }
 
+// meleeReachAngle reports whether a target at (tx,ty) is within a swing of
+// rangeTiles from (ox,oy) and, if so, its signed angle off the swing facing.
+// The reach rule (tile Chebyshev + a (range+0.5)-tile pixel fallback) and the
+// angle normalization are the ONE definition shared by the party's PvE swing
+// and a champion's swing at summons.
+func meleeReachAngle(ox, oy, facing float64, rangeTiles int, tileSize, tx, ty float64) (ang float64, inReach bool) {
+	otx, oty := int(ox/tileSize), int(oy/tileSize)
+	cheb := mathutil.IntAbs(int(tx/tileSize) - otx)
+	if dy := mathutil.IntAbs(int(ty/tileSize) - oty); dy > cheb {
+		cheb = dy
+	}
+	if cheb > rangeTiles {
+		reachPx := (float64(rangeTiles) + 0.5) * tileSize
+		if math.Max(math.Abs(tx-ox), math.Abs(ty-oy)) > reachPx {
+			return 0, false
+		}
+	}
+	if cheb > 0 {
+		ang = math.Atan2(ty-oy, tx-ox) - facing
+	}
+	for ang > math.Pi {
+		ang -= 2 * math.Pi
+	}
+	for ang < -math.Pi {
+		ang += 2 * math.Pi
+	}
+	return ang, true
+}
+
+// meleeArcCandidate is one entity caught by a swing's reach: its angle off the
+// facing and a closure that applies the hit. Type-agnostic so a single swing can
+// mix targets (a champion's arc catches summons AND party members at once).
+type meleeArcCandidate struct {
+	ang float64
+	hit func()
+}
+
+// applyMeleeArc fires the hit closures the weapon's arc catches from a candidate
+// set already filtered to reach. THE single arc-shape rule (front sliver / one
+// flank / both diagonals / both sides), shared by the party's PvE swing and a
+// champion's swing at summons.
+func applyMeleeArc(cands []meleeArcCandidate, arcType int) {
+	switch arcType {
+	case 2:
+		// Front always; then ONE diagonal flank - the side that has a target,
+		// random when both do.
+		var left, right []func()
+		for _, c := range cands {
+			a := math.Abs(c.ang)
+			switch {
+			case a <= meleeArcFront:
+				c.hit()
+			case a > meleeArcWing:
+				// out of the swing
+			case c.ang < 0:
+				left = append(left, c.hit)
+			default:
+				right = append(right, c.hit)
+			}
+		}
+		side := left
+		switch {
+		case len(left) > 0 && len(right) > 0:
+			if rand.Intn(2) == 0 {
+				side = right
+			}
+		case len(right) > 0:
+			side = right
+		}
+		for _, h := range side {
+			h()
+		}
+	default:
+		halfArc := meleeArcFront // arc 1
+		switch arcType {
+		case 3:
+			halfArc = meleeArcWing
+		case 4:
+			halfArc = meleeArcFlank
+		}
+		var frontDiagonalAssist []func()
+		hitAny := false
+		for _, c := range cands {
+			a := math.Abs(c.ang)
+			if a <= halfArc {
+				c.hit()
+				hitAny = true
+			} else if arcType == 1 && a <= meleeArcWing {
+				frontDiagonalAssist = append(frontDiagonalAssist, c.hit)
+			}
+		}
+		if !hitAny && len(frontDiagonalAssist) > 0 {
+			frontDiagonalAssist[rand.Intn(len(frontDiagonalAssist))]()
+		}
+	}
+}
+
 // performMeleeHitDetection applies the swing to every monster inside the weapon's
 // arc and reports how many it connected with. Reach is TILE-step Chebyshev (a
 // diagonal neighbour is one step: range 1 covers all 8 adjacent tiles), with a
@@ -878,7 +1012,6 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 	if weaponDef != nil && weaponDef.Range > 0 {
 		rangeTiles = weaponDef.Range
 	}
-	ptx, pty := int(playerX/tileSize), int(playerY/tileSize)
 
 	// Candidates: alive monsters within tile reach, with their signed angle off
 	// the player's facing. Stunned monsters are still valid targets (stun only
@@ -888,27 +1021,9 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		if !monster.IsAlive() {
 			continue
 		}
-		mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
-		cheb := mathutil.IntAbs(mtx - ptx)
-		if dy := mathutil.IntAbs(mty - pty); dy > cheb {
-			cheb = dy
-		}
-		if cheb > rangeTiles {
-			// Tile adjacency missed - fall back to true pixel reach (see doc).
-			reachPx := (float64(rangeTiles) + 0.5) * tileSize
-			if math.Max(math.Abs(monster.X-playerX), math.Abs(monster.Y-playerY)) > reachPx {
-				continue
-			}
-		}
-		ang := 0.0
-		if cheb > 0 {
-			ang = math.Atan2(monster.Y-playerY, monster.X-playerX) - playerAngle
-		}
-		for ang > math.Pi {
-			ang -= 2 * math.Pi
-		}
-		for ang < -math.Pi {
-			ang += 2 * math.Pi
+		ang, ok := meleeReachAngle(playerX, playerY, playerAngle, rangeTiles, tileSize, monster.X, monster.Y)
+		if !ok {
+			continue
 		}
 		cands = append(cands, meleeHitCandidate{monster, ang})
 	}
@@ -926,59 +1041,12 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		return hits
 	}
 
-	switch meleeConfig.ArcType {
-	case 2:
-		// Front always; then ONE diagonal flank - the side that has a foe, random
-		// when both do.
-		var left, right []*monsterPkg.Monster3D
-		for _, c := range cands {
-			a := math.Abs(c.ang)
-			switch {
-			case a <= meleeArcFront:
-				hit(c.m)
-			case a > meleeArcWing:
-				// out of the swing
-			case c.ang < 0:
-				left = append(left, c.m)
-			default:
-				right = append(right, c.m)
-			}
-		}
-		side := left
-		switch {
-		case len(left) > 0 && len(right) > 0:
-			if rand.Intn(2) == 0 {
-				side = right
-			}
-		case len(right) > 0:
-			side = right
-		}
-		for _, m := range side {
-			hit(m)
-		}
-	default:
-		halfArc := meleeArcFront // arc 1
-		switch meleeConfig.ArcType {
-		case 3:
-			halfArc = meleeArcWing
-		case 4:
-			halfArc = meleeArcFlank
-		}
-		var frontDiagonalAssist []*monsterPkg.Monster3D
-		hitAny := false
-		for _, c := range cands {
-			a := math.Abs(c.ang)
-			if a <= halfArc {
-				hit(c.m)
-				hitAny = true
-			} else if meleeConfig.ArcType == 1 && a <= meleeArcWing {
-				frontDiagonalAssist = append(frontDiagonalAssist, c.m)
-			}
-		}
-		if !hitAny && len(frontDiagonalAssist) > 0 {
-			hit(frontDiagonalAssist[rand.Intn(len(frontDiagonalAssist))])
-		}
+	arcCands := make([]meleeArcCandidate, len(cands))
+	for i, c := range cands {
+		cm := c.m
+		arcCands[i] = meleeArcCandidate{ang: c.ang, hit: func() { hit(cm) }}
 	}
+	applyMeleeArc(arcCands, meleeConfig.ArcType)
 	return hits
 }
 
@@ -1228,8 +1296,7 @@ func (cs *CombatSystem) spawnMonsterHitBurst(m *monsterPkg.Monster3D, element st
 // aggro, death/XP). Caller is responsible for any projectile cleanup.
 func (cs *CombatSystem) applyTrueDamageThroughDodge(monster *monsterPkg.Monster3D, trueDmg int, damageType monsterPkg.DamageType, attackerName string) {
 	actual := monster.TakeDamage(trueDmg, damageType, cs.game.camera.X, cs.game.camera.Y)
-	monster.HitTintFrames = MonsterHitFlashFrames
-	cs.engageTurnBasedPackOnHit(monster)
+	cs.markMonsterHit(monster)
 	if !monster.IsAlive() {
 		xpAwarded := cs.finishMonsterKill(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's mastery pierces %s's dodge for %d true damage and kills it!", attackerName, monster.Name, actual))
@@ -1262,6 +1329,10 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Check monster perfect dodge. A Grandmaster ignores it entirely; otherwise
 	// the normal hit is avoided but weapon-mastery TRUE damage still lands.
 	if monster.PerfectDodge > 0 && !ignoreDodge && rand.Intn(100) < monster.PerfectDodge {
+		// A targeted party attack is enough to end Charm, even when the target
+		// avoids the damage. Otherwise a 100%-dodge charmed mob could remain
+		// pacified forever while absorbing melee swings.
+		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
 			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, attackerName)
 		} else {
@@ -1274,9 +1345,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// immunity gate as weapon/spell Disintegrate: undead/dragon/invulnerable boss).
 	if pct := cs.game.cardDisintegratePct(); pct > 0 && !monsterImmuneToDisintegrate(monster) && rand.Float64() < float64(pct)/100 {
 		monster.HitPoints = 0
-		monster.WasAttacked = true
-		monster.HitTintFrames = MonsterHitFlashFrames
-		cs.engageTurnBasedPackOnHit(monster)
+		cs.markMonsterHit(monster)
 		xpAwarded := cs.finishMonsterKill(monster)
 		cs.game.AddCombatMessage(fmt.Sprintf("%s disintegrates %s!", attackerName, monster.Name))
 		cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
@@ -1324,7 +1393,7 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	// Apply damage with resistances and distance-aware AI response
 	finalDamage := monster.TakeDamage(reducedDamage, damageType, cs.game.camera.X, cs.game.camera.Y)
 	finalDamage += cs.applyPhysConversionShares(monster, convShares, false)
-	monster.HitTintFrames = MonsterHitFlashFrames
+	cs.markMonsterHit(monster)
 	cs.trySleightOfHand(attacker, monster)
 	// Impact feedback: spark burst + light flash at the monster, plus a small
 	// damage-scaled view kick (well under a fireball's). The monster stays put
@@ -1334,7 +1403,6 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	vx, vy := cs.monsterVisualPos(monster)
 	cs.game.spawnImpactSparks(vx, vy)
 	cs.game.addScreenShake(0.05*float64(finalDamage), 2.2)
-	cs.engageTurnBasedPackOnHit(monster)
 	if monster.IsAlive() {
 		cs.tryApplyWeaponHitRiders(monster, weaponDef)
 		cs.tryCardPoisonProc(monster)
@@ -1755,6 +1823,8 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
+				} else if monster.IsChampion() {
+					cs.championCrossfireStrike(monster, foe) // champion weapon arc/AoE vs summons
 				} else {
 					cs.monsterStrikeMonster(monster, foe)
 				}
@@ -2019,11 +2089,13 @@ func (cs *CombatSystem) monsterHitCharacter(monster *monsterPkg.Monster3D, targe
 		}
 		if pct > 0 && finalDamage > 0 && monster.IsAlive() {
 			if reflected := finalDamage * pct / 100; reflected > 0 {
-				monster.TakeDamage(reflected, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
+				dealt := monster.TakeDamage(reflected, monsterPkg.DamagePhysical, cs.game.camera.X, cs.game.camera.Y)
 				if !monster.IsAlive() {
 					xpAwarded := cs.finishMonsterKill(monster)
 					cs.game.AddCombatMessage(fmt.Sprintf("%s's reflected wrath destroys %s!", target.Name, monster.Name))
 					cs.game.AddCombatMessage(fmt.Sprintf("Awarded %d experience.", xpAwarded))
+				} else if dealt > 0 {
+					cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d reflected damage!", monster.Name, dealt))
 				}
 			}
 		}
@@ -2449,6 +2521,8 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 	var dmgTypeStr, spellFx, sourceName string
 	var disintegrateChance, aoeRadiusTiles, stunChance float64
 	var stunSeconds, stunTurns int
+	var srcMonster *monsterPkg.Monster3D
+	var owner ProjectileOwner
 	switch pType {
 	case "magic_projectile":
 		mp := projectile.(*MagicProjectile)
@@ -2458,6 +2532,8 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		mp.Active = false
 		damage, sourceName, spellFx = mp.Damage, mp.SourceName, mp.SpellType
 		disintegrateChance = mp.DisintegrateChance
+		srcMonster = mp.SourceMonster
+		owner = mp.Owner
 		spellDef, _ := spells.GetSpellDefinitionByID(spells.SpellID(mp.SpellType))
 		dmgTypeStr = normalizeDamageTypeStr(spellDef.School)
 		aoeRadiusTiles = spellDef.AoeRadiusTiles
@@ -2471,6 +2547,16 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		damage, sourceName = ar.Damage, ar.SourceName
 		disintegrateChance = ar.DisintegrateChance
 		dmgTypeStr = normalizeDamageTypeStr(ar.DamageType)
+		srcMonster = ar.SourceMonster
+		owner = ar.Owner
+		// A weapon projectile carries its own AoE rider (a champion's archmage staff,
+		// Bow of Hellfire): read it so the impact splashes nearby monsters, matching
+		// the spell path above and the party-side splash.
+		if ar.BowKey != "" {
+			if wd, ok := config.GetWeaponDefinition(ar.BowKey); ok && wd != nil {
+				aoeRadiusTiles = wd.AoeRadiusTiles
+			}
+		}
 	default:
 		return
 	}
@@ -2489,16 +2575,15 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		cs.game.CreateSpellHitEffectFromSpell(tx, ty, spellFx)
 	}
 
-	// kill finalizes a slain target: a fallen enemy rewards the party; a fallen
-	// bound ally yields nothing.
+	// kill finalizes a slain target. awardExperienceAndGold credits an enemy or a
+	// bound undead (a former enemy) but nothing for a pure card ally - the reward
+	// rule lives there, so this path just calls it.
 	kill := func() {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s is destroyed!", target.Name))
 		cs.game.collisionSystem.UnregisterEntity(target.ID)
 		cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
 		cs.scatterBandOnMemberDeath(target)
-		if !target.Bound {
-			cs.awardExperienceAndGold(target)
-		}
+		cs.awardExperienceAndGold(target)
 	}
 
 	// Disintegrate rider: the bound mob's projectile keeps its instakill chance.
@@ -2523,10 +2608,46 @@ func (cs *CombatSystem) resolveMonsterProjectileVsMonster(projectile interface{}
 		kill()
 		return
 	}
-	// AoE rider: splash the blast to other nearby monsters (party rewarded on
-	// splash kills, like a player AoE).
+	// AoE rider: crossfire may splash only the direct target's faction. Reusing
+	// the player AoE path here would hit the firing champion and its own ordinary
+	// allies, then incorrectly credit their deaths to the party.
 	if aoeRadiusTiles > 0 {
-		cs.applyAoeSplash(target, damage, dmgTypeStr, dmgType, sourceName, aoeRadiusTiles, 0)
+		cs.applyCrossfireAoeSplash(target, srcMonster, owner, damage, dmgType, aoeRadiusTiles)
+		// A CHAMPION's AoE bolt that reaches the party strikes it too (the extra
+		// action - the summon-splash's party twin). Plain mob crossfire never hits
+		// the party, so this is gated to champions.
+		if srcMonster != nil && srcMonster.IsChampion() &&
+			Distance(target.X, target.Y, cs.game.camera.X, cs.game.camera.Y) <= aoeRadiusTiles*float64(cs.game.config.GetTileSize()) {
+			cs.forEachDamageablePartyMember(func(_ int, member *character.MMCharacter) {
+				cs.monsterHitCharacter(srcMonster, member, srcMonster.Name, damage, dmgTypeStr, srcMonster.IgnoresArmor, 0, false)
+			})
+		}
+	}
+}
+
+// applyCrossfireAoeSplash applies an AoE monster projectile to the same faction
+// as its direct target. Bound allies splash enemy monsters; enemies splash bound
+// allies. The firing monster is never a splash target, so a close-range AoE
+// cannot self-kill a champion or damage its own pack.
+func (cs *CombatSystem) applyCrossfireAoeSplash(center, source *monsterPkg.Monster3D, owner ProjectileOwner, damage int, damageType monsterPkg.DamageType, radiusTiles float64) {
+	if center == nil || source == nil || radiusTiles <= 0 {
+		return
+	}
+	radius := radiusTiles * float64(cs.game.config.GetTileSize())
+	for _, candidate := range cs.game.world.Monsters {
+		if candidate == nil || candidate == center || candidate == source || !candidate.IsAlive() {
+			continue
+		}
+		if owner == ProjectileOwnerBoundUndead {
+			if candidate.Bound || candidate.Pacified {
+				continue
+			}
+		} else if !candidate.Bound {
+			continue
+		}
+		if Distance(center.X, center.Y, candidate.X, candidate.Y) <= radius {
+			cs.strikeMonsterFor(source, candidate, damage, damageType)
+		}
 	}
 }
 
@@ -3060,6 +3181,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 	// weapon strike ignores it; otherwise the normal hit is dodged but mastery
 	// TRUE damage still lands.
 	if monster.PerfectDodge > 0 && !ignoreDodge && rand.Intn(100) < monster.PerfectDodge {
+		cs.breakPacifyOnHit(monster)
 		if trueDmg > 0 {
 			cs.applyTrueDamageThroughDodge(monster, trueDmg, damageType, attackerName)
 		} else {
@@ -3085,9 +3207,7 @@ func (cs *CombatSystem) applyProjectileDamage(projectile interface{}, projectile
 		cs.spawnProjectileHitFX(projectile, fxX, fxY, isSpell, isRanged, damageTypeStr, monster, weaponDef, damage)
 
 		monster.HitPoints = 0
-		monster.WasAttacked = true
-		monster.HitTintFrames = MonsterHitFlashFrames
-		cs.engageTurnBasedPackOnHit(monster)
+		cs.markMonsterHit(monster)
 		cs.game.collisionSystem.UnregisterEntity(entityID)
 		xpAwarded := cs.finishMonsterKill(monster)
 
@@ -3457,14 +3577,21 @@ func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
 }
 
 // awardExperienceAndGold gives experience and gold to the party when a monster is killed.
-// Boss summons keep their regular drops/gold/quest behavior, but grant no XP.
+// Boss summons keep their regular drops/gold/quest behavior, but grant no XP unless
+// the party previously charmed them.
 func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) int {
 	if monster == nil || cs.game.party == nil || len(cs.game.party.Members) == 0 {
 		return 0
 	}
+	// A card ally is a pure summon, never an enemy: its death credits the party
+	// with nothing (no XP, gold, or loot). THE single gate for that rule, so
+	// every death path (melee, projectile, splash) honours it automatically.
+	if isCardAlly(monster) {
+		return 0
+	}
 
 	xpAwarded := monster.Experience
-	if monster.SummonedBy != "" {
+	if monster.SummonedBy != "" && !monster.CharmedByParty {
 		xpAwarded = 0
 	}
 
@@ -4057,6 +4184,7 @@ func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellN
 	}
 	m.Pacified = true
 	m.PacifiedFramesRemaining = seconds * cs.game.config.GetTPS()
+	m.CharmedByParty = true
 	m.WasAttacked = false
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is charmed and stops attacking!", m.Name))
 }
@@ -4073,10 +4201,10 @@ func (cs *CombatSystem) breakPacifyOnHit(m *monsterPkg.Monster3D) {
 	}
 }
 
-// boundUndeadSeekRadius is the pixel range a bound undead hunts for enemies to
-// walk toward (see BoundUndeadSeekTiles).
-func (cs *CombatSystem) boundUndeadSeekRadius() float64 {
-	return BoundUndeadSeekTiles * float64(cs.game.config.GetTileSize())
+// boundAllySeekRadius is the pixel range a bound undead hunts for enemies to
+// walk toward (see BoundAllySeekTiles).
+func (cs *CombatSystem) boundAllySeekRadius() float64 {
+	return BoundAllySeekTiles * float64(cs.game.config.GetTileSize())
 }
 
 // monsterVsMonsterReach is the distance at which m can hit ANOTHER monster.
@@ -4122,25 +4250,28 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 		return nil
 	}
 	if m.Bound {
-		return cs.nearestEnemyMonster(m, cs.boundUndeadSeekRadius())
+		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
 	}
 	// Normal monster: only bother if any bound undead exist this frame.
-	if len(cs.game.boundUndead) == 0 {
+	if len(cs.game.boundAllies) == 0 {
 		return nil
 	}
-	aggro := m.AlertRadius
-	if aggro <= 0 {
-		aggro = float64(cs.game.config.GetTileSize()) * 6
-	}
-	distParty := Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
+	// The nearest bound ally (party summon / bound undead) within the SEEK radius
+	// is the foe - the SAME range bound allies use to find their enemies, so the
+	// engagement is mutual. A mob's own alert_radius is deliberately NOT used:
+	// it is often tiny (a goblin sees 3 tiles) while a RANGED summon peppers it
+	// from its bolt range, so an alert-radius scan would leave every melee mob
+	// standing and eating shots from an attacker it "can't see". Party distance
+	// is ignored too: summons draw aggro like a front line. All monster-vs-summon
+	// pursuit/attack then flows through the shared crossfire path (plain mob or
+	// champion alike).
 	var foe *monsterPkg.Monster3D
-	best := aggro
-	for _, u := range cs.game.boundUndead {
+	best := cs.boundAllySeekRadius()
+	for _, u := range cs.game.boundAllies {
 		if u == nil || !u.IsAlive() {
 			continue
 		}
-		d := Distance(m.X, m.Y, u.X, u.Y)
-		if d <= best && d <= distParty {
+		if d := Distance(m.X, m.Y, u.X, u.Y); d <= best {
 			best, foe = d, u
 		}
 	}
@@ -4149,10 +4280,10 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 
 // monsterAITargetPoint is the world point a monster should pursue/engage, used by
 // both the real-time and turn-based movement. It redirects controlled monsters off
-// the party: a pacified charm stands still (targets itself), a bound undead seeks
-// its enemy (or stands if none), and a normal mob chases its undead foe if it has
-// one, else the party. Reads the per-frame cached AIFoe (set in
-// refreshBoundUndeadCache) - never recomputes the foe.
+// the party: a pacified charm stands still (targets itself), while a bound ally
+// seeks its enemy or follows the party when idle. A normal mob chases its undead
+// foe if it has one, else the party. Reads the per-frame cached AIFoe (set in
+// refreshBoundAllyCache) - never recomputes the foe.
 func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
 	if m.Pacified {
 		return m.X, m.Y // pacified: never chase the party - hold position
@@ -4164,7 +4295,7 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 		return m.AIFoe.X, m.AIFoe.Y
 	}
 	if m.Bound {
-		return m.X, m.Y // bound undead with no enemy in reach: wait, don't chase party
+		return cs.game.camera.X, cs.game.camera.Y // an idle bound ally tags along with the party
 	}
 	return cs.game.camera.X, cs.game.camera.Y
 }
@@ -4173,11 +4304,19 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 // monster-vs-monster blow). On a kill the party is rewarded ONLY if the slain
 // monster was an enemy (not a bound ally that a mob just cut down).
 func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monster3D) {
+	cs.strikeMonsterFor(attacker, target, cs.monsterAttackDamage(attacker), monsterPkg.DamagePhysical)
+}
+
+// strikeMonsterFor lands a monster-vs-monster blow of an EXPLICIT damage and
+// element, with the shared hit-flash / message / kill / reward path. The damage
+// sink for both a plain monster's attack (monsterStrikeMonster rolls it) and a
+// champion's weapon sweep at summons (one swing roll applied to every caught
+// target - the arc/AoE never re-rolls, matching the vs-party rule).
+func (cs *CombatSystem) strikeMonsterFor(attacker, target *monsterPkg.Monster3D, dmg int, dtype monsterPkg.DamageType) {
 	if !target.IsAlive() {
 		return // already slain this frame - no double damage/reward
 	}
-	dmg := cs.monsterAttackDamage(attacker)
-	actual := target.TakeDamage(dmg, monsterPkg.DamagePhysical, attacker.X, attacker.Y)
+	actual := target.TakeDamage(dmg, dtype, attacker.X, attacker.Y)
 	target.HitTintFrames = MonsterHitFlashFrames
 	verb := "strikes"
 	if attacker.Bound {
@@ -4191,9 +4330,9 @@ func (cs *CombatSystem) monsterStrikeMonster(attacker, target *monsterPkg.Monste
 	cs.game.collisionSystem.UnregisterEntity(target.ID)
 	cs.game.deadMonsterIDs = append(cs.game.deadMonsterIDs, target.ID)
 	cs.scatterBandOnMemberDeath(target)
-	if !target.Bound { // an enemy fell - reward; a fallen bound ally yields nothing
-		cs.awardExperienceAndGold(target)
-	}
+	// A slain enemy or bound undead (a former enemy) rewards the party; a pure
+	// card ally yields nothing - the rule lives in awardExperienceAndGold.
+	cs.awardExperienceAndGold(target)
 }
 
 // boundAttackNearest makes a bound undead attack the nearest enemy monster -

@@ -108,7 +108,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	// only suppresses the ATTACK - the separate movement path is what let the boss
 	// wander off, so this asserts the flag that gates it.
 	cs.game.world.Monsters = append(cs.game.world.Monsters, boss)
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if !boss.BossDormant {
 		t.Error("sealed boss must be flagged BossDormant while castle_armory is unfinished")
 	}
@@ -130,7 +130,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if cs.bossEvasive(boss) {
 		t.Error("boss must turn aggressive once castle_armory completes")
 	}
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if boss.BossDormant {
 		t.Error("boss must no longer be dormant once castle_armory completes")
 	}
@@ -142,7 +142,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Error("unsealed-but-unengaged Samurai must NOT relentlessly chase from across the map")
 	}
 	boss.IsEngagingPlayer = true
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if !boss.BossAggro {
 		t.Error("an engaged unsealed Samurai should relentlessly pursue")
 	}

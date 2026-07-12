@@ -1377,21 +1377,7 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 
 // switchToMap handles common map switching logic for teleporters and spell effects
 func (ih *InputHandler) switchToMap(targetMapKey string) {
-	// Bound UNDEAD can't follow across maps: they crumble as the party departs,
-	// granting their XP but no loot or gold. (Pacified mobs aren't yours - they're
-	// simply left behind.) Card-collection allies (SummonedBy == cardSummonOwner)
-	// are exempt: they're permanent summons that persist on their map (re-summoned
-	// fresh on the new one via the proc), not disposable spell-bound undead.
-	if ih.game.world != nil && ih.game.combat != nil {
-		for _, m := range ih.game.world.Monsters {
-			if m != nil && m.Bound && m.IsAlive() && m.SummonedBy != cardSummonOwner {
-				ih.game.combat.awardExperienceOnly(m)
-				ih.game.AddCombatMessage(fmt.Sprintf("Your bound %s crumbles as you leave.", m.Name))
-				m.HitPoints = 0
-			}
-		}
-	}
-
+	oldWorld := ih.game.world
 	err := world.GlobalWorldManager.SwitchToMap(targetMapKey)
 	if err != nil {
 		fmt.Printf("Failed to switch to map %s: %v\n", targetMapKey, err)
@@ -1399,8 +1385,10 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 	}
 
 	// Update world reference and collision system
-	oldWorld := ih.game.world
 	ih.game.world = ih.game.GetCurrentWorld()
+	if oldWorld != ih.game.world {
+		ih.game.crumbleBoundAlliesOnDeparture(oldWorld)
+	}
 	ih.game.registerVisitedTownPortalDestination() // Town Portal learns this map's destination
 	ih.game.dropFlyWithoutOpenSky()                // wings fade indoors (dungeons have no sky)
 	// Sync the new world's Fly flag to the party NOW (not next frame): it may

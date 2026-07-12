@@ -229,7 +229,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// must keep participating. Save/load restores IsEngagingPlayer from
 		// WasAttacked, so ignoring that flag here made some hit bosses freeze until
 		// reload when they were just outside the TB vision radius.
-		if Distance(playerX, playerY, m.X, m.Y) > visionRange &&
+		// A monster with a bound-ally foe (summon / bound undead) must take its
+		// turn against it no matter how far the PARTY is - otherwise a mob peppered
+		// by a ranged summon while the party stands off would be skipped by this
+		// party-distance gate and freeze.
+		if Distance(playerX, playerY, m.X, m.Y) > visionRange && m.AIFoe == nil &&
 			!m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
 			continue
 		}
@@ -274,7 +278,11 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 				// Monster-vs-monster melee uses the same adjacent-tile contact as
 				// party melee so crowded mobs can still connect.
 				m.AttackAnimFrames = MonsterAttackAnimFrames
-				gl.game.combat.monsterStrikeMonster(m, foe)
+				if m.IsChampion() {
+					gl.game.combat.championCrossfireStrike(m, foe) // champion weapon arc/AoE vs summons
+				} else {
+					gl.game.combat.monsterStrikeMonster(m, foe)
+				}
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}

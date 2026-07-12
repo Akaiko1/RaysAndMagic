@@ -169,7 +169,8 @@ type Monster3D struct {
 	CrossfireCD              int        // RT cadence between this monster's monster-vs-monster attacks (bound<->enemy crossfire)
 	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
 	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
-	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundUndeadCache)
+	CharmedByParty           bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
+	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundAllyCache)
 	AITargetY                float64    // Per-frame pursuit target Y
 	AIFoe                    *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
 	Flying                   bool       // Whether the monster should be rendered above ground
@@ -233,8 +234,8 @@ type Monster3D struct {
 	EvadeRadiusTiles  float64 // evasive phase: blink when the party is within this many tiles
 	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
-	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundUndeadCache)
-	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshBoundUndeadCache)
+	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundAllyCache)
+	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshBoundAllyCache)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
@@ -248,7 +249,7 @@ type Monster3D struct {
 	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
 	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
-	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundUndeadCache)
+	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundAllyCache)
 	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
 	BossHurtPending  bool   // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.

@@ -118,9 +118,9 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 		t.Errorf("aggressive GTB should chase the party")
 	}
 
-	// refreshBoundUndeadCache flags the now-aggressive boss for relentless pursuit;
+	// refreshBoundAllyCache flags the now-aggressive boss for relentless pursuit;
 	// an evasive boss must NOT carry that flag (it only holds + blinks).
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	if !gtb.BossAggro {
 		t.Errorf("aggressive GTB should be flagged BossAggro (relentless chase)")
 	}

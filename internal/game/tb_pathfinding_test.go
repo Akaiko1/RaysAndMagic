@@ -205,7 +205,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache() // marks the struck gorilla as BossAggro.
+	g.refreshBoundAllyCache() // marks the struck gorilla as BossAggro.
 	for _, m := range w.Monsters {
 		g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
 	}
@@ -323,7 +323,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	gl := &GameLoop{game: g}
@@ -333,7 +333,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	// without letting unrelated huntress AI noise hide the regression.
 	swappedWithFarSummon := false
 	for step := 0; step < 12; step++ {
-		g.refreshBoundUndeadCache()
+		g.refreshBoundAllyCache()
 		gl.monsterMoveTurnBased(gorilla)
 		refreshTBMonsterSolidity(g)
 
@@ -441,7 +441,7 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	gorilla.PounceCDTurns = 0
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	for _, c := range [8][2]int{
@@ -497,7 +497,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	disableRandomBossSpecialsForTBPathTest(gorilla)
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	gl := &GameLoop{game: g}
@@ -553,7 +553,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVisio
 	disableRandomBossSpecialsForTBPathTest(gorilla)
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 	if !gorilla.BossAggro {
 		t.Fatal("setup failed: WasAttacked gorilla should recompute BossAggro")
@@ -605,7 +605,7 @@ func movePartyToTileForTBTest(t *testing.T, g *MMGame, tx, ty int, tile float64)
 func runFullMonsterTurnForTBTest(t *testing.T, g *MMGame, gl *GameLoop) {
 	t.Helper()
 	for frames := 0; g.currentTurn == 1 && frames < 180; frames++ {
-		g.refreshBoundUndeadCache()
+		g.refreshBoundAllyCache()
 		refreshTBMonsterSolidity(g)
 		gl.updateMonstersTurnBased()
 	}

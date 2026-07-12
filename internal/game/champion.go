@@ -221,6 +221,74 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	return len(targets) > 0
 }
 
+// championCrossfireStrike is a MELEE champion's swing at a bound-ally FOE
+// (summon), giving that swing the SAME weapon mechanics the party gets in PvE:
+// one damage roll spread across the arc/AoE it catches among summons, plus - as
+// an ADDITIONAL action, when the same swing's geometry reaches the party - the
+// champion's normal vs-party hit (championMeleeStrike, untouched). AoE never
+// re-rolls and never stacks with the arc (the weapon is one or the other).
+func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D) {
+	ch := cs.game.championTemplateFor(m)
+	if ch == nil {
+		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
+		return
+	}
+	weapon := ch.Equipment[items.SlotMainHand]
+	wd, dmg := cs.championSwingDamage(m, ch, weapon)
+	dtype := monster.DamagePhysical
+	if wd != nil && wd.DamageType != "" {
+		dtype = convertToMonsterDamageType(wd.DamageType)
+	}
+	ts := float64(cs.game.config.GetTileSize())
+	facing := math.Atan2(foe.Y-m.Y, foe.X-m.X)
+	partyCaught := false
+
+	if wd != nil && wd.AoeRadiusTiles > 0 {
+		// AoE: every bound-ally summon within the radius, and (as the extra action)
+		// the party if it stands in the same radius.
+		r := wd.AoeRadiusTiles * ts
+		for _, o := range cs.game.world.Monsters {
+			if o != nil && o.Bound && o.IsAlive() && Distance(m.X, m.Y, o.X, o.Y) <= r {
+				cs.strikeMonsterFor(m, o, dmg, dtype)
+			}
+		}
+		partyCaught = Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y) <= r
+	} else {
+		// Arc: the weapon's cone catches summons AND, if it reaches the party
+		// point, the party too - resolved by the shared applyMeleeArc.
+		rangeTiles := 1
+		arc := 1
+		if wd != nil {
+			if wd.Range > 0 {
+				rangeTiles = wd.Range
+			}
+			if wd.Melee != nil {
+				arc = wd.Melee.ArcType
+			}
+		}
+		var cands []meleeArcCandidate
+		for _, o := range cs.game.world.Monsters {
+			if o == nil || !o.Bound || !o.IsAlive() {
+				continue
+			}
+			if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, o.X, o.Y); ok {
+				summon := o
+				cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { cs.strikeMonsterFor(m, summon, dmg, dtype) }})
+			}
+		}
+		if ang, ok := meleeReachAngle(m.X, m.Y, facing, rangeTiles, ts, cs.game.camera.X, cs.game.camera.Y); ok {
+			cands = append(cands, meleeArcCandidate{ang: ang, hit: func() { partyCaught = true }})
+		}
+		applyMeleeArc(cands, arc)
+	}
+
+	// Party caught in the same sweep: the champion's normal vs-party hit (whole
+	// party for AoE, arc_type members for an arc) - reused as-is.
+	if partyCaught {
+		cs.championMeleeStrike(m, false)
+	}
+}
+
 // monsterAttackDamage is the ONE damage source for every monster attack site
 // (projectiles, breath, piercing, monster-vs-monster; champion MELEE resolves
 // through championMeleeStrike instead, which also picks the hand). Champions

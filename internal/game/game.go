@@ -344,11 +344,11 @@ type MMGame struct {
 	traps        []PlacedTrap // armed thief traps (map-scoped, persisted)
 	selectedTrap int          // trap-book browse index (selection != equipped quick trap)
 
-	// boundUndead caches the bound undead (bind_undead) present this frame so the
+	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
 	// O(n^2) scan in the common (no-bind) case. Rebuilt each frame before the
-	// monster update; see refreshBoundUndeadCache.
-	boundUndead []*monster.Monster3D
+	// monster update; see refreshBoundAllyCache.
+	boundAllies []*monster.Monster3D
 
 	// Door state (render_category "door"): closed iff a living champion is on
 	// the current map; doorEntityIDs tracks the solid collision entities the
@@ -1623,14 +1623,14 @@ func (g *MMGame) UpdateMonsterHitTintTimers() {
 	}
 }
 
-// refreshBoundUndeadCache rebuilds the per-frame list of bound undead (bind_undead)
+// refreshBoundAllyCache rebuilds the per-frame list of bound undead (bind_undead)
 // so the AI-target lookup can let normal mobs retaliate against them without an
 // O(n^2) scan when none exist. Called once per frame before the monster update.
-func (g *MMGame) refreshBoundUndeadCache() {
-	g.boundUndead = g.boundUndead[:0]
+func (g *MMGame) refreshBoundAllyCache() {
+	g.boundAllies = g.boundAllies[:0]
 	for _, m := range g.world.Monsters {
 		if m != nil && m.Bound && m.IsAlive() {
-			g.boundUndead = append(g.boundUndead, m)
+			g.boundAllies = append(g.boundAllies, m)
 		}
 	}
 	// Precompute each monster's foe + pursuit target ONCE per frame, single-threaded,
@@ -2303,7 +2303,7 @@ func (mw *MonsterWrapper) Update() {
 	// AI pursuit/engagement target: normally the party, but charmed monsters are
 	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
 	// so they never chase the party. Precomputed single-threaded each frame in
-	// refreshBoundUndeadCache to keep this parallel update race-free.
+	// refreshBoundAllyCache to keep this parallel update race-free.
 	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
 
 	// Use collision-aware update with the chosen AI target for tethering. Reads

@@ -86,18 +86,18 @@ func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
 	gorilla := monsterPkg.NewMonster3DFromConfig(30*ts, 30*ts, "gorilla_titan", game.config) // far away
 	game.world.Monsters = []*monsterPkg.Monster3D{gorilla}
 
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if gorilla.BossAggro {
 		t.Fatal("gorilla must NOT relentlessly chase from across the map before aggro")
 	}
 	gorilla.IsEngagingPlayer = true
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !gorilla.BossAggro {
 		t.Fatal("an engaged gorilla should relentlessly pursue")
 	}
 	gorilla.IsEngagingPlayer = false
 	gorilla.WasAttacked = true // sticky once hit
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !gorilla.BossAggro {
 		t.Fatal("a struck gorilla should keep relentlessly pursuing")
 	}
@@ -115,7 +115,7 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 	m.AggroWholeMap = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !m.BossAggro {
 		t.Fatal("an AggroWholeMap boss should relentlessly pursue from spawn")
 	}

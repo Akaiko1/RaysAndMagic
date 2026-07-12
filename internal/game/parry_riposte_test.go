@@ -1,6 +1,8 @@
 package game
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"ugataima/internal/items"
@@ -32,4 +34,11 @@ func TestParryingDaggerRiposteMeleeOnly(t *testing.T) {
 	if melee.HitPoints >= 1000 {
 		t.Errorf("melee attacker HP = %d, should have taken the dagger riposte", melee.HitPoints)
 	}
+	wantLog := fmt.Sprintf("Brawler takes %d reflected damage!", 1000-melee.HitPoints)
+	for _, msg := range g.GetCombatMessages() {
+		if strings.Contains(msg, wantLog) {
+			return
+		}
+	}
+	t.Error("nonlethal riposte must report the actual reflected damage in the combat log")
 }

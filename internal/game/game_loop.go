@@ -131,7 +131,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
-	gl.game.refreshBoundUndeadCache()
+	gl.game.refreshBoundAllyCache()
 
 	// Reconcile door state (closed iff a living champion is on this map) and the
 	// solid collision entities behind it, before either monster update runs.
