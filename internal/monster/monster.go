@@ -166,7 +166,6 @@ type Monster3D struct {
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
 	Bound                    bool       // Bind Undead: under party control - hunts other monsters, ignores party
 	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
-	CrossfireCD              int        // RT cadence between this monster's monster-vs-monster attacks (bound<->enemy crossfire)
 	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
 	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
 	CharmedByParty           bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks

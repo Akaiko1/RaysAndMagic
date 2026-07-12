@@ -250,7 +250,6 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 func markCardAlly(m *monsterPkg.Monster3D) {
 	m.Bound = true
 	m.BoundFramesRemaining = 0
-	m.CrossfireCD = 0
 	m.WasAttacked = false
 	m.SummonedBy = cardSummonOwner
 	m.QuestProgressIgnored = true
@@ -312,7 +311,7 @@ func (cs *CombatSystem) summonCardAllies(key string, n int) int {
 		}
 		markCardAlly(add)
 		cs.game.registerSpawnedMonster(add)
-		cs.game.refreshMonsterCollisionSolidity(add, px, py)
+		cs.game.refreshMonsterCollisionSolidity(add)
 		spawned++
 	}
 	if spawned > 0 {
@@ -1801,34 +1800,34 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		if monster.Pacified {
 			continue
 		}
-		// Bound (Bind Undead): hunts the nearest enemy monster on a ~1s cadence,
-		// never the party.
+		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
+		// per-monster attack cooldown, never the party.
 		if monster.Bound {
-			if monster.CrossfireCD > 0 {
-				monster.CrossfireCD--
-			} else if cs.boundAttackNearest(monster) {
-				monster.CrossfireCD = cs.game.config.GetTPS()
+			if monster.AttackCDFrames == 0 && cs.boundAttackNearest(monster) {
+				monster.AttackCDFrames = monster.AttackCooldownFrames()
 			}
 			continue
 		}
 
-		// Lured at a bound undead instead of the party: attack it on its own ~1s
-		// cadence whenever within reach (ranged mobs loose a visible bolt; melee
+		// Lured at a bound undead instead of the party: attack it on the monster's
+		// normal individual cooldown whenever within reach (ranged mobs loose a visible bolt; melee
 		// strike directly), independent of the engagement state machine - so a mob
 		// jittering at the edge of melee range still connects. Then skip party logic.
 		if foe := monster.AIFoe; foe != nil && foe.IsAlive() {
-			if monster.CrossfireCD > 0 {
-				monster.CrossfireCD--
-			} else if Distance(monster.X, monster.Y, foe.X, foe.Y) <= cs.monsterVsMonsterReach(monster) {
+			if monster.IsChampion() {
+				if cs.monsterCanAttackMonster(monster, foe) {
+					cs.championRTCrossfireStrike(monster, foe)
+				}
+				continue
+			}
+			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) {
 				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
-				} else if monster.IsChampion() {
-					cs.championCrossfireStrike(monster, foe) // champion weapon arc/AoE vs summons
 				} else {
 					cs.monsterStrikeMonster(monster, foe)
 				}
-				monster.CrossfireCD = cs.game.config.GetTPS()
+				monster.AttackCDFrames = monster.AttackCooldownFrames()
 			}
 			continue
 		}
@@ -1953,6 +1952,16 @@ func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dis
 }
 
 func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3D) bool {
+	// Logical (un-shaken) camera so this gate is shake-invariant on the pull path
+	// (offset is 0 on the AI path). Otherwise it could flip near a wall - the same
+	// blink the pull fix addresses. See logicalCameraXY.
+	camX, camY := cs.logicalCameraXY()
+	return cs.monsterMeleeAdjacentToPoint(monster, camX, camY)
+}
+
+// monsterMeleeAdjacentToPoint is the one tile-adjacency/LoS rule for a melee
+// monster attacking any point target (party or another monster).
+func (cs *CombatSystem) monsterMeleeAdjacentToPoint(monster *monsterPkg.Monster3D, targetX, targetY float64) bool {
 	if monster == nil || cs == nil || cs.game == nil {
 		return false
 	}
@@ -1960,12 +1969,8 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	if tileSize <= 0 {
 		return false
 	}
-	// Logical (un-shaken) camera so this gate is shake-invariant on the pull path
-	// (offset is 0 on the AI path). Otherwise it could flip near a wall - the same
-	// blink the pull fix addresses. See logicalCameraXY.
-	camX, camY := cs.logicalCameraXY()
 	mtx, mty := int(monster.X/tileSize), int(monster.Y/tileSize)
-	ptx, pty := int(camX/tileSize), int(camY/tileSize)
+	ptx, pty := int(targetX/tileSize), int(targetY/tileSize)
 	dx, dy := mathutil.IntAbs(mtx-ptx), mathutil.IntAbs(mty-pty)
 	if dx == 0 && dy == 0 {
 		return false
@@ -1973,7 +1978,7 @@ func (cs *CombatSystem) monsterMeleeAdjacentToParty(monster *monsterPkg.Monster3
 	if dx > 1 || dy > 1 {
 		return false
 	}
-	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, camX, camY)
+	return cs.game.collisionSystem == nil || cs.game.collisionSystem.CheckLineOfSight(monster.X, monster.Y, targetX, targetY)
 }
 
 func (cs *CombatSystem) applyMonsterMeleeDamage(monster *monsterPkg.Monster3D) {
@@ -4169,7 +4174,6 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	}
 	m.Bound = true
 	m.BoundFramesRemaining = seconds * cs.game.config.GetTPS()
-	m.CrossfireCD = 0
 	m.WasAttacked = false
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
 }
@@ -4207,19 +4211,23 @@ func (cs *CombatSystem) boundAllySeekRadius() float64 {
 	return BoundAllySeekTiles * float64(cs.game.config.GetTileSize())
 }
 
-// monsterVsMonsterReach is the distance at which m can hit ANOTHER monster.
-// Ranged uses the real projectile range; melee uses a floor of 1.5 tiles so a
-// pursuer that can only path to a diagonally-adjacent tile (~1.41 tiles away),
-// or that jitters during a mutual chase, still lands its blow instead of standing
-// one pixel out of reach forever.
-func (cs *CombatSystem) monsterVsMonsterReach(m *monsterPkg.Monster3D) float64 {
-	reach := m.GetAttackRangePixels()
-	if !m.HasRangedAttack() {
-		if min := 1.5 * float64(cs.game.config.GetTileSize()); reach < min {
-			reach = min
-		}
+// monsterCanAttackMonster is the crossfire equivalent of monsterCanAttackParty.
+// A melee attacker may hit any adjacent tile even when off-centre tokens are
+// farther than a radial 1.5 tiles apart. The movement AI already treats that
+// tile adjacency as attack contact; a radial-only gate here made melee champions
+// walk up to summons and then never swing.
+func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Monster3D) bool {
+	if attacker == nil || target == nil || !target.IsAlive() {
+		return false
 	}
-	return reach
+	if Distance(attacker.X, attacker.Y, target.X, target.Y) <= attacker.GetAttackRangePixels() {
+		return !attacker.HasRangedAttack() || cs.game.collisionSystem == nil ||
+			cs.game.collisionSystem.CheckLineOfSight(attacker.X, attacker.Y, target.X, target.Y)
+	}
+	if attacker.HasRangedAttack() {
+		return false
+	}
+	return cs.monsterMeleeAdjacentToPoint(attacker, target.X, target.Y)
 }
 
 // nearestEnemyMonster returns the closest alive ENEMY monster to m within maxDist
@@ -4257,21 +4265,21 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 		return nil
 	}
 	// The nearest bound ally (party summon / bound undead) within the SEEK radius
-	// is the foe - the SAME range bound allies use to find their enemies, so the
-	// engagement is mutual. A mob's own alert_radius is deliberately NOT used:
-	// it is often tiny (a goblin sees 3 tiles) while a RANGED summon peppers it
-	// from its bolt range, so an alert-radius scan would leave every melee mob
-	// standing and eating shots from an attacker it "can't see". Party distance
-	// is ignored too: summons draw aggro like a front line. All monster-vs-summon
-	// pursuit/attack then flows through the shared crossfire path (plain mob or
-	// champion alike).
+	// competes with the party for aggro. A mob attacks whichever is closer; ties
+	// stay with the party. A mob's own alert_radius is deliberately NOT used here:
+	// it is often tiny while a ranged summon peppers it from beyond that radius.
+	// All monster-vs-summon pursuit/attack then flows through the shared crossfire
+	// path (plain mob or champion alike).
 	var foe *monsterPkg.Monster3D
-	best := cs.boundAllySeekRadius()
+	best := Distance(m.X, m.Y, cs.game.camera.X, cs.game.camera.Y)
+	if seek := cs.boundAllySeekRadius(); best > seek {
+		best = seek
+	}
 	for _, u := range cs.game.boundAllies {
 		if u == nil || !u.IsAlive() {
 			continue
 		}
-		if d := Distance(m.X, m.Y, u.X, u.Y); d <= best {
+		if d := Distance(m.X, m.Y, u.X, u.Y); d < best {
 			best, foe = d, u
 		}
 	}
@@ -4346,7 +4354,7 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 	if target == nil || !target.IsAlive() {
 		return false
 	}
-	if Distance(m.X, m.Y, target.X, target.Y) > cs.monsterVsMonsterReach(m) {
+	if !cs.monsterCanAttackMonster(m, target) {
 		return false // in sight but out of reach - close the distance first
 	}
 	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit

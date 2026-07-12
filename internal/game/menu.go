@@ -373,7 +373,6 @@ type MonsterSave struct {
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
 	SummonedBy          string               `json:"summoned_by,omitempty"`
-	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
 	ChampionTier        string               `json:"champion_tier,omitempty"`
 	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`
@@ -996,7 +995,6 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
-				CrossfireCD:             mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -1364,7 +1362,6 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
 				m.PackKey = ms.PackKey
-				m.CrossfireCD = ms.CrossfireCD
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
 				// player opened) never stands down live - restore that hostility, or a

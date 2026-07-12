@@ -221,19 +221,19 @@ func (cs *CombatSystem) championMeleeStrike(m *monster.Monster3D, offHand bool) 
 	return len(targets) > 0
 }
 
-// championCrossfireStrike is a MELEE champion's swing at a bound-ally FOE
+// championCrossfireStrike is one selected hand's swing at a bound-ally FOE
 // (summon), giving that swing the SAME weapon mechanics the party gets in PvE:
 // one damage roll spread across the arc/AoE it catches among summons, plus - as
 // an ADDITIONAL action, when the same swing's geometry reaches the party - the
 // champion's normal vs-party hit (championMeleeStrike, untouched). AoE never
 // re-rolls and never stacks with the arc (the weapon is one or the other).
-func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D) {
+func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monster.Monster3D, offHand bool) {
 	ch := cs.game.championTemplateFor(m)
 	if ch == nil {
 		cs.monsterStrikeMonster(m, foe) // fallback: plain blow
 		return
 	}
-	weapon := ch.Equipment[items.SlotMainHand]
+	weapon := championHandWeapon(ch, offHand)
 	wd, dmg := cs.championSwingDamage(m, ch, weapon)
 	dtype := monster.DamagePhysical
 	if wd != nil && wd.DamageType != "" {
@@ -287,6 +287,57 @@ func (cs *CombatSystem) championCrossfireStrike(m *monster.Monster3D, foe *monst
 	if partyCaught {
 		cs.championMeleeStrike(m, false)
 	}
+}
+
+// championAlternatingCrossfireStrike is the TB counterpart of the party's
+// strict hand alternation: one monster turn uses one hand, then the other.
+func (cs *CombatSystem) championAlternatingCrossfireStrike(m, foe *monster.Monster3D) {
+	ch := cs.game.championTemplateFor(m)
+	if ch == nil {
+		cs.monsterStrikeMonster(m, foe)
+		return
+	}
+	offHand := false
+	if _, dual := championOffHandWeapon(ch); dual {
+		offHand = m.NextHandOff
+		m.NextHandOff = !m.NextHandOff
+	}
+	cs.championCrossfireStrike(m, foe, offHand)
+}
+
+// championRTCrossfireStrike gives a champion fighting a bound ally the same
+// independent hand cooldowns it has against the party. A fixed crossfire
+// cadence would throttle Weapon Master to one main-hand swing per second and
+// silently disable his off hand against summons.
+func (cs *CombatSystem) championRTCrossfireStrike(m, foe *monster.Monster3D) bool {
+	ch := cs.game.championTemplateFor(m)
+	if ch == nil {
+		return false
+	}
+	if m.HasRangedAttack() {
+		if m.AttackCDFrames == 0 {
+			m.AttackCDFrames = m.AttackCooldownFrames()
+			m.AttackAnimFrames = MonsterAttackAnimFrames
+			cs.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
+		}
+		return true
+	}
+
+	struck := false
+	if m.AttackCDFrames == 0 {
+		m.AttackCDFrames = m.AttackCooldownFrames()
+		cs.championCrossfireStrike(m, foe, false)
+		struck = true
+	}
+	if _, dual := championOffHandWeapon(ch); dual && m.OffHandCDFrames == 0 && foe.IsAlive() {
+		m.OffHandCDFrames = cs.OffHandWeaponCooldownFrames(ch)
+		cs.championCrossfireStrike(m, foe, true)
+		struck = true
+	}
+	if struck {
+		m.AttackAnimFrames = MonsterAttackAnimFrames
+	}
+	return true
 }
 
 // monsterAttackDamage is the ONE damage source for every monster attack site

@@ -99,3 +99,143 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 		})
 	}
 }
+
+// The arena uses the turn-based scheduler, not the direct combat helper above.
+// A Weapon Master must therefore acquire a card summon, walk into melee, and
+// actually spend a monster turn striking it. This is the gameplay regression
+// that a direct championCrossfireStrike/monsterStrikeMonster test cannot see.
+func TestWeaponMasterFightsCardSummonThroughTurnBasedAI(t *testing.T) {
+	game, gl, ts := tbBehaviorGame(t, 40, 40)
+	primeTestChampions(t, game)
+	fillTestParty(t, game)
+	placePlayerAtTile(game, 5, 10, ts)
+
+	champ := monsterPkg.NewMonster3DFromConfig(20*ts+ts/2, 10*ts+ts/2, "weapon_master", game.config)
+	champ.ChampionTier = "impossible"
+	champ.MaxHitPoints, champ.HitPoints = 5000, 5000
+	huntress := monsterPkg.NewMonster3DFromConfig(24*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
+	huntress.MaxHitPoints, huntress.HitPoints = 5000, 5000
+	markCardAlly(huntress)
+	game.world.Monsters = []*monsterPkg.Monster3D{champ, huntress}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	d0 := Distance(champ.X, champ.Y, huntress.X, huntress.Y)
+	hp0 := huntress.HitPoints
+	for turn := 0; turn < 8; turn++ {
+		game.refreshBoundAllyCache()
+		if champ.AIFoe != huntress {
+			t.Fatalf("turn %d: Weapon Master AIFoe = %v, want card summon", turn, champ.AIFoe)
+		}
+		runOneMonsterTurn(game, gl)
+	}
+	if d := Distance(champ.X, champ.Y, huntress.X, huntress.Y); d >= d0 {
+		t.Fatalf("Weapon Master did not close on card summon (%.0f -> %.0f)", d0, d)
+	}
+	if huntress.HitPoints >= hp0 {
+		t.Fatalf("Weapon Master never struck card summon through TB AI (HP %d -> %d)", hp0, huntress.HitPoints)
+	}
+}
+
+// The same acquisition and strike must work through the real-time movement and
+// interaction loop, where the champion's crossfire action is cadence-gated.
+func TestWeaponMasterFightsCardSummonThroughRealTimeAI(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	primeTestChampions(t, game)
+	fillTestParty(t, game)
+	placePlayerAtTile(game, 5, 10, ts)
+
+	champ := monsterPkg.NewMonster3DFromConfig(20*ts+ts/2, 10*ts+ts/2, "weapon_master", game.config)
+	champ.ChampionTier = "impossible"
+	champ.MaxHitPoints, champ.HitPoints = 5000, 5000
+	huntress := monsterPkg.NewMonster3DFromConfig(24*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
+	huntress.MaxHitPoints, huntress.HitPoints = 5000, 5000
+	markCardAlly(huntress)
+	game.world.Monsters = []*monsterPkg.Monster3D{champ, huntress}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	d0 := Distance(champ.X, champ.Y, huntress.X, huntress.Y)
+	hp0 := huntress.HitPoints
+	runRTFoeTicks(game, 6*game.config.GetTPS())
+
+	if d := Distance(champ.X, champ.Y, huntress.X, huntress.Y); d >= d0 {
+		t.Fatalf("Weapon Master did not close on card summon in RT (%.0f -> %.0f)", d0, d)
+	}
+	if huntress.HitPoints >= hp0 {
+		t.Fatalf("Weapon Master never struck card summon through RT AI (HP %d -> %d)", hp0, huntress.HitPoints)
+	}
+}
+
+// An adjacent tile is valid melee contact even when two moving standees sit at
+// opposite edges of their diagonal tiles. The AI already stops there; crossfire
+// must use that same contact rule instead of a smaller radial distance gate.
+func TestWeaponMasterCrossfireHitsOffCenterAdjacentCardSummon(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	primeTestChampions(t, game)
+	fillTestParty(t, game)
+	placePlayerAtTile(game, 5, 10, ts)
+
+	champ := monsterPkg.NewMonster3DFromConfig(20*ts+1, 10*ts+1, "weapon_master", game.config)
+	champ.ChampionTier = "impossible"
+	ally := monsterPkg.NewMonster3DFromConfig(22*ts-1, 12*ts-1, "masked_huntress", game.config)
+	ally.MaxHitPoints, ally.HitPoints = 5000, 5000
+	markCardAlly(ally)
+	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshBoundAllyCache()
+
+	if champ.AIFoe != ally {
+		t.Fatal("Weapon Master should acquire the adjacent card summon")
+	}
+	if d := Distance(champ.X, champ.Y, ally.X, ally.Y); d <= 1.5*ts {
+		t.Fatalf("test setup needs an off-centre distance beyond the old 1.5-tile gate, got %.1f", d)
+	}
+	if !game.combat.monsterCanAttackMonster(champ, ally) {
+		t.Fatal("tile-adjacent Weapon Master should be allowed to crossfire")
+	}
+
+	hp0 := ally.HitPoints
+	game.combat.HandleMonsterInteractions()
+	if ally.HitPoints >= hp0 {
+		t.Fatalf("Weapon Master did not strike off-centre adjacent summon (HP %d -> %d)", hp0, ally.HitPoints)
+	}
+}
+
+// Crossfire must preserve Weapon Master's RT dual-wield cadence. The first
+// contact fires both ready hands; while the main hand cools down, a ready off
+// hand continues to strike instead of falling back to the old one-second
+// fixed crossfire cadence.
+func TestWeaponMasterCrossfireUsesIndependentHandCooldowns(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 40, 40)
+	game.turnBasedMode = false
+	primeTestChampions(t, game)
+	fillTestParty(t, game)
+	placePlayerAtTile(game, 5, 10, ts)
+
+	champ := monsterPkg.NewMonster3DFromConfig(20*ts+ts/2, 10*ts+ts/2, "weapon_master", game.config)
+	champ.ChampionTier = "impossible"
+	ally := monsterPkg.NewMonster3DFromConfig(21*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
+	ally.MaxHitPoints, ally.HitPoints = 5000, 5000
+	markCardAlly(ally)
+	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshBoundAllyCache()
+
+	game.combat.HandleMonsterInteractions()
+	if champ.AttackCDFrames <= 0 || champ.OffHandCDFrames <= 0 {
+		t.Fatalf("first crossfire contact must arm both hands, main=%d off=%d", champ.AttackCDFrames, champ.OffHandCDFrames)
+	}
+	champ.AttackCDFrames = 10
+	champ.OffHandCDFrames = 0
+	hp0 := ally.HitPoints
+	game.combat.HandleMonsterInteractions()
+	if champ.AttackCDFrames != 9 {
+		t.Fatalf("main-hand cooldown should only tick, got %d", champ.AttackCDFrames)
+	}
+	if champ.OffHandCDFrames <= 0 {
+		t.Fatal("ready off hand did not arm its own cooldown during crossfire")
+	}
+	if ally.HitPoints >= hp0 {
+		t.Fatalf("ready off hand did not strike during main-hand cooldown (HP %d -> %d)", hp0, ally.HitPoints)
+	}
+}

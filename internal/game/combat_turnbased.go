@@ -155,7 +155,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 		if gl.game.turnBasedMonsterStunned[m] {
-			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 		if tickTurnStatuses {
@@ -183,7 +183,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			// bossDisabled keep reading the monster as stunned.
 			status.TickTurn(&m.StunTurnsRemaining, &m.StunFramesRemaining)
 			gl.game.turnBasedMonsterStunned[m] = true
-			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 		// Root (bear trap) burns one turn per monster TURN - whether it moves
@@ -198,7 +198,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// inert in TB too. They hold their placed tile and never spend the monster
 		// turn moving or attacking while the seal/ward condition is active.
 		if m.BossDormant || m.BossWarded || m.WarlordIdol {
-			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 
@@ -209,7 +209,9 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
 		// nearest one. Never acts against the party. Spends its whole turn here.
 		if m.Bound {
-			if !gl.game.combat.boundAttackNearest(m) {
+			if foe := m.AIFoe; foe != nil && foe.IsAlive() && gl.game.combat.monsterCanAttackMonster(m, foe) {
+				gl.monsterAttackFoeTurnBased(m, foe)
+			} else {
 				gl.monsterMoveTurnBased(m) // no enemy in reach - close the distance
 			}
 			continue
@@ -221,7 +223,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
 			continue
 		}
-		gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+		gl.game.refreshMonsterCollisionSolidity(m)
 
 		// Skip monsters outside vision range unless already committed to the fight.
 		// IsEngagingPlayer is transient and can be cleared by mode/AI transitions;
@@ -255,38 +257,12 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// a bolt from within range, melee strike from an adjacent tile), else step
 		// toward it; never touch the party.
 		if foe := m.AIFoe; foe != nil && foe.IsAlive() {
-			mtx, mty := int(m.X/tileSize), int(m.Y/tileSize)
-			ftx, fty := int(foe.X/tileSize), int(foe.Y/tileSize)
-			adx, ady := mathutil.IntAbs(ftx-mtx), mathutil.IntAbs(fty-mty)
-			manh := adx + ady
-			chebyshev := adx
-			if ady > chebyshev {
-				chebyshev = ady
-			}
-			if m.HasRangedAttack() {
-				rangeTiles := int(m.GetAttackRangePixels() / tileSize)
-				if rangeTiles < 1 {
-					rangeTiles = 1
-				}
-				if manh >= 1 && manh <= rangeTiles {
-					m.AttackAnimFrames = MonsterAttackAnimFrames
-					gl.game.combat.spawnMonsterRangedAttackAtMonster(m, foe, ProjectileOwnerMonsterAtBound)
-				} else {
-					gl.monsterMoveTurnBased(m)
-				}
-			} else if chebyshev == 1 {
-				// Monster-vs-monster melee uses the same adjacent-tile contact as
-				// party melee so crowded mobs can still connect.
-				m.AttackAnimFrames = MonsterAttackAnimFrames
-				if m.IsChampion() {
-					gl.game.combat.championCrossfireStrike(m, foe) // champion weapon arc/AoE vs summons
-				} else {
-					gl.game.combat.monsterStrikeMonster(m, foe)
-				}
+			if gl.game.combat.monsterCanAttackMonster(m, foe) {
+				gl.monsterAttackFoeTurnBased(m, foe)
 			} else {
 				gl.monsterMoveTurnBased(m)
 			}
-			gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 
@@ -299,7 +275,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// asymmetry is intentional TB flavor - do not "fix" toward RT.
 		if gl.game.combat.isBoss(m) {
 			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
-				gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+				gl.game.refreshMonsterCollisionSolidity(m)
 				continue
 			}
 		}
@@ -335,7 +311,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 					gl.game.AddCombatMessage(fmt.Sprintf("%s pounces at the party!", m.Name))
 					gl.monsterAttackTurnBased(m)
 					m.PounceCDTurns = 2
-					gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+					gl.game.refreshMonsterCollisionSolidity(m)
 					continue
 				}
 				// Couldn't land adjacent - fall through to a normal step this turn.
@@ -376,7 +352,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			}
 		}
 
-		gl.game.refreshMonsterCollisionSolidity(m, playerX, playerY)
+		gl.game.refreshMonsterCollisionSolidity(m)
 	}
 
 	// Monsters finished moving: spring any traps they stepped onto.
@@ -422,6 +398,34 @@ func (gl *GameLoop) monsterAttackTurnBased(monster *monster.Monster3D) {
 		} else {
 			gl.game.combat.applyMonsterMeleeDamage(monster)
 		}
+	}
+}
+
+// monsterAttackFoeTurnBased resolves a full monster turn against a controlled
+// monster. Crossfire must use the same authored attacks-per-round/cooldown
+// parity as attacks against the party; otherwise fast monsters silently lose
+// swings whenever their target is a bound ally or card summon.
+func (gl *GameLoop) monsterAttackFoeTurnBased(attacker, foe *monster.Monster3D) {
+	if attacker == nil || foe == nil {
+		return
+	}
+	attacker.AttackAnimFrames = MonsterAttackAnimFrames
+	attacker.LastMoveTick = gl.game.frameCount
+
+	for hit := 0; hit < attacker.GetTurnBasedAttackCount() && foe.IsAlive(); hit++ {
+		if attacker.HasRangedAttack() {
+			owner := ProjectileOwnerMonsterAtBound
+			if attacker.Bound {
+				owner = ProjectileOwnerBoundUndead
+			}
+			gl.game.combat.spawnMonsterRangedAttackAtMonster(attacker, foe, owner)
+			continue
+		}
+		if attacker.IsChampion() {
+			gl.game.combat.championAlternatingCrossfireStrike(attacker, foe)
+			continue
+		}
+		gl.game.combat.monsterStrikeMonster(attacker, foe)
 	}
 }
 

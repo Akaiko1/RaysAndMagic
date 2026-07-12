@@ -34,7 +34,7 @@ func TestChampionArcHitsMultipleSummons(t *testing.T) {
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
 	cs.game.refreshBoundAllyCache()
 
-	cs.championCrossfireStrike(champ, front)
+	cs.championCrossfireStrike(champ, front, false)
 
 	damaged := 0
 	for _, h := range []*monsterPkg.Monster3D{front, left, right} {
@@ -90,7 +90,7 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 			cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
 			cs.game.camera.X, cs.game.camera.Y = 11*ts+ts/2, 10*ts+ts/2
 
-			cs.championCrossfireStrike(champ, bounds[0])
+			cs.championCrossfireStrike(champ, bounds[0], false)
 
 			hitBounds := 0
 			for _, bound := range bounds {
@@ -111,6 +111,89 @@ func TestChampionCrossfireArcHitsBoundsAndParty(t *testing.T) {
 				t.Fatalf("%s crossfire hit %d party members, want %d", tc.weapon, hitParty, tc.party)
 			}
 		})
+	}
+}
+
+// Weapon Master's hands keep their own authored arc shapes during crossfire:
+// impossible-tier main-hand Steel Mace is arc 2, while off-hand Muramasa is
+// arc 3. This guards the multi-summon case specifically, not just party arcs.
+func TestWeaponMasterCrossfireUsesEachHandArcAgainstSummons(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, cs.game)
+	fillTestParty(t, cs.game)
+	ts := float64(cs.game.config.GetTileSize())
+	cs.game.camera.X, cs.game.camera.Y = 40*ts, 40*ts
+
+	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
+	champ.ChampionTier = "impossible"
+	positions := [][2]float64{{11, 10}, {11, 9}, {11, 11}}
+	bounds := make([]*monsterPkg.Monster3D, 0, len(positions))
+	for _, pos := range positions {
+		bound := monsterPkg.NewMonster3DFromConfig(pos[0]*ts+ts/2, pos[1]*ts+ts/2, "masked_huntress", cs.game.config)
+		bound.MaxHitPoints, bound.HitPoints = 5000, 5000
+		markCardAlly(bound)
+		bounds = append(bounds, bound)
+	}
+	cs.game.world.Monsters = append([]*monsterPkg.Monster3D{champ}, bounds...)
+	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+
+	hitCount := func() int {
+		hits := 0
+		for _, bound := range bounds {
+			if bound.HitPoints < bound.MaxHitPoints {
+				hits++
+			}
+		}
+		return hits
+	}
+	cs.championCrossfireStrike(champ, bounds[0], false)
+	if got := hitCount(); got != 2 {
+		t.Fatalf("main-hand Steel Mace crossfire hit %d summons, want arc 2", got)
+	}
+	for _, bound := range bounds {
+		bound.HitPoints = bound.MaxHitPoints
+	}
+	cs.championCrossfireStrike(champ, bounds[0], true)
+	if got := hitCount(); got != 3 {
+		t.Fatalf("off-hand Muramasa crossfire hit %d summons, want arc 3", got)
+	}
+}
+
+// A crossfire target must not reduce Weapon Master to one swing in TB. The
+// scheduler uses the champion's authored attack count and alternates hands for
+// every one of those actions, exactly as it does against the party.
+func TestWeaponMasterCrossfireTurnBasedUsesAllActionsAndHands(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	primeTestChampions(t, cs.game)
+	fillTestParty(t, cs.game)
+	ts := float64(cs.game.config.GetTileSize())
+	cs.game.camera.X, cs.game.camera.Y = 40*ts, 40*ts
+
+	champ := monsterPkg.NewMonster3DFromConfig(10*ts+ts/2, 10*ts+ts/2, "weapon_master", cs.game.config)
+	champ.ChampionTier = "impossible"
+	champ.AttacksPerRound = 2
+	bounds := []*monsterPkg.Monster3D{
+		monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 10*ts+ts/2, "masked_huntress", cs.game.config),
+		monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 9*ts+ts/2, "masked_huntress", cs.game.config),
+		monsterPkg.NewMonster3DFromConfig(11*ts+ts/2, 11*ts+ts/2, "masked_huntress", cs.game.config),
+	}
+	for _, bound := range bounds {
+		bound.MaxHitPoints, bound.HitPoints = 5000, 5000
+		markCardAlly(bound)
+	}
+	cs.game.world.Monsters = append([]*monsterPkg.Monster3D{champ}, bounds...)
+	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
+
+	gl := &GameLoop{game: cs.game}
+	gl.monsterAttackFoeTurnBased(champ, bounds[0])
+
+	for i, bound := range bounds {
+		if bound.HitPoints == bound.MaxHitPoints {
+			t.Fatalf("bound %d was not hit by the two-action main/off-hand crossfire turn", i)
+		}
+	}
+	if champ.NextHandOff {
+		t.Fatal("two crossfire actions must consume main then off hand and return to main")
 	}
 }
 
@@ -139,7 +222,7 @@ func TestChampionCrossfireMeleeAoEHitsBoundsAndParty(t *testing.T) {
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
 	cs.game.camera.X, cs.game.camera.Y = 11*ts+ts/2, 10*ts+ts/2
 
-	cs.championCrossfireStrike(champ, bounds[0])
+	cs.championCrossfireStrike(champ, bounds[0], false)
 
 	for i, bound := range bounds {
 		if bound.HitPoints >= bound.MaxHitPoints {
@@ -291,7 +374,7 @@ func TestChampionCrossfireAlsoHitsCaughtParty(t *testing.T) {
 	for _, mem := range cs.game.party.Members {
 		partyHP0 += mem.HitPoints
 	}
-	cs.championCrossfireStrike(champ, foe)
+	cs.championCrossfireStrike(champ, foe, false)
 
 	if foe.HitPoints >= 5000 {
 		t.Error("the summon foe must be struck")

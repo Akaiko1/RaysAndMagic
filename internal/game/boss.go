@@ -160,7 +160,7 @@ func (cs *CombatSystem) summonBossAdds(m *monsterPkg.Monster3D) bool {
 		add.SummonedBy = m.ID
 		add.QuestProgressIgnored = true // runtime summons never count toward map-clear quests
 		cs.game.registerSpawnedMonster(add)
-		cs.game.refreshMonsterCollisionSolidity(add, cs.game.camera.X, cs.game.camera.Y)
+		cs.game.refreshMonsterCollisionSolidity(add)
 		spawned++
 	}
 	if spawned == 0 {

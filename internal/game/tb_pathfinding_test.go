@@ -207,7 +207,7 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 	g.refreshBoundAllyCache() // marks the struck gorilla as BossAggro.
 	for _, m := range w.Monsters {
-		g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+		g.refreshMonsterCollisionSolidity(m)
 	}
 
 	gl := &GameLoop{game: g}
@@ -576,7 +576,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVisio
 
 func refreshTBMonsterSolidity(g *MMGame) {
 	for _, m := range g.world.Monsters {
-		g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+		g.refreshMonsterCollisionSolidity(m)
 	}
 }
 

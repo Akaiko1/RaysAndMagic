@@ -135,7 +135,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 			}
 			m.Update(g.collisionSystem, camX, camY)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m, camX, camY)
+			g.refreshMonsterCollisionSolidity(m)
 		}
 		gl.separateOverlappingMonsters()
 		g.combat.HandleMonsterInteractions()

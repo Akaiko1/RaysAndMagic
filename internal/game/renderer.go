@@ -2834,16 +2834,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if r.game.npcDoorOpen(npc) {
 			continue
 		}
-		// Cull/project from where the NPC is drawn (wall face for wall tokens);
-		// wall tokens skip the on-tile near-cull since their anchor is on the wall.
-		// Closed doors and loot crates skip it too: the party walks right up to
-		// the bars/chest and still needs to see the interactable object.
+		// Cull/project from where the NPC is drawn (wall face for wall tokens).
+		// NPCs never use a near-cull: like loot containers, they must remain
+		// visible when the party walks into their tile.
 		ex, ey := r.game.npcEffectivePos(npc)
-		nearSq := minDistSq
-		if r.game.npcIsWall(npc) || r.game.npcIsDoor(npc) || r.game.npcIsWalkUpProp(npc) {
-			nearSq = 0
-		}
-		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, nearSq, viewDistSq)
+		distance, depthPerp, ok := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, 0, viewDistSq)
 		if !ok {
 			continue
 		}

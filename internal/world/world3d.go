@@ -332,7 +332,10 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 		// Get monster size from YAML config
 		width, height := monster.GetSize()
 
-		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, true)
+		// The game promotes a monster to a solid engaged blocker only after its
+		// per-frame AI target is known. Defaulting map-loaded monsters to walkable
+		// prevents a peaceful mob from blocking the first player input after load.
+		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
 		collisionSystem.RegisterEntity(entity)
 	}
 }

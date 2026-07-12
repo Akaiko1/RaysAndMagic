@@ -75,7 +75,7 @@ func TestWolfRoutesAroundTreeToParty(t *testing.T) {
 			px, py := m.X, m.Y
 			m.Update(g.collisionSystem, camX, camY)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m, camX, camY)
+			g.refreshMonsterCollisionSolidity(m)
 			walked[i] += math.Hypot(m.X-px, m.Y-py)
 			if m.State == monster.StateAttacking {
 				attacked[i] = true

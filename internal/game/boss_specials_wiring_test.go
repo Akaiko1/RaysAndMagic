@@ -66,7 +66,7 @@ func runRTCombatSeconds(g *MMGame, seconds int) {
 			}
 			m.Update(g.collisionSystem, g.camera.X, g.camera.Y)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+			g.refreshMonsterCollisionSolidity(m)
 		}
 		g.combat.HandleMonsterInteractions()
 	}

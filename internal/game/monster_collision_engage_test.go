@@ -123,3 +123,57 @@ func TestPassiveRangedBand_NoTeleportThrash(t *testing.T) {
 		t.Fatalf("passive ranged band teleported %.0fpx/tick (thrash); want calm (<%.0f)", maxJump, ts/2)
 	}
 }
+
+func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 3, 3, ts)
+	calm := monsterPkg.NewMonster3DFromConfig(4*ts+ts/2, 3*ts+ts/2, "goblin", game.config)
+	game.world.Monsters = []*monsterPkg.Monster3D{calm}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.refreshMonsterCollisionSolidity(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
+		t.Fatal("peaceful monster must be walkable for the party")
+	}
+
+	calm.IsEngagingPlayer, calm.WasAttacked = true, true
+	game.refreshMonsterCollisionSolidity(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || !entity.Solid {
+		t.Fatal("monster targeting the party must block the party")
+	}
+
+	ally := monsterPkg.NewMonster3DFromConfig(6*ts+ts/2, 3*ts+ts/2, "masked_huntress", game.config)
+	markCardAlly(ally)
+	placePlayerAtTile(game, 1, 3, ts) // card ally is now closer than the party
+	game.world.Monsters = []*monsterPkg.Monster3D{calm, ally}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshBoundAllyCache()
+	if calm.AIFoe != ally {
+		t.Fatal("setup: closer card ally should redirect the monster")
+	}
+	game.refreshMonsterCollisionSolidity(calm)
+	if entity := game.collisionSystem.GetEntityByID(calm.ID); entity == nil || entity.Solid {
+		t.Fatal("monster fighting a summon must be temporarily walkable for the party")
+	}
+}
+
+func TestPartyTargetingMonsterIsEjectedFromPlayerCell(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := monsterPkg.NewMonster3DFromConfig(game.camera.X, game.camera.Y, "goblin", game.config)
+	m.IsEngagingPlayer, m.WasAttacked = true, true
+	game.world.Monsters = []*monsterPkg.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.refreshBoundAllyCache()
+	monsterEntity := game.collisionSystem.GetEntityByID(m.ID)
+	playerEntity := game.collisionSystem.GetEntityByID("player")
+	if monsterEntity == nil || playerEntity == nil || monsterEntity.BoundingBox.Intersects(playerEntity.BoundingBox) {
+		t.Fatal("party-targeting monster must be ejected from the player cell")
+	}
+	mtx, mty := monsterTileCoords(m, ts)
+	ptx, pty := game.GetPlayerTilePosition()
+	if mtx == ptx && mty == pty {
+		t.Fatal("party-targeting monster remained on the player tile")
+	}
+}

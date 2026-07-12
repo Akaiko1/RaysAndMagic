@@ -366,15 +366,14 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 }
 
 // billboardMetrics sizes a floor-anchored creature/person billboard by tile
-// height (1.0 == a 1-tile wall) with the monster/NPC near-cull exemption. The
-// only knob that varies by subject is the minimum pixel floor (how small a far
-// sprite is allowed to recede to). Monster and NPC share this core; env sprites
-// use CalculateEnvironmentSpriteMetrics (fixed near-cull, tile-driven scale).
+// height (1.0 == a 1-tile wall). The only knob that varies by subject is the
+// minimum pixel floor (how small a far sprite is allowed to recede to). Monster
+// and NPC tokens intentionally have no near-cull, like loot containers.
 func (rh *RenderingHelper) billboardMetrics(entityX, entityY, distance, sizeTiles float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeTiles <= 0 {
 		sizeTiles = 1
 	}
-	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), sizeTiles, minSize)
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
 
 // CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
@@ -395,7 +394,8 @@ func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entity
 }
 
 // CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
-// distant NPCs stay readable). sizeTiles is height in tiles.
+// distant NPCs stay readable). NPCs remain visible when walked up to, matching
+// loot containers instead of disappearing under a near-cull.
 func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
 	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.NPC.MinSpriteSize)
 }
@@ -423,7 +423,7 @@ func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance
 	// people on the NPC path.
 	switch npcRenderCatOf(npc) {
 	case catScenery, catLandmark, catWall, catDoor:
-		return rh.CalculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, size)
+		return rh.calculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, size, 0)
 	default:
 		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)
 	}
@@ -431,6 +431,10 @@ func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance
 
 // CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.calculateEnvironmentSpriteMetrics(entityX, entityY, distance, tileType, sizeScale, 5.0)
+}
+
+func (rh *RenderingHelper) calculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale, nearCull float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeScale <= 0 {
 		sizeScale = 1
 	}
@@ -441,9 +445,7 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	}
 	heightMultiplier *= sizeScale
 
-	// Fixed 5.0 near cull: environment sprites keep it even in turn-based mode
-	// (only monsters/NPCs get the close-range exemption).
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, 8)
+	return rh.projectSpriteMetrics(entityX, entityY, distance, nearCull, heightMultiplier, 8)
 }
 
 // projectSpriteMetrics is the shared projection core for floor-anchored
@@ -489,16 +491,6 @@ func (rh *RenderingHelper) projectSpriteMetrics(entityX, entityY, distance, minD
 	screenY = floorScreenY - spriteSize
 
 	return screenX, screenY, spriteSize, true
-}
-
-// spriteNearCull returns the near-cull distance for monster/NPC sprites: in
-// turn-based mode monsters can be very close (adjacent tiles), so allow them
-// to render at close range.
-func (rh *RenderingHelper) spriteNearCull() float64 {
-	if rh.game.turnBasedMode {
-		return 1.0
-	}
-	return 5.0
 }
 
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the

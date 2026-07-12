@@ -116,7 +116,7 @@ func TestDebugSim_BackwardsWalkers(t *testing.T) {
 			}
 			m.Update(g.collisionSystem, g.camera.X, g.camera.Y)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+			g.refreshMonsterCollisionSolidity(m)
 		}
 		// AI-only displacement snapshot, before shoves/snaps.
 		aiX := map[*monster.Monster3D]float64{}

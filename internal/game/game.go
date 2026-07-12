@@ -847,7 +847,8 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	}
 	g.world.Monsters = append(g.world.Monsters, m)
 	width, height := m.GetSize()
-	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, collision.CollisionTypeMonster, true)
+	entityType, solid := desiredMonsterCollisionState(m)
+	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, solid)
 	g.collisionSystem.RegisterEntity(entity)
 }
 
@@ -1682,6 +1683,48 @@ func (g *MMGame) refreshBoundAllyCache() {
 		// skitters and blinks, so it is excluded.
 		m.BossDormant = g.combat.isBoss(m) && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
 	}
+	g.ejectPartyTargetingMonsters()
+}
+
+// ejectPartyTargetingMonsters resolves the exceptional case where a monster
+// that has selected the party is already overlapping the player (for example,
+// it had been walkable while chasing a summon and its target changed). Hostile
+// mobs must fight from an adjacent tile, never render on top of the party.
+func (g *MMGame) ejectPartyTargetingMonsters() {
+	if g == nil || g.world == nil || g.collisionSystem == nil || g.camera == nil || g.config == nil {
+		return
+	}
+	player := g.collisionSystem.GetEntityByID("player")
+	if player == nil || player.BoundingBox == nil {
+		return
+	}
+	tileSize := float64(g.config.GetTileSize())
+	ptx, pty := int(g.camera.X/tileSize), int(g.camera.Y/tileSize)
+	// The cardinal tiles are preferred to keep an attacker in a readable melee
+	// ring; diagonals provide a fallback around walls and other combatants.
+	offsets := [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
+	for _, m := range g.world.Monsters {
+		if m == nil || !m.IsAlive() || !monsterTargetsParty(m) {
+			continue
+		}
+		entity := g.collisionSystem.GetEntityByID(m.ID)
+		if entity == nil || entity.BoundingBox == nil || !entity.BoundingBox.Intersects(player.BoundingBox) {
+			continue
+		}
+		mw, mh := m.GetSize()
+		for _, off := range offsets {
+			x, y := TileCenterFromTile(ptx+off[0], pty+off[1], tileSize)
+			candidate := collision.NewBoundingBox(x, y, mw, mh)
+			if candidate.Intersects(player.BoundingBox) ||
+				!g.collisionSystem.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying) {
+				continue
+			}
+			m.X, m.Y = x, y
+			m.ResetPathfinding()
+			g.collisionSystem.UpdateEntity(m.ID, x, y)
+			break
+		}
+	}
 }
 
 // IsCharacterBlinking returns true if a character should be rendered with red tint
@@ -2277,6 +2320,7 @@ type MonsterWrapper struct {
 	game            *MMGame                      // Added to access camera position for tethering system
 
 	pendingCollisionType collision.CollisionType // computed in Update(), written to the live system in ApplyCollisionUpdate()
+	pendingSolid         bool
 }
 
 // Update is the canonical RT monster tick: AI movement + the desired
@@ -2314,7 +2358,7 @@ func (mw *MonsterWrapper) Update() {
 
 	// Compute (don't apply) the desired collision type - a pure function of this
 	// monster's own state, safe from a worker. ApplyCollisionUpdate writes it.
-	mw.pendingCollisionType = desiredMonsterCollisionType(mw.Monster, playerX, playerY)
+	mw.pendingCollisionType, mw.pendingSolid = desiredMonsterCollisionState(mw.Monster)
 
 	// Temporary movement debug (opt-in via env var).
 	// Example: DEBUG_MONSTER=bandit
@@ -2401,39 +2445,37 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 		return
 	}
 	mw.collisionSystem.UpdateEntity(mw.Monster.ID, mw.Monster.X, mw.Monster.Y)
-	mw.game.applyMonsterCollisionType(mw.Monster.ID, mw.pendingCollisionType)
+	mw.game.applyMonsterCollisionState(mw.Monster.ID, mw.pendingCollisionType, mw.pendingSolid)
 }
 
-// desiredMonsterCollisionType computes what m's collision type SHOULD be this
-// tick, from m's own fields and the (fixed, read-only for the duration of the
-// parallel phase) player position alone - no shared-state access, so it is
-// safe to call concurrently from any monster's own worker.
-func desiredMonsterCollisionType(m *monster.Monster3D, playerX, playerY float64) collision.CollisionType {
-	engaged := m.IsEngagingPlayer || m.State == monster.StateAttacking
-	// Proximity alone must not solidify a DORMANT passive monster still within
-	// its own (possibly long, for ranged) attack range - it isn't actually
-	// fighting. Mirrors the dormancy check in updatePlayerEngagementWithVision.
-	dormant := m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait()
-	if !engaged && !dormant {
-		attackRange := m.GetAttackRangePixels()
-		if attackRange > 0 {
-			distSq := DistanceSquared(m.X, m.Y, playerX, playerY)
-			if distSq <= attackRange*attackRange {
-				engaged = true
-			}
-		}
+// monsterTargetsParty reports whether a monster is actively hostile to the
+// party this frame. Bound/pacified mobs and enemies redirected to a summon are
+// deliberately excluded: the party may walk through them while that fight runs.
+func monsterTargetsParty(m *monster.Monster3D) bool {
+	if m == nil || m.Bound || m.Pacified || m.AIFoe != nil {
+		return false
 	}
-	if engaged {
-		return collision.CollisionTypeMonsterEngaged
-	}
-	return collision.CollisionTypeMonster
+	return m.IsEngagingPlayer || m.WasAttacked || m.BossAggro || m.Relentless ||
+		m.State == monster.StateAlert || m.State == monster.StatePursuing || m.State == monster.StateAttacking
 }
 
-// applyMonsterCollisionType writes a monster's collision type to the live
+// desiredMonsterCollisionState is the single party-walkability rule. Peaceful
+// monsters, party allies, and enemies fighting a summon are non-solid to the
+// party; only a monster currently choosing the party becomes an engaged blocker.
+// It reads only the monster's frame-local state, so worker updates can compute it
+// safely against the frozen AI target produced before the parallel phase.
+func desiredMonsterCollisionState(m *monster.Monster3D) (collision.CollisionType, bool) {
+	if monsterTargetsParty(m) {
+		return collision.CollisionTypeMonsterEngaged, true
+	}
+	return collision.CollisionTypeMonster, false
+}
+
+// applyMonsterCollisionState writes a monster's collision type and solidity to the live
 // system. Must only run single-threaded (main goroutine, or another
 // non-parallel context) - never from a monster-update worker; see
-// desiredMonsterCollisionType for the race-free compute half.
-func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.CollisionType) {
+// desiredMonsterCollisionState for the race-free compute half.
+func (g *MMGame) applyMonsterCollisionState(monsterID string, desired collision.CollisionType, solid bool) {
 	if g == nil || g.collisionSystem == nil {
 		return
 	}
@@ -2444,17 +2486,19 @@ func (g *MMGame) applyMonsterCollisionType(monsterID string, desired collision.C
 	if entity.CollisionType != desired {
 		entity.CollisionType = desired
 	}
+	entity.Solid = solid
 }
 
 // refreshMonsterCollisionSolidity computes AND immediately applies m's desired
 // collision type. Used by single-threaded call sites OUTSIDE the parallel RT
 // tick (turn-based monster processing, boss summons, combat triggers) where
 // there is no separate apply phase to defer to.
-func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D, playerX, playerY float64) {
+func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D) {
 	if g == nil || m == nil {
 		return
 	}
-	g.applyMonsterCollisionType(m.ID, desiredMonsterCollisionType(m, playerX, playerY))
+	desired, solid := desiredMonsterCollisionState(m)
+	g.applyMonsterCollisionState(m.ID, desired, solid)
 }
 
 func (mw *MonsterWrapper) IsAlive() bool {
