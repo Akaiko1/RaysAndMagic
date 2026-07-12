@@ -39,44 +39,66 @@ func (ui *UISystem) drawArenaGladiatorDialog(screen *ebiten.Image, dialogX, dial
 	}
 }
 
-// arenaBoardLines flattens the leaderboard into display lines - compact one
+type arenaBoardLine struct {
+	text     string
+	entryKey string
+}
+
+// buildArenaBoardLines flattens the leaderboard into display lines - compact one
 // per party, expanded (detail) with member roster and per-champion victories.
-// Building lines first makes scrolling trivial and overlap impossible: rows
-// only ever push each other down.
-func buildArenaBoardLines(detail bool, maxWidth int) []string {
-	board := arena.Load()
+// Each visual line retains its source entry so detail-mode rebuilds can keep
+// the same leaderboard record centered instead of preserving a meaningless
+// raw line offset.
+func buildArenaBoardLines(detail bool, maxWidth int) []arenaBoardLine {
+	return buildArenaBoardLinesFrom(arena.Load(), detail, maxWidth)
+}
+
+func buildArenaBoardLinesFrom(board *arena.Board, detail bool, maxWidth int) []arenaBoardLine {
 	if len(board.Entries) == 0 {
-		return wrapArenaBoardLine("No victories recorded yet. The sand waits.", maxWidth)
+		wrapped := wrapArenaBoardLine("No victories recorded yet. The sand waits.", maxWidth)
+		lines := make([]arenaBoardLine, 0, len(wrapped))
+		for _, line := range wrapped {
+			lines = append(lines, arenaBoardLine{text: line})
+		}
+		return lines
 	}
-	lines := make([]string, 0, len(board.Entries)*2)
+	lines := make([]arenaBoardLine, 0, len(board.Entries)*2)
 	for rank, e := range board.Entries {
+		entryKey := e.RunID
+		if entryKey == "" {
+			entryKey = fmt.Sprintf("rank:%d", rank)
+		}
 		names := make([]string, 0, len(e.Members))
 		roster := make([]string, 0, len(e.Members))
 		for _, m := range e.Members {
 			names = append(names, m.Name)
 			roster = append(roster, fmt.Sprintf("%s (%s L%d)", m.Name, m.Class, m.Level))
 		}
-		lines = append(lines, fmt.Sprintf("%d. %s - %d champions, %d pts",
-			rank+1, strings.Join(names, ", "), e.TotalKills(), e.TotalPoints))
+		entryLines := []string{fmt.Sprintf("%d. %s - %d champions, %d pts",
+			rank+1, strings.Join(names, ", "), e.TotalKills(), e.TotalPoints)}
 		if !detail {
+			for _, line := range wrapArenaBoardLine(entryLines[0], maxWidth) {
+				lines = append(lines, arenaBoardLine{text: line, entryKey: entryKey})
+			}
 			continue
 		}
-		lines = append(lines, "   party: "+strings.Join(roster, ", "))
+		entryLines = append(entryLines, "   party: "+strings.Join(roster, ", "))
 		for _, name := range sortedKeys(e.Kills) {
 			byTier := e.Kills[name]
 			pieces := make([]string, 0, len(byTier))
 			for _, t := range sortedKeys(byTier) {
 				pieces = append(pieces, fmt.Sprintf("%s x%d", t, byTier[t]))
 			}
-			lines = append(lines, fmt.Sprintf("     %s: %s", name, strings.Join(pieces, ", ")))
+			entryLines = append(entryLines, fmt.Sprintf("     %s: %s", name, strings.Join(pieces, ", ")))
 		}
-		lines = append(lines, "")
+		entryLines = append(entryLines, "")
+		for _, source := range entryLines {
+			for _, line := range wrapArenaBoardLine(source, maxWidth) {
+				lines = append(lines, arenaBoardLine{text: line, entryKey: entryKey})
+			}
+		}
 	}
-	wrapped := make([]string, 0, len(lines))
-	for _, line := range lines {
-		wrapped = append(wrapped, wrapArenaBoardLine(line, maxWidth)...)
-	}
-	return wrapped
+	return lines
 }
 
 // wrapArenaBoardLine keeps leaderboard text inside the board frame while
@@ -87,32 +109,57 @@ func wrapArenaBoardLine(line string, maxWidth int) []string {
 	if line == "" || debugTextWidth(line) <= maxWidth {
 		return []string{line}
 	}
-	indentLen := 0
-	for indentLen < len(line) && line[indentLen] == ' ' {
-		indentLen++
+	maxChars := maxWidth / debugTextCharWidth
+	if maxChars < 1 {
+		return nil
 	}
-	indent := line[:indentLen]
-	words := strings.Fields(line[indentLen:])
-	lines := make([]string, 0, 1+len(words)/3)
-	current := indent
-	for _, word := range words {
-		candidate := word
-		if current != indent {
-			candidate = current + " " + word
-		} else {
-			candidate = indent + word
+	indentLen := len(line) - len(strings.TrimLeft(line, " "))
+	if indentLen >= maxChars {
+		indentLen = maxChars - 1
+	}
+	indent := strings.Repeat(" ", indentLen)
+	fragments := wrapText(strings.TrimLeft(line, " "), maxChars-indentLen)
+	for i := range fragments {
+		fragments[i] = indent + fragments[i]
+	}
+	return fragments
+}
+
+func arenaBoardAnchor(lines []arenaBoardLine, scroll, visible int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	index := scroll + visible/2
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(lines) {
+		index = len(lines) - 1
+	}
+	return lines[index].entryKey
+}
+
+func arenaBoardScrollForAnchor(lines []arenaBoardLine, entryKey string, visible int) int {
+	if entryKey == "" {
+		return 0
+	}
+	first, last := -1, -1
+	for i, line := range lines {
+		if line.entryKey == entryKey {
+			if first < 0 {
+				first = i
+			}
+			last = i
 		}
-		if debugTextWidth(candidate) > maxWidth && current != indent {
-			lines = append(lines, current)
-			current = indent + word
-			continue
-		}
-		current = candidate
 	}
-	if current != "" {
-		lines = append(lines, current)
+	if first < 0 {
+		return 0
 	}
-	return lines
+	scroll := (first+last)/2 - visible/2
+	if scroll < 0 {
+		return 0
+	}
+	return scroll
 }
 
 // drawArenaBoardContent renders the scrollable leaderboard (mouse wheel; the
@@ -124,19 +171,26 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY
 
 	detail := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 	width := maxX - x
-	if ui.game.arenaBoardStale || ui.game.arenaBoardLines == nil || detail != ui.game.arenaBoardDetail || width != ui.game.arenaBoardWidth {
-		ui.game.arenaBoardLines = buildArenaBoardLines(detail, width)
-		ui.game.arenaBoardDetail = detail
-		ui.game.arenaBoardWidth = width
-		ui.game.arenaBoardStale = false
-	}
-	lines := ui.game.arenaBoardLines
 	const lineH = debugTextCharHeight
 	contentMaxY := maxY - lineH // reserve the final row for the scroll indicator
 	visible := (contentMaxY - y) / lineH
 	if visible < 1 {
 		visible = 1
 	}
+	if ui.game.arenaBoardStale || ui.game.arenaBoardLines == nil || detail != ui.game.arenaBoardDetail || width != ui.game.arenaBoardWidth {
+		anchor := ""
+		if !ui.game.arenaBoardStale {
+			anchor = arenaBoardAnchor(ui.game.arenaBoardLines, ui.game.arenaBoardScroll, visible)
+		}
+		ui.game.arenaBoardLines = buildArenaBoardLines(detail, width)
+		if anchor != "" {
+			ui.game.arenaBoardScroll = arenaBoardScrollForAnchor(ui.game.arenaBoardLines, anchor, visible)
+		}
+		ui.game.arenaBoardDetail = detail
+		ui.game.arenaBoardWidth = width
+		ui.game.arenaBoardStale = false
+	}
+	lines := ui.game.arenaBoardLines
 	maxScroll := len(lines) - visible
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -149,7 +203,7 @@ func (ui *UISystem) drawArenaBoardContent(screen *ebiten.Image, x, y, maxX, maxY
 	}
 	start := ui.game.arenaBoardScroll
 	for i := start; i < len(lines) && i < start+visible; i++ {
-		drawDebugText(screen, lines[i], x, y)
+		drawDebugText(screen, lines[i].text, x, y)
 		y += lineH
 	}
 	if maxScroll > 0 {

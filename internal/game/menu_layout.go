@@ -40,6 +40,188 @@ func centeredTextBox(name, text string, x, y, w, h int) uiBox {
 	return uiBox{name, x + (w-tw)/2, y + (h-debugTextCharHeight)/2, tw, debugTextCharHeight}
 }
 
+func namedLayoutBox(name string, r layoutRect) uiBox {
+	return uiBox{name, r.x, r.y, r.w, r.h}
+}
+
+func mainMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	px := (screenW - mainMenuPanelW) / 2
+	py := (screenH - mainMenuPanelH) / 2
+	region := uiBox{"main-menu", px, py, mainMenuPanelW, mainMenuPanelH}
+	boxes := []uiBox{textLineBox("title", "Main Menu", px+16, py+14)}
+	for i, label := range mainMenuOptions {
+		row, _, textY := menuRowRect(px, py, mainMenuPanelW, mainMenuListTopY, mainMenuRowPitch, i)
+		boxes = append(boxes, uiBox{fmt.Sprintf("option-%d-%s", i, label), row.x1, row.y1, row.x2 - row.x1, row.y2 - row.y1})
+		_ = textY
+	}
+	for i, tip := range mainMenuControlTips {
+		boxes = append(boxes, textLineBox(fmt.Sprintf("tip-%d", i), tip, px+16, py+mainMenuTipsTopY()+i*debugTextCharHeight))
+	}
+	return region, boxes
+}
+
+func tabbedMenuLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	l := computeTabbedMenuLayout(screenW, screenH)
+	region := namedLayoutBox("tabbed-menu", l.panel)
+	boxes := make([]uiBox, 0, len(l.tabs)+2)
+	for i, tab := range l.tabs {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("tab-%d", i), tab))
+	}
+	boxes = append(boxes, namedLayoutBox("close", l.close), namedLayoutBox("content", l.content))
+	return region, boxes
+}
+
+func inventoryLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	menu := computeTabbedMenuLayout(screenW, screenH)
+	l := computeInventoryContentLayout(menu.content)
+	quickBlock := layoutRect{l.quickLabel.x, l.quickLabel.y, l.quickSlots.w, l.quickSlots.bottom() - l.quickLabel.y}
+	return namedLayoutBox("inventory-content", menu.content), []uiBox{
+		namedLayoutBox("paperdoll", l.paper),
+		namedLayoutBox("inventory-grid", l.grid),
+		namedLayoutBox("pager", l.pager),
+		namedLayoutBox("camp", l.camp),
+		namedLayoutBox("quick-slots", quickBlock),
+		namedLayoutBox("instructions-1", l.instructions[0]),
+		namedLayoutBox("instructions-2", l.instructions[1]),
+	}
+}
+
+func cardsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	menu := computeTabbedMenuLayout(screenW, screenH)
+	l := computeCardsContentLayout(menu.content)
+	boxes := []uiBox{namedLayoutBox("title", l.title), namedLayoutBox("subtitle", l.subtitle)}
+	for i, card := range l.cards {
+		cardAndLabels := layoutRect{card.x - (l.labelW-card.w)/2, card.y, l.labelW, card.h + 2 + 2*debugTextCharHeight}
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("card-%d", i), cardAndLabels))
+	}
+	boxes = append(boxes, namedLayoutBox("summary", l.summary))
+	return namedLayoutBox("cards-content", menu.content), boxes
+}
+
+func charactersLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	menu := computeTabbedMenuLayout(screenW, screenH)
+	l := computeCharacterContentLayout(menu.content)
+	return namedLayoutBox("characters-content", menu.content), []uiBox{
+		namedLayoutBox("title", l.title),
+		namedLayoutBox("portrait", l.portraitFrame),
+		namedLayoutBox("character-scroll", l.scroll),
+		namedLayoutBox("instructions", l.instructions),
+		namedLayoutBox("pager", l.pager),
+	}
+}
+
+func bookLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	menu := computeTabbedMenuLayout(screenW, screenH)
+	l := computeBookLayout(menu.content.x, menu.content.y, menu.content.h)
+	quickW := 360
+	quickY := l.bookY + l.bookH + 16
+	quickH := int(float64(quickW) / quickSlotBarAspect)
+	return namedLayoutBox("book-content", menu.content), []uiBox{
+		{"book", l.bookX, l.bookY, l.bookW, l.bookH},
+		{"quick-slots", l.bookX + (l.bookW-quickW)/2, quickY - 16, quickW, quickH + 16},
+		{"controls", l.bookX + 20, menu.content.bottom() - 28, l.bookW - 40, debugTextCharHeight},
+	}
+}
+
+func questsLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	menu := computeTabbedMenuLayout(screenW, screenH)
+	l := computeQuestContentLayout(menu.content, 100)
+	boxes := []uiBox{namedLayoutBox("title", l.title)}
+	for i, row := range l.rows {
+		boxes = append(boxes, namedLayoutBox(fmt.Sprintf("quest-%d", i), row))
+	}
+	boxes = append(boxes, namedLayoutBox("pager", l.pager))
+	return namedLayoutBox("quests-content", menu.content), boxes
+}
+
+func mapOverlayLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	l := computeMapOverlayLayout(screenW, screenH)
+	return namedLayoutBox("map-panel", l.panel), []uiBox{
+		namedLayoutBox("title", l.title),
+		namedLayoutBox("close", l.close),
+		namedLayoutBox("map", l.body),
+	}
+}
+
+func npcDialogRegion(screenW, screenH int) (layoutRect, npcDialogSectionLayout) {
+	dialog := layoutRect{(screenW - npcDialogWidth) / 2, (screenH - npcDialogHeight) / 2, npcDialogWidth, npcDialogHeight}
+	return dialog, computeNPCDialogSectionLayout(dialog, true)
+}
+
+func spellTraderLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	dialog, l := npcDialogRegion(screenW, screenH)
+	boxes := []uiBox{
+		namedLayoutBox("title", l.title), namedLayoutBox("balance", l.balance), namedLayoutBox("greeting", l.greeting),
+	}
+	for i := 0; i < 4; i++ {
+		x, y, w, h := spellTraderPortraitRect(dialog.x, dialog.y, i)
+		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 6 + debugTextCharHeight})
+	}
+	gridW := spellTraderGridCols*spellTraderIconSize + (spellTraderGridCols-1)*spellTraderIconGap
+	gridX := dialog.x + (dialog.w-gridW)/2
+	gridY := spellTraderGridTop(dialog.y)
+	cellH := spellTraderIconSize + 14
+	gridH := spellTraderGridRows*(cellH+8) - 8
+	boxes = append(boxes,
+		uiBox{"spell-grid", gridX, gridY, gridW, gridH},
+		uiBox{"pager", gridX, spellTraderPagerY(dialog.y), gridW, pagerBtnH},
+		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * debugTextCharHeight}),
+	)
+	return namedLayoutBox("spell-trader", dialog), boxes
+}
+
+func trainerDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	dialog, l := npcDialogRegion(screenW, screenH)
+	boxes := []uiBox{
+		namedLayoutBox("title", l.title), namedLayoutBox("balance", l.balance), namedLayoutBox("greeting", l.greeting),
+	}
+	for i := 0; i < 4; i++ {
+		x, y, w, h := skillTrainerPortraitRect(dialog.x, dialog.y, dialog.w, i)
+		boxes = append(boxes, uiBox{fmt.Sprintf("portrait-%d", i), x - 8, y, w + 16, h + 24 + debugTextCharHeight})
+	}
+	boxes = append(boxes, namedLayoutBox("footer", l.footer[0]))
+	return namedLayoutBox("trainer-dialog", dialog), boxes
+}
+
+func merchantDialogLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	dialog, l := npcDialogRegion(screenW, screenH)
+	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialog.x, dialog.y)
+	gridH := merchantGridRows*(merchantIconSize+merchantPriceH+merchantRowGap) - merchantRowGap
+	boxes := []uiBox{
+		namedLayoutBox("title", l.title), namedLayoutBox("balance", l.balance), namedLayoutBox("greeting", l.greeting),
+		textLineBox("buy-heading", "For Sale", leftX, gridTop-24),
+		textLineBox("sell-heading", "Your Items", rightX, gridTop-24),
+		{"buy-grid", leftX, gridTop, merchantGridW, gridH},
+		{"sell-grid", rightX, gridTop, merchantGridW, gridH},
+		{"buy-pager", leftX, pagerY, merchantGridW, pagerBtnH},
+		{"sell-pager", rightX, pagerY, merchantGridW, pagerBtnH},
+		namedLayoutBox("footer", layoutRect{l.footer[0].x, l.footer[0].y, l.footer[0].w, 2 * debugTextCharHeight}),
+	}
+	return namedLayoutBox("merchant-dialog", dialog), boxes
+}
+
+func cardCollectorLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
+	dialog := layoutRect{(screenW - npcDialogWidth) / 2, (screenH - npcDialogHeight) / 2, npcDialogWidth, npcDialogHeight}
+	l := computeNPCDialogSectionLayout(dialog, false)
+	boxes := []uiBox{
+		namedLayoutBox("title", l.title), namedLayoutBox("greeting", l.greeting),
+		textLineBox("collection-heading", "Collection (active effects)", dialog.x+20, dialog.y+96),
+		textLineBox("inventory-heading", "Your cards (double-click to add)", dialog.x+20, dialog.y+176),
+	}
+	for i := 0; i < MaxCardSlots; i++ {
+		x, y, w, h := cardCollectorSlotRect(dialog.x, dialog.y, i)
+		boxes = append(boxes, uiBox{fmt.Sprintf("active-card-%d", i), x, y, w, h})
+	}
+	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
+	invGridX := dialog.x + (dialog.w-invGridW)/2
+	boxes = append(boxes,
+		uiBox{"inventory-cards", invGridX, dialog.y + cardInvTop, invGridW, 2*cardInvSize + cardInvRowPitch - cardInvSize},
+		uiBox{"pager", invGridX, dialog.y + cardInvTop + 2*cardInvRowPitch - 4, invGridW, pagerBtnH},
+		namedLayoutBox("footer", l.footer[0]),
+	)
+	return namedLayoutBox("card-collector", dialog), boxes
+}
+
 // stashLayoutBoxes returns the stash modal's region and its section boxes.
 func stashLayoutBoxes(screenW, screenH int) (uiBox, []uiBox) {
 	L := computeStashLayout(screenW, screenH)

@@ -596,7 +596,7 @@ type MMGame struct {
 	// Board tab render cache: the leaderboard file is read and flattened to
 	// display lines only when stale (victory recorded / dialog opened) or when
 	// the Shift-detail mode flips - never per frame.
-	arenaBoardLines   []string
+	arenaBoardLines   []arenaBoardLine
 	arenaBoardDetail  bool
 	arenaBoardWidth   int
 	arenaBoardStale   bool

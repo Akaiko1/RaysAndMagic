@@ -1,6 +1,8 @@
 package game
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,5 +73,63 @@ func TestSpellTraderQuestTab_ChoiceNeedsDoubleClick(t *testing.T) {
 	ih.handleSpellTraderInput()
 	if q := g.questManager.GetQuest("forest_wolf_cull"); q == nil {
 		t.Fatal("double click should execute give_quest")
+	}
+}
+
+func TestDialogueLayoutKeepsLongBodyAndChoicesInsideDialog(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	npc := &character.NPC{
+		Name: "Verbose keeper",
+		DialogueData: &character.NPCDialogue{
+			Greeting:     strings.Repeat("A very long explanation ", 80) + strings.Repeat("X", 150),
+			ChoicePrompt: strings.Repeat("Long prompt ", 20),
+			Choices: []*character.NPCDialogueChoice{
+				{Text: strings.Repeat("Long choice ", 20), Action: "info"},
+				{Text: "Second", Action: "info"},
+				{Text: "Third", Action: "info"},
+				{Text: "Leave", Action: "leave"},
+			},
+		},
+	}
+	dlg := npcDialogLayout(g)
+	layout := g.dialogueLayout(npc, dlg.w, dlg.h)
+	if len(layout.bodyLines) == 0 {
+		t.Fatal("dialogue body has no visible lines")
+	}
+	for _, line := range layout.bodyLines {
+		if width := debugTextWidth(line); width > dialogueWrapColumns*debugTextCharWidth {
+			t.Errorf("body line width = %d: %q", width, line)
+		}
+	}
+	last := len(npc.DialogueData.Choices) - 1
+	_, y, _, h := g.dialogueChoiceRect(npc, last, dlg.x, dlg.y, dlg.w)
+	if y+h > dlg.y+dlg.h-20 {
+		t.Fatalf("last choice ends at %d, dialog content ends at %d", y+h, dlg.y+dlg.h-20)
+	}
+}
+
+func TestDialogueLayoutScrollsLargeChoiceListAroundSelection(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	choices := make([]*character.NPCDialogueChoice, 20)
+	for i := range choices {
+		choices[i] = &character.NPCDialogueChoice{Text: fmt.Sprintf("Choice %d", i), Action: "info"}
+	}
+	npc := &character.NPC{DialogueData: &character.NPCDialogue{Greeting: "Choose.", ChoicePrompt: "Options:", Choices: choices}}
+	g.selectedChoice = 15
+	dlg := npcDialogLayout(g)
+	layout := g.dialogueLayout(npc, dlg.w, dlg.h)
+	if g.selectedChoice < layout.firstChoice || g.selectedChoice >= layout.firstChoice+layout.choiceCount {
+		t.Fatalf("selected choice %d not in visible range [%d,%d)", g.selectedChoice, layout.firstChoice, layout.firstChoice+layout.choiceCount)
+	}
+	for i := layout.firstChoice; i < layout.firstChoice+layout.choiceCount; i++ {
+		_, y, _, h := g.dialogueChoiceRect(npc, i, dlg.x, dlg.y, dlg.w)
+		if y < dlg.y || y+h > dlg.y+dlg.h-20 {
+			t.Fatalf("choice %d rect [%d,%d) escapes dialog [%d,%d)", i, y, y+h, dlg.y, dlg.y+dlg.h-20)
+		}
+	}
+	if _, _, _, h := g.dialogueChoiceRect(npc, 0, dlg.x, dlg.y, dlg.w); h != 0 {
+		t.Fatal("off-screen choice must not have an active hitbox")
 	}
 }

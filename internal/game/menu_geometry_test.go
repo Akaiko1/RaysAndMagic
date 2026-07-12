@@ -15,6 +15,18 @@ func TestMenuPanelSizePerMode(t *testing.T) {
 	}
 }
 
+func TestMainMenuControlTipsFitPanel(t *testing.T) {
+	bottom := mainMenuTipsTopY() + len(mainMenuControlTips)*debugTextCharHeight
+	if bottom > mainMenuPanelH-2 {
+		t.Fatalf("control tips end at y=%d, panel content ends at y=%d", bottom, mainMenuPanelH-2)
+	}
+	for _, tip := range mainMenuControlTips {
+		if width := debugTextWidth(tip); width > mainMenuPanelW-32 {
+			t.Errorf("control tip width = %d, content width = %d: %q", width, mainMenuPanelW-32, tip)
+		}
+	}
+}
+
 // TestMenuRowRectContract pins the shared row geometry: rows step by exactly
 // `pitch`, keep the constant height, share x-bounds, and the text baseline sits
 // inside the box. This is the single source the draw highlight, hover tooltip,

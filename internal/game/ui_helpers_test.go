@@ -27,3 +27,12 @@ func TestWrapTooltipLinesAccountsForIconOffset(t *testing.T) {
 		t.Fatalf("with icon: got %d colors for %d lines", len(withColors), len(withIcon))
 	}
 }
+
+func TestWrapTooltipLinesSplitsOversizedToken(t *testing.T) {
+	lines, _ := wrapTooltipLines([]string{"averylongunbrokentooltiptoken"}, nil, 0, 140, 0)
+	for _, line := range lines {
+		if width := debugTextWidth(line); width > 128 {
+			t.Errorf("tooltip line width = %d, want <= 128: %q", width, line)
+		}
+	}
+}

@@ -541,27 +541,30 @@ func (ui *UISystem) drawDialogueChoicesBody(screen *ebiten.Image, npc *character
 	if npc.DialogueData == nil {
 		return
 	}
-	// Body text is state-driven (offer greeting / in-progress / completed /
-	// concluded) - see npcDialogueText.
-	lines := ui.wrapText(ui.game.npcDialogueText(npc), dialogueWrapColumns)
-	for i, line := range lines {
+	dialogY := textY - dialogueBodyTextY
+	layout := ui.game.dialogueLayout(npc, dialogWidth, npcDialogHeight)
+	for i, line := range layout.bodyLines {
 		drawDebugText(screen, line, dialogX+20, textY+i*dialogueLineHeight)
 	}
 
-	// Only the choices valid in this state (give_quest while offering,
-	// turn_in_quest once completed, etc.) - same list the input handler acts on.
 	choices := ui.game.visibleNPCChoices(npc)
 	if len(choices) == 0 {
-		drawDebugText(screen, "Press ESC to leave.", dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+		drawDebugText(screen, "Press ESC to leave.", dialogX+20, dialogY+layout.exitY)
 		return
 	}
-	if npc.DialogueData.ChoicePrompt != "" {
-		drawDebugText(screen, npc.DialogueData.ChoicePrompt, dialogX+20, textY+len(lines)*dialogueLineHeight+20)
+	if layout.promptY >= 0 {
+		prompt := npc.DialogueData.ChoicePrompt
+		if layout.choiceCount < len(choices) {
+			prompt = fmt.Sprintf("%s (%d-%d/%d)", prompt, layout.firstChoice+1, layout.firstChoice+layout.choiceCount, len(choices))
+		}
+		drawDebugText(screen, clipDebugText(prompt, dialogWidth-40), dialogX+20, dialogY+layout.promptY)
 	}
-	dialogY := textY - dialogueBodyTextY
 	for i, choice := range choices {
+		if i < layout.firstChoice || i >= layout.firstChoice+layout.choiceCount {
+			continue
+		}
 		x, y, w, h := ui.game.dialogueChoiceRect(npc, i, dialogX, dialogY, dialogWidth)
-		choiceText := fmt.Sprintf("%d. %s", i+1, ui.game.dialogueChoiceLabel(choice))
+		choiceText := clipDebugText(fmt.Sprintf("%d. %s", i+1, ui.game.dialogueChoiceLabel(choice)), w-10)
 		if i == ui.game.selectedChoice {
 			drawFilledRect(screen, x, y, w, h, color.RGBA{100, 100, 0, 128})
 		}
@@ -654,8 +657,9 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 // drawSpellTraderDialog draws an icon-based spell trader UI: 4-character
 // portrait strip at top, icon grid for spells below, tooltip on hover.
 func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
 	titleText := fmt.Sprintf("Spell Trader - %s", ui.game.dialogNPC.Name)
-	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
 	// Quest-giving traders carry a second tab: clickable folder tabs along the
 	// dialog's top edge (same sprites as the party menu); Tab key also switches
@@ -672,14 +676,10 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greetingText = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	// Wrap so a long greeting never spills past the box; the portrait strip
-	// below (dialogY+78) leaves room for two lines.
-	for i, line := range ui.wrapText(greetingText, tabGreetingWrapColumns) {
-		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
-	}
+	drawWrappedDebugText(screen, greetingText, layout.greeting, 2, dialogueLineHeight)
 
 	goldText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
-	drawDebugText(screen, goldText, dialogX+dialogWidth-160, dialogY+20)
+	drawDebugText(screen, clipDebugText(goldText, layout.balance.w), layout.balance.x, layout.balance.y)
 
 	// Portrait strip - click to switch active character.
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -693,7 +693,7 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		label := fmt.Sprintf("%s L%d", member.Name, member.Level)
 		// +6 (not +2) so the label clears the selection frame's bottom edge (y+h+3).
-		drawCenteredDebugText(screen, label, x-8, y+h+6, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, clipDebugText(label, w+16), x-8, y+h+6, w+16, debugTextCharHeight)
 	}
 
 	// Spell icon grid.
@@ -789,9 +789,8 @@ func (ui *UISystem) drawSpellTraderDialog(screen *ebiten.Image, dialogX, dialogY
 	}
 
 	// Instructions (two condensed lines).
-	instructionsY := dialogY + dialogHeight - 38
-	drawDebugText(screen, "Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", dialogX+20, instructionsY)
-	drawDebugText(screen, "Gold=selected   Green=learnable   Red=cannot   Gray=known   |   Hover: details", dialogX+20, instructionsY+15)
+	drawDebugText(screen, clipDebugText("Click portrait & spell to select  |  Double-click spell: buy  |  ESC: close", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, clipDebugText("Gold=selected   Green=learnable   Red=cannot   Gray=known   |   Hover: details", layout.footer[1].w), layout.footer[1].x, layout.footer[1].y)
 }
 
 // Skill-trainer layout.
@@ -835,17 +834,16 @@ func skillTrainerPopupRect(dialogX, dialogY, dialogWidth, dialogHeight int) (x, 
 }
 
 func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
 	titleText := fmt.Sprintf("Mastery Trainer - %s", ui.game.dialogNPC.Name)
-	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
 	greeting := "Choose a character to view trainable masteries."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
-		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
-	}
-	drawDebugText(screen, fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), dialogX+dialogWidth-160, dialogY+20)
+	drawWrappedDebugText(screen, greeting, layout.greeting, 2, dialogueLineHeight)
+	drawDebugText(screen, clipDebugText(fmt.Sprintf("Party Gold: %d", ui.game.party.Gold), layout.balance.w), layout.balance.x, layout.balance.y)
 
 	// Portrait row.
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -857,12 +855,11 @@ func (ui *UISystem) drawSkillTrainerDialog(screen *ebiten.Image, dialogX, dialog
 		}
 		ui.drawPortraitCover(screen, ui.game.bigPortraitName(member), x, y, w, h)
 		// +8/+24 keep both labels clear of the hover/selection frame (y+h+3).
-		drawCenteredDebugText(screen, member.Name, x-8, y+h+8, w+16, debugTextCharHeight)
-		drawCenteredDebugText(screen, fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), x-8, y+h+24, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, clipDebugText(member.Name, w+16), x-8, y+h+8, w+16, debugTextCharHeight)
+		drawCenteredDebugText(screen, clipDebugText(fmt.Sprintf("Level %d %s", member.Level, member.ClassDisplayName()), w+16), x-8, y+h+24, w+16, debugTextCharHeight)
 	}
 
-	instructionsY := dialogY + dialogHeight - 40
-	drawDebugText(screen, "Click a portrait to view trainable masteries  |  ESC: close", dialogX+20, instructionsY)
+	drawDebugText(screen, clipDebugText("Click a portrait to view trainable masteries  |  ESC: close", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
 	// Modal popup on top when character was clicked.
 	if ui.game.skillTrainerPopup &&
@@ -955,8 +952,9 @@ func (g *MMGame) merchantSellPrice(base int) int {
 // / merchantCellRect, and the pager flips the page state on MMGame so both sides
 // agree.
 func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, dialogWidth, dialogHeight int) {
+	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, dialogWidth, dialogHeight}, true)
 	titleText := fmt.Sprintf("Merchant - %s", ui.game.dialogNPC.Name)
-	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 	// The tabbed gladiator dialog keeps its (long) greeting on the Talk tab -
 	// the Shop tab goes straight to the grids or the text floods them.
 	if npcDialogKindFor(ui.game.dialogNPC) != dialogKindArenaGladiator {
@@ -964,15 +962,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 			greeting = ui.game.dialogNPC.DialogueData.Greeting
 		}
-		for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
-			drawDebugText(screen, line, dialogX+20, dialogY+46+i*dialogueLineHeight)
-		}
+		greetingArea := layout.greeting
+		greetingArea.y += 2
+		drawWrappedDebugText(screen, greeting, greetingArea, 2, dialogueLineHeight)
 	}
 	balanceText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
 	if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
 		balanceText = fmt.Sprintf("Arena Points: %d", ui.game.party.ArenaPoints)
 	}
-	drawDebugText(screen, balanceText, dialogX+dialogWidth-160, dialogY+20)
+	drawDebugText(screen, clipDebugText(balanceText, layout.balance.w), layout.balance.x, layout.balance.y)
 
 	leftX, rightX, gridTop, pagerY := merchantGridLayout(dialogX, dialogY)
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -1082,9 +1080,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 		}
 	}
 
-	instructionsY := dialogY + dialogHeight - 38
-	drawDebugText(screen, "Hover: details  |  Double-click: buy (left) / sell (right)", dialogX+20, instructionsY)
-	drawDebugText(screen, "ESC: Close", dialogX+20, instructionsY+15)
+	drawDebugText(screen, clipDebugText("Hover: details  |  Double-click: buy (left) / sell (right)", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
+	drawDebugText(screen, "ESC: Close", layout.footer[1].x, layout.footer[1].y)
 }
 
 // Card-collector layout. The 8 collection slots sit in one compact row; the
@@ -1177,14 +1174,13 @@ func (ui *UISystem) drawCardFullArtOverlay(screen *ebiten.Image, sprite string) 
 // slots on top, the party's loose cards below. Double-click a loose card to slot
 // it, double-click a slotted card to take it back. Art-based with hover tooltips.
 func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialogY, dialogHeight int) {
-	drawDebugText(screen, fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), dialogX+20, dialogY+20)
+	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, dialogHeight}, false)
+	drawDebugText(screen, clipDebugText(fmt.Sprintf("Card Collector - %s", ui.game.dialogNPC.Name), layout.title.w), layout.title.x, layout.title.y)
 	greeting := "Cards, is it? Hand them here and I'll pin them to your collection."
 	if ui.game.dialogNPC.DialogueData != nil && ui.game.dialogNPC.DialogueData.Greeting != "" {
 		greeting = ui.game.dialogNPC.DialogueData.Greeting
 	}
-	for i, line := range ui.wrapText(greeting, tabGreetingWrapColumns) {
-		drawDebugText(screen, line, dialogX+20, dialogY+44+i*dialogueLineHeight)
-	}
+	drawWrappedDebugText(screen, greeting, layout.greeting, 2, dialogueLineHeight)
 
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hoverLines []string
@@ -1229,8 +1225,7 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 	invGridW := cardInvCols*cardInvSize + (cardInvCols-1)*cardInvGap
 	ui.drawPager(screen, dialogX+(npcDialogWidth-invGridW)/2, dialogY+cardInvTop+2*cardInvRowPitch-4, invGridW, &ui.game.cardCollectorInvPage, invPages, true)
 
-	instructionsY := dialogY + dialogHeight - 38
-	drawDebugText(screen, "Double-click a card to slot it  |  Double-click a slotted card to take it back", dialogX+20, instructionsY)
+	drawDebugText(screen, clipDebugText("Double-click a card to slot it  |  Double-click a slotted card to take it back", layout.footer[0].w), layout.footer[0].x, layout.footer[0].y)
 
 	if hoverLines != nil {
 		ui.queueTooltip(hoverLines, mouseX+16, mouseY+8)
@@ -1240,20 +1235,19 @@ func (ui *UISystem) drawCardCollectorDialog(screen *ebiten.Image, dialogX, dialo
 // drawGenericDialog draws basic dialog for other NPC types
 func (ui *UISystem) drawGenericDialog(screen *ebiten.Image, dialogX, dialogY, _ int) {
 	npc := ui.game.dialogNPC
+	layout := computeNPCDialogSectionLayout(layoutRect{dialogX, dialogY, npcDialogWidth, npcDialogHeight}, false)
 
 	// Draw title
 	titleText := npc.Name
-	drawDebugText(screen, titleText, dialogX+20, dialogY+20)
+	drawDebugText(screen, clipDebugText(titleText, layout.title.w), layout.title.x, layout.title.y)
 
 	// Draw basic greeting
 	if npc.DialogueData != nil && npc.DialogueData.Greeting != "" {
-		lines := ui.wrapText(npc.DialogueData.Greeting, 70)
-		for i, line := range lines {
-			drawDebugText(screen, line, dialogX+20, dialogY+50+i*16)
-		}
+		maxLines := (layout.footer[0].y - layout.greeting.y - 12) / dialogueLineHeight
+		drawWrappedDebugText(screen, npc.DialogueData.Greeting, layout.greeting, maxLines, dialogueLineHeight)
 	}
 
-	drawDebugText(screen, "Press ESC to close", dialogX+20, dialogY+200)
+	drawDebugText(screen, "Press ESC to close", layout.footer[0].x, layout.footer[0].y)
 }
 
 // drawGameOverOverlay draws a simple game over screen with options
@@ -1383,28 +1377,11 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 
 	screenW := ui.game.config.GetScreenWidth()
 	screenH := ui.game.config.GetScreenHeight()
+	layout := computeMapOverlayLayout(screenW, screenH)
 
 	drawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{0, 0, 0, 140})
-
-	panelW := int(float64(screenW) * 0.75)
-	panelH := int(float64(screenH) * 0.75)
-	if panelW > 720 {
-		panelW = 720
-	}
-	if panelH > 560 {
-		panelH = 560
-	}
-	if panelW < 320 {
-		panelW = 320
-	}
-	if panelH < 240 {
-		panelH = 240
-	}
-	panelX := (screenW - panelW) / 2
-	panelY := (screenH - panelH) / 2
-
-	drawFilledRect(screen, panelX, panelY, panelW, panelH, color.RGBA{20, 20, 40, 230})
-	drawRectBorder(screen, panelX, panelY, panelW, panelH, 2, color.RGBA{100, 100, 160, 255})
+	drawFilledRect(screen, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, color.RGBA{20, 20, 40, 230})
+	drawRectBorder(screen, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, 2, color.RGBA{100, 100, 160, 255})
 
 	title := "World Map"
 	if world.GlobalWorldManager != nil {
@@ -1412,21 +1389,14 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 			title = fmt.Sprintf("World Map - %s", mapCfg.Name)
 		}
 	}
-	drawDebugText(screen, title, panelX+16, panelY+12)
+	drawDebugText(screen, clipDebugText(title, layout.title.w), layout.title.x, layout.title.y)
 
-	closeX := panelX + panelW - 26
-	closeY := panelY + 10
-	drawFilledRect(screen, closeX, closeY, 16, 16, color.RGBA{200, 60, 60, 220})
-	ui.drawInterfaceIcon(screen, "icon_close", closeX, closeY, 16, 16)
-	if ui.game.consumeLeftClickIn(closeX, closeY, closeX+16, closeY+16) {
+	drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{200, 60, 60, 220})
+	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	if ui.game.consumeLeftClickIn(layout.close.x, layout.close.y, layout.close.right(), layout.close.bottom()) {
 		ui.game.mapOverlayOpen = false
 	}
-
-	mapPadding := 18
-	mapX := panelX + mapPadding
-	mapY := panelY + 36
-	mapW := panelW - mapPadding*2
-	mapH := panelH - 54
+	mapX, mapY, mapW, mapH := layout.body.x, layout.body.y, layout.body.w, layout.body.h
 
 	worldW := ui.game.world.Width
 	worldH := ui.game.world.Height
@@ -1609,18 +1579,19 @@ func (ui *UISystem) drawQuestMarkersOnMap(screen *ebiten.Image, originX, originY
 
 // drawQuestsContent draws the quests tab content
 func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	// Title
-	drawDebugText(screen, "ACTIVE QUESTS", panelX+20, contentY+10)
+	content := layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight}
+	layout := computeQuestContentLayout(content, 0)
+	drawDebugText(screen, "ACTIVE QUESTS", layout.title.x, layout.title.y)
 
 	// Check if quest manager is available
 	if ui.game.questManager == nil {
-		drawDebugText(screen, "No quests available.", panelX+20, contentY+40)
+		drawDebugText(screen, "No quests available.", layout.rows[0].x, layout.rows[0].y)
 		return
 	}
 
 	allQuests := ui.game.questManager.GetAllQuests()
 	if len(allQuests) == 0 {
-		drawDebugText(screen, "No active quests.", panelX+20, contentY+40)
+		drawDebugText(screen, "No active quests.", layout.rows[0].x, layout.rows[0].y)
 		return
 	}
 
@@ -1633,38 +1604,23 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 	})
 
 	mouseX, mouseY := ebiten.CursorPosition()
-	questY := contentY + 40
-	questHeight := 95 // Height of each quest entry (increased for wrapped text)
-	questWidth := 520
-	const questGap = 8
-
-	// Paginate so a long quest log never spills past the panel. Reserve the
-	// bottom strip for the pager; fit as many whole entries as the panel allows.
-	const pagerH = 22
-	listTop := contentY + 40
-	listBottom := contentY + contentHeight - pagerH
-	pageSize := (listBottom - listTop) / (questHeight + questGap)
-	if pageSize < 1 {
-		pageSize = 1
-	}
-	totalPages := (len(allQuests) + pageSize - 1) / pageSize
-	if totalPages < 1 {
-		totalPages = 1
-	}
+	layout = computeQuestContentLayout(content, len(allQuests))
 	// Clamp every frame so the page stays valid when quests are added/removed.
-	if ui.questPage >= totalPages {
-		ui.questPage = totalPages - 1
+	if ui.questPage >= layout.totalPages {
+		ui.questPage = layout.totalPages - 1
 	}
 	if ui.questPage < 0 {
 		ui.questPage = 0
 	}
-	pageStart := ui.questPage * pageSize
-	pageEnd := pageStart + pageSize
+	pageStart := ui.questPage * layout.pageSize
+	pageEnd := pageStart + layout.pageSize
 	if pageEnd > len(allQuests) {
 		pageEnd = len(allQuests)
 	}
 
-	for _, quest := range allQuests[pageStart:pageEnd] {
+	for rowIndex, quest := range allQuests[pageStart:pageEnd] {
+		row := layout.rows[rowIndex]
+		questY, questWidth := row.y, row.w
 		// Draw quest background
 		// Different colors based on quest status
 		var bgColor color.RGBA
@@ -1675,29 +1631,27 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		} else {
 			bgColor = color.RGBA{30, 30, 60, 200} // Blue for active
 		}
-		drawFilledRect(screen, panelX+20, questY, questWidth, questHeight, bgColor)
+		drawFilledRect(screen, row.x, row.y, row.w, row.h, bgColor)
 
 		// Draw quest border
 		borderColor := color.RGBA{80, 80, 120, 255}
 		if quest.Completed && !quest.RewardsClaimed {
 			borderColor = color.RGBA{100, 200, 100, 255} // Green border for claimable
 		}
-		vector.StrokeRect(screen, float32(panelX+20), float32(questY), float32(questWidth), float32(questHeight), 2, borderColor, false)
+		vector.StrokeRect(screen, float32(row.x), float32(row.y), float32(row.w), float32(row.h), 2, borderColor, false)
 
 		// Quest name
 		namePrefix := ""
 		if quest.Completed {
 			namePrefix = "[DONE] "
 		}
-		drawDebugText(screen, namePrefix+quest.Definition.Name, panelX+30, questY+6)
+		drawDebugText(screen, clipDebugText(namePrefix+quest.Definition.Name, questWidth-20), row.x+10, questY+6)
 
-		// Quest description - wrap to fit within box (max ~70 chars per line)
-		descLines := wrapText(quest.Definition.Description, 70)
+		// The card reserves two description rows; the last gets an ellipsis when
+		// authored copy is longer.
+		descLines := truncateWrappedLines(wrapDebugText(quest.Definition.Description, questWidth-20), 2, questWidth-20)
 		for i, line := range descLines {
-			if i >= 2 { // Max 2 lines for description
-				break
-			}
-			drawDebugText(screen, line, panelX+30, questY+22+(i*14))
+			drawDebugText(screen, line, row.x+10, questY+22+i*debugTextCharHeight)
 		}
 
 		// Bottom row: Progress on left, Rewards on right
@@ -1707,10 +1661,10 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 		// CurrentCount toward TargetCount, so they share the bar.
 		if quest.Definition.Type == "kill" || quest.Definition.Type == "interact" {
 			progressText := quest.GetProgressString()
-			drawDebugText(screen, progressText, panelX+30, bottomY)
+			drawDebugText(screen, progressText, row.x+10, bottomY)
 
 			// Draw progress bar below text
-			barX := panelX + 30
+			barX := row.x + 10
 			barY := questY + 72
 			barWidth := 180
 			barHeight := 14
@@ -1747,13 +1701,13 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			} else {
 				objectiveText = "Defeat all enemies"
 			}
-			drawDebugText(screen, objectiveText, panelX+30, bottomY)
+			drawDebugText(screen, objectiveText, row.x+10, bottomY)
 		}
 
 		// Rewards section (right side)
-		rewardsX := panelX + 300
+		rewardsX := row.x + 280
 		rewardsText := "Reward: " + questRewardSummary(quest.Definition.Rewards.Gold, quest.Definition.Rewards.ArenaPoints, quest.Definition.Rewards.Experience)
-		drawDebugText(screen, rewardsText, rewardsX, bottomY)
+		drawDebugText(screen, clipDebugText(rewardsText, row.right()-rewardsX-10), rewardsX, bottomY)
 
 		// Claim button for completed quests with unclaimed rewards
 		if quest.Completed && !quest.RewardsClaimed {
@@ -1777,10 +1731,9 @@ func (ui *UISystem) drawQuestsContent(screen *ebiten.Image, panelX, contentY, co
 			}
 		}
 
-		questY += questHeight + questGap
 	}
 
-	ui.drawQuestPager(screen, panelX+20, contentY+contentHeight-pagerH, questWidth, totalPages)
+	ui.drawQuestPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, layout.totalPages)
 }
 
 // drawQuestPager draws "Page X/Y" plus prev/next buttons under the quest list
@@ -1856,37 +1809,7 @@ func (g *MMGame) claimQuestReward(questID string) bool {
 	return true
 }
 
-// truncateName truncates a name to maxLen characters
+// truncateName truncates a name to maxLen displayed characters.
 func truncateName(name string, maxLen int) string {
-	if len(name) <= maxLen {
-		return name
-	}
-	return name[:maxLen-2] + ".."
-}
-
-// wrapText wraps text to fit within a given character width (standalone)
-func wrapText(text string, maxChars int) []string {
-	if len(text) <= maxChars {
-		return []string{text}
-	}
-
-	var lines []string
-	words := strings.Fields(text)
-	currentLine := ""
-
-	for _, word := range words {
-		if currentLine == "" {
-			currentLine = word
-		} else if len(currentLine)+1+len(word) <= maxChars {
-			currentLine += " " + word
-		} else {
-			lines = append(lines, currentLine)
-			currentLine = word
-		}
-	}
-	if currentLine != "" {
-		lines = append(lines, currentLine)
-	}
-
-	return lines
+	return truncateRunes(name, maxLen, "..")
 }

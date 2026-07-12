@@ -15,7 +15,6 @@ import (
 	"ugataima/internal/quests"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
-	"unicode/utf8"
 
 	"ugataima/internal/game/keytracker"
 
@@ -458,22 +457,18 @@ func (ih *InputHandler) closeVictoryOverlay() {
 
 // handleVictoryNameInput handles text input for the player name
 func (ih *InputHandler) handleVictoryNameInput() {
-	// Get input characters
 	inputChars := ebiten.AppendInputChars(nil)
+	filtered := make([]rune, 0, len(inputChars))
 	for _, char := range inputChars {
 		if char == '\n' || char == '\r' || char == '\t' {
-			continue // same control-char guard as handleSaveRenameInput
+			continue
 		}
-		if len(ih.game.victoryNameInput) < 20 {
-			ih.game.victoryNameInput += string(char)
-		}
+		filtered = append(filtered, char)
 	}
+	ih.game.victoryNameInput = appendRunesLimited(ih.game.victoryNameInput, filtered, 20)
 
-	// Handle backspace
 	if repeatingKeyPressed(ebiten.KeyBackspace) {
-		if len(ih.game.victoryNameInput) > 0 {
-			ih.game.victoryNameInput = ih.game.victoryNameInput[:len(ih.game.victoryNameInput)-1]
-		}
+		ih.game.victoryNameInput = removeLastRune(ih.game.victoryNameInput)
 	}
 }
 
@@ -718,21 +713,16 @@ func (ih *InputHandler) doLoadFromSelectedRow() {
 
 func (ih *InputHandler) handleSaveRenameInput() {
 	inputChars := ebiten.AppendInputChars(nil)
+	filtered := make([]rune, 0, len(inputChars))
 	for _, char := range inputChars {
 		if char == '\n' || char == '\r' || char == '\t' {
 			continue
 		}
-		if len([]rune(ih.game.saveRenameInput)) < 24 {
-			ih.game.saveRenameInput += string(char)
-		}
+		filtered = append(filtered, char)
 	}
+	ih.game.saveRenameInput = appendRunesLimited(ih.game.saveRenameInput, filtered, 24)
 	if repeatingKeyPressed(ebiten.KeyBackspace) {
-		if len(ih.game.saveRenameInput) > 0 {
-			_, size := utf8.DecodeLastRuneInString(ih.game.saveRenameInput)
-			if size > 0 && size <= len(ih.game.saveRenameInput) {
-				ih.game.saveRenameInput = ih.game.saveRenameInput[:len(ih.game.saveRenameInput)-size]
-			}
-		}
+		ih.game.saveRenameInput = removeLastRune(ih.game.saveRenameInput)
 	}
 	if ih.keys.Consume(ebiten.KeyEnter) {
 		name := strings.TrimSpace(ih.game.saveRenameInput)
@@ -2696,6 +2686,9 @@ func (ih *InputHandler) handleEncounterInput() {
 	dlg := npcDialogLayout(ih.game)
 	for i := range choices {
 		x, y, w, h := ih.game.dialogueChoiceRect(npc, i, dlg.x, dlg.y, dlg.w)
+		if h == 0 {
+			continue
+		}
 		if ih.game.consumeLeftClickIn(x, y, x+w, y+h) {
 			ih.game.selectedChoice = i
 			if ih.dialogDoubleClick("encounter_choice", i) {

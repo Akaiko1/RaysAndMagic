@@ -33,6 +33,13 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
+func drawWrappedDebugText(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
+	lines := truncateWrappedLines(wrapDebugText(text, area.w), maxLines, area.w)
+	for i, line := range lines {
+		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
+	}
+}
+
 // partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
 // horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
 // Portrait width comes from UIConfig (not derived from screen width) so going
@@ -590,18 +597,14 @@ func debugTextWidth(text string) int {
 // clipDebugText shortens text with a trailing ".." so it fits maxW pixels in the
 // fixed-width debug font - for grid labels that must not overrun their cell.
 func clipDebugText(text string, maxW int) string {
-	if maxW <= 0 || debugTextWidth(text) <= maxW {
+	if maxW <= 0 {
+		return ""
+	}
+	if debugTextWidth(text) <= maxW {
 		return text
 	}
 	maxRunes := maxW / debugTextCharWidth
-	if maxRunes <= 2 {
-		return ""
-	}
-	r := []rune(text)
-	if len(r) <= maxRunes {
-		return text
-	}
-	return string(r[:maxRunes-2]) + ".."
+	return truncateRunes(text, maxRunes, "..")
 }
 
 // humanizeKey turns a snake/kebab content key into a display label:

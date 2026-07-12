@@ -62,17 +62,9 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			drawDebugText(screen, label, tx, ty)
 		}
-		tips := []string{
-			"Controls:",
-			"WASD: Move  QE: Strafe",
-			"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
-			"I: Inventory  P: Characters  M: Spellbook",
-			"1-4: Select",
-			"Tab: Toggle Mode (TB/RT)",
-		}
-		tipsY := py + mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
-		for i, tip := range tips {
-			drawDebugText(screen, tip, px+16, tipsY+i*14)
+		tipsY := py + mainMenuTipsTopY()
+		for i, tip := range mainMenuControlTips {
+			drawDebugText(screen, tip, px+16, tipsY+i*debugTextCharHeight)
 		}
 	case MenuSaveSelect:
 		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
@@ -233,16 +225,7 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 }
 
 func truncateSaveName(name string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if len(name) <= max {
-		return name
-	}
-	if max <= 3 {
-		return name[:max]
-	}
-	return name[:max-3] + "..."
+	return truncateRunes(name, max, "...")
 }
 
 func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
@@ -275,90 +258,59 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
 func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
-	// Panel dimensions
-	panelWidth := 700
-	panelHeight := 640
-	panelX := (ui.game.config.GetScreenWidth() - panelWidth) / 2
-	panelY := (ui.game.config.GetScreenHeight() - panelHeight) / 2
+	layout := computeTabbedMenuLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
 
 	// Draw main background and frame
 	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
-	drawNineSlice(screen, menuFrame, panelX, panelY, panelWidth, panelHeight, menuPanelFrameSlice)
+	drawNineSlice(screen, menuFrame, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
 
-	// Tab dimensions
-	tabWidth := 120
-	tabHeight := 35
-	tabY := panelY + 10
-
-	// Draw tabs
-	tabs := []struct {
-		tab   MenuTab
-		label string
-		key   string
-	}{
-		{TabInventory, "Inventory", "(I)"},
-		{TabCharacters, "Characters", "(C)"},
-		{TabSpellbook, "Spellbook", "(M)"},
-		{TabQuests, "Quests", "(J)"},
-		{TabCards, "Cards", "(K)"},
-	}
-
-	for i, tabInfo := range tabs {
-		tabX := panelX + 20 + (i * (tabWidth + 5)) // Reduced spacing between tabs
+	for i, tabInfo := range tabbedMenuTabs {
+		tabRect := layout.tabs[i]
 
 		isActive := ui.game.currentTab == tabInfo.tab
 		tabSpriteName := "menu_tab_inactive"
 		if isActive {
 			tabSpriteName = "menu_tab_active"
 		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabX, tabY, tabWidth, tabHeight)
+		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
 		// Draw tab text centered
-		topHalf := tabHeight / 2
-		drawCenteredDebugText(screen, tabInfo.label, tabX, tabY, tabWidth, topHalf)
-		drawCenteredDebugText(screen, tabInfo.key, tabX, tabY+topHalf, tabWidth, tabHeight-topHalf)
+		topHalf := tabRect.h / 2
+		drawCenteredDebugText(screen, tabInfo.label, tabRect.x, tabRect.y, tabRect.w, topHalf)
+		drawCenteredDebugText(screen, tabInfo.key, tabRect.x, tabRect.y+topHalf, tabRect.w, tabRect.h-topHalf)
 
 		// Handle mouse clicks on tabs
-		ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tabInfo.tab)
+		ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
 	}
 
-	// Draw X close button in top-right corner
-	closeButtonSize := 20
-	closeButtonX := panelX + panelWidth - closeButtonSize - 5
-	closeButtonY := panelY + 5
-
 	// Handle mouse clicks on close button
-	ui.handleCloseButtonClick(closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
+	ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw close button background
 	mouseX, mouseY := ebiten.CursorPosition()
-	isCloseHovering := mouseX >= closeButtonX && mouseX < closeButtonX+closeButtonSize &&
-		mouseY >= closeButtonY && mouseY < closeButtonY+closeButtonSize
+	isCloseHovering := mouseX >= layout.close.x && mouseX < layout.close.right() &&
+		mouseY >= layout.close.y && mouseY < layout.close.bottom()
 
 	if isCloseHovering {
-		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{150, 50, 50, 200}) // Red hover
+		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{150, 50, 50, 200}) // Red hover
 	} else {
-		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{100, 100, 100, 150}) // Gray normal
+		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{100, 100, 100, 150}) // Gray normal
 	}
 
-	ui.drawInterfaceIcon(screen, "icon_close", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
-
-	// Draw content area
-	contentY := tabY + tabHeight + 10
-	contentHeight := panelHeight - tabHeight - 40
+	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw content based on selected tab
 	switch ui.game.currentTab {
 	case TabInventory:
-		ui.drawInventoryContent(screen, panelX, contentY, contentHeight)
+		ui.drawInventoryContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabCharacters:
-		ui.drawCharactersContent(screen, panelX, contentY, contentHeight)
+		ui.drawCharactersContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabSpellbook:
-		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
+		ui.drawSpellbookContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabQuests:
-		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
+		ui.drawQuestsContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabCards:
-		ui.drawCardsContent(screen, panelX, contentY, contentHeight)
+		ui.drawCardsContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	}
 
 	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
@@ -368,36 +320,27 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 // drawCardsContent shows the party's active monster-card collection as an
 // art grid (icon + name + effect per slot) plus a combined-effects summary.
 // View-only: cards are slotted/removed at the Card Collector NPC.
-func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ int) {
-	const panelWidth = 700
-	drawDebugText(screen, "Active Card Collection", panelX+30, contentY+6)
-	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", panelX+30, contentY+24)
+func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+	content := layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight}
+	layout := computeCardsContentLayout(content)
+	drawDebugText(screen, "Active Card Collection", layout.title.x, layout.title.y)
+	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y)
 
-	const (
-		cols   = 4
-		icon   = 84
-		colGap = 44
-		rowGap = 64
-	)
-	gridW := cols*icon + (cols-1)*colGap
-	startX := panelX + (panelWidth-gridW)/2
-	startY := contentY + 56
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hover []string
 
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		r, c := slot/cols, slot%cols
-		x := startX + c*(icon+colGap)
-		y := startY + r*(icon+rowGap)
+		card := layout.cards[slot]
+		x, y, icon := card.x, card.y, card.w
 		key := ui.game.cardCollectionKey(slot)
 		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
 		if def := cardDef(key); def != nil {
 			// Label box = one column pitch minus a small gutter, centered on the
 			// card, with text clipped to fit - so neighbouring labels never collide.
-			const labelW = icon + colGap - 6
+			labelW := layout.labelW
 			labelX := x - (labelW-icon)/2
 			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
-			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+16, labelW, 14)
+			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+2+debugTextCharHeight, labelW, 14)
 			if hovered {
 				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
 			}
@@ -410,9 +353,8 @@ func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ i
 		summary = "Active: " + strings.Join(parts, ", ")
 	}
 	// Wrap to the panel width so a full 8-card list doesn't run off the edge.
-	summaryY := startY + 2*(icon+rowGap) + 6
-	for i, line := range wrapText(summary, (panelWidth-60)/debugTextCharWidth) {
-		drawDebugText(screen, line, panelX+30, summaryY+i*14)
+	for i, line := range wrapDebugText(summary, layout.summary.w) {
+		drawDebugText(screen, line, layout.summary.x, layout.summary.y+i*debugTextCharHeight)
 	}
 
 	if hover != nil {

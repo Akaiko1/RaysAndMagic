@@ -59,7 +59,7 @@ const (
 	// Main-menu panel + option-list layout (its own size, distinct from the
 	// save/load panel). Shared by the draw code and the input hit-testing.
 	mainMenuPanelW   = 360
-	mainMenuPanelH   = 320
+	mainMenuPanelH   = 340
 	mainMenuListTopY = 56
 	mainMenuRowPitch = 32
 
@@ -151,6 +151,19 @@ func (g *MMGame) autosaveErr() error {
 // mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
 // returns to the title screen (not a full app quit - that's the title's "Quit").
 var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
+
+var mainMenuControlTips = []string{
+	"Controls:",
+	"WASD: Move  QE: Strafe",
+	"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
+	"I: Inventory  P: Characters  M: Spellbook",
+	"1-4: Select",
+	"Tab: Toggle Mode (TB/RT)",
+}
+
+func mainMenuTipsTopY() int {
+	return mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
+}
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {

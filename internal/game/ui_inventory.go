@@ -19,18 +19,9 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	currentChar := ui.game.party.Members[ui.game.selectedChar]
 	mouseX, mouseY := ebiten.CursorPosition()
 
-	const (
-		paperW   = inventoryPaperdollSourceW
-		paperH   = inventoryPaperdollSourceH
-		gridSize = inventoryGridSourceSize
-		panelGap = 52
-	)
-	// inventory panel is 700 wide; centre the paperdoll+grid block within it.
-	const blockW = paperW + panelGap + gridSize
-	paperX := panelX + (700-blockW)/2
-	paperY := contentY + 48
-	gridX := paperX + paperW + panelGap
-	gridY := contentY + 84
+	layout := computeInventoryContentLayout(layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight})
+	paperX, paperY, paperW, paperH := layout.paper.x, layout.paper.y, layout.paper.w, layout.paper.h
+	gridX, gridY, gridSize := layout.grid.x, layout.grid.y, layout.grid.w
 
 	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
 	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
@@ -152,16 +143,11 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	// Below the grid: pager, then the Camp button + its rest-result notice
 	// vertically centred in the gap between the grid box and the quick-slot bar,
 	// then the compact quick-slot bar (kept off the paperdoll on the left).
-	gridBottom := gridY + gridSize
-	barTop := gridBottom + 88
-	const campBlockH = 26 + 6 + 14 // button + gap + notice line
-	campY := gridBottom + (barTop-gridBottom-campBlockH)/2
-	ui.drawInventoryPager(screen, gridX, gridBottom+6, gridSize, totalPages)
-	ui.drawCampButton(screen, gridX, campY, gridSize)
+	ui.drawInventoryPager(screen, layout.pager.x, layout.pager.y, layout.pager.w, totalPages)
+	ui.drawCampButton(screen, layout.camp.x, layout.camp.y, layout.camp.w)
 
 	ui.quickInvDropZone(gridX, gridY, gridSize, gridSize)
-	const qbW = 210
-	ui.drawTabQuickSlotBar(screen, gridX+(gridSize-qbW)/2, barTop, qbW)
+	ui.drawTabQuickSlotBar(screen, layout.quickSlots.x, layout.quickSlots.y, layout.quickSlots.w)
 
 	if tooltip != "" && tooltipHasItem {
 		lines := ui.appendCardArtHint(strings.Split(tooltip, "\n"), itemCardKey(tooltipItem))
@@ -183,9 +169,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 
 	ui.drawInventoryContextMenu(screen)
 
-	instructionY := contentY + contentHeight - 35
-	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", paperX, instructionY)
-	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", paperX, instructionY+15)
+	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", layout.instructions[0].x, layout.instructions[0].y)
+	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
 }
 
 // drawInventoryPager draws the inventory grid's pager. It's a no-op when the
@@ -376,11 +361,11 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 
 // drawCharactersContent draws the characters tab content
 func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
-	// Title
-	drawDebugText(screen, "CHARACTER INFO", panelX+20, contentY+10)
+	layout := computeCharacterContentLayout(layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight})
+	drawDebugText(screen, "CHARACTER INFO", layout.title.x, layout.title.y)
 
 	if len(ui.game.party.Members) == 0 {
-		drawDebugText(screen, "No party members.", panelX+20, contentY+40)
+		drawDebugText(screen, "No party members.", layout.title.x, contentY+40)
 		return
 	}
 
@@ -398,26 +383,13 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	// A local closure shadows the package draw so every call below is covered.
 	drawDebugTextColored := drawDebugTextShadowed
 
-	// Character layout - centre the portrait+scroll block within the 700-wide panel.
-	const (
-		portraitSize = 180
-		portraitGap  = 24
-		scrollW      = 420
-		scrollH      = 330
-		blockW       = portraitSize + portraitGap + scrollW
-	)
-	cardX := panelX + (700-blockW)/2
-	cardY := contentY + 40
-	portraitX := cardX
-	portraitY := cardY + 8
-	scrollX := cardX + portraitSize + portraitGap
-	scrollY := cardY
-	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), scrollX, scrollY, scrollW, scrollH, 16)
+	portraitX, portraitY, portraitSize := layout.portrait.x, layout.portrait.y, layout.portrait.w
+	scrollX, scrollY := layout.scroll.x, layout.scroll.y
+	drawNineSlice(screen, ui.game.sprites.GetSprite("character_scroll_panel"), layout.scroll.x, layout.scroll.y, layout.scroll.w, layout.scroll.h, 16)
 
 	portraitName := ui.game.fullPortraitSpriteName(member)
 	portrait := ui.game.sprites.GetSprite(portraitName)
-	portraitFramePad := 6
-	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), portraitX-portraitFramePad, portraitY-portraitFramePad, portraitSize+portraitFramePad*2, portraitSize+portraitFramePad*2, menuPanelFrameSlice)
+	drawNineSlice(screen, ui.game.sprites.GetSprite("menu_panel_frame"), layout.portraitFrame.x, layout.portraitFrame.y, layout.portraitFrame.w, layout.portraitFrame.h, menuPanelFrameSlice)
 	drawImageScaled(screen, portrait, portraitX, portraitY, portraitSize, portraitSize)
 
 	// Light text over a dark outline (drawDebugTextShadowed): white body for
@@ -429,19 +401,19 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 
 	// Header
 	header := fmt.Sprintf("%d. %s (%s) Level %d", charIndex+1, member.Name, member.ClassDisplayName(), member.Level)
-	drawDebugTextColored(screen, header, scrollTextX, scrollTextY, textColor)
+	drawDebugTextColored(screen, clipDebugText(header, layout.scroll.right()-scrollTextX-20), scrollTextX, scrollTextY, textColor)
 
 	if ui.characterPage == 1 {
-		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, textColor, mutedTextColor)
-		drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
-		ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
+		ui.drawCharacterCombatPage(screen, member, scrollTextX, scrollTextY, layout.scroll.right()-scrollTextX-20, textColor, mutedTextColor)
+		drawDebugText(screen, "Use 1-4 keys to switch character", layout.instructions.x, layout.instructions.y)
+		ui.drawCharacterPager(screen, layout.pager.x, layout.pager.y, layout.pager.w)
 		return
 	}
 
 	// Core info
-	drawDebugTextColored(screen, fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), scrollTextX, scrollTextY+22, textColor)
-	drawDebugTextColored(screen, fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), scrollTextX+190, scrollTextY+22, textColor)
-	drawDebugTextColored(screen, fmt.Sprintf("Experience: %d", member.Experience), scrollTextX, scrollTextY+38, textColor)
+	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Health: %d/%d", member.HitPoints, member.MaxHitPoints), 180), scrollTextX, scrollTextY+22, textColor)
+	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Spell Points: %d/%d", member.SpellPoints, member.MaxSpellPoints), 174), scrollTextX+190, scrollTextY+22, textColor)
+	drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("Experience: %d", member.Experience), 180), scrollTextX, scrollTextY+38, textColor)
 
 	statusText := "Status: Normal"
 	if len(member.Conditions) > 0 {
@@ -451,7 +423,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		}
 		statusText = fmt.Sprintf("Status: %s", strings.Join(names, ", "))
 	}
-	drawDebugTextColored(screen, statusText, scrollTextX+190, scrollTextY+38, textColor)
+	drawDebugTextColored(screen, clipDebugText(statusText, 174), scrollTextX+190, scrollTextY+38, textColor)
 
 	// Column layout for the scroll body: two columns side-by-side fit within
 	// scrollW=420 (minus padding). All sections below stay within scrollH=300.
@@ -500,7 +472,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 		}
 		y := statY + (i%statRows)*rowH
 		line := fmt.Sprintf("%s: %d", stat.name, stat.eff)
-		drawDebugTextColored(screen, line, x, y, textColor)
+		drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
 		if delta := stat.eff - stat.base; delta != 0 {
 			clr := color.RGBA{130, 210, 130, 255} // bonus green
 			if delta < 0 {
@@ -534,7 +506,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 			x = col2X
 		}
 		y := skillY + (skillIdx%skillRows)*rowH
-		drawDebugTextColored(screen, line, x, y, textColor)
+		drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
 		if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
 			tooltip = masteryTooltipTextForSkill(st)
 			tooltipX = mouseX + 16
@@ -569,7 +541,7 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 				x = col2X
 			}
 			y := magicY + (schoolIdx%magicRows)*rowH
-			drawDebugTextColored(screen, line, x, y, textColor)
+			drawDebugTextColored(screen, clipDebugText(line, colGap-10), x, y, textColor)
 			if tooltip == "" && isMouseHoveringBox(mouseX, mouseY, x, y, x+colGap-10, y+rowH) {
 				tooltip = magicMasteryTooltipText()
 				tooltipX = mouseX + 16
@@ -583,15 +555,15 @@ func (ui *UISystem) drawCharactersContent(screen *ebiten.Image, panelX, contentY
 	}
 
 	// Instructions
-	drawDebugText(screen, "Use 1-4 keys to switch character", cardX, contentY+contentHeight-42)
-	ui.drawCharacterPager(screen, scrollX, contentY+contentHeight-22, scrollW)
+	drawDebugText(screen, "Use 1-4 keys to switch character", layout.instructions.x, layout.instructions.y)
+	ui.drawCharacterPager(screen, layout.pager.x, layout.pager.y, layout.pager.w)
 
 	if tooltip != "" {
 		ui.queueTooltip(strings.Split(tooltip, "\n"), tooltipX, tooltipY)
 	}
 }
 
-func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *character.MMCharacter, x, y int, textColor, headingColor color.Color) {
+func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *character.MMCharacter, x, y, maxWidth int, textColor, headingColor color.Color) {
 	if member == nil {
 		return
 	}
@@ -614,7 +586,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 		fmt.Sprintf("4. Flat buff reduction: -%d", m.FlatBuff),
 	}
 	for i, line := range lines {
-		drawDebugTextColored(screen, line, x, y+50+i*16, textColor)
+		drawDebugTextColored(screen, clipDebugText(line, maxWidth), x, y+50+i*16, textColor)
 	}
 
 	drawDebugTextColored(screen, "RESISTANCES", x, y+158, headingColor)
@@ -628,7 +600,7 @@ func (ui *UISystem) drawCharacterCombatPage(screen *ebiten.Image, member *charac
 			colX += colGap
 		}
 		rowY := y + 178 + (i%5)*18
-		drawDebugTextColored(screen, fmt.Sprintf("%s: %d%%", strings.Title(school), total), colX, rowY, textColor)
+		drawDebugTextColored(screen, clipDebugText(fmt.Sprintf("%s: %d%%", strings.Title(school), total), colGap-10), colX, rowY, textColor)
 	}
 	drawDebugTextColored(screen, fmt.Sprintf("Party resist buff: +%d%%", buffResist), x, y+276, headingColor)
 }
