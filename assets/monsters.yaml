@@ -72,7 +72,7 @@ monsters:
     speed: 2.0
     gold_min: 0
     gold_max: 5
-    sprite: "dire_wolf"
+    sprite: "wolf"
     letter: "w"
     box_w: 48
     box_h: 48
@@ -435,7 +435,7 @@ monsters:
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon"
+    sprite: "elder_dragon"
     tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
     flying: true
     box_w: 48
@@ -468,7 +468,7 @@ monsters:
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_red"
+    sprite: "elder_dragon_red"
     tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
     box_w: 48
@@ -499,7 +499,7 @@ monsters:
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_green"
+    sprite: "elder_dragon_green"
     tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
     box_w: 48
@@ -533,7 +533,7 @@ monsters:
     speed: 4.5
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_gold"
+    sprite: "elder_dragon_gold"
     tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
     box_w: 48
