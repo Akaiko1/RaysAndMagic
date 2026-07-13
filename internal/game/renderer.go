@@ -3000,9 +3000,12 @@ func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, 
 // sprites (ground containers) when the cursor is over them.
 var hoverHighlightTint = [4]float32{1.0, 0.95, 0.6, 0.6}
 
-// containerHoverBoost brightens a standee container while the cursor is over it
-// (the overlay trick used for billboards doesn't map onto the token mesh).
-const containerHoverBoost = 1.4
+// standeeHoverBoost brightens a standee token (container or NPC) while the
+// cursor is over it. The billboard overlay/edge-glow trick doesn't map onto
+// the token mesh: a flat silhouette halo neither turns with the token's yaw
+// nor matches its foreshortened outline, so on tokens the hover cue is the
+// token itself lighting up.
+const standeeHoverBoost = 1.4
 
 // drawUnifiedGroundContainerSprite draws a ground container (loot bag or
 // treasure chest) as a slowly spinning standee token (falling back to a
@@ -3038,7 +3041,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 	if r.game.config.Graphics.Standee.Enabled {
 		sb := b
 		if hovered {
-			sb = b * containerHoverBoost
+			sb = b * standeeHoverBoost
 		}
 		ox, oy := r.game.groundContainerRenderOffset(c)
 		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
@@ -3398,21 +3401,23 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 	}
 	br := float32(brightness)
 
-	// Hover cue on clickable NPCs: a soft edge glow behind the sprite. Drawn
-	// FIRST, so the opaque sprite/standee covers the interior and only the rim
-	// protruding past the silhouette stays visible - an edge glow, not a
-	// brightness wash. Same hit-test as the click path, so wall-mounted
-	// standees highlight where they are actually drawn, not at their tile
-	// centre.
+	// Hover cue on clickable NPCs. Same hit-test as the click path, so
+	// wall-mounted standees highlight where they are actually drawn, not at
+	// their tile centre. HOW the cue renders depends on the draw path: standee
+	// tokens light up (standeeHoverBoost - a flat silhouette halo would neither
+	// turn with the token's yaw nor match its foreshortened outline); the
+	// billboard fallback keeps the silhouette edge glow drawn behind the sprite.
+	hovered := false
 	if r.game.worldClickAllowed() {
 		ex, ey := r.game.npcEffectivePos(s.npc)
 		if dist := Distance(ex, ey, r.game.camera.X, r.game.camera.Y); dist <= InteractionDistance {
 			mouseX, mouseY := ebiten.CursorPosition()
-			if r.game.npcScreenHitTest(s.npc, ex, ey, dist, mouseX, mouseY) {
-				r.drawSpriteEdgeGlow(screen, sprite, drawLeft, s.screenY,
-					float64(s.spriteSize)/float64(frameW), float64(s.spriteSize)/float64(frameH), s.spriteSize)
-			}
+			hovered = r.game.npcScreenHitTest(s.npc, ex, ey, dist, mouseX, mouseY)
 		}
+	}
+	sb := br
+	if hovered {
+		sb = br * standeeHoverBoost
 	}
 
 	// Standee mode: animated NPCs (people) slowly turn to face the party, like
@@ -3434,7 +3439,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
 				return
 			}
 		}
@@ -3446,7 +3451,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
 				return
 			}
 		}
@@ -3476,19 +3481,26 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
 		// instead of a flat token.
 		if cat == catLandmark {
-			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, br) {
+			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, sb) {
 				return
 			}
 		}
 		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, br, br, br, true, false, 0) {
+			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0) {
 			return
 		}
 	}
 
 	scaleX := float64(s.spriteSize) / float64(frameW)
 	scaleY := float64(s.spriteSize) / float64(frameH)
+
+	// Billboard: the flat silhouette edge glow matches the flat draw exactly.
+	// Drawn FIRST, so the opaque sprite covers the interior and only the rim
+	// protruding past the silhouette stays visible.
+	if hovered {
+		r.drawSpriteEdgeGlow(screen, sprite, drawLeft, s.screenY, scaleX, scaleY, s.spriteSize)
+	}
 
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 	opts.GeoM.Translate(float64(drawLeft), float64(s.screenY))
