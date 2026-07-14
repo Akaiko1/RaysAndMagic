@@ -13,7 +13,7 @@ import (
 func questGiverNPC(questID string) *character.NPC {
 	return &character.NPC{
 		Name:           "Tester",
-		RenderCategory: "standee",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting:         "offer",
 			ActiveMessage:    "in-progress",
@@ -103,7 +103,7 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 func branchingNPC(questID string) *character.NPC {
 	return &character.NPC{
 		Name:           "Brancher",
-		RenderCategory: "standee",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting: "root",
 			Choices: []*character.NPCDialogueChoice{
@@ -187,7 +187,7 @@ func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
 func TestSpellTrader_PageFollowsKeyboardSelection(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	npc := &character.NPC{Name: "Trader", RenderCategory: "standee", SpellData: map[string]*character.NPCSpell{}}
+	npc := &character.NPC{Name: "Trader", RenderCategory: "npc", SpellData: map[string]*character.NPCSpell{}}
 	// 15 spells with sortable keys -> spans two pages (perPage = 12).
 	for i := 0; i < 15; i++ {
 		npc.SpellData[fmt.Sprintf("spell_%02d", i)] = &character.NPCSpell{Name: fmt.Sprintf("S%02d", i)}

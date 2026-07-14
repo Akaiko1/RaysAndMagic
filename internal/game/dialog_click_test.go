@@ -15,7 +15,7 @@ func aldricLikeNPC() *character.NPC {
 	return &character.NPC{
 		Name:           "Aldric",
 		Type:           "spell_trader",
-		RenderCategory: "standee",
+		RenderCategory: "npc",
 		SpellData: map[string]*character.NPCSpell{
 			"walk_on_water": {Name: "Walk on Water", Cost: 500},
 		},

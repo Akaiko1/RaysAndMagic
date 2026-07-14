@@ -1764,7 +1764,7 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 		return color.RGBA{200, 70, 70, 255}, true
 	}
 	if data != nil {
-		if data.RenderType == "floor_only" || data.RenderType == "flooring_object" {
+		if data.RenderType == "floor_only" {
 			if key == "empty" {
 				return floorColor, true
 			}
@@ -1777,10 +1777,11 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 			return floorColor, true
 		}
 		if data.Solid || !data.Walkable {
-			// Use the obstacle's own wall_color so different obstacles
-			// (tree vs dune vs house) are distinguishable, not a flat gray.
-			if data.WallColor != [3]int{} {
-				return colorFromRGB(data.WallColor), true
+			// Use the obstacle's own map color (map_color, or a wall's
+			// wall_color) so different obstacles (tree vs dune vs house) are
+			// distinguishable, not a flat gray.
+			if mc := config.TileMapColor(data); mc != [3]int{} {
+				return colorFromRGB(mc), true
 			}
 			return obstacle, true
 		}
@@ -1992,6 +1993,56 @@ func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, gene
 	return specific, general
 }
 
+// tileTypeOrder is the palette column order for the authored tile `type`
+// taxonomy (config.ValidTileTypes) - terrain first, then obstacles, then decor.
+var tileTypeOrder = []string{"floor", "water", "marker", "wall", "wall_decor", "nature", "rock", "structure", "prop"}
+
+// groupTileEntriesByType re-emits a flat tile-entry list as banded [type]
+// subsections in tileTypeOrder, so the palette column reads by what a tile IS
+// (authored `type`), not by an alphabetical soup. Unknown/missing types (never
+// valid for authored tiles, but special tiles pass through) go last.
+func groupTileEntriesByType(entries []legendEntry, tm *world.TileManager) []legendEntry {
+	byType := make(map[string][]legendEntry)
+	for _, e := range entries {
+		t := ""
+		if data := tm.GetTileDataByKey(e.TileKey); data != nil {
+			t = data.Type
+		}
+		byType[t] = append(byType[t], e)
+	}
+	known := make(map[string]bool, len(tileTypeOrder))
+	for _, t := range tileTypeOrder {
+		known[t] = true
+	}
+	var out []legendEntry
+	emit := func(t string) {
+		group := byType[t]
+		if len(group) == 0 {
+			return
+		}
+		label := t
+		if label == "" {
+			label = "other"
+		}
+		out = append(out, sectionHeader(fmt.Sprintf("  [%s] (%d)", label, len(group))))
+		out = append(out, group...)
+	}
+	for _, t := range tileTypeOrder {
+		emit(t)
+	}
+	extras := make([]string, 0)
+	for t := range byType {
+		if !known[t] {
+			extras = append(extras, t)
+		}
+	}
+	sort.Strings(extras)
+	for _, t := range extras {
+		emit(t)
+	}
+	return out
+}
+
 // buildLegendEntries builds the editor palette scoped to one biome: universal
 // tiles/monsters plus those whose biome list contains `biome`. Other biomes'
 // entries are hidden so a forest tree can't be painted into a desert map, and
@@ -2042,12 +2093,11 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	// letter OR short_label) under their own "biome: general" section.
 	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
 	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
-	entries = append(entries, tileSpecific...)
+	entries = append(entries, groupTileEntriesByType(tileSpecific, tm)...)
 	if len(tileGeneral) > 0 || len(generalLabelTiles) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
 		entries = append(entries, sectionHeader("Tiles - biome: general (any map)"))
-		entries = append(entries, tileGeneral...)
-		entries = append(entries, generalLabelTiles...)
+		entries = append(entries, groupTileEntriesByType(append(tileGeneral, generalLabelTiles...), tm)...)
 	}
 
 	if mc != nil {
@@ -2094,36 +2144,27 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
 	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
 	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
-	// Grouped by DISPLAY TYPE (standee / animated / wall_mounted / landmark /
-	// scenery / door / invisible) via game.NPCDisplayCategory - the same
-	// classification the game's renderer uses, so a new render branch surfaces
-	// as its own palette group automatically (see that function).
+	// Grouped by the authored `type:` (the behavior classification, validated
+	// closed-set at load) - render_category is purely a render dispatch and the
+	// palette never groups by it.
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, sectionHeader("Special NPCs (@ by display type)"))
+		entries = append(entries, sectionHeader("Special NPCs (@ by type)"))
 
 		keysByCat := map[string][]string{}
 		for key, data := range character.NPCConfigInstance.NPCs {
-			renderCategory := ""
 			npcType := ""
 			if data != nil {
-				renderCategory = data.RenderCategory
 				npcType = data.Type
 			}
-			cat := game.NPCDisplayCategory(renderCategory)
-			// Loot crates (and their lectern cousins) are a gameplay family,
-			// not a render class - group them under their own header.
-			if character.IsWalkUpPropType(npcType) {
-				cat = "loot crates"
-			}
-			keysByCat[cat] = append(keysByCat[cat], key)
+			keysByCat[npcType] = append(keysByCat[npcType], key)
 		}
 
-		// Canonical order first, then any category not in the known list (a
-		// freshly added render branch) appended alphabetically so it still shows.
+		// Canonical order first, then any type not in the known list appended
+		// alphabetically so it still shows.
 		cats := make([]string, 0, len(keysByCat))
 		seen := map[string]bool{}
-		for _, cat := range game.NPCDisplayCategoryOrder {
+		for _, cat := range character.NPCTypeOrder {
 			if _, ok := keysByCat[cat]; ok {
 				cats = append(cats, cat)
 				seen[cat] = true
@@ -2152,19 +2193,12 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 			for _, key := range keys {
 				data := character.NPCConfigInstance.NPCs[key]
 				name := key
-				typ := ""
-				if data != nil {
-					if data.Name != "" {
-						name = data.Name
-					}
-					typ = data.Type
+				if data != nil && data.Name != "" {
+					name = data.Name
 				}
 				label := fmt.Sprintf("@  %s (%s)", key, name)
-				if typ != "" {
-					label += " [" + typ + "]"
-				}
 				// Wrap long labels into continuation rows (word-wrap) instead of
-				// truncating with an ellipsis, so the full name + [type] stays
+				// truncating with an ellipsis, so the full name stays
 				// readable in the narrow sidebar. Every wrapped row carries the
 				// same NPC brush, so click + highlight cover the whole block.
 				wrapped := wrapTooltipLines(label, legendTextCols)

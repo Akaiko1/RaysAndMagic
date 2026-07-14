@@ -742,6 +742,25 @@ type TileLightConfig struct {
 	Intensity   float64 `yaml:"intensity"`
 }
 
+// ValidTileTypes is the closed set of authored tile `type` values: a purely
+// organizational taxonomy the map editor groups its palette by. REQUIRED on
+// every tiles.yaml entry (special_tiles.yaml has its own palette section and
+// is exempt); validated fail-fast at load. No render code reads it.
+var ValidTileTypes = map[string]bool{
+	"floor": true, "water": true, "marker": true, "wall": true,
+	"wall_decor": true, "nature": true, "rock": true, "structure": true, "prop": true,
+}
+
+// TileMapColor is the schematic map/minimap swatch color for a solid tile:
+// the authored map_color, else the wall's own wall_color. One helper shared
+// by the in-game map overlay and the editor so the two can never disagree.
+func TileMapColor(td *TileData) [3]int {
+	if td.MapColor != [3]int{} {
+		return td.MapColor
+	}
+	return td.WallColor
+}
+
 type TileData struct {
 	Name        string `yaml:"name"`
 	Type        string `yaml:"type,omitempty"`
@@ -769,8 +788,15 @@ type TileData struct {
 	// then reused only as the tint for the tile's decoration (spawn border /
 	// teleporter glow), not the floor itself.
 	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
-	WallColor    [3]int   `yaml:"wall_color"`
-	Letter       string   `yaml:"letter"`
+	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
+	// not rotate; a fountain keeps the showcase spin).
+	NoSpin bool `yaml:"no_spin,omitempty"`
+	// WallColor paints a textured_wall's 3D surface fallback (and doubles as
+	// its schematic map swatch). Non-wall solid tiles author MapColor instead:
+	// it is ONLY the schematic map/minimap obstacle color (a tree is not a wall).
+	WallColor [3]int   `yaml:"wall_color,omitempty"`
+	MapColor  [3]int   `yaml:"map_color,omitempty"`
+	Letter    string   `yaml:"letter"`
 	Biomes       []string `yaml:"biomes,omitempty"`
 	// ShortLabel is a multi-char placement token for GENERAL (universal) tiles
 	// that have no single-char letter - placed in maps via a >[tile:short_label]
@@ -1480,6 +1506,17 @@ type CrateConfig struct {
 	LootTable         string            `yaml:"loot_table,omitempty"`
 	RollSources       []CrateRollSource `yaml:"roll_sources,omitempty"`
 	SpecialRolls      []CrateRollSource `yaml:"special_rolls,omitempty"`
+	// FreeRest: opening the crate also rests the party for free (a campfire) -
+	// full HP/SP, no food cost. One-time like any crate.
+	FreeRest bool `yaml:"free_rest,omitempty"`
+	// BonusStat/BonusAmount: a stat barrel - opening grants the SELECTED
+	// character a PERMANENT +BonusAmount to the named stat (lowercase
+	// stats.Names key). A crate with only this effect may author no rolls.
+	BonusStat   string `yaml:"bonus_stat,omitempty"`
+	BonusAmount int    `yaml:"bonus_amount,omitempty"`
+	// BonusChancePct gates the stat bonus (a barrel may turn out empty).
+	// 0/unset = always.
+	BonusChancePct int `yaml:"bonus_chance_pct,omitempty"`
 	TrapDamage        int               `yaml:"trap_damage,omitempty"`
 	TrapDamageTypes   []string          `yaml:"trap_damage_types,omitempty"`
 	TrapIgnite        bool              `yaml:"trap_ignite,omitempty"`
@@ -1609,16 +1646,28 @@ func validateCrates(lt *LootTablesConfig) error {
 				return fmt.Errorf("crate %q: trap_damage_types[%d] has unsupported damage type %q", key, i, damageType)
 			}
 		}
+		// Effect fields apply to EVERY crate shape (loot_table ones included),
+		// so they validate before the loot_table early-out.
+		if c.BonusStat != "" && !stats.IsName(c.BonusStat) {
+			return fmt.Errorf("crate %q: unknown bonus_stat %q", key, c.BonusStat)
+		}
+		if c.BonusStat != "" && c.BonusAmount == 0 {
+			return fmt.Errorf("crate %q: bonus_stat requires bonus_amount", key)
+		}
+		if c.BonusChancePct < 0 || c.BonusChancePct > 100 {
+			return fmt.Errorf("crate %q: bonus_chance_pct must be 0..100", key)
+		}
 		if c.LootTable != "" {
 			if _, ok := lt.WeightedLootTables[c.LootTable]; !ok {
 				return fmt.Errorf("crate %q: unknown loot_table %q", key, c.LootTable)
 			}
 			continue
 		}
-		if c.Rolls <= 0 {
-			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table)", key)
+		hasOtherEffect := c.FreeRest || c.BonusStat != ""
+		if c.Rolls <= 0 && !hasOtherEffect {
+			return fmt.Errorf("crate %q: rolls must be > 0 (or set loot_table / free_rest / bonus_stat)", key)
 		}
-		if len(c.RollSources) == 0 {
+		if c.Rolls > 0 && len(c.RollSources) == 0 {
 			return fmt.Errorf("crate %q: needs roll_sources (or set loot_table)", key)
 		}
 		for i, src := range c.RollSources {
@@ -1652,6 +1701,8 @@ func validateCrateRollSource(crate, sourceName string, idx int, src CrateRollSou
 		return fmt.Errorf("crate %q %s[%d]: weight must be > 0", crate, sourceName, idx)
 	}
 	switch src.Pool {
+	case "nothing":
+		return nil // a weighted empty slot ("50% the crate holds nothing")
 	case "map", "rare":
 		if !validRarityFilter(src.Rarity) || !validRarityFilter(src.MinRarity) || !validRarityFilter(src.MaxRarity) {
 			return fmt.Errorf("crate %q %s[%d]: invalid rarity filter", crate, sourceName, idx)

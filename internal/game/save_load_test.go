@@ -403,7 +403,7 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	cfg := loadTestConfig(t)
 	w := newTestWorld(cfg)
-	statue := &character.NPC{RenderCategory: "standee", Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
+	statue := &character.NPC{RenderCategory: "scenery", Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
 	w.NPCs = append(w.NPCs, statue)
 	game := newTestGame(cfg, w)
 	game.renderHelper = NewRenderingHelper(game)
@@ -523,7 +523,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	}
 
 	// NPC linked to the cliff troll cull (target_map: dragon_cliffs).
-	npc := &character.NPC{RenderCategory: "standee", DialogueData: &character.NPCDialogue{
+	npc := &character.NPC{RenderCategory: "npc", DialogueData: &character.NPCDialogue{
 		Choices: []*character.NPCDialogueChoice{
 			{Action: "turn_in_quest", QuestID: "dragon_cliffs_troll_cull"},
 		},

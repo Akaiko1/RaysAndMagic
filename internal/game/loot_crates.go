@@ -48,6 +48,13 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if crate == nil {
 		return
 	}
+	// Combat lockout: the Space focus is already combat-blocked, but a mouse
+	// click reaches here directly - without this a campfire is a free mid-fight
+	// full rest. Checked BEFORE Visited so the attempt doesn't waste the crate.
+	if g.partyInCombat() {
+		g.AddCombatMessage(fmt.Sprintf("No time to search the %s mid-fight!", npc.Name))
+		return
+	}
 	// Direct line of sight required: no opening through walls, and the
 	// axis-stepping ray already refuses diagonal gaps between trees.
 	if g.collisionSystem != nil && !g.collisionSystem.CheckLineOfSight(g.camera.X, g.camera.Y, npc.X, npc.Y) {
@@ -59,13 +66,45 @@ func (g *MMGame) useLootCrate(npc *character.NPC) {
 	if crate.TrapDamage > 0 || crate.TrapIgnite {
 		g.springCrateTrap(npc, crate)
 	}
+	g.applyCrateEffects(npc, crate)
 	if crate.LootTable != "" {
 		loot, gold := rollWeightedLootTable(crate.LootTable)
 		g.grantCrateLoot(npc, loot, gold, 0)
 		return
 	}
-	loot, gold, arenaPoints := g.rollCratePool(crate)
-	g.grantCrateLoot(npc, loot, gold, arenaPoints)
+	if crate.Rolls > 0 {
+		loot, gold, arenaPoints := g.rollCratePool(crate)
+		g.grantCrateLoot(npc, loot, gold, arenaPoints)
+	}
+}
+
+// applyCrateEffects applies a crate's non-loot payload: a campfire's free rest
+// and a stat barrel's permanent bonus for the SELECTED character (a green
+// effective-stat gain, never a base-stat write; MaxHP/MaxSP re-derive with the
+// gain granted to the current pools too).
+func (g *MMGame) applyCrateEffects(npc *character.NPC, crate *config.CrateConfig) {
+	if crate.FreeRest {
+		g.restParty()
+		g.AddCombatMessage("The party rests by the warm fire - fully recovered!")
+	}
+	if crate.BonusStat != "" && crate.BonusAmount != 0 {
+		if crate.BonusChancePct > 0 && rand.Intn(100) >= crate.BonusChancePct {
+			g.AddCombatMessage(fmt.Sprintf("The %s turns out to be empty.", npc.Name))
+			return
+		}
+		// The draught goes to the SELECTED character - whoever the player has
+		// active drinks from the barrel, MM-style.
+		if g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
+			return
+		}
+		m := g.party.Members[g.selectedChar]
+		bonus := character.StatBonusesFromMap(map[string]int{crate.BonusStat: crate.BonusAmount})
+		m.PermanentBonuses = m.PermanentBonuses.Add(bonus)
+		// Irreversible gain: grant the max-pool delta to CURRENT HP/SP too,
+		// same as spending a stat point (not the reversible keep-current path).
+		m.RecalculateMaxStatsGrantingGain(g.config)
+		g.AddCombatMessage(fmt.Sprintf("%s feels changed forever: %s, permanently!", m.Name, bonus.Summary()))
+	}
 }
 
 // springCrateTrap fires the chest's trap unless the party's best Disarm Trap
@@ -200,6 +239,8 @@ func pickCrateRollSource(sources []config.CrateRollSource) (config.CrateRollSour
 
 func (g *MMGame) rollCrateSource(src config.CrateRollSource) crateRoll {
 	switch src.Pool {
+	case "nothing":
+		return crateRoll{} // weighted empty slot - the crate held nothing this roll
 	case "map":
 		it, ok := g.rollMapLootEntry(src.Rarity, src.MinRarity, src.MaxRarity)
 		return crateRoll{item: it, ok: ok}

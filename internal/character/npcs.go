@@ -9,6 +9,8 @@ type NPC struct {
 	Type             string
 	Description      string
 	Sprite           string
+	VisitedSprite    string // optional art swap once Visited (an emptied barrel closes)
+	NoSpin           bool   // pin the token to a fixed pose (a box pile does not rotate)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
 	Transparent      bool
@@ -35,9 +37,32 @@ type NPC struct {
 // dispatch, render treatment, editor palette) references these, never a bare
 // literal, so a rename or a new walk-up prop is a single-site change.
 const (
-	NPCTypeLootCrate    = "loot_crate"
-	NPCTypeSpellLectern = "spell_lectern"
+	NPCTypeEncounter     = "encounter"
+	NPCTypeQuestGiver    = "quest_giver"
+	NPCTypeMerchant      = "merchant"
+	NPCTypeSpellTrader   = "spell_trader"
+	NPCTypeSkillTrainer  = "skill_trainer"
+	NPCTypeCardCollector = "card_collector"
+	NPCTypeLootCrate     = "loot_crate"
+	NPCTypeSpellLectern  = "spell_lectern"
 )
+
+// ValidNPCTypes is the closed set of authored NPC `type:` values. REQUIRED on
+// every npcs.yaml entry and validated fail-fast at load: type drives behavior
+// dispatch (dialog kind, walk-up interaction) AND the editor palette grouping,
+// so a typo must fail loud, not fall into the default dialog branch.
+var ValidNPCTypes = map[string]bool{
+	NPCTypeEncounter: true, NPCTypeQuestGiver: true, NPCTypeMerchant: true,
+	NPCTypeSpellTrader: true, NPCTypeSkillTrainer: true, NPCTypeCardCollector: true,
+	NPCTypeLootCrate: true, NPCTypeSpellLectern: true,
+}
+
+// NPCTypeOrder is the canonical editor palette section order for NPC types:
+// people you deal with first, props after, the encounter catch-all last.
+var NPCTypeOrder = []string{
+	NPCTypeQuestGiver, NPCTypeMerchant, NPCTypeSpellTrader, NPCTypeSkillTrainer,
+	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeEncounter,
+}
 
 // IsWalkUpPropType reports whether a `type:` is a walk-up interactable prop
 // (chest, lectern): the party walks right onto its tile and uses it. These

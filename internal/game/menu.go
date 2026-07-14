@@ -275,6 +275,9 @@ type CharacterSave struct {
 	Speed                 int                `json:"speed"`
 	Luck                  int                `json:"luck"`
 	FreeStatPoints        int                `json:"free_stat_points"`
+	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
+	// effective-stat layer, kept apart from the base stats above.
+	PermanentBonuses map[string]int `json:"permanent_bonuses,omitempty"`
 	OwedLevelChoices      []int              `json:"owed_level_choices,omitempty"`
 	Conditions            []int              `json:"conditions"`
 	Skills                []SkillEntry       `json:"skills"`
@@ -791,6 +794,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		Speed:            cs.Speed,
 		Luck:             cs.Luck,
 		FreeStatPoints:   cs.FreeStatPoints,
+		PermanentBonuses: character.StatBonusesFromMap(cs.PermanentBonuses),
 		OwedLevelChoices: append([]int(nil), cs.OwedLevelChoices...),
 		Skills:           make(map[character.SkillType]*character.Skill),
 		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
@@ -869,6 +873,9 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 		Luck:             m.Luck,
 		FreeStatPoints:   m.FreeStatPoints,
 		OwedLevelChoices: append([]int(nil), m.OwedLevelChoices...),
+	}
+	if m.PermanentBonuses != (character.StatBonuses{}) {
+		cs.PermanentBonuses = m.PermanentBonuses.ToMap()
 	}
 	if len(m.Conditions) > 0 {
 		cs.Conditions = make([]int, len(m.Conditions))

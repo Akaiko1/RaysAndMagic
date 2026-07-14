@@ -5,11 +5,11 @@
 # the sand hall; they bar passage while a duel champion lives on this map.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %&&&&&&&&%.........%&&&&&&&&%
-%&.......%.....@...%.......&%  >[npc:arena_bones]
+%&.......%.....@...%@@....@&%  >[npc:arena_bones], [npc:barrel_green], [npc:pile_of_old_boxes], [npc:barrel_blue]
 %&.......%.........%.......&%
-%&@..+...@.........@.......&%  >[npc:arena_exit], [npc:arena_gate], [npc:arena_gate]
-%&.......%.........%.......&%
-%&..@....%.........%..@....&%  >[npc:arena_duel_master], [npc:arena_bones]
+%&@..+...@.........@...@...&%  >[npc:arena_exit], [npc:arena_gate], [npc:arena_gate], [npc:campfire]
+%&.......%.........%......@&%  >[npc:pile_of_old_boxes]
+%&..@....%.........%..@...@&%  >[npc:arena_duel_master], [npc:arena_bones], [npc:barrel_red]
 %&&&&&&&&%.........%&&&&&&&&%
 %%%%%%%%%%.........%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%

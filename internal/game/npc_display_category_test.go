@@ -19,16 +19,18 @@ func TestNPCRenderCategoryParsing(t *testing.T) {
 func TestNPCRenderCategoryValidation(t *testing.T) {
 	valid := map[string]*character.NPCData{
 		"gate": {RenderCategory: "wall_mounted"},
-		"elf":  {RenderCategory: "animated"},
+		"elf":  {RenderCategory: "npc"},
 	}
 	if err := ValidateNPCRenderCategories(valid); err != nil {
 		t.Errorf("valid categories rejected: %v", err)
 	}
 
 	for name, npcs := range map[string]map[string]*character.NPCData{
-		"missing":           {"gate": {}},
-		"unknown":           {"gate": {RenderCategory: "bogus"}},
-		"legacy wall value": {"gate": {RenderCategory: "wall"}},
+		"missing":               {"gate": {}},
+		"unknown":               {"gate": {RenderCategory: "bogus"}},
+		"legacy wall value":     {"gate": {RenderCategory: "wall"}},
+		"legacy standee value":  {"gate": {RenderCategory: "standee"}},
+		"legacy animated value": {"gate": {RenderCategory: "animated"}},
 	} {
 		if err := ValidateNPCRenderCategories(npcs); err == nil {
 			t.Errorf("%s render_category passed validation", name)
@@ -46,26 +48,16 @@ func TestResolveNPCRenderCatPanicsOnUnknown(t *testing.T) {
 	resolveNPCRenderCat("")
 }
 
-// Every canonical category must have a label, a YAML name, and appear in the
-// sort order, so the editor never drops a group and content can always name it.
+// Every canonical category must have a YAML name (render_category is purely a
+// render dispatch; the editor groups by the NPC `type:` field, not by this).
 func TestNPCRenderCatTablesCoverAll(t *testing.T) {
-	all := []npcRenderCat{catStandee, catAnimated, catWall, catDoor, catLandmark, catScenery, catInvisible}
-	inOrder := map[string]bool{}
-	for _, c := range NPCDisplayCategoryOrder {
-		inOrder[c] = true
-	}
+	all := []npcRenderCat{catNPC, catWall, catDoor, catLandmark, catScenery, catInvisible}
 	for _, c := range all {
-		if npcCatLabel[c] == "" {
-			t.Errorf("category %d has no editor label", c)
-		}
 		if npcCatName[c] == "" {
 			t.Errorf("category %d has no YAML name", c)
 		}
-		if !inOrder[npcCatLabel[c]] {
-			t.Errorf("category %q missing from NPCDisplayCategoryOrder", npcCatLabel[c])
-		}
 	}
-	if len(NPCDisplayCategoryOrder) != len(all) {
-		t.Errorf("NPCDisplayCategoryOrder has %d entries, want %d", len(NPCDisplayCategoryOrder), len(all))
+	if len(npcCatName) != len(all) {
+		t.Errorf("npcCatName has %d entries, want %d", len(npcCatName), len(all))
 	}
 }

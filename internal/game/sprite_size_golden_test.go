@@ -127,7 +127,7 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 				continue
 			}
 			switch data.RenderType {
-			case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
+			case "tree_sprite", "environment_sprite", "landmark":
 			default:
 				continue
 			}

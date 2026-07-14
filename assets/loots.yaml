@@ -627,6 +627,37 @@ loots:
 # trap_ignite = party burn for trap_ignite_seconds; Disarm Trap mastery avoids
 # either entirely at 40/60/80/100%.
 crates:
+  # Roadside props (2026-07-14): boxes may hold sellable junk, the campfire is
+  # a one-time free rest + coin cache, the barrels are one-time stat draughts.
+  pile_of_old_boxes:
+    rolls: 1
+    roll_sources:
+      - pool: "nothing"
+        weight: 50
+      - pool: "catalog"
+        item_type: "trinket"
+        max_rarity: "rare"  # roadside junk never hides a legendary
+        weight: 50
+  campfire:
+    rolls: 1
+    free_rest: true
+    roll_sources:
+      - pool: "gold"
+        amount: 500
+        weight: 1
+  barrel_red:
+    bonus_stat: "might"
+    bonus_amount: 1
+    bonus_chance_pct: 50
+  barrel_green:
+    bonus_stat: "speed"
+    bonus_amount: 1
+    bonus_chance_pct: 50
+  barrel_blue:
+    bonus_stat: "intellect"
+    bonus_amount: 1
+    bonus_chance_pct: 50
+
   chest_wooden:
     rolls: 3
     roll_sources:

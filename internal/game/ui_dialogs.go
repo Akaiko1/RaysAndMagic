@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/highscore"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
@@ -1448,7 +1449,8 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 			if !matched && world.GlobalTileManager != nil {
 				if td := world.GlobalTileManager.GetTileData(tile); td != nil {
 					if td.Solid {
-						cellColor = color.RGBA{uint8(td.WallColor[0]), uint8(td.WallColor[1]), uint8(td.WallColor[2]), 255}
+						mc := config.TileMapColor(td)
+						cellColor = color.RGBA{uint8(mc[0]), uint8(mc[1]), uint8(mc[2]), 255}
 					} else if td.FloorNearColor != [3]int{} {
 						cellColor = color.RGBA{uint8(td.FloorNearColor[0]), uint8(td.FloorNearColor[1]), uint8(td.FloorNearColor[2]), 255}
 					}

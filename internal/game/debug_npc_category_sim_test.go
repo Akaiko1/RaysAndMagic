@@ -61,44 +61,44 @@ func TestDebugSim_NPCCategories(t *testing.T) {
 		return cfg.Width, cfg.Height
 	}
 
-	byCat := map[string][]string{}
+	byType := map[string][]string{}
 	unresolved := 0
 	for key, data := range character.NPCConfigInstance.NPCs {
-		sprite, rc := "", ""
+		sprite, typ, rc := "", "", ""
 		if data != nil {
-			sprite, rc = data.Sprite, data.RenderCategory
+			sprite, typ, rc = data.Sprite, data.Type, data.RenderCategory
 		}
 		w, h := dims(sprite)
 		if sprite != "" && sprite != "none" && (w == 0 || h == 0) {
 			unresolved++
 			t.Logf("  WARN sprite %q for npc %q did not resolve", sprite, key)
 		}
-		cat := NPCDisplayCategory(rc)
-		byCat[cat] = append(byCat[cat], key)
+		byType[typ] = append(byType[typ], fmt.Sprintf("%s(render:%s)", key, rc))
 	}
 
-	t.Logf("--- NPC display categories (real npcs.yaml, %d NPCs, %d unresolved sprites) ---",
+	t.Logf("--- NPC palette groups by type (real npcs.yaml, %d NPCs, %d unresolved sprites) ---",
 		len(character.NPCConfigInstance.NPCs), unresolved)
-	for _, cat := range NPCDisplayCategoryOrder {
-		keys := byCat[cat]
+	for _, typ := range character.NPCTypeOrder {
+		keys := byType[typ]
 		if len(keys) == 0 {
 			continue
 		}
 		sort.Strings(keys)
-		t.Logf("[%s] (%d): %v", cat, len(keys), keys)
+		t.Logf("[%s] (%d): %v", typ, len(keys), keys)
 	}
-	// Any category returned but not in the canonical order (future branch).
-	for cat, keys := range byCat {
+	// Any type present but not in the canonical order (would fail load
+	// validation for authored content - shown here for completeness).
+	for typ, keys := range byType {
 		found := false
-		for _, c := range NPCDisplayCategoryOrder {
-			if c == cat {
+		for _, c := range character.NPCTypeOrder {
+			if c == typ {
 				found = true
 				break
 			}
 		}
 		if !found {
 			sort.Strings(keys)
-			t.Logf("[%s] (%d, NOT in NPCDisplayCategoryOrder): %v", cat, len(keys), keys)
+			t.Logf("[%s] (%d, NOT in NPCTypeOrder): %v", typ, len(keys), keys)
 		}
 	}
 	fmt.Println()

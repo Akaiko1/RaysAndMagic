@@ -2,35 +2,40 @@ package game
 
 import (
 	"fmt"
+	"strings"
 
 	"ugataima/internal/character"
 )
 
-// npcRenderCat is the single enum describing HOW an NPC renders. It is the one
-// source of truth shared by the engine draw dispatch (drawUnifiedNPCSprite),
-// the sprite-metric selection (NPCSpriteMetrics) and the map-editor `@` palette
-// grouping - so the classification can never drift between editor and game.
+// npcRenderCat is the single enum describing HOW an NPC renders - the one
+// source of truth for the engine draw dispatch (drawUnifiedNPCSprite) and the
+// sprite-metric selection (NPCSpriteMetrics). PURELY about rendering: the
+// editor palette classifies by the authored NPC `type:` instead (see
+// character.NPCTypeOrder), never by render_category.
 //
 // The category is AUTHORED in YAML (NPC `render_category`, REQUIRED): every
 // npcs.yaml consumer validates via ValidateNPCRenderCategories and fails fast
 // on a missing or unknown value, so runtime code can trust it blindly.
+//
+// Frame ANIMATION is never a category: any sprite whose sheet is
+// w == frameHeight*SpriteSheetFrameCount animates, whatever category it is in
+// (selectAnimatedSpriteFrame). A category only decides pose, sizing floor and
+// interaction semantics.
 type npcRenderCat int
 
 const (
-	catStandee   npcRenderCat = iota // a person/figure token (static sprite)
-	catAnimated                      // a person/figure whose sheet is w == h*SpriteSheetFrameCount
+	catNPC       npcRenderCat = iota // a person/figure: turns to face the party, keeps the readability pixel floor, "talk to"
 	catWall                          // flush wall-mounted token (slides to the nearest solid neighbour)
 	catDoor                          // doorway blocker: stands ACROSS the opening (yaw from the flanking walls); drawn + solid only while closed
 	catLandmark                      // tall crossed monument standee (towers, gates, fountains)
-	catScenery                       // scenery prop (environment sprite; sized like a tree)
+	catScenery                       // scenery prop: showcase-spins in place, may recede small at range, "investigate"
 	catInvisible                     // no sprite - a pure interaction/anchor point
 )
 
 // npcCatName is the canonical YAML value for each category (NPC render_category)
 // and the reverse map used to parse it. Editing one keeps both in sync.
 var npcCatName = map[npcRenderCat]string{
-	catStandee:   "standee",
-	catAnimated:  "animated",
+	catNPC:       "npc",
 	catWall:      "wall_mounted",
 	catDoor:      "door",
 	catLandmark:  "landmark",
@@ -45,17 +50,6 @@ var npcCatByName = func() map[string]npcRenderCat {
 	}
 	return m
 }()
-
-// npcCatLabel is the human-facing section title the map editor groups under.
-var npcCatLabel = map[npcRenderCat]string{
-	catStandee:   "Standee",
-	catAnimated:  "Animated NPC",
-	catWall:      "Wall standee",
-	catDoor:      "Door (doorway blocker)",
-	catLandmark:  "Landmark (crossed standee)",
-	catScenery:   "Scenery standee",
-	catInvisible: "Invisible / anchor",
-}
 
 // ValidNPCRenderCategories is the set of accepted render_category YAML values,
 // for fail-fast content validation.
@@ -87,7 +81,7 @@ func ValidateNPCRenderCategories(npcs map[string]*character.NPCData) error {
 			if npc != nil {
 				got = npc.RenderCategory
 			}
-			return fmt.Errorf("NPC %q has missing or unknown render_category %q (valid: standee|animated|wall_mounted|landmark|scenery|door|invisible)", key, got)
+			return fmt.Errorf("NPC %q has missing or unknown render_category %q (valid: npc|wall_mounted|landmark|scenery|door|invisible)", key, got)
 		}
 	}
 	return nil
@@ -102,26 +96,20 @@ func npcRenderCatOf(npc *character.NPC) npcRenderCat {
 // opposed to a prop/landmark/anchor you investigate. Driven by the authored
 // render_category, so prompts can never disagree with what is drawn.
 func npcIsPerson(npc *character.NPC) bool {
-	cat := npcRenderCatOf(npc)
-	return cat == catStandee || cat == catAnimated
+	return npcRenderCatOf(npc) == catNPC
 }
 
-// NPCDisplayCategory returns the editor grouping label for an NPC definition.
-// Same classification the renderer dispatches on, so a new render branch
-// surfaces as its own palette group.
-func NPCDisplayCategory(renderCategory string) string {
-	return npcCatLabel[resolveNPCRenderCat(renderCategory)]
-}
-
-// NPCDisplayCategoryOrder is the canonical section order for grouped NPC
-// palettes (most structural first, plain standees last). Unlisted labels are
-// appended after these by the caller.
-var NPCDisplayCategoryOrder = []string{
-	npcCatLabel[catStandee],
-	npcCatLabel[catAnimated],
-	npcCatLabel[catWall],
-	npcCatLabel[catDoor],
-	npcCatLabel[catLandmark],
-	npcCatLabel[catScenery],
-	npcCatLabel[catInvisible],
+// npcSpriteName resolves the sprite an NPC currently shows: the authored
+// visited_sprite once Visited (an emptied barrel closes -> opens), else the
+// base sprite. Drives both the draw lookup and the standee cache keys, so a
+// swap can never serve a stale cached silhouette.
+func npcSpriteName(npc *character.NPC) string {
+	name := npc.Sprite
+	if npc.Visited && npc.VisitedSprite != "" {
+		name = npc.VisitedSprite
+	}
+	if name == "" {
+		return "elf"
+	}
+	return strings.TrimSuffix(name, ".png")
 }

@@ -1515,8 +1515,6 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 				return // Skip transparent environment sprites - rendered in unified sprite pass
 			}
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
-		case "flooring_object":
-			r.drawEnvironmentSprite(screen, screenX, hit.Distance, tileType)
 		case "textured_wall":
 			r.drawTexturedWallSlice(screen, screenX, hit.Distance, tileType, rayWidth,
 				hit.WallSide, hit.TextureCoord)
@@ -2673,6 +2671,13 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 			near := minDistSq
+			// SOLID props never near-cull: the party cannot stand ON them, only
+			// right against them - and an impassable object that vanishes at
+			// point-blank reads as an invisible wall (the planks pile). Walkable
+			// greenery keeps the cull so it doesn't smear across the screen.
+			if world.GlobalTileManager != nil && world.GlobalTileManager.IsSolid(spriteData.tileType) {
+				near = 0
+			}
 			// Wall-mounted decorations are drawn on the adjacent wall (wallStickPose),
 			// so cull/size from there - the tile centre culls when you stand on it.
 			// Same effective-position rule as npcEffectivePos.
@@ -2848,11 +2853,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 
-		spriteName := "elf"
-		if npc.Sprite != "" {
-			spriteName = strings.TrimSuffix(npc.Sprite, ".png")
-		}
-		sprite := r.game.sprites.GetSprite(spriteName)
+		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeNPC,
@@ -3009,9 +3010,10 @@ const standeeHoverBoost = 1.4
 
 // drawUnifiedGroundContainerSprite draws a ground container (loot bag or
 // treasure chest) as a slowly spinning standee token (falling back to a
-// billboard when standee mode is off). A loot bag is recolored to its best
-// item's metallic rarity (baked into the texture so it spins with the token);
-// chests and common bags keep their original art.
+// billboard when standee mode is off). A loot bag holding items shows its
+// rarity-specific sack SPRITE (bag_<rarity>.png via effectiveSprite - no
+// runtime recolor); a gold-only bag shows the plain gold pile, chests their
+// chest art.
 func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	if !r.spriteDepthBufferVisible(s) || s.groundContainer == nil {
 		return
@@ -3125,7 +3127,8 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// spinning in place - same monument treatment as the landmark NPCs (they
 		// spin, unlike ordinary scenery which only faces the camera).
 		if world.GlobalTileManager != nil && world.GlobalTileManager.GetRenderType(s.tileType) == "landmark" {
-			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 {
+			td := world.GlobalTileManager.GetTileData(s.tileType)
+			if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; spin != 0 && (td == nil || !td.NoSpin) {
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
 				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 			}
@@ -3437,7 +3440,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// wall bias.
 		if r.game.npcIsWall(s.npc) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
 				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
 				return
@@ -3450,7 +3453,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// flanking wall pair).
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
 				return
 			}
@@ -3463,8 +3466,8 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 
 	if r.game.config.Graphics.Standee.Enabled {
 		yaw := standeeStaticYaw
-		animated := cat == catAnimated // creatures face the party; static objects spin
-		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; animated && speed > 0 {
+		facesParty := cat == catNPC // people attend to the visitor; props spin showcase-style
+		if speed := r.game.config.Graphics.Standee.EnvFaceDegPerSec; facesParty && speed > 0 {
 			target := math.Atan2(r.game.camera.Y-s.npc.Y, r.game.camera.X-s.npc.X) + math.Pi/2
 			if r.standeeNPCYaw == nil {
 				r.standeeNPCYaw = make(map[*character.NPC]standeeEnvYawState)
@@ -3473,7 +3476,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			st = r.smoothYaw(st, seen, target, speed)
 			r.standeeNPCYaw[s.npc] = st
 			yaw = st.yaw
-		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !animated && spin != 0 {
+		} else if spin := r.game.config.Graphics.Standee.NPCSpinDegPerSec; !facesParty && spin != 0 && !s.npc.NoSpin {
 			phase := auraHash(int(s.npc.X), int(s.npc.Y), 0, 0) * 2 * math.Pi
 			yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 		}
@@ -3481,11 +3484,11 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
 		// instead of a flat token.
 		if cat == catLandmark {
-			if r.drawLandmarkStandee(screen, sprite, "landmark:"+s.npc.Sprite, s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, sb) {
+			if r.drawLandmarkStandee(screen, sprite, "landmark:"+npcSpriteName(s.npc), s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, sb) {
 				return
 			}
 		}
-		key := standeeCoreKey{name: "npc:" + s.npc.Sprite, bounds: sprite.Bounds()}
+		key := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
 			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0) {
 			return

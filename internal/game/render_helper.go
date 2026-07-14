@@ -365,16 +365,23 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 	return color.RGBA{101, 67, 33, 255}
 }
 
-// billboardMetrics sizes a floor-anchored creature/person billboard by tile
-// height (1.0 == a 1-tile wall). The only knob that varies by subject is the
-// minimum pixel floor (how small a far sprite is allowed to recede to). Monster
-// and NPC tokens intentionally have no near-cull, like loot containers.
+// billboardMetrics is THE sizing formula for every floor-anchored entity
+// billboard (monsters, NPCs, props, loot containers): height in tiles
+// (1.0 == a 1-tile wall), no near-cull - entities remain visible when the
+// party steps into their tile. The only knob that varies by subject is the
+// minimum pixel floor (how small a far sprite is allowed to recede to).
+// Environment TILES (trees etc.) add a tile-type multiplier on top - see
+// calculateEnvironmentSpriteMetrics; both funnel into projectSpriteMetrics.
 func (rh *RenderingHelper) billboardMetrics(entityX, entityY, distance, sizeTiles float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeTiles <= 0 {
 		sizeTiles = 1
 	}
 	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
+
+// sceneryMinSpriteSize is the pixel floor for prop standees (scenery/landmark/
+// wall/door): unlike people they may recede to almost nothing at range.
+const sceneryMinSpriteSize = 8
 
 // CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
 // distant mobs shrink freely). sizeTiles is height in tiles.
@@ -383,14 +390,8 @@ func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, dista
 }
 
 // CalculateGroundContainerSpriteMetrics sizes an interactable loot container.
-// Unlike monsters/NPCs/env props, containers remain visible when the party steps
-// into their tile; otherwise the player loses sight of the thing they are about
-// to pick up or open.
 func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
-	if sizeTiles <= 0 {
-		sizeTiles = 1
-	}
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
 }
 
 // CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
@@ -419,22 +420,20 @@ func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance
 	if rh.game.npcIsWalkUpProp(npc) {
 		return rh.CalculateGroundContainerSpriteMetrics(ex, ey, distance, size)
 	}
-	// Props (scenery/landmark/wall standees) size on the environment path;
-	// people on the NPC path.
+	// One sizing formula for all NPCs (billboardMetrics); only the minimum
+	// pixel floor differs - props may recede far smaller than people.
 	switch npcRenderCatOf(npc) {
 	case catScenery, catLandmark, catWall, catDoor:
-		return rh.calculateEnvironmentSpriteMetrics(ex, ey, distance, world.TileEmpty, size, 0)
+		return rh.billboardMetrics(ex, ey, distance, size, sceneryMinSpriteSize)
 	default:
 		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)
 	}
 }
 
-// CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
+// CalculateEnvironmentSpriteMetrics sizes an environment TILE sprite (trees,
+// rocks): billboardMetrics' model plus the tile-type height multiplier, and a
+// fixed 5.0 near-cull (env tiles keep it even in turn-based mode).
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.calculateEnvironmentSpriteMetrics(entityX, entityY, distance, tileType, sizeScale, 5.0)
-}
-
-func (rh *RenderingHelper) calculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale, nearCull float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeScale <= 0 {
 		sizeScale = 1
 	}
@@ -445,7 +444,7 @@ func (rh *RenderingHelper) calculateEnvironmentSpriteMetrics(entityX, entityY, d
 	}
 	heightMultiplier *= sizeScale
 
-	return rh.projectSpriteMetrics(entityX, entityY, distance, nearCull, heightMultiplier, 8)
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, sceneryMinSpriteSize)
 }
 
 // projectSpriteMetrics is the shared projection core for floor-anchored

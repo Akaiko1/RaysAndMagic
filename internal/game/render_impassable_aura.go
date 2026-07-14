@@ -196,7 +196,7 @@ func (r *Renderer) emitAuraEdge(screen *ebiten.Image, tx, ty int, d [2]int, ts f
 // ground-bubble hint. Trees (tree_sprite) and textured walls already read as
 // solid, and floor_only tiles aren't blockers.
 func isAuraBillboardRenderType(rt string) bool {
-	return rt == "environment_sprite" || rt == "flooring_object"
+	return rt == "environment_sprite"
 }
 
 // auraTileColor returns the average RGB of a tile's billboard sprite texture

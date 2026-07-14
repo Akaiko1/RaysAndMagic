@@ -17,7 +17,7 @@ npcs:
     type: "spell_trader"
     description: "A serene priestess in white and gold, keeper of a lakeside shrine, who teaches the divine arts of body, mind and spirit"
     sprite: "priestess_spell_merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Peace, traveler. Few cross the bridge to my shrine; the Light rewards those who do. I teach the arts of body, mind, and spirit - choose a soul to bless."
@@ -51,7 +51,7 @@ npcs:
     type: "spell_trader"
     description: "An eager young hedge-mage camped at the forest's edge, peddling the few charms she has mastered while she dreams of greater teaching"
     sprite: "beginner_spell_merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Oh - a real adventuring party! I'm Mira. I've not mastered much yet, but what I have I'll gladly sell. Pick a companion and I'll show you my one good trick."
@@ -98,7 +98,7 @@ npcs:
     type: "merchant"
     description: "A graceful elven trader in green robes, healing vials at her belt, dealing in the road staples a far-walking party always forgets"
     sprite: "elf"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Well met. I'm Aelwen - I don't deal in wonders, only the staples that keep a party walking. What did you forget to pack?"
@@ -117,7 +117,7 @@ npcs:
     type: "merchant"
     description: "A young traveling peddler - potion-tray at her hip, bedroll on her back - who walks the long desert routes and pays fair coin for cast-off gear"
     sprite: "merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     sell_available: true
     dialogue:
@@ -128,7 +128,7 @@ npcs:
     type: "card_collector"
     description: "A monocled scholar of monster cards, pouches of stamped parchment at every belt-loop, set up under a sun-awning in the dunes"
     sprite: "card_collector"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Monster cards! Slot one into your collection and the whole party shares its power - or pull one back out. Only I know the trick of pinning them."
@@ -139,7 +139,7 @@ npcs:
     description: "A keen-eyed elven warden in green and leather, blade at her hip, who keeps watch over the roads out of the village"
     sprite: "elf_warrior"
     size_class: person
-    render_category: animated
+    render_category: npc
     dialogue:
       greeting: "Hold a moment, travelers. I ward the roads out of here, and of late they run to old and hungry places. Walk them with open eyes - the land remembers more than it forgives."
 
@@ -363,7 +363,7 @@ npcs:
     type: "quest_giver"
     description: "A wind-battered scout who watches the dragon cliffs for raiders and trolls"
     sprite: "dragon_cliffs_ranger"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Down - keep low when the wind shifts. Good. You've a steadier hand than the last lot who came up this trail. I'm Maera; I watch these cliffs so the bridge towns below get a warning before the trouble does. And lately there's trouble."
@@ -401,7 +401,7 @@ npcs:
     type: "quest_giver"
     description: "A hermit draped in dragon teeth and old cliff charms"
     sprite: "dragon_cliffs_bone_hermit"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Hsh. Listen - there, under your feet. The bones remember flame, and lately the rock has begun to hum back. I have hung these dragon-teeth thirty years and never heard it sing like this. Something below has taught the mountain mages to listen. That is never a small thing."
@@ -742,7 +742,7 @@ npcs:
     type: "quest_giver"
     description: "A cloaked ratfolk who keeps the Seabright culverts and their seven sluice valves, lantern always lit"
     sprite: "ratman_cloak"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Hsss - easy, top-dweller. Grist means no harm. I keep these culverts; have, since before your harbor learned to count its coin. Lower that steel and I'll tell you what glitters down here in the dark."
@@ -882,7 +882,7 @@ npcs:
     type: "quest_giver"
     description: "A masterless swordsman in a straw cloak, the last of a fallen eastern house, lingering at the castle gate"
     sprite: "ronin_outcast"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Stay your feet, westerner. You stand at the gate of a dead house. I am Shozo - once sworn sword to its lord, now only the man who sweeps its steps. Speak softly here. The one who sleeps above does not love to be woken... unless it is done properly."
@@ -1046,7 +1046,7 @@ npcs:
     type: "merchant"
     description: "The blade-dealer of Seabright Arms; daggers at her hip and a knife-trick for every customer who haggles"
     sprite: "city_weapon_merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     sell_available: true
     dialogue:
@@ -1080,7 +1080,7 @@ npcs:
     type: "merchant"
     description: "Keeper of Harbor Remedies; a belt of labelled vials and not one mystery brew among them"
     sprite: "city_potion_merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     sell_available: true
     stock_refresh_weeks: 1
@@ -1105,7 +1105,7 @@ npcs:
     type: "spell_trader"
     description: "Mistress of the Tideglass Scriptorium; a robed scholar of the four elements whose harbor windows are always salt-fogged"
     sprite: "city_spell_merchant"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "Mind the wet ink. I'm Oletta of the Tideglass Scriptorium - I scribe the four elements true: fire, water, air, earth. No Light, no Dark. Choose a character."
@@ -1142,7 +1142,7 @@ npcs:
     type: "skill_trainer"
     description: "A staff-bearing martial instructor in worn leathers; she sharpens skills and magic schools a party already owns"
     sprite: "city_skill_trainer"
-    render_category: animated
+    render_category: npc
     size_class: person
     dialogue:
       greeting: "I'm Ilyra. I sharpen what you already know - I don't hand out gifts. Pick a character and a mastery they hold."
@@ -1198,7 +1198,7 @@ npcs:
     type: "encounter"
     description: "A scarred gladiator in gilded armour, halberd planted, sizing up every passerby"
     sprite: "gladiator_gatekeeper"
-    render_category: animated
+    render_category: npc
     transparent: true
     size_class: person
     currency: "arena_points"
@@ -1333,7 +1333,7 @@ npcs:
     type: "encounter"
     description: "A tidy young clerk behind a counter, ledger in hand, a strongbox at her feet"
     sprite: "storage_clerk"
-    render_category: animated
+    render_category: npc
     transparent: true
     size_class: person
     dialogue:
@@ -1353,7 +1353,7 @@ npcs:
     type: "encounter"
     description: "A scarred gladiator in gilded armour, keeper of the pit's rules"
     sprite: "gladiator_gatekeeper"
-    render_category: animated
+    render_category: npc
     transparent: true
     size_class: person
     currency: "arena_points"
@@ -1419,6 +1419,60 @@ npcs:
   # --- Loot crates: one-shot chests placed via @ on any map. Direct line of
   # sight required to open (no walls, no diagonal gaps). Loot + trap rules
   # live in loots.yaml `crates:` keyed by these NPC keys.
+  pile_of_old_boxes:
+    name: "Pile of Old Boxes"
+    type: "loot_crate"
+    description: "Splintered crates heaped into a leaning tower - something might have been left inside"
+    sprite: "pile_of_old_boxes"
+    render_category: landmark
+    no_spin: true
+    prompt_verb: search
+    transparent: true
+    size_tiles: 0.5
+
+  campfire:
+    name: "Abandoned Campfire"
+    type: "loot_crate"
+    description: "A neat ring of stones around live embers - the owner left in a hurry"
+    sprite: "campfire"
+    render_category: scenery
+    prompt_verb: rest at
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_red:
+    name: "Red Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, sealed with a red-brown lid"
+    sprite: "barrel_red"
+    visited_sprite: "barrel_red_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_green:
+    name: "Green Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, its staves stained mossy green"
+    sprite: "barrel_green"
+    visited_sprite: "barrel_green_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_blue:
+    name: "Blue Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, its staves washed a deep blue"
+    sprite: "barrel_blue"
+    visited_sprite: "barrel_blue_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
   chest_wooden:
     name: "Wooden Chest"
     type: "loot_crate"
@@ -1457,7 +1511,7 @@ npcs:
     type: "spell_lectern"
     description: "An open tome chained to a carved stone lectern, its script slowly rearranging itself"
     sprite: "spell_lectern"
-    render_category: standee
+    render_category: scenery
     prompt_verb: study
     transparent: true
     size_tiles: 0.7

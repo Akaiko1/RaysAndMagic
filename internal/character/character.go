@@ -84,6 +84,10 @@ type MMCharacter struct {
 	// stats AND derived MaxHP/MaxSP read it, so buffs behave like real stats.
 	// Runtime-only: rebuilt from buff state on load, never saved per character.
 	BuffBonuses StatBonuses
+	// PermanentBonuses are one-time permanent stat gains (stat barrels): part of
+	// the EFFECTIVE stats (green delta on the sheet), never of the base stats,
+	// persisted in the save.
+	PermanentBonuses StatBonuses
 
 	// BonusMaxHP is a flat MaxHP addition from an external source (the Jungle
 	// Idol Card), pushed the same way as BuffBonuses. Runtime-only.
@@ -1159,55 +1163,55 @@ func (c *MMCharacter) GetEffectiveStats() (might, intellect, personality, endura
 	// (pushed by the game when spells like Bless apply/expire).
 	eqMight, eqIntellect, eqPersonality, eqEndurance, eqAccuracy, eqSpeed, eqLuck := c.calculateEquipmentBonuses()
 
-	return c.Might + c.BuffBonuses.Might + eqMight,
-		c.Intellect + c.BuffBonuses.Intellect + eqIntellect,
-		c.Personality + c.BuffBonuses.Personality + eqPersonality,
-		c.Endurance + c.BuffBonuses.Endurance + eqEndurance,
-		c.Accuracy + c.BuffBonuses.Accuracy + eqAccuracy,
-		c.Speed + c.BuffBonuses.Speed + eqSpeed,
-		c.Luck + c.BuffBonuses.Luck + eqLuck
+	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqMight,
+		c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqIntellect,
+		c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqPersonality,
+		c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqEndurance,
+		c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqAccuracy,
+		c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqSpeed,
+		c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqLuck
 }
 
 // GetEffectiveMight returns effective Might with bonuses applied
 func (c *MMCharacter) GetEffectiveMight() int {
 	eqBonus, _, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Might + c.BuffBonuses.Might + eqBonus
+	return c.Might + c.BuffBonuses.Might + c.PermanentBonuses.Might + eqBonus
 }
 
 // GetEffectiveIntellect returns effective Intellect with bonuses applied
 func (c *MMCharacter) GetEffectiveIntellect() int {
 	_, eqBonus, _, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Intellect + c.BuffBonuses.Intellect + eqBonus
+	return c.Intellect + c.BuffBonuses.Intellect + c.PermanentBonuses.Intellect + eqBonus
 }
 
 // GetEffectivePersonality returns effective Personality with bonuses applied
 func (c *MMCharacter) GetEffectivePersonality() int {
 	_, _, eqBonus, _, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Personality + c.BuffBonuses.Personality + eqBonus
+	return c.Personality + c.BuffBonuses.Personality + c.PermanentBonuses.Personality + eqBonus
 }
 
 // GetEffectiveEndurance returns effective Endurance with bonuses applied
 func (c *MMCharacter) GetEffectiveEndurance() int {
 	_, _, _, eqBonus, _, _, _ := c.calculateEquipmentBonuses()
-	return c.Endurance + c.BuffBonuses.Endurance + eqBonus
+	return c.Endurance + c.BuffBonuses.Endurance + c.PermanentBonuses.Endurance + eqBonus
 }
 
 // GetEffectiveAccuracy returns effective Accuracy with bonuses applied
 func (c *MMCharacter) GetEffectiveAccuracy() int {
 	_, _, _, _, eqBonus, _, _ := c.calculateEquipmentBonuses()
-	return c.Accuracy + c.BuffBonuses.Accuracy + eqBonus
+	return c.Accuracy + c.BuffBonuses.Accuracy + c.PermanentBonuses.Accuracy + eqBonus
 }
 
 // GetEffectiveSpeed returns effective Speed with bonuses applied
 func (c *MMCharacter) GetEffectiveSpeed() int {
 	_, _, _, _, _, eqBonus, _ := c.calculateEquipmentBonuses()
-	return c.Speed + c.BuffBonuses.Speed + eqBonus
+	return c.Speed + c.BuffBonuses.Speed + c.PermanentBonuses.Speed + eqBonus
 }
 
 // GetEffectiveLuck returns effective Luck with bonuses applied
 func (c *MMCharacter) GetEffectiveLuck() int {
 	_, _, _, _, _, _, eqBonus := c.calculateEquipmentBonuses()
-	return c.Luck + c.BuffBonuses.Luck + eqBonus
+	return c.Luck + c.BuffBonuses.Luck + c.PermanentBonuses.Luck + eqBonus
 }
 
 // calculateEquipmentBonuses returns stat bonuses from all equipped items (YAML-driven)

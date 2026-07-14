@@ -55,14 +55,14 @@ func TestSaveLoad_PersistsMerchantStockByNPCCoordinates(t *testing.T) {
 	newStockedWorld := func() *world.World3D {
 		w := newTestWorld(cfg)
 		merchant := &character.NPC{
-			Name: "Trader", RenderCategory: "standee", X: 96, Y: 96,
+			Name: "Trader", RenderCategory: "npc", X: 96, Y: 96,
 			MerchantStock: []*character.MerchantStockItem{
 				{Item: items.Item{Name: "Health Potion"}, Cost: 10, Quantity: 3},
 				{Item: items.Item{Name: "Dead Branch"}, Cost: 25, Quantity: 1},
 			},
 		}
-		gateA := &character.NPC{RenderCategory: "standee", Name: "City Gate", X: 160, Y: 96}
-		gateB := &character.NPC{RenderCategory: "standee", Name: "City Gate", X: 96, Y: 160}
+		gateA := &character.NPC{RenderCategory: "npc", Name: "City Gate", X: 160, Y: 96}
+		gateB := &character.NPC{RenderCategory: "npc", Name: "City Gate", X: 96, Y: 160}
 		w.NPCs = append(w.NPCs, merchant, gateA, gateB)
 		return w
 	}

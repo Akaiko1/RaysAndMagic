@@ -41,7 +41,31 @@ func NewTileManager() *TileManager {
 }
 
 // validateTileConfiguration checks for conflicts in tile letters
+// validTileRenderTypes is the closed set of render_type values the renderer
+// actually dispatches on. An unknown value would load fine and then render
+// NOTHING (the legacy "flooring_object" died exactly that way), so it is a
+// load-time error, never a silent invisible tile.
+var validTileRenderTypes = map[string]bool{
+	"floor_only": true, "textured_wall": true, "environment_sprite": true,
+	"tree_sprite": true, "landmark": true,
+}
+
 func (tm *TileManager) validateTileConfiguration() error {
+	for key, data := range tm.tileData {
+		if !validTileRenderTypes[data.RenderType] {
+			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: floor_only|textured_wall|environment_sprite|tree_sprite|landmark)", key, data.RenderType)
+		}
+		// Every authored tile carries an explicit organizational `type` (editor
+		// palette grouping). Special tiles (teleporters/traps) have their own
+		// palette section and are exempt.
+		if tm.specialTileKeys[key] {
+			continue
+		}
+		if !config.ValidTileTypes[data.Type] {
+			return fmt.Errorf("tile %q has missing or unknown type %q (valid: floor|water|marker|wall|wall_decor|nature|rock|structure|prop)", key, data.Type)
+		}
+	}
+
 	// Map to track letter conflicts: letter -> biome -> tile keys
 	letterMap := make(map[string]map[string][]string)
 
@@ -319,7 +343,7 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
+		case "tree_sprite", "environment_sprite", "landmark":
 			return true
 		}
 	}
@@ -355,7 +379,7 @@ func (tm *TileManager) GetSizeTiles(tileType TileType3D) float64 {
 		return data.SizeTiles
 	}
 	switch data.RenderType {
-	case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
+	case "tree_sprite", "environment_sprite", "landmark":
 		if data.HeightMultiplier > 0 {
 			return data.HeightMultiplier
 		}

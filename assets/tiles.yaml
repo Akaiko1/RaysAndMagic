@@ -2,6 +2,7 @@ tiles:
   # Basic terrain types
   empty:
     name: "Empty Space"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -14,6 +15,7 @@ tiles:
 
   wall:
     name: "Stone Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -25,6 +27,7 @@ tiles:
 
   water:
     name: "Water"
+    type: "water"
     solid: false
     transparent: true
     walkable: false
@@ -37,6 +40,7 @@ tiles:
 
   deep_water:
     name: "Deep Water"
+    type: "water"
     solid: false
     transparent: true
     walkable: false
@@ -49,6 +53,7 @@ tiles:
 
   door:
     name: "Door"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false  # Can be changed to true when opened
@@ -61,26 +66,28 @@ tiles:
   # Natural features - Trees (Forest biome)
   tree:
     name: "Forest Tree"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 2.0
     sprite: "forest_oak"
     render_type: "tree_sprite"
-    wall_color: [101, 67, 33]  # Brown tree bark
+    map_color: [101, 67, 33]  # Brown tree bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
     letter: "T"
     biomes: ["forest"]
 
   ancient_tree:
     name: "Ancient Tree"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 2.0
     sprite: "old_platan"
     render_type: "tree_sprite"
-    wall_color: [69, 39, 19]  # Darker brown ancient bark
+    map_color: [69, 39, 19]  # Darker brown ancient bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
     letter: "A"
     biomes: ["forest"]
@@ -88,71 +95,77 @@ tiles:
   # Desert biome variants
   desert_dune:
     name: "Sand Dune"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 1.5
     sprite: "sand_dune"
     render_type: "tree_sprite"
-    wall_color: [238, 203, 173]  # Sandy brown
+    map_color: [238, 203, 173]  # Sandy brown
     floor_near_color: [205, 175, 149]  # Lighter sand near dunes
     letter: "T"
     biomes: ["desert"]
 
   large_dune:
     name: "Large Sand Dune"
+    type: "nature"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 2.0
     sprite: "large_dune"
     render_type: "tree_sprite"
-    wall_color: [222, 184, 135]  # Burlywood
+    map_color: [222, 184, 135]  # Burlywood
     floor_near_color: [205, 175, 149]  # Lighter sand near dunes
     letter: "A"
     biomes: ["desert"]
 
   palm_tree:
     name: "Desert Palm"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
     sprite: "palm"
     render_type: "environment_sprite"
-    wall_color: [96, 128, 56]  # Palm-frond green
+    map_color: [96, 128, 56]  # Palm-frond green
     letter: "P"
     biomes: ["desert", "jungle"]  # reused along jungle riverbanks (letter P)
 
   # Water biome variants
   coral_reef:
     name: "Coral Reef"
+    type: "water"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 1.8
     sprite: "coral_reef"
     render_type: "tree_sprite"
-    wall_color: [255, 127, 80]  # Coral orange
+    map_color: [255, 127, 80]  # Coral orange
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "T"
     biomes: ["water"]
 
   large_coral:
     name: "Large Coral Formation"
+    type: "water"
     solid: true
     transparent: false
     walkable: false
     size_tiles: 2.2
     sprite: "large_coral"
     render_type: "tree_sprite"
-    wall_color: [220, 20, 60]  # Crimson coral
+    map_color: [220, 20, 60]  # Crimson coral
     floor_near_color: [70, 130, 180]  # Steel blue ocean floor
     letter: "A"
     biomes: ["water"]
 
   thicket:
     name: "Dense Undergrowth"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -168,6 +181,7 @@ tiles:
   # sea horizon behind the map's tree/dune border. Not placeable (no letter).
   seaview:
     name: "Sea View"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -179,6 +193,7 @@ tiles:
   # Universal off-map backdrop used when a biome sets no out_of_bounds_tile.
   oob_cliff:
     name: "Cliff Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -189,6 +204,7 @@ tiles:
 
   church_floor:
     name: "Abandoned Church Floor"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -202,6 +218,7 @@ tiles:
 
   church_wall:
     name: "Abandoned Church Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -214,6 +231,7 @@ tiles:
 
   arena_floor:
     name: "Arena Sand"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -227,6 +245,7 @@ tiles:
 
   arena_wall:
     name: "Arena Grandstand"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -239,6 +258,7 @@ tiles:
 
   arena_corridor_wall:
     name: "Arena Corridor Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -251,6 +271,7 @@ tiles:
 
   pyramid_floor:
     name: "Pyramid Floor"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -264,6 +285,7 @@ tiles:
 
   pyramid_wall:
     name: "Pyramid Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -276,6 +298,7 @@ tiles:
 
   lich_nexus_floor:
     name: "Lich Nexus Floor"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -289,6 +312,7 @@ tiles:
 
   lich_nexus_wall:
     name: "Lich Nexus Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -301,6 +325,7 @@ tiles:
 
   culverts_floor:
     name: "Culverts Floor"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -314,6 +339,7 @@ tiles:
 
   culverts_wall:
     name: "Culverts Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -326,6 +352,7 @@ tiles:
 
   culverts_wall_1:
     name: "Culverts Wall (Brick)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -338,6 +365,7 @@ tiles:
 
   culverts_wall_2:
     name: "Culverts Wall (Mossy)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -350,6 +378,7 @@ tiles:
 
   culverts_wall_3:
     name: "Culverts Wall (Grate)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -365,6 +394,7 @@ tiles:
   # : tatami (rooms), ; garden (blossom earth). Walls reuse %, #, B, = (biome-scoped).
   japanese_castle_cobble:
     name: "Castle Cobblestone"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -378,6 +408,7 @@ tiles:
 
   japanese_castle_wood:
     name: "Castle Wood Floor"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -391,6 +422,7 @@ tiles:
 
   japanese_castle_tatami:
     name: "Castle Tatami"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -404,6 +436,7 @@ tiles:
 
   japanese_castle_garden:
     name: "Castle Garden Earth"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -417,6 +450,7 @@ tiles:
 
   japanese_castle_wall:
     name: "Castle Wall (Plaster)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -429,6 +463,7 @@ tiles:
 
   japanese_castle_wall_1:
     name: "Castle Wall (Red Gate)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -441,6 +476,7 @@ tiles:
 
   japanese_castle_wall_2:
     name: "Castle Wall (Lantern Lattice)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -453,6 +489,7 @@ tiles:
 
   japanese_castle_wall_3:
     name: "Castle Wall (Mossy Stone)"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -468,6 +505,7 @@ tiles:
   # room (the racks are "hidden behind the screens"); the alcove is entered around.
   castle_lantern:
     name: "Stone Lantern"
+    type: "structure"
     solid: true
     transparent: true
     walkable: false
@@ -479,6 +517,7 @@ tiles:
 
   castle_bonsai:
     name: "Bonsai"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
@@ -490,6 +529,7 @@ tiles:
 
   castle_shoji:
     name: "Shoji Screen"
+    type: "structure"
     solid: true
     transparent: true
     walkable: false
@@ -506,6 +546,7 @@ tiles:
   # universal water/deep_water tiles (W/Q, impassable); S is a walkable ford.
   jungle_ruin_floor:
     name: "Mossy Flagstone"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -519,6 +560,7 @@ tiles:
 
   jungle_varzea_floor:
     name: "Flooded Floodplain"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -532,6 +574,7 @@ tiles:
 
   jungle_ford:
     name: "River Ford"
+    type: "water"
     solid: false
     transparent: true
     walkable: true
@@ -548,6 +591,7 @@ tiles:
   # K dark cliff with waterfalls.
   jungle_wall_foliage:
     name: "Dense Foliage"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -560,6 +604,7 @@ tiles:
 
   jungle_wall_ruin:
     name: "Carved Ruin Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -572,6 +617,7 @@ tiles:
 
   jungle_wall_trunk:
     name: "Buttress Trunks"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -584,6 +630,7 @@ tiles:
 
   jungle_wall_cliff:
     name: "Waterfall Cliff"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -599,26 +646,28 @@ tiles:
   # (P) stay placeable in the editor; the deep_jungle map uses V/Y in their place.
   jungle_vine_tree:
     name: "Strangler Vine Tree"
+    type: "nature"
     solid: true
     transparent: false        # dense canopy: blocks sight, like the trunk wall it replaces
     walkable: false
     size_tiles: 2.0
     sprite: "tropical_vine_tree"
     render_type: "tree_sprite"
-    wall_color: [92, 70, 48]
+    map_color: [92, 70, 48]
     floor_near_color: [20, 70, 30]
     letter: "V"
     biomes: ["jungle"]
 
   jungle_palm:
     name: "Jungle Palms"
+    type: "nature"
     solid: true
     transparent: true         # see-through like the desert palm - scattered decor, not a sight wall
     walkable: false
     size_tiles: 2.0
     sprite: "three_intertwined_palms"
     render_type: "tree_sprite"
-    wall_color: [96, 128, 56]
+    map_color: [96, 128, 56]
     floor_near_color: [20, 70, 30]
     letter: "Y"
     biomes: ["jungle"]
@@ -626,30 +675,33 @@ tiles:
   # Jungle decor billboards (solid, see-through). G fern clump, O fallen log.
   jungle_fern:
     name: "Fern Clump"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
     sprite: "deep_jungle_fern"
     render_type: "environment_sprite"
-    wall_color: [50, 110, 45]
+    map_color: [50, 110, 45]
     letter: "G"
     biomes: ["jungle"]
 
   jungle_log:
     name: "Fallen Log"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
     sprite: "deep_jungle_log"
     render_type: "environment_sprite"
-    wall_color: [92, 70, 46]
+    map_color: [92, 70, 46]
     letter: "O"
     biomes: ["jungle"]
 
   city_floor:
     name: "City Cobblestone"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -663,6 +715,7 @@ tiles:
 
   city_wall:
     name: "City Stone Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -675,6 +728,7 @@ tiles:
 
   city_house_0:
     name: "Town House"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -687,6 +741,7 @@ tiles:
 
   city_house_1:
     name: "Plaster House"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -699,6 +754,7 @@ tiles:
 
   city_house_2:
     name: "Stone Townhouse"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -711,6 +767,7 @@ tiles:
 
   city_house_3:
     name: "Brick House"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -723,6 +780,7 @@ tiles:
 
   city_house_4:
     name: "Narrow House"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -735,6 +793,7 @@ tiles:
 
   city_house_5:
     name: "Ivy House"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -747,6 +806,7 @@ tiles:
 
   city_shop_weapon:
     name: "Weapon Shop"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -760,6 +820,7 @@ tiles:
 
   city_shop_potions:
     name: "Potion Shop"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -772,6 +833,7 @@ tiles:
 
   city_shop_spells:
     name: "Spell Shop"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -784,6 +846,7 @@ tiles:
 
   city_shop_trainer:
     name: "Mastery Trainer"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -796,6 +859,7 @@ tiles:
 
   city_gate_wall:
     name: "City Gate"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -808,19 +872,21 @@ tiles:
 
   city_fountain:
     name: "City Fountain"
+    type: "structure"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 2.0
     sprite: "city_fountain"
     render_type: "landmark"
-    wall_color: [120, 120, 110]
+    map_color: [120, 120, 110]
     floor_texture_group: "default"
     letter: "O"
     biomes: ["city"]
 
   highlands_floor:
     name: "Highlands Grass"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -834,6 +900,7 @@ tiles:
 
   highlands_cliff:
     name: "Highlands Cliff"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -846,6 +913,7 @@ tiles:
 
   highlands_granite:
     name: "Granite Cliff"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -858,6 +926,7 @@ tiles:
 
   highlands_ruin_wall:
     name: "Highland Ruins"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -870,6 +939,7 @@ tiles:
 
   highlands_slate_wall:
     name: "Slate Retaining Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -882,44 +952,48 @@ tiles:
 
   highlands_pine:
     name: "Highland Pine"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 2.0
     sprite: "highlands_pine"
     render_type: "environment_sprite"
-    wall_color: [64, 92, 38]
+    map_color: [64, 92, 38]
     floor_near_color: [48, 102, 42]
     letter: "T"
     biomes: ["highlands"]
 
   highlands_rock_outcrop:
     name: "Rock Outcrop"
+    type: "rock"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
     render_type: "environment_sprite"
-    wall_color: [124, 122, 112]
+    map_color: [124, 122, 112]
     floor_near_color: [96, 112, 72]
     letter: "A"
     biomes: ["highlands"]
 
   highlands_boulder:
     name: "Mossy Boulder"
+    type: "rock"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
     sprite: "highlands_boulder"
     render_type: "environment_sprite"
-    wall_color: [116, 116, 104]
+    map_color: [116, 116, 104]
     letter: "R"
     biomes: ["highlands"]
 
   highlands_heather:
     name: "Heather Patch"
+    type: "nature"
     solid: false
     transparent: true
     walkable: true
@@ -932,6 +1006,7 @@ tiles:
 
   highlands_stream:
     name: "Highland Stream"
+    type: "water"
     solid: false
     transparent: true
     walkable: true
@@ -945,6 +1020,7 @@ tiles:
 
   dragon_cliffs_floor:
     name: "Dragon Cliffs Grass"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -958,6 +1034,7 @@ tiles:
 
   dragon_cliffs_basalt_floor:
     name: "Scorched Basalt Ground"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -971,6 +1048,7 @@ tiles:
 
   dragon_cliffs_stream:
     name: "Cold Cliff Stream"
+    type: "water"
     solid: false
     transparent: true
     walkable: true
@@ -991,6 +1069,7 @@ tiles:
   # never placed by map letter, hence no letter).
   quest_bridge:
     name: "Wooden Bridge"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -1003,6 +1082,7 @@ tiles:
 
   dragon_cliffs_bridge:
     name: "Cliff Bridge (v0)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -1016,6 +1096,7 @@ tiles:
 
   dragon_cliffs_bridge_b:
     name: "Cliff Bridge (v1)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -1029,6 +1110,7 @@ tiles:
 
   dragon_cliffs_chasm_edge:
     name: "Chasm Edge (v0)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -1042,6 +1124,7 @@ tiles:
 
   dragon_cliffs_chasm_edge_b:
     name: "Chasm Edge (v1)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: true
@@ -1055,6 +1138,7 @@ tiles:
 
   dragon_cliffs_chasm_floor:
     name: "Chasm Bottom (v0)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: false
@@ -1069,6 +1153,7 @@ tiles:
 
   dragon_cliffs_chasm_floor_b:
     name: "Chasm Bottom (v1)"
+    type: "floor"
     solid: false
     transparent: true
     walkable: false
@@ -1083,6 +1168,7 @@ tiles:
 
   dragon_cliffs_cliff:
     name: "Dragon Cliffs"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1095,6 +1181,7 @@ tiles:
 
   dragon_cliffs_basalt_wall:
     name: "Ember Basalt Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1107,6 +1194,7 @@ tiles:
 
   dragon_cliffs_ruin_wall:
     name: "Dragon-Carved Ruins"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1119,6 +1207,7 @@ tiles:
 
   dragon_cliffs_slate_wall:
     name: "Claw-Marked Slate Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1131,44 +1220,48 @@ tiles:
 
   dragon_cliffs_wind_pine:
     name: "Wind-Bent Pine"
+    type: "nature"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 2.0
     sprite: "dragon_cliffs_wind_pine"
     render_type: "environment_sprite"
-    wall_color: [62, 88, 48]
+    map_color: [62, 88, 48]
     floor_near_color: [64, 102, 52]
     letter: "T"
     biomes: ["dragon_cliffs"]
 
   dragon_cliffs_rock_outcrop:
     name: "Cliff Rock Outcrop"
+    type: "rock"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.6
     sprite: "dragon_cliffs_boulder"
     render_type: "environment_sprite"
-    wall_color: [112, 112, 104]
+    map_color: [112, 112, 104]
     floor_near_color: [92, 104, 72]
     letter: "A"
     biomes: ["dragon_cliffs"]
 
   dragon_cliffs_boulder:
     name: "Mossy Cliff Boulder"
+    type: "rock"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
     sprite: "dragon_cliffs_boulder"
     render_type: "environment_sprite"
-    wall_color: [108, 108, 100]
+    map_color: [108, 108, 100]
     letter: "R"
     biomes: ["dragon_cliffs"]
 
   dragon_cliffs_heather:
     name: "Ember Heather Patch"
+    type: "nature"
     solid: false
     transparent: true
     walkable: true
@@ -1181,13 +1274,14 @@ tiles:
 
   dragon_cliffs_dragon_bones:
     name: "Dragon Bones"
+    type: "prop"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.35
     sprite: "dragon_cliffs_dragon_bones"
     render_type: "environment_sprite"
-    wall_color: [178, 158, 132]
+    map_color: [178, 158, 132]
     floor_near_color: [92, 84, 70]
     letter: "D"
     biomes: ["dragon_cliffs"]
@@ -1197,19 +1291,21 @@ tiles:
   # the tile below the stream and opens the travel dialog when the party is near.
   forest_portal_rock:
     name: "Highland Rock Outcrop"
+    type: "rock"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.6
     sprite: "highlands_rock_outcrop"
     render_type: "environment_sprite"
-    wall_color: [124, 122, 112]
+    map_color: [124, 122, 112]
     floor_near_color: [48, 102, 42]
     letter: "K"
     biomes: ["forest"]
 
   forest_portal_stream:
     name: "Shimmering Portal Water"
+    type: "marker"
     solid: false
     transparent: true
     walkable: true
@@ -1221,20 +1317,35 @@ tiles:
     letter: "J"
     biomes: ["forest"]
 
-  moss_rock:
-    name: "Moss-covered Stone"
+  wooden_planks:
+    name: "Wooden Planks"
+    type: "prop"
     solid: true
     transparent: true
     walkable: false
     size_tiles: 1.0
+    sprite: "wooden_planks"
+    render_type: "landmark"
+    no_spin: true
+    map_color: [124, 94, 55]
+    short_label: "planks"
+
+  moss_rock:
+    name: "Moss-covered Stone"
+    type: "rock"
+    solid: true
+    transparent: true
+    walkable: false
+    size_tiles: 2.0
     sprite: "moss_rock"
-    render_type: "environment_sprite"
-    wall_color: [105, 105, 105]  # Gray rock
+    render_type: "tree_sprite"
+    map_color: [105, 105, 105]  # Gray rock
     letter: "R"
 
   # Environmental features - Walkable but visible
   mushroom_ring:
     name: "Magical Fairy Ring"
+    type: "nature"
     solid: false
     transparent: true
     walkable: true
@@ -1245,6 +1356,7 @@ tiles:
 
   forest_stream:
     name: "Flowing Water"
+    type: "water"
     solid: false
     transparent: true
     walkable: true
@@ -1257,6 +1369,7 @@ tiles:
 
   fern_patch:
     name: "Dense Ferns"
+    type: "nature"
     solid: false
     transparent: true
     walkable: true
@@ -1267,6 +1380,7 @@ tiles:
 
   firefly_swarm:
     name: "Magical Lights"
+    type: "prop"
     solid: false
     transparent: true
     walkable: true
@@ -1282,6 +1396,7 @@ tiles:
 
   clearing:
     name: "Open Grass Area"
+    type: "nature"
     solid: false
     transparent: true
     walkable: true
@@ -1296,6 +1411,7 @@ tiles:
   # Special tiles
   spawn:
     name: "Starting Position"
+    type: "marker"
     solid: false
     transparent: true
     walkable: true
@@ -1308,6 +1424,7 @@ tiles:
   # Variable height walls
   low_wall:
     name: "Short Defensive Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1319,6 +1436,7 @@ tiles:
 
   high_wall:
     name: "Tall Fortification"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -1334,6 +1452,7 @@ tiles:
   # (w == h*4: skull + the two "anim" paintings) cycle frames automatically.
   wall_lever:
     name: "Wall Lever"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1345,6 +1464,7 @@ tiles:
     short_label: "lever"
   wall_portrait:
     name: "Noble Portrait"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1356,6 +1476,7 @@ tiles:
     short_label: "portrait"
   wall_landscape:
     name: "Castle Landscape"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1367,6 +1488,7 @@ tiles:
     short_label: "landscape"
   wall_dragon:
     name: "Dragon Painting"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1378,6 +1500,7 @@ tiles:
     short_label: "dragon_art"
   wall_sigil:
     name: "Arcane Sigil"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1389,6 +1512,7 @@ tiles:
     short_label: "sigil"
   wall_skull:
     name: "Glowing Skull"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1400,6 +1524,7 @@ tiles:
     short_label: "skull"
   wall_anim_portrait:
     name: "Haunted Portrait"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true
@@ -1411,6 +1536,7 @@ tiles:
     short_label: "portrait_live"
   wall_anim_landscape:
     name: "Living Vista"
+    type: "wall_decor"
     solid: false
     transparent: true
     walkable: true

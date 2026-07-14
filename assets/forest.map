@@ -14,8 +14,8 @@
 #                 t=treant w=wolf
 # @ = NPC / special-tile placeholder (bound by >[npc:...] / >[stile:...] at line end)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%.@..T...T....T.PPPPP...T.....fffT....T.PPWQQQQQ@%  >[npc:mtrader0], [npc:chest_iron]
-%..........T......................T........WQQQQQ%
+%@@..T...T....T.PPPPP...T.....fffT....T.@@WQQQQQ@%  >[npc:campfire], [npc:mtrader0], [npc:barrel_green], [npc:barrel_blue], [npc:chest_iron]
+%..........T......................T.....PP.WQQQQQ%
 %..T.T.......CCCCCC..T.............T........@WQQQ%  >[npc:shipwreck_bandit_camp]
 %..T.......T.CCCCCC.......T.....T.............WQQ%
 %..........T.CCCCCCl..T.........T.....T........WW%
@@ -32,8 +32,8 @@
 %.T.....T.M.....T.ww..T.......T...T.............@D  >[stile:rteleporter]
 %t...T....M....T.....T.........T.....T..........P-
 %..........T.......T.....T..ww...T..............P-
-%.T.....T.......T...T.TT......T.....T.....PP....P=
-%....T.........T..TT.TT.T......T.....T....PP...P.=
+%.T.....T.......T..T@@TT......T.....T.....PP....P=  >[npc:campfire], [npc:barrel_red]
+%....T.........T..TTTTT.T......T.....T....PP...P.=
 %t.........T......TAWWWAT...T.......T............%
 %.T.....T.......T.TWWWWWT..MM...T...w.T....P.....%
 %....T.........TTTTWWWWWTf........T.w...T........%
@@ -47,19 +47,19 @@
 %.T.....T.......T.....T...w...T.....T...PP....P..%
 %....T.........T.....T.....ww..T.....T...........%
 %...ww.....T.......T.....T.......T............P..%
-%.T.....T....TTTTT....T.......T.....T............%
+%@T@@@..T....TTTTT....T.......T.....T............%  >[npc:chest_iron], [npc:barrel_red], [npc:barrel_green], [npc:barrel_blue]
 %TTTTTTTTTTTTTK@KTTTTTTTTTTTTTTTTTTTTT...........%  >[npc:portal_gate_highlands]
 %SSSSSbSbSbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS...%
 %.TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT.........%
-%..P.T....P....T.....TgggPP....T@FFFFT...........%  >[npc:chest_golden]
+%..P.T....P...@T.....TgggPP...@T@FFFFT...........%  >[npc:barrel_green], [npc:barrel_blue], [npc:chest_golden]
 T..P.......T.......T...TTT.T.TTTTTTTT............%
 T.T.....T.......TT...TT.TM..T.TP..MMM............%
-T.P..T.Mggg....T..@..T........CCCCCC............R%  >[npc:tavern]
-T.P...gggM.T...TT..CCCCCC.....CCCCCC............R%
-T.T.....T..g...FT..CCCCCC.....CCCCCC.........P.nR%
-T.M..T.....g.P.TT..CCCCCC..+.................P.nR%
-T......T...T.......CCCCCC.....CCCCCC.........P.nR%
-T.T.....TT......T..CCCCCC.....CCCCCC...........RR%
+T.P..T.Mggg....T..@..T........CCCCCC...........RR%  >[npc:tavern]
+T.P...gggM.T...TT..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
+T.T.....T..g...FT..CCCCCC.....CCCCCC.........Pn@R%  >[npc:campfire]
+T.M..T.....g.P.TT..CCCCCC..+.................Pn@R%  >[npc:pile_of_old_boxes]
+T......T...T.......CCCCCC.....CCCCCC.........Pn@R%  >[npc:barrel_red]
+T.T.....TT......T..CCCCCC.....CCCCCC..........@$R%  >[npc:pile_of_old_boxes], [tile:planks]
 TpFFpT..FFT....TT..CCCCCC.....CCCCCC...........RR%
 TpFFp...FF.TM....................................%
 T@TTTTTTTT..T..TTP......PP......................@%  >[npc:spell_lectern], [npc:abandoned_church]

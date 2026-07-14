@@ -23,6 +23,8 @@ type NPCData struct {
 	Type             string               `yaml:"type"`
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
+	VisitedSprite    string               `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin           bool                 `yaml:"no_spin,omitempty"` // pin the token to a fixed pose (a box pile does not rotate)
 	RenderCategory   string               `yaml:"render_category"`       // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string               `yaml:"prompt_verb,omitempty"` // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
@@ -197,8 +199,26 @@ func LoadNPCConfig(filename string) error {
 			return fmt.Errorf("NPC %q: stock_weapons_rarity needs a positive stock_weapons_cost", key)
 		}
 	}
+	if err := validateNPCTypes(&config); err != nil {
+		return err
+	}
 	if err := validateCratesAndLecterns(&config); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateNPCTypes fail-fasts the authored `type:` field against the closed
+// ValidNPCTypes set - both behavior dispatch and the editor palette read it.
+func validateNPCTypes(cfg *NPCConfig) error {
+	for key, npc := range cfg.NPCs {
+		if npc == nil || !ValidNPCTypes[npc.Type] {
+			got := ""
+			if npc != nil {
+				got = npc.Type
+			}
+			return fmt.Errorf("NPC %q has missing or unknown type %q (valid: encounter|quest_giver|merchant|spell_trader|skill_trainer|card_collector|loot_crate|spell_lectern)", key, got)
+		}
 	}
 	return nil
 }
@@ -354,6 +374,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		SellAvailable:    data.SellAvailable,
 		SteamWhenVisited: data.SteamWhenVisited,
 		HideWhenVisited:  data.HideWhenVisited,
+		VisitedSprite:    data.VisitedSprite,
+		NoSpin:           data.NoSpin,
 		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,

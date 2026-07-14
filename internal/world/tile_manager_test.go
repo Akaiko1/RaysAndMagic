@@ -11,6 +11,7 @@ func TestTileManager(t *testing.T) {
 	testConfig := `tiles:
   test_wall:
     name: "Test Wall"
+    type: "wall"
     solid: true
     transparent: false
     walkable: false
@@ -21,6 +22,7 @@ func TestTileManager(t *testing.T) {
     biomes: ["universal"]
   test_stream:
     name: "Test Stream"
+    type: "water"
     solid: false
     transparent: true
     walkable: true

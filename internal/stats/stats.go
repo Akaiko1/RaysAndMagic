@@ -84,6 +84,21 @@ func FromMap(m map[string]int) StatBonuses {
 	return b
 }
 
+// ToMap is FromMap's inverse: the non-zero stats as a lowercase-name map (the
+// save-file shape). Nil when the block is empty, so json omits it.
+func (b StatBonuses) ToMap() map[string]int {
+	var out map[string]int
+	for _, name := range Names {
+		if v := *b.fieldByName(name); v != 0 {
+			if out == nil {
+				out = make(map[string]int)
+			}
+			out[name] = v
+		}
+	}
+	return out
+}
+
 // Add returns the per-stat sum of two bonus blocks.
 func (b StatBonuses) Add(o StatBonuses) StatBonuses {
 	out := b

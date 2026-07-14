@@ -48,7 +48,7 @@ func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 
 	valve := &character.NPC{
 		Name:           "Sluice Valve I",
-		RenderCategory: "standee",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting:       "A rusty valve.",
 			VisitedMessage: "The valve is shut.",
