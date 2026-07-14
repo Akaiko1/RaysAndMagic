@@ -223,7 +223,10 @@ func randomWeaponRewards(count int) []items.Item {
 		return nil
 	}
 	keys := make([]string, 0, len(config.GlobalWeapons.Weapons))
-	for key := range config.GlobalWeapons.Weapons {
+	for key, def := range config.GlobalWeapons.Weapons {
+		if def != nil && def.NoLoot {
+			continue // class-kit weapons (Monk's fists) never roll as loot
+		}
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)

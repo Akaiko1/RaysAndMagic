@@ -576,14 +576,22 @@ func setupSummonableWorld(t *testing.T, cs *CombatSystem) {
 	cs.game.camera.X, cs.game.camera.Y = 15*tile, 15*tile
 }
 
-// forceOrcWarlordSummonAlways stacks the Orc Warlord Card in every slot so
-// tryCardSummonOnAction's percentage roll always passes (chance >> 100),
-// turning a probabilistic proc into a deterministic "did this even attempt
-// to roll at all".
-func forceOrcWarlordSummonAlways(g *MMGame) {
+// forceOrcWarlordSummonAlways slots the Orc Warlord Card and pins its authored
+// chance to 100 for the test (restored via t.Cleanup), so tryCardSummonOnAction's
+// percentage roll always passes - a probabilistic proc becomes a deterministic
+// "did this even attempt to roll at all".
+func forceOrcWarlordSummonAlways(t *testing.T, g *MMGame) {
+	t.Helper()
 	for i := range g.cardSlots {
 		g.cardSlots[i].key = "orc_warlord_card"
 	}
+	def := cardDef("orc_warlord_card")
+	if def == nil {
+		t.Fatal("orc_warlord_card definition missing")
+	}
+	old := def.CardSummonChance
+	def.CardSummonChance = 100
+	t.Cleanup(func() { def.CardSummonChance = old })
 }
 
 // TestTrySpiritualTraining_NeverRollsItsOwnOrcWarlordSummon is the regression
@@ -597,7 +605,7 @@ func TestTrySpiritualTraining_NeverRollsItsOwnOrcWarlordSummon(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 	setupSummonableWorld(t, cs)
-	forceOrcWarlordSummonAlways(g)
+	forceOrcWarlordSummonAlways(t, g)
 
 	member := g.party.Members[0]
 	member.Skills[character.SkillSpiritualTraining] = &character.Skill{Mastery: character.MasteryGrandMaster}
@@ -627,7 +635,7 @@ func TestEquipmentMeleeAttack_StillRollsOrcWarlordSummonWithoutSpiritualTraining
 	g := cs.game
 	g.turnBasedMode = false
 	setupSummonableWorld(t, cs)
-	forceOrcWarlordSummonAlways(g)
+	forceOrcWarlordSummonAlways(t, g)
 
 	member := g.party.Members[0]
 	member.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")

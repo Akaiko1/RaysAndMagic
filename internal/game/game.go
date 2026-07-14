@@ -568,6 +568,10 @@ type MMGame struct {
 	turnBasedMonsterStatusTick  bool
 	turnBasedMonsterStunned     map[*monster.Monster3D]bool
 
+	// cardSummonCDFrames silences the card-collection summon PROC after it
+	// fires (card_summon_cd_seconds); it never gates the character's actions.
+	cardSummonCDFrames int
+
 	// Main menu (ESC)
 	mainMenuOpen      bool
 	mainMenuSelection int

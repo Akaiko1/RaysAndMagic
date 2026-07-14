@@ -214,7 +214,11 @@ func (d *ItemDefinitionConfig) CardEffectLines() []string {
 		p = append(p, fmt.Sprintf("%d%% on move: %d pure to nearby foes", d.CardMoveAoePct, d.CardMoveAoeDmg))
 	}
 	if d.CardSummonChance != 0 {
-		p = append(p, fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit))
+		line := fmt.Sprintf("%d%% on action: summon allies (max %d)", d.CardSummonChance, d.CardSummonLimit)
+		if d.CardSummonCDSeconds > 0 {
+			line += fmt.Sprintf(", %ds cooldown", d.CardSummonCDSeconds)
+		}
+		p = append(p, line)
 	}
 	if d.CardDisintegratePct != 0 {
 		p = append(p, fmt.Sprintf("%d%% on hit: disintegrate the target", d.CardDisintegratePct))

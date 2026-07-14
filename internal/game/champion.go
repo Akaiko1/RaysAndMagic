@@ -407,7 +407,7 @@ func (cs *CombatSystem) stampChampionProjectileRiders(src *monster.Monster3D, bo
 // mirrorChampionStats stamps the STATIC character-derived numbers onto the
 // champion's monster ONCE per instance (fresh spawn and save-load both rebuild
 // the struct, resetting ChampionMirrored): real-time attack cadence (Speed +
-// weapon + dual-wield), four turn-based swings, main-hand weapon reach and
+// weapon + dual-wield), two turn-based swings, main-hand weapon reach and
 // riders, ranged main-hand projectile (range from the weapon's own physics),
 // armor class, gear resistances joining the authored table, and the
 // character's perfect-dodge chance. Per-hit damage is live - see
@@ -448,7 +448,7 @@ func (g *MMGame) mirrorChampionStats(m *monster.Monster3D) {
 	if base := g.config.MonsterAI.AttackCooldown; base > 0 {
 		m.AttackCooldownMultiplier = float64(cs.WeaponCooldownFrames(ch)) / float64(base)
 	}
-	m.AttacksPerRound = 4 // champions always get four turn-based swings
+	m.AttacksPerRound = 2 // champions always get two turn-based swings
 
 	// Ranged champions loose their MAIN-HAND weapon as a projectile; range then
 	// comes from the weapon's own physics (GetAttackRangePixels), like the party.

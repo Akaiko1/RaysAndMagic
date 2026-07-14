@@ -3117,7 +3117,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
 				centeredBottom := r.game.config.GetScreenHeight()/2 + s.spriteSize/2
-				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b) {
+				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b, 0) {
 					return
 				}
 			}
@@ -3227,10 +3227,20 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	if r.game.config.Graphics.Standee.Enabled {
 		m := s.monster
 		target := m.Direction + math.Pi/2
+		// A monster fighting the PARTY squares up to the camera (plane across
+		// the sight line - the art reads in full, never a sliver mid-brawl).
+		// Bound allies fight other monsters, so they keep their travel facing.
+		// The logical camera keeps the target free of Draw-time shake jitter.
+		fightingParty := m.IsEngagingPlayer && !m.Bound
+		if fightingParty && r.game.combat != nil {
+			camX, camY := r.game.combat.logicalCameraXY()
+			target = math.Atan2(renderY-camY, renderX-camX) + math.Pi/2
+		}
 		// Readability clamp: a monster crossing the view would turn its slab
 		// edge-on to the camera and vanish into a sliver - keep the plane a
 		// minimum angle away from the sight line. Clamping the TARGET (before
-		// easing) keeps the correction itself smooth.
+		// easing) keeps the correction itself smooth. (Facing the camera is
+		// never edge-on, so the clamp is a no-op for fighters.)
 		if minDeg := r.game.config.Graphics.Standee.MinViewAngleDeg; minDeg > 0 {
 			viewAngle := math.Atan2(renderY-r.game.camera.Y, renderX-r.game.camera.X)
 			target = clampYawFromEdgeOn(target, viewAngle, minDeg*math.Pi/180)
@@ -3442,7 +3452,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, 0)
 				return
 			}
 		}
@@ -3454,7 +3464,14 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb)
+				// The gate art is square and the doorway is exactly one tile:
+				// force the slab to 1 tile of world span and measure its pixel
+				// height with the WALLS' own formula at the same depth, so the
+				// door meets the flanking walls and the lintel line precisely -
+				// no billboard rounding, no overscan, no art stretch.
+				doorSpan := float64(r.game.config.GetTileSize())
+				doorH, doorTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, 1.0)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, doorH, doorTop+doorH, sb, doorSpan)
 				return
 			}
 		}

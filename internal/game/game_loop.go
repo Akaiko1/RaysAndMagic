@@ -122,6 +122,12 @@ func (gl *GameLoop) updateExploration() {
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
 
+	// Card-summon proc cooldown ticks in real time in both modes; it silences
+	// only the proc, so nothing else waits on it.
+	if gl.game.cardSummonCDFrames > 0 {
+		gl.game.cardSummonCDFrames--
+	}
+
 	// Update all special effects and timers
 	gl.updateSpecialEffects()
 

@@ -1074,7 +1074,8 @@ items:
   orc_warlord_card:
     name: "Orc Warlord Card"
     type: "card"
-    card_summon_chance: 15
+    card_summon_chance: 5
+    card_summon_cd_seconds: 5
     card_summon_limit: 2
     card_summon_monster: "masked_huntress"
     description: "A rare monster card prized by collectors"
@@ -1320,7 +1321,8 @@ items:
   lich_king_card:
     name: "Lich King Card"
     type: "card"
-    card_summon_chance: 15
+    card_summon_chance: 5
+    card_summon_cd_seconds: 5
     card_summon_limit: 2
     card_summon_monster: "revenant"
     description: "A rare monster card prized by collectors"

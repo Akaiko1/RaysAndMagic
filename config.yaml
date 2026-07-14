@@ -27,7 +27,11 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  field_of_view: 1.047197551  # pi/3 (60 degrees in radians)
+  # Square-projection FOV: 2*atan(screen_width / (2*screen_height)). At this
+  # value one world tile renders as a true SQUARE (horizontal focal length ==
+  # the wall-height factor), so square art (arena gate) keeps its aspect.
+  # Retune if the logical resolution's aspect ratio ever changes.
+  field_of_view: 1.176005207  # 67.38 degrees for 1024x768
   view_distance: 3200          # 50 * tile_size
 
 # UI settings

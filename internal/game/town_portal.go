@@ -150,5 +150,5 @@ func townPortalDestinationLabel(mapKey string) string {
 			return fmt.Sprintf("%s Tavern", mc.Name)
 		}
 	}
-	return fmt.Sprintf("%s tavern", mapKey)
+	return fmt.Sprintf("%s Tavern", humanizeKey(mapKey))
 }
