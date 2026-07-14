@@ -4,14 +4,8 @@ import (
 	"encoding/json"
 	"math"
 	"testing"
-	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
-
-	"ugataima/internal/bridge"
 	"ugataima/internal/character"
-	"ugataima/internal/collision"
-	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -19,61 +13,32 @@ import (
 	"ugataima/internal/world"
 )
 
-func loadTestConfig(t *testing.T) *config.Config {
-	t.Helper()
+func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
+	loadTestConfig(t)
 
-	cfg, err := config.LoadConfig("../../config.yaml")
-	if err != nil {
-		t.Fatalf("load config: %v", err)
+	item := items.Item{
+		Name:        "Fists",
+		Type:        items.ItemWeapon,
+		Description: "old saved description",
+		Rarity:      "common",
+		Attributes:  map[string]int{"value": 999},
+		InstanceID:  42,
 	}
-	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
-		t.Fatalf("load spells: %v", err)
-	}
-	if _, err := config.LoadWeaponConfig("../../assets/weapons.yaml"); err != nil {
-		t.Fatalf("load weapons: %v", err)
-	}
-	if _, err := config.LoadItemConfig("../../assets/items.yaml"); err != nil {
-		t.Fatalf("load items: %v", err)
-	}
-	// Wire the items↔config bridges so party setup can create weapons/items.
-	// Without this, newTestGame-based tests only worked when another test
-	// happened to run first and set these global accessors.
-	bridge.SetupWeaponBridge()
-	bridge.SetupItemBridge()
-	if _, err := config.LoadTrapConfig("../../assets/traps.yaml"); err != nil {
-		t.Fatalf("load traps: %v", err)
-	}
-	monster.MustLoadMonsterConfig("../../assets/monsters.yaml")
-	return cfg
-}
 
-func newTestWorld(cfg *config.Config) *world.World3D {
-	w := world.NewWorld3D(cfg)
-	w.Width = 2
-	w.Height = 2
-	w.Tiles = make([][]world.TileType3D, w.Height)
-	for y := 0; y < w.Height; y++ {
-		w.Tiles[y] = make([]world.TileType3D, w.Width)
-		for x := 0; x < w.Width; x++ {
-			w.Tiles[y][x] = world.TileEmpty
-		}
-	}
-	return w
-}
+	normalizeItemFromConfig(&item)
 
-func newTestGame(cfg *config.Config, w *world.World3D) *MMGame {
-	game := &MMGame{
-		config:           cfg,
-		world:            w,
-		party:            character.NewParty(cfg),
-		camera:           &FirstPersonCamera{X: 64, Y: 64, Angle: 1.25},
-		skyImg:           ebiten.NewImage(2, 2),
-		groundImg:        ebiten.NewImage(2, 2),
-		collisionSystem:  collision.NewCollisionSystem(w, float64(cfg.World.TileSize)),
-		sessionStartTime: time.Now(),
+	if item.Rarity != "legendary" {
+		t.Fatalf("saved Fists rarity = %q, want YAML legendary", item.Rarity)
 	}
-	game.collisionSystem.RegisterEntity(collision.NewEntity("player", game.camera.X, game.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
-	return game
+	if item.InstanceID != 42 {
+		t.Fatalf("normalizing a weapon must preserve instance id, got %d", item.InstanceID)
+	}
+	if item.Description == "old saved description" {
+		t.Fatal("weapon description was not refreshed from YAML")
+	}
+	if len(item.Attributes) != 0 {
+		t.Fatalf("weapon attributes should be refreshed from YAML, got %+v", item.Attributes)
+	}
 }
 
 func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
@@ -347,8 +312,8 @@ func TestSaveLoad_PersistsLootBags(t *testing.T) {
 
 	game := newTestGame(cfg, worldTest)
 	game.groundContainers = []GroundContainer{
-		{Kind: ContainerKindLootBag, X: 100, Y: 200, Gold: 42, SizeMultiplier: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
-		{Kind: ContainerKindLootBag, X: 320, Y: 256, Gold: 0, SizeMultiplier: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
+		{Kind: ContainerKindLootBag, X: 100, Y: 200, Gold: 42, SizeTiles: 0.5, Items: []items.Item{{Name: "Iron Sword", Type: items.ItemWeapon}}},
+		{Kind: ContainerKindLootBag, X: 320, Y: 256, Gold: 0, SizeTiles: 0.33, Items: []items.Item{{Name: "Leather Armor", Type: items.ItemArmor}}},
 	}
 
 	save := game.buildSave(wm)
@@ -365,8 +330,8 @@ func TestSaveLoad_PersistsLootBags(t *testing.T) {
 	if loaded.groundContainers[0].Gold != 42 || loaded.groundContainers[0].X != 100 || loaded.groundContainers[0].Y != 200 {
 		t.Fatalf("first container mismatch: %+v", loaded.groundContainers[0])
 	}
-	if loaded.groundContainers[0].SizeMultiplier != 0.5 {
-		t.Fatalf("size multiplier not preserved: %v", loaded.groundContainers[0].SizeMultiplier)
+	if loaded.groundContainers[0].SizeTiles != 0.5 {
+		t.Fatalf("size multiplier not preserved: %v", loaded.groundContainers[0].SizeTiles)
 	}
 	if len(loaded.groundContainers[0].Items) != 1 || loaded.groundContainers[0].Items[0].Name != "Iron Sword" {
 		t.Fatalf("first container items mismatch: %+v", loaded.groundContainers[0].Items)
@@ -433,12 +398,12 @@ func TestSaveLoad_OldSaveDecodesWithDefaults(t *testing.T) {
 
 // A spent hide_when_visited statue must vanish from interaction yet stay in the
 // world, so its Visited=true is captured by the save (NPC states only persist
-// NPCs still present). Dropping it from the world — the old RemoveNPC behaviour —
+// NPCs still present). Dropping it from the world - the old RemoveNPC behaviour -
 // lost the spent state and resurrected the statue unspent on reload.
 func TestSpentStatueHiddenButKeptInWorld(t *testing.T) {
 	cfg := loadTestConfig(t)
 	w := newTestWorld(cfg)
-	statue := &character.NPC{Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
+	statue := &character.NPC{RenderCategory: "scenery", Name: "Black Dragon Statue", X: 80, Y: 64, Sprite: "dragon_statue", HideWhenVisited: true}
 	w.NPCs = append(w.NPCs, statue)
 	game := newTestGame(cfg, w)
 	game.renderHelper = NewRenderingHelper(game)
@@ -479,7 +444,7 @@ func TestSeparateOverlappingMonsters(t *testing.T) {
 	g := newTestGame(cfg, w)
 	gl := &GameLoop{game: g}
 
-	// Park the player away from the pair — pushes refuse to land on the player.
+	// Park the player away from the pair - pushes refuse to land on the player.
 	g.camera.X, g.camera.Y = 8, 8
 	g.collisionSystem.UpdateEntity("player", 8, 8)
 	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
@@ -503,7 +468,7 @@ func TestSeparateOverlappingMonsters(t *testing.T) {
 }
 
 // In a one-wide corridor (trees above and below) the least-penetration push is
-// blocked on both sides — the pair must fall back to separating ALONG the
+// blocked on both sides - the pair must fall back to separating ALONG the
 // corridor instead of staying glued (the goblins-stuck-between-trees bug).
 func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -547,7 +512,7 @@ func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
 }
 
 // creditClearedKillQuests completes a region kill quest when its target_map is
-// clear, even if the same monster type still lives on another map — so culling
+// clear, even if the same monster type still lives on another map - so culling
 // the cliff trolls turns the quest in despite trolls roaming the highlands, and
 // a target slain before the quest was taken can still be credited.
 func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
@@ -558,7 +523,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	}
 
 	// NPC linked to the cliff troll cull (target_map: dragon_cliffs).
-	npc := &character.NPC{DialogueData: &character.NPCDialogue{
+	npc := &character.NPC{RenderCategory: "npc", DialogueData: &character.NPCDialogue{
 		Choices: []*character.NPCDialogueChoice{
 			{Action: "turn_in_quest", QuestID: "dragon_cliffs_troll_cull"},
 		},
@@ -590,7 +555,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	old := world.GlobalWorldManager
 	defer func() { world.GlobalWorldManager = old }()
 
-	// Trolls only in the highlands: the cliff region is clear → quest completes.
+	// Trolls only in the highlands: the cliff region is clear -> quest completes.
 	g := setup("highlands")
 	g.creditClearedKillQuests(npc)
 	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || !q.Completed {
@@ -607,7 +572,7 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 
 // Hostility must survive save/load: a provoked monster (WasAttacked) stays
 // provoked, and an old save's quest-bearing encounter monster (no was_attacked
-// field — e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
+// field - e.g. a lair dragon) is migrated to hostile. A chest-bound encounter
 // mob without a QuestID keeps normal aggro.
 func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -668,7 +633,7 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 
 // A sealed boss (passive-until-quest, no evade radius) that wandered off its
 // throne in a pre-fix save must snap back to its MAP spawn on load while its
-// quest is unfinished — the saved (wandered) position is discarded. Once the
+// quest is unfinished - the saved (wandered) position is discarded. Once the
 // quest completes the boss has gone aggressive and may have legitimately moved,
 // so it keeps its saved position. Regression for save 1, where the Samurai
 // Warlord was baked in mid-castle far from his throne.
@@ -720,8 +685,8 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 	if b := restoreBoss(quests.QuestStatusActive); b.X != throneX || b.Y != throneY {
 		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
 	} else if !b.BossDormant {
-		// Set at restore time, not waiting for refreshBoundUndeadCache (which runs
-		// after input) — else a first-frame player action could damage the sealed boss.
+		// Set at restore time, not waiting for refreshBoundAllyCache (which runs
+		// after input) - else a first-frame player action could damage the sealed boss.
 		t.Error("sealed boss must be flagged BossDormant immediately on load")
 	}
 	if b := restoreBoss(quests.QuestStatusCompleted); b.X != wanderX || b.Y != wanderY {
@@ -732,7 +697,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 }
 
 // TestSaveLoad_IdolWardSetOnRestore guards the idol-ward immediate-init: a warded
-// boss must be flagged BossWarded the instant a save loads (refreshBoundUndeadCache
+// boss must be flagged BossWarded the instant a save loads (refreshBoundAllyCache
 // runs AFTER input, so without the restore-time pass a first-frame player action
 // could damage a still-warded warlord). And with no live idol it must NOT be warded.
 func TestSaveLoad_IdolWardSetOnRestore(t *testing.T) {
@@ -792,6 +757,7 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 	}
 	boss.SummonFirstDone = true
 	add.SummonedBy = boss.ID
+	add.CharmedByParty = true
 	add.IsEngagingPlayer = true
 	add.WasAttacked = true
 	wSave.Monsters = []*monster.Monster3D{boss, add}
@@ -825,6 +791,9 @@ func TestSaveLoad_PersistsSummonedByForBossAdds(t *testing.T) {
 			foundAdd = true
 			if m.SummonedBy != boss.ID {
 				t.Fatalf("summoned add SummonedBy = %q, want %q", m.SummonedBy, boss.ID)
+			}
+			if !m.CharmedByParty {
+				t.Fatal("charmed provenance must survive save/load")
 			}
 		}
 	}
@@ -892,5 +861,62 @@ func TestSaveLoad_RestoresCurrentMonsterSpecialsFromYAML(t *testing.T) {
 			t.Fatalf("%s heal special after load = chance %.2f amount %d radius %.1f, want 0.15/200/>0",
 				key, m.AllyHealChance, m.AllyHealAmount, m.AllyHealRadiusPixels)
 		}
+	}
+}
+
+// The entry menu loads saves from the DRAW pass, where the camera angle is
+// swapped to the eased display angle for rendering. The end-of-draw restore
+// must not clobber the facing a mid-draw load just applied, and the load must
+// snap the rendered view too (no easing from the pre-load heading).
+func TestSaveLoad_FacingSurvivesDrawTimeLoad(t *testing.T) {
+	cfg := loadTestConfig(t)
+
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wm
+	defer func() { world.GlobalWorldManager = oldWorldManager }()
+
+	saved := newTestGame(cfg, w)
+	saved.camera.Angle = 2.5
+	save := saved.buildSave(wm)
+
+	// Cold boot: the fresh game faces the default heading with a stale glide.
+	g := newTestGame(cfg, w)
+	g.camera.Angle = 0
+	g.viewAngleRender = 0
+	g.viewTurnFramesLeft = 3
+
+	restore := g.beginViewAngleSwap()
+	if err := g.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	restore()
+
+	if g.camera.Angle != 2.5 {
+		t.Fatalf("camera.Angle after draw-time load = %v, want the saved 2.5", g.camera.Angle)
+	}
+	if g.viewAngleRender != 2.5 || g.viewTurnFramesLeft != 0 {
+		t.Fatalf("load must snap the rendered view: render=%v framesLeft=%d, want 2.5/0", g.viewAngleRender, g.viewTurnFramesLeft)
+	}
+}
+
+// Without a mid-draw camera write the swap still restores the logical angle.
+func TestBeginViewAngleSwap_RestoresLogicalAngle(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.camera.Angle = 1.0
+	g.viewAngleRender = 0.5 // mid-glide display angle
+
+	restore := g.beginViewAngleSwap()
+	if g.camera.Angle != 0.5 {
+		t.Fatalf("draw must render at the display angle, got %v", g.camera.Angle)
+	}
+	restore()
+	if g.camera.Angle != 1.0 {
+		t.Fatalf("restore must return the logical angle, got %v", g.camera.Angle)
 	}
 }

@@ -16,9 +16,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Portrait recess of party_member_panel.png in panel-source pixels (256×100),
+// Portrait recess of party_member_panel.png in panel-source pixels (256x100),
 // measured off the art: the inner dark box of the left frame, whose corners are
-// trimmed at 45° by panelRecessCut pixels.
+// trimmed at 45deg by panelRecessCut pixels.
 const (
 	panelRecessX0  = 16.0
 	panelRecessY0  = 19.0
@@ -27,7 +27,7 @@ const (
 	panelRecessCut = 5.0
 )
 
-// hudWhiteImg is a 1×1 opaque source for triangle fills (corner bevel cuts).
+// hudWhiteImg is a 1x1 opaque source for triangle fills (corner bevel cuts).
 var hudWhiteImg = func() *ebiten.Image {
 	img := ebiten.NewImage(1, 1)
 	img.Fill(color.White)
@@ -60,7 +60,7 @@ func (ui *UISystem) cardPortrait(name string, w, h, cut int) *ebiten.Image {
 	}
 	img.DrawImage(src, opts)
 
-	// Bevel the corners: erase a 45° triangle in each.
+	// Bevel the corners: erase a 45deg triangle in each.
 	if cut > 0 {
 		c := float32(cut)
 		fw, fh := float32(w), float32(h)
@@ -115,7 +115,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 	}
 
 	// Draw party member portraits and stats at bottom of screen.
-	// Fixed portrait width, centered horizontally — does not stretch in fullscreen.
+	// Fixed portrait width, centered horizontally - does not stretch in fullscreen.
 	portraitWidth, portraitHeight, baseLeft, startY := partyPortraitLayout(ui.game)
 
 	for i, member := range ui.game.party.Members {
@@ -124,15 +124,43 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 		// Highlight selected character and heal target. In turn-based mode an
 		// alive character that has already spent all their action slots gets
 		// a gray frame so the player can see at a glance who still has a
-		// move left. KO characters are skipped — they get no frame at all.
+		// move left. KO characters are skipped - they get no frame at all.
+		// Dual Wielding gets a third, amber state: one weapon already used
+		// this round but the other is still available - distinct from "fully
+		// spent" gray, so the player can tell "acted once" from "acted twice".
 		highlightColor := color.RGBA{0, 0, 0, 0}
-		if ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0 {
-			highlightColor = color.RGBA{120, 120, 120, 220}
-		}
-		// Real-time: a member on action cooldown gets the same gray frame so the
-		// player can see at a glance who's busy and who's free to act next.
-		if !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0 {
-			highlightColor = color.RGBA{120, 120, 120, 220}
+		grayBusy := color.RGBA{120, 120, 120, 220}
+		amberOneHandBusy := color.RGBA{225, 205, 40, 220}
+		switch {
+		case ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
+			switch member.ActionsRemaining {
+			case 0:
+				highlightColor = grayBusy
+			case 1:
+				highlightColor = amberOneHandBusy
+			}
+		case ui.game.turnBasedMode && member.CanAct() && member.ActionsRemaining == 0:
+			highlightColor = grayBusy
+		case !ui.game.turnBasedMode && member.CanAct() && member.IsDualWielding():
+			// An empty main hand isn't a "busy hand" - it just isn't a hand at
+			// all, so don't let its stale cooldown paint a false amber "one hand
+			// busy". Only hands that actually hold a weapon count toward the
+			// two-tone ring. (IsDualWielding already guarantees an off-hand weapon.)
+			_, mainHasWeapon := member.Equipment[items.SlotMainHand]
+			mainReady := mainHasWeapon && member.RTCooldown <= 0
+			offReady := member.OffHandRTCooldown <= 0
+			switch {
+			case !mainHasWeapon:
+				if !offReady { // only the off-hand weapon remains - treat as single-weapon
+					highlightColor = grayBusy
+				}
+			case !mainReady && !offReady:
+				highlightColor = grayBusy
+			case mainReady != offReady:
+				highlightColor = amberOneHandBusy
+			}
+		case !ui.game.turnBasedMode && member.CanAct() && member.RTCooldown > 0:
+			highlightColor = grayBusy
 		}
 		if i == ui.game.selectedChar {
 			highlightColor = color.RGBA{210, 170, 80, 220}
@@ -151,10 +179,10 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			vector.StrokeRect(screen, float32(x+2), float32(startY+2), float32(portraitWidth-5), float32(portraitHeight-5), 2, highlightColor, false)
 		}
 
-		// Draw character portrait (Column 1) — promotion-aware (Archmage/Lich
+		// Draw character portrait (Column 1) - promotion-aware (Archmage/Lich
 		// variant). Fitted exactly into the panel's left recess (measured off
 		// party_member_panel.png) and bevel-cut at the corners to match the
-		// frame's 45° corner trims.
+		// frame's 45deg corner trims.
 		portraitName := ui.game.portraitSpriteName(member)
 		portraitColWidth := 82 // text columns start after the portrait recess
 
@@ -240,7 +268,7 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			if len(weaponText) > 12 { // Truncate if too long
 				weaponText = weaponText[:9] + "..."
 			}
-			drawDebugText(screen, weaponText, equipColX, startY+15)
+			drawDebugTextColored(screen, weaponText, equipColX, startY+15, ui.itemRarityColor(weapon))
 		} else {
 			drawDebugText(screen, "W:None", equipColX, startY+15)
 		}
@@ -254,6 +282,17 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 			drawDebugText(screen, spellText, equipColX, startY+30)
 		} else {
 			drawDebugText(screen, "S:None", equipColX, startY+30)
+		}
+
+		// Dual Wielding: show the off-hand weapon on the row below (empty for
+		// everyone else, who only ever has one weapon to show).
+		if member.IsDualWielding() {
+			offWeapon := member.Equipment[items.SlotOffHand]
+			offText := fmt.Sprintf("O:%s", offWeapon.Name)
+			if len(offText) > 12 {
+				offText = offText[:9] + "..."
+			}
+			drawDebugTextColored(screen, offText, equipColX, startY+45, ui.itemRarityColor(offWeapon))
 		}
 
 		// Draw + button for stat points if available (under portrait)
@@ -313,14 +352,14 @@ func (ui *UISystem) drawPartyUI(screen *ebiten.Image) {
 
 // drawCardFlames draws rising flame-tongue particles over a party card while
 // that member's Inferno scorch timer burns (set by TriggerPartyFlame). Each
-// tongue rises on its own phase, flickers sideways, and shifts yellow→red and
+// tongue rises on its own phase, flickers sideways, and shifts yellow->red and
 // fades as it climbs; the whole effect dims as the timer runs out.
 func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx int) {
 	t := ui.game.cardFxActive(fxFlame, idx)
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(PartyFlameFrames) // 1 → 0 overall fade
+	intensity := float64(t) / float64(PartyFlameFrames) // 1 -> 0 overall fade
 	f := int(ui.game.frameCount)
 	const n = 14
 	for k := 0; k < n; k++ {
@@ -333,21 +372,21 @@ func (ui *UISystem) drawCardFlames(screen *ebiten.Image, x, startY, w, h, idx in
 		px := float64(x) + (float64(k)+0.5)/float64(n)*float64(w) + math.Sin(float64(f)*0.2+float64(k))*3
 		py := float64(startY+h) - phase*float64(h)*1.05 // from card bottom up past the top
 		sz := float32(3 + 3*rise)
-		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow→orange→red
+		col := color.RGBA{255, uint8(40 + 190*rise), uint8(40 * rise), a} // yellow->orange->red
 		vector.FillRect(screen, float32(px)-sz/2, float32(py)-sz/2, sz, sz, col, false)
 	}
 }
 
 // drawCardSparks draws the hit feedback on a party card after the member takes a
 // hit (fxSpark, set by TriggerDamageBlink): the WHOLE card flashes
-// red, plus a big radial spark burst flies outward — both fading over the timer.
+// red, plus a big radial spark burst flies outward - both fading over the timer.
 func (ui *UISystem) drawCardSparks(screen *ebiten.Image, x, startY, w, h, idx int) {
 	t := ui.game.cardFxActive(fxSpark, idx)
 	if t <= 0 {
 		return
 	}
-	intensity := float64(t) / float64(HitSparkFrames) // 1 → 0 fade
-	prog := 1.0 - intensity                           // 0 → 1 as sparks fly out
+	intensity := float64(t) / float64(HitSparkFrames) // 1 -> 0 fade
+	prog := 1.0 - intensity                           // 0 -> 1 as sparks fly out
 
 	// Whole-card red flash (not just the portrait).
 	vector.FillRect(screen, float32(x), float32(startY), float32(w-2), float32(h),
@@ -380,7 +419,7 @@ func (ui *UISystem) drawCardHealPlus(screen *ebiten.Image, x, startY, w, h, idx 
 	if t <= 0 {
 		return
 	}
-	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 → 1 as they rise & fade
+	prog := 1.0 - float64(t)/float64(HealEffectFrames) // 0 -> 1 as they rise & fade
 	const n = 5
 	for k := 0; k < n; k++ {
 		// Each "+" rises on its own staggered phase so they don't move in lockstep.
@@ -422,7 +461,7 @@ func (ui *UISystem) drawCardPoisonBubbles(screen *ebiten.Image, x, startY, w, h 
 	}
 }
 
-// hashNoise is a cheap deterministic [0,1) hash — gives ignite its per-particle
+// hashNoise is a cheap deterministic [0,1) hash - gives ignite its per-particle
 // randomness without rand (so the flame is reproducible frame-to-frame, not pure
 // flicker). seed blends a particle index with a per-card salt.
 func hashNoise(seed float64) float64 {
@@ -432,7 +471,7 @@ func hashNoise(seed float64) float64 {
 
 // drawCardIgnite draws a living, layered fire climbing a burning member's card:
 // each tongue has its own randomized rise/lick cycle, three colour layers
-// (dark-red glow → orange body → hot yellow-white core near the base) plus a few
+// (dark-red glow -> orange body -> hot yellow-white core near the base) plus a few
 // embers that float up and wink out. Built to read as real fire, not a recolour
 // of the poison bubbles. Runs continuously while ConditionBurning.
 func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx int) {
@@ -486,7 +525,7 @@ func (ui *UISystem) drawCardIgnite(screen *ebiten.Image, x, startY, w, h, idx in
 }
 
 // drawCardStunStars wheels a ring of twinkling four-point stars around a stunned
-// member's portrait head — the classic "seeing stars" daze. Each star orbits,
+// member's portrait head - the classic "seeing stars" daze. Each star orbits,
 // pulses in size/alpha on its own phase, and carries a faint diagonal sparkle.
 func (ui *UISystem) drawCardStunStars(screen *ebiten.Image, x, startY, w, h int) {
 	f := float64(ui.game.frameCount)
@@ -645,9 +684,9 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 	if ui.game.consumeLeftClickIn(x, y, x+width, y+height) {
 		currentTime := ui.game.mouseLeftClickAt
 
-		// Check for double-click (within 500ms and same icon)
-		delta := currentTime - ui.game.lastUtilitySpellClickTime
-		doubleClick := delta < doubleClickWindowMs && ui.game.lastClickedUtilitySpell == string(spellID)
+		// Check for a fast double-click on the same icon.
+		doubleClick := withinDoubleClickWindow(currentTime, ui.game.lastUtilitySpellClickTime) &&
+			ui.game.lastClickedUtilitySpell == string(spellID)
 		if doubleClick {
 			// Double-click detected - dispel the spell
 			ui.dispelUtilitySpell(spellID)
@@ -665,7 +704,7 @@ func (ui *UISystem) handleSpellIconClick(x, y, width, height int, spellID spells
 // dispelUtilitySpell removes an active utility spell effect by triggering natural expiration
 func (ui *UISystem) dispelUtilitySpell(spellID spells.SpellID) {
 	// Flag effects (torch / wizard eye / water): zero the duration and let the
-	// next tick expire it naturally — onExpire side effects (e.g. the
+	// next tick expire it naturally - onExpire side effects (e.g. the
 	// underwater return teleport) fire exactly as on a normal timeout.
 	for _, b := range ui.game.timedBuffs() {
 		if b.id != spellID {
@@ -717,7 +756,17 @@ func (ui *UISystem) drawCompass(screen *ebiten.Image) {
 	vector.DrawFilledCircle(screen, float32(compassX), float32(compassY), 3, color.RGBA{50, 200, 255, 255}, true)
 }
 
-// drawCompassMinimap renders the nearby tiles on the compass as a minimap
+// invalidateCompassTileLayer forces the next drawCompassMinimap call to
+// rebuild the cached tile layer, even though the player is still on the same
+// tile - needed when a quest swaps a tile out from under a standing player.
+func (ui *UISystem) invalidateCompassTileLayer() {
+	ui.compassCacheWorld = nil
+}
+
+// drawCompassMinimap renders the nearby tiles on the compass as a minimap.
+// The tile layer is cached (see rebuildCompassTileLayer) and only rebuilt when
+// the player crosses a tile boundary or the world changes; NPC dots move
+// smoothly relative to the player, so they stay live (few per map).
 func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, radius int) {
 	if ui.game.world == nil {
 		return
@@ -738,6 +787,46 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		miniTileSize = 8
 	}
 
+	if ui.compassTileLayer == nil ||
+		ui.compassCacheWorld != ui.game.world ||
+		ui.compassCacheTileX != playerTileX || ui.compassCacheTileY != playerTileY {
+		ui.rebuildCompassTileLayer(playerTileX, playerTileY, viewRange, miniTileSize, radius)
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(centerX-radius), float64(centerY-radius))
+	screen.DrawImage(ui.compassTileLayer, opts)
+
+	// Draw NPCs on minimap
+	for _, npc := range ui.game.world.NPCs {
+		npcTileX := int(npc.X / tileSize)
+		npcTileY := int(npc.Y / tileSize)
+		dx := npcTileX - playerTileX
+		dy := npcTileY - playerTileY
+
+		// Only show NPCs within view range
+		if dx*dx+dy*dy <= viewRange*viewRange {
+			screenX := float32(centerX) + float32(dx)*miniTileSize
+			screenY := float32(centerY) + float32(dy)*miniTileSize
+			// Draw NPC as yellow dot
+			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+		}
+	}
+}
+
+// rebuildCompassTileLayer bakes the compass minimap's tile fills into a
+// 2R x 2R layer image centered on the player's tile.
+func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange int, miniTileSize float32, radius int) {
+	side := 2 * radius
+	if ui.compassTileLayer == nil || ui.compassTileLayer.Bounds().Dx() != side {
+		ui.compassTileLayer = ebiten.NewImage(side, side)
+	} else {
+		ui.compassTileLayer.Clear()
+	}
+	ui.compassCacheWorld = ui.game.world
+	ui.compassCacheTileX = playerTileX
+	ui.compassCacheTileY = playerTileY
+
 	// Get floor color from map config
 	floorColor := color.RGBA{60, 110, 60, 180}
 	if world.GlobalWorldManager != nil {
@@ -746,7 +835,7 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 		}
 	}
 
-	// Render tiles around the player
+	center := float32(radius)
 	for dy := -viewRange; dy <= viewRange; dy++ {
 		for dx := -viewRange; dx <= viewRange; dx++ {
 			tileX := playerTileX + dx
@@ -757,13 +846,8 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 				continue
 			}
 
-			// Calculate screen position (offset from compass center)
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-
 			// Check if this tile is within the circular compass area
-			distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
-			if distFromCenter > float64(viewRange) {
+			if dx*dx+dy*dy > viewRange*viewRange {
 				continue
 			}
 
@@ -771,26 +855,11 @@ func (ui *UISystem) drawCompassMinimap(screen *ebiten.Image, centerX, centerY, r
 			tile := ui.game.world.Tiles[tileY][tileX]
 			tileColor := ui.getMinimapTileColor(tile, floorColor)
 
-			// Draw the minimap tile
+			// Draw the minimap tile (layer coords: player tile at the center)
+			screenX := center + float32(dx)*miniTileSize
+			screenY := center + float32(dy)*miniTileSize
 			halfSize := miniTileSize / 2
-			vector.FillRect(screen, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
-		}
-	}
-
-	// Draw NPCs on minimap
-	for _, npc := range ui.game.world.NPCs {
-		npcTileX := int(npc.X / tileSize)
-		npcTileY := int(npc.Y / tileSize)
-		dx := npcTileX - playerTileX
-		dy := npcTileY - playerTileY
-
-		// Only show NPCs within view range
-		distFromCenter := math.Sqrt(float64(dx*dx + dy*dy))
-		if distFromCenter <= float64(viewRange) {
-			screenX := float32(centerX) + float32(dx)*miniTileSize
-			screenY := float32(centerY) + float32(dy)*miniTileSize
-			// Draw NPC as yellow dot
-			vector.DrawFilledCircle(screen, screenX, screenY, miniTileSize/2, color.RGBA{255, 220, 0, 255}, true)
+			vector.FillRect(ui.compassTileLayer, screenX-halfSize, screenY-halfSize, miniTileSize, miniTileSize, tileColor, false)
 		}
 	}
 }
@@ -1086,19 +1155,34 @@ func (ui *UISystem) drawInteractionNotification(screen *ebiten.Image) {
 
 	// Create interaction message based on NPC capabilities
 	var message string
-	switch npcDialogKindFor(nearestNPC) {
-	case dialogKindSpellTrader:
-		message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
-	case dialogKindChoices:
-		message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
-	case dialogKindSkillTrainer:
-		message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
-	case dialogKindMerchant:
-		message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
-	case dialogKindCardCollector:
-		message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
-	default:
-		message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+	if verb := nearestNPC.PromptVerb; verb != "" {
+		// Authored override (npcs.yaml prompt_verb): "enter" for the tavern etc.
+		message = fmt.Sprintf("Press SPACE to %s %s", verb, nearestNPC.Name)
+	} else if ui.game.npcIsWalkUpProp(nearestNPC) {
+		// Chests and lecterns are immediate-use props, not conversations - never
+		// fall into the "talk to" ladder (a standee-sprited lectern would).
+		message = fmt.Sprintf("Press SPACE to interact with %s", nearestNPC.Name)
+	} else {
+		switch npcDialogKindFor(nearestNPC) {
+		case dialogKindSpellTrader:
+			message = fmt.Sprintf("Press SPACE to talk to %s (Spell Trader)", nearestNPC.Name)
+		case dialogKindChoices:
+			// A person with a choice dialog is still a conversation; only
+			// props/landmarks (wrecks, bones, valves) are "investigated".
+			if npcIsPerson(nearestNPC) {
+				message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+			} else {
+				message = fmt.Sprintf("Press SPACE to investigate %s", nearestNPC.Name)
+			}
+		case dialogKindSkillTrainer:
+			message = fmt.Sprintf("Press SPACE to train with %s", nearestNPC.Name)
+		case dialogKindMerchant:
+			message = fmt.Sprintf("Press SPACE to trade with %s", nearestNPC.Name)
+		case dialogKindCardCollector:
+			message = fmt.Sprintf("Press SPACE to manage cards with %s", nearestNPC.Name)
+		default:
+			message = fmt.Sprintf("Press SPACE to talk to %s", nearestNPC.Name)
+		}
 	}
 
 	// Calculate text dimensions for background sizing

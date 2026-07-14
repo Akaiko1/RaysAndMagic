@@ -13,7 +13,7 @@ import (
 )
 
 // The editor writes .map files with its own encoder (encodeMapLines) while the
-// game reads them with world.MapLoader — two independent implementations of
+// game reads them with world.MapLoader - two independent implementations of
 // the same text format. This test pins their contract: every shipped map,
 // re-encoded by the editor and re-parsed by the game loader, must produce the
 // exact same MapData (tiles, spawns, start position). A format change on

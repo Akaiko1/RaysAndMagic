@@ -6,7 +6,7 @@ Tiles are defined in YAML and loaded by the TileManager at startup.
 - Base tiles: `assets/tiles.yaml`
 - Special tiles: `assets/special_tiles.yaml` (merged into the same tile database)
 - Map placement: single-letter symbols in `.map` files
-- `render_type` must be one of: `textured_wall`, `tree_sprite`, `environment_sprite`, `floor_only`, `flooring_object`
+- `render_type` must be one of: `textured_wall`, `tree_sprite`, `environment_sprite`, `floor_only`, `landmark` (validated at load - an unknown value refuses to boot)
 - `transparent` controls raycast pass vs sprite pass; be explicit to avoid visual artifacts.
 
 ## Step 1: Add the tile
@@ -20,7 +20,7 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    size_multiplier: 1.2
+    size_tiles: 1.2        # sprite height in tiles (1.0 == a 1-tile wall)
     sprite: "moss_rock"    # must exist in assets/sprites/environment/
     render_type: "environment_sprite"
     floor_color: [150, 100, 255]
@@ -28,11 +28,11 @@ tiles:
 ```
 
 Sprite files live in `assets/sprites/environment/` (no `.png` suffix in YAML).
-A missing sprite does NOT error — it renders as a placeholder image, so verify
+A missing sprite does NOT error - it renders as a placeholder image, so verify
 the file exists.
 
 Advanced optional fields: `impassable_aura` (rising-bubble hint on blockers),
-`light` (`enabled`, `radius_tiles`, `intensity` — the tile lights the scene),
+`light` (`enabled`, `radius_tiles`, `intensity` - the tile lights the scene),
 `floor_near_color`, `alpha_from_brightness`.
 
 ## Step 2: Place it in a map
@@ -75,13 +75,13 @@ Floor textures are biome-driven. The named texture groups live per-biome in the
 top-level `biomes:` section of `assets/map_configs.yaml` (NOT on the tile and
 NOT per-map). A tile picks a group with `floor_texture_group`:
 - Set `floor_texture_group: "water"` (etc.) to use that biome group.
-- Omit it and the tile borrows the biome's `"default"` group — UNLESS the tile
+- Omit it and the tile borrows the biome's `"default"` group - UNLESS the tile
   sets a `floor_color`, in which case the color IS its look and stays
   untextured (teleporters, traps, spawn are coloured squares this way).
 - Empty `.` (and any tile on the biome default) bordering water auto-uses the
   biome's `"beach"` group, if defined, for shoreline sand.
 
-`floor_color` is a BASE color blended UNDER the texture (≈80% texture up close,
+`floor_color` is a BASE color blended UNDER the texture (~80% texture up close,
 fading to more color with distance), and shown 100% when no texture resolves
 (no group, or the group isn't defined for the current biome). `floor_near_color`
 is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
@@ -90,7 +90,7 @@ is different: it tints ADJACENT empty floor tiles (grass darkens near trees).
 Core fields are fully supported:
 - `solid`, `transparent`, `walkable`
 - `wall_height_multiplier` for `textured_wall`
-- `size_multiplier` for `tree_sprite`, `environment_sprite`, and `flooring_object`
+- `size_tiles` (sprite height in tiles) for `tree_sprite`, `environment_sprite`, and `landmark`
 - `sprite`, `render_type`
 - `floor_color`, `floor_near_color`, `wall_color`
 - `floor_texture_group` (selects a biome floor-texture group; see above)

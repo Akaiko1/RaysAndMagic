@@ -7,7 +7,6 @@ import "testing"
 func TestAuraBillboardRenderType(t *testing.T) {
 	cases := map[string]bool{
 		"environment_sprite": true,
-		"flooring_object":    true,
 		"tree_sprite":        false,
 		"textured_wall":      false,
 		"floor_only":         false,

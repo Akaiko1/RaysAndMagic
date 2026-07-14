@@ -39,6 +39,16 @@ func (g *MMGame) awardGold(amount int) {
 	g.totalGoldEarned += amount
 }
 
+// awardArenaPoints is the single crediting path for the arena victory currency
+// (crate jackpots, champion kills) - the counterpart to awardGold, so any future
+// telemetry or guard lives in one place instead of scattered raw increments.
+func (g *MMGame) awardArenaPoints(amount int) {
+	if amount <= 0 || g.party == nil {
+		return
+	}
+	g.party.ArenaPoints += amount
+}
+
 func earnedExperienceForCharacter(level, remaining int) int {
 	if level < 1 {
 		level = 1

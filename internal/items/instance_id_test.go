@@ -48,7 +48,7 @@ func TestFactoryAssignsInstanceID(t *testing.T) {
 		t.Fatalf("factory must stamp ids, got a=%d b=%d", a.InstanceID, b.InstanceID)
 	}
 	if a.InstanceID == b.InstanceID {
-		t.Errorf("two crafted items share an id %d — not unique instances", a.InstanceID)
+		t.Errorf("two crafted items share an id %d - not unique instances", a.InstanceID)
 	}
 }
 

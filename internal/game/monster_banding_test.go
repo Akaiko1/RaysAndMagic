@@ -235,7 +235,7 @@ func TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors(t *testing.T) {
 }
 
 // TestScatterBandOnMemberDeath_FightingSurvivorsStayPut: survivors already in
-// combat must not be teleported by the death burst — scatter repositions only
+// combat must not be teleported by the death burst - scatter repositions only
 // still-calm members.
 func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
 	game := newBandingTestGame()
@@ -260,7 +260,7 @@ func TestScatterBandOnMemberDeath_FightingSurvivorsStayPut(t *testing.T) {
 
 // Regression: monsterStrikeMonster (monster-vs-monster melee, e.g. a bound
 // undead striking an enemy) hand-rolls its own kill bookkeeping and used to
-// skip scatterBandOnMemberDeath — a bound ally could snipe a banded mob's
+// skip scatterBandOnMemberDeath - a bound ally could snipe a banded mob's
 // members one by one without the survivors ever waking up.
 func TestMonsterStrikeMonster_ScattersVictimsBand(t *testing.T) {
 	game := newBandingTestGame()
@@ -312,5 +312,31 @@ func TestResolveMonsterProjectileVsMonster_ScattersVictimsBand(t *testing.T) {
 	if !survivor.IsEngagingPlayer || !survivor.WasAttacked {
 		t.Errorf("bandmate should aggro when the crossfire kill lands (engaging=%v wasAttacked=%v)",
 			survivor.IsEngagingPlayer, survivor.WasAttacked)
+	}
+}
+
+// A stacked band member's position is band-owned (snapped to the leader), so
+// its facing must be too: the walk-only facing pass rightly ignores snaps, and
+// without this sync each member kept pointing wherever its private (overridden)
+// wander went - a pack gliding one way with members facing random ways.
+func TestStackMonsterBandSyncsMemberFacing(t *testing.T) {
+	game := newBandingTestGame()
+	addBandingTestMonster(game, "lead", "wolf", 128, 128, 3)
+	addBandingTestMonster(game, "tail", "wolf", 129, 128, 3)
+	lead, tail := game.world.Monsters[0], game.world.Monsters[1]
+	lead.Direction = 1.25
+	tail.Direction = -2.5
+	tail.FaceAccX, tail.FaceAccY = 3, -3 // stray private-wander momentum
+
+	(&GameLoop{game: game}).stackMonsterBand(3, []*monsterPkg.Monster3D{lead, tail})
+
+	if tail.Direction != lead.Direction {
+		t.Fatalf("stacked member direction = %.2f, want leader's %.2f", tail.Direction, lead.Direction)
+	}
+	if tail.FaceAccX != 0 || tail.FaceAccY != 0 {
+		t.Fatalf("stacked member walk momentum must be dropped, got (%.1f,%.1f)", tail.FaceAccX, tail.FaceAccY)
+	}
+	if lead.Direction != 1.25 {
+		t.Fatalf("leader direction must stay its own, got %.2f", lead.Direction)
 	}
 }

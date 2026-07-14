@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Stop must complete every ACCEPTED job — in-flight and still queued — before
+// Stop must complete every ACCEPTED job - in-flight and still queued - before
 // returning (workers drain the queue on quit). Pre-fix, closing quit could
 // strand queued jobs with their wg.Add leaked, hanging any Wait().
 func TestWorkerPool_StopDrainsQueuedJobs(t *testing.T) {
@@ -34,7 +34,7 @@ func TestWorkerPool_StopDrainsQueuedJobs(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() hung — queued jobs were not drained")
+		t.Fatal("Stop() hung - queued jobs were not drained")
 	}
 	if got := ran.Load(); got != jobs {
 		t.Fatalf("Stop() abandoned queued jobs: %d of %d ran", got, jobs)
@@ -61,6 +61,6 @@ func TestWorkerPool_SubmitAfterStopRefuses(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Wait() hung after a refused Submit — WaitGroup counter leaked")
+		t.Fatal("Wait() hung after a refused Submit - WaitGroup counter leaked")
 	}
 }

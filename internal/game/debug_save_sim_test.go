@@ -1,10 +1,13 @@
+//go:build debug
+
+// Debug diagnostics are opt-in: run `go test -tags debug ./internal/game`.
 package game
 
-// Headless save-file simulation — a DEBUG MODULE, not a regression test.
+// Headless save-file simulation - a DEBUG MODULE, not a regression test.
 // Loads a real save (default bin/saves/save1.json), steps the real-time
 // monster path (AI + engagement flip + separation + combat interactions)
 // with the party parked at the saved position, and reports what every
-// monster near the party is doing — for diagnosing "monster frozen in
+// monster near the party is doing - for diagnosing "monster frozen in
 // front of the party" reports on live saves.
 //
 // Run with:
@@ -135,7 +138,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 			}
 			m.Update(g.collisionSystem, camX, camY)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m, camX, camY)
+			g.refreshMonsterCollisionSolidity(m)
 		}
 		gl.separateOverlappingMonsters()
 		g.combat.HandleMonsterInteractions()
@@ -157,7 +160,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 					_, rY := g.collisionSystem.DebugCanMoveTo(m.ID, m.X, ny)
 					stuck += fmt.Sprintf(" [diag:%s x:%s y:%s] pathTiles=%v", rDiag, rX, rY, m.PathTiles)
 				}
-				t.Logf("[t=%2ds] %-10s (%.0f,%.0f) tile(%d,%d) dist=%.1ft moved=%4.0fpx state=%v engaged=%v cd=%d path=%d/%d→(%d,%d) reach=%.0f%s",
+				t.Logf("[t=%2ds] %-10s (%.0f,%.0f) tile(%d,%d) dist=%.1ft moved=%4.0fpx state=%v engaged=%v cd=%d path=%d/%d->(%d,%d) reach=%.0f%s",
 					(tick+1)/tps, m.Name, m.X, m.Y, int(m.X/tile), int(m.Y/tile),
 					dist/tile, net, m.State, m.IsEngagingPlayer, m.StateTimer,
 					m.PathIndex, len(m.PathTiles), m.PathTargetTileX, m.PathTargetTileY,

@@ -59,7 +59,7 @@ func TestFireboltParticleSize_ShrinksWithDistance(t *testing.T) {
 		t.Errorf("firebolt particle size should shrink with distance: near=%.1f mid=%.1f far=%.1f", near, mid, far)
 	}
 	if mid >= spellParticleMaxSize {
-		t.Errorf("mid-range particles hit the max cap (%.0f) — reads as uniform/point-blank: mid=%.1f", spellParticleMaxSize, mid)
+		t.Errorf("mid-range particles hit the max cap (%.0f) - reads as uniform/point-blank: mid=%.1f", spellParticleMaxSize, mid)
 	}
 	if far > near*0.5 {
 		t.Errorf("far particles should be well under half the near size: near=%.1f far=%.1f", near, far)
@@ -90,7 +90,7 @@ func TestSpellHitStyle(t *testing.T) {
 }
 
 // TestCreateSpellHitEffect_StyleMotion: gravity signs encode each school's
-// motion — fire embers and spirit wisps rise, ice shards and earth rubble fall,
+// motion - fire embers and spirit wisps rise, ice shards and earth rubble fall,
 // a plain physical burst has none. All start at the anchor with zero offset.
 func TestCreateSpellHitEffect_StyleMotion(t *testing.T) {
 	cfg := loadTestConfig(t)

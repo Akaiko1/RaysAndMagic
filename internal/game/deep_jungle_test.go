@@ -10,7 +10,7 @@ import (
 
 // Gorilla Titan rallies a pair of Masked Huntress escorts via the shared boss
 // summon kit (data-driven summon_* fields in monsters.yaml). Verifies the wiring
-// end-to-end: config → exactly 2 masked_huntress spawn, tagged SummonedBy, capped.
+// end-to-end: config -> exactly 2 masked_huntress spawn, tagged SummonedBy, capped.
 func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
@@ -76,7 +76,7 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 }
 
 // The Gorilla Titan (a summoning boss with NO map-wide trait) must NOT beeline
-// across the map from spawn — it goes relentless only after normal aggro (in its
+// across the map from spawn - it goes relentless only after normal aggro (in its
 // alert radius / once hit). Contrast: a boss with AggroWholeMap (Golden Thief Bug)
 // chases from anywhere on activation.
 func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
@@ -86,18 +86,18 @@ func TestGorillaTitan_NoMapWideAggroUntilEngaged(t *testing.T) {
 	gorilla := monsterPkg.NewMonster3DFromConfig(30*ts, 30*ts, "gorilla_titan", game.config) // far away
 	game.world.Monsters = []*monsterPkg.Monster3D{gorilla}
 
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if gorilla.BossAggro {
 		t.Fatal("gorilla must NOT relentlessly chase from across the map before aggro")
 	}
 	gorilla.IsEngagingPlayer = true
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !gorilla.BossAggro {
 		t.Fatal("an engaged gorilla should relentlessly pursue")
 	}
 	gorilla.IsEngagingPlayer = false
 	gorilla.WasAttacked = true // sticky once hit
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !gorilla.BossAggro {
 		t.Fatal("a struck gorilla should keep relentlessly pursuing")
 	}
@@ -115,7 +115,7 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 	m.AggroWholeMap = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	if !m.BossAggro {
 		t.Fatal("an AggroWholeMap boss should relentlessly pursue from spawn")
 	}
@@ -127,7 +127,7 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 }
 
 // Killing the Orc Warlord sends every HUMAN on the map (the masked Amazons) into
-// a relentless hunt — goblins and beasts are untouched. Also checks the Warlord's
+// a relentless hunt - goblins and beasts are untouched. Also checks the Warlord's
 // summon roster (Huntress + Hexer) is wired.
 func TestOrcWarlord_DeathRalliesHumansOnly(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)

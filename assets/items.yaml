@@ -1,3 +1,16 @@
+# Armor sets: items carrying the same `set:` key power a party-wide bonus once
+# pieces_required of them are equipped on ONE character. Bonuses use the same
+# attribute vocabulary as items (bonus_*) plus set-only effects.
+item_sets:
+  padded:
+    name: "Pit Fighter's Quilt"
+    pieces_required: 4
+    stun_duration_pct: -50   # quilting soaks the blow: stuns on the wearer last half as long
+  ringmail:
+    name: "Coliseum Ringmail"
+    pieces_required: 4
+    bonus_endurance: 10
+
 items:
   # Armor Endurance AC scaling is category-wide by design:
   # leather = END/10, chain = END/7, plate = END/5.
@@ -74,6 +87,156 @@ items:
     rarity: "uncommon"
     value: 60
 
+  # --- Pit Fighter's Quilt (padded leather set, arena shop / champion drops) ---
+  # Vambrace pieces sit in the offhand slot but gate on their armor category
+  # skill, NOT the shield skill (they strap to the arm, no shield training).
+  padded_cap:
+    name: "Padded Cap"
+    type: "armor"
+    armor_category: "leather"
+    description: "A quilted training cap that soaks up ringing blows"
+    flavor: "Stuffed with wool and old bout memories."
+    equip_slot: "helmet"
+    armor_class_base: 2
+    endurance_scaling_divisor: 10
+    set: "padded"
+    rarity: "uncommon"
+    value: 220
+
+  padded_vest:
+    name: "Padded Vest"
+    type: "armor"
+    armor_category: "leather"
+    description: "A thick quilted vest, the pit fighter's second skin"
+    flavor: "Every stitch bought with somebody's bruise."
+    equip_slot: "armor"
+    armor_class_base: 4
+    endurance_scaling_divisor: 10
+    set: "padded"
+    rarity: "uncommon"
+    value: 320
+
+  padded_greaves:
+    name: "Padded Greaves"
+    type: "armor"
+    armor_category: "leather"
+    description: "Buckled quilt guards strapped to the off arm"
+    flavor: "Catch the blade on the wrap, not the bone."
+    equip_slot: "offhand"
+    armor_class_base: 2
+    endurance_scaling_divisor: 10
+    set: "padded"
+    rarity: "uncommon"
+    value: 240
+
+  padded_gloves:
+    name: "Padded Gloves"
+    type: "armor"
+    armor_category: "leather"
+    description: "Quilted gloves that keep the grip sure and the knuckles whole"
+    flavor: "Soft outside, stubborn inside."
+    equip_slot: "gauntlets"
+    armor_class_base: 1
+    endurance_scaling_divisor: 10
+    bonus_accuracy: 3
+    set: "padded"
+    rarity: "uncommon"
+    value: 200
+
+  padded_boots:
+    name: "Padded Boots"
+    type: "armor"
+    armor_category: "leather"
+    description: "Quilted boots broken in on arena sand"
+    flavor: "They remember every sidestep that mattered."
+    equip_slot: "boots"
+    armor_class_base: 2
+    endurance_scaling_divisor: 10
+    bonus_speed: 4
+    set: "padded"
+    rarity: "uncommon"
+    value: 220
+
+  # --- Coliseum Ringmail (ringmail set, arena shop / champion drops) ---
+  ringmail_coif:
+    name: "Ringmail Coif"
+    type: "armor"
+    armor_category: "chain"
+    description: "A close-woven mail hood of riveted rings"
+    flavor: "The weave sings a little when the crowd does."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 7
+    set: "ringmail"
+    rarity: "rare"
+    value: 420
+
+  ringmail_hauberk:
+    name: "Ringmail Hauberk"
+    type: "armor"
+    armor_category: "chain"
+    description: "A belted riveted-ring hauberk, the coliseum standard"
+    flavor: "Ten thousand rings, and not one of them lies."
+    equip_slot: "armor"
+    armor_class_base: 6
+    endurance_scaling_divisor: 7
+    set: "ringmail"
+    rarity: "rare"
+    value: 620
+
+  ringmail_vambraces:
+    name: "Ringmail Vambraces"
+    type: "armor"
+    armor_category: "chain"
+    description: "Strapped mail sleeves worn on the off arm"
+    flavor: "An arm of iron rings turns more steel than pride admits."
+    equip_slot: "offhand"
+    armor_class_base: 3
+    endurance_scaling_divisor: 7
+    set: "ringmail"
+    rarity: "rare"
+    value: 460
+
+  ringmail_gloves:
+    name: "Ringmail Gloves"
+    type: "armor"
+    armor_category: "chain"
+    description: "Mail mittens buckled at the wrist"
+    flavor: "Cold links that never flinch off a blade."
+    equip_slot: "gauntlets"
+    armor_class_base: 2
+    endurance_scaling_divisor: 7
+    set: "ringmail"
+    rarity: "rare"
+    value: 400
+
+  ringmail_boots:
+    name: "Ringmail Boots"
+    type: "armor"
+    armor_category: "chain"
+    description: "Ring-woven boots with brass-buckled straps"
+    flavor: "Heavy steps, but nothing bites through them."
+    equip_slot: "boots"
+    armor_class_base: 3
+    endurance_scaling_divisor: 7
+    bonus_speed: 3
+    set: "ringmail"
+    rarity: "rare"
+    value: 440
+
+  # Parma - the arena round shield (proper shield: gates on the shield skill).
+  parma_shield:
+    name: "Parma"
+    type: "armor"
+    armor_category: "shield"
+    description: "A gilded round shield that shelters the whole line"
+    flavor: "Small enough to carry, wide enough to matter."
+    equip_slot: "offhand"
+    armor_class_base: 5
+    party_armor_bonus: 5   # shield wall: +5 AC to every OTHER party member
+    rarity: "unique"
+    value: 1500
+
   health_potion:
     name: "Health Potion"
     type: "consumable"
@@ -83,6 +246,16 @@ items:
     heal_endurance_divisor: 4
     rarity: "common"
     value: 50
+
+  mana_potion:
+    name: "Mana Potion"
+    type: "consumable"
+    description: "Restores spell points"
+    flavor: "Midnight bottled; it hums against the palm."
+    mana_base: 25
+    mana_personality_divisor: 4
+    rarity: "common"
+    value: 60
 
   revival_potion:
     name: "Revival Potion"
@@ -450,8 +623,9 @@ items:
     rarity: "legendary"
     value: 0
     promotes_lich: true   # using it offers a compatible party member the path of the Lich
+    discardable: true     # a refusable choice: the party may throw the vessel away
 
-  # --- Gauntlets (hands slot) — first items to fill the previously-empty
+  # --- Gauntlets (hands slot) - first items to fill the previously-empty
   # gauntlets slot. Armor-type, so they add to total armor class and gate on the
   # matching armor skill; "cloth" is universally wearable (caster-friendly).
   goblin_hide_gauntlets:
@@ -588,8 +762,8 @@ items:
     value: 700
 
   # Golden Thief Bug boss drop (1%): a cloth breastplate set with the golden card.
-  # Cloth ⇒ no skill requirement and no endurance scaling (flat AC). Its real worth
-  # is the resistances map — every non-physical school at 100 (full immunity), the
+  # Cloth => no skill requirement and no endurance scaling (flat AC). Its real worth
+  # is the resistances map - every non-physical school at 100 (full immunity), the
   # same per-element model monsters use. Physical is intentionally omitted.
   golden_thiefbug_carapace:
     name: "Golden Thief Bug Carapace"
@@ -613,7 +787,7 @@ items:
       dark: 100
 
   # --- Japanese Castle (eastern islands) loot ---
-  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate ⇒ gates on
+  # Samurai Warlord boss signature: cursed lamellar (legendary). Plate => gates on
   # plate skill and follows the category-wide END/5 AC scaling.
   onryo_lamellar:
     name: "Onryo Lamellar"
@@ -808,7 +982,7 @@ items:
     rarity: "legendary"
     value: 2500
 
-  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate ⇒
+  # Orc Warlord boss signature: a plate mantle of feathered idol-bronze. Plate =>
   # gates on plate skill and follows the category-wide END/5 AC scaling.
   mantle_of_the_idol_king:
     name: "Mantle of the Idol-King"
@@ -944,6 +1118,7 @@ items:
     name: "Bandit Card"
     type: "card"
     card_bonus_bolt_pct: 5
+    card_bonus_bolt_label: "Bandit Bolt"
     description: "A rare monster card prized by collectors"
     flavor: "A stamped card of a hooded bandit, blade drawn."
     rarity: "legendary"

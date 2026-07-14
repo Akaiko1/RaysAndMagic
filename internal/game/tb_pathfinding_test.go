@@ -12,8 +12,8 @@ import (
 // movement path (monsterMoveTurnBased), not just the A* helper: a mob is cut off
 // from the party by an impassable barrier (a wall stands in for the river) with a
 // single walkable gap (the ford/bridge). Stepping turn by turn it must cross via
-// the gap and reach the party — not oscillate at the bank, the bug that let the
-// stranded gorilla be ranged down for free. Guards the greedy→A* fallthrough.
+// the gap and reach the party - not oscillate at the bank, the bug that let the
+// stranded gorilla be ranged down for free. Guards the greedy->A* fallthrough.
 func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 	cfg := loadTestConfig(t)
 	tile := float64(cfg.GetTileSize())
@@ -88,7 +88,7 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 		t.Fatalf("mob never reached the party (oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	if !crossed {
-		t.Fatal("mob reached the party without ever crossing the barrier column — setup is wrong")
+		t.Fatal("mob reached the party without ever crossing the barrier column - setup is wrong")
 	}
 	t.Logf("mob crossed the ford and reached the party in %d turn-based steps", steps)
 }
@@ -96,8 +96,8 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 // TestMonsterMoveTurnBased_EscapesPocketAwayFromParty reproduces the exact bug the
 // real gorilla hit: it sat in a pocket whose only opening faced AWAY from the
 // party (its party-side neighbor was an impassable log). A greedy-first mover
-// oscillates — the naive step keeps pulling it toward the party (back into the
-// pocket) while A* pulls it out the far side — so it never escapes and gets ranged
+// oscillates - the naive step keeps pulling it toward the party (back into the
+// pocket) while A* pulls it out the far side - so it never escapes and gets ranged
 // down. A*-primary follows the path out. The straight-across ford test above does
 // NOT catch this (there the naive step points into the wall and is simply blocked).
 func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
@@ -157,7 +157,7 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 		gl.monsterMoveTurnBased(mob)
 	}
 	if manhattan() > 1 {
-		t.Fatalf("mob never escaped the pocket / reached the party (greedy↔A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
+		t.Fatalf("mob never escaped the pocket / reached the party (greedy<->A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	t.Logf("mob escaped the pocket and reached the party in %d turn-based steps", steps)
 }
@@ -205,9 +205,9 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache() // marks the struck gorilla as BossAggro.
+	g.refreshBoundAllyCache() // marks the struck gorilla as BossAggro.
 	for _, m := range w.Monsters {
-		g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+		g.refreshMonsterCollisionSolidity(m)
 	}
 
 	gl := &GameLoop{game: g}
@@ -323,7 +323,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 
 	w.Monsters = []*monsterPkg.Monster3D{gorilla, nearSummon, farSummon}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	gl := &GameLoop{game: g}
@@ -333,7 +333,7 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 	// without letting unrelated huntress AI noise hide the regression.
 	swappedWithFarSummon := false
 	for step := 0; step < 12; step++ {
-		g.refreshBoundUndeadCache()
+		g.refreshBoundAllyCache()
 		gl.monsterMoveTurnBased(gorilla)
 		refreshTBMonsterSolidity(g)
 
@@ -441,7 +441,7 @@ func TestMonsterTurnBased_PounceFailFallsThroughToMovement(t *testing.T) {
 	gorilla.PounceCDTurns = 0
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	for _, c := range [8][2]int{
@@ -497,7 +497,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	disableRandomBossSpecialsForTBPathTest(gorilla)
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 
 	gl := &GameLoop{game: g}
@@ -553,7 +553,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVisio
 	disableRandomBossSpecialsForTBPathTest(gorilla)
 	w.Monsters = []*monsterPkg.Monster3D{gorilla}
 	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	refreshTBMonsterSolidity(g)
 	if !gorilla.BossAggro {
 		t.Fatal("setup failed: WasAttacked gorilla should recompute BossAggro")
@@ -576,7 +576,7 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVisio
 
 func refreshTBMonsterSolidity(g *MMGame) {
 	for _, m := range g.world.Monsters {
-		g.refreshMonsterCollisionSolidity(m, g.camera.X, g.camera.Y)
+		g.refreshMonsterCollisionSolidity(m)
 	}
 }
 
@@ -605,7 +605,7 @@ func movePartyToTileForTBTest(t *testing.T, g *MMGame, tx, ty int, tile float64)
 func runFullMonsterTurnForTBTest(t *testing.T, g *MMGame, gl *GameLoop) {
 	t.Helper()
 	for frames := 0; g.currentTurn == 1 && frames < 180; frames++ {
-		g.refreshBoundUndeadCache()
+		g.refreshBoundAllyCache()
 		refreshTBMonsterSolidity(g)
 		gl.updateMonstersTurnBased()
 	}

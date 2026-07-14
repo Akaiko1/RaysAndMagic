@@ -40,7 +40,7 @@ func (wp *WorkerPool) Start() {
 
 // worker pulls jobs off the queue until quit is closed, then DRAINS whatever
 // is still queued before exiting. Every queued job has already wg.Add(1)'d in
-// Submit — abandoning it would leak the WaitGroup counter and hang any Wait().
+// Submit - abandoning it would leak the WaitGroup counter and hang any Wait().
 func (wp *WorkerPool) worker() {
 	for {
 		select {
@@ -60,7 +60,7 @@ func (wp *WorkerPool) worker() {
 }
 
 // runJob executes a single job in isolation. wg.Done() runs even if the job
-// panics — otherwise a panic would leak the WaitGroup counter and Wait() would
+// panics - otherwise a panic would leak the WaitGroup counter and Wait() would
 // hang the whole frame. Panics are logged and swallowed so a single bad job
 // can't take down the pool.
 func (wp *WorkerPool) runJob(job func()) {
@@ -75,7 +75,7 @@ func (wp *WorkerPool) runJob(job func()) {
 
 // Submit enqueues a job and reports whether the pool accepted it. Blocks if
 // the queue is full. After Stop() it refuses (returns false) WITHOUT touching
-// the WaitGroup — the job is NOT run; the caller must run it inline (all
+// the WaitGroup - the job is NOT run; the caller must run it inline (all
 // callers do), so submitted work always completes and no caller-side
 // WaitGroup can hang on a silently dropped job.
 func (wp *WorkerPool) Submit(job func()) bool {
@@ -93,8 +93,8 @@ func (wp *WorkerPool) Wait() {
 }
 
 // Stop signals workers to exit and waits for every accepted job (in-flight
-// AND still queued — workers drain the queue on quit) to finish. Idempotent.
-// Lifecycle contract: Submit must not be called CONCURRENTLY with Stop — the
+// AND still queued - workers drain the queue on quit) to finish. Idempotent.
+// Lifecycle contract: Submit must not be called CONCURRENTLY with Stop - the
 // pool has a single owner (the main goroutine submits during ticks, stops at
 // shutdown), and a truly concurrent Submit could slip its job into the queue
 // after the drain and hang the Wait below. Submit called AFTER Stop returns

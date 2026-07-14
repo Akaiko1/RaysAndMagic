@@ -1,10 +1,14 @@
 package game
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
+	"sort"
 	"time"
 	"ugataima/internal/character"
 	"ugataima/internal/collision"
@@ -29,7 +33,7 @@ func slotPath(slot int) string { return storage.AppSavePath(fmt.Sprintf("save%d.
 
 // Save-slot menu layout. The menus show saveRowsPerPage rows across savePageCount
 // pages. Global row 0 is the shared Autosave (written automatically on map change
-// and stash use; load-only — never manually overwritten). Rows 1..N are manual
+// and stash use; load-only - never manually overwritten). Rows 1..N are manual
 // slots and map to save1.json.. unchanged, so existing saves stay reachable.
 const (
 	saveRowsPerPage = 7
@@ -55,7 +59,7 @@ const (
 	// Main-menu panel + option-list layout (its own size, distinct from the
 	// save/load panel). Shared by the draw code and the input hit-testing.
 	mainMenuPanelW   = 360
-	mainMenuPanelH   = 320
+	mainMenuPanelH   = 340
 	mainMenuListTopY = 56
 	mainMenuRowPitch = 32
 
@@ -114,6 +118,17 @@ func GetSaveRowSummary(row int) SaveSummary {
 	return summaryFromPath(saveRowPath(row))
 }
 
+// saveSummaryCache memoizes summaries by path + (mtime, size): the save/load
+// menus redraw every frame, and a cold summary is a FULL GameSave decode -
+// without the cache the open menu re-parsed up to 8 save files per frame.
+var saveSummaryCache = map[string]cachedSaveSummary{}
+
+type cachedSaveSummary struct {
+	modTime int64
+	size    int64
+	sum     SaveSummary
+}
+
 // Autosave writes the shared autosave slot (row 0). Best-effort and silent: a
 // failure must never interrupt play. No-op outside live gameplay so it can't fire
 // mid-load or before the world exists.
@@ -134,8 +149,21 @@ func (g *MMGame) autosaveErr() error {
 }
 
 // mainMenuOptions defines the visible options in the ESC menu. "Main Menu"
-// returns to the title screen (not a full app quit — that's the title's "Quit").
+// returns to the title screen (not a full app quit - that's the title's "Quit").
 var mainMenuOptions = []string{"Continue", "Save", "Load", "High Scores", "Main Menu"}
+
+var mainMenuControlTips = []string{
+	"Controls:",
+	"WASD: Move  QE: Strafe",
+	"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
+	"I: Inventory  P: Characters  M: Spellbook",
+	"1-4: Select",
+	"Tab: Toggle Mode (TB/RT)",
+}
+
+func mainMenuTipsTopY() int {
+	return mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
+}
 
 // GameSave captures minimal persistent state for save/load
 type GameSave struct {
@@ -157,6 +185,13 @@ type GameSave struct {
 	// need to remember which character is owed a choice at which level.
 	PendingLevelUpChoices []PendingLevelUpChoiceSave `json:"pending_level_up_choices,omitempty"`
 	PlayedTimeNs          int64                      `json:"played_time_ns,omitempty"` // Elapsed play time in nanoseconds
+	DayNightFrames        int                        `json:"day_night_frames,omitempty"`
+	DayNightDay           int                        `json:"day_night_day,omitempty"`
+	CalendarDay           int                        `json:"calendar_day,omitempty"`
+	CalendarWeek          int                        `json:"calendar_week,omitempty"`
+	CalendarMonth         int                        `json:"calendar_month,omitempty"`
+	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
+	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
 	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
@@ -178,6 +213,9 @@ type GameSave struct {
 	WizardEyeDuration      int              `json:"wizard_eye_duration,omitempty"`
 	WalkOnWaterActive      bool             `json:"walk_on_water_active,omitempty"`
 	WalkOnWaterDuration    int              `json:"walk_on_water_duration,omitempty"`
+	FlyActive              bool             `json:"fly_active,omitempty"`
+	FlyDuration            int              `json:"fly_duration,omitempty"`
+	VisitedTavernMaps      []string         `json:"visited_tavern_maps,omitempty"`
 	BlessActive            bool             `json:"bless_active,omitempty"`
 	BlessDuration          int              `json:"bless_duration,omitempty"`
 	BlessStatBonus         int              `json:"bless_stat_bonus,omitempty"`
@@ -208,13 +246,15 @@ type QuestSave struct {
 }
 
 type PartySave struct {
-	Gold           int             `json:"gold"`
-	Food           int             `json:"food"`
-	Inventory      []items.Item    `json:"inventory"`
-	Members        []CharacterSave `json:"members"`
-	Reserve        []CharacterSave `json:"reserve,omitempty"`
-	Captive        []CharacterSave `json:"captive,omitempty"`
-	CardCollection []string        `json:"card_collection,omitempty"` // party-wide monster-card slots (keys; "" = empty)
+	Gold                int             `json:"gold"`
+	Food                int             `json:"food"`
+	ArenaPoints         int             `json:"arena_points,omitempty"`
+	Inventory           []items.Item    `json:"inventory"`
+	Members             []CharacterSave `json:"members"`
+	Reserve             []CharacterSave `json:"reserve,omitempty"`
+	Captive             []CharacterSave `json:"captive,omitempty"`
+	CardCollection      []string        `json:"card_collection,omitempty"`       // legacy/card UI keys
+	CardCollectionItems []items.Item    `json:"card_collection_items,omitempty"` // physical cards with InstanceID
 }
 
 type CharacterSave struct {
@@ -235,6 +275,9 @@ type CharacterSave struct {
 	Speed                 int                `json:"speed"`
 	Luck                  int                `json:"luck"`
 	FreeStatPoints        int                `json:"free_stat_points"`
+	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
+	// effective-stat layer, kept apart from the base stats above.
+	PermanentBonuses map[string]int `json:"permanent_bonuses,omitempty"`
 	OwedLevelChoices      []int              `json:"owed_level_choices,omitempty"`
 	Conditions            []int              `json:"conditions"`
 	Skills                []SkillEntry       `json:"skills"`
@@ -249,9 +292,15 @@ type CharacterSave struct {
 	// can't be used to refill action slots. Omitted from real-time saves
 	// (value will simply be 0; ignored when turn-based mode is off).
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
-	// RTCooldown preserves the real-time action cooldown — reload must not
+	// RTCooldown preserves the real-time action cooldown - reload must not
 	// reset the party's swing timers mid-fight.
 	RTCooldown int `json:"rt_cooldown,omitempty"`
+	// OffHandRTCooldown mirrors RTCooldown for a Dual Wielding character's
+	// off-hand weapon.
+	OffHandRTCooldown int `json:"off_hand_rt_cooldown,omitempty"`
+	// NextTBAttackOffHand preserves which hand a Dual Wielding character prefers
+	// next, so save/reload can't be used to re-pick the preferred weapon.
+	NextTBAttackOffHand bool `json:"next_tb_attack_off_hand,omitempty"`
 }
 
 type SkillEntry struct {
@@ -262,7 +311,7 @@ type SkillEntry struct {
 
 // PendingLevelUpChoiceSave records that party member CharIndex has earned a
 // level-up choice at Level but hasn't picked one yet. Options themselves are
-// not stored — they're rebuilt from the character's class config on load.
+// not stored - they're rebuilt from the character's class config on load.
 type PendingLevelUpChoiceSave struct {
 	CharIndex int `json:"char_index"`
 	Level     int `json:"level"`
@@ -290,15 +339,15 @@ type QuickSlotEntry struct {
 // treasure chest) for save/load. Kind drives the presentation defaults; the
 // rest of the fields are the runtime state.
 type GroundContainerSave struct {
-	Kind           int          `json:"kind"`
-	ID             string       `json:"id,omitempty"`
-	MapKey         string       `json:"map_key,omitempty"`
-	X              float64      `json:"x"`
-	Y              float64      `json:"y"`
-	Gold           int          `json:"gold"`
-	Items          []items.Item `json:"items,omitempty"`
-	Sprite         string       `json:"sprite,omitempty"`
-	SizeMultiplier float64      `json:"size_multiplier"`
+	Kind      int          `json:"kind"`
+	ID        string       `json:"id,omitempty"`
+	MapKey    string       `json:"map_key,omitempty"`
+	X         float64      `json:"x"`
+	Y         float64      `json:"y"`
+	Gold      int          `json:"gold"`
+	Items     []items.Item `json:"items,omitempty"`
+	Sprite    string       `json:"sprite,omitempty"`
+	SizeTiles float64      `json:"size_tiles"`
 }
 
 type MonsterSave struct {
@@ -312,21 +361,26 @@ type MonsterSave struct {
 	BoundFramesRemaining    int     `json:"bound_frames_remaining,omitempty"`
 	Pacified                bool    `json:"pacified,omitempty"`
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
+	CharmedByParty          bool    `json:"charmed_by_party,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
 	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
+	PackKey                 string  `json:"pack_key,omitempty"`   // ambient day/night pack tag
 	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining      int `json:"stun_turns_remaining,omitempty"`
 	PoisonedFramesRemaining int `json:"poisoned_frames_remaining,omitempty"` // Venom-proc cards
-	// Stun diminishing-returns chain — persisted so save/reload can't reset it
+	// Stun diminishing-returns chain - persisted so save/reload can't reset it
 	// and re-enable a full-strength perma-stun-lock (bosses included).
 	StunDRStacks        int                  `json:"stun_dr_stacks,omitempty"`
 	StunDRMemoryTurns   int                  `json:"stun_dr_memory_turns,omitempty"`
 	StunDRMemoryFrames  int                  `json:"stun_dr_memory_frames,omitempty"`
 	RootFramesRemaining int                  `json:"root_frames_remaining,omitempty"`
 	RootTurnsRemaining  int                  `json:"root_turns_remaining,omitempty"`
+	ArmorShredPct       int                  `json:"armor_shred_pct,omitempty"`
+	ArmorShredFrames    int                  `json:"armor_shred_frames,omitempty"`
+	ArmorShredTurns     int                  `json:"armor_shred_turns,omitempty"`
 	Pilfered            bool                 `json:"pilfered,omitempty"`
 	PounceCDFrames      int                  `json:"pounce_cd_frames,omitempty"`
 	PounceCDTurns       int                  `json:"pounce_cd_turns,omitempty"`
@@ -335,8 +389,12 @@ type MonsterSave struct {
 	BossLastHP          int                  `json:"boss_last_hp,omitempty"`
 	SummonFirstDone     bool                 `json:"summon_first_done,omitempty"`
 	SummonedBy          string               `json:"summoned_by,omitempty"`
-	CrossfireCD         int                  `json:"crossfire_cd,omitempty"`
 	IsEncounterMonster  bool                 `json:"is_encounter_monster,omitempty"`
+	ChampionTier        string               `json:"champion_tier,omitempty"`
+	OpeningSpellDone    bool                 `json:"opening_spell_done,omitempty"`
+	SoakDamage          int                  `json:"soak_damage,omitempty"`
+	SoakFrames          int                  `json:"soak_frames,omitempty"`
+	SoakTurns           int                  `json:"soak_turns,omitempty"`
 	EncounterID         int                  `json:"encounter_id,omitempty"`
 	EncounterRewards    *EncounterRewardSave `json:"encounter_rewards,omitempty"`
 }
@@ -356,7 +414,7 @@ type TreasureChestRewardSave struct {
 	TileX             int      `json:"tile_x"`
 	TileY             int      `json:"tile_y"`
 	Sprite            string   `json:"sprite,omitempty"`
-	SizeMultiplier    float64  `json:"size_multiplier,omitempty"`
+	SizeTiles         float64  `json:"size_tiles,omitempty"`
 	RandomWeaponCount int      `json:"random_weapon_count,omitempty"`
 	Items             []string `json:"items,omitempty"`
 	Weapons           []string `json:"weapons,omitempty"`
@@ -375,7 +433,7 @@ func treasureChestRewardToSave(reward *monster.TreasureChestReward) *TreasureChe
 		TileX:             reward.TileX,
 		TileY:             reward.TileY,
 		Sprite:            reward.Sprite,
-		SizeMultiplier:    reward.SizeMultiplier,
+		SizeTiles:         reward.SizeTiles,
 		RandomWeaponCount: reward.RandomWeaponCount,
 		Items:             append([]string(nil), reward.Items...),
 		Weapons:           append([]string(nil), reward.Weapons...),
@@ -395,7 +453,7 @@ func treasureChestRewardFromSave(save *TreasureChestRewardSave) *monster.Treasur
 		TileX:             save.TileX,
 		TileY:             save.TileY,
 		Sprite:            save.Sprite,
-		SizeMultiplier:    save.SizeMultiplier,
+		SizeTiles:         save.SizeTiles,
 		RandomWeaponCount: save.RandomWeaponCount,
 		Items:             append([]string(nil), save.Items...),
 		Weapons:           append([]string(nil), save.Weapons...),
@@ -425,7 +483,7 @@ func encounterRewardsFromSave(save *EncounterRewardSave) *monster.EncounterRewar
 }
 
 // NPCSave tracks persistent NPC flags across maps. Identity is MapKey + spawn
-// coordinates (deterministic from the map file) — display names can repeat on
+// coordinates (deterministic from the map file) - display names can repeat on
 // one map (e.g. two "City Gate" NPCs), coordinates can't. Legacy saves without
 // coordinates fall back to name matching on restore.
 type NPCSave struct {
@@ -434,8 +492,20 @@ type NPCSave struct {
 	X       float64 `json:"x,omitempty"`
 	Y       float64 `json:"y,omitempty"`
 	Visited bool    `json:"visited"`
-	// Remaining merchant quantities, aligned with the YAML stock order.
+	// Remaining merchant stock, keyed by item NAME in stock order (duplicate
+	// names consume sequentially). Index-aligned restore was abandoned: stock
+	// ORDER is a presentation detail (grouping can reorder it between versions)
+	// and an index-keyed save would stamp quantities onto the wrong items.
+	Stock []NPCStockSave `json:"stock,omitempty"`
+	// StockQuantities is the retired index-aligned format; old saves carrying
+	// it reset to full stock rather than risk mis-assignment.
 	StockQuantities []int `json:"stock_quantities,omitempty"`
+}
+
+// NPCStockSave is one merchant stock line in a save.
+type NPCStockSave struct {
+	Name     string `json:"name"`
+	Quantity int    `json:"quantity"`
 }
 
 // clearTransientCombatState drops every in-flight transient tied to the
@@ -443,6 +513,9 @@ type NPCSave struct {
 // world swap (map switch, save load) or leftovers keep updating against the
 // new map and can hit monsters there.
 func (g *MMGame) clearTransientCombatState() {
+	// Door state is per-map: entities unregister and closed-ness resets, so the
+	// "portcullises rise" transition can't fire on the destination map.
+	g.clearDoorState()
 	g.projectileMutex.Lock()
 	if g.collisionSystem != nil {
 		// applySave rebuilds the collision system anyway; switchToMap keeps it,
@@ -457,6 +530,10 @@ func (g *MMGame) clearTransientCombatState() {
 	g.magicProjectiles = g.magicProjectiles[:0]
 	g.arrows = g.arrows[:0]
 	g.projectileMutex.Unlock()
+	// Stone Blossom blooms scheduled mid-flight belong to the map they were
+	// aimed on - a map switch/load must not detonate them at the same
+	// coordinates of the destination map.
+	g.pendingMortars = g.pendingMortars[:0]
 	g.slashEffects = g.slashEffects[:0]
 	g.hitEffectsMu.Lock()
 	g.spellHitEffects = g.spellHitEffects[:0]
@@ -472,6 +549,7 @@ type SaveSummary struct {
 	MapKey    string
 	TurnBased bool
 	Name      string
+	RunID     string           // playthrough id (GameSave.ArenaRunID) - names collide across runs (default roster), the run id doesn't
 	PlayTime  string           // formatted elapsed play time ("" if unknown)
 	Party     []SavePartyBrief // active roster for the hover tooltip
 }
@@ -484,7 +562,53 @@ type SavePartyBrief struct {
 }
 
 // summaryFromPath reads minimal display info from a save file path.
+// mintPlaythroughID mints the identity of a new run (random; persisted in
+// every save as arena_run_id). See legacyRunID for pre-feature saves.
+func mintPlaythroughID() string {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// adoptPlaythroughID resolves the run identity when a save is loaded: a saved
+// id is adopted VERBATIM; a pre-run-id save derives the DETERMINISTIC legacy
+// id from its roster. Determinism here is load-bearing - an interim build that
+// minted a RANDOM id on legacy load poisoned sibling saves of one run with
+// divergent ids (the save-glow bug). Never mint randomness on this path.
+func adoptPlaythroughID(saved string, memberNames []string) string {
+	if saved != "" {
+		return saved
+	}
+	return legacyRunID(memberNames)
+}
+
+// legacyRunID is the deterministic playthrough id for saves written BEFORE
+// run ids existed: a hash of the sorted member names. Two legacy saves of the
+// same roster map to the SAME id (so they highlight together and keep doing so
+// after either is loaded); the default-roster name collision this reintroduces
+// is confined to legacy saves, which carry no better signal.
+func legacyRunID(names []string) string {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	h := fnv.New64a()
+	for _, n := range sorted {
+		h.Write([]byte(n))
+		h.Write([]byte{'|'})
+	}
+	return fmt.Sprintf("legacy-%x", h.Sum64())
+}
+
 func summaryFromPath(path string) SaveSummary {
+	st, err := os.Stat(path)
+	if err != nil {
+		delete(saveSummaryCache, path)
+		return SaveSummary{Exists: false}
+	}
+	if c, ok := saveSummaryCache[path]; ok && c.modTime == st.ModTime().UnixNano() && c.size == st.Size() {
+		return c.sum
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return SaveSummary{Exists: false}
@@ -494,13 +618,21 @@ func summaryFromPath(path string) SaveSummary {
 	if err := json.NewDecoder(f).Decode(&s); err != nil {
 		return SaveSummary{Exists: false}
 	}
-	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName}
+	sum := SaveSummary{Exists: true, SavedAt: s.SavedAt, MapKey: s.MapKey, TurnBased: s.TurnBased, Name: s.SaveName, RunID: s.ArenaRunID}
+	if sum.RunID == "" { // pre-run-id save: derive the deterministic legacy id
+		names := make([]string, 0, len(s.Party.Members))
+		for _, m := range s.Party.Members {
+			names = append(names, m.Name)
+		}
+		sum.RunID = legacyRunID(names)
+	}
 	if s.PlayedTimeNs > 0 {
 		sum.PlayTime = highscore.FormatPlayTime(time.Duration(s.PlayedTimeNs))
 	}
 	for _, m := range s.Party.Members {
 		sum.Party = append(sum.Party, SavePartyBrief{Name: m.Name, Level: m.Level, Class: m.Class})
 	}
+	saveSummaryCache[path] = cachedSaveSummary{modTime: st.ModTime().UnixNano(), size: st.Size(), sum: sum}
 	return sum
 }
 
@@ -576,7 +708,7 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 	// One-time migration write: a load that stamped legacy items with instance
 	// ids re-saves the slot so the ids stick (SaveGameToFile preserves the slot's
 	// name). Without this the reloaded slot would revert to id-less items and stay
-	// dupe-able. Best-effort — a write failure just defers the migration.
+	// dupe-able. Best-effort - a write failure just defers the migration.
 	if g.loadNeedsResave {
 		g.loadNeedsResave = false
 		_ = g.SaveGameToFile(path)
@@ -586,6 +718,19 @@ func (g *MMGame) LoadGameFromFile(path string) error {
 
 func normalizeItemFromConfig(item *items.Item) {
 	if item == nil {
+		return
+	}
+	// Weapons refresh from weapons.yaml (name/rarity/stat rebalances reach saved
+	// slots), keyed by display name. Type-gated so a non-weapon that happens to
+	// share a name can't be force-converted into a weapon.
+	if item.Type == items.ItemWeapon {
+		if _, key, ok := config.GetWeaponDefinitionByName(item.Name); ok && key != "" {
+			if template, err := items.TryCreateWeaponFromYAML(key); err == nil {
+				instanceID := item.InstanceID
+				*item = template
+				item.InstanceID = instanceID
+			}
+		}
 		return
 	}
 	// Trap quick-slot items refresh from traps.yaml (name/cost rebalances
@@ -614,19 +759,19 @@ func normalizeItemFromConfig(item *items.Item) {
 	item.Type = template.Type
 	// The YAML definition is the single source of an item's attributes: ADOPT
 	// it wholesale, so rebalanced (or removed) values reach items saved before
-	// the change. Items carry no instance state in Attributes — merging only
+	// the change. Items carry no instance state in Attributes - merging only
 	// missing keys left old saves frozen on their original balance forever.
 	item.Attributes = make(map[string]int, len(template.Attributes))
 	for k, v := range template.Attributes {
 		item.Attributes[k] = v
 	}
 	item.ArmorCategory = template.ArmorCategory
-	if item.Description == "" {
-		item.Description = template.Description
-	}
-	if item.Rarity == "" {
-		item.Rarity = template.Rarity
-	}
+	// rarity/description are definitional too (items carry no per-instance
+	// override - nothing sets them outside YAML adoption), so adopt them
+	// wholesale like attributes: a rebalanced rarity/desc reaches old saves,
+	// matching the weapon branch above.
+	item.Description = template.Description
+	item.Rarity = template.Rarity
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.
@@ -649,6 +794,7 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 		Speed:            cs.Speed,
 		Luck:             cs.Luck,
 		FreeStatPoints:   cs.FreeStatPoints,
+		PermanentBonuses: character.StatBonusesFromMap(cs.PermanentBonuses),
 		OwedLevelChoices: append([]int(nil), cs.OwedLevelChoices...),
 		Skills:           make(map[character.SkillType]*character.Skill),
 		MagicSchools:     make(map[character.MagicSchoolID]*character.MagicSkill),
@@ -701,6 +847,8 @@ func restoreCharacterSave(cs CharacterSave) *character.MMCharacter {
 	m.StunTurnsRemaining = cs.StunTurnsRemaining
 	m.ActionsRemaining = cs.ActionsRemaining
 	m.RTCooldown = cs.RTCooldown
+	m.OffHandRTCooldown = cs.OffHandRTCooldown
+	m.NextTBAttackOffHand = cs.NextTBAttackOffHand
 	return m
 }
 
@@ -725,6 +873,9 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 		Luck:             m.Luck,
 		FreeStatPoints:   m.FreeStatPoints,
 		OwedLevelChoices: append([]int(nil), m.OwedLevelChoices...),
+	}
+	if m.PermanentBonuses != (character.StatBonuses{}) {
+		cs.PermanentBonuses = m.PermanentBonuses.ToMap()
 	}
 	if len(m.Conditions) > 0 {
 		cs.Conditions = make([]int, len(m.Conditions))
@@ -759,21 +910,34 @@ func buildCharacterSave(m *character.MMCharacter) CharacterSave {
 	cs.StunTurnsRemaining = m.StunTurnsRemaining
 	cs.ActionsRemaining = m.ActionsRemaining
 	cs.RTCooldown = m.RTCooldown
+	cs.OffHandRTCooldown = m.OffHandRTCooldown
+	cs.NextTBAttackOffHand = m.NextTBAttackOffHand
 	return cs
 }
 
 // buildSave gathers game state into a serializable struct
 func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
+	// A paid arena doze may be midway through a visual sky fade. Commit its
+	// remaining gameplay phase transitions before taking the snapshot rather
+	// than persisting a transient renderer queue with the save.
+	g.finishDayNightSkipImmediately()
 	// Legacy bless_* fields mirror the registry's bless entry so an older
 	// binary can still read this save.
 	legacyBless, _ := g.statBuffByID("bless")
 	// Party
 	ps := PartySave{
-		Gold:           g.party.Gold,
-		Food:           g.party.Food,
-		Inventory:      g.party.Inventory,
-		Members:        make([]CharacterSave, 0, len(g.party.Members)),
-		CardCollection: g.cardCollection[:],
+		Gold:                g.party.Gold,
+		Food:                g.party.Food,
+		ArenaPoints:         g.party.ArenaPoints,
+		Inventory:           g.party.Inventory,
+		Members:             make([]CharacterSave, 0, len(g.party.Members)),
+		CardCollection:      make([]string, MaxCardSlots),
+		CardCollectionItems: make([]items.Item, MaxCardSlots),
+	}
+	// The key list is derived (legacy readers only); cardSlots is the truth.
+	for i := 0; i < MaxCardSlots; i++ {
+		ps.CardCollection[i] = g.cardCollectionKey(i)
+		ps.CardCollectionItems[i] = g.cardCollectionItem(i)
 	}
 	for _, m := range g.party.Members {
 		ps.Members = append(ps.Members, buildCharacterSave(m))
@@ -791,14 +955,14 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		groundContainerSaves = make([]GroundContainerSave, len(g.groundContainers))
 		for i, c := range g.groundContainers {
 			entry := GroundContainerSave{
-				Kind:           int(c.Kind),
-				ID:             c.ID,
-				MapKey:         c.MapKey,
-				X:              c.X,
-				Y:              c.Y,
-				Gold:           c.Gold,
-				Sprite:         c.Sprite,
-				SizeMultiplier: c.SizeMultiplier,
+				Kind:      int(c.Kind),
+				ID:        c.ID,
+				MapKey:    c.MapKey,
+				X:         c.X,
+				Y:         c.Y,
+				Gold:      c.Gold,
+				Sprite:    c.Sprite,
+				SizeTiles: c.SizeTiles,
 			}
 			if len(c.Items) > 0 {
 				entry.Items = append([]items.Item(nil), c.Items...)
@@ -815,15 +979,22 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
 		monsters := make([]MonsterSave, 0, len(w.Monsters))
 		for _, mon := range w.Monsters {
-			// Save the monster's own key (always set) — a name lookup is
+			// Save the monster's own key (always set) - a name lookup is
 			// ambiguous when several monsters share a Name (the elemental
 			// dragons are all "Dragon") and would restore the wrong variant.
 			saveEntry := MonsterSave{
 				ID: mon.ID, Key: mon.Key, Name: mon.Name, X: mon.X, Y: mon.Y, HitPoints: mon.HitPoints,
 				Bound: mon.Bound, BoundFramesRemaining: mon.BoundFramesRemaining,
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
+				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
 				Relentless:              mon.Relentless,
+				ChampionTier:            mon.ChampionTier,
+				OpeningSpellDone:        mon.OpeningSpellDone,
+				SoakDamage:              mon.SoakDamage,
+				SoakFrames:              mon.SoakFrames,
+				SoakTurns:               mon.SoakTurns,
+				PackKey:                 mon.PackKey,
 				QuestProgressIgnored:    mon.QuestProgressIgnored,
 				StunFramesRemaining:     mon.StunFramesRemaining,
 				StunTurnsRemaining:      mon.StunTurnsRemaining,
@@ -833,6 +1004,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				StunDRMemoryFrames:      mon.StunDRMemoryFrames,
 				RootFramesRemaining:     mon.RootFramesRemaining,
 				RootTurnsRemaining:      mon.RootTurnsRemaining,
+				ArmorShredPct:           mon.ArmorShredPct,
+				ArmorShredFrames:        mon.ArmorShredFramesRemaining,
+				ArmorShredTurns:         mon.ArmorShredTurnsRemaining,
 				Pilfered:                mon.Pilfered,
 				PounceCDFrames:          mon.PounceCDFrames,
 				PounceCDTurns:           mon.PounceCDTurns,
@@ -841,7 +1015,6 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				BossLastHP:              mon.BossLastHP,
 				SummonFirstDone:         mon.SummonFirstDone,
 				SummonedBy:              mon.SummonedBy,
-				CrossfireCD:             mon.CrossfireCD,
 			}
 			if mon.IsEncounterMonster && mon.EncounterRewards != nil {
 				saveEntry.IsEncounterMonster = true
@@ -891,9 +1064,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 			for _, npc := range w.NPCs {
 				ns := NPCSave{MapKey: mapKey, Name: npc.Name, X: npc.X, Y: npc.Y, Visited: npc.Visited}
 				if len(npc.MerchantStock) > 0 {
-					ns.StockQuantities = make([]int, len(npc.MerchantStock))
+					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
-						ns.StockQuantities[i] = entry.Quantity
+						ns.Stock[i] = NPCStockSave{Name: entry.Item.Name, Quantity: entry.Quantity}
 					}
 				}
 				nstates = append(nstates, ns)
@@ -944,6 +1117,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		GroundContainers:      groundContainerSaves,
 		PendingLevelUpChoices: pendingChoices,
 		PlayedTimeNs:          playedTime.Nanoseconds(),
+		DayNightFrames:        g.dayNightFrames,
+		DayNightDay:           g.dayNightDay,
+		CalendarDay:           g.calendarDay,
+		CalendarWeek:          g.calendarWeek,
+		CalendarMonth:         g.calendarMonth,
+		ArenaTierFoughtDay:    g.arenaTierFoughtDay,
+		ArenaRunID:            g.playthroughID,
 		TotalGoldEarned:       g.totalGoldEarned,
 		TotalExperienceEarned: g.totalExperienceEarned,
 		VictoryAcknowledged:   g.victoryAcknowledged,
@@ -961,6 +1141,9 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		WizardEyeDuration:     g.wizardEyeDuration,
 		WalkOnWaterActive:     g.walkOnWaterActive,
 		WalkOnWaterDuration:   g.walkOnWaterDuration,
+		FlyActive:             g.flyActive,
+		FlyDuration:           g.flyDuration,
+		VisitedTavernMaps:     g.sortedTownPortalDestinations(),
 		StatBuffs:             buildStatBuffSaves(g.statBuffs),
 		BlessActive:           legacyBless.Frames > 0,
 		BlessDuration:         legacyBless.Frames,
@@ -996,10 +1179,27 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	g.clearTransientCombatState()
 
-	// A loaded game starts with a clean combat log — the previous slot's history
+	// Restore the day/night clock BEFORE the sky refresh below so the panorama
+	// resolves to the saved phase. Recomputed silently (no flip side effects):
+	// the save's pack monsters are restored as part of MapMonsters.
+	g.dayNightFrames = save.DayNightFrames
+	g.dayNightDay = save.DayNightDay
+	g.calendarDay, g.calendarWeek, g.calendarMonth = calendarFromSave(save.CalendarDay, save.CalendarWeek, save.CalendarMonth, save.DayNightDay, g.config.DayNight)
+	g.arenaTierFoughtDay = save.ArenaTierFoughtDay
+	{
+		names := make([]string, 0, len(save.Party.Members))
+		for _, m := range save.Party.Members {
+			names = append(names, m.Name)
+		}
+		g.playthroughID = adoptPlaythroughID(save.ArenaRunID, names)
+	}
+	g.dayNightIsNight = dayNightIsNightAt(g.dayNightFrac())
+
+	// A loaded game starts with a clean combat log - the previous slot's history
 	// must not bleed into it (clearTransientCombatState runs on every map switch
 	// too, so the log reset lives here, on the load path, not in it).
 	g.combatLogHistory = g.combatLogHistory[:0]
+	g.combatLogVersion++
 	g.combatLogScroll = 0
 	g.combatLogOpen = false
 
@@ -1013,19 +1213,43 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore player
 	g.camera.X = save.PlayerX
 	g.camera.Y = save.PlayerY
-	g.camera.Angle = save.PlayerAngle
+	g.snapFacing(save.PlayerAngle)
 	g.collisionSystem.UpdateEntity("player", save.PlayerX, save.PlayerY)
 
 	// Restore party
-	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, Inventory: save.Party.Inventory}
+	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}
 	for i := range g.party.Inventory {
 		normalizeItemFromConfig(&g.party.Inventory[i])
 	}
-	// Restore the monster-card collection (party-wide). Unknown/empty keys clear.
-	g.cardCollection = [MaxCardSlots]string{}
+	// Restore the monster-card collection (party-wide). New saves carry the
+	// physical card item + InstanceID; the legacy key-only field is load-only
+	// migration and cannot prove ownership against the shared stash.
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollectionItems); i++ {
+		it := save.Party.CardCollectionItems[i]
+		if it.Name == "" {
+			continue
+		}
+		normalizeItemFromConfig(&it)
+		hadID := it.InstanceID != 0
+		if g.setCardCollectionSlot(i, it) && !hadID {
+			g.loadNeedsResave = true
+		}
+	}
 	for i := 0; i < MaxCardSlots && i < len(save.Party.CardCollection); i++ {
-		if cardDef(save.Party.CardCollection[i]) != nil {
-			g.cardCollection[i] = save.Party.CardCollection[i]
+		if g.cardCollectionKey(i) != "" {
+			continue
+		}
+		key := save.Party.CardCollection[i]
+		if cardDef(key) == nil {
+			continue
+		}
+		if g.stashOwnsCardKey(key) {
+			g.loadNeedsResave = true
+			continue
+		}
+		if g.setCardCollectionSlot(i, items.CreateItemFromYAML(key)) {
+			g.loadNeedsResave = true
 		}
 	}
 	for _, cs := range save.Party.Members {
@@ -1052,13 +1276,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	// Instance-id dedupe: stamp any legacy (pre-id) party items, then strip from
 	// the bag anything the shared chest already owns. A stamp means this slot was
-	// migrated — flag it so LoadGameFromFile persists the ids once (the strip is
+	// migrated - flag it so LoadGameFromFile persists the ids once (the strip is
 	// idempotent per load and needs no resave).
 	if g.stampPartyInstanceIDs() {
 		g.loadNeedsResave = true
 	}
 	g.reconcilePartyAgainstStash()
-	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too —
+	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too -
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members
 	// get theirs via applyPartyStatBonuses below; bench carries no buffs.)
@@ -1070,10 +1294,11 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 
 	// Restore monsters (all loaded maps)
+	var migratedPyramidReliquaries *monster.EncounterRewards
 	if wm != nil {
 		rewardsCache := make(map[int]*monster.EncounterRewards)
 		// Self-heal sealed bosses: a dormant boss (passive-until-quest, no evade
-		// radius) never legitimately moves while its quest is unfinished — it holds
+		// radius) never legitimately moves while its quest is unfinished - it holds
 		// its map spawn. Saves written before the dormant-freeze fix captured it
 		// wandered off (e.g. the Samurai Warlord drifted off his throne), so on
 		// restore we snap any still-sealed boss back to its map spawn. Idempotent
@@ -1105,24 +1330,39 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				x, y := ms.X, ms.Y
 				if sp, ok := sealedSpawn[key]; ok {
-					x, y = sp[0], sp[1] // sealed boss → back to its throne
+					x, y = sp[0], sp[1] // sealed boss -> back to its throne
 				}
 				m := monster.NewMonster3DFromConfig(x, y, key, g.config)
 				if ms.ID != "" {
 					m.ID = ms.ID
 				}
-				// Seal a dormant boss immediately. refreshBoundUndeadCache recomputes
-				// BossDormant every frame, but that runs AFTER input — so without this a
+				// Seal a dormant boss immediately. refreshBoundAllyCache recomputes
+				// BossDormant every frame, but that runs AFTER input - so without this a
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
 				// throne snap-back above.
 				m.BossDormant = m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
+				m.ChampionTier = ms.ChampionTier
+				// Duel-cast state survives the reload: the opener fires once per
+				// DUEL (config contract), and an active Stone Skin keeps soaking.
+				m.OpeningSpellDone = ms.OpeningSpellDone
+				m.SoakDamage = ms.SoakDamage
+				m.SoakFrames = ms.SoakFrames
+				m.SoakTurns = ms.SoakTurns
+				if m.IsChampion() {
+					// Mirror at restore (not next frame): the first post-load
+					// input tick must already see tier HP pool and real armor.
+					g.mirrorChampionStats(m)
+				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
 				m.Pacified = ms.Pacified
 				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				// Old saves have no provenance bit, but an actively pacified monster
+				// was necessarily charmed by the party.
+				m.CharmedByParty = ms.CharmedByParty || ms.Pacified
 				m.StunFramesRemaining = ms.StunFramesRemaining
 				m.StunTurnsRemaining = ms.StunTurnsRemaining
 				m.PoisonedFramesRemaining = ms.PoisonedFramesRemaining
@@ -1131,6 +1371,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.StunDRMemoryFrames = ms.StunDRMemoryFrames
 				m.RootFramesRemaining = ms.RootFramesRemaining
 				m.RootTurnsRemaining = ms.RootTurnsRemaining
+				m.ArmorShredPct = ms.ArmorShredPct
+				m.ArmorShredFramesRemaining = ms.ArmorShredFrames
+				m.ArmorShredTurnsRemaining = ms.ArmorShredTurns
 				m.Pilfered = ms.Pilfered
 				m.PounceCDFrames = ms.PounceCDFrames
 				m.PounceCDTurns = ms.PounceCDTurns
@@ -1139,10 +1382,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
-				m.CrossfireCD = ms.CrossfireCD
+				m.PackKey = ms.PackKey
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
-				// player opened) never stands down live — restore that hostility, or a
+				// player opened) never stands down live - restore that hostility, or a
 				// lair dragon "forgets" the fight after a reload and idles point-blank.
 				// A quest-bearing encounter monster only exists because the player
 				// started that fight (lair/shipwreck/statue), so it counts as provoked
@@ -1174,7 +1417,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				w.Monsters = append(w.Monsters, m)
 			}
 			// Idol-ward immediately at restore. Unlike BossDormant (per-monster
-			// above), it's cross-monster — it counts the live idols on THIS map — so
+			// above), it's cross-monster - it counts the live idols on THIS map - so
 			// it must run after the loop. Same first-frame reason: refreshBoundUndead-
 			// Cache recomputes it every frame but runs AFTER input, so without this the
 			// warded boss would be hittable on the first frame after a load.
@@ -1200,6 +1443,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					continue
 				}
 				restoreMonsters(w, monsters)
+				if mapKey == "pyramid_3" {
+					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
+				}
 			}
 		} else if g.world != nil {
 			restoreMonsters(g.world, save.Monsters)
@@ -1208,7 +1454,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		// Re-register current map monsters with collision system
 		if g.world != nil {
 			g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
-			g.collisionSystem.RegisterEntity(collision.NewEntity("player", g.camera.X, g.camera.Y, 16, 16, collision.CollisionTypePlayer, false))
+			g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(g.camera.X, g.camera.Y))
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 		}
 	}
@@ -1231,11 +1477,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					continue
 				}
 				npc.Visited = ns.Visited
-				// Stock layout comes from YAML; apply saved quantities only
-				// while the lengths agree (a YAML edit invalidates the save).
-				if len(ns.StockQuantities) == len(npc.MerchantStock) {
-					for i, q := range ns.StockQuantities {
-						npc.MerchantStock[i].Quantity = q
+				// Stock restores by item NAME (order is presentation-only and can
+				// change between versions); duplicate names consume sequentially.
+				// A saved name missing from the current YAML is simply dropped.
+				if len(ns.Stock) > 0 {
+					cursor := make(map[string]int, len(ns.Stock))
+					for _, saved := range ns.Stock {
+						from := cursor[saved.Name]
+						for i := from; i < len(npc.MerchantStock); i++ {
+							if npc.MerchantStock[i].Item.Name == saved.Name {
+								npc.MerchantStock[i].Quantity = saved.Quantity
+								cursor[saved.Name] = i + 1
+								break
+							}
+						}
 					}
 				}
 			}
@@ -1255,7 +1510,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	// Restore utility/buff state
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
-	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) —
+	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) -
 	// old saves froze whatever value was live when they were written.
 	g.torchLightRadius = save.TorchLightRadius
 	if g.torchLightActive {
@@ -1274,6 +1529,16 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 	g.walkOnWaterActive = save.WalkOnWaterActive
 	g.walkOnWaterDuration = save.WalkOnWaterDuration
+	g.flyActive = save.FlyActive
+	g.flyDuration = save.FlyDuration
+	g.visitedTavernMaps = map[string]bool{}
+	for _, k := range save.VisitedTavernMaps {
+		g.visitedTavernMaps[k] = true
+	}
+	// Pre-registry saves carry no destination list: seed it with the loaded
+	// map's current Town Portal destination, if any, without forcing a map
+	// change first.
+	g.registerVisitedTownPortalDestination()
 	g.statBuffs = restoreStatBuffs(save.StatBuffs)
 	if len(g.statBuffs) == 0 && save.BlessActive && save.BlessDuration > 0 {
 		// Pre-registry save: bless lived in dedicated fields.
@@ -1292,7 +1557,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.underwaterReturnY = save.UnderwaterReturnY
 	g.underwaterReturnMap = save.UnderwaterReturnMap
 	// The aggregate is DERIVED from the restored registry (never trusted from
-	// the save) — a drifted legacy save can't turn a buff expiry into a
+	// the save) - a drifted legacy save can't turn a buff expiry into a
 	// permanent debuff. Also re-derives members' MaxHP/MaxSP under the buffs.
 	g.recomputeStatBonuses()
 	g.mapReturnPoses = save.MapReturnPoses
@@ -1320,6 +1585,8 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	if g.world != nil {
 		g.world.SetWalkOnWaterActive(g.walkOnWaterActive)
+		g.world.SetFlyActive(g.flyActive)
+		g.dropFlyWithoutOpenSky() // an indoor save (or a pre-rule one) must not restore wings
 		g.world.SetWaterBreathingActive(g.waterBreathingActive)
 	}
 
@@ -1329,19 +1596,19 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		mapKey := c.MapKey
 		if mapKey == "" {
 			// Legacy saves: loot bags were stored without a map and leaked onto
-			// every map. Pin them to the map the save was made on — imperfect for
+			// every map. Pin them to the map the save was made on - imperfect for
 			// bags dropped elsewhere, but they stop following the party around.
 			mapKey = save.MapKey
 		}
 		restored := GroundContainer{
-			Kind:           ContainerKind(c.Kind),
-			ID:             c.ID,
-			MapKey:         mapKey,
-			X:              c.X,
-			Y:              c.Y,
-			Gold:           c.Gold,
-			Sprite:         c.Sprite,
-			SizeMultiplier: c.SizeMultiplier,
+			Kind:      ContainerKind(c.Kind),
+			ID:        c.ID,
+			MapKey:    mapKey,
+			X:         c.X,
+			Y:         c.Y,
+			Gold:      c.Gold,
+			Sprite:    c.Sprite,
+			SizeTiles: c.SizeTiles,
 		}
 		// Legacy saves baked the kind's default sprite name in; blank it so the
 		// live effectiveSprite() (rarity-aware for loot bags) applies to old bags.
@@ -1356,6 +1623,13 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			}
 		}
 		g.groundContainers = append(g.groundContainers, restored)
+	}
+	g.invalidateContainerFanCache()
+	// A pre-fix pyramid save bound the reliquaries to every static mob on the
+	// map. Ground containers restore first so their IDs can suppress duplicates;
+	// then a fully cleared dais receives the reliquaries it was already owed.
+	if migratedPyramidReliquaries != nil {
+		g.addTreasureChestsFromRewards(migratedPyramidReliquaries)
 	}
 
 	// Rebuild HUD buff icons from the single timed-buff registry (same source the
@@ -1374,7 +1648,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	}
 
 	// Restore quest progress. Reset to the baseline (starting quests only) first
-	// so quests taken AFTER this save — and therefore absent from it — don't
+	// so quests taken AFTER this save - and therefore absent from it - don't
 	// linger on the live manager; then lay the saved snapshot back on top.
 	if g.questManager != nil {
 		g.questManager.Reset()
@@ -1397,6 +1671,62 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	return nil
 }
 
+// migrateLegacyPyramidSanctumEncounter repairs saves written while pyramid_3
+// used a map-wide clear encounter. Only a save that still binds a lower Isis,
+// Minotaur, or Dragon to the reliquaries enters this path. The upper-dais Isis
+// keep the reward; if all four are already dead, the reward is returned so the
+// caller can spawn the overdue chests after ground containers are restored.
+func (g *MMGame) migrateLegacyPyramidSanctumEncounter(w *world.World3D) *monster.EncounterRewards {
+	if g == nil || w == nil || g.config == nil {
+		return nil
+	}
+	tileSize := float64(g.config.GetTileSize())
+	isDaisIsis := func(m *monster.Monster3D) bool {
+		return m != nil && m.Key == "isis" && int(m.Y/tileSize) == 5
+	}
+	isReliquaryReward := func(rewards *monster.EncounterRewards) bool {
+		if rewards == nil || len(rewards.TreasureChests) != 4 {
+			return false
+		}
+		for _, chest := range rewards.TreasureChests {
+			if chest.ID == "pyramid_black_dragon_statuette_chest" {
+				return true
+			}
+		}
+		return false
+	}
+
+	var legacy *monster.EncounterRewards
+	for _, m := range w.Monsters {
+		if m != nil && m.IsEncounterMonster && isReliquaryReward(m.EncounterRewards) && !isDaisIsis(m) {
+			legacy = m.EncounterRewards
+			break
+		}
+	}
+	if legacy == nil {
+		return nil // new-format save, or an already-completed old-format save
+	}
+	g.loadNeedsResave = true
+
+	daisAlive := 0
+	for _, m := range w.Monsters {
+		if m == nil || m.EncounterRewards != legacy {
+			continue
+		}
+		if isDaisIsis(m) {
+			m.IsEncounterMonster = true
+			daisAlive++
+			continue
+		}
+		m.IsEncounterMonster = false
+		m.EncounterRewards = nil
+	}
+	if daisAlive == 0 {
+		return legacy
+	}
+	return nil
+}
+
 func findMonsterKeyByName(name string) string {
 	if monster.MonsterConfig == nil {
 		return ""
@@ -1410,7 +1740,7 @@ func findMonsterKeyByName(name string) string {
 }
 
 // statBonusesToMap serializes a StatBonuses block for saves (nonzero entries
-// only, lowercase keys — same shape spells.yaml authors).
+// only, lowercase keys - same shape spells.yaml authors).
 func statBonusesToMap(b character.StatBonuses) map[string]int {
 	if b.IsZero() {
 		return nil

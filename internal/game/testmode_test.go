@@ -36,7 +36,7 @@ func TestApplyTestArena(t *testing.T) {
 	loadTestArenaData(t)
 
 	// Forest world with monsters whose loot tables are non-empty. Enough
-	// treants (400 XP each) so the party clears level 6 — high enough that the
+	// treants (400 XP each) so the party clears level 6 - high enough that the
 	// 16-speed / 20-endurance targets are affordable for every class.
 	forest := newTestWorld(cfg)
 	for _, key := range []string{"bandit", "wolf", "treant"} {
@@ -143,7 +143,7 @@ func TestApplyTestArena(t *testing.T) {
 	}
 
 	// Loot + encounter gold granted. Monster drops are rolled by real chance
-	// (not handed out), so no single drop is guaranteed — but the church chest
+	// (not handed out), so no single drop is guaranteed - but the church chest
 	// always yields one random weapon, so the inventory must grow regardless.
 	if game.party.GetTotalItems() <= itemsBefore {
 		t.Errorf("inventory did not grow: before=%d after=%d", itemsBefore, game.party.GetTotalItems())

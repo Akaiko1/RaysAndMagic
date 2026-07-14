@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +15,8 @@ import (
 	"ugataima/internal/boot"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/game"
+	"ugataima/internal/graphics"
 	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
@@ -38,6 +42,7 @@ const (
 	pageSkills = 4 // all skills with detailed descriptions
 	pageFX     = 5 // live preview of the game's special effects (fx_page.go)
 	pageMobs   = 6 // monster stat sheets + live animated preview (mobs_page.go)
+	pageSaves  = 7 // save-slot browser + shared stash + archive (saves_page.go)
 )
 
 // pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
@@ -53,6 +58,7 @@ var pageTabDefs = []struct {
 	{pageSkills, "Skills", "F5"},
 	{pageFX, "FX", "F6"},
 	{pageMobs, "Mobs", "F7"},
+	{pageSaves, "Save Stashes", "F8"},
 }
 
 type mapInfo struct {
@@ -80,6 +86,20 @@ type viewer struct {
 	saveError      string
 	lastErr        string
 
+	// Map view zoom/pan: zoom 1.0 = whole map fits (the classic view), up to
+	// maxMapZoom; pan is the scroll offset in px when the zoomed map overflows
+	// the panel (clamped by computeLayout). Right-drag pans.
+	zoom        float64
+	panX        int
+	panY        int
+	rmbDragging bool
+	dragLastX   int
+	dragLastY   int
+
+	// gameSprites renders popup sprites through the game's own load pipeline
+	// (color key / despill), so they look exactly as in-game.
+	gameSprites *graphics.SpriteManager
+
 	// Content page state: per-page card lists and independent scroll offsets.
 	pageCards   map[int][]contentCard
 	pageScroll  map[int]int
@@ -101,6 +121,8 @@ const (
 	brushTile
 	brushMonster
 	brushNPC
+	brushSpecialTile // teleporters / traps / triggers from special_tiles.yaml, placed as [stile:key]
+	brushGeneral     // universal letterless decoration tiles, placed as [tile:short_label] at a '$'
 	brushEraser
 )
 
@@ -124,7 +146,27 @@ type legendEntry struct {
 	NPCKey      string
 	NPCName     string
 	IsHeader    bool
+	// Continuation marks a wrapped continuation of the entry above it: same
+	// brush fields (so click + highlight span the whole wrapped block) but
+	// drawn indented under the text column with no swatch. Keeps the strict
+	// 1-entry-per-row model that the scroll + click hit-test math relies on.
+	Continuation bool
+	// Section marks a real GROUP header (Tiles / Monsters / Special NPCs /
+	// [category] / ...), drawn on a filled band with green text like the game's
+	// item-section headers. Distinct from IsHeader, which also covers blank
+	// spacers and the plain Notes lines - those stay unbanded.
+	Section bool
 }
+
+// sectionHeader builds a banded green group header (see legendEntry.Section).
+func sectionHeader(text string) legendEntry {
+	return legendEntry{Text: text, IsHeader: true, Section: true}
+}
+
+// legendTextCols is the character budget for one legend text line: the panel
+// width minus the swatch column and margins, at ~6px/glyph. Used to wrap long
+// NPC labels into Continuation rows at build time.
+const legendTextCols = (sidebarWidth - 34) / 6
 
 type layout struct {
 	mapAreaX  int
@@ -188,7 +230,9 @@ func main() {
 		pageScroll:  map[int]int{},
 		charDetails: buildCharacterDetails(cfg),
 		iconCache:   make(map[string]*ebiten.Image),
+		gameSprites: graphics.NewSpriteManager(),
 	}
+	game.ApplySpriteColorKey(v.gameSprites, cfg)
 	// Legend is biome-scoped to the current map (universal tiles/monsters
 	// plus the map biome's own); rebuilt whenever the map changes.
 	v.refreshLegend()
@@ -243,6 +287,14 @@ func (v *viewer) Update() error {
 		v.updateMobsPage()
 		return nil
 	}
+
+	// The Saves page reloads from disk on every re-entry (stale flag), so slot
+	// changes made by a running game show up without restarting the editor.
+	if v.page == pageSaves {
+		v.updateSavesPage()
+		return nil
+	}
+	savesPage.stale = true
 
 	if v.page != pageMaps {
 		scroll := v.pageScroll[v.page]
@@ -300,6 +352,7 @@ func (v *viewer) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeyD) {
 		if len(v.maps) > 0 {
 			v.mapIndex = (v.mapIndex + 1) % len(v.maps)
+			v.resetMapView()
 			v.refreshLegend()
 		}
 	}
@@ -309,13 +362,41 @@ func (v *viewer) Update() error {
 			if v.mapIndex < 0 {
 				v.mapIndex = len(v.maps) - 1
 			}
+			v.resetMapView()
 			v.refreshLegend()
 		}
 	}
 
+	// Wheel: zoom when over the map panel, scroll when over the legend.
+	wheelOverMap := false
+	if _, wheelY := ebiten.Wheel(); wheelY != 0 && len(v.maps) > 0 {
+		mx, my := ebiten.CursorPosition()
+		lay := v.computeLayout(v.maps[v.mapIndex])
+		if pointInRect(mx, my, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH) {
+			v.zoomMapAt(lay, mx, my, wheelY)
+			wheelOverMap = true
+		}
+	}
+
+	// Right-drag pans the (zoomed) map; the view follows the cursor.
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && len(v.maps) > 0 {
+		mx, my := ebiten.CursorPosition()
+		if v.rmbDragging {
+			v.panX -= mx - v.dragLastX
+			v.panY -= my - v.dragLastY
+			v.computeLayout(v.maps[v.mapIndex]) // clamp pan
+		} else {
+			lay := v.computeLayout(v.maps[v.mapIndex])
+			v.rmbDragging = pointInRect(mx, my, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH)
+		}
+		v.dragLastX, v.dragLastY = mx, my
+	} else {
+		v.rmbDragging = false
+	}
+
 	if v.sidebarTab == tabLegend {
 		_, wheelY := ebiten.Wheel()
-		if wheelY != 0 {
+		if wheelY != 0 && !wheelOverMap {
 			v.legendScroll -= int(wheelY * 14)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyPageDown) {
@@ -358,6 +439,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 		v.drawMobsPage(screen)
 		return
 	}
+	if v.page == pageSaves {
+		v.drawSavesPage(screen)
+		return
+	}
 	if v.page == pageChars {
 		v.drawCharactersPage(screen)
 		return
@@ -385,12 +470,13 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 
 	lay := v.computeLayout(m)
 
-	drawMapPanel(screen, m, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	drawMapPanel(screen, m, lay, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 	drawToolbar(screen, lay, v.brush)
 	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 
 	if !v.saveDialogOpen {
-		drawNPCHoverTooltip(screen, m, lay)
+		drawMapHoverTooltip(screen, m, lay)
+		v.drawShiftSpritePopup(screen, m, lay)
 	}
 
 	if v.saveDialogOpen {
@@ -398,27 +484,46 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	}
 }
 
-// drawNPCHoverTooltip shows who an `@` marker is when the mouse is over a tile
-// holding an NPC spawn — name/type/description pulled from the shared npcs.yaml
-// config (no hardcoded list), so it stays in sync with the game.
-func drawNPCHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
-	if lay.tileSize <= 0 || m.Data == nil {
+// hoveredMapTile returns the map tile under the cursor, requiring the cursor
+// to be inside the visible map panel (a zoomed map extends beneath the other
+// UI panels).
+func hoveredMapTile(lay layout, mouseX, mouseY int) (tileX, tileY int, ok bool) {
+	if lay.tileSize <= 0 {
+		return 0, 0, false
+	}
+	if !pointInRect(mouseX, mouseY, lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH) {
+		return 0, 0, false
+	}
+	if !pointInRect(mouseX, mouseY, lay.originX, lay.originY, lay.worldW*lay.tileSize, lay.worldH*lay.tileSize) {
+		return 0, 0, false
+	}
+	tileX = (mouseX - lay.originX) / lay.tileSize
+	tileY = (mouseY - lay.originY) / lay.tileSize
+	if tileX < 0 || tileX >= lay.worldW || tileY < 0 || tileY >= lay.worldH {
+		return 0, 0, false
+	}
+	return tileX, tileY, true
+}
+
+// drawMapHoverTooltip shows the hovered tile's coordinates, plus - when the
+// tile holds an `@` NPC spawn - its name/type/description from the shared
+// npcs.yaml config (no hardcoded list), so it stays in sync with the game.
+func drawMapHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
+	if m.Data == nil {
 		return
 	}
 	mouseX, mouseY := ebiten.CursorPosition()
-	mapW := lay.worldW * lay.tileSize
-	mapH := lay.worldH * lay.tileSize
-	if !pointInRect(mouseX, mouseY, lay.originX, lay.originY, mapW, mapH) {
+	tileX, tileY, ok := hoveredMapTile(lay, mouseX, mouseY)
+	if !ok {
 		return
 	}
-	tileX := (mouseX - lay.originX) / lay.tileSize
-	tileY := (mouseY - lay.originY) / lay.tileSize
 
+	var lines []string
 	for _, npc := range m.Data.NPCSpawns {
 		if npc.X != tileX || npc.Y != tileY {
 			continue
 		}
-		lines := []string{"@  " + npc.NPCKey}
+		lines = append(lines, "@  "+npc.NPCKey)
 		if character.NPCConfigInstance != nil {
 			if def, ok := character.NPCConfigInstance.NPCs[npc.NPCKey]; ok {
 				if def.Name != "" {
@@ -433,36 +538,138 @@ func drawNPCHoverTooltip(screen *ebiten.Image, m mapInfo, lay layout) {
 				}
 			}
 		}
+		break
+	}
+	lines = append(lines, fmt.Sprintf("tile %d, %d", tileX, tileY))
 
-		const lineH = 14
-		maxLineW := 0
-		for _, ln := range lines {
-			if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
-				maxLineW = w
+	drawTooltipBox(screen, lines, mouseX, mouseY)
+}
+
+// hoveredSprite resolves what the cursor points at (legend row or map tile)
+// to a sprite name + caption. Spawn markers win over the tile underneath.
+func (v *viewer) hoveredSprite(m mapInfo, lay layout) (caption, sprite string) {
+	mouseX, mouseY := ebiten.CursorPosition()
+
+	if entry := v.legendEntryAt(lay, mouseX, mouseY); entry != nil && !entry.IsHeader {
+		switch entry.Kind {
+		case brushTile, brushGeneral, brushSpecialTile:
+			if data := v.tileDataByKey[entry.TileKey]; data != nil {
+				return entry.TileKey, data.Sprite
+			}
+		case brushMonster:
+			if s := monsterSpriteForKey(entry.MonsterKey); s != "" {
+				return entry.MonsterName, s
+			}
+		case brushNPC:
+			if s := npcSpriteForKey(entry.NPCKey); s != "" {
+				return entry.NPCName, s
 			}
 		}
-		boxW := maxLineW + 16
-		boxH := len(lines)*lineH + 12
-		boxX := mouseX + 16
-		boxY := mouseY + 12
-		if boxX+boxW > windowWidth-4 {
-			boxX = mouseX - boxW - 8
+		return "", ""
+	}
+
+	if m.Data == nil {
+		return "", ""
+	}
+	tileX, tileY, ok := hoveredMapTile(lay, mouseX, mouseY)
+	if !ok {
+		return "", ""
+	}
+	for _, npc := range m.Data.NPCSpawns {
+		if npc.X == tileX && npc.Y == tileY {
+			if s := npcSpriteForKey(npc.NPCKey); s != "" {
+				return npc.NPCKey, s
+			}
 		}
-		if boxX < 4 {
-			boxX = 4
+	}
+	for _, spawn := range m.Data.MonsterSpawns {
+		if spawn.X == tileX && spawn.Y == tileY {
+			if s := monsterSpriteForKey(spawn.MonsterKey); s != "" {
+				return spawn.MonsterKey, s
+			}
 		}
-		if boxY+boxH > windowHeight-4 {
-			boxY = windowHeight - boxH - 4
+	}
+	if key := v.tileManager.GetTileKey(m.Data.Tiles[tileY][tileX]); key != "" {
+		if data := v.tileDataByKey[key]; data != nil {
+			return key, data.Sprite
 		}
-		if boxY < 4 {
-			boxY = 4
-		}
-		drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
-		drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{200, 180, 60, 255})
-		for i, ln := range lines {
-			ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
-		}
+	}
+	return "", ""
+}
+
+// drawShiftSpritePopup shows the hovered subject's FULL sprite while Shift is
+// held - over a legend row or a map tile.
+func (v *viewer) drawShiftSpritePopup(screen *ebiten.Image, m mapInfo, lay layout) {
+	if !ebiten.IsKeyPressed(ebiten.KeyShift) {
 		return
+	}
+	caption, sprite := v.hoveredSprite(m, lay)
+	if sprite == "" || v.gameSprites == nil || !v.gameSprites.HasSprite(sprite) {
+		return
+	}
+	img := v.gameSprites.GetSprite(sprite) // game load pipeline: color key/despill applied
+	if img == nil {
+		return
+	}
+
+	// Native size, scaled down (never up) to fit a window-bounded box.
+	const capPx = 512
+	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
+	maxW := clampInt(capPx, 1, windowWidth-32)
+	maxH := clampInt(capPx, 1, windowHeight-48)
+	scale := 1.0
+	if s := float64(maxW) / float64(iw); s < scale {
+		scale = s
+	}
+	if s := float64(maxH) / float64(ih); s < scale {
+		scale = s
+	}
+	drawW := int(float64(iw) * scale)
+	drawH := int(float64(ih) * scale)
+
+	mouseX, mouseY := ebiten.CursorPosition()
+	const captionH = 16
+	boxW := drawW + 16
+	boxH := drawH + captionH + 16
+	boxX := clampInt(mouseX+18, 4, windowWidth-boxW-4)
+	boxY := clampInt(mouseY-boxH-8, 4, windowHeight-boxH-4)
+
+	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 250})
+	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 170, 220, 255})
+	drawImageScaled(screen, img, boxX+8, boxY+8, drawW, drawH)
+	ebitenutil.DebugPrintAt(screen, clipText(fmt.Sprintf("%s  (%dx%d)", caption, iw, ih), boxW-16), boxX+8, boxY+8+drawH)
+}
+
+// drawTooltipBox renders tooltip lines in a bordered box near the cursor,
+// clamped to the window.
+func drawTooltipBox(screen *ebiten.Image, lines []string, mouseX, mouseY int) {
+	const lineH = 14
+	maxLineW := 0
+	for _, ln := range lines {
+		if w := utf8.RuneCountInString(ln) * 7; w > maxLineW {
+			maxLineW = w
+		}
+	}
+	boxW := maxLineW + 16
+	boxH := len(lines)*lineH + 12
+	boxX := mouseX + 16
+	boxY := mouseY + 12
+	if boxX+boxW > windowWidth-4 {
+		boxX = mouseX - boxW - 8
+	}
+	if boxX < 4 {
+		boxX = 4
+	}
+	if boxY+boxH > windowHeight-4 {
+		boxY = windowHeight - boxH - 4
+	}
+	if boxY < 4 {
+		boxY = 4
+	}
+	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
+	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{200, 180, 60, 255})
+	for i, ln := range lines {
+		ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
 	}
 }
 
@@ -499,15 +706,32 @@ func (v *viewer) computeLayout(m mapInfo) layout {
 		worldW = m.Data.Width
 		worldH = m.Data.Height
 		if worldW > 0 && worldH > 0 {
-			tileSize = mapAreaW / worldW
-			if alt := mapAreaH / worldH; alt < tileSize {
-				tileSize = alt
+			fit := mapAreaW / worldW
+			if alt := mapAreaH / worldH; alt < fit {
+				fit = alt
 			}
+			if fit < 2 {
+				fit = 2
+			}
+			tileSize = int(float64(fit) * v.clampedZoom())
 			if tileSize < 2 {
 				tileSize = 2
 			}
-			originX = mapAreaX + (mapAreaW-worldW*tileSize)/2
-			originY = mapAreaY + (mapAreaH-worldH*tileSize)/2
+			// Overflowing axis scrolls by pan (clamped); fitting axis centers.
+			if mapW := worldW * tileSize; mapW <= mapAreaW {
+				v.panX = 0
+				originX = mapAreaX + (mapAreaW-mapW)/2
+			} else {
+				v.panX = clampInt(v.panX, 0, mapW-mapAreaW)
+				originX = mapAreaX - v.panX
+			}
+			if mapH := worldH * tileSize; mapH <= mapAreaH {
+				v.panY = 0
+				originY = mapAreaY + (mapAreaH-mapH)/2
+			} else {
+				v.panY = clampInt(v.panY, 0, mapH-mapAreaH)
+				originY = mapAreaY - v.panY
+			}
 		}
 	}
 
@@ -535,6 +759,55 @@ func (v *viewer) computeLayout(m mapInfo) layout {
 	}
 }
 
+// maxMapZoom is the deepest wheel zoom-in; 1.0 (whole map fits) is the floor.
+const maxMapZoom = 10.0
+
+func (v *viewer) clampedZoom() float64 {
+	if v.zoom < 1 {
+		return 1
+	}
+	if v.zoom > maxMapZoom {
+		return maxMapZoom
+	}
+	return v.zoom
+}
+
+func clampInt(n, lo, hi int) int {
+	if n < lo {
+		return lo
+	}
+	if n > hi {
+		return hi
+	}
+	return n
+}
+
+// zoomMapAt applies a wheel zoom step keeping the map point under the cursor
+// stationary.
+func (v *viewer) zoomMapAt(lay layout, mouseX, mouseY int, wheelY float64) {
+	if lay.tileSize <= 0 {
+		return
+	}
+	oldZoom := v.clampedZoom()
+	v.zoom = oldZoom * math.Pow(1.25, wheelY)
+	if v.clampedZoom() == oldZoom {
+		v.zoom = oldZoom
+		return
+	}
+	fx := float64(mouseX-lay.originX) / float64(lay.tileSize)
+	fy := float64(mouseY-lay.originY) / float64(lay.tileSize)
+	nl := v.computeLayout(v.maps[v.mapIndex])
+	v.panX = lay.mapAreaX - (mouseX - int(fx*float64(nl.tileSize)))
+	v.panY = lay.mapAreaY - (mouseY - int(fy*float64(nl.tileSize)))
+	v.computeLayout(v.maps[v.mapIndex]) // clamp pan against the new size
+}
+
+func (v *viewer) resetMapView() {
+	v.zoom = 1
+	v.panX = 0
+	v.panY = 0
+}
+
 func (v *viewer) handleMouseClick() {
 	if len(v.maps) == 0 {
 		return
@@ -554,13 +827,8 @@ func (v *viewer) handleMouseClick() {
 	}
 
 	if v.sidebarTab == tabLegend && pointInRect(mouseX, mouseY, lay.legendX, lay.legendY, lay.legendW, lay.legendH) {
-		lineHeight := 14
-		index := (mouseY - lay.legendY + v.legendScroll) / lineHeight
-		if index >= 0 && index < len(v.legendLines) {
-			entry := v.legendLines[index]
-			if entry.Kind != brushNone && !entry.IsHeader {
-				v.brush = brushFromEntry(entry)
-			}
+		if entry := v.legendEntryAt(lay, mouseX, mouseY); entry != nil && entry.Kind != brushNone && !entry.IsHeader {
+			v.brush = brushFromEntry(*entry)
 		}
 		return
 	}
@@ -579,23 +847,25 @@ func (v *viewer) handleMouseClick() {
 		}
 	}
 
-	if v.brush.kind == brushNone || lay.tileSize <= 0 || m.Data == nil {
+	if v.brush.kind == brushNone || m.Data == nil {
 		return
 	}
-
-	mapW := lay.worldW * lay.tileSize
-	mapH := lay.worldH * lay.tileSize
-	if !pointInRect(mouseX, mouseY, lay.originX, lay.originY, mapW, mapH) {
-		return
+	if tileX, tileY, ok := hoveredMapTile(lay, mouseX, mouseY); ok {
+		v.applyBrush(&v.maps[v.mapIndex], tileX, tileY)
 	}
+}
 
-	tileX := (mouseX - lay.originX) / lay.tileSize
-	tileY := (mouseY - lay.originY) / lay.tileSize
-	if tileX < 0 || tileX >= lay.worldW || tileY < 0 || tileY >= lay.worldH {
-		return
+// legendEntryAt returns the legend row under the cursor (nil when none).
+func (v *viewer) legendEntryAt(lay layout, mouseX, mouseY int) *legendEntry {
+	if v.sidebarTab != tabLegend || !pointInRect(mouseX, mouseY, lay.legendX, lay.legendY, lay.legendW, lay.legendH) {
+		return nil
 	}
-
-	v.applyBrush(&v.maps[v.mapIndex], tileX, tileY)
+	const lineHeight = 14
+	index := (mouseY - lay.legendY + v.legendScroll) / lineHeight
+	if index < 0 || index >= len(v.legendLines) {
+		return nil
+	}
+	return &v.legendLines[index]
 }
 
 func (v *viewer) maxLegendScroll() int {
@@ -615,7 +885,8 @@ func (v *viewer) maxLegendScroll() int {
 	return totalHeight - contentHeight
 }
 
-func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
+func drawMapPanel(screen *ebiten.Image, m mapInfo, lay layout, tm *world.TileManager, tileDataByKey map[string]*config.TileData, thumb func(sprite string) *ebiten.Image) {
+	x, y, w, h := lay.mapAreaX, lay.mapAreaY, lay.mapAreaW, lay.mapAreaH
 	drawFilledRect(screen, x, y, w, h, color.RGBA{20, 20, 35, 255})
 	drawRectBorder(screen, x, y, w, h, 2, color.RGBA{70, 70, 90, 255})
 
@@ -623,33 +894,28 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 		ebitenutil.DebugPrintAt(screen, "map data missing", x+12, y+12)
 		return
 	}
-
-	worldW := m.Data.Width
-	worldH := m.Data.Height
-	if worldW <= 0 || worldH <= 0 {
+	if lay.worldW <= 0 || lay.worldH <= 0 {
 		ebitenutil.DebugPrintAt(screen, "invalid map size", x+12, y+12)
 		return
 	}
 
-	tileSize := w / worldW
-	if alt := h / worldH; alt < tileSize {
-		tileSize = alt
-	}
-	if tileSize < 2 {
-		tileSize = 2
-	}
-
-	originX := x + (w-worldW*tileSize)/2
-	originY := y + (h-worldH*tileSize)/2
+	// A zoomed-in map overflows the panel: clip tiles/overlays to it (the
+	// SubImage keeps absolute coordinates) and draw only the visible range.
+	clip := screen.SubImage(image.Rect(x+2, y+2, x+w-2, y+h-2)).(*ebiten.Image)
+	tileSize := lay.tileSize
+	txMin := clampInt((x-lay.originX)/tileSize, 0, lay.worldW-1)
+	tyMin := clampInt((y-lay.originY)/tileSize, 0, lay.worldH-1)
+	txMax := clampInt((x+w-lay.originX)/tileSize+1, 0, lay.worldW-1)
+	tyMax := clampInt((y+h-lay.originY)/tileSize+1, 0, lay.worldH-1)
 
 	floorColor := effectiveFloorColor(m, tm, tileDataByKey)
 
-	for ty := 0; ty < worldH; ty++ {
-		for tx := 0; tx < worldW; tx++ {
+	for ty := tyMin; ty <= tyMax; ty++ {
+		for tx := txMin; tx <= txMax; tx++ {
 			tile := m.Data.Tiles[ty][tx]
-			drawX := originX + tx*tileSize
-			drawY := originY + ty*tileSize
-			// Tiles with a sprite (objects: trees, palms, houses…) draw the
+			drawX := lay.originX + tx*tileSize
+			drawY := lay.originY + ty*tileSize
+			// Tiles with a sprite (objects: trees, palms, houses...) draw the
 			// sprite over the floor color, so the map reads like the game,
 			// not just colored squares. Floors stay flat color. Skip sprites
 			// when cells are too tiny to be legible (keeps it fast + clean).
@@ -660,19 +926,19 @@ func drawMapPanel(screen *ebiten.Image, m mapInfo, x, y, w, h int, tm *world.Til
 				}
 			}
 			if tileSize >= 6 && sprite != "" && thumb != nil {
-				if img := thumb(sprite); img != nil {
+				if img := firstFrame(thumb(sprite)); img != nil {
 					under := floorUnderObjectColor(m, tm, tileDataByKey, tx, ty, floorColor)
-					vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), under, false)
-					drawImageInBox(screen, img, drawX, drawY, tileSize, tileSize)
+					vector.FillRect(clip, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), under, false)
+					drawImageInBox(clip, img, drawX, drawY, tileSize, tileSize)
 					continue
 				}
 			}
 			cellColor := getMapTileColor(tile, floorColor, tm, tileDataByKey)
-			vector.FillRect(screen, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
+			vector.FillRect(clip, float32(drawX), float32(drawY), float32(tileSize), float32(tileSize), cellColor, false)
 		}
 	}
 
-	drawOverlays(screen, m, originX, originY, tileSize)
+	drawOverlays(clip, m, lay.originX, lay.originY, tileSize, thumb)
 	drawMapHeader(screen, m, x, y)
 }
 
@@ -685,28 +951,62 @@ func drawMapHeader(screen *ebiten.Image, m mapInfo, x, y int) {
 	ebitenutil.DebugPrintAt(screen, "Left/Right (or A/D) to switch maps, Esc to quit", x+12, y+24)
 }
 
-func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize int) {
+// firstFrame returns the left h*h square of a horizontal animation sheet
+// (w == h*N), else the image unchanged - so animated mob/NPC sheets show a
+// single readable frame as a map thumbnail instead of a squished strip.
+func firstFrame(img *ebiten.Image) *ebiten.Image {
+	if img == nil {
+		return nil
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if h > 0 && w > h && w%h == 0 {
+		return img.SubImage(image.Rect(b.Min.X, b.Min.Y, b.Min.X+h, b.Min.Y+h)).(*ebiten.Image)
+	}
+	return img
+}
+
+// drawTileThumb draws a sprite thumbnail (first frame) filling a tile cell,
+// with a thin type-coloured outline so mobs/NPCs stay distinguishable at a
+// glance. Falls back to a marker+letter when the sprite can't be resolved.
+func drawTileThumb(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, sprite string, outline color.RGBA, fallbackLetter string, thumb func(string) *ebiten.Image) {
+	var img *ebiten.Image
+	if sprite != "" && thumb != nil {
+		img = firstFrame(thumb(sprite))
+	}
+	if img == nil {
+		drawTileMarkerCircle(screen, originX, originY, tileSize, tx, ty, outline, false)
+		if fallbackLetter != "" {
+			drawTileLetter(screen, originX, originY, tileSize, tx, ty, fallbackLetter)
+		}
+		return
+	}
+	drawX := originX + tx*tileSize
+	drawY := originY + ty*tileSize
+	drawImageInBox(screen, img, drawX, drawY, tileSize, tileSize)
+	if tileSize >= 6 {
+		drawRectBorder(screen, drawX, drawY, tileSize, tileSize, 1, outline)
+	}
+}
+
+func drawOverlays(screen *ebiten.Image, m mapInfo, originX, originY, tileSize int, thumb func(sprite string) *ebiten.Image) {
 	// Start position
 	if m.Data.StartX >= 0 && m.Data.StartY >= 0 {
 		drawTileMarkerCircle(screen, originX, originY, tileSize, m.Data.StartX, m.Data.StartY, color.RGBA{50, 200, 255, 255}, true)
 	}
 
-	// NPCs
+	// NPCs - sprite thumbnail (yellow outline), letter '@' fallback.
 	for _, npc := range m.Data.NPCSpawns {
-		drawTileMarkerRect(screen, originX, originY, tileSize, npc.X, npc.Y, color.RGBA{255, 220, 0, 255})
-		drawTileLetter(screen, originX, originY, tileSize, npc.X, npc.Y, "@")
+		sprite := strings.TrimSuffix(npcSpriteForKey(npc.NPCKey), ".png")
+		drawTileThumb(screen, originX, originY, tileSize, npc.X, npc.Y, sprite, color.RGBA{255, 220, 0, 255}, "@", thumb)
 	}
 
-	// Monsters
+	// Monsters - sprite thumbnail (red outline), monster letter fallback.
 	for _, spawn := range m.Data.MonsterSpawns {
-		drawTileMarkerCircle(screen, originX, originY, tileSize, spawn.X, spawn.Y, color.RGBA{230, 80, 80, 255}, false)
-		letter := monsterLetterForKey(spawn.MonsterKey)
-		if letter != "" {
-			drawTileLetter(screen, originX, originY, tileSize, spawn.X, spawn.Y, letter)
-		}
+		drawTileThumb(screen, originX, originY, tileSize, spawn.X, spawn.Y, monsterSpriteForKey(spawn.MonsterKey), color.RGBA{230, 80, 80, 255}, monsterLetterForKey(spawn.MonsterKey), thumb)
 	}
 
-	// Special tiles (teleporters, etc.)
+	// Special tiles (teleporters, etc.) - keep the letter marker (floor glow, no sprite).
 	for _, special := range m.Data.SpecialTileSpawns {
 		label := strings.ToUpper(string([]rune(special.TileKey)[0]))
 		drawTileLetter(screen, originX, originY, tileSize, special.X, special.Y, label)
@@ -771,6 +1071,45 @@ func drawSidebarTabs(screen *ebiten.Image, x, y, w, h int, active int) {
 	drawCenteredLabel(screen, "Legend (2)", rect{x: x + tabW, y: y, w: w - tabW, h: h})
 }
 
+// legendEntrySprite resolves the sprite basename to preview for a legend entry
+// (tile/general = tile sprite, monster/NPC = their config sprite). "" = no
+// sprite (floor tiles, teleporters, eraser) -> caller draws a colour swatch.
+// monsterSpriteForKey / npcSpriteForKey resolve a spawn key to its raw sprite
+// name from the loaded configs - the single lookup the legend, overlay
+// thumbnails and hover popup all share. Callers strip the ".png" suffix when
+// they need the thumbnail-key form.
+func monsterSpriteForKey(key string) string {
+	if monster.MonsterConfig != nil {
+		if def, ok := monster.MonsterConfig.Monsters[key]; ok {
+			return def.Sprite
+		}
+	}
+	return ""
+}
+
+func npcSpriteForKey(key string) string {
+	if character.NPCConfigInstance != nil {
+		if def, ok := character.NPCConfigInstance.NPCs[key]; ok && def != nil {
+			return def.Sprite
+		}
+	}
+	return ""
+}
+
+func legendEntrySprite(entry legendEntry, tileDataByKey map[string]*config.TileData) string {
+	switch entry.Kind {
+	case brushTile, brushGeneral:
+		if data := tileDataByKey[entry.TileKey]; data != nil {
+			return data.Sprite
+		}
+	case brushMonster:
+		return monsterSpriteForKey(entry.MonsterKey)
+	case brushNPC:
+		return strings.TrimSuffix(npcSpriteForKey(entry.NPCKey), ".png")
+	}
+	return ""
+}
+
 func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, scroll int, currentBrush brush, tileDataByKey map[string]*config.TileData, floorColor color.RGBA, thumb func(sprite string) *ebiten.Image) {
 	lineHeight := 14
 	startY := y - scroll
@@ -785,18 +1124,34 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 		if brushMatchesEntry(currentBrush, entry) {
 			drawFilledRect(screen, x+4, drawY-2, w-8, lineHeight+2, color.RGBA{70, 70, 95, 255})
 		}
+		// Group headers render on a filled band with green text, like the game's
+		// item-section headers. The band leaves 1px top+bottom padding inside the
+		// row (shared viewerHeaderBand style).
+		if entry.Section {
+			drawHeaderBandRect(screen, x+4, drawY-2, w-8, lineHeight+2)
+			avail := (x + w) - (x + 10) - 8
+			game.DrawShadedText(screen, clipText(entry.Text, avail), x+10, drawY, viewerHeaderTextColor)
+			continue
+		}
 		// Preview showing how the tile/monster looks on the map, so the
 		// letter isn't the only cue: a sprite thumbnail for tiles that have
 		// one (objects), otherwise a color swatch matching the map grid.
 		// Floors have no sprite, so they stay color-only (no atlas overload).
 		const sw = 12
 		textX := x + 10
-		if !entry.IsHeader {
+		if entry.Continuation {
+			// Wrapped tail of the entry above: no swatch, indented to align under
+			// the parent's text column (swatch x + swatch width + gap).
+			textX = x + 8 + sw + 6
+		} else if !entry.IsHeader {
 			sx, sy := x+8, drawY
 			drawn := false
-			if entry.Kind == brushTile && thumb != nil {
-				if data := tileDataByKey[entry.TileKey]; data != nil && data.Sprite != "" {
-					if img := thumb(data.Sprite); img != nil {
+			// Sprite thumbnail (first frame) for anything that HAS a sprite: tiles
+			// + general decorations (tile sprite), monsters, NPCs. Falls back to a
+			// colour swatch (floor tiles, teleporters, eraser) below.
+			if thumb != nil {
+				if sprite := legendEntrySprite(entry, tileDataByKey); sprite != "" {
+					if img := firstFrame(thumb(sprite)); img != nil {
 						drawImageInBox(screen, img, sx, sy, sw, sw)
 						drawn = true
 					}
@@ -819,7 +1174,7 @@ func drawLegendList(screen *ebiten.Image, x, y, w, h int, lines []legendEntry, s
 	}
 }
 
-// drawImageInBox draws img scaled to fit a sw×sw box at (bx,by).
+// drawImageInBox draws img scaled to fit a swxsw box at (bx,by).
 func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int) {
 	iw, ih := img.Bounds().Dx(), img.Bounds().Dy()
 	if iw == 0 || ih == 0 {
@@ -831,7 +1186,7 @@ func drawImageInBox(screen *ebiten.Image, img *ebiten.Image, bx, by, bw, bh int)
 	screen.DrawImage(img, op)
 }
 
-// clipText truncates text with an ellipsis to fit availPx (≈6px per glyph in
+// clipText truncates text with an ellipsis to fit availPx (~6px per glyph in
 // the debug font).
 func clipText(text string, availPx int) string {
 	const glyphW = 6
@@ -842,10 +1197,12 @@ func clipText(text string, availPx int) string {
 	if len(text) <= maxChars {
 		return text
 	}
-	if maxChars <= 1 {
+	// "..." is 3 glyphs; reserve room for it so the result never exceeds
+	// maxChars. Too narrow for text + ellipsis -> hard-cut to maxChars.
+	if maxChars <= 3 {
 		return text[:maxChars]
 	}
-	return text[:maxChars-1] + "…"
+	return text[:maxChars-3] + "..."
 }
 
 // legendSwatchColor returns the preview color for a legend entry: the map
@@ -853,7 +1210,9 @@ func clipText(text string, availPx int) string {
 // visual (eraser / unresolved).
 func legendSwatchColor(entry legendEntry, tileDataByKey map[string]*config.TileData, floorColor color.RGBA) (color.RGBA, bool) {
 	switch entry.Kind {
-	case brushTile:
+	case brushTile, brushSpecialTile, brushGeneral:
+		// All tile-keyed brushes: the tile's map colour (teleporters keep their
+		// violet/red glow tint), else the biome floor.
 		if c, ok := tileSwatchColor(entry.TileKey, tileDataByKey[entry.TileKey], floorColor); ok {
 			return c, true
 		}
@@ -920,6 +1279,10 @@ func formatBrushLabel(b brush) string {
 			return fmt.Sprintf("NPC @ (%s)", b.npcName)
 		}
 		return fmt.Sprintf("NPC @ (%s)", b.npcKey)
+	case brushSpecialTile:
+		return fmt.Sprintf("Special @ (%s)", b.tileKey)
+	case brushGeneral:
+		return fmt.Sprintf("General $ (%s)", b.tileKey)
 	default:
 		return "None"
 	}
@@ -938,6 +1301,10 @@ func brushMatchesEntry(b brush, entry legendEntry) bool {
 		return entry.Kind == brushMonster && entry.MonsterKey == b.monsterKey
 	case brushNPC:
 		return entry.Kind == brushNPC && entry.NPCKey == b.npcKey
+	case brushSpecialTile:
+		return entry.Kind == brushSpecialTile && entry.TileKey == b.tileKey
+	case brushGeneral:
+		return entry.Kind == brushGeneral && entry.TileKey == b.tileKey
 	default:
 		return false
 	}
@@ -1054,6 +1421,10 @@ func brushFromEntry(entry legendEntry) brush {
 		return brush{kind: brushMonster, letter: entry.Letter, monsterKey: entry.MonsterKey, monsterName: entry.MonsterName}
 	case brushNPC:
 		return brush{kind: brushNPC, letter: "@", npcKey: entry.NPCKey, npcName: entry.NPCName}
+	case brushSpecialTile:
+		return brush{kind: brushSpecialTile, letter: "@", tileKey: entry.TileKey}
+	case brushGeneral:
+		return brush{kind: brushGeneral, letter: "$", tileKey: entry.TileKey}
 	default:
 		return brush{kind: brushNone}
 	}
@@ -1125,6 +1496,31 @@ func (v *viewer) applyBrush(m *mapInfo, tx, ty int) {
 				Y:      ty,
 				NPCKey: v.brush.npcKey,
 			})
+		}
+	case brushSpecialTile:
+		// Special tile (teleporter/trap/...) sits on empty ground; saved as an
+		// `@` bound to a [stile:key] def. TileType is resolved so the on-map
+		// overlay + teleporter registration match the game.
+		v.setTile(m, tx, ty, ".")
+		if v.brush.tileKey != "" {
+			tileType, ok := v.tileManager.GetTileTypeFromKey(v.brush.tileKey)
+			if ok {
+				m.Data.SpecialTileSpawns = append(m.Data.SpecialTileSpawns, world.SpecialTileSpawn{
+					X:        tx,
+					Y:        ty,
+					TileKey:  v.brush.tileKey,
+					TileType: tileType,
+				})
+			}
+		}
+	case brushGeneral:
+		// General letterless decoration tile: written straight into the grid by
+		// TYPE (no letter). encodeMapLines re-emits it as a `$` + [tile:label] def.
+		if v.brush.tileKey != "" {
+			if tileType, ok := v.tileManager.GetTileTypeFromKey(v.brush.tileKey); ok &&
+				ty >= 0 && ty < len(m.Data.Tiles) && tx >= 0 && tx < len(m.Data.Tiles[ty]) {
+				m.Data.Tiles[ty][tx] = tileType
+			}
 		}
 	}
 }
@@ -1274,31 +1670,51 @@ func encodeMapLines(m *mapInfo, tm *world.TileManager) ([]string, error) {
 			}
 		}
 
-		var defs []string
-		if npcs := npcByRow[y]; len(npcs) > 0 {
-			for _, npc := range npcs {
-				if npc.X < 0 || npc.X >= width {
-					continue
-				}
-				row[npc.X] = '@'
-				defs = append(defs, fmt.Sprintf("[npc:%s]", npc.NPCKey))
+		// Interactive defs ('@': npc + stile) and general defs ('$': [tile:label])
+		// are collected separately and each emitted in ascending-X order, matching
+		// the loader's per-placeholder scan.
+		type xdef struct {
+			x int
+			s string
+		}
+		var atDefs, dollarDefs []xdef
+		for _, npc := range npcByRow[y] {
+			if npc.X < 0 || npc.X >= width {
+				continue
+			}
+			row[npc.X] = world.MapCellInteractive
+			atDefs = append(atDefs, xdef{npc.X, world.FormatMapDef(world.MapDefNPC, npc.NPCKey)})
+		}
+		for _, sp := range specialByRow[y] {
+			if sp.X < 0 || sp.X >= width {
+				continue
+			}
+			key := sp.TileKey
+			if key == "" {
+				key = tm.GetTileKey(sp.TileType)
+			}
+			if key == "" {
+				continue
+			}
+			row[sp.X] = world.MapCellInteractive
+			atDefs = append(atDefs, xdef{sp.X, world.FormatMapDef(world.MapDefStile, key)})
+		}
+		// General letterless tiles live in the grid: any cell whose type carries a
+		// short_label is re-emitted as a '$' placeholder + [tile:label] def.
+		for x := 0; x < width; x++ {
+			if label := tm.GetShortLabelFromType(m.Data.Tiles[y][x]); label != "" {
+				row[x] = world.MapCellGeneral
+				dollarDefs = append(dollarDefs, xdef{x, world.FormatMapDef(world.MapDefTile, label)})
 			}
 		}
-		if specials := specialByRow[y]; len(specials) > 0 {
-			for _, sp := range specials {
-				if sp.X < 0 || sp.X >= width {
-					continue
-				}
-				row[sp.X] = '@'
-				key := sp.TileKey
-				if key == "" {
-					key = tm.GetTileKey(sp.TileType)
-				}
-				if key == "" {
-					continue
-				}
-				defs = append(defs, fmt.Sprintf("[stile:%s]", key))
-			}
+		sort.Slice(atDefs, func(i, j int) bool { return atDefs[i].x < atDefs[j].x })
+		sort.Slice(dollarDefs, func(i, j int) bool { return dollarDefs[i].x < dollarDefs[j].x })
+		var defs []string
+		for _, d := range atDefs {
+			defs = append(defs, d.s)
+		}
+		for _, d := range dollarDefs {
+			defs = append(defs, d.s)
 		}
 
 		line := string(row)
@@ -1326,19 +1742,6 @@ func drawTileMarkerCircle(screen *ebiten.Image, originX, originY, tileSize, tx, 
 	}
 }
 
-func drawTileMarkerRect(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, clr color.RGBA) {
-	if tileSize < 2 {
-		return
-	}
-	size := tileSize
-	if size < 3 {
-		size = 3
-	}
-	drawX := originX + tx*tileSize + (tileSize-size)/2
-	drawY := originY + ty*tileSize + (tileSize-size)/2
-	vector.FillRect(screen, float32(drawX), float32(drawY), float32(size), float32(size), clr, false)
-}
-
 func drawTileLetter(screen *ebiten.Image, originX, originY, tileSize, tx, ty int, letter string) {
 	if tileSize < 6 || letter == "" {
 		return
@@ -1361,12 +1764,12 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 		return color.RGBA{200, 70, 70, 255}, true
 	}
 	if data != nil {
-		if data.RenderType == "floor_only" || data.RenderType == "flooring_object" {
+		if data.RenderType == "floor_only" {
 			if key == "empty" {
 				return floorColor, true
 			}
 			if data.FloorColor != [3]int{} {
-				return colorFromRGB(data.FloorColor, 255), true
+				return colorFromRGB(data.FloorColor), true
 			}
 			return floorColor, true
 		}
@@ -1374,15 +1777,16 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 			return floorColor, true
 		}
 		if data.Solid || !data.Walkable {
-			// Use the obstacle's own wall_color so different obstacles
-			// (tree vs dune vs house) are distinguishable, not a flat gray.
-			if data.WallColor != [3]int{} {
-				return colorFromRGB(data.WallColor, 255), true
+			// Use the obstacle's own map color (map_color, or a wall's
+			// wall_color) so different obstacles (tree vs dune vs house) are
+			// distinguishable, not a flat gray.
+			if mc := config.TileMapColor(data); mc != [3]int{} {
+				return colorFromRGB(mc), true
 			}
 			return obstacle, true
 		}
 		if data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255), true
+			return colorFromRGB(data.FloorColor), true
 		}
 	}
 	return color.RGBA{}, false
@@ -1390,21 +1794,21 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 
 // floorUnderObjectColor is the ground shown under an object sprite. A tile
 // that authors its own floor_color (flooring objects) keeps it; otherwise the
-// ground is dynamic — the same dominant-neighbour vote the game uses for
-// under-entity and inherit_floor ground — so a tree in a road patch sits on
+// ground is dynamic - the same dominant-neighbour vote the game uses for
+// under-entity and inherit_floor ground - so a tree in a road patch sits on
 // road, not on the biome default.
 func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[string]*config.TileData, tx, ty int, base color.RGBA) color.RGBA {
 	tile := m.Data.Tiles[ty][tx]
 	if key := tm.GetTileKey(tile); key != "" {
 		if data := tileDataByKey[key]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	// TileEmpty's authored floor_color is ignored, same as the game renderer:
 	// empty ground always shows the map's default floor color.
 	if t, ok := tm.DominantNeighbourFloor(m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	return base
@@ -1419,13 +1823,13 @@ func effectiveFloorColor(m mapInfo, tm *world.TileManager, tileDataByKey map[str
 	if m.Config == nil {
 		return def
 	}
-	def = colorFromRGB(m.Config.DefaultFloorColor, 255)
+	def = colorFromRGB(m.Config.DefaultFloorColor)
 	if tm == nil {
 		return def
 	}
 	if t, ok := tm.GetTileTypeFromLetterForBiome(".", m.Config.Biome); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
-			return colorFromRGB(data.FloorColor, 255)
+			return colorFromRGB(data.FloorColor)
 		}
 	}
 	return def
@@ -1551,18 +1955,18 @@ type legendBuildItem struct {
 	specific bool
 }
 
-// emitBiomeScoped flattens per-letter build items into sorted legend entries,
-// dropping universal entries for any letter that ALSO has a biome-specific one.
-// This mirrors GetTileTypeFromLetterForBiome / GetMonsterByLetterForBiome,
-// where a biome-specific def wins over the universal fallback for that letter —
-// so the palette shows only what would actually be placed.
-func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
+// emitBiomeScopedSplit partitions biome-SPECIFIC and universal ("general")
+// entries so the editor can list universally-placeable
+// objects (fern patches, wall props, ...) under their own "biome: general"
+// header instead of repeating them in every biome section. The letter-collision
+// rule is unchanged: when a biome-specific def claims a letter, the universal
+// entry for that letter is dropped from BOTH buckets (it never resolves here).
+func emitBiomeScopedSplit(byLetter map[string][]legendBuildItem) (specific, general []legendEntry) {
 	letters := make([]string, 0, len(byLetter))
 	for l := range byLetter {
 		letters = append(letters, l)
 	}
 	sort.Strings(letters)
-	var out []legendEntry
 	for _, l := range letters {
 		items := byLetter[l]
 		hasSpecific := false
@@ -1580,7 +1984,61 @@ func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
 			kept = append(kept, it.entry)
 		}
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Text < kept[j].Text })
-		out = append(out, kept...)
+		if hasSpecific {
+			specific = append(specific, kept...)
+		} else {
+			general = append(general, kept...)
+		}
+	}
+	return specific, general
+}
+
+// tileTypeOrder is the palette column order for the authored tile `type`
+// taxonomy (config.ValidTileTypes) - terrain first, then obstacles, then decor.
+var tileTypeOrder = []string{"floor", "water", "marker", "wall", "wall_decor", "nature", "rock", "structure", "prop"}
+
+// groupTileEntriesByType re-emits a flat tile-entry list as banded [type]
+// subsections in tileTypeOrder, so the palette column reads by what a tile IS
+// (authored `type`), not by an alphabetical soup. Unknown/missing types (never
+// valid for authored tiles, but special tiles pass through) go last.
+func groupTileEntriesByType(entries []legendEntry, tm *world.TileManager) []legendEntry {
+	byType := make(map[string][]legendEntry)
+	for _, e := range entries {
+		t := ""
+		if data := tm.GetTileDataByKey(e.TileKey); data != nil {
+			t = data.Type
+		}
+		byType[t] = append(byType[t], e)
+	}
+	known := make(map[string]bool, len(tileTypeOrder))
+	for _, t := range tileTypeOrder {
+		known[t] = true
+	}
+	var out []legendEntry
+	emit := func(t string) {
+		group := byType[t]
+		if len(group) == 0 {
+			return
+		}
+		label := t
+		if label == "" {
+			label = "other"
+		}
+		out = append(out, sectionHeader(fmt.Sprintf("  [%s] (%d)", label, len(group))))
+		out = append(out, group...)
+	}
+	for _, t := range tileTypeOrder {
+		emit(t)
+	}
+	extras := make([]string, 0)
+	for t := range byType {
+		if !known[t] {
+			extras = append(extras, t)
+		}
+	}
+	sort.Strings(extras)
+	for _, t := range extras {
+		emit(t)
 	}
 	return out
 }
@@ -1592,7 +2050,7 @@ func emitBiomeScoped(byLetter map[string][]legendBuildItem) []legendEntry {
 // biome-specific (the def that actually resolves) is shown.
 func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, biome string) []legendEntry {
 	var entries []legendEntry
-	entries = append(entries, legendEntry{Text: "Tools", IsHeader: true})
+	entries = append(entries, sectionHeader("Tools"))
 	entries = append(entries, legendEntry{Text: "Eraser", Kind: brushEraser})
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
 
@@ -1600,38 +2058,59 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	if biomeLabel == "" {
 		biomeLabel = "-"
 	}
-	entries = append(entries, legendEntry{Text: fmt.Sprintf("Tiles - biome: %s", biomeLabel), IsHeader: true})
 
 	tileItems := make(map[string][]legendBuildItem)
+	var generalLabelTiles []legendEntry // letterless universal tiles ([tile:short_label])
 	for key, data := range tm.ListTiles() {
-		letter := data.Letter
-		if letter == "" {
+		// Letterless general tiles are placed by short_label, not a grid letter.
+		if data.Letter == "" {
+			if data.ShortLabel != "" {
+				generalLabelTiles = append(generalLabelTiles, legendEntry{
+					Text:    fmt.Sprintf("$  %s (%s)", data.ShortLabel, data.Name),
+					Kind:    brushGeneral,
+					Letter:  "$",
+					TileKey: key,
+				})
+			}
 			continue
 		}
 		if !matchesBiome(data.Biomes, biome) {
 			continue
 		}
-		text := fmt.Sprintf("%s  %s (%s)", letter, key, data.Name)
-		tileItems[letter] = append(tileItems[letter], legendBuildItem{
+		text := fmt.Sprintf("%s  %s (%s)", data.Letter, key, data.Name)
+		tileItems[data.Letter] = append(tileItems[data.Letter], legendBuildItem{
 			entry: legendEntry{
 				Text:    text,
 				Kind:    brushTile,
-				Letter:  letter,
+				Letter:  data.Letter,
 				TileKey: key,
 			},
 			specific: len(data.Biomes) > 0,
 		})
 	}
-	entries = append(entries, emitBiomeScoped(tileItems)...)
-
-	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "Monsters (letter -> key/name)", IsHeader: true})
+	sort.Slice(generalLabelTiles, func(i, j int) bool { return generalLabelTiles[i].Text < generalLabelTiles[j].Text })
+	// Biome-specific tiles under "biome: X"; universal ones (no biomes list, by
+	// letter OR short_label) under their own "biome: general" section.
+	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
+	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
+	entries = append(entries, groupTileEntriesByType(tileSpecific, tm)...)
+	if len(tileGeneral) > 0 || len(generalLabelTiles) > 0 {
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader("Tiles - biome: general (any map)"))
+		entries = append(entries, groupTileEntriesByType(append(tileGeneral, generalLabelTiles...), tm)...)
+	}
 
 	if mc != nil {
 		monsterItems := make(map[string][]legendBuildItem)
 		for key, def := range mc.Monsters {
 			letter := def.Letter
 			if letter == "" {
+				continue
+			}
+			// Champion carriers only work through the arena duel flow
+			// (startArenaDuel spawns + mirrors them) - placing one by hand
+			// yields a broken mob, so keep them out of the palette.
+			if def.Champion != "" {
 				continue
 			}
 			if !matchesBiome(def.Biomes, biome) {
@@ -1649,38 +2128,127 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 				specific: len(def.Biomes) > 0,
 			})
 		}
-		entries = append(entries, emitBiomeScoped(monsterItems)...)
+		// Same split as tiles: biome-specific monsters under "biome: X",
+		// universal ones under their own "biome: general" section.
+		monSpecific, monGeneral := emitBiomeScopedSplit(monsterItems)
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader(fmt.Sprintf("Monsters - biome: %s", biomeLabel)))
+		entries = append(entries, monSpecific...)
+		if len(monGeneral) > 0 {
+			entries = append(entries, legendEntry{Text: "", IsHeader: true})
+			entries = append(entries, sectionHeader("Monsters - biome: general (any map)"))
+			entries = append(entries, monGeneral...)
+		}
 	}
 
-	// Special NPCs (quest givers, encounters, merchants, portals, …) — every NPC
+	// Special NPCs (quest givers, encounters, merchants, portals, ...) - every NPC
 	// from npcs.yaml is placeable. Selecting one paints an `@` bound to that NPC;
 	// the eraser removes it. Not biome-scoped (any NPC can sit on any map).
+	// Grouped by the authored `type:` (the behavior classification, validated
+	// closed-set at load) - render_category is purely a render dispatch and the
+	// palette never groups by it.
 	if character.NPCConfigInstance != nil && len(character.NPCConfigInstance.NPCs) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
-		entries = append(entries, legendEntry{Text: "Special NPCs (@ -> key/name)", IsHeader: true})
-		npcKeys := make([]string, 0, len(character.NPCConfigInstance.NPCs))
-		for key := range character.NPCConfigInstance.NPCs {
-			npcKeys = append(npcKeys, key)
+		entries = append(entries, sectionHeader("Special NPCs (@ by type)"))
+
+		keysByCat := map[string][]string{}
+		for key, data := range character.NPCConfigInstance.NPCs {
+			npcType := ""
+			if data != nil {
+				npcType = data.Type
+			}
+			keysByCat[npcType] = append(keysByCat[npcType], key)
 		}
-		sort.Strings(npcKeys)
-		for _, key := range npcKeys {
-			data := character.NPCConfigInstance.NPCs[key]
+
+		// Canonical order first, then any type not in the known list appended
+		// alphabetically so it still shows.
+		cats := make([]string, 0, len(keysByCat))
+		seen := map[string]bool{}
+		for _, cat := range character.NPCTypeOrder {
+			if _, ok := keysByCat[cat]; ok {
+				cats = append(cats, cat)
+				seen[cat] = true
+			}
+		}
+		var extra []string
+		for cat := range keysByCat {
+			if !seen[cat] {
+				extra = append(extra, cat)
+			}
+		}
+		sort.Strings(extra)
+		cats = append(cats, extra...)
+
+		for ci, cat := range cats {
+			// Blank spacer before each category after the first, so a subheader's
+			// band doesn't butt against the previous category's last NPC line.
+			// (The first category follows the "Special NPCs" header - header to
+			// header, already spaced by the bands themselves.)
+			if ci > 0 {
+				entries = append(entries, legendEntry{Text: "", IsHeader: true})
+			}
+			keys := keysByCat[cat]
+			entries = append(entries, sectionHeader(fmt.Sprintf("  [%s] (%d)", cat, len(keys))))
+			sort.Strings(keys)
+			for _, key := range keys {
+				data := character.NPCConfigInstance.NPCs[key]
+				name := key
+				if data != nil && data.Name != "" {
+					name = data.Name
+				}
+				label := fmt.Sprintf("@  %s (%s)", key, name)
+				// Wrap long labels into continuation rows (word-wrap) instead of
+				// truncating with an ellipsis, so the full name stays
+				// readable in the narrow sidebar. Every wrapped row carries the
+				// same NPC brush, so click + highlight cover the whole block.
+				wrapped := wrapTooltipLines(label, legendTextCols)
+				for li, ln := range wrapped {
+					entries = append(entries, legendEntry{
+						Text:         ln,
+						Kind:         brushNPC,
+						Letter:       "@",
+						NPCKey:       key,
+						NPCName:      name,
+						Continuation: li > 0,
+					})
+				}
+			}
+		}
+	}
+
+	// Special tiles (teleporters / traps / triggers from special_tiles.yaml) -
+	// letterless, placed as `@` bound to a >[stile:key] def, same as NPCs. Own
+	// brush category (brushSpecialTile) so portals etc. are placeable, not just
+	// visible on already-authored maps. Not biome-scoped.
+	if specials := tm.ListSpecialTiles(); len(specials) > 0 {
+		entries = append(entries, legendEntry{Text: "", IsHeader: true})
+		entries = append(entries, sectionHeader("Special tiles (@ -> [stile:key])"))
+		specialKeys := make([]string, 0, len(specials))
+		for key := range specials {
+			specialKeys = append(specialKeys, key)
+		}
+		sort.Strings(specialKeys)
+		for _, key := range specialKeys {
 			name := key
-			if data != nil && data.Name != "" {
+			if data := specials[key]; data != nil && data.Name != "" {
 				name = data.Name
 			}
-			entries = append(entries, legendEntry{
-				Text:    fmt.Sprintf("@  %s (%s)", key, name),
-				Kind:    brushNPC,
-				Letter:  "@",
-				NPCKey:  key,
-				NPCName: name,
-			})
+			label := fmt.Sprintf("@  %s (%s)", key, name)
+			wrapped := wrapTooltipLines(label, legendTextCols)
+			for li, ln := range wrapped {
+				entries = append(entries, legendEntry{
+					Text:         ln,
+					Kind:         brushSpecialTile,
+					Letter:       "@",
+					TileKey:      key,
+					Continuation: li > 0,
+				})
+			}
 		}
 	}
 
 	entries = append(entries, legendEntry{Text: "", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "Notes", IsHeader: true})
+	entries = append(entries, sectionHeader("Notes"))
 	entries = append(entries, legendEntry{Text: "+ = start position", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "@ = NPC/special-tile placeholder in map lines", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "a-z = monster letters (tile underneath is empty)", IsHeader: true})
@@ -1699,15 +2267,31 @@ func monsterLetterForKey(key string) string {
 	return def.Letter
 }
 
-func colorFromRGB(rgb [3]int, a uint8) color.RGBA {
-	return color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), a}
+func colorFromRGB(rgb [3]int) color.RGBA {
+	return color.RGBA{uint8(rgb[0]), uint8(rgb[1]), uint8(rgb[2]), 255}
 }
 
 func drawFilledRect(screen *ebiten.Image, x, y, w, h int, clr color.RGBA) {
 	vector.FillRect(screen, float32(x), float32(y), float32(w), float32(h), clr, false)
 }
 
-// drawImageScaled scales src into the w×h box at (x,y). Mirrors the game's
+// Shared header styling for every panel in the map viewer (legend / saves /
+// mobs / content grid), so group headers read identically everywhere.
+var (
+	viewerHeaderFill      = color.RGBA{40, 40, 60, 255}
+	viewerHeaderBorder    = color.RGBA{70, 70, 100, 255}
+	viewerHeaderTextColor = color.RGBA{110, 220, 110, 255} // green, like the game's item-section headers
+)
+
+// drawHeaderBandRect draws a group-header band inside the given row rect, inset
+// 1px at top and bottom so consecutive headers never touch (the 1px breathing
+// room the whole viewer's headers share). Caller draws the label over it.
+func drawHeaderBandRect(screen *ebiten.Image, x, y, w, h int) {
+	drawFilledRect(screen, x, y+1, w, h-2, viewerHeaderFill)
+	drawRectBorder(screen, x, y+1, w, h-2, 1, viewerHeaderBorder)
+}
+
+// drawImageScaled scales src into the wxh box at (x,y). Mirrors the game's
 // helper (ui_helpers.go): linear filtering when SHRINKING (mipmaps) so thin
 // baked-in details/frames aren't dropped, nearest when upscaling so pixel art
 // stays crisp. Used for sprite icons and portraits so the editor renders them

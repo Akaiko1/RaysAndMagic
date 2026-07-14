@@ -17,7 +17,8 @@ npcs:
     type: "spell_trader"
     description: "A serene priestess in white and gold, keeper of a lakeside shrine, who teaches the divine arts of body, mind and spirit"
     sprite: "priestess_spell_merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Peace, traveler. Few cross the bridge to my shrine; the Light rewards those who do. I teach the arts of body, mind, and spirit - choose a soul to bless."
       insufficient_gold: "Devotion is not bought with empty hands. This teaching asks %d gold."
@@ -50,7 +51,8 @@ npcs:
     type: "spell_trader"
     description: "An eager young hedge-mage camped at the forest's edge, peddling the few charms she has mastered while she dreams of greater teaching"
     sprite: "beginner_spell_merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Oh - a real adventuring party! I'm Mira. I've not mastered much yet, but what I have I'll gladly sell. Pick a companion and I'll show you my one good trick."
       insufficient_gold: "Ah - that's %d gold, and your purse is a little light. Come back when it's heavier."
@@ -96,7 +98,8 @@ npcs:
     type: "merchant"
     description: "A graceful elven trader in green robes, healing vials at her belt, dealing in the road staples a far-walking party always forgets"
     sprite: "elf"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Well met. I'm Aelwen - I don't deal in wonders, only the staples that keep a party walking. What did you forget to pack?"
     inventory:
@@ -114,7 +117,8 @@ npcs:
     type: "merchant"
     description: "A young traveling peddler - potion-tray at her hip, bedroll on her back - who walks the long desert routes and pays fair coin for cast-off gear"
     sprite: "merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     sell_available: true
     dialogue:
       greeting: "Esna's the name - I walk the long routes most folk won't, tray and bedroll and all. I pay fair coin for spare gear. Anything you'd rather not carry?"
@@ -124,7 +128,8 @@ npcs:
     type: "card_collector"
     description: "A monocled scholar of monster cards, pouches of stamped parchment at every belt-loop, set up under a sun-awning in the dunes"
     sprite: "card_collector"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Monster cards! Slot one into your collection and the whole party shares its power - or pull one back out. Only I know the trick of pinning them."
 
@@ -133,6 +138,8 @@ npcs:
     type: "quest_giver"
     description: "A keen-eyed elven warden in green and leather, blade at her hip, who keeps watch over the roads out of the village"
     sprite: "elf_warrior"
+    size_class: person
+    render_category: npc
     dialogue:
       greeting: "Hold a moment, travelers. I ward the roads out of here, and of late they run to old and hungry places. Walk them with open eyes - the land remembers more than it forgives."
 
@@ -141,7 +148,8 @@ npcs:
     type: "encounter"
     description: "An old shipwreck that appears abandoned, but sounds come from within"
     sprite: "shipwreck"
-    render_type: "environment_sprite"
+    size_tiles: 1.0
+    render_category: scenery
     transparent: true
     dialogue:
       greeting: "You approach an old shipwreck half-buried in the ground. Through gaps in the rotted hull, you hear voices and see flickering firelight. It seems bandits have made this wreck their hideout."
@@ -176,9 +184,9 @@ npcs:
     type: "encounter"
     description: "A coiled obsidian dragon, mouth agape as if mid-roar"
     sprite: "dragon_statue"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -196,9 +204,9 @@ npcs:
     type: "encounter"
     description: "A rearing crimson dragon wrought in dark stone"
     sprite: "dragon_statue"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -216,9 +224,9 @@ npcs:
     type: "encounter"
     description: "A serpentine dragon of mossy green stone"
     sprite: "dragon_statue"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -236,9 +244,9 @@ npcs:
     type: "encounter"
     description: "A gilded dragon that glints even in the shade"
     sprite: "dragon_statue"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     hide_when_visited: true
     dialogue:
       greeting: "The statue's hollow eyes seem to follow you. Carved runes hint that a dragon statuette could wake what sleeps in the stone."
@@ -256,9 +264,10 @@ npcs:
     type: "encounter"
     description: "A grim stockade of black iron, two elf jailers pacing the gate"
     sprite: "prison"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "Two champions languish in this mountain stockade, guarded by a pair of elf swordsmen. The jailers turn on you the moment you approach the bars."
       visited_message: "The cages hang open and empty - the freed champions have gone to await you at the tavern."
@@ -286,9 +295,10 @@ npcs:
     type: "encounter"
     description: "A cozy timber tavern; off-duty heroes nurse their drinks here"
     sprite: "tavern"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The keeper nods. 'Beds upstairs, stew on the fire, and your benched companions at the corner table. What'll it be?'"
       choice_prompt: "The keeper waits."
@@ -312,9 +322,10 @@ npcs:
     type: "encounter"
     description: "A slender spire of pale stone, humming faintly with warded power"
     sprite: "mage_tower"
-    render_type: "landmark"
+    render_category: landmark
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 2.0
+    size_tiles: 2.0
     rejects_lich: true
     dialogue:
       greeting: "A voice rings down from the tower's heights, neither man's nor woman's: 'You feel the wards part for you. Few do. Speak, then - there is a trial here for those bold enough to be raised.'"
@@ -352,7 +363,8 @@ npcs:
     type: "quest_giver"
     description: "A wind-battered scout who watches the dragon cliffs for raiders and trolls"
     sprite: "dragon_cliffs_ranger"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Down - keep low when the wind shifts. Good. You've a steadier hand than the last lot who came up this trail. I'm Maera; I watch these cliffs so the bridge towns below get a warning before the trouble does. And lately there's trouble."
       active_message: "Still too many of them on the ridge. Thin the pack and the bridge approaches are ours again - I'll know the moment the mist clears."
@@ -389,7 +401,8 @@ npcs:
     type: "quest_giver"
     description: "A hermit draped in dragon teeth and old cliff charms"
     sprite: "dragon_cliffs_bone_hermit"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Hsh. Listen - there, under your feet. The bones remember flame, and lately the rock has begun to hum back. I have hung these dragon-teeth thirty years and never heard it sing like this. Something below has taught the mountain mages to listen. That is never a small thing."
       active_message: "The rite still hums in the rock - I feel it in my teeth and theirs. The mages yet breathe. Silence them, and the bones will rest, and so will I."
@@ -426,9 +439,10 @@ npcs:
     type: "encounter"
     description: "A cliff cave framed by fossilized dragon jaws and scattered ribs"
     sprite: "dragon_cliffs_bone_lair"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The cave exhales a cold animal breath. Deep inside, claws scrape stone."
       visited_message: "The Bone-Maw is silent now - only scorched bones and a cold draft remain."
@@ -459,9 +473,10 @@ npcs:
     type: "encounter"
     description: "A basalt dragon den split by glowing ember cracks"
     sprite: "dragon_cliffs_ember_lair"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "Heat rolls from the cave mouth. Something vast shifts behind the red glow."
       visited_message: "The Ember-Heart has cooled to black stone - the cavern lies dark and still."
@@ -492,9 +507,10 @@ npcs:
     type: "encounter"
     description: "A ruined stone church whose broken doorway descends into darkness"
     sprite: "abandoned_church"
-    render_type: "landmark"
+    render_category: landmark
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 2.0
+    size_tiles: 2.0
     dialogue:
       greeting: "The abandoned church stands silent among the trees. Villagers say the old priest locked the doors after the crypt bells rang by themselves, and no one who entered after dusk returned unchanged."
       choice_prompt: "What do you want to do?"
@@ -510,8 +526,9 @@ npcs:
     type: "encounter"
     description: "The cold doorway back to the forest"
     sprite: "church_exit"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    size_tiles: 1.0
+    render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
     dialogue:
       greeting: "Cold air moves through the doorway behind you. The forest path is still visible beyond the ruined arch."
@@ -528,9 +545,10 @@ npcs:
     type: "encounter"
     description: "A sun-baked pyramid with a narrow stairway descending into darkness"
     sprite: "pyramid_entrance"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
       choice_prompt: "What do you want to do?"
@@ -546,10 +564,10 @@ npcs:
     type: "encounter"
     description: "The stairway back out of the pyramid"
     sprite: "pyramid_stairs_up"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "Warm daylight spills down the sandstone stairs behind you."
       choice_prompt: "What do you want to do?"
@@ -565,10 +583,10 @@ npcs:
     type: "encounter"
     description: "Sandstone stairs leading upward"
     sprite: "pyramid_stairs_up"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The stairs climb toward the upper chambers."
       choice_prompt: "What do you want to do?"
@@ -584,10 +602,10 @@ npcs:
     type: "encounter"
     description: "Sandstone stairs leading deeper"
     sprite: "pyramid_stairs_down"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The stairs descend into a colder, darker level of the pyramid."
       choice_prompt: "What do you want to do?"
@@ -603,10 +621,10 @@ npcs:
     type: "encounter"
     description: "A narrow stairway toward the sealed sanctum"
     sprite: "pyramid_stairs_down"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: climb
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "A painted stairway falls away into a chamber marked by four dragon seals."
       choice_prompt: "What do you want to do?"
@@ -622,9 +640,10 @@ npcs:
     type: "encounter"
     description: "A black stone arch humming with trapped souls"
     sprite: "lich_nexus_entrance"
-    render_type: "landmark"
+    render_category: landmark
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 2.0
+    size_tiles: 2.0
     dialogue:
       greeting: "Green-violet fire coils inside the arch. Beyond it, you hear the slow chant of dead kings."
       choice_prompt: "What do you want to do?"
@@ -640,9 +659,10 @@ npcs:
     type: "encounter"
     description: "A portal back to the living world"
     sprite: "lich_nexus_exit"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The portal flickers with a path away from the liches' hall."
       choice_prompt: "What do you want to do?"
@@ -658,9 +678,10 @@ npcs:
     type: "encounter"
     description: "A stone road gate leading toward the sea city of Seabright"
     sprite: "city_exterior"
-    render_type: "landmark"
+    render_category: landmark
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 2.0
+    size_tiles: 2.0
     dialogue:
       greeting: "Beyond the forest road, Seabright's gate stands open. You hear gulls, market bells, and the sea wind beyond the arch - an eastbound ship takes on water for the far isles, and at a muddy slip a shallow-draught riverboat hires crew to push up the green river into the deep jungle."
       choice_prompt: "What do you want to do?"
@@ -683,10 +704,10 @@ npcs:
     type: "encounter"
     description: "A great barred storm-drain venting into the harbor"
     sprite: "culvert_outlet"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "A grated outflow descends beneath Seabright into the city culverts. Far down in the dark, something gold glitters."
       choice_prompt: "Descend into the culverts?"
@@ -702,10 +723,10 @@ npcs:
     type: "encounter"
     description: "The barred outflow back up to Seabright harbor"
     sprite: "culvert_outlet"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "Daylight filters down through the outflow grate - the way back up to Seabright."
       choice_prompt: "Leave the culverts?"
@@ -721,7 +742,8 @@ npcs:
     type: "quest_giver"
     description: "A cloaked ratfolk who keeps the Seabright culverts and their seven sluice valves, lantern always lit"
     sprite: "ratman_cloak"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Hsss - easy, top-dweller. Grist means no harm. I keep these culverts; have, since before your harbor learned to count its coin. Lower that steel and I'll tell you what glitters down here in the dark."
       active_message: "Still seven valves gushing, friend. Wheel them all shut and the bug's hall drains to mud - then it's nowhere left to skitter."
@@ -766,9 +788,9 @@ npcs:
     name: "Sluice Valve I"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: &valve_dialogue
       greeting: "A rust-caked sluice valve, half-open. Water roars through the channel below."
@@ -784,54 +806,54 @@ npcs:
     name: "Sluice Valve II"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_3:
     name: "Sluice Valve III"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_4:
     name: "Sluice Valve IV"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_5:
     name: "Sluice Valve V"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_6:
     name: "Sluice Valve VI"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
   culvert_valve_7:
     name: "Sluice Valve VII"
     type: "encounter"
     sprite: "culvert_valve"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     steam_when_visited: true
     dialogue: *valve_dialogue
 
@@ -841,9 +863,10 @@ npcs:
     type: "encounter"
     description: "The ship that bore you east, waiting at the castle dock"
     sprite: "forest_gate"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: board
     transparent: true
-    size_multiplier: 4.0
+    size_tiles: 4.0
     dialogue:
       greeting: "Your ship rocks at the dock, ready to bear you back across the eastern sea to the forest road."
       choice_prompt: "Set sail for home?"
@@ -859,7 +882,8 @@ npcs:
     type: "quest_giver"
     description: "A masterless swordsman in a straw cloak, the last of a fallen eastern house, lingering at the castle gate"
     sprite: "ronin_outcast"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Stay your feet, westerner. You stand at the gate of a dead house. I am Shozo - once sworn sword to its lord, now only the man who sweeps its steps. Speak softly here. The one who sleeps above does not love to be woken... unless it is done properly."
       active_message: "Five racks remain, hidden behind the shoji screens of the upper halls. Bare every one, take up the house's steel, and his pride will do the rest."
@@ -909,9 +933,9 @@ npcs:
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     dialogue: &rack_dialogue
       greeting: "A lacquered rack of katana and castle gear, half-hidden behind a paper screen."
       visited_message: "The rack stands stripped and bare."
@@ -926,33 +950,33 @@ npcs:
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     dialogue: *rack_dialogue
   sword_rack_3:
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     dialogue: *rack_dialogue
   sword_rack_4:
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     dialogue: *rack_dialogue
   sword_rack_5:
     name: "Katana Rack"
     type: "encounter"
     sprite: "sword_rack"
-    render_type: "environment_sprite"
+    render_category: scenery
     transparent: true
-    size_multiplier: 0.5
+    size_tiles: 0.5
     dialogue: *rack_dialogue
 
   # Invisible gate NPCs for the forest<->highlands portal. sprite "" renders
@@ -963,9 +987,11 @@ npcs:
     type: "encounter"
     description: "A shimmer over the stream - a path toward the misty highlands"
     sprite: ""
+    render_category: invisible
+    prompt_verb: take
     ground_tile: "forest_portal_stream"
     transparent: true
-    size_multiplier: 1
+    size_tiles: 0.2
     dialogue:
       greeting: "The water shimmers with a cold mountain light. A path to the misty highlands opens beyond."
       choice_prompt: "What do you want to do?"
@@ -981,9 +1007,11 @@ npcs:
     type: "encounter"
     description: "The shimmer that leads back down to the forest"
     sprite: ""
+    render_category: invisible
+    prompt_verb: take
     ground_tile: "highlands_stream"
     transparent: true
-    size_multiplier: 1
+    size_tiles: 0.2
     dialogue:
       greeting: "The mountain mist parts, revealing the green path back down to the forest."
       choice_prompt: "What do you want to do?"
@@ -999,10 +1027,10 @@ npcs:
     type: "encounter"
     description: "The main gate back to the forest road"
     sprite: "city_gate"
-    render_type: "environment_sprite"
-    wall_mounted: true
+    render_category: wall_mounted
+    prompt_verb: enter
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The gate opens back onto the forest path."
       choice_prompt: "What do you want to do?"
@@ -1018,7 +1046,8 @@ npcs:
     type: "merchant"
     description: "The blade-dealer of Seabright Arms; daggers at her hip and a knife-trick for every customer who haggles"
     sprite: "city_weapon_merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     sell_available: true
     dialogue:
       greeting: "Dalia, of Seabright Arms. That starter steel won't last the first real road - I've buried folk who trusted it. These will. I sharpen what I sell."
@@ -1051,26 +1080,33 @@ npcs:
     type: "merchant"
     description: "Keeper of Harbor Remedies; a belt of labelled vials and not one mystery brew among them"
     sprite: "city_potion_merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     sell_available: true
+    stock_refresh_weeks: 1
     dialogue:
       greeting: "Welcome to Harbor Remedies. I'm Wrenna - careful bottles, clear labels, no mystery brews. What ails the party?"
     inventory:
       - type: "potion"
         name: "Health Potion"
         cost: 50
-        quantity: 12
+        quantity: 20
+      - type: "potion"
+        name: "Mana Potion"
+        cost: 60
+        quantity: 20
       - type: "potion"
         name: "Revival Potion"
         cost: 500
-        quantity: 3
+        quantity: 10
 
   city_spell_shop:
     name: "Scrivener Oletta"
     type: "spell_trader"
     description: "Mistress of the Tideglass Scriptorium; a robed scholar of the four elements whose harbor windows are always salt-fogged"
     sprite: "city_spell_merchant"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "Mind the wet ink. I'm Oletta of the Tideglass Scriptorium - I scribe the four elements true: fire, water, air, earth. No Light, no Dark. Choose a character."
       insufficient_gold: "A clean copy costs %d gold. Come back when the purse allows."
@@ -1084,29 +1120,30 @@ npcs:
       fireball: { cost: 400 }
       firebolt: { cost: 250 }
       torch_light: { cost: 150 }
-      inferno: { cost: 2500 }
+      inferno: { cost: 1500 }
       # Water
       ice_bolt: { cost: 250 }
-      walk_on_water: { cost: 750 }
-      water_breathing: { cost: 800 }
-      hot_steam: { cost: 1500 }
+      walk_on_water: { cost: 500 }
+      water_breathing: { cost: 1000 }
+      hot_steam: { cost: 2000 }
       # Air
       sparks: { cost: 150 }
       lightning: { cost: 600 }
-      wizard_eye: { cost: 700 }
+      wizard_eye: { cost: 150 }
       starburst: { cost: 2000 }
       # Earth
       rock_blast: { cost: 350 }
       deadly_swarm: { cost: 700 }
-      stun: { cost: 600 }
-      stone_skin: { cost: 500 }
+      stun: { cost: 1500 }
+      stone_skin: { cost: 2000 }
 
   city_mastery_trainer:
     name: "Master Ilyra"
     type: "skill_trainer"
     description: "A staff-bearing martial instructor in worn leathers; she sharpens skills and magic schools a party already owns"
     sprite: "city_skill_trainer"
-    size_multiplier: 4
+    render_category: npc
+    size_class: person
     dialogue:
       greeting: "I'm Ilyra. I sharpen what you already know - I don't hand out gifts. Pick a character and a mastery they hold."
 
@@ -1118,9 +1155,10 @@ npcs:
     type: "encounter"
     description: "The shallow-draught riverboat that bore you upriver, tied at the landing"
     sprite: "deep_jungle_arch"
-    render_type: "environment_sprite"
+    render_category: scenery
+    prompt_verb: board
     transparent: true
-    size_multiplier: 1.0
+    size_tiles: 1.0
     dialogue:
       greeting: "The riverboat rocks against the muddy landing, ready to carry you back down the green river to Seabright."
       choice_prompt: "Cast off downriver?"
@@ -1129,4 +1167,375 @@ npcs:
           action: "enter_map"
           map: "city"
         - text: "Stay in the jungle"
+          action: "leave"
+
+  # Arena entrance (landmark, like the church) - the actual arena map + fights
+  # arrive in a later phase; for now the gate is barred (info-only).
+  arena:
+    name: "The Grand Arena"
+    type: "encounter"
+    description: "A towering stone colosseum; the roar of unseen crowds drifts over its walls"
+    sprite: "arena_building"
+    render_category: landmark
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 2.0
+    dialogue:
+      greeting: "The arena's iron gates tower above you, banners snapping in the wind. From within comes the clash of steel and the roar of a crowd."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the arena"
+          action: "enter_map"
+          map: "arena"
+        - text: "Leave"
+          action: "leave"
+
+  # Gladiator gatekeeper - ushers challengers into the arena interior. Carries
+  # the arena points shop + champions' board as dialog tabs (shared &arena_shop
+  # block with the duel master inside).
+  gladiator_gatekeeper:
+    name: "Arena Gatekeeper"
+    type: "encounter"
+    description: "A scarred gladiator in gilded armour, halberd planted, sizing up every passerby"
+    sprite: "gladiator_gatekeeper"
+    render_category: npc
+    transparent: true
+    size_class: person
+    currency: "arena_points"
+    arena_board: true
+    stock_weapons_rarity: "uncommon"
+    stock_weapons_cost: 750
+    inventory: &arena_shop # quantity -1 = unlimited stock (never sells out)
+      - type: "potion"
+        name: "Health Potion"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Mana Potion"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Sake Flask"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Antivenom"
+        cost: 250
+        quantity: -1
+      - type: "potion"
+        name: "Revival Potion"
+        cost: 1000
+        quantity: -1
+      # Pit Fighter's Quilt (padded set) - 1500 ap per piece
+      - type: "item"
+        name: "Padded Cap"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Vest"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Greaves"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Gloves"
+        cost: 1500
+        quantity: -1
+      - type: "item"
+        name: "Padded Boots"
+        cost: 1500
+        quantity: -1
+      # Coliseum Ringmail (ringmail set) - 2500 ap per piece
+      - type: "item"
+        name: "Ringmail Coif"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Hauberk"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Vambraces"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Gloves"
+        cost: 2500
+        quantity: -1
+      - type: "item"
+        name: "Ringmail Boots"
+        cost: 2500
+        quantity: -1
+      # Arena unique weapons (emerald tier) - 5000 ap, THREE copies each
+      - type: "weapon"
+        name: "Gladius"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Pit Labrys"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Morningstar"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Hasta"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Retiarius Trident"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Parrying Dagger"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Lion-Crest Warhammer"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Skirmisher Recurve"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Arena Arbalest"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Lanista's Scepter"
+        cost: 5000
+        quantity: 3
+      - type: "weapon"
+        name: "Bronze Cesti"
+        cost: 5000
+        quantity: 3
+      - type: "item"
+        name: "Parma"
+        cost: 5000
+        quantity: 3
+    dialogue:
+      greeting: "The gatekeeper looks you over, one hand on her halberd. 'So. You think you have what it takes to fight in the arena?'"
+      choice_prompt: "What do you say?"
+      choices:
+        - text: "Take me inside"
+          action: "enter_map"
+          map: "arena"
+        - text: "Not today"
+          action: "leave"
+
+  # Storage clerk - manages the shared cross-save stash, same as the tavern.
+  storage_clerk:
+    name: "Storage Clerk"
+    type: "encounter"
+    description: "A tidy young clerk behind a counter, ledger in hand, a strongbox at her feet"
+    sprite: "storage_clerk"
+    render_category: npc
+    transparent: true
+    size_class: person
+    dialogue:
+      greeting: "The clerk looks up from her ledger. 'Here to store your things? Your stash travels with you across all your journeys.'"
+      choice_prompt: "What would you like to do?"
+      choices:
+        - text: "Manage your stash"
+          action: "manage_stash"
+        - text: "Leave"
+          action: "leave"
+
+  # Arena interior: the duel master (the gatekeeper's twin inside the pit).
+  # start_arena_duel picks the difficulty; the champion is rolled randomly from
+  # the registry. Each tier can be challenged once per day (resets at sunrise).
+  arena_duel_master:
+    name: "Arena Duel Master"
+    type: "encounter"
+    description: "A scarred gladiator in gilded armour, keeper of the pit's rules"
+    sprite: "gladiator_gatekeeper"
+    render_category: npc
+    transparent: true
+    size_class: person
+    currency: "arena_points"
+    arena_board: true
+    stock_weapons_rarity: "uncommon"
+    stock_weapons_cost: 750
+    inventory: *arena_shop
+    dialogue:
+      greeting: "The duel master raps her halberd on the flagstones. 'Name your stakes, challenger. The pit picks your opponent - and each wager stands once a day. Once you step onto the sand, the gates stay down until one of you falls.'"
+      choice_prompt: "What stakes?"
+      choices:
+        - text: "An easy bout"
+          action: "start_arena_duel"
+          tier: "easy"
+        - text: "A proper duel"
+          action: "start_arena_duel"
+          tier: "normal"
+        - text: "An impossible match"
+          action: "start_arena_duel"
+          tier: "impossible"
+        - text: "Not yet"
+          action: "leave"
+
+  # Portcullis barring a chamber doorway while a duel champion lives on the map.
+  # render_category "door": stands ACROSS the opening (oriented by the flanking
+  # walls), draws + blocks only while closed.
+  arena_gate:
+    name: "Arena Portcullis"
+    type: "encounter"
+    description: "A spiked iron portcullis between stone pillars"
+    sprite: "arena_gate"
+    render_category: door
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "The portcullis is bolted down. Beyond the bars, the duel must end before it rises."
+      choice_prompt: "What do you do?"
+      choices:
+        - text: "Step back"
+          action: "leave"
+
+  # Way back out of the arena: a barred gate wall standee on the west chamber wall.
+  arena_exit:
+    name: "Arena Gates"
+    type: "encounter"
+    description: "The barred gateway back out to the desert"
+    sprite: "arena_gate_wall"
+    render_category: wall_mounted
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "Beyond the barred gateway, the desert glare waits."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Return to the desert"
+          action: "enter_map"
+          map: "desert"
+        - text: "Stay"
+          action: "leave"
+
+  # Fallen-fighter remains half-buried in the sand.
+  # --- Loot crates: one-shot chests placed via @ on any map. Direct line of
+  # sight required to open (no walls, no diagonal gaps). Loot + trap rules
+  # live in loots.yaml `crates:` keyed by these NPC keys.
+  pile_of_old_boxes:
+    name: "Pile of Old Boxes"
+    type: "loot_crate"
+    description: "Splintered crates heaped into a leaning tower - something might have been left inside"
+    sprite: "pile_of_old_boxes"
+    render_category: landmark
+    no_spin: true
+    prompt_verb: search
+    transparent: true
+    size_tiles: 0.5
+
+  campfire:
+    name: "Abandoned Campfire"
+    type: "loot_crate"
+    description: "A neat ring of stones around live embers - the owner left in a hurry"
+    sprite: "campfire"
+    render_category: scenery
+    prompt_verb: rest at
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_red:
+    name: "Red Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, sealed with a red-brown lid"
+    sprite: "barrel_red"
+    visited_sprite: "barrel_red_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_green:
+    name: "Green Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, its staves stained mossy green"
+    sprite: "barrel_green"
+    visited_sprite: "barrel_green_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
+  barrel_blue:
+    name: "Blue Barrel"
+    type: "loot_crate"
+    description: "A stout barrel banded in iron, its staves washed a deep blue"
+    sprite: "barrel_blue"
+    visited_sprite: "barrel_blue_open"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.5
+
+  chest_wooden:
+    name: "Wooden Chest"
+    type: "loot_crate"
+    description: "A banded wooden chest, its lock long since given up"
+    sprite: "chest_wooden"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  chest_iron:
+    name: "Iron Chest"
+    type: "loot_crate"
+    description: "A black iron strongbox - the lock looks untouched, which is worse"
+    sprite: "chest_iron"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  chest_golden:
+    name: "Golden Chest"
+    type: "loot_crate"
+    description: "A sun-chased golden chest that has clearly outlived its owners"
+    sprite: "chest_golden"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.5
+    hide_when_visited: true
+
+  # Spell lectern: a book on a stone stand that teaches ONE spell to the first
+  # party member with the school open who doesn't know it. Not consumed while
+  # nobody can learn. Author `spell:` on a copy for a fixed spell.
+  spell_lectern:
+    name: "Ancient Tome"
+    type: "spell_lectern"
+    description: "An open tome chained to a carved stone lectern, its script slowly rearranging itself"
+    sprite: "spell_lectern"
+    render_category: scenery
+    prompt_verb: study
+    transparent: true
+    size_tiles: 0.7
+    hide_when_visited: true
+    lectern:
+      pool: [fly, town_portal, fire_shield, stone_blossom]
+
+  arena_bones:
+    name: "Bleached Bones"
+    type: "encounter"
+    description: "A gladiator's remains - helm, shield and bones half-swallowed by the sand"
+    sprite: "arena_bones"
+    render_category: scenery
+    transparent: true
+    size_tiles: 0.4
+    dialogue:
+      greeting: "A cracked helm and a split shield lie among bleached bones. The sand keeps its victors and its fallen alike - and, strangely, the hollow they left looks almost comfortable. A pit hand materializes at your elbow: 'Undisturbed rest on the sand costs coin.'"
+      choice_prompt: "What do you do?"
+      choices:
+        - text: "Doze until nightfall (750 gold)"
+          action: "wait_until_night"
+          cost: 750
+        - text: "Doze until dawn (750 gold)"
+          action: "wait_until_dawn"
+          cost: 750
+        - text: "Leave them be"
           action: "leave"

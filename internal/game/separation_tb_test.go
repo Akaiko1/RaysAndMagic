@@ -44,7 +44,7 @@ func tileOf(m *monsterPkg.Monster3D, tile float64) [2]int {
 // the real-time push left stacked on one tile are pulled onto DISTINCT tiles in
 // turn-based mode, and a second pass leaves them put (idempotent = no jitter).
 func TestSeparateStackedMonstersTB_SplitsAndIsIdempotent(t *testing.T) {
-	// Both stacked on tile (3,3) center (tileSize 64 → 3*64+32 = 224).
+	// Both stacked on tile (3,3) center (tileSize 64 -> 3*64+32 = 224).
 	g, a, b := tbSepGame(t, 224, 224, 224, 224)
 	tile := float64(g.config.GetTileSize())
 
@@ -62,7 +62,7 @@ func TestSeparateStackedMonstersTB_SplitsAndIsIdempotent(t *testing.T) {
 		}
 	}
 
-	// Idempotence: already separated → a second pass moves nobody (no jitter).
+	// Idempotence: already separated -> a second pass moves nobody (no jitter).
 	ax, ay, bx, by := a.X, a.Y, b.X, b.Y
 	g.separateStackedMonstersTB()
 	if a.X != ax || a.Y != ay || b.X != bx || b.Y != by {
@@ -73,7 +73,7 @@ func TestSeparateStackedMonstersTB_SplitsAndIsIdempotent(t *testing.T) {
 
 // TestSeparateStackedMonstersTB_HalfTileOffsetSameTile covers the exact bug the
 // player hit: the RT pixel push left the pair half a tile apart but on the SAME
-// tile — TB centring alone would stack them, so they must still be split.
+// tile - TB centring alone would stack them, so they must still be split.
 func TestSeparateStackedMonstersTB_HalfTileOffsetSameTile(t *testing.T) {
 	// Both on tile (3,3): one at centre, one ~half a tile off but same tile int.
 	g, a, b := tbSepGame(t, 224, 224, 224+24, 224)

@@ -5,12 +5,20 @@ import (
 	"time"
 
 	"ugataima/internal/items"
+	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-const doubleClickWindowMs = 700
-const doubleClickWindow = doubleClickWindowMs * time.Millisecond
+// doubleClickWindowMs deliberately stays short: a second click after a pause
+// is another selection, not an action. Every mutating double-click handler
+// resets its tracker after acting so a third click cannot spill onto a row that
+// moved underneath the cursor.
+const doubleClickWindowMs = 500
+
+func withinDoubleClickWindow(current, previous int64) bool {
+	return previous > 0 && current >= previous && current-previous <= doubleClickWindowMs
+}
 
 // UI Dimension constants
 const (
@@ -61,6 +69,14 @@ type UISystem struct {
 	radarDotClose  *ebiten.Image // Red dot for close enemies
 	radarDotMedium *ebiten.Image // Orange dot for medium distance
 	radarDotFar    *ebiten.Image // Yellow dot for far enemies
+	// Compass minimap tile-layer cache: the ~80 static tile fills only change
+	// when the player crosses a tile boundary (or the world swaps), so they're
+	// baked into one image and blitted per frame instead of re-emitting a
+	// vector.FillRect per tile every frame.
+	compassTileLayer  *ebiten.Image
+	compassCacheTileX int
+	compassCacheTileY int
+	compassCacheWorld *world.World3D
 }
 
 // NewUISystem creates a new UI system
@@ -153,6 +169,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.healPickerOpen {
 		ui.drawHealPickerPopup(screen)
 	}
+	if ui.game.townPortalPickerOpen {
+		ui.drawTownPortalPickerPopup(screen)
+	}
 
 	// Draw promotion picker (which member becomes Archmage/Lich) if open
 	if ui.game.promotionPickerOpen {
@@ -185,7 +204,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	}
 
 	// Draw tooltip last so it stays above other UI. NPC dialogs (dialogActive)
-	// are no longer suppressed — the spell trader UI surfaces spell details on
+	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
 	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {

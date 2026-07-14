@@ -30,7 +30,7 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 		return 0, 0, 0
 	}
 	// Self magic (Body/Mind/Spirit) scales with Personality; all other schools
-	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic —
+	// (elemental, Light, Dark) scale with Intellect. The math is stat-agnostic -
 	// CalculateSpellDamageByID just divides the passed stat by SpellIntellectDivisor.
 	def, defErr := spells.GetSpellDefinitionByID(spellID)
 	selfMagic := defErr == nil && spellScalesWithPersonality(def.School)
@@ -40,7 +40,7 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	}
 	baseDamage, intellectBonus, totalDamage := spells.CalculateSpellDamageByID(spellID, scalingStat)
 	// Spells flagged scales_with_personality (e.g. ray_of_light) add a SECOND
-	// Personality/divisor term on top of the primary term — but ONLY for non-self
+	// Personality/divisor term on top of the primary term - but ONLY for non-self
 	// magic, else Personality (already the primary stat for self magic) is counted
 	// twice. The tooltip applies the same guard so the displayed number matches.
 	if defErr == nil && def.ScalesWithPersonality && !selfMagic {
@@ -54,6 +54,20 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 		totalDamage += masteryBonus
 	}
 	return baseDamage, intellectBonus, totalDamage
+}
+
+// rollSpellCritDamage rolls Luck-based spell crit (no base crit) and returns the
+// possibly-boosted damage plus whether it crit. No-damage spells (Disintegrate)
+// never crit - the ONE place that rule lives, shared by every cast path (player
+// projectile, champion cast, mortar) so none can drift.
+func (cs *CombatSystem) rollSpellCritDamage(spellID spells.SpellID, caster *character.MMCharacter, base int) (int, bool) {
+	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.DealsNoDamage {
+		return base, false
+	}
+	if crit, _ := cs.RollCriticalChance(0, caster); crit {
+		return base * CritDamageMultiplier, true
+	}
+	return base, false
 }
 
 // CalculateSpellHealing returns base/stat/total healing for a spell using the same formulas as combat.
@@ -119,7 +133,7 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 }
 
 // CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
-// WeaponCritBreakdown decomposes the weapon crit chance into its components —
+// WeaponCritBreakdown decomposes the weapon crit chance into its components -
 // the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
 // can't drift from the rolled total.
 func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, gmWeapon, gmArms int) {
@@ -160,7 +174,7 @@ func (cs *CombatSystem) CalculateArmorClassContribution(item items.Item, char *c
 
 // armorClassContributionWithEnd is the precomputed-endurance variant: the
 // per-hit total loops every slot, and effective Endurance (a full equipment
-// scan) is identical for all of them — compute it once, not per piece.
+// scan) is identical for all of them - compute it once, not per piece.
 func (cs *CombatSystem) armorClassContributionWithEnd(item items.Item, char *character.MMCharacter, effectiveEndurance int) int {
 	baseArmor := item.Attributes["armor_class_base"]
 	baseArmor += cs.armorMasteryBonus(char, item)
@@ -213,7 +227,53 @@ func (cs *CombatSystem) CalculateTotalArmorClass(char *character.MMCharacter) in
 			total += cs.armorClassContributionWithEnd(armorPiece, char, effEnd)
 		}
 	}
-	total += cs.game.cardArmorBonus() // Treant Card: flat party Armor Class
+	// Hasta: an equipped weapon can grant its bearer flat AC (either hand).
+	for _, slot := range []items.EquipSlot{items.SlotMainHand, items.SlotOffHand} {
+		if w, ok := char.Equipment[slot]; ok && w.Type == items.ItemWeapon {
+			if def := lookupWeaponConfigByName(w.Name); def != nil {
+				total += def.ArmorClassBonus
+			}
+		}
+	}
+	total += cs.game.cardArmorBonus()             // Treant Card: flat party Armor Class
+	total += cs.game.partyArmorAuraBonusFor(char) // Parma shield wall: aura from OTHER members' gear
+	if char.HasSkill(character.SkillIronBody) {
+		// Iron Body: flat AC per tier, Novice included - a Monk's only AC
+		// source besides Endurance, since they wear no armor at all.
+		total += (char.SkillTier(character.SkillIronBody) + 1) * character.IronBodyACPerTier
+	}
+	return total
+}
+
+// partyArmorAuraBonusFor sums party_armor_bonus from every OTHER member's
+// equipped items (the Parma's shield wall: the bearer shelters the line, not
+// themselves - the shield's own armor_class_base already covers them). Only
+// PARTY MEMBERS stand in the wall: champion templates and other non-party
+// characters run through CalculateTotalArmorClass too and must never borrow
+// the party's shields.
+func (g *MMGame) partyArmorAuraBonusFor(char *character.MMCharacter) int {
+	if g == nil || g.party == nil {
+		return 0
+	}
+	inParty := false
+	for _, member := range g.party.Members {
+		if member == char {
+			inParty = true
+			break
+		}
+	}
+	if !inParty {
+		return 0
+	}
+	total := 0
+	for _, member := range g.party.Members {
+		if member == nil || member == char {
+			continue
+		}
+		for _, it := range member.Equipment {
+			total += it.Attributes["party_armor_bonus"]
+		}
+	}
 	return total
 }
 
@@ -275,8 +335,20 @@ func (cs *CombatSystem) WeaponCooldownFrames(char *character.MMCharacter) int {
 	return cs.WeaponCooldownFramesFor(char, weaponName)
 }
 
+// OffHandWeaponCooldownFrames mirrors WeaponCooldownFrames for the off-hand
+// weapon (Dual Wielding only) - the two hands cool down independently.
+func (cs *CombatSystem) OffHandWeaponCooldownFrames(char *character.MMCharacter) int {
+	weaponName := ""
+	if char != nil {
+		if weapon, ok := char.Equipment[items.SlotOffHand]; ok {
+			weaponName = weapon.Name
+		}
+	}
+	return cs.WeaponCooldownFramesFor(char, weaponName)
+}
+
 // WeaponCooldownFramesFor computes the real-time cooldown for a SPECIFIC
-// weapon (tooltips hover unequipped weapons too) — the ONE formula combat and
+// weapon (tooltips hover unequipped weapons too) - the ONE formula combat and
 // every tooltip share. Empty name = unarmed (sword baseline).
 func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, weaponName string) int {
 	if cs == nil || cs.game == nil || char == nil {
@@ -292,13 +364,18 @@ func (cs *CombatSystem) WeaponCooldownFramesFor(char *character.MMCharacter, wea
 				mult = def.CooldownMultiplier // legendary / per-weapon override
 			default:
 				// Resolve the weapon's category to its canonical weapon SKILL
-				// (so "throwing" → dagger) and read that type's multiplier from
+				// (so "throwing" -> dagger) and read that type's multiplier from
 				// weapons.yaml. Categories with no skill (e.g. blaster) stay 1.0.
 				if skill, ok := character.WeaponSkillForCategory(def.Category); ok {
 					mult = config.WeaponCooldownMultiplierForSkill(skill.WeaponNoun())
 				}
 			}
 		}
+	}
+	// Dual Wielding: -10%/tier ABOVE Novice on cooldown, either hand (Novice
+	// itself only unlocks the off-hand weapon slot, no reduction yet).
+	if tier := char.SkillTier(character.SkillDualWielding); char.HasSkill(character.SkillDualWielding) && tier > 0 {
+		mult *= 1.0 - float64(tier*character.DualWieldingCDReductionPerTier)/100.0
 	}
 	return clampRTCooldown(int(math.Round(base * mult)))
 }
@@ -322,7 +399,7 @@ func spellCooldownSpeedFactor(speed int) float64 {
 // SpellCooldownFrames is the real-time cooldown after casting spellID: the
 // spell's authored cooldown_seconds (or a level-based default) at reference
 // Speed, scaled by the caster's Speed and any equipped weapon's
-// spell_cooldown_multiplier (e.g. Archmage Staff −20%).
+// spell_cooldown_multiplier (e.g. Archmage Staff -20%).
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
 	if cs == nil || cs.game == nil || char == nil {
 		return RTCooldownMinFrames

@@ -13,7 +13,7 @@ import (
 )
 
 // Sword racks roll the castle_armory pool, which must contain only ZONE gear +
-// gold and NEVER a unique — uniques drop from the boss alone. Guards the user's
+// gold and NEVER a unique - uniques drop from the boss alone. Guards the user's
 // "racks hold zone loot, not uniques" rule structurally and by sampling.
 func TestCastleArmoryLootTable_NeverYieldsUniques(t *testing.T) {
 	newTestCombatSystemWithConfig(t) // loads weapons/items configs + bridges
@@ -105,10 +105,10 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 
 	// Movement freeze: the per-frame pre-pass must flag the sealed boss BossDormant
 	// (not BossAggro) so the RT movement loop holds it on its throne. updateBoss
-	// only suppresses the ATTACK — the separate movement path is what let the boss
+	// only suppresses the ATTACK - the separate movement path is what let the boss
 	// wander off, so this asserts the flag that gates it.
 	cs.game.world.Monsters = append(cs.game.world.Monsters, boss)
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if !boss.BossDormant {
 		t.Error("sealed boss must be flagged BossDormant while castle_armory is unfinished")
 	}
@@ -116,7 +116,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 		t.Error("sealed boss must not be BossAggro while dormant")
 	}
 
-	// Collect all 5 racks → quest completes → boss turns aggressive.
+	// Collect all 5 racks -> quest completes -> boss turns aggressive.
 	if err := qm.ActivateQuest("castle_armory"); err != nil {
 		t.Fatalf("activate castle_armory: %v", err)
 	}
@@ -130,19 +130,19 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if cs.bossEvasive(boss) {
 		t.Error("boss must turn aggressive once castle_armory completes")
 	}
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if boss.BossDormant {
 		t.Error("boss must no longer be dormant once castle_armory completes")
 	}
 	// Unsealed but UNengaged: the Samurai does NOT beeline across the whole map
 	// (that map-wide chase is the Golden Thief Bug's unique trait). It goes
-	// relentless only after normal aggro — within its (large) alert radius or once
+	// relentless only after normal aggro - within its (large) alert radius or once
 	// the party hits it.
 	if boss.BossAggro {
 		t.Error("unsealed-but-unengaged Samurai must NOT relentlessly chase from across the map")
 	}
 	boss.IsEngagingPlayer = true
-	cs.game.refreshBoundUndeadCache()
+	cs.game.refreshBoundAllyCache()
 	if !boss.BossAggro {
 		t.Error("an engaged unsealed Samurai should relentlessly pursue")
 	}
@@ -169,14 +169,14 @@ func TestSealedBossInvulnerableGates(t *testing.T) {
 
 	boss.BossDormant = false
 	if monsterImmuneToDisintegrate(boss) {
-		t.Error("unsealed samurai is not undead/dragon → disintegratable")
+		t.Error("unsealed samurai is not undead/dragon -> disintegratable")
 	}
 	if cs.absorbIfSealed(boss) {
 		t.Error("unsealed boss must take damage normally (no absorb)")
 	}
 }
 
-// A sealed (dormant) boss is inert to INDIRECT damage too — AoE splash, traps,
+// A sealed (dormant) boss is inert to INDIRECT damage too - AoE splash, traps,
 // and turn-based pack-aggro must not damage it, flash it, or wake it. Direct
 // hits route through absorbIfSealed; these paths call TakeDamageResist (returns
 // 0) and previously still applied hit tint / pack-engage side effects.
@@ -425,7 +425,7 @@ func TestNingyoAllyHealChoosesNearbyWoundedMonster(t *testing.T) {
 }
 
 // Regression: a weapon's display name must resolve to its YAML key via the real
-// name index, not a naive lower+underscore transform — otherwise flavor-named
+// name index, not a naive lower+underscore transform - otherwise flavor-named
 // weapons (commas, "of the ...") fail CanEquipWeaponByName and are
 // unequippable. Bug: Nyra (thief, has dagger) couldn't equip "Kage-kunai, the
 // Twin Shadows" because the transform yielded "kage-kunai,_the_twin_shadows".
@@ -446,7 +446,7 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 	}
 
 	// A dagger-skilled member who can wield the basic dagger must also wield the
-	// fancy-named twin blades — the equip gate now resolves by key, not by name shape.
+	// fancy-named twin blades - the equip gate now resolves by key, not by name shape.
 	var daggerUser *character.MMCharacter
 	for _, m := range cs.game.party.Members {
 		if m != nil && m.CanEquipWeaponByName("Magic Dagger") {
@@ -458,6 +458,6 @@ func TestFancyNamedWeapons_ResolveAndEquip(t *testing.T) {
 		t.Fatal("no dagger-skilled party member found (expected the thief)")
 	}
 	if !daggerUser.CanEquipWeaponByName("Kage-kunai, the Twin Shadows") {
-		t.Error("a dagger user must be able to equip Kage-kunai (fancy name → kage_kunai)")
+		t.Error("a dagger user must be able to equip Kage-kunai (fancy name -> kage_kunai)")
 	}
 }

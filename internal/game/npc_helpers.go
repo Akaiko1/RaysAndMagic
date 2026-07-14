@@ -38,7 +38,7 @@ func npcHasSkillTraining(npc *character.NPC) bool {
 	return npc != nil && npc.Type == "skill_trainer"
 }
 
-// npcHasChoiceDialog reports whether the NPC presents a choice prompt — either
+// npcHasChoiceDialog reports whether the NPC presents a choice prompt - either
 // an encounter (combat / quest pickup) or a pure dialogue with selectable
 // options. Both flow through the same encounter-style UI and input handler.
 func npcHasChoiceDialog(npc *character.NPC) bool {

@@ -88,7 +88,7 @@ func testCompleteGameInitialization(t *testing.T, cfg *config.Config) {
 		}
 	}
 
-	fmt.Printf("✓ Game initialized: Party(%d), World(%dx%d), Starting position: (%.0f, %.0f)\n",
+	fmt.Printf("OK Game initialized: Party(%d), World(%dx%d), Starting position: (%.0f, %.0f)\n",
 		len(party.Members), worldWidth, worldHeight, startX, startY)
 }
 
@@ -132,7 +132,7 @@ func testCharacterSwitchingAndActions(t *testing.T, cfg *config.Config) {
 		}
 	}
 
-	fmt.Println("✓ Character switching and capability verification passed")
+	fmt.Println("OK Character switching and capability verification passed")
 }
 
 func testMovementSimulation(cfg *config.Config) {
@@ -183,7 +183,7 @@ func testMovementSimulation(cfg *config.Config) {
 		}
 	}
 
-	fmt.Println("✓ Movement simulation completed")
+	fmt.Println("OK Movement simulation completed")
 }
 
 func testCombatSystemIntegration(cfg *config.Config) {
@@ -215,7 +215,7 @@ func testCombatSystemIntegration(cfg *config.Config) {
 				if member.HitPoints > member.MaxHitPoints {
 					member.HitPoints = member.MaxHitPoints
 				}
-				fmt.Printf("  ✓ Healed for %d HP (Cost: %d SP)\n", healAmount, healCost)
+				fmt.Printf("  OK Healed for %d HP (Cost: %d SP)\n", healAmount, healCost)
 			}
 		}
 
@@ -225,7 +225,7 @@ func testCombatSystemIntegration(cfg *config.Config) {
 			if member.SpellPoints >= fireballCost {
 				damage := 10 + member.Intellect/2
 				member.SpellPoints -= fireballCost
-				fmt.Printf("  ✓ Can cast fireball (Damage: %d, Cost: %d SP)\n", damage, fireballCost)
+				fmt.Printf("  OK Can cast fireball (Damage: %d, Cost: %d SP)\n", damage, fireballCost)
 			}
 		}
 
@@ -233,13 +233,13 @@ func testCombatSystemIntegration(cfg *config.Config) {
 		if hasSwordSkill(member) {
 			swordSkill := member.Skills[character.SkillSword]
 			damage := 8 + member.Might/3 + swordSkill.Level()
-			fmt.Printf("  ✓ Can perform sword attack (Damage: %d)\n", damage)
+			fmt.Printf("  OK Can perform sword attack (Damage: %d)\n", damage)
 		}
 
-		fmt.Printf("  HP: %d→%d, SP: %d→%d\n", originalHP, member.HitPoints, originalSP, member.SpellPoints)
+		fmt.Printf("  HP: %d->%d, SP: %d->%d\n", originalHP, member.HitPoints, originalSP, member.SpellPoints)
 	}
 
-	fmt.Println("✓ Combat system integration test passed")
+	fmt.Println("OK Combat system integration test passed")
 }
 
 func testMagicSystemIntegration(cfg *config.Config) {
@@ -278,19 +278,19 @@ func testMagicSystemIntegration(cfg *config.Config) {
 					switch school {
 					case character.MagicSchoolFire:
 						damage := def.SpellPointsCost*3 + member.Intellect/2
-						fmt.Printf("      → Cast! Damage: %d, SP: %d→%d\n", damage, originalSP, member.SpellPoints)
+						fmt.Printf("      -> Cast! Damage: %d, SP: %d->%d\n", damage, originalSP, member.SpellPoints)
 					case character.MagicSchoolBody:
 						healAmount := def.SpellPointsCost*5 + member.Personality/2
-						fmt.Printf("      → Cast! Heal: %d, SP: %d→%d\n", healAmount, originalSP, member.SpellPoints)
+						fmt.Printf("      -> Cast! Heal: %d, SP: %d->%d\n", healAmount, originalSP, member.SpellPoints)
 					default:
-						fmt.Printf("      → Cast! SP: %d→%d\n", originalSP, member.SpellPoints)
+						fmt.Printf("      -> Cast! SP: %d->%d\n", originalSP, member.SpellPoints)
 					}
 				}
 			}
 		}
 	}
 
-	fmt.Println("✓ Magic system integration test passed")
+	fmt.Println("OK Magic system integration test passed")
 }
 
 func testFullGameSessionSimulation(t *testing.T, cfg *config.Config) {
@@ -360,7 +360,7 @@ func testFullGameSessionSimulation(t *testing.T, cfg *config.Config) {
 	if hasFireMagic(sorcerer) && sorcerer.SpellPoints >= 3 {
 		damage := 10 + sorcerer.Intellect/2
 		sorcerer.SpellPoints -= 3
-		fmt.Printf("  Sorcerer fireball: %d damage (SP: %d→%d)\n",
+		fmt.Printf("  Sorcerer fireball: %d damage (SP: %d->%d)\n",
 			damage, sorcerer.SpellPoints+3, sorcerer.SpellPoints)
 	}
 
@@ -377,7 +377,7 @@ func testFullGameSessionSimulation(t *testing.T, cfg *config.Config) {
 		if cleric.HitPoints > cleric.MaxHitPoints {
 			cleric.HitPoints = cleric.MaxHitPoints
 		}
-		fmt.Printf("  Cleric heal: %d→%d HP (SP: %d→%d)\n",
+		fmt.Printf("  Cleric heal: %d->%d HP (SP: %d->%d)\n",
 			originalHP, cleric.HitPoints,
 			cleric.SpellPoints+2, cleric.SpellPoints)
 	}
@@ -389,7 +389,7 @@ func testFullGameSessionSimulation(t *testing.T, cfg *config.Config) {
 		fmt.Printf("  Update %d: Party regeneration cycle\n", i+1)
 	}
 
-	fmt.Println("\n✓ Full game session simulation completed successfully!")
+	fmt.Println("\nOK Full game session simulation completed successfully!")
 	fmt.Printf("Final party status:\n")
 	for i, member := range party.Members {
 		fmt.Printf("  [%d] %s: HP %d/%d, SP %d/%d\n",

@@ -8,7 +8,7 @@ import (
 )
 
 // Wall torches (map flag `wall_torches`): a flickering torch sits at every
-// inner wall corner — a walkable tile with two perpendicular blocking
+// inner wall corner - a walkable tile with two perpendicular blocking
 // neighbours. The flame is a small procedural particle cluster (same family as
 // the impassable aura / valve steam: deterministic auraHash phases, additive
 // glow, depth-tested), and each torch is a flickering point light.
@@ -68,7 +68,7 @@ func (r *Renderer) buildWallTorches() {
 	}
 }
 
-// wallTorchFlicker returns the torch's brightness modulation for this frame —
+// wallTorchFlicker returns the torch's brightness modulation for this frame -
 // a slow breathing wave plus per-torch phase so neighbours don't pulse in sync.
 func wallTorchFlicker(seed int, frameCount int64) float64 {
 	phase := auraHash(seed, 0, 11, 0) * 2 * math.Pi
@@ -110,7 +110,7 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 		rise := halfWall * 0.22 * ph
 		sway := math.Sin((ph+auraHash(tp.seed, k, 3, 0))*2*math.Pi) * size * 0.5
 		alpha := flick * (1 - ph) * 0.9
-		col := mixColor([3]int{255, 90, 10}, [3]int{255, 220, 120}, 1-ph) // hot core → ember tip
+		col := mixColor([3]int{255, 90, 10}, [3]int{255, 220, 120}, 1-ph) // hot core -> ember tip
 		r.drawGlowRect(screen, float64(screenX)+sway, baseY-rise, size*(1.1-0.5*ph), col, alpha, additiveGlowBlend)
 	}
 	// Bright heart of the flame.
@@ -118,13 +118,13 @@ func (r *Renderer) drawWallTorchFlame(screen *ebiten.Image, tp wallTorchPoint) {
 
 	// Crackling sparks: a few tiny embers that FLY out smoothly and die.
 	// Each spark's flight is one phase cycle; the cycle index seeds a fresh
-	// direction/length every flight, so trajectories never repeat in step —
+	// direction/length every flight, so trajectories never repeat in step -
 	// and the per-torch seed keeps neighbouring torches out of sync.
 	for k := 0; k < 3; k++ {
 		period := 18.0 + 10.0*auraHash(tp.seed, k, 8, 0)
 		cyc := float64(fc)/period + auraHash(tp.seed, k, 9, 0)
 		ph := math.Mod(cyc, 1.0)
-		flight := int(cyc) // changes once per flight → new random trajectory
+		flight := int(cyc) // changes once per flight -> new random trajectory
 		if auraHash(tp.seed, k, flight, 1) < 0.45 {
 			continue // this spark sits this cycle out
 		}

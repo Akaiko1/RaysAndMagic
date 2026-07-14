@@ -57,7 +57,7 @@ func TestQuestTileChanges_ShippedDataValid(t *testing.T) {
 }
 
 // Taking the wolf cull AFTER the wolves are already dead credits it on the
-// spot — the journal must never show "0/21" on a finished job.
+// spot - the journal must never show "0/21" on a finished job.
 func TestWolfCull_TakenAfterWipeCompletesImmediately(t *testing.T) {
 	g, _ := loadRealQuestTileData(t) // no wolves placed: the map is already "cleared"
 
@@ -171,7 +171,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 		t.Fatalf("quest bridge tile key %q missing", tileChanges[0].Tile)
 	}
 
-	// Wolf alive → no completion, no bridge.
+	// Wolf alive -> no completion, no bridge.
 	g.completeExterminationQuests("wolf")
 	g.applyCompletedQuestTiles()
 	if g.questManager.GetQuest("forest_wolf_cull").Completed {
@@ -181,7 +181,7 @@ func TestWolfCull_ExterminationLaysBridge(t *testing.T) {
 		t.Fatal("bridge laid while a wolf lives")
 	}
 
-	// Last wolf dies → quest completes and the bridge appears.
+	// Last wolf dies -> quest completes and the bridge appears.
 	wolf.HitPoints = 0
 	g.completeExterminationQuests("wolf")
 	g.applyCompletedQuestTiles()

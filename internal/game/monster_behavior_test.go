@@ -22,30 +22,6 @@ func absI(n int) int {
 	return n
 }
 
-// tbBehaviorGame builds a turn-based game on an empty w×h world with the combat
-// system wired, and returns it plus a GameLoop and the tile size.
-func tbBehaviorGame(t *testing.T, w, h int) (*MMGame, *GameLoop, float64) {
-	t.Helper()
-	cfg := loadTestConfig(t)
-	worldTest := newTestWorldSized(cfg, w, h)
-	game := newTestGame(cfg, worldTest)
-	game.turnBasedMode = true
-	game.combat = NewCombatSystem(game)
-	// Zero party Luck so perfect-dodge (luck/5 % RNG) never fires — these tests
-	// assert that a melee/pounce hit lands, which must be deterministic.
-	for _, c := range game.party.Members {
-		c.Luck = 0
-	}
-	gl := &GameLoop{game: game}
-	return game, gl, float64(cfg.GetTileSize())
-}
-
-func placePlayerAtTile(game *MMGame, tx, ty int, ts float64) {
-	game.camera.X = float64(tx)*ts + ts/2
-	game.camera.Y = float64(ty)*ts + ts/2
-	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
-}
-
 func spawnMonsterAtTile(game *MMGame, key string, tx, ty int, ts float64) *monster.Monster3D {
 	m := monster.NewMonster3DFromConfig(float64(tx)*ts+ts/2, float64(ty)*ts+ts/2, key, game.config)
 	m.IsEngagingPlayer = true // ensure it participates regardless of vision
@@ -53,12 +29,6 @@ func spawnMonsterAtTile(game *MMGame, key string, tx, ty int, ts float64) *monst
 	game.world.Monsters = []*monster.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	return m
-}
-
-func runOneMonsterTurn(game *MMGame, gl *GameLoop) {
-	game.currentTurn = 1
-	game.monsterTurnResolved = false
-	gl.updateMonstersTurnBased()
 }
 
 func partyHPSum(game *MMGame) int {
@@ -258,7 +228,7 @@ func TestTurnBased_CentersOnTileEachTurn(t *testing.T) {
 // Ranged monsters fire only when on the player's row or column; from a diagonal
 // tile they reposition instead of shooting.
 func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
-	// Diagonal → must NOT shoot.
+	// Diagonal -> must NOT shoot.
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
 	diag := spawnMonsterAtTile(game, "elf_archer", 12, 12, ts)
@@ -274,7 +244,7 @@ func TestTurnBased_RangedAttacksOnlyWhenAligned(t *testing.T) {
 		t.Fatalf("diagonal ranged monster should reposition toward alignment, but stayed put")
 	}
 
-	// Aligned and in range → must shoot.
+	// Aligned and in range -> must shoot.
 	game2, gl2, ts2 := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game2, 10, 10, ts2)
 	spawnMonsterAtTile(game2, "elf_archer", 13, 10, ts2) // same row, 3 tiles (range 5)
@@ -330,8 +300,8 @@ func TestTurnBased_RangedMonsterFindsAlternateFiringLaneWhenBlockedByArcher(t *t
 	}
 }
 
-// A pouncing monster (puma) leaps onto an adjacent tile — never onto the
-// player's tile — and strikes. Turn-based path.
+// A pouncing monster (puma) leaps onto an adjacent tile - never onto the
+// player's tile - and strikes. Turn-based path.
 func TestTurnBased_PounceLandsAdjacentAndStrikes(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
 	const ptx, pty = 10, 10
@@ -466,7 +436,7 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	if got := game.combatBuffResistPct(); got != 10 {
 		t.Fatalf("expected 10%% resist active, got %d", got)
 	}
-	// Day of the Gods boosts every school's resist → 100 fire → 90 at Novice.
+	// Day of the Gods boosts every school's resist -> 100 fire -> 90 at Novice.
 	m := game.party.Members[0]
 	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 90 {
 		t.Errorf("100 incoming with 10%% resist should be 90, got %d", got)
@@ -474,7 +444,7 @@ func TestDayOfTheGods_ResistBuff(t *testing.T) {
 	def, _ := spells.GetSpellDefinitionByID("day_of_the_gods")
 	buff, ok := game.combatBuffByID("day_of_the_gods")
 	if want := def.Duration * game.config.GetTPS(); !ok || buff.Frames != want {
-		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds × TPS)", buff.Frames, ok, want, def.Duration)
+		t.Errorf("duration frames: got %d (ok=%v), want %d (%ds x TPS)", buff.Frames, ok, want, def.Duration)
 	}
 }
 
@@ -504,7 +474,7 @@ func TestPartyBuffs_StackOnIncoming(t *testing.T) {
 	game.combat.CastEquippedSpell()
 	equipSpellAndPrepareCaster(t, game.combat, "hour_of_power", 100, 30)
 	game.combat.CastEquippedSpell()
-	// 100 fire → 10% resist → 90 → flat -1 → 89
+	// 100 fire -> 10% resist -> 90 -> flat -1 -> 89
 	m := game.party.Members[0]
 	if got := game.combat.mitigateCharacterDamage(100, "fire", m, false); got != 89 {
 		t.Errorf("100 with 10%% resist then -1 should be 89, got %d", got)
@@ -579,7 +549,7 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 	gobHP0 := gob.HitPoints
 	partyHP0 := partyHPSum(game)
 
-	game.refreshBoundUndeadCache() // mirrors updateExploration: sets AIFoe before the turn
+	game.refreshBoundAllyCache() // mirrors updateExploration: sets AIFoe before the turn
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -591,7 +561,7 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 }
 
 // alien_dark_bolt is a monster-only projectile (the alien's attack) and must
-// never appear in a player-learnable school list — e.g. the Lich Dark picks.
+// never appear in a player-learnable school list - e.g. the Lich Dark picks.
 func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
 	loadTestConfig(t)
 	dark, err := spells.GetSpellIDsBySchool("dark")
@@ -621,7 +591,7 @@ func TestSpells_AlienDarkBoltNotLearnable(t *testing.T) {
 func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
-	placePlayerAtTile(game, 5, 5, ts) // far — the two monsters only see each other
+	placePlayerAtTile(game, 5, 5, ts) // far - the two monsters only see each other
 	cfg := game.config
 	skel := monster.NewMonster3DFromConfig(float64(20)*ts+ts/2, float64(20)*ts+ts/2, "skeleton", cfg)
 	gob := monster.NewMonster3DFromConfig(float64(21)*ts+ts/2, float64(21)*ts+ts/2, "goblin", cfg) // diagonal neighbour
@@ -632,7 +602,7 @@ func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 
 	skelHP0, gobHP0 := skel.HitPoints, gob.HitPoints
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	game.combat.HandleMonsterInteractions()
 
 	if gob.HitPoints >= gobHP0 {
@@ -667,7 +637,7 @@ func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
 
 	game.combat.applyBindUndead(skel, 300, "Bind Undead") // bound undead
 	game.combat.applyPacify(paci, 120, "Charm")           // pacified living
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 
 	if tx, ty := game.combat.monsterAITargetPoint(paci); tx != paci.X || ty != paci.Y {
 		t.Errorf("pacified charm should hold position (%.0f,%.0f), got (%.0f,%.0f)", paci.X, paci.Y, tx, ty)
@@ -686,7 +656,7 @@ func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
 	}
 }
 
-// A normal mob retaliates against a bound undead in its midst — they trade blows,
+// A normal mob retaliates against a bound undead in its midst - they trade blows,
 // and the party is never touched.
 func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	game, gl, ts := tbBehaviorGame(t, 40, 40)
@@ -703,7 +673,7 @@ func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 	skelHP0, gobHP0, partyHP0 := skel.HitPoints, gob.HitPoints, partyHPSum(game)
 
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -717,13 +687,13 @@ func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	}
 }
 
-// monsterStrikeMonster rewards the party only when an ENEMY falls — a bound ally
-// cut down by a mob yields nothing.
-func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
+// monsterStrikeMonster rewards the party whenever an ENEMY or a bound UNDEAD (a
+// former enemy) falls, but a fallen CARD ALLY (a pure summon) yields nothing.
+func TestMonsterStrike_RewardsRules(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	cfg := game.config
 
-	// Bound undead slays an enemy → party gains XP.
+	// Bound undead slays an enemy -> party gains XP.
 	skel := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	enemy := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
 	enemy.HitPoints = 1
@@ -739,7 +709,7 @@ func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
 		t.Errorf("party should gain XP when a bound ally slays an enemy")
 	}
 
-	// A mob cuts down the bound undead → NO party XP (an ally died).
+	// A mob cuts down a bound UNDEAD (a former enemy) -> party STILL gains its XP.
 	skel2 := monster.NewMonster3DFromConfig(0, 0, "skeleton", cfg)
 	skel2.HitPoints = 1
 	mob := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
@@ -751,8 +721,24 @@ func TestMonsterStrike_RewardsOnlyForSlainEnemy(t *testing.T) {
 	if skel2.IsAlive() {
 		t.Fatalf("1-HP bound undead should have died")
 	}
-	if game.party.Members[0].Experience != xp1 {
-		t.Errorf("party must NOT gain XP when a bound ally is slain (was %d, now %d)", xp1, game.party.Members[0].Experience)
+	if game.party.Members[0].Experience <= xp1 {
+		t.Errorf("party should gain a slain bound undead's XP (was %d, now %d)", xp1, game.party.Members[0].Experience)
+	}
+
+	// A mob cuts down a CARD ALLY (a pure summon) -> NO party XP.
+	huntress := monster.NewMonster3DFromConfig(0, 0, "masked_huntress", cfg)
+	huntress.HitPoints = 1
+	mob2 := monster.NewMonster3DFromConfig(0, 0, "goblin", cfg)
+	game.world.Monsters = []*monster.Monster3D{huntress, mob2}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	markCardAlly(huntress)
+	xp2 := game.party.Members[0].Experience
+	game.combat.monsterStrikeMonster(mob2, huntress)
+	if huntress.IsAlive() {
+		t.Fatalf("1-HP card ally should have died")
+	}
+	if game.party.Members[0].Experience != xp2 {
+		t.Errorf("party must NOT gain XP when a card ally is slain (was %d, now %d)", xp2, game.party.Members[0].Experience)
 	}
 }
 
@@ -774,7 +760,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 	projCount := func() int { return len(game.magicProjectiles) + len(game.arrows) }
 	n0, enemyHP0, partyHP0 := projCount(), enemy.HitPoints, partyHPSum(game)
 
-	game.refreshBoundUndeadCache() // sets lich.AIFoe (= the enemy)
+	game.refreshBoundAllyCache() // sets lich.AIFoe (= the enemy)
 	if !game.combat.boundAttackNearest(lich) {
 		t.Fatalf("bound lich should have acted against the enemy")
 	}
@@ -798,10 +784,10 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 	}
 }
 
-// Crossfire symmetry: a ranged mob looses a visible bolt at the bound undead
-// (owner-tagged so it hits only the undead, never the party); the bolt resolves
-// as monster-vs-monster and grants NO party XP when a bound ally falls — but a
-// bound undead's bolt slaying an enemy DOES reward the party.
+// Crossfire symmetry: a ranged mob looses a visible bolt at either kind of bound
+// ally (owner-tagged so it never hits the party). A slain bound undead was a
+// former enemy, so it gives its normal XP and loot; a card ally is a pure summon
+// and gives neither. A bound undead's bolt slaying an enemy also rewards party.
 func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	placePlayerAtTile(game, 10, 10, ts)
@@ -809,7 +795,8 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 
 	bandit := monster.NewMonster3DFromConfig(float64(12)*ts+ts/2, float64(10)*ts+ts/2, "bandit", cfg)
 	undead := monster.NewMonster3DFromConfig(float64(13)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
-	undead.MaxHitPoints, undead.HitPoints = 200, 200
+	undead.MaxHitPoints, undead.HitPoints = 200, 1
+	undead.Experience, undead.Gold = 40, 17
 	game.world.Monsters = []*monster.Monster3D{bandit, undead}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(undead, 300, "Bind Undead")
@@ -826,14 +813,34 @@ func TestCrossfire_MonsterProjectileVsMonster(t *testing.T) {
 		t.Errorf("mob bolt should be owner MonsterAtBound, got %v", bolt.Owner)
 	}
 
-	// Resolve the bolt on the bound undead → it takes damage, party gains NO XP.
-	xp0, undeadHP0 := game.party.Members[0].Experience, undead.HitPoints
+	// Resolve the bolt on the bound undead -> it dies and, as a former enemy,
+	// gives its normal XP and gold bag.
+	xp0, bags0 := game.party.Members[0].Experience, len(game.groundContainers)
 	game.combat.resolveMonsterProjectileVsMonster(bolt, "arrow", undead, bolt.ID)
-	if undead.HitPoints >= undeadHP0 {
-		t.Errorf("bound undead should take bolt damage (%d -> %d)", undeadHP0, undead.HitPoints)
+	if undead.IsAlive() {
+		t.Error("bound undead should die to the lethal bolt")
 	}
-	if game.party.Members[0].Experience != xp0 {
-		t.Errorf("party must NOT gain XP for a bolt hitting a bound ally")
+	if game.party.Members[0].Experience <= xp0 || len(game.groundContainers) != bags0+1 {
+		t.Errorf("a slain bound undead must give XP and loot (xp %d -> %d, bags %d -> %d)", xp0, game.party.Members[0].Experience, bags0, len(game.groundContainers))
+	}
+
+	// The identical projectile path must not reward a card ally.
+	ally := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "masked_huntress", cfg)
+	ally.HitPoints, ally.Experience, ally.Gold = 1, 40, 17
+	markCardAlly(ally)
+	game.world.Monsters = []*monster.Monster3D{bandit, ally}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	if !game.combat.spawnMonsterRangedAttackAtMonster(bandit, ally, ProjectileOwnerMonsterAtBound) {
+		t.Fatal("mob should fire at a card ally")
+	}
+	cardBolt := &game.arrows[len(game.arrows)-1]
+	xpCard, bagsCard := game.party.Members[0].Experience, len(game.groundContainers)
+	game.combat.resolveMonsterProjectileVsMonster(cardBolt, "arrow", ally, cardBolt.ID)
+	if ally.IsAlive() {
+		t.Error("card ally should die to the lethal bolt")
+	}
+	if game.party.Members[0].Experience != xpCard || len(game.groundContainers) != bagsCard {
+		t.Errorf("a slain card ally must give no XP or loot (xp %d -> %d, bags %d -> %d)", xpCard, game.party.Members[0].Experience, bagsCard, len(game.groundContainers))
 	}
 
 	// A bound undead's bolt that slays an enemy DOES reward the party.
@@ -871,20 +878,20 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{skel, enemy}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
-	game.refreshBoundUndeadCache()
+	game.refreshBoundAllyCache()
 
-	// Out of melee reach (3 tiles) → must NOT strike yet…
+	// Out of melee reach (3 tiles) -> must NOT strike yet...
 	if game.combat.boundAttackNearest(skel) {
 		t.Errorf("bound melee undead should not strike from 3 tiles away")
 	}
-	// …but it should be seeking that enemy (its pursuit target is the enemy).
+	// ...but it should be seeking that enemy (its pursuit target is the enemy).
 	if tx, ty := game.combat.monsterAITargetPoint(skel); tx != enemy.X || ty != enemy.Y {
 		t.Errorf("bound undead should target the enemy to hunt it, got (%.0f,%.0f)", tx, ty)
 	}
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for turn := 0; turn < 6; turn++ {
-		game.refreshBoundUndeadCache()
+		game.refreshBoundAllyCache()
 		runOneMonsterTurn(game, gl)
 	}
 	if Distance(skel.X, skel.Y, enemy.X, enemy.Y) >= startDist {
@@ -900,7 +907,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 	game, _, ts := tbBehaviorGame(t, 40, 40)
 	game.turnBasedMode = false
-	placePlayerAtTile(game, 5, 5, ts) // far away — the bound undead, not the player, drives this
+	placePlayerAtTile(game, 5, 5, ts) // far away - the bound undead, not the player, drives this
 	cfg := game.config
 	skel := monster.NewMonster3DFromConfig(float64(10)*ts+ts/2, float64(10)*ts+ts/2, "skeleton", cfg)
 	enemy := monster.NewMonster3DFromConfig(float64(14)*ts+ts/2, float64(10)*ts+ts/2, "goblin", cfg) // 4 tiles east, outside skel's alert radius
@@ -911,8 +918,8 @@ func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 	game.combat.applyBindUndead(skel, 999, "Bind Undead")
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
-	for f := 0; f < 1500; f++ { // ~12s at 120 TPS — plenty to close 3 tiles and strike
-		game.refreshBoundUndeadCache()
+	for f := 0; f < 1500; f++ { // ~12s at 120 TPS - plenty to close 3 tiles and strike
+		game.refreshBoundAllyCache()
 		// Fresh snapshot + wrapper each tick, mirroring the real two-phase RT
 		// tick (a snapshot taken once at the top of the loop would go stale).
 		mw := CreateMonsterWrapper(skel, game.collisionSystem, game.collisionSystem.Snapshot(), game)
@@ -948,7 +955,7 @@ func TestBindUndead_MapLeaveGrantsXPNoGold(t *testing.T) {
 	}
 }
 
-// Resurrect restores a fallen ally — even an eradicated one — to full HP.
+// Resurrect restores a fallen ally - even an eradicated one - to full HP.
 func TestResurrect_RestoresFallenAlly(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	fallen := game.party.Members[1]
@@ -975,8 +982,8 @@ func TestResurrect_RestoresFallenAlly(t *testing.T) {
 }
 
 // Magic Ring (intellect_scaling_divisor 6, personality_scaling_divisor 8) boosts
-// the wearer's effective Intellect and Personality — confirming the scaling-
-// divisor accessory chain (YAML → Attributes → calculateEquipmentBonuses) works.
+// the wearer's effective Intellect and Personality - confirming the scaling-
+// divisor accessory chain (YAML -> Attributes -> calculateEquipmentBonuses) works.
 func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 	c := game.party.Members[0]
@@ -1003,7 +1010,7 @@ func TestMagicRing_BoostsEffectiveStats(t *testing.T) {
 
 // Status-icon resolution: a legacy token maps to its dedicated status_* sprite;
 // an unknown token (no status_ art, no sprite manager in tests) degrades to a
-// text fallback rather than crashing. (The real status_<token> → icon_spell_<token>
+// text fallback rather than crashing. (The real status_<token> -> icon_spell_<token>
 // preference is exercised at runtime where sprites/CWD are available.)
 func TestStatusIconResolver_LegacyAndFallback(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
@@ -1069,7 +1076,7 @@ func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
 	}
 	game.spellInputCooldown = 50
 
-	game.ToggleTurnBasedMode() // TB → RT
+	game.ToggleTurnBasedMode() // TB -> RT
 
 	if game.turnBasedMode {
 		t.Fatalf("expected real-time mode after the toggle")

@@ -13,7 +13,7 @@ import (
 //     dragons (name "Dragon"),
 //   - the four desert statues summon the ELITE "Elder Dragon"s (no biome/letter,
 //     so they never spawn wild),
-//   - and the dragon_slayer win quest credits ONLY a flagged Elder Dragon —
+//   - and the dragon_slayer win quest credits ONLY a flagged Elder Dragon -
 //     never an ordinary dragon, never an unflagged one.
 func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -102,7 +102,7 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 		m.EncounterRewards = &monsterPkg.EncounterRewards{QuestID: "dragon_slayer"}
 	}
 
-	// An ordinary dragon must NEVER count — even if (somehow) flagged.
+	// An ordinary dragon must NEVER count - even if (somehow) flagged.
 	base := monsterPkg.NewMonster3DFromConfig(0, 0, "dragon", cs.game.config)
 	flag(base)
 	cs.updateQuestProgress(base)
@@ -121,5 +121,33 @@ func TestDragonRoster_BaseWildElitesStatueQuestGating(t *testing.T) {
 	cs.updateQuestProgress(summoned)
 	if prog() != 1 {
 		t.Errorf("flagged Elder Dragon must credit dragon_slayer, got %d", prog())
+	}
+}
+
+func TestDragonSlayerQuestAwardsArenaPoints(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	qc, err := quests.LoadQuestConfig("../../assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	qm := quests.NewQuestManager(qc)
+	qm.InitializeStartingQuests()
+	cs.game.questManager = qm
+
+	quest := qm.GetQuest("dragon_slayer")
+	if quest == nil {
+		t.Fatal("dragon_slayer quest missing")
+	}
+	if quest.Definition.Rewards.Gold != 0 || quest.Definition.Rewards.Experience != 0 || quest.Definition.Rewards.ArenaPoints != 5000 {
+		t.Fatalf("dragon slayer reward = %+v, want 0 gold, 0 experience, and 5000 arena points", quest.Definition.Rewards)
+	}
+	qm.MarkCompleted("dragon_slayer")
+
+	before := cs.game.party.ArenaPoints
+	if !cs.game.claimQuestReward("dragon_slayer") {
+		t.Fatal("claim dragon slayer reward")
+	}
+	if got := cs.game.party.ArenaPoints - before; got != 5000 {
+		t.Fatalf("arena points awarded = %d, want 5000", got)
 	}
 }

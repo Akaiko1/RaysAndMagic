@@ -7,7 +7,7 @@ import (
 )
 
 // Sealed-boss aura: a ring of rising grey "smoke" around a dormant boss, telling
-// the player it's sealed — inert and invulnerable — until its quest unseals it.
+// the player it's sealed - inert and invulnerable - until its quest unseals it.
 // Same depth-tested rising-glow plumbing as the impassable-tile aura
 // (emitBubbleColumn), just sampled on a ring at the boss's feet instead of along
 // tile edges, and in a cool spectral grey rather than the tile's own colour.
@@ -25,7 +25,7 @@ var wardAuraColor = [3]int{214, 168, 72}    // amber ritual glow (idol-warded bo
 
 // drawSealedBossAura wreathes invulnerable bosses in rising "smoke": a dormant
 // boss in cool grey (sealed until its quest), and an idol-warded boss plus each
-// of its live idols in amber — so the protective link reads at a glance and the
+// of its live idols in amber - so the protective link reads at a glance and the
 // glow clears the instant the idols fall. Drawn after walls/sprites so the wall
 // depth buffer occludes it correctly.
 func (r *Renderer) drawSealedBossAura(screen *ebiten.Image) {

@@ -47,7 +47,8 @@ func TestCloseValve_AdvancesOnceAndSticks(t *testing.T) {
 	g.questManager.ActivateQuest(qid)
 
 	valve := &character.NPC{
-		Name: "Sluice Valve I",
+		Name:           "Sluice Valve I",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting:       "A rusty valve.",
 			VisitedMessage: "The valve is shut.",
@@ -93,7 +94,7 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 			gtb.MaxHitPoints, gtb.IgnoresArmor, gtb.InfernoChance, gtb.TeleportAtHP, gtb.PassiveUntilQuest)
 	}
 
-	// Quest not taken → evasive: never chases (target = self), updateBoss handles
+	// Quest not taken -> evasive: never chases (target = self), updateBoss handles
 	// it (no normal attack).
 	if !cs.bossEvasive(gtb) {
 		t.Errorf("GTB should be evasive before the valve quest is done")
@@ -105,7 +106,7 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 		t.Errorf("evasive GTB should be fully handled by updateBoss (no normal attack)")
 	}
 
-	// Complete the valve quest → aggressive: now chases the party.
+	// Complete the valve quest -> aggressive: now chases the party.
 	g.questManager.ActivateQuest("culverts_valves")
 	for i := 0; i < 7; i++ {
 		g.questManager.OnInteract("valve")
@@ -117,9 +118,9 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 		t.Errorf("aggressive GTB should chase the party")
 	}
 
-	// refreshBoundUndeadCache flags the now-aggressive boss for relentless pursuit;
+	// refreshBoundAllyCache flags the now-aggressive boss for relentless pursuit;
 	// an evasive boss must NOT carry that flag (it only holds + blinks).
-	g.refreshBoundUndeadCache()
+	g.refreshBoundAllyCache()
 	if !gtb.BossAggro {
 		t.Errorf("aggressive GTB should be flagged BossAggro (relentless chase)")
 	}
@@ -145,7 +146,7 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 		t.Fatalf("GTB should be evasive before the valve quest is done")
 	}
 
-	// First tick (far, undamaged) just establishes the HP baseline — it must NOT blink.
+	// First tick (far, undamaged) just establishes the HP baseline - it must NOT blink.
 	startX, startY := gtb.X, gtb.Y
 	if !cs.updateBoss(gtb, true, false) {
 		t.Fatalf("evasive GTB action should be fully handled by updateBoss")
@@ -155,7 +156,7 @@ func TestGoldenThiefBug_EvasiveBlinksOnDamage(t *testing.T) {
 	}
 
 	// Now it takes a hit. The damage debt latches, so the next tick blinks it away
-	// even though the party is far — and even though no hit-flash timer is set.
+	// even though the party is far - and even though no hit-flash timer is set.
 	gtb.HitPoints -= 100
 	preX, preY := gtb.X, gtb.Y
 	cs.updateBoss(gtb, true, false)
@@ -196,7 +197,7 @@ func TestBlinkLandsCenteredAndResetsPath(t *testing.T) {
 	g.world.Monsters = append(g.world.Monsters, gtb)
 	g.collisionSystem.RegisterEntity(collision.NewEntity(gtb.ID, gtb.X, gtb.Y, 16, 16, collision.CollisionTypeMonster, false))
 
-	// Stale path from before the blink — must be cleared.
+	// Stale path from before the blink - must be cleared.
 	gtb.PathTiles = []monster.TileCoord{{X: 1, Y: 1}, {X: 2, Y: 2}}
 	gtb.PathIndex = 1
 

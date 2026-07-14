@@ -42,7 +42,7 @@ type monsterFramePosition struct {
 }
 
 // NewGameLoop creates a new game loop manager. Combat is shared via
-// game.combat (a stateless back-pointer holder) — no second instance.
+// game.combat (a stateless back-pointer holder) - no second instance.
 func NewGameLoop(game *MMGame) *GameLoop {
 	return &GameLoop{
 		game:         game,
@@ -97,24 +97,27 @@ func (gl *GameLoop) updateExploration() {
 	gl.game.ensureSelectedCharCanAct()
 
 	// Resolve the Space-to-interact focus target before input reads it. Uses
-	// the camera as rendered last frame — exactly what the player is seeing.
+	// the camera as rendered last frame - exactly what the player is seeing.
 	gl.game.updateFocusedNPC()
 
 	// Handle all input first (menus/panels may pause gameplay)
 	gl.inputHandler.HandleInput()
 
-	// Ease the rendered view angle toward the (snapped) camera angle — smooth TB
+	// Ease the rendered view angle toward the (snapped) camera angle - smooth TB
 	// turns. No-op in real time. Cheap; fine to run before the pause check.
 	gl.game.advanceViewTurn()
 
 	// Pause gameplay updates while menus/panels are open
-	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.currentLevelUpChoice() != nil {
+	if gl.game.mainMenuOpen || gl.game.combatLogOpen || gl.game.statPopupOpen || gl.game.revivalPickerOpen || gl.game.healPickerOpen || gl.game.townPortalPickerOpen || gl.game.currentLevelUpChoice() != nil {
 		return
 	}
 
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 	gl.game.combat.knockOutLethalDoTVictims()
+
+	// Day/night clock: runs in both RT and TB, pauses with menus (above).
+	gl.game.updateDayNight()
 
 	// Update damage blink timers
 	gl.game.UpdateDamageBlinkTimers()
@@ -127,14 +130,19 @@ func (gl *GameLoop) updateExploration() {
 	monster.PartyTraits["lich"] = gl.game.party.HasLich()
 
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
-	// retaliation) stays cheap when none exist — the overwhelmingly common case.
-	gl.game.refreshBoundUndeadCache()
+	// retaliation) stays cheap when none exist - the overwhelmingly common case.
+	gl.game.refreshBoundAllyCache()
 
+	// Reconcile door state (closed iff a living champion is on this map) and the
+	// solid collision entities behind it, before either monster update runs.
+	gl.game.refreshDoors()
+
+	// The facing pass must see only the movement pass's displacement.
 	monsterFrameStart := gl.captureMonsterFramePositions()
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
-		// Evasive bosses react in real time even in TB — see tickEvasiveBossesTB.
+		// Evasive bosses react in real time even in TB - see tickEvasiveBossesTB.
 		gl.game.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()
 	} else {
@@ -144,11 +152,13 @@ func (gl *GameLoop) updateExploration() {
 		})
 	}
 
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+
 	// Gently push overlapping monsters apart. Overlap is reachable two ways:
 	// non-engaged monsters deliberately pass through each other (pathfinding
 	// deadlock prevention), and the parallel update can move two monsters into
-	// the same spot in one tick. Once engaged while overlapped they deadlock —
-	// each vetoes the other's every move — so resolve it here instead.
+	// the same spot in one tick. Once engaged while overlapped they deadlock -
+	// each vetoes the other's every move - so resolve it here instead.
 	gl.separateOverlappingMonsters()
 
 	// Banding: stack calm same-key flockers onto their leader (or scatter a band
@@ -164,13 +174,11 @@ func (gl *GameLoop) updateExploration() {
 		gl.game.combat.HandleMonsterInteractions()
 	}
 
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
-
 	// Catch autonomous kills the normal combat paths never saw: RT poison/ignite
 	// ticks inside the parallel Monster3D.Update (monster_ai.go TickPoison) and TB
 	// TickPoisonTurn can zero a monster's HP with no CombatSystem in scope to run
 	// finishMonsterKill itself. Anything left in world.Monsters with IsAlive()
-	// false and not already queued in deadMonsterIDs died this way — finish it
+	// false and not already queued in deadMonsterIDs died this way - finish it
 	// here so XP/loot/quest-kill-count/band-scatter/collision cleanup still run
 	// (steam zones and traps already self-finish via finishIndirectKill).
 	gl.finalizeIndirectKills()
@@ -200,6 +208,13 @@ func (gl *GameLoop) updateExploration() {
 	gl.updatePerformanceMetrics()
 }
 
+// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
+// each monster faces its accumulated walk displacement. The capture->face window
+// spans only the movement pass, so separation shoves, band snaps and combat
+// blinks can never flip a walker. Accumulation (FaceAcc) lets sub-threshold
+// walkers still turn while back-and-forth jitter cancels out; standing still
+// drops the momentum. Movement helpers don't set m.Direction themselves - only
+// no-move state transitions (idle/alert/flee) set an intent facing.
 func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
 	if gl.game == nil || gl.game.world == nil || len(gl.game.world.Monsters) == 0 {
 		return nil
@@ -209,24 +224,15 @@ func (gl *GameLoop) captureMonsterFramePositions() []monsterFramePosition {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		positions = append(positions, monsterFramePosition{
-			monster: m,
-			x:       m.X,
-			y:       m.Y,
-		})
+		positions = append(positions, monsterFramePosition{monster: m, x: m.X, y: m.Y})
 	}
 	gl.monsterFrameBuf = positions
 	return positions
 }
 
-// faceMonstersAlongFrameMotion is the single source of truth for movement-facing:
-// it points each monster along its net displacement this tick, derived from actual
-// motion (so axis-slides and band snaps read correctly). Movement helpers therefore
-// don't set m.Direction themselves — only no-move state transitions (idle/alert/flee)
-// still set an intent facing, since there's no motion here to derive it from.
 func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
-	const minMoveForFacing = 0.25
-	minMoveSq := minMoveForFacing * minMoveForFacing
+	const minMoveForFacing = 1.5
+	const minMoveSq = minMoveForFacing * minMoveForFacing
 	for _, pos := range start {
 		m := pos.monster
 		if m == nil || !m.IsAlive() {
@@ -234,10 +240,17 @@ func (gl *GameLoop) faceMonstersAlongFrameMotion(start []monsterFramePosition) {
 		}
 		dx := m.X - pos.x
 		dy := m.Y - pos.y
-		if dx*dx+dy*dy < minMoveSq {
+		if dx == 0 && dy == 0 {
+			m.FaceAccX, m.FaceAccY = 0, 0
 			continue
 		}
-		m.Direction = math.Atan2(dy, dx)
+		m.FaceAccX += dx
+		m.FaceAccY += dy
+		if m.FaceAccX*m.FaceAccX+m.FaceAccY*m.FaceAccY < minMoveSq {
+			continue
+		}
+		m.Direction = math.Atan2(m.FaceAccY, m.FaceAccX)
+		m.FaceAccX, m.FaceAccY = 0, 0
 	}
 }
 
@@ -262,7 +275,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 	}
 
 	// Render the 3D scene, then composite to the screen. During a turn-based turn
-	// the scene goes through a horizontal motion-blur shader (camera blur — the
+	// the scene goes through a horizontal motion-blur shader (camera blur - the
 	// view pans sideways) whose length tracks the turn speed; otherwise it's a
 	// straight blit. Either way the UI is drawn last, directly to the screen, so it
 	// never blurs.
@@ -280,7 +293,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 				op.Uniforms = map[string]any{"BlurPx": float32(blurPx)}
 				screen.DrawRectShader(b.Dx(), b.Dy(), shader, op)
 			} else {
-				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile — no blur
+				gl.renderer.RenderFirstPersonView(screen) // shader failed to compile - no blur
 			}
 		} else {
 			gl.renderer.RenderFirstPersonView(screen)
@@ -311,7 +324,7 @@ func (gl *GameLoop) Draw(screen *ebiten.Image) {
 		gl.renderer.RenderFirstPersonView(screen)
 	}
 
-	// Draw UI elements (straight to the screen — never blurred)
+	// Draw UI elements (straight to the screen - never blurred)
 	gl.ui.Draw(screen)
 }
 
@@ -345,7 +358,7 @@ func (gl *GameLoop) updateProjectilesParallel() {
 	// Convert all projectiles to wrappers and update in parallel
 	allProjectiles := gl.game.ConvertProjectilesToWrappers()
 	// Projectiles fly over floor-level obstacles (chasms, water) and only stop at
-	// solid walls — unlike entity movement, which uses CanMoveTo.
+	// solid walls - unlike entity movement, which uses CanMoveTo.
 	gl.game.threading.EntityUpdater.UpdateProjectilesParallel(allProjectiles, gl.game.world.CanProjectileMoveTo)
 
 	// Remove inactive projectiles
@@ -365,7 +378,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 	}
 	const pushPerTick = 2.0
 	// Mirror of the collision rule: two CALM monsters pass through each other
-	// by design (pathfinding deadlock prevention) — separating them turned
+	// by design (pathfinding deadlock prevention) - separating them turned
 	// every crossing into a push-fight (measured: 1850 one-tick shove episodes
 	// per 2 sim-minutes on the forest map). Only pairs where at least one side
 	// is engaged actually collide, and only those can glue.
@@ -373,7 +386,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 		return m.IsEngagingPlayer || m.State == monster.StateAttacking
 	}
 	// Tile-checked half-push; also refuses to shove a monster into the PLAYER's
-	// box — entity collision is deliberately skipped (the overlapped partner
+	// box - entity collision is deliberately skipped (the overlapped partner
 	// would veto every push), but landing on the player would deadlock the
 	// monster against player collision instead.
 	camX, camY := gl.game.camera.X, gl.game.camera.Y
@@ -429,7 +442,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 	}
 	// Every processed pair has an engaged side, so collect the engaged alive
 	// subset once (reusable buffer): the common calm case exits without any
-	// pair scan, and the scan walks all×engaged instead of all×all.
+	// pair scan, and the scan walks allxengaged instead of allxall.
 	engagedIdx := gl.sepEngagedBuf[:0]
 	for i, m := range monsters {
 		if m.IsAlive() && engaged(m) {
@@ -471,7 +484,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 
 // finalizeIndirectKills sweeps for monsters that died from an autonomous tick
 // with no CombatSystem in scope to finish the kill itself (RT poison/ignite via
-// Monster3D.Update's TickPoison, TB's TickPoisonTurn) — anything left in
+// Monster3D.Update's TickPoison, TB's TickPoisonTurn) - anything left in
 // world.Monsters with IsAlive() false and not already queued in deadMonsterIDs
 // died this way this frame. Reuses the same scratch set removeDeadMonstersByID
 // rebuilds right after, so this costs one extra O(n) pass, no new allocation.
@@ -553,11 +566,14 @@ func (gl *GameLoop) awardEncounterRewards(rewards *monster.EncounterRewards) {
 			if rewards.CompletionMessage != "" {
 				gl.game.AddCombatMessage(rewards.CompletionMessage)
 			}
-			gl.game.AddCombatMessage(fmt.Sprintf("Quest Completed: Received %d gold and %d experience!", questRewards.Gold, questRewards.Experience))
+			gl.game.AddCombatMessage("Quest Completed: Received " + questRewardSummary(questRewards.Gold, questRewards.ArenaPoints, questRewards.Experience) + "!")
 
 			// Award gold to party
 			if questRewards.Gold > 0 {
 				gl.game.awardGold(questRewards.Gold)
+			}
+			if questRewards.ArenaPoints > 0 {
+				gl.game.awardArenaPoints(questRewards.ArenaPoints)
 			}
 
 			// Award experience to all party members
@@ -678,8 +694,14 @@ func (gl *GameLoop) updateSpecialEffects() {
 	// turn-based mode (which gates on action slots, not frame cooldowns).
 	if !gl.game.turnBasedMode {
 		for _, m := range gl.game.party.Members {
-			if m != nil && m.RTCooldown > 0 {
+			if m == nil {
+				continue
+			}
+			if m.RTCooldown > 0 {
 				m.RTCooldown--
+			}
+			if m.OffHandRTCooldown > 0 {
+				m.OffHandRTCooldown--
 			}
 		}
 	}
@@ -690,19 +712,22 @@ func (gl *GameLoop) updateSpecialEffects() {
 		gl.game.updateUtilityStatus(b.id, *b.duration, *b.active)
 	}
 	// Stacking combat buffs (Day of the Gods, Hour of Power, Stone Skin, Heroism)
-	// tick from their own list — see combat_buffs.go.
+	// tick from their own list - see combat_buffs.go.
 	gl.game.tickCombatBuffs()
 	gl.game.tickStatBuffs()
 	// Persistent damage zones (Hot Steam): lifetime + real-time damage cadence.
 	gl.updateSteamZonesRT()
+	// Stone Blossom mortars in flight (detonate on landing; flies in RT and TB).
+	gl.game.tickPendingMortars()
 	// Armed traps: ambient swirl VFX (both modes) + RT trigger sweep.
 	gl.updateTraps()
 
-	// Walk-on-water / water-breathing drive world flags every frame.
+	// Walk-on-water / water-breathing / fly drive world flags every frame.
 	if gl.game.world != nil {
 		// The Medusa Card grants permanent walk-on-water on top of the spell.
 		gl.game.world.SetWalkOnWaterActive(gl.game.walkOnWaterActive || gl.game.hasCardWalkOnWater())
 		gl.game.world.SetWaterBreathingActive(gl.game.waterBreathingActive)
+		gl.game.world.SetFlyActive(gl.game.flyActive)
 	}
 
 	// Bind_undead charm timers are per-monster, not a party buff.
@@ -734,13 +759,18 @@ func (g *MMGame) timedBuffs() []timedBuff {
 }
 
 // buildTimedBuffs assembles the registry. To add a new timed buff, add one
-// entry here — it then ticks, shows its HUD icon, and is restored on load
+// entry here - it then ticks, shows its HUD icon, and is restored on load
 // automatically, with no other code changes.
 func (g *MMGame) buildTimedBuffs() []timedBuff {
 	return []timedBuff{
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
 		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
+		{"fly", &g.flyActive, &g.flyDuration, func() {
+			// Fly let the party pass through walls; if it lapses while they hover
+			// inside solid terrain, surface them or movement stays wall-locked.
+			g.ejectFromWallAfterFly()
+		}},
 		{"water_breathing", &g.waterBreathingActive, &g.waterBreathingDuration, func() {
 			// If still underwater when it lapses, surface the party.
 			if g.gameLoop != nil && world.GlobalWorldManager != nil && world.GlobalWorldManager.CurrentMapKey == "water" {
@@ -770,7 +800,7 @@ func tickBuff(active *bool, duration *int, onExpire func()) bool {
 
 // updateControlledMonsters ticks Bind Undead and Charm timers in real-time. When a
 // bind expires the undead turns hostile again; when a charm expires the living
-// mob re-aggros. (TB control persists the encounter — no real-frame countdown.)
+// mob re-aggros. (TB control persists the encounter - no real-frame countdown.)
 func (gl *GameLoop) updateControlledMonsters() {
 	if gl.game.world == nil {
 		return

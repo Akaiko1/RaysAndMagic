@@ -7,7 +7,7 @@ import (
 )
 
 // drawTrapTileBorders outlines every armed trap's tile with rising bubble
-// pixels in the trap's thematic border colour — the same edge-bubble technique
+// pixels in the trap's thematic border colour - the same edge-bubble technique
 // as the impassable aura, but on all four edges of the trap tile so the armed
 // square reads clearly on the floor.
 func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {

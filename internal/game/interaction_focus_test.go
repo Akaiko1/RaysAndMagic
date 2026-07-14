@@ -25,10 +25,10 @@ func TestUpdateFocusedNPC_CenterAndRangeRules(t *testing.T) {
 	g.renderHelper = NewRenderingHelper(g)
 
 	tile := float64(cfg.GetTileSize())
-	ahead := &character.NPC{Name: "Ahead", X: g.camera.X + tile, Y: g.camera.Y}
-	behind := &character.NPC{Name: "Behind", X: g.camera.X - tile, Y: g.camera.Y}
-	far := &character.NPC{Name: "Far", X: g.camera.X + 3*tile, Y: g.camera.Y}
-	offCenter := &character.NPC{Name: "OffCenter", X: g.camera.X + tile, Y: g.camera.Y + tile}
+	ahead := &character.NPC{RenderCategory: "npc", Name: "Ahead", X: g.camera.X + tile, Y: g.camera.Y}
+	behind := &character.NPC{RenderCategory: "npc", Name: "Behind", X: g.camera.X - tile, Y: g.camera.Y}
+	far := &character.NPC{RenderCategory: "npc", Name: "Far", X: g.camera.X + 3*tile, Y: g.camera.Y}
+	offCenter := &character.NPC{RenderCategory: "npc", Name: "OffCenter", X: g.camera.X + tile, Y: g.camera.Y + tile}
 	w.NPCs = []*character.NPC{behind, far, offCenter, ahead}
 
 	name := func() string {

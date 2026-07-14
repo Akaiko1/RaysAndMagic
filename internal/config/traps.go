@@ -12,7 +12,7 @@ import (
 
 // TrapDefinitionConfig is one trap from assets/traps.yaml. Damage traps carry
 // damage_base (+optional AoE); control traps carry stun or root durations in
-// BOTH turn (TB) and second (RT) units — pairs are validated at load.
+// BOTH turn (TB) and second (RT) units - pairs are validated at load.
 type TrapDefinitionConfig struct {
 	Name            string  `yaml:"name"`
 	Description     string  `yaml:"description"`
@@ -116,7 +116,7 @@ func validateTrapConfig(cfg *TrapSystemConfig) error {
 	return nil
 }
 
-// TrapItem builds the quick-slot item form of a trap — the ONE constructor
+// TrapItem builds the quick-slot item form of a trap - the ONE constructor
 // (class kits, the trap book and tests all use it). It lives in the SAME
 // Equipment[SlotSpell] slot quick spells use, so the HUD, RT capability
 // checks and save round-trip work unchanged.
@@ -144,7 +144,7 @@ func GetTrapDefinition(key string) (*TrapDefinitionConfig, bool) {
 	return t, ok
 }
 
-// TrapKeysOrdered returns all trap keys sorted by level (ties by key) — the
+// TrapKeysOrdered returns all trap keys sorted by level (ties by key) - the
 // canonical trap-book ordering.
 func TrapKeysOrdered() []string {
 	if GlobalTrapConfig == nil {
@@ -164,7 +164,7 @@ func TrapKeysOrdered() []string {
 	return keys
 }
 
-// EffectLines returns the character-INDEPENDENT mechanic lines of a trap —
+// EffectLines returns the character-INDEPENDENT mechanic lines of a trap -
 // the shared SSoT for the in-game trap book tooltip and the map-editor card
 // (same contract as spells.SpellDefinition.EffectLines). Caster-scaled
 // numbers (actual damage/duration) are added by each consumer.

@@ -2,7 +2,7 @@
 // user data. For a bare binary (or "go run") it keeps the original behaviour:
 // data lives next to the executable / working directory. For a macOS .app BUNDLE
 // it seeds a writable per-user data directory from the read-only shipped assets
-// and runs out of there — bundles can't reliably write inside themselves
+// and runs out of there - bundles can't reliably write inside themselves
 // (Gatekeeper App Translocation runs them from a read-only path), and the game
 // and map-editor bundles each carry a private assets copy, so a shared writable
 // dir is the only way edits + saves work and are seen by both.
@@ -29,7 +29,7 @@ const savesDirName = "saves"
 // (unix seconds). It orders competing seeders of the shared user dir (game vs
 // editor .app): a build with an older stamp never overwrites content seeded by
 // a newer one. When unset, the git commit time Go embeds into every build
-// (vcs.time) is used — so both the CI release package and local script builds
+// (vcs.time) is used - so both the CI release package and local script builds
 // order correctly with no build-script changes. 0 when neither is available.
 var buildStamp string
 
@@ -57,8 +57,8 @@ const (
 // seedManifest maps a seeded .map's asset-relative path to the SHIPPED content
 // hash as of the last seed. Author updates take priority over local edits: on a
 // version bump a map is overwritten iff the shipped version changed (or was
-// never tracked); while the author ships no new version, the player's copy —
-// edited or not — is left alone.
+// never tracked); while the author ships no new version, the player's copy -
+// edited or not - is left alone.
 type seedManifest map[string]string
 
 func loadSeedManifest(userDir string) seedManifest {
@@ -91,6 +91,10 @@ func fileSHA256(path string) (string, bool) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
 }
+
+// SetDataRootForTesting points the writable data root at a temp dir so tests
+// never touch the real saves directory. Pass "" to restore default resolution.
+func SetDataRootForTesting(dir string) { dataRoot = dir }
 
 // dataRoot is the writable runtime root when running as a .app bundle (empty
 // otherwise). Set once by SetupBundleRuntime; AppSaveDir writes saves under it.
@@ -137,7 +141,7 @@ func AppSavePath(filename string) string {
 // asset/save paths become writable and are shared between the game and editor
 // bundles. Returns true if it handled the runtime (i.e. we're in a bundle) so
 // callers skip their normal (bare-binary) working-dir setup. No-op for bare
-// binaries / go run / Windows exes — those work exactly as before.
+// binaries / go run / Windows exes - those work exactly as before.
 func SetupBundleRuntime() bool {
 	exe, err := os.Executable()
 	if err != nil {
@@ -162,7 +166,7 @@ func setupBundleRuntime(exe string) bool {
 	return true
 }
 
-// UserDataDir returns the per-user writable data root (…/RaysAndMagic), created
+// UserDataDir returns the per-user writable data root (.../RaysAndMagic), created
 // on demand. "" if it can't be resolved/created.
 func UserDataDir() string {
 	base, err := os.UserConfigDir() // macOS: ~/Library/Application Support
@@ -182,10 +186,10 @@ func insideAppBundle(exe string) bool {
 }
 
 // seedUserData copies the shipped config.yaml + assets tree from contentDir into
-// userDir so the app runs from a writable copy. Reseeding is fully automatic —
+// userDir so the app runs from a writable copy. Reseeding is fully automatic -
 // no version constant to bump: it fires whenever the shipped content digest
 // differs from the last seeded one. A .map is overwritten only when the SHIPPED
-// version changed since the last seed (see seedManifest) — new authored maps
+// version changed since the last seed (see seedManifest) - new authored maps
 // always land, untouched-by-author maps keep any player edits.
 func seedUserData(contentDir, userDir string) error {
 	digest, err := shippedContentDigest(contentDir)
@@ -220,8 +224,8 @@ func seedUserData(contentDir, userDir string) error {
 }
 
 // shippedContentDigest hashes everything seedUserData would copy (config.yaml +
-// the assets tree, paths included), so any shipped change — content, rename,
-// addition, removal — yields a new digest. WalkDir order is lexical, hence
+// the assets tree, paths included), so any shipped change - content, rename,
+// addition, removal - yields a new digest. WalkDir order is lexical, hence
 // deterministic. ~100ms for the full tree, paid once per bundle launch.
 func shippedContentDigest(contentDir string) (string, error) {
 	h := sha256.New()
@@ -285,7 +289,7 @@ func migrateLegacySaves(oldDir, newDir string) {
 
 // copyAssetsTree mirrors src into dst, overwriting every file EXCEPT a .map
 // whose shipped version is unchanged since the last seed (manifest hash match)
-// — that one keeps whatever the player has, edits included. A changed or
+// - that one keeps whatever the player has, edits included. A changed or
 // never-tracked shipped map always wins and is (re)recorded in manifest.
 func copyAssetsTree(src, dst string, manifest seedManifest) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {

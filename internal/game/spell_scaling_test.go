@@ -246,7 +246,7 @@ func TestSpellDamageScalingStatBySchool(t *testing.T) {
 		t.Errorf("fire label = %q, want Intellect", got)
 	}
 	// A non-self school flagged scales_with_personality (e.g. ray_of_light) adds
-	// a Personality term on top of Intellect — the label must name both.
+	// a Personality term on top of Intellect - the label must name both.
 	if got := spellDamageStatLabel("light", true); got != "Intellect + Personality" {
 		t.Errorf("light+personality label = %q, want 'Intellect + Personality'", got)
 	}

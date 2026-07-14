@@ -22,7 +22,7 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -48,7 +48,7 @@ monsters:
     letter: "o"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -72,11 +72,11 @@ monsters:
     speed: 2.0
     gold_min: 0
     gold_max: 5
-    sprite: "dire_wolf"
+    sprite: "wolf"
     letter: "w"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -99,7 +99,7 @@ monsters:
     letter: "b"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -121,7 +121,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -145,7 +145,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances:
       mind: 100    # Immune to mind effects
       body: 50     # Resistant to body magic
@@ -173,7 +173,7 @@ monsters:
     letter: "m"
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: person
     biomes: ["pyramid"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -203,7 +203,7 @@ monsters:
     letter: "n"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: large
     biomes: ["pyramid"]
     resistances:
       physical: 25
@@ -230,7 +230,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["pyramid"]
     resistances:
       air: 50
@@ -258,7 +258,7 @@ monsters:
     letter: "l"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: -50      # Takes extra fire damage (vulnerable)
       physical: 20   # Resistant to physical damage
@@ -269,15 +269,14 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1100
-    armor_class: 50
+    max_hit_points: 1400
+    armor_class: 52
     experience: 2000
-    damage_min: 30
-    damage_max: 50
-    true_damage: 15  # black dragon: +15 unmitigable per hit
-    fireburst_chance: 0.15
-    fireburst_damage_min: 10
-    fireburst_damage_max: 16
+    damage_min: 34
+    damage_max: 54
+    true_damage: 12  # black dragon: +12 unmitigable per hit
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "fire"
     alert_radius: 5
     attack_radius: 2  # 2 tiles (breath weapon/bite)
     projectile_spell: "firebolt"
@@ -290,17 +289,17 @@ monsters:
     letter: "d"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: 90
-      physical: 50
+      physical: 10
       air: 75
     habitat_preferences:
       - "empty"
       - "desert_dune"
       - "large_dune"
 
-  # Elemental dragon variants — wild dragons (dragon_cliffs biome + the two cliff
+  # Elemental dragon variants - wild dragons (dragon_cliffs biome + the two cliff
   # lair caves) and the desert-statue ELITES are built from these. The 4 elite
   # `elder_dragon*` entries below summon from the statues; these base entries are
   # the ordinary dragons. They differ only in element (resists/projectile/proc).
@@ -308,12 +307,14 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1100
-    armor_class: 50
+    max_hit_points: 1400
+    armor_class: 52
     experience: 2000
-    damage_min: 30
-    damage_max: 50
+    damage_min: 34
+    damage_max: 54
     true_damage: 10  # red dragon: +10 unmitigable per hit
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "dark"
     ignite_chance: 0.30           # 30% to set a character ablaze
     ignite_duration_seconds: 30   # burn DoT (3x poison strength), stacks with poison
     alert_radius: 5
@@ -328,11 +329,11 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert"]
     resistances:
       dark: 90
-      physical: 50
+      physical: 10
       fire: 40
     habitat_preferences:
       - "empty"
@@ -342,13 +343,15 @@ monsters:
     name: "Dragon"
     banding: true
     level: 15
-    max_hit_points: 1100
-    armor_class: 67            # tankier: melee-only, no ranged attack
+    max_hit_points: 1500
+    armor_class: 70            # tankier: melee-only, no ranged attack
     experience: 2000
-    damage_min: 32
-    damage_max: 52
+    damage_min: 36
+    damage_max: 58
     true_damage: 10  # green dragon: +10 unmitigable per hit
     attack_cooldown_multiplier: 0.6  # attacks fast
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "earth"
     poison_chance: 0.33
     poison_duration_seconds: 45
     alert_radius: 5
@@ -361,11 +364,11 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       earth: 90
-      physical: 60
+      physical: 25
       fire: -25                # nature dragon: vulnerable to fire
     habitat_preferences:
       - "empty"
@@ -374,12 +377,15 @@ monsters:
     type: "dragon"
     name: "Dragon"
     level: 15
-    max_hit_points: 1050       # a bit squishier but faster + longer reach
-    armor_class: 50
+    max_hit_points: 1350       # a bit squishier but faster + longer reach
+    armor_class: 52
     experience: 2000
-    damage_min: 28
-    damage_max: 46
+    damage_min: 32
+    damage_max: 52
     true_damage: 10  # gold dragon: +10 unmitigable per hit
+    attack_cooldown_multiplier: 0.85
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "air"
     stun_char_chance: 0.10        # 10% to stun the struck character
     stun_char_seconds: 4          # RT stun duration
     stun_char_turns: 2            # TB stun duration
@@ -395,16 +401,16 @@ monsters:
     letter: "y"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["desert", "dragon_cliffs"]
     resistances:
       air: 90
-      physical: 50
+      physical: 10
       water: -25               # vulnerable to water/ice
     habitat_preferences:
       - "empty"
 
-  # ── Elder Dragons (ELITE) ────────────────────────────────────────────────
+  # -- Elder Dragons (ELITE) ------------------------------------------------
   # Summoned ONLY by the four desert statues (dragon_statue_*). Same sprites as
   # the base dragons but tinted, ~1.5x HP/XP and harder hits. All named "Elder
   # Dragon" -> type "elder_dragon", which the dragon_slayer quest matches (base
@@ -413,121 +419,129 @@ monsters:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 50
+    max_hit_points: 3600
+    armor_class: 55
     experience: 3000
-    damage_min: 38
-    damage_max: 62
-    true_damage: 22
-    fireburst_chance: 0.15
-    fireburst_damage_min: 10
-    fireburst_damage_max: 16
+    damage_min: 48
+    damage_max: 76
+    true_damage: 18
+    attack_cooldown_multiplier: 0.75
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "fire"
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "firebolt"
-    ranged_attack_range: 3
+    ranged_attack_range: 4
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon"
+    sprite: "elder_dragon"
     tint_color: [0.55, 0.5, 0.5]   # elder onyx cast
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       fire: 100
-      physical: 50
+      physical: 10
       air: 75
 
   elder_dragon_red:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 50
+    max_hit_points: 3400
+    armor_class: 55
     experience: 3000
-    damage_min: 38
-    damage_max: 62
+    damage_min: 46
+    damage_max: 72
     true_damage: 15
-    ignite_chance: 0.30
-    ignite_duration_seconds: 30
+    attack_cooldown_multiplier: 0.75
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "dark"
+    ignite_chance: 0.35
+    ignite_duration_seconds: 40
     alert_radius: 5
     attack_radius: 2
     projectile_spell: "darkbolt"
-    ranged_attack_range: 3
+    ranged_attack_range: 4
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_red"
+    sprite: "elder_dragon_red"
     tint_color: [1.45, 0.5, 0.5]   # elder crimson cast
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       dark: 100
-      physical: 50
+      physical: 10
       fire: 40
 
   elder_dragon_green:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1650
-    armor_class: 67
+    max_hit_points: 3500
+    armor_class: 72
     experience: 3000
-    damage_min: 40
-    damage_max: 65
+    damage_min: 48
+    damage_max: 76
     true_damage: 15
-    attack_cooldown_multiplier: 0.6
-    poison_chance: 0.33
-    poison_duration_seconds: 45
+    attack_cooldown_multiplier: 0.55
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "earth"
+    poison_chance: 0.40
+    poison_duration_seconds: 60
     alert_radius: 5
     attack_radius: 2
     speed: 3.75
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_green"
+    sprite: "elder_dragon_green"
     tint_color: [0.5, 1.4, 0.5]   # elder viridian cast
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       earth: 100
-      physical: 60
+      physical: 25
       fire: -25
 
   elder_dragon_gold:
     type: "dragon"
     name: "Elder Dragon"
     level: 18
-    max_hit_points: 1575
-    armor_class: 50
+    max_hit_points: 3300
+    armor_class: 55
     experience: 3000
-    damage_min: 35
-    damage_max: 58
+    damage_min: 44
+    damage_max: 70
     true_damage: 15
+    attack_cooldown_multiplier: 0.65
+    dragon_breath_chance: 0.33
+    dragon_breath_damage_type: "air"
     stun_char_chance: 0.10
     stun_char_seconds: 4
     stun_char_turns: 2
     alert_radius: 6
     attack_radius: 2
     projectile_spell: "lightning"
-    ranged_attack_range: 4
+    ranged_attack_range: 5
     speed: 4.5
     gold_min: 1000
     gold_max: 2500
-    sprite: "dragon_gold"
+    sprite: "elder_dragon_gold"
     tint_color: [1.5, 1.3, 0.5]   # elder amber cast
     flying: true
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       air: 100
-      physical: 50
+      physical: 10
       water: -25
 
   # Forest-specific monsters
@@ -549,7 +563,7 @@ monsters:
     letter: "f"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     resistances:
       earth: 25
     habitat_preferences:
@@ -577,7 +591,7 @@ monsters:
     letter: "u"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "clearing"
@@ -602,7 +616,7 @@ monsters:
     letter: "x"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances:
       fire: 25
       dark: 30
@@ -627,7 +641,7 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     resistances: {}
     habitat_preferences:
       - "fern_patch"
@@ -654,7 +668,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     resistances:
       earth: 75
       water: 50
@@ -690,7 +704,7 @@ monsters:
     letter: "p"
     box_w: 48
     box_h: 48
-    size_multiplier: 3.0
+    size_class: small
     light:
       enabled: true
       radius_tiles: 3.0
@@ -725,7 +739,7 @@ monsters:
     letter: "n"       # Bandit
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: person
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -754,7 +768,7 @@ monsters:
     passive_until_attacked: true
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: person
     resistances:
       water: 60
       air: 35
@@ -782,7 +796,7 @@ monsters:
     biomes: ["water"]
     box_w: 48
     box_h: 48
-    size_multiplier: 10.0
+    size_class: large
     resistances:
       water: 60
       physical: 10
@@ -794,10 +808,10 @@ monsters:
   # Highlands monsters (target party levels 6-12), ascending power. Biome-scoped
   # to "highlands" and distributed by habitat: beasts/archers in heather & rocks,
   # knights/casters near ruins, the lich by the slate tombs. HP/AC/dmg/xp
-  # interpolate the existing curve (troll L6 ~160 HP → dragon L15 ~1100 HP).
+  # interpolate the existing curve (troll L6 ~160 HP -> dragon L15 ~1100 HP).
   # ---------------------------------------------------------------------------
 
-  # L6 — fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
+  # L6 - fast, fragile beast. Agile (high dodge), pounces from heather/rocks.
   puma:
     name: "Puma"
     banding: true
@@ -817,7 +831,7 @@ monsters:
     letter: "c"
     box_w: 48
     box_h: 48
-    size_multiplier: 5.0
+    size_class: medium
     biomes: ["highlands"]
     pounce_range_tiles: 4         # leaps to melee from up to 4 tiles
     pounce_cooldown_seconds: 4
@@ -829,7 +843,7 @@ monsters:
       - type: "highlands_rock_outcrop"
         radius: 4
 
-  # L7 — ranged elf. Dangerous from afar, light dodge, low HP.
+  # L7 - ranged elf. Dangerous from afar, light dodge, low HP.
   elf_archer:
     name: "Elf Archer"
     banding: true
@@ -851,7 +865,7 @@ monsters:
     letter: "h"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["highlands"]
     resistances: {}
     habitat_preferences:
@@ -861,7 +875,7 @@ monsters:
       - type: "highlands_pine"
         radius: 3
 
-  # L9 — armored elf knight. High AC + physical resist, melee bruiser.
+  # L9 - armored elf knight. High AC + physical resist, melee bruiser.
   elf_swordsman:
     name: "Elf Swordsman"
     banding: true
@@ -881,7 +895,7 @@ monsters:
     letter: "j"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["highlands"]
     resistances:
       physical: 30
@@ -891,7 +905,7 @@ monsters:
       - type: "highlands_ruin_wall"
         radius: 4
 
-  # L10 — brute. Huge HP, hits hard, slow; resists physical, burns to fire.
+  # L10 - brute. Huge HP, hits hard, slow; resists physical, burns to fire.
   mountain_troll:
     name: "Mountain Troll"
     level: 10
@@ -909,7 +923,7 @@ monsters:
     letter: "v"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       physical: 40
@@ -920,7 +934,7 @@ monsters:
       - type: "highlands_boulder"
         radius: 3
 
-  # L11 — glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
+  # L11 - glass-cannon caster. Strong fire projectile, squishy, magic-resistant.
   archmage:
     name: "Archmage"
     level: 11
@@ -941,7 +955,7 @@ monsters:
     letter: "z"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["highlands", "dragon_cliffs"]
     resistances:
       fire: 50
@@ -952,7 +966,7 @@ monsters:
       - type: "highlands_ruin_wall"
         radius: 4
 
-  # L12 — undead caster mini-boss (top of the 6-12 band, below dragons). Dark
+  # L12 - undead caster mini-boss (top of the 6-12 band, below dragons). Dark
   # bolts, heavy dark/physical resist, vulnerable to fire (undead burns).
   lich:
     type: "undead"
@@ -974,7 +988,7 @@ monsters:
     letter: "q"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["highlands", "lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1009,7 +1023,7 @@ monsters:
     letter: "r"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1041,7 +1055,7 @@ monsters:
     letter: "k"
     box_w: 48
     box_h: 48
-    size_multiplier: 8.0
+    size_class: person
     biomes: ["lich_nexus"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1073,7 +1087,7 @@ monsters:
     letter: "r"
     box_w: 40
     box_h: 40
-    size_multiplier: 3.5
+    size_class: small
     biomes: ["culverts"]
     resistances: {}
 
@@ -1096,7 +1110,7 @@ monsters:
     letter: "v"
     box_w: 40
     box_h: 40
-    size_multiplier: 3.2
+    size_class: small
     biomes: ["culverts"]
     resistances: {}
 
@@ -1120,7 +1134,7 @@ monsters:
     letter: "t"
     box_w: 48
     box_h: 48
-    size_multiplier: 4.0
+    size_class: medium
     biomes: ["culverts"]
     resistances:
       physical: 15
@@ -1155,10 +1169,10 @@ monsters:
     letter: "y"
     # Collision box must be < tile size (64): a 64px box centered on a tile spans a
     # 2x2 tile footprint (half-open bounds) and can't fit the maze's 1-wide
-    # corridors, freezing the boss. 48 fits one tile; size_multiplier keeps it big visually.
+    # corridors, freezing the boss. 48 fits one tile; size_class keeps it big visually.
     box_w: 48
     box_h: 48
-    size_multiplier: 9.0
+    size_class: large
     biomes: ["culverts"]
     resistances:
       physical: 20
@@ -1189,7 +1203,7 @@ monsters:
     letter: "a"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["japanese_castle"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1220,7 +1234,7 @@ monsters:
     letter: "m"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.0
+    size_class: person
     biomes: ["japanese_castle"]
     tint_color: [1.3, 0.5, 0.45]   # crimson cast: marks the elite apart from the ashigaru (shared sprite)
     resistances:
@@ -1253,7 +1267,7 @@ monsters:
     letter: "n"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.5
+    size_class: person
     biomes: ["japanese_castle"]
     resistances:
       mind: 100      # undead: immune to mind
@@ -1285,7 +1299,7 @@ monsters:
     letter: "e"
     box_w: 48
     box_h: 48
-    size_multiplier: 7.5
+    size_class: person
     biomes: ["japanese_castle"]
     tint_color: [1.2, 0.55, 1.1]   # vengeful violet cast: marks the elite apart from the ningyo (shared sprite)
     resistances:
@@ -1295,7 +1309,7 @@ monsters:
       light: -50     # undead: vulnerable to light
 
   # Boss: dormant on the throne (visible, inert) until the castle_armory quest
-  # completes, then aggressive — ignores armor, rallies adds, enrages below 480 HP.
+  # completes, then aggressive - ignores armor, rallies adds, enrages below 480 HP.
   old_samurai:
     type: "formless"
     name: "Samurai Warlord"
@@ -1325,7 +1339,7 @@ monsters:
     letter: "s"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["japanese_castle"]
     resistances:
       physical: 20
@@ -1356,7 +1370,7 @@ monsters:
     letter: "o"
     box_w: 40
     box_h: 40
-    size_multiplier: 4.0
+    size_class: medium
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1378,7 +1392,7 @@ monsters:
     letter: "j"
     box_w: 44
     box_h: 44
-    size_multiplier: 5.0
+    size_class: medium
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1408,7 +1422,7 @@ monsters:
     letter: "h"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       physical: 10
@@ -1438,7 +1452,7 @@ monsters:
     letter: "d"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       physical: 15
@@ -1469,7 +1483,7 @@ monsters:
     letter: "x"
     box_w: 46
     box_h: 46
-    size_multiplier: 6.0
+    size_class: person
     biomes: ["jungle"]
     resistances:
       fire: 40
@@ -1507,13 +1521,13 @@ monsters:
     letter: "g"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["jungle"]
     resistances:
-      physical: 30
+      physical: 20
 
   # Boss: warlord of the lost city. Holds his plaza, INVULNERABLE, while any idol
-  # (warlord_idol) lives — break all idols and he ACTIVATES as a normal aggressive
+  # (warlord_idol) lives - break all idols and he ACTIVATES as a normal aggressive
   # boss. No seal/quest (pure wilderness). Ignores armor; enrages below
   # enrage_at_hp once active (enrage is HP-driven, not the ward).
   orc_hero_boss:
@@ -1541,7 +1555,7 @@ monsters:
     summon_count: 2
     summon_max: 4
     # Revenge: when the Warlord dies, every human on the map (Amazons, NOT goblins
-    # or beasts) flies into a relentless map-wide hunt for the party — a surprise.
+    # or beasts) flies into a relentless map-wide hunt for the party - a surprise.
     death_rallies_type: "human"
     gold_min: 5000
     gold_max: 8000
@@ -1549,7 +1563,7 @@ monsters:
     letter: "w"
     box_w: 48
     box_h: 48
-    size_multiplier: 12.0
+    size_class: huge
     biomes: ["jungle"]
     resistances:
       physical: 25
@@ -1576,11 +1590,113 @@ monsters:
     letter: "i"
     box_w: 48
     box_h: 48
-    size_multiplier: 6.0
+    size_class: large
     biomes: ["jungle"]
     resistances:
       physical: 20
       mind: 50
+
+  # Champion mobs: a real character build (champions.yaml) on the monster AI.
+  # HP / armor / damage / attack cadence are mirrored from the character at
+  # spawn (game.applyChampionStats); the values below are pre-mirror placeholders.
+  # Arena-scoped so their letters never collide with wild spawns.
+  hobbit_archer:
+    name: "Hobbit Archer"
+    type: human
+    champion: hobbit_archer
+    level: 25
+    max_hit_points: 3000
+    armor_class: 25
+    perfect_dodge: 10
+    experience: 2400
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.7
+    gold_min: 0
+    gold_max: 0
+    sprite: hobbit_archer
+    letter: "A"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    resistances: {}
+
+  weapon_master:
+    name: "Weapon Master"
+    type: human
+    champion: weapon_master
+    level: 25
+    max_hit_points: 3000
+    armor_class: 30
+    perfect_dodge: 10
+    experience: 3000
+    damage_min: 40
+    damage_max: 40
+    attack_radius: 2
+    alert_radius: 9
+    speed: 1.8
+    gold_min: 0
+    gold_max: 0
+    sprite: weapon_master
+    letter: "W"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    resistances: {}
+
+  dark_elf_sorceress:
+    name: "Dark Elf Sorceress"
+    type: human
+    champion: dark_elf_sorceress
+    level: 25
+    max_hit_points: 3000
+    armor_class: 12
+    perfect_dodge: 10
+    experience: 2600
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.9
+    gold_min: 0
+    gold_max: 0
+    sprite: dark_elf_sorceress
+    letter: "S"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    # Shadow-caster: shrugs off her own schools, holy weapons punish her.
+    resistances: { dark: 50, air: 40, light: -25 }
+
+  wild_druid:
+    name: "Wild Druid"
+    type: human
+    champion: wild_druid
+    level: 25
+    max_hit_points: 3000
+    armor_class: 20
+    perfect_dodge: 10
+    experience: 2600
+    damage_min: 30
+    damage_max: 30
+    attack_radius: 5
+    alert_radius: 9
+    speed: 1.5
+    gold_min: 0
+    gold_max: 0
+    sprite: druid_enemy
+    letter: "D"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["arena"]
+    # Warden of root and rain: nature schools bounce off, fire burns through.
+    resistances: { earth: 50, water: 50, body: 30, fire: -25 }
 
 # Damage type mappings for resistances
 damage_types:

@@ -28,7 +28,7 @@ func TestEnsureSelectedCanActRT_SkipsDead(t *testing.T) {
 			g.selectedChar, members[g.selectedChar].CanAct())
 	}
 
-	// Only the last member alive → selection must land on them from a dead one.
+	// Only the last member alive -> selection must land on them from a dead one.
 	last := len(members) - 1
 	for i, m := range members {
 		if i != last {
@@ -46,7 +46,7 @@ func TestEnsureSelectedCanActRT_SkipsDead(t *testing.T) {
 
 // TestParkSelection_RTCyclingUnaffected: a manual park lets the player sit on a
 // downed member (to use their potions), yet the held-Space RT loop still
-// recovers — advanceRTActor clears the park and moves to a capable member, so
+// recovers - advanceRTActor clears the park and moves to a capable member, so
 // cycling is never soft-locked.
 func TestParkSelection_RTCyclingUnaffected(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -75,7 +75,7 @@ func TestParkSelection_RTCyclingUnaffected(t *testing.T) {
 	}
 
 	// Acting (advanceRTActor, as commitRTAction does on each held-key fire) clears
-	// the park and hands selection to a member who can act — cycling resumes.
+	// the park and hands selection to a member who can act - cycling resumes.
 	g.advanceRTActor(rtActWeapon)
 	if g.parkSelection {
 		t.Fatal("advanceRTActor must clear the manual park so RT cycling isn't soft-locked")
@@ -84,7 +84,7 @@ func TestParkSelection_RTCyclingUnaffected(t *testing.T) {
 		t.Fatalf("advanceRTActor stayed on the downed member")
 	}
 
-	// Park cleared → the auto-snap behaves normally again.
+	// Park cleared -> the auto-snap behaves normally again.
 	g.ensureSelectedCanActRT()
 	if !members[g.selectedChar].CanAct() {
 		t.Fatalf("post-park selection landed on a member who can't act (%d)", g.selectedChar)
@@ -104,7 +104,7 @@ func TestRTHoldSpace_HighSpeedAttacksMore(t *testing.T) {
 	if n < 2 {
 		t.Skip("need >=2 party members")
 	}
-	// Isolate Speed: same weapon for all (sword mult 1.0 → cooldown is the pure
+	// Isolate Speed: same weapon for all (sword mult 1.0 -> cooldown is the pure
 	// Speed curve), equal HP, all ready, all weapon-capable.
 	for i, m := range members {
 		m.Equipment[items.SlotMainHand] = items.CreateWeaponFromYAML("iron_sword")
@@ -186,7 +186,7 @@ func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
 		t.Errorf("wounded ally not healed: %d -> %d", before, hurt.HitPoints)
 	}
 
-	// Now everyone is healthy → smart-attack must NOT heal (weapon swing instead).
+	// Now everyone is healthy -> smart-attack must NOT heal (weapon swing instead).
 	for _, m := range members {
 		m.HitPoints = m.MaxHitPoints
 	}
@@ -201,7 +201,7 @@ func TestSmartAttack_HealsMostWoundedThenAttacks(t *testing.T) {
 }
 
 // TestSmartAttack_BookHealWithoutQuickSlot: a healer with an EMPTY quick slot
-// still auto-triages — Space finds the strongest heal in the spellbook when
+// still auto-triages - Space finds the strongest heal in the spellbook when
 // anyone in the party (not just the caster) is wounded.
 func TestSmartAttack_BookHealWithoutQuickSlot(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -232,7 +232,7 @@ func TestSmartAttack_BookHealWithoutQuickSlot(t *testing.T) {
 }
 
 // TestSmartAttack_BookHealOverOffensiveQuickSlot: a healer keeping a COMBAT
-// spell in the quick slot still heals first — the book heal outranks the
+// spell in the quick slot still heals first - the book heal outranks the
 // slotted offensive spell while an ally is wounded.
 func TestSmartAttack_BookHealOverOffensiveQuickSlot(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -298,7 +298,7 @@ func TestSmartAttack_QuickSlottedHealPreferred(t *testing.T) {
 }
 
 // TestRTCycle_CapabilityAware: holding F cycles only casters, C only healers,
-// R only the armed — incapable members are skipped, and a capable member on
+// R only the armed - incapable members are skipped, and a capable member on
 // cooldown is WAITED on (selection lands there) rather than jumping to an
 // incapable one.
 func TestRTCycle_CapabilityAware(t *testing.T) {
@@ -339,7 +339,7 @@ func TestRTCycle_CapabilityAware(t *testing.T) {
 	if g.rtActionReady(1, rtActCast) {
 		t.Errorf("caster on cooldown must not be ready")
 	}
-	// A broke caster (no SP) is incapable → not selected.
+	// A broke caster (no SP) is incapable -> not selected.
 	m[1].RTCooldown = 0
 	m[1].SpellPoints = 0
 	g.selectedChar = 0
@@ -350,7 +350,7 @@ func TestRTCycle_CapabilityAware(t *testing.T) {
 }
 
 // TestRTCycle_WaitsQuietlyWhenAllOnCooldown: holding F while every caster is on
-// cooldown must NOT churn the selection frame each tick — it parks on a capable
+// cooldown must NOT churn the selection frame each tick - it parks on a capable
 // caster once and holds there until one is ready. Mirrors the pre-fire selection
 // logic in handleCombatInput.
 func TestRTCycle_WaitsQuietlyWhenAllOnCooldown(t *testing.T) {
@@ -392,7 +392,7 @@ func TestRTCycle_WaitsQuietlyWhenAllOnCooldown(t *testing.T) {
 	if parked != 1 && parked != 3 {
 		t.Fatalf("F should park on a caster, got %d", parked)
 	}
-	for f := 0; f < 30; f++ { // tick cooldowns down (still >0) — must not move
+	for f := 0; f < 30; f++ { // tick cooldowns down (still >0) - must not move
 		m[1].RTCooldown--
 		m[3].RTCooldown--
 		step(rtActCast)

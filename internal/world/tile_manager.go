@@ -11,12 +11,21 @@ import (
 
 // TileManager handles tile configuration and properties
 type TileManager struct {
-	tileData        map[string]*config.TileData
-	typeToKey       map[TileType3D]string
-	keyToType       map[string]TileType3D // Map from key to tile type
-	letterToType    map[string]TileType3D // Map from letter to tile type
-	typeToLetter    map[TileType3D]string // Map from tile type to letter
-	nextDynamicType TileType3D            // Next available type for dynamic tiles
+	tileData     map[string]*config.TileData
+	typeToKey    map[TileType3D]string
+	keyToType    map[string]TileType3D // Map from key to tile type
+	letterToType map[string]TileType3D // Map from letter to tile type
+	typeToLetter map[TileType3D]string // Map from tile type to letter
+	// shortLabelToType / typeToShortLabel place letterless GENERAL tiles via a
+	// >[tile:short_label] map def (see TileData.ShortLabel).
+	shortLabelToType map[string]TileType3D
+	typeToShortLabel map[TileType3D]string
+	nextDynamicType  TileType3D // Next available type for dynamic tiles
+	// specialTileKeys is the set of keys loaded from special_tiles.yaml (placed
+	// via [stile:key], letterless). Tracked so the map editor can offer them as
+	// their own brush category - they're merged into tileData like any tile, so
+	// nothing else distinguishes them.
+	specialTileKeys map[string]bool
 }
 
 // NewTileManager creates a new tile manager
@@ -32,7 +41,31 @@ func NewTileManager() *TileManager {
 }
 
 // validateTileConfiguration checks for conflicts in tile letters
+// validTileRenderTypes is the closed set of render_type values the renderer
+// actually dispatches on. An unknown value would load fine and then render
+// NOTHING (the legacy "flooring_object" died exactly that way), so it is a
+// load-time error, never a silent invisible tile.
+var validTileRenderTypes = map[string]bool{
+	"floor_only": true, "textured_wall": true, "environment_sprite": true,
+	"tree_sprite": true, "landmark": true,
+}
+
 func (tm *TileManager) validateTileConfiguration() error {
+	for key, data := range tm.tileData {
+		if !validTileRenderTypes[data.RenderType] {
+			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: floor_only|textured_wall|environment_sprite|tree_sprite|landmark)", key, data.RenderType)
+		}
+		// Every authored tile carries an explicit organizational `type` (editor
+		// palette grouping). Special tiles (teleporters/traps) have their own
+		// palette section and are exempt.
+		if tm.specialTileKeys[key] {
+			continue
+		}
+		if !config.ValidTileTypes[data.Type] {
+			return fmt.Errorf("tile %q has missing or unknown type %q (valid: floor|water|marker|wall|wall_decor|nature|rock|structure|prop)", key, data.Type)
+		}
+	}
+
 	// Map to track letter conflicts: letter -> biome -> tile keys
 	letterMap := make(map[string]map[string][]string)
 
@@ -133,10 +166,14 @@ func (tm *TileManager) LoadSpecialTileConfig(filename string) error {
 	}
 
 	// Merge special tile data into existing tile data
+	if tm.specialTileKeys == nil {
+		tm.specialTileKeys = make(map[string]bool)
+	}
 	for key, tileData := range specialTileConfig.SpecialTileData {
 		// Make a copy to avoid pointer issues
 		tileCopy := tileData
 		tm.tileData[key] = &tileCopy
+		tm.specialTileKeys[key] = true
 	}
 
 	// Recreate mappings to include new tiles
@@ -203,14 +240,35 @@ func (tm *TileManager) createTypeMapping() {
 func (tm *TileManager) createLetterMappings() {
 	tm.letterToType = make(map[string]TileType3D)
 	tm.typeToLetter = make(map[TileType3D]string)
+	tm.shortLabelToType = make(map[string]TileType3D)
+	tm.typeToShortLabel = make(map[TileType3D]string)
 
-	// Map all tiles (both core and dynamic) that have letters
+	// Map all tiles (both core and dynamic) that have letters or short labels.
 	for tileType, key := range tm.typeToKey {
-		if data, ok := tm.tileData[key]; ok && data.Letter != "" {
+		data, ok := tm.tileData[key]
+		if !ok {
+			continue
+		}
+		if data.Letter != "" {
 			tm.letterToType[data.Letter] = tileType
 			tm.typeToLetter[tileType] = data.Letter
 		}
+		if data.ShortLabel != "" {
+			tm.shortLabelToType[data.ShortLabel] = tileType
+			tm.typeToShortLabel[tileType] = data.ShortLabel
+		}
 	}
+}
+
+// GetTileTypeFromShortLabel resolves a general tile's [tile:short_label] token.
+func (tm *TileManager) GetTileTypeFromShortLabel(label string) (TileType3D, bool) {
+	t, ok := tm.shortLabelToType[label]
+	return t, ok
+}
+
+// GetShortLabelFromType returns a tile's placement short_label ("" if none).
+func (tm *TileManager) GetShortLabelFromType(tileType TileType3D) string {
+	return tm.typeToShortLabel[tileType]
 }
 
 // GetTileData returns the configuration data for a tile type
@@ -285,7 +343,7 @@ func (tm *TileManager) IsOpaque(tileType TileType3D) bool {
 	}
 	if data.Solid {
 		switch data.RenderType {
-		case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
+		case "tree_sprite", "environment_sprite", "landmark":
 			return true
 		}
 	}
@@ -308,25 +366,32 @@ func (tm *TileManager) GetHeightMultiplier(tileType TileType3D) float64 {
 	return data.HeightMultiplier
 }
 
-// GetSizeMultiplier returns the visual sprite scale for billboard-style tiles.
-// size_multiplier is the canonical content key. height_multiplier remains as a
+// GetSizeTiles returns the visual sprite scale for billboard-style tiles.
+// size_tiles is the canonical content key. height_multiplier remains as a
 // fallback for older tile YAML where billboard scale and wall height shared one
 // field.
-func (tm *TileManager) GetSizeMultiplier(tileType TileType3D) float64 {
+func (tm *TileManager) GetSizeTiles(tileType TileType3D) float64 {
 	data := tm.GetTileData(tileType)
 	if data == nil {
 		return 1.0
 	}
-	if data.SizeMultiplier > 0 {
-		return data.SizeMultiplier
+	if data.SizeTiles > 0 {
+		return data.SizeTiles
 	}
 	switch data.RenderType {
-	case "tree_sprite", "environment_sprite", "flooring_object", "landmark":
+	case "tree_sprite", "environment_sprite", "landmark":
 		if data.HeightMultiplier > 0 {
 			return data.HeightMultiplier
 		}
 	}
 	return 1.0
+}
+
+// IsWallMounted reports whether a tile is a wall-mounted decoration standee
+// (config wall_mounted). Rendered stuck to the nearest solid neighbour.
+func (tm *TileManager) IsWallMounted(tileType TileType3D) bool {
+	data := tm.GetTileData(tileType)
+	return data != nil && data.WallMounted
 }
 
 // GetSprite returns the sprite name for a tile type
@@ -350,7 +415,7 @@ func (tm *TileManager) GetRenderType(tileType TileType3D) string {
 // GetFloorColor returns the floor color for a tile type, or [0,0,0] when no
 // floor_color is configured. Callers use the zero sentinel to mean "unset" and
 // fall back to the current map's default_floor_color, so do NOT bake a green
-// (or any other) default here — that would override the map's biome colour.
+// (or any other) default here - that would override the map's biome colour.
 func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 	data := tm.GetTileData(tileType)
 	if data == nil {
@@ -360,7 +425,7 @@ func (tm *TileManager) GetFloorColor(tileType TileType3D) [3]int {
 }
 
 // InheritsFloor reports whether a tile should take the surrounding biome floor
-// (colour + texture) rather than painting its own floor_color — see
+// (colour + texture) rather than painting its own floor_color - see
 // config.TileData.InheritFloor. Marker tiles (spawn, teleporters) set this so
 // they blend into the ground like a mob-spawn cell.
 func (tm *TileManager) InheritsFloor(tileType TileType3D) bool {
@@ -377,7 +442,7 @@ var floorVoteNeighbours = []struct{ dx, dy, w int }{
 }
 
 // DominantNeighbourFloor returns the dominant authored, steppable floor tile among
-// the 8 neighbours of (x,y) — orthogonal neighbours weighted double, with a
+// the 8 neighbours of (x,y) - orthogonal neighbours weighted double, with a
 // deterministic tie-break by neighbour order. Only real ground votes: render_type
 // "floor_only" AND walkable, non-solid, and not itself an inherit_floor marker
 // (so spawn/teleporters never stamp their own square under an entity). Cells where
@@ -485,11 +550,11 @@ func (tm *TileManager) SetTileProperty(tileType TileType3D, property string, val
 		} else {
 			return fmt.Errorf("wall_height_multiplier property requires float64 value")
 		}
-	case "size_multiplier":
+	case "size_tiles":
 		if val, ok := value.(float64); ok {
-			data.SizeMultiplier = val
+			data.SizeTiles = val
 		} else {
-			return fmt.Errorf("size_multiplier property requires float64 value")
+			return fmt.Errorf("size_tiles property requires float64 value")
 		}
 	case "sprite":
 		if val, ok := value.(string); ok {
@@ -524,6 +589,25 @@ func (tm *TileManager) ListTiles() map[string]*config.TileData {
 		result[key] = &dataCopy
 	}
 	return result
+}
+
+// ListSpecialTiles returns the special tiles (from special_tiles.yaml, placed
+// via [stile:key] and letterless) so the map editor can offer them as their
+// own brush category. Copies, like ListTiles.
+func (tm *TileManager) ListSpecialTiles() map[string]*config.TileData {
+	result := make(map[string]*config.TileData)
+	for key := range tm.specialTileKeys {
+		if data := tm.tileData[key]; data != nil {
+			dataCopy := *data
+			result[key] = &dataCopy
+		}
+	}
+	return result
+}
+
+// IsSpecialTile reports whether a key came from special_tiles.yaml.
+func (tm *TileManager) IsSpecialTile(key string) bool {
+	return tm.specialTileKeys[key]
 }
 
 // GetTileTypeFromLetter returns the tile type for a given letter

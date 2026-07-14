@@ -12,7 +12,7 @@ import (
 
 // Trap mechanics (thief trap book). A placed trap is a one-shot tile device:
 // it arms on its tile, shows a particle swirl + a colored tile-edge glow, and
-// fires when a monster occupies the tile — damage traps scale with the OWNER's
+// fires when a monster occupies the tile - damage traps scale with the OWNER's
 // Intellect+Accuracy and Trapper mastery at trigger time, control traps
 // stun/root for a mastery-extended duration. Traps are map-scoped (MapKey) and
 // persist in saves; the owner is a live pointer (like Arrow.Attacker) so
@@ -76,7 +76,7 @@ func trapDamage(def *config.TrapDefinitionConfig, owner *character.MMCharacter) 
 }
 
 // trapControlDuration returns the mastery-extended control duration of a trap
-// in TB turns and RT seconds (whichever pair the trap carries — stun or root).
+// in TB turns and RT seconds (whichever pair the trap carries - stun or root).
 func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacter) (turns, seconds int) {
 	turns, seconds = baseTurns, baseSeconds
 	if owner != nil {
@@ -88,7 +88,7 @@ func trapControlDuration(baseTurns, baseSeconds int, owner *character.MMCharacte
 }
 
 // equipTrap puts a trap into the character's quick slot. Refuses unknown keys
-// and level-locked traps (the book shows LOCKED — equipping one would only
+// and level-locked traps (the book shows LOCKED - equipping one would only
 // fail later at placement).
 func equipTrap(char *character.MMCharacter, key string) bool {
 	def, ok := config.GetTrapDefinition(key)
@@ -126,13 +126,13 @@ func hasTrapBook(char *character.MMCharacter) bool {
 }
 
 // tryPlaceQuickTrap places the caster's selected trap. Target tile: step from
-// the party tile along the facing direction up to TrapPlaceRangeTiles — the
+// the party tile along the facing direction up to TrapPlaceRangeTiles - the
 // first tile holding a monster wins ("right under its feet"), a wall stops the
 // throw at the previous tile, otherwise it lands at max range. Returns the
 // trap key on success (RT cooldown resolves from it).
 //
 // announce gates the FAILURE messages: Space (SmartAttack) probes the trap
-// silently and falls through to the weapon — matching quick spells, whose
+// silently and falls through to the weapon - matching quick spells, whose
 // canPay pre-check is equally quiet; the explicit F cast keeps the messages.
 func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announce bool) (string, bool) {
 	trapKey, armed := equippedTrapKey(caster)
@@ -143,7 +143,7 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 }
 
 // placeTrapByKey arms a SPECIFIC trap (the trap book's double-click casts the
-// clicked entry, slotted or not) — gates and placement shared with the quick
+// clicked entry, slotted or not) - gates and placement shared with the quick
 // slot path.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
 	if caster == nil || !hasTrapBook(caster) {
@@ -197,7 +197,7 @@ func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey st
 
 // pickTrapTile walks tile-by-tile from the party along the camera facing.
 // First tile with a living monster wins; a blocking tile stops the walk at the
-// previous tile (which may be the party's own — refused); otherwise max range.
+// previous tile (which may be the party's own - refused); otherwise max range.
 func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	ts := float64(cs.game.config.GetTileSize())
 	dirX, dirY := math.Cos(cs.game.camera.Angle), math.Sin(cs.game.camera.Angle)
@@ -222,7 +222,7 @@ func (cs *CombatSystem) pickTrapTile() (int, int, bool) {
 	// Nothing dead-ahead: a front-diagonal monster pulled to screen-center is a
 	// valid melee target, so drop the trap under its REAL tile (traps are
 	// world-space; the sweep fires on the monster's true position). Closest
-	// pulled flank wins — mirrors the melee front→side priority.
+	// pulled flank wins - mirrors the melee front->side priority.
 	if mon := cs.nearestPulledFlankMonster(); mon != nil {
 		return int(mon.X / ts), int(mon.Y / ts), true
 	}
@@ -317,7 +317,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 	}
 
 	// A sealed / idol-warded boss is immune to indirect damage (gated inside
-	// applyTrapDamage) — and to its control riders too. Skip stun/root for it.
+	// applyTrapDamage) - and to its control riders too. Skip stun/root for it.
 	if bossInvulnerable(victim) {
 		return
 	}
@@ -344,18 +344,18 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 // damage bookkeeping (hit flash, charm break, pack aggro, kill credit).
 func (cs *CombatSystem) applyTrapDamage(m *monsterPkg.Monster3D, dmg int, element string, dmgType monsterPkg.DamageType, sourceName string) {
 	if bossInvulnerable(m) {
-		return // invulnerable boss (sealed or idol-warded) — no trap damage, FX, or aggro
+		return // invulnerable boss (sealed or idol-warded) - no trap damage, FX, or aggro
 	}
-	// Phys-to-element conversion cards apply to physical trap damage too — a
+	// Phys-to-element conversion cards apply to physical trap damage too - a
 	// physical trap is as much "party physical damage" as a swing or an arrow.
 	var convShares []physConvShare
 	if element == "physical" {
 		dmg, convShares = cs.game.splitPhysConversions(dmg)
 	}
-	// Trap damage runs the same armor→resist path as any hit: armor mitigates by
+	// Trap damage runs the same armor->resist path as any hit: armor mitigates by
 	// element (physical fully, elemental on the reduced cap), then resistances.
-	dmg = applyMonsterArmor(dmg, element, m.ArmorClass, false)
-	actual := m.TakeDamageResist(dmg, dmgType, 0, cs.game.camera.X, cs.game.camera.Y)
+	dmg = applyMonsterArmor(dmg, element, m.EffectiveArmorClass(), false)
+	actual := m.TakeDamageResist(dmg, dmgType, 0)
 	actual += cs.applyPhysConversionShares(m, convShares, false)
 	cs.markMonsterHit(m)
 	cs.game.AddCombatMessage(fmt.Sprintf("%s takes %d damage from %s!", m.Name, actual, sourceName))
@@ -368,8 +368,7 @@ func (cs *CombatSystem) finishIndirectKill(m *monsterPkg.Monster3D) {
 	if m.IsAlive() {
 		return
 	}
-	cs.game.collisionSystem.UnregisterEntity(m.ID)
-	cs.finishMonsterKill(m)
+	cs.finishMonsterKillImmediately(m)
 }
 
 // updateTraps runs once per frame from the game loop: ambient swirl VFX in
@@ -448,7 +447,7 @@ func (g *MMGame) spawnTrapSwirl(x, y float64, element string) {
 
 // TrapSave is the JSON form of a PlacedTrap. The owner is stored by NAME and
 // re-pointed at load (party names are unique); an unresolvable owner leaves
-// nil — the trap still fires at base values.
+// nil - the trap still fires at base values.
 type TrapSave struct {
 	Key        string  `json:"key"`
 	MapKey     string  `json:"map_key"`

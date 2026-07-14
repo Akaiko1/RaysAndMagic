@@ -9,9 +9,9 @@ import (
 )
 
 // TestJungleIconsResolve verifies every Deep Jungle weapon/item derives the icon
-// name the game looks up (itemTooltipIconName, via the name→key bridge) AND that
-// the matching 64×64 PNG is on disk. Guards the flavor-named uniques ("Idol-
-// Breaker…", "Mantle of the Idol-King") whose display name ≠ key, and catches any
+// name the game looks up (itemTooltipIconName, via the name->key bridge) AND that
+// the matching 64x64 PNG is on disk. Guards the flavor-named uniques ("Idol-
+// Breaker...", "Mantle of the Idol-King") whose display name != key, and catches any
 // future name/key drift that would silently blank an icon.
 func TestJungleIconsResolve(t *testing.T) {
 	newTestCombatSystemWithConfig(t) // loads weapons+items configs, sets up both bridges
@@ -40,7 +40,7 @@ func TestJungleIconsResolve(t *testing.T) {
 	check := func(item items.Item, want string) {
 		got := itemTooltipIconName(item)
 		if got != want {
-			t.Errorf("%q: itemTooltipIconName = %q, want %q (name→key drift)", item.Name, got, want)
+			t.Errorf("%q: itemTooltipIconName = %q, want %q (name->key drift)", item.Name, got, want)
 			return
 		}
 		if !iconOnDisk(want) {

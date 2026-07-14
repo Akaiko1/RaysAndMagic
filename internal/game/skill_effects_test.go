@@ -10,7 +10,7 @@ import (
 )
 
 // TestSkillTooltips_NoOmission: every skill (weapon/armor/misc) describes its
-// effect — none silently returns an empty tooltip.
+// effect - none silently returns an empty tooltip.
 func TestSkillTooltips_NoOmission(t *testing.T) {
 	for s := character.SkillSword; s <= character.SkillArmsMaster; s++ {
 		if strings.TrimSpace(masteryTooltipTextForSkill(s)) == "" {
@@ -35,6 +35,15 @@ func TestSkillTooltips_UseRealConstants(t *testing.T) {
 	for s, want := range checks {
 		if tip := masteryTooltipTextForSkill(s); !strings.Contains(tip, fmt.Sprint(want)) {
 			t.Errorf("skill %v tooltip %q should cite constant %d", s, tip, want)
+		}
+	}
+}
+
+func TestDisarmTrapTooltipMatchesChestMechanic(t *testing.T) {
+	tip := masteryTooltipTextForSkill(character.SkillDisarmTrap)
+	for _, want := range []string{"best active user", "40/60/80/100%", "0/1/2/3"} {
+		if !strings.Contains(tip, want) {
+			t.Errorf("Disarm Trap tooltip %q should contain %q", tip, want)
 		}
 	}
 }
@@ -116,7 +125,7 @@ func TestMerchant_AdjustsPrices(t *testing.T) {
 	if g.merchantBuyPrice(100) != 100 || g.merchantSellPrice(100) != 100 {
 		t.Fatalf("no Merchant skill should leave prices unchanged")
 	}
-	g.party.Members[0].Skills[character.SkillMerchant] = expertSkill() // tier 1 → 5%
+	g.party.Members[0].Skills[character.SkillMerchant] = expertSkill() // tier 1 -> 5%
 	if got := g.merchantBuyPrice(100); got != 100-MerchantPricePctPerTier {
 		t.Errorf("buy price = %d, want %d", got, 100-MerchantPricePctPerTier)
 	}
@@ -133,7 +142,7 @@ func TestLearning_BoostsXP(t *testing.T) {
 	m := g.party.Members[0]
 	m.Level = 50 // high enough that the grant won't trigger a level-up
 	m.Experience = 0
-	m.Skills[character.SkillLearning] = expertSkill() // tier 1 → +10%
+	m.Skills[character.SkillLearning] = expertSkill() // tier 1 -> +10%
 	// Isolate this member: drop the rest so grantSharedXP only touches them.
 	g.party.Members = g.party.Members[:1]
 	g.party.Reserve = nil

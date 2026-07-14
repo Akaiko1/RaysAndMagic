@@ -7,7 +7,7 @@ import (
 )
 
 // The wolf-cull bridge must target real water tiles on the REAL forest map and
-// swap them both — a coordinate typo here renders as "one plank, one water".
+// swap them both - a coordinate typo here renders as "one plank, one water".
 func TestWolfCullBridge_RealForestCoordinates(t *testing.T) {
 	cfg := loadTestConfig(t)
 
@@ -30,7 +30,7 @@ func TestWolfCullBridge_RealForestCoordinates(t *testing.T) {
 		key := world.GlobalTileManager.GetTileKey(got)
 		t.Logf("pre-quest tile (%d,%d) = %v (%s)", tc.X, tc.Y, got, key)
 		if key != "water" && key != "deep_water" {
-			t.Errorf("on_complete_tiles targets (%d,%d) which is %q, not water — wrong coordinates", tc.X, tc.Y, key)
+			t.Errorf("on_complete_tiles targets (%d,%d) which is %q, not water - wrong coordinates", tc.X, tc.Y, key)
 		}
 	}
 

@@ -78,7 +78,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 	}
 
 	// Fail fast: a biome's out_of_bounds_tile (off-map backdrop) must name a real
-	// tile — otherwise GetTileAt silently falls back to "seaview" and the data
+	// tile - otherwise GetTileAt silently falls back to "seaview" and the data
 	// typo goes unnoticed.
 	if GlobalTileManager != nil {
 		for name, biome := range wm.Biomes {
@@ -93,7 +93,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 
 	// Fail fast: catch typos in tiles.yaml floor_texture_group. A tile's
 	// named group must be defined by at least one biome (we don't require
-	// every biome to define it — universal tiles like water legitimately
+	// every biome to define it - universal tiles like water legitimately
 	// fall back to base color in biomes that omit the group). The dynamic
 	// "beach"/"default" fallbacks are resolved in the renderer, not from a
 	// tile field, so they need no entry here.
@@ -110,7 +110,7 @@ func (wm *WorldManager) LoadMapConfigs(filename string) error {
 // time instead of silently rendering the tile's base color.
 func (wm *WorldManager) validateTileFloorTextureGroups() error {
 	if GlobalTileManager == nil {
-		return nil // tiles not loaded (e.g. a context that skips them) — nothing to check
+		return nil // tiles not loaded (e.g. a context that skips them) - nothing to check
 	}
 	definedGroups := make(map[string]bool)
 	for _, biome := range wm.Biomes {
@@ -241,6 +241,12 @@ func (wm *WorldManager) attachMapClearEncounter(world *World3D, mapKey string, m
 			ax, ay := 0.0, 0.0
 			if ec.Rewards.TreasureChest != nil {
 				ax, ay = tileCenterFromTile(ec.Rewards.TreasureChest.TileX, ec.Rewards.TreasureChest.TileY, tileSize)
+			} else if len(ec.Rewards.TreasureChests) > 0 {
+				// A multi-chest reward still needs a spatial anchor to bind the
+				// intended nearby monster group. The first authored chest is the
+				// encounter's anchor; all chests fire together on its clear.
+				chest := ec.Rewards.TreasureChests[0]
+				ax, ay = tileCenterFromTile(chest.TileX, chest.TileY, tileSize)
 			}
 			rewards := buildEncounterRewards(ec, mapKey)
 			for _, req := range ec.Monsters {
@@ -326,7 +332,7 @@ func buildTreasureChestReward(chestCfg config.MapTreasureChestRewardConfig, mapK
 		TileX:             chestCfg.TileX,
 		TileY:             chestCfg.TileY,
 		Sprite:            chestCfg.Sprite,
-		SizeMultiplier:    chestCfg.SizeMultiplier,
+		SizeTiles:         chestCfg.SizeTiles,
 		RandomWeaponCount: chestCfg.RandomWeaponCount,
 		Items:             append([]string(nil), chestCfg.Items...),
 		Weapons:           append([]string(nil), chestCfg.Weapons...),

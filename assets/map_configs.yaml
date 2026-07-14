@@ -64,6 +64,12 @@ biomes:
         - "church_floor_2"
         - "church_floor_3"
 
+  arena:
+    floor_texture_groups:
+      default:
+        - "arena_sand_0"
+        - "arena_sand_1"
+
   pyramid:
     floor_texture_groups:
       default:
@@ -161,10 +167,10 @@ biomes:
       default:
         - "deep_jungle_floor_0"
         - "deep_jungle_floor_3"
-      # Mossy carved flagstone — the lost-city plaza/causeways (tile letter ':').
+      # Mossy carved flagstone - the lost-city plaza/causeways (tile letter ':').
       ruin:
         - "deep_jungle_floor_1"
-      # Wet flooded floodplain ground — várzea (tile letter ',').
+      # Wet flooded floodplain ground - varzea (tile letter ',').
       varzea:
         - "deep_jungle_floor_2"
       water:
@@ -212,7 +218,6 @@ maps:
             tile_x: 12
             tile_y: 8
             sprite: "chest"
-            size_multiplier: 5.0
             gold: 500
       - monsters:
           - type: "bandit"
@@ -225,7 +230,6 @@ maps:
             tile_x: 37
             tile_y: 41
             sprite: "chest"
-            size_multiplier: 5.0
             gold: 500
 
   water:
@@ -254,8 +258,21 @@ maps:
           tile_x: 15
           tile_y: 1
           sprite: "chest"
-          size_multiplier: 5.0
           random_weapon_count: 1
+
+  arena:
+    name: "The Grand Arena"
+    file: "arena.map"
+    biome: "arena"
+    sky_color: [140, 185, 230]
+    sky_texture: "arena_panorama"   # roofless: _day/_night variants drive the cycle
+    default_floor_color: [196, 164, 98]
+    # Champion-duel staging: start_arena_duel places the party and spawns the
+    # challenged champion at these tiles (the sand hall, facing each other).
+    duel:
+      party_tile: [11, 4]
+      champion_tile: [16, 4]
+      facing_deg: 0   # party looks east, straight at the champion
 
   pyramid_1:
     name: "Pyramid - Level 1"
@@ -280,38 +297,40 @@ maps:
     sky_color: [55, 42, 32]
     sky_texture: "pyramid_panorama"
     default_floor_color: [132, 100, 64]
-    clear_encounter:
-      rewards:
-        completion_message: "The last Isis falls. Four sealed dragon reliquaries slide open behind the dais."
-        treasure_chests:
-          - id: "pyramid_black_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 9
-            tile_y: 3
-            sprite: "pyramid_chest"
-            size_multiplier: 5.0
-            items: ["black_dragon_statuette"]
-          - id: "pyramid_red_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 13
-            tile_y: 3
-            sprite: "pyramid_chest"
-            size_multiplier: 5.0
-            items: ["red_dragon_statuette"]
-          - id: "pyramid_green_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 17
-            tile_y: 3
-            sprite: "pyramid_chest"
-            size_multiplier: 5.0
-            items: ["green_dragon_statuette"]
-          - id: "pyramid_gold_dragon_statuette_chest"
-            map: "pyramid_3"
-            tile_x: 21
-            tile_y: 3
-            sprite: "pyramid_chest"
-            size_multiplier: 5.0
-            items: ["gold_dragon_statuette"]
+    # The four Isis at the sanctum dais open the reliquaries. The lower pyramid
+    # inhabitants, including the hidden dragon, are normal map content and must
+    # not hold these chests hostage.
+    clear_encounters:
+      - monsters:
+          - type: "isis"
+            count: 4
+        rewards:
+          completion_message: "The last Isis falls. Four sealed dragon reliquaries slide open behind the dais."
+          treasure_chests:
+            - id: "pyramid_black_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 9
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["black_dragon_statuette"]
+            - id: "pyramid_red_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 13
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["red_dragon_statuette"]
+            - id: "pyramid_green_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 17
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["green_dragon_statuette"]
+            - id: "pyramid_gold_dragon_statuette_chest"
+              map: "pyramid_3"
+              tile_x: 21
+              tile_y: 3
+              sprite: "pyramid_chest"
+              items: ["gold_dragon_statuette"]
 
   lich_nexus:
     name: "Lich Nexus"
@@ -335,16 +354,17 @@ maps:
     name: "Eastern Isle Castle"
     file: "japanese_castle.map"
     biome: "japanese_castle"
+    town_portal_destination: true
     sky_color: [18, 22, 40]              # moonlit night
     sky_texture: "japanese_castle_panorama"
     default_floor_color: [70, 64, 56]
-    ambient_light: 0.5   # moonlit courtyard; lantern glow carries the halls
-    wall_torches: true   # paper lanterns flicker at inner wall corners
+    wall_torches: true   # paper lanterns flicker at inner wall corners; day/night clock sets brightness
 
   city:
     name: "Seabright"
     file: "city.map"
     biome: "city"
+    town_portal_destination: true
     sky_color: [120, 190, 230]
     sky_texture: "city_panorama"
     default_floor_color: [108, 102, 88]
@@ -372,13 +392,12 @@ maps:
     sky_color: [54, 84, 64]             # Humid green canopy haze
     sky_texture: "deep_jungle_panorama"
     default_floor_color: [34, 78, 40]   # Dark jungle green
-    ambient_light: 1.0   # full daylight; no ambient darkening
-    # Slay the warlord (only possible once his idols are broken) → the lost
+    # Slay the warlord (only possible once his idols are broken) -> the lost
     # city's treasury opens in the plaza. Zone gear + gold only; his uniques
     # drop from the boss itself (loots.yaml), so none can leak here.
     # PLURAL clear_encounters: binds only the N-nearest monsters of the listed
     # type to the chest. The SINGULAR `clear_encounter` ignores `monsters:` and
-    # binds EVERY mob on the map (chest fires only when the LAST one dies) — wrong
+    # binds EVERY mob on the map (chest fires only when the LAST one dies) - wrong
     # here: we want the chest the instant the warlord dies, not after the whole
     # zone is swept.
     clear_encounters:
@@ -393,5 +412,4 @@ maps:
             tile_x: 38
             tile_y: 13
             sprite: "chest"
-            size_multiplier: 5.0
             loot_table: "lost_city_cache"   # 3 rolls of zone gear + 400-900 gold

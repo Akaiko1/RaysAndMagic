@@ -55,7 +55,7 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 		t.Fatalf("load maps: %v", err)
 	}
 	// Forest has the densest, most varied (ranged + melee + banding) monster
-	// population of any map — the best odds of provoking cross-chunk contention.
+	// population of any map - the best odds of provoking cross-chunk contention.
 	if err := wm.SwitchToMap("forest"); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 		g.collisionSystem.UpdateEntity("player", m.X, m.Y)
 	}
 
-	const ticks = 600 // 10s at 60 TPS — race detector needs sustained contention
+	const ticks = 600 // 10s at 60 TPS - race detector needs sustained contention
 	for tick := 0; tick < ticks; tick++ {
 		g.frameCount++
 		monsters := g.ConvertMonstersToWrappers()
@@ -91,7 +91,7 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 // all collide on the same tick, landing in different worker chunks.
 // MagicProjectileWrapper.OnCollision -> CreateSpellHitEffectFromSpell ->
 // addScreenShake reads-then-writes g.screenShake with no lock (unlike
-// impactLights/spellHitEffects, which ARE guarded by hitEffectsMu) — two
+// impactLights/spellHitEffects, which ARE guarded by hitEffectsMu) - two
 // simultaneous impacts on different workers race on it.
 //
 // Run: go test ./internal/game/ -race -run TestRace_ProjectileImpactScreenShake -v
@@ -119,7 +119,7 @@ func TestRace_ProjectileImpactScreenShake(t *testing.T) {
 	g.threading = threading.NewThreadingComponents(cfg)
 	defer g.threading.Shutdown()
 
-	// addScreenShake's body is a couple of float comparisons — too small a
+	// addScreenShake's body is a couple of float comparisons - too small a
 	// window for the race detector to catch at low contention. Use enough
 	// projectiles that many workers land in CreateSpellHitEffectFromSpell's
 	// unlocked addScreenShake call at the same instant.

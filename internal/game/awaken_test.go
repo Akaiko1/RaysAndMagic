@@ -7,7 +7,7 @@ import (
 )
 
 // TestAwaken_RevivesAllUnconsciousToOneHP: Awaken rouses EVERY unconscious party
-// member to 1 HP (and only the unconscious — not the alive, not the truly dead).
+// member to 1 HP (and only the unconscious - not the alive, not the truly dead).
 func TestAwaken_RevivesAllUnconsciousToOneHP(t *testing.T) {
 	game, _, _ := tbBehaviorGame(t, 5, 5)
 
@@ -37,6 +37,6 @@ func TestAwaken_RevivesAllUnconsciousToOneHP(t *testing.T) {
 	}
 	// A healthy member is untouched (Awaken only revives, doesn't heal/cap).
 	if healthy.HitPoints != hpBefore {
-		t.Errorf("healthy member HP changed: %d → %d", hpBefore, healthy.HitPoints)
+		t.Errorf("healthy member HP changed: %d -> %d", hpBefore, healthy.HitPoints)
 	}
 }

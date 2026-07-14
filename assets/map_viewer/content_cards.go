@@ -4,7 +4,7 @@ package main
 // (weapons, items, spells) gets a per-kind builder that produces a single
 // `contentCard` carrying both the short summary line and the full tooltip
 // rows. The page renderer (content_page.go) doesn't need to know what kind
-// of thing a card represents — it just lays them out by section.
+// of thing a card represents - it just lays them out by section.
 
 import (
 	"fmt"
@@ -29,6 +29,7 @@ type contentCard struct {
 	key      string // YAML key (used to resolve icon filename)
 	name     string
 	subtitle string // short stat line shown on the card
+	rarity   string // item/weapon rarity - tints the name on the card and in the tooltip
 
 	// Tooltip-only fields (full data).
 	description string
@@ -149,7 +150,7 @@ func buildItemCards() []contentCard {
 
 // buildSpellCards groups spells BY SCHOOL (canonical order from the character
 // package), and within each school sorts by spell level then name. Battle and
-// utility spells are mixed together — the school is the only grouping.
+// utility spells are mixed together - the school is the only grouping.
 func buildSpellCards() []contentCard {
 	if config.GlobalSpells == nil {
 		return nil
@@ -205,7 +206,7 @@ func buildSpellCards() []contentCard {
 }
 
 // buildTrapCards lists the thief traps under their own section. Mechanics rows
-// come from config.TrapDefinitionConfig.EffectLines — the SAME source as the
+// come from config.TrapDefinitionConfig.EffectLines - the SAME source as the
 // in-game trap-book tooltip, so the editor can't drift.
 func buildTrapCards() []contentCard {
 	var cards []contentCard
@@ -214,20 +215,24 @@ func buildTrapCards() []contentCard {
 		if !ok {
 			continue
 		}
-		rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
-		rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
-		cards = append(cards, contentCard{
-			kind:        cardSpell,
-			section:     "Traps (Thief)",
-			key:         key,
-			name:        def.Name,
-			subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
-			description: def.Description,
-			tooltipRows: rows,
-			icon:        def.Icon,
-		})
+		cards = append(cards, trapCard("Traps (Thief)", key, def))
 	}
 	return cards
+}
+
+func trapCard(section, key string, def *config.TrapDefinitionConfig) contentCard {
+	rows := []string{"Level: " + fmt.Sprintf("%d", def.Level)}
+	rows = append(rows, character.RenderCardLines(character.TrapCardSections(def, config.TrapPlaceRangeTiles, config.MaxTrapsPerOwner), true)...)
+	return contentCard{
+		kind:        cardSpell,
+		section:     section,
+		key:         key,
+		name:        def.Name,
+		subtitle:    fmt.Sprintf("Lv %d  SP %d", def.Level, def.SPCost),
+		description: def.Description,
+		tooltipRows: rows,
+		icon:        def.Icon,
+	}
 }
 
 func weaponCard(section, key string, def *config.WeaponDefinitionConfig) contentCard {
@@ -238,9 +243,12 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 	if def.BonusStat != "" {
 		subtitle += "  +" + def.BonusStat
 	}
+	if def.BonusStatSecondary != "" {
+		subtitle += fmt.Sprintf("  +%s/%d", def.BonusStatSecondary, character.WeaponSecondaryStatDivisor)
+	}
 	// Unified template (shared engine in character/cardtemplate.go): the
-	// editor shows the character-independent variant — formulas in place of
-	// personal numbers — in the same section order as the in-game tooltip.
+	// editor shows the character-independent variant - formulas in place of
+	// personal numbers - in the same section order as the in-game tooltip.
 	rows := character.RenderCardLines(character.WeaponCardSections(def), true)
 	if def.Rarity != "" {
 		rows = appendRow(rows, "Rarity", titleCase(def.Rarity))
@@ -254,14 +262,15 @@ func weaponCard(section, key string, def *config.WeaponDefinitionConfig) content
 		key:         key,
 		name:        def.Name,
 		subtitle:    subtitle,
+		rarity:      def.Rarity,
 		description: def.Description,
 		flavor:      def.Flavor,
 		tooltipRows: rows,
 	}
 }
 
-// wearableKindLabel names a wearable by its SLOT (Belt / Amulet / Cloak / …),
-// matching the in-game tooltip's itemKindLabel — "Accessory" says nothing
+// wearableKindLabel names a wearable by its SLOT (Belt / Amulet / Cloak / ...),
+// matching the in-game tooltip's itemKindLabel - "Accessory" says nothing
 // about where the piece goes.
 func wearableKindLabel(def *config.ItemDefinitionConfig) string {
 	t := strings.ToLower(strings.TrimSpace(def.Type))
@@ -294,7 +303,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 	}
 
 	rows := []string{"Type: " + kind}
-	// Unified template (character/cardtemplate.go) — same sections as the
+	// Unified template (character/cardtemplate.go) - same sections as the
 	// in-game tooltip, character-independent variant.
 	rows = append(rows, character.RenderCardLines(character.ItemCardSections(def), true)...)
 	if def.Rarity != "" {
@@ -310,6 +319,7 @@ func itemCard(section, key string, def *config.ItemDefinitionConfig) contentCard
 		key:         key,
 		name:        def.Name,
 		subtitle:    subtitle,
+		rarity:      def.Rarity,
 		description: def.Description,
 		flavor:      def.Flavor,
 		tooltipRows: rows,
@@ -373,7 +383,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 	sd, sdErr := spells.GetSpellDefinitionByID(spells.SpellID(key))
 
 	// Monster-only spells are cast with the monster's own attack damage (no SP /
-	// Intellect / mastery / crit), so the player-formula card would lie — render
+	// Intellect / mastery / crit), so the player-formula card would lie - render
 	// the dedicated monster card instead.
 	if def.MonsterOnly {
 		subtitle := fmt.Sprintf("MONSTER ONLY  %s  Lvl %d", titleCase(def.School), def.Level)
@@ -396,9 +406,9 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		}
 	}
 
-	// Base damage comes from the SAME formula combat uses (cost ×
-	// SpellDamagePerSP × damage_cost_multiplier) — intellect 0 isolates the
-	// character-independent base. A hand-rolled cost×N here ignored the
+	// Base damage comes from the SAME formula combat uses (cost x
+	// SpellDamagePerSP x damage_cost_multiplier) - intellect 0 isolates the
+	// character-independent base. A hand-rolled costxN here ignored the
 	// multiplier (Ray of Light showed half its real base).
 	baseDamage := 0
 	if def.IsProjectile && !def.DealsNoDamage { // no-damage projectiles (Charm/Disintegrate) deal nothing
@@ -418,7 +428,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 		subtitle += fmt.Sprintf("  %ds", def.Duration)
 	}
 
-	// Unified template (character/cardtemplate.go) — same sections as the
+	// Unified template (character/cardtemplate.go) - same sections as the
 	// in-game tooltip, character-independent variant (formulas, not numbers).
 	var rows []string
 	rows = appendRow(rows, "School", titleCase(def.School))
@@ -440,7 +450,7 @@ func spellCard(section, key string, def *config.SpellDefinitionConfig) contentCa
 // --- Characters page ---------------------------------------------------------
 //
 // The class list, skill list, class blurbs and skill descriptions are NOT
-// duplicated here — they come from the shared `character` package
+// duplicated here - they come from the shared `character` package
 // (PlayableClasses, AllSkills, CharacterClass.Blurb, SkillType.Description/
 // Category), so adding a class or skill to the game updates the editor too.
 
@@ -540,7 +550,7 @@ func (v *viewer) tileSpriteThumbnail(sprite string) *ebiten.Image {
 	}
 	cacheKey := "tilesprite:" + sprite
 	if img, ok := v.iconCache[cacheKey]; ok {
-		return img // may be nil — already checked, no file
+		return img // may be nil - already checked, no file
 	}
 	if path, ok := graphics.ResolveSpritePath(sprite); ok {
 		if img, _, err := ebitenutil.NewImageFromFile(path); err == nil {
@@ -576,7 +586,7 @@ func (v *viewer) iconForCard(c *contentCard) *ebiten.Image {
 	}
 	cacheKey := prefix + ":" + c.key
 	if img, ok := v.iconCache[cacheKey]; ok {
-		return img // may be nil — "we already checked, no file"
+		return img // may be nil - "we already checked, no file"
 	}
 	path, ok := graphics.ResolveSpritePath(fileBase)
 	if !ok {

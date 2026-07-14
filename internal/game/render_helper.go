@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"ugataima/internal/character"
+	"ugataima/internal/monster"
 	"ugataima/internal/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -28,7 +30,7 @@ func NewRenderingHelper(game *MMGame) *RenderingHelper {
 
 // CalculateWallDimensionsWithHeight calculates wall dimensions with a height multiplier
 func (rh *RenderingHelper) CalculateWallDimensionsWithHeight(distance, heightMultiplier float64) (wallHeight, wallTop int) {
-	// Division guard only — collision keeps the camera farther away than this.
+	// Division guard only - collision keeps the camera farther away than this.
 	// The wall's vanish-at-point-blank bug came from CAPPING the height while
 	// the floor anchor kept growing (the capped top sank below the screen);
 	// with the height uncapped the projection stays correct at any range, and
@@ -363,38 +365,74 @@ func (rh *RenderingHelper) GetTileColor(tileType world.TileType3D) color.RGBA {
 	return color.RGBA{101, 67, 33, 255}
 }
 
-// CalculateMonsterSpriteMetrics calculates sprite position and size for 3D rendering with monster-specific size multiplier
-func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeGameMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	// Match environment sprite scaling (moss rocks, trees) using the same formula and caps.
-	distanceMultiplier := float64(rh.game.config.Graphics.Monster.SizeDistanceMultiplier) * sizeGameMultiplier
-	heightMultiplier := distanceMultiplier / float64(rh.game.config.GetScreenHeight())
-	screenX, screenY, spriteSize, visible = rh.calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier)
-
-	// screenY is now correctly calculated by calculateScreenCappedSpriteMetrics to anchor
-	// the sprite's bottom to the floor at its distance
-
-	return screenX, screenY, spriteSize, visible
-}
-
-// CalculateNPCSpriteMetrics calculates sprite position and size for NPCs (larger than monsters).
-// People-sized NPCs use this; buildings should set render_type: environment_sprite in YAML
-// so they go through CalculateEnvironmentSpriteMetrics (same path as the shipwreck) instead.
-//
-// sizeMultiplier scales maxSize (how big a "size 4" NPC gets up close) and the
-// distance multiplier (so it grows proportionally), but NOT minSize — the floor
-// stays absolute so far-away NPCs recede to the same pixel size as small ones,
-// instead of clamping at a sizeMultiplier×bigger floor and appearing oversized
-// relative to the receding background.
-func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	if sizeMultiplier <= 0 {
-		sizeMultiplier = 1
+// billboardMetrics is THE sizing formula for every floor-anchored entity
+// billboard (monsters, NPCs, props, loot containers): height in tiles
+// (1.0 == a 1-tile wall), no near-cull - entities remain visible when the
+// party steps into their tile. The only knob that varies by subject is the
+// minimum pixel floor (how small a far sprite is allowed to recede to).
+// Environment TILES (trees etc.) add a tile-type multiplier on top - see
+// calculateEnvironmentSpriteMetrics; both funnel into projectSpriteMetrics.
+func (rh *RenderingHelper) billboardMetrics(entityX, entityY, distance, sizeTiles float64, minSize int) (screenX, screenY, spriteSize int, visible bool) {
+	if sizeTiles <= 0 {
+		sizeTiles = 1
 	}
-	minSize := rh.game.config.Graphics.NPC.MinSpriteSize
-	effectiveMultiplier := int(float64(rh.game.config.Graphics.NPC.SizeDistanceMultiplier) * sizeMultiplier)
-	return rh.calculateBoundedSpriteMetrics(entityX, entityY, distance, minSize, effectiveMultiplier)
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 0, sizeTiles, minSize)
 }
 
-// CalculateEnvironmentSpriteMetrics calculates sprite position and size for environment sprites (similar to trees)
+// sceneryMinSpriteSize is the pixel floor for prop standees (scenery/landmark/
+// wall/door): unlike people they may recede to almost nothing at range.
+const sceneryMinSpriteSize = 8
+
+// CalculateMonsterSpriteMetrics sizes a monster billboard (low pixel floor so
+// distant mobs shrink freely). sizeTiles is height in tiles.
+func (rh *RenderingHelper) CalculateMonsterSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+}
+
+// CalculateGroundContainerSpriteMetrics sizes an interactable loot container.
+func (rh *RenderingHelper) CalculateGroundContainerSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.Monster.MinSpriteSize)
+}
+
+// CalculateNPCSpriteMetrics sizes a person-NPC billboard (higher pixel floor so
+// distant NPCs stay readable). NPCs remain visible when walked up to, matching
+// loot containers instead of disappearing under a near-cull.
+func (rh *RenderingHelper) CalculateNPCSpriteMetrics(entityX, entityY, distance, sizeTiles float64) (screenX, screenY, spriteSize int, visible bool) {
+	return rh.billboardMetrics(entityX, entityY, distance, sizeTiles, rh.game.config.Graphics.NPC.MinSpriteSize)
+}
+
+// npcSizeTiles resolves an NPC's sprite height in tiles: a shared size_class
+// (same table as monsters) wins, else the raw size_tiles number.
+func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
+	if npc.SizeClass != "" {
+		if h, ok := monster.SizeClassTiles(npc.SizeClass); ok {
+			return h
+		}
+	}
+	return npc.SizeTiles
+}
+
+// NPCSpriteMetrics projects an NPC billboard through the correct path
+// (environment/landmark props vs person NPCs). Single source for both the
+// renderer and click hit-testing so drawing and hit-tests never diverge.
+func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
+	size := rh.npcSizeTiles(npc)
+	if rh.game.npcIsWalkUpProp(npc) {
+		return rh.CalculateGroundContainerSpriteMetrics(ex, ey, distance, size)
+	}
+	// One sizing formula for all NPCs (billboardMetrics); only the minimum
+	// pixel floor differs - props may recede far smaller than people.
+	switch npcRenderCatOf(npc) {
+	case catScenery, catLandmark, catWall, catDoor:
+		return rh.billboardMetrics(ex, ey, distance, size, sceneryMinSpriteSize)
+	default:
+		return rh.CalculateNPCSpriteMetrics(ex, ey, distance, size)
+	}
+}
+
+// CalculateEnvironmentSpriteMetrics sizes an environment TILE sprite (trees,
+// rocks): billboardMetrics' model plus the tile-type height multiplier, and a
+// fixed 5.0 near-cull (env tiles keep it even in turn-based mode).
 func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, distance float64, tileType world.TileType3D, sizeScale float64) (screenX, screenY, spriteSize int, visible bool) {
 	if sizeScale <= 0 {
 		sizeScale = 1
@@ -402,13 +440,11 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 	// Get visual size multiplier from tile definition (trees = 2.0, ferns = 1.0, etc.)
 	heightMultiplier := rh.game.config.Graphics.Sprite.TreeHeightMultiplier
 	if world.GlobalTileManager != nil {
-		heightMultiplier = world.GlobalTileManager.GetSizeMultiplier(tileType)
+		heightMultiplier = world.GlobalTileManager.GetSizeTiles(tileType)
 	}
 	heightMultiplier *= sizeScale
 
-	// Fixed 5.0 near cull: environment sprites keep it even in turn-based mode
-	// (only monsters/NPCs get the close-range exemption).
-	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, 8)
+	return rh.projectSpriteMetrics(entityX, entityY, distance, 5.0, heightMultiplier, sceneryMinSpriteSize)
 }
 
 // projectSpriteMetrics is the shared projection core for floor-anchored
@@ -419,11 +455,11 @@ func (rh *RenderingHelper) CalculateEnvironmentSpriteMetrics(entityX, entityY, d
 //
 // Math notes:
 //   - Culling uses the Euclidean distance parameter; sizing uses PERPENDICULAR
-//     distance from projectToScreenX — Euclidean sizing would create fisheye
+//     distance from projectToScreenX - Euclidean sizing would create fisheye
 //     distortion at screen edges
 //   - The size cap is a numeric sanity bound only: any screen-pixel cap
 //     reachable at playable range makes the sprite SINK as the camera closes
-//     in — the floor anchor keeps growing ~1/d while the capped size stops,
+//     in - the floor anchor keeps growing ~1/d while the capped size stops,
 //     dragging the top below the viewport. The GPU clips oversize sprites.
 //   - Screen Y anchors the sprite's BOTTOM edge to the floor at its perpDist,
 //     so sprites appear grounded rather than floating
@@ -456,46 +492,6 @@ func (rh *RenderingHelper) projectSpriteMetrics(entityX, entityY, distance, minD
 	return screenX, screenY, spriteSize, true
 }
 
-// spriteNearCull returns the near-cull distance for monster/NPC sprites: in
-// turn-based mode monsters can be very close (adjacent tiles), so allow them
-// to render at close range.
-func (rh *RenderingHelper) spriteNearCull() float64 {
-	if rh.game.turnBasedMode {
-		return 1.0
-	}
-	return 5.0
-}
-
-// calculateBoundedSpriteMetrics projects an entity and sizes its sprite with a
-// caller-supplied minimum (far-away sprites stay readable). NPCs use this path
-// because they carry a per-NPC `size_multiplier` scaling both the projection
-// coefficient and the minimum together (so a "size 4" NPC reads as a tall
-// building, not the same size as a "size 1" NPC).
-//
-// There is deliberately NO maximum at playable range: a screen-pixel cap makes
-// the sprite SINK as the camera closes in — the floor anchor keeps growing
-// ~1/d while the capped size stops, dragging the top below the viewport.
-func (rh *RenderingHelper) calculateBoundedSpriteMetrics(entityX, entityY, distance float64, minSize, multiplier int) (screenX, screenY, spriteSize int, visible bool) {
-	heightMultiplier := float64(multiplier) / float64(rh.game.config.GetScreenHeight())
-	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, minSize)
-}
-
-// calculateScreenCappedSpriteMetrics projects an entity and sizes its sprite
-// using a SCREEN-RELATIVE scaling model.
-//
-// Use this for entities that should grow freely as the player approaches
-// until they fill the viewport — environment props (trees, ferns, moss),
-// monsters, and ground containers (loot bags, treasure chests). There are
-// no per-instance bounds; the sprite is allowed to scale up to one screen
-// height (so a big monster fills the screen at point-blank range) and is
-// floored at 8 px so distant sprites don't vanish to a single row.
-//
-// For the alternative (per-instance min/max bounds, NPCs), see
-// calculateBoundedSpriteMetrics.
-func (rh *RenderingHelper) calculateScreenCappedSpriteMetrics(entityX, entityY, distance, heightMultiplier float64) (screenX, screenY, spriteSize int, visible bool) {
-	return rh.projectSpriteMetrics(entityX, entityY, distance, rh.spriteNearCull(), heightMultiplier, 8)
-}
-
 // calculateSpriteSizeWithHeightMultiplier returns a sprite height using the
 // same scaling model as environment sprites (e.g., moss rocks).
 func (rh *RenderingHelper) calculateSpriteSizeWithHeightMultiplier(perpDist, heightMultiplier float64) int {
@@ -519,21 +515,21 @@ func (rh *RenderingHelper) RenderBackgroundLayers(screen *ebiten.Image) {
 // floorShaderSrc is a Kage fragment shader that renders the perspective
 // floor. Per-fragment logic:
 //
-//	samplePx = floor(px/2)·2 + 1               # 2×2 block quantization
+//	samplePx = floor(px/2)-2 + 1               # 2x2 block quantization
 //	rowDist  = RowDistFactor / (samplePx.y - Horizon)
-//	s        = 2·samplePx.x / ScreenSize.x - 1
-//	floorX   = camX + rowDist·DirCos + rowDist·PlaneCos·s
-//	floorY   = camY + rowDist·DirSin + rowDist·PlaneSin·s
+//	s        = 2-samplePx.x / ScreenSize.x - 1
+//	floorX   = camX + rowDist-DirCos + rowDist-PlaneCos-s
+//	floorY   = camY + rowDist-DirSin + rowDist-PlaneSin-s
 //	tx, ty   = floor(floor[XY] / TileSize)
 //	base     = floorColorMap[tx, ty]
 //	idx      = floorTextureIndexMap[tx, ty].r - 1
-//	texel    = atlas[idx·TexW + int(localX·TexW), int(localY·TexH)]
-//	weight   = 0.8 · (1 - smoothstep(1.5, 5.0, texelsPerPixel))
-//	color    = mix(base, texel, weight) · brightness(dist, lights)
+//	texel    = atlas[idx-TexW + int(localX-TexW), int(localY-TexH)]
+//	weight   = 0.8 - (1 - smoothstep(1.5, 5.0, texelsPerPixel))
+//	color    = mix(base, texel, weight) - brightness(dist, lights)
 //
 // Inputs:
 //
-//	Images[0] = floorColorMap (worldW×worldH RGBA8 base colors)
+//	Images[0] = floorColorMap (worldWxworldH RGBA8 base colors)
 //	Images[1] = floorTexAtlas (horizontal strip of N floor textures)
 //	Images[2] = floorTextureIndexMap (R = atlas index + 1, 0 = no texture)
 const floorShaderSrc = `//kage:unit pixels
@@ -689,7 +685,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // manual bilinear filtering and X-axis wrap. Doing this in a custom shader
 // lets us avoid the deprecated DrawTrianglesOptions.Filter / Address paths
 // (which break batching and force the source out of the texture atlas).
-// turnBlurShaderSrc is a horizontal directional blur — camera motion blur for a
+// turnBlurShaderSrc is a horizontal directional blur - camera motion blur for a
 // yaw turn (the whole scene pans sideways, so the smear is horizontal). It box-
 // averages taps spread across [-BlurPx, +BlurPx] on the X axis of the source
 // scene image; BlurPx (pixels) tracks the turn speed. Y is clamped per row.
@@ -754,7 +750,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 // drawSkyPanorama draws the sky with an isotropic pixel scale (horizontal scale
 // equals vertical scale) so panorama features don't appear stretched at any
 // resolution. The visible source span auto-adapts to screen width, which means
-// the texture repeats more times per 360° turn on wider screens — classic
+// the texture repeats more times per 360deg turn on wider screens - classic
 // Doom-style behavior, but without anisotropy.
 //
 // Sampling is done by skyShader, which performs bilinear filtering + X-wrap in
@@ -765,7 +761,17 @@ func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
 	if panorama == nil {
 		return false
 	}
+	// Day/night phase flip: crossfade the incoming panorama over the outgoing one.
+	if prev := rh.game.skyPanoramaPrev; prev != nil && rh.game.skyFadeFrames > 0 {
+		drew := rh.drawSkyLayer(screen, prev, 1)
+		return rh.drawSkyLayer(screen, panorama, rh.game.skyFadeAlpha()) || drew
+	}
+	return rh.drawSkyLayer(screen, panorama, 1)
+}
 
+// drawSkyLayer draws one panorama at the given opacity (premultiplied vertex
+// colors, so layered draws source-over into a crossfade).
+func (rh *RenderingHelper) drawSkyLayer(screen *ebiten.Image, panorama *ebiten.Image, alpha float32) bool {
 	shader, err := rh.game.ensureSkyShader()
 	if err != nil || shader == nil {
 		return false
@@ -800,11 +806,12 @@ func (rh *RenderingHelper) drawSkyPanorama(screen *ebiten.Image) bool {
 	dx1 := float32(screenWidth)
 	dy1 := float32(skyHeight)
 
+	a := alpha
 	vertices := [4]ebiten.Vertex{
-		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
-		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1},
+		{DstX: 0, DstY: 0, SrcX: float32(sx0), SrcY: float32(sy0), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: dx1, DstY: 0, SrcX: float32(sx1), SrcY: float32(sy0), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: 0, DstY: dy1, SrcX: float32(sx0), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
+		{DstX: dx1, DstY: dy1, SrcX: float32(sx1), SrcY: float32(sy1), ColorR: a, ColorG: a, ColorB: a, ColorA: a},
 	}
 	indices := [6]uint16{0, 1, 2, 1, 3, 2}
 	op := &ebiten.DrawTrianglesShaderOptions{}

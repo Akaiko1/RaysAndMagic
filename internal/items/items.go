@@ -74,6 +74,8 @@ type Item struct {
 	InstanceID uint64 `json:"instance_id,omitempty"`
 	// For armor
 	ArmorCategory string
+	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
+	Set string `json:"set,omitempty"`
 	// For spells
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
@@ -82,7 +84,7 @@ type Item struct {
 
 // PreferredSlot resolves where this item equips from its equip_slot attribute,
 // falling back to the given slot when unset. Single source for the
-// equip_slot→slot mapping (used by EquipItem and the class-kit loader).
+// equip_slot->slot mapping (used by EquipItem and the class-kit loader).
 func (it Item) PreferredSlot(fallback EquipSlot) EquipSlot {
 	if code, ok := it.Attributes["equip_slot"]; ok {
 		return EquipSlot(code)
@@ -100,7 +102,7 @@ const (
 	ItemQuest
 	ItemBattleSpell  // Offensive spells (Fireball, Lightning, etc.)
 	ItemUtilitySpell // Support spells (Heal, Buffs, etc.)
-	ItemTrinket      // Collectible curios (gems, trophies) — non-equippable, discardable, sellable.
+	ItemTrinket      // Collectible curios (gems, trophies) - non-equippable, discardable, sellable.
 	// ItemTrap and ItemCard are APPENDED at the end and must never be reordered:
 	// saves serialize Type as an int, so inserting mid-enum re-types every item
 	// after the insertion point (trinkets were briefly read back as traps).
@@ -238,6 +240,9 @@ type WeaponDefinitionFromYAML struct {
 	Category    string
 	Rarity      string
 	Value       int
+	// EquipPersonalityMin: any character with this much effective Personality
+	// may wield the weapon without its category skill (Lanista's Scepter).
+	EquipPersonalityMin int
 }
 
 // getGlobalWeaponDef accesses the global weapon configuration
@@ -250,7 +255,7 @@ func getGlobalWeaponDef(weaponKey string) (*WeaponDefinitionFromYAML, bool) {
 var GlobalWeaponAccessor func(string) (*WeaponDefinitionFromYAML, bool)
 
 // GlobalWeaponKeyByName is set by the config bridge to resolve a weapon's display
-// name to its YAML key via the real name index — handles flavor names the naive
+// name to its YAML key via the real name index - handles flavor names the naive
 // transform below can't (e.g. "Kage-kunai, the Twin Shadows" -> "kage_kunai",
 // "Kanabo" -> "kanabo"). Unset in isolated tests, where the fallback applies.
 var GlobalWeaponKeyByName func(string) (string, bool)
@@ -259,7 +264,7 @@ var GlobalWeaponKeyByName func(string) (string, bool)
 // exact config name index (punctuation/flavor-name safe); falls back to a
 // lower+underscore transform only when the bridge is unset or the name is unknown.
 // The fallback is why a weapon whose display name isn't its key-with-spaces (a
-// comma or an "of the ...") was previously unequippable — now resolved.
+// comma or an "of the ...") was previously unequippable - now resolved.
 func GetWeaponKeyByName(name string) string {
 	if GlobalWeaponKeyByName != nil {
 		if key, ok := GlobalWeaponKeyByName(name); ok {
@@ -295,13 +300,18 @@ type ItemDefinitionFromYAML struct {
 	SummonDistanceTiles       int
 	EquipSlot                 string
 	BonusMight                int
-	Resistances               map[string]int // per-school % damage resist (school→percent)
+	Resistances               map[string]int // per-school % damage resist (school->percent)
 	Value                     int
 	Revive                    bool
 	FullHeal                  bool
 	CurePoison                bool
 	OpensMap                  bool
 	PromotesLich              bool
+	Discardable               bool
+	Set                       string // armor-set key this piece belongs to
+	PartyArmorBonus           int    // flat AC to every OTHER party member while equipped
+	ManaBase                  int    // consumable: SP restored (+ Personality/divisor)
+	ManaPersonalityDivisor    int
 }
 
 // GlobalItemAccessor is set by a bridge to provide item access without circular imports
@@ -388,6 +398,15 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	if def.SummonDistanceTiles != 0 {
 		attrs["summon_distance_tiles"] = def.SummonDistanceTiles
 	}
+	if def.ManaBase != 0 {
+		attrs["mana_base"] = def.ManaBase
+	}
+	if def.ManaPersonalityDivisor != 0 {
+		attrs["mana_personality_divisor"] = def.ManaPersonalityDivisor
+	}
+	if def.PartyArmorBonus != 0 {
+		attrs["party_armor_bonus"] = def.PartyArmorBonus
+	}
 	// Map equip_slot string to EquipSlot constant and store in attributes
 	if def.EquipSlot != "" {
 		slotCode := mapEquipSlotStringToCode(def.EquipSlot)
@@ -409,6 +428,9 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.PromotesLich {
 		attrs["promotes_lich"] = 1
+	}
+	if def.Discardable {
+		attrs["discardable"] = 1
 	}
 	if def.Revive {
 		attrs["revive"] = 1
@@ -433,11 +455,12 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 		Rarity:        def.Rarity,
 		Attributes:    attrs,
 		ArmorCategory: def.ArmorType,
+		Set:           def.Set,
 		InstanceID:    NewInstanceID(),
 	}, nil
 }
 
-// equipSlotByName is the ONE equip_slot name → slot mapping. Config validation
+// equipSlotByName is the ONE equip_slot name -> slot mapping. Config validation
 // (validateItemConfig) checks names against it too, so a YAML typo fails at
 // load instead of silently routing to the armor slot.
 var equipSlotByName = map[string]EquipSlot{

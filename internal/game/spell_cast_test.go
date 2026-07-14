@@ -1,6 +1,6 @@
 package game
 
-// Spell-cast integration tests — exercise the REAL CombatSystem.CastEquippedSpell
+// Spell-cast integration tests - exercise the REAL CombatSystem.CastEquippedSpell
 // path with spells loaded from spells.yaml. Replaces the placebo
 // internal/character/combat_test.go which used to test a fake CombatSystem
 // against a fake formula.
@@ -89,22 +89,22 @@ func TestCastEquippedSpell_FailsWithoutEquippedSpell(t *testing.T) {
 func TestCalculateSpellDamage_FollowsCanonicalFormula(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	// Reuse the helper to load a real spell; assertion below derives expected
-	// damage purely from balance constants + YAML cost — no magic literal.
+	// damage purely from balance constants + YAML cost - no magic literal.
 	equipSpellAndPrepareCaster(t, cs, "fireball", 100, 14)
 	caster := cs.game.party.Members[0]
 	def, _ := spells.GetSpellDefinitionByID("fireball")
 
 	base, intBonus, total := cs.CalculateSpellDamage(def.ID, caster)
 
-	// Canonical formula: base = cost × SpellDamagePerSP, intBonus =
+	// Canonical formula: base = cost x SpellDamagePerSP, intBonus =
 	// intellect / SpellIntellectDivisor, total = base + intBonus (+ mastery
-	// bonus, which is 0 at Novice — the default for a freshly created char).
+	// bonus, which is 0 at Novice - the default for a freshly created char).
 	wantBase := def.SpellPointsCost * spells.SpellDamagePerSP
 	wantInt := caster.Intellect / spells.SpellIntellectDivisor
 	wantTotal := wantBase + wantInt
 
 	if base != wantBase {
-		t.Errorf("base damage: got %d, want %d (cost=%d × %d)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
+		t.Errorf("base damage: got %d, want %d (cost=%d x %d)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
 	}
 	if intBonus != wantInt {
 		t.Errorf("intellect bonus: got %d, want %d (int=%d / %d)", intBonus, wantInt, caster.Intellect, spells.SpellIntellectDivisor)
@@ -114,7 +114,7 @@ func TestCalculateSpellDamage_FollowsCanonicalFormula(t *testing.T) {
 	}
 }
 
-// Ray of Light: base damage = cost × SpellDamagePerSP × 2 (damage_cost_multiplier),
+// Ray of Light: base damage = cost x SpellDamagePerSP x 2 (damage_cost_multiplier),
 // and the stat term scales with BOTH Intellect AND Personality (scales_with_personality).
 func TestRayOfLight_DamageScalesWithCostAndBothStats(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -138,7 +138,7 @@ func TestRayOfLight_DamageScalesWithCostAndBothStats(t *testing.T) {
 	wantTotal := wantBase + wantStat
 
 	if base != wantBase {
-		t.Errorf("base: got %d, want %d (cost %d × %d × 2)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
+		t.Errorf("base: got %d, want %d (cost %d x %d x 2)", base, wantBase, def.SpellPointsCost, spells.SpellDamagePerSP)
 	}
 	if statBonus != wantStat {
 		t.Errorf("stat bonus: got %d, want %d (Int/%d + Per/%d)", statBonus, wantStat, spells.SpellIntellectDivisor, spells.SpellIntellectDivisor)
@@ -149,7 +149,7 @@ func TestRayOfLight_DamageScalesWithCostAndBothStats(t *testing.T) {
 }
 
 // Regression: a normal spell (no multiplier / personality flag) is unchanged by
-// the new data-driven fields — base stays cost × SpellDamagePerSP, stat term is
+// the new data-driven fields - base stays cost x SpellDamagePerSP, stat term is
 // Intellect-only.
 func TestNormalSpell_UnaffectedByRayOfLightFields(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -161,7 +161,7 @@ func TestNormalSpell_UnaffectedByRayOfLightFields(t *testing.T) {
 	base, statBonus, _ := cs.CalculateSpellDamage(def.ID, caster)
 
 	if want := def.SpellPointsCost * spells.SpellDamagePerSP; base != want {
-		t.Errorf("fireball base changed: got %d, want %d (cost × perSP, multiplier defaults to 1)", base, want)
+		t.Errorf("fireball base changed: got %d, want %d (cost x perSP, multiplier defaults to 1)", base, want)
 	}
 	if want := caster.GetEffectiveIntellect() / spells.SpellIntellectDivisor; statBonus != want {
 		t.Errorf("fireball stat bonus should be Intellect-only: got %d, want %d (Personality must NOT contribute)", statBonus, want)

@@ -18,7 +18,7 @@ import (
 )
 
 // Mobs page: pick a monster, see its full stat sheet, drop table and a live
-// animated preview — the game's own AI + renderer via game.MobPreview, so a
+// animated preview - the game's own AI + renderer via game.MobPreview, so a
 // banding mob shows its whole flock patrolling.
 
 const (
@@ -30,11 +30,13 @@ const (
 )
 
 // infoLine is one stat-sheet row with its tint (the game's line-color idiom:
-// whole lines carry meaning colors — damage red, HP green, resists by school,
-// drops by rarity).
+// whole lines carry meaning colors - damage red, HP green, resists by school,
+// drops by rarity). Header lines render on a filled band (the editor/game
+// section-header convention).
 type infoLine struct {
-	text string
-	col  color.Color
+	text   string
+	col    color.Color
+	header bool
 }
 
 var mobsPage struct {
@@ -253,7 +255,12 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 			game.DrawShadedText(info, "...", x, infoY, mobStatHeader)
 			break
 		}
-		game.DrawShadedText(info, line.text, x, infoY+row*mobInfoRowH, line.col)
+		y := infoY + row*mobInfoRowH
+		// Section headers render on a filled band (editor/game convention).
+		if line.header {
+			drawHeaderBandRect(info, x-4, y-2, mobInfoColW-16, mobInfoRowH+2)
+		}
+		game.DrawShadedText(info, line.text, x, y, line.col)
 	}
 }
 
@@ -263,9 +270,12 @@ func (v *viewer) drawMobsPage(screen *ebiten.Image) {
 func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	var out []infoLine
 	addc := func(col color.Color, format string, args ...any) {
-		out = append(out, infoLine{fmt.Sprintf(format, args...), col})
+		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
 	add := func(format string, args ...any) { addc(mobStatDefault, format, args...) }
+	addHeader := func(format string, args ...any) {
+		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+	}
 
 	add("%s  (key: %s)", def.Name, key)
 	if def.Type != "" {
@@ -290,40 +300,16 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 		add("Attack cooldown x%.2f", def.AttackCooldownMult)
 	}
 	add("Speed %.1f   Alert %.0f tiles   Melee reach %.1f tiles", def.Speed, def.AlertRadius, def.AttackRadius)
-	if def.ProjectileSpell != "" {
-		add("Ranged spell: %s", spellNameOrKey(def.ProjectileSpell))
-	}
-	if def.ProjectileWeapon != "" {
-		add("Ranged weapon: %s", weaponNameOrKey(def.ProjectileWeapon))
-	}
 	if def.RangedAttackRange > 0 {
 		add("Ranged range: %.0f tiles", def.RangedAttackRange)
 	}
-	if def.PounceRangeTiles > 0 {
-		add("Pounce: %.1f tiles every %.0fs", def.PounceRangeTiles, def.PounceCooldownSeconds)
-	}
 
-	// On-hit riders and specials.
-	if def.PoisonChance > 0 {
-		add("Poison: %.0f%% for %ds", def.PoisonChance*100, def.PoisonDurationSec)
-	}
-	if def.IgniteChance > 0 {
-		add("Ignite: %.0f%% for %ds", def.IgniteChance*100, def.IgniteDurationSec)
-	}
-	if def.StunCharChance > 0 {
-		add("Stun: %.0f%% (%ds / %d turns)", def.StunCharChance*100, def.StunCharSeconds, def.StunCharTurns)
-	}
-	if def.DispelChance > 0 {
-		add("Dispel buff: %.0f%%", def.DispelChance*100)
-	}
-	if def.FireburstChance > 0 {
-		add("Fireburst: %.0f%% for %d-%d", def.FireburstChance*100, def.FireburstDamageMin, def.FireburstDamageMax)
-	}
-	if def.PiercingShotChance > 0 {
-		add("Piercing shot: %.0f%% (%d targets)", def.PiercingShotChance*100, def.PiercingShotTargets)
-	}
-	if def.AllyHealChance > 0 {
-		add("Heals allies: %.0f%% for %d (%.0f tiles)", def.AllyHealChance*100, def.AllyHealAmount, def.AllyHealRadius)
+	for _, line := range def.CombatEffectLines() {
+		var col color.Color = mobStatDefault
+		if line.School != "" {
+			col = game.SchoolColor(line.School)
+		}
+		addc(col, "%s", line.Text)
 	}
 
 	// Behaviour flags.
@@ -383,7 +369,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	// Resistances: one line per school in the school's tint, sorted for a
 	// stable sheet.
 	if len(def.Resistances) > 0 {
-		addc(mobStatHeader, "Resists:")
+		addHeader("Resists")
 		resKeys := make([]string, 0, len(def.Resistances))
 		for r := range def.Resistances {
 			resKeys = append(resKeys, r)
@@ -405,7 +391,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	// Drop table: each entry tinted by its rarity (metal tiers render as the
 	// game's gradient).
 	addc(mobStatHeader, "")
-	addc(mobStatHeader, "--- Drops ---")
+	addHeader("Drops")
 	if def.GoldMax > 0 {
 		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)
 	}
@@ -428,18 +414,4 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 		addc(game.RarityColor(rarity), "%4.1f%%  %s (%s)", e.Chance*100, name, e.Type)
 	}
 	return out
-}
-
-func spellNameOrKey(key string) string {
-	if d, ok := config.GetSpellDefinition(key); ok && d != nil {
-		return d.Name
-	}
-	return key
-}
-
-func weaponNameOrKey(key string) string {
-	if d, ok := config.GetWeaponDefinition(key); ok && d != nil {
-		return d.Name
-	}
-	return key
 }

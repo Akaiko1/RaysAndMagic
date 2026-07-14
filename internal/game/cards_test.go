@@ -7,10 +7,11 @@ import (
 	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
+	"ugataima/internal/stash"
 	"ugataima/internal/world"
 )
 
-// mkTestMonster builds a bare, alive monster with no resistances — the common
+// mkTestMonster builds a bare, alive monster with no resistances - the common
 // case for card-proc tests that don't care about mitigation.
 func mkTestMonster(name string, hp int) *monster.Monster3D {
 	return &monster.Monster3D{
@@ -26,9 +27,9 @@ func TestCardCollection_EffectsAndPlacement(t *testing.T) {
 	g := cs.game
 
 	// Effects aggregate straight from the card defs.
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "thief_bug_card"
-	g.cardCollection[1] = "puma_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "thief_bug_card"
+	g.cardSlots[1].key = "puma_card"
 	if got := g.cardMoveSpeedPct(); got != 25 {
 		t.Errorf("cardMoveSpeedPct = %d, want 25", got)
 	}
@@ -49,7 +50,7 @@ func TestCardCollection_EffectsAndPlacement(t *testing.T) {
 	}
 
 	// Place a loose card from inventory into the collection, then take it back.
-	g.cardCollection = [MaxCardSlots]string{}
+	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.party.Inventory = append(g.party.Inventory, puma)
 	invN := len(g.party.Inventory)
 	idxs := g.inventoryCardIndices()
@@ -59,8 +60,8 @@ func TestCardCollection_EffectsAndPlacement(t *testing.T) {
 	if !g.placeCardFromInventory(idxs[len(idxs)-1]) {
 		t.Fatal("placeCardFromInventory failed")
 	}
-	if g.cardCollection[0] != "puma_card" {
-		t.Errorf("slot 0 = %q, want puma_card", g.cardCollection[0])
+	if g.cardSlots[0].key != "puma_card" {
+		t.Errorf("slot 0 = %q, want puma_card", g.cardSlots[0].key)
 	}
 	if len(g.party.Inventory) != invN-1 {
 		t.Errorf("inventory should shrink by 1 on place (%d -> %d)", invN, len(g.party.Inventory))
@@ -72,8 +73,8 @@ func TestCardCollection_EffectsAndPlacement(t *testing.T) {
 	if !g.removeCardToInventory(0) {
 		t.Fatal("removeCardToInventory failed")
 	}
-	if g.cardCollection[0] != "" {
-		t.Errorf("slot 0 should be empty after removal, got %q", g.cardCollection[0])
+	if g.cardSlots[0].key != "" {
+		t.Errorf("slot 0 should be empty after removal, got %q", g.cardSlots[0].key)
 	}
 	if g.cardBonusActions() != 0 {
 		t.Errorf("no bonus expected after removal, got %d", g.cardBonusActions())
@@ -88,11 +89,11 @@ func TestCardCollection_EffectsAndPlacement(t *testing.T) {
 func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "ocelot_card"          // +15 Speed
-	g.cardCollection[1] = "masked_huntress_card" // +20% ranged
-	g.cardCollection[2] = "samurai_card"         // +20 true melee
-	g.cardCollection[3] = "medusa_card"          // walk on water
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "ocelot_card"          // +15 Speed
+	g.cardSlots[1].key = "masked_huntress_card" // +20% ranged
+	g.cardSlots[2].key = "samurai_card"         // +20 true melee
+	g.cardSlots[3].key = "medusa_card"          // walk on water
 
 	if g.cardStatBonuses().Speed != 15 || g.cardRangedDmgPct() != 20 || g.cardMeleeTrueDmg() != 20 {
 		t.Fatalf("aggregates: speed=%d ranged=%d true=%d", g.cardStatBonuses().Speed, g.cardRangedDmgPct(), g.cardMeleeTrueDmg())
@@ -102,7 +103,7 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 	}
 
 	// Stacking is additive.
-	g.cardCollection[4] = "ocelot_card"
+	g.cardSlots[4].key = "ocelot_card"
 	if g.cardStatBonuses().Speed != 30 {
 		t.Errorf("two ocelot cards should stack to +30 Speed, got %d", g.cardStatBonuses().Speed)
 	}
@@ -145,11 +146,11 @@ func TestCardEffects_AggregateApplyAndText(t *testing.T) {
 func TestCardEffects_BatchB(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "archmage_card"
-	g.cardCollection[1] = "ningyo_card"
-	g.cardCollection[2] = "lich_card"
-	g.cardCollection[3] = "gorilla_titan_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "archmage_card"
+	g.cardSlots[1].key = "ningyo_card"
+	g.cardSlots[2].key = "lich_card"
+	g.cardSlots[3].key = "gorilla_titan_card"
 
 	if g.cardPhysToFirePct() != 25 || g.cardHealOnAttackPct() != 5 || g.cardHealAmount() != 25 ||
 		g.cardLethalSavePct() != 10 || g.cardMoveAoePct() != 10 || g.cardMoveAoeDmg() != 50 {
@@ -187,14 +188,14 @@ func TestCardEffects_BatchB(t *testing.T) {
 }
 
 // AoE lethal damage routes through knockOut, so the Lich Card can cheat death on
-// it too — not just plain melee. Fireburst stands in for the AoE/Inferno branches
+// it too - not just plain melee. Fireburst stands in for the AoE/Inferno branches
 // that previously set ConditionUnconscious directly. Statistical: with a 10% save
 // over 400 lethal hits, both outcomes must appear (a direct KO would never save).
 func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "lich_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "lich_card"
 	if g.cardLethalSavePct() != 10 {
 		t.Fatalf("lich save pct = %d, want 10", g.cardLethalSavePct())
 	}
@@ -208,15 +209,15 @@ func TestLichCard_SavesOnAoEFireburst(t *testing.T) {
 		member.SpellPoints = 0
 		member.Conditions = nil
 		cs.applyMonsterFireburst(mon)
-		if member.HitPoints > 0 { // reviveHalf left HP up → cheated death (direct KO would be 0)
+		if member.HitPoints > 0 { // reviveHalf left HP up -> cheated death (direct KO would be 0)
 			saves++
 		}
 	}
 	if saves == 0 {
-		t.Fatalf("Lich Card never cheated death over %d AoE Fireburst hits — the AoE branch bypasses knockOut", trials)
+		t.Fatalf("Lich Card never cheated death over %d AoE Fireburst hits - the AoE branch bypasses knockOut", trials)
 	}
 	if saves == trials {
-		t.Fatalf("every AoE hit cheated death (%d/%d) — the save roll isn't being applied", saves, trials)
+		t.Fatalf("every AoE hit cheated death (%d/%d) - the save roll isn't being applied", saves, trials)
 	}
 }
 
@@ -229,8 +230,8 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 	if g.world == nil {
 		t.Skip("test combat system has no world")
 	}
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "archmage_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "archmage_card"
 	if g.cardPhysToFirePct() != 25 {
 		t.Fatalf("archmage pct = %d, want 25", g.cardPhysToFirePct())
 	}
@@ -244,7 +245,7 @@ func TestArchmageCard_SplashGetsFullSplit(t *testing.T) {
 	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
 
 	if got := 1000 - near.HitPoints; got != 100 {
-		t.Fatalf("splash dealt %d, want 100 (75 phys + 25 fire) — the fire share is dropped if this is 75", got)
+		t.Fatalf("splash dealt %d, want 100 (75 phys + 25 fire) - the fire share is dropped if this is 75", got)
 	}
 }
 
@@ -271,7 +272,7 @@ func TestCardMoveBurst_HitsNearbyOnly(t *testing.T) {
 	}
 }
 
-// The Gorilla move-burst hits FOES only — never the party's own bound allies
+// The Gorilla move-burst hits FOES only - never the party's own bound allies
 // (card summons / bind-undead) or charmed (pacified) monsters.
 func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -303,7 +304,7 @@ func TestCardMoveBurst_SkipsAlliesAndPacified(t *testing.T) {
 	if charmed.HitPoints != 100 {
 		t.Errorf("pacified monster must NOT be hit by the burst (hp=%d, want 100)", charmed.HitPoints)
 	}
-	// Invulnerable boss is skipped entirely — no flash/hit/message, not just 0 damage.
+	// Invulnerable boss is skipped entirely - no flash/hit/message, not just 0 damage.
 	if warded.HitPoints != 100 || warded.HitTintFrames != 0 {
 		t.Errorf("warded boss must be skipped (hp=%d hitTint=%d)", warded.HitPoints, warded.HitTintFrames)
 	}
@@ -339,8 +340,8 @@ func TestCardMoveBurst_PureBypassesPhysicalResist(t *testing.T) {
 func TestCardSummon_AlliesAndLimit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "orc_warlord_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "orc_warlord_card"
 
 	if g.cardSummonChance() != 15 || g.cardSummonLimit() != 2 || g.cardSummonMonsterKey() != "masked_huntress" {
 		t.Fatalf("aggregates: chance=%d limit=%d key=%q", g.cardSummonChance(), g.cardSummonLimit(), g.cardSummonMonsterKey())
@@ -383,8 +384,8 @@ func TestCardSummon_AlliesAndLimit(t *testing.T) {
 func TestResetCardCollection_ClearsEffects(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection[0] = "thief_bug_card"
-	g.cardCollection[1] = "ocelot_card"
+	g.cardSlots[0].key = "thief_bug_card"
+	g.cardSlots[1].key = "ocelot_card"
 	g.recomputeStatBonuses()
 	if g.cardMoveSpeedPct() == 0 || g.cardStatBonuses().Speed == 0 || g.statBonuses.Speed == 0 {
 		t.Fatal("precondition: cards should be active first")
@@ -392,8 +393,10 @@ func TestResetCardCollection_ClearsEffects(t *testing.T) {
 
 	g.resetCardCollection()
 
-	if g.cardCollection != ([MaxCardSlots]string{}) {
-		t.Errorf("collection should be empty, got %v", g.cardCollection)
+	for i := 0; i < MaxCardSlots; i++ {
+		if g.cardCollectionKey(i) != "" {
+			t.Errorf("collection slot %d should be empty, got %q", i, g.cardCollectionKey(i))
+		}
 	}
 	if g.cardMoveSpeedPct() != 0 || g.cardStatBonuses().Speed != 0 {
 		t.Errorf("card effects should be gone: move=%d speed=%d", g.cardMoveSpeedPct(), g.cardStatBonuses().Speed)
@@ -404,7 +407,7 @@ func TestResetCardCollection_ClearsEffects(t *testing.T) {
 }
 
 // All loose cards are enumerated (even past one collector page) so pagination can
-// reach every one — there are 11 card types, the page shows cardInvMaxShown(8).
+// reach every one - there are 11 card types, the page shows cardInvMaxShown(8).
 func TestInventoryCardIndices_EnumeratesPastOnePage(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
@@ -434,29 +437,84 @@ func TestSaveLoad_PersistsCardCollection(t *testing.T) {
 	wm.CurrentMapKey = "forest"
 
 	game := newTestGame(cfg, w)
-	game.cardCollection[0] = "thief_bug_card"
-	game.cardCollection[3] = "puma_card"
+	game.cardSlots[0].key = "thief_bug_card"
+	game.cardSlots[3].key = "puma_card"
 
 	save := game.buildSave(wm)
 
 	loaded := newTestGame(cfg, w)
-	loaded.cardCollection[1] = "lich_card" // should be wiped by restore
+	loaded.cardSlots[1].key = "lich_card" // should be wiped by restore
 	if err := loaded.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
-	if loaded.cardCollection[0] != "thief_bug_card" || loaded.cardCollection[3] != "puma_card" {
-		t.Fatalf("collection not restored: %v", loaded.cardCollection)
+	if loaded.cardSlots[0].key != "thief_bug_card" || loaded.cardSlots[3].key != "puma_card" {
+		t.Fatalf("collection not restored: %v", loaded.cardSlots)
 	}
-	if loaded.cardCollection[1] != "" {
-		t.Errorf("stale slot should clear on restore, got %q", loaded.cardCollection[1])
+	if loaded.cardSlots[1].key != "" {
+		t.Errorf("stale slot should clear on restore, got %q", loaded.cardSlots[1].key)
 	}
 	if loaded.cardMoveSpeedPct() != 25 || loaded.cardBonusActions() != 1 {
 		t.Errorf("restored effects wrong: speed=%d actions=%d", loaded.cardMoveSpeedPct(), loaded.cardBonusActions())
 	}
 }
 
+func TestCardCollection_PreservesInstanceIDWhenRemoved(t *testing.T) {
+	loadTestConfig(t)
+	g := &MMGame{party: &character.Party{}}
+	card := items.CreateItemFromYAML("puma_card")
+	card.InstanceID = 123
+	g.party.Inventory = []items.Item{card}
+
+	if !g.placeCardFromInventory(0) {
+		t.Fatal("placeCardFromInventory failed")
+	}
+	if len(g.party.Inventory) != 0 {
+		t.Fatalf("card should leave inventory, got %+v", g.party.Inventory)
+	}
+	if got := g.cardSlots[0].item.InstanceID; got != 123 {
+		t.Fatalf("collection card id = %d, want 123", got)
+	}
+
+	if !g.removeCardToInventory(0) {
+		t.Fatal("removeCardToInventory failed")
+	}
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].InstanceID != 123 {
+		t.Fatalf("removed card should keep original id, got %+v", g.party.Inventory)
+	}
+}
+
+func TestSaveLoad_LegacyCardCollectionClearsStashOwnedKey(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wm := world.NewWorldManager(cfg)
+	w := newTestWorld(cfg)
+	wm.LoadedMaps = map[string]*world.World3D{"forest": w}
+	wm.CurrentMapKey = "forest"
+
+	source := newTestGame(cfg, w)
+	source.cardSlots[0].key = "puma_card"
+	save := source.buildSave(wm)
+	save.Party.CardCollection = []string{"puma_card"}
+	save.Party.CardCollectionItems = nil // pre-InstanceID collection save
+
+	owned := items.CreateItemFromYAML("puma_card")
+	owned.InstanceID = 777
+	loaded := newTestGame(cfg, w)
+	loaded.stash = &stash.Stash{}
+	loaded.stash.CardSlots[0] = owned
+
+	if err := loaded.applySave(wm, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if key := loaded.cardCollectionKey(0); key != "" {
+		t.Fatalf("legacy card collection should clear key already owned by stash, got %q", key)
+	}
+	if loaded.cardMoveSpeedPct() != 0 {
+		t.Fatalf("cleared legacy card should not grant speed, got %d", loaded.cardMoveSpeedPct())
+	}
+}
+
 // Every card added in the 2026-07-03 roster expansion must parse into a real
-// item def with a non-empty, non-"not implemented" effect line — catches a
+// item def with a non-empty, non-"not implemented" effect line - catches a
 // typo'd card_* field name or a key mismatch across all 41 in one pass.
 func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
 	newTestCombatSystemWithConfig(t)
@@ -486,12 +544,12 @@ func TestNewRosterCards_AllHaveRealEffects(t *testing.T) {
 	}
 }
 
-// Alien Card: statistical — 2% of hits should instantly zero HP, but not all.
+// Alien Card: statistical - 2% of hits should instantly zero HP, but not all.
 func TestAlienCard_DisintegrateOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "alien_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "alien_card"
 	if g.cardDisintegratePct() != 2 {
 		t.Fatalf("cardDisintegratePct = %d, want 2", g.cardDisintegratePct())
 	}
@@ -511,17 +569,17 @@ func TestAlienCard_DisintegrateOnHit(t *testing.T) {
 		t.Fatalf("disintegrate never triggered over %d hits", trials)
 	}
 	if survived == 0 {
-		t.Fatalf("disintegrate triggered on every hit (%d/%d) — should be ~2%%", killed, trials)
+		t.Fatalf("disintegrate triggered on every hit (%d/%d) - should be ~2%%", killed, trials)
 	}
 }
 
 // Golden Thief Bug Card: 100 flat fire resist through mitigateCharacterDamage
-// hits the existing >=100 immunity clamp — full fire immunity.
+// hits the existing >=100 immunity clamp - full fire immunity.
 func TestGoldenThiefBugCard_FireImmunity(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "golden_thief_bug_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "golden_thief_bug_card"
 	if got := g.cardResistBonusFor("fire"); got != 100 {
 		t.Fatalf("cardResistBonusFor(fire) = %d, want 100", got)
 	}
@@ -555,17 +613,17 @@ func TestDragonCards_ResistBonusPerElement(t *testing.T) {
 		{"elder_dragon_gold_card", "air", 75},
 	}
 	for _, c := range cases {
-		g.cardCollection = [MaxCardSlots]string{}
-		g.cardCollection[0] = c.key
+		g.cardSlots = [MaxCardSlots]cardSlot{}
+		g.cardSlots[0].key = c.key
 		if got := g.cardResistBonusFor(c.element); got != c.want {
 			t.Errorf("%s resist(%s) = %d, want %d", c.key, c.element, got, c.want)
 		}
 	}
 
 	// Base + elder of the same color stack.
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "dragon_red_card"
-	g.cardCollection[1] = "elder_dragon_red_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "dragon_red_card"
+	g.cardSlots[1].key = "elder_dragon_red_card"
 	if got := g.cardResistBonusFor("fire"); got != 125 {
 		t.Errorf("stacked red dragon fire resist = %d, want 125", got)
 	}
@@ -579,8 +637,8 @@ func TestJungleGoblinCard_DoublesGold(t *testing.T) {
 	if g.world == nil {
 		t.Skip("test combat system has no world")
 	}
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "jungle_goblin_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "jungle_goblin_card"
 	if g.cardGoldFindPct() != 100 {
 		t.Fatalf("cardGoldFindPct = %d, want 100", g.cardGoldFindPct())
 	}
@@ -605,8 +663,8 @@ func TestTreantCard_ArmorBonus(t *testing.T) {
 	member := g.party.Members[0]
 	before := cs.CalculateTotalArmorClass(member)
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "treant_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "treant_card"
 	after := cs.CalculateTotalArmorClass(member)
 	if after-before != 10 {
 		t.Errorf("treant card AC delta = %d, want 10", after-before)
@@ -621,15 +679,15 @@ func TestJungleIdolCard_MaxHPBonus(t *testing.T) {
 	member := g.party.Members[0]
 	before := member.MaxHitPoints
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "jungle_idol_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "jungle_idol_card"
 	g.recomputeStatBonuses()
 	if got := member.MaxHitPoints - before; got != 25 {
 		t.Errorf("max HP delta = %d, want 25", got)
 	}
 
 	// Removing the card must give it back.
-	g.cardCollection = [MaxCardSlots]string{}
+	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.recomputeStatBonuses()
 	if member.MaxHitPoints != before {
 		t.Errorf("max HP after removal = %d, want back to %d", member.MaxHitPoints, before)
@@ -643,9 +701,9 @@ func TestTrollCards_RegenPct(t *testing.T) {
 	g := cs.game
 	member := g.party.Members[0]
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "troll_card"          // 2%
-	g.cardCollection[1] = "mountain_troll_card" // 3%
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "troll_card"          // 2%
+	g.cardSlots[1].key = "mountain_troll_card" // 3%
 	g.recomputeStatBonuses()
 	if g.cardRegenPct() != 5 {
 		t.Fatalf("cardRegenPct = %d, want 5", g.cardRegenPct())
@@ -662,7 +720,7 @@ func TestTrollCards_RegenPct(t *testing.T) {
 }
 
 // Regression: the Troll Card's HP regen only lived in the RT-only
-// updateRegenAndPoison — UpdateWithMode(true) (TB) returned before reaching it,
+// updateRegenAndPoison - UpdateWithMode(true) (TB) returned before reaching it,
 // so equipping the card and fighting in turn-based mode silently regenerated
 // nothing all fight. The TB path now ticks it via ApplyCardRegenTick on the
 // same round counter as SP regen (endPartyTurn).
@@ -686,8 +744,8 @@ func TestTrollCard_RegensInTurnBasedMode(t *testing.T) {
 func TestVengefulNingyoCard_Thorns(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "vengeful_ningyo_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "vengeful_ningyo_card"
 	if g.cardThornsPct() != 12 {
 		t.Fatalf("cardThornsPct = %d, want 12", g.cardThornsPct())
 	}
@@ -697,7 +755,7 @@ func TestVengefulNingyoCard_Thorns(t *testing.T) {
 	member.HitPoints, member.MaxHitPoints = 500, 500
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
-	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0)
+	cs.monsterHitCharacter(attacker, member, "Bandit", 100, "physical", false, 0, false)
 	if attacker.HitPoints >= 1000 {
 		t.Errorf("attacker HP = %d, should have taken thorns reflect damage", attacker.HitPoints)
 	}
@@ -708,8 +766,8 @@ func TestVengefulNingyoCard_Thorns(t *testing.T) {
 func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "vengeful_ningyo_card" // 12% reflect
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "vengeful_ningyo_card" // 12% reflect
 	if g.cardThornsPct() != 12 {
 		t.Fatalf("cardThornsPct = %d, want 12", g.cardThornsPct())
 	}
@@ -721,7 +779,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	member.Luck = 0 // deterministic: no Perfect Dodge so the hit (and thorns) always lands
 
 	before := len(g.deadMonsterIDs)
-	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0)
+	cs.monsterHitCharacter(attacker, member, "Weak Attacker", 100, "physical", false, 0, false)
 	if attacker.IsAlive() {
 		t.Fatal("setup: reflected damage should have killed the attacker")
 	}
@@ -730,7 +788,7 @@ func TestVengefulNingyoCard_ThornsKillFinalizesKill(t *testing.T) {
 	}
 }
 
-// Hexer/Isis Cards divert a share of physical damage into dark/light instead —
+// Hexer/Isis Cards divert a share of physical damage into dark/light instead -
 // same split mechanism as Archmage's fire conversion, different element.
 func TestHexerIsisCards_ElementConversion(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -739,16 +797,16 @@ func TestHexerIsisCards_ElementConversion(t *testing.T) {
 		t.Skip("test combat system has no world")
 	}
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "masked_hexer_girl_card" // 20% -> dark
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "masked_hexer_girl_card" // 20% -> dark
 	dark := mkTestMonster("Target", 1000)
 	cs.ApplyDamageToMonster(dark, 100, "Idol-Breaker, the Warlord's Maul", false)
 	if got := 1000 - dark.HitPoints; got != 100 {
 		t.Errorf("hexer split total damage = %d, want 100 conserved", got)
 	}
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "isis_card" // 50% -> light, melee AND ranged
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "isis_card" // 50% -> light, melee AND ranged
 	light := mkTestMonster("Target2", 1000)
 	cs.ApplyDamageToMonster(light, 100, "Idol-Breaker, the Warlord's Maul", false)
 	if got := 1000 - light.HitPoints; got != 100 {
@@ -765,8 +823,8 @@ func TestHexerCard_AoESplashCarriesDarkConversion(t *testing.T) {
 	if g.world == nil {
 		t.Skip("test combat system has no world")
 	}
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "masked_hexer_girl_card" // 20% -> dark
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "masked_hexer_girl_card" // 20% -> dark
 	ts := float64(g.config.GetTileSize())
 	primary := mkTestMonster("Primary", 1000)
 	primary.X, primary.Y = 0, 0
@@ -776,7 +834,7 @@ func TestHexerCard_AoESplashCarriesDarkConversion(t *testing.T) {
 
 	cs.ApplyDamageToMonster(primary, 100, "Idol-Breaker, the Warlord's Maul", false)
 	if got := 1000 - near.HitPoints; got != 100 {
-		t.Errorf("splash dealt %d, want 100 (80 phys + 20 dark) — the dark share is dropped if this is 80", got)
+		t.Errorf("splash dealt %d, want 100 (80 phys + 20 dark) - the dark share is dropped if this is 80", got)
 	}
 }
 
@@ -787,8 +845,8 @@ func TestMaskedSerpentDancerCard_MeleeDmgPct(t *testing.T) {
 	if g.world == nil {
 		t.Skip("test combat system has no world")
 	}
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "masked_serpent_dancer_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "masked_serpent_dancer_card"
 	if g.cardMeleeDmgPct() != 20 {
 		t.Fatalf("cardMeleeDmgPct = %d, want 20", g.cardMeleeDmgPct())
 	}
@@ -805,8 +863,8 @@ func TestElfArcherSkeletonCards_BonusVs(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "elf_archer_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "elf_archer_card"
 	dragon := &monster.Monster3D{Name: "Dragon", Key: "dragon_red"}
 	if got := g.cardBonusVsMultiplier(dragon); got != 1.25 {
 		t.Errorf("elf archer vs dragon mult = %.2f, want 1.25", got)
@@ -816,8 +874,8 @@ func TestElfArcherSkeletonCards_BonusVs(t *testing.T) {
 		t.Errorf("elf archer vs goblin mult = %.2f, want 1.0", got)
 	}
 
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "skeleton_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "skeleton_card"
 	boss := &monster.Monster3D{Name: "Golden Thief Bug", MonsterType: "formless"}
 	if got := g.cardBonusVsMultiplier(boss); got != 1.20 {
 		t.Errorf("skeleton vs formless mult = %.2f, want 1.20", got)
@@ -825,17 +883,17 @@ func TestElfArcherSkeletonCards_BonusVs(t *testing.T) {
 	_ = cs
 }
 
-// Regression: Name/Key/MonsterType often name the same identity — the real
+// Regression: Name/Key/MonsterType often name the same identity - the real
 // Dragon monster (assets/monsters.yaml) has Name="Dragon", Key="dragon", AND
 // MonsterType="dragon". A single card_bonus_vs: {dragon: 1.25} entry matched
-// all three candidate fields and multiplied in three times (1.25^3 ≈ 1.95)
-// instead of once — one matching entry means "this card applies," not
+// all three candidate fields and multiplied in three times (1.25^3 ~ 1.95)
+// instead of once - one matching entry means "this card applies," not
 // "multiply once per field that happened to match."
 func TestCardBonusVs_SameIdentityAcrossFieldsAppliesOnce(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "elf_archer_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "elf_archer_card"
 
 	dragon := &monster.Monster3D{Name: "Dragon", Key: "dragon", MonsterType: "dragon"}
 	if got := g.cardBonusVsMultiplier(dragon); got != 1.25 {
@@ -843,13 +901,13 @@ func TestCardBonusVs_SameIdentityAcrossFieldsAppliesOnce(t *testing.T) {
 	}
 }
 
-// Forest Orc Card: statistical armor-ignore chance — some hits should land at
+// Forest Orc Card: statistical armor-ignore chance - some hits should land at
 // full (armor-bypassed) damage against a heavily armored target.
 func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "forest_orc_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "forest_orc_card"
 	if g.cardArmorPiercePct() != 10 {
 		t.Fatalf("cardArmorPiercePct = %d, want 10", g.cardArmorPiercePct())
 	}
@@ -872,7 +930,7 @@ func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
 		t.Fatalf("armor-pierce never triggered over %d hits", trials)
 	}
 	if mitigated == 0 {
-		t.Fatalf("armor-pierce triggered on every hit (%d/%d) — should be ~10%%", bypassed, trials)
+		t.Fatalf("armor-pierce triggered on every hit (%d/%d) - should be ~10%%", bypassed, trials)
 	}
 }
 
@@ -880,8 +938,8 @@ func TestForestOrcCard_ArmorPierceOnHit(t *testing.T) {
 func TestMummyCard_PoisonImmunity(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "mummy_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "mummy_card"
 	if g.cardPoisonResistPct() != 100 {
 		t.Fatalf("cardPoisonResistPct = %d, want 100", g.cardPoisonResistPct())
 	}
@@ -898,21 +956,21 @@ func TestMummyCard_PoisonImmunity(t *testing.T) {
 }
 
 // Rat/Spider Cards inflict a real poison DoT on the STRUCK MONSTER (not the
-// party) — a genuinely new status, ticking HP down over time via TickPoison.
+// party) - a genuinely new status, ticking HP down over time via TickPoison.
 func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "rat_card" // 12%/20s
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "rat_card" // 12%/20s
 	if pct, dur := g.cardPoisonProc(); pct != 12 || dur != 20 {
 		t.Fatalf("cardPoisonProc = %d%%/%ds, want 12%%/20s", pct, dur)
 	}
-	g.cardCollection[1] = "spider_card"        // +15%/20s
-	g.cardCollection[2] = "forest_spider_card" // +15%/20s
+	g.cardSlots[1].key = "spider_card"        // +15%/20s
+	g.cardSlots[2].key = "forest_spider_card" // +15%/20s
 	if pct, dur := g.cardPoisonProc(); pct != 42 || dur != 20 {
 		t.Fatalf("stacked cardPoisonProc = %d%%/%ds, want 42%%/20s", pct, dur)
 	}
-	g.cardCollection[1], g.cardCollection[2] = "", ""
+	g.cardSlots[1].key, g.cardSlots[2].key = "", ""
 
 	poisoned := 0
 	const trials = 300
@@ -928,7 +986,7 @@ func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 		t.Fatalf("poison proc never triggered over %d hits", trials)
 	}
 	if poisoned == trials {
-		t.Fatalf("poison proc triggered on every hit (%d/%d) — should be ~12%%", poisoned, trials)
+		t.Fatalf("poison proc triggered on every hit (%d/%d) - should be ~12%%", poisoned, trials)
 	}
 
 	// A poisoned monster loses HP over (simulated) time via TickPoison.
@@ -936,7 +994,7 @@ func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 	m = mkTestMonster("Ticking", 1000)
 	m.ApplyPoison(tps * 2) // 2 seconds of poison
 	before := m.HitPoints
-	for i := 0; i < tps; i++ { // 1 second — one tick should have fired
+	for i := 0; i < tps; i++ { // 1 second - one tick should have fired
 		m.TickPoison()
 	}
 	if m.HitPoints >= before {
@@ -948,8 +1006,8 @@ func TestRatSpiderCards_PoisonsMonsterOnHit(t *testing.T) {
 func TestMinotaurCard_StunOnHit(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "minotaur_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "minotaur_card"
 	if g.cardStunOnHitPct() != 8 {
 		t.Fatalf("cardStunOnHitPct = %d, want 8", g.cardStunOnHitPct())
 	}
@@ -967,7 +1025,7 @@ func TestMinotaurCard_StunOnHit(t *testing.T) {
 		t.Fatalf("stun-on-hit never triggered over %d hits", trials)
 	}
 	if stunned == trials {
-		t.Fatalf("stun-on-hit triggered on every hit (%d/%d) — should be ~8%%", stunned, trials)
+		t.Fatalf("stun-on-hit triggered on every hit (%d/%d) - should be ~8%%", stunned, trials)
 	}
 }
 
@@ -978,15 +1036,15 @@ func TestRoninBatCards_CritAndDodgeBonus(t *testing.T) {
 	member := g.party.Members[0]
 
 	baseCrit := cs.CalculateCriticalChance(member)
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "ronin_marksman_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "ronin_marksman_card"
 	if got := cs.CalculateCriticalChance(member) - baseCrit; got != 5 {
 		t.Errorf("crit bonus delta = %d, want 5", got)
 	}
 
 	_, baseDodge := cs.RollPerfectDodge(member)
-	g.cardCollection = [MaxCardSlots]string{}
-	g.cardCollection[0] = "bat_card"
+	g.cardSlots = [MaxCardSlots]cardSlot{}
+	g.cardSlots[0].key = "bat_card"
 	_, afterDodge := cs.RollPerfectDodge(member)
 	if got := afterDodge - baseDodge; got != 4 {
 		t.Errorf("dodge bonus delta = %d, want 4", got)

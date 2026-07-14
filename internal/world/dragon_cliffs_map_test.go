@@ -56,8 +56,8 @@ func TestDragonCliffsMapLoads(t *testing.T) {
 	if counts["dragon_green"] != 6 || counts["dragon_gold"] != 3 {
 		t.Errorf("dragons: got %d green, %d gold; want 6 green, 3 gold", counts["dragon_green"], counts["dragon_gold"])
 	}
-	// Quest targets must actually spawn here: the ranger's Troll Cull needs ≥3
-	// mountain_troll and the hermit's Ember Rites needs ≥2 archmage.
+	// Quest targets must actually spawn here: the ranger's Troll Cull needs >=3
+	// mountain_troll and the hermit's Ember Rites needs >=2 archmage.
 	if counts["mountain_troll"] < 3 {
 		t.Errorf("mountain_troll: got %d, want >=3 for the Troll Cull quest", counts["mountain_troll"])
 	}

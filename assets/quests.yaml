@@ -111,5 +111,4 @@ quests:
     target_count: 4
     is_starting_quest: true
     rewards:
-      gold: 5000
-      experience: 10000
+      arena_points: 5000

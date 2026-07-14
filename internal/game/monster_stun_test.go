@@ -35,7 +35,7 @@ func TestStunnedMonster_DoesNotAttackRealTime(t *testing.T) {
 		return s
 	}
 
-	// Stunned → no attack, party HP unchanged.
+	// Stunned -> no attack, party HP unchanged.
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{mk(10)}
 	before := partyHP()
 	cs.HandleMonsterInteractions()
@@ -43,7 +43,7 @@ func TestStunnedMonster_DoesNotAttackRealTime(t *testing.T) {
 		t.Errorf("stunned monster dealt damage: party HP %d -> %d", before, got)
 	}
 
-	// Same monster, not stunned → it attacks, proving the assertion is meaningful.
+	// Same monster, not stunned -> it attacks, proving the assertion is meaningful.
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{mk(0)}
 	before = partyHP()
 	cs.HandleMonsterInteractions()

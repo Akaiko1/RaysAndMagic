@@ -28,7 +28,7 @@ func main() {
 	// Game-only configs.
 	config.MustLoadLevelUpConfig("assets/level_up.yaml")
 
-	// Load achievement definitions (optional — stubbed feature, non-fatal).
+	// Load achievement definitions (optional - stubbed feature, non-fatal).
 	if _, err := config.LoadAchievementConfig("assets/achievements.yaml"); err != nil {
 		log.Printf("Warning: Failed to load achievements config: %v", err)
 	}

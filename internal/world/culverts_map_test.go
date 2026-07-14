@@ -36,13 +36,18 @@ func TestCulvertsMapLoads(t *testing.T) {
 	if md.StartX < 0 || md.StartY < 0 {
 		t.Errorf("no start position parsed (%d,%d)", md.StartX, md.StartY)
 	}
-	if len(md.NPCSpawns) != 9 {
-		t.Errorf("want 9 NPC spawns (exit, old man, 7 valves), got %d", len(md.NPCSpawns))
-	}
-	valves, boss := 0, 0
+	// Only the QUEST-REQUIRED NPCs are asserted (exit, old man, exactly 7
+	// valves) - decorative extras (loot crates etc.) come and go with map
+	// editing and must not break this test.
+	valves, boss, exits, oldmen := 0, 0, 0, 0
 	for _, n := range md.NPCSpawns {
-		if len(n.NPCKey) >= 12 && n.NPCKey[:12] == "culvert_valv" {
+		switch {
+		case len(n.NPCKey) >= 12 && n.NPCKey[:12] == "culvert_valv":
 			valves++
+		case n.NPCKey == "culverts_exit":
+			exits++
+		case n.NPCKey == "culverts_oldman":
+			oldmen++
 		}
 	}
 	for _, m := range md.MonsterSpawns {
@@ -52,6 +57,9 @@ func TestCulvertsMapLoads(t *testing.T) {
 	}
 	if valves != 7 {
 		t.Errorf("want 7 valve NPCs, got %d", valves)
+	}
+	if exits != 1 || oldmen != 1 {
+		t.Errorf("want 1 exit + 1 old man, got %d/%d", exits, oldmen)
 	}
 	if boss != 1 {
 		t.Errorf("want exactly 1 Golden Thief Bug, got %d", boss)
@@ -82,7 +90,7 @@ func TestCulvertsMonstersFitCorridors(t *testing.T) {
 		}
 		found = true
 		if def.BoxW >= tile || def.BoxH >= tile {
-			t.Errorf("%s collision box %gx%g >= tile %g — can't fit 1-wide maze corridors", key, def.BoxW, def.BoxH, tile)
+			t.Errorf("%s collision box %gx%g >= tile %g - can't fit 1-wide maze corridors", key, def.BoxW, def.BoxH, tile)
 		}
 	}
 	if !found {

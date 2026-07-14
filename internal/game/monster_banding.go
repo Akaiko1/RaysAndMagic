@@ -12,7 +12,7 @@ const (
 	// Kept near one tile so a band forms when a mob actually wanders into another
 	// (opportunistic), not by magnetically yanking distant mobs together.
 	bandBindDistTiles = 0.85
-	// bandFanRadiusTiles: render fan radius — stacked followers ring the leader so
+	// bandFanRadiusTiles: render fan radius - stacked followers ring the leader so
 	// the pile reads as several mobs, centred on the tile.
 	bandFanRadiusTiles = 0.16
 	// maxBandStackCount caps one calm visual/position band. Extra nearby mobs
@@ -222,7 +222,7 @@ func leaveBand(m *monster.Monster3D) {
 
 // hoistBandLeader moves the previously-marked leader (the member whose stored
 // BandLeaderID points to itself) to the front, preserving the order of the rest,
-// so the band's leader — and thus its snap position — stays stable across ticks
+// so the band's leader - and thus its snap position - stays stable across ticks
 // even when a lower-ID mob joins. No-op if the old leader is gone (lowest ID leads).
 func hoistBandLeader(members []*monster.Monster3D) {
 	for i, m := range members {
@@ -292,7 +292,7 @@ func (gl *GameLoop) soloBandClusters(singles []*monster.Monster3D, bindDistSq fl
 	for i, m := range singles {
 		clustersByRoot[find(i)] = append(clustersByRoot[find(i)], m)
 	}
-	// Sort each cluster once, then order clusters by their lowest ID → stable
+	// Sort each cluster once, then order clusters by their lowest ID -> stable
 	// leader + BandID assignment (no render flicker across ticks).
 	clusters := make([][]*monster.Monster3D, 0, len(clustersByRoot))
 	for _, group := range clustersByRoot {
@@ -319,6 +319,10 @@ func (gl *GameLoop) stackMonsterBand(id int, band []*monster.Monster3D) {
 			continue // leader keeps its own wandering position
 		}
 		m.X, m.Y = leader.X, leader.Y
+		// The band owns a stacked member's position, so it owns its facing too;
+		// drop the member's own (overridden) walk momentum.
+		m.Direction = leader.Direction
+		m.FaceAccX, m.FaceAccY = 0, 0
 		gl.game.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 	}
 }
@@ -353,7 +357,7 @@ func (gl *GameLoop) scatterBand(calm, group []*monster.Monster3D, tile float64, 
 	for _, m := range calm {
 		m.IsEngagingPlayer = true // engage the whole band
 		m.State = monster.StateAlert
-		m.WasAttacked = wasHit // hit → whole band was hit; sighted → whole band just noticed
+		m.WasAttacked = wasHit // hit -> whole band was hit; sighted -> whole band just noticed
 		leaveBand(m)
 		for ri < len(bandScatterRing) {
 			d := bandScatterRing[ri]
@@ -371,7 +375,7 @@ func (gl *GameLoop) scatterBand(calm, group []*monster.Monster3D, tile float64, 
 				break
 			}
 		}
-		// No free tile found → the mob still engages from where it stands.
+		// No free tile found -> the mob still engages from where it stands.
 	}
 }
 

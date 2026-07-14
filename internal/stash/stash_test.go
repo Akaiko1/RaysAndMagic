@@ -44,7 +44,7 @@ func TestStash_RoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	// A new process (fresh Load) sees the same items — the cross-save guarantee.
+	// A new process (fresh Load) sees the same items - the cross-save guarantee.
 	got, err := stash.Load()
 	if err != nil {
 		t.Fatalf("reload: %v", err)
@@ -61,7 +61,7 @@ func TestStash_RoundTrip(t *testing.T) {
 }
 
 // A corrupted/partially-written stash.json must return an ERROR, not an empty
-// stash — otherwise the UI opens a blank chest and the next save overwrites the
+// stash - otherwise the UI opens a blank chest and the next save overwrites the
 // file, permanently losing the deposited items.
 func TestStash_CorruptFileErrors(t *testing.T) {
 	chdirTemp(t)

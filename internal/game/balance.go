@@ -7,12 +7,12 @@ import (
 
 // Balance constants are the single source of truth shared by combat formulas
 // and tooltip text. Touching a number here updates BOTH the gameplay
-// calculation and the description shown to the player — that's the whole
+// calculation and the description shown to the player - that's the whole
 // point. Do not introduce duplicate literals in combat code or UI strings;
 // reference these constants instead.
 
 // Skill-effect constants now live in the character package (so the map editor
-// shares them too — see character/catalog.go); these are thin re-exports so the
+// shares them too - see character/catalog.go); these are thin re-exports so the
 // existing combat references keep compiling unchanged. The VALUE is defined once.
 const (
 	MasteryWeaponTrueDamagePerTier    = character.MasteryWeaponTrueDamagePerTier
@@ -49,7 +49,7 @@ const (
 
 // Defense and progression.
 const (
-	// Armor mitigation (percentage, diminishing returns) — shared by party AND
+	// Armor mitigation (percentage, diminishing returns) - shared by party AND
 	// monster armor via armorMitigationPctFromAC. Canonical values in
 	// character/catalog.go. Physical caps at 75%; elemental is the same curve
 	// scaled to reach its 33% cap at the same AC.
@@ -125,17 +125,18 @@ const (
 	CampEnemyRadiusTiles = 5.0
 )
 
-// Speed-stat → action cooldown curve. Cooldown in frames is a linear function
+// Speed-stat -> action cooldown curve. Cooldown in frames is a linear function
 // of the character's effective Speed stat, clamped to [Min, Max] frames.
-// The formula `frames = Intercept - Slope * Speed` was originally fit through
-// two anchor points: Speed=5 ⇒ ~60 frames, Speed=50 ⇒ ~30 frames. Adjusting
-// these knobs changes how much Speed matters for action cadence in realtime
-// combat.
+// The formula `frames = Intercept - Slope * Speed` reaches the minimum cooldown
+// at AttackCooldownCapSpeed. Adjusting these knobs changes how much Speed
+// matters for action cadence in realtime combat.
 const (
 	AttackCooldownIntercept  = 63.333333 // frames at Speed=0 (before clamp)
-	AttackCooldownSpeedSlope = 2.0 / 3.0 // frames lost per +1 Speed
+	AttackCooldownCapSpeed   = 150.0     // Speed where the curve first reaches MinFrames
 	AttackCooldownMinFrames  = 15        // floor: ~0.125s at 120 TPS
 	AttackCooldownMaxFrames  = 90        // ceiling: ~0.75s at 120 TPS
+	AttackCooldownSpeedSlope = (AttackCooldownIntercept - AttackCooldownMinFrames) /
+		AttackCooldownCapSpeed // frames lost per +1 Speed
 )
 
 // Real-time per-character cooldown model. In RT every character has their OWN
@@ -144,14 +145,14 @@ const (
 // instead of one member machine-gunning. TB is unaffected (it uses action slots).
 const (
 	// RTBaseCooldownMult doubles the Speed-curve cooldown for weapon attacks in
-	// real time (the "×2 base" balance pass). Speed still scales the curve, so
+	// real time (the "x2 base" balance pass). Speed still scales the curve, so
 	// faster characters keep their cadence advantage proportionally.
 	RTBaseCooldownMult = 2.0
 	// RTCooldownMinFrames / RTCooldownMaxFrames are a safety clamp on the final
 	// per-character cooldown (weapon OR spell) so a stray multiplier can't
-	// produce a silly value. It is NOT the design range: weapons land ~0.15–1.8s
-	// and spells are authored 0.8–5s (×1.35 for slow casters ⇒ up to ~6.75s), so
-	// the cap is deliberately generous. 12 ≈ 0.1s, 900 = 7.5s at 120 TPS.
+	// produce a silly value. It is NOT the design range: weapons land ~0.15-1.8s
+	// and spells are authored 0.8-5s (x1.35 for slow casters => up to ~6.75s), so
+	// the cap is deliberately generous. 12 ~ 0.1s, 900 = 7.5s at 120 TPS.
 	RTCooldownMinFrames = 12
 	RTCooldownMaxFrames = 900
 
@@ -160,14 +161,14 @@ const (
 	// fallback when a spell omits it. The authored seconds are the cooldown at
 	// the reference Speed below; Speed scales it via spellCooldownSpeedFactor.
 	SpellCooldownSpeedRefSpeed  = 25   // Speed at which a spell's authored seconds apply as-is
-	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: ×0.5 (never below half)
-	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: ×1.35
+	SpellCooldownSpeedFactorMin = 0.5  // fastest characters: x0.5 (never below half)
+	SpellCooldownSpeedFactorMax = 1.35 // slowest characters: x1.35
 )
 
 // Per-weapon-TYPE attack-cooldown multipliers are DATA, not code: they live in
 // weapons.yaml under `weapon_cooldown_multipliers`, keyed by the canonical
 // weapon-skill noun (sword/dagger/axe/spear/bow/mace/staff). A weapon resolves
-// to its skill via character.WeaponSkillForCategory (so "throwing" → dagger),
+// to its skill via character.WeaponSkillForCategory (so "throwing" -> dagger),
 // and a weapon may override its type with `cooldown_multiplier` (legendaries).
 // Read through config.WeaponCooldownMultiplierForSkill.
 
@@ -183,10 +184,10 @@ const (
 	RangedOffTankChance = 0.30
 )
 
-// BoundUndeadSeekTiles is how far a bound undead (bind_undead) hunts for an enemy
-// to walk toward — deliberately wider than a typical alert radius so it actively
+// BoundAllySeekTiles is how far a bound undead (bind_undead) hunts for an enemy
+// to walk toward - deliberately wider than a typical alert radius so it actively
 // seeks across the room rather than only engaging foes already on its doorstep.
-const BoundUndeadSeekTiles = 10.0
+const BoundAllySeekTiles = 10.0
 
 // MonsterHitFlashFrames is how long a monster flashes red when hit. The shared
 // config `damage_blink_frames` (3) is far too brief to see; this dedicated value
@@ -194,28 +195,32 @@ const BoundUndeadSeekTiles = 10.0
 const MonsterHitFlashFrames = 12
 
 // MonsterAttackAnimFrames: how long a striking monster plays its movement
-// cycle (a readable lunge) — without it attackers froze on the rest pose.
+// cycle (a readable lunge) - without it attackers froze on the rest pose.
 const MonsterAttackAnimFrames = 18
+
+// volleySpacingFrac: tiles between successive darts of a volley (party bows and
+// monster/champion projectiles trail their darts by the same stream spacing).
+const volleySpacingFrac = 0.45
 
 // MonsterHitShakeAmplitudeFrac is the peak left-right sprite jitter on hit, as a
 // fraction of the sprite's on-screen size. Driven by the same HitTintFrames timer
 // as the red flash and decaying with it, it makes a struck monster shudder in
-// place — replacing the old positional knockback (it stays put, just rattles).
+// place - replacing the old positional knockback (it stays put, just rattles).
 const MonsterHitShakeAmplitudeFrac = 0.0333
 
 // MonsterHitShakeMaxRefPx caps the on-screen sprite size used to scale the hit
 // shudder. The amplitude is a fraction of sprite size, so without a cap a giant
-// sprite point-blank (e.g. a size-12 troll) jolts enormously every frame — in
+// sprite point-blank (e.g. a size-12 troll) jolts enormously every frame - in
 // standee mode that whips it across wall/tree occluders (and past the camera
 // plane), reading as furious blinking. Beyond this size the shudder stops growing.
 const MonsterHitShakeMaxRefPx = 300.0
 
 // Stun diminishing returns: each successive stun on the SAME target lands for a
-// smaller fraction of its duration — 100% → 50% → 25% → 0% (immune) — so no
+// smaller fraction of its duration - 100% -> 50% -> 25% -> 0% (immune) - so no
 // target (boss included) can be perma-stun-locked. The chain resets once the
 // target has been stun-free for the window below (TB turns / RT seconds). The
 // chain length is mode-agnostic; the reset window is tracked per mode so a
-// TB↔RT switch mid-fight is conservative (never speeds up the reset).
+// TB<->RT switch mid-fight is conservative (never speeds up the reset).
 var StunDRFactorsPct = []int{100, 50, 25, 0}
 
 const (
@@ -225,7 +230,7 @@ const (
 
 // SmartHealWoundedPct is the HP fraction below which the Space "smart attack"
 // treats an ally as wounded and auto-heals them (with a slotted heal) instead
-// of attacking. 0.6 = heal anyone at or below 60% HP; healthier party → attack.
+// of attacking. 0.6 = heal anyone at or below 60% HP; healthier party -> attack.
 const SmartHealWoundedPct = 0.6
 
 // SpellCooldownDefaultSecondsForLevel lives in the spells package (the editor
@@ -239,6 +244,6 @@ const (
 	SpriteFrameStride = 18
 
 	// SpriteSheetFrameCount is the expected number of frames in a horizontal
-	// sprite sheet (sheet width = frame height × SpriteSheetFrameCount).
+	// sprite sheet (sheet width = frame height x SpriteSheetFrameCount).
 	SpriteSheetFrameCount = 4
 )

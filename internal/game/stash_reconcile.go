@@ -10,7 +10,7 @@ import (
 // deposited item carries a unique items.Item.InstanceID; the chest holds the
 // item (and its id). At load time we strip from the reloaded bag any item whose
 // id the chest already owns, so reloading a save (even an older one) can't
-// re-deposit a copy the chest still holds — closing the save-scum dupe.
+// re-deposit a copy the chest still holds - closing the save-scum dupe.
 
 // ensureStashLoaded loads the shared chest into g.stash once, normalizing its
 // items against current YAML and stamping any legacy (zero-InstanceID) entries
@@ -50,7 +50,7 @@ func (g *MMGame) ensureStashLoaded() bool {
 }
 
 // stampPartyInstanceIDs assigns a fresh id to every party item (bag, all
-// members' equipment + quick slots) that lacks one — the lazy migration for
+// members' equipment + quick slots) that lacks one - the lazy migration for
 // items saved before instance ids existed. Returns whether anything was
 // stamped, so the caller can persist the slot once and make the ids stick.
 func (g *MMGame) stampPartyInstanceIDs() bool {
@@ -92,9 +92,9 @@ func (g *MMGame) stampPartyInstanceIDs() bool {
 }
 
 // reconcilePartyAgainstStash drops from the party any item whose InstanceID
-// the chest already holds — the load-time defence against re-depositing a copy
+// the chest already holds - the load-time defence against re-depositing a copy
 // the chest still owns. The sweep covers every place a save can carry an item
-// — the bag AND all rosters' equipment/quick slots (a save written while the
+// - the bag AND all rosters' equipment/quick slots (a save written while the
 // item was still EQUIPPED would otherwise reload it past a bag-only check and
 // re-open the dupe). Zero-id (untracked/legacy) items are never stripped.
 func (g *MMGame) reconcilePartyAgainstStash() {
@@ -151,5 +151,10 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 	}
 	for _, m := range g.party.Captive {
 		stripMember(m)
+	}
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if chestOwns(g.cardSlots[slot].item) {
+			g.clearCardCollectionSlot(slot)
+		}
 	}
 }

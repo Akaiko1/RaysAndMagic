@@ -12,7 +12,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// The thief's trap book — rendered in the spellbook tab slot for characters
+// The thief's trap book - rendered in the spellbook tab slot for characters
 // with the Trapper skill (they have no magic schools). Spell-like controls:
 // click / Up-Down browse a selection, Enter/F or double-click equip it as the
 // QuickTrap that Space arms in the world.
@@ -60,7 +60,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 		// equip the quick slot). TB consumes an action like a book-cast spell.
 		if ui.game.consumeLeftClickIn(cardX, cardY, cardX+bl.cardW, cardY+bl.cardH) {
 			now := ui.game.mouseLeftClickAt
-			if ui.game.lastClickedSpell == i && now-ui.game.lastSpellClickTime < doubleClickWindowMs {
+			if ui.game.lastClickedSpell == i && withinDoubleClickWindow(now, ui.game.lastSpellClickTime) {
 				if _, placed := ui.game.combat.placeTrapByKey(currentChar, key, true); placed {
 					ui.game.consumeSelectedCharAction()
 				}

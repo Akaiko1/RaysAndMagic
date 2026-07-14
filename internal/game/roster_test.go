@@ -105,7 +105,7 @@ func TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut(t *testing.T) {
 	g.party.Recruit(bench)
 	benchIdx := len(g.party.Reserve) - 1 // after the tavern recruits
 
-	// Swap in → owed choice should queue for the new active slot.
+	// Swap in -> owed choice should queue for the new active slot.
 	g.swapRosterMember(0, benchIdx)
 	if !g.hasLevelUpChoiceForChar(0) {
 		t.Fatal("owed L3 choice should be queued after swap-in")
@@ -114,7 +114,7 @@ func TestOwedChoice_DrainsOnSwapIn_BanksOnSwapOut(t *testing.T) {
 		t.Errorf("owed list should be drained after swap-in, got %v", bench.OwedLevelChoices)
 	}
 
-	// Swap back out (the original member now sits in bench's old slot) →
+	// Swap back out (the original member now sits in bench's old slot) ->
 	// un-consumed choice re-banks.
 	g.swapRosterMember(0, benchIdx)
 	if g.hasLevelUpChoiceForChar(0) {

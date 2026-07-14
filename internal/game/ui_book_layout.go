@@ -1,8 +1,8 @@
 package game
 
 // bookLayout is the shared open-book geometry used by the spellbook and trap
-// book tabs: book placement, source-coordinate mappers for the 1024×512 book
-// art, and the 2×2-per-page card grid metrics.
+// book tabs: book placement, source-coordinate mappers for the 1024x512 book
+// art, and the 2x2-per-page card grid metrics.
 type bookLayout struct {
 	bookX, bookY, bookW, bookH int
 	scaleX, scaleY             float64
@@ -32,7 +32,7 @@ func computeBookLayout(panelX, contentY, contentHeight int) bookLayout {
 	l.scaleX = float64(l.bookW) / 1024.0
 	l.scaleY = float64(l.bookH) / 512.0
 
-	// 2×2 grid per page (left + right) = up to 8 cards visible at once.
+	// 2x2 grid per page (left + right) = up to 8 cards visible at once.
 	l.cols = 2
 	l.cardsPerPage = 4
 	l.gridY = l.srcY(118)
@@ -57,7 +57,7 @@ func computeBookLayout(panelX, contentY, contentHeight int) bookLayout {
 	return l
 }
 
-// srcX/srcY/srcW/srcH map 1024×512 book-art source coordinates to screen.
+// srcX/srcY/srcW/srcH map 1024x512 book-art source coordinates to screen.
 func (l bookLayout) srcX(v int) int { return l.bookX + int(float64(v)*l.scaleX) }
 func (l bookLayout) srcY(v int) int { return l.bookY + int(float64(v)*l.scaleY) }
 func (l bookLayout) srcW(v int) int { return int(float64(v) * l.scaleX) }

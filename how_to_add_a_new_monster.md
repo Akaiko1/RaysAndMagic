@@ -7,7 +7,7 @@ Monsters are defined in YAML and driven by runtime config.
 - Loot tables are in `assets/loots.yaml`.
 - Map placement uses a single lowercase letter in `.map` files.
 - Radii in `monsters.yaml` are in tiles (1 tile = 64px).
-- `size_multiplier` multiplies render size and stacks with `graphics.monster.size_distance_multiplier`.
+- `size_class` sets the sprite size: one of `small`, `medium`, `person`, `large`, `huge`. The per-class height in tiles lives in `config.yaml` under `graphics.size_classes`. A raw `size_multiplier` is rejected at load.
 
 ## Step 1: Define the monster
 Add a new entry under `monsters:` in `assets/monsters.yaml`.
@@ -32,7 +32,7 @@ monsters:
     letter: "a"            # lowercase, unique in its biome scope (see "Biome restriction")
     box_w: 40              # keep < 64 (tile size) or it can't fit 1-wide corridors
     box_h: 40
-    size_multiplier: 2.0
+    size_class: large       # small | medium | person | large | huge
     resistances: {}
     habitat_preferences:
       - "empty"
@@ -40,7 +40,7 @@ monsters:
 
 Key requirements:
 - `letter` must be lowercase (map spawns recognize a-z). It must be unique
-  within its biome scope — see "Biome restriction" below.
+  within its biome scope - see "Biome restriction" below.
 - `sprite` must exist in `assets/sprites/mobs/` (without `.png`).
 - `alert_radius` and `attack_radius` are in tiles.
 
@@ -56,7 +56,7 @@ a universal monster that can appear in any biome.
 A map letter is resolved biome-aware (`GetMonsterByLetterForBiome`): a
 biome-specific monster wins for that biome, and a universal monster (no
 `biomes`) is the fallback. So the SAME letter may map to different monsters in
-different biomes — `letter` only has to be unique among monsters sharing a
+different biomes - `letter` only has to be unique among monsters sharing a
 biome (and among the universal set). A letter on a map whose biome no monster
 matches resolves to nothing (no spawn).
 
@@ -87,15 +87,15 @@ Supported fields (from `monsters.yaml`):
 - `attack_cooldown_multiplier`, `attacks_per_round`
 
 ### Boss kit (all data-driven; see golden_thief_bug)
-- `ignores_armor` — melee bypasses party armor class
-- `inferno_chance` + `inferno_damage` — party-wide fire nova
-- `teleport_at_hp` + `teleport_chance` — low-HP blink to a random tile
-- `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` —
+- `ignores_armor` - melee bypasses party armor class
+- `inferno_chance` + `inferno_damage` - party-wide fire nova
+- `teleport_at_hp` + `teleport_chance` - low-HP blink to a random tile
+- `passive_until_quest` + `evade_radius_tiles` + `boss_cooldown_seconds` -
   evades (blinks away, never attacks) until the named quest completes
 
 Paired boss fields are validated at load: a chance without its magnitude (or an
 evasive phase without its tuning) fails startup. Beware: any OTHER unknown YAML
-field is silently ignored — a typo won't error, the feature just won't work.
+field is silently ignored - a typo won't error, the feature just won't work.
 
 ## Step 5: Add loot
 Loot is controlled by `assets/loots.yaml` using the monster key.

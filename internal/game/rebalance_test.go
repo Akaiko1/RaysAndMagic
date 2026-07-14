@@ -23,17 +23,17 @@ func TestWeaponMasteryStrike_TrueDamageAndDodge(t *testing.T) {
 
 	delete(m.Skills, character.SkillSword)
 	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 0 || ignore {
-		t.Errorf("no skill → (%d,%v), want (0,false)", td, ignore)
+		t.Errorf("no skill -> (%d,%v), want (0,false)", td, ignore)
 	}
 
 	m.Skills[character.SkillSword] = expertSkill() // tier 1
 	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != MasteryWeaponTrueDamagePerTier || ignore {
-		t.Errorf("Expert → (%d,%v), want (%d,false)", td, ignore, MasteryWeaponTrueDamagePerTier)
+		t.Errorf("Expert -> (%d,%v), want (%d,false)", td, ignore, MasteryWeaponTrueDamagePerTier)
 	}
 
 	m.Skills[character.SkillSword] = gmSkill() // tier 3
 	if td, ignore := cs.weaponMasteryStrike(m, weaponDef); td != 3*MasteryWeaponTrueDamagePerTier || !ignore {
-		t.Errorf("GM → (%d,%v), want (%d,true)", td, ignore, 3*MasteryWeaponTrueDamagePerTier)
+		t.Errorf("GM -> (%d,%v), want (%d,true)", td, ignore, 3*MasteryWeaponTrueDamagePerTier)
 	}
 }
 
@@ -91,15 +91,15 @@ func TestSpellResistPierce_GMGated(t *testing.T) {
 
 	delete(m.MagicSchools, character.MagicSchoolFire)
 	if p := cs.spellResistPierce(m, "fireball"); p != 0 {
-		t.Fatalf("no Fire school → pierce %d, want 0", p)
+		t.Fatalf("no Fire school -> pierce %d, want 0", p)
 	}
 	m.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryMaster} // tier 2, not GM
 	if p := cs.spellResistPierce(m, "fireball"); p != 0 {
-		t.Errorf("Master Fire → pierce %d, want 0 (GM only)", p)
+		t.Errorf("Master Fire -> pierce %d, want 0 (GM only)", p)
 	}
 	m.MagicSchools[character.MagicSchoolFire] = &character.MagicSkill{Mastery: character.MasteryGrandMaster}
 	if p := cs.spellResistPierce(m, "fireball"); p != MagicGMResistPiercePct {
-		t.Errorf("GM Fire → pierce %d, want %d", p, MagicGMResistPiercePct)
+		t.Errorf("GM Fire -> pierce %d, want %d", p, MagicGMResistPiercePct)
 	}
 }
 
@@ -140,11 +140,11 @@ func TestEffectiveSpellCost_MeditationGM(t *testing.T) {
 	m := cs.game.party.Members[0]
 	delete(m.Skills, character.SkillMeditation)
 	if got := cs.effectiveSpellCost(m, 100); got != 100 {
-		t.Fatalf("no Meditation → cost %d, want 100", got)
+		t.Fatalf("no Meditation -> cost %d, want 100", got)
 	}
 	m.Skills[character.SkillMeditation] = gmSkill()
 	if got := cs.effectiveSpellCost(m, 100); got != 100-MeditationGMSpellCostReductionPct {
-		t.Errorf("GM Meditation → cost %d, want %d", got, 100-MeditationGMSpellCostReductionPct)
+		t.Errorf("GM Meditation -> cost %d, want %d", got, 100-MeditationGMSpellCostReductionPct)
 	}
 }
 
@@ -153,19 +153,19 @@ func TestArmorGMDodge(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	m := cs.game.party.Members[0]
 	if got := cs.armorGMDodgeBonus(m); got != 0 {
-		t.Fatalf("bare → %d dodge, want 0", got)
+		t.Fatalf("bare -> %d dodge, want 0", got)
 	}
 	// Equip a plate piece and GM Plate.
 	m.Equipment[items.SlotArmor] = items.Item{ArmorCategory: "plate"}
 	m.Skills[character.SkillPlate] = gmSkill()
 	if got := cs.armorGMDodgeBonus(m); got != ArmorGMDodgeBonus {
-		t.Errorf("GM plate worn → %d, want %d", got, ArmorGMDodgeBonus)
+		t.Errorf("GM plate worn -> %d, want %d", got, ArmorGMDodgeBonus)
 	}
-	// Add a GM shield in the off-hand → second mastered type stacks.
+	// Add a GM shield in the off-hand -> second mastered type stacks.
 	m.Equipment[items.SlotOffHand] = items.Item{ArmorCategory: "shield"}
 	m.Skills[character.SkillShield] = gmSkill()
 	if got := cs.armorGMDodgeBonus(m); got != 2*ArmorGMDodgeBonus {
-		t.Errorf("GM plate + shield → %d, want %d", got, 2*ArmorGMDodgeBonus)
+		t.Errorf("GM plate + shield -> %d, want %d", got, 2*ArmorGMDodgeBonus)
 	}
 }
 
@@ -200,7 +200,7 @@ func TestLearningGM_PartyShare(t *testing.T) {
 		m.Experience = 0
 		delete(m.Skills, character.SkillLearning)
 	}
-	teacher.Skills[character.SkillLearning] = gmSkill() // tier 3 → +30% self, +5% party
+	teacher.Skills[character.SkillLearning] = gmSkill() // tier 3 -> +30% self, +5% party
 	g.party.Members = g.party.Members[:2]
 	g.party.Reserve = nil
 	g.party.Captive = nil

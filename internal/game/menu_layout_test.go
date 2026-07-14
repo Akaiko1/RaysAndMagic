@@ -41,7 +41,30 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 		name  string
 		build func(w, h int) []func() (string, uiBox, []uiBox)
 	}
+	staticMenu := func(name string, layout func(int, int) (uiBox, []uiBox)) menuCase {
+		return menuCase{
+			name: name,
+			build: func(w, h int) []func() (string, uiBox, []uiBox) {
+				return []func() (string, uiBox, []uiBox){func() (string, uiBox, []uiBox) {
+					region, boxes := layout(w, h)
+					return name, region, boxes
+				}}
+			},
+		}
+	}
 	menus := []menuCase{
+		staticMenu("main-menu", mainMenuLayoutBoxes),
+		staticMenu("tabbed-menu", tabbedMenuLayoutBoxes),
+		staticMenu("inventory", inventoryLayoutBoxes),
+		staticMenu("characters", charactersLayoutBoxes),
+		staticMenu("spell-and-trap-book", bookLayoutBoxes),
+		staticMenu("cards", cardsLayoutBoxes),
+		staticMenu("quests", questsLayoutBoxes),
+		staticMenu("map-overlay", mapOverlayLayoutBoxes),
+		staticMenu("spell-trader", spellTraderLayoutBoxes),
+		staticMenu("trainer-dialog", trainerDialogLayoutBoxes),
+		staticMenu("merchant-dialog", merchantDialogLayoutBoxes),
+		staticMenu("card-collector", cardCollectorLayoutBoxes),
 		{
 			name: "stash",
 			build: func(w, h int) []func() (string, uiBox, []uiBox) {
@@ -71,6 +94,17 @@ func TestMenuLayout_NoCollisions(t *testing.T) {
 					}
 				}
 				return cases
+			},
+		},
+		{
+			name: "trainer-popup",
+			build: func(w, h int) []func() (string, uiBox, []uiBox) {
+				return []func() (string, uiBox, []uiBox){
+					func() (string, uiBox, []uiBox) {
+						r, b := skillTrainerPopupLayoutBoxes(w, h)
+						return "trainer-popup", r, b
+					},
+				}
 			},
 		},
 		{

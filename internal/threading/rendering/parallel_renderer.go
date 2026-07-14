@@ -10,7 +10,7 @@ import (
 type ParallelRenderer struct {
 	workerPool *core.WorkerPool
 	// results is reused across frames (callers consume it before the next
-	// RenderRaycast call) — allocating numRays results per frame was steady
+	// RenderRaycast call) - allocating numRays results per frame was steady
 	// GC churn for nothing. mu serializes RenderRaycast calls so the shared
 	// buffer is safe even with concurrent callers.
 	mu      sync.Mutex

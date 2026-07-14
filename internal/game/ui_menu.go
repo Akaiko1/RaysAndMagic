@@ -62,17 +62,9 @@ func (ui *UISystem) drawMainMenu(screen *ebiten.Image) {
 			}
 			drawDebugText(screen, label, tx, ty)
 		}
-		tips := []string{
-			"Controls:",
-			"WASD: Move  QE: Strafe",
-			"Space: Smart Attack  R: Weapon  F: Cast  C: Heal",
-			"I: Inventory  P: Characters  M: Spellbook",
-			"1-4: Select",
-			"Tab: Toggle Mode (TB/RT)",
-		}
-		tipsY := py + mainMenuListTopY + len(mainMenuOptions)*mainMenuRowPitch + 10
-		for i, tip := range tips {
-			drawDebugText(screen, tip, px+16, tipsY+i*14)
+		tipsY := py + mainMenuTipsTopY()
+		for i, tip := range mainMenuControlTips {
+			drawDebugText(screen, tip, px+16, tipsY+i*debugTextCharHeight)
 		}
 	case MenuSaveSelect:
 		drawDebugText(screen, "Save Game - Select Slot", px+16, py+14)
@@ -133,6 +125,13 @@ func (ui *UISystem) drawSaveRowList(screen *ebiten.Image, px, py, panelW, panelH
 		}
 		if i == g.slotSelection {
 			drawFilledRect(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, highlight)
+		}
+		// Saves from THIS playthrough glow so your own run stands out. Matched
+		// by run id: member names collide across runs (the default roster is
+		// identical every new game) and shift within one (tavern swaps).
+		if sum.Exists && sum.RunID != "" && sum.RunID == g.playthroughID {
+			drawFilledRect(screen, box.x1, box.y1, 4, box.y2-box.y1, color.RGBA{110, 200, 110, 255})
+			drawRectBorder(screen, box.x1, box.y1, box.x2-box.x1, box.y2-box.y1, 1, color.RGBA{110, 200, 110, 160})
 		}
 		drawDebugText(screen, label, tx, ty)
 	}
@@ -220,22 +219,13 @@ func (ui *UISystem) drawSavePagerStrip(screen *ebiten.Image, px, py, panelW, pan
 		drawRectBorder(screen, r.x1, r.y1, r.x2-r.x1, r.y2-r.y1, 1, color.RGBA{120, 120, 180, 230})
 		drawCenteredDebugText(screen, label, r.x1, r.y1+(stripH-12)/2, r.x2-r.x1, 12)
 	}
-	drawPagerBtn(prev, "< Prev", g.savePage > 0)
-	drawPagerBtn(next, "Next >", g.savePage < savePageCount-1)
+	drawPagerBtn(prev, "< Prev", true) // pages wrap - both directions always live
+	drawPagerBtn(next, "Next >", true)
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), px, stripY+(stripH-12)/2, panelW, 12)
 }
 
 func truncateSaveName(name string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if len(name) <= max {
-		return name
-	}
-	if max <= 3 {
-		return name[:max]
-	}
-	return name[:max-3] + "..."
+	return truncateRunes(name, max, "...")
 }
 
 func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
@@ -268,90 +258,59 @@ func (ui *UISystem) drawSaveRenameDialog(screen *ebiten.Image) {
 
 // drawTabbedMenu draws the tabbed menu interface with mouse click support
 func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
-	// Panel dimensions
-	panelWidth := 700
-	panelHeight := 640
-	panelX := (ui.game.config.GetScreenWidth() - panelWidth) / 2
-	panelY := (ui.game.config.GetScreenHeight() - panelHeight) / 2
+	layout := computeTabbedMenuLayout(ui.game.config.GetScreenWidth(), ui.game.config.GetScreenHeight())
 
 	// Draw main background and frame
 	menuFrame := ui.game.sprites.GetSprite("menu_panel_frame")
-	drawNineSlice(screen, menuFrame, panelX, panelY, panelWidth, panelHeight, menuPanelFrameSlice)
+	drawNineSlice(screen, menuFrame, layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h, menuPanelFrameSlice)
 
-	// Tab dimensions
-	tabWidth := 120
-	tabHeight := 35
-	tabY := panelY + 10
-
-	// Draw tabs
-	tabs := []struct {
-		tab   MenuTab
-		label string
-		key   string
-	}{
-		{TabInventory, "Inventory", "(I)"},
-		{TabCharacters, "Characters", "(C)"},
-		{TabSpellbook, "Spellbook", "(M)"},
-		{TabQuests, "Quests", "(J)"},
-		{TabCards, "Cards", "(K)"},
-	}
-
-	for i, tabInfo := range tabs {
-		tabX := panelX + 20 + (i * (tabWidth + 5)) // Reduced spacing between tabs
+	for i, tabInfo := range tabbedMenuTabs {
+		tabRect := layout.tabs[i]
 
 		isActive := ui.game.currentTab == tabInfo.tab
 		tabSpriteName := "menu_tab_inactive"
 		if isActive {
 			tabSpriteName = "menu_tab_active"
 		}
-		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabX, tabY, tabWidth, tabHeight)
+		drawImageScaled(screen, ui.game.sprites.GetSprite(tabSpriteName), tabRect.x, tabRect.y, tabRect.w, tabRect.h)
 
 		// Draw tab text centered
-		topHalf := tabHeight / 2
-		drawCenteredDebugText(screen, tabInfo.label, tabX, tabY, tabWidth, topHalf)
-		drawCenteredDebugText(screen, tabInfo.key, tabX, tabY+topHalf, tabWidth, tabHeight-topHalf)
+		topHalf := tabRect.h / 2
+		drawCenteredDebugText(screen, tabInfo.label, tabRect.x, tabRect.y, tabRect.w, topHalf)
+		drawCenteredDebugText(screen, tabInfo.key, tabRect.x, tabRect.y+topHalf, tabRect.w, tabRect.h-topHalf)
 
 		// Handle mouse clicks on tabs
-		ui.handleTabClick(tabX, tabY, tabWidth, tabHeight, tabInfo.tab)
+		ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
 	}
 
-	// Draw X close button in top-right corner
-	closeButtonSize := 20
-	closeButtonX := panelX + panelWidth - closeButtonSize - 5
-	closeButtonY := panelY + 5
-
 	// Handle mouse clicks on close button
-	ui.handleCloseButtonClick(closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
+	ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw close button background
 	mouseX, mouseY := ebiten.CursorPosition()
-	isCloseHovering := mouseX >= closeButtonX && mouseX < closeButtonX+closeButtonSize &&
-		mouseY >= closeButtonY && mouseY < closeButtonY+closeButtonSize
+	isCloseHovering := mouseX >= layout.close.x && mouseX < layout.close.right() &&
+		mouseY >= layout.close.y && mouseY < layout.close.bottom()
 
 	if isCloseHovering {
-		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{150, 50, 50, 200}) // Red hover
+		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{150, 50, 50, 200}) // Red hover
 	} else {
-		drawFilledRect(screen, closeButtonX, closeButtonY, closeButtonSize, closeButtonSize, color.RGBA{100, 100, 100, 150}) // Gray normal
+		drawFilledRect(screen, layout.close.x, layout.close.y, layout.close.w, layout.close.h, color.RGBA{100, 100, 100, 150}) // Gray normal
 	}
 
-	ui.drawInterfaceIcon(screen, "icon_close", closeButtonX, closeButtonY, closeButtonSize, closeButtonSize)
-
-	// Draw content area
-	contentY := tabY + tabHeight + 10
-	contentHeight := panelHeight - tabHeight - 40
+	ui.drawInterfaceIcon(screen, "icon_close", layout.close.x, layout.close.y, layout.close.w, layout.close.h)
 
 	// Draw content based on selected tab
 	switch ui.game.currentTab {
 	case TabInventory:
-		ui.drawInventoryContent(screen, panelX, contentY, contentHeight)
+		ui.drawInventoryContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabCharacters:
-		ui.drawCharactersContent(screen, panelX, contentY, contentHeight)
+		ui.drawCharactersContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabSpellbook:
-		ui.drawSpellbookContent(screen, panelX, contentY, contentHeight)
+		ui.drawSpellbookContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabQuests:
-		ui.drawQuestsContent(screen, panelX, contentY, contentHeight)
+		ui.drawQuestsContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	case TabCards:
-		ui.drawCardsContent(screen, panelX, contentY, contentHeight)
+		ui.drawCardsContent(screen, layout.content.x, layout.content.y, layout.content.h)
 	}
 
 	// Carried drag icon (topmost) + cancel of any drop that landed on nothing.
@@ -361,54 +320,42 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 // drawCardsContent shows the party's active monster-card collection as an
 // art grid (icon + name + effect per slot) plus a combined-effects summary.
 // View-only: cards are slotted/removed at the Card Collector NPC.
-func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, _ int) {
-	const panelWidth = 700
-	drawDebugText(screen, "Active Card Collection", panelX+30, contentY+6)
-	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", panelX+30, contentY+24)
+func (ui *UISystem) drawCardsContent(screen *ebiten.Image, panelX, contentY, contentHeight int) {
+	content := layoutRect{panelX, contentY, tabbedMenuPanelW, contentHeight}
+	layout := computeCardsContentLayout(content)
+	drawDebugText(screen, "Active Card Collection", layout.title.x, layout.title.y)
+	drawDebugText(screen, "Slot or remove cards at the Card Collector in the desert.", layout.subtitle.x, layout.subtitle.y)
 
-	const (
-		cols   = 4
-		icon   = 84
-		colGap = 28
-		rowGap = 64
-	)
-	gridW := cols*icon + (cols-1)*colGap
-	startX := panelX + (panelWidth-gridW)/2
-	startY := contentY + 56
 	mouseX, mouseY := ebiten.CursorPosition()
 	var hover []string
 
 	for slot := 0; slot < MaxCardSlots; slot++ {
-		r, c := slot/cols, slot%cols
-		x := startX + c*(icon+colGap)
-		y := startY + r*(icon+rowGap)
-		key := ui.game.cardCollection[slot]
+		card := layout.cards[slot]
+		x, y, icon := card.x, card.y, card.w
+		key := ui.game.cardCollectionKey(slot)
 		hovered := ui.drawCardCell(screen, key, x, y, icon, "empty")
 		if def := cardDef(key); def != nil {
-			drawCenteredDebugText(screen, def.Name, x-20, y+icon+2, icon+40, 14)
-			drawCenteredDebugText(screen, cardEffectText(def), x-20, y+icon+16, icon+40, 14)
+			// Label box = one column pitch minus a small gutter, centered on the
+			// card, with text clipped to fit - so neighbouring labels never collide.
+			labelW := layout.labelW
+			labelX := x - (labelW-icon)/2
+			drawCenteredDebugText(screen, clipDebugText(def.Name, labelW), labelX, y+icon+2, labelW, 14)
+			drawCenteredDebugText(screen, clipDebugText(cardEffectText(def), labelW), labelX, y+icon+2+debugTextCharHeight, labelW, 14)
 			if hovered {
 				hover = ui.appendCardArtHint([]string{def.Name, cardEffectText(def)}, key)
 			}
 		}
 	}
 
-	// Combined active effects: list EVERY equipped card's effect via the same
-	// cardEffectText formatter the cells use (not just move speed / bonus actions,
-	// which omitted Samurai/Ningyo/Medusa/etc. and falsely read "none active").
-	var totals []string
-	for slot := 0; slot < MaxCardSlots; slot++ {
-		if def := cardDef(ui.game.cardCollection[slot]); def != nil {
-			if eff := cardEffectText(def); eff != "" {
-				totals = append(totals, eff)
-			}
-		}
-	}
+	// Combined totals: fold the active cards, format via the shared CardEffectLines.
 	summary := "No active card effects."
-	if len(totals) > 0 {
-		summary = "Active: " + strings.Join(totals, ", ")
+	if parts := ui.game.cardCollectionAggregate().CardEffectLines(); len(parts) > 0 {
+		summary = "Active: " + strings.Join(parts, ", ")
 	}
-	drawDebugText(screen, summary, panelX+30, startY+2*(icon+rowGap)+6)
+	// Wrap to the panel width so a full 8-card list doesn't run off the edge.
+	for i, line := range wrapDebugText(summary, layout.summary.w) {
+		drawDebugText(screen, line, layout.summary.x, layout.summary.y+i*debugTextCharHeight)
+	}
 
 	if hover != nil {
 		ui.queueTooltip(hover, mouseX+16, mouseY+8)
@@ -437,15 +384,18 @@ func (ui *UISystem) handleCloseButtonClick(buttonX, buttonY, buttonWidth, button
 func (ui *UISystem) handleSpellbookSchoolClick(schoolX, schoolY, schoolWidth, schoolHeight int, schoolIndex int, school character.MagicSchoolID) {
 	if ui.game.consumeLeftClickIn(schoolX, schoolY, schoolX+schoolWidth, schoolY+schoolHeight) {
 		currentTime := ui.game.mouseLeftClickAt
-		delta := currentTime - ui.game.lastSchoolClickTime
-		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex && delta < doubleClickWindowMs
+		doubleClick := ui.game.lastSchoolClickedIdx == schoolIndex &&
+			withinDoubleClickWindow(currentTime, ui.game.lastSchoolClickTime)
 
 		ui.game.selectedSchool = schoolIndex
-		// Don't auto-select a spell — wait for the user to click one.
+		// Don't auto-select a spell - wait for the user to click one.
 		ui.game.selectedSpell = -1
 
 		if doubleClick {
 			ui.game.collapsedSpellSchools[school] = !ui.game.collapsedSpellSchools[school]
+			ui.game.lastSchoolClickTime = 0
+			ui.game.lastSchoolClickedIdx = -1
+			return
 		}
 
 		ui.game.lastSchoolClickTime = currentTime
@@ -458,11 +408,10 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 	if ui.game.consumeLeftClickIn(spellX, spellY, spellX+spellWidth, spellY+spellHeight) {
 		currentTime := ui.game.mouseLeftClickAt
 
-		// Check for double-click (within 500ms of last click on same spell)
-		delta := currentTime - ui.game.lastSpellClickTime
+		// Check for a fast second click on the same spell.
 		doubleClick := ui.game.lastClickedSpell == spellIndex &&
 			ui.game.lastClickedSchool == schoolIndex &&
-			delta < doubleClickWindowMs
+			withinDoubleClickWindow(currentTime, ui.game.lastSpellClickTime)
 
 		// Update selection for highlight and keyboard navigation
 		ui.game.selectedSchool = schoolIndex
@@ -476,6 +425,10 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 			if ui.game.combat.CastSelectedSpell() {
 				ui.game.consumeSelectedCharAction()
 			}
+			ui.game.lastSpellClickTime = 0
+			ui.game.lastClickedSpell = -1
+			ui.game.lastClickedSchool = -1
+			return
 		}
 
 		// Update click tracking
@@ -490,6 +443,15 @@ func (ui *UISystem) updateMouseState() {
 	leftJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 	rightJustPressed := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
 	now := time.Now().UnixMilli()
+	// Buffered clicks never cross a UI-layer boundary: on a modal<->world flip
+	// drop the queues (a click aimed at one layer must not fire in the next).
+	// Runs before this frame's clicks enqueue; within one layer (dialog
+	// double-clicks) no flip occurs.
+	if allowed := ui.game.worldClickAllowed(); allowed != ui.game.prevWorldClickAllowed {
+		ui.game.mouseLeftClicks = ui.game.mouseLeftClicks[:0]
+		ui.game.mouseRightClicks = ui.game.mouseRightClicks[:0]
+		ui.game.prevWorldClickAllowed = allowed
+	}
 	ui.game.pruneClickQueues(now)
 	ui.updateQuickDrag()
 	ui.updateStashDrag()

@@ -299,7 +299,7 @@ func (m *MockMonster) IsUpdated() bool {
 	return m.updated
 }
 
-// ApplyCollisionUpdate is a no-op here — this mock only exercises that
+// ApplyCollisionUpdate is a no-op here - this mock only exercises that
 // Update() runs on every monster, not the two-phase collision apply.
 func (m *MockMonster) ApplyCollisionUpdate() {}
 

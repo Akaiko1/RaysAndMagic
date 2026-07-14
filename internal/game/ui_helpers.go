@@ -33,10 +33,17 @@ func drawColoredTextSegments(screen *ebiten.Image, x, y int, segments []coloredT
 	}
 }
 
+func drawWrappedDebugText(screen *ebiten.Image, text string, area layoutRect, maxLines, lineHeight int) {
+	lines := truncateWrappedLines(wrapDebugText(text, area.w), maxLines, area.w)
+	for i, line := range lines {
+		drawDebugText(screen, line, area.x, area.y+i*lineHeight)
+	}
+}
+
 // partyPortraitLayout returns the fixed-pixel party-portrait layout, centered
 // horizontally and anchored to the bottom of the (possibly fullscreen) viewport.
 // Portrait width comes from UIConfig (not derived from screen width) so going
-// fullscreen does not stretch the party row — it stays at its design size and
+// fullscreen does not stretch the party row - it stays at its design size and
 // the row is centered with empty side margins.
 func partyPortraitLayout(g *MMGame) (portraitWidth, portraitHeight, baseLeft, startY int) {
 	portraitWidth = g.config.UI.PartyPortraitWidth
@@ -58,7 +65,7 @@ func (ui *UISystem) wrapText(text string, maxWidth int) []string {
 }
 
 // Merchant buy/sell grid geometry. Two side-by-side icon grids (buy left, sell
-// right), each merchantGridCols×merchantGridRows, mirroring the inventory grid.
+// right), each merchantGridColsxmerchantGridRows, mirroring the inventory grid.
 const (
 	merchantGridCols = 4
 	merchantGridRows = 3
@@ -105,7 +112,7 @@ func pageCount(n, pageSize int) int {
 	return p
 }
 
-// clampPage keeps *page within [0, total-1] — call every frame so a page stays
+// clampPage keeps *page within [0, total-1] - call every frame so a page stays
 // valid when its backing list shrinks (item bought/sold/equipped) underneath it.
 func clampPage(page *int, total int) {
 	if *page >= total {
@@ -137,7 +144,7 @@ func drawImageScaled(dst, src *ebiten.Image, x, y, w, h int) {
 	opts.GeoM.Scale(float64(w)/float64(srcW), float64(h)/float64(srcH))
 	opts.GeoM.Translate(float64(x), float64(y))
 	// Shrinking with the default nearest filter drops whole source rows/columns,
-	// which clips thin baked-in details — e.g. an icon's frame on the trailing
+	// which clips thin baked-in details - e.g. an icon's frame on the trailing
 	// (right/bottom) edges. Linear filtering (mipmaps kick in automatically for
 	// shrink) resamples instead and keeps them. Upscales stay nearest so pixel
 	// art is not blurred.
@@ -312,11 +319,11 @@ func drawTooltip(screen *ebiten.Image, lines []string, colors []color.Color, tit
 // becomes mid-grey, so common/uncommon plates look like steel, not flat white.
 func metalPlateBase(c color.Color) color.RGBA {
 	r, g, b, _ := c.RGBA()
-	return color.RGBA{uint8(r >> 9), uint8(g >> 9), uint8(b >> 9), 255} // 8-bit value × 0.5
+	return color.RGBA{uint8(r >> 9), uint8(g >> 9), uint8(b >> 9), 255} // 8-bit value x 0.5
 }
 
 // drawMetalPlate fills a rect with the same vertical brushed-metal gradient the
-// rarity text uses (bright top → dark bottom), giving a metallic nameplate band.
+// rarity text uses (bright top -> dark bottom), giving a metallic nameplate band.
 func drawMetalPlate(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 	if w <= 0 || h <= 0 {
 		return
@@ -387,7 +394,7 @@ func tooltipBoxSizeForScreen(lines []string, colors []color.Color, hasIcon bool,
 // tooltipPairX positions two side-by-side hover cards (main + comparison) near
 // cursorX, shifting the pair left so it stays within screenW. The comparison sits
 // flush to the right of the main (compareX = mainX + mainW + gap), so the two
-// columns can never overlap — unlike the old "place compare by its unwrapped width
+// columns can never overlap - unlike the old "place compare by its unwrapped width
 // then clamp to the screen edge", which buried the main under a very wide compare.
 func tooltipPairX(cursorX, mainW, compareW, gap, screenW int) (mainX, compareX int) {
 	mainX = cursorX
@@ -479,7 +486,7 @@ func (ui *UISystem) queueTitledTooltipComparison(lines []string, bodyColors []co
 	ui.tooltipCompareText = titleText
 }
 
-// rarityBodyColors paints every tooltip line in the item's rarity metal — the
+// rarityBodyColors paints every tooltip line in the item's rarity metal - the
 // original gear-tooltip body look (the name line's color is overridden by the
 // nameplate's titleText).
 func (ui *UISystem) rarityBodyColors(item items.Item, n int) []color.Color {
@@ -587,8 +594,21 @@ func debugTextWidth(text string) int {
 	return utf8.RuneCountInString(text) * debugTextCharWidth
 }
 
+// clipDebugText shortens text with a trailing ".." so it fits maxW pixels in the
+// fixed-width debug font - for grid labels that must not overrun their cell.
+func clipDebugText(text string, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	if debugTextWidth(text) <= maxW {
+		return text
+	}
+	maxRunes := maxW / debugTextCharWidth
+	return truncateRunes(text, maxRunes, "..")
+}
+
 // humanizeKey turns a snake/kebab content key into a display label:
-// "dark_elf" → "Dark Elf". Shared UI helper for races, schools, etc.
+// "dark_elf" -> "Dark Elf". Shared UI helper for races, schools, etc.
 func humanizeKey(s string) string {
 	s = strings.ReplaceAll(s, "_", " ")
 	s = strings.ReplaceAll(s, "-", " ")
@@ -600,7 +620,7 @@ func humanizeKey(s string) string {
 }
 
 // centeredTextPos is the top-left pixel at which `text` renders centered in the
-// box (x,y,w,h) for the debug font — shared by every centered-text drawer.
+// box (x,y,w,h) for the debug font - shared by every centered-text drawer.
 func centeredTextPos(text string, x, y, w, h int) (int, int) {
 	return x + (w-debugTextWidth(text))/2, y + (h-debugTextCharHeight)/2
 }
@@ -651,7 +671,7 @@ func ensureDebugTextScratch(width, height int) {
 var textOutlineOffsets = [8][2]int{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
 
 // drawScaledCenteredText draws text scaled by `scale`, centered on (cx, cy), with
-// a dark outline that scales with it — for emphasis headings (e.g. GAME OVER).
+// a dark outline that scales with it - for emphasis headings (e.g. GAME OVER).
 func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale float64, col color.Color) {
 	if text == "" {
 		return
@@ -679,8 +699,8 @@ func drawScaledCenteredText(screen *ebiten.Image, text string, cx, cy int, scale
 	blit(0, 0, col)
 }
 
-// drawDebugText draws left-aligned OUTLINED white text — the game-wide default,
-// replacing raw ebitenutil.DebugPrintAt(screen, …) so every label stays legible
+// drawDebugText draws left-aligned OUTLINED white text - the game-wide default,
+// replacing raw ebitenutil.DebugPrintAt(screen, ...) so every label stays legible
 // over any background.
 func drawDebugText(screen *ebiten.Image, text string, x, y int) {
 	drawDebugTextColored(screen, text, x, y, color.White)
@@ -715,7 +735,7 @@ func outlinedLabelImage(text string, col color.Color) *ebiten.Image {
 		img = renderOutlinedLabel(text, col)
 	}
 	// Dropped images are reclaimed by GC (ebiten deallocates on collect); no
-	// explicit Deallocate — an evicted image may already be enqueued this frame.
+	// explicit Deallocate - an evicted image may already be enqueued this frame.
 	if len(outlinedLabelCache) >= outlinedLabelCacheMax {
 		outlinedLabelCachePrev = outlinedLabelCache
 		outlinedLabelCache = make(map[outlinedLabelKey]*ebiten.Image, outlinedLabelCacheMax)
@@ -725,7 +745,7 @@ func outlinedLabelImage(text string, col color.Color) *ebiten.Image {
 }
 
 // renderOutlinedLabel rasterizes text once into the scratch and composes the
-// 8-direction dark outline + colored body into a (w+2)×(h+2) image; the body
+// 8-direction dark outline + colored body into a (w+2)x(h+2) image; the body
 // sits at (1,1) so the outline fits inside the bounds.
 func renderOutlinedLabel(text string, col color.Color) *ebiten.Image {
 	w := debugTextWidth(text) + 2
@@ -773,9 +793,9 @@ func lerpByte(a, b uint8, t float64) uint8 {
 	return uint8(float64(a) + (float64(b)-float64(a))*t + 0.5)
 }
 
-// metalShade is the metallic ramp at vertical fraction t (0 top … 1 bottom): a
+// metalShade is the metallic ramp at vertical fraction t (0 top ... 1 bottom): a
 // bright highlight at the top, the base tint in the middle, a dark edge at the
-// bottom — the beveled shiny-metal look for gold/silver/legendary names.
+// bottom - the beveled shiny-metal look for gold/silver/legendary names.
 func metalShade(base color.RGBA, t float64) color.RGBA {
 	to := color.RGBA{255, 255, 255, base.A} // highlight
 	k := (0.5 - t) / 0.5 * 0.6              // up to +60% toward white at the very top
@@ -792,7 +812,7 @@ func metalShade(base color.RGBA, t float64) color.RGBA {
 }
 
 // drawMetalBody fills the already-rasterized glyph (in debugTextScratch) with the
-// metalShade gradient, blitting it in thin horizontal bands top→bottom.
+// metalShade gradient, blitting it in thin horizontal bands top->bottom.
 func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 	const band = 2
 	for sy := 0; sy < h; sy += band {
@@ -810,21 +830,23 @@ func drawMetalBody(screen *ebiten.Image, x, y, w, h int, base color.RGBA) {
 	}
 }
 
-// Rarity metals — the SINGLE definition of each tier's tint. Silver is light and
+// Rarity metals - the SINGLE definition of each tier's tint. Silver is light and
 // cool (blue > red); gold and legendary are warm. Listed in metallicColors so
 // drawDebugTextColored renders them as a vertical metal GRADIENT (shiny names)
 // rather than a flat fill.
 var (
-	raritySilver = color.RGBA{210, 216, 230, 255} // uncommon
-	rarityGold   = color.RGBA{255, 215, 0, 255}   // rare
-	rarityFire   = color.RGBA{220, 80, 20, 255}   // legendary
+	raritySilver  = color.RGBA{210, 216, 230, 255} // uncommon
+	rarityGold    = color.RGBA{255, 215, 0, 255}   // rare
+	rarityFire    = color.RGBA{220, 80, 20, 255}   // legendary
+	rarityEmerald = color.RGBA{70, 220, 130, 255}  // unique (arena tier)
 )
 
 // metallicColors marks which base tints get the metal-gradient text treatment.
 var metallicColors = map[color.RGBA]bool{
-	raritySilver: true,
-	rarityGold:   true,
-	rarityFire:   true,
+	raritySilver:  true,
+	rarityGold:    true,
+	rarityFire:    true,
+	rarityEmerald: true,
 }
 
 // asMetal reports whether col is a registered rarity metal (so the text renders
@@ -844,6 +866,8 @@ func rarityColor(rarity string) color.Color {
 		return rarityGold
 	case "legendary":
 		return rarityFire
+	case "unique":
+		return rarityEmerald
 	default:
 		return color.White // Common/default
 	}
@@ -883,18 +907,8 @@ func (ui *UISystem) itemRarityColor(item items.Item) color.Color {
 }
 
 // rarityTier ranks rarities for "highest wins" comparisons (higher = rarer).
-func rarityTier(rarity string) int {
-	switch strings.ToLower(rarity) {
-	case "uncommon":
-		return 1
-	case "rare":
-		return 2
-	case "legendary":
-		return 3
-	default:
-		return 0
-	}
-}
+// rarityTier delegates to config.RarityTier (the single rarity-ordering SSoT).
+func rarityTier(rarity string) int { return config.RarityTier(rarity) }
 
 // isMouseHoveringBox checks if the mouse is hovering over a rectangular area
 func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
@@ -902,14 +916,14 @@ func isMouseHoveringBox(mouseX, mouseY, x1, y1, x2, y2 int) bool {
 }
 
 // statTooltipText quotes the canonical stat description from the character
-// catalog — one source for the in-game tooltip and the map editor.
+// catalog - one source for the in-game tooltip and the map editor.
 func statTooltipText(stat string) string {
 	return character.StatDescription(stat)
 }
 
 // masteryTooltipTextForSkill returns the canonical skill description. The text
 // (and the constants behind it) live in the character package so the in-game
-// tooltip, combat, and the map editor all share one source — see
+// tooltip, combat, and the map editor all share one source - see
 // character.SkillType.Description.
 func masteryTooltipTextForSkill(skill character.SkillType) string {
 	return skill.Description()

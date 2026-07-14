@@ -54,7 +54,7 @@ func CreateArrowWrapper(arrow *Arrow, collisionSystem *collision.CollisionSystem
 // CreateMonsterWrapper creates a wrapper for monster entities using pool.
 // snapshot is the frozen collision view Update() (Phase 1, parallel) must read
 // from; collisionSystem is the live system ApplyCollisionUpdate (Phase 2,
-// serial) writes to — see MonsterWrapper's doc.
+// serial) writes to - see MonsterWrapper's doc.
 func CreateMonsterWrapper(m *monster.Monster3D, collisionSystem *collision.CollisionSystem, snapshot *collision.CollisionSnapshot, game *MMGame) entities.MonsterUpdateInterface {
 	wrapper := monsterWrapperPool.Get().(*MonsterWrapper)
 	wrapper.Monster = m
@@ -113,7 +113,7 @@ func (g *MMGame) ConvertMonstersToWrappers() []entities.MonsterUpdateInterface {
 	}
 
 	// ONE frozen view for the whole tick, taken here (single-threaded, before
-	// dispatch) — every monster's worker reads this same snapshot instead of the
+	// dispatch) - every monster's worker reads this same snapshot instead of the
 	// live system, so no synchronization is needed between them. See
 	// collision.CollisionSnapshot's doc.
 	snapshot := g.collisionSystem.Snapshot()

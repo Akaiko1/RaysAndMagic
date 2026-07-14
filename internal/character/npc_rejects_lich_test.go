@@ -10,7 +10,7 @@ import (
 // Regression: a Lich in the party must only be turned away by the Mage Tower
 // (the Light-aligned ward), not by every quest-giver. The bug gated the
 // rejection on "is a quest giver", so a Lich silenced the Dragon Cliffs hermits
-// too — with a tower-flavored line. rejects_lich is now a per-NPC flag.
+// too - with a tower-flavored line. rejects_lich is now a per-NPC flag.
 func TestNPCRejectsLich_MageTowerOnly(t *testing.T) {
 	root := func(name string) string { return filepath.Join("..", "..", "assets", name) }
 	if _, err := config.LoadItemConfig(root("items.yaml")); err != nil {
@@ -31,7 +31,7 @@ func TestNPCRejectsLich_MageTowerOnly(t *testing.T) {
 		t.Fatalf("create mage_tower: %v", err)
 	}
 	if !tower.RejectsLich {
-		t.Error("mage_tower must set RejectsLich — it gates the Lich rejection")
+		t.Error("mage_tower must set RejectsLich - it gates the Lich rejection")
 	}
 
 	// Dragon Cliffs quest-givers must still speak to a Lich party.
@@ -41,7 +41,7 @@ func TestNPCRejectsLich_MageTowerOnly(t *testing.T) {
 			t.Fatalf("create %s: %v", key, err)
 		}
 		if npc.RejectsLich {
-			t.Errorf("%s must NOT reject Lich — only the Mage Tower does", key)
+			t.Errorf("%s must NOT reject Lich - only the Mage Tower does", key)
 		}
 	}
 }

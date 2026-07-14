@@ -7,6 +7,30 @@ import (
 	"ugataima/internal/monster"
 )
 
+func TestInitialMonsterKeysPersistAfterMapMonstersAreRemoved(t *testing.T) {
+	if _, err := monster.LoadMonsterConfig("../../assets/monsters.yaml"); err != nil {
+		t.Fatalf("load monster config: %v", err)
+	}
+
+	w := NewWorld3D(createTestWorldConfig())
+	w.loadMonstersFromMapData([]MonsterSpawn{
+		{X: 1, Y: 1, MonsterKey: "mummy"},
+		{X: 2, Y: 1, MonsterKey: "mummy"},
+		{X: 3, Y: 1, MonsterKey: "minotaur"},
+	})
+	w.Monsters = nil // Simulate the party clearing the map.
+
+	if len(w.InitialMonsterKeys) != 2 {
+		t.Fatalf("initial monster kinds = %v, want mummy and minotaur", w.InitialMonsterKeys)
+	}
+	if _, ok := w.InitialMonsterKeys["mummy"]; !ok {
+		t.Error("mummy missing from initial monster pool")
+	}
+	if _, ok := w.InitialMonsterKeys["minotaur"]; !ok {
+		t.Error("minotaur missing from initial monster pool")
+	}
+}
+
 func TestWorldGeneration(t *testing.T) {
 	// Load tile manager configuration for world tests
 	GlobalTileManager = NewTileManager()

@@ -1,15 +1,16 @@
 // Package stats holds the ONE definition of the seven character stats: the
-// StatBonuses struct. The canonical ordered name list, the name→field mapping
-// and the name validator are all DERIVED from its fields via reflection —
+// StatBonuses struct. The canonical ordered name list, the name->field mapping
+// and the name validator are all DERIVED from its fields via reflection -
 // adding a stat means adding exactly one struct field, nothing to sync.
 package stats
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
-// StatBonuses is a per-stat additive bonus block — the unit of every temporary
+// StatBonuses is a per-stat additive bonus block - the unit of every temporary
 // stat buff. Spells author either a uniform `stat_bonus: N` (all seven stats,
 // e.g. Bless) or a per-stat `stat_bonuses:` map; the game aggregates active
 // buffs into one StatBonuses and pushes it onto each member's BuffBonuses, so
@@ -83,6 +84,21 @@ func FromMap(m map[string]int) StatBonuses {
 	return b
 }
 
+// ToMap is FromMap's inverse: the non-zero stats as a lowercase-name map (the
+// save-file shape). Nil when the block is empty, so json omits it.
+func (b StatBonuses) ToMap() map[string]int {
+	var out map[string]int
+	for _, name := range Names {
+		if v := *b.fieldByName(name); v != 0 {
+			if out == nil {
+				out = make(map[string]int)
+			}
+			out[name] = v
+		}
+	}
+	return out
+}
+
 // Add returns the per-stat sum of two bonus blocks.
 func (b StatBonuses) Add(o StatBonuses) StatBonuses {
 	out := b
@@ -106,4 +122,40 @@ func (b StatBonuses) ValueByName(name string) int {
 		return *p
 	}
 	return 0
+}
+
+// Summary renders a resolved bonus block as human text: "+N to all stats" when
+// every stat carries the same non-zero bonus (the Bless shape), otherwise a
+// per-stat list ("+3 Might, +2 Luck"). Empty for a zero block. This is the ONE
+// formatter for an applied StatBonuses value - cast messages and tooltips share
+// it so the displayed number can't drift from the real one.
+func (b StatBonuses) Summary() string {
+	if b.IsZero() {
+		return ""
+	}
+	first := b.ValueByName(Names[0])
+	uniform := first != 0
+	for _, n := range Names[1:] {
+		if b.ValueByName(n) != first {
+			uniform = false
+			break
+		}
+	}
+	if uniform {
+		return signed(first) + " to all stats"
+	}
+	parts := make([]string, 0, len(Names))
+	for _, n := range Names {
+		if v := b.ValueByName(n); v != 0 {
+			parts = append(parts, signed(v)+" "+strings.ToUpper(n[:1])+n[1:])
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func signed(n int) string {
+	if n >= 0 {
+		return "+" + strconv.Itoa(n)
+	}
+	return strconv.Itoa(n)
 }

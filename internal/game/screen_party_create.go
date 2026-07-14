@@ -18,7 +18,7 @@ import (
 // Party creation screen (AppScreenPartyCreate)
 //
 // The player drags 4 of the available heroes into the party slots; the rest are
-// auto-assigned on confirm — the config-flagged captives go to the mountain
+// auto-assigned on confirm - the config-flagged captives go to the mountain
 // prison (jail) and everyone else waits at the tavern. Dragging a hero onto an
 // occupied slot swaps the two.
 //
@@ -54,7 +54,7 @@ type partyCreateState struct {
 
 	// Drag state. drag is the hero following the cursor; its origin is recorded
 	// so a drop can swap/return it. The hero is NOT removed from pool/slots
-	// during the drag — it's skipped while drawing and a ghost follows the
+	// during the drag - it's skipped while drawing and a ghost follows the
 	// cursor; the move is applied on release.
 	drag         *pcHero
 	dragFromSlot int // origin slot index, or -1
@@ -62,7 +62,7 @@ type partyCreateState struct {
 
 	// Pending press: a left-press records the candidate hero + origin and selects
 	// it immediately (detail panel). The drag only begins once the cursor moves
-	// past pcDragThreshold while held — a press/release within the threshold is a
+	// past pcDragThreshold while held - a press/release within the threshold is a
 	// plain click (selection only, no move).
 	pending     *pcHero
 	pendingSlot int
@@ -290,11 +290,11 @@ func (pc *partyCreateState) applyDrop(dropSlot int) {
 	}
 	if dropSlot >= 0 {
 		if pc.dragFromSlot >= 0 {
-			// Slot→slot: clean swap (occupant may be nil).
+			// Slot->slot: clean swap (occupant may be nil).
 			pc.slots[pc.dragFromSlot], pc.slots[dropSlot] = pc.slots[dropSlot], pc.slots[pc.dragFromSlot]
 			return
 		}
-		// Pool→slot: occupant (if any) goes back to the pool.
+		// Pool->slot: occupant (if any) goes back to the pool.
 		occ := pc.slots[dropSlot]
 		pc.slots[dropSlot] = drag
 		pc.removeFromPool(pc.dragFromPool)
@@ -303,12 +303,12 @@ func (pc *partyCreateState) applyDrop(dropSlot int) {
 		}
 		return
 	}
-	// Dropped outside any slot → return to the pool.
+	// Dropped outside any slot -> return to the pool.
 	if pc.dragFromSlot >= 0 {
 		pc.slots[pc.dragFromSlot] = nil
 		pc.pool = append(pc.pool, drag)
 	}
-	// Pool→pool drop is a no-op (hero stays where it was).
+	// Pool->pool drop is a no-op (hero stays where it was).
 }
 
 func (pc *partyCreateState) removeFromPool(idx int) {
@@ -329,7 +329,7 @@ func (g *MMGame) beginAdventure(pc *partyCreateState) {
 	}
 
 	// The jail/reserve split (captives-first, fill to jailTarget) is a domain
-	// rule — delegate it to the character package; the UI only maps its heroes.
+	// rule - delegate it to the character package; the UI only maps its heroes.
 	leftovers := make([]character.LeftoverHero, 0, len(pc.pool))
 	for _, h := range pc.pool {
 		leftovers = append(leftovers, character.LeftoverHero{Char: h.char, Captive: h.captiveFlag})
@@ -432,7 +432,7 @@ func (ui *UISystem) drawHeroCard(screen *ebiten.Image, hero *pcHero, r rect, sel
 	portH := r.h - 40
 	ui.drawPortraitCover(screen, ui.game.bigPortraitName(hero.char), r.x+14, r.y+14, r.w-28, portH-10)
 
-	// Names sit over the portrait art — draw with a dark outline so they stay
+	// Names sit over the portrait art - draw with a dark outline so they stay
 	// readable regardless of the portrait behind them.
 	drawCenteredTextWithShadow(screen, hero.char.Name, r.x, r.y+portH-8, r.w, 14, color.RGBA{240, 240, 250, 255})
 	sub := hero.char.Class.String()
@@ -471,14 +471,14 @@ func (ui *UISystem) drawHeroDetailPanel(screen *ebiten.Image, hero *pcHero, pane
 	contentBottom := panel.y + panel.h - 12
 	line := func(s string, col color.Color) {
 		if ty+debugTextCharHeight > contentBottom {
-			return // never draw past the panel — clip instead of overflowing
+			return // never draw past the panel - clip instead of overflowing
 		}
 		drawDebugTextColored(screen, s, tx, ty, col)
 		ty += 16
 	}
 	// Text right edge mirrors the left inset (tx = panel.x+24). wrapTokens packs
 	// tokens so the DRAWN string (prefix + content) fits, measuring the prefix the
-	// caller adds — otherwise lists run past the frame's right border.
+	// caller adds - otherwise lists run past the frame's right border.
 	maxLineW := panel.w - 48
 	wrapTokens := func(prefix, cont string, tokens []string, col color.Color) {
 		budget := maxLineW - debugTextWidth(cont)

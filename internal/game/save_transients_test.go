@@ -48,21 +48,21 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 }
 
 // Merchant remainders persist per NPC, and NPC identity in saves is spawn
-// coordinates — two same-named NPCs must not share state.
+// coordinates - two same-named NPCs must not share state.
 func TestSaveLoad_PersistsMerchantStockByNPCCoordinates(t *testing.T) {
 	cfg := loadTestConfig(t)
 
 	newStockedWorld := func() *world.World3D {
 		w := newTestWorld(cfg)
 		merchant := &character.NPC{
-			Name: "Trader", X: 96, Y: 96,
+			Name: "Trader", RenderCategory: "npc", X: 96, Y: 96,
 			MerchantStock: []*character.MerchantStockItem{
 				{Item: items.Item{Name: "Health Potion"}, Cost: 10, Quantity: 3},
 				{Item: items.Item{Name: "Dead Branch"}, Cost: 25, Quantity: 1},
 			},
 		}
-		gateA := &character.NPC{Name: "City Gate", X: 160, Y: 96}
-		gateB := &character.NPC{Name: "City Gate", X: 96, Y: 160}
+		gateA := &character.NPC{RenderCategory: "npc", Name: "City Gate", X: 160, Y: 96}
+		gateB := &character.NPC{RenderCategory: "npc", Name: "City Gate", X: 96, Y: 160}
 		w.NPCs = append(w.NPCs, merchant, gateA, gateB)
 		return w
 	}
@@ -102,5 +102,35 @@ func TestSaveLoad_PersistsMerchantStockByNPCCoordinates(t *testing.T) {
 	}
 	if !worldLoad.NPCs[2].Visited {
 		t.Errorf("gateB visited flag lost")
+	}
+}
+
+// TestPlaythroughIDLifecycle pins the run-identity invariants whose breakage
+// poisons saves with divergent ids (the save-glow bug class):
+//  1. legacy adoption is DETERMINISTIC - loading a pre-run-id save twice yields
+//     the identical id (an interim build minted randomness here and stamped
+//     sibling saves of one run with different ids);
+//  2. a saved id is adopted verbatim;
+//  3. the hash algorithm itself is pinned by a golden value - changing it would
+//     orphan every legacy save already stamped on disk;
+//  4. fresh runs mint unique ids.
+func TestPlaythroughIDLifecycle(t *testing.T) {
+	names := []string{"Auberon", "Gwen", "Sora", "Mirelle"}
+
+	a := adoptPlaythroughID("", names)
+	b := adoptPlaythroughID("", []string{"Mirelle", "Sora", "Gwen", "Auberon"}) // order-independent
+	if a != b {
+		t.Fatalf("legacy adoption not deterministic/order-independent: %q vs %q", a, b)
+	}
+	if got, want := a, "legacy-27926ec1084d05a1"; got != want {
+		t.Fatalf("legacy id algorithm changed: %q, want pinned %q (changing it orphans stamped saves)", got, want)
+	}
+
+	if got := adoptPlaythroughID("some-run", names); got != "some-run" {
+		t.Fatalf("saved id must be adopted verbatim, got %q", got)
+	}
+
+	if mintPlaythroughID() == mintPlaythroughID() {
+		t.Fatal("fresh runs must mint unique ids")
 	}
 }

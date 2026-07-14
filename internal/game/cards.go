@@ -1,6 +1,7 @@
 package game
 
 import (
+	"reflect"
 	"strings"
 
 	"ugataima/internal/character"
@@ -30,8 +31,8 @@ type physConvShare struct {
 }
 
 // splitPhysConversions carves every conversion card's share out of a physical
-// damage total, in fixed fire→dark→light order (each card converts a share of
-// what the previous ones left). One rule for ALL party-dealt physical damage —
+// damage total, in fixed fire->dark->light order (each card converts a share of
+// what the previous ones left). One rule for ALL party-dealt physical damage -
 // melee, ranged and traps; each share is then mitigated as its own element.
 func (g *MMGame) splitPhysConversions(damage int) (int, []physConvShare) {
 	var shares []physConvShare
@@ -80,8 +81,81 @@ func itemCardKey(it items.Item) string {
 	return ""
 }
 
+// cardSlot is one collection slot: the resolved card key (gameplay truth,
+// read on hot combat/frame paths) plus the physical card item whose
+// InstanceID survives into saves for stash reconciliation. The key is
+// resolved ONCE in setCardCollectionSlot - never re-derived from the item's
+// name at read time (GetItemDefinitionByName is a linear scan).
+type cardSlot struct {
+	key  string
+	item items.Item
+}
+
+func (g *MMGame) cardCollectionKey(slot int) string {
+	if slot < 0 || slot >= MaxCardSlots {
+		return ""
+	}
+	return g.cardSlots[slot].key
+}
+
+func (g *MMGame) setCardCollectionSlot(slot int, it items.Item) bool {
+	if slot < 0 || slot >= MaxCardSlots {
+		return false
+	}
+	normalizeItemFromConfig(&it)
+	key := itemCardKey(it)
+	if key == "" {
+		return false
+	}
+	items.EnsureInstanceID(&it)
+	g.cardSlots[slot] = cardSlot{key: key, item: it}
+	return true
+}
+
+func (g *MMGame) clearCardCollectionSlot(slot int) {
+	if slot < 0 || slot >= MaxCardSlots {
+		return
+	}
+	g.cardSlots[slot] = cardSlot{}
+}
+
+func (g *MMGame) cardCollectionItem(slot int) items.Item {
+	if slot < 0 || slot >= MaxCardSlots {
+		return items.Item{}
+	}
+	s := g.cardSlots[slot]
+	if s.item.Name != "" {
+		return s.item
+	}
+	// Key without a physical item (legacy save migrated, or a test seeding the
+	// key directly): rebuild the card fresh from its definition.
+	if cardDef(s.key) == nil {
+		return items.Item{}
+	}
+	it := items.CreateItemFromYAML(s.key)
+	items.EnsureInstanceID(&it)
+	return it
+}
+
+func (g *MMGame) stashOwnsCardKey(key string) bool {
+	if key == "" || !g.ensureStashLoaded() {
+		return false
+	}
+	for _, it := range g.stash.Slots {
+		if itemCardKey(it) == key {
+			return true
+		}
+	}
+	for _, it := range g.stash.CardSlots {
+		if itemCardKey(it) == key {
+			return true
+		}
+	}
+	return false
+}
+
 // cardFullArtSprite returns a card's full-art sprite name ("full_art_<key>"
-// by convention) and whether that art exists — cards without one simply have
+// by convention) and whether that art exists - cards without one simply have
 // no SHIFT view.
 func (g *MMGame) cardFullArtSprite(key string) (string, bool) {
 	if key == "" || g.sprites == nil {
@@ -95,12 +169,93 @@ func (g *MMGame) cardFullArtSprite(key string) (string, bool) {
 // collection (the single source for both the mechanic and the effect text).
 func (g *MMGame) cardCollectionBonus(get func(*config.ItemDefinitionConfig) int) int {
 	total := 0
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
 			total += get(def)
 		}
 	}
 	return total
+}
+
+// cardCollectionAggregate folds the active cards into one synthetic definition
+// so CardEffectLines can render combined totals. Combine rules match the
+// mechanics: int fields sum, stat/resist maps merge-sum, CardBonusVs multiplies
+// per key, bools OR, strings take the first; poison duration/resist below.
+func (g *MMGame) cardCollectionAggregate() *config.ItemDefinitionConfig {
+	var defs []*config.ItemDefinitionConfig
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
+			defs = append(defs, def)
+		}
+	}
+	return foldCardDefs(defs)
+}
+
+// foldCardDefs is the pure fold behind cardCollectionAggregate (see its doc).
+func foldCardDefs(defs []*config.ItemDefinitionConfig) *config.ItemDefinitionConfig {
+	agg := &config.ItemDefinitionConfig{}
+	av := reflect.ValueOf(agg).Elem()
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		dv := reflect.ValueOf(def).Elem()
+		dt := dv.Type()
+		for i := 0; i < dv.NumField(); i++ {
+			if !strings.HasPrefix(dt.Field(i).Name, "Card") {
+				continue
+			}
+			af, df := av.Field(i), dv.Field(i)
+			switch df.Kind() {
+			case reflect.Int:
+				af.SetInt(af.Int() + df.Int())
+			case reflect.Bool:
+				if df.Bool() {
+					af.SetBool(true)
+				}
+			case reflect.String:
+				if af.String() == "" && df.String() != "" {
+					af.Set(df)
+				}
+			case reflect.Map:
+				if df.Len() == 0 {
+					continue
+				}
+				if af.IsNil() {
+					af.Set(reflect.MakeMap(df.Type()))
+				}
+				multiply := df.Type().Elem().Kind() == reflect.Float64 // bonus_vs multiplies
+				for _, k := range df.MapKeys() {
+					cur := af.MapIndex(k)
+					if multiply {
+						base := 1.0
+						if cur.IsValid() {
+							base = cur.Float()
+						}
+						af.SetMapIndex(k, reflect.ValueOf(base*df.MapIndex(k).Float()))
+					} else {
+						base := int64(0)
+						if cur.IsValid() {
+							base = cur.Int()
+						}
+						af.SetMapIndex(k, reflect.ValueOf(int(base+df.MapIndex(k).Int())))
+					}
+				}
+			}
+		}
+	}
+	// Not sums: poison duration is the max (cardPoisonProc), poison resist caps
+	// at 100% (the combat roll is rand(100) < pct).
+	agg.CardPoisonDurationSec = 0
+	for _, def := range defs {
+		if def != nil && def.CardPoisonDurationSec > agg.CardPoisonDurationSec {
+			agg.CardPoisonDurationSec = def.CardPoisonDurationSec
+		}
+	}
+	if agg.CardPoisonResistPct > 100 {
+		agg.CardPoisonResistPct = 100
+	}
+	return agg
 }
 
 func (g *MMGame) cardMoveSpeedPct() int {
@@ -115,8 +270,8 @@ func (g *MMGame) cardBonusActions() int {
 // reusing StatBonusesFromMap (the same converter spells use for stat_bonuses).
 func (g *MMGame) cardStatBonuses() character.StatBonuses {
 	var sum character.StatBonuses
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil && len(def.CardStatBonuses) > 0 {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && len(def.CardStatBonuses) > 0 {
 			sum = sum.Add(character.StatBonusesFromMap(def.CardStatBonuses))
 		}
 	}
@@ -158,8 +313,8 @@ const cardSummonOwner = "card_collection"
 // cardSummonMonsterKey is the ally summoned by the collection's summon cards
 // (the first one set), or "" if none.
 func (g *MMGame) cardSummonMonsterKey() string {
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil && def.CardSummonChance > 0 && def.CardSummonMonster != "" {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardSummonChance > 0 && def.CardSummonMonster != "" {
 			return def.CardSummonMonster
 		}
 	}
@@ -219,8 +374,8 @@ func (g *MMGame) cardPhysToLightPct() int {
 // percentages; duration is not additive, so multiple copies keep the best
 // duration instead of stretching poison indefinitely.
 func (g *MMGame) cardPoisonProc() (chancePct int, durationSec int) {
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil && def.CardPoisonProcPct > 0 {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardPoisonProcPct > 0 {
 			chancePct += def.CardPoisonProcPct
 			if def.CardPoisonDurationSec > durationSec {
 				durationSec = def.CardPoisonDurationSec
@@ -238,25 +393,13 @@ func (g *MMGame) cardMaxHPBonus() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardMaxHPBonus })
 }
 
-// cardResistBonus sums the party's card-granted elemental resist bonuses.
-func (g *MMGame) cardResistBonus() map[string]int {
-	sum := make(map[string]int)
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil {
-			for school, pct := range def.CardResistBonus {
-				sum[school] += pct
-			}
-		}
-	}
-	return sum
-}
-
 // cardResistBonusFor returns the party's card-granted resist bonus for a single
 // damage school (the hot path used by combat, avoiding a map alloc per hit).
 func (g *MMGame) cardResistBonusFor(school string) int {
+	school = normalizeDamageTypeStr(school)
 	total := 0
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil {
 			total += def.CardResistBonus[school]
 		}
 	}
@@ -269,6 +412,18 @@ func (g *MMGame) cardGoldFindPct() int {
 
 func (g *MMGame) cardBonusBoltPct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardBonusBoltPct })
+}
+
+// cardBonusBoltLabel is the chat name for a bonus-bolt proc: the authored label
+// of the first collected card that grants the bonus (so the credit follows the
+// card, not a hardcoded name). Falls back to a generic label.
+func (g *MMGame) cardBonusBoltLabel() string {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardBonusBoltPct > 0 && def.CardBonusBoltLabel != "" {
+			return def.CardBonusBoltLabel
+		}
+	}
+	return "Bonus Bolt"
 }
 
 func (g *MMGame) cardVolleyBonusPct() int {
@@ -297,7 +452,7 @@ func (g *MMGame) cardArmorPiercePct() int {
 
 // cardBonusVsMultiplier mirrors weaponBonusMultiplier but sources from the card
 // collection and also matches the monster's Type (e.g. "formless") in addition
-// to its Name/Key — letting a card grant "+dmg vs a whole creature category"
+// to its Name/Key - letting a card grant "+dmg vs a whole creature category"
 // the way a weapon's bonus_vs can't.
 func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 	if monster == nil {
@@ -311,8 +466,8 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 		candidates = append(candidates, monster.MonsterType)
 	}
 	mult := 1.0
-	for _, key := range g.cardCollection {
-		def := cardDef(key)
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		def := cardDef(g.cardCollectionKey(slot))
 		if def == nil || len(def.CardBonusVs) == 0 {
 			continue
 		}
@@ -321,7 +476,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 				continue
 			}
 			// Name/Key/MonsterType often name the same identity (e.g. the Dragon
-			// monster has Name="Dragon", Key="dragon", MonsterType="dragon") — one
+			// monster has Name="Dragon", Key="dragon", MonsterType="dragon") - one
 			// matching bonus_vs entry means "this card applies to this monster",
 			// not "multiply once per field that happened to match", so stop at the
 			// first hit instead of checking the remaining candidates.
@@ -340,7 +495,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 // when a new game starts so a fresh party never inherits the old run's card
 // effects (move speed, actions, stat bonuses, walk-on-water, summons...).
 func (g *MMGame) resetCardCollection() {
-	g.cardCollection = [MaxCardSlots]string{}
+	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
 	g.recomputeStatBonuses()
 }
@@ -365,8 +520,8 @@ func (g *MMGame) maybeCardMoveBurst() {
 
 // hasCardWalkOnWater reports whether any collected card grants walk-on-water.
 func (g *MMGame) hasCardWalkOnWater() bool {
-	for _, key := range g.cardCollection {
-		if def := cardDef(key); def != nil && def.CardWalkOnWater {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardWalkOnWater {
 			return true
 		}
 	}
@@ -374,7 +529,7 @@ func (g *MMGame) hasCardWalkOnWater() bool {
 }
 
 // cardEffectText derives the human-readable collection effect from a card's
-// attributes (ASCII only — the bitmap font has no glyph for unicode dashes).
+// attributes (ASCII only - the bitmap font has no glyph for unicode dashes).
 func cardEffectText(def *config.ItemDefinitionConfig) string {
 	if def == nil {
 		return ""
@@ -388,8 +543,8 @@ func cardEffectText(def *config.ItemDefinitionConfig) string {
 
 // firstFreeCardSlot returns the first empty collection slot, or -1 if full.
 func (g *MMGame) firstFreeCardSlot() int {
-	for i, k := range g.cardCollection {
-		if k == "" {
+	for i := 0; i < MaxCardSlots; i++ {
+		if g.cardCollectionKey(i) == "" {
 			return i
 		}
 	}
@@ -411,27 +566,31 @@ func (g *MMGame) placeCardFromInventory(inv int) bool {
 	if slot < 0 {
 		return false
 	}
-	g.cardCollection[slot] = key
+	if !g.setCardCollectionSlot(slot, g.party.Inventory[inv]) {
+		return false
+	}
 	g.party.Inventory = append(g.party.Inventory[:inv], g.party.Inventory[inv+1:]...)
 	g.recomputeStatBonuses() // fold the card's Speed bonus into the party stats
 	return true
 }
 
-// removeCardToInventory returns the card in slot back to the party inventory.
-// Cards carry no instance state, so it is rebuilt fresh from its key.
+// removeCardToInventory returns the physical card in slot back to the party
+// inventory, preserving its InstanceID for cross-save stash reconciliation.
 func (g *MMGame) removeCardToInventory(slot int) bool {
-	if slot < 0 || slot >= MaxCardSlots || g.cardCollection[slot] == "" {
+	if slot < 0 || slot >= MaxCardSlots || g.cardCollectionKey(slot) == "" {
 		return false
 	}
-	key := g.cardCollection[slot]
-	g.cardCollection[slot] = ""
-	g.party.Inventory = append(g.party.Inventory, items.CreateItemFromYAML(key))
+	it := g.cardCollectionItem(slot)
+	g.clearCardCollectionSlot(slot)
+	if itemCardKey(it) != "" {
+		g.party.Inventory = append(g.party.Inventory, it)
+	}
 	g.recomputeStatBonuses()
 	return true
 }
 
 // inventoryCardIndices lists the inventory slots holding collectible cards, in
-// order — the left panel of the collector dialog and its click mapping.
+// order - the left panel of the collector dialog and its click mapping.
 func (g *MMGame) inventoryCardIndices() []int {
 	var out []int
 	for i := range g.party.Inventory {

@@ -13,16 +13,16 @@ import (
 // The unified tooltip template (user-designed): every card renders as
 //
 //	=== Name ===
-//	Category · Rarity/Level
+//	Category - Rarity/Level
 //	SECTION
-//	  base → stat → mastery → total decomposition
+//	  base -> stat -> mastery -> total decomposition
 //	...
 //	RULES
 //
 // Empty sections and inapplicable lines are skipped; armor/resistance
 // interaction is always spelled out; RT and TB values appear together.
 
-// ttSection aliases the SHARED template engine (character/cardtemplate.go) —
+// ttSection aliases the SHARED template engine (character/cardtemplate.go) -
 // the map editor renders the same sections in their character-independent
 // form, so the two views cannot diverge structurally.
 type ttSection = character.CardSection
@@ -71,7 +71,7 @@ func cooldownLine(cs *CombatSystem, frames int) string {
 }
 
 // spellCooldownWeaponLine names the equipped main-hand's spell-cooldown perk
-// (e.g. Archmage Staff ×0.80), or "" when none — SpellCooldownFrames factors it.
+// (e.g. Archmage Staff x0.80), or "" when none - SpellCooldownFrames factors it.
 func spellCooldownWeaponLine(char *character.MMCharacter) string {
 	if char == nil {
 		return ""
@@ -81,7 +81,7 @@ func spellCooldownWeaponLine(char *character.MMCharacter) string {
 		return ""
 	}
 	if def, _, found := config.GetWeaponDefinitionByName(weapon.Name); found && def != nil && def.SpellCooldownMultiplier > 0 {
-		return fmt.Sprintf("%s: ×%.2f spell cooldown", weapon.Name, def.SpellCooldownMultiplier)
+		return fmt.Sprintf("%s: x%.2f spell cooldown", weapon.Name, def.SpellCooldownMultiplier)
 	}
 	return ""
 }
@@ -110,7 +110,7 @@ func schoolMasteryTier(char *character.MMCharacter, school string) (int, string)
 	return int(ms.Mastery), ms.Mastery.String()
 }
 
-// statContribDetail renders "Accuracy (30 / 3): +10" into the full-only tier —
+// statContribDetail renders "Accuracy (30 / 3): +10" into the full-only tier -
 // the stat VALUE and the divisor the formula actually uses. A zero
 // contribution still names the scaling stat (what to raise).
 func statContribDetail(sec *ttSection, statName string, statValue, divisor int) {
@@ -122,7 +122,7 @@ func statContribDetail(sec *ttSection, statName string, statValue, divisor int) 
 
 // damageTypeAoELine / armorInteractionRules delegate to the shared template
 // helpers so the editor's rules text is literally the same code (and lands in
-// the full-only DETAIL tier — see character.ArmorInteractionLines).
+// the full-only DETAIL tier - see character.ArmorInteractionLines).
 func damageTypeAoELine(damageType string, aoeTiles float64) string {
 	return character.DamageTypeAoELine(damageType, aoeTiles)
 }
@@ -138,9 +138,9 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if def == nil || cs == nil {
 		return item.Name
 	}
-	subtitle := strings.Title(def.Category)
+	subtitle := strings.Title(strings.ReplaceAll(def.Category, "_", " "))
 	if def.Rarity != "" {
-		subtitle += " · " + strings.Title(def.Rarity)
+		subtitle += " - " + strings.Title(def.Rarity)
 	}
 
 	attack := ttSection{Title: "ATTACK"}
@@ -150,11 +150,13 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if arc := character.MeleeSwingArcLine(def); arc != "" {
 		attack.Add("%s", arc)
 	}
-	if cd := cooldownLine(cs, cs.WeaponCooldownFramesFor(char, item.Name)); cd != "" {
-		attack.Add("%s", cd)
+	if char != nil {
+		if cd := cooldownLine(cs, cs.WeaponCooldownFramesFor(char, item.Name)); cd != "" {
+			attack.Add("%s", cd)
+		}
 	}
 	// Explain WHY the cooldown differs from the bare Speed curve (category
-	// multiplier or a legendary override) — the editor shows the same line.
+	// multiplier or a legendary override) - the editor shows the same line.
 	for _, ln := range character.WeaponCombatLines(def) {
 		if strings.HasPrefix(ln, "Attack cooldown") {
 			attack.AddDetail("%s", ln)
@@ -178,16 +180,27 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if char != nil {
 		armsBonus = char.ArmsMasterTier() * ArmsMasterDamagePerTier
 	}
-	_, _, normal := cs.CalculateWeaponDamage(item, char)
-	trueDmg, _ := cs.weaponMasteryStrike(char, def)
+	// A nil char is the SHOP view: the item's own base numbers, no bearer scaling.
+	normal, trueDmg := def.Damage, 0
+	if char != nil {
+		_, _, normal = cs.CalculateWeaponDamage(item, char)
+		trueDmg, _ = cs.weaponMasteryStrike(char, def)
+	}
 	dmg.AddDetail("Base: %d", def.Damage)
 	primaryStat := def.BonusStat
 	if primaryStat == "" {
 		primaryStat = "Might"
 	}
-	statContribDetail(&dmg, primaryStat, getEffectiveStatValue(primaryStat, char), WeaponPrimaryStatDivisor)
-	if def.BonusStatSecondary != "" {
-		statContribDetail(&dmg, def.BonusStatSecondary, getEffectiveStatValue(def.BonusStatSecondary, char), WeaponSecondaryStatDivisor)
+	if char != nil {
+		statContribDetail(&dmg, primaryStat, getEffectiveStatValue(primaryStat, char), WeaponPrimaryStatDivisor)
+		if def.BonusStatSecondary != "" {
+			statContribDetail(&dmg, def.BonusStatSecondary, getEffectiveStatValue(def.BonusStatSecondary, char), WeaponSecondaryStatDivisor)
+		}
+	} else {
+		dmg.AddDetail("Scales with %s", primaryStat)
+		if def.BonusStatSecondary != "" {
+			dmg.AddDetail("Also scales with %s", def.BonusStatSecondary)
+		}
 	}
 	if armsBonus > 0 {
 		_, tierName := masteryTier(char, character.SkillArmsMaster)
@@ -203,28 +216,36 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	// Active party buffs add a flat bonus after crit doubling; filter by the
 	// weapon's OWN damage type so the tooltip matches combat (ApplyDamageToMonster),
 	// e.g. Heroism (physical) does not boost a light/fire weapon.
-	outBonus := cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+	outBonus := 0
+	if char != nil {
+		outBonus = cs.game.combatBuffOutBonusForDamageType(weaponDamageTypeStr(def))
+	}
 	if outBonus > 0 {
 		dmg.AddDetail("Active party buff: +%d", outBonus)
 	}
 	dmg.Add("Total Damage: %d", normal+trueDmg+outBonus)
-	totalCrit := cs.CalculateWeaponCritChance(item, char)
+	totalCrit := def.CritChance
+	if char != nil {
+		totalCrit = cs.CalculateWeaponCritChance(item, char)
+	}
 	if totalCrit > 0 {
 		dmg.Add("Critical Damage: %d", normal*CritDamageMultiplier+trueDmg+outBonus)
 	}
 
 	crit := ttSection{Title: "CRITICAL"}
 	if totalCrit > 0 {
-		baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
 		crit.Add("Chance: %d%%", totalCrit)
-		parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
-		if gmWeapon > 0 {
-			parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))
+		if char != nil {
+			baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
+			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
+			if gmWeapon > 0 {
+				parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))
+			}
+			if gmArms > 0 {
+				parts = append(parts, fmt.Sprintf("GM Arms Master: +%d%%", gmArms))
+			}
+			crit.AddDetail("%s", strings.Join(parts, " - "))
 		}
-		if gmArms > 0 {
-			parts = append(parts, fmt.Sprintf("GM Arms Master: +%d%%", gmArms))
-		}
-		crit.AddDetail("%s", strings.Join(parts, " · "))
 	}
 
 	effects := ttSection{Title: "EFFECTS"}
@@ -260,13 +281,16 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
-		subtitle += " · " + strings.Title(def.Rarity)
+		subtitle += " - " + strings.Title(def.Rarity)
 	}
 
 	defense := ttSection{Title: "DEFENSE"}
 	totalAC := 0
 	if ok && def != nil && cs != nil && (def.ArmorClassBase > 0 || def.EnduranceScalingDivisor > 0) {
-		totalAC = cs.CalculateArmorClassContribution(item, char)
+		totalAC = item.Attributes["armor_class_base"] // shop view: the piece's own base
+		if char != nil {
+			totalAC = cs.CalculateArmorClassContribution(item, char)
+		}
 		defense.AddDetail("Base Armor Class: %d", def.ArmorClassBase)
 		if enduranceDiv, scalingOK := armorEnduranceScalingDivisor(item); scalingOK && char != nil {
 			statContribDetail(&defense, "Endurance", char.GetEffectiveEndurance(), enduranceDiv)
@@ -285,6 +309,12 @@ func buildArmorTooltipUnified(item items.Item, char *character.MMCharacter, cs *
 			effects.Add("%s", ln)
 		}
 		for _, ln := range def.ResistLines() {
+			effects.Add("%s", ln)
+		}
+		if ln := def.PartyArmorLine(); ln != "" {
+			effects.Add("%s", ln)
+		}
+		for _, ln := range def.SetLines() {
 			effects.Add("%s", ln)
 		}
 	}
@@ -328,7 +358,7 @@ func armorMasterySkill(item items.Item) (character.SkillType, bool) {
 // ----------------------------------------------------------------- spells ---
 
 func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	subtitle := fmt.Sprintf("%s Magic · Level %d", formatSchoolName(def.School), def.Level)
+	subtitle := fmt.Sprintf("%s Magic - Level %d", formatSchoolName(def.School), def.Level)
 
 	casting := ttSection{Title: "CASTING"}
 	cost := def.SpellPointsCost
@@ -336,8 +366,8 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		cost = cs.effectiveSpellCost(char, def.SpellPointsCost)
 	}
 	casting.Add("Cost: %d SP", cost)
-	// A GM meditator pays less — show the discount so the reduced Cost isn't a
-	// mystery (Base → −% → Current).
+	// A GM meditator pays less - show the discount so the reduced Cost isn't a
+	// mystery (Base -> -% -> Current).
 	if cost < def.SpellPointsCost {
 		casting.AddDetail("Base Cost: %d SP", def.SpellPointsCost)
 		casting.AddDetail("GM Meditation: -%d%%", MeditationGMSpellCostReductionPct)
@@ -382,11 +412,11 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		mult := maxInt(1, def.DamageCostMultiplier)
 		base := def.SpellPointsCost * spells.SpellDamagePerSP * mult
 		if mult > 1 {
-			dmg.AddDetail("Base (%d SP × %d × %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, base)
+			dmg.AddDetail("Base (%d SP x %d x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, mult, base)
 		} else {
-			dmg.AddDetail("Base (%d SP × %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, base)
+			dmg.AddDetail("Base (%d SP x %d): %d", def.SpellPointsCost, spells.SpellDamagePerSP, base)
 		}
-		// The same stat the damage formula divides (self magic → Personality).
+		// The same stat the damage formula divides (self magic -> Personality).
 		primaryStat, primaryValue := "Intellect", 0
 		if char != nil {
 			primaryValue = char.GetEffectiveIntellect()
@@ -470,7 +500,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	if def.IsProjectile && !def.DealsNoDamage {
 		effects.Add("%s", damageTypeAoELine(def.School, def.AoeRadiusTiles))
 	}
-	// Filtered: the composed type·AoE line and the DAMAGE/HEALING sections
+	// Filtered: the composed type-AoE line and the DAMAGE/HEALING sections
 	// already cover what these EffectLines entries would repeat.
 	for _, ln := range character.FilteredSpellEffectLines(def) {
 		effects.Add("%s", ln)
@@ -495,7 +525,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 		current := scaledIncomingDamageReduction(def, char)
 		effects.Add("Current reduction: -%d per hit", current)
 	}
-	// Duration decomposed: base → mastery % → current.
+	// Duration decomposed: base -> mastery % -> current.
 	if def.Duration > 0 && cs != nil {
 		current := cs.CalculateSpellDurationSeconds(def.ID, char)
 		effects.AddDetail("Base Duration: %ds", def.Duration)
@@ -557,7 +587,7 @@ func maxInt(a, b int) int {
 // ----------------------------------------------------------------- traps ----
 
 func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char *character.MMCharacter, cs *CombatSystem, full bool) string {
-	subtitle := fmt.Sprintf("Trap · Level %d", def.Level)
+	subtitle := fmt.Sprintf("Trap - Level %d", def.Level)
 
 	placement := ttSection{Title: "PLACEMENT"}
 	cost := def.SPCost
@@ -641,7 +671,7 @@ func buildSimpleItemTooltipUnified(item items.Item, title string, usage []string
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
-		subtitle += " · " + strings.Title(def.Rarity)
+		subtitle += " - " + strings.Title(def.Rarity)
 	}
 	effect := ttSection{Title: title}
 	if ok && def != nil {

@@ -43,14 +43,15 @@ type TeleporterLocation struct {
 }
 
 type World3D struct {
-	Width    int
-	Height   int
-	Tiles    [][]TileType3D
-	Monsters []*monster.Monster3D
-	NPCs     []*character.NPC
-	Items    []*character.WorldItem
-	Teachers []*character.SkillTeacher
-	config   *config.Config
+	Width              int
+	Height             int
+	Tiles              [][]TileType3D
+	Monsters           []*monster.Monster3D
+	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
+	NPCs               []*character.NPC
+	Items              []*character.WorldItem
+	Teachers           []*character.SkillTeacher
+	config             *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
 	// to "oob_cliff".
@@ -61,16 +62,18 @@ type World3D struct {
 	// Magic effects
 	walkOnWaterActive    bool
 	waterBreathingActive bool
+	flyActive            bool // Fly spell: party passes through non-border tiles
 }
 
 func NewWorld3D(cfg *config.Config) *World3D {
 	world := &World3D{
-		Monsters:       make([]*monster.Monster3D, 0),
-		NPCs:           make([]*character.NPC, 0),
-		Items:          make([]*character.WorldItem, 0),
-		Teachers:       make([]*character.SkillTeacher, 0),
-		config:         cfg,
-		OutOfBoundsKey: "oob_cliff",
+		Monsters:           make([]*monster.Monster3D, 0),
+		InitialMonsterKeys: make(map[string]struct{}),
+		NPCs:               make([]*character.NPC, 0),
+		Items:              make([]*character.WorldItem, 0),
+		Teachers:           make([]*character.SkillTeacher, 0),
+		config:             cfg,
+		OutOfBoundsKey:     "oob_cliff",
 	}
 
 	// Note: Map loading is now handled by WorldManager
@@ -111,7 +114,7 @@ func (w *World3D) loadFromMapFile() {
 }
 
 // CanProjectileMoveTo reports whether a projectile (or spell) may occupy (x,y).
-// Projectiles fly OVER floor-level obstacles — chasms and water (render_type
+// Projectiles fly OVER floor-level obstacles - chasms and water (render_type
 // "floor_only") are ground-level, so a bolt sails across them; only solid
 // wall/billboard tiles stop it. Player/monster movement still uses CanMoveTo.
 func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
@@ -121,10 +124,10 @@ func (w *World3D) CanProjectileMoveTo(x, y float64) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return false // out of bounds blocks
 	}
-	if !w.IsTileBlocking(tileX, tileY) {
+	if !w.isTileBlockingTerrain(tileX, tileY) {
 		return true // walkable ground
 	}
-	// Blocking tile: a floor-only blocker (pit/water) is ground-level — fly over
+	// Blocking tile: a floor-only blocker (pit/water) is ground-level - fly over
 	// it; a wall/billboard blocker stops the projectile.
 	if GlobalTileManager != nil && GlobalTileManager.GetRenderType(w.Tiles[tileY][tileX]) == "floor_only" {
 		return true
@@ -165,9 +168,13 @@ func (w *World3D) CanMoveTo(x, y float64) bool {
 // GetTileAt returns the tile type at the given world coordinates
 func (w *World3D) GetTileAt(x, y float64) TileType3D {
 	tileSize := w.config.GetTileSize()
-	tileX := int(x / tileSize)
-	tileY := int(y / tileSize)
+	return w.GetTileAtGrid(int(x/tileSize), int(y/tileSize))
+}
 
+// GetTileAtGrid is GetTileAt for already-computed tile coordinates. The
+// raycaster's DDA maintains grid coords natively; re-deriving them through
+// world coordinates cost a divide + a world map lookup per ray step.
+func (w *World3D) GetTileAtGrid(tileX, tileY int) TileType3D {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		// Off-map backdrop: render the biome's out-of-bounds wall (cached sprite)
 		// rather than the empty-sprite stone wall, whose per-column gray
@@ -194,7 +201,7 @@ func (w *World3D) GetStartingPosition() (float64, float64) {
 		panic("Map has no starting position defined! Maps must have a '+' symbol to be used as starting maps.")
 	}
 	tileSize := w.config.GetTileSize()
-	// Return the CENTER of the start tile, not its corner — every other
+	// Return the CENTER of the start tile, not its corner - every other
 	// positioning path (movement, teleporters) centers on the tile, and an
 	// off-centre spawn drops the party into the corner of the doorway.
 	return float64(w.StartX)*tileSize + tileSize/2, float64(w.StartY)*tileSize + tileSize/2
@@ -216,10 +223,10 @@ func RegisterTeleportersFromMapData(specialTileSpawns []SpecialTileSpawn, mapKey
 			tileKey := GlobalTileManager.GetTileKey(tile)
 			group := getTeleporterString(tileData.Properties, "teleporter_group", tileKey)
 			cooldownSeconds := getTeleporterFloat(tileData.Properties, "cooldown_seconds", 5)
-			autoActivate := getTeleporterBool(tileData.Properties, "auto_activate", true)
-			randomDestination := getTeleporterBool(tileData.Properties, "random_destination", true)
-			excludeSelf := getTeleporterBool(tileData.Properties, "exclude_self", true)
-			crossMap := getTeleporterBool(tileData.Properties, "cross_map", true)
+			autoActivate := getTeleporterBool(tileData.Properties, "auto_activate")
+			randomDestination := getTeleporterBool(tileData.Properties, "random_destination")
+			excludeSelf := getTeleporterBool(tileData.Properties, "exclude_self")
+			crossMap := getTeleporterBool(tileData.Properties, "cross_map")
 
 			label := fmt.Sprintf("%s_%s_%d_%d", mapKey, group, x, y)
 			teleporter := TeleporterLocation{
@@ -265,13 +272,13 @@ func getTeleporterString(props map[string]interface{}, key, fallback string) str
 	return fallback
 }
 
-func getTeleporterBool(props map[string]interface{}, key string, fallback bool) bool {
+func getTeleporterBool(props map[string]interface{}, key string) bool {
 	if props == nil {
-		return fallback
+		return true
 	}
 	val, ok := props[key]
 	if !ok {
-		return fallback
+		return true
 	}
 	switch v := val.(type) {
 	case bool:
@@ -291,7 +298,7 @@ func getTeleporterBool(props map[string]interface{}, key string, fallback bool) 
 			return false
 		}
 	}
-	return fallback
+	return true
 }
 
 func getTeleporterFloat(props map[string]interface{}, key string, fallback float64) float64 {
@@ -325,7 +332,10 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 		// Get monster size from YAML config
 		width, height := monster.GetSize()
 
-		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, true)
+		// The game promotes a monster to a solid engaged blocker only after its
+		// per-frame AI target is known. Defaulting map-loaded monsters to walkable
+		// prevents a peaceful mob from blocking the first player input after load.
+		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
 		collisionSystem.RegisterEntity(entity)
 	}
 }
@@ -335,7 +345,31 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
 		return true // Treat out-of-bounds as blocking
 	}
+	// Fly: the party passes through ANYTHING except the map's border ring -
+	// the edge stays solid so the party can never leave the map. MOVEMENT
+	// only: projectiles keep real terrain collision (isTileBlockingTerrain),
+	// or every bolt would sail through walls while the party flies.
+	if w.flyActive {
+		if tileX == 0 || tileY == 0 || tileX == w.Width-1 || tileY == w.Height-1 {
+			return true
+		}
+		return false
+	}
+	return w.isTileBlockingTerrain(tileX, tileY)
+}
 
+// IsTileBlockingTerrainAt exposes the raw terrain rule (no Fly override) for
+// game-side checks like "is the flying party inside a solid wall".
+func (w *World3D) IsTileBlockingTerrainAt(tileX, tileY int) bool {
+	if tileX < 0 || tileX >= w.Width || tileY < 0 || tileY >= w.Height {
+		return true
+	}
+	return w.isTileBlockingTerrain(tileX, tileY)
+}
+
+// isTileBlockingTerrain is the raw terrain rule (walkability + water-walk),
+// with no Fly override. Bounds must already be checked.
+func (w *World3D) isTileBlockingTerrain(tileX, tileY int) bool {
 	tile := w.Tiles[tileY][tileX]
 
 	// Use tile manager to check if tile blocks movement
@@ -434,6 +468,11 @@ func (w *World3D) GetWorldBounds() (width, height int) {
 	return w.Width, w.Height
 }
 
+// SetFlyActive sets the Fly state for the world (see IsTileBlocking).
+func (w *World3D) SetFlyActive(active bool) {
+	w.flyActive = active
+}
+
 // SetWalkOnWaterActive sets the walk on water state for the world
 func (w *World3D) SetWalkOnWaterActive(active bool) {
 	w.walkOnWaterActive = active
@@ -481,6 +520,10 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 // loadMonstersFromMapData loads monsters from map spawn data
 func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 	for _, spawn := range monsterSpawns {
+		if w.InitialMonsterKeys == nil {
+			w.InitialMonsterKeys = make(map[string]struct{})
+		}
+		w.InitialMonsterKeys[spawn.MonsterKey] = struct{}{}
 		// Convert tile coordinates to world coordinates (spawn at tile center)
 		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
 

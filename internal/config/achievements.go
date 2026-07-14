@@ -7,7 +7,7 @@ import (
 )
 
 // AchievementDef is one data-driven achievement definition. Unlock tracking is
-// not wired yet — the entry-menu screen renders these as a graphics-ready,
+// not wired yet - the entry-menu screen renders these as a graphics-ready,
 // all-locked list. Add real unlock logic later without touching the schema.
 type AchievementDef struct {
 	Key         string `yaml:"key"`
@@ -24,11 +24,11 @@ type AchievementsConfig struct {
 }
 
 // GlobalAchievements holds the loaded achievement definitions (nil if the file
-// was absent/unreadable — the UI treats nil as "no achievements yet").
+// was absent/unreadable - the UI treats nil as "no achievements yet").
 var GlobalAchievements *AchievementsConfig
 
 // LoadAchievementConfig reads achievement definitions. Missing/empty config is
-// not fatal — achievements are an optional, stubbed feature.
+// not fatal - achievements are an optional, stubbed feature.
 func LoadAchievementConfig(filename string) (*AchievementsConfig, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {

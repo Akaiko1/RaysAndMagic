@@ -17,7 +17,7 @@ spells:
     description: "Launches a shard of ice"
     school: "water"
     level: 2
-    spell_points_cost: 6   # damage derives from this: cost × 3 (SpellDamagePerSP)
+    spell_points_cost: 6   # damage derives from this: cost x 3 (SpellDamagePerSP)
     duration: 0
     projectile_size: 12
     is_projectile: true
@@ -55,7 +55,7 @@ spells:
 ## Damage model
 
 There is no `damage` field. A projectile spell's base damage is
-`spell_points_cost × 3` (`spells.SpellDamagePerSP`), optionally scaled by
+`spell_points_cost x 3` (`spells.SpellDamagePerSP`), optionally scaled by
 `damage_cost_multiplier` and boosted by Intellect (plus Personality when
 `scales_with_personality` is set). `deals_no_damage: true` makes a projectile
 purely a status carrier.
@@ -75,11 +75,11 @@ purely a status carrier.
 - AoE: `stun_radius_tiles` + `stun_duration_seconds`/`stun_duration_turns` (Stun/Darkness), `party_aoe_radius_tiles` (Inferno nova), `zone_radius_tiles` + `zone_tick_damage` + `zone_tick_seconds` (Hot Steam)
 - world: `water_walk`, `water_breathing`, `vision_bonus` (see note below), `awaken`
 - presentation: `message`, `status_icon` (HUD icon for active utility spells)
-- unknown fields are silently ignored by the YAML loader — typos won't error, they just do nothing
+- unknown fields are silently ignored by the YAML loader - typos won't error, they just do nothing
 
 ### Vision bonus note
 The `vision_bonus` value is read for any utility spell, but the gameplay
-effect (which buff to activate — torch light radius vs wizard eye compass
+effect (which buff to activate - torch light radius vs wizard eye compass
 range) is dispatched by SpellID in `internal/game/combat.go`. New vision
 spells still require code there.
 
@@ -95,7 +95,7 @@ Choose one (or more):
 - Add to a spell trader in `assets/npcs.yaml`.
 
 ## Spell trader requirements
-A trader catalog entry only needs `cost: N` — name, school, level, description
+A trader catalog entry only needs `cost: N` - name, school, level, description
 and requirements are backfilled from spells.yaml at load
 (`backfillTraderSpells`; a missing `cost` fails the load). When `requirements`
 is omitted it defaults to the spell's own `level` as `min_level`. Author an

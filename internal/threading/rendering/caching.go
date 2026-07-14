@@ -32,7 +32,7 @@ type WallSliceCache struct {
 // texture coordinates are quantized during caching to improve hit rates.
 //
 // TileType is `int` rather than `interface{}` to avoid boxing the caller's
-// world.TileType3D value into an interface header on every cache lookup —
+// world.TileType3D value into an interface header on every cache lookup -
 // that allocation showed up in the hot raycast path. Callers cast
 // `int(tileType)` when building the key.
 type WallSliceKey struct {

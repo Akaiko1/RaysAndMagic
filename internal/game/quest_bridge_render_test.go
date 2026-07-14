@@ -7,7 +7,7 @@ import (
 )
 
 // After the wolf-cull completes, BOTH bridge tiles must bake to the SAME floor
-// atlas index — "one plank, one stream" means the baked index map diverged
+// atlas index - "one plank, one stream" means the baked index map diverged
 // from the world tiles.
 func TestWolfCullBridge_FloorBakeIndices(t *testing.T) {
 	cfg := loadTestConfig(t)
@@ -25,7 +25,7 @@ func TestWolfCullBridge_FloorBakeIndices(t *testing.T) {
 	qm.MarkCompleted("forest_wolf_cull")
 	g.applyCompletedQuestTiles()
 	// applyCompletedQuestTiles can't reach this renderer (no gameLoop in the
-	// test) — rebake explicitly, same call the live path makes.
+	// test) - rebake explicitly, same call the live path makes.
 	r.precomputeFloorColorCache()
 
 	for name, grp := range r.floorTexGroups {

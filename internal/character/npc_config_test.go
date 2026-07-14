@@ -73,7 +73,7 @@ func TestCreateNPCFromConfig_MerchantSellAvailable(t *testing.T) {
 
 // Trader catalogs list only spell IDs; backfillTraderSpells must fill
 // name/school/level/cost/requirements from spells.yaml, and the learn gate's
-// min-level must equal the spell's own level (so it can't drift — this is the
+// min-level must equal the spell's own level (so it can't drift - this is the
 // structural fix for the old Water Breathing level mismatch).
 func TestBackfillTraderSpells(t *testing.T) {
 	if _, err := config.LoadSpellConfig(filepath.Join("..", "..", "assets", "spells.yaml")); err != nil {
@@ -118,7 +118,7 @@ func TestBackfillTraderSpells(t *testing.T) {
 		t.Errorf("corner trader should sell exactly one spell, got %d", len(NPCConfigInstance.NPCs["mtrader0"].Spells))
 	}
 
-	// City sells elemental only — no Light/Dark.
+	// City sells elemental only - no Light/Dark.
 	for _, sp := range NPCConfigInstance.NPCs["city_spell_shop"].Spells {
 		if sp.School == "light" || sp.School == "dark" {
 			t.Errorf("city shop must not sell light/dark, found %q (%s)", sp.Name, sp.School)

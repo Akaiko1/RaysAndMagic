@@ -57,7 +57,7 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 
 	// Healing spells MUST set heal_amount; we no longer fall back to the
 	// damage field because the damage field has been removed from the YAML
-	// schema (offensive damage is derived from spell_points_cost × N).
+	// schema (offensive damage is derived from spell_points_cost x N).
 	baseHealing = def.HealAmount
 	personalityBonus = casterPersonality / HealingPersonalityDivisor
 	totalHealing = baseHealing + personalityBonus
@@ -66,7 +66,7 @@ func CalculateHealingAmountByID(spellID SpellID, casterPersonality int) (baseHea
 
 // CreateProjectile builds the PHYSICS of a spell projectile (velocity,
 // lifetime, size). Damage is authored by the caller (CombatSystem owns every
-// number: stats, mastery, crits; monsters use their own attack damage) — this
+// number: stats, mastery, crits; monsters use their own attack damage) - this
 // layer deliberately computes none.
 func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, angle float64) (ProjectileData, error) {
 	def, err := GetSpellDefinitionByID(spellID)
@@ -100,8 +100,8 @@ func (cs *CastingSystem) CreateProjectile(spellID SpellID, casterX, casterY, ang
 }
 
 // ApplyUtilitySpell resolves the EFFECT FLAGS of a utility spell from YAML
-// (vision/water flags + cast message). All numbers — heal totals, durations,
-// stat bonuses — are computed by CombatSystem (stats, mastery), never here.
+// (vision/water flags + cast message). All numbers - heal totals, durations,
+// stat bonuses - are computed by CombatSystem (stats, mastery), never here.
 func (cs *CastingSystem) ApplyUtilitySpell(spellID SpellID) (UtilitySpellResult, error) {
 	def, err := GetSpellDefinitionByID(spellID)
 	if err != nil {

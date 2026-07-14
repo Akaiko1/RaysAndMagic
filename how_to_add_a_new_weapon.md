@@ -86,7 +86,7 @@ weapons:
 - `projectile_school` (renders the projectile as that school's spell orb instead of an arrow)
 
 These non-base effects surface in tooltips via `WeaponDefinitionConfig.EffectLines`
-(single source of truth — add a new effect there and every tooltip/card picks
+(single source of truth - add a new effect there and every tooltip/card picks
 it up). `crit_chance` is a base attribute rendered separately, not in EffectLines.
 
 ## Class restrictions

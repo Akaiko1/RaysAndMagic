@@ -7,7 +7,7 @@ import (
 	"ugataima/internal/items"
 )
 
-// Regression: a heal potion must not be usable on an Eradicated member —
+// Regression: a heal potion must not be usable on an Eradicated member -
 // applyHealTo only checked Unconscious/Dead, unlike its siblings
 // RevivablePartyIndices/HealablePartyIndices which both exclude Eradicated.
 // Only the Resurrect spell may clear that condition.

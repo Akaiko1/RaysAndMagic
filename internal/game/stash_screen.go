@@ -15,7 +15,7 @@ import (
 // The tavern stash: a cross-save shared chest. The keeper's "Manage your stash"
 // choice opens this modal. Drag items between the party bag and the 8 chest
 // cells; each transfer is persisted immediately (stash.json) and the game is
-// autosaved so the bag side is committed too — keeping the two stores in step.
+// autosaved so the bag side is committed too - keeping the two stores in step.
 
 // stashDragFrom encodes the drag SOURCE in one int, decoded by decodeStashFrom:
 // a chest cell (0..SlotCount-1), a card cell (+stashCardDragBase), or a bag index
@@ -70,7 +70,7 @@ func (g *MMGame) clearStashDrag() {
 }
 
 // commitStashTransfer persists a transfer that already mutated BOTH stores in
-// memory — the chest (stash.json) and the party bag (autosave) — atomically:
+// memory - the chest (stash.json) and the party bag (autosave) - atomically:
 // either both land on disk or neither does. The chest is written first; only if
 // that succeeds is the bag autosaved. If EITHER write fails the in-memory move is
 // rolled back (and the chest re-written to its pre-move state when the bag write
@@ -82,7 +82,7 @@ func (g *MMGame) commitStashTransfer(rollback func()) bool {
 		return false
 	}
 	if err := stash.Save(g.stash); err != nil {
-		rollback() // chest never committed → just undo the in-memory move
+		rollback() // chest never committed -> just undo the in-memory move
 		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
@@ -183,7 +183,7 @@ func stashAcceptsCardSlot(it items.Item) bool {
 	return stash.IsEmpty(it) || it.Type == items.ItemCard
 }
 
-// resolveStashDrop moves the carried thing to dst. Cell↔cell is a swap; bag↔cell
+// resolveStashDrop moves the carried thing to dst. Cell<->cell is a swap; bag<->cell
 // moves with any displaced occupant returning to the bag. A card slot rejects
 // anything that isn't a monster card (including the item a swap would push into it).
 func (g *MMGame) resolveStashDrop(dst stashAddr) {
@@ -484,7 +484,7 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 }
 
 // stashCellTooltip queues the item tooltip for a hovered, filled cell (chest,
-// card, or bag) — matching the inventory: nothing shows while a drag is active.
+// card, or bag) - matching the inventory: nothing shows while a drag is active.
 func (ui *UISystem) stashCellTooltip(it items.Item, cell image.Rectangle, mouseX, mouseY int) {
 	g := ui.game
 	if g.stashDragActive || stash.IsEmpty(it) || !ptInRect(mouseX, mouseY, cell) {

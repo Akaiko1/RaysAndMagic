@@ -18,7 +18,7 @@ import (
 // character tab (inventory/spellbook) is open the bar is shown below the panel
 // and accepts drag-and-drop (items from the bag, spells from the book). In game
 // the bar floats above the party cards and double-click uses the slot:
-//   weapon → equip/swap, potion → drink one, spell → cast.
+//   weapon -> equip/swap, potion -> drink one, spell -> cast.
 // Independent of the Space/SmartAttack quick-spell (see character.QuickSlots doc).
 
 const (
@@ -31,7 +31,7 @@ const (
 // frame sprite). The side is sized to cover the gold window frame so an opaque
 // item icon drawn here REPLACES that window's frame (no double border); empty
 // slots simply show the frame sprite's ornate window. Measured from
-// quick_slots_bar.png (cx evenly spaced, cy centred, side ≈ gold-window width).
+// quick_slots_bar.png (cx evenly spaced, cy centred, side ~ gold-window width).
 var quickSlotCellFrac = [character.QuickSlotCount]struct{ cx, cy, side float64 }{
 	{0.1357, 0.499, 0.164},
 	{0.3172, 0.499, 0.164},
@@ -155,7 +155,7 @@ func (ui *UISystem) quickSpellCardDragSource(spellID spells.SpellID, x, y, w, h 
 }
 
 // quickTrapCardDragSource captures a trap-book recipe card as a drag source
-// (trapper parity with spells — a trap recipe is book-owned, like a spell).
+// (trapper parity with spells - a trap recipe is book-owned, like a spell).
 func (ui *UISystem) quickTrapCardDragSource(key string, x, y, w, h int) {
 	g := ui.game
 	if !g.menuOpen || !g.dragArmed || g.dragSrc != dragNone {
@@ -192,7 +192,7 @@ func (g *MMGame) bindQuickSpellFromPanel(charIdx int, it items.Item) {
 }
 
 // dragOver reports whether an in-flight drag is being released over the given
-// rect — the shared guard for every drop zone.
+// rect - the shared guard for every drop zone.
 func (g *MMGame) dragOver(x, y, w, h int) bool {
 	return g.menuOpen && g.dragDropAt == 1 && g.dragSrc != dragNone &&
 		ptInRect(g.dragCurX, g.dragCurY, image.Rect(x, y, x+w, y+h))
@@ -211,17 +211,17 @@ func (ui *UISystem) quickInvDropZone(x, y, w, h int) {
 			sch.QuickSlots[g.dragQuickSlot] = nil
 		}
 	}
-	// Equipped item dropped anywhere on the grid → unequip its OWNER (the char it
+	// Equipped item dropped anywhere on the grid -> unequip its OWNER (the char it
 	// was dragged from, not the possibly-switched selectedChar) back to the bag.
 	if g.dragSrc == dragFromEquip {
 		g.party.UnequipItemToInventory(g.dragEquipSlot, g.dragEquipChar)
 	}
-	// inventory→inventory (handled per-cell) and spell→inventory are no-ops here.
+	// inventory->inventory (handled per-cell) and spell->inventory are no-ops here.
 	g.clearDrag()
 }
 
 // equipItemMatchesSlot reports whether item would equip into paperdoll slot for c
-// — used for both drag-drop validation and the drag-time compatible-slot
+// - used for both drag-drop validation and the drag-time compatible-slot
 // highlight. Thin alias over the model's ItemFitsSlot (the SSoT; EquipItemToSlot
 // enforces the same check, so the UI gate is a preview, not the guard).
 func equipItemMatchesSlot(c *character.MMCharacter, item items.Item, slot items.EquipSlot) bool {
@@ -261,7 +261,7 @@ func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	// Equipped item dragged onto ANOTHER compatible slot (e.g. a ring between the
 	// two fingers): move it there rather than only allowing a return to the bag.
 	// Gated on the drag owner still being displayed (1-4 mid-drag switch), same
-	// as the slot glow — otherwise the move would fire on the wrong character.
+	// as the slot glow - otherwise the move would fire on the wrong character.
 	if g.dragSrc == dragFromEquip && g.dragEquipChar == g.selectedChar && g.dragEquipSlot != slot {
 		ch := g.party.Members[g.dragEquipChar]
 		if equipItemMatchesSlot(ch, g.dragItem, slot) {
@@ -288,7 +288,7 @@ func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
 
 // inventoryEmptyDropZone moves a dragged bag item to the end of the inventory when
 // dropped onto an empty grid cell (the bag is a packed slice, so empty cells are
-// the tail — "put it in a free slot" = append at the end).
+// the tail - "put it in a free slot" = append at the end).
 func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
 	g := ui.game
 	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
@@ -352,7 +352,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 // returnQuickItemToInventory puts a displaced quick-slot item back into the bag,
 // except spells, which are spellbook-owned and simply vanish from the slot.
 func (g *MMGame) returnQuickItemToInventory(item items.Item) {
-	// Spells and trap recipes are book-owned — they never belong in the bag.
+	// Spells and trap recipes are book-owned - they never belong in the bag.
 	switch item.Type {
 	case items.ItemBattleSpell, items.ItemUtilitySpell, items.ItemTrap:
 		return
@@ -408,7 +408,7 @@ func (ui *UISystem) updateQuickDrag() {
 		if g.dragActive && g.dragSrc != dragNone {
 			g.dragDropAt = 1 // Draw resolves against the target under the cursor
 		} else {
-			g.clearDrag() // plain click → leave it to the click queue
+			g.clearDrag() // plain click -> leave it to the click queue
 		}
 		g.dragArmed = false
 	}
@@ -480,7 +480,8 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 		r := slots[i]
 		if g.consumeLeftClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
 			now := g.mouseLeftClickAt
-			if g.lastQuickClickedCh == g.selectedChar && g.lastQuickClickedSl == i && now-g.lastQuickClickTime < doubleClickWindowMs {
+			if g.lastQuickClickedCh == g.selectedChar && g.lastQuickClickedSl == i &&
+				withinDoubleClickWindow(now, g.lastQuickClickTime) {
 				g.useQuickSlot(g.selectedChar, i)
 				g.lastQuickClickTime = 0
 				g.lastQuickClickedSl = -1
@@ -494,7 +495,7 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 }
 
 // quickSlotCharReady reports whether a character may act through a quick slot
-// right now — alive/conscious AND off cooldown (RT) or holding an action (TB).
+// right now - alive/conscious AND off cooldown (RT) or holding an action (TB).
 // Mirrors the F/Space gating so quick slots can't bypass the combat cadence.
 func (g *MMGame) quickSlotCharReady(idx int) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
@@ -514,7 +515,7 @@ func (g *MMGame) quickSlotCharReady(idx int) bool {
 // armour, drink one potion, or cast a spell. Reuses the existing equip/consume/
 // cast paths so behaviour matches the inventory and spellbook exactly. A
 // successful use spends the character's action (one cooldown per use), so quick
-// slots respect the same combat cadence as the keyboard — and are inert while
+// slots respect the same combat cadence as the keyboard - and are inert while
 // the character is on cooldown / out of actions.
 func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	if charIdx < 0 || charIdx >= len(g.party.Members) {
@@ -599,7 +600,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 		if err != nil {
 			return
 		}
-		if g.combat.castResolvedSpell(spellID, def, ch, g.combat.effectiveSpellCost(ch, def.SpellPointsCost), true) {
+		if g.combat.castResolvedSpell(spellID, def, ch, g.combat.effectiveSpellCost(ch, def.SpellPointsCost), true, true) {
 			acted, cdFrames = true, g.combat.SpellCooldownFrames(ch, spellID)
 		}
 	case items.ItemTrap:

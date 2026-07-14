@@ -86,7 +86,7 @@ func (r *Renderer) drawFireflySwarmEffect(screen *ebiten.Image, s UnifiedSpriteR
 		x := drawLeft + mote.u*size + driftX
 		y := drawTop + mote.v*size + driftY
 		// Per-mote occlusion: the whole-swarm visibility gate is ANY-column, so a
-		// swarm only peeking past a wall/tree edge would still draw every mote —
+		// swarm only peeking past a wall/tree edge would still draw every mote -
 		// including ones deep behind the wall (looked like walls didn't occlude).
 		// Skip a mote whose own screen column is behind a nearer wall/tree.
 		if col := int(x); col >= 0 && col < len(depthBuf) && s.depthPerp >= depthBuf[col] {

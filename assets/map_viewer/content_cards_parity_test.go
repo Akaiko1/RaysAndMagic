@@ -13,7 +13,7 @@ import (
 // The game-side TestCardParity_* checks the SHARED builders
 // (character.WeaponCardSections etc.). This test exercises the map editor's OWN
 // wrappers (weaponCard/spellCard in content_cards.go) for EVERY weapon and spell,
-// asserting each wrapper's rows actually CONTAIN the shared builder's output —
+// asserting each wrapper's rows actually CONTAIN the shared builder's output -
 // rendered here with the same args the wrapper should use. That catches a wiring
 // break the game-side test can't see: a dropped RenderCardLines call, the
 // spellCard sdErr branch swallowing rows.

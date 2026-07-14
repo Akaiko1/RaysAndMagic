@@ -34,7 +34,7 @@ camera:
 ui:
   spell_input_cooldown: 10
   party_portrait_height: 100
-  party_portrait_width: 256   # Fixed portrait width — 4× this = total party row width, centered horizontally
+  party_portrait_width: 256   # Fixed portrait width - 4x this = total party row width, centered horizontally
   compass_radius: 20
   damage_blink_frames: 3    # Number of frames to blink red when taking damage
 
@@ -157,6 +157,35 @@ characters:
       armor: leather_armor
       quick_trap: cleave_trap
 
+    arms_master:
+      might: 15
+      intellect: 8
+      personality: 8
+      endurance: 14
+      accuracy: 13
+      speed: 12
+      luck: 10
+      skills: [sword, dagger, axe, spear, bow, mace, staff, shield, leather, bodybuilding, arms_master, dual_wielding]
+      skill_start_mastery: { arms_master: expert }
+      main_hand: iron_sword
+
+    monk:
+      might: 13
+      intellect: 8
+      personality: 12
+      endurance: 11
+      accuracy: 11
+      speed: 14
+      luck: 10
+      skills: [learning, meditation, iron_body, spiritual_training, martial_arts]
+      skill_start_mastery: { learning: expert }
+      magic:
+        - { school: body,   spells: [heal_other, harm] }
+        - { school: mind,   spells: [mind_blast] }
+        - { school: spirit, spells: [spirit_lash] }
+      main_hand: monk_fists
+      quick_spell: mind_blast
+
   races:
     human: {}
     half_orc:  { might: 3, endurance: 2, intellect: -2, personality: -2, speed: -1 }
@@ -165,7 +194,7 @@ characters:
     celestial: { personality: 3, intellect: 1, luck: 1, might: -2, endurance: -2 }
 
   # Starting roster (data-driven). class is a class key; name is the display
-  # name and (lowercased) the portrait sprite key — falls back to the class
+  # name and (lowercased) the portrait sprite key - falls back to the class
   # sprite if no per-name portrait exists.
   starting_party:
     - { name: Gareth,    class: knight }
@@ -178,13 +207,15 @@ characters:
     - { name: Auberon, class: paladin }
     - { name: Mirelle, class: druid }
   # The second hero set: benched at the tavern from the very start of a new
-  # game — same classes as the starting party, stats shifted by race.
+  # game - same classes as the starting party, stats shifted by race.
   tavern_recruits:
     - { name: Nyra,    class: thief,    race: dark_elf }
     - { name: Grikka,  class: knight,   race: half_orc }
     - { name: Vaelith, class: sorcerer, race: dark_elf }
     - { name: Auralis, class: cleric,   race: celestial }
     - { name: Brinna,  class: archer,   race: halfling }
+    - { name: Gwen,    class: arms_master }
+    - { name: Sora,    class: monk }
 
 
 # Monster stats and AI
@@ -234,7 +265,7 @@ graphics:
   # camera-facing plane (~4x fewer draws for distant trees; their cross is
   # sub-pixel anyway). Trees only. <=0 disables the LOD (always full crossed standee).
   trees_as_billboards: true
-  tree_standee_lod_tiles: 15
+  tree_standee_lod_tiles: 25
 
   # Sprite sizes
   sprite:
@@ -251,6 +282,7 @@ graphics:
   standee:
     enabled: true
     thickness_tiles: 0.02       # wooden slab thickness (front sticker <-> back sticker)
+    core_tint: 1.0              # 0 = wood core, 1 = sprite-average core color
     turn_speed_deg_per_sec: 270 # how fast monster tokens swivel toward their heading
     npc_spin_deg_per_sec: 12    # showcase spin of NPC/NPC-like tokens (0 = off); scenery never spins
     env_face_deg_per_sec: 20    # scenery tokens slowly turn to face the camera (0 = fixed diagonal)
@@ -266,10 +298,24 @@ graphics:
   # NPC rendering (larger than monsters for better visibility)
   npc:
     min_sprite_size: 16
-    size_distance_multiplier: 150
+
+  # Monster size classes -> sprite height in tile units (1.0 == a 1-tile wall).
+  # Monsters set size_class instead of a raw number so sizes stay quantized.
+  size_classes:
+    small: 0.35    # rat, bat, pixie
+    medium: 0.45   # wolf, spider, goblin and other beasts
+    person: 0.60   # all humanoids alike - enemy people/undead/orcs AND human NPCs
+    large: 0.85    # bear, minotaur, giant beasts
+    huge: 1.20     # dragons, trolls, treants, bosses
+
+  # Ground container sprite heights in tile units (dropped loot / reward chests).
+  # Fixed - not scaled by the dropping monster. Chests read bigger than bags.
+  container_size_tiles:
+    loot_bag: 0.25
+    treasure_chest: 0.5
 
   # Rising "bubble" particles along the ground edges of impassable billboard
-  # tiles (rocks/cliffs — not trees, which already read as solid). Signals which
+  # tiles (rocks/cliffs - not trees, which already read as solid). Signals which
   # tiles block movement without cluttering the view. Bubbles take the tile's
   # own floor colour so they blend in.
   impassable_aura:
@@ -290,7 +336,7 @@ graphics:
     # out sprites whose purple/magenta is real art. List those here (basenames;
     # animation sheets as "<name>_<animType>") to despill ONLY their edge fringe
     # within edge_despill_radius px, preserving the interior. Curated from the
-    # despill audit — extend as new purple art is added.
+    # despill audit - extend as new purple art is added.
     edge_despill_radius: 3
     edge_only_despill:
       # Purple/magenta creatures
@@ -351,3 +397,34 @@ graphics:
       - icon_weapon_book_of_darkness
       - icon_weapon_battle_staff
       - icon_weapon_archmage_staff
+
+day_night:
+  half_cycle_seconds: 420
+  day_light: 1.0
+  night_light: 0.7
+  panorama_fade_seconds: 3
+  days_per_week: 7
+  days_per_month: 28
+  packs:
+    - map: forest
+      day_monster: wolf
+      night_monster: forest_spider
+      count: 8
+      min_player_dist_tiles: 8
+    - map: desert
+      night_monster: mummy
+      count: 5
+    - map: deep_jungle
+      day_monster: ocelot
+      night_monster: masked_huntress
+      count: 5
+    - map: japanese_castle
+      night_monsters:
+        - { monster: ningyo, count: 4 }
+        - { monster: vengeful_ningyo, count: 1 }
+
+    # Black dragons return only after the cliffs have been completely cleared.
+    - map: dragon_cliffs
+      night_monster: dragon
+      count: 5
+      require_map_clear: true

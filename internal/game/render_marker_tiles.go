@@ -15,7 +15,7 @@ type teleporterTileFx struct {
 }
 
 // drawSpawnTileBorder outlines the player's start tile with rising bubbles in the
-// spawn tile's colour (red) on all four edges — the same edge technique as the
+// spawn tile's colour (red) on all four edges - the same edge technique as the
 // impassable-tile aura, so the start cell reads as a marked square while its
 // floor blends into the biome ground (inherit_floor). Drawn after walls/sprites
 // so the wall depth buffer occludes it.
@@ -38,27 +38,27 @@ func (r *Renderer) drawSpawnTileBorder(screen *ebiten.Image) {
 	}
 }
 
-// Teleporter glow tuning: a DENSE field of varied-size motes that fall sky→ground
+// Teleporter glow tuning: a DENSE field of varied-size motes that fall sky->ground
 // across the whole tile (cf. the Golden Thief Bug's blink), in the teleporter's
 // colour. Denser grid + more per-point than the valve steam, plus size jitter.
 const (
 	teleporterGrid         = 5   // 5x5 sample points across the tile (denser)
 	teleporterPerPoint     = 3   // motes staggered per point
-	teleporterRiseFraction = 2.8 // motes fall from ~1 tile above the floor (was 1.4 ≈ half a tile)
+	teleporterRiseFraction = 2.8 // motes fall from ~1 tile above the floor (was 1.4 ~ half a tile)
 	teleporterPeriodTick   = 80.0
 	teleporterColMin       = 0.55
 	teleporterBaseAlpha    = 0.7
 	teleporterJitterMin    = 0.5
 	teleporterJitterSpan   = 1.0
-	teleporterSizeJitter   = 0.6 // sizes vary ±60%
+	teleporterSizeJitter   = 0.6 // sizes vary +/-60%
 	// Fade distance set PAST the 50-tile view distance so a teleporter at the far
-	// edge of view still glows (distFade = 1−depth/maxDepth → ~0.23 at 50 tiles)
+	// edge of view still glows (distFade = 1-depth/maxDepth -> ~0.23 at 50 tiles)
 	// instead of fading to nothing exactly at the view edge.
 	teleporterMaxDepthTiles = 65
 )
 
 // drawTeleporterTileFx fills the whole tile of every teleporter with a dense
-// field of falling, varied-size glow motes in the teleporter's colour — visible
+// field of falling, varied-size glow motes in the teleporter's colour - visible
 // from 50 tiles as a beacon. Tile list cached per map in precomputeFloorColorCache.
 func (r *Renderer) drawTeleporterTileFx(screen *ebiten.Image) {
 	if len(r.teleporterTiles) == 0 || r.game.world == nil {
@@ -98,7 +98,7 @@ func (r *Renderer) drawTeleporterTileFx(screen *ebiten.Image) {
 					sizeCoef:     0.06,
 					wobbleCoef:   0.7,
 					color:        tp.color,
-					fall:         true, // sky → ground, like the bug's motes
+					fall:         true, // sky -> ground, like the bug's motes
 					sizeJitter:   teleporterSizeJitter,
 				})
 			}

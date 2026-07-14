@@ -31,7 +31,7 @@ func (r *Renderer) drawSteamZoneBubbles(screen *ebiten.Image) {
 		if z.MapKey != "" && z.MapKey != mapKey {
 			continue
 		}
-		// Whole zone beyond view distance → nothing of it can render.
+		// Whole zone beyond view distance -> nothing of it can render.
 		zdx, zdy := z.X-r.game.camera.X, z.Y-r.game.camera.Y
 		if reach := r.game.camera.ViewDist + z.Radius; zdx*zdx+zdy*zdy > reach*reach {
 			continue

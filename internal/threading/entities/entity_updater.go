@@ -11,15 +11,15 @@ import (
 // so the main goroutine cannot mutate shared world state (camera, world tiles,
 // projectile slices) while workers are running. This "stop-the-world" tick lets
 // each entity's Update() safely read shared state without locks. The invariant
-// holds only as long as no other goroutine writes during this window — keep it
+// holds only as long as no other goroutine writes during this window - keep it
 // that way.
 //
 // Two-phase apply: Update() must never WRITE shared cross-entity state (the
-// live collision system, screen shake, particle effects) — only read an
+// live collision system, screen shake, particle effects) - only read an
 // immutable, frozen view of it (see collision.CollisionSnapshot) and mutate the
 // entity's OWN fields. A shared write it wants to make instead gets computed
 // during Update() and applied by ApplyCollisionUpdate() (monsters) /
-// ApplyCollisionEffects() (projectiles) — both run in a plain serial loop AFTER
+// ApplyCollisionEffects() (projectiles) - both run in a plain serial loop AFTER
 // Wait() returns, on the calling goroutine, once every worker has finished.
 // This keeps Update() itself (the AI/movement work) fully parallel while the
 // handful of shared writes it triggers stay race-free without any locking.
@@ -38,7 +38,7 @@ func NewEntityUpdater() *EntityUpdater {
 // updated. Update() computes the tick (AI/movement + the desired collision
 // state) reading only a frozen collision.CollisionSnapshot; ApplyCollisionUpdate
 // writes that result (position + collision type) to the LIVE collision system
-// — see the type doc's two-phase apply note. game.MonsterWrapper is the
+// - see the type doc's two-phase apply note. game.MonsterWrapper is the
 // canonical implementation.
 type MonsterUpdateInterface interface {
 	Update()
@@ -50,7 +50,7 @@ type MonsterUpdateInterface interface {
 
 // ProjectileUpdateInterface defines the interface for projectiles. OnCollision
 // only records that an impact happened (touches the projectile's own fields
-// only); ApplyCollisionEffects spawns the resulting hit effects/screen shake —
+// only); ApplyCollisionEffects spawns the resulting hit effects/screen shake -
 // see the type doc's two-phase apply note.
 type ProjectileUpdateInterface interface {
 	Update()
@@ -61,6 +61,9 @@ type ProjectileUpdateInterface interface {
 	SetVelocity(vx, vy float64)
 	GetLifetime() int
 	SetLifetime(lifetime int)
+	// IgnoresWalls: the projectile flies through solid terrain (a mortar's
+	// display bolt on its ballistic arc) - the mover skips the wall check.
+	IgnoresWalls() bool
 	OnCollision(hitX, hitY float64)
 	ApplyCollisionEffects()
 }
@@ -80,7 +83,7 @@ func chunkSizeFor(total, numWorkers int) int {
 
 // runChunked submits per-chunk jobs covering [0, total) and waits for them all.
 // fn receives the half-open range [start, end) for its chunk. If the pool is
-// stopped (post-shutdown call), refused chunks run inline — degraded to
+// stopped (post-shutdown call), refused chunks run inline - degraded to
 // serial, never dropped or hung.
 func (eu *EntityUpdater) runChunked(total int, fn func(start, end int)) {
 	if total == 0 {
@@ -113,7 +116,7 @@ func (eu *EntityUpdater) UpdateMonstersParallel(monsters []MonsterUpdateInterfac
 		}
 	})
 	// Phase 2: apply the position/collision-type each monster computed against
-	// its frozen snapshot. Serial and safe — every worker above has already
+	// its frozen snapshot. Serial and safe - every worker above has already
 	// returned (runChunked's Wait()), so nothing else touches the live system.
 	for _, m := range monsters {
 		if m.IsAlive() {
@@ -136,7 +139,7 @@ func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdat
 			x, y := p.GetPosition()
 			vx, vy := p.GetVelocity()
 			newX, newY := x+vx, y+vy
-			if canMoveTo(newX, newY) {
+			if p.IgnoresWalls() || canMoveTo(newX, newY) {
 				p.SetPosition(newX, newY)
 			} else {
 				p.OnCollision(x, y)
@@ -146,7 +149,7 @@ func (eu *EntityUpdater) UpdateProjectilesParallel(projectiles []ProjectileUpdat
 		}
 	})
 	// Phase 2: spawn hit effects/screen shake for any impact recorded above.
-	// Serial and safe — every worker has already returned.
+	// Serial and safe - every worker has already returned.
 	for _, p := range projectiles {
 		p.ApplyCollisionEffects()
 	}

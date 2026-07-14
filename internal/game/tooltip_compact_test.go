@@ -10,7 +10,7 @@ import (
 )
 
 // The compact/full contract (user-designed unified tooltip): compact hides the
-// Base→Stat→Mastery decomposition and the universal RULES, but keeps the
+// Base->Stat->Mastery decomposition and the universal RULES, but keeps the
 // totals, cost/cooldown and per-item state (requirements, locks). Full reveals
 // the breakdown, in builder order (decomposition BEFORE the total). The
 // "[Shift] full breakdown" hint shows only in compact when detail exists.
@@ -55,7 +55,7 @@ func TestTooltipCompact_WeaponHidesBreakdownKeepsTotals(t *testing.T) {
 	}
 	// Ordering: decomposition BEFORE the total (the round-1 bug).
 	if base, total := ttIndexOf(full, "Base:"), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full weapon DAMAGE must read Base→…→Total (base=%d total=%d):\n%s", base, total, full)
+		t.Errorf("full weapon DAMAGE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestTooltipCompact_ArmorRequirementAndOrder(t *testing.T) {
 	compact := GetItemTooltip(plate, thief, g.combat, false)
 	full := GetItemTooltip(plate, thief, g.combat, true)
 
-	// The equip requirement is per-item state → visible in COMPACT.
+	// The equip requirement is per-item state -> visible in COMPACT.
 	if !strings.Contains(compact, "Requires: Plate Skill") {
 		t.Errorf("compact armor must show the equip requirement:\n%s", compact)
 	}
@@ -79,9 +79,9 @@ func TestTooltipCompact_ArmorRequirementAndOrder(t *testing.T) {
 	if strings.Contains(compact, "Base Armor Class:") {
 		t.Errorf("compact armor must hide the AC breakdown:\n%s", compact)
 	}
-	// Full: Base→…→Total order.
+	// Full: Base->...->Total order.
 	if base, total := ttIndexOf(full, "Base Armor Class:"), ttIndexOf(full, "Total Armor Class:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full armor DEFENSE must read Base→…→Total (base=%d total=%d):\n%s", base, total, full)
+		t.Errorf("full armor DEFENSE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestTooltipCompact_TrapKeepsCooldown(t *testing.T) {
 	trap := thief.Equipment[items.SlotSpell] // cleave_trap (ItemTrap)
 
 	compact := GetItemTooltip(trap, thief, g.combat, false)
-	// Cooldown is a core combat stat — visible compact (like weapons/spells).
+	// Cooldown is a core combat stat - visible compact (like weapons/spells).
 	for _, want := range []string{"Cost:", "Cooldown:", "Range:", "Total Damage:"} {
 		if !strings.Contains(compact, want) {
 			t.Errorf("compact trap must contain %q:\n%s", want, compact)
@@ -124,7 +124,7 @@ func TestTooltipCompact_SpellHidesDecompKeepsTotalsAndCost(t *testing.T) {
 		t.Errorf("compact spell must hide the Base(...) decomposition:\n%s", compact)
 	}
 	if base, total := ttIndexOf(full, "Base ("), ttIndexOf(full, "Total Damage:"); base < 0 || total < 0 || base >= total {
-		t.Errorf("full spell DAMAGE must read Base→…→Total (base=%d total=%d):\n%s", base, total, full)
+		t.Errorf("full spell DAMAGE must read Base->...->Total (base=%d total=%d):\n%s", base, total, full)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestTooltipCompact_SimpleItemHasNoShiftHint(t *testing.T) {
 		t.Skip("health_potion not defined")
 	}
 	compact := GetItemTooltip(potion, thief, g.combat, false)
-	// Consumables are small — fully compact, no detail tier, so NO hint.
+	// Consumables are small - fully compact, no detail tier, so NO hint.
 	if strings.Contains(compact, "[Shift]") {
 		t.Errorf("simple item must not advertise a full breakdown it doesn't have:\n%s", compact)
 	}

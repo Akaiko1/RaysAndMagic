@@ -8,7 +8,7 @@ import (
 )
 
 // Benched heroes (reserve/captive) level "alongside the party" but must NOT spam
-// the combat log with "reached level N" for heroes the player can't see — only
+// the combat log with "reached level N" for heroes the player can't see - only
 // the active party announces. Both still actually level up.
 func TestGrantSharedXP_BenchedHeroesLevelSilently(t *testing.T) {
 	cfg := loadTestConfig(t) // loads weapon/spell/item configs so CreateCharacter's class kit works

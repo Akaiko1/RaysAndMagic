@@ -6,15 +6,18 @@ import (
 )
 
 type Party struct {
-	Members   []*MMCharacter
-	Gold      int
-	Food      int
-	Inventory []items.Item
+	Members []*MMCharacter
+	Gold    int
+	Food    int
+	// ArenaPoints is the arena victory currency (champion duels); spent at the
+	// arena quartermaster. Persisted with the save like Gold.
+	ArenaPoints int
+	Inventory   []items.Item
 	// Reserve holds benched heroes available at the tavern (swappable into the
 	// active party). They keep all gear/XP/skills and level alongside the party.
 	Reserve []*MMCharacter
 	// Captive holds heroes still imprisoned (e.g. the mountain prison). They also
-	// level alongside the party from the start, but aren't usable until freed —
+	// level alongside the party from the start, but aren't usable until freed -
 	// clearing the prison moves them into Reserve.
 	Captive []*MMCharacter
 }
@@ -65,7 +68,7 @@ var defaultCaptives = []config.RosterEntry{
 // unknown class key. A race entry shifts the class base stats additively
 // (human/empty = baseline) and re-derives HP/SP.
 // CreateRosterCharacter builds a hero from a config roster entry (class kit +
-// race modifiers) — the SAME path NewParty uses; exported so the map editor
+// race modifiers) - the SAME path NewParty uses; exported so the map editor
 // renders the real shipped roster, not per-class approximations.
 func CreateRosterCharacter(e config.RosterEntry, cfg *config.Config) *MMCharacter {
 	return createRosterCharacter(e, cfg)
@@ -135,7 +138,7 @@ func PartitionLeftovers(leftovers []LeftoverHero, jailTarget int) (jail, reserve
 }
 
 // newPartyBase allocates a party with the configured starting gold/food and an
-// empty inventory — the shared shell for every new-game constructor.
+// empty inventory - the shared shell for every new-game constructor.
 func newPartyBase(cfg *config.Config) *Party {
 	return &Party{
 		Members:   make([]*MMCharacter, 0, 4),
@@ -171,7 +174,7 @@ func NewParty(cfg *config.Config) *Party {
 			party.Captive = append(party.Captive, c)
 		}
 	}
-	// Tavern recruits start benched in the reserve — available at the tavern
+	// Tavern recruits start benched in the reserve - available at the tavern
 	// from the very first visit.
 	for _, e := range recruits {
 		if c := createRosterCharacter(e, cfg); c != nil {
@@ -310,7 +313,7 @@ func (p *Party) EquipItemFromInventoryToSlot(itemIndex, characterIndex int, slot
 
 // MoveEquippedSlot moves a character's equipped item from srcSlot to dstSlot
 // (swapping if dstSlot is occupied). For interchangeable slots like the two ring
-// fingers — nothing leaves the paperdoll, so no inventory changes.
+// fingers - nothing leaves the paperdoll, so no inventory changes.
 func (p *Party) MoveEquippedSlot(srcSlot, dstSlot items.EquipSlot, characterIndex int) bool {
 	if characterIndex < 0 || characterIndex >= len(p.Members) {
 		return false
@@ -319,7 +322,7 @@ func (p *Party) MoveEquippedSlot(srcSlot, dstSlot items.EquipSlot, characterInde
 }
 
 // UnequipItemToInventory removes an item from a character's equipment and adds it to inventory.
-// Spell-slot items are never returned to inventory — the spellbook is the only owner
+// Spell-slot items are never returned to inventory - the spellbook is the only owner
 // of learned spells, so unequipping just clears the slot.
 func (p *Party) UnequipItemToInventory(slot items.EquipSlot, characterIndex int) bool {
 	if characterIndex < 0 || characterIndex >= len(p.Members) {

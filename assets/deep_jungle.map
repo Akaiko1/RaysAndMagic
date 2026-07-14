@@ -7,23 +7,23 @@
 # NPCs: deep_jungle_exit (riverboat back to Seabright). + = landing.
 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
 VKKKKKKKKKKKKKOKVKK##KKKKKKKK#KOKKKRRRRRRR#GKKKKKV
-V...Y..........#.O...#.....#..OG.RRRQQQQQRRR.....V
+V...Y..........#.O...#.....#..OG.RRRQQQQQRRR@....V  >[npc:chest_wooden]
 V........O#.....................RRQQRRRRRQQRR....V
 V................O........O....RQQRR..:..RRQQR...V
 V....................O........RRQR.x::::::.RQRR..V
-V..V..#..V.........h...:::.Y..RQR.::::h::::.RQR.YV
-VG........d#...G...O..:...:..RRQR::i:::::i::RQRR.V
-V.......#.V........O.V:h:.:..RQR.:::::::::::.RQR.V
-V..O.#.......:::#V....:Y..:#ORQR.:::::::::::.RQR.V
+V..V.####V.........h...:::.Y..RQR.::::h::::.RQR.YV
+VG...#@.#.d#...G...O..:...:..RRQR::i:::::i::RQRR.V  >[npc:spell_lectern]
+V....#..#.V........O.V:h:.:..RQR.:::::::::::.RQR.V
+V..O.##......:::#V....:Y..:#ORQR.:::::::::::.RQR.V
 V...........:...:#.....:::..::::::::::w::::::RQR.V
 V.......x..:.#...:#.........YRQR.:::::::::::.RQR.V
 V........Y.:.x:..:...........RQR.:::::::::::.RQR.V
 VY....G....:.....:.........h.RRQR::i:::::i::RQRR.V
-V.....#.....:...:........Y..O.RQR#:::d:x:::.RQR..V
-V............:::O.........O...RRQ:.:::::::.RQRR..V
-V...#...O..Yh.........x........R:QRR..:..RRQQR##.V
-V.........#.G.#......Y.O.......:RRQQRR:RRQQRR....V
-V..........Y....V..........G.j...RRRQQ:QQRRR.....V
+V...###.....:...:........Y..O.RQR#:::d:x:::.RQR..V
+V...#GG......:::O.........O...RRQ:.:::::::.RQRR@.V  >[npc:chest_iron]
+V...#G..O.YYh.........x........R:QRR..:..RRQQR##.V
+V.........#@G.#......Y.O.......:RRQQRR:RRQQRR....V  >[npc:chest_wooden]
+V.........YY....V..........G.j...RRRQQ:QQRRR.....V
 V............O.....Y......V........RRR:RRR.......V
 V...Y.....V.....d.......G.............:........V.V
 V.....jG............#..G....Y....................V
@@ -44,7 +44,7 @@ V..QQQQQQS......,....V,....Y.,..Y...,..Y..G......V
 V.Y.,QQ..S,,Y..,..##.#,..V..,...,....#..Q...o.,..V
 V....,,,..#,,,,Y,..,.,.,.,..,.,.Y.,j.QQQQQQQ.....V
 V,...Y.Y..,...,...,,..,#..,...o#,.,,QQQQQQQQQ.,,.V
-V#,..,,...,,Y..,.,..,,j,,....,.,..,,QQQQ.QQQQ.,.,V
+V#,..,,...,,Y..,.,..,,j,,....,.,..,,QQQQ@QQQQ.,.,V  >[npc:chest_golden]
 V,..GV...,.o.Y,,,.,.,,.,,..,.,..,,..QQQ..OQQQV...V
 V.,Y.,,,...,..,,..Y...,..,.,,.,,.,.QQQ.Og..QQQ,..V
 V,,,,,,,.V.,.,,,.,.,.,...Y,,,,,.,,.,QQQ...QQQ,..OV

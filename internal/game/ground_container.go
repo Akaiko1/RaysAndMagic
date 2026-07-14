@@ -24,41 +24,51 @@ const (
 )
 
 // containerKindDefaults bundles the look-and-feel that a kind chooses when the
-// caller doesn't override Sprite or SizeMultiplier explicitly.
+// caller doesn't override Sprite explicitly. Default size is config-driven
+// (graphics.container_size_tiles), resolved via containerDefaultSizeTiles.
 type containerKindDefaults struct {
-	sprite         string
-	sizeMultiplier float64
-	openMessage    string // multi-part "Picked up loot bag:" / "Opened chest:" prefix
-	emptyMessage   string // shown if container is empty when opened ("" → silent)
+	sprite       string
+	sizeKey      string // key into graphics.container_size_tiles
+	openMessage  string // multi-part "Picked up loot bag:" / "Opened chest:" prefix
+	emptyMessage string // shown if container is empty when opened ("" -> silent)
 }
 
 var groundContainerDefaults = map[ContainerKind]containerKindDefaults{
 	ContainerKindLootBag: {
-		sprite:         "bag",
-		sizeMultiplier: 0.33,
-		openMessage:    "Picked up loot bag",
-		emptyMessage:   "", // empty loot bags are silently removed (legacy behavior)
+		sprite:       "bag",
+		sizeKey:      "loot_bag",
+		openMessage:  "Picked up loot bag",
+		emptyMessage: "", // empty loot bags are silently removed (legacy behavior)
 	},
 	ContainerKindTreasureChest: {
-		sprite:         "chest",
-		sizeMultiplier: 3.0, // matches a "big" loot bag (mid-tier monster ~size_multiplier 6)
-		openMessage:    "Opened chest",
-		emptyMessage:   "The chest is empty.",
+		sprite:       "chest",
+		sizeKey:      "treasure_chest",
+		openMessage:  "Opened chest",
+		emptyMessage: "The chest is empty.",
 	},
 }
 
-// GroundContainer is the unified on-floor reward container — replaces both
+// containerDefaultSizeTiles resolves a kind's default sprite height (tiles) from
+// config, with a small fallback if the map is absent (e.g. a config-less test).
+func (g *MMGame) containerDefaultSizeTiles(kind ContainerKind) float64 {
+	if h, ok := g.config.Graphics.ContainerSizeTiles[groundContainerDefaults[kind].sizeKey]; ok && h > 0 {
+		return h
+	}
+	return 0.3
+}
+
+// GroundContainer is the unified on-floor reward container - replaces both
 // the loot bag (monster drop) and treasure chest (encounter reward) systems
 // that previously had near-identical parallel implementations.
 type GroundContainer struct {
-	Kind           ContainerKind
-	ID             string // optional dedup key; "" disables dedup
-	MapKey         string // "" → current map only; set for cross-map containers
-	X, Y           float64
-	Gold           int
-	Items          []items.Item
-	Sprite         string  // "" → default per Kind
-	SizeMultiplier float64 // 0 → default per Kind
+	Kind      ContainerKind
+	ID        string // optional dedup key; "" disables dedup
+	MapKey    string // "" -> current map only; set for cross-map containers
+	X, Y      float64
+	Gold      int
+	Items     []items.Item
+	Sprite    string  // "" -> default per Kind
+	SizeTiles float64 // 0 -> default per Kind
 }
 
 // GroundContainerRenderInfo holds the projected screen geometry used by both
@@ -72,7 +82,7 @@ type GroundContainerRenderInfo struct {
 }
 
 // effectiveSprite returns the sprite name to draw / hit-test for this container.
-// A loot bag holding an item shows a rarity-specific sack (bag_common/…/legendary);
+// A loot bag holding an item shows a rarity-specific sack (bag_common/.../legendary);
 // an item-less (gold-only) bag keeps the default sack. Chests are unaffected.
 func (c *GroundContainer) effectiveSprite() string {
 	if c != nil && c.Sprite != "" {
@@ -84,15 +94,16 @@ func (c *GroundContainer) effectiveSprite() string {
 	return groundContainerDefaults[c.Kind].sprite
 }
 
-// effectiveSizeMultiplier returns the visual scale for this container.
-func (c *GroundContainer) effectiveSizeMultiplier() float64 {
-	if c != nil && c.SizeMultiplier > 0 {
-		return c.SizeMultiplier
+// containerRenderSizeTiles returns the visual scale for this container: an
+// explicit per-instance size wins, else the kind's config default.
+func (g *MMGame) containerRenderSizeTiles(c *GroundContainer) float64 {
+	if c != nil && c.SizeTiles > 0 {
+		return c.SizeTiles
 	}
-	return groundContainerDefaults[c.Kind].sizeMultiplier
+	return g.containerDefaultSizeTiles(c.Kind)
 }
 
-// groundContainerPickupRange is shared across all ground containers — both
+// groundContainerPickupRange is shared across all ground containers - both
 // "press Space to pick up" and "click to open" use the same reach.
 func (g *MMGame) groundContainerPickupRange() float64 {
 	if g == nil {
@@ -120,26 +131,27 @@ func (g *MMGame) addGroundContainer(c GroundContainer) {
 	}
 	// Sprite is left empty for kind defaults so effectiveSprite() resolves it live
 	// (rarity-aware for loot bags); only an explicit override is stored.
-	if c.SizeMultiplier <= 0 {
-		c.SizeMultiplier = groundContainerDefaults[c.Kind].sizeMultiplier
+	if c.SizeTiles <= 0 {
+		c.SizeTiles = g.containerDefaultSizeTiles(c.Kind)
 	}
 	g.groundContainers = append(g.groundContainers, c)
+	g.invalidateContainerFanCache()
 }
 
 // addLootBagDrop creates a loot-bag-kind container at the given world coords
-// from a monster's drops and gold. Replaces the legacy addLootBag.
-func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int, sizeMultiplier float64) {
+// from a monster's drops and gold. Size comes from the kind's config default
+// (addGroundContainer fills it) - bags are not scaled by the dropping monster.
+func (g *MMGame) addLootBagDrop(x, y float64, drops []items.Item, gold int) {
 	if len(drops) == 0 && gold <= 0 {
 		return
 	}
 	g.addGroundContainer(GroundContainer{
-		Kind:           ContainerKindLootBag,
-		MapKey:         currentMapKey(), // bags belong to the map they dropped on
-		X:              x,
-		Y:              y,
-		Gold:           gold,
-		Items:          append([]items.Item{}, drops...),
-		SizeMultiplier: sizeMultiplier,
+		Kind:   ContainerKindLootBag,
+		MapKey: currentMapKey(), // bags belong to the map they dropped on
+		X:      x,
+		Y:      y,
+		Gold:   gold,
+		Items:  append([]items.Item{}, drops...),
 	})
 }
 
@@ -174,15 +186,15 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 	}
 
 	g.addGroundContainer(GroundContainer{
-		Kind:           ContainerKindTreasureChest,
-		ID:             reward.ID,
-		MapKey:         chestMap,
-		X:              x,
-		Y:              y,
-		Gold:           chestGold,
-		Items:          chestItems,
-		Sprite:         reward.Sprite,
-		SizeMultiplier: reward.SizeMultiplier,
+		Kind:      ContainerKindTreasureChest,
+		ID:        reward.ID,
+		MapKey:    chestMap,
+		X:         x,
+		Y:         y,
+		Gold:      chestGold,
+		Items:     chestItems,
+		Sprite:    reward.Sprite,
+		SizeTiles: reward.SizeTiles,
 	})
 	if reward.CompletionMessage != "" {
 		g.AddCombatMessage(reward.CompletionMessage)
@@ -200,7 +212,7 @@ func (g *MMGame) addTreasureChestsFromRewards(rewards *monster.EncounterRewards)
 }
 
 // randomWeaponRewards rolls `count` random weapons uniformly from weapons.yaml.
-// Used by encounter-chest spawn — balance filtering (rarity tier, loot tables)
+// Used by encounter-chest spawn - balance filtering (rarity tier, loot tables)
 // is a separate concern tracked elsewhere.
 func randomWeaponRewards(count int) []items.Item {
 	if count <= 0 {
@@ -257,42 +269,35 @@ func fixedItemRewards(keys []string) []items.Item {
 
 // rollWeightedLootTable rolls a named weighted pool: `Rolls` weighted picks (with
 // replacement) plus gold in [GoldMin,GoldMax]. Zone containers (sword racks) use
-// this for "one random zone item, never a unique" — uniques aren't in the pool,
+// this for "one random zone item, never a unique" - uniques aren't in the pool,
 // unlike randomWeaponRewards which draws from ALL weapons. Keys are validated at
 // load (config.validateWeightedLootTables), so creation failures here are unexpected.
+// createLootItem instantiates one loot entry (weapon or item) by type+key -
+// the ONE creation switch shared by per-monster drops, weighted pools and
+// crate rolls.
+func createLootItem(typ, key string) (items.Item, error) {
+	switch typ {
+	case "weapon":
+		return items.TryCreateWeaponFromYAML(key)
+	case "item":
+		return items.TryCreateItemFromYAML(key)
+	}
+	return items.Item{}, fmt.Errorf("unknown loot entry type %q for %q", typ, key)
+}
+
 func rollWeightedLootTable(name string) ([]items.Item, int) {
 	t, ok := config.GetWeightedLootTable(name)
 	if !ok {
 		fmt.Printf("[WARN] rollWeightedLootTable: unknown table %q\n", name)
 		return nil, 0
 	}
-	total := 0
-	for _, e := range t.Entries {
-		total += e.Weight
-	}
 	out := make([]items.Item, 0, t.Rolls)
-	for r := 0; r < t.Rolls && total > 0; r++ {
-		pick := rand.Intn(total)
-		var chosen *config.WeightedLootEntry
-		for i := range t.Entries {
-			if pick -= t.Entries[i].Weight; pick < 0 {
-				chosen = &t.Entries[i]
-				break
-			}
+	for r := 0; r < t.Rolls; r++ {
+		i := weightedPick(len(t.Entries), func(i int) int { return t.Entries[i].Weight })
+		if i < 0 {
+			break // no positive-weight entries
 		}
-		if chosen == nil {
-			continue
-		}
-		var it items.Item
-		var err error
-		switch chosen.Type {
-		case "weapon":
-			it, err = items.TryCreateWeaponFromYAML(chosen.Key)
-		case "item":
-			it, err = items.TryCreateItemFromYAML(chosen.Key)
-		default:
-			continue
-		}
+		it, err := createLootItem(t.Entries[i].Type, t.Entries[i].Key)
 		if err != nil {
 			fmt.Printf("[WARN] rollWeightedLootTable %q: %v\n", name, err)
 			continue
@@ -381,6 +386,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 			g.AddCombatMessage(defaults.emptyMessage)
 		}
 		g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
+		g.invalidateContainerFanCache()
 		return
 	}
 
@@ -416,6 +422,7 @@ func (g *MMGame) pickupGroundContainerAt(index int) {
 	}
 
 	g.groundContainers = append(g.groundContainers[:index], g.groundContainers[index+1:]...)
+	g.invalidateContainerFanCache()
 }
 
 // groundContainerRenderInfo projects a container's world position to screen. The
@@ -430,48 +437,69 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateMonsterSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, c.effectiveSizeMultiplier())
+	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
 	return info
 }
 
 // groundContainerRenderOffset returns the render-only fan offset for a container
-// sharing its tile with others, so a pile of loot bags reads as a band — the same
-// visual (and formula) as monster banding. Solo containers get (0,0).
+// sharing its tile with others, so a pile of loot bags reads as a band - the same
+// visual (and formula) as monster banding. Solo containers get (0,0). O(1): reads
+// the per-frame cache built by ensureContainerFanOffsets.
 func (g *MMGame) groundContainerRenderOffset(c *GroundContainer) (float64, float64) {
 	if g == nil || c == nil {
 		return 0, 0
 	}
+	g.ensureContainerFanOffsets()
+	if off, ok := g.containerFanOffsets[c]; ok {
+		return off[0], off[1]
+	}
+	return 0, 0 // solo container (absent from the cache) or stale pointer
+}
+
+// invalidateContainerFanCache marks the fan-offset cache stale after the
+// container slice is added to or removed from (containers never move).
+func (g *MMGame) invalidateContainerFanCache() { g.containerFanDirty = true }
+
+// ensureContainerFanOffsets (re)builds the fan-offset cache in ONE O(n) pass:
+// group container indices by (map, tile), then place each tile's group evenly
+// on a ring - the same formula the old per-container O(n) scan used, so output
+// is identical. Solo containers are simply absent (offset 0,0).
+func (g *MMGame) ensureContainerFanOffsets() {
+	if !g.containerFanDirty && g.containerFanOffsets != nil {
+		return
+	}
 	tile := float64(g.config.GetTileSize())
-	ctx, cty := int(c.X/tile), int(c.Y/tile)
-	idx, count := 0, 0
+	type tileKey struct {
+		mapKey string
+		tx, ty int
+	}
+	groups := make(map[tileKey][]int, len(g.groundContainers))
 	for i := range g.groundContainers {
 		o := &g.groundContainers[i]
-		if o.MapKey != c.MapKey || int(o.X/tile) != ctx || int(o.Y/tile) != cty {
-			continue
-		}
-		if o == c {
-			idx = count
-		}
-		count++
+		k := tileKey{o.MapKey, int(o.X / tile), int(o.Y / tile)}
+		groups[k] = append(groups[k], i)
 	}
-	if count <= 1 {
-		return 0, 0
+	g.containerFanOffsets = make(map[*GroundContainer][2]float64)
+	for k, idxs := range groups {
+		if len(idxs) <= 1 {
+			continue // solo: (0,0), left out of the cache
+		}
+		cx := (float64(k.tx) + 0.5) * tile
+		cy := (float64(k.ty) + 0.5) * tile
+		for slot, ci := range idxs {
+			c := &g.groundContainers[ci]
+			ox, oy := containerFanOffset(slot, len(idxs), tile)
+			g.containerFanOffsets[c] = [2]float64{cx + ox - c.X, cy + oy - c.Y}
+		}
 	}
-	// Arrange same-tile containers evenly on a ring around the tile CENTRE so a
-	// pile from several kills reads as several bags side by side — regardless of
-	// where each mob actually died (they don't snap together like monster bands).
-	// Offset = ring slot - drop position.
-	ox, oy := containerFanOffset(idx, count, tile)
-	cx := (float64(ctx) + 0.5) * tile
-	cy := (float64(cty) + 0.5) * tile
-	return cx + ox - c.X, cy + oy - c.Y
+	g.containerFanDirty = false
 }
 
 const containerFanRadiusTiles = 0.32
 
 // containerFanOffset spreads count containers evenly on a ring of radius
 // containerFanRadiusTiles. Every member sits ON the ring (so two bags land
-// opposite each other — side by side, not one behind the other). The radius grows
+// opposite each other - side by side, not one behind the other). The radius grows
 // slightly with the count so a bigger pile stays legible.
 func containerFanOffset(idx, count int, tile float64) (float64, float64) {
 	if count <= 1 {
@@ -524,7 +552,7 @@ func currentMapKey() string {
 }
 
 // groundContainerTileIsValid returns false if (tileX, tileY) on the named map
-// is blocking or out of bounds — both cases would leave the container
+// is blocking or out of bounds - both cases would leave the container
 // unreachable. Used for fail-fast YAML validation at spawn time.
 func groundContainerTileIsValid(mapKey string, tileX, tileY int) bool {
 	if world.GlobalWorldManager == nil {

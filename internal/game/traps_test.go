@@ -33,7 +33,7 @@ func newThiefTestGame(t *testing.T) (*MMGame, *character.MMCharacter) {
 
 	g := newTestGame(cfg, w)
 	g.combat = NewCombatSystem(g)
-	g.maxMessages = 50                                 // newTestGame leaves 0 → AddCombatMessage trims everything
+	g.maxMessages = 50                                 // newTestGame leaves 0 -> AddCombatMessage trims everything
 	g.camera.X, g.camera.Y, g.camera.Angle = 96, 96, 0 // tile (1,1), facing +X
 
 	thief := character.CreateCharacter("Nyra", character.ClassThief, cfg)
@@ -53,8 +53,8 @@ func spawnTestMonsterAt(g *MMGame, tileX, tileY int) *monsterPkg.Monster3D {
 }
 
 // Stun diminishing returns: successive stuns on the same target land for
-// 100/50/25/0% of their duration, then the target is immune — so it can't be
-// perma-stun-locked. The DR chain is one mode-agnostic counter, so a TB↔RT
+// 100/50/25/0% of their duration, then the target is immune - so it can't be
+// perma-stun-locked. The DR chain is one mode-agnostic counter, so a TB<->RT
 // switch can't bypass it. After the chain resets, stuns are full again.
 func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	g, _ := newThiefTestGame(t)
@@ -70,7 +70,7 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 		return stunned, m.StunTurnsRemaining
 	}
 
-	for i, want := range []int{4, 2, 1, 0} { // 100% → 50% → 25% → immune
+	for i, want := range []int{4, 2, 1, 0} { // 100% -> 50% -> 25% -> immune
 		stunned, got := requestStun()
 		if got != want {
 			t.Fatalf("stun #%d: got %d turns, want %d", i+1, got, want)
@@ -91,11 +91,11 @@ func TestStunDR_DiminishesThenImmune(t *testing.T) {
 	}
 }
 
-// Regression: turns=1 (how every trap/weapon stun is authored — the smallest
+// Regression: turns=1 (how every trap/weapon stun is authored - the smallest
 // nonzero TB unit) must NOT floor to 0 turns at 50%/25% DR while its
 // much-larger RT-frames twin stays nonzero. That mismatch let a second Stasis
 // Trap in a fight apply a stun that never gated a TB turn (StunTurnsRemaining
-// stayed 0) while still setting StunFramesRemaining — nothing in TB clears
+// stayed 0) while still setting StunFramesRemaining - nothing in TB clears
 // that field, so the stun-star overlay stuck on forever. Only the true 0%
 // (immune) tier should ever yield 0 turns.
 func TestStunDR_OneTurnStunNeverFloorsToZeroBeforeImmune(t *testing.T) {
@@ -218,7 +218,7 @@ func TestTrapRTCooldown_SpeedScalesWhenPlacedFromQuickSlot(t *testing.T) {
 	}
 }
 
-// Trap damage formula: base + (Int+Acc)/divisor + Trapper mastery — the same
+// Trap damage formula: base + (Int+Acc)/divisor + Trapper mastery - the same
 // function drives combat and the trap-book tooltip.
 func TestTrapDamage_ScalesWithStatsAndMastery(t *testing.T) {
 	g, thief := newThiefTestGame(t)
@@ -237,7 +237,7 @@ func TestTrapDamage_ScalesWithStatsAndMastery(t *testing.T) {
 	}
 }
 
-// Stasis stuns; bear trap roots — rooted monsters skip TB movement (the move
+// Stasis stuns; bear trap roots - rooted monsters skip TB movement (the move
 // attempt consumes the root) but are NOT stunned.
 func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	g, thief := newThiefTestGame(t)
@@ -272,7 +272,7 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	}
 
 	// Rooted: the root burns one charge per monster TURN (TickRootTurn) and
-	// pins movement for that whole turn — even if the monster only attacks.
+	// pins movement for that whole turn - even if the monster only attacks.
 	baseTurns := config.GlobalTrapConfig.Traps["bear_trap"].RootTurns
 	x, y := rooted.X, rooted.Y
 	for turn := 0; turn < baseTurns; turn++ {
@@ -315,12 +315,12 @@ func TestSleightChance_AllMasteries(t *testing.T) {
 	}
 }
 
-// Sleight of Hand: melee hits eventually pick the victim's pocket — once.
+// Sleight of Hand: melee hits eventually pick the victim's pocket - once.
 func TestSleightOfHand_PaysGoldOnce(t *testing.T) {
 	g, thief := newThiefTestGame(t)
 	thief.Skills[character.SkillSleightOfHand].Mastery = character.MasteryGrandMaster // 40%
 	mob := spawnTestMonsterAt(g, 2, 1)
-	mob.Level = 3 // low-level victim → consolation gold 5 (goblin has loot, may steal an item instead)
+	mob.Level = 3 // low-level victim -> consolation gold 5 (goblin has loot, may steal an item instead)
 	mob.MaxHitPoints, mob.HitPoints = 100000, 100000
 
 	startGold := g.party.Gold
@@ -329,7 +329,7 @@ func TestSleightOfHand_PaysGoldOnce(t *testing.T) {
 		g.combat.trySleightOfHand(thief, mob)
 	}
 	if !mob.Pilfered {
-		t.Fatal("GM sleight (40%) did not land in 500 swings — statistically impossible")
+		t.Fatal("GM sleight (40%) did not land in 500 swings - statistically impossible")
 	}
 	gotGold := g.party.Gold - startGold
 	gotItems := len(g.party.Inventory) - startItems

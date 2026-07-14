@@ -7,13 +7,13 @@ import (
 )
 
 // bubbleColumnFx tunes one rising-bubble column. The impassable-tile aura, the
-// hot-steam zone and the shut-valve steam are the same effect — a depth-tested
-// stream of rising, fading glows at a sampled world point — differing only in
+// hot-steam zone and the shut-valve steam are the same effect - a depth-tested
+// stream of rising, fading glows at a sampled world point - differing only in
 // these knobs. The projection, wall occlusion, phase and fade math lives once in
 // emitBubbleColumn so the three callers only pick sample points and tuning.
 type bubbleColumnFx struct {
 	wx, wy       float64 // world anchor of the column
-	hx, hy       int     // tile coords → deterministic, frame-stable per-tile phase
+	hx, hy       int     // tile coords -> deterministic, frame-stable per-tile phase
 	salt         int     // per-edge/per-effect hash salt (decorrelates neighbours)
 	hi           int     // per-column index; feeds the strong hash slot so columns desync
 	maxDepth     float64 // far clip and distance-fade reference (world units)
@@ -21,9 +21,9 @@ type bubbleColumnFx struct {
 	baseAlpha    float64 // peak alpha before distance and per-stream dimming
 	colBright    float64 // per-stream brightness in [0,1]
 	perColumn    int     // staggered bubbles per column
-	periodTick   float64 // base ticks for one bottom→top trip
+	periodTick   float64 // base ticks for one bottom->top trip
 	jitterMin    float64 // rise-speed jitter band lower bound
-	jitterSpan   float64 // ... and width: speed ∈ [jitterMin, jitterMin+jitterSpan]×base
+	jitterSpan   float64 // ... and width: speed in [jitterMin, jitterMin+jitterSpan]xbase
 	sizeFloor    float64 // smallest bubble size in pixels
 	sizeCoef     float64 // size = max(sizeFloor, (floorY-horizon)*sizeCoef)
 	wobbleCoef   float64 // horizontal wobble amplitude in bubble-sizes
@@ -31,9 +31,9 @@ type bubbleColumnFx struct {
 	centerDepth  float64 // billboard self-cull plane (bubbles behind it are hidden)
 	hasCenter    bool    // false disables the self-cull (steam/valve fill the tile)
 	centerSpanL  int     // screen-X span the billboard covers at the cull plane;
-	centerSpanR  int     // the self-cull applies only inside it (±math.MinInt/MaxInt = anywhere)
-	fall         bool    // true = motes descend sky→ground (teleporter); default ground→sky (steam/aura)
-	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1−j, 1+j]×base
+	centerSpanR  int     // the self-cull applies only inside it (+/-math.MinInt/MaxInt = anywhere)
+	fall         bool    // true = motes descend sky->ground (teleporter); default ground->sky (steam/aura)
+	sizeJitter   float64 // 0 = uniform; >0 = per-bubble size varies in [1-j, 1+j]xbase
 }
 
 // emitBubbleColumn projects one world point, culls it against the near/far clip,
@@ -73,7 +73,7 @@ func (r *Renderer) emitBubbleColumn(screen *ebiten.Image, c bubbleColumnFx) {
 		speedSeed := auraHash(c.hx, c.hy, c.salt+200, idx)
 		period := c.periodTick * (c.jitterMin + c.jitterSpan*speedSeed)
 		phase := math.Mod(float64(r.game.frameCount)/period+seed, 1.0)
-		// phase 0→1: rising goes floor→top; falling goes top→floor.
+		// phase 0->1: rising goes floor->top; falling goes top->floor.
 		by := floorY - phase*rise
 		if c.fall {
 			by = (floorY - rise) + phase*rise

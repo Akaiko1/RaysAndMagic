@@ -11,7 +11,7 @@ import (
 // setupPreviewSandboxTest prepares the globals an editor preview sandbox
 // (FxPreview, MobPreview) needs, mirroring real editor conditions: tile
 // manager loaded, no world manager (the sandbox installs its own stage), no
-// quest manager (the editor never loads quests — one left behind by another
+// quest manager (the editor never loads quests - one left behind by another
 // test would make NewMMGame validate quest tile-changes against the sandbox's
 // single-map world and panic). Restores everything on cleanup.
 func setupPreviewSandboxTest(t *testing.T) *config.Config {

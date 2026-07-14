@@ -33,7 +33,7 @@ type entryButton struct {
 	action func(g *MMGame)
 }
 
-// entryButtonDefs is built once at startup — the action closures take *MMGame as
+// entryButtonDefs is built once at startup - the action closures take *MMGame as
 // a parameter (capture-free), so the slice is safe to share across frames.
 var entryButtonDefs = []entryButton{
 	{"start", "Start Game", func(g *MMGame) { g.enterPartyCreate() }},
@@ -64,7 +64,7 @@ func (g *MMGame) updateEntryMenu() {
 	}
 }
 
-// returnToMainMenu leaves the current game and shows the title screen — the
+// returnToMainMenu leaves the current game and shows the title screen - the
 // in-game ESC menu's "Main Menu" option. It does NOT quit the app (the title
 // screen's own "Quit" does). The world/party stay in memory but aren't drawn
 // while on the title; Start/Load from the title replaces them.
@@ -95,7 +95,7 @@ func (ui *UISystem) drawEntryMenuScreen(screen *ebiten.Image) {
 		ui.drawEntryLoadList(screen, w, h)
 	case EntryMenuScores:
 		ui.drawHighScoresOverlay(screen)
-		ui.drawBackHint(screen, w, h)
+		ui.drawBackHint(screen, h)
 	case EntryMenuAchievements:
 		ui.drawAchievementsScreen(screen, w, h)
 	}
@@ -149,11 +149,11 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 	ui.drawPanel(screen, "menu_panel_wide", px, py, panelW, panelH)
 	drawDebugText(screen, "Load Game", px+menuFrameInset, py+menuFrameInset-4)
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) && g.savePage > 0 {
-		g.savePage--
+	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+		g.savePage = (g.savePage + savePageCount - 1) % savePageCount
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyRight) && g.savePage < savePageCount-1 {
-		g.savePage++
+	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
+		g.savePage = (g.savePage + 1) % savePageCount
 	}
 
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -220,15 +220,15 @@ func (ui *UISystem) drawEntryLoadList(screen *ebiten.Image, w, h int) {
 			onClick()
 		}
 	}
-	drawEntryPagerBtn(rowX, "< Prev", g.savePage > 0, func() { g.savePage-- })
-	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", g.savePage < savePageCount-1, func() { g.savePage++ })
+	drawEntryPagerBtn(rowX, "< Prev", true, func() { g.savePage = (g.savePage + savePageCount - 1) % savePageCount })
+	drawEntryPagerBtn(rowX+rowW-pbW, "Next >", true, func() { g.savePage = (g.savePage + 1) % savePageCount })
 	drawCenteredDebugText(screen, fmt.Sprintf("Page %d/%d", g.savePage+1, savePageCount), rowX, pagerY+(pbH-12)/2, rowW, 12)
 
 	ui.drawBackButton(screen, px+menuFrameInset, pagerY+pbH+12, func() { g.entryMenuMode = EntryMenuRoot })
 }
 
 // drawAchievementsScreen renders the data-driven (stub) achievements list. All
-// entries display as locked — unlock tracking is not implemented yet.
+// entries display as locked - unlock tracking is not implemented yet.
 func (ui *UISystem) drawAchievementsScreen(screen *ebiten.Image, w, h int) {
 	g := ui.game
 	panelW, panelH := 640, 480
@@ -345,7 +345,7 @@ const (
 	menuFrameInset = 44 // must exceed menuFrameSlice so content clears the gold corner band
 )
 
-// drawButtonHoverGlow draws a soft warm halo just OUTSIDE the button edge — a
+// drawButtonHoverGlow draws a soft warm halo just OUTSIDE the button edge - a
 // light highlight around it, not a wash over the face. Two fading gold rings.
 func drawButtonHoverGlow(screen *ebiten.Image, x, y, w, h int) {
 	drawRectBorder(screen, x-2, y-2, w+4, h+4, 1, color.RGBA{255, 226, 150, 90})
@@ -353,8 +353,8 @@ func drawButtonHoverGlow(screen *ebiten.Image, x, y, w, h int) {
 }
 
 // drawMenuButton draws a button face. Resolution order: per-key art
-// (menu_btn_<key>[_hover], label assumed baked in) → generic frame (menu_btn,
-// label drawn on top) → procedural panel. Hover gets a highlight overlay when
+// (menu_btn_<key>[_hover], label assumed baked in) -> generic frame (menu_btn,
+// label drawn on top) -> procedural panel. Hover gets a highlight overlay when
 // the art has no dedicated _hover variant.
 func (ui *UISystem) drawMenuButton(screen *ebiten.Image, key, label string, x, y, w, h int, hover bool) {
 	s := ui.game.sprites
@@ -425,6 +425,6 @@ func (ui *UISystem) drawBackButton(screen *ebiten.Image, x, y int, onClick func(
 
 // drawBackHint prints a small return hint at the bottom for full-bleed sub
 // screens (e.g. high scores) that draw their own background.
-func (ui *UISystem) drawBackHint(screen *ebiten.Image, w, h int) {
+func (ui *UISystem) drawBackHint(screen *ebiten.Image, h int) {
 	ui.drawBackButton(screen, 20, h-44, func() { ui.game.entryMenuMode = EntryMenuRoot })
 }

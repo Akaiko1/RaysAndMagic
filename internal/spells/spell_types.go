@@ -35,7 +35,7 @@ type SpellDefinition struct {
 	StatBonusGrandmaster int            // optional GM-scaled uniform stat bonus cap
 	StatBonuses          map[string]int // Per-stat alternative (lowercase stat keys)
 	// Damage-formula modifiers (default behaviour when zero/false)
-	DamageCostMultiplier  int  // base = cost × SpellDamagePerSP × this (default 1)
+	DamageCostMultiplier  int  // base = cost x SpellDamagePerSP x this (default 1)
 	ScalesWithPersonality bool // also add Personality/divisor to spell damage
 	// AoE-stun effect (Darkness): >0 radius stuns all monsters in range, no damage
 	StunRadiusTiles     float64
@@ -51,9 +51,9 @@ type SpellDefinition struct {
 	IncomingDamageReduction            int // base flat incoming damage reduction
 	IncomingDamageReductionGrandmaster int // optional GM-scaled flat reduction cap
 	// Bind Undead and Charm are two DISTINCT control spells (never mixed):
-	BindUndead            bool    // Bind Undead: take control of an UNDEAD target — it hunts other monsters for you
+	BindUndead            bool    // Bind Undead: take control of an UNDEAD target - it hunts other monsters for you
 	BindDurationSeconds   int     // Bind Undead duration (RT seconds)
-	Pacify                bool    // Charm: pacify a LIVING target — it stops attacking; breaks on any hit it takes
+	Pacify                bool    // Charm: pacify a LIVING target - it stops attacking; breaks on any hit it takes
 	PacifyDurationSeconds int     // Charm duration (RT seconds)
 	Revive                bool    // resurrect: restore a fallen ally (incl. eradicated)
 	FullHeal              bool    // resurrect: restore to maximum HP
@@ -62,19 +62,49 @@ type SpellDefinition struct {
 	StunChance            float64 // Psychic Shock: chance to stun the struck monster on hit
 	// Party-centered instant nova (Inferno): damages all monsters AND the party in radius.
 	PartyAoeRadiusTiles float64
+	// MapWide (Inferno rework): the nova burns EVERY monster on the map AND the party.
+	MapWide bool
 	// Persistent damage zone (Hot Steam).
 	StarburstFx     bool
 	ZoneRadiusTiles float64
 	ZoneTickDamage  int
 	ZoneTickSeconds float64
+	// Per-school party resist buff (Fire Shield).
+	ResistBuffSchool    string
+	ResistBuffSchoolPct int
+	// Mortar (Stone Blossom): no collisions in flight, detonates at a fixed distance.
+	MortarRangeTiles float64
 	// Effect configuration
-	HealAmount        int     // For healing spells
-	VisionRadiusTiles float64 // vision spells: torch glow / wizard-eye radar radius (tiles)
-	TargetSelf        bool    // Whether spell targets self or others
-	Awaken            bool    // For awaken spell
-	WaterWalk         bool    // For water walking spell
-	WaterBreathing    bool    // For water breathing spell
-	Message           string  // Effect message to display
+	Schools           []string // every school the spell belongs to (dual-school); empty = just School
+	HealAmount        int      // For healing spells
+	VisionRadiusTiles float64  // vision spells: torch glow / wizard-eye radar radius (tiles)
+	TargetSelf        bool     // Whether spell targets self or others
+	Awaken            bool     // For awaken spell
+	WaterWalk         bool     // For water walking spell
+	WaterBreathing    bool     // For water breathing spell
+	Fly               bool     // Fly: walk through non-border tiles
+	OutdoorOnly       bool     // castable only under a day/night sky
+	TownPortal        bool     // opens the visited-destination picker
+	Message           string   // Effect message to display
+}
+
+// SchoolList returns every school the spell belongs to: Schools when authored,
+// else the single School. The ONE place dual-school membership is resolved.
+func (d SpellDefinition) SchoolList() []string {
+	if len(d.Schools) > 0 {
+		return d.Schools
+	}
+	return []string{d.School}
+}
+
+// BelongsToSchool reports whether the spell is a member of the given school key.
+func (d SpellDefinition) BelongsToSchool(school string) bool {
+	for _, s := range d.SchoolList() {
+		if s == school {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSpellDefinitionByID retrieves spell definition from YAML config
@@ -125,22 +155,30 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		HealParty:                          configDef.HealParty,
 		StunChance:                         configDef.StunChance,
 		PartyAoeRadiusTiles:                configDef.PartyAoeRadiusTiles,
+		MapWide:                            configDef.MapWide,
 		StarburstFx:                        configDef.StarburstFx,
 		ZoneRadiusTiles:                    configDef.ZoneRadiusTiles,
 		ZoneTickDamage:                     configDef.ZoneTickDamage,
 		ZoneTickSeconds:                    configDef.ZoneTickSeconds,
+		ResistBuffSchool:                   configDef.ResistBuffSchool,
+		ResistBuffSchoolPct:                configDef.ResistBuffSchoolPct,
+		MortarRangeTiles:                   configDef.MortarRangeTiles,
 		// Effect configuration from YAML
+		Schools:           configDef.Schools,
 		HealAmount:        configDef.HealAmount,
 		VisionRadiusTiles: configDef.VisionRadiusTiles,
 		TargetSelf:        configDef.TargetSelf,
 		Awaken:            configDef.Awaken,
 		WaterWalk:         configDef.WaterWalk,
 		WaterBreathing:    configDef.WaterBreathing,
+		Fly:               configDef.Fly,
+		OutdoorOnly:       configDef.OutdoorOnly,
+		TownPortal:        configDef.TownPortal,
 		Message:           configDef.Message,
 	}, nil
 }
 
-// IsOffensive reports whether this spell harms or disables enemies — i.e. it
+// IsOffensive reports whether this spell harms or disables enemies - i.e. it
 // is a "combat" spell for the smart-attack autocast (Space). Decided purely by
 // mechanical effect, NOT by the IsUtility flag: AoE-stun (Stun/Darkness) and
 // damage zones (Hot Steam) are flagged utility yet are clearly offensive.
@@ -151,6 +189,7 @@ func (d SpellDefinition) IsOffensive() bool {
 		d.StunRadiusTiles > 0 ||
 		d.ZoneRadiusTiles > 0 ||
 		d.PartyAoeRadiusTiles > 0 ||
+		d.MapWide ||
 		d.BindUndead ||
 		d.Pacify ||
 		d.DisintegrateChance > 0 ||
@@ -158,11 +197,11 @@ func (d SpellDefinition) IsOffensive() bool {
 }
 
 // EffectLines returns the character-INDEPENDENT mechanics of a spell as
-// human-readable lines — the SINGLE SOURCE shared by the in-game tooltip and the
+// human-readable lines - the SINGLE SOURCE shared by the in-game tooltip and the
 // map-editor spell card so the two can never drift. It excludes values that
 // scale with the caster (projectile damage/heal totals, current buff magnitudes,
 // buff duration); those are rendered per-consumer because the editor has no
-// character context. Range lines read SpellDefinition fields — add a YAML field,
+// character context. Range lines read SpellDefinition fields - add a YAML field,
 // add a line here, never name-switch.
 func (d SpellDefinition) EffectLines() []string {
 	var out []string
@@ -194,10 +233,29 @@ func (d SpellDefinition) EffectLines() []string {
 	if d.PartyAoeRadiusTiles > 0 {
 		out = append(out, fmt.Sprintf("Engulfs everything within %.1f tiles for %d damage - your party too", d.PartyAoeRadiusTiles, d.SpellPointsCost*SpellDamagePerSP))
 	}
+	if d.MapWide {
+		out = append(out, fmt.Sprintf("Burns EVERY monster on the map for %d damage - your party too", d.SpellPointsCost*SpellDamagePerSP))
+	}
+	if d.MortarRangeTiles > 0 {
+		out = append(out, fmt.Sprintf("Arcs over everything and blooms exactly %.0f tiles out", d.MortarRangeTiles))
+	}
+	if d.Fly {
+		out = append(out, "The party walks through anything but the map's edge")
+	}
+	if d.OutdoorOnly {
+		out = append(out, "Only under an open sky (never in dungeons)")
+	}
+	if d.TownPortal {
+		out = append(out, "Opens a portal to any town or tavern the party has visited")
+	}
+	if d.ResistBuffSchoolPct > 0 && d.ResistBuffSchool != "" {
+		out = append(out, fmt.Sprintf("Party resists %s +%d%% for the duration",
+			strings.ToUpper(d.ResistBuffSchool[:1])+d.ResistBuffSchool[1:], d.ResistBuffSchoolPct))
+	}
 	if d.ZoneRadiusTiles > 0 {
 		// Radius and tick cadence are rendered STRUCTURED in the unified card's ZONE
 		// section (and filtered out of EFFECTS), so this summary line states only
-		// who it hits — monsters, never the party.
+		// who it hits - monsters, never the party.
 		out = append(out, "Leaves a lingering zone that scalds any monster inside (your party is unharmed)")
 	}
 	switch {
@@ -256,7 +314,7 @@ func (d SpellDefinition) EffectLines() []string {
 		out = append(out, "Wakes all unconscious allies (back to 1 HP)")
 	}
 
-	// Scaling source — character-INDEPENDENT (which stat & mastery the effect
+	// Scaling source - character-INDEPENDENT (which stat & mastery the effect
 	// grows with), so the map-editor card and the in-game tooltip both surface
 	// what a spell scales from. The numeric bonus itself is caster-dependent and
 	// shown only by the in-game tooltip.
@@ -277,7 +335,7 @@ func (d SpellDefinition) EffectLines() []string {
 		}
 	}
 	if len(d.StatBonuses) > 0 {
-		// Per-stat buffs are authored absolute (no mastery scaling) — the exact
+		// Per-stat buffs are authored absolute (no mastery scaling) - the exact
 		// numbers are character-independent, so they belong in this shared SSoT.
 		for _, key := range config.StatNames {
 			if v, ok := d.StatBonuses[key]; ok && v != 0 {
@@ -289,7 +347,7 @@ func (d SpellDefinition) EffectLines() []string {
 }
 
 // SchoolScalesWithPersonality reports whether a school's spells scale with
-// Personality instead of Intellect — the self-magic schools (body/mind/spirit).
+// Personality instead of Intellect - the self-magic schools (body/mind/spirit).
 func SchoolScalesWithPersonality(school string) bool {
 	switch school {
 	case "body", "mind", "spirit":

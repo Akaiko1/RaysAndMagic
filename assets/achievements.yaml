@@ -1,6 +1,6 @@
 # Achievement definitions (data-driven, graphics-ready stub).
 #
-# Unlock tracking is NOT implemented yet — the entry-menu Achievements screen
+# Unlock tracking is NOT implemented yet - the entry-menu Achievements screen
 # renders every entry as locked. To wire real progress later, add unlock logic
 # that flips a per-key flag; the screen already reads this list.
 #

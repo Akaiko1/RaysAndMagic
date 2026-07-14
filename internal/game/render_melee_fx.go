@@ -21,7 +21,7 @@ const meleeSweepFrac = 0.35
 // bottom), so it reads as the party's own weapon rather than floating mid-view.
 const meleeAnchorYFrac = 0.68
 
-// meleeSizeScale shrinks every swing dimension; 1/√2 ≈ 0.707 → exactly half the
+// meleeSizeScale shrinks every swing dimension; 1/sqrt2 ~ 0.707 -> exactly half the
 // occupied area.
 const meleeSizeScale = 0.7071
 
@@ -102,12 +102,12 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	}
 	edge := [3]int{255, 255, 255}
 
-	// All dimensions derive from h (= screenH × scale) so the whole swing shrinks
+	// All dimensions derive from h (= screenH x scale) so the whole swing shrinks
 	// uniformly; positions anchor around the (already-lowered) cx, cy.
 	h := screenH * meleeSizeScale
 
 	// Critical swing: a quarter bigger, hotter, with a golden leading edge and a
-	// denser spark shower — the crit reads from the swing itself, not just the
+	// denser spark shower - the crit reads from the swing itself, not just the
 	// damage number.
 	sparkCount := 14
 	if s.Crit {
@@ -130,7 +130,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 		tipLen := reach * lead
 		tipX, tipY := baseX+dirX*tipLen, baseY+dirY*tipLen
 
-		// Tapered ribbon (thick at base → thin at tip), lingering.
+		// Tapered ribbon (thick at base -> thin at tip), lingering.
 		const n = 16
 		for k := 0; k < n; k++ {
 			t := float64(k) / float64(n-1)
@@ -155,7 +155,7 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 	// --- Arc kinds: sword crescent, axe chop, mace smash ---
 	var pivotX, pivotY, R, thetaStart, thetaEnd, thick float64
 	switch s.Kind {
-	case "chop": // heavy diagonal downward chop (upper-right → lower-left)
+	case "chop": // heavy diagonal downward chop (upper-right -> lower-left)
 		reach := h * 0.24
 		pivotX, pivotY = cx-reach*0.15, cy-reach*0.1
 		R = reach * 1.25
@@ -177,12 +177,12 @@ func (r *Renderer) drawMeleeParticles(screen *ebiten.Image, s SlashEffect, cx, c
 
 	curTheta := thetaStart + (thetaEnd-thetaStart)*lead
 
-	// Shaped ribbon along the swept arc [start … current]. Two offset rows make a
+	// Shaped ribbon along the swept arc [start ... current]. Two offset rows make a
 	// fuller, juicier blade-streak than a single line. Thick in the middle, thin
 	// at the ends; brighter at the leading edge; fades slowly via `fade`.
 	const n = 26
 	for k := 0; k < n; k++ {
-		tf := float64(k) / float64(n-1) // 0 start → 1 leading edge
+		tf := float64(k) / float64(n-1) // 0 start -> 1 leading edge
 		theta := thetaStart + (curTheta-thetaStart)*tf
 		w := thick * (0.3 + 0.7*math.Sin(math.Pi*tf))
 		a := fade * (0.4 + 0.6*tf)

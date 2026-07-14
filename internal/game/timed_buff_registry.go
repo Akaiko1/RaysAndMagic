@@ -74,7 +74,7 @@ func tickBuffList[T spellKeyedBuff](g *MMGame, list []T, frames func(*T) *int) (
 
 // resetTimedEffects drops every timed party effect family at once: stat buffs
 // (re-deriving the aggregate), combat buffs, steam zones, and the flag-based
-// utility effects (torch / wizard eye / water — WITHOUT firing onExpire: a new
+// utility effects (torch / wizard eye / water - WITHOUT firing onExpire: a new
 // game must not trigger the underwater return teleport). The ONE reset for
 // new game; save load overwrites these via their restore* counterparts.
 func (g *MMGame) resetTimedEffects() {

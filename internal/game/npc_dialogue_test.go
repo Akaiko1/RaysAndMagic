@@ -12,7 +12,8 @@ import (
 // give_quest / turn_in_quest / leave choices and all four state messages.
 func questGiverNPC(questID string) *character.NPC {
 	return &character.NPC{
-		Name: "Tester",
+		Name:           "Tester",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting:         "offer",
 			ActiveMessage:    "in-progress",
@@ -47,7 +48,7 @@ func actions(choices []*character.NPCDialogueChoice) []string {
 	return out
 }
 
-// The quest-giver walks offer → active → completed → concluded, and only the
+// The quest-giver walks offer -> active -> completed -> concluded, and only the
 // state-appropriate choices/body are surfaced at each step.
 func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -75,22 +76,22 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 		}
 	}
 
-	// 1) Not taken → offer: greeting + give_quest (+ leave). No turn-in yet.
+	// 1) Not taken -> offer: greeting + give_quest (+ leave). No turn-in yet.
 	want(npcStateOffer, "offer", "give_quest", "leave")
 
-	// 2) Taken, not done → active: in-progress text, no offer/turn-in.
+	// 2) Taken, not done -> active: in-progress text, no offer/turn-in.
 	if err := g.questManager.ActivateQuest(qid); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
 	want(npcStateActive, "in-progress", "leave")
 
-	// 3) Done, not turned in → completed: turn_in available, offer gone.
+	// 3) Done, not turned in -> completed: turn_in available, offer gone.
 	for i := 0; i < 3; i++ {
 		g.questManager.OnMonsterKilled("mountain_troll", "")
 	}
 	want(npcStateCompleted, "well done", "turn_in_quest", "leave")
 
-	// 4) Turned in (reward claimed) → concluded: farewell, no actionable choices.
+	// 4) Turned in (reward claimed) -> concluded: farewell, no actionable choices.
 	if !g.claimQuestReward(qid) {
 		t.Fatalf("claim failed")
 	}
@@ -101,7 +102,8 @@ func TestNPCDialogueState_QuestGiverLifecycle(t *testing.T) {
 // (reply + its own follow-up choices), so we can exercise descend/back.
 func branchingNPC(questID string) *character.NPC {
 	return &character.NPC{
-		Name: "Brancher",
+		Name:           "Brancher",
+		RenderCategory: "npc",
 		DialogueData: &character.NPCDialogue{
 			Greeting: "root",
 			Choices: []*character.NPCDialogueChoice{
@@ -138,7 +140,7 @@ func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
 		t.Fatalf("root choices = %v", got)
 	}
 
-	// Pick the info choice → descend, NOT close, NOT take the quest.
+	// Pick the info choice -> descend, NOT close, NOT take the quest.
 	g.selectedChoice = 0
 	ih.executeEncounterChoice()
 	if !g.dialogActive || g.dialogNPC == nil {
@@ -185,8 +187,8 @@ func TestDialogueBranching_InfoDescendsBackAndStateFilters(t *testing.T) {
 func TestSpellTrader_PageFollowsKeyboardSelection(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	g := cs.game
-	npc := &character.NPC{Name: "Trader", SpellData: map[string]*character.NPCSpell{}}
-	// 15 spells with sortable keys → spans two pages (perPage = 12).
+	npc := &character.NPC{Name: "Trader", RenderCategory: "npc", SpellData: map[string]*character.NPCSpell{}}
+	// 15 spells with sortable keys -> spans two pages (perPage = 12).
 	for i := 0; i < 15; i++ {
 		npc.SpellData[fmt.Sprintf("spell_%02d", i)] = &character.NPCSpell{Name: fmt.Sprintf("S%02d", i)}
 	}
@@ -205,7 +207,7 @@ func TestSpellTrader_PageFollowsKeyboardSelection(t *testing.T) {
 		t.Errorf("highlight index = %d, want 13", g.dialogSelectedSpell)
 	}
 
-	// Back to a first-page spell → page returns to 0.
+	// Back to a first-page spell -> page returns to 0.
 	g.selectedSpellKey = keys[2]
 	ih.syncSpellTraderPageToSelection(keys)
 	if g.spellTraderPage != 0 || g.dialogSelectedSpell != 2 {

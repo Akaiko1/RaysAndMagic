@@ -477,8 +477,8 @@ func TestQuestManager_RemoveQuest(t *testing.T) {
 
 // Regression: loading a save made BEFORE a quest was taken must not leave that
 // quest active. The load resets the manager to its baseline (starting quests)
-// then re-applies the saved snapshot; a quest absent from the snapshot — taken
-// only after that save — must be dropped, not carried over from the live state.
+// then re-applies the saved snapshot; a quest absent from the snapshot - taken
+// only after that save - must be dropped, not carried over from the live state.
 func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 	config := &QuestConfig{
 		Quests: map[string]*QuestDefinition{
@@ -495,7 +495,7 @@ func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 	qm := NewQuestManager(config)
 	qm.InitializeStartingQuests()
 
-	// Snapshot the save state now — before the side quest is ever taken.
+	// Snapshot the save state now - before the side quest is ever taken.
 	type snap struct {
 		id      string
 		status  QuestStatus
@@ -530,7 +530,7 @@ func TestQuestManager_LoadDropsQuestsTakenAfterSave(t *testing.T) {
 }
 
 // MarkCompleted brings an active kill quest to its done state so it can be turned
-// in — used when the targets were slain before the quest was taken, or fewer
+// in - used when the targets were slain before the quest was taken, or fewer
 // existed than the quota.
 func TestQuestManager_MarkCompleted(t *testing.T) {
 	config := &QuestConfig{

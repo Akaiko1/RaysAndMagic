@@ -45,7 +45,8 @@ func NewMobPreview(cfg *config.Config) (*MobPreview, error) {
 	p.g.turnBasedMode = false
 
 	ts := float64(cfg.GetTileSize())
-	p.g.camera.X, p.g.camera.Y, p.g.camera.Angle = 1.5*ts, 8.5*ts, 0 // west edge, looking east at the stage
+	p.g.camera.X, p.g.camera.Y = 1.5*ts, 8.5*ts // west edge, looking east at the stage
+	p.g.snapFacing(0)
 	if e := p.g.collisionSystem.GetEntityByID("player"); e != nil {
 		p.g.collisionSystem.UpdateEntity("player", p.g.camera.X, p.g.camera.Y)
 	}
@@ -53,11 +54,11 @@ func NewMobPreview(cfg *config.Config) (*MobPreview, error) {
 }
 
 // Select stages a monster: banding mobs get a whole flock (stacked on one
-// tile — the banding pass owns fanning them out), everyone else a single
+// tile - the banding pass owns fanning them out), everyone else a single
 // specimen. Preview mobs are passive-until-attacked (a zeroed alert radius
 // does NOT work: detection falls back to the configured default radius), so
 // the calm patrol/band behaviour keeps playing instead of a charge at the
-// camera — or, for a ranged band, a scatter/reposition teleport frenzy.
+// camera - or, for a ranged band, a scatter/reposition teleport frenzy.
 func (p *MobPreview) Select(key string) {
 	p.key = key
 	g := p.g
@@ -87,7 +88,7 @@ func (p *MobPreview) Select(key string) {
 	p.arena.RegisterMonstersWithCollisionSystem(g.collisionSystem)
 }
 
-// Step advances the sandbox one tick — the same monster sub-updates the RT
+// Step advances the sandbox one tick - the same monster sub-updates the RT
 // game loop runs: movement AI, overlap separation, band flocking, and the
 // frame-motion facing pass (without it walkers moonwalk on stale Direction).
 func (p *MobPreview) Step() {
@@ -99,9 +100,9 @@ func (p *MobPreview) Step() {
 	g.frameCount++
 	monsterFrameStart := gl.captureMonsterFramePositions()
 	gl.updateMonstersParallel()
+	gl.faceMonstersAlongFrameMotion(monsterFrameStart) // walk-only window, matching the game loop
 	gl.separateOverlappingMonsters()
 	gl.updateMonsterBands()
-	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
 }
 
 // Monsters exposes the staged monsters (the editor shows live HP/state).

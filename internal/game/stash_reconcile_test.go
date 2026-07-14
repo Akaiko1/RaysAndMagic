@@ -28,7 +28,7 @@ func TestReconcileAgainstStash_StripsOwnedInstance(t *testing.T) {
 }
 
 // A save written while the item was still EQUIPPED (or in a quick slot) must
-// not smuggle a chest-owned copy back in — the sweep covers all rosters'
+// not smuggle a chest-owned copy back in - the sweep covers all rosters'
 // slots, not just the bag.
 func TestReconcileAgainstStash_StripsEquippedAndQuickSlot(t *testing.T) {
 	active := &character.MMCharacter{Equipment: map[items.EquipSlot]items.Item{
@@ -60,12 +60,12 @@ func TestReconcileAgainstStash_StripsEquippedAndQuickSlot(t *testing.T) {
 	}
 }
 
-// Untracked (zero-id) items are never stripped — a chest zero must not match a
+// Untracked (zero-id) items are never stripped - a chest zero must not match a
 // bag zero, or legacy items would wrongly vanish.
 func TestReconcileAgainstStash_IgnoresZeroIDs(t *testing.T) {
 	g := &MMGame{
 		party: &character.Party{Inventory: []items.Item{
-			{Name: "Old Sword"}, // id 0
+			{Name: "Old Sword"},  // id 0
 			{Name: "Old Shield"}, // id 0
 		}},
 		stash: &stash.Stash{},
@@ -93,6 +93,22 @@ func TestReconcileAgainstStash_CardVaultOwns(t *testing.T) {
 
 	if len(g.party.Inventory) != 0 {
 		t.Fatalf("card owned by the vault should be stripped, got %+v", g.party.Inventory)
+	}
+}
+
+func TestReconcileAgainstStash_StripsOwnedCardCollectionSlot(t *testing.T) {
+	g := &MMGame{
+		party: &character.Party{},
+		stash: &stash.Stash{},
+	}
+	g.cardSlots[0].key = "medusa_card"
+	g.cardSlots[0].item = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
+	g.stash.CardSlots[0] = items.Item{Name: "Medusa Card", Type: items.ItemCard, InstanceID: 77}
+
+	g.reconcilePartyAgainstStash()
+
+	if g.cardSlots[0].key != "" || g.cardSlots[0].item.Name != "" {
+		t.Fatalf("card collection slot should be stripped when vault owns the card, key=%q item=%+v", g.cardSlots[0].key, g.cardSlots[0].item)
 	}
 }
 

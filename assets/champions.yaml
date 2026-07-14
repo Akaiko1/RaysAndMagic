@@ -1,0 +1,188 @@
+# Champion mobs: real characters that ride the monster AI. Each build here is
+# constructed via character.BuildChampion at every DIFFICULTY TIER and drives
+# the mob that names it with a `champion:` field in monsters.yaml. Champions
+# always get 4 turn-based attacks; everything else follows the character combat
+# pipeline live.
+#
+# tiers: shared difficulty ladder. Per tier: character level, the mastery EVERY
+# authored skill is set to, the boss HP pool, and the victory rewards
+# (experience + arena points). Champions drop NO gold (monsters.yaml gold 0).
+# A defeated difficulty unlocks again next morning.
+#
+# Per champion:
+#   class      - config.yaml characters.classes key
+#   skills     - skill KEYS only; mastery comes from the tier
+#   equipment  - per-tier lists; first weapon = main hand, second = off hand.
+#                Gear must pass the class/skill equip gates (validated at boot).
+#   ranged     - fires the main-hand weapon as a projectile
+# set_drops: armor-set trophy roll on EVERY champion kill (any tier). Each
+# listed SET rolls ONCE IN THIS ORDER at its `pct`; the FIRST success drops a
+# RANDOM piece of that set and ends the rolling - a kill yields at most ONE
+# piece, or nothing. `pct` is the set's real drop chance (piece-count-
+# independent). Ordered list on purpose: earlier entries roll first. Sets are
+# items.yaml item_sets keys.
+set_drops:
+  - { set: padded, pct: 10 }
+  - { set: ringmail, pct: 5 }
+
+tiers:
+  easy:
+    level: 20
+    mastery: expert
+    hp: 1200
+    experience: 1000
+    arena_points: 500
+  normal:
+    level: 23
+    mastery: master
+    hp: 2000
+    experience: 2000
+    arena_points: 1000
+  impossible:
+    level: 25
+    mastery: grandmaster
+    hp: 3000
+    experience: 3000
+    arena_points: 2000
+
+champions:
+  hobbit_archer:
+    name: "Hobbit Archer"
+    class: "archer"
+    skills: [bow, leather, dagger, bodybuilding]
+    ranged: true
+    equipment:
+      easy:
+        - "hunting_bow"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+      normal:
+        - "long_bow"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "accuracy_talisman"
+      impossible:
+        - "blowgun"
+        - "jaguar_pelt_jerkin"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "accuracy_talisman"
+
+  # Armor-IGNORING air/fire bolts (staff magic damage types) balance against
+  # low base dice; the tier ladder is Intellect gear, not weapon damage.
+  # Impossible swaps to the archmage staff: its AoE rider makes every bolt
+  # sweep the whole party once (fire resist is the counter). Cloth AC and
+  # light -25 on the mob table keep her a glass cannon - rush her down.
+  # Casts REAL player spells 5% of attacks: her school knowledge sits at the
+  # tier's mastery, so GM starburst at impossible is the nightmare roll.
+  dark_elf_sorceress:
+    name: "Dark Elf Sorceress"
+    class: "sorcerer"
+    race: "dark_elf"
+    skills: [staff, leather]
+    spell_schools: [fire, water, air]
+    spell_cast_chance: 0.05
+    ranged: true
+    equipment:
+      easy:
+        - "oak_staff"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "magic_ring"
+      normal:
+        - "battle_staff"
+        - "wizard_robe"
+        - "serpent_diadem"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "magic_ring"
+      impossible:
+        - "archmage_staff"
+        - "archmage_robe"
+        - "lich_king_crown"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "sonar_pendant"
+        - "magic_ring"
+
+  # The sorceress' mirror: same bolt chassis, tank identity. Hide armor AC,
+  # vine-cloak body/earth resists mirrored onto the mob, slowest champion on
+  # the sand; fire -25 on the mob table is the counter. Her 5% casts draw
+  # from water/mind/earth PLUS the earth Stun shockwave, and on normal and
+  # impossible her first action is always Stone Skin (flat damage soak).
+  wild_druid:
+    name: "Wild Druid"
+    class: "druid"
+    skills: [staff, leather, bodybuilding]
+    spell_schools: [water, mind, earth]
+    spell_cast_chance: 0.05
+    extra_spells: [stun]
+    opening_spell: stone_skin
+    opening_spell_tiers: [normal, impossible]
+    ranged: true
+    equipment:
+      easy:
+        - "oak_staff"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "magic_ring"
+      normal:
+        - "battle_staff"
+        - "jaguar_pelt_jerkin"
+        - "feathered_headdress"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "vinewoven_cloak"
+        - "magic_ring"
+      impossible:
+        - "archmage_staff"
+        - "jaguar_pelt_jerkin"
+        - "feathered_headdress"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "vinewoven_cloak"
+        - "jade_netsuke"
+        - "magic_ring"
+
+  weapon_master:
+    name: "Weapon Master"
+    class: "arms_master"
+    skills: [sword, mace, dual_wielding, leather, bodybuilding, arms_master]
+    equipment:
+      easy:
+        - "iron_sword"
+        - "iron_sword"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+      normal:
+        - "steel_mace"
+        - "katana"
+        - "leather_armor"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "sonar_pendant"
+      impossible:
+        - "steel_mace"
+        - "muramasa"
+        - "jaguar_pelt_jerkin"
+        - "leather_helmet"
+        - "ratskin_boots"
+        - "goblin_hide_gauntlets"
+        - "batwing_cloak"
+        - "belt_of_speed"
+        - "sonar_pendant"

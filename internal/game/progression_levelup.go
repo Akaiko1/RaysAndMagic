@@ -90,8 +90,8 @@ func (g *MMGame) queueLevelUpChoices(char *character.MMCharacter, level int, cho
 	})
 }
 
-// grantSharedXP gives `amount` experience to every LIVING hero — active party,
-// tavern reserve, and imprisoned captives — and applies any level-ups. Benched
+// grantSharedXP gives `amount` experience to every LIVING hero - active party,
+// tavern reserve, and imprisoned captives - and applies any level-ups. Benched
 // heroes thus "train alongside the party" (their stat points / L3 choice bank
 // unspent). The living-only rule is uniform, so a downed hero (even benched)
 // gains nothing. Single source for all XP-award sites. No-op without combat.
@@ -167,10 +167,10 @@ func (g *MMGame) swapRosterMember(activeIdx, reserveIdx int) bool {
 		return false
 	}
 	// Buffs (Bless) belong to the ACTIVE party: the incoming hero picks up the
-	// current bonuses, the benched one sheds them — otherwise a swap freezes a
+	// current bonuses, the benched one sheds them - otherwise a swap freezes a
 	// buff on the bench forever (or the newcomer fights unbuffed). Route through
 	// applyPartyStatBonuses (not a partial hand-roll) so the incoming member also
-	// picks up card-granted BonusMaxHP/BonusRegenPct — a member benched before the
+	// picks up card-granted BonusMaxHP/BonusRegenPct - a member benched before the
 	// party found a Jungle Idol/Troll Card would otherwise swap back in with
 	// stale (zero) values until some unrelated change happened to recompute them.
 	outgoing.BuffBonuses = character.StatBonuses{}
@@ -246,12 +246,14 @@ func (g *MMGame) openLevelUpChoiceForChar(charIndex int) {
 	}
 	for i, req := range g.levelUpChoiceQueue {
 		if req.charIndex == charIndex {
+			if !g.pruneLevelUpOptions(&g.levelUpChoiceQueue[i]) {
+				// Every option went stale: nothing left to pick, dissolve the request.
+				g.levelUpChoiceQueue = append(g.levelUpChoiceQueue[:i], g.levelUpChoiceQueue[i+1:]...)
+				return
+			}
 			g.levelUpChoiceIdx = i
 			g.levelUpChoiceOpen = true
 			g.levelUpChoiceQueue[i].selection = 0
-			// Recompute labels: an earlier stacked popup may have already raised
-			// this skill's mastery, so "Novice -> Expert" must become "Expert -> Master".
-			g.refreshLevelUpOptionLabels(&g.levelUpChoiceQueue[i])
 			return
 		}
 	}
@@ -301,8 +303,22 @@ func (g *MMGame) popLevelUpChoice() {
 	g.closeLevelUpChoice()
 }
 
+// levelUpOptionPickable reports whether picking the option would still change
+// the character - an option goes stale when an earlier stacked popup already
+// maxed the same skill or taught the same spell.
+func levelUpOptionPickable(char *character.MMCharacter, opt *levelUpChoiceOption) bool {
+	switch strings.ToLower(opt.choice.Type) {
+	case "spell":
+		return !characterKnowsSpellByID(char, opt.spellID)
+	case "weapon_mastery", "armor_mastery", "magic_mastery":
+		return opt.hasMastery
+	}
+	return true
+}
+
 // consumeLevelUpChoice applies a single-select choice and pops the request.
-// Used by the classic level-up flow (maxSelections == 1).
+// Used by the classic level-up flow (maxSelections == 1). A stale option
+// ("(Max)" / "(Already Known)") is refused without spending the choice.
 func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 	req := g.currentLevelUpChoice()
 	if req == nil {
@@ -315,7 +331,13 @@ func (g *MMGame) consumeLevelUpChoice(choiceIdx int) {
 	if charIndex < 0 || charIndex >= len(g.party.Members) {
 		return
 	}
-	g.applyLevelUpOption(g.party.Members[charIndex], req.options[choiceIdx])
+	char := g.party.Members[charIndex]
+	opt := &req.options[choiceIdx]
+	setLevelUpOptionDisplay(char, opt)
+	if !levelUpOptionPickable(char, opt) {
+		return
+	}
+	g.applyLevelUpOption(char, *opt)
 	g.popLevelUpChoice()
 }
 
@@ -404,6 +426,12 @@ func buildLevelUpChoiceOptions(char *character.MMCharacter, choices []config.Lev
 	var options []levelUpChoiceOption
 	add := func(opt levelUpChoiceOption) {
 		setLevelUpOptionDisplay(char, &opt)
+		switch strings.ToLower(opt.choice.Type) {
+		case "weapon_mastery", "armor_mastery", "magic_mastery":
+			if !opt.hasMastery {
+				return
+			}
+		}
 		options = append(options, opt)
 	}
 	for _, choice := range choices {
@@ -467,7 +495,7 @@ func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOptio
 	var candidates []levelUpChoiceOption
 	addCandidate := func(opt levelUpChoiceOption) {
 		setLevelUpOptionDisplay(char, &opt)
-		if !opt.hasMastery { // already Grandmaster → not a real upgrade
+		if !opt.hasMastery { // already Grandmaster -> not a real upgrade
 			return
 		}
 		candidates = append(candidates, opt)
@@ -495,20 +523,33 @@ func padLevelUpOptions(char *character.MMCharacter, options []levelUpChoiceOptio
 	return options
 }
 
-// refreshLevelUpOptionLabels recomputes every option's display text against the
-// character's current mastery. Called when a (possibly stacked) request becomes
-// the active popup so labels reflect upgrades applied by earlier popups.
-func (g *MMGame) refreshLevelUpOptionLabels(req *levelUpChoiceRequest) {
+// pruneLevelUpOptions recomputes option labels against the character's current
+// state and DROPS options that no longer upgrade anything (an earlier stacked
+// popup may have maxed the same skill or taught the same spell). Runs when a
+// request becomes the active popup; reports whether any options remain.
+func (g *MMGame) pruneLevelUpOptions(req *levelUpChoiceRequest) bool {
 	if req == nil || req.charIndex < 0 || req.charIndex >= len(g.party.Members) {
-		return
+		return false
 	}
 	char := g.party.Members[req.charIndex]
 	if char == nil {
-		return
+		return false
 	}
+	kept := req.options[:0]
 	for i := range req.options {
 		setLevelUpOptionDisplay(char, &req.options[i])
+		if levelUpOptionPickable(char, &req.options[i]) {
+			kept = append(kept, req.options[i])
+		}
 	}
+	req.options = kept
+	if len(req.selected) > 0 {
+		req.selected = make([]bool, len(req.options))
+	}
+	if req.maxSelections > len(req.options) {
+		req.maxSelections = len(req.options)
+	}
+	return len(req.options) > 0
 }
 
 func masteryOptionLabel(char *character.MMCharacter, skillType character.SkillType) (string, string, string, bool) {
@@ -580,7 +621,7 @@ func upgradeSkillMastery(char *character.MMCharacter, skillType character.SkillT
 }
 
 // trainSkill raises a skill's mastery and refreshes derived stats so any
-// stat-feeding skill (e.g. Bodybuilding → Max HP) updates immediately, just
+// stat-feeding skill (e.g. Bodybuilding -> Max HP) updates immediately, just
 // like spending an Endurance point. Single entry point for both the level-up
 // choice and the NPC trainer. Returns false if already at max mastery.
 func (g *MMGame) trainSkill(char *character.MMCharacter, skillType character.SkillType) bool {

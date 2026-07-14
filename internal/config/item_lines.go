@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Presentation lines for items — the ONE formatter behind the in-game item
+// Presentation lines for items - the ONE formatter behind the in-game item
 // tooltip and the map-editor card (same contract as the weapon/spell/trap
 // EffectLines). New YAML fields get a line HERE, and every consumer shows it.
 
@@ -14,7 +14,7 @@ import (
 var nonPhysicalSchools = []string{"fire", "water", "air", "earth", "body", "mind", "spirit", "light", "dark"}
 
 // StatBonusLines lists the item's flat stat bonuses and scaling-divisor
-// bonuses (divisors are STAT bonuses computed from the base stat — they feed
+// bonuses (divisors are STAT bonuses computed from the base stat - they feed
 // everything the stat feeds).
 func (d *ItemDefinitionConfig) StatBonusLines() []string {
 	var parts []string
@@ -42,6 +42,16 @@ func (d *ItemDefinitionConfig) StatBonusLines() []string {
 		parts = append(parts, fmt.Sprintf("Personality +base/%d", d.PersonalityScalingDivisor))
 	}
 	return parts
+}
+
+// PartyArmorLine describes the party_armor_bonus "shield wall" aura, or "" if
+// the item grants none. One formatter for the wording, shared by EffectLines
+// and the unified armor tooltip (which builds its own EFFECTS section).
+func (d *ItemDefinitionConfig) PartyArmorLine() string {
+	if d.PartyArmorBonus <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("Shield wall: +%d AC to every other party member", d.PartyArmorBonus)
 }
 
 // ResistLines lists per-school resistances, collapsing to one "all except
@@ -97,6 +107,16 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 			lines = append(lines, fmt.Sprintf("Heals %d HP", d.HealBase))
 		}
 	}
+	if d.ManaBase > 0 {
+		if d.ManaPersonalityDivisor > 0 {
+			lines = append(lines, fmt.Sprintf("Restores %d + Personality/%d SP", d.ManaBase, d.ManaPersonalityDivisor))
+		} else {
+			lines = append(lines, fmt.Sprintf("Restores %d SP", d.ManaBase))
+		}
+	}
+	if ln := d.PartyArmorLine(); ln != "" {
+		lines = append(lines, ln)
+	}
 	if d.CurePoison {
 		lines = append(lines, "Cures poison")
 	}
@@ -119,12 +139,42 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if cl := d.CardEffectLines(); len(cl) > 0 {
 		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
 	}
+	lines = append(lines, d.SetLines()...)
+	return lines
+}
+
+// SetLines describes the armor set this piece belongs to and its completed-set
+// bonus - shared by the item tooltip and the map-editor card.
+func (d *ItemDefinitionConfig) SetLines() []string {
+	set := GetItemSet(d.Set)
+	if set == nil {
+		return nil
+	}
+	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.PiecesRequired)}
+	var parts []string
+	for _, b := range []struct {
+		label string
+		val   int
+	}{
+		{"Might", set.BonusMight}, {"Intellect", set.BonusIntellect}, {"Personality", set.BonusPersonality},
+		{"Endurance", set.BonusEndurance}, {"Accuracy", set.BonusAccuracy}, {"Speed", set.BonusSpeed}, {"Luck", set.BonusLuck},
+	} {
+		if b.val != 0 {
+			parts = append(parts, fmt.Sprintf("%s %+d", b.label, b.val))
+		}
+	}
+	if set.StunDurationPct != 0 {
+		parts = append(parts, fmt.Sprintf("stuns suffered %d%% duration", 100+set.StunDurationPct))
+	}
+	if len(parts) > 0 {
+		lines = append(lines, "Set bonus: "+strings.Join(parts, ", "))
+	}
 	return lines
 }
 
 // CardEffectLines is the SINGLE SOURCE of a monster card's collection-effect
 // text, derived from its Card* fields. Shared by the item tooltip (via
-// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only —
+// EffectLines), the card collector dialog, and the Cards menu tab. ASCII only -
 // the in-game bitmap font has no glyph for unicode dashes.
 func (d *ItemDefinitionConfig) CardEffectLines() []string {
 	var p []string

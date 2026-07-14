@@ -8,6 +8,17 @@ NPCs are defined in `assets/npcs.yaml` and placed directly in map files.
 - NPC types supported: `spell_trader`, `merchant`, `encounter`, `quest_giver`
   (dialogue with `give_quest`/`turn_in_quest` choices), `skill_trainer`.
 
+### Render category and size
+- `render_category` is REQUIRED and sets how the NPC renders: `standee`, `animated`
+  (a person with a `w == h*4` idle sheet, turns to face the party), `scenery` (a
+  prop), `landmark` (tall crossed monument), `wall_mounted` (a flush wall standee,
+  slides onto the adjacent wall), `door` (a doorway blocker - stands ACROSS the
+  opening between two flanking walls, drawn and solid only while a living champion
+  mob is on the map; see the arena portcullis), or `invisible` (no sprite).
+- Size: people use `size_class: person` (shared with monsters, from
+  `config.yaml graphics.size_classes`); props use `size_tiles` (height in tiles,
+  `1.0` == a 1-tile wall). Set exactly one.
+
 ## Step 1: Define the NPC
 Add an entry under `npcs:` in `assets/npcs.yaml`.
 
@@ -18,7 +29,8 @@ npcs:
     name: "Archmage Merlin"
     type: "spell_trader"
     sprite: "elf_warrior"
-    size_multiplier: 4
+    render_category: "animated"  # a person with a 4-frame idle sheet; see "Render category" below
+    size_class: "person"         # people use the shared person size (config graphics.size_classes)
     dialogue:
       greeting: "Greetings, traveler!"
       insufficient_gold: "You need {cost} gold."
@@ -85,7 +97,8 @@ npcs:
     name: "Abandoned Shipwreck"
     type: "encounter"
     sprite: "shipwreck"
-    render_type: "environment_sprite"
+    render_category: "scenery"   # standee/animated/wall/landmark/scenery/invisible
+    size_tiles: 1.0              # props use size_tiles; people use size_class
     transparent: true
     dialogue:
       greeting: "You hear voices inside the wreck."
@@ -115,7 +128,7 @@ npcs:
 Notes on encounters:
 - Monsters are spawned dynamically near the NPC on trigger (count rolled in
   `[count_min, count_max]`). The encounter `type` (e.g. `bandit_camp`) is just
-  a label — it is not branched on in code.
+  a label - it is not branched on in code.
 - `rewards` may also carry a `treasure_chest` (same shape as map encounters,
   see below) that spawns when the encounter is cleared.
 
@@ -124,7 +137,7 @@ A different mechanism lives in `assets/map_configs.yaml`, for monsters
 PRE-PLACED in the `.map` grid (not spawned by an NPC). Killing the group drops
 a treasure chest. Use `clear_encounter` (singular) to tie EVERY monster on the
 map to one reward, or `clear_encounters` (plural) for several independent
-groups — each declares `monsters: [{type, count}]` and a `treasure_chest`, and
+groups - each declares `monsters: [{type, count}]` and a `treasure_chest`, and
 the engine binds the `count` nearest monsters of each type to that chest:
 ```yaml
 maps:

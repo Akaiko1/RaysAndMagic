@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"ugataima/internal/game"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -188,8 +190,7 @@ func (v *viewer) maxContentScroll() int {
 }
 
 func drawSectionHeader(dst *ebiten.Image, label string, x, y, w int) {
-	drawFilledRect(dst, x, y, w, contentSectionH, color.RGBA{40, 40, 60, 255})
-	drawRectBorder(dst, x, y, w, contentSectionH, 1, color.RGBA{70, 70, 100, 255})
+	drawHeaderBandRect(dst, x, y, w, contentSectionH)
 	ebitenutil.DebugPrintAt(dst, label, x+10, y+7)
 }
 
@@ -220,7 +221,7 @@ func (v *viewer) drawCard(dst *ebiten.Image, c *contentCard, x, y int) {
 	if maxChars < 6 {
 		maxChars = 6
 	}
-	ebitenutil.DebugPrintAt(dst, truncate(c.name, maxChars), textX, textY)
+	game.DrawShadedText(dst, truncate(c.name, maxChars), textX, textY, game.RarityColor(c.rarity))
 	lines := wrapTooltipLines(c.subtitle, maxChars)
 	const maxSubtitleLines = 4 // card height fits name + ~4 wrapped lines
 	for i, ln := range lines {
@@ -279,6 +280,11 @@ func drawCardTooltip(screen *ebiten.Image, c *contentCard, mouseX, mouseY, areaX
 	drawFilledRect(screen, boxX, boxY, boxW, boxH, color.RGBA{18, 18, 28, 240})
 	drawRectBorder(screen, boxX, boxY, boxW, boxH, 1, color.RGBA{120, 120, 150, 255})
 	for i, ln := range lines {
+		if i == 0 {
+			// Name line wears the game's rarity metal (gradient for metal tiers).
+			game.DrawShadedText(screen, ln, boxX+8, boxY+6, game.RarityColor(c.rarity))
+			continue
+		}
 		ebitenutil.DebugPrintAt(screen, ln, boxX+8, boxY+6+i*lineH)
 	}
 }
@@ -313,9 +319,14 @@ func truncate(s string, maxRunes int) string {
 	if utf8.RuneCountInString(s) <= maxRunes {
 		return s
 	}
-	r := []rune(s)
 	if maxRunes < 1 {
 		return ""
 	}
-	return string(r[:maxRunes-1]) + "…"
+	r := []rune(s)
+	// "..." is 3 runes; reserve room for it so the result never exceeds
+	// maxRunes. Too narrow for text + ellipsis -> hard-cut to maxRunes.
+	if maxRunes <= 3 {
+		return string(r[:maxRunes])
+	}
+	return string(r[:maxRunes-3]) + "..."
 }

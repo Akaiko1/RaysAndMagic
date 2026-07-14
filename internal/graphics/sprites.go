@@ -24,7 +24,7 @@ type SpriteManager struct {
 
 	// spritePaths maps a sprite basename (no extension) to its PNG path, built
 	// once by walking the sprite roots recursively (see ensureIndex). Lets
-	// sprites live in any subfolder layout — lookup is by name, not location.
+	// sprites live in any subfolder layout - lookup is by name, not location.
 	// spriteDirType records the originating root's placeholder type.
 	spritePaths   map[string]string
 	spriteDirType map[string]string
@@ -44,7 +44,7 @@ type SpriteManager struct {
 	keyEdgeRadius int
 }
 
-// despillHueFloor is the magenta-excess (min(R,B)−G) below which a kept pixel is
+// despillHueFloor is the magenta-excess (min(R,B)-G) below which a kept pixel is
 // left alone. Deliberately low (aggressive): project art reserves any magenta
 // hue for removable background/fringe, so even faint casts are subtracted.
 const despillHueFloor = 8
@@ -54,7 +54,7 @@ const despillHueFloor = 8
 const despillEdgeRadiusDefault = 3
 
 // SetDespillEdgeOnly marks sprites (by name; animation sheets as
-// "<name>_<animType>") whose interior magenta must be preserved — despill on
+// "<name>_<animType>") whose interior magenta must be preserved - despill on
 // them is restricted to within `radius` px of a transparent edge.
 func (sm *SpriteManager) SetDespillEdgeOnly(names []string, radius int) {
 	sm.keyEdgeOnly = make(map[string]bool, len(names))
@@ -193,7 +193,7 @@ var spriteBaseDirs = []struct{ dir, typ string }{
 }
 
 // isIgnoredSpriteDir reports folders excluded from the sprite index: archives
-// (any case) and any name starting with "_" or "." — a convention to park
+// (any case) and any name starting with "_" or "." - a convention to park
 // unused/duplicate art in the tree without it shadowing live sprites.
 func isIgnoredSpriteDir(name string) bool {
 	return strings.EqualFold(name, "archive") ||
@@ -201,7 +201,7 @@ func isIgnoredSpriteDir(name string) bool {
 }
 
 // buildSpriteIndex walks the sprite roots recursively (skipping ignored dirs)
-// and returns basename→path and basename→placeholder-type maps. Sprites may
+// and returns basename->path and basename->placeholder-type maps. Sprites may
 // therefore be grouped into arbitrary subfolders; basenames must be unique
 // across the whole tree (duplicates are logged and the first, by root order,
 // wins). Shared by SpriteManager.ensureIndex and the package-level resolver.
@@ -211,7 +211,7 @@ func buildSpriteIndex() (paths, dirType map[string]string) {
 	for _, root := range spriteBaseDirs {
 		_ = filepath.WalkDir(root.dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return nil // missing root (e.g. tests run outside the repo) — skip
+				return nil // missing root (e.g. tests run outside the repo) - skip
 			}
 			if d.IsDir() {
 				if isIgnoredSpriteDir(d.Name()) {
@@ -235,7 +235,7 @@ func buildSpriteIndex() (paths, dirType map[string]string) {
 	return paths, dirType
 }
 
-// ensureIndex lazily builds this manager's basename→path index.
+// ensureIndex lazily builds this manager's basename->path index.
 func (sm *SpriteManager) ensureIndex() {
 	if sm == nil || sm.spritePaths != nil {
 		return
