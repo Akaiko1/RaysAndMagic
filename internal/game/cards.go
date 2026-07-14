@@ -321,6 +321,17 @@ func (g *MMGame) cardSummonMonsterKey() string {
 	return ""
 }
 
+// cardSummonCDSeconds is the summon proc cooldown, taken from the same card
+// that provides the summon monster (first-set, like cardSummonMonsterKey).
+func (g *MMGame) cardSummonCDSeconds() int {
+	for slot := 0; slot < MaxCardSlots; slot++ {
+		if def := cardDef(g.cardCollectionKey(slot)); def != nil && def.CardSummonChance > 0 && def.CardSummonMonster != "" {
+			return def.CardSummonCDSeconds
+		}
+	}
+	return 0
+}
+
 func (g *MMGame) cardLethalSavePct() int {
 	return g.cardCollectionBonus(func(d *config.ItemDefinitionConfig) int { return d.CardLethalSavePct })
 }
@@ -497,6 +508,7 @@ func (g *MMGame) cardBonusVsMultiplier(monster *monsterPkg.Monster3D) float64 {
 func (g *MMGame) resetCardCollection() {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardBurstTileX, g.cardBurstTileY = 0, 0
+	g.cardSummonCDFrames = 0 // survives map switches/loads (see clearTransientCombatState), so a NEW game must clear it here
 	g.recomputeStatBonuses()
 }
 

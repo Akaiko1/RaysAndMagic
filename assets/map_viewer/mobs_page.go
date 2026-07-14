@@ -9,6 +9,7 @@ import (
 
 	"ugataima/internal/config"
 	"ugataima/internal/game"
+	"ugataima/internal/items"
 	"ugataima/internal/monster"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -32,11 +33,23 @@ const (
 // infoLine is one stat-sheet row with its tint (the game's line-color idiom:
 // whole lines carry meaning colors - damage red, HP green, resists by school,
 // drops by rarity). Header lines render on a filled band (the editor/game
-// section-header convention).
+// section-header convention). Shared by every detail sheet (mobs page, saves
+// page); rows that show an item carry it for the hover tooltip.
 type infoLine struct {
 	text   string
 	col    color.Color
+	item   *items.Item
 	header bool
+}
+
+// appendInfoHeader appends a section-header row, inserting a blank spacer row
+// first unless the sheet is empty or already ends blank - THE single place
+// encoding the "headers never touch the text above" spacing convention.
+func appendInfoHeader(rows []infoLine, format string, args ...any) []infoLine {
+	if n := len(rows); n > 0 && rows[n-1].text != "" {
+		rows = append(rows, infoLine{col: color.White}) // spacer row (never drawn, but keep col non-nil)
+	}
+	return append(rows, infoLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
 }
 
 var mobsPage struct {
@@ -274,7 +287,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	}
 	add := func(format string, args ...any) { addc(mobStatDefault, format, args...) }
 	addHeader := func(format string, args ...any) {
-		out = append(out, infoLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+		out = appendInfoHeader(out, format, args...)
 	}
 
 	add("%s  (key: %s)", def.Name, key)
@@ -390,7 +403,6 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 
 	// Drop table: each entry tinted by its rarity (metal tiers render as the
 	// game's gradient).
-	addc(mobStatHeader, "")
 	addHeader("Drops")
 	if def.GoldMax > 0 {
 		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)

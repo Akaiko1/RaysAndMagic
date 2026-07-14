@@ -3,6 +3,7 @@ package quests
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -363,13 +364,16 @@ func (qm *QuestManager) GetQuest(questID string) *Quest {
 	return qm.activeQuests[questID]
 }
 
-// GetProgressString returns a formatted progress string for a kill quest
+// GetProgressString returns a formatted progress string for a kill quest.
+// TargetMonster is a content KEY ("elder_dragon"); player-facing text must
+// never show underscores.
 func (q *Quest) GetProgressString() string {
+	target := strings.ReplaceAll(q.Definition.TargetMonster, "_", " ")
 	switch q.Definition.Type {
 	case QuestTypeKill:
-		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Target(), q.Definition.TargetMonster)
+		return fmt.Sprintf("%d/%d %ss killed", q.CurrentCount, q.Target(), target)
 	case QuestTypeInteract:
-		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Target(), q.Definition.TargetMonster)
+		return fmt.Sprintf("%d/%d %ss closed", q.CurrentCount, q.Target(), target)
 	}
 	return ""
 }

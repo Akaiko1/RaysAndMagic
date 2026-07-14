@@ -206,6 +206,7 @@ type GameSave struct {
 	ExtraMonsterAction    bool `json:"extra_monster_action,omitempty"`
 
 	// Utility/buff state
+	CardSummonCDFrames     int              `json:"card_summon_cd_frames,omitempty"`
 	TorchLightActive       bool             `json:"torch_light_active,omitempty"`
 	TorchLightDuration     int              `json:"torch_light_duration,omitempty"`
 	TorchLightRadius       float64          `json:"torch_light_radius,omitempty"`
@@ -515,6 +516,9 @@ type NPCStockSave struct {
 func (g *MMGame) clearTransientCombatState() {
 	// Door state is per-map: entities unregister and closed-ness resets, so the
 	// "portcullises rise" transition can't fire on the destination map.
+	// NOTE: cardSummonCDFrames deliberately survives here - it is a real-time
+	// balance cooldown (persisted in the save), and clearing it would let a map
+	// switch or a quick reload bypass the 5s.
 	g.clearDoorState()
 	g.projectileMutex.Lock()
 	if g.collisionSystem != nil {
@@ -1134,6 +1138,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		MonsterTurnResolved:   g.monsterTurnResolved,
 		TurnBasedSpRegenCount: g.turnBasedSpRegenCount,
 		ExtraMonsterAction:    g.turnBasedExtraMonsterAction,
+		CardSummonCDFrames:    g.cardSummonCDFrames,
 		TorchLightActive:      g.torchLightActive,
 		TorchLightDuration:    g.torchLightDuration,
 		TorchLightRadius:      g.torchLightRadius,
@@ -1508,6 +1513,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	g.turnBasedExtraMonsterAction = save.ExtraMonsterAction
 
 	// Restore utility/buff state
+	g.cardSummonCDFrames = save.CardSummonCDFrames
 	g.torchLightActive = save.TorchLightActive
 	g.torchLightDuration = save.TorchLightDuration
 	// Radius always follows the CURRENT spells.yaml (vision_radius_tiles) -

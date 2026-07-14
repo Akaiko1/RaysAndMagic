@@ -51,7 +51,7 @@ func TestChampionBuilds(t *testing.T) {
 }
 
 // TestApplyChampionStatsMirror verifies the static mirror: boss HP pool stays
-// authored (not the character's), four TB swings, ranged weapon with weapon-
+// authored (not the character's), two TB swings, ranged weapon with weapon-
 // physics range, GM dodge-pierce, character dodge chance, weapon reach.
 func TestApplyChampionStatsMirror(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
@@ -69,8 +69,8 @@ func TestApplyChampionStatsMirror(t *testing.T) {
 	if m.DamageMin <= 0 || m.DamageMin != m.DamageMax {
 		t.Errorf("mirror damage band = [%d,%d], want equal and positive", m.DamageMin, m.DamageMax)
 	}
-	if m.AttacksPerRound != 4 {
-		t.Errorf("champion TB swings = %d, want 4", m.AttacksPerRound)
+	if m.AttacksPerRound != 2 {
+		t.Errorf("champion TB swings = %d, want 2", m.AttacksPerRound)
 	}
 	if !m.HasRangedAttack() {
 		t.Error("archer champion should be ranged (main-hand bow as projectile)")

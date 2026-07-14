@@ -225,7 +225,12 @@ func (cs *CombatSystem) countCardSummons() int {
 // tryCardSummonOnAction rolls the Orc Warlord Card on a party action: a chance to
 // summon allied monsters (Bound - they hunt enemy monsters, ignore the party) up
 // to the collection's summon limit. Called from the attack and cast chokepoints.
+// A successful summon arms the CARD's own cooldown (card_summon_cd_seconds) -
+// it silences only this proc, never the character's actions.
 func (cs *CombatSystem) tryCardSummonOnAction() {
+	if cs.game.cardSummonCDFrames > 0 {
+		return
+	}
 	chance := cs.game.cardSummonChance()
 	limit := cs.game.cardSummonLimit()
 	key := cs.game.cardSummonMonsterKey()
@@ -236,7 +241,11 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 		return
 	}
 	if want := limit - cs.countCardSummons(); want > 0 {
-		cs.summonCardAllies(key, want)
+		// Arm the cooldown only when allies actually appeared: a whiffed spawn
+		// (no free tile around the party) must not waste the proc for 5s.
+		if cs.summonCardAllies(key, want) > 0 {
+			cs.game.cardSummonCDFrames = cs.game.cardSummonCDSeconds() * cs.game.config.GetTPS()
+		}
 	}
 }
 

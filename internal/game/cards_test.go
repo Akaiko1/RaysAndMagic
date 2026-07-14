@@ -343,12 +343,27 @@ func TestCardSummon_AlliesAndLimit(t *testing.T) {
 	g.cardSlots = [MaxCardSlots]cardSlot{}
 	g.cardSlots[0].key = "orc_warlord_card"
 
-	if g.cardSummonChance() != 15 || g.cardSummonLimit() != 2 || g.cardSummonMonsterKey() != "masked_huntress" {
+	if g.cardSummonChance() != 5 || g.cardSummonLimit() != 2 || g.cardSummonMonsterKey() != "masked_huntress" {
 		t.Fatalf("aggregates: chance=%d limit=%d key=%q", g.cardSummonChance(), g.cardSummonLimit(), g.cardSummonMonsterKey())
 	}
-	if got := cardEffectText(cardDef("orc_warlord_card")); got != "15% on action: summon allies (max 2)" {
+	if g.cardSummonCDSeconds() != 5 {
+		t.Fatalf("cardSummonCDSeconds() = %d, want 5", g.cardSummonCDSeconds())
+	}
+	if got := cardEffectText(cardDef("orc_warlord_card")); got != "5% on action: summon allies (max 2), 5s cooldown" {
 		t.Errorf("effect text = %q", got)
 	}
+
+	// An armed proc cooldown silences the roll entirely: 500 actions, zero
+	// procs (an unguarded 5% roll fires with certainty > 1-1e-11 here), and the
+	// timer is untouched (the game loop owns the tick, the proc never resets it).
+	g.cardSummonCDFrames = 10
+	for i := 0; i < 500; i++ {
+		cs.tryCardSummonOnAction()
+	}
+	if cs.countCardSummons() != 0 || g.cardSummonCDFrames != 10 {
+		t.Fatalf("proc must stay silent on cooldown (summons=%d cd=%d)", cs.countCardSummons(), g.cardSummonCDFrames)
+	}
+	g.cardSummonCDFrames = 0
 
 	// markCardAlly turns a spawned monster into a permanent ally (tile-spawning
 	// itself needs world infra the harness lacks, so place allies directly).

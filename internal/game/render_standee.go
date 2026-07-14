@@ -652,11 +652,14 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 // drawWallStandee draws a token flush to a wall (pose from wallStickPose),
 // applying the backing-wall depth bias so the sprite-vs-wall test doesn't reject
 // it. bottomY sets the vertical anchor: floor-anchored for full NPC gates,
-// mid-wall for shrunk decoration tiles. Single source for both wall-mount draw
-// sites (NPC + wall_prop tile). Returns drawStandeeSprite's drawn flag.
-func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32) bool {
+// mid-wall for shrunk decoration tiles. worldLength > 0 forces the slab's world
+// span (doors must bridge their opening exactly - the projected billboard width
+// rounds short and leaves cracks against the flanking walls); 0 keeps the
+// projected width. Single source for both wall-mount draw sites (NPC +
+// wall_prop tile). Returns drawStandeeSprite's drawn flag.
+func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32, worldLength float64) bool {
 	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * 0.6
-	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, 0)
+	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength)
 	r.standeeDepthBias = 0
 	return drew
 }

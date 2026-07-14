@@ -978,7 +978,12 @@ type WeaponDefinitionConfig struct {
 	AoeRadiusTiles float64            `yaml:"aoe_radius_tiles,omitempty"`
 	Rarity         string             `yaml:"rarity"`
 	Value          int                `yaml:"value,omitempty"`
-	BonusVs        map[string]float64 `yaml:"bonus_vs,omitempty"`
+	// NoLoot excludes the weapon from every GENERATED rarity pool (chest
+	// catalog rolls, rarity-rack merchant stock) - for class-kit weapons like
+	// the Monk's fists that exist only pre-equipped. Authored loot tables and
+	// explicit merchant entries can still name the key directly.
+	NoLoot  bool               `yaml:"no_loot,omitempty"`
+	BonusVs map[string]float64 `yaml:"bonus_vs,omitempty"`
 	// CooldownMultiplier overrides the weapon's category attack-cooldown
 	// multiplier in real time (the per-skill defaults live in weapons.yaml
 	// `weapon_cooldown_multipliers`, read via WeaponCooldownMultiplierForSkill).
@@ -1334,6 +1339,7 @@ type ItemDefinitionConfig struct {
 	CardSummonChance      int                `yaml:"card_summon_chance,omitempty"`       // N% chance, on any party action, to summon allied adds
 	CardSummonLimit       int                `yaml:"card_summon_limit,omitempty"`        // max live allied summons from one copy of this card
 	CardSummonMonster     string             `yaml:"card_summon_monster,omitempty"`      // monster key summoned as a party ally
+	CardSummonCDSeconds   int                `yaml:"card_summon_cd_seconds,omitempty"`   // proc cooldown: the CARD can't fire again for N seconds (never gates the character)
 	CardDisintegratePct   int                `yaml:"card_disintegrate_pct,omitempty"`    // N% chance any hit instantly disintegrates the monster
 	CardRegenPct          int                `yaml:"card_regen_pct,omitempty"`           // % of maxHP regenerated per regen tick
 	CardDoubleAttackPct   int                `yaml:"card_double_attack_pct,omitempty"`   // N% chance a melee hit strikes again immediately
@@ -1927,16 +1933,16 @@ func (c *Config) GetViewDistance() float64 {
 	return c.Camera.ViewDistance
 }
 
-// GetWeaponDefinition retrieves weapon definition from global weapon config
-// WeaponKeysByRarity returns every weapons.yaml key of the given rarity,
-// sorted for stable presentation (merchant racks, tooltips).
+// WeaponKeysByRarity returns every weapons.yaml key of the given rarity
+// except no_loot kit weapons, sorted for stable presentation (merchant
+// racks, tooltips).
 func WeaponKeysByRarity(rarity string) []string {
 	if GlobalWeapons == nil {
 		return nil
 	}
 	keys := make([]string, 0, 16)
 	for key, def := range GlobalWeapons.Weapons {
-		if def != nil && def.Rarity == rarity {
+		if def != nil && def.Rarity == rarity && !def.NoLoot {
 			keys = append(keys, key)
 		}
 	}

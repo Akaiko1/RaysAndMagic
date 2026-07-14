@@ -51,15 +51,9 @@ type saveListEntry struct {
 	dim   bool
 }
 
-// saveDetailLine is one row of a detail panel; lines that show an item carry
-// it so hovering can raise the same tooltip the Items page uses. Header lines
-// render on a filled band (the editor/game section-header convention).
-type saveDetailLine struct {
-	text   string
-	col    color.Color
-	item   *items.Item
-	header bool
-}
+// Detail-panel rows reuse the shared infoLine sheet type (mobs_page.go):
+// item rows carry the item so hovering raises the same tooltip the Items page
+// uses; headers render on a filled band with appendInfoHeader's spacing.
 
 var savesPage struct {
 	inited      bool
@@ -69,8 +63,8 @@ var savesPage struct {
 	entries     []saveListEntry
 	selIdx      int // index into entries; -1 = none
 	listScroll  int
-	partyLines  []saveDetailLine // left detail panel: header + party equipment
-	lootLines   []saveDetailLine // right detail panel: inventory + cards (or stash slots)
+	partyLines  []infoLine // left detail panel: header + party equipment
+	lootLines   []infoLine // right detail panel: inventory + cards (or stash slots)
 	partyScroll int
 	lootScroll  int
 	restoreArm  bool // armed by Restore Save: next click on a free slot restores
@@ -348,7 +342,7 @@ func (v *viewer) rebuildSaveDetail() {
 	case saveEntrySlot:
 		sum := savesPage.rows[entry.row]
 		if !sum.Exists {
-			savesPage.partyLines = []saveDetailLine{{text: "(empty slot)", col: mobStatHeader}}
+			savesPage.partyLines = []infoLine{{text: "(empty slot)", col: mobStatHeader}}
 			return
 		}
 		savesPage.partyLines, savesPage.lootLines = buildSaveDetail(game.SaveRowFilePath(entry.row), game.SaveRowDisplayName(entry.row), sum)
@@ -361,20 +355,20 @@ func (v *viewer) rebuildSaveDetail() {
 // buildSaveDetail reads a full save and renders it into the two detail panels:
 // party + equipment on the left, inventory + card collection on the right.
 // Item lines carry a refreshed copy of the item for the hover tooltip.
-func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []saveDetailLine) {
+func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []infoLine) {
 	gs, err := game.ReadGameSave(path)
 	if err != nil {
-		return []saveDetailLine{{text: "failed to read save: " + err.Error(), col: mobStatDamage}}, nil
+		return []infoLine{{text: "failed to read save: " + err.Error(), col: mobStatDamage}}, nil
 	}
 
 	addp := func(col color.Color, format string, args ...any) {
-		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: col})
+		party = append(party, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
 	addpHeader := func(format string, args ...any) {
-		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+		party = appendInfoHeader(party, format, args...)
 	}
 	addpItem := func(it items.Item, format string, args ...any) {
-		party = append(party, saveDetailLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
+		party = append(party, infoLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
 	}
 	addp(color.White, "%s", label)
 	if sum.Name != "" {
@@ -390,7 +384,6 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 		if len(members) == 0 {
 			return
 		}
-		addp(mobStatHeader, "")
 		addpHeader("%s", title)
 		for _, cs := range members {
 			addp(color.White, "%s  Lv.%d %s", cs.Name, cs.Level, character.CharacterClass(cs.Class).String())
@@ -422,13 +415,13 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 	appendRoster("Captive", gs.Party.Captive)
 
 	addl := func(col color.Color, format string, args ...any) {
-		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: col})
+		loot = append(loot, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
 	addlHeader := func(format string, args ...any) {
-		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: color.White, header: true})
+		loot = appendInfoHeader(loot, format, args...)
 	}
 	addlItem := func(it items.Item, format string, args ...any) {
-		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
+		loot = append(loot, infoLine{text: fmt.Sprintf(format, args...), col: game.ItemRarityColor(it), item: &it})
 	}
 	addlHeader("Inventory (%d)", len(gs.Party.Inventory))
 	if len(gs.Party.Inventory) == 0 {
@@ -439,7 +432,6 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 		addlItem(it, "  %s", it.Name)
 	}
 
-	addl(mobStatHeader, "")
 	addlHeader("Card Collection")
 	cards := 0
 	for _, it := range gs.Party.CardCollectionItems {
@@ -467,19 +459,19 @@ func buildSaveDetail(path, label string, sum game.SaveSummary) (party, loot []sa
 }
 
 // buildStashDetail renders the cross-save stash.json chest.
-func buildStashDetail() (party, loot []saveDetailLine) {
-	party = []saveDetailLine{
+func buildStashDetail() (party, loot []infoLine) {
+	party = []infoLine{
 		{text: "Shared Stash", col: color.White},
 		{text: "stash.json - one chest shared by every save", col: mobStatDefault},
 		{text: "Managed in-game at the tavern (Manage your stash)", col: mobStatDefault},
 	}
 	s, err := stash.Load()
 	if err != nil {
-		loot = []saveDetailLine{{text: "failed to read stash: " + err.Error(), col: mobStatDamage}}
+		loot = []infoLine{{text: "failed to read stash: " + err.Error(), col: mobStatDamage}}
 		return party, loot
 	}
 	addl := func(col color.Color, format string, args ...any) {
-		loot = append(loot, saveDetailLine{text: fmt.Sprintf(format, args...), col: col})
+		loot = append(loot, infoLine{text: fmt.Sprintf(format, args...), col: col})
 	}
 	appendBank := func(title string, slots []items.Item) {
 		used := 0
@@ -488,18 +480,17 @@ func buildStashDetail() (party, loot []saveDetailLine) {
 				used++
 			}
 		}
-		loot = append(loot, saveDetailLine{text: fmt.Sprintf("%s (%d/%d)", title, used, len(slots)), col: color.White, header: true})
+		loot = appendInfoHeader(loot, "%s (%d/%d)", title, used, len(slots))
 		for i, it := range slots {
 			if stash.IsEmpty(it) {
 				addl(mobStatHeader, "  %d: -", i+1)
 				continue
 			}
 			game.RefreshItemFromConfig(&it)
-			loot = append(loot, saveDetailLine{text: fmt.Sprintf("  %d: %s", i+1, it.Name), col: game.ItemRarityColor(it), item: &it})
+			loot = append(loot, infoLine{text: fmt.Sprintf("  %d: %s", i+1, it.Name), col: game.ItemRarityColor(it), item: &it})
 		}
 	}
 	appendBank("Item Slots", s.Slots[:])
-	addl(mobStatHeader, "")
 	appendBank("Card Slots", s.CardSlots[:])
 	return party, loot
 }
@@ -558,7 +549,7 @@ func maxSaveListScroll() int {
 	return len(savesPage.entries)*saveListRowH - saveListViewportH()
 }
 
-func maxDetailScroll(lines []saveDetailLine, panel rect) int {
+func maxDetailScroll(lines []infoLine, panel rect) int {
 	return len(lines)*saveDetailRowH - (panel.h - 16)
 }
 
@@ -632,7 +623,7 @@ func (v *viewer) drawSavesPage(screen *ebiten.Image) {
 
 // drawSaveDetailPanel renders one panel and returns the item under the cursor
 // (nil when none), so the page can raise a tooltip over everything else.
-func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []saveDetailLine, scroll int) *items.Item {
+func drawSaveDetailPanel(screen *ebiten.Image, panel rect, lines []infoLine, scroll int) *items.Item {
 	drawFilledRect(screen, panel.x, panel.y, panel.w, panel.h, color.RGBA{20, 20, 30, 255})
 	drawRectBorder(screen, panel.x, panel.y, panel.w, panel.h, 1, color.RGBA{70, 70, 90, 255})
 	if len(lines) == 0 {
