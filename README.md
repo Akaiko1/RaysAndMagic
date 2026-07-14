@@ -2,18 +2,18 @@
 
 A retro first-person party RPG built with Go and [Ebiten](https://ebitengine.org/). Lead a four-member party through raycasted dungeons and open wilds, fight in real-time *or* turn-based combat, learn spells from nine schools of magic, and hunt the four dragons that menace the realm.
 
-![A green dragon faces the party on a cliff causeway](src/dragon.png)
+![The winged guardian Isis advances through the pyramid's pillared hall](src/pyramid_isis.png)
 
 ## Screenshots
 
 | | |
 | --- | --- |
-| ![A puma prowls the highland meadows](src/wilds.png) | ![Speaking with Maera Cliffwatch above the dragon cliffs](src/encounter.png) |
-| *Open wilds with scrolling skies and biome flora* | *NPC encounters, quests, and lore* |
-| ![Paperdoll equipment and Culverts dungeon loot](src/inventory.png) | ![The fire spellbook with spell cards and tooltips](src/spellbook.png) |
-| *Paperdoll equipment & data-driven loot tooltips* | *Spellbook with per-school cards and live stats* |
-| ![Sorcerer character sheet](src/character.png) | |
-| *Full character sheet - stats, skills, and status* | |
+| ![A turn-based duel against rival champions under the night sky](src/champion_duel.png) | ![Bandits lurking among roadside rocks, crates, and barrels](src/bandit_ambush.png) |
+| *Day/night cycle - the world darkens, the fights don't stop* | *Bandit ambush in the wilds - roadside props and all* |
+| ![The Arena Duel Master's shop with a unique dagger tooltip](src/arena_shop.png) | ![A Monk's legendary Martial Arts tooltip on the paperdoll](src/inventory_tooltip.png) |
+| *Arena quartermaster - spend arena points on unique gear* | *Unique classes - a Monk's bare hands outhit steel* |
+| ![The monster-card collection tab with slotted cards](src/card_collection.png) | |
+| *Build customization with rare monster cards* | |
 
 ## Features
 
