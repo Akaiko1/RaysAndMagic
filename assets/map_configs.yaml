@@ -64,6 +64,45 @@ biomes:
         - "church_floor_2"
         - "church_floor_3"
 
+  clock_tower_workshop:
+    floor_texture_groups:
+      default:
+        - "clocktower_planks_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
+
+  clock_tower_gearworks:
+    floor_texture_groups:
+      default:
+        - "clocktower_grate_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
+
+  clock_tower_belfry:
+    floor_texture_groups:
+      default:
+        - "clocktower_mosaic_0"
+      clocktower_slate:
+        - "clocktower_slate_0"
+      clocktower_mosaic:
+        - "clocktower_mosaic_0"
+      clocktower_planks:
+        - "clocktower_planks_0"
+      clocktower_grate:
+        - "clocktower_grate_0"
+
   arena:
     floor_texture_groups:
       default:
@@ -259,6 +298,39 @@ maps:
           tile_y: 1
           sprite: "chest"
           random_weapon_count: 1
+
+  clock_tower_1:
+    name: "Clock Tower - Workshop"
+    file: "clock_tower_1.map"
+    biome: "clock_tower_workshop"
+    sky_texture: "clocktower_panorama"
+    sky_color: [38, 36, 46]
+    default_floor_color: [104, 82, 58]
+    ambient_light: 0.7
+    wall_torches: true
+    respawn_days: 3
+
+  clock_tower_2:
+    name: "Clock Tower - Gearworks"
+    file: "clock_tower_2.map"
+    biome: "clock_tower_gearworks"
+    sky_texture: "clocktower_panorama"
+    sky_color: [32, 30, 40]
+    default_floor_color: [92, 74, 48]
+    ambient_light: 0.6
+    wall_torches: true
+    respawn_days: 3
+
+  clock_tower_3:
+    name: "Clock Tower - Belfry Halls"
+    file: "clock_tower_3.map"
+    biome: "clock_tower_belfry"
+    sky_texture: "clocktower_panorama"
+    sky_color: [30, 28, 38]
+    default_floor_color: [96, 88, 66]
+    ambient_light: 0.6
+    wall_torches: true
+    respawn_days: 3
 
   arena:
     name: "The Grand Arena"

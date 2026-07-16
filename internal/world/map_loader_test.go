@@ -3,7 +3,11 @@ package world
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"ugataima/internal/config"
+	"ugataima/internal/monster"
 )
 
 // hasNPCKey reports whether a map spawned an NPC with the given key. Map tests
@@ -114,5 +118,73 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	}
 	if got := md.Tiles[1][1]; got != cobble {
 		t.Fatalf("under-entity tile = %v, want '.' fallback cobble %v (water excluded)", got, cobble)
+	}
+}
+
+func TestMapContractRejectsWrongLetterCase(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"bad_tile": {Letter: "b", Type: "floor", RenderType: "floor_only"},
+	}
+	if err := tm.validateTileConfiguration(); err == nil || !strings.Contains(err.Error(), "reserved for monster") {
+		t.Fatalf("lowercase tile letter must fail clearly, got: %v", err)
+	}
+
+	goodTiles := NewTileManager()
+	if err := goodTiles.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	GlobalTileManager = goodTiles
+	defer func() { GlobalTileManager = nil }()
+
+	mapPath := filepath.Join(t.TempDir(), "bad_marker.map")
+	if err := os.WriteFile(mapPath, []byte("B\n"), 0o644); err != nil {
+		t.Fatalf("write map: %v", err)
+	}
+	if _, err := NewMapLoaderWithBiome(nil, "forest").LoadMap(mapPath); err == nil || !strings.Contains(err.Error(), "unknown uppercase map marker") {
+		t.Fatalf("uppercase monster marker must fail clearly, got: %v", err)
+	}
+}
+
+// Map content tests pin QUEST NPCs and MERCHANTS only - monster spawns are
+// balance-tuned live and must never be pinned by count.
+func TestClockTowerMapsCarryQuestAndMerchantNPCs(t *testing.T) {
+	tm := NewTileManager()
+	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+	GlobalTileManager = tm
+	defer func() { GlobalTileManager = nil }()
+
+	previousConfig := monster.MonsterConfig
+	monster.MustLoadMonsterConfig(filepath.Join("..", "..", "assets", "monsters.yaml"))
+	defer func() { monster.MonsterConfig = previousConfig }()
+
+	cases := []struct {
+		file     string
+		biome    string
+		wantNPCs []string
+	}{
+		// Stairs/exits are progression contract too: losing one soft-locks a floor.
+		{"clock_tower_1.map", "clock_tower_workshop", []string{"clockmaker", "clock_tower_exit", "clock_stairs_to_2"}},
+		{"clock_tower_2.map", "clock_tower_gearworks", []string{"clock_stairs_to_1", "clock_stairs_to_3"}},
+		{"clock_tower_3.map", "clock_tower_belfry", []string{"clock_stairs_down_to_2"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			md, err := NewMapLoaderWithBiome(nil, tc.biome).LoadMap(filepath.Join("..", "..", "assets", tc.file))
+			if err != nil {
+				t.Fatalf("load map: %v", err)
+			}
+			present := make(map[string]bool)
+			for _, spawn := range md.NPCSpawns {
+				present[spawn.NPCKey] = true
+			}
+			for _, key := range tc.wantNPCs {
+				if !present[key] {
+					t.Errorf("%s: quest/merchant NPC %q missing (have %v)", tc.file, key, present)
+				}
+			}
+		})
 	}
 }

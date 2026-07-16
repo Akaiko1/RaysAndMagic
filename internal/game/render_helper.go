@@ -416,6 +416,14 @@ func (rh *RenderingHelper) npcSizeTiles(npc *character.NPC) float64 {
 // (environment/landmark props vs person NPCs). Single source for both the
 // renderer and click hit-testing so drawing and hit-tests never diverge.
 func (rh *RenderingHelper) NPCSpriteMetrics(npc *character.NPC, ex, ey, distance float64) (screenX, screenY, spriteSize int, visible bool) {
+	// Grid-span buildings: metrics cover the WHOLE facade (span tiles wide),
+	// projected at the caller's position (npcEffectivePos = footprint center).
+	// spriteSize is the projected SPAN width, so the hover/click rect and the
+	// collection cull margins span every footprint tile - the tower stays
+	// visible and clickable even when its center tile is off to the side.
+	if npc.GridSpanTiles >= 2 {
+		return rh.billboardMetrics(ex, ey, distance, float64(npc.GridSpanTiles), sceneryMinSpriteSize)
+	}
 	size := rh.npcSizeTiles(npc)
 	if rh.game.npcIsWalkUpProp(npc) {
 		return rh.CalculateGroundContainerSpriteMetrics(ex, ey, distance, size)

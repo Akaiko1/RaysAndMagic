@@ -191,19 +191,21 @@ type GameSave struct {
 	CalendarWeek          int                        `json:"calendar_week,omitempty"`
 	CalendarMonth         int                        `json:"calendar_month,omitempty"`
 	ArenaTierFoughtDay    map[string]int             `json:"arena_tier_fought_day,omitempty"`
+	MapRespawnDay         map[string]int             `json:"map_respawn_day,omitempty"` // respawn_days maps: day the roster was last spawned (+1 sentinel form)
 	ArenaRunID            string                     `json:"arena_run_id,omitempty"`
 	TotalGoldEarned       int                        `json:"total_gold_earned,omitempty"`
 	TotalExperienceEarned int                        `json:"total_experience_earned,omitempty"`
 	VictoryAcknowledged   bool                       `json:"victory_acknowledged,omitempty"`
 
 	// Turn-based state
-	CurrentTurn           int  `json:"current_turn,omitempty"`
-	PartyActionsUsed      int  `json:"party_actions_used,omitempty"`
-	TurnBasedMoveCooldown int  `json:"turn_based_move_cooldown,omitempty"`
-	TurnBasedRotCooldown  int  `json:"turn_based_rot_cooldown,omitempty"`
-	MonsterTurnResolved   bool `json:"monster_turn_resolved,omitempty"`
-	TurnBasedSpRegenCount int  `json:"turn_based_sp_regen_count,omitempty"`
-	ExtraMonsterAction    bool `json:"extra_monster_action,omitempty"`
+	TurnBasedTurnSuspended bool `json:"turn_based_turn_suspended,omitempty"`
+	CurrentTurn            int  `json:"current_turn,omitempty"`
+	PartyActionsUsed       int  `json:"party_actions_used,omitempty"`
+	TurnBasedMoveCooldown  int  `json:"turn_based_move_cooldown,omitempty"`
+	TurnBasedRotCooldown   int  `json:"turn_based_rot_cooldown,omitempty"`
+	MonsterTurnResolved    bool `json:"monster_turn_resolved,omitempty"`
+	TurnBasedSpRegenCount  int  `json:"turn_based_sp_regen_count,omitempty"`
+	ExtraMonsterAction     bool `json:"extra_monster_action,omitempty"`
 
 	// Utility/buff state
 	CardSummonCDFrames     int              `json:"card_summon_cd_frames,omitempty"`
@@ -259,26 +261,26 @@ type PartySave struct {
 }
 
 type CharacterSave struct {
-	Name                  string             `json:"name"`
-	Class                 int                `json:"class"`
-	Promotion             int                `json:"promotion,omitempty"`
-	Level                 int                `json:"level"`
-	Experience            int                `json:"experience"`
-	HitPoints             int                `json:"hit_points"`
-	MaxHitPoints          int                `json:"max_hit_points"`
-	SpellPoints           int                `json:"spell_points"`
-	MaxSpellPoints        int                `json:"max_spell_points"`
-	Might                 int                `json:"might"`
-	Intellect             int                `json:"intellect"`
-	Personality           int                `json:"personality"`
-	Endurance             int                `json:"endurance"`
-	Accuracy              int                `json:"accuracy"`
-	Speed                 int                `json:"speed"`
-	Luck                  int                `json:"luck"`
-	FreeStatPoints        int                `json:"free_stat_points"`
+	Name           string `json:"name"`
+	Class          int    `json:"class"`
+	Promotion      int    `json:"promotion,omitempty"`
+	Level          int    `json:"level"`
+	Experience     int    `json:"experience"`
+	HitPoints      int    `json:"hit_points"`
+	MaxHitPoints   int    `json:"max_hit_points"`
+	SpellPoints    int    `json:"spell_points"`
+	MaxSpellPoints int    `json:"max_spell_points"`
+	Might          int    `json:"might"`
+	Intellect      int    `json:"intellect"`
+	Personality    int    `json:"personality"`
+	Endurance      int    `json:"endurance"`
+	Accuracy       int    `json:"accuracy"`
+	Speed          int    `json:"speed"`
+	Luck           int    `json:"luck"`
+	FreeStatPoints int    `json:"free_stat_points"`
 	// PermanentBonuses are one-time permanent stat gains (stat barrels) -
 	// effective-stat layer, kept apart from the base stats above.
-	PermanentBonuses map[string]int `json:"permanent_bonuses,omitempty"`
+	PermanentBonuses      map[string]int     `json:"permanent_bonuses,omitempty"`
 	OwedLevelChoices      []int              `json:"owed_level_choices,omitempty"`
 	Conditions            []int              `json:"conditions"`
 	Skills                []SkillEntry       `json:"skills"`
@@ -290,8 +292,8 @@ type CharacterSave struct {
 	StunFramesRemaining   int                `json:"stun_frames_remaining,omitempty"`
 	StunTurnsRemaining    int                `json:"stun_turns_remaining,omitempty"`
 	// ActionsRemaining preserves mid-round turn-based state so save/reload
-	// can't be used to refill action slots. Omitted from real-time saves
-	// (value will simply be 0; ignored when turn-based mode is off).
+	// can't be used to refill action slots. It also survives an RT save made
+	// while a Tab-suspended TB turn is waiting to resume.
 	ActionsRemaining int `json:"actions_remaining,omitempty"`
 	// RTCooldown preserves the real-time action cooldown - reload must not
 	// reset the party's swing timers mid-fight.
@@ -364,9 +366,18 @@ type MonsterSave struct {
 	PacifiedFramesRemaining int     `json:"pacified_frames_remaining,omitempty"`
 	CharmedByParty          bool    `json:"charmed_by_party,omitempty"`
 	WasAttacked             bool    `json:"was_attacked,omitempty"`
-	Relentless              bool    `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
-	PackKey                 string  `json:"pack_key,omitempty"`   // ambient day/night pack tag
-	QuestProgressIgnored    bool    `json:"quest_progress_ignored,omitempty"`
+	// A calm guard reservation is gameplay state: without it, a reload can make
+	// a patrolling mob forget the crate/lectern it was already posted at.
+	LootGuarding         bool   `json:"loot_guarding,omitempty"`
+	LootGuardTargetKey   string `json:"loot_guard_target_key,omitempty"`
+	LootGuardTargetTileX int    `json:"loot_guard_target_tile_x,omitempty"`
+	LootGuardTargetTileY int    `json:"loot_guard_target_tile_y,omitempty"`
+	LootGuardSide        int    `json:"loot_guard_side,omitempty"`
+	LootGuardPatrolAlt   bool   `json:"loot_guard_patrol_alt,omitempty"`
+	RallyDone            bool   `json:"rally_done,omitempty"`
+	Relentless           bool   `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
+	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag
+	QuestProgressIgnored bool   `json:"quest_progress_ignored,omitempty"`
 	// Mid-combat cooldowns: reload must not strip a player-applied stun or
 	// reset the monster's special-attack cadence.
 	StunFramesRemaining     int `json:"stun_frames_remaining,omitempty"`
@@ -520,6 +531,7 @@ func (g *MMGame) clearTransientCombatState() {
 	// balance cooldown (persisted in the save), and clearing it would let a map
 	// switch or a quick reload bypass the 5s.
 	g.clearDoorState()
+	g.clearBuildingEntities()
 	g.projectileMutex.Lock()
 	if g.collisionSystem != nil {
 		// applySave rebuilds the collision system anyway; switchToMap keeps it,
@@ -544,6 +556,9 @@ func (g *MMGame) clearTransientCombatState() {
 	g.impactLights = g.impactLights[:0]
 	g.hitEffectsMu.Unlock()
 	g.deadMonsterIDs = g.deadMonsterIDs[:0]
+	// A suspended TB turn belongs to the old world. applySave restores the
+	// suspension from its own snapshot after this cleaner returns.
+	g.turnBasedTurnSuspended = false
 }
 
 // SaveSummary is lightweight info used for menu display
@@ -978,6 +993,16 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// Monsters across all loaded maps.
 	var ms []MonsterSave
 	mapMonsters := make(map[string][]MonsterSave)
+	// Respawn stamps come from the SAME manager as the rosters below - a stamp
+	// must pair with the roster snapshot it was minted for.
+	mapRespawnDays := map[string]int{}
+	if wm != nil {
+		for key, w := range wm.LoadedMaps {
+			if w != nil && w.LastRespawnDay != 0 {
+				mapRespawnDays[key] = w.LastRespawnDay
+			}
+		}
+	}
 	encounterIDs := make(map[*monster.EncounterRewards]int)
 	nextEncounterID := 1
 	buildMonsterSaves := func(w *world.World3D) []MonsterSave {
@@ -992,6 +1017,13 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				Pacified: mon.Pacified, PacifiedFramesRemaining: mon.PacifiedFramesRemaining,
 				CharmedByParty:          mon.CharmedByParty,
 				WasAttacked:             mon.WasAttacked,
+				LootGuarding:            mon.LootGuarding,
+				LootGuardTargetKey:      mon.LootGuardTargetKey,
+				LootGuardTargetTileX:    mon.LootGuardTargetTileX,
+				LootGuardTargetTileY:    mon.LootGuardTargetTileY,
+				LootGuardSide:           mon.LootGuardSide,
+				LootGuardPatrolAlt:      mon.LootGuardPatrolAlt,
+				RallyDone:               mon.RallyDone,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
 				OpeningSpellDone:        mon.OpeningSpellDone,
@@ -1107,53 +1139,55 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 
 	return GameSave{
-		MapKey:                wm.CurrentMapKey,
-		PlayerX:               g.camera.X,
-		PlayerY:               g.camera.Y,
-		PlayerAngle:           g.camera.Angle,
-		TurnBased:             g.turnBasedMode,
-		SavedAt:               time.Now().Format(time.RFC3339),
-		Party:                 ps,
-		Monsters:              ms,
-		MapMonsters:           mapMonsters,
-		NPCStates:             nstates,
-		Quests:                questSaves,
-		GroundContainers:      groundContainerSaves,
-		PendingLevelUpChoices: pendingChoices,
-		PlayedTimeNs:          playedTime.Nanoseconds(),
-		DayNightFrames:        g.dayNightFrames,
-		DayNightDay:           g.dayNightDay,
-		CalendarDay:           g.calendarDay,
-		CalendarWeek:          g.calendarWeek,
-		CalendarMonth:         g.calendarMonth,
-		ArenaTierFoughtDay:    g.arenaTierFoughtDay,
-		ArenaRunID:            g.playthroughID,
-		TotalGoldEarned:       g.totalGoldEarned,
-		TotalExperienceEarned: g.totalExperienceEarned,
-		VictoryAcknowledged:   g.victoryAcknowledged,
-		CurrentTurn:           g.currentTurn,
-		PartyActionsUsed:      g.partyActionsUsed,
-		TurnBasedMoveCooldown: g.turnBasedMoveCooldown,
-		TurnBasedRotCooldown:  g.turnBasedRotCooldown,
-		MonsterTurnResolved:   g.monsterTurnResolved,
-		TurnBasedSpRegenCount: g.turnBasedSpRegenCount,
-		ExtraMonsterAction:    g.turnBasedExtraMonsterAction,
-		CardSummonCDFrames:    g.cardSummonCDFrames,
-		TorchLightActive:      g.torchLightActive,
-		TorchLightDuration:    g.torchLightDuration,
-		TorchLightRadius:      g.torchLightRadius,
-		WizardEyeActive:       g.wizardEyeActive,
-		WizardEyeDuration:     g.wizardEyeDuration,
-		WalkOnWaterActive:     g.walkOnWaterActive,
-		WalkOnWaterDuration:   g.walkOnWaterDuration,
-		FlyActive:             g.flyActive,
-		FlyDuration:           g.flyDuration,
-		VisitedTavernMaps:     g.sortedTownPortalDestinations(),
-		StatBuffs:             buildStatBuffSaves(g.statBuffs),
-		BlessActive:           legacyBless.Frames > 0,
-		BlessDuration:         legacyBless.Frames,
-		BlessStatBonus:        legacyBless.Bonuses.Might,
-		BlessBonusesPerStat:   statBonusesToMap(legacyBless.Bonuses),
+		MapKey:                 wm.CurrentMapKey,
+		PlayerX:                g.camera.X,
+		PlayerY:                g.camera.Y,
+		PlayerAngle:            g.camera.Angle,
+		TurnBased:              g.turnBasedMode,
+		SavedAt:                time.Now().Format(time.RFC3339),
+		Party:                  ps,
+		Monsters:               ms,
+		MapMonsters:            mapMonsters,
+		MapRespawnDay:          mapRespawnDays,
+		NPCStates:              nstates,
+		Quests:                 questSaves,
+		GroundContainers:       groundContainerSaves,
+		PendingLevelUpChoices:  pendingChoices,
+		PlayedTimeNs:           playedTime.Nanoseconds(),
+		DayNightFrames:         g.dayNightFrames,
+		DayNightDay:            g.dayNightDay,
+		CalendarDay:            g.calendarDay,
+		CalendarWeek:           g.calendarWeek,
+		CalendarMonth:          g.calendarMonth,
+		ArenaTierFoughtDay:     g.arenaTierFoughtDay,
+		ArenaRunID:             g.playthroughID,
+		TotalGoldEarned:        g.totalGoldEarned,
+		TotalExperienceEarned:  g.totalExperienceEarned,
+		VictoryAcknowledged:    g.victoryAcknowledged,
+		TurnBasedTurnSuspended: g.turnBasedTurnSuspended,
+		CurrentTurn:            g.currentTurn,
+		PartyActionsUsed:       g.partyActionsUsed,
+		TurnBasedMoveCooldown:  g.turnBasedMoveCooldown,
+		TurnBasedRotCooldown:   g.turnBasedRotCooldown,
+		MonsterTurnResolved:    g.monsterTurnResolved,
+		TurnBasedSpRegenCount:  g.turnBasedSpRegenCount,
+		ExtraMonsterAction:     g.turnBasedExtraMonsterAction,
+		CardSummonCDFrames:     g.cardSummonCDFrames,
+		TorchLightActive:       g.torchLightActive,
+		TorchLightDuration:     g.torchLightDuration,
+		TorchLightRadius:       g.torchLightRadius,
+		WizardEyeActive:        g.wizardEyeActive,
+		WizardEyeDuration:      g.wizardEyeDuration,
+		WalkOnWaterActive:      g.walkOnWaterActive,
+		WalkOnWaterDuration:    g.walkOnWaterDuration,
+		FlyActive:              g.flyActive,
+		FlyDuration:            g.flyDuration,
+		VisitedTavernMaps:      g.sortedTownPortalDestinations(),
+		StatBuffs:              buildStatBuffSaves(g.statBuffs),
+		BlessActive:            legacyBless.Frames > 0,
+		BlessDuration:          legacyBless.Frames,
+		BlessStatBonus:         legacyBless.Bonuses.Might,
+		BlessBonusesPerStat:    statBonusesToMap(legacyBless.Bonuses),
 		// Write-only legacy: an OLD binary reads stat_bonus on load (its expiry
 		// math subtracts bless_stat_bonus from it); the new binary derives the
 		// aggregate from stat_buffs and never reads this back.
@@ -1287,6 +1321,9 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.loadNeedsResave = true
 	}
 	g.reconcilePartyAgainstStash()
+	// Fold duplicate stackables (pre-stacking saves) into stacks AFTER the
+	// stash strip, so a chest-owned copy is removed before it can merge.
+	g.party.MergeStacks()
 	// Benched rosters re-derive MaxHP/MaxSP under the CURRENT formula too -
 	// a save written before a formula/balance change would otherwise keep
 	// stale maxima until the hero is swapped in or trained. (Active members
@@ -1387,6 +1424,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.BossLastHP = ms.BossLastHP
 				m.SummonFirstDone = ms.SummonFirstDone
 				m.SummonedBy = ms.SummonedBy
+				m.LootGuarding = ms.LootGuarding
+				m.LootGuardTargetKey = ms.LootGuardTargetKey
+				m.LootGuardTargetTileX, m.LootGuardTargetTileY = ms.LootGuardTargetTileX, ms.LootGuardTargetTileY
+				m.LootGuardSide = ms.LootGuardSide
+				m.LootGuardPatrolAlt = ms.LootGuardPatrolAlt
+				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
 				// A provoked monster (struck, or spawned hostile by an encounter the
@@ -1447,6 +1490,22 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				if !ok {
 					continue
 				}
+				// A respawn_days map must stamp its roster on its first valid
+				// arrival. Older saves made while a newly-authored map had no
+				// resolvable spawns can contain an empty slice but no stamp; that
+				// snapshot is ambiguous, and restoring it would erase the current
+				// authored roster forever. A genuinely cleared farming map always
+				// has its first-arrival stamp, so preserve only this legacy case.
+				mapConfig := wm.MapConfigs[mapKey]
+				_, hasRespawnStamp := save.MapRespawnDay[mapKey]
+				if len(monsters) == 0 && !hasRespawnStamp && mapConfig != nil && mapConfig.RespawnDays > 0 && len(w.MonsterSpawns) > 0 {
+					if len(w.Monsters) == 0 {
+						w.RespawnAuthoredMonsters()
+					}
+					w.LastRespawnDay = g.dayNightDay + 1
+					g.loadNeedsResave = true
+					continue
+				}
 				restoreMonsters(w, monsters)
 				if mapKey == "pyramid_3" {
 					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
@@ -1455,12 +1514,18 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		} else if g.world != nil {
 			restoreMonsters(g.world, save.Monsters)
 		}
+		for mapKey, day := range save.MapRespawnDay {
+			if w := wm.LoadedMaps[mapKey]; w != nil {
+				w.LastRespawnDay = day
+			}
+		}
 
 		// Re-register current map monsters with collision system
 		if g.world != nil {
 			g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
 			g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(g.camera.X, g.camera.Y))
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+			g.registerBuildingFootprints()
 		}
 	}
 
@@ -1504,6 +1569,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 
 	// Restore mode
 	g.turnBasedMode = save.TurnBased
+	g.turnBasedTurnSuspended = save.TurnBasedTurnSuspended
 	g.currentTurn = save.CurrentTurn
 	g.partyActionsUsed = save.PartyActionsUsed
 	g.turnBasedMoveCooldown = save.TurnBasedMoveCooldown

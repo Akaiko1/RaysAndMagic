@@ -158,4 +158,3 @@ func TestDebugSim_MeleeFxGallery(t *testing.T) {
 		t.Logf("style %-18s %d frames -> %s", style, maxFrames, dir)
 	}
 }
-

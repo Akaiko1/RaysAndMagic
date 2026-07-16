@@ -62,7 +62,7 @@ func (ui *UISystem) drawTrapBookContent(screen *ebiten.Image, panelX, contentY, 
 			now := ui.game.mouseLeftClickAt
 			if ui.game.lastClickedSpell == i && withinDoubleClickWindow(now, ui.game.lastSpellClickTime) {
 				if _, placed := ui.game.combat.placeTrapByKey(currentChar, key, true); placed {
-					ui.game.consumeSelectedCharAction()
+					ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.TrapCooldownFrames(currentChar, key))
 				}
 				ui.game.lastSpellClickTime = 0
 				ui.game.lastClickedSpell = -1

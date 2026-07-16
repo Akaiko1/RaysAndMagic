@@ -10,6 +10,12 @@ import (
 // SpellID represents dynamic spell identifiers loaded from YAML
 type SpellID string
 
+const (
+	// SpellCategoryBuff marks a beneficial timed spell that has no personal
+	// cooldown in real-time mode. Turn-based casts still spend an action.
+	SpellCategoryBuff = "buff"
+)
+
 // String returns the string representation of a spell ID
 func (s SpellID) String() string {
 	return string(s)
@@ -23,6 +29,7 @@ type SpellDefinition struct {
 	School               string
 	Level                int // Spell level (1-9)
 	SpellPointsCost      int
+	Category             string
 	CooldownSeconds      float64 // RT cast cooldown (seconds) at reference Speed; 0 = derive from Level
 	Duration             int     // Duration in seconds (0 for instant spells)
 	DisintegrateChance   float64
@@ -121,6 +128,7 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		School:                             configDef.School,
 		Level:                              configDef.Level,
 		SpellPointsCost:                    configDef.SpellPointsCost,
+		Category:                           strings.ToLower(strings.TrimSpace(configDef.Category)),
 		CooldownSeconds:                    configDef.CooldownSeconds,
 		Duration:                           configDef.Duration,
 		DisintegrateChance:                 configDef.DisintegrateChance,
@@ -176,6 +184,13 @@ func GetSpellDefinitionByID(spellID SpellID) (SpellDefinition, error) {
 		TownPortal:        configDef.TownPortal,
 		Message:           configDef.Message,
 	}, nil
+}
+
+// IsBuff reports whether this is a YAML-authored beneficial timed effect. Buff
+// spells deliberately have no personal real-time cooldown so a party can be
+// prepared without waiting between each cast.
+func (d SpellDefinition) IsBuff() bool {
+	return d.Category == SpellCategoryBuff
 }
 
 // IsOffensive reports whether this spell harms or disables enemies - i.e. it

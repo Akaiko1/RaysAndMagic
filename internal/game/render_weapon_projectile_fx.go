@@ -13,6 +13,7 @@ var weaponProjectileFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, floa
 	"arena_recurve":  (*Renderer).drawWeaponProjectileFxArenaRecurve,
 	"arena_arbalest": (*Renderer).drawWeaponProjectileFxArenaArbalest,
 	"arena_lanista":  (*Renderer).drawWeaponProjectileFxArenaLanista,
+	"clock_pistol":   (*Renderer).drawWeaponProjectileFxClockPistol,
 }
 
 func (r *Renderer) drawWeaponProjectileFx(style string, screen *ebiten.Image, cx, cy, size, dirX, dirY, critBoost float64, id int) {

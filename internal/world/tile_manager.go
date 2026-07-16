@@ -40,7 +40,10 @@ func NewTileManager() *TileManager {
 	}
 }
 
-// validateTileConfiguration checks for conflicts in tile letters
+// validateTileConfiguration checks for conflicts in tile letters.
+// ASCII map contract: lowercase a-z belongs exclusively to monster spawns.
+// Lettered terrain/props therefore use uppercase letters (or punctuation and
+// digits); free-standing decor uses the letterless [tile:short_label] form.
 // validTileRenderTypes is the closed set of render_type values the renderer
 // actually dispatches on. An unknown value would load fine and then render
 // NOTHING (the legacy "flooring_object" died exactly that way), so it is a
@@ -63,6 +66,9 @@ func (tm *TileManager) validateTileConfiguration() error {
 		}
 		if !config.ValidTileTypes[data.Type] {
 			return fmt.Errorf("tile %q has missing or unknown type %q (valid: floor|water|marker|wall|wall_decor|nature|rock|structure|prop)", key, data.Type)
+		}
+		if len(data.Letter) == 1 && data.Letter[0] >= 'a' && data.Letter[0] <= 'z' {
+			return fmt.Errorf("tile %q uses lowercase map letter %q - a-z is reserved for monster spawns; use uppercase or a letterless [tile:] prop", key, data.Letter)
 		}
 	}
 

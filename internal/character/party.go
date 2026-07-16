@@ -241,21 +241,111 @@ func (p *Party) UpdateWithMode(turnBasedMode bool) {
 	}
 }
 
-// AddItem adds an item to the party inventory
+// AddItem adds an item to the party inventory. Stackable items (consumables,
+// trinkets) merge into an existing same-name stack; everything else appends.
 func (p *Party) AddItem(item items.Item) {
+	if item.Stackable() {
+		for i := range p.Inventory {
+			if items.SameStack(p.Inventory[i], item) {
+				p.Inventory[i].Quantity = p.Inventory[i].Count() + item.Count()
+				return
+			}
+		}
+	}
 	p.Inventory = append(p.Inventory, item)
 }
 
-// RemoveItem removes an item from the party inventory by index
+// RemoveItem removes a whole inventory entry (the full stack) by index.
 func (p *Party) RemoveItem(index int) {
 	if index >= 0 && index < len(p.Inventory) {
 		p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
 	}
 }
 
-// GetTotalItems returns the number of items in the party inventory
+// ConsumeOneAt removes ONE unit from the entry at index: decrements a stack,
+// removes the entry when the last unit goes. Reports whether a unit was taken.
+func (p *Party) ConsumeOneAt(index int) bool {
+	if index < 0 || index >= len(p.Inventory) {
+		return false
+	}
+	if p.Inventory[index].Count() > 1 {
+		p.Inventory[index].Quantity = p.Inventory[index].Count() - 1
+		return true
+	}
+	p.RemoveItem(index)
+	return true
+}
+
+// MergeStacks folds duplicate stackable entries into single stacks (first
+// entry keeps its place and InstanceID). Load-time migration for saves
+// written before stacking existed.
+func (p *Party) MergeStacks() {
+	type stackKey struct {
+		name string
+		typ  items.ItemType
+	}
+	first := make(map[stackKey]int)
+	kept := p.Inventory[:0]
+	for _, it := range p.Inventory {
+		if !it.Stackable() {
+			kept = append(kept, it)
+			continue
+		}
+		k := stackKey{it.Name, it.Type}
+		if i, ok := first[k]; ok {
+			kept[i].Quantity = kept[i].Count() + it.Count()
+			continue
+		}
+		first[k] = len(kept)
+		kept = append(kept, it)
+	}
+	p.Inventory = kept
+}
+
+// CountItemsByName counts inventory units of the named item, stacks included
+// (item-backed merchant currencies: clock hands).
+func (p *Party) CountItemsByName(name string) int {
+	n := 0
+	for i := range p.Inventory {
+		if p.Inventory[i].Name == name {
+			n += p.Inventory[i].Count()
+		}
+	}
+	return n
+}
+
+// RemoveItemsByName removes up to n units of the named item, draining stacks
+// as needed; reports whether all n were found and removed (payment in an
+// item-backed currency).
+func (p *Party) RemoveItemsByName(name string, n int) bool {
+	if p.CountItemsByName(name) < n {
+		return false
+	}
+	kept := p.Inventory[:0]
+	for _, it := range p.Inventory {
+		if n > 0 && it.Name == name {
+			c := it.Count()
+			if c <= n {
+				n -= c
+				continue
+			}
+			it.Quantity = c - n
+			n = 0
+		}
+		kept = append(kept, it)
+	}
+	p.Inventory = kept
+	return true
+}
+
+// GetTotalItems returns the number of item units in the party inventory,
+// stacks included.
 func (p *Party) GetTotalItems() int {
-	return len(p.Inventory)
+	n := 0
+	for i := range p.Inventory {
+		n += p.Inventory[i].Count()
+	}
+	return n
 }
 
 // equipFromInventory validates the indices and conscious state, runs the given

@@ -98,26 +98,54 @@ type TileChecker interface {
 type CollisionSystem struct {
 	tileChecker TileChecker
 	entities    map[string]*Entity
-	tileSize    float64
+	// engagedPosts indexes the (few) CollisionTypeMonsterEngaged entities so
+	// attack-post reservation queries scan a handful, not every entity.
+	// Maintained by RegisterEntity/UnregisterEntity/SetEntityCollisionType.
+	engagedPosts map[string]*Entity
+	tileSize     float64
 }
 
 // NewCollisionSystem creates a new collision system
 func NewCollisionSystem(tileChecker TileChecker, tileSize float64) *CollisionSystem {
 	return &CollisionSystem{
-		tileChecker: tileChecker,
-		entities:    make(map[string]*Entity),
-		tileSize:    tileSize,
+		tileChecker:  tileChecker,
+		entities:     make(map[string]*Entity),
+		engagedPosts: make(map[string]*Entity),
+		tileSize:     tileSize,
 	}
 }
 
 // RegisterEntity adds an entity to the collision system
 func (cs *CollisionSystem) RegisterEntity(entity *Entity) {
 	cs.entities[entity.ID] = entity
+	if entity.CollisionType == CollisionTypeMonsterEngaged {
+		cs.engagedPosts[entity.ID] = entity
+	} else {
+		delete(cs.engagedPosts, entity.ID)
+	}
 }
 
 // UnregisterEntity removes an entity from the collision system
 func (cs *CollisionSystem) UnregisterEntity(id string) {
 	delete(cs.entities, id)
+	delete(cs.engagedPosts, id)
+}
+
+// SetEntityCollisionType flips an entity's collision type, keeping the
+// engaged-post index in sync. All type changes must come through here - a
+// direct field write would leave IsMonsterAttackPostReserved blind to the
+// claim. Single-threaded like every other live-system mutation.
+func (cs *CollisionSystem) SetEntityCollisionType(id string, t CollisionType) {
+	entity, exists := cs.entities[id]
+	if !exists {
+		return
+	}
+	entity.CollisionType = t
+	if t == CollisionTypeMonsterEngaged {
+		cs.engagedPosts[id] = entity
+	} else {
+		delete(cs.engagedPosts, id)
+	}
 }
 
 // UpdateEntity updates an entity's position in the collision system
@@ -282,21 +310,45 @@ func (cs *CollisionSystem) canMoveToEntityPosition(movingEntityID string, moving
 // shouldIgnoreCollisionTypes is the type-only decision behind
 // shouldIgnoreEntityCollision, factored out so CollisionSnapshot (which holds
 // value copies, not *Entity pointers) can share it. CollisionTypeMonsterEngaged
-// must reflect a monster genuinely fighting - callers that derive it (e.g.
-// game.refreshMonsterCollisionSolidity) need a real combat signal, not mere
-// proximity, or two calm/dormant monsters stop passing through each other here.
+// identifies a logical combat attack post; whether it blocks physically remains
+// the entity's separate Solid flag. The normal gameplay path keeps these posts
+// non-solid so transit mobs and the party can pass through them.
 func shouldIgnoreCollisionTypes(moving, other CollisionType) bool {
-	// A non-engaged monster is walkable to and through the party. Once it is
-	// promoted to MonsterEngaged, the player blocks its path so it cannot flee
-	// or pursue through the party.
-	if moving == CollisionTypeMonster && other == CollisionTypePlayer {
+	// A normal monster and a logical attack-post marker must both cross the
+	// party while they are routing toward a different combat target. Attack
+	// posts are deliberately non-solid in gameplay, but this keeps snapshots
+	// and explicit solid-entity callers consistent with that rule.
+	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
+		other == CollisionTypePlayer {
 		return true
 	}
 
-	// Allow only non-engaged monsters to walk through each other to prevent pathfinding deadlocks.
+	// Allow only non-engaged monsters to walk through each other to prevent
+	// pathfinding deadlocks in generic solid-entity scenarios.
 	if (moving == CollisionTypeMonster || moving == CollisionTypeMonsterEngaged) &&
 		(other == CollisionTypeMonster || other == CollisionTypeMonsterEngaged) {
 		return moving == CollisionTypeMonster && other == CollisionTypeMonster
+	}
+	return false
+}
+
+// IsMonsterAttackPostReserved reports whether another monster has claimed the
+// logical tile containing (x,y) as its combat attack post. The marker is
+// CollisionTypeMonsterEngaged even though the entity is intentionally non-solid.
+// Movement may pass through the tile; only settling to attack must avoid it.
+func (cs *CollisionSystem) IsMonsterAttackPostReserved(entityID string, x, y float64) bool {
+	if cs == nil || cs.tileSize <= 0 {
+		return false
+	}
+	tileX, tileY := bucketCoord(x, cs.tileSize), bucketCoord(y, cs.tileSize)
+	for id, entity := range cs.engagedPosts {
+		if id == entityID || entity.BoundingBox == nil {
+			continue
+		}
+		if bucketCoord(entity.BoundingBox.X, cs.tileSize) == tileX &&
+			bucketCoord(entity.BoundingBox.Y, cs.tileSize) == tileY {
+			return true
+		}
 	}
 	return false
 }

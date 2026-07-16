@@ -108,6 +108,33 @@ func TestEditorCard_RayOfLightDualScaling(t *testing.T) {
 	}
 }
 
+func TestEditorCard_BuffOmitsInactiveRTCooldown(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	for _, tc := range []struct {
+		key          string
+		wantCooldown bool
+	}{
+		{key: "bless", wantCooldown: false},
+		{key: "fireball", wantCooldown: true},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			def, ok := config.GetSpellDefinition(tc.key)
+			if !ok || def == nil {
+				t.Fatalf("%s definition missing", tc.key)
+			}
+			sd, err := spells.GetSpellDefinitionByID(spells.SpellID(tc.key))
+			if err != nil {
+				t.Fatalf("%s spell definition: %v", tc.key, err)
+			}
+			card := strings.Join(character.RenderCardLines(character.SpellCardSections(tc.key, def, sd), true), "\n")
+			gotCooldown := strings.Contains(card, "Cooldown")
+			if gotCooldown != tc.wantCooldown {
+				t.Errorf("editor cooldown shown = %v, want %v:\n%s", gotCooldown, tc.wantCooldown, card)
+			}
+		})
+	}
+}
+
 func TestTooltip_AoESplashCritAndDodgeRules(t *testing.T) {
 	cs := newTestCombatSystemWithConfig(t)
 	char := cs.game.party.Members[0]

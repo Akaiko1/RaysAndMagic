@@ -26,14 +26,16 @@ type GameLoop struct {
 	timedBuffRegistry []timedBuff
 
 	// Per-tick scratch buffers, reset with [:0]/clear instead of reallocating.
-	monsterFrameBuf []monsterFramePosition
-	sepEngagedBuf   []int
-	bandersBuf      []*monster.Monster3D
-	bandSinglesBuf  []*monster.Monster3D
-	bandIDsBuf      []int
-	bandParentBuf   []int
-	bandHandled     map[*monster.Monster3D]bool
-	bandUsedSingles map[*monster.Monster3D]bool
+	monsterFrameBuf       []monsterFramePosition
+	sepEngagedBuf         []int
+	bandersBuf            []*monster.Monster3D
+	bandSinglesBuf        []*monster.Monster3D
+	bandIDsBuf            []int
+	bandParentBuf         []int
+	bandHandled           map[*monster.Monster3D]bool
+	bandUsedSingles       map[*monster.Monster3D]bool
+	attackPostBuf         []*monster.Monster3D
+	combatTransitStackBuf []*monster.Monster3D
 }
 
 type monsterFramePosition struct {
@@ -138,6 +140,13 @@ func (gl *GameLoop) updateExploration() {
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
 	gl.game.refreshBoundAllyCache()
+	// Reconcile restored or redirected combat attack posts before the next RT
+	// snapshot/TB action can use them.
+	gl.reconcileMonsterAttackPosts()
+	// Calm solo mobs that can see an unclaimed crate or spell lectern reserve up
+	// to two guard slots before movement. The guard mode then carries a prepared
+	// patrol tile into the parallel AI pass below.
+	gl.prepareLootPropGuards()
 
 	// Reconcile door state (closed iff a living champion is on this map) and the
 	// solid collision entities behind it, before either monster update runs.
@@ -159,18 +168,30 @@ func (gl *GameLoop) updateExploration() {
 	}
 
 	gl.faceMonstersAlongFrameMotion(monsterFrameStart)
+	// Parallel RT updates can nominate the same logical post from one frozen
+	// snapshot. Serial arbitration runs before combat so only one can strike.
+	gl.reconcileMonsterAttackPosts()
 
-	// Gently push overlapping monsters apart. Overlap is reachable two ways:
-	// non-engaged monsters deliberately pass through each other (pathfinding
-	// deadlock prevention), and the parallel update can move two monsters into
-	// the same spot in one tick. Once engaged while overlapped they deadlock -
-	// each vetoes the other's every move - so resolve it here instead.
+	// Non-combat overlaps still get a gentle resolution. Active combatants remain
+	// pass-through and can share a transit tile; their logical post reservation,
+	// rather than a physical shove, decides who can attack.
 	gl.separateOverlappingMonsters()
 
 	// Banding: stack calm same-key flockers onto their leader (or scatter a band
 	// whose member just engaged/was hit). Runs after movement+separation so it has
 	// the final positions to snap/fan.
 	gl.updateMonsterBands()
+	// Guard pairs use the same stack/fan presentation but admit mixed monster
+	// keys and cap at two. Reconcile after movement so sight aggro scatters the
+	// pair before the combat pass and calm followers rejoin their leader.
+	gl.reconcileLootPropGuardBands()
+
+	// Alarm bells: an engaged rally monster wakes its neighbours (serial pass -
+	// the parallel update must not mutate other monsters).
+	gl.game.rallyAggroedAlarms()
+	// Transit stacks are cosmetic only: they reuse the band fan without changing
+	// band membership or physical positions.
+	gl.updateCombatTransitVisualStacks()
 
 	// Update monster hit tint timers
 	gl.game.UpdateMonsterHitTintTimers()
@@ -386,9 +407,12 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 	// Mirror of the collision rule: two CALM monsters pass through each other
 	// by design (pathfinding deadlock prevention) - separating them turned
 	// every crossing into a push-fight (measured: 1850 one-tick shove episodes
-	// per 2 sim-minutes on the forest map). Only pairs where at least one side
-	// is engaged actually collide, and only those can glue.
-	engaged := func(m *monster.Monster3D) bool {
+	// per 2 sim-minutes on the forest map). Only non-party fights still need
+	// physical separation; party-targeting mobs deliberately overlap in transit.
+	requiresSeparation := func(m *monster.Monster3D) bool {
+		if monsterTargetsParty(m) {
+			return false
+		}
 		return m.IsEngagingPlayer || m.State == monster.StateAttacking
 	}
 	// Tile-checked half-push; also refuses to shove a monster into the PLAYER's
@@ -410,6 +434,9 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 		return true
 	}
 	resolvePair := func(i int, a, b *monster.Monster3D, aw, ah float64) {
+		if monsterTargetsParty(a) || monsterTargetsParty(b) {
+			return
+		}
 		bw, bh := b.GetSize()
 		dx := b.X - a.X
 		dy := b.Y - a.Y
@@ -446,12 +473,12 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 			pushOne(b, sec[0], sec[1])
 		}
 	}
-	// Every processed pair has an engaged side, so collect the engaged alive
+	// Every processed pair has a non-party combat side, so collect that alive
 	// subset once (reusable buffer): the common calm case exits without any
 	// pair scan, and the scan walks allxengaged instead of allxall.
 	engagedIdx := gl.sepEngagedBuf[:0]
 	for i, m := range monsters {
-		if m.IsAlive() && engaged(m) {
+		if m.IsAlive() && requiresSeparation(m) {
 			engagedIdx = append(engagedIdx, i)
 		}
 	}
@@ -472,7 +499,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 			continue
 		}
 		aw, ah := a.GetSize()
-		if engaged(a) {
+		if requiresSeparation(a) {
 			for j := i + 1; j < len(monsters); j++ {
 				b := monsters[j]
 				if !b.IsAlive() {

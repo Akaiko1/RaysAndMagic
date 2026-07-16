@@ -2592,6 +2592,10 @@ func (r *Renderer) monsterVisualPosition(mon *monster.Monster3D) (float64, float
 	if r != nil && r.game != nil && r.game.combat != nil {
 		return r.game.combat.monsterVisualPos(mon)
 	}
+	if r != nil && r.game != nil && r.game.config != nil {
+		ox, oy := monsterStackFanOffset(mon, float64(r.game.config.GetTileSize()))
+		return mon.X + ox, mon.Y + oy
+	}
 	return mon.X, mon.Y
 }
 
@@ -3282,8 +3286,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 			if m.HitTintFrames%2 == 0 {
 				dir = -1.0
 			}
-			halfFovTan := math.Tan(r.game.camera.FOV / 2)
-			worldLen := monsterHitShakeSizePx(s.spriteSize) * 2 * halfFovTan * s.depthPerp / float64(r.game.config.GetScreenWidth())
+			worldLen := r.spriteFootprintWorld(monsterHitShakeSizePx(s.spriteSize), s.depthPerp)
 			off := dir * f * MonsterHitShakeAmplitudeFrac * worldLen
 			entX += math.Cos(m.StandeeYaw) * off
 			entY += math.Sin(m.StandeeYaw) * off
@@ -3461,6 +3464,20 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// backing-bias draw as walls so the slab ends aren't depth-rejected
 		// against the walls they touch. Falls through when mis-authored (no
 		// flanking wall pair).
+		// Grid-span building (clock tower): ONE grid-aligned facade slab that
+		// owns its whole footprint - length forced to the span, pixel height
+		// from the walls' formula scaled by the art's aspect (2:1 art on a
+		// 2-tile span = exactly 1 tile tall), bottom on the floor line.
+		if s.npc.GridSpanTiles >= 2 {
+			if bx, by, byaw, ok := r.game.buildingPose(s.npc); ok {
+				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
+				span := float64(s.npc.GridSpanTiles) * float64(r.game.config.GetTileSize())
+				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
+				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, float64(s.npc.GridSpanTiles)*aspect)
+				r.drawWallStandee(screen, sprite, wkey, bx, by, byaw, s.depthPerp, bh, btop+bh, sb, span)
+				return
+			}
+		}
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}

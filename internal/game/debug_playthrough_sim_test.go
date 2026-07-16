@@ -64,11 +64,11 @@ type playBot struct {
 	// Navigation: a throwaway Relentless "scout" monster runs the SAME A* the
 	// monster AI uses, from the party's position toward the hunt target - the
 	// party walks tile-to-tile around rivers and tree walls like the mobs do.
-	scout            *monster.Monster3D
-	navTileX         int
-	navTileY         int
-	navValid         bool
-	navRecheck       int
+	scout      *monster.Monster3D
+	navTileX   int
+	navTileY   int
+	navValid   bool
+	navRecheck int
 	// initial is the authored roster at map load: clearing THEM is winning
 	// (night packs respawn every dusk and don't count).
 	initial map[*monster.Monster3D]bool

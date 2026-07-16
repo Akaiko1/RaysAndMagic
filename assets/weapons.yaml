@@ -1198,6 +1198,149 @@ weapons:
       slash_width: 24
       slash_length: 32
 
+
+  # --- Clock Tower (2026-07-16): the Clockmaker's stock, traded for clock hands ---
+  cogfang_blade:
+    name: "Cogfang Blade"
+    description: "A gear-hilted sword whose teeth chew straight through plate"
+    category: "sword"
+    damage: 30
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 18
+    armor_pierce_pct: 25
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Every parry loses the other blade a tooth."
+    melee:
+      arc_type: 2
+      animation_frames: 8
+      hit_delay: 3
+    graphics:
+      slash_color: [200, 220, 245]
+      slash_fx: "clock_cogfang"
+      slash_width: 36
+      slash_length: 52
+
+  chime_maul:
+    name: "Chime Maul"
+    description: "A clockfaced hammer that rings skulls like the noon bell"
+    category: "mace"
+    damage: 34
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 16
+    stun_chance: 0.18
+    stun_turns: 3
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1600
+    flavor: "For whom does it toll? Whoever stands closest."
+    melee:
+      arc_type: 2
+      animation_frames: 11
+      hit_delay: 4
+    graphics:
+      slash_color: [235, 215, 160]
+      slash_fx: "clock_chime"
+      slash_width: 44
+      slash_length: 56
+
+  minute_hand:
+    name: "Minute Hand"
+    description: "A needle rapier ground from a tower clock's own hand"
+    category: "dagger"
+    damage: 22
+    range: 1
+    bonus_stat: "Speed"
+    bonus_stat_secondary: "Accuracy"
+    crit_chance: 28
+    cooldown_multiplier: 0.65
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Sixty stabs an hour, on the hour, every hour."
+    melee:
+      arc_type: 1
+      animation_frames: 6
+      hit_delay: 1
+    graphics:
+      slash_color: [220, 228, 240]
+      slash_fx: "clock_minute"
+      slash_width: 20
+      slash_length: 44
+
+  mainspring_pike:
+    name: "Mainspring Pike"
+    description: "A coiled-steel pike that strikes with unwound fury"
+    category: "spear"
+    damage: 28
+    range: 2
+    bonus_stat: "Might"
+    crit_chance: 16
+    bonus_vs_stunned: 1.5
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Wound in 1602. Still furious."
+    melee:
+      arc_type: 1
+      animation_frames: 10
+      hit_delay: 4
+    graphics:
+      slash_color: [200, 195, 185]
+      slash_fx: "clock_mainspring"
+      slash_width: 22
+      slash_length: 80
+
+  escapement_mace:
+    name: "Escapement Mace"
+    description: "A ratcheting cog-mace that strips armor tooth by tooth"
+    category: "mace"
+    damage: 27
+    range: 1
+    bonus_stat: "Might"
+    crit_chance: 18
+    armor_shred_pct: 20
+    armor_shred_seconds: 10
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1500
+    flavor: "Tick: your pauldron. Tock: your greave."
+    melee:
+      arc_type: 2
+      animation_frames: 9
+      hit_delay: 3
+    graphics:
+      slash_color: [225, 200, 140]
+      slash_fx: "clock_escapement"
+      slash_width: 40
+      slash_length: 54
+
+  clockwork_pistol:
+    name: "Clockwork Pistol"
+    description: "A spring-driven pistol that never waits on powder"
+    category: "blaster"
+    damage: 30
+    range: 6
+    bonus_stat: "Accuracy"
+    crit_chance: 20
+    rarity: "unique"
+    no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
+    value: 1600
+    flavor: "Wind, aim, and the mechanism does the rest."
+    physics:
+      speed_tiles: 14.0
+      range_tiles: 6.0
+      collision_size_tiles: 0.4
+    graphics:
+      max_size: 34
+      min_size: 2
+      base_size: 10
+      color: [255, 214, 140]
+      projectile_fx: "clock_pistol"
+
 # Real-time attack-cooldown multipliers per weapon TYPE (1.0 = baseline sword).
 # Keyed by the canonical weapon-skill noun; a weapon's `category` resolves to its
 # skill via WeaponSkillForCategory (so "throwing" uses the dagger value, and a

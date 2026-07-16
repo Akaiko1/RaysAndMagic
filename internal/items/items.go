@@ -72,6 +72,11 @@ type Item struct {
 	// recognise "the copy I already hold" and strip it from a reloaded bag,
 	// closing the save-scum dupe.
 	InstanceID uint64 `json:"instance_id,omitempty"`
+	// Quantity is the stack size for stackable items (consumables, trinkets).
+	// 0 means 1 (items saved before stacking existed) - always read through
+	// Count(). A stack carries ONE InstanceID for the whole pile; stackables
+	// are cheap fungibles, so per-unit stash dedupe precision is not needed.
+	Quantity int `json:"quantity,omitempty"`
 	// For armor
 	ArmorCategory string
 	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
@@ -80,6 +85,30 @@ type Item struct {
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+}
+
+// Count returns the stack size, treating the zero value as a single item so
+// pre-stacking saves and freshly created items need no migration.
+func (it Item) Count() int {
+	if it.Quantity < 1 {
+		return 1
+	}
+	return it.Quantity
+}
+
+// Stackable reports whether copies of this item merge into one inventory
+// stack. Only fungible pocket goods stack: gear carries per-instance identity
+// (equip state), quest items are unique, cards live in the collection.
+func (it Item) Stackable() bool {
+	return it.Type == ItemConsumable || it.Type == ItemTrinket
+}
+
+// SameStack is THE stack-identity rule: both stackable and the same item
+// definition (display name + type; item display names are validated unique at
+// load). Every merge site (bag, load-time fold, quick slots) must use this -
+// hand-rolled copies drift.
+func SameStack(a, b Item) bool {
+	return a.Stackable() && b.Stackable() && a.Name == b.Name && a.Type == b.Type
 }
 
 // PreferredSlot resolves where this item equips from its equip_slot attribute,

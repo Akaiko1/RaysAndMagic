@@ -1203,6 +1203,18 @@ func traceLoadout(party []*character.MMCharacter) {
 	}
 }
 
+// TestBalanceSimUsesLiveXPCurve pins the simulator's level-up loop to the
+// SHIPPING curve past the L13 quadratic crossover - a drifted sim silently
+// over-levels every endgame balance scenario.
+func TestBalanceSimUsesLiveXPCurve(t *testing.T) {
+	cfg := loadTestConfig(t)
+	c := character.CreateCharacter("SimPin", character.ClassKnight, cfg)
+	applyXPAndLevelUp(c, cfg, xpSpentToReach(20)+50, statSpeedFloorThenPrimary)
+	if c.Level != 20 || c.Experience != 50 {
+		t.Fatalf("sim curve drifted from live xpStepCost: got L%d rem %d, want L20 rem 50", c.Level, c.Experience)
+	}
+}
+
 // applyXPAndLevelUp grants experience to a character and applies as
 // many level-ups as the total XP allows. Each level: spend
 // StatPointsPerLevel points via the given strategy, apply L3
@@ -1210,7 +1222,7 @@ func traceLoadout(party []*character.MMCharacter) {
 func applyXPAndLevelUp(c *character.MMCharacter, cfg *config.Config, xpGained int, strategy statStrategy) {
 	c.Experience += xpGained
 	for {
-		required := c.Level * XPRequiredPerLevel
+		required := xpStepCost(c.Level) // the LIVE curve (quadratic from L13), not the old linear cost
 		if c.Experience < required {
 			break
 		}

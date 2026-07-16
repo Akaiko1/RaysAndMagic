@@ -10,6 +10,23 @@ item_sets:
     name: "Coliseum Ringmail"
     pieces_required: 4
     bonus_endurance: 10
+  # Clock tower sets (5 pieces each, sold by the Clockmaker for clock hands).
+  # Each set has a distinct identity - the scout, the duelist, the juggernaut.
+  cogleather:
+    name: "Cogleather Rig"
+    pieces_required: 5
+    bonus_speed: 12
+    bonus_luck: 6
+  chainwork:
+    name: "Chainwork Regalia"
+    pieces_required: 5
+    bonus_accuracy: 10
+    bonus_endurance: 8
+  clockplate:
+    name: "Clockplate Bulwark"
+    pieces_required: 5
+    bonus_might: 12
+    stun_duration_pct: -50
 
 items:
   # Armor Endurance AC scaling is category-wide by design:
@@ -1485,3 +1502,268 @@ items:
     flavor: "A stamped card of a wolf, mid-howl beneath a pale moon."
     rarity: "legendary"
     value: 500
+
+  # --- Clock Tower (2026-07-16): the horologist's dungeon ---
+  clock_hand:
+    name: "Clock Hand"
+    type: "trinket"
+    description: "A filigreed hand pried from a tower mechanism - the Clockmaker pays for these"
+    flavor: "Time, broken off at the wrist."
+    rarity: "uncommon"
+    value: 40
+
+  brass_gear:
+    name: "Brass Gear"
+    type: "trinket"
+    description: "A toothy cog still warm from turning"
+    flavor: "Somewhere in the tower, a hole shaped like this."
+    rarity: "common"
+    value: 25
+
+  mainspring_coil:
+    name: "Mainspring Coil"
+    type: "trinket"
+    description: "A tempered spiral wound tight with stubborn energy"
+    flavor: "It remembers every hour it was never allowed to strike."
+    rarity: "uncommon"
+    value: 60
+
+  pocket_watch:
+    name: "Pocket Watch"
+    type: "trinket"
+    description: "A gentleman's watch, still keeping somebody's time"
+    flavor: "The second hand runs backwards when nobody watches."
+    rarity: "rare"
+    value: 220
+
+  clock_oil:
+    name: "Clock Oil"
+    type: "consumable"
+    description: "A vial of fine horologist's oil - loosens joints and old wounds alike"
+    flavor: "One drop quiets a century of squeaking."
+    heal_base: 20
+    heal_endurance_divisor: 4
+    rarity: "uncommon"
+    value: 90
+
+  cogleather_helm:
+    name: "Cogleather Helm"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "A hardened-leather helm with jeweler's goggles"
+    flavor: "Light enough to hear the tower tick."
+    equip_slot: "helmet"
+    armor_class_base: 3
+    endurance_scaling_divisor: 10
+    bonus_speed: 2
+    rarity: "rare"
+    value: 2200
+
+  cogleather_jacket:
+    name: "Cogleather Jacket"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Oiled straps and pocketed leather, cut for climbing gearwork"
+    flavor: "It creaks in time with the pendulums."
+    equip_slot: "armor"
+    armor_class_base: 8
+    endurance_scaling_divisor: 10
+    bonus_speed: 3
+    rarity: "rare"
+    value: 3400
+
+  cogleather_pauldrons:
+    name: "Cogleather Pauldrons"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Layered leather cog-guards for the off arm"
+    flavor: "Luck is a mechanism like any other."
+    equip_slot: "offhand"
+    armor_class_base: 4
+    endurance_scaling_divisor: 10
+    bonus_luck: 3
+    rarity: "rare"
+    value: 2600
+
+  cogleather_gloves:
+    name: "Cogleather Gloves"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Thin key-winder's gloves that never slip"
+    flavor: "Made for fingers that count teeth."
+    equip_slot: "gauntlets"
+    armor_class_base: 3
+    endurance_scaling_divisor: 10
+    bonus_accuracy: 3
+    rarity: "rare"
+    value: 2400
+
+  cogleather_boots:
+    name: "Cogleather Boots"
+    type: "armor"
+    armor_category: "leather"
+    set: "cogleather"
+    description: "Soft-soled boots that read the floor's vibrations"
+    flavor: "The stairs never hear them coming."
+    equip_slot: "boots"
+    armor_class_base: 4
+    endurance_scaling_divisor: 10
+    bonus_speed: 4
+    rarity: "rare"
+    value: 2600
+
+  chainwork_helm:
+    name: "Chainwork Helm"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "A brass helm over fine chain aventail"
+    flavor: "Every link a second, every second armored."
+    equip_slot: "helmet"
+    armor_class_base: 4
+    endurance_scaling_divisor: 7
+    bonus_accuracy: 2
+    rarity: "rare"
+    value: 2800
+
+  chainwork_hauberk:
+    name: "Chainwork Hauberk"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Interwoven chain driven by a ticking escapement"
+    flavor: "It tightens where the blow lands."
+    equip_slot: "armor"
+    armor_class_base: 10
+    endurance_scaling_divisor: 7
+    bonus_accuracy: 3
+    rarity: "rare"
+    value: 4200
+
+  chainwork_pauldrons:
+    name: "Chainwork Pauldrons"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Cog-guards of riveted chain for the off arm"
+    flavor: "They ratchet a notch tighter each parry."
+    equip_slot: "offhand"
+    armor_class_base: 6
+    endurance_scaling_divisor: 7
+    bonus_endurance: 3
+    rarity: "rare"
+    value: 3200
+
+  chainwork_gauntlets:
+    name: "Chainwork Gauntlets"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Chain-backed gauntlets with wind-up knuckles"
+    flavor: "Turn the key. Count to three."
+    equip_slot: "gauntlets"
+    armor_class_base: 4
+    endurance_scaling_divisor: 7
+    bonus_might: 2
+    bonus_accuracy: 2
+    rarity: "rare"
+    value: 3000
+
+  chainwork_greaves:
+    name: "Chainwork Greaves"
+    type: "armor"
+    armor_category: "chain"
+    set: "chainwork"
+    description: "Chain greaves with geared ankle joints"
+    flavor: "The tower's stairs built these."
+    equip_slot: "boots"
+    armor_class_base: 5
+    endurance_scaling_divisor: 7
+    bonus_endurance: 2
+    rarity: "rare"
+    value: 3200
+
+  clockplate_helm:
+    name: "Clockplate Helm"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "A sealed brass helm, dials where the visor should be"
+    flavor: "Through these lenses, everything is a mechanism."
+    equip_slot: "helmet"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    bonus_might: 2
+    rarity: "rare"
+    value: 3600
+
+  clockplate_cuirass:
+    name: "Clockplate Cuirass"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Layered plates driven by a ticking escapement over the heart"
+    flavor: "It winds itself on the wearer's heartbeat."
+    equip_slot: "armor"
+    armor_class_base: 12
+    endurance_scaling_divisor: 5
+    bonus_might: 3
+    rarity: "rare"
+    value: 5200
+
+  clockplate_pauldrons:
+    name: "Clockplate Pauldrons"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Interlocking cog-plates that turn blows aside"
+    flavor: "Every parry ratchets them one tooth tighter."
+    equip_slot: "offhand"
+    armor_class_base: 8
+    endurance_scaling_divisor: 5
+    bonus_might: 2
+    rarity: "rare"
+    value: 4000
+
+  clockplate_gauntlets:
+    name: "Clockplate Gauntlets"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Key-driven fists with spring-steel snap"
+    flavor: "Let go on three."
+    equip_slot: "gauntlets"
+    armor_class_base: 6
+    endurance_scaling_divisor: 5
+    bonus_might: 4
+    rarity: "rare"
+    value: 3800
+
+  clockplate_greaves:
+    name: "Clockplate Greaves"
+    type: "armor"
+    armor_category: "plate"
+    set: "clockplate"
+    description: "Motorized legplates that carry their own weight"
+    flavor: "And some of yours."
+    equip_slot: "boots"
+    armor_class_base: 7
+    endurance_scaling_divisor: 5
+    bonus_endurance: 3
+    rarity: "rare"
+    value: 3800
+
+  chrono_cape:
+    name: "Chrono Cape"
+    type: "armor"
+    description: "A midnight cape with a pendulum clasp that swings a half-second ahead"
+    flavor: "It billows before the wind arrives."
+    equip_slot: "cloak"
+    armor_class_base: 4
+    personality_scaling_divisor: 5
+    rarity: "rare"
+    value: 3400

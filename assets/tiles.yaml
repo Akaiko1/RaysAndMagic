@@ -1546,3 +1546,222 @@ tiles:
     render_type: "environment_sprite"
     wall_mounted: true
     short_label: "vista_live"
+
+  # --- Clock Tower (2026-07-16): the horologist's dungeon ---
+  clocktower_gearstone_wall:
+    name: "Gearstone Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "clocktower_gearstone_wall"
+    render_type: "textured_wall"
+    wall_color: [88, 92, 100]
+    letter: "I"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_pipework_wall:
+    name: "Pipework Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "clocktower_pipework_wall"
+    render_type: "textured_wall"
+    wall_color: [96, 78, 62]
+    letter: "U"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_timber_wall:
+    name: "Timbered Plaster Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "clocktower_timber_wall"
+    render_type: "textured_wall"
+    wall_color: [120, 104, 82]
+    letter: "X"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_plaster_wall:
+    name: "Clockwork Plaster Wall"
+    type: "wall"
+    solid: true
+    transparent: false
+    walkable: false
+    wall_height_multiplier: 1.0
+    sprite: "clocktower_plaster_wall"
+    render_type: "textured_wall"
+    wall_color: [140, 132, 118]
+    letter: "Z"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_slate_floor:
+    name: "Slate Inlay Floor"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [70, 72, 80]
+    floor_texture_group: "clocktower_slate"
+    letter: "1"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_mosaic_floor:
+    name: "Clockwork Mosaic Floor"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [96, 88, 66]
+    floor_texture_group: "clocktower_mosaic"
+    letter: "2"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_planks_floor:
+    name: "Workshop Planks Floor"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [104, 82, 58]
+    floor_texture_group: "clocktower_planks"
+    letter: "3"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  clocktower_grate_floor:
+    name: "Brass Grate Floor"
+    type: "floor"
+    solid: false
+    transparent: true
+    walkable: true
+    sprite: ""
+    render_type: "floor_only"
+    floor_color: [92, 74, 48]
+    floor_texture_group: "clocktower_grate"
+    letter: "4"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  # Free-standing tower props ($ + [tile:label]).
+  broken_grandfather_clock:
+    name: "Broken Grandfather Clock"
+    type: "prop"
+    solid: true
+    transparent: true
+    walkable: false
+    size_tiles: 1.6
+    sprite: "broken_grandfather_clock"
+    render_type: "environment_sprite"
+    no_spin: true
+    map_color: [96, 74, 52]
+    short_label: "brokenclock"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  gear_pile:
+    name: "Gear Pile"
+    type: "prop"
+    solid: false
+    transparent: true
+    walkable: true
+    inherit_floor: true
+    size_tiles: 0.5
+    sprite: "gear_pile"
+    render_type: "environment_sprite"
+    no_spin: true
+    short_label: "gearpile"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  steam_boiler:
+    name: "Steam Boiler"
+    type: "prop"
+    solid: true
+    transparent: true
+    walkable: false
+    size_tiles: 1.2
+    sprite: "steam_boiler"
+    render_type: "environment_sprite"
+    no_spin: true
+    map_color: [98, 70, 54]
+    short_label: "boiler"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  parts_crate:
+    name: "Parts Crate"
+    type: "prop"
+    solid: true
+    transparent: true
+    walkable: false
+    size_tiles: 0.8
+    sprite: "parts_crate"
+    render_type: "environment_sprite"
+    no_spin: true
+    map_color: [110, 84, 56]
+    short_label: "partscrate"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  # Wall-mounted tower decor ($ + [tile:label], slides to the nearest wall).
+  wall_pendulum_clock:
+    name: "Pendulum Wall Clock"
+    type: "wall_decor"
+    solid: false
+    transparent: true
+    walkable: true
+    inherit_floor: true
+    size_tiles: 0.6
+    sprite: "wall_pendulum_clock"
+    render_type: "environment_sprite"
+    wall_mounted: true
+    short_label: "wallclock"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  wall_gear_cluster:
+    name: "Gear Cluster"
+    type: "wall_decor"
+    solid: false
+    transparent: true
+    walkable: true
+    inherit_floor: true
+    size_tiles: 0.6
+    sprite: "wall_gear_cluster"
+    render_type: "environment_sprite"
+    wall_mounted: true
+    short_label: "gearcluster"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  wall_pipe_valve:
+    name: "Pipe Valve"
+    type: "wall_decor"
+    solid: false
+    transparent: true
+    walkable: true
+    inherit_floor: true
+    size_tiles: 0.5
+    sprite: "wall_pipe_valve"
+    render_type: "environment_sprite"
+    wall_mounted: true
+    short_label: "pipevalve"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+
+  wall_blueprint:
+    name: "Framed Blueprint"
+    type: "wall_decor"
+    solid: false
+    transparent: true
+    walkable: true
+    inherit_floor: true
+    size_tiles: 0.5
+    sprite: "wall_blueprint"
+    render_type: "environment_sprite"
+    wall_mounted: true
+    short_label: "blueprint"
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]

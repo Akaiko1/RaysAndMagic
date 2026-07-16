@@ -4,6 +4,7 @@
 #   T = pine   A = rock outcrop  R = boulder  + = start
 #   @ next to start = invisible portal_gate_forest NPC ("return to the forest?")
 #   @ near the slate tomb = lich_nexus_entrance
+#   @ under the granite ridge (west) = clock_tower_entrance (2-tile facade)
 # Monster spawns (match assets/monsters.yaml): c=puma h=elf_archer
 #   j=elf_swordsman v=mountain_troll z=archmage q=lich
 # Zones: start meadow (S) -> heather moor & pumas (W), pine grove & archers (N),
@@ -25,7 +26,7 @@
 %......T...HHTH.BT.........TB.A...R.........R..R.%
 %..T.T....H..HHT#T.........T#......H.....R.......%
 %..H...T..H.....#####..######....H..........HR...%
-%........H...........j.j....SS.......RR...R......%
+%........H......@....j.j....SS.......RR...R......%  >[npc:clock_tower_entrance]
 %..AA......A...AH........H.SSH..H.R.R......R.....%
 %....H..........H........A.SS....HR...H.vv.......%
 %.......A..A......H......H.SS....R..H..........R.%

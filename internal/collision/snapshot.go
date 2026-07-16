@@ -38,6 +38,9 @@ type CollisionSnapshot struct {
 	// snapshots): queries fall back to the linear path.
 	solids  []snapEntity
 	buckets map[bucketKey][]int32
+	// attackPostTiles indexes logical, deliberately non-solid party attack posts.
+	// A transit mob may cross one, but its AI must not settle there to attack.
+	attackPostTiles map[bucketKey][]string
 }
 
 // snapEntity is one solid entity in the snapshot's spatial index.
@@ -73,7 +76,22 @@ func (cs *CollisionSystem) Snapshot() *CollisionSnapshot {
 			Solid:         e.Solid,
 		}
 		if snap.buckets == nil || !e.Solid {
+			// Non-solid attack-post entities still need their own lookup index.
+			if e.CollisionType == CollisionTypeMonsterEngaged && snap.tileSize > 0 {
+				key := bucketKey{bucketCoord(e.BoundingBox.X, snap.tileSize), bucketCoord(e.BoundingBox.Y, snap.tileSize)}
+				if snap.attackPostTiles == nil {
+					snap.attackPostTiles = make(map[bucketKey][]string)
+				}
+				snap.attackPostTiles[key] = append(snap.attackPostTiles[key], id)
+			}
 			continue
+		}
+		if e.CollisionType == CollisionTypeMonsterEngaged {
+			key := bucketKey{bucketCoord(e.BoundingBox.X, snap.tileSize), bucketCoord(e.BoundingBox.Y, snap.tileSize)}
+			if snap.attackPostTiles == nil {
+				snap.attackPostTiles = make(map[bucketKey][]string)
+			}
+			snap.attackPostTiles[key] = append(snap.attackPostTiles[key], id)
 		}
 		idx := int32(len(snap.solids))
 		snap.solids = append(snap.solids, snapEntity{id: id, box: *e.BoundingBox, collisionType: e.CollisionType})
@@ -135,6 +153,20 @@ func (cs *CollisionSnapshot) CanOccupyTilesWithHabitat(entityID string, x, y flo
 func (cs *CollisionSnapshot) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	hit, _ := castRayTiles(cs.tileChecker, cs.tileSize, x1, y1, x2, y2, true)
 	return !hit.Hit
+}
+
+// IsMonsterAttackPostReserved mirrors CollisionSystem's logical attack-post
+// lookup against the immutable view used by parallel monster AI.
+func (cs *CollisionSnapshot) IsMonsterAttackPostReserved(entityID string, x, y float64) bool {
+	if cs == nil || cs.tileSize <= 0 {
+		return false
+	}
+	for _, id := range cs.attackPostTiles[bucketKey{bucketCoord(x, cs.tileSize), bucketCoord(y, cs.tileSize)}] {
+		if id != entityID {
+			return true
+		}
+	}
+	return false
 }
 
 // canMoveToEntityPosition is CollisionSystem.canMoveToEntityPosition adapted to

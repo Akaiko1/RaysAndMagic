@@ -9,6 +9,10 @@ import (
 	"ugataima/internal/status"
 )
 
+// LootGuardMinAlertTiles is the minimum direct-sight radius of a calm mob that
+// has committed to guarding a loot crate or spell lectern.
+const LootGuardMinAlertTiles = 7.0
+
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
 	Gold              int                   `yaml:"gold"`
@@ -164,39 +168,51 @@ type Monster3D struct {
 	PoisonedFramesRemaining int
 	poisonTickTimer         int
 	// Bind Undead and Charm are SEPARATE, mutually exclusive control states:
-	Bound                    bool       // Bind Undead: under party control - hunts other monsters, ignores party
-	BoundFramesRemaining     int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
-	Pacified                 bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
-	PacifiedFramesRemaining  int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
-	CharmedByParty           bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
-	AITargetX                float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundAllyCache)
-	AITargetY                float64    // Per-frame pursuit target Y
-	AIFoe                    *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
-	Flying                   bool       // Whether the monster should be rendered above ground
-	RangedAttackRange        float64    // Optional ranged attack range override (pixels)
-	AttacksPerRound          int        // Turn-based melee attacks per monster round
-	PassiveUntilAttacked     bool       // True when the monster should not aggro until hit
-	HatesTraits              []string   // party traits (from hates.yaml) that enrage this passive monster on sight
-	AttackCooldownMultiplier float64    // Real-time attack cooldown multiplier (0.5 = twice as often)
-	AttackCDFrames           int        // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
-	FireburstChance          float64    // Chance to cast fireburst instead of normal attack
-	FireburstDamageMin       int        // Fireburst damage min
-	FireburstDamageMax       int        // Fireburst damage max
-	DragonBreathChance       float64    // Chance for this attack to hit every living party member
-	DragonBreathDamageType   string     // Element used by dragon breath mitigation/resists
-	PiercingShotChance       float64    // Chance to fire an armor-piercing shot at multiple party members
-	PiercingShotTargets      int        // Number of party members hit by Piercing Shot (default 2)
-	AllyHealChance           float64    // Chance to heal self or a nearby allied monster instead of attacking
-	AllyHealAmount           int        // HP restored by the ally heal special
-	AllyHealRadiusPixels     float64    // Radius for ally heal target search
-	PoisonChance             float64    // Chance to apply poison on hit
-	PoisonDurationSec        int        // Poison duration in seconds
-	IgniteChance             float64    // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
-	IgniteDurationSec        int        // Burn duration in seconds
-	StunCharChance           float64    // Chance to stun the struck character (skips actions)
-	StunCharSeconds          int        // Stun duration in RT seconds
-	StunCharTurns            int        // Stun duration in TB turns
-	DispelChance             float64    // Chance to strip one random active party buff on hit
+	Bound                   bool       // Bind Undead: under party control - hunts other monsters, ignores party
+	BoundFramesRemaining    int        // Real-time bind duration in frames (0 in TB = lasts the encounter)
+	Pacified                bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
+	PacifiedFramesRemaining int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
+	CharmedByParty          bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
+	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundAllyCache)
+	AITargetY               float64    // Per-frame pursuit target Y
+	AIFoe                   *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
+	// Loot guard is a calm, map-prop-specific assignment. The game owns target
+	// discovery and band membership; this struct only carries the serially
+	// prepared patrol tile into the parallel RT AI step.
+	LootGuarding             bool
+	LootGuardTargetKey       string
+	LootGuardTargetTileX     int
+	LootGuardTargetTileY     int
+	LootGuardSide            int
+	LootGuardPatrolAlt       bool
+	LootGuardMoveTileX       int
+	LootGuardMoveTileY       int
+	LootGuardPatrolUntil     int64
+	Flying                   bool     // Whether the monster should be rendered above ground
+	RangedAttackRange        float64  // Optional ranged attack range override (pixels)
+	AttacksPerRound          int      // Turn-based melee attacks per monster round
+	PassiveUntilAttacked     bool     // True when the monster should not aggro until hit
+	HatesTraits              []string // party traits (from hates.yaml) that enrage this passive monster on sight
+	AttackCooldownMultiplier float64  // Real-time attack cooldown multiplier (0.5 = twice as often)
+	AttackCDFrames           int      // RT frames remaining until this monster may attack again; ticks down regardless of AI state, so kiting in/out of range can't reset the attack cadence
+	FireburstChance          float64  // Chance to cast fireburst instead of normal attack
+	FireburstDamageMin       int      // Fireburst damage min
+	FireburstDamageMax       int      // Fireburst damage max
+	DragonBreathChance       float64  // Chance for this attack to hit every living party member
+	DragonBreathDamageType   string   // Element used by dragon breath mitigation/resists
+	PiercingShotChance       float64  // Chance to fire an armor-piercing shot at multiple party members
+	PiercingShotTargets      int      // Number of party members hit by Piercing Shot (default 2)
+	AllyHealChance           float64  // Chance to heal self or a nearby allied monster instead of attacking
+	AllyHealAmount           int      // HP restored by the ally heal special
+	AllyHealRadiusPixels     float64  // Radius for ally heal target search
+	PoisonChance             float64  // Chance to apply poison on hit
+	PoisonDurationSec        int      // Poison duration in seconds
+	IgniteChance             float64  // Chance to set the target on fire (burn DoT 3x poison; stacks with poison)
+	IgniteDurationSec        int      // Burn duration in seconds
+	StunCharChance           float64  // Chance to stun the struck character (skips actions)
+	StunCharSeconds          int      // Stun duration in RT seconds
+	StunCharTurns            int      // Stun duration in TB turns
+	DispelChance             float64  // Chance to strip one random active party buff on hit
 
 	// Loot
 	Gold  int
@@ -238,19 +254,39 @@ type Monster3D struct {
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
-	WardedByIdols    bool   // static: this boss is warded while any WarlordIdol lives
-	WarlordIdol      bool   // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
-	AggroWholeMap    bool   // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
-	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
-	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
-	BandID           int    // transient: stable runtime band membership; 0 = solo/unbanded
-	BandLeaderID     string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
-	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
-	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
-	Relentless       bool   // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
-	BossWarded       bool   // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundAllyCache)
-	BossLastHP       int    // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
-	BossHurtPending  bool   // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
+	WardedByIdols     bool    // static: this boss is warded while any WarlordIdol lives
+	WarlordIdol       bool    // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
+	RallyOnAggroTiles float64 // alarm bell: on aggro, wake every monster within N tiles
+	RallyDone         bool    // the bell only rings once per life
+	AggroWholeMap     bool    // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	DeathRalliesType  string  // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
+	Banding           bool    // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandID            int     // transient: stable runtime band membership; 0 = solo/unbanded
+	BandLeaderID      string  // transient: mob ID of this band's stable leader (leader marks itself); "" = none
+	BandStackIndex    int     // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount    int     // render-only (per-tick): size of the banded stack (0/1 = not stacked)
+	// AttackPost is a transient logical reservation for a monster's current
+	// combat tile, whether it is attacking the party or another monster. It is
+	// deliberately not physical collision: combatants can pass through every
+	// monster while only one may settle and attack from a given tile.
+	// AttackPostTargetID invalidates a reservation when the combat target changes.
+	// AttackPostSince gives an already settled attacker priority if two monsters
+	// try to claim the same tile on one real-time frame.
+	AttackPost         bool
+	AttackPostTargetID string
+	AttackPostSince    int64
+	// AttackTransit is true only while a combatant physically shares another
+	// monster's claimed attack tile. It cannot attack there; party melee arcs
+	// skip this incidental overlap, while AoE continues to use real positions.
+	AttackTransit bool
+	// TransitStack* is render-only. It fans combatants that temporarily share a
+	// tile, without making them an actual calm band or changing combat.
+	TransitStackIndex int
+	TransitStackCount int
+	Relentless        bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
+	BossWarded        bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundAllyCache)
+	BossLastHP        int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
+	BossHurtPending   bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.
 	SummonChance          float64  // 0..1 chance per action to summon
 	SummonFirstGuaranteed bool     // first successful summon ignores SummonChance; refills use SummonChance

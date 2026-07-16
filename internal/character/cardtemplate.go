@@ -330,14 +330,19 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.SpellDefinition) []CardSection {
 	casting := CardSection{Title: "CASTING"}
 	casting.Add("Cost: %d SP", def.SpellPointsCost)
-	cd := def.CooldownSeconds
-	note := ""
-	if cd <= 0 {
-		cd = spells.SpellCooldownDefaultSecondsForLevel(def.Level)
-		note = " (level default)"
+	// Buffs have no personal RT cooldown (but still spend a TB action). Match the
+	// game card by omitting a cooldown line entirely instead of displaying the
+	// authored fallback value as if it were active.
+	if !sd.IsBuff() {
+		cd := def.CooldownSeconds
+		note := ""
+		if cd <= 0 {
+			cd = spells.SpellCooldownDefaultSecondsForLevel(def.Level)
+			note = " (level default)"
+		}
+		casting.Add("%s", CooldownLine(cd))
+		casting.Add("Scales with caster Speed%s", note)
 	}
-	casting.Add("%s", CooldownLine(cd))
-	casting.Add("Scales with caster Speed%s", note)
 	if sd.IsProjectile && def.Physics != nil {
 		if def.Physics.RangeTiles > 0 {
 			casting.Add("Range: %.0f tiles", def.Physics.RangeTiles)

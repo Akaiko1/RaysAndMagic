@@ -947,9 +947,9 @@ func (ui *UISystem) drawWizardEyeRadar(screen *ebiten.Image) {
 
 const hudMessageSpacing = 18
 
-// drawCombatMessages draws the compact recent-message log just above the party
-// portraits. Long entries word-wrap to the block width (see hudMessageLines); the
-// block is bottom-anchored and grows upward so it never spills over the party UI.
+// drawCombatMessages draws the compact recent-message log above the bottom HUD.
+// Long entries word-wrap to the block width (see hudMessageLines); the block
+// grows upward and reserves a visible quick bar when their spans meet.
 func (ui *UISystem) drawCombatMessages(screen *ebiten.Image) {
 	lines := ui.game.hudMessageLines()
 	if len(lines) == 0 {

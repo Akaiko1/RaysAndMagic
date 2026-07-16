@@ -23,10 +23,12 @@ type NPCData struct {
 	Type             string               `yaml:"type"`
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
-	VisitedSprite    string               `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
-	NoSpin           bool                 `yaml:"no_spin,omitempty"` // pin the token to a fixed pose (a box pile does not rotate)
-	RenderCategory   string               `yaml:"render_category"`       // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
-	PromptVerb       string               `yaml:"prompt_verb,omitempty"` // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
+	VisitedSprite    string               `yaml:"visited_sprite,omitempty"`  // art swap once Visited (an emptied barrel closes)
+	NoSpin           bool                 `yaml:"no_spin,omitempty"`         // pin the token to a fixed pose (a box pile does not rotate)
+	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"` // >=2: grid-aligned facade slab spanning N tiles
+	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"`   // span direction from the anchor tile: e|s
+	RenderCategory   string               `yaml:"render_category"`           // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string               `yaml:"prompt_verb,omitempty"`     // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
 	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
@@ -161,6 +163,10 @@ type NPCItem struct {
 	Name     string `yaml:"name"`
 	Cost     int    `yaml:"cost"`
 	Quantity int    `yaml:"quantity"`
+	// Tab groups this entry under a named shop tab (the Clockmaker's armor
+	// sets). All-or-nothing per merchant: mixed tabbed/untabbed stock fails
+	// validation, an untabbed shop keeps the classic single grid.
+	Tab string `yaml:"tab,omitempty"`
 }
 
 // Global NPC configuration
@@ -376,6 +382,8 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		HideWhenVisited:  data.HideWhenVisited,
 		VisitedSprite:    data.VisitedSprite,
 		NoSpin:           data.NoSpin,
+		GridSpanTiles:    data.GridSpanTiles,
+		GridSpanDir:      data.GridSpanDir,
 		RejectsLich:      data.RejectsLich,
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
@@ -432,6 +440,7 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 			Item:     item,
 			Cost:     cost,
 			Quantity: qty,
+			Tab:      entry.Tab,
 		})
 	}
 	return stock
@@ -441,6 +450,11 @@ func buildMerchantStock(entries []*NPCItem) []*MerchantStockItem {
 // keep their authored order up front, weapons follow GROUPED by category
 // (sword/bow/mace/...) and named alphabetically within each group.
 func groupMerchantWeapons(stock []*MerchantStockItem) {
+	for _, m := range stock {
+		if m != nil && m.Tab != "" {
+			return // tabbed shop: the authored tab order IS the layout
+		}
+	}
 	weaponCat := func(m *MerchantStockItem) string {
 		if m.Item.Type != items.ItemWeapon {
 			return "" // non-weapon: sorts before every weapon, keeps authored order

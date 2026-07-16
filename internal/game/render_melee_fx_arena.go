@@ -43,6 +43,32 @@ func (r *Renderer) arenaImpactRings(screen *ebiten.Image, x, y, u, maxR, squashY
 	}
 }
 
+// arenaDebrisSpray throws `count` ballistic chips from (ox,oy) with 3-step
+// ghost trails and a parabolic fall - the shared "something broke off" beat
+// (gladius bronze chips, cogfang plate, escapement teeth). u is the finish
+// phase 0..1; spread is the fan in radians around straight up; speed/gravity/
+// size scale with h; every everyN-th chip takes the accent color.
+func (r *Renderer) arenaDebrisSpray(screen *ebiten.Image, ox, oy, u, fade, h, spread, spdBase, speed, gravity, size float64, count, everyN, seed, salt int, base, accent [3]int) {
+	for k := 0; k < count; k++ {
+		ang := -math.Pi/2 + (auraHash(seed, k, salt, 0)-0.5)*spread
+		spd := spdBase + auraHash(seed, k, salt+1, 0)
+		for g := 0; g < 3; g++ {
+			ug := u - float64(g)*0.05
+			if ug < 0 {
+				break
+			}
+			px := ox + math.Cos(ang)*spd*h*speed*ug
+			py := oy + math.Sin(ang)*spd*h*speed*ug + ug*ug*h*gravity
+			f := 1 - 0.3*float64(g)
+			c := base
+			if k%everyN == 0 {
+				c = accent
+			}
+			r.drawGlowRect(screen, px, py, math.Max(3, h*size*(1-0.4*ug)*f), c, fade*(1-ug)*f*f, additiveGlowBlend)
+		}
+	}
+}
+
 // Champion's Gladius - the executioner's X: two razor draw-cuts crossing at
 // the kill point, a snap-flash where they meet, and molten bronze chips
 // sprayed from the crossing. Short, ugly, and the last word of the bout.
@@ -98,25 +124,7 @@ func (r *Renderer) drawMeleeFxArenaGladius(screen *ebiten.Image, s SlashEffect, 
 		r.arenaImpactRings(screen, crossX, crossY, u, reach*0.9, 0.5, h*0.012, 2, bronze, fade*0.9)
 
 		// Molten bronze chips: ballistic spray from the crossing, ghost trails.
-		const chips = 14
-		for k := 0; k < chips; k++ {
-			ang := -math.Pi/2 + (auraHash(seed, k, 216, 0)-0.5)*2.6
-			spd := 0.5 + auraHash(seed, k, 217, 0)
-			for g := 0; g < 3; g++ {
-				ug := u - float64(g)*0.05
-				if ug < 0 {
-					break
-				}
-				bx := crossX + math.Cos(ang)*spd*h*0.24*ug
-				by := crossY + math.Sin(ang)*spd*h*0.24*ug + ug*ug*h*0.3
-				f := 1 - 0.3*float64(g)
-				c := hot
-				if k%3 == 0 {
-					c = white
-				}
-				r.drawGlowRect(screen, bx, by, math.Max(3, h*0.016*(1-0.4*ug)*f), c, fade*(1-ug)*f*f, additiveGlowBlend)
-			}
-		}
+		r.arenaDebrisSpray(screen, crossX, crossY, u, fade, h, 2.6, 0.5, 0.24, 0.3, 0.016, 14, 3, seed, 216, hot, white)
 	}
 }
 
@@ -400,7 +408,7 @@ func (r *Renderer) drawMeleeFxArenaTrident(screen *ebiten.Image, s SlashEffect, 
 	// (scales out) then visibly tightens (nodes pull toward its heart).
 	netU := math.Min(1, progress/(meleeSweepFrac*1.3))
 	netX, netY := cx, cy-reach*0.62
-	bloom := math.Sin(netU*math.Pi*0.62) // out then slightly back = the cinch
+	bloom := math.Sin(netU * math.Pi * 0.62) // out then slightly back = the cinch
 	netR := reach * (0.16 + 0.42*bloom)
 	if netU > 0.02 && netU < 1 {
 		aN := fade * 0.55 * math.Sin(netU*math.Pi)

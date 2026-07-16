@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/monster"
 	"ugataima/internal/quests"
@@ -449,7 +450,8 @@ func TestSeparateOverlappingMonsters(t *testing.T) {
 	g.collisionSystem.UpdateEntity("player", 8, 8)
 	a := monster.NewMonster3DFromConfig(64, 64, "goblin", cfg)
 	b := monster.NewMonster3DFromConfig(66, 64, "goblin", cfg) // almost fully stacked
-	a.IsEngagingPlayer = true                                  // calm pairs pass through by design; engaged ones glue
+	a.IsEngagingPlayer = true
+	a.AIFoe = b // preserve the non-party-fight separation contract under pass-through party combat
 	w.Monsters = []*monster.Monster3D{a, b}
 	g.registerSpawnedMonster(a)
 	g.registerSpawnedMonster(b)
@@ -494,6 +496,8 @@ func TestSeparateOverlappingMonsters_InCorridor(t *testing.T) {
 	b := monster.NewMonster3DFromConfig(64*3+34, 90, "goblin", cfg)
 	a.IsEngagingPlayer = true
 	b.IsEngagingPlayer = true
+	a.AIFoe = b
+	b.AIFoe = a
 	w.Monsters = []*monster.Monster3D{a, b}
 	g.registerSpawnedMonster(a)
 	g.registerSpawnedMonster(b)
@@ -568,6 +572,132 @@ func TestCreditClearedKillQuests_RegionScoped(t *testing.T) {
 	if q := g.questManager.GetQuest("dragon_cliffs_troll_cull"); q == nil || q.Completed {
 		t.Errorf("quest must NOT complete while a troll lives in its target_map; got %+v", q)
 	}
+}
+
+// A map can enter an old save before its authored markers are valid (the clock
+// tower briefly used uppercase monster letters). Such a save serializes an
+// empty roster. Once the map gains valid respawn_days spawns, that untracked
+// empty snapshot must not erase them again; an actual cleared farming map has
+// a respawn stamp and remains empty until its normal refresh window elapses.
+func TestSaveLoad_UntrackedEmptyRespawnRosterUsesAuthoredSpawns(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const mapKey = "respawn_test"
+
+	newAuthoredWorld := func() *world.World3D {
+		w := newTestWorld(cfg)
+		w.MonsterSpawns = []world.MonsterSpawn{{X: 0, Y: 0, MonsterKey: "bandit"}}
+		w.RespawnAuthoredMonsters()
+		return w
+	}
+	newManager := func(w *world.World3D) *world.WorldManager {
+		wm := world.NewWorldManager(cfg)
+		wm.CurrentMapKey = mapKey
+		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
+		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
+		return wm
+	}
+
+	for _, tc := range []struct {
+		name             string
+		respawnStamp     map[string]int
+		wantMonsters     int
+		wantRespawnStamp int
+	}{
+		{name: "legacy empty snapshot", wantMonsters: 1, wantRespawnStamp: 1},
+		{name: "tracked cleared roster", respawnStamp: map[string]int{mapKey: 3}, wantMonsters: 0, wantRespawnStamp: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wmSave := newManager(newAuthoredWorld())
+			gameSave := newTestGame(cfg, wmSave.LoadedMaps[mapKey])
+			save := gameSave.buildSave(wmSave)
+			save.MapKey = mapKey
+			save.MapMonsters = map[string][]MonsterSave{mapKey: []MonsterSave{}}
+			save.MapRespawnDay = tc.respawnStamp
+
+			worldLoad := newAuthoredWorld()
+			wmLoad := newManager(worldLoad)
+			oldWM := world.GlobalWorldManager
+			world.GlobalWorldManager = wmLoad
+			defer func() { world.GlobalWorldManager = oldWM }()
+
+			loaded := newTestGame(cfg, worldLoad)
+			if err := loaded.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			if got := len(worldLoad.Monsters); got != tc.wantMonsters {
+				t.Fatalf("monsters after load = %d, want %d", got, tc.wantMonsters)
+			}
+			resaved := loaded.buildSave(wmLoad)
+			if got := len(resaved.MapMonsters[mapKey]); got != tc.wantMonsters {
+				t.Fatalf("monsters after resave = %d, want %d", got, tc.wantMonsters)
+			}
+			if got := resaved.MapRespawnDay[mapKey]; got != tc.wantRespawnStamp {
+				t.Fatalf("respawn stamp after resave = %d, want %d", got, tc.wantRespawnStamp)
+			}
+			if tc.wantMonsters > 0 {
+				if worldLoad.Monsters[0].Key != "bandit" {
+					t.Fatalf("restored roster key = %q, want bandit", worldLoad.Monsters[0].Key)
+				}
+				if worldLoad.LastRespawnDay != loaded.dayNightDay+1 {
+					t.Fatalf("respawn stamp = %d, want %d", worldLoad.LastRespawnDay, loaded.dayNightDay+1)
+				}
+			}
+		})
+	}
+}
+
+// A respawn_days roster with NO stamp is of unknown age (a pre-stamp save):
+// arrival must rewind it to the CURRENT authored spawns immediately, so old
+// saves pick up re-authored maps on first entry. A stamped roster keeps its
+// normal refresh window.
+func TestRespawnOnArrival_UnstampedRosterRewindsToAuthored(t *testing.T) {
+	cfg := loadTestConfig(t)
+	const mapKey = "respawn_test"
+
+	setup := func(stamp int) (*MMGame, *world.World3D) {
+		w := newTestWorld(cfg)
+		w.MonsterSpawns = []world.MonsterSpawn{
+			{X: 0, Y: 0, MonsterKey: "bandit"},
+			{X: 1, Y: 0, MonsterKey: "bandit"},
+		}
+		// Stale roster from an old save: one survivor of a smaller authoring.
+		w.Monsters = []*monster.Monster3D{monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)}
+		w.LastRespawnDay = stamp
+		wm := world.NewWorldManager(cfg)
+		wm.CurrentMapKey = mapKey
+		wm.LoadedMaps = map[string]*world.World3D{mapKey: w}
+		wm.MapConfigs = map[string]*config.MapConfig{mapKey: {RespawnDays: 3}}
+		oldWM := world.GlobalWorldManager
+		world.GlobalWorldManager = wm
+		t.Cleanup(func() { world.GlobalWorldManager = oldWM })
+		return newTestGame(cfg, w), w
+	}
+
+	t.Run("unstamped: rewound on arrival", func(t *testing.T) {
+		g, w := setup(0)
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 2 {
+			t.Fatalf("unstamped roster must rewind to authored spawns, got %d monsters, want 2", got)
+		}
+		if w.LastRespawnDay != g.dayNightDay+1 {
+			t.Fatalf("rewind must stamp the day, got %d", w.LastRespawnDay)
+		}
+	})
+	t.Run("fresh stamp: untouched", func(t *testing.T) {
+		g, w := setup(1) // spawned "today" (dayNightDay 0 -> stamp 1)
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 1 {
+			t.Fatalf("freshly stamped roster must keep its refresh window, got %d monsters, want 1", got)
+		}
+	})
+	t.Run("expired stamp: rewound", func(t *testing.T) {
+		g, w := setup(1)
+		g.dayNightDay = 3 // 3 full phases later
+		g.maybeRespawnMapMonsters()
+		if got := len(w.Monsters); got != 2 {
+			t.Fatalf("expired stamp must rewind, got %d monsters, want 2", got)
+		}
+	})
 }
 
 // Hostility must survive save/load: a provoked monster (WasAttacked) stays

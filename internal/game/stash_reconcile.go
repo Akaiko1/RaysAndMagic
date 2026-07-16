@@ -101,29 +101,46 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 	if g.party == nil || !g.ensureStashLoaded() {
 		return
 	}
-	owned := make(map[uint64]bool)
+	// Chest ownership counts UNITS: a stack carries one InstanceID for N units,
+	// and stripping the whole entry when the chest holds fewer would destroy
+	// the difference (drink 2 of 5, deposit 3, reload the older 5-stack save:
+	// only the chest's 3 must be deduped, the loose 2 survive).
+	owned := make(map[uint64]int)
 	for i := range g.stash.Slots {
 		if id := g.stash.Slots[i].InstanceID; id != 0 {
-			owned[id] = true
+			owned[id] += g.stash.Slots[i].Count()
 		}
 	}
 	for i := range g.stash.CardSlots {
 		if id := g.stash.CardSlots[i].InstanceID; id != 0 {
-			owned[id] = true
+			owned[id] += g.stash.CardSlots[i].Count()
 		}
 	}
 	if len(owned) == 0 {
 		return
 	}
 	chestOwns := func(it items.Item) bool {
-		return it.InstanceID != 0 && owned[it.InstanceID]
+		return it.InstanceID != 0 && owned[it.InstanceID] > 0
+	}
+	// afterDedup returns the item minus the chest-owned units, and whether
+	// anything remains. Non-stackables keep the old all-or-nothing semantics.
+	afterDedup := func(it items.Item) (items.Item, bool) {
+		units := owned[it.InstanceID]
+		if it.InstanceID == 0 || units == 0 {
+			return it, true
+		}
+		if !it.Stackable() || units >= it.Count() {
+			return it, false
+		}
+		it.Quantity = it.Count() - units
+		return it, true
 	}
 
 	// Strip the bag: a slice deletes by rebuilding in place around the removed.
 	bag := g.party.Inventory[:0]
 	for _, it := range g.party.Inventory {
-		if !chestOwns(it) {
-			bag = append(bag, it)
+		if kept, ok := afterDedup(it); ok {
+			bag = append(bag, kept)
 		}
 	}
 	g.party.Inventory = bag
@@ -138,7 +155,12 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 			}
 		}
 		for i, qs := range m.QuickSlots {
-			if qs != nil && chestOwns(*qs) {
+			if qs == nil {
+				continue
+			}
+			if kept, ok := afterDedup(*qs); ok {
+				*m.QuickSlots[i] = kept
+			} else {
 				m.QuickSlots[i] = nil
 			}
 		}

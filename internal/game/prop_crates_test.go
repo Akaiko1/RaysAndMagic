@@ -190,7 +190,6 @@ func TestPermanentBonusesSurviveSaveLoad(t *testing.T) {
 	}
 }
 
-
 // A crate cannot be opened mid-fight: the Space focus is combat-blocked, but a
 // mouse click calls useLootCrate directly - the lockout must fire BEFORE the
 // crate is consumed, or the blocked attempt would waste it.
@@ -221,5 +220,81 @@ func TestCrateBlockedDuringCombatWithoutWasting(t *testing.T) {
 	g.useLootCrate(fire)
 	if !fire.Visited || g.party.Gold != gold0+500 || hurt.HitPoints != hurt.MaxHitPoints {
 		t.Fatal("after combat the untouched campfire must work normally")
+	}
+}
+
+// Bound allies use IsEngagingPlayer while following the party or pursuing an
+// enemy. A party hit also sets WasAttacked through the shared damage sink, but
+// neither flag may turn a friendly summon into combat for crate interaction.
+func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
+	tests := []struct {
+		name    string
+		key     string
+		control func(*MMGame, *monster.Monster3D)
+	}{
+		{
+			name: "card ally",
+			key:  "masked_huntress",
+			control: func(_ *MMGame, ally *monster.Monster3D) {
+				markCardAlly(ally)
+			},
+		},
+		{
+			name: "bound undead",
+			key:  "skeleton",
+			control: func(g *MMGame, ally *monster.Monster3D) {
+				g.combat.applyBindUndead(ally, 60, "Bind Undead")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := crateTestGame(t)
+			fire := spawnCrate(t, g, "campfire", g.camera.X+64, g.camera.Y)
+			ally := monster.NewMonster3DFromConfig(g.camera.X+64, g.camera.Y, tt.key, g.config)
+			ally.MaxHitPoints, ally.HitPoints = 1000, 1000
+			ally.ArmorClass, ally.PerfectDodge = 0, 0
+			tt.control(g, ally)
+			g.world.Monsters = []*monster.Monster3D{ally}
+
+			// Exercise the real party damage hub rather than setting the flags by hand.
+			g.combat.ApplyDamageToMonster(ally, 1, "Iron Sword", false)
+			if !ally.IsEngagingPlayer || !ally.WasAttacked {
+				t.Fatalf("party hit must set the generic combat flags, got engaging=%v attacked=%v",
+					ally.IsEngagingPlayer, ally.WasAttacked)
+			}
+			if g.partyInCombat() {
+				t.Fatal("a bound ally must not count as combat with the party")
+			}
+
+			g.useLootCrate(fire)
+			if !fire.Visited {
+				t.Fatal("a crate must remain usable after hitting a bound ally")
+			}
+		})
+	}
+}
+
+// Charm is deliberately different from Bind Undead: a party hit breaks the
+// charm, returns the monster to hostility, and must still lock the crate.
+func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {
+	g := crateTestGame(t)
+	fire := spawnCrate(t, g, "campfire", g.camera.X+64, g.camera.Y)
+	charmed := monster.NewMonster3DFromConfig(g.camera.X+64, g.camera.Y, "goblin", g.config)
+	charmed.MaxHitPoints, charmed.HitPoints = 1000, 1000
+	charmed.ArmorClass, charmed.PerfectDodge = 0, 0
+	g.world.Monsters = []*monster.Monster3D{charmed}
+	g.combat.applyPacify(charmed, 60, "Charm")
+
+	g.combat.ApplyDamageToMonster(charmed, 1, "Iron Sword", false)
+	if charmed.Pacified || !g.partyInCombat() {
+		t.Fatalf("a hit charmed monster must become a hostile combatant (pacified=%v combat=%v)",
+			charmed.Pacified, g.partyInCombat())
+	}
+
+	g.useLootCrate(fire)
+	if fire.Visited {
+		t.Fatal("a crate must stay locked after the party breaks Charm")
 	}
 }

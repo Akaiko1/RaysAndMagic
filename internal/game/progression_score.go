@@ -49,6 +49,29 @@ func (g *MMGame) awardArenaPoints(amount int) {
 	g.party.ArenaPoints += amount
 }
 
+// xpStepCost is the experience required to advance FROM `level` to level+1:
+// the classic linear 100 x L early, the quadratic branch from L13 up (see
+// XPQuadPerLevel for why). Single source for the level gate and the score
+// reconstruction below.
+func xpStepCost(level int) int {
+	linear := XPRequiredPerLevel * level
+	if quad := XPQuadPerLevel * level * level; quad > linear {
+		return quad
+	}
+	return linear
+}
+
+// xpSpentToReach sums the step costs from level 1 up to `level` - the XP a
+// character has already paid into level-ups (their Experience field holds only
+// the remainder toward the next level).
+func xpSpentToReach(level int) int {
+	spent := 0
+	for l := 1; l < level; l++ {
+		spent += xpStepCost(l)
+	}
+	return spent
+}
+
 func earnedExperienceForCharacter(level, remaining int) int {
 	if level < 1 {
 		level = 1
@@ -56,8 +79,7 @@ func earnedExperienceForCharacter(level, remaining int) int {
 	if remaining < 0 {
 		remaining = 0
 	}
-	spent := XPRequiredPerLevel * (level - 1) * level / 2
-	return spent + remaining
+	return xpSpentToReach(level) + remaining
 }
 
 func earnedExperienceForParty(p *character.Party) int {

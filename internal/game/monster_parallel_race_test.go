@@ -77,9 +77,24 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 		g.collisionSystem.UpdateEntity("player", m.X, m.Y)
 	}
 
+	// Crossfire scenario: a bound ally in the fray hands every nearby mob an
+	// AIFoe, and poison makes each foe's OWN worker write its HitPoints inside
+	// the parallel phase - so any live foe.X/Y/HP read from another worker
+	// (instead of the frame-start AIFoe/AITargetX/Y snapshot) races here.
+	if len(w.Monsters) > 1 {
+		w.Monsters[1].Bound = true
+	}
+	for i, m := range w.Monsters {
+		if i%2 == 0 {
+			m.ApplyPoison(6000) // ticks every parallel update for the whole run
+		}
+	}
+
 	const ticks = 600 // 10s at 60 TPS - race detector needs sustained contention
 	for tick := 0; tick < ticks; tick++ {
 		g.frameCount++
+		// Production per-tick order: serial foe/target snapshot, then parallel.
+		g.refreshBoundAllyCache()
 		monsters := g.ConvertMonstersToWrappers()
 		g.threading.EntityUpdater.UpdateMonstersParallel(monsters)
 	}

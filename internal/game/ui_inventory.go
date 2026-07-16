@@ -24,8 +24,10 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	gridX, gridY, gridSize := layout.grid.x, layout.grid.y, layout.grid.w
 
 	drawDebugTextColored(screen, fmt.Sprintf("%s's equipment", currentChar.Name), paperX, contentY+10, color.RGBA{232, 222, 190, 255})
-	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Total Items: %d",
-		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems()),
+	// Items counts UNITS (stacks summed); slots = grid entries, so the label
+	// can't read as a bug when a 5-stack fills one cell.
+	drawDebugText(screen, fmt.Sprintf("Gold: %d  Food: %d  Items: %d (%d slots)",
+		ui.game.party.Gold, ui.game.party.Food, ui.game.party.GetTotalItems(), len(ui.game.party.Inventory)),
 		paperX, contentY+29)
 
 	drawImageScaled(screen, ui.game.sprites.GetSprite("inventory_paperdoll_panel"), paperX, paperY, paperW, paperH)
@@ -321,6 +323,17 @@ func (ui *UISystem) drawInventoryItemIcon(screen *ebiten.Image, item items.Item,
 	if !enabled {
 		drawFilledRect(screen, iconX, iconY, iconSize, iconSize, color.RGBA{60, 0, 0, 90})
 	}
+	// Stack count badge, bottom-right. Every icon surface (bag, quick slots,
+	// merchant grids, stash) shares this renderer, so stacks read the same
+	// everywhere.
+	if n := item.Count(); n > 1 {
+		label := fmt.Sprintf("x%d", n)
+		lw := debugTextWidth(label)
+		bx := iconX + iconSize - lw - 4
+		by := iconY + iconSize - debugTextCharHeight - 2
+		drawFilledRect(screen, bx-2, by-1, lw+4, debugTextCharHeight+2, color.RGBA{18, 14, 20, 210})
+		drawDebugTextColored(screen, label, bx, by, color.RGBA{240, 230, 200, 255})
+	}
 }
 
 // itemDiscardable: quest items are undiscardable unless the item itself opts
@@ -349,7 +362,7 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 			if !itemDiscardable(item) {
 				ui.game.AddCombatMessage(fmt.Sprintf("Cannot discard %s.", item.Name))
 			} else {
-				ui.game.party.RemoveItem(idx)
+				ui.game.party.ConsumeOneAt(idx) // stacks discard one unit per click
 				ui.game.AddCombatMessage(fmt.Sprintf("Discarded %s.", item.Name))
 			}
 		}

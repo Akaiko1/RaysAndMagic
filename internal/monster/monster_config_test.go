@@ -55,3 +55,14 @@ func TestMonsterSizeGameRejected(t *testing.T) {
 		t.Fatalf("error should name the key and the monster, got: %v", err)
 	}
 }
+
+func TestMonsterSpawnLetterMustBeLowercase(t *testing.T) {
+	cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+		"bad_marker": {Name: "Bad Marker", Letter: "B", SizeClass: "person"},
+	}}
+
+	err := validateMonsterConfiguration(cfg)
+	if err == nil || !strings.Contains(err.Error(), "bad_marker") || !strings.Contains(err.Error(), "lowercase") {
+		t.Fatalf("uppercase monster map letter must fail clearly, got: %v", err)
+	}
+}

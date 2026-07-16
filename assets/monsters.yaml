@@ -1599,7 +1599,8 @@ monsters:
   # Champion mobs: a real character build (champions.yaml) on the monster AI.
   # HP / armor / damage / attack cadence are mirrored from the character at
   # spawn (game.applyChampionStats); the values below are pre-mirror placeholders.
-  # Arena-scoped so their letters never collide with wild spawns.
+  # Arena-scoped, so these lowercase markers may reuse wild-map letters.
+  # Arena champions are created by the duel flow, not placed in arena.map.
   hobbit_archer:
     name: "Hobbit Archer"
     type: human
@@ -1617,7 +1618,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: hobbit_archer
-    letter: "A"
+    letter: "a"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1641,7 +1642,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: weapon_master
-    letter: "W"
+    letter: "w"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1665,7 +1666,7 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: dark_elf_sorceress
-    letter: "S"
+    letter: "s"
     box_w: 48
     box_h: 48
     size_class: person
@@ -1690,13 +1691,126 @@ monsters:
     gold_min: 0
     gold_max: 0
     sprite: druid_enemy
-    letter: "D"
+    letter: "d"
     box_w: 48
     box_h: 48
     size_class: person
     biomes: ["arena"]
     # Warden of root and rain: nature schools bounce off, fire burns through.
     resistances: { earth: 50, water: 50, body: 30, fire: -25 }
+
+
+  # --- Clock Tower (2026-07-16): the horologist's dungeon, L6-10 band ---
+  # Floor 2 fodder: animate dust that clots between the great gears. Clusters.
+  dust_slime:
+    name: "Dust Slime"
+    type: "construct"
+    banding: true
+    level: 22
+    max_hit_points: 950
+    armor_class: 26
+    experience: 1000
+    damage_min: 42
+    damage_max: 58
+    alert_radius: 4
+    attack_radius: 1.2
+    speed: 1.1
+    gold_min: 30
+    gold_max: 80
+    sprite: "dust_slime"
+    letter: "b"
+    box_w: 52
+    box_h: 52
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    # A wad of grey lint: blades pass through, fire eats it alive.
+    resistances: { physical: 25, fire: -30 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 2 caster: a maintenance manual that learned to hold a grudge.
+  possessed_tome:
+    name: "Possessed Tome"
+    type: "construct"
+    level: 25
+    max_hit_points: 880
+    armor_class: 30
+    experience: 1300
+    damage_min: 48
+    damage_max: 66
+    alert_radius: 5
+    attack_radius: 1.2
+    projectile_weapon: "oak_staff"
+    ranged_attack_range: 4
+    speed: 1.5
+    gold_min: 40
+    gold_max: 110
+    sprite: "possessed_tome"
+    letter: "k"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 50, fire: -25 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 3 sentinel: fast, loud, and it WAKES THE WHOLE FLOOR when it rings.
+  alarm_clock:
+    name: "Alarm Sentry"
+    type: "construct"
+    level: 28
+    max_hit_points: 1150
+    armor_class: 38
+    experience: 1700
+    damage_min: 50
+    damage_max: 68
+    alert_radius: 7
+    attack_radius: 1.2
+    attacks_per_round: 2
+    attack_cooldown_multiplier: 0.7
+    rally_on_aggro_tiles: 15   # the bell: wakes every horror within 15 tiles, once
+    speed: 2.2
+    gold_min: 60
+    gold_max: 150
+    sprite: "alarm_clock"
+    letter: "l"
+    box_w: 48
+    box_h: 48
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 100, spirit: 30 }
+    habitat_preferences:
+      - "empty"
+
+  # Floor 3 heavy: the tower's old longcase clocks, pendulums swung like mauls.
+  grandfather_clock:
+    name: "Grandfather Clock"
+    type: "construct"
+    level: 30
+    max_hit_points: 1900
+    armor_class: 52
+    experience: 2400
+    damage_min: 62
+    damage_max: 84
+    alert_radius: 4
+    attack_radius: 1.4
+    attacks_per_round: 2
+    stun_char_chance: 0.15
+    stun_char_seconds: 2
+    stun_char_turns: 1
+    speed: 1.0
+    gold_min: 90
+    gold_max: 220
+    sprite: "grandfather_clock"
+    letter: "g"
+    box_w: 56
+    box_h: 56
+    size_class: person
+    biomes: ["clock_tower_workshop", "clock_tower_gearworks", "clock_tower_belfry"]
+    resistances: { mind: 100, physical: 15, fire: -20 }
+    habitat_preferences:
+      - "empty"
 
 # Damage type mappings for resistances
 damage_types:

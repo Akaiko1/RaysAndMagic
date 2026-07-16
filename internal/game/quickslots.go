@@ -315,6 +315,11 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			item := g.party.Inventory[g.dragInvIndex]
 			g.party.RemoveItem(g.dragInvIndex)
 			occ := tch.QuickSlots[targetSlot]
+			// Same-stack items pile up in the slot instead of displacing.
+			if occ != nil && items.SameStack(*occ, item) {
+				occ.Quantity = occ.Count() + item.Count()
+				break
+			}
 			cp := item
 			tch.QuickSlots[targetSlot] = &cp
 			if occ != nil {
@@ -342,11 +347,30 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 	case dragFromQuickSlot:
 		if !(g.dragQuickChar == targetChar && g.dragQuickSlot == targetSlot) {
 			sch := g.party.Members[g.dragQuickChar]
-			sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot] =
-				tch.QuickSlots[targetSlot], sch.QuickSlots[g.dragQuickSlot]
+			src, dst := sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot]
+			if src != nil && dst != nil && items.SameStack(*src, *dst) {
+				dst.Quantity = dst.Count() + src.Count()
+				sch.QuickSlots[g.dragQuickSlot] = nil
+			} else {
+				sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot] = dst, src
+			}
 		}
 	}
 	g.clearDrag()
+}
+
+// decrementQuickSlot takes one unit off a quick-slot stack, emptying the slot
+// when the last unit goes.
+func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
+	it := ch.QuickSlots[slotIdx]
+	if it == nil {
+		return
+	}
+	if it.Count() > 1 {
+		it.Quantity = it.Count() - 1
+		return
+	}
+	ch.QuickSlots[slotIdx] = nil
 }
 
 // returnQuickItemToInventory puts a displaced quick-slot item back into the bag,
@@ -436,19 +460,17 @@ func (ui *UISystem) drawTabQuickSlotBar(screen *ebiten.Image, barX, barY, barW i
 	ui.drawQuickSlotBar(screen, ui.game.selectedChar, barX, barY, barW)
 }
 
-// drawInGameQuickSlots floats the bar above the party cards, right-aligned to the
-// card row (clear of the top-left spell-status icons), and double-click uses a
-// slot for the selected character. Hidden when the selected character has no
-// quick items.
-func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
-	g := ui.game
-	if g.menuOpen { // the open tab already shows the bar
-		return
-	}
-	if g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
-		return
+// inGameQuickSlotBarLayout returns the gameplay quick-bar rectangle exactly
+// when it is visible. The HUD chat shares this layout to reserve the bar's
+// space instead of drawing over it at narrow standard resolutions.
+func inGameQuickSlotBarLayout(g *MMGame) (layoutRect, bool) {
+	if g == nil || g.config == nil || g.menuOpen || g.selectedChar < 0 || g.selectedChar >= len(g.party.Members) {
+		return layoutRect{}, false
 	}
 	ch := g.party.Members[g.selectedChar]
+	if ch == nil {
+		return layoutRect{}, false
+	}
 	any := false
 	for _, it := range ch.QuickSlots {
 		if it != nil {
@@ -457,7 +479,7 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 		}
 	}
 	if !any {
-		return
+		return layoutRect{}, false
 	}
 
 	pw, _, baseLeft, startY := partyPortraitLayout(g)
@@ -471,8 +493,22 @@ func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
 	if barY < 0 {
 		barY = 0
 	}
+	return layoutRect{x: barX, y: barY, w: barW, h: barH}, true
+}
 
-	slots := ui.drawQuickSlotBar(screen, g.selectedChar, barX, barY, barW)
+// drawInGameQuickSlots floats the bar above the party cards, right-aligned to the
+// card row (clear of the top-left spell-status icons), and double-click uses a
+// slot for the selected character. Hidden when the selected character has no
+// quick items.
+func (ui *UISystem) drawInGameQuickSlots(screen *ebiten.Image) {
+	g := ui.game
+	bar, visible := inGameQuickSlotBarLayout(g)
+	if !visible {
+		return
+	}
+	ch := g.party.Members[g.selectedChar]
+
+	slots := ui.drawQuickSlotBar(screen, g.selectedChar, bar.x, bar.y, bar.w)
 	for i := 0; i < character.QuickSlotCount; i++ {
 		if ch.QuickSlots[i] == nil {
 			continue
@@ -548,13 +584,17 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	// used by an unconscious owner routes to a target picker (see
 	// UseConsumableFromInventory); a revive opens the revival picker.
 	if item.Type == items.ItemConsumable {
+		// ONE unit goes to the bag as a temp entry - raw append, not AddItem: a
+		// merge into an existing bag stack would break the "temp copy at idx"
+		// contract below and consume from the wrong pile.
 		drink := *item
-		g.party.AddItem(drink)
+		drink.Quantity = 1
+		g.party.Inventory = append(g.party.Inventory, drink)
 		idx := len(g.party.Inventory) - 1
 		used := g.UseConsumableFromInventory(idx, charIdx)
 		switch {
 		case used:
-			ch.QuickSlots[slotIdx] = nil // consumed outright (no picker)
+			g.decrementQuickSlot(ch, slotIdx) // one unit drunk; stack lives on
 		case g.revivalPickerOpen || g.healPickerOpen:
 			// A picker owns the temp bag copy at idx; keep the slot filled until it
 			// resolves (confirm clears it, cancel drops the temp copy & keeps it).
@@ -613,7 +653,7 @@ func (g *MMGame) useQuickSlot(charIdx, slotIdx int) {
 	}
 	if acted {
 		if g.turnBasedMode {
-			g.consumeSelectedCharAction()
+			g.consumeSelectedCharActionWithRTCooldown(cdFrames)
 		} else {
 			ch.RTCooldown = cdFrames
 		}

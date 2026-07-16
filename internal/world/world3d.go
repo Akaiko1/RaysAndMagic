@@ -48,10 +48,15 @@ type World3D struct {
 	Tiles              [][]TileType3D
 	Monsters           []*monster.Monster3D
 	InitialMonsterKeys map[string]struct{} // Fixed monster kinds present when the map was created.
-	NPCs               []*character.NPC
-	Items              []*character.WorldItem
-	Teachers           []*character.SkillTeacher
-	config             *config.Config
+	// MonsterSpawns is the authored roster (retained verbatim) and
+	// LastRespawnDay the day/night phase count when it was last spawned -
+	// respawn_days maps (the clock tower) rebuild the roster from it.
+	MonsterSpawns  []MonsterSpawn
+	LastRespawnDay int
+	NPCs           []*character.NPC
+	Items          []*character.WorldItem
+	Teachers       []*character.SkillTeacher
+	config         *config.Config
 	// OutOfBoundsKey is the tile key painted beyond the map edges (off-map
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
 	// to "oob_cliff".
@@ -332,9 +337,8 @@ func (w *World3D) RegisterMonstersWithCollisionSystem(collisionSystem *collision
 		// Get monster size from YAML config
 		width, height := monster.GetSize()
 
-		// The game promotes a monster to a solid engaged blocker only after its
-		// per-frame AI target is known. Defaulting map-loaded monsters to walkable
-		// prevents a peaceful mob from blocking the first player input after load.
+		// Map-loaded monsters begin physically walkable. The game later promotes a
+		// party attacker only to a logical attack-post marker, never a blocker.
 		entity := collision.NewEntity(monster.ID, monster.X, monster.Y, width, height, collision.CollisionTypeMonster, false)
 		collisionSystem.RegisterEntity(entity)
 	}
@@ -519,6 +523,7 @@ func tileCenterFromTile(tileX, tileY int, tileSize float64) (float64, float64) {
 
 // loadMonstersFromMapData loads monsters from map spawn data
 func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
+	w.MonsterSpawns = monsterSpawns
 	for _, spawn := range monsterSpawns {
 		if w.InitialMonsterKeys == nil {
 			w.InitialMonsterKeys = make(map[string]struct{})
@@ -530,6 +535,25 @@ func (w *World3D) loadMonstersFromMapData(monsterSpawns []MonsterSpawn) {
 		// Create monster from YAML configuration
 		newMonster := monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config)
 		w.Monsters = append(w.Monsters, newMonster)
+	}
+}
+
+// RespawnAuthoredMonsters rebuilds the authored roster of a respawn_days
+// farming map. Party-charms intentionally remain: they survive map departure
+// and must still be killable later for their normal XP and loot. The caller owns
+// collision bookkeeping: unregister the old roster's entities first, register
+// the new one after.
+func (w *World3D) RespawnAuthoredMonsters() {
+	preserved := make([]*monster.Monster3D, 0)
+	for _, m := range w.Monsters {
+		if m != nil && m.IsAlive() && (m.CharmedByParty || m.Pacified) {
+			preserved = append(preserved, m)
+		}
+	}
+	w.Monsters = preserved
+	for _, spawn := range w.MonsterSpawns {
+		worldX, worldY := tileCenterFromTile(spawn.X, spawn.Y, w.config.GetTileSize())
+		w.Monsters = append(w.Monsters, monster.NewMonster3DFromConfig(worldX, worldY, spawn.MonsterKey, w.config))
 	}
 }
 

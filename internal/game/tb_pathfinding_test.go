@@ -282,8 +282,8 @@ func TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons(t *testing.T) {
 
 // TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves
 // reproduces the longer live sequence that exposed the freeze: the gorilla takes
-// the real deep-jungle route, swaps through its own summons, the party kills the
-// displaced summon, then the party moves around the lake for several TB rounds.
+// the real deep-jungle route through its own pass-through summons, the party
+// kills one, then moves around the lake for several TB rounds.
 // The gorilla must keep advancing or be in a legal attack/pounce staging tile;
 // standing still out of reach means the runtime turn/collision state wedged.
 func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *testing.T) {
@@ -328,25 +328,24 @@ func TestMonsterTurnBased_Save1GorillaRetargetsAfterSummonDiesAndPartyMoves(t *t
 
 	gl := &GameLoop{game: g}
 
-	// Drive only the gorilla until it reaches the far summon and swaps with it.
-	// This sets up the same "own summon got displaced by the boss path" state
-	// without letting unrelated huntress AI noise hide the regression.
-	swappedWithFarSummon := false
+	// Drive only the gorilla through the real route. Own summons are physically
+	// pass-through now, so this must not depend on the old swap-only movement
+	// path; the regression we care about is the later retarget after one dies.
+	startTile := [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)}
+	movedTowardParty := false
 	for step := 0; step < 12; step++ {
 		g.refreshBoundAllyCache()
 		gl.monsterMoveTurnBased(gorilla)
 		refreshTBMonsterSolidity(g)
 
-		gtx, gty := int(gorilla.X/tile), int(gorilla.Y/tile)
-		ftx, fty := int(farSummon.X/tile), int(farSummon.Y/tile)
-		if gtx == 40 && gty == 46 && ftx == 40 && fty == 45 {
-			swappedWithFarSummon = true
+		if [2]int{int(gorilla.X / tile), int(gorilla.Y / tile)} != startTile {
+			movedTowardParty = true
 			break
 		}
 	}
-	if !swappedWithFarSummon {
-		t.Fatalf("setup failed: gorilla did not swap with far summon; gorilla=(%d,%d), farSummon=(%d,%d)",
-			int(gorilla.X/tile), int(gorilla.Y/tile), int(farSummon.X/tile), int(farSummon.Y/tile))
+	if !movedTowardParty {
+		t.Fatalf("setup failed: gorilla did not advance through its pass-through summons; gorilla=(%d,%d)",
+			int(gorilla.X/tile), int(gorilla.Y/tile))
 	}
 
 	// Simulate the party shooting the displaced summon dead, including the same

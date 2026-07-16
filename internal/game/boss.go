@@ -287,7 +287,11 @@ func (cs *CombatSystem) blinkMonsterRandom(m *monsterPkg.Monster3D) bool {
 		tx := rand.Intn(w.Width)
 		ty := rand.Intn(w.Height)
 		cx, cy := TileCenterFromTile(tx, ty, tile)
+		if cs.game.monsterHasAttackTarget(m) && cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
+			continue
+		}
 		if cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
+			cs.game.releaseMonsterAttackPost(m)
 			m.X, m.Y = cx, cy
 			cs.game.collisionSystem.UpdateEntity(m.ID, cx, cy)
 			m.ResetPathfinding() // drop stale waypoints from the old position

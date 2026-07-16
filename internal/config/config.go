@@ -434,6 +434,9 @@ type SpellDefinitionConfig struct {
 	Schools         []string `yaml:"schools,omitempty"`
 	Level           int      `yaml:"level"`
 	SpellPointsCost int      `yaml:"spell_points_cost"`
+	// Category selects optional cast behavior. "buff" is a beneficial timed
+	// effect with no per-character real-time cooldown.
+	Category string `yaml:"category,omitempty"`
 	// CooldownSeconds is the real-time cast cooldown for this spell at the
 	// reference Speed (see SpellCooldownSpeedRefSpeed); Speed scales it. 0 =
 	// fall back to SpellCooldownDefaultSecondsForLevel(level).
@@ -598,7 +601,6 @@ type MonsterAIConfig struct {
 	// Detection tuning. Distances are in tiles; the rest are multipliers.
 	DefaultAlertRadiusTiles      float64 `yaml:"default_alert_radius_tiles"`      // fallback when a monster omits alert_radius
 	AlertOutsideTetherMultiplier float64 `yaml:"alert_outside_tether_multiplier"` // wider detection when lured away from spawn
-	AlertLosBlockedMultiplier    float64 `yaml:"alert_los_blocked_multiplier"`    // reduced detection through trees/walls
 	DisengageDistanceMultiplier  float64 `yaml:"disengage_distance_multiplier"`   // lose engagement at detection x this (hysteresis)
 	AttackEnterRangeFraction     float64 `yaml:"attack_enter_range_fraction"`     // enter attack at <= range x this (exit at > range)
 
@@ -787,7 +789,7 @@ type TileData struct {
 	// floor_color square - like the ground under a mob spawn. The floor_color is
 	// then reused only as the tint for the tile's decoration (spawn border /
 	// teleporter glow), not the floor itself.
-	InheritFloor bool     `yaml:"inherit_floor,omitempty"`
+	InheritFloor bool `yaml:"inherit_floor,omitempty"`
 	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
 	// not rotate; a fountain keeps the showcase spin).
 	NoSpin bool `yaml:"no_spin,omitempty"`
@@ -797,7 +799,7 @@ type TileData struct {
 	WallColor [3]int   `yaml:"wall_color,omitempty"`
 	MapColor  [3]int   `yaml:"map_color,omitempty"`
 	Letter    string   `yaml:"letter"`
-	Biomes       []string `yaml:"biomes,omitempty"`
+	Biomes    []string `yaml:"biomes,omitempty"`
 	// ShortLabel is a multi-char placement token for GENERAL (universal) tiles
 	// that have no single-char letter - placed in maps via a >[tile:short_label]
 	// def at an '@' position, like NPCs/special tiles. Frees such tiles from the
@@ -846,6 +848,10 @@ type MapConfig struct {
 	// every inner wall corner of the map - the classic dungeon/temple dressing
 	// for dark maps.
 	WallTorches bool `yaml:"wall_torches,omitempty"`
+	// RespawnDays > 0 makes the map a FARMING zone: on arrival, if at least this
+	// many day/night phase changes have passed since the roster was last spawned,
+	// the authored monsters respawn in full (the clock tower winds new horrors).
+	RespawnDays int `yaml:"respawn_days,omitempty"`
 	// ClearEncounter: a single map-wide encounter - ALL monsters on the map
 	// share it and the reward fires when the last one dies.
 	ClearEncounter *MapClearEncounterConfig `yaml:"clear_encounter,omitempty"`
@@ -975,9 +981,9 @@ type WeaponDefinitionConfig struct {
 	// hit. Same semantics as the spell field of the same name: splash uses
 	// the base damage, applies the victim's armor reduction, and skips
 	// crits/disintegrate/stun.
-	AoeRadiusTiles float64            `yaml:"aoe_radius_tiles,omitempty"`
-	Rarity         string             `yaml:"rarity"`
-	Value          int                `yaml:"value,omitempty"`
+	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
+	Rarity         string  `yaml:"rarity"`
+	Value          int     `yaml:"value,omitempty"`
 	// NoLoot excludes the weapon from every GENERATED rarity pool (chest
 	// catalog rolls, rarity-rack merchant stock) - for class-kit weapons like
 	// the Monk's fists that exist only pre-equipped. Authored loot tables and
@@ -1117,6 +1123,15 @@ func LoadSpellConfig(filename string) (*SpellSystemConfig, error) {
 // buff shapes or unknown typed-buff filters.
 func validateSpellAuthoring(cfg *SpellSystemConfig) error {
 	for id, def := range cfg.Spells {
+		switch strings.ToLower(strings.TrimSpace(def.Category)) {
+		case "":
+		case "buff":
+			if !def.IsUtility || def.Duration <= 0 {
+				return fmt.Errorf("spell '%s': category %q requires a timed utility spell", id, def.Category)
+			}
+		default:
+			return fmt.Errorf("spell '%s': unsupported category %q", id, def.Category)
+		}
 		if len(def.StatBonuses) > 0 {
 			if def.StatBonus != 0 || def.StatBonusGrandmaster != 0 {
 				return fmt.Errorf("spell '%s': stat_bonus/stat_bonus_grandmaster and stat_bonuses are mutually exclusive", id)
@@ -1397,9 +1412,15 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
 	// called per-hit and per-frame via the card collection (cardCollectionKey),
 	// where a linear scan of every item showed up as a hot-path cost.
+	// Display names must be UNIQUE: they are load-bearing identity for stack
+	// merging (items.SameStack), item-backed merchant currency, and this very
+	// index (a duplicate would clobber map-order-nondeterministically).
 	itemDefByName = make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
 	itemKeyByName = make(map[string]string, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
+		if prev, dup := itemKeyByName[def.Name]; dup {
+			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
+		}
 		itemDefByName[def.Name] = def
 		itemKeyByName[def.Name] = key
 	}
@@ -1508,10 +1529,10 @@ type LootTablesConfig struct {
 // sets the party burning for TrapIgniteSeconds (DefaultTrapIgniteSeconds when
 // unset). Disarm Trap mastery avoids either entirely at 40/60/80/100%.
 type CrateConfig struct {
-	Rolls             int               `yaml:"rolls"`
-	LootTable         string            `yaml:"loot_table,omitempty"`
-	RollSources       []CrateRollSource `yaml:"roll_sources,omitempty"`
-	SpecialRolls      []CrateRollSource `yaml:"special_rolls,omitempty"`
+	Rolls        int               `yaml:"rolls"`
+	LootTable    string            `yaml:"loot_table,omitempty"`
+	RollSources  []CrateRollSource `yaml:"roll_sources,omitempty"`
+	SpecialRolls []CrateRollSource `yaml:"special_rolls,omitempty"`
 	// FreeRest: opening the crate also rests the party for free (a campfire) -
 	// full HP/SP, no food cost. One-time like any crate.
 	FreeRest bool `yaml:"free_rest,omitempty"`
@@ -1522,11 +1543,11 @@ type CrateConfig struct {
 	BonusAmount int    `yaml:"bonus_amount,omitempty"`
 	// BonusChancePct gates the stat bonus (a barrel may turn out empty).
 	// 0/unset = always.
-	BonusChancePct int `yaml:"bonus_chance_pct,omitempty"`
-	TrapDamage        int               `yaml:"trap_damage,omitempty"`
-	TrapDamageTypes   []string          `yaml:"trap_damage_types,omitempty"`
-	TrapIgnite        bool              `yaml:"trap_ignite,omitempty"`
-	TrapIgniteSeconds int               `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
+	BonusChancePct    int      `yaml:"bonus_chance_pct,omitempty"`
+	TrapDamage        int      `yaml:"trap_damage,omitempty"`
+	TrapDamageTypes   []string `yaml:"trap_damage_types,omitempty"`
+	TrapIgnite        bool     `yaml:"trap_ignite,omitempty"`
+	TrapIgniteSeconds int      `yaml:"trap_ignite_seconds,omitempty"` // 0 = DefaultTrapIgniteSeconds
 }
 
 // DefaultTrapIgniteSeconds is the burn duration for a trap_ignite crate that

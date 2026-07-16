@@ -1539,3 +1539,200 @@ npcs:
           cost: 750
         - text: "Leave them be"
           action: "leave"
+
+  # --- Clock Tower (2026-07-16): the horologist's dungeon ---
+  # The 2:1 facade on the overworld: a grid-span building (2 tiles wide, solid
+  # on both) - walk up to the gate and enter floor 1.
+  clock_tower_entrance:
+    name: "The Clock Tower"
+    type: "encounter"
+    description: "A gearwork tower whose great dial has not moved in years"
+    sprite: "clock_tower"
+    render_category: landmark
+    grid_span_tiles: 4
+    grid_span_dir: "e"
+    no_spin: true
+    prompt_verb: enter
+    transparent: true
+    size_tiles: 2.0
+    dialogue:
+      greeting: "The tower gate stands ajar. Inside, something is still ticking - too many things, none of them in time."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Enter the tower"
+          action: "enter_map"
+          map: "clock_tower_1"
+        - text: "Leave it alone"
+          action: "leave"
+
+  clock_tower_exit:
+    name: "Tower Gate"
+    type: "encounter"
+    description: "The great clock-crowned doors back out to the highlands"
+    sprite: "clocktower_door"
+    render_category: wall_mounted
+    prompt_verb: leave
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "Cold air seeps through the gate seam. The hills are waiting outside."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Leave the tower"
+          action: "enter_map"
+          map: "highlands"
+        - text: "Stay inside"
+          action: "leave"
+
+  clock_stairs_to_2:
+    name: "Spiral Stair Up"
+    type: "encounter"
+    description: "A spiral stair climbing into the gearworks"
+    sprite: "clocktower_stairs_up"
+    render_category: wall_mounted
+    prompt_verb: climb
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "Grease-dark steps spiral up toward a floor that never stops grinding."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Climb to the gearworks"
+          action: "enter_map"
+          map: "clock_tower_2"
+        - text: "Stay here"
+          action: "leave"
+
+  clock_stairs_to_1:
+    name: "Stairwell Down"
+    type: "encounter"
+    description: "The stair back down to the workshop"
+    sprite: "clocktower_stairs_down"
+    render_category: wall_mounted
+    prompt_verb: climb
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "Below, the workshop lamps still burn. The Clockmaker keeps them lit."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Descend to the workshop"
+          action: "enter_map"
+          map: "clock_tower_1"
+        - text: "Stay here"
+          action: "leave"
+
+  clock_stairs_to_3:
+    name: "Spiral Stair Up"
+    type: "encounter"
+    description: "A narrow stair toward the belfry"
+    sprite: "clocktower_stairs_up"
+    render_category: wall_mounted
+    prompt_verb: climb
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "The stair narrows; above, the great bells hang silent - and something paces beneath them."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Climb to the belfry"
+          action: "enter_map"
+          map: "clock_tower_3"
+        - text: "Stay here"
+          action: "leave"
+
+  clock_stairs_down_to_2:
+    name: "Stairwell Down"
+    type: "encounter"
+    description: "The stair back down to the gearworks"
+    sprite: "clocktower_stairs_down"
+    render_category: wall_mounted
+    prompt_verb: climb
+    transparent: true
+    size_tiles: 1.0
+    dialogue:
+      greeting: "The grinding of the gearworks rises up the stairwell."
+      choice_prompt: "What do you want to do?"
+      choices:
+        - text: "Descend to the gearworks"
+          action: "enter_map"
+          map: "clock_tower_2"
+        - text: "Stay here"
+          action: "leave"
+
+  # Floor 1 trader: pays in gear for the hands the tower's horrors drop.
+  clockmaker:
+    name: "Odile the Clockmaker"
+    type: "merchant"
+    description: "The tower's last horologist, still keeping her shop below the madness"
+    sprite: "clockmaker"
+    render_category: npc
+    size_class: person
+    currency: "item:clock_hand"
+    dialogue:
+      greeting: "Odile looks up from a half-dissected escapement. 'The tower winds its monsters out of my mechanisms. Bring me back the CLOCK HANDS they carry and I will fit you for the works - armor, arms, the lot. Coin is no use to me up here.'"
+    inventory:
+      # Leather: the scout's rig (speed and luck)
+      - { type: "item", name: "Cogleather Helm",      cost: 6,  quantity: -1, tab: "Leather" }
+      - { type: "item", name: "Cogleather Jacket",    cost: 10, quantity: -1, tab: "Leather" }
+      - { type: "item", name: "Cogleather Pauldrons", cost: 7,  quantity: -1, tab: "Leather" }
+      - { type: "item", name: "Cogleather Gloves",    cost: 6,  quantity: -1, tab: "Leather" }
+      - { type: "item", name: "Cogleather Boots",     cost: 7,  quantity: -1, tab: "Leather" }
+      # Chain: the duelist's regalia (accuracy and stamina)
+      - { type: "item", name: "Chainwork Helm",      cost: 9,  quantity: -1, tab: "Chainmail" }
+      - { type: "item", name: "Chainwork Hauberk",   cost: 13, quantity: -1, tab: "Chainmail" }
+      - { type: "item", name: "Chainwork Pauldrons", cost: 10, quantity: -1, tab: "Chainmail" }
+      - { type: "item", name: "Chainwork Gauntlets", cost: 9,  quantity: -1, tab: "Chainmail" }
+      - { type: "item", name: "Chainwork Greaves",   cost: 10, quantity: -1, tab: "Chainmail" }
+      # Plate: the juggernaut's bulwark (might, half stuns)
+      - { type: "item", name: "Clockplate Helm",      cost: 12, quantity: -1, tab: "Plate" }
+      - { type: "item", name: "Clockplate Cuirass",   cost: 17, quantity: -1, tab: "Plate" }
+      - { type: "item", name: "Clockplate Pauldrons", cost: 13, quantity: -1, tab: "Plate" }
+      - { type: "item", name: "Clockplate Gauntlets", cost: 12, quantity: -1, tab: "Plate" }
+      - { type: "item", name: "Clockplate Greaves",   cost: 13, quantity: -1, tab: "Plate" }
+      # Arms and extras
+      - { type: "weapon", name: "Cogfang Blade",    cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Chime Maul",       cost: 18, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Minute Hand",      cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Mainspring Pike",  cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Escapement Mace",  cost: 16, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "weapon", name: "Clockwork Pistol", cost: 18, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "item",   name: "Chrono Cape",      cost: 11, quantity: -1, tab: "Arms&Stuff" }
+      - { type: "item",   name: "Clock Oil",        cost: 2,  quantity: -1, tab: "Arms&Stuff" }
+
+  # Tower chests (loot crates on floors 2/3; rules in loots.yaml).
+  chest_gearwood:
+    name: "Gearwood Chest"
+    type: "loot_crate"
+    description: "A cog-latched workshop chest"
+    sprite: "chest_gearwood"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.6
+    no_spin: true
+    hide_when_visited: true
+
+  chest_chrono:
+    name: "Chrono Chest"
+    type: "loot_crate"
+    description: "An iron-strapped chest with a clock for a lock"
+    sprite: "chest_chrono"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.7
+    no_spin: true
+    hide_when_visited: true
+
+  chest_regal:
+    name: "Regal Clockchest"
+    type: "loot_crate"
+    description: "The tower master's ornate strongbox"
+    sprite: "chest_regal"
+    render_category: scenery
+    prompt_verb: open
+    transparent: true
+    size_tiles: 0.8
+    no_spin: true
+    hide_when_visited: true

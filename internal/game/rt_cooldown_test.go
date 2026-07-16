@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ugataima/internal/character"
+	"ugataima/internal/config"
 	"ugataima/internal/items"
 	"ugataima/internal/spells"
 )
@@ -14,12 +15,38 @@ func charWithSpeed(speed int) *character.MMCharacter {
 	return c
 }
 
+// newSpellCooldownTestSystem loads only the two configuration files this
+// calculation needs. It deliberately avoids the mutable item catalog, so a
+// work-in-progress item set cannot hide a spell-cooldown regression.
+func newSpellCooldownTestSystem(t *testing.T) *CombatSystem {
+	t.Helper()
+
+	oldConfig, oldSpells := config.GlobalConfig, config.GlobalSpells
+	t.Cleanup(func() {
+		config.GlobalConfig = oldConfig
+		config.GlobalSpells = oldSpells
+	})
+
+	cfg, err := config.LoadConfig("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if _, err := config.LoadSpellConfig("../../assets/spells.yaml"); err != nil {
+		t.Fatalf("load spells: %v", err)
+	}
+
+	game := &MMGame{config: cfg}
+	game.combat = NewCombatSystem(game)
+	return game.combat
+}
+
 // TestSpellCooldownFrames_MatchesAuthoredSeconds checks that at the reference
-// Speed every spell's RT cooldown equals its authored cooldown_seconds (xTPS),
-// proving the agreed table (firebolt 0.8s ... buffs 5s) is what actually fires -
-// i.e. the safety clamp no longer crushes the long spells.
+// Speed every cooldown-bearing spell's RT cooldown equals its authored
+// cooldown_seconds (xTPS), proving the safety clamp no longer crushes the long
+// spells. YAML-category buffs are tested separately because they intentionally
+// have no personal RT cooldown.
 func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
+	cs := newSpellCooldownTestSystem(t)
 	tps := cs.game.config.GetTPS()
 	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
 
@@ -36,8 +63,6 @@ func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 		{"hot_steam", 3.0},
 		{"stun", 3.0},
 		{"darkness", 4.0},
-		{"bless", 5.0},
-		{"hour_of_power", 5.0},
 		{"resurrect", 5.0},
 	}
 	for _, tc := range cases {
@@ -50,10 +75,71 @@ func TestSpellCooldownFrames_MatchesAuthoredSeconds(t *testing.T) {
 	}
 }
 
+func TestSpellCooldownFrames_BuffsHaveNoRTCooldown(t *testing.T) {
+	cs := newSpellCooldownTestSystem(t)
+	caster := charWithSpeed(SpellCooldownSpeedRefSpeed)
+
+	for _, id := range []spells.SpellID{
+		"day_of_the_gods", "hour_of_power", "bless", "stone_skin", "heroism", "fire_shield",
+		"torch_light", "wizard_eye", "walk_on_water", "water_breathing", "fly",
+	} {
+		def, err := spells.GetSpellDefinitionByID(id)
+		if err != nil {
+			t.Fatalf("load %s: %v", id, err)
+		}
+		if !def.IsBuff() {
+			t.Errorf("%s must be category %q", id, spells.SpellCategoryBuff)
+		}
+		if got := cs.SpellCooldownFrames(caster, id); got != 0 {
+			t.Errorf("%s RT cooldown = %d, want 0", id, got)
+		}
+	}
+}
+
+func TestRTBuffCommit_UsesOnlyInputStagger(t *testing.T) {
+	cs := newSpellCooldownTestSystem(t)
+	game := cs.game
+	game.turnBasedMode = false
+	caster := &character.MMCharacter{
+		HitPoints:   1,
+		SpellPoints: 15,
+		Equipment: map[items.EquipSlot]items.Item{
+			items.SlotSpell: {Type: items.ItemUtilitySpell, SpellEffect: items.SpellEffect("bless"), SpellCost: 15},
+		},
+	}
+	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
+
+	NewInputHandler(game).commitRTAction(rtActCast, cs.SpellCooldownFrames(caster, "bless"))
+
+	if caster.RTCooldown != 0 {
+		t.Errorf("Bless set RT cooldown %d, want 0", caster.RTCooldown)
+	}
+	if game.spellInputCooldown != rtActionStagger {
+		t.Errorf("buff input stagger = %d, want %d", game.spellInputCooldown, rtActionStagger)
+	}
+}
+
+func TestTBBuffCommit_StillConsumesAction(t *testing.T) {
+	cs := newSpellCooldownTestSystem(t)
+	game := cs.game
+	game.turnBasedMode = true
+	caster := &character.MMCharacter{HitPoints: 1, ActionsRemaining: 1, Equipment: map[items.EquipSlot]items.Item{}}
+	game.party = &character.Party{Members: []*character.MMCharacter{caster}}
+
+	game.consumeSelectedCharActionWithRTCooldown(cs.SpellCooldownFrames(caster, "bless"))
+
+	if caster.ActionsRemaining != 0 || game.partyActionsUsed != 1 {
+		t.Errorf("TB buff action state = remaining:%d used:%d, want 0/1", caster.ActionsRemaining, game.partyActionsUsed)
+	}
+	if caster.RTCooldown != 0 {
+		t.Errorf("TB buff committed RT cooldown %d, want 0", caster.RTCooldown)
+	}
+}
+
 // TestSpellCooldownFrames_SpeedScales confirms Speed still influences spell
 // cooldown: a faster caster casts the same spell sooner.
 func TestSpellCooldownFrames_SpeedScales(t *testing.T) {
-	cs := newTestCombatSystemWithConfig(t)
+	cs := newSpellCooldownTestSystem(t)
 	slow := cs.SpellCooldownFrames(charWithSpeed(5), "fireball")
 	ref := cs.SpellCooldownFrames(charWithSpeed(SpellCooldownSpeedRefSpeed), "fireball")
 	fast := cs.SpellCooldownFrames(charWithSpeed(50), "fireball")

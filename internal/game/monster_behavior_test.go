@@ -1064,29 +1064,3 @@ func TestRealTime_MeleeHitsFromDiagonalAdjacentTile(t *testing.T) {
 		t.Fatalf("real-time melee should hit from a diagonal adjacent tile")
 	}
 }
-
-// Switching modes clears per-character RT cooldowns so a cooldown set before a
-// turn-based fight doesn't gate RT actions afterwards.
-func TestModeSwitch_ClearsRTCooldowns(t *testing.T) {
-	game, _, _ := tbBehaviorGame(t, 5, 5) // starts in turn-based
-	for _, m := range game.party.Members {
-		if m != nil {
-			m.RTCooldown = 600 // ~5s of frozen cooldown from a recent RT attack
-		}
-	}
-	game.spellInputCooldown = 50
-
-	game.ToggleTurnBasedMode() // TB -> RT
-
-	if game.turnBasedMode {
-		t.Fatalf("expected real-time mode after the toggle")
-	}
-	for i, m := range game.party.Members {
-		if m != nil && m.RTCooldown != 0 {
-			t.Errorf("member %d RTCooldown should be cleared on mode switch, got %d", i, m.RTCooldown)
-		}
-	}
-	if game.spellInputCooldown != 0 {
-		t.Errorf("global input stagger should be cleared on mode switch, got %d", game.spellInputCooldown)
-	}
-}

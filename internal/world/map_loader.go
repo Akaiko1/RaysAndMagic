@@ -171,6 +171,9 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 	for y, line := range lines {
 		for x, char := range line {
 			tileType, monsterLetter, isStart := ml.parseMapCharacter(char)
+			if char >= 'A' && char <= 'Z' && tileType == TileEmpty && monsterLetter == "" {
+				return nil, fmt.Errorf("unknown uppercase map marker %q at (%d,%d): uppercase letters are tiles/props; monster spawns must use lowercase a-z", char, x, y)
+			}
 
 			mapData.Tiles[y][x] = tileType
 
@@ -180,18 +183,22 @@ func (ml *MapLoader) LoadMap(mapPath string) (*MapData, error) {
 			}
 
 			if monsterLetter != "" {
-				// Convert letter to monster key using YAML config
-				if monster.MonsterConfig != nil {
-					_, monsterKey, err := monster.MonsterConfig.GetMonsterByLetterForBiome(monsterLetter, ml.biome)
-					if err == nil {
-						spawn := MonsterSpawn{
-							X:          x,
-							Y:          y,
-							MonsterKey: monsterKey,
-						}
-						mapData.MonsterSpawns = append(mapData.MonsterSpawns, spawn)
-					}
+				// Lowercase a-z is a monster marker by contract. Do not silently
+				// downgrade an unknown marker to empty floor: a map typo must fail at
+				// load time instead of producing an apparently empty dungeon.
+				if monster.MonsterConfig == nil {
+					return nil, fmt.Errorf("monster config is not loaded while resolving marker %q at (%d,%d)", monsterLetter, x, y)
 				}
+				_, monsterKey, err := monster.MonsterConfig.GetMonsterByLetterForBiome(monsterLetter, ml.biome)
+				if err != nil {
+					return nil, fmt.Errorf("unknown monster marker %q at (%d,%d) for biome %q: %w", monsterLetter, x, y, ml.biome, err)
+				}
+				spawn := MonsterSpawn{
+					X:          x,
+					Y:          y,
+					MonsterKey: monsterKey,
+				}
+				mapData.MonsterSpawns = append(mapData.MonsterSpawns, spawn)
 			}
 		}
 	}
@@ -249,7 +256,10 @@ func (ml *MapLoader) resolveUnderEntityFloors(md *MapData, autoFloored map[[2]in
 	}
 }
 
-// parseMapCharacter converts a map character to tile type and optional monster letter
+// parseMapCharacter converts a map character to tile type and optional monster letter.
+// The ASCII contract is enforced by the YAML validators: lowercase a-z is only
+// for monsters; lettered tiles/props use uppercase. Keep tiles first here so
+// legacy punctuation/digit terrain continues to resolve through TileManager.
 func (ml *MapLoader) parseMapCharacter(char rune) (TileType3D, string, bool) {
 	charStr := string(char)
 	var tileType TileType3D

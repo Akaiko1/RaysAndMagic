@@ -389,13 +389,14 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		g.camera.X = startX
 		g.camera.Y = startY
 		g.snapFacing(0)
-		g.camera.FOV = g.config.GetCameraFOV()
+		g.camera.FOV = squareProjectionFOV(g.config.GetScreenWidth(), g.config.GetScreenHeight())
 		g.camera.ViewDist = g.config.GetViewDistance()
 
 		// Rebuild collision system and register entities
 		g.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(g.config.World.TileSize))
 		g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(startX, startY))
 		currentWorld.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+		g.registerBuildingFootprints()
 
 		g.UpdateSkyAndGroundColors()
 		if g.collisionSystem != nil {
@@ -1395,8 +1396,11 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 				ih.game.collisionSystem.UnregisterEntity(monster.ID)
 			}
 		}
+		// Farming maps (respawn_days) rewind their roster BEFORE registration.
+		ih.game.maybeRespawnMapMonsters()
 		// Register new world monsters
 		ih.game.world.RegisterMonstersWithCollisionSystem(ih.game.collisionSystem)
+		ih.game.registerBuildingFootprints()
 	}
 
 	// Update visual systems
@@ -2167,8 +2171,9 @@ func (ih *InputHandler) handleDialogMouseInput() {
 		}
 		leftX, rightX, gridTop, _ := merchantGridLayout(dialogX, dialogY)
 
-		// Buy from merchant (left grid).
-		stock := ih.game.dialogNPC.MerchantStock
+		// Buy from merchant (left grid) - the same visible slice the draw pass
+		// used (active shop tab), or clicks would buy the wrong item.
+		stock := ih.game.merchantVisibleStock()
 		buyStart := ih.game.merchantBuyPage * merchantPageSize
 		for slot := 0; slot < merchantPageSize; slot++ {
 			idx := buyStart + slot
@@ -2185,6 +2190,17 @@ func (ih *InputHandler) handleDialogMouseInput() {
 					}
 					// Arena-points merchants trade at flat prices in the victory
 					// currency; gold merchants keep the Merchant-skill discount.
+					if name, ok := currencyItemName(ih.game.dialogNPC.Currency); ok {
+						if !ih.game.party.RemoveItemsByName(name, entry.Cost) {
+							ih.game.AddCombatMessage(fmt.Sprintf("Need %d %ss to trade for %s.", entry.Cost, name, entry.Item.Name))
+							return
+						}
+						ih.game.party.AddItem(entry.Item)
+						entry.Take()
+						ih.game.AddCombatMessage(fmt.Sprintf("Traded %d %ss for %s.", entry.Cost, name, entry.Item.Name))
+						ih.resetDialogDoubleClick()
+						return
+					}
 					if ih.game.dialogNPC.Currency == character.CurrencyArenaPoints {
 						if entry.Cost > ih.game.party.ArenaPoints {
 							ih.game.AddCombatMessage(fmt.Sprintf("Need %d arena points to buy %s.", entry.Cost, entry.Item.Name))
@@ -2232,7 +2248,7 @@ func (ih *InputHandler) handleDialogMouseInput() {
 						}
 						price := ih.game.merchantSellPrice(base) // Merchant skill markup
 						ih.game.awardGold(price)
-						ih.game.party.RemoveItem(idx)
+						ih.game.party.ConsumeOneAt(idx) // stacks sell one unit per double-click
 						ih.game.AddCombatMessage(fmt.Sprintf("Sold %s for %d gold.", item.Name, price))
 						ih.resetDialogDoubleClick()
 					}
@@ -2388,18 +2404,18 @@ func (ih *InputHandler) handleTurnBasedInput() {
 			if spellID == "" {
 				ih.game.consumeSelectedCharWeaponAction()
 			} else {
-				ih.game.consumeSelectedCharAction()
+				ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 			}
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	case ih.keys.Consume(ebiten.KeyF): // cast slotted spell
-		if fired, _ := ih.castSlottedSpellResolved(selected); fired {
-			ih.game.consumeSelectedCharAction()
+		if fired, spellID := ih.castSlottedSpellResolved(selected); fired {
+			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15) // debounce even on a failed cast, like the other action keys
 	case ih.keys.Consume(ebiten.KeyC) || ih.keys.Consume(ebiten.KeyH): // cast best known heal (H = legacy alias)
-		if cast, _ := ih.castBestHealResolved(); cast {
-			ih.game.consumeSelectedCharAction()
+		if cast, spellID := ih.castBestHealResolved(); cast {
+			ih.game.consumeSelectedCharActionWithRTCooldown(ih.game.combat.SpellCooldownFrames(selected, spellID))
 		}
 		ih.game.spellInputCooldown = ih.actionCooldown(15)
 	}

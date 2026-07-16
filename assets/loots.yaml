@@ -626,6 +626,58 @@ loots:
 # trap_damage = flat party blast; trap_damage_types chooses its element,
 # trap_ignite = party burn for trap_ignite_seconds; Disarm Trap mastery avoids
 # either entirely at 40/60/80/100%.
+  # --- Clock Tower (2026-07-16): every tower horror can shed a clock hand ---
+  dust_slime:
+    - type: "item"
+      key: "clock_hand"
+      chance: 0.30
+    - type: "item"
+      key: "brass_gear"
+      chance: 0.25
+    - type: "item"
+      key: "clock_oil"
+      chance: 0.06
+
+  possessed_tome:
+    - type: "item"
+      key: "clock_hand"
+      chance: 0.35
+    - type: "item"
+      key: "mainspring_coil"
+      chance: 0.18
+    - type: "item"
+      key: "clock_oil"
+      chance: 0.08
+
+  alarm_clock:
+    - type: "item"
+      key: "clock_hand"
+      chance: 0.45
+    - type: "item"
+      key: "brass_gear"
+      chance: 0.25
+    - type: "item"
+      key: "mainspring_coil"
+      chance: 0.20
+    - type: "item"
+      key: "pocket_watch"
+      chance: 0.05
+
+  grandfather_clock:
+    - type: "item"
+      key: "clock_hand"
+      chance: 0.65
+    - type: "item"
+      key: "pocket_watch"
+      chance: 0.12
+    - type: "item"
+      key: "mainspring_coil"
+      chance: 0.25
+    - type: "item"
+      key: "clock_oil"
+      chance: 0.10
+
+
 crates:
   # Roadside props (2026-07-14): boxes may hold sellable junk, the campfire is
   # a one-time free rest + coin cache, the barrels are one-time stat draughts.
@@ -726,6 +778,62 @@ crates:
 
 # Named weighted pools (config.WeightedLootTable). Sword racks roll castle_armory:
 # one random ZONE item + a little gold, never a unique (uniques aren't listed).
+  # Clock tower chests: hands + parts below, the regal box hides real gear.
+  chest_gearwood:
+    rolls: 2
+    roll_sources:
+      - pool: "map"
+        max_rarity: "uncommon"
+        weight: 60
+      - pool: "gold"
+        amount: 120
+        weight: 25
+      - pool: "catalog"
+        item_type: "consumable"
+        weight: 15
+  chest_chrono:
+    rolls: 2
+    roll_sources:
+      - pool: "map"
+        min_rarity: "uncommon"
+        weight: 60
+      - pool: "gold"
+        amount: 250
+        weight: 25
+      - pool: "catalog"
+        item_type: "trinket"
+        max_rarity: "rare"
+        weight: 15
+    special_rolls:
+      - pool: "map"
+        rarity: "rare"
+        chance_pct: 20
+    trap_ignite: true
+    trap_ignite_seconds: 8
+  chest_regal:
+    rolls: 3
+    roll_sources:
+      - pool: "map"
+        min_rarity: "uncommon"
+        weight: 55
+      - pool: "catalog"
+        item_type: "trinket"
+        max_rarity: "rare"
+        weight: 25
+      - pool: "gold"
+        amount: 400
+        weight: 20
+    special_rolls:
+      - pool: "map"
+        rarity: "rare"
+        chance_pct: 30
+      - pool: "gold"
+        amount: 800
+        chance_pct: 10
+    trap_damage: 60
+    trap_damage_types: [physical]
+
+
 loot_tables:
   castle_armory:
     rolls: 1

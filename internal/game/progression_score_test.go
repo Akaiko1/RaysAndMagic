@@ -47,6 +47,34 @@ func TestEarnedExperienceForCharacterReconstructsSpentLevelXP(t *testing.T) {
 	}
 }
 
+// TestXPStepCostCurve pins the level-cost curve: linear (unchanged) through
+// L12, quadratic from L13 so kills-per-level stays roughly FLAT instead of
+// collapsing as mob XP (~2.2 x L^2) outruns a linear cost.
+func TestXPStepCostCurve(t *testing.T) {
+	for _, tc := range []struct{ level, want int }{
+		{1, 100}, {5, 500}, {12, 1200}, // linear branch, exactly as before
+		{13, 1352}, // crossover: 8*13^2 > 100*13
+		{20, 3200}, {30, 7200}, {49, 19208},
+	} {
+		if got := xpStepCost(tc.level); got != tc.want {
+			t.Errorf("xpStepCost(%d) = %d, want %d", tc.level, got, tc.want)
+		}
+	}
+	// The design property itself: cost/L^2 (kills-per-level against
+	// level-appropriate mobs) must never DECREASE from L13 on.
+	prev := 0.0
+	for l := 13; l < 50; l++ {
+		ratio := float64(xpStepCost(l)) / float64(l*l)
+		if ratio < prev {
+			t.Fatalf("kills-per-level proxy falls at L%d (%.3f < %.3f) - farming accelerates again", l, ratio, prev)
+		}
+		prev = ratio
+	}
+	if got, want := xpSpentToReach(50), 326000; got != want {
+		t.Errorf("xpSpentToReach(50) = %d, want %d", got, want)
+	}
+}
+
 func TestScoreTotalsAndVictoryAcknowledgementPersistThroughSaveLoad(t *testing.T) {
 	cfg := loadTestConfig(t)
 	wSave := newTestWorld(cfg)

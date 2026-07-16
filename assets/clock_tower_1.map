@@ -1,0 +1,39 @@
+# Clock Tower - Workshop (biome: clock_tower_workshop)
+# X = timber wall  . = workshop planks (default)  1 = slate ring  + = start
+# Odile the Clockmaker trades tower gear for clock hands; dust slimes (b) drift the outer walk
+# @ = NPC placeholder, $ = decor tile placeholder (bound by >[...] at line end)
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+X$.......$$$$$$$$$$$$$$$$$$.....@@X  >[npc:barrel_blue], [npc:barrel_blue], [tile:brokenclock], [tile:wallclock], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:wallclock]
+X.bbb............................@X  >[npc:barrel_blue]
+X...........................bbb...X
+X.................................X
+X...$XXXXXXXXXXXX.XXXXXXXXXXXX....X  >[tile:brokenclock]
+X....X111111111X@11X1X$$$$$@$X....X  >[npc:chest_gearwood], [npc:barrel_red], [tile:boiler], [tile:gearpile], [tile:boiler], [tile:gearpile], [tile:boiler], [tile:boiler]
+X....X111111111XX1XX1XX11111@X....X  >[npc:barrel_red]
+X....X111111111111111111111X@X...$X  >[npc:barrel_red], [tile:blueprint]
+X....X1XXXX@111111111111111XXX...$X  >[npc:barrel_green], [tile:gearcluster]
+X....X1111X@@1111111111111111X...$X  >[npc:barrel_green], [npc:barrel_green], [tile:blueprint]
+X....X11@1.XXXXXXXXXXXXX11111X....X  >[npc:clockmaker]
+X....X1111XX$.........$X11111X....X  >[tile:brokenclock], [tile:wallclock]
+X....X11111X...........X11111X....X
+X....X11111X..X$...$X..X11111.....X  >[tile:blueprint], [tile:blueprint]
+X....X11111X..$.....$..X11111X....X  >[tile:blueprint], [tile:blueprint]
+X$...X11111X...........X11111X....X  >[tile:blueprint]
+X....X11111......@......11111X...$X  >[npc:clock_stairs_to_2], [tile:blueprint]
+X....X11111X...........X11111X...$X  >[tile:pipevalve]
+X....X11111X..$.....$..X11111X...$X  >[tile:blueprint], [tile:blueprint], [tile:pipevalve]
+X.....11111X..X$...$X..X11111X...$X  >[tile:blueprint], [tile:blueprint], [tile:pipevalve]
+X....XXX1XXX...........X11111X...$X  >[tile:blueprint]
+X....X1111XX$.........$X11111X.b..X  >[tile:wallclock], [tile:wallclock]
+X....X1111XXXXXXXXXXXXXX11111X.b..X
+X....X1111XXXXXXX111111111111X.b..X
+X....X$111111111X111111111111X....X  >[tile:gearpile]
+X....X$1111111111111111111111X....X  >[tile:gearpile]
+X....X$11bbb1111X1111111X11XXX...$X  >[tile:partscrate], [tile:boiler]
+X....X$$$$11111@X1111111X111@X...$X  >[npc:chest_regal], [npc:chest_gearwood], [tile:partscrate], [tile:partscrate], [tile:gearpile], [tile:gearpile], [tile:pipevalve]
+X...$XXXXXXXXXXXX.XXXXXXXXXXXX...$X  >[tile:brokenclock], [tile:pipevalve]
+X................................$X  >[tile:pipevalve]
+X.......bbb......+........bbb....$X  >[tile:pipevalve]
+X................................@X  >[npc:barrel_blue]
+X................@.......$$$$$$$@@X  >[npc:clock_tower_exit], [npc:barrel_blue], [npc:barrel_blue], [tile:boiler], [tile:pipevalve], [tile:pipevalve], [tile:pipevalve], [tile:pipevalve], [tile:pipevalve], [tile:pipevalve]
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

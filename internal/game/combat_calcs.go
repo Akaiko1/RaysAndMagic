@@ -399,7 +399,8 @@ func spellCooldownSpeedFactor(speed int) float64 {
 // SpellCooldownFrames is the real-time cooldown after casting spellID: the
 // spell's authored cooldown_seconds (or a level-based default) at reference
 // Speed, scaled by the caster's Speed and any equipped weapon's
-// spell_cooldown_multiplier (e.g. Archmage Staff -20%).
+// spell_cooldown_multiplier (e.g. Archmage Staff -20%). YAML category "buff"
+// is the explicit exception: it has no personal RT cooldown.
 func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID spells.SpellID) int {
 	if cs == nil || cs.game == nil || char == nil {
 		return RTCooldownMinFrames
@@ -409,6 +410,9 @@ func (cs *CombatSystem) SpellCooldownFrames(char *character.MMCharacter, spellID
 		// SmartAttack returns trap keys through the same cast-ID channel.
 		seconds = trapDef.CooldownSeconds
 	} else if def, err := spells.GetSpellDefinitionByID(spellID); err == nil {
+		if def.IsBuff() {
+			return 0
+		}
 		seconds = def.CooldownSeconds
 		if seconds <= 0 {
 			seconds = SpellCooldownDefaultSecondsForLevel(def.Level)

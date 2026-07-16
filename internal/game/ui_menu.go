@@ -422,8 +422,9 @@ func (ui *UISystem) handleSpellbookSpellClick(spellX, spellY, spellWidth, spellH
 			// mode, a successful cast consumes one action slot for the active
 			// character (just like F-key on the equipped spell), so it can't
 			// be spammed beyond their Speed-derived budget.
-			if ui.game.combat.CastSelectedSpell() {
-				ui.game.consumeSelectedCharAction()
+			if cast, spellID := ui.game.combat.CastSelectedSpell(); cast {
+				currentChar := ui.game.party.Members[ui.game.selectedChar]
+				ui.game.consumeSelectedCharActionWithRTCooldown(ui.game.combat.SpellCooldownFrames(currentChar, spellID))
 			}
 			ui.game.lastSpellClickTime = 0
 			ui.game.lastClickedSpell = -1

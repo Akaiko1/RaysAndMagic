@@ -355,6 +355,8 @@ type MMGame struct {
 	// per-frame reconciler currently has registered. See doors.go.
 	doorsClosed   bool
 	doorEntityIDs map[string]bool
+	// buildingEntityIDs: solid footprint entities of grid-span buildings on the current map
+	buildingEntityIDs map[string]bool
 
 	// dayNightDay counts day/night phase changes (the arena's refresh clock).
 	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
@@ -551,13 +553,16 @@ type MMGame struct {
 	stashShowCards  bool // top storage tab: false = general chest, true = card vault
 
 	// Turn-based mode state
-	turnBasedMode         bool // Whether game is in turn-based mode
-	currentTurn           int  // 0 = party turn, 1 = monster turn
-	partyActionsUsed      int  // Actions used this turn (0-2)
-	turnBasedMoveCooldown int  // Movement cooldown in frames (18 FPS = 0.3 second)
-	turnBasedRotCooldown  int  // Rotation cooldown in frames (18 FPS = 0.3 second)
-	monsterTurnResolved   bool // Whether monster turn already processed this round
-	turnBasedSpRegenCount int  // Counter for turn-based SP regeneration (every 5 turns)
+	turnBasedMode bool // Whether game is in turn-based mode
+	// turnBasedTurnSuspended is set when Tab leaves TB. Returning to TB resumes
+	// the same party/monster turn instead of granting a fresh party round.
+	turnBasedTurnSuspended bool
+	currentTurn            int  // 0 = party turn, 1 = monster turn
+	partyActionsUsed       int  // Actions used this turn (0-2)
+	turnBasedMoveCooldown  int  // Movement cooldown in frames (18 FPS = 0.3 second)
+	turnBasedRotCooldown   int  // Rotation cooldown in frames (18 FPS = 0.3 second)
+	monsterTurnResolved    bool // Whether monster turn already processed this round
+	turnBasedSpRegenCount  int  // Counter for turn-based SP regeneration (every 5 turns)
 	// turnBasedExtraMonsterAction grants the next monster turn one extra action
 	// pass when the party attacks/casts first and then retreats in the same TB
 	// round. This closes infinite shoot-and-step-back kiting without forbidding
@@ -714,7 +719,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 		X:        startX,
 		Y:        startY,
 		Angle:    0,
-		FOV:      cfg.GetCameraFOV(),
+		FOV:      squareProjectionFOV(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
 		ViewDist: cfg.GetViewDistance(),
 	}
 
@@ -801,6 +806,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Register all monsters with collision system
 	currentWorld.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.registerBuildingFootprints()
 
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
@@ -850,31 +856,32 @@ func (g *MMGame) registerSpawnedMonster(m *monster.Monster3D) {
 	}
 	g.world.Monsters = append(g.world.Monsters, m)
 	width, height := m.GetSize()
+	g.syncMonsterAttackPost(m)
 	entityType, solid := desiredMonsterCollisionState(m)
 	entity := collision.NewEntity(m.ID, m.X, m.Y, width, height, entityType, solid)
 	g.collisionSystem.RegisterEntity(entity)
 }
 
 // newPlayerCollisionEntity keeps the party's collision contract consistent
-// across a new game, map arrival, and save load. The player blocks hostile
-// monster pathfinding, while a monster's own solidity still controls whether
-// the party can walk through it.
+// across a new game, map arrival, and save load. Terrain blocks movement; mobs
+// are deliberately pass-through and their attack positions are tracked as
+// logical reservations instead of physical collision.
 func newPlayerCollisionEntity(x, y float64) *collision.Entity {
 	return collision.NewEntity("player", x, y, 16, 16, collision.CollisionTypePlayer, true)
 }
 
-// partyInCombat reports whether a live engaging monster is NEAR the party
-// (TB vision range). While true, Space keeps its combat meaning and never
-// opens dialog. Distance-gated on purpose: a whole-map-aggro boss or an
-// AoE-clipped stray must not lock interaction (e.g. the map-exit NPC) from
-// across the map.
+// partyInCombat reports whether a live hostile monster is NEAR the party (TB
+// vision range). Controlled allies use IsEngagingPlayer for their own AI
+// pursuit, but must not suppress world interaction. Distance-gated on purpose:
+// a whole-map-aggro boss or an AoE-clipped stray must not lock interaction
+// (e.g. the map-exit NPC) from across the map.
 func (g *MMGame) partyInCombat() bool {
 	if g.world == nil {
 		return false
 	}
 	radius := TurnBasedVisionRangeTiles * float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && m.IsEngagingPlayer &&
+		if m != nil && m.IsAlive() && !monsterIsPartyControlled(m) && m.IsEngagingPlayer &&
 			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {
 			return true
 		}
@@ -890,6 +897,13 @@ func (g *MMGame) npcEffectivePos(npc *character.NPC) (float64, float64) {
 	if g.npcIsWall(npc) {
 		if wx, wy, _, ok := g.wallStickPose(npc.X, npc.Y); ok {
 			return wx, wy
+		}
+	}
+	// Grid-span buildings live at their footprint CENTER: focus, distance and
+	// hit-tests then treat the whole facade as the entity, not the anchor tile.
+	if npc.GridSpanTiles >= 2 {
+		if bx, by, _, ok := g.buildingPose(npc); ok {
+			return bx, by
 		}
 	}
 	return npc.X, npc.Y
@@ -1350,6 +1364,18 @@ func (g *MMGame) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHei
 // without an audit. Pre-allocated screen-sized buffers (depth buffer,
 // sky/ground images, floor cache, ray caches) are reallocated to match;
 // otherwise width-indexed pixel writes in the renderer would overrun.
+// squareProjectionFOV is THE horizontal field of view for the given logical
+// resolution: 2*atan(w/(2h)) makes the horizontal focal length equal the
+// wall-height factor, so one world tile renders as a true square at any
+// window aspect. Every camera FOV assignment goes through this - a stale
+// constant squashes wide art (the clock tower read 33% too wide in 16:9).
+func squareProjectionFOV(screenWidth, screenHeight int) float64 {
+	if screenWidth <= 0 || screenHeight <= 0 {
+		return 2 * math.Atan(0.5) // 4:3 fallback, never hit in practice
+	}
+	return 2 * math.Atan(float64(screenWidth)/(2*float64(screenHeight)))
+}
+
 func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 	if screenWidth <= 0 || screenHeight <= 0 {
 		return
@@ -1359,6 +1385,8 @@ func (g *MMGame) handleResize(screenWidth, screenHeight int) {
 	}
 	g.config.Display.ScreenWidth = screenWidth
 	g.config.Display.ScreenHeight = screenHeight
+
+	g.camera.FOV = squareProjectionFOV(screenWidth, screenHeight)
 
 	g.depthBuffer = make([]float64, screenWidth)
 	g.wallTopBuffer = make([]int, screenWidth)
@@ -1527,14 +1555,21 @@ func (g *MMGame) hudMessageLines() []combatLogEntry {
 }
 
 // hudMessageBlockRect returns the screen rect of the HUD combat-log block for the
-// given wrapped-line count: bottom-anchored just above the party portraits and
-// growing upward so a tall block never spills down over the party UI. Shared by
+// given wrapped-line count. It grows upward above the party UI and, when its
+// right-side span meets the visible quick bar, clears that bar as well. Shared by
 // the renderer and the click hit-region.
 func (g *MMGame) hudMessageBlockRect(lineCount int) (x, y, w, h int) {
 	h = lineCount*hudMessageSpacing + 10
 	w = hudMessageWidth
 	x = g.config.GetScreenWidth() - w - 15
-	y = g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - hudMessageBottomGap - h
+	bottom := g.config.GetScreenHeight() - g.config.UI.PartyPortraitHeight - hudMessageBottomGap
+	if quickBar, visible := inGameQuickSlotBarLayout(g); visible &&
+		x < quickBar.right() && quickBar.x < x+w {
+		if clearBottom := quickBar.y - hudMessageBottomGap; clearBottom < bottom {
+			bottom = clearBottom
+		}
+	}
+	y = bottom - h
 	return
 }
 
@@ -1721,7 +1756,8 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 	tileSize := float64(g.config.GetTileSize())
 	ptx, pty := int(g.camera.X/tileSize), int(g.camera.Y/tileSize)
 	// The cardinal tiles are preferred to keep an attacker in a readable melee
-	// ring; diagonals provide a fallback around walls and other combatants.
+	// ring; diagonals provide a fallback. When that entire ring is claimed, the
+	// displaced mob becomes transit and is placed on the next free outer ring.
 	offsets := [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() || !monsterTargetsParty(m) {
@@ -1732,17 +1768,42 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 			continue
 		}
 		mw, mh := m.GetSize()
-		for _, off := range offsets {
-			x, y := TileCenterFromTile(ptx+off[0], pty+off[1], tileSize)
+		g.releaseMonsterAttackPost(m)
+		tryTile := func(tx, ty int) bool {
+			x, y := TileCenterFromTile(tx, ty, tileSize)
 			candidate := collision.NewBoundingBox(x, y, mw, mh)
 			if candidate.Intersects(player.BoundingBox) ||
+				g.collisionSystem.IsMonsterAttackPostReserved(m.ID, x, y) ||
 				!g.collisionSystem.CanMoveToWithHabitat(m.ID, x, y, m.HabitatPrefs, m.Flying) {
-				continue
+				return false
 			}
 			m.X, m.Y = x, y
 			m.ResetPathfinding()
 			g.collisionSystem.UpdateEntity(m.ID, x, y)
-			break
+			return true
+		}
+		moved := false
+		for _, off := range offsets {
+			if tryTile(ptx+off[0], pty+off[1]) {
+				moved = true
+				break
+			}
+		}
+		if moved {
+			continue
+		}
+		for radius := 2; radius <= 4 && !moved; radius++ {
+			for dy := -radius; dy <= radius && !moved; dy++ {
+				for dx := -radius; dx <= radius; dx++ {
+					if maxInt(absInt(dx), absInt(dy)) != radius {
+						continue
+					}
+					if tryTile(ptx+dx, pty+dy) {
+						moved = true
+						break
+					}
+				}
+			}
 		}
 	}
 }
@@ -1976,7 +2037,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 
 // startPartyTurn resets ActionsRemaining for every able-bodied party member,
 // then grants a small party-wide pool of Speed bonus actions to the fastest
-// living members (tie-break: lower party slot). Called when entering
+// living members (tie-break: lower party slot). Called on a fresh entry into
 // turn-based mode and at the end of each monster turn. KO members get 0 slots.
 func (g *MMGame) startPartyTurn() {
 	g.parkSelection = false // a new round clears any manual park
@@ -2156,6 +2217,19 @@ func (g *MMGame) consumeSelectedCharAction() {
 	}
 }
 
+// consumeSelectedCharActionWithRTCooldown spends a TB action while recording
+// the cadence it must still honor after a later return to real-time mode.
+// RT timers are paused in TB, so retain the longer timer if the character
+// already carried one into the mode switch.
+func (g *MMGame) consumeSelectedCharActionWithRTCooldown(cooldownFrames int) {
+	if g.turnBasedMode && cooldownFrames > 0 && g.selectedChar >= 0 && g.selectedChar < len(g.party.Members) {
+		if selected := g.party.Members[g.selectedChar]; selected != nil && cooldownFrames > selected.RTCooldown {
+			selected.RTCooldown = cooldownFrames
+		}
+	}
+	g.consumeSelectedCharAction()
+}
+
 // consumeSelectedCharWeaponAction is consumeSelectedCharAction specialized for
 // a weapon swing: flips NextTBAttackOffHand on the acting character BEFORE
 // spending the slot (which may advance g.selectedChar to someone else), so a
@@ -2165,6 +2239,17 @@ func (g *MMGame) consumeSelectedCharAction() {
 func (g *MMGame) consumeSelectedCharWeaponAction() {
 	if idx := g.selectedChar; idx >= 0 && idx < len(g.party.Members) {
 		if m := g.party.Members[idx]; m != nil {
+			// TB does not gate swings on frame timers, but a swing must still
+			// carry its hand's real-time cadence across a later Tab switch.
+			if g.turnBasedMode && g.combat != nil {
+				if g.combat.attackSlotFor(m) == items.SlotOffHand {
+					if cooldown := g.combat.OffHandWeaponCooldownFrames(m); cooldown > m.OffHandRTCooldown {
+						m.OffHandRTCooldown = cooldown
+					}
+				} else if cooldown := g.combat.WeaponCooldownFrames(m); cooldown > m.RTCooldown {
+					m.RTCooldown = cooldown
+				}
+			}
 			m.NextTBAttackOffHand = !m.NextTBAttackOffHand
 		}
 	}
@@ -2172,35 +2257,35 @@ func (g *MMGame) consumeSelectedCharWeaponAction() {
 }
 
 func (g *MMGame) ToggleTurnBasedMode() {
-	g.turnBasedMode = !g.turnBasedMode
-
-	// RT cooldowns only tick in real-time, so clear them on every switch - otherwise
-	// one frozen across a turn-based fight gates RT actions afterwards. Each mode
-	// starts ready.
-	for _, m := range g.party.Members {
-		if m != nil {
-			m.RTCooldown = 0
-			m.OffHandRTCooldown = 0
-			m.NextTBAttackOffHand = false
-		}
-	}
-	g.spellInputCooldown = 0
-
 	if g.turnBasedMode {
-		// Snap to tile center immediately
-		g.snapToTileCenter()
+		// Keep both action economies intact. RT cooldowns already pause while
+		// TB is active; clearing them here made Tab an attack/cast reset.
+		g.turnBasedMode = false
+		g.turnBasedTurnSuspended = true
+		g.AddCombatMessage("Real-time mode activated!")
+		return
+	}
 
-		// Snap all monsters to tile centers
-		g.snapMonstersToTileCenters()
+	g.turnBasedMode = true
+	// Snap to tile center immediately
+	g.snapToTileCenter()
 
-		// Reset all monster AI states for turn-based combat
-		g.resetMonsterStatesForTurnBased()
+	// Snap all monsters to tile centers
+	g.snapMonstersToTileCenters()
 
-		// Initialize turn-based state
-		g.currentTurn = 0 // Start with party turn
+	// Reset all monster AI states for turn-based combat
+	g.resetMonsterStatesForTurnBased()
+
+	// Input repeat timing is presentation-only, so a mode switch may reset
+	// it without changing either mode's combat economy.
+	g.turnBasedMoveCooldown = 0
+	g.turnBasedRotCooldown = 0
+
+	if !g.turnBasedTurnSuspended {
+		// A first entry into TB starts a normal party turn. A return from RT
+		// deliberately does not: its slots/current turn were left intact.
+		g.currentTurn = 0
 		g.partyActionsUsed = 0
-		g.turnBasedMoveCooldown = 0
-		g.turnBasedRotCooldown = 0
 		g.monsterTurnResolved = false
 		g.turnBasedExtraMonsterAction = false
 		g.turnBasedMonsterPassesLeft = 0
@@ -2208,15 +2293,9 @@ func (g *MMGame) ToggleTurnBasedMode() {
 		g.turnBasedMonsterStatusTick = false
 		g.turnBasedMonsterStunned = nil
 		g.startPartyTurn()
-		g.AddCombatMessage("Turn-based mode activated!")
-	} else {
-		g.turnBasedExtraMonsterAction = false
-		g.turnBasedMonsterPassesLeft = 0
-		g.turnBasedMonsterPassDelay = 0
-		g.turnBasedMonsterStatusTick = false
-		g.turnBasedMonsterStunned = nil
-		g.AddCombatMessage("Real-time mode activated!")
 	}
+	g.turnBasedTurnSuspended = false
+	g.AddCombatMessage("Turn-based mode activated!")
 }
 
 // snapToTileCenter moves the player to the center of their current tile and snaps direction to nearest cardinal
@@ -2320,6 +2399,11 @@ func (g *MMGame) resetMonsterStatesForTurnBased() {
 		currentMonster.StateTimer = 0
 		currentMonster.IsEngagingPlayer = false
 		currentMonster.AttackCount = 0
+		currentMonster.AttackPost = false
+		currentMonster.AttackPostTargetID = ""
+		currentMonster.AttackPostSince = 0
+		currentMonster.AttackTransit = false
+		g.applyMonsterCollisionState(currentMonster.ID, collision.CollisionTypeMonster, false)
 
 		// Reset movement direction to face player (for visual consistency)
 		dx := g.camera.X - currentMonster.X
@@ -2369,6 +2453,11 @@ func (mw *MonsterWrapper) Update() {
 	// so they never chase the party. Precomputed single-threaded each frame in
 	// refreshBoundAllyCache to keep this parallel update race-free.
 	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
+	if mw.Monster.LootGuarding {
+		// The guard override moves to its precomputed prop tile internally, but
+		// player detection must still inspect the actual party position.
+		targetX, targetY = playerX, playerY
+	}
 
 	// Use collision-aware update with the chosen AI target for tethering. Reads
 	// the frozen snapshot only - never the live, concurrently-mutating system.
@@ -2376,8 +2465,10 @@ func (mw *MonsterWrapper) Update() {
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
-	// Compute (don't apply) the desired collision type - a pure function of this
-	// monster's own state, safe from a worker. ApplyCollisionUpdate writes it.
+	// Sync this monster's own logical post state, then compute (don't apply) its
+	// collision marker. Both touch only frame-local data on this monster, so are
+	// safe in the parallel worker. ApplyCollisionUpdate writes them serially.
+	mw.game.syncMonsterAttackPost(mw.Monster)
 	mw.pendingCollisionType, mw.pendingSolid = desiredMonsterCollisionState(mw.Monster)
 
 	// Temporary movement debug (opt-in via env var).
@@ -2468,25 +2559,157 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 	mw.game.applyMonsterCollisionState(mw.Monster.ID, mw.pendingCollisionType, mw.pendingSolid)
 }
 
+const partyAttackTargetID = "player"
+
 // monsterTargetsParty reports whether a monster is actively hostile to the
 // party this frame. Bound/pacified mobs and enemies redirected to a summon are
 // deliberately excluded: the party may walk through them while that fight runs.
 func monsterTargetsParty(m *monster.Monster3D) bool {
-	if m == nil || m.Bound || m.Pacified || m.AIFoe != nil {
+	if m == nil || m.IsInertSetPiece() || monsterIsPartyControlled(m) || m.AIFoe != nil {
 		return false
 	}
 	return m.IsEngagingPlayer || m.WasAttacked || m.BossAggro || m.Relentless ||
 		m.State == monster.StateAlert || m.State == monster.StatePursuing || m.State == monster.StateAttacking
 }
 
-// desiredMonsterCollisionState is the single party-walkability rule. Peaceful
-// monsters, party allies, and enemies fighting a summon are non-solid to the
-// party; only a monster currently choosing the party becomes an engaged blocker.
-// It reads only the monster's frame-local state, so worker updates can compute it
-// safely against the frozen AI target produced before the parallel phase.
+// monsterIsPartyControlled is the ownership rule shared by interaction and
+// collision policy. Bound covers both Bind Undead and card summons; Pacified is
+// an active Charm and ceases to apply as soon as the charm is broken.
+func monsterIsPartyControlled(m *monster.Monster3D) bool {
+	return m != nil && (m.Bound || m.Pacified)
+}
+
+// monsterAttackTarget returns the current combat target for logical-post
+// arbitration. A bound ally without an enemy only follows the party and has no
+// attack target; a normal hostile targets either its closer AIFoe or the party.
+func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
+	if m == nil || m.IsInertSetPiece() || m.Pacified {
+		return "", 0, 0, false
+	}
+	// SNAPSHOT reads only: this runs inside the PARALLEL wrapper update, where
+	// foe.X/Y/HitPoints belong to another worker. AIFoe is precomputed
+	// single-threaded each frame with LIVING foes only (refreshBoundAllyCache),
+	// and AITargetX/Y is that foe's frame-start position; foe.ID is immutable.
+	if foe := m.AIFoe; foe != nil {
+		return foe.ID, m.AITargetX, m.AITargetY, true
+	}
+	if m.Bound || !monsterTargetsParty(m) || g == nil || g.camera == nil {
+		return "", 0, 0, false
+	}
+	return partyAttackTargetID, g.camera.X, g.camera.Y, true
+}
+
+func (g *MMGame) monsterHasAttackTarget(m *monster.Monster3D) bool {
+	_, _, _, ok := g.monsterAttackTarget(m)
+	return ok
+}
+
+// monsterHoldsAttackPost reports a logical, not physical, occupancy claim.
+func monsterHoldsAttackPost(m *monster.Monster3D) bool {
+	return m != nil && m.AttackPost && m.AttackPostTargetID != ""
+}
+
+// monsterInAttackTransit is a combatant that is merely moving through another
+// monster's claimed attack tile. It cannot strike there and party melee arcs
+// skip it, while area effects continue to use real world positions and hit it.
+func monsterInAttackTransit(m *monster.Monster3D) bool {
+	return m != nil && m.AttackTransit && !m.AttackPost
+}
+
+func clearMonsterAttackPost(m *monster.Monster3D) {
+	if m == nil {
+		return
+	}
+	m.AttackPost = false
+	m.AttackPostTargetID = ""
+	m.AttackPostSince = 0
+	m.AttackTransit = false
+}
+
+// syncMonsterAttackPost derives an existing holder's logical claim from its
+// local combat state. StateAlert retains an already-held post for the one
+// cooldown-to-reacquire frame; a fresh alert/pursuit owns no post. The serial
+// reconciliation pass determines whether a mob without one is actually transit.
+// This method never reads another monster, so MonsterWrapper may call it from a
+// parallel real-time worker.
+func (g *MMGame) syncMonsterAttackPost(m *monster.Monster3D) {
+	if m == nil {
+		return
+	}
+	targetID, _, _, hasTarget := g.monsterAttackTarget(m)
+	if !hasTarget {
+		clearMonsterAttackPost(m)
+		return
+	}
+	if m.State == monster.StateAttacking {
+		if !m.AttackPost || m.AttackPostTargetID != targetID {
+			m.AttackPost = true
+			m.AttackPostTargetID = targetID
+			if g != nil {
+				m.AttackPostSince = g.frameCount
+			}
+		}
+		m.AttackTransit = false
+		return
+	}
+	if m.State != monster.StateAlert || !m.AttackPost || m.AttackPostTargetID != targetID {
+		clearMonsterAttackPost(m)
+	}
+}
+
+// tryClaimMonsterAttackPost grants m the post at its current tile. Movement
+// stays pass-through; the claim only arbitrates who is allowed to attack there.
+func (g *MMGame) tryClaimMonsterAttackPost(m *monster.Monster3D) bool {
+	if g == nil || m == nil || g.config == nil {
+		return false
+	}
+	targetID, targetX, targetY, hasTarget := g.monsterAttackTarget(m)
+	if !hasTarget {
+		return false
+	}
+	tileSize := float64(g.config.GetTileSize())
+	if tileSize <= 0 || (int(m.X/tileSize) == int(targetX/tileSize) && int(m.Y/tileSize) == int(targetY/tileSize)) {
+		return false
+	}
+	if g.collisionSystem != nil && g.collisionSystem.IsMonsterAttackPostReserved(m.ID, m.X, m.Y) {
+		return false
+	}
+	if !m.AttackPost || m.AttackPostTargetID != targetID {
+		m.AttackPost = true
+		m.AttackPostTargetID = targetID
+		m.AttackPostSince = g.frameCount
+	}
+	m.AttackTransit = false
+	desired, solid := desiredMonsterCollisionState(m)
+	g.applyMonsterCollisionState(m.ID, desired, solid)
+	return true
+}
+
+// releaseMonsterAttackPost removes a logical claim. A serial reconciliation
+// pass marks the displaced mob as transit only if it still shares a winner's
+// tile. This helper may safely update the live collision marker immediately.
+func (g *MMGame) releaseMonsterAttackPost(m *monster.Monster3D) {
+	if m == nil {
+		return
+	}
+	hasTarget := g != nil && g.monsterHasAttackTarget(m)
+	clearMonsterAttackPost(m)
+	if hasTarget && (m.State == monster.StateAttacking || m.State == monster.StateAlert) {
+		m.State = monster.StatePursuing
+		m.StateTimer = 0
+		m.ResetPathfinding()
+	}
+	if g != nil {
+		g.applyMonsterCollisionState(m.ID, collision.CollisionTypeMonster, false)
+	}
+}
+
+// desiredMonsterCollisionState owns the conversion from logical combat state to
+// collision metadata. All monsters remain physically non-solid; the engaged
+// type only marks one claimed combat attack post for AI arbitration.
 func desiredMonsterCollisionState(m *monster.Monster3D) (collision.CollisionType, bool) {
-	if monsterTargetsParty(m) {
-		return collision.CollisionTypeMonsterEngaged, true
+	if monsterHoldsAttackPost(m) {
+		return collision.CollisionTypeMonsterEngaged, false
 	}
 	return collision.CollisionTypeMonster, false
 }
@@ -2504,7 +2727,9 @@ func (g *MMGame) applyMonsterCollisionState(monsterID string, desired collision.
 		return
 	}
 	if entity.CollisionType != desired {
-		entity.CollisionType = desired
+		// Through the setter, never a direct field write: it maintains the
+		// engaged-post index that reservation queries scan.
+		g.collisionSystem.SetEntityCollisionType(monsterID, desired)
 	}
 	entity.Solid = solid
 }
@@ -2517,6 +2742,7 @@ func (g *MMGame) refreshMonsterCollisionSolidity(m *monster.Monster3D) {
 	if g == nil || m == nil {
 		return
 	}
+	g.syncMonsterAttackPost(m)
 	desired, solid := desiredMonsterCollisionState(m)
 	g.applyMonsterCollisionState(m.ID, desired, solid)
 }

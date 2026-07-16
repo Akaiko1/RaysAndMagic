@@ -11,6 +11,8 @@ type NPC struct {
 	Sprite           string
 	VisitedSprite    string // optional art swap once Visited (an emptied barrel closes)
 	NoSpin           bool   // pin the token to a fixed pose (a box pile does not rotate)
+	GridSpanTiles    int    // >=2: render as a grid-aligned facade slab spanning this many tiles (clock tower); 0 = normal
+	GridSpanDir      string // span direction from the anchor tile: "e"|"s" (the slab runs along it)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
 	Transparent      bool
@@ -84,7 +86,23 @@ type NPCLectern struct {
 type MerchantStockItem struct {
 	Item     items.Item
 	Cost     int
-	Quantity int // UnlimitedStock (negative) = never sells out
+	Quantity int    // UnlimitedStock (negative) = never sells out
+	Tab      string // shop tab label ("" = the classic single grid)
+}
+
+// MerchantTabs lists the distinct shop tab labels in authored stock order;
+// empty for a classic untabbed merchant.
+func MerchantTabs(stock []*MerchantStockItem) []string {
+	var tabs []string
+	seen := map[string]bool{}
+	for _, m := range stock {
+		if m == nil || m.Tab == "" || seen[m.Tab] {
+			continue
+		}
+		seen[m.Tab] = true
+		tabs = append(tabs, m.Tab)
+	}
+	return tabs
 }
 
 // UnlimitedStock marks a merchant entry that never sells out.
@@ -92,6 +110,20 @@ const UnlimitedStock = -1
 
 // CurrencyArenaPoints is the arena victory currency (party.ArenaPoints).
 const CurrencyArenaPoints = "arena_points"
+
+// CurrencyItemPrefix marks an item-backed merchant currency: "item:<items.yaml
+// key>". The merchant trades at flat prices paid by consuming that many copies
+// of the item from the party inventory (the clock tower's clock hands).
+const CurrencyItemPrefix = "item:"
+
+// CurrencyItemKey extracts the item key from an item-backed currency string;
+// ok=false for gold/arena_points.
+func CurrencyItemKey(currency string) (string, bool) {
+	if len(currency) > len(CurrencyItemPrefix) && currency[:len(CurrencyItemPrefix)] == CurrencyItemPrefix {
+		return currency[len(CurrencyItemPrefix):], true
+	}
+	return "", false
+}
 
 // InStock reports whether the entry can still be bought.
 func (m *MerchantStockItem) InStock() bool { return m.Quantity != 0 }

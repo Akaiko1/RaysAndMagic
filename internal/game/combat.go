@@ -473,13 +473,11 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
-	// A dual-wielder can reach Space with the main hand / cast cooldown still
-	// cycling - rtActionReady lets the free off-hand qualify so Space can swing
-	// it. In that state the only legal move is an off-hand weapon swing: heal,
-	// offensive spell and trap all key off the main RTCooldown, so gate them on
-	// it or Space would sneak a free cast past a cooldown that should block it.
-	// Main hand ready -> full smart priority (heal -> spell -> trap -> weapon).
-	if caster.RTCooldown <= 0 {
+	// In RT, a dual-wielder can reach Space with the main hand / cast cooldown
+	// still cycling because the off hand is free. That path must swing only the
+	// off hand; it cannot sneak in a spell or heal. TB uses action slots instead,
+	// so a preserved RT cooldown must not change its smart-action priority.
+	if cs.game.turnBasedMode || caster.RTCooldown <= 0 {
 		if healID, def, target, ok := cs.smartHealPlan(caster); ok {
 			if caster.SpellPoints >= cs.effectiveSpellCost(caster, def.SpellPointsCost) &&
 				cs.castKnownHealOn(healID, def, target) {
@@ -1029,6 +1027,13 @@ func (cs *CombatSystem) performMeleeHitDetection(weapon items.Item, damage int, 
 		if !monster.IsAlive() {
 			continue
 		}
+		// A combatant merely transiting through another monster's claimed post
+		// has no attack position of its own. Arcs read combat posts, not
+		// incidental overlap; AoE intentionally does not use this filter and
+		// still damages the same mob below/elsewhere.
+		if monsterInAttackTransit(monster) {
+			continue
+		}
 		ang, ok := meleeReachAngle(playerX, playerY, playerAngle, rangeTiles, tileSize, monster.X, monster.Y)
 		if !ok {
 			continue
@@ -1282,8 +1287,8 @@ func (cs *CombatSystem) monsterVisualPos(mon *monsterPkg.Monster3D) (float64, fl
 	if _, px, py, pulled, ok := cs.pulledFrontSlot(mon); ok && pulled {
 		x, y = px, py
 	}
-	if mon.BandStackCount > 1 && cs.game != nil && cs.game.config != nil {
-		ox, oy := bandFanOffset(mon.BandStackIndex, mon.BandStackCount, float64(cs.game.config.GetTileSize()))
+	if cs.game != nil && cs.game.config != nil {
+		ox, oy := monsterStackFanOffset(mon, float64(cs.game.config.GetTileSize()))
 		x, y = x+ox, y+oy
 	}
 	return x, y
@@ -1482,39 +1487,43 @@ func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
 }
 
 // CastSelectedSpell casts the currently selected spell from the spellbook.
-// Returns true if SP was actually spent and the spell went off - callers use
-// that to consume a turn-based action slot.
-func (cs *CombatSystem) CastSelectedSpell() bool {
+// It returns the spell ID only when the cast actually spent SP and went off,
+// so callers can consume a TB action and retain its RT cooldown on a later
+// mode switch.
+func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
 
 	// Prevent casting while down; also avoids utility healing from acting as a revive.
 	if currentChar.IsIncapacitated() {
-		return false
+		return false, ""
 	}
 	// SAME filtered list the spellbook UI numbers (schools with spells only) -
 	// indexing the full school list desynced selection when a school was empty.
 	schools := spellbookSchoolsWithSpells(currentChar)
 
 	if cs.game.selectedSchool >= len(schools) {
-		return false
+		return false, ""
 	}
 
 	selectedSchool := schools[cs.game.selectedSchool]
 	availableSpells := currentChar.GetSpellsForSchool(selectedSchool)
 
 	if cs.game.selectedSpell < 0 || cs.game.selectedSpell >= len(availableSpells) {
-		return false
+		return false, ""
 	}
 
 	selectedSpellID := availableSpells[cs.game.selectedSpell]
 	selectedSpellDef, err := spells.GetSpellDefinitionByID(selectedSpellID)
 	if err != nil {
 		cs.game.AddCombatMessage("Spell failed: " + err.Error())
-		return false
+		return false, ""
 	}
 
-	return cs.castResolvedSpell(selectedSpellID, selectedSpellDef, currentChar,
-		cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost), true, true)
+	if !cs.castResolvedSpell(selectedSpellID, selectedSpellDef, currentChar,
+		cs.effectiveSpellCost(currentChar, selectedSpellDef.SpellPointsCost), true, true) {
+		return false, ""
+	}
+	return true, selectedSpellID
 }
 
 // castResolvedSpell is the ONE cast path behind both the equipped quick-slot
@@ -1841,12 +1850,16 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		// jittering at the edge of melee range still connects. Then skip party logic.
 		if foe := monster.AIFoe; foe != nil && foe.IsAlive() {
 			if monster.IsChampion() {
-				if cs.monsterCanAttackMonster(monster, foe) {
+				if cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
+					monster.State = monsterPkg.StateAttacking
 					cs.championRTCrossfireStrike(monster, foe)
+				} else if monsterInAttackTransit(monster) {
+					cs.game.releaseMonsterAttackPost(monster)
 				}
 				continue
 			}
-			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) {
+			if monster.AttackCDFrames == 0 && cs.monsterCanAttackMonster(monster, foe) && cs.game.tryClaimMonsterAttackPost(monster) {
+				monster.State = monsterPkg.StateAttacking
 				monster.AttackAnimFrames = MonsterAttackAnimFrames
 				if monster.HasRangedAttack() {
 					cs.spawnMonsterRangedAttackAtMonster(monster, foe, ProjectileOwnerMonsterAtBound)
@@ -1944,6 +1957,9 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	found := false
 	for _, c := range cands {
 		cx, cy := TileCenterFromTile(c[0], c[1], tileSize)
+		if cs.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, cx, cy) {
+			continue
+		}
 		if !cs.game.collisionSystem.CanMoveToWithHabitat(m.ID, cx, cy, m.HabitatPrefs, m.Flying) {
 			continue
 		}
@@ -1954,14 +1970,31 @@ func (cs *CombatSystem) executePounce(m *monsterPkg.Monster3D, playerX, playerY 
 	if !found {
 		return false // no free adjacent tile - can't pounce
 	}
+	oldX, oldY := m.X, m.Y
 	m.X, m.Y = bestX, bestY
 	cs.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
+	if !cs.game.tryClaimMonsterAttackPost(m) {
+		m.X, m.Y = oldX, oldY
+		cs.game.collisionSystem.UpdateEntity(m.ID, oldX, oldY)
+		return false
+	}
+	m.State = monsterPkg.StateAttacking
+	m.StateTimer = 0
+	m.ResetPathfinding()
+	cs.game.refreshMonsterCollisionSolidity(m)
 	m.AttackAnimFrames = MonsterAttackAnimFrames // brief leap/strike animation
 	return true
 }
 
 func (cs *CombatSystem) monsterCanAttackParty(monster *monsterPkg.Monster3D, dist, attackRange float64) bool {
 	if monster == nil {
+		return false
+	}
+	// A monster can physically cross another attacker's tile, but
+	// while doing so it is only transit. Keep this gate here as well as in the
+	// state/post reconciliation so every RT attack path rejects it even if
+	// a caller reaches combat before the next AI state transition.
+	if monsterInAttackTransit(monster) {
 		return false
 	}
 	if dist <= attackRange {
@@ -3592,6 +3625,15 @@ func (cs *CombatSystem) finishMonsterKillImmediately(m *monsterPkg.Monster3D) {
 // band collection, so the survivors would stay calm and stacked - a band could
 // be sniped down one by one without ever aggroing.
 func (cs *CombatSystem) scatterBandOnMemberDeath(victim *monsterPkg.Monster3D) {
+	if victim != nil && victim.LootGuarding {
+		if cs.game.gameLoop != nil {
+			members := cs.game.gameLoop.lootGuardBandMembers(victim)
+			// A death is the same hostile event as a direct hit: surviving guards
+			// scatter, become sticky-hostile, and never resume their post.
+			cs.game.gameLoop.scatterLootGuardBand(members, true)
+		}
+		return
+	}
 	if victim == nil || !victim.Banding || victim.BandID <= 0 ||
 		cs.game.gameLoop == nil || cs.game.world == nil || cs.game.collisionSystem == nil {
 		return
@@ -3732,10 +3774,11 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 // with "reached level N" for heroes the player can't see (their stat points and
 // owed class choices still bank for when they're swapped in).
 func (cs *CombatSystem) checkLevelUp(character *character.MMCharacter, announce bool) {
-	// Level progression: each level requires currentLevel * XPRequiredPerLevel
-	// experience. Loop handles multiple level-ups from a single XP gain.
+	// Level progression: xpStepCost(currentLevel) experience per level - linear
+	// early, quadratic from L13 so high-level farming doesn't run away. Loop
+	// handles multiple level-ups from a single XP gain.
 	for {
-		requiredExp := character.Level * XPRequiredPerLevel
+		requiredExp := xpStepCost(character.Level)
 
 		if character.Experience >= requiredExp {
 			oldLevel := character.Level
@@ -4251,6 +4294,15 @@ func (cs *CombatSystem) monsterCanAttackMonster(attacker, target *monsterPkg.Mon
 	if attacker == nil || target == nil || !target.IsAlive() {
 		return false
 	}
+	if monsterInAttackTransit(attacker) {
+		return false
+	}
+	if cs != nil && cs.game != nil && cs.game.config != nil {
+		tileSize := float64(cs.game.config.GetTileSize())
+		if tileSize > 0 && int(attacker.X/tileSize) == int(target.X/tileSize) && int(attacker.Y/tileSize) == int(target.Y/tileSize) {
+			return false
+		}
+	}
 	if Distance(attacker.X, attacker.Y, target.X, target.Y) <= attacker.GetAttackRangePixels() {
 		return !attacker.HasRangedAttack() || cs.game.collisionSystem == nil ||
 			cs.game.collisionSystem.CheckLineOfSight(attacker.X, attacker.Y, target.X, target.Y)
@@ -4387,6 +4439,10 @@ func (cs *CombatSystem) boundAttackNearest(m *monsterPkg.Monster3D) bool {
 	if !cs.monsterCanAttackMonster(m, target) {
 		return false // in sight but out of reach - close the distance first
 	}
+	if !cs.game.tryClaimMonsterAttackPost(m) {
+		return false
+	}
+	m.State = monsterPkg.StateAttacking
 	// Ranged bound undead (e.g. a lich) loose a visible bolt at the enemy; the hit
 	// is resolved on impact in CheckProjectileMonsterCollisions. Melee ones strike
 	// directly.

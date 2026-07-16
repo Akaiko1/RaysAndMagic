@@ -651,6 +651,10 @@ func (ui *UISystem) drawDialogFolderTabs(screen *ebiten.Image, dialogX, dialogY 
 		if ui.game.consumeLeftClickIn(tabX, tabY, tabX+tabW, tabY+tabH) {
 			ui.game.dialogTab = i
 			ui.game.selectedChoice = 0
+			// A tab switch re-indexes the buy grid: fresh page, and any
+			// in-flight double-click must not buy across tabs.
+			ui.game.merchantBuyPage = 0
+			ui.game.resetDialogClickTracker()
 		}
 	}
 }
@@ -970,6 +974,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	balanceText := fmt.Sprintf("Party Gold: %d", ui.game.party.Gold)
 	if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
 		balanceText = fmt.Sprintf("Arena Points: %d", ui.game.party.ArenaPoints)
+	} else if name, ok := currencyItemName(ui.game.dialogNPC.Currency); ok {
+		balanceText = fmt.Sprintf("%ss: %d", name, ui.game.party.CountItemsByName(name))
 	}
 	drawDebugText(screen, clipDebugText(balanceText, layout.balance.w), layout.balance.x, layout.balance.y)
 
@@ -985,8 +991,15 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 	var tooltipItem items.Item
 	var tooltipHasItem bool
 
+	// Set-shop merchants (the Clockmaker) group their stock under folder tabs;
+	// the classic single grid stays for untabbed shops. The visible slice is
+	// shared with the click handler (merchantVisibleStock) so indices agree.
+	if tabs := ui.game.merchantShopTabs(); len(tabs) > 0 {
+		ui.drawDialogFolderTabs(screen, dialogX, dialogY, tabs)
+	}
+
 	// Buy grid (left): merchant stock.
-	stock := ui.game.dialogNPC.MerchantStock
+	stock := ui.game.merchantVisibleStock()
 	buyPages := pageCount(len(stock), merchantPageSize)
 	clampPage(&ui.game.merchantBuyPage, buyPages)
 	if len(stock) == 0 {
@@ -1010,6 +1023,8 @@ func (ui *UISystem) drawMerchantDialog(screen *ebiten.Image, dialogX, dialogY, d
 			priceText := fmt.Sprintf("%d g", ui.game.merchantBuyPrice(entry.Cost))
 			if ui.game.dialogNPC.Currency == character.CurrencyArenaPoints {
 				priceText = fmt.Sprintf("%d ap", entry.Cost) // flat price, victory currency
+			} else if _, ok := character.CurrencyItemKey(ui.game.dialogNPC.Currency); ok {
+				priceText = fmt.Sprintf("x%d", entry.Cost) // flat price, item-backed currency
 			}
 			if soldOut {
 				priceText = "sold out"

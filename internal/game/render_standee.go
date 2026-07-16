@@ -283,7 +283,7 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 
 	// World length of the token chosen so that, seen face-on at the entity's
 	// current depth, it spans exactly the billboard's pixel width.
-	length := float64(centerSize) * 2 * halfFovTan * centerDepth / float64(screenW)
+	length := r.spriteFootprintWorld(float64(centerSize), centerDepth)
 	if worldLengthOverride > 0 {
 		length = worldLengthOverride
 	}
@@ -555,7 +555,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
 
 	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
-	diag := tileSize * math.Sqrt2
+	// Footprint = the art's OWN projected width, like landmark monuments - a
+	// tile-diagonal footprint squeezed the art horizontally (square oak drew
+	// ~30% too thin once the square-projection FOV removed the old horizontal
+	// stretch that was masking it).
+	footprint := r.spriteFootprintWorld(float64(s.spriteSize), s.depthPerp)
 
 	// Distance LOD (trees only): beyond the threshold the crossed pair's parallax
 	// is sub-pixel, so collapse to a SINGLE camera-facing plane - ~4x fewer draws,
@@ -563,11 +567,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// just present face-on to the camera this frame.
 	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
-		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, diag)
+		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, footprint)
 		return
 	}
 
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, diag, s.depthPerp, heightPx, bottomY, b)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightPx, bottomY, b)
 }
 
 // drawCrossedSlabs renders two perpendicular standee planes (yawA, yawB) crossing
@@ -695,6 +699,21 @@ func (g *MMGame) wallStickPose(npcX, npcY float64) (x, y, yaw float64, ok bool) 
 	return 0, 0, 0, false
 }
 
+// spriteFootprintWorld returns the world length that spans spriteSizePx
+// face-on at depthPerp - THE px->world projection (slab lengths, hit-shake
+// amplitudes). For slabs it is the length that shows the art at its own
+// proportions (the texture maps u in [0,1] across it centered on the entity,
+// so a cross's intersection axis lands on the texture centre). Falls back to
+// the tile diagonal when the projection degenerates.
+func (r *Renderer) spriteFootprintWorld(spriteSizePx, depthPerp float64) float64 {
+	halfFovTan := math.Tan(r.game.camera.FOV / 2)
+	footprint := spriteSizePx * 2 * halfFovTan * depthPerp / float64(r.game.config.GetScreenWidth())
+	if footprint <= 0 {
+		footprint = float64(r.game.config.GetTileSize()) * math.Sqrt2
+	}
+	return footprint
+}
+
 // drawLandmarkStandee renders a render_type:"landmark" entity (mage tower, church,
 // city gate, lich nexus, fountain) as a TALL crossed standee that slowly spins in
 // place - the static-token showcase spin, but as a perpendicular cross so it reads
@@ -710,15 +729,7 @@ func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName str
 		heightPx = int(float64(spriteSize) * float64(sprite.Bounds().Dy()) / texW)
 	}
 	key := standeeCoreKey{name: keyName, bounds: sprite.Bounds(), img: sprite}
-	// Footprint = the sprite's OWN projected width (the world length that spans
-	// spriteSize px face-on), NOT a fixed tile diagonal: the texture maps uin[0,1]
-	// across it centered on the entity, so the cross's intersection axis (u=0.5)
-	// lands on the texture centre and the arms span the full art at any scale.
-	halfFovTan := math.Tan(r.game.camera.FOV / 2)
-	footprint := float64(spriteSize) * 2 * halfFovTan * depthPerp / float64(r.game.config.GetScreenWidth())
-	if footprint <= 0 {
-		footprint = float64(r.game.config.GetTileSize()) * math.Sqrt2
-	}
+	footprint := r.spriteFootprintWorld(float64(spriteSize), depthPerp)
 	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightPx, screenY+spriteSize, b)
 	return true
 }

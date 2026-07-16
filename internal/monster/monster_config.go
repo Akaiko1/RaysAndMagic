@@ -99,10 +99,11 @@ type MonsterDefinition struct {
 	EnrageCooldownMult float64 `yaml:"enrage_cooldown_mult,omitempty"`
 	// Idol-ward (deep-jungle warlord): the boss is invulnerable + rooted (holds its
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
-	WardedByIdols    bool   `yaml:"warded_by_idols,omitempty"`    // boss: warded while any idol lives
-	AggroWholeMap    bool   `yaml:"aggro_whole_map,omitempty"`    // boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
-	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
-	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
+	WardedByIdols     bool    `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
+	AggroWholeMap     bool    `yaml:"aggro_whole_map,omitempty"`
+	RallyOnAggroTiles float64 `yaml:"rally_on_aggro_tiles,omitempty"` // alarm bell: on aggro, wake every monster within N tiles (once)    // boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	DeathRalliesType  string  `yaml:"death_rallies_type,omitempty"`   // on this monster's death, every live map monster of this Type goes relentless (revenge)
+	WarlordIdol       bool    `yaml:"warlord_idol,omitempty"`         // this monster is a ward idol
 	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
 	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
 	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
@@ -135,8 +136,10 @@ type MonsterYAMLConfig struct {
 var MonsterConfig *MonsterYAMLConfig
 
 // validateMonsterConfiguration checks for conflicts in monster letters.
-// Monster letters are allowed to be reused by biome-scoped definitions; the map
-// loader resolves biome-specific monsters before universal monsters.
+// ASCII map contract: lowercase a-z is reserved for monster spawns; tiles and
+// props use uppercase letters (or a letterless [tile:] token). Monster letters
+// may be reused by biome-scoped definitions; the map loader resolves
+// biome-specific monsters before universal monsters.
 func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	universalLetters := make(map[string][]string)
 	biomeLetters := make(map[string]map[string][]string)
@@ -162,6 +165,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	// Effect flags travel in pairs: a chance without its magnitude (or an evasive
 	// phase without its trigger tuning) would silently fall back to zero in code.
 	for key, monster := range config.Monsters {
+		if monster.Letter != "" && (len(monster.Letter) != 1 || monster.Letter[0] < 'a' || monster.Letter[0] > 'z') {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has map letter %q - monster spawns must use one lowercase ASCII letter (a-z)", key, monster.Letter))
+		}
 		if monster.DeprecatedSizeGame != 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' uses removed key size_game - use size_class instead", key))
 		}
@@ -446,6 +452,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.EnrageCooldownMult = def.EnrageCooldownMult
 	m.WardedByIdols = def.WardedByIdols
 	m.AggroWholeMap = def.AggroWholeMap
+	m.RallyOnAggroTiles = def.RallyOnAggroTiles
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
 	m.Banding = def.Banding

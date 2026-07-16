@@ -27,11 +27,11 @@ movement:
 
 # Camera/3D rendering settings
 camera:
-  # Square-projection FOV: 2*atan(screen_width / (2*screen_height)). At this
-  # value one world tile renders as a true SQUARE (horizontal focal length ==
-  # the wall-height factor), so square art (arena gate) keeps its aspect.
-  # Retune if the logical resolution's aspect ratio ever changes.
-  field_of_view: 1.176005207  # 67.38 degrees for 1024x768
+  # Square-projection FOV is DERIVED at runtime: 2*atan(screen_w/(2*screen_h))
+  # from the LIVE logical resolution (boot + every resize/fullscreen), so one
+  # world tile renders as a true square at any window aspect. This value is a
+  # fallback for config-less consumers only - the engine overrides it.
+  field_of_view: 1.176005207
   view_distance: 3200          # 50 * tile_size
 
 # UI settings
@@ -47,6 +47,21 @@ characters:
   # Starting party gold and food
   starting_gold: 500
   starting_food: 5
+
+  # --- Level progression pacing (documentation; knobs live in
+  # internal/game/balance.go: XPRequiredPerLevel=100, XPQuadPerLevel=8) ---
+  # XP to advance FROM level L = max(100*L, 8*L*L): linear through L12
+  # (classic curve, untouched), quadratic from L13 up.
+  # Why: monster XP grows ~2.2*L^2 with zone level (bandit L5=55, dust slime
+  # L22=1000, grandfather clock L30=2400), so a purely linear cost made
+  # farming ACCELERATE with level (~29 zone-level kills per level at L5 ->
+  # ~5 at L30). The quadratic branch holds the pace FLAT: ~15 zone-level
+  # kills per level in a 4-hero party, L13 through L50.
+  # (Kill XP is split by active party size, then every living hero - bench
+  # included - receives that share; quest XP is granted in full.)
+  # Tuning: XPQuadPerLevel 6 -> ~11 kills/level, 10 -> ~18.
+  # Totals to REACH a level: L13=7800, L20=22360, L30=71040, L50=326000.
+  # The curve is pinned by TestXPStepCostCurve (progression_score_test.go).
 
   # Stat calculation multipliers
   hit_points:
@@ -246,7 +261,8 @@ monster_ai:
   # Detection (distances in tiles, the rest are multipliers)
   default_alert_radius_tiles: 4        # fallback when a monster omits alert_radius
   alert_outside_tether_multiplier: 2.0 # wider detection when lured away from spawn
-  alert_los_blocked_multiplier: 0.5    # reduced detection through trees/walls
+  # No detection without line of sight: an unaware monster never aggros through
+  # walls/trees (hard rule in PlayerDetectionRange, not a multiplier).
   disengage_distance_multiplier: 2.0   # lose engagement at detection x this (hysteresis)
   attack_enter_range_fraction: 0.9     # enter attack at <= range x this (exit at > range)
 

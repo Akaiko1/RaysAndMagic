@@ -2060,17 +2060,28 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	}
 
 	tileItems := make(map[string][]legendBuildItem)
-	var generalLabelTiles []legendEntry // letterless universal tiles ([tile:short_label])
+	var generalLabelTiles []legendEntry // letterless UNIVERSAL tiles ([tile:short_label], no biomes list)
+	var biomeLabelTiles []legendEntry   // letterless tiles scoped to this biome (tower decor)
 	for key, data := range tm.ListTiles() {
-		// Letterless general tiles are placed by short_label, not a grid letter.
+		// Letterless tiles are placed by short_label, not a grid letter. A
+		// biomes list scopes them to their biome section exactly like lettered
+		// tiles - only truly universal ones land in "general (any map)".
 		if data.Letter == "" {
-			if data.ShortLabel != "" {
-				generalLabelTiles = append(generalLabelTiles, legendEntry{
-					Text:    fmt.Sprintf("$  %s (%s)", data.ShortLabel, data.Name),
-					Kind:    brushGeneral,
-					Letter:  "$",
-					TileKey: key,
-				})
+			if data.ShortLabel == "" {
+				continue
+			}
+			entry := legendEntry{
+				Text:    fmt.Sprintf("$  %s (%s)", data.ShortLabel, data.Name),
+				Kind:    brushGeneral,
+				Letter:  "$",
+				TileKey: key,
+			}
+			if len(data.Biomes) > 0 {
+				if matchesBiome(data.Biomes, biome) {
+					biomeLabelTiles = append(biomeLabelTiles, entry)
+				}
+			} else {
+				generalLabelTiles = append(generalLabelTiles, entry)
 			}
 			continue
 		}
@@ -2089,11 +2100,12 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 		})
 	}
 	sort.Slice(generalLabelTiles, func(i, j int) bool { return generalLabelTiles[i].Text < generalLabelTiles[j].Text })
+	sort.Slice(biomeLabelTiles, func(i, j int) bool { return biomeLabelTiles[i].Text < biomeLabelTiles[j].Text })
 	// Biome-specific tiles under "biome: X"; universal ones (no biomes list, by
 	// letter OR short_label) under their own "biome: general" section.
 	tileSpecific, tileGeneral := emitBiomeScopedSplit(tileItems)
 	entries = append(entries, sectionHeader(fmt.Sprintf("Tiles - biome: %s", biomeLabel)))
-	entries = append(entries, groupTileEntriesByType(tileSpecific, tm)...)
+	entries = append(entries, groupTileEntriesByType(append(tileSpecific, biomeLabelTiles...), tm)...)
 	if len(tileGeneral) > 0 || len(generalLabelTiles) > 0 {
 		entries = append(entries, legendEntry{Text: "", IsHeader: true})
 		entries = append(entries, sectionHeader("Tiles - biome: general (any map)"))
@@ -2251,7 +2263,7 @@ func buildLegendEntries(tm *world.TileManager, mc *monster.MonsterYAMLConfig, bi
 	entries = append(entries, sectionHeader("Notes"))
 	entries = append(entries, legendEntry{Text: "+ = start position", IsHeader: true})
 	entries = append(entries, legendEntry{Text: "@ = NPC/special-tile placeholder in map lines", IsHeader: true})
-	entries = append(entries, legendEntry{Text: "a-z = monster letters (tile underneath is empty)", IsHeader: true})
+	entries = append(entries, legendEntry{Text: "a-z = monsters; A-Z = tiles/props; $ = letterless decor", IsHeader: true})
 
 	return entries
 }

@@ -40,6 +40,11 @@ var meleeFxStyleDraw = map[string]func(*Renderer, *ebiten.Image, SlashEffect, fl
 	"arena_parry":       (*Renderer).drawMeleeFxArenaParry,
 	"arena_lion":        (*Renderer).drawMeleeFxArenaLion,
 	"arena_cesti":       (*Renderer).drawMeleeFxArenaCesti,
+	"clock_cogfang":     (*Renderer).drawMeleeFxClockCogfang,
+	"clock_chime":       (*Renderer).drawMeleeFxClockChime,
+	"clock_minute":      (*Renderer).drawMeleeFxClockMinute,
+	"clock_mainspring":  (*Renderer).drawMeleeFxClockMainspring,
+	"clock_escapement":  (*Renderer).drawMeleeFxClockEscapement,
 }
 
 // validateWeaponFxStyles fails fast when a weapon effect names a style with no

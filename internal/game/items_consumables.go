@@ -54,7 +54,7 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	} else if ch.HitPoints <= 0 {
 		ch.HitPoints = 1
 	}
-	g.party.RemoveItem(itemIdx)
+	g.party.ConsumeOneAt(itemIdx)
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s and is revived!", ch.Name, item.Name))
 	return true
 }
@@ -139,7 +139,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 	}
 	before := ch.HitPoints
 	g.applyFlatHeal(targetIdx, base, div)
-	g.party.RemoveItem(itemIdx)
+	g.party.ConsumeOneAt(itemIdx)
 	g.AddCombatMessage(fmt.Sprintf("%s uses %s and heals %d HP!", ch.Name, item.Name, ch.HitPoints-before))
 	return true
 }
@@ -160,7 +160,7 @@ func (g *MMGame) resolvePickerQuickSource(itemIdx int, consumed bool) {
 	} else if g.pickerQuickChar < len(g.party.Members) {
 		if ch := g.party.Members[g.pickerQuickChar]; ch != nil &&
 			g.pickerQuickSlot >= 0 && g.pickerQuickSlot < len(ch.QuickSlots) {
-			ch.QuickSlots[g.pickerQuickSlot] = nil
+			g.decrementQuickSlot(ch, g.pickerQuickSlot)
 		}
 	}
 	g.pickerQuickChar, g.pickerQuickSlot = -1, -1
@@ -217,7 +217,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		}
 		ch.CurePoison()
 		g.applyFlatHeal(selectedChar, item.Attributes["heal_base"], item.Attributes["heal_endurance_divisor"])
-		g.party.RemoveItem(itemIndex)
+		g.party.ConsumeOneAt(itemIndex)
 		g.AddCombatMessage(fmt.Sprintf("%s drinks %s - the venom subsides.", ch.Name, item.Name))
 		return true
 	}
@@ -278,7 +278,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 		if ch.SpellPoints > ch.MaxSpellPoints {
 			ch.SpellPoints = ch.MaxSpellPoints
 		}
-		g.party.RemoveItem(itemIndex)
+		g.party.ConsumeOneAt(itemIndex)
 		g.AddCombatMessage(fmt.Sprintf("%s drinks %s and recovers %d SP!", ch.Name, item.Name, ch.SpellPoints-before))
 		return true
 	}
@@ -287,7 +287,7 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 	if dist, ok := item.Attributes["summon_distance_tiles"]; ok {
 		if dist > 0 {
 			if g.SummonRandomMonsterNearPlayer(float64(dist)) {
-				g.party.RemoveItem(itemIndex)
+				g.party.ConsumeOneAt(itemIndex)
 				g.AddCombatMessage("A ripple in the air answers your call.")
 				return true
 			}

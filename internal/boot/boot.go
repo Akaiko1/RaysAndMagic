@@ -97,6 +97,9 @@ func LoadGameData() (*config.Config, *monster.MonsterYAMLConfig) {
 	if err := game.ValidateNPCRenderCategories(character.NPCConfigInstance.NPCs); err != nil {
 		log.Fatalf("%v", err)
 	}
+	if err := game.ValidateNPCCommerce(character.NPCConfigInstance.NPCs); err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	return cfg, monsterCfg
 }

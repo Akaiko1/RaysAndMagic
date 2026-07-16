@@ -22,6 +22,17 @@ func crateTestGame(t *testing.T) *MMGame {
 	return game
 }
 
+// inventoryUnitsByName snapshots unit counts per item name - the merge-proof
+// way to diff "what did this chest actually grant" now that AddItem folds
+// stackable rewards into existing stacks.
+func inventoryUnitsByName(p *character.Party) map[string]int {
+	m := map[string]int{}
+	for _, it := range p.Inventory {
+		m[it.Name] += it.Count()
+	}
+	return m
+}
+
 func spawnCrate(t *testing.T, g *MMGame, key string, x, y float64) *character.NPC {
 	t.Helper()
 	npc, err := character.CreateNPCFromConfig(key, x, y)
@@ -40,13 +51,13 @@ func TestWoodenChest(t *testing.T) {
 	g.world.Monsters = []*monster.Monster3D{m}
 
 	chest := spawnCrate(t, g, "chest_wooden", g.camera.X+64, g.camera.Y)
-	invBefore := len(g.party.Inventory)
+	invBefore := g.party.GetTotalItems()
 	goldBefore := g.party.Gold
 	g.useLootCrate(chest)
 	if !chest.Visited {
 		t.Fatal("chest not consumed")
 	}
-	rewardSlots := len(g.party.Inventory) - invBefore
+	rewardSlots := g.party.GetTotalItems() - invBefore
 	if g.party.Gold > goldBefore {
 		rewardSlots++ // A special gold cache replaces one item slot.
 	}
@@ -54,9 +65,9 @@ func TestWoodenChest(t *testing.T) {
 		t.Fatalf("wooden chest produced %d reward slots, want 3", rewardSlots)
 	}
 	// Re-opening yields nothing.
-	invAfter := len(g.party.Inventory)
+	invAfter := g.party.GetTotalItems()
 	g.useLootCrate(chest)
-	if len(g.party.Inventory) != invAfter {
+	if g.party.GetTotalItems() != invAfter {
 		t.Fatal("an opened chest must stay empty")
 	}
 }
@@ -69,10 +80,10 @@ func TestWoodenChestRetainsInitialMapPoolAfterClear(t *testing.T) {
 	g.world.Monsters = nil // The map has been completely cleared.
 
 	chest := spawnCrate(t, g, "chest_wooden", g.camera.X+64, g.camera.Y)
-	invBefore := len(g.party.Inventory)
+	invBefore := g.party.GetTotalItems()
 	goldBefore := g.party.Gold
 	g.useLootCrate(chest)
-	rewardSlots := len(g.party.Inventory) - invBefore
+	rewardSlots := g.party.GetTotalItems() - invBefore
 	if g.party.Gold > goldBefore {
 		rewardSlots++
 	}
@@ -94,11 +105,19 @@ func TestIronChestFiltersCommons(t *testing.T) {
 		delete(member.Skills, character.SkillDisarmTrap)
 	}
 	chest := spawnCrate(t, g, "chest_iron", g.camera.X+64, g.camera.Y)
-	invBefore := len(g.party.Inventory)
+	before := inventoryUnitsByName(g.party)
 	g.useLootCrate(chest)
-	for _, it := range g.party.Inventory[invBefore:] {
-		if tier := rarityTier(it.Rarity); tier < 1 {
-			t.Fatalf("iron chest dropped a common: %s (%s)", it.Name, it.Rarity)
+	after := inventoryUnitsByName(g.party)
+	for name, n := range after {
+		if n <= before[name] {
+			continue
+		}
+		for _, it := range g.party.Inventory {
+			if it.Name == name {
+				if tier := rarityTier(it.Rarity); tier < 1 {
+					t.Fatalf("iron chest dropped a common: %s (%s)", it.Name, it.Rarity)
+				}
+			}
 		}
 	}
 	// Nobody has Disarm Trap in the bare fixture: the flame trap must have hit.
@@ -228,21 +247,31 @@ func TestGoldenChestTrapDamageTypesComeFromYAML(t *testing.T) {
 func TestGoldenChestPool(t *testing.T) {
 	g := crateTestGame(t)
 	chest := spawnCrate(t, g, "chest_golden", g.camera.X+64, g.camera.Y)
-	invBefore := len(g.party.Inventory)
+	// Diff unit counts by NAME: AddItem merges stackable rewards (possibly into
+	// a pre-held stack), so slicing appended entries under-counts and can skip
+	// a merged drop's rarity check.
+	before := inventoryUnitsByName(g.party)
 	arenaBefore := g.party.ArenaPoints
 	g.useLootCrate(chest)
-	drops := g.party.Inventory[invBefore:]
-	rewardSlots := len(drops)
+	after := inventoryUnitsByName(g.party)
+	rewardSlots := 0
+	for name, n := range after {
+		gained := n - before[name]
+		if gained <= 0 {
+			continue
+		}
+		rewardSlots += gained
+		for _, it := range g.party.Inventory {
+			if it.Name == name && it.Rarity != "rare" && it.Rarity != "legendary" {
+				t.Fatalf("golden chest dropped %s (%s), want rare/legendary", it.Name, it.Rarity)
+			}
+		}
+	}
 	if g.party.ArenaPoints > arenaBefore {
 		rewardSlots++ // The arena jackpot replaces a rare/legendary item.
 	}
 	if rewardSlots != 3 {
 		t.Fatalf("golden chest produced %d reward slots, want 3", rewardSlots)
-	}
-	for _, it := range drops {
-		if it.Rarity != "rare" && it.Rarity != "legendary" {
-			t.Fatalf("golden chest dropped %s (%s), want rare/legendary", it.Name, it.Rarity)
-		}
 	}
 }
 

@@ -199,6 +199,36 @@ func TestScatterBand_SightVsHitPropagation(t *testing.T) {
 	}
 }
 
+// All members can enter Alert in the same parallel RT frame. The aggro pass
+// must still physically scatter the whole stack rather than merely clearing
+// BandID and leaving a transit-like visual pile behind.
+func TestUpdateMonsterBandsAllAlertedMembersPhysicallyScatter(t *testing.T) {
+	game := newBandingTestGame()
+	tile := float64(game.config.GetTileSize())
+	x, y := TileCenterFromTile(4, 4, tile)
+	for _, id := range []string{"wolf-a", "wolf-b", "wolf-c"} {
+		addBandingTestMonster(game, id, "wolf", x, y, 17)
+	}
+	for _, m := range game.world.Monsters {
+		m.IsEngagingPlayer = true
+		m.State = monsterPkg.StateAlert
+	}
+
+	(&GameLoop{game: game}).updateMonsterBands()
+
+	occupied := map[[2]int]bool{}
+	for _, m := range game.world.Monsters {
+		if m.BandID != 0 || !m.IsEngagingPlayer {
+			t.Fatalf("%s did not leave the band as an engaged attacker: band=%d engaging=%v", m.ID, m.BandID, m.IsEngagingPlayer)
+		}
+		pos := [2]int{int(m.X / tile), int(m.Y / tile)}
+		if occupied[pos] {
+			t.Fatalf("all-alerted band remained physically stacked on tile %v", pos)
+		}
+		occupied[pos] = true
+	}
+}
+
 // TestScatterBandOnMemberDeath_OneShotKillAggrosSurvivors covers the gap the
 // hit-propagation path can't reach: a one-shot kill drops the victim out of the
 // band collection before the next banding tick, so without the explicit kill

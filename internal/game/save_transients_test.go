@@ -26,6 +26,7 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	g.spellHitEffects = append(g.spellHitEffects, SpellHitEffect{Active: true})
 	g.impactLights = append(g.impactLights, ImpactLight{X: 64, Y: 64, Radius: 2})
 	g.deadMonsterIDs = append(g.deadMonsterIDs, "monster_1")
+	g.turnBasedTurnSuspended = true
 
 	g.clearTransientCombatState()
 
@@ -39,6 +40,9 @@ func TestClearTransientCombatState_DropsEverything(t *testing.T) {
 	}
 	if len(g.deadMonsterIDs) != 0 {
 		t.Fatalf("deadMonsterIDs not cleared: %d", len(g.deadMonsterIDs))
+	}
+	if g.turnBasedTurnSuspended {
+		t.Error("a world swap must discard a suspended turn-based turn")
 	}
 	for _, id := range []string{"mp_1", "ar_1"} {
 		if g.collisionSystem.GetEntityByID(id) != nil {

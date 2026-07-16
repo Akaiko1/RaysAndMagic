@@ -1,0 +1,40 @@
+# Clock Tower - Belfry Halls (biome: clock_tower_belfry)
+# Z = plaster wall  I = gearstone wall  . = clockwork mosaic (default)  + = start
+# zones: possessed tomes (k) in the libraries, alarm sentries (l) a quarter apart (each bell wakes 15 tiles),
+# grandfather clocks (g) guard the bell chamber and the regal chest
+# @ = NPC placeholder, $ = decor tile placeholder (bound by >[...] at line end)
+ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+Z..$.Z...$.....$$$$$..$...........Z  >[tile:blueprint], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster], [tile:gearcluster]
+Z.........k.k.............k.k.....Z
+Z$..@Z.....k...ZZ.ZZ......k....$..Z  >[npc:chest_wooden], [tile:blueprint], [tile:wallclock]
+Z...@Z.........$Z.Z@..............Z  >[npc:chest_wooden], [npc:chest_gearwood], [tile:blueprint]
+ZZ.ZZZZZZZZZZZZZZ.ZZZZZZZZZZZZ....Z
+Z....Z.@kZ..................lZ....Z  >[npc:chest_chrono]
+Z....Z.k.Z.................k.Z....Z
+Z....ZZ.ZZ...................Z....Z
+Z....Z.........l....l........Z...$Z  >[tile:pipevalve]
+Z....Z.......................Z....Z
+Z....Z.....IIIIII.IIIIII.....Z....Z
+Z$...Z.....I@...$.$$...I.....Z....Z  >[npc:chest_regal], [tile:brokenclock], [tile:wallclock], [tile:partscrate], [tile:wallclock]
+Z....Z.....I$.........$I.....Z....Z  >[tile:partscrate], [tile:wallclock]
+Z....Z...l.I..I.....I..I.l...Z....Z
+Z....Z.....I..$..g..$..I.....Z$..$Z  >[tile:brokenclock], [tile:brokenclock], [tile:blueprint], [tile:gearcluster]
+Z.k..Z.....I...........I.....ZZ..$Z  >[tile:gearcluster]
+Z.k..Z.....I$..g.l.g..$I.l.......$Z  >[tile:wallclock], [tile:wallclock], [tile:gearcluster]
+Z.k..Z...l.I.....l.....I.....ZZ..$Z  >[tile:gearcluster]
+Z....Z.....I..$.....$..I.....Z$..$Z  >[tile:brokenclock], [tile:brokenclock], [tile:blueprint], [tile:gearcluster]
+Z..$.Z.k...I..I.....I..I.....Z....Z  >[tile:brokenclock]
+Z....Z.....I$..........I.l...Z....Z  >[tile:wallclock]
+Z....Z.....I...$....$.@I.....Z...$Z  >[npc:chest_regal], [tile:wallclock], [tile:wallclock], [tile:blueprint]
+Z....Z.....IIIIII.IIIIII.....Z....Z
+Z............................Z.k..Z
+Z....Z.........l....l........Z.k..Z
+Z....Z..k.............$..ZZ.ZZ.k..Z  >[tile:gearpile]
+Z....Z...................Z.k.Z....Z
+Z.$..Zl..................Zk.@Z....Z  >[npc:chest_chrono], [tile:gearcluster]
+Z.ZZZZZZZZZZZZZZZZZZZZZZ.ZZZZZZZZ.Z
+Z...@Z................$Z.Z...Z@@..Z  >[npc:chest_gearwood], [npc:chest_wooden], [npc:chest_wooden], [tile:blueprint]
+Z$...Z..kkk......+.....Z.Z.k.Z.$..Z  >[tile:blueprint], [tile:gearpile]
+Z..........................k.Z$...Z  >[tile:blueprint]
+Z..$.Z$.....$....@...............$Z  >[npc:clock_stairs_down_to_2], [tile:blueprint], [tile:gearcluster], [tile:gearcluster], [tile:blueprint]
+ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ

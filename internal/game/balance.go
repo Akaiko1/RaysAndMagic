@@ -66,9 +66,24 @@ const (
 	// level-up combat message and applied in checkLevelUp.
 	StatPointsPerLevel = 5
 
-	// XPRequiredPerLevel multiplied by current level gives the XP needed for
-	// the next level: required = currentLevel * XPRequiredPerLevel.
+	// XPRequiredPerLevel multiplied by current level gives the LINEAR branch of
+	// the XP needed for the next level (see xpStepCost). It alone defines the
+	// curve through L12 - the early game is exactly the classic 100 x L.
 	XPRequiredPerLevel = 100
+
+	// XPQuadPerLevel is the quadratic branch coefficient of xpStepCost; it
+	// takes over from L13 (8 x 13^2 > 100 x 13). Monster XP grows roughly
+	// quadratically with a zone's level (~2.2 x L^2: bandit L5 = 55, dust
+	// slime L22 = 1000, grandfather clock L30 = 2400), so a purely linear
+	// level cost makes kills-per-level FALL as ~1/L - post-20 farming used to
+	// run away (~29 level-appropriate kills per level at L5, only ~5 at L30).
+	// The L^2 branch holds the pace FLAT at ~15 zone-level kills per level in
+	// a 4-hero party (8 / (2.2/4)), L13 through L50.
+	// Tuning: 6 -> ~11 kills/level, 10 -> ~18. Totals to REACH a level:
+	// L13=7800, L20=22360, L30=71040, L50=326000. Pinned by
+	// TestXPStepCostCurve; the pacing note in config.yaml (characters:)
+	// mirrors this - keep both in sync.
+	XPQuadPerLevel = 8
 
 	// LevelUpChoiceInterval: a class-progression choice is offered every Nth
 	// level (3, 6, 9, 12, ...).
