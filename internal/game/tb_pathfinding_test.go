@@ -526,7 +526,7 @@ func TestMonsterTurnBased_Save1GorillaDoesNotFreezeDuringTwentyBackAndForthMoves
 	t.Logf("gorilla stayed active during 20 back/forth TB moves; visited=%v", visited)
 }
 
-func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVision(t *testing.T) {
+func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageAtLongRange(t *testing.T) {
 	cfg := loadTestConfig(t)
 	wm, _ := loadRealWorldForTest(t, cfg, "deep_jungle")
 	w := wm.GetCurrentWorld()
@@ -557,8 +557,9 @@ func TestMonsterTurnBased_WasAttackedBossActsAfterTransientDisengageOutsideVisio
 	if !gorilla.BossAggro {
 		t.Fatal("setup failed: WasAttacked gorilla should recompute BossAggro")
 	}
-	if Distance(g.camera.X, g.camera.Y, gorilla.X, gorilla.Y) <= tile*TurnBasedVisionRangeTiles {
-		t.Fatal("setup failed: gorilla must be outside TB vision radius")
+	const longRangeTiles = 7.0
+	if Distance(g.camera.X, g.camera.Y, gorilla.X, gorilla.Y) <= tile*longRangeTiles {
+		t.Fatal("setup failed: gorilla must begin more than seven tiles from the party")
 	}
 
 	gl := &GameLoop{game: g}

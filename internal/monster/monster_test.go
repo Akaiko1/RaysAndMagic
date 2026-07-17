@@ -51,6 +51,33 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 	}
 }
 
+func TestValidateMonsterConfiguration_AlarmRally(t *testing.T) {
+	cases := []struct {
+		name    string
+		def     MonsterDefinition
+		wantErr bool
+	}{
+		{"uncapped rally is valid", MonsterDefinition{RallyOnAggroTiles: 12}, false},
+		{"capped rally is valid", MonsterDefinition{RallyOnAggroTiles: 12, RallyMaxTargets: 4}, false},
+		{"negative cap is invalid", MonsterDefinition{RallyOnAggroTiles: 12, RallyMaxTargets: -1}, true},
+		{"cap without rally is invalid", MonsterDefinition{RallyMaxTargets: 4}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &MonsterYAMLConfig{Monsters: map[string]MonsterDefinition{
+				"alarm": {SizeClass: "person", RallyOnAggroTiles: tc.def.RallyOnAggroTiles, RallyMaxTargets: tc.def.RallyMaxTargets},
+			}}
+			err := validateMonsterConfiguration(cfg)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
 func TestConvertDamageTypeNormalizesExternalKeys(t *testing.T) {
 	cfg := &MonsterYAMLConfig{DamageTypes: map[string]int{"physical": 0, "fire": 1}}
 	if got, err := cfg.ConvertDamageType(" FIRE "); err != nil || got != DamageFire {

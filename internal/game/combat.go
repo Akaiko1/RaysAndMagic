@@ -1453,36 +1453,28 @@ func (cs *CombatSystem) ApplyDamageToMonster(monster *monsterPkg.Monster3D, dama
 	}
 }
 
-// engageTurnBasedPackOnHit ensures a hit in turn-based mode pulls in nearby same-type monsters.
-func (cs *CombatSystem) engageTurnBasedPackOnHit(hit *monsterPkg.Monster3D) {
-	if !cs.game.turnBasedMode || hit == nil {
+// engageTurnBasedSameKindPackOnPartyHit is the one explicit exception to the
+// shared sight-agro rule. Only in TB, a party-caused hit may alert nearby
+// same-key monsters, but each neighbour must still have direct LoS to the
+// party. It is intentionally not an RT mechanic and it never behaves like an
+// alarm through walls.
+func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Monster3D) {
+	if cs == nil || cs.game == nil || cs.game.world == nil || !cs.game.turnBasedMode || hit == nil {
 		return
 	}
 
 	tileSize := float64(cs.game.config.GetTileSize())
-	radius := tileSize * PackAggroRadiusTiles
+	radius := tileSize * TurnBasedPackAggroRadiusTiles
 	hitKey := hit.Key // pack by exact type (key), not display Name
 
 	for _, m := range cs.game.world.Monsters {
-		if !m.IsAlive() {
+		if m == nil || !m.IsAlive() || m.Key != hitKey ||
+			Distance(hit.X, hit.Y, m.X, m.Y) > radius ||
+			!m.CanStartPlayerAggro() ||
+			!m.HasLineOfSightToPlayer(cs.game.collisionSystem, cs.game.camera.X, cs.game.camera.Y) {
 			continue
 		}
-		if m.IsInertSetPiece() {
-			continue // scripted inactive encounter pieces never pack-aggro
-		}
-		if m.Key != hitKey {
-			continue
-		}
-		if Distance(hit.X, hit.Y, m.X, m.Y) > radius {
-			continue
-		}
-		if m.IsEngagingPlayer {
-			continue
-		}
-		m.IsEngagingPlayer = true
-		m.State = monsterPkg.StateAlert
-		m.StateTimer = 0
-		m.AttackCount = 0
+		m.BeginPlayerEngagement()
 	}
 }
 
@@ -3589,11 +3581,11 @@ func (cs *CombatSystem) checkPerspectiveScaledCollision(entityID string, project
 
 // markMonsterHit applies the side effects every hit shares regardless of source
 // (melee, projectile, splash, nova, trap, steam): the damage flash, freeing a
-// Charmed monster, and pulling its turn-based pack into the fight.
+// Charmed monster, and the explicit turn-based same-kind pack response.
 func (cs *CombatSystem) markMonsterHit(m *monsterPkg.Monster3D) {
 	m.HitTintFrames = MonsterHitFlashFrames
 	cs.breakPacifyOnHit(m)
-	cs.engageTurnBasedPackOnHit(m)
+	cs.engageTurnBasedSameKindPackOnPartyHit(m)
 }
 
 // finishMonsterKill records a slain monster for the end-of-frame removal sweep
@@ -3716,8 +3708,8 @@ func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
 			continue
 		}
 		m.Relentless = true
-		m.IsEngagingPlayer = true
 		m.WasAttacked = true // sticky hostility, persisted
+		m.BeginPlayerEngagement()
 		rallied++
 	}
 	if rallied > 0 {
@@ -4275,6 +4267,7 @@ func (cs *CombatSystem) breakPacifyOnHit(m *monsterPkg.Monster3D) {
 		m.Pacified = false
 		m.PacifiedFramesRemaining = 0
 		m.WasAttacked = true
+		m.BeginPlayerEngagement()
 		cs.game.AddCombatMessage(fmt.Sprintf("%s breaks free of the charm!", m.Name))
 	}
 }

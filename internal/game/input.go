@@ -3363,7 +3363,7 @@ func (ih *InputHandler) spawnEncounterMonsters(npc *character.NPC) {
 				// initiated the fight) - this also wakes passive_until_attacked
 				// types like the prison's elf swordsmen.
 				monster.WasAttacked = true
-				monster.IsEngagingPlayer = true
+				monster.BeginPlayerEngagement()
 				ih.game.registerSpawnedMonster(monster)
 			}
 		}

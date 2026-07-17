@@ -870,8 +870,8 @@ func newPlayerCollisionEntity(x, y float64) *collision.Entity {
 	return collision.NewEntity("player", x, y, 16, 16, collision.CollisionTypePlayer, true)
 }
 
-// partyInCombat reports whether a live hostile monster is NEAR the party (TB
-// vision range). Controlled allies use IsEngagingPlayer for their own AI
+// partyInCombat reports whether a live hostile monster is NEAR the party
+// (interaction radius). Controlled allies use IsEngagingPlayer for their own AI
 // pursuit, but must not suppress world interaction. Distance-gated on purpose:
 // a whole-map-aggro boss or an AoE-clipped stray must not lock interaction
 // (e.g. the map-exit NPC) from across the map.
@@ -879,7 +879,7 @@ func (g *MMGame) partyInCombat() bool {
 	if g.world == nil {
 		return false
 	}
-	radius := TurnBasedVisionRangeTiles * float64(g.config.GetTileSize())
+	radius := PartyInteractionCombatRadiusTiles * float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
 		if m != nil && m.IsAlive() && !monsterIsPartyControlled(m) && m.IsEngagingPlayer &&
 			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {

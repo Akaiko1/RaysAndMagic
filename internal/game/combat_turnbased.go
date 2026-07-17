@@ -26,7 +26,7 @@ func (g *MMGame) separateStackedMonstersTB() {
 		return
 	}
 	tile := float64(g.config.GetTileSize())
-	vision := tile * TurnBasedVisionRangeTiles
+	separationRadius := tile * TurnBasedCalmStackSeparationRadiusTiles
 	px, py := g.camera.X, g.camera.Y
 	playerTile := [2]int{int(px / tile), int(py / tile)}
 	byTile := map[[2]int][]*monster.Monster3D{}
@@ -37,7 +37,7 @@ func (g *MMGame) separateStackedMonstersTB() {
 		if (m.Banding || (m.LootGuarding && m.BandID > 0)) && !m.IsEngagingPlayer {
 			continue // calm band stack: intentional, and re-stacked same tick anyway
 		}
-		if Distance(px, py, m.X, m.Y) > vision && !m.IsEngagingPlayer {
+		if Distance(px, py, m.X, m.Y) > separationRadius && !m.IsEngagingPlayer {
 			continue // out of this fight - leave it be
 		}
 		key := [2]int{int(m.X / tile), int(m.Y / tile)}
@@ -121,9 +121,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		return
 	}
 
-	// Only monsters within vision range participate in turn-based combat
 	tileSize := float64(gl.game.config.GetTileSize())
-	visionRange := tileSize * TurnBasedVisionRangeTiles
 
 	// Cache player position for the loop
 	playerX, playerY := gl.game.camera.X, gl.game.camera.Y
@@ -219,26 +217,6 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			continue
 		}
 
-		// Calm guards are the one explicit ambient objective in TB. Their direct
-		// guard sight reaches its authored radius (seven tiles); otherwise they may
-		// take one patrol step only inside the normal six-tile activation window.
-		// Beyond both ranges they remain frozen, exactly like other calm mobs; this
-		// is not generic TB wandering.
-		if m.LootGuarding && !m.IsEngagingPlayer && !m.WasAttacked && m.AIFoe == nil {
-			if gl.lootGuardSeesPartyTurnBased(m) {
-				m.IsEngagingPlayer = true
-				m.State = monster.StateAlert
-				m.StateTimer = 0
-			} else if Distance(playerX, playerY, m.X, m.Y) <= visionRange {
-				gl.moveLootGuardTurnBased(m)
-				gl.game.refreshMonsterCollisionSolidity(m)
-				continue
-			} else {
-				gl.game.refreshMonsterCollisionSolidity(m)
-				continue
-			}
-		}
-
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
@@ -247,27 +225,25 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		}
 		gl.game.refreshMonsterCollisionSolidity(m)
 
-		// Skip monsters outside vision range unless already committed to the fight.
-		// IsEngagingPlayer is transient and can be cleared by mode/AI transitions;
-		// WasAttacked/BossAggro/Relentless are the sticky signals that a monster
-		// must keep participating. Save/load restores IsEngagingPlayer from
-		// WasAttacked, so ignoring that flag here made some hit bosses freeze until
-		// reload when they were just outside the TB vision radius.
-		// A monster with a bound-ally foe (summon / bound undead) must take its
-		// turn against it no matter how far the PARTY is - otherwise a mob peppered
-		// by a ranged summon while the party stands off would be skipped by this
-		// party-distance gate and freeze.
-		if Distance(playerX, playerY, m.X, m.Y) > visionRange && m.AIFoe == nil &&
-			!m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
+		// TB does not run Monster3D.Update, so it invokes the exact same normal
+		// sight gate as RT. Loot guards receive their seven-tile objective minimum
+		// inside that shared rule, but never patrol during TB. Sticky hostility and
+		// a bound-ally foe deliberately bypass first sight: a monster already
+		// committed to a fight must keep taking turns after cover or a retreat.
+		if m.CanStartPlayerEngagement(gl.game.collisionSystem, playerX, playerY) {
+			m.BeginPlayerEngagement()
+		}
+		if m.AIFoe == nil && !m.IsEngagingPlayer && !m.WasAttacked && !m.BossAggro && !m.Relentless {
 			continue
 		}
 
-		// Acting against the party IS engagement. RT sets this on sight in
-		// updatePlayerEngagementWithVision, which the TB scheduler never runs;
-		// without it a banded flock stays "calm" by flags, keeps re-stacking
-		// every frame and chases the party as one pile - sight aggro must
-		// scatter a band in any mode, damage must not be required.
-		m.IsEngagingPlayer = true
+		// A bound-ally foe is combat too, even though its target is not the party.
+		// Preserve the existing combat marker so bands scatter rather than remain a
+		// calm stack while fighting summons. Normal party entries already used the
+		// shared BeginPlayerEngagement transition above.
+		if !m.IsEngagingPlayer {
+			m.IsEngagingPlayer = true
+		}
 
 		// Each participating monster snaps to the center of its current tile at
 		// the start of its turn. Keeps TB strictly tile-to-tile and fixes

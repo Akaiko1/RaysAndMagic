@@ -21,11 +21,11 @@ func TestTB_SightAggroScattersBand(t *testing.T) {
 	gl := g.gameLoop
 	ts := float64(cfg.GetTileSize())
 
-	// Three banding wolves stacked on one tile, 4 tiles in front of the party
-	// (inside TB vision, outside melee reach). NOT passive - this is the real
+	// Three banding wolves stacked on one tile, 3 tiles in front of the party
+	// (inside their authored alert radius, outside melee reach). NOT passive - this is the real
 	// game scenario, unlike the preview's staged mobs.
 	for i := 0; i < 3; i++ {
-		m := monster.NewMonster3DFromConfig(g.camera.X+4*ts, g.camera.Y, "wolf", cfg)
+		m := monster.NewMonster3DFromConfig(g.camera.X+3*ts, g.camera.Y, "wolf", cfg)
 		p.arena.Monsters = append(p.arena.Monsters, m)
 	}
 	p.arena.RegisterMonstersWithCollisionSystem(g.collisionSystem)

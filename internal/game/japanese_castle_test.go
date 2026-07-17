@@ -219,7 +219,7 @@ func TestSealedBossIgnoresIndirectEffects(t *testing.T) {
 	sealed := monsterPkg.NewMonster3DFromConfig(11*tile, 10*tile, "goblin", cs.game.config)
 	sealed.BossDormant = true
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{hit, sealed}
-	cs.engageTurnBasedPackOnHit(hit)
+	cs.engageTurnBasedSameKindPackOnPartyHit(hit)
 	if sealed.IsEngagingPlayer {
 		t.Error("pack aggro: sealed monster must not be pulled in")
 	}

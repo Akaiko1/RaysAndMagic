@@ -101,9 +101,11 @@ type MonsterDefinition struct {
 	// plaza) while any WarlordIdol monster lives; idols are immobile and never attack.
 	WardedByIdols     bool    `yaml:"warded_by_idols,omitempty"` // boss: warded while any idol lives
 	AggroWholeMap     bool    `yaml:"aggro_whole_map,omitempty"`
-	RallyOnAggroTiles float64 `yaml:"rally_on_aggro_tiles,omitempty"` // alarm bell: on aggro, wake every monster within N tiles (once)    // boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
-	DeathRalliesType  string  `yaml:"death_rallies_type,omitempty"`   // on this monster's death, every live map monster of this Type goes relentless (revenge)
-	WarlordIdol       bool    `yaml:"warlord_idol,omitempty"`         // this monster is a ward idol
+	RallyOnAggroTiles float64 `yaml:"rally_on_aggro_tiles,omitempty"` // alarm bell: on aggro, wake nearby monsters once
+	RallyMaxTargets   int     `yaml:"rally_max_targets,omitempty"`    // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
+	// boss: UNIQUE - once active, relentlessly chases from anywhere (else relentless only after normal aggro)
+	DeathRalliesType string `yaml:"death_rallies_type,omitempty"` // on this monster's death, every live map monster of this Type goes relentless (revenge)
+	WarlordIdol      bool   `yaml:"warlord_idol,omitempty"`       // this monster is a ward idol
 	// Banding: while calm, same-type banding mobs stack onto one tile (rendered as
 	// a small fanned pile, centred) and patrol as a flock; on aggro/being hit they
 	// scatter to a ring of nearby tiles. See [[project_monster_banding]].
@@ -221,6 +223,12 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		}
 		if monster.EnrageAtHP > 0 && monster.EnrageDamageMult <= 0 && monster.EnrageCooldownMult <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has enrage_at_hp but neither enrage_damage_mult nor enrage_cooldown_mult", key))
+		}
+		if monster.RallyMaxTargets < 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has negative rally_max_targets", key))
+		}
+		if monster.RallyMaxTargets > 0 && monster.RallyOnAggroTiles <= 0 {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has rally_max_targets but no rally_on_aggro_tiles", key))
 		}
 		if len(monster.TintColor) != 0 && len(monster.TintColor) != 3 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' tint_color must be [r,g,b] (3 values), got %d", key, len(monster.TintColor)))
@@ -453,6 +461,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 	m.WardedByIdols = def.WardedByIdols
 	m.AggroWholeMap = def.AggroWholeMap
 	m.RallyOnAggroTiles = def.RallyOnAggroTiles
+	m.RallyMaxTargets = def.RallyMaxTargets
 	m.DeathRalliesType = def.DeathRalliesType
 	m.WarlordIdol = def.WarlordIdol
 	m.Banding = def.Banding

@@ -144,8 +144,9 @@ func (gl *GameLoop) updateExploration() {
 	// snapshot/TB action can use them.
 	gl.reconcileMonsterAttackPosts()
 	// Calm solo mobs that can see an unclaimed crate or spell lectern reserve up
-	// to two guard slots before movement. The guard mode then carries a prepared
-	// patrol tile into the parallel AI pass below.
+	// to two guard slots before movement. RT carries the prepared patrol tile into
+	// its AI pass; TB keeps calm guards stationary and uses only their normal
+	// direct-sight engagement rule.
 	gl.prepareLootPropGuards()
 
 	// Reconcile door state (closed iff a living champion is on this map) and the
@@ -850,7 +851,8 @@ func (gl *GameLoop) updateControlledMonsters() {
 			m.PacifiedFramesRemaining--
 			if m.PacifiedFramesRemaining == 0 {
 				m.Pacified = false
-				m.WasAttacked = true // re-aggros when the charm wears off
+				m.WasAttacked = true // sticky: Charm expiry restores hostility immediately
+				m.BeginPlayerEngagement()
 				gl.game.AddCombatMessage(fmt.Sprintf("The charm on %s wears off!", m.Name))
 			}
 		}

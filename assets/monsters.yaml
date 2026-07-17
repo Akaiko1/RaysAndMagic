@@ -1770,6 +1770,7 @@ monsters:
     attacks_per_round: 2
     attack_cooldown_multiplier: 0.7
     rally_on_aggro_tiles: 15   # the bell: wakes every horror within 15 tiles, once
+    rally_max_targets: 4       # but never starts a whole-floor chain at once
     speed: 2.2
     gold_min: 60
     gold_max: 150

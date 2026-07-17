@@ -325,9 +325,6 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	// Calculate distance to player
-	distanceToPlayer := distance(m.X, m.Y, playerX, playerY)
-
 	if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
 		if m.IsEngagingPlayer {
 			m.IsEngagingPlayer = false
@@ -346,33 +343,78 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		m.StateTimer = 0
 	}
 
-	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
+	if !m.IsEngagingPlayer {
+		if m.CanStartPlayerEngagement(collisionChecker, playerX, playerY) {
+			m.BeginPlayerEngagement()
+		}
+		return
+	}
 
-	// Check if player is within detection range
-	if distanceToPlayer <= detectionRadius {
-		if !m.IsEngagingPlayer {
-			// Start engaging player - switch to alert state
-			m.IsEngagingPlayer = true
-			m.State = StateAlert
-			m.StateTimer = 0
-			m.AttackCount = 0 // Reset attack counter for new engagement
-		}
-	} else if distanceToPlayer > detectionRadius*disengageMult { // Hysteresis - lose engagement further out
-		if m.IsEngagingPlayer && !m.WasAttacked {
-			// Stop engaging player - return to idle (only if not recently attacked)
-			m.IsEngagingPlayer = false
-			m.State = StateIdle
-			m.StateTimer = 0
-			m.AttackCount = 0 // Reset attack counter when disengaging
-		}
+	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
+	if distance(m.X, m.Y, playerX, playerY) > detectionRadius*disengageMult && !m.WasAttacked {
+		// Stop engaging player - return to idle (only if not recently attacked).
+		m.IsEngagingPlayer = false
+		m.State = StateIdle
+		m.StateTimer = 0
+		m.AttackCount = 0 // Reset attack counter when disengaging
 	}
 }
 
-// PlayerDetectionRange returns the current sight radius and hysteresis range
-// multiplier used for ordinary player engagement. Keeping the calculation here
-// lets turn-based exceptions (such as crate guards) use exactly the RT sight
-// rules rather than a copy that drifts on tether or blocked-line-of-sight tuning.
-func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, playerX, playerY float64) (float64, float64) {
+// BeginPlayerEngagement records a fresh hostile engagement against the party.
+// Sight, a direct hit, and the explicit TB pack exception all use this state
+// transition so the alert state and attack cadence cannot drift by entry path.
+func (m *Monster3D) BeginPlayerEngagement() {
+	if m == nil {
+		return
+	}
+	m.IsEngagingPlayer = true
+	m.State = StateAlert
+	m.StateTimer = 0
+	m.AttackCount = 0
+}
+
+// CanStartPlayerAggro reports whether a monster may begin a normal party fight.
+// It deliberately excludes controlled, redirected, inert, fleeing, and already
+// map-wide-hostile monsters. WasAttacked is not excluded: Charm expiry leaves it
+// set while the next visible party contact must be allowed to re-enter combat.
+func (m *Monster3D) CanStartPlayerAggro() bool {
+	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.IsInertSetPiece() || m.Pacified || m.Bound ||
+		m.AIFoe != nil || m.relentlessHunter() || m.State == StateFleeing {
+		return false
+	}
+	return !m.PassiveUntilAttacked || m.WasAttacked || m.HatesActiveTrait()
+}
+
+// HasLineOfSightToPlayer is the common geometry gate for every player-agro
+// pathway. A nil checker is used by isolated AI tests and intentionally means
+// unobstructed sight, matching the historical RT behaviour.
+func (m *Monster3D) HasLineOfSightToPlayer(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+	return m != nil && (collisionChecker == nil || collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY))
+}
+
+// SeesPlayerWithinAlertRadius applies this monster's authored alert radius,
+// fallback, tether expansion, and the loot-guard seven-tile minimum. It is
+// pure sight geometry: callers decide whether this sight may begin combat.
+func (m *Monster3D) SeesPlayerWithinAlertRadius(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+	if m == nil {
+		return false
+	}
+	alertRadius, _ := m.playerAlertRadii()
+	return distance(m.X, m.Y, playerX, playerY) <= alertRadius &&
+		m.HasLineOfSightToPlayer(collisionChecker, playerX, playerY)
+}
+
+// CanStartPlayerEngagement is the SSoT for normal first-sight party aggro in
+// both RT and TB. Mode-specific code must not add its own sight radius or LoS
+// rule; explicit mechanics such as alarms and TB pack aggro remain separate.
+func (m *Monster3D) CanStartPlayerEngagement(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+	return m.CanStartPlayerAggro() && m.SeesPlayerWithinAlertRadius(collisionChecker, playerX, playerY)
+}
+
+// playerAlertRadii centralizes the authored alert radius and pursuit
+// hysteresis. It intentionally has no line-of-sight check, so a monster that
+// is already in a sticky fight can keep pursuing through cover.
+func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	// Detection tuning from config (monster_ai section), with code fallbacks for
 	// configless contexts (tests). Distances are in tiles.
 	defaultRadiusTiles, outsideTetherMult, disengageMult := 4.0, 2.0, 2.0
@@ -394,7 +436,7 @@ func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, play
 		detectionRadius = defaultRadiusTiles * m.tileSize()
 	}
 	if m.LootGuarding {
-		if minRadius := LootGuardMinAlertTiles * m.tileSize(); detectionRadius < minRadius {
+		if minRadius := LootGuardMinAlertRadiusTiles * m.tileSize(); detectionRadius < minRadius {
 			detectionRadius = minRadius
 		}
 	}
@@ -404,6 +446,15 @@ func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, play
 	if !m.LootGuarding && !m.IsWithinTetherRadius() {
 		detectionRadius *= outsideTetherMult
 	}
+	return detectionRadius, disengageMult
+}
+
+// PlayerDetectionRange returns the current sight radius and hysteresis range
+// multiplier used for ordinary player engagement. Keeping the calculation here
+// lets UI and pursuit code consume the same radii while the initial LoS gate
+// stays centralized in HasLineOfSightToPlayer.
+func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, playerX, playerY float64) (float64, float64) {
+	detectionRadius, disengageMult := m.playerAlertRadii()
 
 	// Passive detection needs LINE OF SIGHT: an unaware monster never aggros
 	// through walls or trees. Engagement, once made, is distance-ruled only
@@ -414,7 +465,7 @@ func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, play
 	// disengages behind a wall walks home like any other unaware monster.
 	if !m.IsEngagingPlayer && collisionChecker != nil &&
 		distance(m.X, m.Y, playerX, playerY) <= detectionRadius &&
-		!collisionChecker.CheckLineOfSight(m.X, m.Y, playerX, playerY) {
+		!m.HasLineOfSightToPlayer(collisionChecker, playerX, playerY) {
 		return 0, disengageMult
 	}
 	return detectionRadius, disengageMult
@@ -1506,17 +1557,12 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, pl
 		m.clearMoveTarget()
 		m.StateTimer = 0
 
-		detectionRadius := m.AlertRadius
-		if detectionRadius <= 0 {
-			detectionRadius = 4.0 * m.tileSize()
-		}
-		disengageMult := 2.0
-		if m.config != nil && m.config.MonsterAI.DisengageDistanceMultiplier > 0 {
-			disengageMult = m.config.MonsterAI.DisengageDistanceMultiplier
-		}
+		// Flee is the tail of an existing encounter, not a new sight event. Reuse
+		// the same authored/tethered hysteresis radius without applying a fresh
+		// LoS gate, so cover cannot erase the fight that caused the flee.
+		detectionRadius, disengageMult := m.playerAlertRadii()
 		if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
-			m.IsEngagingPlayer = true
-			m.State = StateAlert
+			m.BeginPlayerEngagement()
 		} else {
 			m.State = StatePatrolling
 			m.Direction = m.GetDirectionToSpawn()

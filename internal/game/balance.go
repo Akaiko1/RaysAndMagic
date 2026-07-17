@@ -117,13 +117,20 @@ const (
 	// turn-based mode (frames are derived from TPS at the call site).
 	TurnBasedInputCooldownSeconds = 0.15
 
-	// TurnBasedVisionRangeTiles is how far a monster's "I saw the party"
-	// trigger reaches when starting / entering turn-based mode.
-	TurnBasedVisionRangeTiles = 6.0
+	// TurnBasedCalmStackSeparationRadiusTiles bounds the small amount of ambient
+	// cleanup TB performs for calm, non-banded monster stacks. It is a workload
+	// limit, not an alert or combat radius.
+	TurnBasedCalmStackSeparationRadiusTiles = 6.0
 
-	// PackAggroRadiusTiles: when a monster is hit, same-name neighbors
-	// within this radius become aggressive too.
-	PackAggroRadiusTiles = 8.0
+	// PartyInteractionCombatRadiusTiles blocks world interaction while a hostile
+	// combatant is nearby. It intentionally does not control monster
+	// sight, movement, or turn participation.
+	PartyInteractionCombatRadiusTiles = 6.0
+
+	// TurnBasedPackAggroRadiusTiles is the explicit TB-only exception: after a
+	// party-caused hit, same-key neighbours inside this radius may join only if
+	// each has direct line of sight to the party.
+	TurnBasedPackAggroRadiusTiles = 8.0
 
 	// TurnBasedSpRegenEveryNRounds: how many full party rounds must pass in
 	// turn-based mode between SP regeneration ticks. Each tick adds

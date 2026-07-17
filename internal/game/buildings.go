@@ -157,33 +157,49 @@ func currencyItemName(currency string) (string, bool) {
 }
 
 // rallyAggroedAlarms is the alarm-bell pass (serial, after the parallel
-// monster update): an engaged monster with rally_on_aggro_tiles wakes every
-// monster within that radius, once per life. The woken get the STICKY
-// engagement signal (WasAttacked) so mode/AI transitions can't lull them back.
+// monster update). Its source must itself see the party within its own authored
+// alert radius; only the bell's subsequent sound may cross walls. It wakes up
+// to its authored number of calm neighbours once per life. A bell woken by
+// another bell joins the fight but consumes its own ring, preventing relay
+// chains. Woken monsters receive the STICKY WasAttacked signal so mode/AI
+// transitions cannot lull them back.
 func (g *MMGame) rallyAggroedAlarms() {
+	if g == nil || g.world == nil || g.config == nil || g.camera == nil {
+		return
+	}
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m == nil || !m.IsAlive() || m.RallyDone || m.RallyOnAggroTiles <= 0 || !m.IsEngagingPlayer {
+		if m == nil || !m.IsAlive() || m.RallyDone || m.RallyOnAggroTiles <= 0 || !m.IsEngagingPlayer ||
+			!monsterTargetsParty(m) ||
+			!m.SeesPlayerWithinAlertRadius(g.collisionSystem, g.camera.X, g.camera.Y) {
 			continue
 		}
 		m.RallyDone = true
 		r := m.RallyOnAggroTiles * ts
 		woken := 0
 		for _, o := range g.world.Monsters {
+			if m.RallyMaxTargets > 0 && woken >= m.RallyMaxTargets {
+				break
+			}
 			// PassiveUntilAttacked keeps its authored contract: the bell never
 			// force-hostiles a monster that only fights when struck (WasAttacked
-			// is sticky, so waking it here would be permanent).
-			if o == nil || o == m || !o.IsAlive() || o.Bound || o.Pacified || o.IsInertSetPiece() || o.PassiveUntilAttacked {
+			// is sticky, so waking it here would be permanent). The shared normal
+			// eligibility gate also excludes controlled, redirected, inert, and
+			// already-engaged targets.
+			if o == m || o == nil || o.PassiveUntilAttacked || !o.CanStartPlayerAggro() {
 				continue
 			}
 			if math.Hypot(o.X-m.X, o.Y-m.Y) > r {
 				continue
 			}
-			if !o.IsEngagingPlayer || !o.WasAttacked {
-				o.IsEngagingPlayer = true
-				o.WasAttacked = true
-				woken++
+			o.BeginPlayerEngagement()
+			o.WasAttacked = true
+			// Reuse the persisted one-ring marker for a bell roused by this one.
+			// It remains hostile, but cannot relay an alarm now or after save/load.
+			if o.RallyOnAggroTiles > 0 {
+				o.RallyDone = true
 			}
+			woken++
 		}
 		if woken > 0 {
 			g.AddCombatMessage(fmt.Sprintf("%s rings out - %d horrors answer the bell!", m.Name, woken))

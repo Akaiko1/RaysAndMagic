@@ -9,9 +9,11 @@ import (
 	"ugataima/internal/status"
 )
 
-// LootGuardMinAlertTiles is the minimum direct-sight radius of a calm mob that
-// has committed to guarding a loot crate or spell lectern.
-const LootGuardMinAlertTiles = 7.0
+// LootGuardMinAlertRadiusTiles raises a crate/lectern guard's ordinary
+// direct-sight alert radius to at least seven tiles. This is an explicit
+// objective-specific exception, not a turn-based override: first engagement
+// still requires line of sight in both combat modes.
+const LootGuardMinAlertRadiusTiles = 7.0
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
@@ -257,14 +259,17 @@ type Monster3D struct {
 	WardedByIdols     bool    // static: this boss is warded while any WarlordIdol lives
 	WarlordIdol       bool    // static: this monster is a ward idol (immobile, vulnerable, counts toward the ward)
 	RallyOnAggroTiles float64 // alarm bell: on aggro, wake every monster within N tiles
-	RallyDone         bool    // the bell only rings once per life
-	AggroWholeMap     bool    // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
-	DeathRalliesType  string  // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
-	Banding           bool    // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
-	BandID            int     // transient: stable runtime band membership; 0 = solo/unbanded
-	BandLeaderID      string  // transient: mob ID of this band's stable leader (leader marks itself); "" = none
-	BandStackIndex    int     // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
-	BandStackCount    int     // render-only (per-tick): size of the banded stack (0/1 = not stacked)
+	RallyMaxTargets   int     // alarm bell: 0 = no cap; otherwise wake at most this many calm monsters
+	// RallyDone is persisted. It is consumed either by ringing or by being
+	// woken by another bell, so an alarm relay can never cascade across a map.
+	RallyDone        bool
+	AggroWholeMap    bool   // static: UNIQUE boss trait - once active, relentlessly chases from anywhere (ignores detection range). Without it a boss only goes relentless AFTER normal aggro (in alert radius / hit). Golden Thief Bug only.
+	DeathRalliesType string // static: when THIS monster dies, every live monster on the map of this Type goes Relentless (revenge). "" = none. (Orc Warlord -> "human".)
+	Banding          bool   // static: flocks with same-type banding mobs while calm (stack on a tile + patrol together), scatters on aggro/hit. See [[project_monster_banding]].
+	BandID           int    // transient: stable runtime band membership; 0 = solo/unbanded
+	BandLeaderID     string // transient: mob ID of this band's stable leader (leader marks itself); "" = none
+	BandStackIndex   int    // render-only (per-tick): position in the banded stack (0 = leader/centre); set by updateMonsterBands
+	BandStackCount   int    // render-only (per-tick): size of the banded stack (0/1 = not stacked)
 	// AttackPost is a transient logical reservation for a monster's current
 	// combat tile, whether it is attacking the party or another monster. It is
 	// deliberately not physical collision: combatants can pass through every
@@ -458,9 +463,7 @@ func (m *Monster3D) TakeDamageResist(damage int, damageType DamageType, resistPi
 	}
 
 	// Being attacked always triggers engagement - chase the attacker
-	m.IsEngagingPlayer = true
-	m.State = StateAlert
-	m.StateTimer = 0
+	m.BeginPlayerEngagement()
 
 	return damage
 }

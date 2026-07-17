@@ -392,6 +392,40 @@ func TestLootGuardAttackScattersTheWholePair(t *testing.T) {
 	}
 }
 
+// Pending guards have reserved the same prop but may still be on different
+// tiles. Sight scatters that reservation, yet unlike a direct hit it cannot
+// make the wall-hidden partner hostile without its own direct view of the party.
+func TestPendingLootGuardSightScatterRequiresEachGuardOwnLoS(t *testing.T) {
+	game, loop, tile, _, first, second := setupLootGuardPair(t, false)
+	placePlayerAtTile(game, 2, 10, tile)
+	first.X, first.Y = TileCenterFromTile(4, 10, tile)
+	second.X, second.Y = TileCenterFromTile(4, 12, tile)
+	game.collisionSystem.UpdateEntity(first.ID, first.X, first.Y)
+	game.collisionSystem.UpdateEntity(second.ID, second.X, second.Y)
+	game.world.Tiles[11][3] = world.TileWall
+
+	if !game.collisionSystem.CheckLineOfSight(first.X, first.Y, game.camera.X, game.camera.Y) {
+		t.Fatal("setup: first guard must see the party")
+	}
+	if game.collisionSystem.CheckLineOfSight(second.X, second.Y, game.camera.X, game.camera.Y) {
+		t.Fatal("setup: wall must hide the second guard from the party")
+	}
+
+	first.BeginPlayerEngagement()
+	loop.reconcileLootPropGuardBands()
+
+	if !first.IsEngagingPlayer || first.LootGuarding {
+		t.Fatalf("sighted guard did not leave its post for combat: engaging=%v guarding=%v", first.IsEngagingPlayer, first.LootGuarding)
+	}
+	if second.IsEngagingPlayer || second.WasAttacked {
+		t.Fatalf("wall-hidden guard joined sight aggro: engaging=%v wasHit=%v", second.IsEngagingPlayer, second.WasAttacked)
+	}
+	if second.LootGuarding || first.BandID != 0 || second.BandID != 0 {
+		t.Fatalf("sight-triggered guard pair was not cleanly dissolved: firstBand=%d secondBand=%d secondGuard=%v",
+			first.BandID, second.BandID, second.LootGuarding)
+	}
+}
+
 func TestStackedLootGuardPairScattersWhenBothAlertInSameTick(t *testing.T) {
 	game, loop, tile, _, first, second := setupLootGuardPair(t, false)
 	postX, postY := first.LootGuardMoveTileX, first.LootGuardMoveTileY
@@ -440,8 +474,8 @@ func TestLootGuardUsesSevenTileSightInRealTime(t *testing.T) {
 	game.refreshBoundAllyCache()
 
 	radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y)
-	if radius != monster.LootGuardMinAlertTiles*tile {
-		t.Fatalf("outside-tether guard sight = %.1f, want %.1f", radius, monster.LootGuardMinAlertTiles*tile)
+	if radius != monster.LootGuardMinAlertRadiusTiles*tile {
+		t.Fatalf("outside-tether guard sight = %.1f, want %.1f", radius, monster.LootGuardMinAlertRadiusTiles*tile)
 	}
 	runLootGuardRealTimeStep(game, loop)
 
@@ -476,7 +510,7 @@ func TestLootGuardPatrolSkipsBlockedCellsWithinRadiusTwo(t *testing.T) {
 	}
 }
 
-func TestLootGuardTurnBasedUsesSevenTileBoundary(t *testing.T) {
+func TestLootGuardTurnBasedStaysAtPostUntilItSeesParty(t *testing.T) {
 	setup := func(t *testing.T, distanceTiles float64) (*MMGame, *GameLoop, *monster.Monster3D, float64) {
 		t.Helper()
 		game, loop, tile := newLootGuardTestGame(t, true)
@@ -491,15 +525,19 @@ func TestLootGuardTurnBasedUsesSevenTileBoundary(t *testing.T) {
 		return game, loop, guard, tile
 	}
 
-	t.Run("outside seven", func(t *testing.T) {
-		game, loop, guard, _ := setup(t, 7.5)
+	t.Run("blocked sight inside seven", func(t *testing.T) {
+		game, loop, guard, tile := setup(t, 6.5)
+		game.world.Tiles[int(guard.Y/tile)][int(guard.X/tile)-3] = world.TileWall
+		if game.collisionSystem.CheckLineOfSight(guard.X, guard.Y, game.camera.X, game.camera.Y) {
+			t.Fatal("setup: wall must block the guard's direct sight")
+		}
 		startX, startY := guard.X, guard.Y
 		runOneMonsterTurn(game, loop)
 		if guard.IsEngagingPlayer || !guard.LootGuarding {
-			t.Fatalf("guard outside seven tiles changed combat state: guard=%v engaging=%v", guard.LootGuarding, guard.IsEngagingPlayer)
+			t.Fatalf("blocked guard changed combat state: guard=%v engaging=%v", guard.LootGuarding, guard.IsEngagingPlayer)
 		}
 		if guard.X != startX || guard.Y != startY {
-			t.Fatalf("distant TB guard moved outside the normal activation bubble: got (%.1f,%.1f), want (%.1f,%.1f)", guard.X, guard.Y, startX, startY)
+			t.Fatalf("calm TB guard patrolled without sight: got (%.1f,%.1f), want (%.1f,%.1f)", guard.X, guard.Y, startX, startY)
 		}
 	})
 
@@ -514,65 +552,6 @@ func TestLootGuardTurnBasedUsesSevenTileBoundary(t *testing.T) {
 			t.Fatal("engaged turn-based guard stayed assigned to the prop")
 		}
 	})
-}
-
-func TestLootGuardTurnBasedStackedPairMovesThroughLeaderOnly(t *testing.T) {
-	game, loop, tile, _, first, second := setupLootGuardPair(t, true)
-	postX, postY := first.LootGuardMoveTileX, first.LootGuardMoveTileY
-	for _, guard := range []*monster.Monster3D{first, second} {
-		guard.X, guard.Y = TileCenterFromTile(postX, postY, tile)
-		guard.AlertRadius = 2 * tile
-		game.collisionSystem.UpdateEntity(guard.ID, guard.X, guard.Y)
-	}
-	loop.reconcileLootPropGuardBands()
-
-	leader, follower := first, second
-	if second.BandStackIndex == 0 {
-		leader, follower = second, first
-	}
-	if leader.BandID == 0 || follower.BandID != leader.BandID {
-		t.Fatal("setup: guards did not form one positional band at their post")
-	}
-
-	startLeaderX, startLeaderY := leader.X, leader.Y
-	startFollowerX, startFollowerY := follower.X, follower.Y
-	loop.moveLootGuardTurnBased(leader) // at the post: choose the next patrol tile
-	if leader.X != startLeaderX || leader.Y != startLeaderY || follower.X != startFollowerX || follower.Y != startFollowerY {
-		t.Fatal("stacked guard pair moved while choosing its next TB patrol tile")
-	}
-
-	loop.moveLootGuardTurnBased(leader)
-	leaderMoved := absInt(int(leader.X/tile)-int(startLeaderX/tile)) + absInt(int(leader.Y/tile)-int(startLeaderY/tile))
-	if leaderMoved != 1 {
-		t.Fatalf("TB guard leader moved %d tiles, want exactly one", leaderMoved)
-	}
-	if follower.X != startFollowerX || follower.Y != startFollowerY {
-		t.Fatal("TB guard follower acted independently instead of following its leader")
-	}
-
-	loop.reconcileLootPropGuardBands()
-	if follower.X != leader.X || follower.Y != leader.Y {
-		t.Fatalf("guard follower was not re-stacked after leader movement: follower=(%.1f,%.1f) leader=(%.1f,%.1f)",
-			follower.X, follower.Y, leader.X, leader.Y)
-	}
-}
-
-func TestLootGuardTurnBasedPendingLeaderKeepsPostUntilPartnerArrives(t *testing.T) {
-	game, loop, tile, _, first, second := setupLootGuardPair(t, true)
-	leader := stableLootGuardLeader([]*monster.Monster3D{first, second})
-	postX, postY := leader.LootGuardMoveTileX, leader.LootGuardMoveTileY
-	leader.X, leader.Y = TileCenterFromTile(postX, postY, tile)
-	leader.AlertRadius = 2 * tile
-	second.AlertRadius = 2 * tile
-	game.collisionSystem.UpdateEntity(leader.ID, leader.X, leader.Y)
-
-	loop.moveLootGuardTurnBased(leader)
-	if leader.LootGuardMoveTileX != postX || leader.LootGuardMoveTileY != postY {
-		t.Fatal("pending TB guard leader changed posts before its partner arrived")
-	}
-	if first.BandID != 0 || second.BandID != 0 {
-		t.Fatal("pending TB guards became a physical band before meeting at the post")
-	}
 }
 
 func TestLootGuardDeathScattersSurvivor(t *testing.T) {

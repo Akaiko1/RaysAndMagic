@@ -161,10 +161,11 @@ func (gl *GameLoop) dissolveLootGuardBand(members []*monster.Monster3D) {
 	}
 }
 
-// scatterLootGuardBand preserves ordinary band aggro semantics: sight makes
-// both guards engage, while a hit makes both sticky-hostile. It is separate
-// from normal banding because guard pairs may mix monster keys and may contain
-// monsters whose YAML banding flag is false.
+// scatterLootGuardBand preserves ordinary band response semantics: a direct
+// hit makes both guards sticky-hostile, while sight only engages guards with
+// their own direct LoS. It is separate from normal banding because guard pairs
+// may mix monster keys and may contain monsters whose YAML banding flag is
+// false.
 func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit bool) {
 	if gl == nil || gl.game == nil || gl.game.config == nil {
 		return
@@ -179,6 +180,25 @@ func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit 
 		wasHit = wasHit || m.WasAttacked
 		live = append(live, m)
 	}
+	// Check sight before clearing LootGuarding: that flag supplies the guard's
+	// seven-tile direct-sight minimum. Pending pair members can be on different
+	// sides of a wall, so the result must be kept per guard rather than inferred
+	// from the member that triggered the scatter.
+	sawParty := make(map[*monster.Monster3D]bool, len(live))
+	if !wasHit {
+		for _, m := range live {
+			sawParty[m] = gl.bandMemberSeesParty(m)
+		}
+	}
+	if !wasHit {
+		// scatterBand evaluates after LootGuarding has been cleared. Preserve the
+		// already-computed guard-specific sight result for a stacked pair.
+		for _, m := range live {
+			if sawParty[m] {
+				m.BeginPlayerEngagement()
+			}
+		}
+	}
 	gl.dissolveLootGuardBand(members)
 	if len(live) == 0 {
 		return
@@ -191,17 +211,10 @@ func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit 
 		return
 	}
 	// A pair may still be walking independently to its post. It has reserved the
-	// same crate, but has not physically stacked yet, so alert it without pulling
-	// either mob across the map merely to perform a visual band scatter.
+	// same crate, but has not physically stacked yet, so dissolve it without
+	// pulling either mob across the map merely to perform a visual band scatter.
 	for _, m := range live {
-		m.IsEngagingPlayer = true
-		if wasHit {
-			m.WasAttacked = true
-		}
-		if m.State == monster.StateIdle || m.State == monster.StatePatrolling {
-			m.State = monster.StateAlert
-			m.StateTimer = 0
-		}
+		engageBandMemberOnScatter(m, wasHit, sawParty[m])
 		m.ResetPathfinding()
 	}
 }
@@ -558,7 +571,9 @@ func (gl *GameLoop) prepareLootPropGuards() {
 	}
 	sortMonstersByID(candidates)
 	tile := float64(gl.game.config.GetTileSize())
-	maxDist := monster.LootGuardMinAlertTiles * tile
+	// Assignment and first-sight alert share one authored seven-tile guard
+	// minimum. This is a prop-objective exception, not a TB visibility cap.
+	maxDist := monster.LootGuardMinAlertRadiusTiles * tile
 	for _, m := range candidates {
 		var chosen *lootGuardTarget
 		bestDist := maxDist
@@ -626,75 +641,5 @@ func (gl *GameLoop) reconcileLootPropGuardBands() {
 			continue
 		}
 		gl.syncLootGuardBand(target, members, false, postReservations)
-	}
-}
-
-func (gl *GameLoop) lootGuardSeesPartyTurnBased(m *monster.Monster3D) bool {
-	if gl == nil || gl.game == nil || gl.game.config == nil || gl.game.camera == nil || m == nil {
-		return false
-	}
-	tile := float64(gl.game.config.GetTileSize())
-	radius, _ := m.PlayerDetectionRange(gl.game.collisionSystem, gl.game.camera.X, gl.game.camera.Y)
-	// Guard sight is an authored exception to the normal six-tile TB window.
-	// Keep the regular cap for every other case, but never truncate the guard's
-	// explicit direct-sight radius.
-	maxRadius := TurnBasedVisionRangeTiles * tile
-	if guardRadius := monster.LootGuardMinAlertTiles * tile; guardRadius > maxRadius {
-		maxRadius = guardRadius
-	}
-	if radius > maxRadius {
-		radius = maxRadius
-	}
-	if Distance(m.X, m.Y, gl.game.camera.X, gl.game.camera.Y) > radius {
-		return false
-	}
-	return true
-}
-
-func (gl *GameLoop) advanceLootGuardPatrolTurnBased(m *monster.Monster3D) {
-	if m == nil {
-		return
-	}
-	targetByID, _ := gl.activeLootGuardTargets()
-	target, ok := targetByID[lootGuardTargetOf(m)]
-	if !ok {
-		clearLootGuard(m)
-		return
-	}
-	members := gl.lootGuardGroups(targetByID)[target.id]
-	if len(members) == 0 {
-		return
-	}
-	sortMonstersByID(members)
-	if leader := stableLootGuardLeader(members); leader == nil || leader.ID != m.ID {
-		return
-	}
-	// A pair chooses a new post only after it has physically become one band.
-	// Otherwise the first arrival would move its target while the second guard
-	// still walks to the old one forever.
-	if len(members) == 1 || lootGuardBandIsStacked(members) {
-		advanceLootGuardPatrolRoute(m)
-	}
-	postReservations := gl.lootGuardPostReservations(targetByID, target.id)
-	gl.syncLootGuardBand(target, members, false, postReservations)
-}
-
-func (gl *GameLoop) moveLootGuardTurnBased(m *monster.Monster3D) {
-	if m == nil || m.RootHeld() || gl.game == nil || gl.game.collisionSystem == nil || gl.game.config == nil {
-		return
-	}
-	if m.BandID > 0 && m.BandLeaderID != "" && m.BandLeaderID != m.ID {
-		return
-	}
-	if int(m.X/float64(gl.game.config.GetTileSize())) == m.LootGuardMoveTileX &&
-		int(m.Y/float64(gl.game.config.GetTileSize())) == m.LootGuardMoveTileY {
-		gl.advanceLootGuardPatrolTurnBased(m)
-		return
-	}
-	goal := monster.TileCoord{X: m.LootGuardMoveTileX, Y: m.LootGuardMoveTileY}
-	if tileX, tileY, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, []monster.TileCoord{goal}); ok {
-		tile := float64(gl.game.config.GetTileSize())
-		x, y := TileCenterFromTile(tileX, tileY, tile)
-		gl.commitMonsterMoveTB(m, x, y)
 	}
 }

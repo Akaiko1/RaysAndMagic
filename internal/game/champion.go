@@ -672,7 +672,7 @@ func (ih *InputHandler) startArenaDuel(choice *character.NPCDialogueChoice) {
 	// swallowed by the tier HP clamp.
 	g.mirrorChampionStats(m)
 	m.WasAttacked = true // engage immediately: the duel starts now
-	m.IsEngagingPlayer = true
+	m.BeginPlayerEngagement()
 	g.registerSpawnedMonster(m)
 	g.AddCombatMessage(fmt.Sprintf("%s (%s) steps onto the sand. The portcullises slam down!", m.Name, choice.Tier))
 }
