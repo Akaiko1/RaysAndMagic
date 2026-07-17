@@ -789,6 +789,10 @@ type TileData struct {
 	// non-floor objects without an authored floor inherit automatically; see
 	// InheritsNeighbourFloor.
 	InheritFloor bool `yaml:"inherit_floor,omitempty"`
+	// ExcludedUnderFloorTiles lists tile keys this object must ignore when it
+	// inherits its floor from neighbouring cells. It is evaluated by the shared
+	// dominant-floor vote used by the game renderer and map viewer.
+	ExcludedUnderFloorTiles []string `yaml:"excluded_under_floor_tiles,omitempty"`
 	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
 	// not rotate; a fountain keeps the showcase spin).
 	NoSpin bool `yaml:"no_spin,omitempty"`

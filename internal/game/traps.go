@@ -146,7 +146,7 @@ func (cs *CombatSystem) tryPlaceQuickTrap(caster *character.MMCharacter, announc
 // clicked entry, slotted or not) - gates and placement shared with the quick
 // slot path.
 func (cs *CombatSystem) placeTrapByKey(caster *character.MMCharacter, trapKey string, announce bool) (string, bool) {
-	if caster == nil || !hasTrapBook(caster) {
+	if !caster.CanUseCombatAction() || !hasTrapBook(caster) {
 		return "", false
 	}
 	def, ok := config.GetTrapDefinition(trapKey)

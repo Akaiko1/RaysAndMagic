@@ -58,6 +58,11 @@ func (tm *TileManager) validateTileConfiguration() error {
 		if !validTileRenderTypes[data.RenderType] {
 			return fmt.Errorf("tile %q has missing or unknown render_type %q (valid: floor_only|textured_wall|environment_sprite|tree_sprite|landmark)", key, data.RenderType)
 		}
+		for _, excludedKey := range data.ExcludedUnderFloorTiles {
+			if _, ok := tm.tileData[excludedKey]; !ok {
+				return fmt.Errorf("tile %q excludes unknown under-floor tile %q", key, excludedKey)
+			}
+		}
 		// Every authored tile carries an explicit organizational `type` (editor
 		// palette grouping). Special tiles (teleporters/traps) have their own
 		// palette section and are exempt.
@@ -448,14 +453,33 @@ var floorVoteNeighbours = []struct{ dx, dy, w int }{
 
 // DominantNeighbourFloor returns the dominant authored, steppable floor tile among
 // the 8 neighbours of (x,y) - orthogonal neighbours weighted double, with a
-// deterministic tie-break by neighbour order. Only real ground votes: render_type
-// "floor_only" AND walkable, non-solid, and not itself an inherit_floor marker
-// (so spawn/teleporters never stamp their own square under an entity). Cells where
-// skip(nx,ny) is true are ignored (e.g. other entity-placeholder cells). ok is
-// false when no floor neighbour exists, leaving the fallback to the caller. Single
-// source for both under-entity floors (map load) and inherit_floor markers (render).
+// deterministic tie-break by neighbour order. It has no owner-specific exclusions;
+// use DominantNeighbourFloorForTile when choosing the floor beneath a tile that
+// declares excluded_under_floor_tiles. Cells where skip(nx,ny) is true are ignored
+// (e.g. other entity-placeholder cells). ok is false when no floor neighbour exists,
+// leaving the fallback to the caller.
 func (tm *TileManager) DominantNeighbourFloor(tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	return tm.dominantNeighbourFloorForTile(TileEmpty, tiles, width, height, x, y, skip)
+}
+
+// DominantNeighbourFloorForTile is the shared inherited-floor vote for an object
+// tile. Its excluded_under_floor_tiles keys are ignored without changing which
+// floors other objects or ordinary entity cells may choose.
+func (tm *TileManager) DominantNeighbourFloorForTile(tileType TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	return tm.dominantNeighbourFloorForTile(tileType, tiles, width, height, x, y, skip)
+}
+
+func (tm *TileManager) dominantNeighbourFloorForTile(owner TileType3D, tiles [][]TileType3D, width, height, x, y int, skip func(nx, ny int) bool) (TileType3D, bool) {
+	ownerData := tm.GetTileData(owner)
 	isFloor := func(t TileType3D) bool {
+		if ownerData != nil {
+			candidateKey := tm.GetTileKey(t)
+			for _, excludedKey := range ownerData.ExcludedUnderFloorTiles {
+				if candidateKey == excludedKey {
+					return false
+				}
+			}
+		}
 		return tm.GetRenderType(t) == "floor_only" &&
 			tm.IsWalkable(t) && !tm.IsSolid(t) && !tm.InheritsFloor(t)
 	}

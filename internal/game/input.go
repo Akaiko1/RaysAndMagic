@@ -1171,8 +1171,7 @@ func (ih *InputHandler) handleCharacterSelectionInput() {
 	if target < 0 || target >= len(ih.game.party.Members) {
 		return
 	}
-	ih.game.selectedChar = target
-	ih.game.parkSelection = true // park here even if KO (use their potions)
+	ih.game.selectPartyMemberManually(target)
 }
 
 // handleUIInput processes UI-related input
@@ -1542,8 +1541,7 @@ func (ih *InputHandler) handleMouseInput() {
 		targetCharIndex := ih.getPartyMemberUnderMouse(clickX, clickY)
 		if targetCharIndex >= 0 {
 			if ih.game.consumeLeftClick() {
-				ih.game.selectedChar = targetCharIndex
-				ih.game.parkSelection = true // park here even if KO (use their potions)
+				ih.game.selectPartyMemberManually(targetCharIndex)
 			}
 		}
 	}
@@ -1693,22 +1691,12 @@ func (ih *InputHandler) handleTabbedMenuInput() {
 		return
 	}
 
-	// Allow character selection in menu with 1-4 keys
-	if ebiten.IsKeyPressed(ebiten.Key1) && len(ih.game.party.Members) > 0 {
-		ih.game.selectedChar = 0
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-	}
-	if ebiten.IsKeyPressed(ebiten.Key2) && len(ih.game.party.Members) > 1 {
-		ih.game.selectedChar = 1
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-	}
-	if ebiten.IsKeyPressed(ebiten.Key3) && len(ih.game.party.Members) > 2 {
-		ih.game.selectedChar = 2
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
-	}
-	if ebiten.IsKeyPressed(ebiten.Key4) && len(ih.game.party.Members) > 3 {
-		ih.game.selectedChar = 3
-		ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+	// Number-key selection has the same manual-park semantics as a portrait
+	// click, including for a dead or eradicated member whose inventory is open.
+	for idx, key := range [...]ebiten.Key{ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4} {
+		if ebiten.IsKeyPressed(key) && ih.game.selectPartyMemberManually(idx) {
+			ih.game.spellInputCooldown = ih.game.config.UI.SpellInputCooldown
+		}
 	}
 
 	// Handle spellbook navigation when in spellbook tab

@@ -248,9 +248,9 @@ func (c *MMCharacter) HasWeaponInEitherHand() bool {
 	return c.IsDualWielding()
 }
 
-// CanAct reports whether this character can take actions this turn: alive
-// (HP > 0) AND not unconscious. Dead/KO characters are skipped by the
-// turn-based scheduler entirely (no gray frame, can't be selected).
+// CanAct reports whether this character is alive and conscious. It is used for
+// targeting and round bookkeeping; actor-specific gates additionally account
+// for statuses such as stun.
 func (c *MMCharacter) CanAct() bool {
 	if c == nil || c.HitPoints <= 0 {
 		return false
@@ -261,6 +261,13 @@ func (c *MMCharacter) CanAct() bool {
 		}
 	}
 	return true
+}
+
+// CanUseCombatAction reports whether this character may be the actor for an
+// attack, spell, or trap. CanAct deliberately remains the broader "living
+// target" predicate: stunned heroes can still be hit, healed, and revived.
+func (c *MMCharacter) CanUseCombatAction() bool {
+	return c.CanAct() && !c.IsStunned()
 }
 
 type CharacterClass int

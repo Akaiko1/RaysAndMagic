@@ -681,7 +681,7 @@ func (r *Renderer) precomputeFloorColorCache() {
 			inheritsFloor := tileData.InheritsNeighbourFloor()
 			markerInherit := tileData != nil && tileData.InheritFloor
 			if inheritsFloor {
-				if inherited := r.inheritedFloorColor(tileX, tileY); inherited != ([3]int{0, 0, 0}) {
+				if inherited := r.inheritedFloorColor(tileX, tileY, currentTile); inherited != ([3]int{0, 0, 0}) {
 					baseColor = color.RGBA{uint8(inherited[0]), uint8(inherited[1]), uint8(inherited[2]), 255}
 				}
 			}
@@ -819,7 +819,7 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	group := tileData.FloorTextureGroup
 	if group == "" {
 		if world.GlobalTileManager.InheritsFloor(tileType) {
-			group = r.inheritedFloorTextureGroup(tileX, tileY)
+			group = r.inheritedFloorTextureGroup(tileX, tileY, tileType)
 			if group == "" {
 				group = defaultFloorTextureGroup
 			}
@@ -844,16 +844,16 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	return group
 }
 
-func (r *Renderer) inheritedFloorTextureGroup(tileX, tileY int) string {
-	data := r.inheritedFloorTileData(tileX, tileY)
+func (r *Renderer) inheritedFloorTextureGroup(tileX, tileY int, tileType world.TileType3D) string {
+	data := r.inheritedFloorTileData(tileX, tileY, tileType)
 	if data == nil {
 		return ""
 	}
 	return data.FloorTextureGroup
 }
 
-func (r *Renderer) inheritedFloorColor(tileX, tileY int) [3]int {
-	data := r.inheritedFloorTileData(tileX, tileY)
+func (r *Renderer) inheritedFloorColor(tileX, tileY int, tileType world.TileType3D) [3]int {
+	data := r.inheritedFloorTileData(tileX, tileY, tileType)
 	if data == nil {
 		return [3]int{0, 0, 0}
 	}
@@ -864,12 +864,12 @@ func (r *Renderer) inheritedFloorColor(tileX, tileY int) [3]int {
 // into, using the same weighted dominant-neighbour vote as under-entity floors.
 // This makes a prop in a multi-floor room take that room's dominant floor, not
 // an arbitrary first neighbour.
-func (r *Renderer) inheritedFloorTileData(tileX, tileY int) *config.TileData {
+func (r *Renderer) inheritedFloorTileData(tileX, tileY int, tileType world.TileType3D) *config.TileData {
 	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
 		return nil
 	}
-	t, ok := world.GlobalTileManager.DominantNeighbourFloor(
-		r.game.world.Tiles, r.game.world.Width, r.game.world.Height, tileX, tileY, nil)
+	t, ok := world.GlobalTileManager.DominantNeighbourFloorForTile(
+		tileType, r.game.world.Tiles, r.game.world.Width, r.game.world.Height, tileX, tileY, nil)
 	if !ok {
 		return nil
 	}

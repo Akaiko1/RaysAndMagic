@@ -515,8 +515,8 @@ type MMGame struct {
 	// parkSelection is set when the player selects a member BY HAND (portrait
 	// click / number key) and cleared on any auto-advance of the selection. While
 	// set, the TB/RT auto-snap that moves selection off a member who can't act is
-	// suppressed, so the player can park on a downed ally to use their (free,
-	// passive) quick-slot potions. Zero value (false) is the safe default.
+	// suppressed, so the player can inspect any present ally's inventory. Zero
+	// value (false) is the safe default.
 	parkSelection bool
 
 	// Promotion picker: when more than one party member is eligible for a
@@ -1827,20 +1827,39 @@ func (g *MMGame) GetPartyActionsUsed() int {
 }
 
 // canSelectChar reports whether the party member can spend a turn-based action
-// right now: alive + conscious and at least one action slot left. Manual UI
-// selection is looser; exhausted living members can still be selected for stats
-// and inventory.
+// right now. Manual UI selection is looser; exhausted or stunned living members
+// can still be selected for stats, inventory, and passive items.
 func (g *MMGame) canSelectChar(idx int) bool {
 	if idx < 0 || idx >= len(g.party.Members) {
 		return false
 	}
 	m := g.party.Members[idx]
-	return m.CanAct() && m.ActionsRemaining > 0
+	return m.CanUseCombatAction() && m.ActionsRemaining > 0
 }
 
-// partyAllExhausted reports whether every still-able-to-act party member has
-// spent all their action slots this round. KO members are skipped - the
-// round ends when the remaining able-bodied ones are done.
+// canSpendTurnBasedAction is the UI gate for a player-initiated action.
+// Real-time callers keep their action-specific cooldown checks; TB requires
+// both the party phase and a remaining slot.
+func (g *MMGame) canSpendTurnBasedAction(idx int) bool {
+	return !g.turnBasedMode || (g.currentTurn == 0 && g.canSelectChar(idx))
+}
+
+// selectPartyMemberManually updates the UI selection without conflating it
+// with combat eligibility. Dead, unconscious, and eradicated members remain
+// valid selections so their equipment and inventory can be inspected; action
+// entry points still use their own CanUseCombatAction gates.
+func (g *MMGame) selectPartyMemberManually(idx int) bool {
+	if idx < 0 || idx >= len(g.party.Members) || g.party.Members[idx] == nil {
+		return false
+	}
+	g.selectedChar = idx
+	g.parkSelection = true
+	return true
+}
+
+// partyAllExhausted reports whether the party has no legal turn-based actor:
+// exhausted, stunned, and KO members all contribute no action. The name stays
+// for callers that predate stun-aware actor eligibility.
 func (g *MMGame) partyAllExhausted() bool {
 	for i := range g.party.Members {
 		if g.canSelectChar(i) {
@@ -1888,7 +1907,7 @@ func (g *MMGame) rtCharReady(idx int) bool {
 		return false
 	}
 	m := g.party.Members[idx]
-	return m.CanAct() && (m.AnyWeaponHandReady() || m.RTCooldown <= 0)
+	return m.CanUseCombatAction() && (m.AnyWeaponHandReady() || m.RTCooldown <= 0)
 }
 
 // rtActionKind is the real-time action a held key performs. The party cycle is
@@ -1913,7 +1932,7 @@ func (g *MMGame) rtActionCapable(idx int, kind rtActionKind) bool {
 		return false
 	}
 	m := g.party.Members[idx]
-	if m == nil || !m.CanAct() || m.IsStunned() {
+	if !m.CanUseCombatAction() {
 		return false
 	}
 	switch kind {
@@ -2001,10 +2020,9 @@ func (g *MMGame) advanceRTActor(kind rtActionKind) {
 	}
 }
 
-// ensureSelectedCanActRT guarantees the real-time selection points at a member
-// who can still act (alive + conscious). If the current one was just killed/KO'd
-// it moves to the next ready member, or failing that any living member (who'll
-// act once their cooldown ends) - without this the party freezes on a corpse.
+// ensureSelectedCanActRT keeps real-time selection off a corpse. Any living
+// member remains selectable for inventory and passive items, including one
+// stunned or waiting on cooldown; only a killed/KO'd selection is replaced.
 func (g *MMGame) ensureSelectedCanActRT() {
 	if g.rtCharReady(g.selectedChar) {
 		return
@@ -2014,7 +2032,7 @@ func (g *MMGame) ensureSelectedCanActRT() {
 	}
 	cur := g.party.Members[g.selectedChar]
 	if cur != nil && cur.CanAct() {
-		return // alive, just on cooldown - leave selection put
+		return // living members remain selectable even when unable to attack
 	}
 	n := len(g.party.Members)
 	// Prefer a member ready right now.
@@ -2090,7 +2108,7 @@ func (g *MMGame) startPartyTurn() {
 func (g *MMGame) assignTurnBasedSpeedBonusActions() {
 	bonusActions := 0
 	for _, m := range g.party.Members {
-		if m != nil && m.CanAct() && !m.IsStunned() {
+		if m != nil && m.CanUseCombatAction() {
 			if tier := m.SpeedBonusActionTier(); tier > bonusActions {
 				bonusActions = tier
 			}
@@ -2139,6 +2157,23 @@ func (g *MMGame) endPartyTurn() {
 	g.monsterTurnResolved = false
 }
 
+// skipTurnBasedPartyTurnWithoutActor hands control to monsters when the party
+// has no legal combat action left. It covers a fully stunned round and stale
+// zero-action states as well as ordinary exhaustion. A full party wipe is left
+// to the game-over flow instead of starting another monster phase.
+func (g *MMGame) skipTurnBasedPartyTurnWithoutActor() bool {
+	if !g.turnBasedMode || g.currentTurn != 0 || !g.partyAllExhausted() {
+		return false
+	}
+	for _, member := range g.party.Members {
+		if member != nil && member.CanAct() {
+			g.endPartyTurn()
+			return true
+		}
+	}
+	return false
+}
+
 // endPartyTurnAfterMovement spends every remaining party action and ends the
 // turn. Moving after at least one attack/cast grants monsters an extra action
 // pass as anti-kiting pressure; opening the round with movement remains normal.
@@ -2152,18 +2187,10 @@ func (g *MMGame) endPartyTurnAfterMovement() {
 	g.endPartyTurn()
 }
 
-// ensureSelectedCharCanAct auto-advances selectedChar to the next eligible
-// member when the current one can no longer act. Necessary because a party
-// member can become KO mid-party-turn from sources outside the action loop:
-// in-flight projectiles fired during the previous monster turn that connect
-// during the party turn, poison ticks, etc. Without this guard pressing
-// Space/F on a dead selectedChar would silently do nothing.
-// Real-time mode no-ops - selection isn't gated on CanAct there.
 // parkedOnSelected reports whether the player manually selected the current
-// member (portrait/number key) and that member is still a valid park target
-// (present, not Eradicated). The auto-snap that moves selection off a member
-// who can't act respects this, so the player can sit on a downed ally to use
-// their free, passive quick-slot potions instead of being bounced away.
+// present member (portrait/number key). The auto-snap that moves selection off
+// a member who can't act respects this, so selection remains available for
+// inventory even when the member is dead, unconscious, or eradicated.
 func (g *MMGame) parkedOnSelected() bool {
 	if !g.parkSelection {
 		return false
@@ -2172,9 +2199,12 @@ func (g *MMGame) parkedOnSelected() bool {
 		return false
 	}
 	m := g.party.Members[g.selectedChar]
-	return m != nil && !m.HasCondition(character.ConditionEradicated)
+	return m != nil
 }
 
+// ensureSelectedCharCanAct moves an automatically selected KO member to a
+// conscious ally in turn-based mode. A manually parked member is intentionally
+// left selected regardless of condition so UI inspection remains available.
 func (g *MMGame) ensureSelectedCharCanAct() {
 	if !g.turnBasedMode {
 		return

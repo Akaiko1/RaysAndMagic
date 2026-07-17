@@ -1804,7 +1804,7 @@ func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[s
 		}
 		return base
 	}
-	if t, ok := tm.DominantNeighbourFloor(m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
+	if t, ok := tm.DominantNeighbourFloorForTile(tile, m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
 			return colorFromRGB(data.FloorColor)
 		}

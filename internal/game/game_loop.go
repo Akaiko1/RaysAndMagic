@@ -158,6 +158,10 @@ func (gl *GameLoop) updateExploration() {
 
 	// Update monsters (turn-based or real-time)
 	if gl.game.turnBasedMode {
+		// A stun can remove the final party actor after slots were assigned. Do
+		// this in the scheduler, rather than input, so keyboard, spellbook, trap,
+		// and delayed-projectile paths all hand the empty turn to monsters alike.
+		gl.game.skipTurnBasedPartyTurnWithoutActor()
 		// Evasive bosses react in real time even in TB - see tickEvasiveBossesTB.
 		gl.game.combat.tickEvasiveBossesTB()
 		gl.updateMonstersTurnBased()

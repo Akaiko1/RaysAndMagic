@@ -121,6 +121,60 @@ func TestMapLoader_UnderEntityFloorDominantNeighbour(t *testing.T) {
 	}
 }
 
+func TestDominantNeighbourFloorForTile_HonorsExcludedUnderFloorTiles(t *testing.T) {
+	tm := NewTileManager()
+	if err := tm.LoadTileConfig(filepath.Join("..", "..", "assets", "tiles.yaml")); err != nil {
+		t.Fatalf("load tiles: %v", err)
+	}
+
+	tree, ok := tm.GetTileTypeFromKey("tree")
+	if !ok {
+		t.Fatal("forest tree tile not found")
+	}
+	ancientTree, ok := tm.GetTileTypeFromKey("ancient_tree")
+	if !ok {
+		t.Fatal("ancient tree tile not found")
+	}
+	stream, ok := tm.GetTileTypeFromKey("forest_stream")
+	if !ok {
+		t.Fatal("forest stream tile not found")
+	}
+	grass, ok := tm.GetTileTypeFromKey("empty")
+	if !ok {
+		t.Fatal("default forest floor tile not found")
+	}
+
+	// Stream wins the ordinary weighted vote (four orthogonal neighbours), but
+	// both forest tree variants must inherit the lone grass neighbour instead.
+	tiles := [][]TileType3D{
+		{grass, stream, stream},
+		{stream, tree, stream},
+		{stream, stream, stream},
+	}
+	if got, ok := tm.DominantNeighbourFloor(tiles, 3, 3, 1, 1, nil); !ok || got != stream {
+		t.Fatalf("ordinary dominant floor = %v, %t; want forest stream %v, true", got, ok, stream)
+	}
+	for _, owner := range []TileType3D{tree, ancientTree} {
+		if got, ok := tm.DominantNeighbourFloorForTile(owner, tiles, 3, 3, 1, 1, nil); !ok || got != grass {
+			t.Fatalf("tree %q inherited floor = %v, %t; want grass %v, true", tm.GetTileKey(owner), got, ok, grass)
+		}
+	}
+}
+
+func TestTileConfigurationRejectsUnknownExcludedUnderFloorTile(t *testing.T) {
+	tm := NewTileManager()
+	tm.tileData = map[string]*config.TileData{
+		"tree": {
+			Type:                    "nature",
+			RenderType:              "tree_sprite",
+			ExcludedUnderFloorTiles: []string{"missing_floor"},
+		},
+	}
+	if err := tm.validateTileConfiguration(); err == nil || !strings.Contains(err.Error(), "unknown under-floor tile") {
+		t.Fatalf("unknown excluded under-floor tile must fail clearly, got: %v", err)
+	}
+}
+
 func TestMapContractRejectsWrongLetterCase(t *testing.T) {
 	tm := NewTileManager()
 	tm.tileData = map[string]*config.TileData{

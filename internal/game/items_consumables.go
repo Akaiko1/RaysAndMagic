@@ -6,10 +6,17 @@ import (
 	"ugataima/internal/items"
 )
 
+// cannotReceiveOrdinaryHealing is the shared eligibility rule for effects that
+// restore HP without reviving. It deliberately does not decide whether an
+// incapacitated potion owner may redirect that potion to an eligible ally.
+func cannotReceiveOrdinaryHealing(ch *character.MMCharacter) bool {
+	return ch == nil || ch.HasCondition(character.ConditionUnconscious) ||
+		ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated)
+}
+
 // RevivablePartyIndices returns the indices of party members who can be
 // revived by a revival potion: currently Dead OR Unconscious, but NOT
-// Eradicated. Used by the revival-picker UI so dead members (who can't be
-// portrait-clicked) can still be chosen as targets.
+// Eradicated. Used by the revival-picker UI to list eligible targets.
 func (g *MMGame) RevivablePartyIndices() []int {
 	if g == nil || g.party == nil {
 		return nil
@@ -59,21 +66,15 @@ func (g *MMGame) applyReviveTo(itemIdx, targetIdx int) bool {
 	return true
 }
 
-// HealablePartyIndices returns conscious, wounded members (HP below max, alive,
-// not unconscious/dead/eradicated) - valid targets for a heal potion. Used by
-// the heal picker when an unconscious owner can't heal themselves.
+// HealablePartyIndices returns wounded members eligible for ordinary healing.
+// Used by the heal picker when an incapacitated owner cannot heal themselves.
 func (g *MMGame) HealablePartyIndices() []int {
 	if g == nil || g.party == nil {
 		return nil
 	}
 	var idxs []int
 	for i, m := range g.party.Members {
-		if m == nil {
-			continue
-		}
-		if m.HasCondition(character.ConditionUnconscious) ||
-			m.HasCondition(character.ConditionDead) ||
-			m.HasCondition(character.ConditionEradicated) {
+		if cannotReceiveOrdinaryHealing(m) {
 			continue
 		}
 		if m.HitPoints > 0 && m.HitPoints < m.MaxHitPoints {
@@ -95,8 +96,7 @@ func (g *MMGame) applyFlatHeal(charIdx int, base, div int) {
 		return
 	}
 	ch := g.party.Members[charIdx]
-	if ch == nil || ch.HasCondition(character.ConditionUnconscious) ||
-		ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+	if cannotReceiveOrdinaryHealing(ch) {
 		return
 	}
 	heal := base
@@ -131,7 +131,7 @@ func (g *MMGame) applyHealTo(itemIdx, targetIdx int) bool {
 		return false // slot now holds something else - inventory shifted under us
 	}
 	ch := g.party.Members[targetIdx]
-	if ch.HasCondition(character.ConditionUnconscious) || ch.HasCondition(character.ConditionDead) || ch.HasCondition(character.ConditionEradicated) {
+	if cannotReceiveOrdinaryHealing(ch) {
 		return false // heals never revive - Eradicated needs the Resurrect spell
 	}
 	if ch.HitPoints >= ch.MaxHitPoints {
@@ -230,10 +230,10 @@ func (g *MMGame) UseConsumableFromInventory(itemIndex int, selectedChar int) boo
 			return false
 		}
 		ch := g.party.Members[selectedChar]
-		// An unconscious owner can't heal themselves (plain heals never revive), so
-		// route the potion to a conscious, wounded ally: 0 -> keep it, 1 -> heal them,
-		// N -> let the player choose (heal picker).
-		if ch.HasCondition(character.ConditionUnconscious) {
+		// An owner who cannot receive ordinary healing cannot drink this potion for
+		// themselves (plain heals never revive), so route it to a valid wounded ally:
+		// 0 -> keep it, 1 -> heal them, N -> let the player choose (heal picker).
+		if cannotReceiveOrdinaryHealing(ch) {
 			targets := g.HealablePartyIndices()
 			switch len(targets) {
 			case 0:

@@ -5,6 +5,7 @@ import (
 	"ugataima/internal/bridge"
 	"ugataima/internal/character"
 	"ugataima/internal/config"
+	"ugataima/internal/spells"
 )
 
 // selectionTestGame builds a 4-member party game ready for selection / action
@@ -46,6 +47,33 @@ func TestEnsureSelectedCharCanAct_KeepsExhaustedLivingSelectedForUI(t *testing.T
 	g.ensureSelectedCharCanAct()
 	if g.selectedChar != 0 {
 		t.Errorf("selectedChar moved off exhausted living member: %d, want 0", g.selectedChar)
+	}
+}
+
+func TestEnsureSelectedCharCanAct_KeepsStunnedLivingSelectedForUI(t *testing.T) {
+	g := selectionTestGame(t)
+	g.party.Members[0].ApplyCharStun(60, 1)
+	g.ensureSelectedCharCanAct()
+	if g.selectedChar != 0 {
+		t.Fatalf("selected character moved off stunned member to %d", g.selectedChar)
+	}
+}
+
+func TestManualPartySelection_KeepsEradicatedMemberForInventory(t *testing.T) {
+	g := selectionTestGame(t)
+	eradicated := g.party.Members[1]
+	eradicated.HitPoints = 0
+	eradicated.AddCondition(character.ConditionEradicated)
+
+	if !g.selectPartyMemberManually(1) {
+		t.Fatal("manual selection rejected an existing eradicated member")
+	}
+	if !g.parkSelection {
+		t.Fatal("manual selection must park the selected member")
+	}
+	g.ensureSelectedCharCanAct()
+	if g.selectedChar != 1 {
+		t.Fatalf("selection moved off eradicated member to %d", g.selectedChar)
 	}
 }
 
@@ -153,6 +181,149 @@ func TestConsumeSelectedCharAction_NoopInRealTime(t *testing.T) {
 	g.consumeSelectedCharAction()
 	if got := g.party.Members[0].ActionsRemaining; got != before {
 		t.Errorf("ActionsRemaining changed in real-time mode: %d -> %d", before, got)
+	}
+}
+
+func TestTurnBasedActorGateRejectsStunnedAndExhaustedMember(t *testing.T) {
+	def, err := spells.GetSpellDefinitionByID("firebolt")
+	if err != nil {
+		t.Fatalf("load firebolt: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name              string
+		setup             func(*character.MMCharacter)
+		wantDirectBlocked bool
+	}{
+		{
+			name: "stunned",
+			setup: func(member *character.MMCharacter) {
+				member.ApplyCharStun(60, 1)
+			},
+			wantDirectBlocked: true,
+		},
+		{
+			name: "no_action_slot",
+			setup: func(member *character.MMCharacter) {
+				member.ActionsRemaining = 0
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := selectionTestGame(t)
+			g.combat = NewCombatSystem(g)
+			member := g.party.Members[0]
+			member.SpellPoints = member.MaxSpellPoints
+			tc.setup(member)
+
+			beforeSP := member.SpellPoints
+			if g.canSelectChar(0) {
+				t.Fatal("ineligible member remained a turn-based actor")
+			}
+			if g.canSpendTurnBasedAction(0) {
+				t.Fatal("UI action gate bypassed an ineligible turn-based actor")
+			}
+			if tc.wantDirectBlocked {
+				if g.combat.castResolvedSpell("firebolt", def, member, def.SpellPointsCost, true, true) {
+					t.Fatal("direct spell path bypassed stun")
+				}
+				if member.SpellPoints != beforeSP {
+					t.Fatalf("blocked cast spent SP: %d -> %d", beforeSP, member.SpellPoints)
+				}
+			}
+		})
+	}
+}
+
+func TestSkipTurnBasedPartyTurnWithoutActor(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		setup    func(*MMGame)
+		wantSkip bool
+	}{
+		{
+			name: "all_stunned",
+			setup: func(g *MMGame) {
+				for _, member := range g.party.Members {
+					member.ApplyCharStun(60, 1)
+				}
+			},
+			wantSkip: true,
+		},
+		{
+			name: "all_action_slots_spent",
+			setup: func(g *MMGame) {
+				for _, member := range g.party.Members {
+					member.ActionsRemaining = 0
+				}
+			},
+			wantSkip: true,
+		},
+		{
+			name: "ko_and_exhausted_mix",
+			setup: func(g *MMGame) {
+				for i, member := range g.party.Members {
+					if i < 2 {
+						member.HitPoints = 0
+						member.AddCondition(character.ConditionUnconscious)
+					} else {
+						member.ActionsRemaining = 0
+					}
+				}
+			},
+			wantSkip: true,
+		},
+		{
+			name: "full_party_wipe_uses_game_over",
+			setup: func(g *MMGame) {
+				for _, member := range g.party.Members {
+					member.HitPoints = 0
+					member.AddCondition(character.ConditionUnconscious)
+				}
+			},
+			wantSkip: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := selectionTestGame(t)
+			g.currentTurn = 0
+			tc.setup(g)
+
+			if !g.partyAllExhausted() {
+				t.Fatal("setup must leave no legal party actor")
+			}
+			if got := g.skipTurnBasedPartyTurnWithoutActor(); got != tc.wantSkip {
+				t.Fatalf("skip=%v, want %v", got, tc.wantSkip)
+			}
+			if tc.wantSkip {
+				if g.currentTurn != 1 || g.monsterTurnResolved {
+					t.Fatalf("empty party turn did not hand control to monsters: turn=%d resolved=%v", g.currentTurn, g.monsterTurnResolved)
+				}
+			} else if g.currentTurn != 0 {
+				t.Fatalf("full party wipe advanced to turn %d instead of remaining for game-over", g.currentTurn)
+			}
+		})
+	}
+}
+
+func TestTurnBasedStunConsumesPartyTurnBeforeAutoPass(t *testing.T) {
+	g := selectionTestGame(t)
+	g.currentTurn = 0
+	for _, member := range g.party.Members {
+		member.ApplyCharStun(60, 1)
+	}
+
+	g.startPartyTurn()
+	for i, member := range g.party.Members {
+		if member.ActionsRemaining != 0 {
+			t.Fatalf("stunned member %d received %d action slots", i, member.ActionsRemaining)
+		}
+	}
+	if !g.skipTurnBasedPartyTurnWithoutActor() {
+		t.Fatal("stunned party turn was not handed to monsters")
+	}
+	if g.currentTurn != 1 {
+		t.Fatalf("currentTurn=%d, want monster turn after stunned party pass", g.currentTurn)
 	}
 }
 

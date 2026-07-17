@@ -75,6 +75,7 @@ tiles:
     render_type: "tree_sprite"
     map_color: [101, 67, 33]  # Brown tree bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
+    excluded_under_floor_tiles: ["forest_stream"]
     letter: "T"
     biomes: ["forest"]
 
@@ -89,6 +90,7 @@ tiles:
     render_type: "tree_sprite"
     map_color: [69, 39, 19]  # Darker brown ancient bark
     floor_near_color: [20, 90, 20]  # Dark green near trees
+    excluded_under_floor_tiles: ["forest_stream"]
     letter: "A"
     biomes: ["forest"]
 

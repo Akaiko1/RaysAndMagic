@@ -538,11 +538,11 @@ func (g *MMGame) quickSlotCharReady(idx int) bool {
 		return false
 	}
 	m := g.party.Members[idx]
-	if !m.CanAct() {
+	if !m.CanUseCombatAction() {
 		return false
 	}
 	if g.turnBasedMode {
-		return m.ActionsRemaining > 0
+		return g.canSpendTurnBasedAction(idx)
 	}
 	return m.RTCooldown == 0
 }

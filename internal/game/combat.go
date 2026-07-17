@@ -30,8 +30,8 @@ func NewCombatSystem(game *MMGame) *CombatSystem {
 func (cs *CombatSystem) CastEquippedSpell() bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
-	// Unconscious characters cannot cast
-	if caster.IsIncapacitated() {
+	// Stunned characters cannot start a combat action either.
+	if !caster.CanUseCombatAction() {
 		return false
 	}
 
@@ -332,8 +332,8 @@ func (cs *CombatSystem) summonCardAllies(key string, n int) int {
 func (cs *CombatSystem) CastEquippedHealOnTarget(targetIndex int) bool {
 	caster := cs.game.party.Members[cs.game.selectedChar]
 
-	// Unconscious characters cannot cast heals
-	if caster.IsIncapacitated() {
+	// Stunned characters cannot cast heals either.
+	if !caster.CanUseCombatAction() {
 		return false
 	}
 
@@ -391,7 +391,7 @@ func (cs *CombatSystem) bestKnownHealSpell(caster *character.MMCharacter) (spell
 // fired plus the spell used (for the real-time cooldown).
 func (cs *CombatSystem) CastBestHealOnTarget(targetIndex int) (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
-	if caster.IsIncapacitated() {
+	if !caster.CanUseCombatAction() {
 		return false, ""
 	}
 	spellID, ok := cs.bestKnownHealSpell(caster)
@@ -472,6 +472,9 @@ func (cs *CombatSystem) castKnownHealOn(spellID spells.SpellID, def spells.Spell
 // cooldown from it, else the weapon cooldown).
 func (cs *CombatSystem) SmartAttack() (bool, spells.SpellID) {
 	caster := cs.game.party.Members[cs.game.selectedChar]
+	if !caster.CanUseCombatAction() {
+		return false, ""
+	}
 
 	// In RT, a dual-wielder can reach Space with the main hand / cast cooldown
 	// still cycling because the off hand is free. That path must swing only the
@@ -623,8 +626,8 @@ func (cs *CombatSystem) partyEntombed() bool {
 func (cs *CombatSystem) EquipmentMeleeAttack() bool {
 	attacker := cs.game.party.Members[cs.game.selectedChar]
 
-	// Unconscious characters cannot attack
-	if attacker.IsIncapacitated() {
+	// Stunned characters cannot attack either.
+	if !attacker.CanUseCombatAction() {
 		return false
 	}
 	// Flying inside solid terrain: no fighting from within the stone (monsters
@@ -1485,8 +1488,8 @@ func (cs *CombatSystem) engageTurnBasedSameKindPackOnPartyHit(hit *monsterPkg.Mo
 func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 	currentChar := cs.game.party.Members[cs.game.selectedChar]
 
-	// Prevent casting while down; also avoids utility healing from acting as a revive.
-	if currentChar.IsIncapacitated() {
+	// Prevent casting while down or stunned; utility healing cannot act as a revive.
+	if !currentChar.CanUseCombatAction() {
 		return false, ""
 	}
 	// SAME filtered list the spellbook UI numbers (schools with spells only) -
@@ -1527,6 +1530,9 @@ func (cs *CombatSystem) CastSelectedSpell() (bool, spells.SpellID) {
 // Training's free proc on a melee/ranged hit that already summon-rolled at
 // swing time; rolling again here would double the odds for one action).
 func (cs *CombatSystem) castResolvedSpell(spellID spells.SpellID, spellDef spells.SpellDefinition, caster *character.MMCharacter, spellCost int, announce bool, countsAsAction bool) bool {
+	if countsAsAction && !caster.CanUseCombatAction() {
+		return false
+	}
 	if caster.SpellPoints < spellCost {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s's spell fizzles! (Not enough SP: %d/%d)",
 			caster.Name, caster.SpellPoints, spellCost))
