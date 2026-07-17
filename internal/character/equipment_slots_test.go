@@ -56,6 +56,30 @@ func TestEquipmentSlotAssignment(t *testing.T) {
 	}
 }
 
+func TestChronoCapeEquipsAsUniversalCloak(t *testing.T) {
+	character := &MMCharacter{
+		Name:      "TestMonk",
+		Skills:    map[SkillType]*Skill{},
+		Equipment: make(map[items.EquipSlot]items.Item),
+	}
+
+	cape := items.CreateItemFromYAML("chrono_cape")
+	if cape.Type != items.ItemAccessory {
+		t.Fatalf("Chrono Cape type = %v, want accessory", cape.Type)
+	}
+	if _, hadPrevious, ok := character.EquipItem(cape); !ok || hadPrevious {
+		t.Fatalf("Chrono Cape should equip in an empty cloak slot, ok=%v hadPrevious=%v", ok, hadPrevious)
+	}
+
+	equipped, ok := character.Equipment[items.SlotCloak]
+	if !ok || equipped.Name != cape.Name {
+		t.Fatalf("cloak slot = %#v, want Chrono Cape", equipped)
+	}
+	if got := equipped.Attributes["armor_class_base"]; got != 4 {
+		t.Errorf("Chrono Cape armor_class_base = %d, want 4", got)
+	}
+}
+
 func TestEquipmentStatBonusesFromYAML(t *testing.T) {
 	character := &MMCharacter{
 		Name:        "TestMage",

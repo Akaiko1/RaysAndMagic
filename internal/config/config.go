@@ -780,15 +780,14 @@ type TileData struct {
 	FloorNearColor       [3]int  `yaml:"floor_near_color"`
 	// FloorTextureGroup selects which named group from the current biome's
 	// floor_texture_groups (see BiomeConfig) supplies the floor texture for
-	// this tile type. Empty = no texture overlay (renderer falls back to base
-	// color). The "beach" group is picked dynamically for empty tiles
-	// bordering water - see the renderer.
+	// this tile type. Objects without a group or floor_color inherit the
+	// dominant neighbouring floor; floor-only tiles fall back to the map base.
+	// The "beach" group is picked dynamically for empty tiles bordering water.
 	FloorTextureGroup string `yaml:"floor_texture_group,omitempty"`
-	// InheritFloor makes a floor_only marker tile (spawn point, teleporter) take
-	// the surrounding biome floor colour + texture instead of painting its own
-	// floor_color square - like the ground under a mob spawn. The floor_color is
-	// then reused only as the tint for the tile's decoration (spawn border /
-	// teleporter glow), not the floor itself.
+	// InheritFloor forces a floor_only marker (spawn point, teleporter) to take
+	// the surrounding biome floor even when it has a floor_color. Regular
+	// non-floor objects without an authored floor inherit automatically; see
+	// InheritsNeighbourFloor.
 	InheritFloor bool `yaml:"inherit_floor,omitempty"`
 	// NoSpin pins a landmark/standee tile to a fixed pose (stacked planks do
 	// not rotate; a fountain keeps the showcase spin).
@@ -820,6 +819,20 @@ type TileData struct {
 	Light               *TileLightConfig       `yaml:"light,omitempty"`
 	AlphaFromBrightness float64                `yaml:"alpha_from_brightness,omitempty"`
 	Properties          map[string]interface{} `yaml:"properties,omitempty"`
+}
+
+// HasExplicitFloor reports whether a tile authors the ground beneath itself.
+// A zero FloorColor is the existing config sentinel for an unset colour.
+func (td *TileData) HasExplicitFloor() bool {
+	return td != nil && (td.FloorTextureGroup != "" || td.FloorColor != [3]int{})
+}
+
+// InheritsNeighbourFloor is the one policy shared by the game and map viewer:
+// objects inherit the dominant adjacent floor unless they author one explicitly.
+// Floor-only marker tiles opt in with inherit_floor because their floor_color is
+// usually an effect tint rather than a real ground surface.
+func (td *TileData) InheritsNeighbourFloor() bool {
+	return td != nil && (td.InheritFloor || (td.RenderType != "floor_only" && !td.HasExplicitFloor()))
 }
 
 type SpecialTileConfig struct {

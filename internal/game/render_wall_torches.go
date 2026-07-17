@@ -39,7 +39,10 @@ func (r *Renderer) buildWallTorches() {
 		return
 	}
 	ts := float64(r.game.config.GetTileSize())
-	blocked := func(x, y int) bool { return w.IsTileBlocking(x, y) }
+	// Torches are authored map dressing, so their corners must follow raw terrain
+	// only. IsTileBlocking changes under Fly and would otherwise erase the cache
+	// when the party entered a torch-lit map while airborne.
+	blocked := func(x, y int) bool { return w.IsTileBlockingTerrainAt(x, y) }
 	for ty := 0; ty < w.Height; ty++ {
 		for tx := 0; tx < w.Width; tx++ {
 			if blocked(tx, ty) {

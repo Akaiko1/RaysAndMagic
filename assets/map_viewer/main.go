@@ -1792,20 +1792,18 @@ func tileSwatchColor(key string, data *config.TileData, floorColor color.RGBA) (
 	return color.RGBA{}, false
 }
 
-// floorUnderObjectColor is the ground shown under an object sprite. A tile
-// that authors its own floor_color (flooring objects) keeps it; otherwise the
-// ground is dynamic - the same dominant-neighbour vote the game uses for
-// under-entity and inherit_floor ground - so a tree in a road patch sits on
-// road, not on the biome default.
+// floorUnderObjectColor is the ground shown under an object sprite. The
+// TileData inheritance policy is shared with the game renderer, so a prop in a
+// road patch sits on road rather than the biome default.
 func floorUnderObjectColor(m mapInfo, tm *world.TileManager, tileDataByKey map[string]*config.TileData, tx, ty int, base color.RGBA) color.RGBA {
 	tile := m.Data.Tiles[ty][tx]
-	if key := tm.GetTileKey(tile); key != "" {
-		if data := tileDataByKey[key]; data != nil && data.FloorColor != [3]int{} {
+	data := tm.GetTileData(tile)
+	if data == nil || !tm.InheritsFloor(tile) {
+		if data != nil && data.FloorColor != [3]int{} {
 			return colorFromRGB(data.FloorColor)
 		}
+		return base
 	}
-	// TileEmpty's authored floor_color is ignored, same as the game renderer:
-	// empty ground always shows the map's default floor color.
 	if t, ok := tm.DominantNeighbourFloor(m.Data.Tiles, m.Data.Width, m.Data.Height, tx, ty, nil); ok && t != world.TileEmpty {
 		if data := tileDataByKey[tm.GetTileKey(t)]; data != nil && data.FloorColor != [3]int{} {
 			return colorFromRGB(data.FloorColor)

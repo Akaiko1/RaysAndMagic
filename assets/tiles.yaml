@@ -501,8 +501,9 @@ tiles:
     biomes: ["japanese_castle"]
 
   # Castle decor billboards (solid, see-through). L lantern, Y bonsai, H shoji
-  # screen. Shoji are placed in front of rack alcoves to occlude them from the
-  # room (the racks are "hidden behind the screens"); the alcove is entered around.
+  # screen. Objects without an authored floor inherit the dominant nearby floor,
+  # so these blend into wood, tatami, and garden rooms. Shoji are placed in front
+  # of rack alcoves to occlude them from the room; the alcove is entered around.
   castle_lantern:
     name: "Stone Lantern"
     type: "structure"
@@ -1456,7 +1457,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_lever"
     render_type: "environment_sprite"
@@ -1468,7 +1468,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_portrait"
     render_type: "environment_sprite"
@@ -1480,7 +1479,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_landscape"
     render_type: "environment_sprite"
@@ -1492,7 +1490,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_dragon"
     render_type: "environment_sprite"
@@ -1504,7 +1501,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_sigil"
     render_type: "environment_sprite"
@@ -1516,7 +1512,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_skull"
     render_type: "environment_sprite"
@@ -1528,7 +1523,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_anim_portrait"
     render_type: "environment_sprite"
@@ -1540,7 +1534,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_anim_landscape"
     render_type: "environment_sprite"
@@ -1673,7 +1666,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "gear_pile"
     render_type: "environment_sprite"
@@ -1716,7 +1708,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.6
     sprite: "wall_pendulum_clock"
     render_type: "environment_sprite"
@@ -1730,7 +1721,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.6
     sprite: "wall_gear_cluster"
     render_type: "environment_sprite"
@@ -1744,7 +1734,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_pipe_valve"
     render_type: "environment_sprite"
@@ -1758,7 +1747,6 @@ tiles:
     solid: false
     transparent: true
     walkable: true
-    inherit_floor: true
     size_tiles: 0.5
     sprite: "wall_blueprint"
     render_type: "environment_sprite"

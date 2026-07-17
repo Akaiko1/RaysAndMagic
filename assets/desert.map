@@ -46,8 +46,8 @@ T................................................T
 T.................................P..............T
 T................................................T
 T....................AAAAAAA............@@.......T  >[npc:gladiator_gatekeeper], [npc:storage_clerk]
-T$..................A.WWWWW@A...........@........T  >[npc:chest_wooden], [npc:arena], [tile:planks]
-T$$................@.WWWWWWW.....................T  >[npc:desert_merchant], [tile:planks], [tile:planks]
+T$..................A.WWWWW@A....................T  >[npc:chest_wooden], [tile:planks]
+T$$................@.WWWWWWW............@........T  >[npc:desert_merchant], [npc:arena], [tile:planks], [tile:planks]
 T@k.....................@WW@.A...................T  >[npc:pile_of_old_boxes], [stile:rteleporter], [npc:campfire]
 T@@..................WWWWWWW.A...................T  >[npc:barrel_red], [npc:campfire]
 T@k.................A.WWWWW..A...................T  >[npc:pile_of_old_boxes]

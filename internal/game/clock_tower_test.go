@@ -275,6 +275,127 @@ func TestClockTowerContentIntegrity(t *testing.T) {
 	}
 }
 
+// Each tower set must be wearable as a complete five-piece kit: a duplicate
+// slot, wrong armor category, or wrong set key would otherwise make the
+// Clockmaker's advertised set impossible to use in play.
+func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	cases := []struct {
+		name, set, category string
+		skill               character.SkillType
+		pieces              []string
+		might               int
+		endurance           int
+		accuracy            int
+		speed               int
+		luck                int
+		stunDurationPct     int
+	}{
+		{
+			name: "cogleather", set: "cogleather", category: "leather", skill: character.SkillLeather,
+			pieces:   []string{"cogleather_helm", "cogleather_jacket", "cogleather_pauldrons", "cogleather_gloves", "cogleather_boots"},
+			accuracy: 3, speed: 21, luck: 9,
+		},
+		{
+			name: "chainwork", set: "chainwork", category: "chain", skill: character.SkillChain,
+			pieces: []string{"chainwork_helm", "chainwork_hauberk", "chainwork_pauldrons", "chainwork_gauntlets", "chainwork_greaves"},
+			might:  2, endurance: 13, accuracy: 17,
+		},
+		{
+			name: "clockplate", set: "clockplate", category: "plate", skill: character.SkillPlate,
+			pieces: []string{"clockplate_helm", "clockplate_cuirass", "clockplate_pauldrons", "clockplate_gauntlets", "clockplate_greaves"},
+			might:  23, endurance: 3, stunDurationPct: -50,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			set := config.GetItemSet(tc.set)
+			if set == nil {
+				t.Fatalf("set %q is missing", tc.set)
+			}
+			if got := set.PiecesRequired; got != len(tc.pieces) {
+				t.Fatalf("set %q pieces_required = %d, want %d", tc.set, got, len(tc.pieces))
+			}
+
+			ch := &character.MMCharacter{
+				Name:      "Tower Gear Tester",
+				Might:     20,
+				Endurance: 20,
+				Accuracy:  20,
+				Speed:     20,
+				Luck:      20,
+				Skills: map[character.SkillType]*character.Skill{
+					tc.skill: {},
+				},
+				Equipment: make(map[items.EquipSlot]items.Item),
+			}
+			baseMight, _, _, baseEndurance, baseAccuracy, baseSpeed, baseLuck := ch.GetEffectiveStats()
+
+			for _, key := range tc.pieces {
+				piece, err := items.TryCreateItemFromYAML(key)
+				if err != nil {
+					t.Fatalf("create %s: %v", key, err)
+				}
+				if piece.Type != items.ItemArmor || piece.ArmorCategory != tc.category || piece.Set != tc.set {
+					t.Fatalf("%s = type %v, category %q, set %q; want armor, %q, %q", key, piece.Type, piece.ArmorCategory, piece.Set, tc.category, tc.set)
+				}
+				if _, hadPrevious, ok := ch.EquipItem(piece); !ok || hadPrevious {
+					t.Fatalf("%s should occupy an unused set slot, ok=%v hadPrevious=%v", key, ok, hadPrevious)
+				}
+			}
+
+			if got := len(ch.Equipment); got != len(tc.pieces) {
+				t.Fatalf("equipped slots = %d, want %d; tower set has colliding slots", got, len(tc.pieces))
+			}
+			wantAC := 0
+			for _, piece := range ch.Equipment {
+				wantAC += cs.CalculateArmorClassContribution(piece, ch)
+			}
+			if got := cs.CalculateTotalArmorClass(ch); got != wantAC {
+				t.Fatalf("total AC = %d, want %d from all five equipped pieces", got, wantAC)
+			}
+			might, _, _, endurance, accuracy, speed, luck := ch.GetEffectiveStats()
+			if got := might - baseMight; got != tc.might {
+				t.Errorf("Might bonus = %d, want %d", got, tc.might)
+			}
+			if got := endurance - baseEndurance; got != tc.endurance {
+				t.Errorf("Endurance bonus = %d, want %d", got, tc.endurance)
+			}
+			if got := accuracy - baseAccuracy; got != tc.accuracy {
+				t.Errorf("Accuracy bonus = %d, want %d", got, tc.accuracy)
+			}
+			if got := speed - baseSpeed; got != tc.speed {
+				t.Errorf("Speed bonus = %d, want %d", got, tc.speed)
+			}
+			if got := luck - baseLuck; got != tc.luck {
+				t.Errorf("Luck bonus = %d, want %d", got, tc.luck)
+			}
+			if got := ch.SetStunDurationPct(); got != tc.stunDurationPct {
+				t.Errorf("stun duration bonus = %d, want %d", got, tc.stunDurationPct)
+			}
+		})
+	}
+}
+
+func TestChronoCapeContributesFlatCloakAC(t *testing.T) {
+	cs := newTestCombatSystemWithConfig(t)
+	ch := cs.game.party.Members[0]
+	ch.Equipment = make(map[items.EquipSlot]items.Item)
+	before := cs.CalculateTotalArmorClass(ch)
+
+	cape, err := items.TryCreateItemFromYAML("chrono_cape")
+	if err != nil {
+		t.Fatalf("create Chrono Cape: %v", err)
+	}
+	if _, _, ok := ch.EquipItem(cape); !ok {
+		t.Fatal("Chrono Cape should equip")
+	}
+	if got := cs.CalculateTotalArmorClass(ch) - before; got != 4 {
+		t.Errorf("Chrono Cape AC contribution = %d, want 4", got)
+	}
+}
+
 // Shop tabs: labels come from authored stock order, the visible slice filters
 // by the active tab (the same slice indexes draw AND clicks), and mixed
 // tabbed/untabbed stock fails validation.

@@ -1759,7 +1759,7 @@ items:
 
   chrono_cape:
     name: "Chrono Cape"
-    type: "armor"
+    type: "accessory"
     description: "A midnight cape with a pendulum clasp that swings a half-second ahead"
     flavor: "It billows before the wind arrives."
     equip_slot: "cloak"

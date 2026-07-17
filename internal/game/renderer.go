@@ -671,29 +671,30 @@ func (r *Renderer) precomputeFloorColorCache() {
 			currentTile := r.game.GetCurrentWorld().GetTileAt(checkX, checkY)
 
 			baseColor := defaultMapFloor
-			// inherit_floor markers (spawn/teleporters) blend into the biome ground
-			// like an empty tile - their floor_color is the decoration tint, not the floor.
-			inherit := world.GlobalTileManager != nil && world.GlobalTileManager.InheritsFloor(currentTile)
-			if inherit {
+			var tileData *config.TileData
+			if world.GlobalTileManager != nil {
+				tileData = world.GlobalTileManager.GetTileData(currentTile)
+			}
+			// Markers and objects that inherit a floor use the dominant surrounding
+			// floor as their base. Only explicit marker inheritance also receives
+			// floor-near effects below; ordinary props should match that floor exactly.
+			inheritsFloor := tileData.InheritsNeighbourFloor()
+			markerInherit := tileData != nil && tileData.InheritFloor
+			if inheritsFloor {
 				if inherited := r.inheritedFloorColor(tileX, tileY); inherited != ([3]int{0, 0, 0}) {
 					baseColor = color.RGBA{uint8(inherited[0]), uint8(inherited[1]), uint8(inherited[2]), 255}
 				}
 			}
-			if world.GlobalTileManager != nil {
-				if td := world.GlobalTileManager.GetTileData(currentTile); td != nil && strings.EqualFold(td.Type, "teleporter") {
-					teleporterTiles = append(teleporterTiles, teleporterTileFx{tx: tileX, ty: tileY, color: td.FloorColor})
+			if tileData != nil && strings.EqualFold(tileData.Type, "teleporter") {
+				teleporterTiles = append(teleporterTiles, teleporterTileFx{tx: tileX, ty: tileY, color: tileData.FloorColor})
+			}
+			// Only use tile-specific floor colors for non-empty, non-inheriting tiles.
+			if currentTile != world.TileEmpty && !inheritsFloor && tileData != nil {
+				if colorConfig := tileData.FloorColor; colorConfig != [3]int{0, 0, 0} {
+					baseColor = color.RGBA{uint8(colorConfig[0]), uint8(colorConfig[1]), uint8(colorConfig[2]), 255}
 				}
 			}
-			if world.GlobalTileManager != nil {
-				// Only use tile-specific floor colors for non-empty, non-inheriting tiles
-				// Empty (and inheriting) tiles should use the map's default floor color
-				if currentTile != world.TileEmpty && !inherit {
-					if colorConfig := world.GlobalTileManager.GetFloorColor(currentTile); colorConfig != [3]int{0, 0, 0} {
-						baseColor = color.RGBA{uint8(colorConfig[0]), uint8(colorConfig[1]), uint8(colorConfig[2]), 255}
-					}
-				}
-				// For TileEmpty/inherit, keep using defaultMapFloor (map-specific color)
-			}
+			// For TileEmpty, keep using defaultMapFloor (map-specific color).
 
 			// Check if any nearby tiles affect this floor color
 			nearSpecialTile := false
@@ -716,8 +717,9 @@ func (r *Renderer) precomputeFloorColorCache() {
 			}
 
 			clr := baseColor
-			// Apply nearby tile effect to empty '.' tiles AND inherit_floor markers
-			if nearSpecialTile && (currentTile == world.TileEmpty || inherit) {
+			// Apply nearby tile effect to empty '.' tiles and explicit marker tiles.
+			// Generic objects inherit the real surrounding floor without its tint.
+			if nearSpecialTile && (currentTile == world.TileEmpty || markerInherit) {
 				clr = nearTileColor
 			}
 			cache[[2]int{tileX, tileY}] = clr
@@ -803,13 +805,9 @@ const defaultFloorTextureGroup = "default"
 // fallbacks resolved here, not in the data:
 //   - "beach": an "empty" tile bordering any water-group tile uses "beach"
 //     instead of its own group, so shorelines transition into sand.
-//   - "default": a tile that names no group AND paints no floor_color of its
-//     own falls back to the biome's "default" floor (grass in forest, sand in
-//     desert, ...). This lets decorative objects (ferns, moss rocks, trees) sit
-//     on the biome ground without hardcoding a group. Tiles that DO set a
-//     floor_color - teleporters, traps, spawn - are coloured squares whose
-//     color is their whole look, so they stay untextured. If the biome has no
-//     "default" group, floorTextureIndexForTile falls back to the base color.
+//   - objects without an authored floor inherit the dominant neighbouring
+//     floor. Floor-only tiles without one use the biome's "default" group.
+//     A floor-only marker can opt into inheritance with inherit_floor.
 func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.TileType3D) string {
 	if world.GlobalTileManager == nil {
 		return ""
@@ -820,9 +818,7 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	}
 	group := tileData.FloorTextureGroup
 	if group == "" {
-		// inherit_floor markers (spawn/teleporters) take the biome ground texture
-		// even though they set a floor_color (that colour is their decoration tint).
-		if tileData.InheritFloor {
+		if world.GlobalTileManager.InheritsFloor(tileType) {
 			group = r.inheritedFloorTextureGroup(tileX, tileY)
 			if group == "" {
 				group = defaultFloorTextureGroup
@@ -864,10 +860,10 @@ func (r *Renderer) inheritedFloorColor(tileX, tileY int) [3]int {
 	return data.FloorColor
 }
 
-// inheritedFloorTileData picks the floor an inherit_floor marker (spawn/teleporter)
-// blends into, using the same weighted dominant-neighbour vote as under-entity
-// floors so a marker in a multi-floor room (e.g. the castle) takes the room's
-// dominant floor, not an arbitrary first neighbour.
+// inheritedFloorTileData picks the floor an inherited marker or object blends
+// into, using the same weighted dominant-neighbour vote as under-entity floors.
+// This makes a prop in a multi-floor room take that room's dominant floor, not
+// an arbitrary first neighbour.
 func (r *Renderer) inheritedFloorTileData(tileX, tileY int) *config.TileData {
 	if r.game == nil || r.game.world == nil || world.GlobalTileManager == nil {
 		return nil
