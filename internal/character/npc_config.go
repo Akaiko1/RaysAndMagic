@@ -24,7 +24,7 @@ type NPCData struct {
 	Description      string               `yaml:"description"`
 	Sprite           string               `yaml:"sprite"`
 	VisitedSprite    string               `yaml:"visited_sprite,omitempty"`  // art swap once Visited (an emptied barrel closes)
-	NoSpin           bool                 `yaml:"no_spin,omitempty"`         // pin the token to a fixed pose (a box pile does not rotate)
+	NoSpin           bool                 `yaml:"no_spin,omitempty"`         // pin a non-person token to a fixed pose
 	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"` // >=2: grid-aligned facade slab spanning N tiles
 	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"`   // span direction from the anchor tile: e|s
 	RenderCategory   string               `yaml:"render_category"`           // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load

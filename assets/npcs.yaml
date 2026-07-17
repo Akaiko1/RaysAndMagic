@@ -1425,7 +1425,6 @@ npcs:
     description: "Splintered crates heaped into a leaning tower - something might have been left inside"
     sprite: "pile_of_old_boxes"
     render_category: landmark
-    no_spin: true
     prompt_verb: search
     transparent: true
     size_tiles: 0.5
@@ -1710,7 +1709,6 @@ npcs:
     prompt_verb: open
     transparent: true
     size_tiles: 0.6
-    no_spin: true
     hide_when_visited: true
 
   chest_chrono:
@@ -1722,7 +1720,6 @@ npcs:
     prompt_verb: open
     transparent: true
     size_tiles: 0.7
-    no_spin: true
     hide_when_visited: true
 
   chest_regal:
@@ -1734,5 +1731,4 @@ npcs:
     prompt_verb: open
     transparent: true
     size_tiles: 0.8
-    no_spin: true
     hide_when_visited: true

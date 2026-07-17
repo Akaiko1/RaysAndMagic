@@ -657,9 +657,9 @@ type StandeeConfig struct {
 	// direction (degrees per second), so tokens swivel smoothly instead of
 	// snapping.
 	TurnSpeedDegPerSec float64 `yaml:"turn_speed_deg_per_sec"`
-	// NPCSpinDegPerSec slowly spins NPC tokens (people, statues, valves,
-	// buildings) in place, showcase-style; 0 disables. Scenery tile tokens
-	// (grass, trees, rocks) never spin.
+	// NPCSpinDegPerSec slowly spins non-person NPC props (scenery and landmarks)
+	// in place, showcase-style; 0 disables. Terrain tile sprites (grass, trees,
+	// rocks) use EnvFaceDegPerSec instead.
 	NPCSpinDegPerSec float64 `yaml:"npc_spin_deg_per_sec"`
 	// EnvFaceDegPerSec makes scenery tile tokens (grass, ferns, rocks) slowly
 	// turn to face the camera at this rate; 0 keeps them at a fixed diagonal.

@@ -10,7 +10,7 @@ type NPC struct {
 	Description      string
 	Sprite           string
 	VisitedSprite    string // optional art swap once Visited (an emptied barrel closes)
-	NoSpin           bool   // pin the token to a fixed pose (a box pile does not rotate)
+	NoSpin           bool   // pin a non-person token to a fixed pose
 	GridSpanTiles    int    // >=2: render as a grid-aligned facade slab spanning this many tiles (clock tower); 0 = normal
 	GridSpanDir      string // span direction from the anchor tile: "e"|"s" (the slab runs along it)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load

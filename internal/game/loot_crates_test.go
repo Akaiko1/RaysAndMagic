@@ -22,6 +22,25 @@ func crateTestGame(t *testing.T) *MMGame {
 	return game
 }
 
+// Loot crates are rotating world rewards. Keep them on a rotating render path
+// and forbid one-off no_spin overrides so a new chest cannot silently look
+// different from every other crate.
+func TestLootCratesUseDefaultSpin(t *testing.T) {
+	crateTestGame(t)
+	for key, npc := range character.NPCConfigInstance.NPCs {
+		if npc.Type != character.NPCTypeLootCrate {
+			continue
+		}
+		if npc.NoSpin {
+			t.Errorf("loot crate %q disables the default spin", key)
+		}
+		cat := resolveNPCRenderCat(npc.RenderCategory)
+		if cat != catScenery && cat != catLandmark {
+			t.Errorf("loot crate %q render_category = %q, want rotating scenery or landmark", key, npc.RenderCategory)
+		}
+	}
+}
+
 // inventoryUnitsByName snapshots unit counts per item name - the merge-proof
 // way to diff "what did this chest actually grant" now that AddItem folds
 // stackable rewards into existing stacks.
