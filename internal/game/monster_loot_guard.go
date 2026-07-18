@@ -83,16 +83,11 @@ func lootGuardTargetOf(m *monster.Monster3D) lootGuardTargetID {
 // scripted fights, bosses, champions, and party-controlled/dynamic creatures
 // keep their authored behaviour instead of being pulled into ambient prop AI.
 func (gl *GameLoop) lootGuardEligible(m *monster.Monster3D) bool {
-	if m == nil || !m.IsAlive() || m.Bound || m.Pacified || m.SummonedBy != "" ||
-		m.IsEncounterMonster || m.IsChampion() || m.PassiveUntilAttacked ||
-		m.IsInertSetPiece() || m.IsEngagingPlayer || m.WasAttacked ||
-		m.Relentless || m.BossAggro || m.AIFoe != nil {
+	if m == nil || m.SummonedBy != "" || m.IsEncounterMonster || m.IsChampion() ||
+		m.PassiveUntilAttacked || m.IsBoss() {
 		return false
 	}
-	if m.IsBoss() {
-		return false
-	}
-	return m.State == monster.StateIdle || m.State == monster.StatePatrolling
+	return m.IsCalmForSocialBehavior()
 }
 
 func (gl *GameLoop) canStartLootGuard(m *monster.Monster3D) bool {
@@ -103,6 +98,8 @@ func clearLootGuard(m *monster.Monster3D) {
 	if m == nil {
 		return
 	}
+	// Keep LootGuardAlerted: a sighted guard clears this calm reservation before
+	// combat, but must retain its exact seven-tile guard radius for that encounter.
 	m.LootGuarding = false
 	m.LootGuardTargetKey = ""
 	m.LootGuardTargetTileX, m.LootGuardTargetTileY = 0, 0
@@ -137,9 +134,12 @@ func (gl *GameLoop) lootGuardGroups(targets map[lootGuardTargetID]lootGuardTarge
 	return groups
 }
 
-func (gl *GameLoop) lootGuardBandWantsParty(members []*monster.Monster3D) bool {
+// lootGuardBandEnteredCombat reports the generic combat transition for a guard
+// reservation. A guard can fight either the party or a nearer bound ally; both
+// targets must dissolve the calm pair before the combat movement begins.
+func (gl *GameLoop) lootGuardBandEnteredCombat(members []*monster.Monster3D) bool {
 	for _, m := range members {
-		if m != nil && (m.IsEngagingPlayer || m.WasAttacked) {
+		if m != nil && m.IsInCombat() {
 			return true
 		}
 	}
@@ -181,7 +181,7 @@ func (gl *GameLoop) scatterLootGuardBand(members []*monster.Monster3D, forceHit 
 		live = append(live, m)
 	}
 	// Check sight before clearing LootGuarding: that flag supplies the guard's
-	// seven-tile direct-sight minimum. Pending pair members can be on different
+	// exact seven-tile direct-sight range. Pending pair members can be on different
 	// sides of a wall, so the result must be kept per guard rather than inferred
 	// from the member that triggered the scatter.
 	sawParty := make(map[*monster.Monster3D]bool, len(live))
@@ -552,7 +552,7 @@ func (gl *GameLoop) prepareLootPropGuards() {
 			members = members[:maxLootGuardBandSize]
 			groups[target.id] = members
 		}
-		if gl.lootGuardBandWantsParty(members) {
+		if gl.lootGuardBandEnteredCombat(members) {
 			gl.scatterLootGuardBand(members, false)
 			delete(groups, target.id)
 			continue
@@ -571,9 +571,9 @@ func (gl *GameLoop) prepareLootPropGuards() {
 	}
 	sortMonstersByID(candidates)
 	tile := float64(gl.game.config.GetTileSize())
-	// Assignment and first-sight alert share one authored seven-tile guard
-	// minimum. This is a prop-objective exception, not a TB visibility cap.
-	maxDist := monster.LootGuardMinAlertRadiusTiles * tile
+	// Assignment and first-sight alert share one exact seven-tile guard range.
+	// This is a prop-objective exception, not a TB visibility cap.
+	maxDist := monster.LootGuardAggroRadiusTiles * tile
 	for _, m := range candidates {
 		var chosen *lootGuardTarget
 		bestDist := maxDist
@@ -632,7 +632,7 @@ func (gl *GameLoop) reconcileLootPropGuardBands() {
 			continue
 		}
 		sortMonstersByID(members)
-		if gl.lootGuardBandWantsParty(members) {
+		if gl.lootGuardBandEnteredCombat(members) {
 			gl.scatterLootGuardBand(members, false)
 			continue
 		}

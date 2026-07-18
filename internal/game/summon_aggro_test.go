@@ -18,7 +18,7 @@ var meleeMobsThatShouldChaseSummons = []string{"goblin", "orc_hero_boss"}
 func runRTFoeTicks(g *MMGame, ticks int) {
 	for i := 0; i < ticks; i++ {
 		g.frameCount++
-		g.refreshBoundAllyCache()
+		g.refreshMonsterAIState()
 		for _, m := range g.world.Monsters {
 			if m == nil || !m.IsAlive() {
 				continue
@@ -53,7 +53,7 @@ func TestSummonDrawsMeleeMobTB(t *testing.T) {
 			game, gl, mob, huntress := summonAggroWorld(t, key)
 			d0 := Distance(mob.X, mob.Y, huntress.X, huntress.Y)
 			for i := 0; i < 12; i++ {
-				game.refreshBoundAllyCache()
+				game.refreshMonsterAIState()
 				if game.combat.monsterAIFoeMonster(mob) != huntress {
 					t.Fatalf("turn %d: mob AIFoe should be the summon", i)
 				}
@@ -95,15 +95,23 @@ func TestMonsterPrefersCloserPartyOrSummon(t *testing.T) {
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
 	placePlayerAtTile(game, 13, 10, ts) // party is 2 tiles away; ally is 3
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if enemy.AIFoe != nil {
 		t.Fatal("monster must prefer the closer party over a farther summon")
 	}
+	if enemy.AITargetX != game.camera.X || enemy.AITargetY != game.camera.Y {
+		t.Fatalf("party target point = (%.0f,%.0f), want camera (%.0f,%.0f)",
+			enemy.AITargetX, enemy.AITargetY, game.camera.X, game.camera.Y)
+	}
 
 	placePlayerAtTile(game, 10, 10, ts) // party is 5 tiles away; ally remains 3
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if enemy.AIFoe != ally {
 		t.Fatal("monster must prefer the closer summon over the party")
+	}
+	if enemy.AITargetX != ally.X || enemy.AITargetY != ally.Y {
+		t.Fatalf("summon target point = (%.0f,%.0f), want ally (%.0f,%.0f)",
+			enemy.AITargetX, enemy.AITargetY, ally.X, ally.Y)
 	}
 }
 
@@ -128,7 +136,7 @@ func cardSummonDuelTB(t *testing.T, enemyKey string) (*MMGame, *GameLoop, *monst
 func driveCardSummonDuelTB(t *testing.T, game *MMGame, gl *GameLoop, enemy, ally *monsterPkg.Monster3D, turns int) {
 	t.Helper()
 	for turn := 0; turn < turns; turn++ {
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != ally {
 			t.Fatalf("turn %d: %s AIFoe = %v, want card summon", turn, enemy.Name, enemy.AIFoe)
 		}
@@ -260,7 +268,7 @@ func TestCrossfireUsesEachMonsterAttackCooldownRT(t *testing.T) {
 			}
 			game.world.Monsters = []*monsterPkg.Monster3D{attacker, target}
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-			game.refreshBoundAllyCache()
+			game.refreshMonsterAIState()
 
 			game.combat.HandleMonsterInteractions()
 			if want := attacker.AttackCooldownFrames(); attacker.AttackCDFrames != want {
@@ -303,7 +311,7 @@ func TestCrossfireUsesEachMonsterAttackCountTurnBased(t *testing.T) {
 
 			game.world.Monsters = []*monsterPkg.Monster3D{attacker, target}
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-			game.refreshBoundAllyCache()
+			game.refreshMonsterAIState()
 			runOneMonsterTurn(game, gl)
 
 			if want := 7; target.HitPoints != want {

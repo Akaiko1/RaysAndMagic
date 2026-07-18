@@ -549,7 +549,7 @@ func TestBindUndead_BoundFightsOtherMonsterNotParty(t *testing.T) {
 	gobHP0 := gob.HitPoints
 	partyHP0 := partyHPSum(game)
 
-	game.refreshBoundAllyCache() // mirrors updateExploration: sets AIFoe before the turn
+	game.refreshMonsterAIState() // mirrors updateExploration: sets AIFoe before the turn
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -602,7 +602,7 @@ func TestCrossfire_RTMeleeConnectsDiagonally(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 
 	skelHP0, gobHP0 := skel.HitPoints, gob.HitPoints
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	game.combat.HandleMonsterInteractions()
 
 	if gob.HitPoints >= gobHP0 {
@@ -637,7 +637,7 @@ func TestCharm_AITargetRedirectsOffParty(t *testing.T) {
 
 	game.combat.applyBindUndead(skel, 300, "Bind Undead") // bound undead
 	game.combat.applyPacify(paci, 120, "Charm")           // pacified living
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	if tx, ty := game.combat.monsterAITargetPoint(paci); tx != paci.X || ty != paci.Y {
 		t.Errorf("pacified charm should hold position (%.0f,%.0f), got (%.0f,%.0f)", paci.X, paci.Y, tx, ty)
@@ -673,7 +673,7 @@ func TestBindUndead_MobsAttackTheBoundUndead(t *testing.T) {
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
 	skelHP0, gobHP0, partyHP0 := skel.HitPoints, gob.HitPoints, partyHPSum(game)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	runOneMonsterTurn(game, gl)
 
 	if gob.HitPoints >= gobHP0 {
@@ -760,7 +760,7 @@ func TestBindUndead_RangedLichFiresBoundProjectile(t *testing.T) {
 	projCount := func() int { return len(game.magicProjectiles) + len(game.arrows) }
 	n0, enemyHP0, partyHP0 := projCount(), enemy.HitPoints, partyHPSum(game)
 
-	game.refreshBoundAllyCache() // sets lich.AIFoe (= the enemy)
+	game.refreshMonsterAIState() // sets lich.AIFoe (= the enemy)
 	if !game.combat.boundAttackNearest(lich) {
 		t.Fatalf("bound lich should have acted against the enemy")
 	}
@@ -878,7 +878,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 	game.world.Monsters = []*monster.Monster3D{skel, enemy}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 	game.combat.applyBindUndead(skel, 300, "Bind Undead")
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	// Out of melee reach (3 tiles) -> must NOT strike yet...
 	if game.combat.boundAttackNearest(skel) {
@@ -891,7 +891,7 @@ func TestBindUndead_TBSeeksAndWalksToEnemy(t *testing.T) {
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for turn := 0; turn < 6; turn++ {
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		runOneMonsterTurn(game, gl)
 	}
 	if Distance(skel.X, skel.Y, enemy.X, enemy.Y) >= startDist {
@@ -919,7 +919,7 @@ func TestBindUndead_RTSeeksAndWalksToEnemy(t *testing.T) {
 
 	startDist, enemyHP0 := Distance(skel.X, skel.Y, enemy.X, enemy.Y), enemy.HitPoints
 	for f := 0; f < 1500; f++ { // ~12s at 120 TPS - plenty to close 3 tiles and strike
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		// Fresh snapshot + wrapper each tick, mirroring the real two-phase RT
 		// tick (a snapshot taken once at the top of the loop would go stale).
 		mw := CreateMonsterWrapper(skel, game.collisionSystem, game.collisionSystem.Snapshot(), game)

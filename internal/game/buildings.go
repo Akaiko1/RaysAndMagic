@@ -178,7 +178,7 @@ func (g *MMGame) rallyAggroedAlarms() {
 	ts := float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
 		if m == nil || !m.IsAlive() || m.RallyDone || m.RallyOnAggroTiles <= 0 || !m.IsEngagingPlayer ||
-			!monsterTargetsParty(m) ||
+			!m.TargetsParty() ||
 			!m.SeesPlayerWithinAlertRadius(g.collisionSystem, g.camera.X, g.camera.Y) {
 			continue
 		}

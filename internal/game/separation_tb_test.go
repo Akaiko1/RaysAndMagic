@@ -86,3 +86,27 @@ func TestSeparateStackedMonstersTB_HalfTileOffsetSameTile(t *testing.T) {
 		t.Fatalf("half-offset same-tile pair must be split onto distinct tiles")
 	}
 }
+
+func TestSeparateStackedMonstersTB_PreservesOnlyCalmSocialStacks(t *testing.T) {
+	g, a, b := tbSepGame(t, 224, 224, 224, 224)
+	tile := float64(g.config.GetTileSize())
+	for _, m := range []*monsterPkg.Monster3D{a, b} {
+		m.Banding = true
+		m.IsEngagingPlayer = false
+		m.State = monsterPkg.StateIdle
+	}
+
+	g.separateStackedMonstersTB()
+	if tileOf(a, tile) != tileOf(b, tile) {
+		t.Fatal("a calm social band must remain stacked in turn-based mode")
+	}
+
+	for _, m := range []*monsterPkg.Monster3D{a, b} {
+		m.WasAttacked = true
+		m.State = monsterPkg.StateFleeing
+	}
+	g.separateStackedMonstersTB()
+	if tileOf(a, tile) == tileOf(b, tile) {
+		t.Fatal("a non-calm band member must no longer preserve an intentional stack")
+	}
+}

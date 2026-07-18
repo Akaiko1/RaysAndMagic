@@ -81,14 +81,21 @@ func TestCanStartPlayerEngagement(t *testing.T) {
 			t.Fatal("an existing engagement was treated as first sight")
 		}
 	})
-	t.Run("loot guard raises only the minimum radius", func(t *testing.T) {
+	t.Run("loot guard uses exactly seven tiles", func(t *testing.T) {
 		m := newMob()
-		m.AlertRadius = 2 * defaultTileSize
+		m.AlertRadius = 12 * defaultTileSize
 		m.LootGuarding = true
-		guardPX, guardPY := tileToWorldCenter(8, 2) // six tiles away, inside guard minimum seven
 		checker := &losGateChecker{NewMockCollisionChecker(defaultTileSize), true}
+		guardPX, guardPY := tileToWorldCenter(8, 2) // six tiles away, inside seven
 		if !m.CanStartPlayerEngagement(checker, guardPX, guardPY) {
-			t.Fatal("loot guard did not use its seven-tile direct-sight exception")
+			t.Fatal("loot guard did not use its seven-tile direct-sight range")
+		}
+		if radius, _ := m.PlayerDetectionRange(checker, guardPX, guardPY); radius != LootGuardAggroRadiusTiles*defaultTileSize {
+			t.Fatalf("loot guard radius = %.1f, want %.1f", radius, LootGuardAggroRadiusTiles*defaultTileSize)
+		}
+		outsidePX, outsidePY := tileToWorldCenter(10, 2) // eight tiles away
+		if m.CanStartPlayerEngagement(checker, outsidePX, outsidePY) {
+			t.Fatal("loot guard used its ordinary authored radius beyond seven tiles")
 		}
 	})
 }

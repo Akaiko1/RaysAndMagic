@@ -163,7 +163,7 @@ func TestSummonAttackPostsArePassThroughAndArbitrateTransit(t *testing.T) {
 	second.State = monster.StateAttacking
 	game.world.Monsters = []*monster.Monster3D{first, second, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	if first.AIFoe != ally || second.AIFoe != ally {
 		t.Fatal("setup: both hostile mobs must select the closer card summon")

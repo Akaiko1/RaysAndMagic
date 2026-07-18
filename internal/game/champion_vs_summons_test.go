@@ -49,7 +49,7 @@ func TestChampionVsCardSummonedAllies(t *testing.T) {
 			markCardAlly(huntress) // Bound, SummonedBy = card_collection
 
 			cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, huntress}
-			cs.game.refreshBoundAllyCache() // mirrors the champion + resolves AIFoe both ways
+			cs.game.refreshMonsterAIState() // mirrors the champion + resolves AIFoe both ways
 
 			// The delivery mechanism differs by archetype (documents HOW each attacks).
 			if champ.HasRangedAttack() != tc.ranged {
@@ -122,7 +122,7 @@ func TestWeaponMasterFightsCardSummonThroughTurnBasedAI(t *testing.T) {
 	d0 := Distance(champ.X, champ.Y, huntress.X, huntress.Y)
 	hp0 := huntress.HitPoints
 	for turn := 0; turn < 8; turn++ {
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if champ.AIFoe != huntress {
 			t.Fatalf("turn %d: Weapon Master AIFoe = %v, want card summon", turn, champ.AIFoe)
 		}
@@ -182,7 +182,7 @@ func TestWeaponMasterCrossfireHitsOffCenterAdjacentCardSummon(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	if champ.AIFoe != ally {
 		t.Fatal("Weapon Master should acquire the adjacent card summon")
@@ -219,7 +219,7 @@ func TestWeaponMasterCrossfireUsesIndependentHandCooldowns(t *testing.T) {
 	markCardAlly(ally)
 	game.world.Monsters = []*monsterPkg.Monster3D{champ, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	game.combat.HandleMonsterInteractions()
 	if champ.AttackCDFrames <= 0 || champ.OffHandCDFrames <= 0 {

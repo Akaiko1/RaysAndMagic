@@ -37,7 +37,7 @@ func (g *MMGame) TryCamp() (string, bool) {
 		}
 		// No resting mid-combat: a pursuer kited beyond the radius (or a
 		// ranged monster shooting from outside it) still blocks the camp.
-		if m.IsEngagingPlayer {
+		if m.TargetsParty() {
 			return "Enemies are upon you - you cannot rest mid-fight.", false
 		}
 		// Measure to the monster's box EDGE, not its center - a large monster

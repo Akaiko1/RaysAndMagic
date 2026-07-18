@@ -165,7 +165,7 @@ func TestMonsterWalkabilityFollowsCurrentTarget(t *testing.T) {
 	placePlayerAtTile(game, 1, 3, ts) // card ally is now closer than the party
 	game.world.Monsters = []*monsterPkg.Monster3D{calm, ally}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if calm.AIFoe != ally {
 		t.Fatal("setup: closer card ally should redirect the monster")
 	}
@@ -189,7 +189,7 @@ func TestPartyTargetingMonsterIsEjectedFromPlayerCell(t *testing.T) {
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	monsterEntity := game.collisionSystem.GetEntityByID(m.ID)
 	playerEntity := game.collisionSystem.GetEntityByID("player")
 	if monsterEntity == nil || playerEntity == nil || monsterEntity.BoundingBox.Intersects(playerEntity.BoundingBox) {
@@ -221,6 +221,27 @@ func TestHitFleeingMonsterCanPathThroughParty(t *testing.T) {
 	}
 	if !game.collisionSystem.Snapshot().CanMoveToWithHabitat(m.ID, game.camera.X, game.camera.Y, m.HabitatPrefs, m.Flying) {
 		t.Fatal("a fleeing monster must be able to path through the party")
+	}
+}
+
+// A fleeing mob is deliberately pass-through while it retreats. In particular,
+// target reconciliation must not treat the sticky WasAttacked flag as a current
+// party attack and eject it back out of the party cell mid-flight.
+func TestFleeingMonsterIsNotEjectedFromPartyCell(t *testing.T) {
+	game, _, ts := tbBehaviorGame(t, 20, 20)
+	placePlayerAtTile(game, 10, 10, ts)
+	m := monsterPkg.NewMonster3DFromConfig(game.camera.X, game.camera.Y, "goblin", game.config)
+	m.State = monsterPkg.StateFleeing
+	m.WasAttacked = true
+	game.world.Monsters = []*monsterPkg.Monster3D{m}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.refreshMonsterAIState()
+	if gotX, gotY := monsterTileCoords(m, ts); gotX != 10 || gotY != 10 {
+		t.Fatalf("fleeing monster was ejected to tile (%d,%d), want party tile (10,10)", gotX, gotY)
+	}
+	if m.TargetsParty() {
+		t.Fatal("fleeing monster must not hold a party attack target")
 	}
 }
 

@@ -114,7 +114,7 @@ func TestCardAllyFollowsPartyWhenIdle(t *testing.T) {
 	game.world.Monsters = []*monsterPkg.Monster3D{huntress} // no enemy on the map
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if huntress.AIFoe != nil {
 		t.Fatal("no enemy present - the card ally should have no foe")
 	}
@@ -134,7 +134,7 @@ func TestBoundUndeadFollowsPartyWhenIdle(t *testing.T) {
 	game.world.Monsters = []*monsterPkg.Monster3D{skel} // no enemy on the map
 	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	if skel.AIFoe != nil {
 		t.Fatal("no enemy present - the bound undead should have no foe")
 	}
@@ -289,7 +289,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("skeleton")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		game.combat.applyBindUndead(target, 120, "Bind Undead")
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != target {
 			t.Fatal("a mob must target a nearby bound undead")
 		}
@@ -299,7 +299,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("masked_huntress")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		markCardAlly(target)
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != target {
 			t.Fatal("a mob must target a nearby card ally")
 		}
@@ -309,7 +309,7 @@ func TestMobTargetsBoundAlliesButNotCharmedMonster(t *testing.T) {
 		enemy, target := makeEnemy(), makeTarget("goblin")
 		game.world.Monsters = []*monsterPkg.Monster3D{enemy, target}
 		game.combat.applyPacify(target, 120, "Charm")
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		if enemy.AIFoe != nil {
 			t.Fatal("a charmed monster is neutral and must not be a crossfire target")
 		}

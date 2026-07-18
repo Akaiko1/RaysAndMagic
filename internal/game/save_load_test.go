@@ -815,7 +815,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 	if b := restoreBoss(quests.QuestStatusActive); b.X != throneX || b.Y != throneY {
 		t.Errorf("sealed boss must snap to throne (%.0f,%.0f), got (%.0f,%.0f)", throneX, throneY, b.X, b.Y)
 	} else if !b.BossDormant {
-		// Set at restore time, not waiting for refreshBoundAllyCache (which runs
+		// Set at restore time, not waiting for refreshMonsterAIState (which runs
 		// after input) - else a first-frame player action could damage the sealed boss.
 		t.Error("sealed boss must be flagged BossDormant immediately on load")
 	}
@@ -827,7 +827,7 @@ func TestSaveLoad_SealedBossSnapsToSpawn(t *testing.T) {
 }
 
 // TestSaveLoad_IdolWardSetOnRestore guards the idol-ward immediate-init: a warded
-// boss must be flagged BossWarded the instant a save loads (refreshBoundAllyCache
+// boss must be flagged BossWarded the instant a save loads (refreshMonsterAIState
 // runs AFTER input, so without the restore-time pass a first-frame player action
 // could damage a still-warded warlord). And with no live idol it must NOT be warded.
 func TestSaveLoad_IdolWardSetOnRestore(t *testing.T) {

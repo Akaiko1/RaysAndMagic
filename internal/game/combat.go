@@ -191,7 +191,7 @@ func (cs *CombatSystem) cardMoveBurstApply(dmg int) bool {
 		// "Nearby FOES" only: never the party's own bound allies (card summons /
 		// bind-undead), charmed (pacified) monsters, or an invulnerable boss (sealed/
 		// idol-warded) - the latter would absorb the damage yet still flash + log a hit.
-		if m == nil || !m.IsAlive() || m.Bound || m.Pacified || bossInvulnerable(m) ||
+		if m == nil || !m.IsAlive() || m.IsPartyControlled() || bossInvulnerable(m) ||
 			math.Hypot(m.X-px, m.Y-py) > radius {
 			continue
 		}
@@ -259,6 +259,8 @@ func (cs *CombatSystem) tryCardSummonOnAction() {
 func markCardAlly(m *monsterPkg.Monster3D) {
 	m.Bound = true
 	m.BoundFramesRemaining = 0
+	m.Pacified = false
+	m.PacifiedFramesRemaining = 0
 	m.WasAttacked = false
 	m.SummonedBy = cardSummonOwner
 	m.QuestProgressIgnored = true
@@ -1792,10 +1794,11 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		if !monster.IsAlive() {
 			continue
 		}
+		behavior := monster.CurrentAIBehavior()
 		// Movement AI and TB already hold scripted inactive encounter pieces.
 		// RT crossfire is a separate action path, so it must enforce the same gate
 		// before a precomputed bound-ally foe can trigger an attack.
-		if monster.IsInertSetPiece() {
+		if behavior == monsterPkg.AIBehaviorInert {
 			continue
 		}
 		// Stunned monsters take no action (the TB path already skips them; the
@@ -1818,12 +1821,12 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 		}
 
 		// Pacified (Charm): stands and does nothing, never attacks the party.
-		if monster.Pacified {
+		if behavior == monsterPkg.AIBehaviorPacified {
 			continue
 		}
 		// Bound (Bind Undead): hunts the nearest enemy monster using its normal
 		// per-monster attack cooldown, never the party.
-		if monster.Bound {
+		if behavior == monsterPkg.AIBehaviorBoundAlly {
 			if monster.AttackCDFrames == 0 && cs.boundAttackNearest(monster) {
 				monster.AttackCDFrames = monster.AttackCooldownFrames()
 			}
@@ -2695,7 +2698,7 @@ func (cs *CombatSystem) applyCrossfireAoeSplash(center, source *monsterPkg.Monst
 			continue
 		}
 		if owner == ProjectileOwnerBoundUndead {
-			if candidate.Bound || candidate.Pacified {
+			if candidate.IsPartyControlled() {
 				continue
 			}
 		} else if !candidate.Bound {
@@ -2859,7 +2862,7 @@ func (cs *CombatSystem) CheckProjectileMonsterCollisions() {
 			}
 			// Crossfire faction rules: a bound undead's bolt skips controlled allies
 			// (hits enemies); a mob's anti-undead bolt hits ONLY the bound undead.
-			if proj.owner == ProjectileOwnerBoundUndead && (monster.Bound || monster.Pacified) {
+			if proj.owner == ProjectileOwnerBoundUndead && monster.IsPartyControlled() {
 				continue
 			}
 			if proj.owner == ProjectileOwnerMonsterAtBound && !monster.Bound {
@@ -4246,6 +4249,11 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 	}
 	m.Bound = true
 	m.BoundFramesRemaining = seconds * cs.game.config.GetTPS()
+	// Charm and Bind are mutually exclusive. This should only repair malformed
+	// old/runtime state (Charm normally rejects undead), but keeps control policy
+	// deterministic at every entry point.
+	m.Pacified = false
+	m.PacifiedFramesRemaining = 0
 	m.WasAttacked = false
 	cs.game.AddCombatMessage(fmt.Sprintf("%s is bound to your will!", m.Name))
 }
@@ -4256,6 +4264,10 @@ func (cs *CombatSystem) applyBindUndead(m *monsterPkg.Monster3D, seconds int, sp
 func (cs *CombatSystem) applyPacify(m *monsterPkg.Monster3D, seconds int, spellName string) {
 	if m.MonsterType == "undead" {
 		cs.game.AddCombatMessage(fmt.Sprintf("%s has no hold over the undead %s.", spellName, m.Name))
+		return
+	}
+	if m.Bound {
+		cs.game.AddCombatMessage(fmt.Sprintf("%s is already bound to your will.", m.Name))
 		return
 	}
 	m.Pacified = true
@@ -4319,7 +4331,7 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 	var target *monsterPkg.Monster3D
 	best := maxDist
 	for _, other := range cs.game.world.Monsters {
-		if other == nil || other == m || !other.IsAlive() || other.Bound || other.Pacified ||
+		if other == nil || other == m || !other.IsAlive() || other.IsPartyControlled() ||
 			other.BossDormant || other.BossWarded || cs.bossEvasive(other) {
 			continue
 		}
@@ -4337,10 +4349,13 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 //   - normal monster: the nearest bound undead within its alert radius, if one is
 //     no farther than the party - so mobs turn on the bound undead in their midst.
 func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg.Monster3D {
-	if m == nil || m.IsInertSetPiece() || cs.bossEvasive(m) || m.Pacified {
+	if m == nil || cs.bossEvasive(m) {
 		return nil
 	}
-	if m.Bound {
+	switch m.CurrentAIBehavior() {
+	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified:
+		return nil
+	case monsterPkg.AIBehaviorBoundAlly:
 		return cs.nearestEnemyMonster(m, cs.boundAllySeekRadius())
 	}
 	// Normal monster: only bother if any bound undead exist this frame.
@@ -4369,17 +4384,28 @@ func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg
 	return foe
 }
 
+// refreshMonsterAITarget writes the one per-frame crossfire target and pursuit
+// point consumed by both RT workers and the TB scheduler. Keep the foe selection
+// and point assignment adjacent: a worker must never observe a target point that
+// belongs to a different foe.
+func (cs *CombatSystem) refreshMonsterAITarget(m *monsterPkg.Monster3D) {
+	if cs == nil || m == nil {
+		return
+	}
+	m.AIFoe = cs.monsterAIFoeMonster(m)
+	m.AITargetX, m.AITargetY = cs.monsterAITargetPoint(m)
+}
+
 // monsterAITargetPoint is the world point a monster should pursue/engage, used by
 // both the real-time and turn-based movement. It redirects controlled monsters off
 // the party: a pacified charm stands still (targets itself), while a bound ally
 // seeks its enemy or follows the party when idle. A normal mob chases its undead
 // foe if it has one, else the party. Reads the per-frame cached AIFoe (set in
-// refreshBoundAllyCache) - never recomputes the foe.
+// refreshMonsterAIState) - never recomputes the foe.
 func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
-	if m.IsInertSetPiece() {
-		return m.X, m.Y
-	}
-	if m.Pacified {
+	behavior := m.CurrentAIBehavior()
+	switch behavior {
+	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified:
 		return m.X, m.Y // pacified: never chase the party - hold position
 	}
 	if cs.bossEvasive(m) {
@@ -4388,7 +4414,7 @@ func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, 
 	if m.AIFoe != nil {
 		return m.AIFoe.X, m.AIFoe.Y
 	}
-	if m.Bound {
+	if behavior == monsterPkg.AIBehaviorBoundAlly {
 		return cs.game.camera.X, cs.game.camera.Y // an idle bound ally tags along with the party
 	}
 	return cs.game.camera.X, cs.game.camera.Y

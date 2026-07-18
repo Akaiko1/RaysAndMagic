@@ -9,11 +9,28 @@ import (
 	"ugataima/internal/status"
 )
 
-// LootGuardMinAlertRadiusTiles raises a crate/lectern guard's ordinary
-// direct-sight alert radius to at least seven tiles. This is an explicit
-// objective-specific exception, not a turn-based override: first engagement
-// still requires line of sight in both combat modes.
-const LootGuardMinAlertRadiusTiles = 7.0
+// LootGuardAggroRadiusTiles is the complete sight and disengage radius for a
+// crate/lectern guard. It is an objective-specific exception: the usual alert
+// radius, spawn tether expansion, and disengage multiplier do not apply while
+// guarding or pursuing a sight-started guard encounter.
+const LootGuardAggroRadiusTiles = 7.0
+
+// AIBehaviorMode is the mode-independent priority order for a monster.
+// Real-time and turn-based code deliberately keep different movement cadence and
+// attack delivery, but they must agree on which high-level behavior owns a turn.
+// Target geometry and first-sight checks remain separate from this state choice.
+type AIBehaviorMode uint8
+
+const (
+	AIBehaviorInert AIBehaviorMode = iota
+	AIBehaviorBoundAlly
+	AIBehaviorPacified
+	AIBehaviorFightFoe
+	AIBehaviorRelentlessParty
+	AIBehaviorFleeing
+	AIBehaviorPassive
+	AIBehaviorSeekParty
+)
 
 // EncounterRewards represents rewards for completing an encounter
 type EncounterRewards struct {
@@ -65,6 +82,98 @@ func (m *Monster3D) HatesActiveTrait() bool {
 		}
 	}
 	return false
+}
+
+// CurrentAIBehavior is the single source of truth for the precedence between
+// scripted/inert, controlled, redirected, fleeing, passive, and ordinary
+// monster behavior. It intentionally does not decide whether a normal monster
+// can first see the party; CanStartPlayerEngagement owns that geometry gate.
+func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
+	if m == nil || m.IsInertSetPiece() {
+		return AIBehaviorInert
+	}
+	if m.Bound {
+		return AIBehaviorBoundAlly
+	}
+	if m.Pacified {
+		return AIBehaviorPacified
+	}
+	if m.AIFoe != nil {
+		return AIBehaviorFightFoe
+	}
+	if m.relentlessHunter() {
+		return AIBehaviorRelentlessParty
+	}
+	if m.State == StateFleeing {
+		return AIBehaviorFleeing
+	}
+	if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
+		return AIBehaviorPassive
+	}
+	return AIBehaviorSeekParty
+}
+
+// IsPartyControlled reports the two temporary party-applied control effects.
+// Bound monsters actively fight for the party; pacified monsters are neutral
+// until Charm breaks. Both must stay out of party-hostile collision, interaction,
+// and target-selection paths.
+func (m *Monster3D) IsPartyControlled() bool {
+	return m != nil && (m.Bound || m.Pacified)
+}
+
+// TargetsParty reports whether this monster currently owns a combat target on
+// the party. It is intentionally narrower than CurrentAIBehavior: an ordinary
+// monster still needs an active engagement, hit, relentless state, or combat
+// state before it blocks interaction or is ejected from the party tile.
+func (m *Monster3D) TargetsParty() bool {
+	if m == nil {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
+		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive:
+		return false
+	case AIBehaviorRelentlessParty:
+		return true
+	}
+	return m.IsEngagingPlayer || m.WasAttacked ||
+		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
+}
+
+// IsInCombat reports whether a monster currently has an active combat purpose,
+// regardless of which side it is fighting. It is deliberately distinct from
+// TargetsParty: a monster duelling a bound ally must not block party actions,
+// but it must not be treated as a calm stack or ambient guard either.
+func (m *Monster3D) IsInCombat() bool {
+	if m == nil || !m.IsAlive() {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorFleeing, AIBehaviorPassive:
+		return false
+	case AIBehaviorBoundAlly:
+		return m.AIFoe != nil
+	case AIBehaviorFightFoe, AIBehaviorRelentlessParty:
+		return true
+	}
+	return m.IsEngagingPlayer || m.WasAttacked ||
+		m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking
+}
+
+// IsCalmForSocialBehavior reports whether this monster may participate in an
+// ambient social behavior such as ordinary banding or guarding a prop. Passive
+// monsters may still do so while calm; controlled, redirected, scripted,
+// fleeing, and already-hostile monsters may not.
+func (m *Monster3D) IsCalmForSocialBehavior() bool {
+	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.WasAttacked {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
+		AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
+		return false
+	}
+	return m.State == StateIdle || m.State == StatePatrolling
 }
 
 // Global counter for unique monster IDs
@@ -175,13 +284,16 @@ type Monster3D struct {
 	Pacified                bool       // Charm: simply stops attacking (no fighting others); breaks on any hit taken
 	PacifiedFramesRemaining int        // Real-time charm duration in frames (0 in TB = lasts the encounter)
 	CharmedByParty          bool       // persisted: a former charmed enemy keeps normal XP rewards after Charm breaks
-	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshBoundAllyCache)
+	AITargetX               float64    // Per-frame pursuit target X (precomputed single-threaded; see refreshMonsterAIState)
 	AITargetY               float64    // Per-frame pursuit target Y
 	AIFoe                   *Monster3D // Per-frame foe to attack (nil = fight the party); precomputed with AITarget
 	// Loot guard is a calm, map-prop-specific assignment. The game owns target
 	// discovery and band membership; this struct only carries the serially
 	// prepared patrol tile into the parallel RT AI step.
-	LootGuarding             bool
+	LootGuarding bool
+	// LootGuardAlerted keeps the seven-tile guard radius through the active
+	// sight encounter after the game releases the calm guard reservation.
+	LootGuardAlerted         bool
 	LootGuardTargetKey       string
 	LootGuardTargetTileX     int
 	LootGuardTargetTileY     int
@@ -254,8 +366,8 @@ type Monster3D struct {
 	EvadeRadiusTiles  float64 // evasive phase: blink when the party is within this many tiles
 	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
-	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshBoundAllyCache)
-	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshBoundAllyCache)
+	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshMonsterAIState)
+	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol
 	// and it activates as a normal aggressive boss. Idols are immobile, never attack.
@@ -292,7 +404,7 @@ type Monster3D struct {
 	TransitStackIndex int
 	TransitStackCount int
 	Relentless        bool // persisted: relentlessly hunt the party from anywhere, like BossAggro but for non-bosses (set by a patron's DeathRalliesType). Survives reload.
-	BossWarded        bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshBoundAllyCache)
+	BossWarded        bool // transient (per-frame): a WardedByIdols boss with >=1 live idol (set by refreshMonsterAIState)
 	BossLastHP        int  // HP observed at the boss's previous action tick (to detect damage-since-last-tick); 0 = uninitialised
 	BossHurtPending   bool // an evasive boss took damage since its last tick and owes a blink; held until a blink consumes it (survives across turns, unlike the hit flash)
 	// Summon (war-banner): on its action an aggressive boss may rally adds.

@@ -276,6 +276,28 @@ func TestCrateAllowsBoundAllyAfterPartyHit(t *testing.T) {
 	}
 }
 
+// A hostile monster can be actively fighting a summoned ally beside the party.
+// IsEngagingPlayer is a legacy generic combat marker in that case, so crate
+// lockout must consult the current target policy rather than the raw flag.
+func TestCrateAllowsPartyInteractionDuringSummonCrossfire(t *testing.T) {
+	g := crateTestGame(t)
+	fire := spawnCrate(t, g, "campfire", g.camera.X+64, g.camera.Y)
+	enemy := monster.NewMonster3DFromConfig(g.camera.X+128, g.camera.Y, "goblin", g.config)
+	ally := monster.NewMonster3DFromConfig(g.camera.X+64, g.camera.Y, "masked_huntress", g.config)
+	markCardAlly(ally)
+	enemy.AIFoe = ally
+	enemy.IsEngagingPlayer = true
+	g.world.Monsters = []*monster.Monster3D{enemy, ally}
+
+	if g.partyInCombat() {
+		t.Fatal("a monster targeting a summon must not lock party interaction")
+	}
+	g.useLootCrate(fire)
+	if !fire.Visited {
+		t.Fatal("a crate must remain usable while monsters fight a summon")
+	}
+}
+
 // Charm is deliberately different from Bind Undead: a party hit breaks the
 // charm, returns the monster to hostility, and must still lock the crate.
 func TestCrateBlockedAfterPartyBreaksCharm(t *testing.T) {

@@ -79,6 +79,23 @@ func TestTryCamp_RestoresPartyAndSpendsFood(t *testing.T) {
 	}
 }
 
+func TestTryCamp_AllowsDistantCrossfireAwayFromParty(t *testing.T) {
+	cfg := loadTestConfig(t)
+	g := newTestGame(cfg, newTestWorld(cfg))
+	g.party.Food = 2
+	tile := float64(cfg.GetTileSize())
+
+	ally := &monster.Monster3D{ID: "bound_ally", Name: "Bound Skeleton", HitPoints: 10, MaxHitPoints: 10,
+		X: g.camera.X + 11*tile, Y: g.camera.Y, Bound: true}
+	enemy := &monster.Monster3D{ID: "crossfire_enemy", Name: "Goblin", HitPoints: 10, MaxHitPoints: 10,
+		X: g.camera.X + 10*tile, Y: g.camera.Y, AIFoe: ally, IsEngagingPlayer: true}
+	g.world.Monsters = []*monster.Monster3D{enemy, ally}
+
+	if _, ok := g.TryCamp(); !ok {
+		t.Fatal("a distant enemy fighting a bound ally must not be treated as a party fight")
+	}
+}
+
 func TestTavernRestAndBuyFood(t *testing.T) {
 	cfg := loadTestConfig(t)
 	g := newTestGame(cfg, newTestWorld(cfg))

@@ -154,11 +154,11 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
 	// its throne until its quest unseals it. The RT attack loop already no-ops via
 	// updateBoss; without this the patrol state would still drift the boss off its
-	// spawn tile. Flag is set single-threaded in refreshBoundAllyCache.
+	// spawn tile. Flag is set single-threaded in refreshMonsterAIState.
 	// A warlord idol is likewise immobile - it stands where placed and never moves.
 	// A warded warlord HOLDS its plaza (rooted by its idols) until they're broken;
 	// without this it would chase the party clear across the map at load.
-	if m.IsInertSetPiece() {
+	if m.CurrentAIBehavior() == AIBehaviorInert {
 		return
 	}
 	m.TickPoison()          // Venom-proc cards; ticks regardless of stun/root state
@@ -253,9 +253,12 @@ func (m *Monster3D) meleeTileAdjacent(targetX, targetY float64, checker Collisio
 }
 
 // pursueRelentlessly closes on (targetX, targetY), ignoring detection range, LoS
-// and the flee cycle. Shared by bound undead and aggressive bosses.
+// and the flee cycle. Shared by bound allies, enemies redirected to an ally, and
+// aggressive bosses.
 func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, targetY float64) {
-	m.IsEngagingPlayer = true
+	if !m.IsEngagingPlayer {
+		m.BeginCombatEngagement()
+	}
 	los := checker == nil || checker.CheckLineOfSight(m.X, m.Y, targetX, targetY)
 	inReach := (distance(m.X, m.Y, targetX, targetY) <= m.GetAttackRangePixels() && los) ||
 		m.meleeTileAdjacent(targetX, targetY, checker)
@@ -273,64 +276,36 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 // updatePlayerEngagementWithVision handles player detection with line-of-sight checks
 // Trees and other opaque obstacles reduce detection radius
 func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
-	// A pacified (Charm) monster stands down - it never aggros or pursues the
-	// party, but it still idly wanders. Drop any aggressive state ONCE (so it
-	// stops chasing), then skip detection so it can't re-engage; the idle/patrol
-	// states below drive its wandering as normal. (Resetting the state every frame
-	// would freeze it - the idle->patrol timer could never elapse.)
-	if m.Pacified {
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert:
+		return
+	case AIBehaviorPacified:
+		// A pacified (Charm) monster stands down - it never aggros or pursues the
+		// party, but it still idly wanders. Drop any aggressive state ONCE (so it
+		// stops chasing), then skip detection so it can't re-engage; the idle/patrol
+		// states below drive its wandering as normal. (Resetting the state every frame
+		// would freeze it - the idle->patrol timer could never elapse.)
 		m.IsEngagingPlayer = false
+		m.LootGuardAlerted = false
 		switch m.State {
 		case StateAlert, StatePursuing, StateAttacking, StateFleeing:
 			m.State = StateIdle
 			m.StateTimer = 0
 		}
 		return
-	}
-
-	// A bound undead (Bind Undead) always pursues the target it was handed (its
-	// enemy, picked by the game's AI-target logic) regardless of normal detection
-	// range - it actively hunts, and never flees. It only enters its attack stance
-	// once within real attack range; beyond that it keeps closing. When it has no
-	// enemy the game hands it the party position, so the ally follows the party.
-	if m.Bound {
+	case AIBehaviorBoundAlly, AIBehaviorFightFoe, AIBehaviorRelentlessParty:
+		// Bound allies, redirected enemies, and map-wide hunters already have an
+		// active combat target. They keep pursuing it through cover and outside the
+		// normal first-sight radius; their target point was prepared by the game.
 		m.pursueRelentlessly(collisionChecker, playerX, playerY)
 		return
-	}
-
-	// A monster handed a bound-ally FOE (playerX/Y is that foe's position, set as
-	// the AI target) hunts it relentlessly, exactly like a bound ally hunts its
-	// own enemy - ignoring this mob's detection range. A small-sighted mob (a
-	// goblin sees 3 tiles) would otherwise never engage a ranged summon peppering
-	// it from beyond that, and would wander off instead of closing.
-	// No IsAlive() here: this runs in the PARALLEL update and the foe's
-	// HitPoints belong to another worker (its poison ticks would race). AIFoe
-	// is reassigned every frame from LIVING monsters only (refreshBoundAllyCache),
-	// so nil-ness is the whole liveness signal; one frame of chasing a foe that
-	// died mid-tick is invisible.
-	if m.AIFoe != nil {
-		m.pursueRelentlessly(collisionChecker, playerX, playerY)
+	case AIBehaviorFleeing:
+		// Flee is the tail of an existing RT encounter. It suppresses all fresh
+		// detection until updateFleeing finishes its own timeout/reconsideration.
 		return
-	}
-
-	// Aggressive boss OR revenge-rallied mob (Amazons after their Warlord dies):
-	// pursue the party relentlessly, ignoring detection range / LoS / flee.
-	if m.relentlessHunter() {
-		m.pursueRelentlessly(collisionChecker, playerX, playerY)
-		return
-	}
-
-	// Don't process engagement while fleeing - flee state takes priority
-	if m.State == StateFleeing {
-		return
-	}
-
-	if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
+	case AIBehaviorPassive:
 		if m.IsEngagingPlayer {
-			m.IsEngagingPlayer = false
-			m.State = StateIdle
-			m.StateTimer = 0
-			m.AttackCount = 0
+			m.EndPlayerEngagement()
 		}
 		return
 	}
@@ -350,13 +325,9 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 		return
 	}
 
-	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
-	if distance(m.X, m.Y, playerX, playerY) > detectionRadius*disengageMult && !m.WasAttacked {
+	if m.ShouldDisengageFromPlayer(collisionChecker, playerX, playerY) {
 		// Stop engaging player - return to idle (only if not recently attacked).
-		m.IsEngagingPlayer = false
-		m.State = StateIdle
-		m.StateTimer = 0
-		m.AttackCount = 0 // Reset attack counter when disengaging
+		m.EndPlayerEngagement()
 	}
 }
 
@@ -367,8 +338,40 @@ func (m *Monster3D) BeginPlayerEngagement() {
 	if m == nil {
 		return
 	}
+	// A calm loot guard releases its post as soon as it sees the party. Keep
+	// the objective's seven-tile radius for this encounter; otherwise the next
+	// RT frame would fall back to the ordinary leash and repeatedly reassign the
+	// guard at distances between the two thresholds.
+	if m.LootGuarding && !m.WasAttacked {
+		m.LootGuardAlerted = true
+	}
+	m.BeginCombatEngagement()
+}
+
+// BeginCombatEngagement records a fresh active combat loop without assuming
+// the target is the party. Bound allies and enemies redirected to a summon use
+// this too, because IsEngagingPlayer is the legacy shared combat marker used by
+// banding and rendering as well as player combat.
+func (m *Monster3D) BeginCombatEngagement() {
+	if m == nil {
+		return
+	}
 	m.IsEngagingPlayer = true
 	m.State = StateAlert
+	m.StateTimer = 0
+	m.AttackCount = 0
+}
+
+// EndPlayerEngagement returns a non-sticky monster to its calm state. It also
+// clears the temporary guard-origin marker, so a later patrol uses ordinary
+// rules unless the game assigns a new loot-guard objective.
+func (m *Monster3D) EndPlayerEngagement() {
+	if m == nil {
+		return
+	}
+	m.IsEngagingPlayer = false
+	m.LootGuardAlerted = false
+	m.State = StateIdle
 	m.StateTimer = 0
 	m.AttackCount = 0
 }
@@ -378,11 +381,8 @@ func (m *Monster3D) BeginPlayerEngagement() {
 // map-wide-hostile monsters. WasAttacked is not excluded: Charm expiry leaves it
 // set while the next visible party contact must be allowed to re-enter combat.
 func (m *Monster3D) CanStartPlayerAggro() bool {
-	if m == nil || !m.IsAlive() || m.IsEngagingPlayer || m.IsInertSetPiece() || m.Pacified || m.Bound ||
-		m.AIFoe != nil || m.relentlessHunter() || m.State == StateFleeing {
-		return false
-	}
-	return !m.PassiveUntilAttacked || m.WasAttacked || m.HatesActiveTrait()
+	return m != nil && m.IsAlive() && !m.IsEngagingPlayer &&
+		m.CurrentAIBehavior() == AIBehaviorSeekParty
 }
 
 // HasLineOfSightToPlayer is the common geometry gate for every player-agro
@@ -393,7 +393,7 @@ func (m *Monster3D) HasLineOfSightToPlayer(collisionChecker CollisionChecker, pl
 }
 
 // SeesPlayerWithinAlertRadius applies this monster's authored alert radius,
-// fallback, tether expansion, and the loot-guard seven-tile minimum. It is
+// fallback, tether expansion, or the exact seven-tile loot-guard rule. It is
 // pure sight geometry: callers decide whether this sight may begin combat.
 func (m *Monster3D) SeesPlayerWithinAlertRadius(collisionChecker CollisionChecker, playerX, playerY float64) bool {
 	if m == nil {
@@ -411,10 +411,16 @@ func (m *Monster3D) CanStartPlayerEngagement(collisionChecker CollisionChecker, 
 	return m.CanStartPlayerAggro() && m.SeesPlayerWithinAlertRadius(collisionChecker, playerX, playerY)
 }
 
-// playerAlertRadii centralizes the authored alert radius and pursuit
-// hysteresis. It intentionally has no line-of-sight check, so a monster that
-// is already in a sticky fight can keep pursuing through cover.
+// playerAlertRadii centralizes player engagement radii and pursuit hysteresis.
+// It intentionally has no line-of-sight check, so a monster that is already in
+// a sticky fight can keep pursuing through cover.
 func (m *Monster3D) playerAlertRadii() (float64, float64) {
+	if m.LootGuarding || m.LootGuardAlerted {
+		// Guard mode is deliberately exact: it does not inherit the ordinary
+		// monster's authored radius, tether expansion, or disengage hysteresis.
+		return LootGuardAggroRadiusTiles * m.tileSize(), 1
+	}
+
 	// Detection tuning from config (monster_ai section), with code fallbacks for
 	// configless contexts (tests). Distances are in tiles.
 	defaultRadiusTiles, outsideTetherMult, disengageMult := 4.0, 2.0, 2.0
@@ -435,24 +441,16 @@ func (m *Monster3D) playerAlertRadii() (float64, float64) {
 	if detectionRadius <= 0 {
 		detectionRadius = defaultRadiusTiles * m.tileSize()
 	}
-	if m.LootGuarding {
-		if minRadius := LootGuardMinAlertRadiusTiles * m.tileSize(); detectionRadius < minRadius {
-			detectionRadius = minRadius
-		}
-	}
-	// Loot guards deliberately leave their spawn tether to post around a crate
-	// or lectern. Their authored guard sight stays at its explicit minimum rather
-	// than being doubled by the ordinary "lured from spawn" rule.
-	if !m.LootGuarding && !m.IsWithinTetherRadius() {
+	if !m.IsWithinTetherRadius() {
 		detectionRadius *= outsideTetherMult
 	}
 	return detectionRadius, disengageMult
 }
 
 // PlayerDetectionRange returns the current sight radius and hysteresis range
-// multiplier used for ordinary player engagement. Keeping the calculation here
-// lets UI and pursuit code consume the same radii while the initial LoS gate
-// stays centralized in HasLineOfSightToPlayer.
+// multiplier used for player engagement. Keeping the calculation here lets UI
+// and pursuit code consume the same radii while the initial LoS gate stays
+// centralized in HasLineOfSightToPlayer.
 func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, playerX, playerY float64) (float64, float64) {
 	detectionRadius, disengageMult := m.playerAlertRadii()
 
@@ -469,6 +467,18 @@ func (m *Monster3D) PlayerDetectionRange(collisionChecker CollisionChecker, play
 		return 0, disengageMult
 	}
 	return detectionRadius, disengageMult
+}
+
+// ShouldDisengageFromPlayer is the shared non-sticky pursuit exit rule. RT
+// applies it to every sight-only party encounter; TB applies it only to the
+// loot-guard objective, whose encounter deliberately returns to its post at
+// the exact seven-tile radius instead of becoming a sticky TB fight.
+func (m *Monster3D) ShouldDisengageFromPlayer(collisionChecker CollisionChecker, playerX, playerY float64) bool {
+	if m == nil || !m.IsEngagingPlayer || m.WasAttacked {
+		return false
+	}
+	detectionRadius, disengageMult := m.PlayerDetectionRange(collisionChecker, playerX, playerY)
+	return distance(m.X, m.Y, playerX, playerY) > detectionRadius*disengageMult
 }
 
 func (m *Monster3D) updateIdle(playerX, playerY float64) {
@@ -681,7 +691,16 @@ func (m *Monster3D) updatePursuing(collisionChecker CollisionChecker, playerX, p
 // a monster foe. A bound ally without an enemy is merely following the party,
 // so it must not reserve a combat tile there.
 func (m *Monster3D) usesAttackPosts() bool {
-	return m != nil && !m.Pacified && (!m.Bound || m.AIFoe != nil)
+	if m == nil {
+		return false
+	}
+	switch m.CurrentAIBehavior() {
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorFleeing:
+		return false
+	case AIBehaviorBoundAlly:
+		return m.AIFoe != nil
+	}
+	return true
 }
 
 // entersTargetTile reports whether (x, y) would land an attacker on the
@@ -1564,6 +1583,7 @@ func (m *Monster3D) updateFleeing(collisionChecker CollisionChecker, playerX, pl
 		if distance(m.X, m.Y, playerX, playerY) <= detectionRadius*disengageMult {
 			m.BeginPlayerEngagement()
 		} else {
+			m.LootGuardAlerted = false
 			m.State = StatePatrolling
 			m.Direction = m.GetDirectionToSpawn()
 		}

@@ -94,7 +94,7 @@ func TestRace_MonsterParallelUpdate(t *testing.T) {
 	for tick := 0; tick < ticks; tick++ {
 		g.frameCount++
 		// Production per-tick order: serial foe/target snapshot, then parallel.
-		g.refreshBoundAllyCache()
+		g.refreshMonsterAIState()
 		monsters := g.ConvertMonstersToWrappers()
 		g.threading.EntityUpdater.UpdateMonstersParallel(monsters)
 	}

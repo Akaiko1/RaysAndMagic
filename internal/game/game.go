@@ -347,7 +347,7 @@ type MMGame struct {
 	// boundAllies caches the bound undead (bind_undead) present this frame so the
 	// per-monster AI-target lookup can let normal mobs turn on them without an
 	// O(n^2) scan in the common (no-bind) case. Rebuilt each frame before the
-	// monster update; see refreshBoundAllyCache.
+	// monster update; see refreshMonsterAIState.
 	boundAllies []*monster.Monster3D
 
 	// Door state (render_category "door"): closed iff a living champion is on
@@ -884,7 +884,7 @@ func (g *MMGame) partyInCombat() bool {
 	}
 	radius := PartyInteractionCombatRadiusTiles * float64(g.config.GetTileSize())
 	for _, m := range g.world.Monsters {
-		if m != nil && m.IsAlive() && !monsterIsPartyControlled(m) && m.IsEngagingPlayer &&
+		if m != nil && m.IsAlive() && m.TargetsParty() &&
 			Distance(g.camera.X, g.camera.Y, m.X, m.Y) <= radius {
 			return true
 		}
@@ -1673,9 +1673,9 @@ func (g *MMGame) UpdateMonsterHitTintTimers() {
 	}
 }
 
-// refreshBoundAllyCache rebuilds the per-frame list of bound undead (bind_undead)
-// so the AI-target lookup can let normal mobs retaliate against them without an
-// O(n^2) scan when none exist. Called once per frame before the monster update.
+// refreshBoundAllyCache rebuilds the per-frame list of party-controlled combat
+// allies (Bind Undead and card summons both use Bound). It is deliberately just
+// a cache; refreshMonsterAIState owns the complete target/state pre-pass.
 func (g *MMGame) refreshBoundAllyCache() {
 	g.boundAllies = g.boundAllies[:0]
 	for _, m := range g.world.Monsters {
@@ -1683,6 +1683,18 @@ func (g *MMGame) refreshBoundAllyCache() {
 			g.boundAllies = append(g.boundAllies, m)
 		}
 	}
+}
+
+// refreshMonsterAIState is the serial per-frame source of truth for dynamic
+// monster state before either combat mode acts: controlled-ally cache, champion
+// mirrors, scripted boss state, crossfire target, pursuit point, and the
+// party-cell recovery pass. RT workers consume only the resulting per-monster
+// fields, so they never inspect another monster's live position.
+func (g *MMGame) refreshMonsterAIState() {
+	if g == nil || g.world == nil {
+		return
+	}
+	g.refreshBoundAllyCache()
 	// Precompute each monster's foe + pursuit target ONCE per frame, single-threaded,
 	// so the parallel real-time update never scans other monsters' positions (which
 	// are being mutated concurrently) and no consumer recomputes the foe. The wrapper
@@ -1731,8 +1743,7 @@ func (g *MMGame) refreshBoundAllyCache() {
 			m.BossAggro = false
 			continue
 		}
-		m.AIFoe = g.combat.monsterAIFoeMonster(m)
-		m.AITargetX, m.AITargetY = g.combat.monsterAITargetPoint(m)
+		g.combat.refreshMonsterAITarget(m)
 		// Relentless chase (ignores detection range). Most bosses go relentless only
 		// AFTER normal aggro - within their (larger) alert radius or once the party
 		// has hit them (WasAttacked is sticky) - so they don't beeline across the
@@ -1763,7 +1774,7 @@ func (g *MMGame) ejectPartyTargetingMonsters() {
 	// displaced mob becomes transit and is placed on the next free outer ring.
 	offsets := [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
 	for _, m := range g.world.Monsters {
-		if m == nil || !m.IsAlive() || !monsterTargetsParty(m) {
+		if m == nil || !m.IsAlive() || !m.TargetsParty() {
 			continue
 		}
 		entity := g.collisionSystem.GetEntityByID(m.ID)
@@ -2420,17 +2431,28 @@ func (g *MMGame) snapMonstersToTileCenters() {
 	}
 }
 
-// resetMonsterStatesForTurnBased resets all monster AI states to neutral for turn-based combat
+// resetMonsterStatesForTurnBased normalizes monster AI state for turn-based
+// combat. A sight-only loot guard is the explicit exception: its active
+// seven-tile objective encounter survives the mode switch.
 func (g *MMGame) resetMonsterStatesForTurnBased() {
 	for _, currentMonster := range g.world.Monsters {
 		if !currentMonster.IsAlive() {
 			continue
 		}
 
-		// Reset to idle state - monsters will be controlled explicitly by turn-based system
+		// A sight-only guard encounter has one exact seven-tile leash in both
+		// modes. Preserve its active objective state across RT -> TB instead of
+		// silently reclassifying it as a calm mob with an ordinary alert radius.
+		keepSightGuardEncounter := currentMonster.LootGuardAlerted && !currentMonster.WasAttacked
+		// Reset to idle state - monsters will be controlled explicitly by turn-based system.
 		currentMonster.State = monster.StateIdle
 		currentMonster.StateTimer = 0
-		currentMonster.IsEngagingPlayer = false
+		currentMonster.IsEngagingPlayer = keepSightGuardEncounter
+		if keepSightGuardEncounter {
+			currentMonster.State = monster.StateAlert
+		} else {
+			currentMonster.LootGuardAlerted = false
+		}
 		currentMonster.AttackCount = 0
 		currentMonster.AttackPost = false
 		currentMonster.AttackPostTargetID = ""
@@ -2484,7 +2506,7 @@ func (mw *MonsterWrapper) Update() {
 	// AI pursuit/engagement target: normally the party, but charmed monsters are
 	// redirected (a bound undead seeks its enemy; a pacified charm holds position)
 	// so they never chase the party. Precomputed single-threaded each frame in
-	// refreshBoundAllyCache to keep this parallel update race-free.
+	// refreshMonsterAIState to keep this parallel update race-free.
 	targetX, targetY := mw.Monster.AITargetX, mw.Monster.AITargetY
 	if mw.Monster.LootGuarding {
 		// The guard override moves to its precomputed prop tile internally, but
@@ -2594,39 +2616,25 @@ func (mw *MonsterWrapper) ApplyCollisionUpdate() {
 
 const partyAttackTargetID = "player"
 
-// monsterTargetsParty reports whether a monster is actively hostile to the
-// party this frame. Bound/pacified mobs and enemies redirected to a summon are
-// deliberately excluded: the party may walk through them while that fight runs.
-func monsterTargetsParty(m *monster.Monster3D) bool {
-	if m == nil || m.IsInertSetPiece() || monsterIsPartyControlled(m) || m.AIFoe != nil {
-		return false
-	}
-	return m.IsEngagingPlayer || m.WasAttacked || m.BossAggro || m.Relentless ||
-		m.State == monster.StateAlert || m.State == monster.StatePursuing || m.State == monster.StateAttacking
-}
-
-// monsterIsPartyControlled is the ownership rule shared by interaction and
-// collision policy. Bound covers both Bind Undead and card summons; Pacified is
-// an active Charm and ceases to apply as soon as the charm is broken.
-func monsterIsPartyControlled(m *monster.Monster3D) bool {
-	return m != nil && (m.Bound || m.Pacified)
-}
-
 // monsterAttackTarget returns the current combat target for logical-post
 // arbitration. A bound ally without an enemy only follows the party and has no
 // attack target; a normal hostile targets either its closer AIFoe or the party.
 func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y float64, ok bool) {
-	if m == nil || m.IsInertSetPiece() || m.Pacified {
+	if m == nil {
+		return "", 0, 0, false
+	}
+	switch m.CurrentAIBehavior() {
+	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorFleeing:
 		return "", 0, 0, false
 	}
 	// SNAPSHOT reads only: this runs inside the PARALLEL wrapper update, where
 	// foe.X/Y/HitPoints belong to another worker. AIFoe is precomputed
-	// single-threaded each frame with LIVING foes only (refreshBoundAllyCache),
+	// single-threaded each frame with LIVING foes only (refreshMonsterAIState),
 	// and AITargetX/Y is that foe's frame-start position; foe.ID is immutable.
 	if foe := m.AIFoe; foe != nil {
 		return foe.ID, m.AITargetX, m.AITargetY, true
 	}
-	if m.Bound || !monsterTargetsParty(m) || g == nil || g.camera == nil {
+	if m.CurrentAIBehavior() == monster.AIBehaviorBoundAlly || !m.TargetsParty() || g == nil || g.camera == nil {
 		return "", 0, 0, false
 	}
 	return partyAttackTargetID, g.camera.X, g.camera.Y, true

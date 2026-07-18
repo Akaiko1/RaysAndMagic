@@ -32,7 +32,7 @@ func TestChampionArcHitsMultipleSummons(t *testing.T) {
 	}
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, front, left, right}
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-	cs.game.refreshBoundAllyCache()
+	cs.game.refreshMonsterAIState()
 
 	cs.championCrossfireStrike(champ, front, false)
 
@@ -368,7 +368,7 @@ func TestChampionCrossfireAlsoHitsCaughtParty(t *testing.T) {
 	markCardAlly(foe)
 	cs.game.world.Monsters = []*monsterPkg.Monster3D{champ, foe}
 	cs.game.world.RegisterMonstersWithCollisionSystem(cs.game.collisionSystem)
-	cs.game.refreshBoundAllyCache()
+	cs.game.refreshMonsterAIState()
 
 	partyHP0 := 0
 	for _, mem := range cs.game.party.Members {

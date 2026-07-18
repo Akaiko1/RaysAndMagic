@@ -23,13 +23,7 @@ const (
 // isCalmBander reports whether a banding monster is in a calm (non-aggro) state
 // and so eligible to stack into a flock.
 func isCalmBander(m *monster.Monster3D) bool {
-	if m == nil || !m.Banding || m.LootGuarding || !m.IsAlive() {
-		return false
-	}
-	if m.IsEngagingPlayer || m.WasAttacked || m.Relentless || m.BossAggro {
-		return false
-	}
-	return m.State == monster.StateIdle || m.State == monster.StatePatrolling
+	return m != nil && m.Banding && !m.LootGuarding && m.IsCalmForSocialBehavior()
 }
 
 type monsterBandGroup struct {

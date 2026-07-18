@@ -374,6 +374,7 @@ type MonsterSave struct {
 	LootGuardTargetTileY int    `json:"loot_guard_target_tile_y,omitempty"`
 	LootGuardSide        int    `json:"loot_guard_side,omitempty"`
 	LootGuardPatrolAlt   bool   `json:"loot_guard_patrol_alt,omitempty"`
+	LootGuardAlerted     bool   `json:"loot_guard_alerted,omitempty"`
 	RallyDone            bool   `json:"rally_done,omitempty"`
 	Relentless           bool   `json:"relentless,omitempty"` // patron-death revenge: relentless map-wide hunt, survives reload
 	PackKey              string `json:"pack_key,omitempty"`   // ambient day/night pack tag
@@ -1024,6 +1025,7 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				LootGuardTargetTileY:    mon.LootGuardTargetTileY,
 				LootGuardSide:           mon.LootGuardSide,
 				LootGuardPatrolAlt:      mon.LootGuardPatrolAlt,
+				LootGuardAlerted:        mon.LootGuardAlerted,
 				RallyDone:               mon.RallyDone,
 				Relentless:              mon.Relentless,
 				ChampionTier:            mon.ChampionTier,
@@ -1379,7 +1381,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				if ms.ID != "" {
 					m.ID = ms.ID
 				}
-				// Seal a dormant boss immediately. refreshBoundAllyCache recomputes
+				// Seal a dormant boss immediately. refreshMonsterAIState recomputes
 				// BossDormant every frame, but that runs AFTER input - so without this a
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
@@ -1401,8 +1403,15 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 				m.Bound = ms.Bound
 				m.BoundFramesRemaining = ms.BoundFramesRemaining
-				m.Pacified = ms.Pacified
-				m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				// Bind and Charm are mutually exclusive. New saves cannot contain
+				// both, but a defensive migration makes any older malformed state a
+				// bound ally rather than silently turning a card summon neutral.
+				m.Pacified = ms.Pacified && !m.Bound
+				if m.Pacified {
+					m.PacifiedFramesRemaining = ms.PacifiedFramesRemaining
+				} else {
+					m.PacifiedFramesRemaining = 0
+				}
 				// Old saves have no provenance bit, but an actively pacified monster
 				// was necessarily charmed by the party.
 				m.CharmedByParty = ms.CharmedByParty || ms.Pacified
@@ -1430,6 +1439,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				m.LootGuardTargetTileX, m.LootGuardTargetTileY = ms.LootGuardTargetTileX, ms.LootGuardTargetTileY
 				m.LootGuardSide = ms.LootGuardSide
 				m.LootGuardPatrolAlt = ms.LootGuardPatrolAlt
+				m.LootGuardAlerted = ms.LootGuardAlerted
 				m.RallyDone = ms.RallyDone
 				m.PackKey = ms.PackKey
 				m.QuestProgressIgnored = ms.QuestProgressIgnored
@@ -1443,7 +1453,10 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				hostile := ms.WasAttacked ||
 					(ms.IsEncounterMonster && ms.EncounterRewards != nil && ms.EncounterRewards.QuestID != "")
 				m.WasAttacked = hostile
-				m.IsEngagingPlayer = hostile
+				// A sighted loot guard is non-sticky by design, so WasAttacked is
+				// deliberately false. Preserve that active objective encounter across
+				// save/load without turning it into a permanent normal aggro state.
+				m.IsEngagingPlayer = hostile || m.LootGuardAlerted
 				// Patron-death revenge persists: a rallied human keeps hunting after reload.
 				if ms.Relentless {
 					m.Relentless = true

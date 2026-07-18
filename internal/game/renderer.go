@@ -3262,7 +3262,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the sight line - the art reads in full, never a sliver mid-brawl).
 		// Bound allies fight other monsters, so they keep their travel facing.
 		// The logical camera keeps the target free of Draw-time shake jitter.
-		fightingParty := m.IsEngagingPlayer && !m.Bound
+		fightingParty := m.TargetsParty()
 		if fightingParty && r.game.combat != nil {
 			camX, camY := r.game.combat.logicalCameraXY()
 			target = math.Atan2(renderY-camY, renderX-camX) + math.Pi/2

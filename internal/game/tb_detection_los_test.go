@@ -129,7 +129,7 @@ func TestSightAggroMatchesRealTimeAndTurnBased(t *testing.T) {
 		{name: "alarm at authored seven-tile radius", monsterKey: "alarm_clock", distanceTiles: 7, want: true},
 		{name: "alarm outside authored radius", monsterKey: "alarm_clock", distanceTiles: 8, want: false},
 		{name: "wall blocks normal sight", monsterKey: "goblin", distanceTiles: 3, blocked: true, want: false},
-		{name: "loot guard gets seven-tile minimum", monsterKey: "goblin", distanceTiles: 6.5, lootGuard: true, want: true},
+		{name: "loot guard uses exact seven-tile range", monsterKey: "goblin", distanceTiles: 6.5, lootGuard: true, want: true},
 		{name: "wall blocks loot-guard sight", monsterKey: "goblin", distanceTiles: 6.5, lootGuard: true, blocked: true, want: false},
 	}
 	for _, scenario := range cases {

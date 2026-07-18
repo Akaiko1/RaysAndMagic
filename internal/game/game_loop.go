@@ -139,7 +139,7 @@ func (gl *GameLoop) updateExploration() {
 
 	// Cache bound undead so the AI-target lookup (bound-undead seek / mob
 	// retaliation) stays cheap when none exist - the overwhelmingly common case.
-	gl.game.refreshBoundAllyCache()
+	gl.game.refreshMonsterAIState()
 	// Reconcile restored or redirected combat attack posts before the next RT
 	// snapshot/TB action can use them.
 	gl.reconcileMonsterAttackPosts()
@@ -415,10 +415,10 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 	// per 2 sim-minutes on the forest map). Only non-party fights still need
 	// physical separation; party-targeting mobs deliberately overlap in transit.
 	requiresSeparation := func(m *monster.Monster3D) bool {
-		if monsterTargetsParty(m) {
+		if m.TargetsParty() {
 			return false
 		}
-		return m.IsEngagingPlayer || m.State == monster.StateAttacking
+		return m.IsInCombat()
 	}
 	// Tile-checked half-push; also refuses to shove a monster into the PLAYER's
 	// box - entity collision is deliberately skipped (the overlapped partner
@@ -439,7 +439,7 @@ func (gl *GameLoop) separateOverlappingMonsters() {
 		return true
 	}
 	resolvePair := func(i int, a, b *monster.Monster3D, aw, ah float64) {
-		if monsterTargetsParty(a) || monsterTargetsParty(b) {
+		if a.TargetsParty() || b.TargetsParty() {
 			return
 		}
 		bw, bh := b.GetSize()
@@ -848,6 +848,8 @@ func (gl *GameLoop) updateControlledMonsters() {
 			m.BoundFramesRemaining--
 			if m.BoundFramesRemaining == 0 {
 				m.Bound = false
+				m.WasAttacked = true // sticky: a freed undead immediately turns hostile
+				m.BeginPlayerEngagement()
 				gl.game.AddCombatMessage(fmt.Sprintf("%s breaks free of your binding!", m.Name))
 			}
 		}

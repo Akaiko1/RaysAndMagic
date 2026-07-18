@@ -34,10 +34,10 @@ func (g *MMGame) separateStackedMonstersTB() {
 		if m == nil || !m.IsAlive() {
 			continue
 		}
-		if (m.Banding || (m.LootGuarding && m.BandID > 0)) && !m.IsEngagingPlayer {
+		if (m.Banding || (m.LootGuarding && m.BandID > 0)) && m.IsCalmForSocialBehavior() {
 			continue // calm band stack: intentional, and re-stacked same tick anyway
 		}
-		if Distance(px, py, m.X, m.Y) > separationRadius && !m.IsEngagingPlayer {
+		if Distance(px, py, m.X, m.Y) > separationRadius && !m.IsInCombat() {
 			continue // out of this fight - leave it be
 		}
 		key := [2]int{int(m.X / tile), int(m.Y / tile)}
@@ -195,19 +195,20 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Match real-time AI: sealed bosses, warded warlords, and ward idols are
 		// inert in TB too. They hold their placed tile and never spend the monster
 		// turn moving or attacking while the seal/ward condition is active.
-		if m.IsInertSetPiece() {
+		behavior := m.CurrentAIBehavior()
+		if behavior == monster.AIBehaviorInert {
 			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 
 		// Pacified (Charm): holds position, never acts against the party.
-		if m.Pacified {
+		if behavior == monster.AIBehaviorPacified {
 			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
 		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
 		// nearest one. Never acts against the party. Spends its whole turn here.
-		if m.Bound {
+		if behavior == monster.AIBehaviorBoundAlly {
 			if foe := m.AIFoe; foe != nil && foe.IsAlive() && gl.tryMonsterAttackFoeTurnBased(m, foe) {
 				// Claimed a distinct logical attack post and spent the turn striking.
 			} else {
@@ -220,14 +221,24 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// Passive monsters mirror RT behaviour: no move, no attack until hit.
 		// The RT path enforces this in updatePlayerEngagementWithVision; the
 		// TB scheduler skips engagement updates entirely, so re-check here.
-		if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
+		if behavior == monster.AIBehaviorPassive {
 			continue
+		}
+		// A sight-only loot guard has one exact seven-tile combat radius in both
+		// modes. Ordinary fights intentionally remain sticky in TB, but this
+		// objective-specific encounter returns to its prop when the party leaves.
+		if m.LootGuardAlerted && m.IsEngagingPlayer && !m.WasAttacked {
+			if m.ShouldDisengageFromPlayer(gl.game.collisionSystem, playerX, playerY) {
+				m.EndPlayerEngagement()
+				gl.game.refreshMonsterCollisionSolidity(m)
+				continue
+			}
 		}
 		gl.game.refreshMonsterCollisionSolidity(m)
 
 		// TB does not run Monster3D.Update, so it invokes the exact same normal
-		// sight gate as RT. Loot guards receive their seven-tile objective minimum
-		// inside that shared rule, but never patrol during TB. Sticky hostility and
+		// sight gate as RT. Loot guards receive their exact seven-tile objective
+		// range inside that shared rule, but never patrol during TB. Sticky hostility and
 		// a bound-ally foe deliberately bypass first sight: a monster already
 		// committed to a fight must keep taking turns after cover or a retreat.
 		if m.CanStartPlayerEngagement(gl.game.collisionSystem, playerX, playerY) {
@@ -242,7 +253,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// calm stack while fighting summons. Normal party entries already used the
 		// shared BeginPlayerEngagement transition above.
 		if !m.IsEngagingPlayer {
-			m.IsEngagingPlayer = true
+			m.BeginCombatEngagement()
 		}
 
 		// Each participating monster snaps to the center of its current tile at

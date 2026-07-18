@@ -38,7 +38,7 @@ func addLootGuardTestMonster(t *testing.T, game *MMGame, id, key string, tileX, 
 }
 
 func prepareLootGuardsForTest(game *MMGame, loop *GameLoop) {
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 	loop.prepareLootPropGuards()
 }
 
@@ -182,6 +182,32 @@ func TestLootGuardDoesNotClaimMobsAlreadyInAnotherBand(t *testing.T) {
 	}
 	if !free.LootGuarding {
 		t.Fatal("a nearby solo mob should still be able to guard the crate")
+	}
+}
+
+func TestLootGuardReleasesWhenItChoosesABoundAlly(t *testing.T) {
+	game, loop, tile := newLootGuardTestGame(t, false)
+	_ = addLootGuardTarget(game, "guarded_crate", character.NPCTypeLootCrate, 10, 10, tile)
+	guard := addLootGuardTestMonster(t, game, "guard", "goblin", 8, 10, tile)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	prepareLootGuardsForTest(game, loop)
+	if !guard.LootGuarding {
+		t.Fatal("setup: guard did not reserve the crate")
+	}
+
+	// The party remains far away; the nearby card ally is therefore the guard's
+	// normal combat target. Its calm prop reservation must dissolve before the
+	// crossfire fight begins, just as it would for a party engagement.
+	ally := addLootGuardTestMonster(t, game, "ally", "masked_huntress", 9, 10, tile)
+	markCardAlly(ally)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	game.refreshMonsterAIState()
+	if guard.AIFoe != ally {
+		t.Fatal("setup: nearby bound ally was not chosen as the guard's foe")
+	}
+	loop.prepareLootPropGuards()
+	if guard.LootGuarding || guard.BandID != 0 {
+		t.Fatalf("guard kept its calm reservation after entering crossfire: guarding=%v band=%d", guard.LootGuarding, guard.BandID)
 	}
 }
 
@@ -471,16 +497,81 @@ func TestLootGuardUsesSevenTileSightInRealTime(t *testing.T) {
 	prepareLootGuardsForTest(game, loop)
 	game.camera.X, game.camera.Y = guard.X-6.5*tile, guard.Y
 	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
-	game.refreshBoundAllyCache()
+	game.refreshMonsterAIState()
 
 	radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y)
-	if radius != monster.LootGuardMinAlertRadiusTiles*tile {
-		t.Fatalf("outside-tether guard sight = %.1f, want %.1f", radius, monster.LootGuardMinAlertRadiusTiles*tile)
+	if radius != monster.LootGuardAggroRadiusTiles*tile {
+		t.Fatalf("outside-tether guard sight = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
 	}
 	runLootGuardRealTimeStep(game, loop)
 
 	if guard.LootGuarding || !guard.IsEngagingPlayer {
 		t.Fatalf("guard ignored party inside the seven-tile guard radius: guard=%v engaging=%v", guard.LootGuarding, guard.IsEngagingPlayer)
+	}
+}
+
+func TestLootGuardSightEngagementKeepsLeashUntilPartyLeaves(t *testing.T) {
+	game, loop, tile := newLootGuardTestGame(t, false)
+	_ = addLootGuardTarget(game, "guarded_crate", character.NPCTypeLootCrate, 10, 10, tile)
+	guard := addLootGuardTestMonster(t, game, "guard", "goblin", 8, 10, tile)
+	guard.AlertRadius = 2 * tile
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	prepareLootGuardsForTest(game, loop)
+
+	// The guard's ordinary leash is four tiles (2 alert x 2 disengage), but its
+	// special guard mode must use one exact seven-tile radius. This is the former
+	// reassign/disengage oscillation band in RT.
+	game.camera.X, game.camera.Y = guard.X-6.5*tile, guard.Y
+	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
+	for frame := 0; frame < 3; frame++ {
+		prepareLootGuardsForTest(game, loop)
+		runLootGuardRealTimeStep(game, loop)
+		if guard.LootGuarding || !guard.IsEngagingPlayer {
+			t.Fatalf("frame %d: guard flapped between patrol and combat: guarding=%v engaging=%v",
+				frame, guard.LootGuarding, guard.IsEngagingPlayer)
+		}
+		if radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
+			t.Fatalf("frame %d: sighted guard radius = %.1f, want %.1f", frame, radius, monster.LootGuardAggroRadiusTiles*tile)
+		}
+	}
+
+	// Once the party leaves the guard leash, this is no longer a guard encounter:
+	// normal calm logic may reserve the nearby prop again.
+	game.camera.X, game.camera.Y = guard.X+7.25*tile, guard.Y
+	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
+	prepareLootGuardsForTest(game, loop)
+	runLootGuardRealTimeStep(game, loop)
+	if guard.IsEngagingPlayer || guard.LootGuardAlerted {
+		t.Fatalf("guard kept the loot encounter after party left: engaging=%v alerted=%v",
+			guard.IsEngagingPlayer, guard.LootGuardAlerted)
+	}
+	prepareLootGuardsForTest(game, loop)
+	if !guard.LootGuarding {
+		t.Fatal("guard did not return to its nearby loot post after disengaging")
+	}
+}
+
+func TestLootGuardSightEncounterSurvivesRealTimeToTurnBasedSwitch(t *testing.T) {
+	game, loop, tile := newLootGuardTestGame(t, false)
+	guard := addLootGuardTestMonster(t, game, "guard", "goblin", 10, 10, tile)
+	guard.LootGuardAlerted = true
+	guard.IsEngagingPlayer = true
+	guard.WasAttacked = false
+	game.camera.X, game.camera.Y = guard.X-6.5*tile, guard.Y
+	game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	game.ToggleTurnBasedMode()
+	if !game.turnBasedMode || !guard.LootGuardAlerted || !guard.IsEngagingPlayer {
+		t.Fatalf("RT-to-TB switch lost active guard encounter: mode=%v alerted=%v engaging=%v",
+			game.turnBasedMode, guard.LootGuardAlerted, guard.IsEngagingPlayer)
+	}
+	if radius, _ := guard.PlayerDetectionRange(game.collisionSystem, game.camera.X, game.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
+		t.Fatalf("switched guard radius = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
+	}
+	loop.prepareLootPropGuards()
+	if guard.LootGuarding {
+		t.Fatal("active guard encounter was reassigned to a calm prop after the mode switch")
 	}
 }
 
@@ -521,7 +612,7 @@ func TestLootGuardTurnBasedStaysAtPostUntilItSeesParty(t *testing.T) {
 		prepareLootGuardsForTest(game, loop)
 		game.camera.X, game.camera.Y = guard.X-distanceTiles*tile, guard.Y
 		game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
-		game.refreshBoundAllyCache()
+		game.refreshMonsterAIState()
 		return game, loop, guard, tile
 	}
 
@@ -550,6 +641,30 @@ func TestLootGuardTurnBasedStaysAtPostUntilItSeesParty(t *testing.T) {
 		loop.reconcileLootPropGuardBands()
 		if guard.LootGuarding {
 			t.Fatal("engaged turn-based guard stayed assigned to the prop")
+		}
+	})
+
+	t.Run("returns to guard outside seven", func(t *testing.T) {
+		game, loop, guard, tile := setup(t, 6.5)
+		runOneMonsterTurn(game, loop)
+		if !guard.LootGuardAlerted {
+			t.Fatal("sight-engaged guard did not retain its guard combat mode")
+		}
+		loop.reconcileLootPropGuardBands()
+
+		// The guard radius is exact even when this monster's normal authored
+		// sight would be much wider.
+		guard.AlertRadius = 12 * tile
+		game.camera.X, game.camera.Y = guard.X+7.25*tile, guard.Y
+		game.collisionSystem.UpdateEntity("player", game.camera.X, game.camera.Y)
+		runOneMonsterTurn(game, loop)
+		if guard.IsEngagingPlayer || guard.LootGuardAlerted {
+			t.Fatalf("guard kept attacking beyond its seven-tile radius: engaging=%v alerted=%v",
+				guard.IsEngagingPlayer, guard.LootGuardAlerted)
+		}
+		prepareLootGuardsForTest(game, loop)
+		if !guard.LootGuarding {
+			t.Fatal("turn-based guard did not return to its nearby loot post after disengaging")
 		}
 	})
 }
@@ -620,4 +735,53 @@ func TestSaveLoadPreservesLootGuardReservation(t *testing.T) {
 	loadGame.gameLoop = loop
 	prepareLootGuardsForTest(loadGame, loop)
 	assertLootGuardTarget(t, loaded, wLoad.NPCs[0], tile)
+}
+
+// A guard that saw the party has already released its calm prop reservation,
+// but its seven-tile objective leash is still active. Saving at that point must
+// not turn the encounter into a generic wandering mob on reload.
+func TestSaveLoadPreservesActiveLootGuardEncounter(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wSave := newTestWorldSized(cfg, 24, 24)
+	wmSave := world.NewWorldManager(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": wSave}
+	wmSave.CurrentMapKey = "forest"
+	saveGame := newTestGame(cfg, wSave)
+	tile := float64(cfg.GetTileSize())
+	guard := addLootGuardTestMonster(t, saveGame, "sighted-guard", "goblin", 10, 10, tile)
+	guard.IsEngagingPlayer = true
+	guard.LootGuardAlerted = true
+	guard.LootGuarding = false
+	guard.WasAttacked = false
+
+	save := saveGame.buildSave(wmSave)
+	saved := save.MapMonsters["forest"]
+	if len(saved) != 1 || saved[0].LootGuarding || !saved[0].LootGuardAlerted || saved[0].WasAttacked {
+		t.Fatalf("active loot-guard encounter was not serialized faithfully: %+v", saved)
+	}
+
+	wLoad := newTestWorldSized(cfg, 24, 24)
+	wmLoad := world.NewWorldManager(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": wLoad}
+	wmLoad.CurrentMapKey = "forest"
+	loadGame := newTestGame(cfg, wLoad)
+	loadGame.combat = NewCombatSystem(loadGame)
+
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+	if err := loadGame.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+	if len(wLoad.Monsters) != 1 {
+		t.Fatalf("loaded monsters = %d, want 1", len(wLoad.Monsters))
+	}
+	loaded := wLoad.Monsters[0]
+	if loaded.LootGuarding || !loaded.LootGuardAlerted || !loaded.IsEngagingPlayer || loaded.WasAttacked {
+		t.Fatalf("active guard encounter restored incorrectly: guarding=%v alerted=%v engaging=%v hit=%v",
+			loaded.LootGuarding, loaded.LootGuardAlerted, loaded.IsEngagingPlayer, loaded.WasAttacked)
+	}
+	if radius, _ := loaded.PlayerDetectionRange(loadGame.collisionSystem, loadGame.camera.X, loadGame.camera.Y); radius != monster.LootGuardAggroRadiusTiles*tile {
+		t.Fatalf("restored guard radius = %.1f, want %.1f", radius, monster.LootGuardAggroRadiusTiles*tile)
+	}
 }

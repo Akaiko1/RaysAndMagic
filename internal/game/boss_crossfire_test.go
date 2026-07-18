@@ -74,7 +74,7 @@ func TestInactiveBossesIgnoreBoundAlliesRT(t *testing.T) {
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 			placePlayerAtTile(game, 0, 0, ts)
 
-			game.refreshBoundAllyCache()
+			game.refreshMonsterAIState()
 			tc.assertInactive(t, game, boss)
 			if boss.AIFoe != nil {
 				t.Fatalf("inactive boss acquired bound revenant: %v", boss.AIFoe)
@@ -123,7 +123,7 @@ func TestEvasiveBossRTControlSuppressesBlink(t *testing.T) {
 			game.world.Monsters = []*monster.Monster3D{boss}
 			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
 			placePlayerAtTile(game, 6, 6, ts) // inside its three-tile evade radius
-			game.refreshBoundAllyCache()
+			game.refreshMonsterAIState()
 			tc.apply(boss)
 			startX, startY := boss.X, boss.Y
 
