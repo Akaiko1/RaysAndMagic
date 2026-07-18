@@ -123,6 +123,20 @@ func TestDebugSim_ZoneGallery(t *testing.T) {
 		}
 		g.camera.X, g.camera.Y = sx, sy
 		g.camera.Angle = -1.2 // a consistent oblique look
+		// RAM_CAM_TILE=tx,ty and RAM_CAM_ANGLE=<radians> aim the shot at a
+		// specific feature (a placed building/door) instead of the map centre.
+		if v := os.Getenv("RAM_CAM_TILE"); v != "" {
+			var tx, ty float64
+			if _, err := fmt.Sscanf(v, "%f,%f", &tx, &ty); err == nil {
+				g.camera.X, g.camera.Y = (tx+0.5)*ts, (ty+0.5)*ts
+			}
+		}
+		if v := os.Getenv("RAM_CAM_ANGLE"); v != "" {
+			var a float64
+			if _, err := fmt.Sscanf(v, "%f", &a); err == nil {
+				g.camera.Angle = a
+			}
+		}
 		runOnDrawFrame(func(_ *ebiten.Image) {
 			screen.Clear()
 			r.RenderFirstPersonView(screen)

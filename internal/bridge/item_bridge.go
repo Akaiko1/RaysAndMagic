@@ -43,6 +43,8 @@ func getItemFromConfig(itemKey string) (*items.ItemDefinitionFromYAML, bool) {
 		Revive:                    def.Revive,
 		FullHeal:                  def.FullHeal,
 		CurePoison:                def.CurePoison,
+		DoorKey:                   def.DoorKey,
+		MasterKey:                 def.MasterKey,
 		OpensMap:                  def.OpensMap,
 		PromotesLich:              def.PromotesLich,
 		Discardable:               def.Discardable,

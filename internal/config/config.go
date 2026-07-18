@@ -1405,6 +1405,8 @@ type ItemDefinitionConfig struct {
 	Revive               bool `yaml:"revive,omitempty"`
 	FullHeal             bool `yaml:"full_heal,omitempty"`
 	CurePoison           bool `yaml:"cure_poison,omitempty"` // clears the Poisoned condition on use
+	DoorKey              int  `yaml:"door_key,omitempty"`    // 1: a single-use key, consumed opening a matching door
+	MasterKey            int  `yaml:"master_key,omitempty"`  // 1: the Skeleton Key, opens ANY door, never consumed
 	// Mana restoration (mirror of heal_base/heal_endurance_divisor for SP):
 	// restores mana_base + Personality/mana_personality_divisor spell points.
 	ManaBase               int `yaml:"mana_base,omitempty"`
@@ -1522,6 +1524,9 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 
 type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
+	// BossDeathLoot is appended only when a boss dies. It is separate from a
+	// monster's authored table so living monsters cannot yield it through theft.
+	BossDeathLoot []LootEntry `yaml:"boss_death_loot,omitempty"`
 	// Named weighted pools (distinct from the per-monster Loots lists above):
 	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
 	// containers (sword racks) that grant a random ZONE item, never a unique -
@@ -1623,11 +1628,44 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := validateWeightedLootTables(&loots); err != nil {
 		return nil, err // don't publish invalid data to the process global
 	}
+	if err := validateBossDeathLoot(&loots); err != nil {
+		return nil, err
+	}
 	if err := validateCrates(&loots); err != nil {
 		return nil, err
 	}
 	GlobalLoots = &loots
 	return &loots, nil
+}
+
+// validateBossDeathLoot validates the one global death-only reward pool. It
+// uses the same entry contract as a normal monster table, but has no weighted
+// picks: each entry carries its own independent chance.
+func validateBossDeathLoot(lt *LootTablesConfig) error {
+	for i, e := range lt.BossDeathLoot {
+		if e.Chance < 0 || e.Chance > 1 {
+			return fmt.Errorf("boss_death_loot[%d] %q: chance must be in [0,1]", i, e.Key)
+		}
+		switch e.Type {
+		case "weapon":
+			if GlobalWeapons == nil {
+				return fmt.Errorf("boss_death_loot[%d] %q: weapons not loaded", i, e.Key)
+			}
+			if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
+				return fmt.Errorf("boss_death_loot[%d]: unknown weapon key %q", i, e.Key)
+			}
+		case "item":
+			if GlobalItems == nil {
+				return fmt.Errorf("boss_death_loot[%d] %q: items not loaded", i, e.Key)
+			}
+			if _, ok := GetItemDefinition(e.Key); !ok {
+				return fmt.Errorf("boss_death_loot[%d]: unknown item key %q", i, e.Key)
+			}
+		default:
+			return fmt.Errorf("boss_death_loot[%d] %q has bad type %q (want weapon|item)", i, e.Key, e.Type)
+		}
+	}
+	return nil
 }
 
 // validateWeightedLootTables fail-fast checks every named pool: positive rolls,
@@ -1847,6 +1885,16 @@ func GetLootTable(monsterKey string) []LootEntry {
 		return nil
 	}
 	return GlobalLoots.Loots[monsterKey]
+}
+
+// GetBossDeathLoot returns the global rewards added only after a recognized
+// boss dies. It is deliberately separate from GetLootTable, which is also used
+// by pickpocketing and map-loot container rolls.
+func GetBossDeathLoot() []LootEntry {
+	if GlobalLoots == nil {
+		return nil
+	}
+	return GlobalLoots.BossDeathLoot
 }
 
 // Helper functions for easy access to commonly used values

@@ -544,11 +544,12 @@ npcs:
     name: "Ancient Pyramid"
     type: "encounter"
     description: "A sun-baked pyramid with a narrow stairway descending into darkness"
-    sprite: "pyramid_entrance"
-    render_category: scenery
+    sprite: "pyramid_facade"
+    render_category: landmark
+    grid_span_tiles: 4
+    grid_span_dir: "e"
     prompt_verb: enter
     transparent: true
-    size_tiles: 1.0
     dialogue:
       greeting: "The pyramid's entrance yawns open beneath worn sandstone blocks. Dry air carries the smell of dust, pitch, and something sealed too long."
       choice_prompt: "What do you want to do?"
@@ -862,11 +863,11 @@ npcs:
     name: "Moored Ship"
     type: "encounter"
     description: "The ship that bore you east, waiting at the castle dock"
-    sprite: "forest_gate"
+    sprite: "eastern_ship"
     render_category: scenery
     prompt_verb: board
     transparent: true
-    size_tiles: 4.0
+    size_tiles: 1.8
     dialogue:
       greeting: "Your ship rocks at the dock, ready to bear you back across the eastern sea to the forest road."
       choice_prompt: "Set sail for home?"
@@ -1378,11 +1379,12 @@ npcs:
           action: "leave"
 
   # Portcullis barring a chamber doorway while a duel champion lives on the map.
-  # render_category "door": stands ACROSS the opening (oriented by the flanking
-  # walls), draws + blocks only while closed.
+  # It is a door in the editor too; door_behavior keeps its champion state
+  # distinct from persisted key/stat locks.
   arena_gate:
     name: "Arena Portcullis"
-    type: "encounter"
+    type: "door"
+    door_behavior: "champion_portcullis"
     description: "A spiked iron portcullis between stone pillars"
     sprite: "arena_gate"
     render_category: door
@@ -1394,6 +1396,67 @@ npcs:
       choices:
         - text: "Step back"
           action: "leave"
+
+  # Lockable doors (2026-07-18). render_category "door" stands across the
+  # opening and is solid while closed; door_behavior "locked" routes the click
+  # to the unlock dialog. Once opened (Visited) the door is invisible + walkable,
+  # persisted in the save. door_key_items are items.yaml keys. The Skeleton Key
+  # (master_key) opens any of these without spending.
+  wooden_door:
+    name: "Wooden Door"
+    type: "door"
+    door_behavior: "locked"
+    description: "A stout plank door banded with iron - a simple lock, a stubborn frame"
+    sprite: "door_wood"
+    render_category: door
+    transparent: true
+    size_tiles: 1.0
+    lock_label: "wooden"
+    door_key_items: ["ordinary_key"]
+    door_stat_reqs:
+      - stat: "Might"
+        value: 55
+    dialogue:
+      greeting: "The wooden door is barred from the far side. It might yield to a strong shoulder - or the right key."
+      choice_prompt: "How do you open it?"
+      choices: []
+
+  reinforced_door:
+    name: "Reinforced Door"
+    type: "door"
+    door_behavior: "locked"
+    description: "Oak plated in riveted steel bands - it takes a real key or a rare strength to move"
+    sprite: "door_reinforced"
+    render_category: door
+    transparent: true
+    size_tiles: 1.0
+    lock_label: "reinforced"
+    door_key_items: ["inlaid_key"]
+    door_stat_reqs:
+      - stat: "Might"
+        value: 90
+      - stat: "Intellect"
+        value: 70
+    dialogue:
+      greeting: "The reinforced door barely rattles in its frame. Brute force or a clever mind might work it - or the inlaid key."
+      choice_prompt: "How do you open it?"
+      choices: []
+
+  steel_door:
+    name: "Steel Door"
+    type: "door"
+    door_behavior: "locked"
+    description: "A seamless slab of blued steel - no purchase, no hinge to force. Only the right key turns it"
+    sprite: "door_steel"
+    render_category: door
+    transparent: true
+    size_tiles: 1.0
+    lock_label: "steel"
+    door_key_items: ["inlaid_key"]
+    dialogue:
+      greeting: "The steel door is smooth and immovable. No strength will shift it - only the inlaid key, or the master key of legend."
+      choice_prompt: "How do you open it?"
+      choices: []
 
   # Way back out of the arena: a barred gate wall standee on the west chamber wall.
   arena_exit:
@@ -1550,10 +1613,8 @@ npcs:
     render_category: landmark
     grid_span_tiles: 4
     grid_span_dir: "e"
-    no_spin: true
     prompt_verb: enter
     transparent: true
-    size_tiles: 2.0
     dialogue:
       greeting: "The tower gate stands ajar. Inside, something is still ticking - too many things, none of them in time."
       choice_prompt: "What do you want to do?"

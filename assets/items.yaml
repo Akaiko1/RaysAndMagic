@@ -1546,6 +1546,36 @@ items:
     rarity: "uncommon"
     value: 90
 
+  # --- Door keys (2026-07-18). door_key = 1: a single-use key consumed when it
+  # opens a matching door. master_key = 1: the Skeleton Key - opens ANY door and
+  # is never consumed. Keys are trinkets so they stack in the bag and can be sold.
+  ordinary_key:
+    name: "Ordinary Key"
+    type: "trinket"
+    description: "A plain iron key - fits the simple lock of a wooden door"
+    flavor: "One turn, one door, and it never turns again."
+    rarity: "common"
+    value: 30
+    door_key: 1
+
+  inlaid_key:
+    name: "Inlaid Key"
+    type: "trinket"
+    description: "A silver key set with a sapphire eye - bites reinforced and steel locks alike"
+    flavor: "The gem is warm. The lock it seeks is warmer."
+    rarity: "rare"
+    value: 180
+    door_key: 1
+
+  skeleton_key:
+    name: "Skeleton Key"
+    type: "trinket"
+    description: "A bone-wrought master key that opens any door in the land - and is never spent"
+    flavor: "Every lock was cut from the same first key. This is that key."
+    rarity: "legendary"
+    value: 900
+    master_key: 1
+
   cogleather_helm:
     name: "Cogleather Helm"
     type: "armor"

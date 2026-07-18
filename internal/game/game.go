@@ -357,6 +357,9 @@ type MMGame struct {
 	doorEntityIDs map[string]bool
 	// buildingEntityIDs: solid footprint entities of grid-span buildings on the current map
 	buildingEntityIDs map[string]bool
+	// lockedDoorEntityIDs: solid entities of still-closed lockable doors on the
+	// current map (doors_locked.go).
+	lockedDoorEntityIDs map[string]bool
 
 	// dayNightDay counts day/night phase changes (the arena's refresh clock).
 	// arenaTierFoughtDay: difficulty tier -> dayNightDay it was last challenged;
@@ -806,7 +809,7 @@ func NewMMGame(cfg *config.Config) *MMGame {
 
 	// Register all monsters with collision system
 	currentWorld.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-	game.registerBuildingFootprints()
+	game.registerMapStaticCollision()
 
 	// Initialize systems
 	game.combat = NewCombatSystem(game)
@@ -1714,11 +1717,11 @@ func (g *MMGame) refreshBoundAllyCache() {
 		// aggressive boss. Computed first so it can gate BossAggro/freeze below.
 		// Without this hold an aggressive boss beelines across the whole map to the
 		// party at the landing the instant the map loads.
-		m.BossWarded = m.WardedByIdols && liveIdols > 0
+		m.BossWarded = m.IsBoss() && m.WardedByIdols && liveIdols > 0
 		// Sealed boss (passive-until-quest, no evade radius) -> freeze on its spawn
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
-		m.BossDormant = g.combat.isBoss(m) && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
+		m.BossDormant = m.IsBoss() && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
 		if m.IsInertSetPiece() {
 			// Do not hand a scripted inactive actor a crossfire foe. The RT combat
 			// loop is separate from movement AI, so leaving this populated lets it
@@ -1735,7 +1738,7 @@ func (g *MMGame) refreshBoundAllyCache() {
 		// has hit them (WasAttacked is sticky) - so they don't beeline across the
 		// whole map the instant they activate. AggroWholeMap is the UNIQUE opt-in
 		// (Golden Thief Bug) that DOES chase from anywhere on activation.
-		m.BossAggro = g.combat.isBoss(m) && !g.combat.bossEvasive(m) && !m.BossWarded &&
+		m.BossAggro = m.IsBoss() && !g.combat.bossEvasive(m) && !m.BossWarded &&
 			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
 	}
 	g.ejectPartyTargetingMonsters()

@@ -28,7 +28,10 @@ func newDoorTestGame(t *testing.T) *MMGame {
 }
 
 func doorNPC(x, y float64) *character.NPC {
-	return &character.NPC{X: x, Y: y, Name: "Gate", Sprite: "arena_gate", RenderCategory: "door"}
+	return &character.NPC{
+		X: x, Y: y, Name: "Gate", Sprite: "arena_gate", RenderCategory: "door",
+		Type: character.NPCTypeDoor, DoorBehavior: character.NPCDoorBehaviorChampionPortcullis,
+	}
 }
 
 // TestDoorPoseOrientation: the slab must span the doorway - N+S flanking walls

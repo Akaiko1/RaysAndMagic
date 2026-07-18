@@ -1875,7 +1875,7 @@ func (cs *CombatSystem) HandleMonsterInteractions() {
 
 		// Boss behaviour (Golden Thief Bug): evade-until-quest blink, low-HP blink,
 		// Inferno casts. Returns true when it has handled the action this tick.
-		if cs.isBoss(monster) {
+		if monster.IsBoss() {
 			ready := monster.BossCD == 0
 			if monster.BossCD > 0 {
 				monster.BossCD--
@@ -2208,7 +2208,7 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 		fmt.Sprintf("%s tries to pick %s's pocket!", attacker.Name, monster.Name),
 		combatMessagePurple,
 	)
-	if stolen := cs.checkMonsterLootDrop(monster); len(stolen) > 0 {
+	if stolen := cs.rollMonsterPilferLoot(monster); len(stolen) > 0 {
 		for _, it := range stolen {
 			cs.game.party.AddItem(it)
 			cs.game.AddColoredCombatMessage(
@@ -3705,7 +3705,7 @@ func (cs *CombatSystem) awardExperienceAndGold(monster *monsterPkg.Monster3D) in
 // detection range - and it persists across reload). The orc Warlord's death
 // turns the masked Amazons (type "human") vengeful; goblins/beasts are untouched.
 func (cs *CombatSystem) rallyOnPatronDeath(dead *monsterPkg.Monster3D) {
-	if dead == nil || dead.DeathRalliesType == "" || cs.game == nil || cs.game.world == nil {
+	if dead == nil || !dead.IsBoss() || dead.DeathRalliesType == "" || cs.game == nil || cs.game.world == nil {
 		return
 	}
 	rallied := 0
@@ -4821,15 +4821,38 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 	return 0
 }
 
-// checkMonsterLootDrop handles loot drops when monsters are killed
-func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []items.Item {
+// rollMonsterAuthoredLoot resolves only a monster's normal YAML loot table.
+// Sleight of Hand uses this path directly; the death path appends the separate
+// global boss reward table, so stealing can never roll a death-only reward.
+func (cs *CombatSystem) rollMonsterAuthoredLoot(monster *monsterPkg.Monster3D) []items.Item {
+	if monster == nil {
+		return nil
+	}
 	// Resolve loot by the monster's canonical YAML key (always set), NOT by
 	// name: several monsters can share a display Name (the four elemental
 	// dragons are all "Dragon"), so a name lookup would scramble their loot.
-	entries := config.GetLootTable(monster.Key)
-	if len(entries) == 0 {
+	return rollLootEntries(config.GetLootTable(monster.Key))
+}
+
+// monsterDeathLootEntries adds the globally-authored boss-only rewards to a
+// monster's normal table. It stays separate from the pilfer path: a living
+// monster can be robbed of its own table, never of death-only rewards.
+func (cs *CombatSystem) monsterDeathLootEntries(monster *monsterPkg.Monster3D) []config.LootEntry {
+	if monster == nil {
 		return nil
 	}
+	entries := config.GetLootTable(monster.Key)
+	if !monster.IsBoss() {
+		return entries
+	}
+	allEntries := make([]config.LootEntry, 0, len(entries)+len(config.GetBossDeathLoot()))
+	allEntries = append(allEntries, entries...)
+	return append(allEntries, config.GetBossDeathLoot()...)
+}
+
+// rollLootEntries resolves independent loot chances into items. Both normal
+// monster loot and the global boss-death pool use this exact entry contract.
+func rollLootEntries(entries []config.LootEntry) []items.Item {
 	drops := make([]items.Item, 0, len(entries))
 	for _, e := range entries {
 		if rand.Float64() < e.Chance {
@@ -4842,6 +4865,17 @@ func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []it
 		}
 	}
 	return drops
+}
+
+// rollMonsterPilferLoot returns only authored inventory; death-only rewards
+// remain exclusive to awardExperienceAndGold's kill path.
+func (cs *CombatSystem) rollMonsterPilferLoot(monster *monsterPkg.Monster3D) []items.Item {
+	return cs.rollMonsterAuthoredLoot(monster)
+}
+
+// checkMonsterLootDrop handles loot drops when monsters are killed.
+func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []items.Item {
+	return rollLootEntries(cs.monsterDeathLootEntries(monster))
 }
 
 // randomLivingMember returns a uniformly-random alive+conscious party member

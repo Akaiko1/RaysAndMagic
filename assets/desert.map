@@ -24,7 +24,7 @@
 # (combat.go updateQuestProgress: target "elder_dragon" + the summoned-dragon flag),
 # so ordinary wild dragons never win the game.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-T.@ARTRTA................................ATRTRTAAT  >[npc:chest_golden]
+T.@ARTRTA................@...............ATRTRTAAT  >[npc:chest_golden], [npc:pyramid_entrance]
 TTAA@....................................AA.T@TAAT  >[npc:dragon_statue_black], [npc:spell_lectern]
 TTAA.T.TA...................................@.TAAT  >[npc:dragon_statue_red]
 TTAA.T.TA................................AT.T.TAAT
@@ -35,7 +35,7 @@ T....n...PWW.....................................T
 T........PWW....P................................T
 T........PPPP..n....P............................T
 T.........n..............P.......................T
-T........................@.......................T  >[npc:pyramid_entrance]
+T................................................T
 T....................................P...........T
 T................................................T
 T................................................T

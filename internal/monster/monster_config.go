@@ -78,6 +78,9 @@ type MonsterDefinition struct {
 	PounceRangeTiles      float64             `yaml:"pounce_range_tiles"`
 	PounceCooldownSeconds float64             `yaml:"pounce_cooldown_seconds"`
 	Light                 *MonsterLightConfig `yaml:"light,omitempty"`
+	// Boss is the explicit content classification. It drives boss AI, rewards,
+	// and exclusions from ambient systems; boss-only mechanics below require it.
+	Boss bool `yaml:"boss,omitempty"`
 	// Boss behaviour knobs (data-driven; see the Golden Thief Bug). All optional.
 	IgnoresArmor      bool    `yaml:"ignores_armor,omitempty"`         // melee bypasses party armor class
 	InfernoChance     float64 `yaml:"inferno_chance,omitempty"`        // 0..1 chance per action to cast a party-nova Inferno
@@ -179,6 +182,9 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 		if !ValidSizeClasses[monster.SizeClass] {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has invalid size_class %q - want one of small/medium/person/large/huge", key, monster.SizeClass))
 		}
+		if monster.requiresBossClassification() && !monster.Boss {
+			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' authors boss-only behavior but lacks boss: true", key))
+		}
 		if monster.InfernoChance > 0 && monster.InfernoDamage <= 0 {
 			conflicts = append(conflicts, fmt.Sprintf("Monster '%s' has inferno_chance but no inferno_damage", key))
 		}
@@ -254,6 +260,18 @@ func validateMonsterConfiguration(config *MonsterYAMLConfig) error {
 	}
 
 	return nil
+}
+
+// requiresBossClassification lists the mechanics whose scheduling and AI use
+// the explicit Boss classification. Keeping the list beside validation makes a
+// new boss-only YAML knob fail loud until it is deliberately classified.
+func (m MonsterDefinition) requiresBossClassification() bool {
+	return m.InfernoChance > 0 || m.InfernoDamage > 0 ||
+		m.TeleportAtHP > 0 || m.TeleportChance > 0 ||
+		m.PassiveUntilQuest != "" || m.EvadeRadiusTiles > 0 || m.BossCooldownSecs > 0 ||
+		m.SummonChance > 0 || m.SummonFirstGuaranteed || len(m.SummonMonsters) > 0 || m.SummonCount > 0 || m.SummonMax > 0 ||
+		m.EnrageAtHP > 0 || m.EnrageDamageMult > 0 || m.EnrageCooldownMult > 0 ||
+		m.WardedByIdols || m.AggroWholeMap || m.DeathRalliesType != ""
 }
 
 // LoadMonsterConfig loads monster configuration from YAML file
@@ -442,6 +460,7 @@ func (m *Monster3D) SetupMonsterFromConfig(def *MonsterDefinition) {
 		m.PounceRangePixels = def.PounceRangeTiles * tileSize
 		m.PounceCooldownSeconds = def.PounceCooldownSeconds
 	}
+	m.Boss = def.Boss
 	m.IgnoresArmor = def.IgnoresArmor
 	m.InfernoChance = def.InfernoChance
 	m.InfernoDamage = def.InfernoDamage

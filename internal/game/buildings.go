@@ -91,7 +91,9 @@ func (g *MMGame) clearBuildingEntities() {
 
 // ValidateNPCCommerce fails fast on a bad merchant currency or grid-span
 // authoring: currency must be gold (""), arena_points, or item:<known item
-// key>; a grid span needs 2..4 tiles and an e|s direction.
+// key>; a grid span needs 2..4 tiles and an e|s direction. A grid-span facade
+// owns its dimensions, so it cannot also author normal sprite-size or spin
+// settings.
 func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 	for key, npc := range npcs {
 		if npc == nil {
@@ -138,6 +140,12 @@ func ValidateNPCCommerce(npcs map[string]*character.NPCData) error {
 			}
 			if npc.GridSpanDir != "e" && npc.GridSpanDir != "s" {
 				return fmt.Errorf("NPC %q grid_span_tiles needs grid_span_dir e|s, got %q", key, npc.GridSpanDir)
+			}
+			if npc.SizeTiles != 0 || npc.SizeClass != "" {
+				return fmt.Errorf("NPC %q grid_span_tiles owns facade size; omit size_tiles and size_class", key)
+			}
+			if npc.NoSpin {
+				return fmt.Errorf("NPC %q grid_span_tiles is fixed by its grid pose; omit no_spin", key)
 			}
 		}
 	}

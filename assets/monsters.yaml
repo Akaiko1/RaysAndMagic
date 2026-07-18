@@ -1142,6 +1142,7 @@ monsters:
   golden_thief_bug:
     type: "formless"
     name: "Golden Thief Bug"
+    boss: true
     level: 10
     max_hit_points: 1200
     armor_class: 55
@@ -1313,6 +1314,7 @@ monsters:
   old_samurai:
     type: "formless"
     name: "Samurai Warlord"
+    boss: true
     level: 17
     max_hit_points: 1600
     armor_class: 50
@@ -1494,6 +1496,7 @@ monsters:
   gorilla_titan:
     type: "formless"
     name: "Gorilla Titan"
+    boss: true
     level: 23
     max_hit_points: 1700
     armor_class: 58
@@ -1533,6 +1536,7 @@ monsters:
   orc_hero_boss:
     type: "formless"
     name: "Orc Warlord"
+    boss: true
     level: 24
     max_hit_points: 2400
     armor_class: 52

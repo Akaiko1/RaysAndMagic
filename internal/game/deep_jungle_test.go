@@ -51,7 +51,7 @@ func TestGorillaTitan_SummonsTwoHuntresses(t *testing.T) {
 	if gorilla.SummonCount != 2 || gorilla.SummonMax != 2 {
 		t.Fatalf("summon count/max = %d/%d, want 2/2", gorilla.SummonCount, gorilla.SummonMax)
 	}
-	if !cs.isBoss(gorilla) {
+	if !gorilla.IsBoss() {
 		t.Fatal("a monster with summon_chance>0 should use the boss kit")
 	}
 
@@ -111,7 +111,7 @@ func TestAggroWholeMap_RelentlessFromSpawn(t *testing.T) {
 	placePlayerAtTile(game, 5, 5, ts)
 
 	m := monsterPkg.NewMonster3DFromConfig(30*ts, 30*ts, "goblin", game.config)
-	m.SummonChance, m.SummonMonsters = 0.1, []string{"goblin"} // make it count as a boss, no wake gate
+	m.Boss = true // synthetic boss: the static YAML classification in production
 	m.AggroWholeMap = true
 	game.world.Monsters = []*monsterPkg.Monster3D{m}
 

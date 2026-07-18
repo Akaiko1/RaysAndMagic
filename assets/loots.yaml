@@ -29,6 +29,9 @@ loots:
       key: "leather_pants"
       chance: 0.10
     - type: "item"
+      key: "ordinary_key"  # roadside thieves carry a plundered wooden-door key
+      chance: 0.04
+    - type: "item"
       key: "bandit_card"
       chance: 0.01
 
@@ -50,6 +53,9 @@ loots:
     - type: "item"
       key: "iron_pants"
       chance: 0.05
+    - type: "item"
+      key: "ordinary_key"  # orc warband loot: a stolen door key
+      chance: 0.04
     - type: "item"
       key: "forest_orc_card"
       chance: 0.01
@@ -204,6 +210,9 @@ loots:
     - type: "weapon"
       key: "chitin_spear"
       chance: 0.06
+    - type: "item"
+      key: "ordinary_key"  # culvert scavengers steal keys from flooded doors
+      chance: 0.04
     - type: "item"
       key: "thief_bug_card"
       chance: 0.03
@@ -430,6 +439,9 @@ loots:
       key: "yari"
       chance: 0.05
     - type: "item"
+      key: "inlaid_key"  # palace guards carry keys to the reinforced halls
+      chance: 0.03
+    - type: "item"
       key: "ashigaru_firelock_card"
       chance: 0.01
 
@@ -446,6 +458,9 @@ loots:
     - type: "weapon"
       key: "naginata"
       chance: 0.05
+    - type: "item"
+      key: "inlaid_key"  # former retainers still carry a courtly key
+      chance: 0.03
     - type: "item"
       key: "ronin_marksman_card"
       chance: 0.01
@@ -648,6 +663,9 @@ loots:
     - type: "item"
       key: "clock_oil"
       chance: 0.08
+    - type: "item"
+      key: "inlaid_key"  # workshop manuals retain the belfry lock's key
+      chance: 0.03
 
   alarm_clock:
     - type: "item"
@@ -662,6 +680,9 @@ loots:
     - type: "item"
       key: "pocket_watch"
       chance: 0.05
+    - type: "item"
+      key: "inlaid_key"  # sentries are issued a key to the sealed clockwork
+      chance: 0.03
 
   grandfather_clock:
     - type: "item"
@@ -676,7 +697,17 @@ loots:
     - type: "item"
       key: "clock_oil"
       chance: 0.10
+    - type: "item"
+      key: "inlaid_key"  # even the tower's old custodians keep a belfry key
+      chance: 0.03
 
+# Death-only boss rewards apply to every monsters.yaml entry authored with
+# boss: true. They are intentionally outside per-monster tables so stealing
+# never rolls them and a new boss inherits the policy automatically.
+boss_death_loot:
+  - type: "item"
+    key: "skeleton_key"
+    chance: 0.05
 
 crates:
   # Roadside props (2026-07-14): boxes may hold sellable junk, the campfire is

@@ -271,7 +271,7 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 		// aggressive boss may cast Inferno or its low-HP blink from across the
 		// room instead of closing in. RT gates these to the attack moment; the
 		// asymmetry is intentional TB flavor - do not "fix" toward RT.
-		if gl.game.combat.isBoss(m) {
+		if m.IsBoss() {
 			if gl.game.combat.updateBoss(m, m.BossCD == 0, true) {
 				gl.game.refreshMonsterCollisionSolidity(m)
 				continue

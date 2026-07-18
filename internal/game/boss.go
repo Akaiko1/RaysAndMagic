@@ -11,16 +11,9 @@ import (
 	"ugataima/internal/world"
 )
 
-// Boss behaviour for the Golden Thief Bug (data-driven via monsters.yaml flags:
-// PassiveUntilQuest / InfernoChance / TeleportAtHP / TeleportChance). Kept generic
-// so any monster carrying those flags gets the same kit; only the sequencing lives
-// here, shared by the real-time and turn-based monster loops.
-
-// isBoss reports whether a monster carries any special boss behaviour flag.
-func (cs *CombatSystem) isBoss(m *monsterPkg.Monster3D) bool {
-	return m != nil && (m.PassiveUntilQuest != "" || m.InfernoChance > 0 ||
-		m.TeleportChance > 0 || m.SummonChance > 0 || m.EnrageAtHP > 0 || m.WardedByIdols)
-}
+// Boss behaviour is explicitly authored with boss: true in monsters.yaml.
+// Mechanics such as blink, Inferno, summoning, and enrage remain optional;
+// this file owns only their shared RT/TB sequencing.
 
 // bossDisabled reports whether crowd control should suppress a boss action:
 // stun (either mode), charm, or bind. The RT/TB monster loops already skip
@@ -34,7 +27,7 @@ func (cs *CombatSystem) bossDisabled(m *monsterPkg.Monster3D) bool {
 // PassiveUntilQuest gate and that quest is NOT yet completed. While evasive it
 // never attacks or chases - it only blinks away when the party closes in.
 func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
-	if m == nil || m.PassiveUntilQuest == "" {
+	if m == nil || !m.IsBoss() || m.PassiveUntilQuest == "" {
 		return false
 	}
 	if cs.game.questManager == nil {
@@ -51,6 +44,9 @@ func (cs *CombatSystem) bossEvasive(m *monsterPkg.Monster3D) bool {
 // skips the normal attack); false lets the normal melee/ranged attack proceed
 // (which honours IgnoresArmor).
 func (cs *CombatSystem) updateBoss(m *monsterPkg.Monster3D, ready, attackTick bool) bool {
+	if m == nil || !m.IsBoss() {
+		return false
+	}
 	// Latch any HP loss since last tick so the evasive blink can fire when hit.
 	if m.BossLastHP > 0 && m.HitPoints < m.BossLastHP {
 		m.BossHurtPending = true
@@ -259,7 +255,7 @@ func (cs *CombatSystem) tickEvasiveBossesTB() {
 		return
 	}
 	for _, m := range w.Monsters {
-		if m == nil || !m.IsAlive() || !cs.isBoss(m) || !cs.bossEvasive(m) {
+		if m == nil || !m.IsAlive() || !m.IsBoss() || !cs.bossEvasive(m) {
 			continue
 		}
 		// Crowd control suppresses the blink like any other action.

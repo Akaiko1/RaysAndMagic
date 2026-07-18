@@ -96,6 +96,11 @@ func (g *MMGame) npcDialogueText(npc *character.NPC) string {
 	if npc == nil || npc.DialogueData == nil {
 		return ""
 	}
+	// A locked door's body text reflects what the party can do to it right now:
+	// the authored greeting when an unlock exists, else a sealed-shut notice.
+	if lockedDoorClosed(npc) {
+		return g.lockedDoorGreeting(npc, len(g.availableDoorUnlocks(npc)) > 0)
+	}
 	if node := g.currentDialogNode(); node != nil {
 		return node.Response
 	}
@@ -269,6 +274,12 @@ func (g *MMGame) dialogueChoiceRect(npc *character.NPC, i, dialogX, dialogY, dia
 func (g *MMGame) visibleNPCChoices(npc *character.NPC) []*character.NPCDialogueChoice {
 	if npc == nil || npc.DialogueData == nil {
 		return nil
+	}
+	// Lock choices are a pure view of the current party and the authored door
+	// spec. Do not write them into DialogueData: several map instances may share
+	// the same YAML dialogue pointer, and UI state must not mutate that source.
+	if lockedDoorClosed(npc) {
+		return g.lockedDoorChoices(npc)
 	}
 	state := g.npcDialogueState(npc)
 	if state == npcStateConcluded {

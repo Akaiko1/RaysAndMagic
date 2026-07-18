@@ -89,7 +89,7 @@ func (gl *GameLoop) lootGuardEligible(m *monster.Monster3D) bool {
 		m.Relentless || m.BossAggro || m.AIFoe != nil {
 		return false
 	}
-	if gl != nil && gl.game != nil && gl.game.combat != nil && gl.game.combat.isBoss(m) {
+	if m.IsBoss() {
 		return false
 	}
 	return m.State == monster.StateIdle || m.State == monster.StatePatrolling

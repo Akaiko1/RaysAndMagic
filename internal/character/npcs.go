@@ -3,15 +3,18 @@ package character
 import "ugataima/internal/items"
 
 type NPC struct {
-	X, Y             float64
-	Key              string // npcs.yaml key this NPC was created from
-	Name             string
-	Type             string
-	Description      string
-	Sprite           string
-	VisitedSprite    string // optional art swap once Visited (an emptied barrel closes)
-	NoSpin           bool   // pin a non-person token to a fixed pose
-	GridSpanTiles    int    // >=2: render as a grid-aligned facade slab spanning this many tiles (clock tower); 0 = normal
+	X, Y          float64
+	Key           string // npcs.yaml key this NPC was created from
+	Name          string
+	Type          string
+	Description   string
+	Sprite        string
+	VisitedSprite string // optional art swap once Visited (an emptied barrel closes)
+	NoSpin        bool   // pin a non-person token to a fixed pose
+	// GridSpanTiles >=2: render a fixed grid-aligned facade spanning this many
+	// tiles. Its span and sprite aspect set its visual geometry; normal size and
+	// spin settings are invalid for this mode.
+	GridSpanTiles    int
 	GridSpanDir      string // span direction from the anchor tile: "e"|"s" (the slab runs along it)
 	RenderCategory   string // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
 	PromptVerb       string // interaction-hint verb override ("enter", ...); "" = derived from render_category
@@ -31,7 +34,13 @@ type NPC struct {
 	EncounterData    *NPCEncounter
 	Summons          []*NPCSummon
 	Lectern          *NPCLectern // spell-teaching book (loot-crate cousin); crate loot lives in loots.yaml
-	Visited          bool
+	// Door behavior and unlock spec copied from NPCData. Every render-category
+	// door has an explicit behavior: a persisted lock or an arena portcullis.
+	DoorBehavior    string
+	LockLabel       string
+	DoorKeyItemKeys []string // items.yaml keys; never display names
+	DoorStatReqs    []NPCDoorStatReq
+	Visited         bool
 }
 
 // NPC type discriminators that carry behavior (the authored `type:` field).
@@ -47,6 +56,13 @@ const (
 	NPCTypeCardCollector = "card_collector"
 	NPCTypeLootCrate     = "loot_crate"
 	NPCTypeSpellLectern  = "spell_lectern"
+	NPCTypeDoor          = "door" // a doorway; door_behavior chooses its mechanics
+
+	// NPCDoorBehaviorLocked is a persisted door opened by a matching key or a
+	// stat check. NPCDoorBehaviorChampionPortcullis opens while no arena champion
+	// remains alive on its map.
+	NPCDoorBehaviorLocked             = "locked"
+	NPCDoorBehaviorChampionPortcullis = "champion_portcullis"
 )
 
 // ValidNPCTypes is the closed set of authored NPC `type:` values. REQUIRED on
@@ -56,14 +72,32 @@ const (
 var ValidNPCTypes = map[string]bool{
 	NPCTypeEncounter: true, NPCTypeQuestGiver: true, NPCTypeMerchant: true,
 	NPCTypeSpellTrader: true, NPCTypeSkillTrainer: true, NPCTypeCardCollector: true,
-	NPCTypeLootCrate: true, NPCTypeSpellLectern: true,
+	NPCTypeLootCrate: true, NPCTypeSpellLectern: true, NPCTypeDoor: true,
 }
 
 // NPCTypeOrder is the canonical editor palette section order for NPC types:
 // people you deal with first, props after, the encounter catch-all last.
 var NPCTypeOrder = []string{
 	NPCTypeQuestGiver, NPCTypeMerchant, NPCTypeSpellTrader, NPCTypeSkillTrainer,
-	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeEncounter,
+	NPCTypeCardCollector, NPCTypeSpellLectern, NPCTypeLootCrate, NPCTypeDoor, NPCTypeEncounter,
+}
+
+// IsDoor reports whether an NPC participates in the authored door behavior
+// contract. Rendering remains a separate concern: render_category decides how
+// it is drawn, while this type decides what opens it.
+func IsDoor(npc *NPC) bool {
+	return npc != nil && npc.Type == NPCTypeDoor
+}
+
+// IsLockedDoor reports whether this is a persisted, key/stat-unlockable door.
+func IsLockedDoor(npc *NPC) bool {
+	return IsDoor(npc) && npc.DoorBehavior == NPCDoorBehaviorLocked
+}
+
+// IsChampionPortcullisDoor reports whether this door follows arena champion
+// state instead of a per-door persisted unlock state.
+func IsChampionPortcullisDoor(npc *NPC) bool {
+	return IsDoor(npc) && npc.DoorBehavior == NPCDoorBehaviorChampionPortcullis
 }
 
 // IsWalkUpPropType reports whether a `type:` is a walk-up interactable prop

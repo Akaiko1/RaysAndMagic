@@ -15,17 +15,17 @@ func TestValidateMonsterConfiguration_TeleportPairs(t *testing.T) {
 	}{
 		{
 			name:    "chance_without_threshold",
-			def:     MonsterDefinition{Name: "X", TeleportChance: 0.1},
+			def:     MonsterDefinition{Name: "X", Boss: true, TeleportChance: 0.1},
 			wantErr: "teleport_chance but no teleport_at_hp",
 		},
 		{
 			name:    "threshold_without_chance",
-			def:     MonsterDefinition{Name: "X", TeleportAtHP: 300},
+			def:     MonsterDefinition{Name: "X", Boss: true, TeleportAtHP: 300},
 			wantErr: "teleport_at_hp but no teleport_chance",
 		},
 		{
 			name: "complete_pair_ok",
-			def:  MonsterDefinition{Name: "X", TeleportAtHP: 300, TeleportChance: 0.1},
+			def:  MonsterDefinition{Name: "X", Boss: true, TeleportAtHP: 300, TeleportChance: 0.1},
 		},
 	}
 	for _, tc := range cases {

@@ -39,10 +39,12 @@ func npcHasSkillTraining(npc *character.NPC) bool {
 }
 
 // npcHasChoiceDialog reports whether the NPC presents a choice prompt - either
-// an encounter (combat / quest pickup) or a pure dialogue with selectable
-// options. Both flow through the same encounter-style UI and input handler.
+// an encounter (combat / quest pickup), a locked door with its derived unlock
+// options, or a pure dialogue with authored selectable options. Both flow
+// through the same encounter-style UI and input handler.
 func npcHasChoiceDialog(npc *character.NPC) bool {
-	return npc != nil && (npc.EncounterData != nil || (npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0))
+	return npc != nil && (npc.EncounterData != nil || lockedDoorClosed(npc) ||
+		(npc.DialogueData != nil && len(npc.DialogueData.Choices) > 0))
 }
 
 func npcSpellKeys(npc *character.NPC) []string {

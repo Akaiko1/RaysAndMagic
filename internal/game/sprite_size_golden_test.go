@@ -116,6 +116,8 @@ func computeGoldenSpriteSizes(t *testing.T) map[string]int {
 				RenderCategory: data.RenderCategory,
 				SizeClass:      data.SizeClass,
 				SizeTiles:      data.SizeTiles,
+				GridSpanTiles:  data.GridSpanTiles,
+				GridSpanDir:    data.GridSpanDir,
 			}
 			_, _, size, _ := g.renderHelper.NPCSpriteMetrics(npc, ex, ey, d)
 			out[fmt.Sprintf("npc/%s@%.0f", key, d)] = size

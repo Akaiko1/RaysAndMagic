@@ -19,16 +19,19 @@ type NPCConfig struct {
 
 // NPCData represents an NPC definition from the YAML file
 type NPCData struct {
-	Name             string               `yaml:"name"`
-	Type             string               `yaml:"type"`
-	Description      string               `yaml:"description"`
-	Sprite           string               `yaml:"sprite"`
-	VisitedSprite    string               `yaml:"visited_sprite,omitempty"`  // art swap once Visited (an emptied barrel closes)
-	NoSpin           bool                 `yaml:"no_spin,omitempty"`         // pin a non-person token to a fixed pose
-	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"` // >=2: grid-aligned facade slab spanning N tiles
-	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"`   // span direction from the anchor tile: e|s
-	RenderCategory   string               `yaml:"render_category"`           // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
-	PromptVerb       string               `yaml:"prompt_verb,omitempty"`     // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
+	Name          string `yaml:"name"`
+	Type          string `yaml:"type"`
+	Description   string `yaml:"description"`
+	Sprite        string `yaml:"sprite"`
+	VisitedSprite string `yaml:"visited_sprite,omitempty"` // art swap once Visited (an emptied barrel closes)
+	NoSpin        bool   `yaml:"no_spin,omitempty"`        // pin a non-person token to a fixed pose
+	// GridSpanTiles >=2 makes a fixed, grid-aligned facade spanning N tiles.
+	// Its span and sprite aspect are its complete visual-size contract, so it is
+	// mutually exclusive with size_tiles, size_class, and no_spin.
+	GridSpanTiles    int                  `yaml:"grid_span_tiles,omitempty"`
+	GridSpanDir      string               `yaml:"grid_span_dir,omitempty"` // span direction from the anchor tile: e|s
+	RenderCategory   string               `yaml:"render_category"`         // render class (standee/animated/wall_mounted/landmark/scenery/door/invisible); required, validated at load
+	PromptVerb       string               `yaml:"prompt_verb,omitempty"`   // interaction-hint verb override ("enter", ...); "" = derived (person=talk to, prop=investigate)
 	Transparent      bool                 `yaml:"transparent,omitempty"`
 	GroundTile       string               `yaml:"ground_tile,omitempty"`
 	SizeClass        string               `yaml:"size_class,omitempty"` // shared size tier (person, etc.); wins over SizeTiles
@@ -60,6 +63,22 @@ type NPCData struct {
 	// Lectern (type "spell_lectern") behavior block. Loot-crate behavior lives
 	// in loots.yaml `crates:` keyed by the NPC key.
 	Lectern *NPCLectern `yaml:"lectern,omitempty"`
+	// Door (type "door", render_category "door"): DoorBehavior is explicit so
+	// a special portcullis cannot accidentally acquire lock mechanics. Locked
+	// doors use items.yaml keys (not display names) and optional stat thresholds.
+	// The Skeleton Key (master_key attribute) opens every locked door regardless
+	// of the authored key list.
+	DoorBehavior    string           `yaml:"door_behavior,omitempty"`
+	LockLabel       string           `yaml:"lock_label,omitempty"`
+	DoorKeyItemKeys []string         `yaml:"door_key_items,omitempty"`
+	DoorStatReqs    []NPCDoorStatReq `yaml:"door_stat_reqs,omitempty"`
+}
+
+// NPCDoorStatReq is one "force it open" option: a single member whose effective
+// Stat meets Value may open the door by force (never consumes anything).
+type NPCDoorStatReq struct {
+	Stat  string `yaml:"stat"`  // Might|Intellect (effective stat)
+	Value int    `yaml:"value"` // threshold the member must meet
 }
 
 // NPCSummon maps a held statuette (by item Name) to the monster a statue
@@ -110,9 +129,11 @@ type NPCDialogueChoice struct {
 	// gold; buy_food charges Cost gold for Amount food. Required (fail-fast).
 	Cost   int `yaml:"cost,omitempty"`
 	Amount int `yaml:"amount,omitempty"`
-	// SummonIndex is set at runtime (not from YAML) when statue summon choices
-	// are built from the held statuettes; it indexes NPC.Summons.
-	SummonIndex int `yaml:"-"`
+	// RuntimeOptionIndex is set only on choices synthesized at runtime. It
+	// indexes the action-specific source for that choice (for example
+	// NPC.Summons or a derived door-unlock list); authored YAML choices must not
+	// depend on it.
+	RuntimeOptionIndex int `yaml:"-"`
 }
 
 // NPCEncounter represents an encounter definition
@@ -223,7 +244,7 @@ func validateNPCTypes(cfg *NPCConfig) error {
 			if npc != nil {
 				got = npc.Type
 			}
-			return fmt.Errorf("NPC %q has missing or unknown type %q (valid: encounter|quest_giver|merchant|spell_trader|skill_trainer|card_collector|loot_crate|spell_lectern)", key, got)
+			return fmt.Errorf("NPC %q has missing or unknown type %q (valid: %s)", key, got, strings.Join(NPCTypeOrder, "|"))
 		}
 	}
 	return nil
@@ -388,6 +409,10 @@ func CreateNPCFromConfig(key string, x, y float64) (*NPC, error) {
 		DialogueData:     data.Dialogue,
 		Summons:          data.Summons,
 		Lectern:          data.Lectern,
+		DoorBehavior:     data.DoorBehavior,
+		LockLabel:        data.LockLabel,
+		DoorKeyItemKeys:  data.DoorKeyItemKeys,
+		DoorStatReqs:     data.DoorStatReqs,
 	}
 
 	// Shop stock is capability-driven, not type-driven: ANY NPC that authors an

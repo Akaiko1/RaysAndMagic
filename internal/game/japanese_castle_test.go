@@ -86,7 +86,7 @@ func TestSamuraiBoss_DormantUntilArmoryQuest(t *testing.T) {
 	if !boss.IgnoresArmor {
 		t.Error("samurai should ignore armor")
 	}
-	if !cs.isBoss(boss) {
+	if !boss.IsBoss() {
 		t.Error("samurai must be recognized as a boss")
 	}
 

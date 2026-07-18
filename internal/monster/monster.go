@@ -241,6 +241,9 @@ type Monster3D struct {
 	PounceCDFrames        int // real-time cooldown countdown (frames)
 	PounceCDTurns         int // turn-based cooldown countdown (turns)
 
+	// Boss is the static YAML classification. Runtime code uses IsBoss rather
+	// than inferring bosshood from the currently-authored special abilities.
+	Boss bool
 	// Boss behaviour (data-driven; see the Golden Thief Bug). All zero/"" = off.
 	IgnoresArmor      bool    // melee bypasses the party's armor class
 	InfernoChance     float64 // 0..1 chance per action to cast a party-nova Inferno
@@ -412,6 +415,9 @@ func NewMonster3DFromConfig(x, y float64, monsterKey string, cfg *config.Config)
 func (m *Monster3D) IsInertSetPiece() bool {
 	return m != nil && (m.BossDormant || m.BossWarded || m.WarlordIdol)
 }
+
+// IsBoss returns the explicit YAML classification copied at spawn time.
+func (m *Monster3D) IsBoss() bool { return m != nil && m.Boss }
 
 func (m *Monster3D) TakeDamage(damage int, damageType DamageType) int {
 	return m.TakeDamageResist(damage, damageType, 0)

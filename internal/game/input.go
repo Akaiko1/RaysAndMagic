@@ -396,7 +396,7 @@ func (g *MMGame) startNewGameWithParty(party *character.Party) {
 		g.collisionSystem = collision.NewCollisionSystem(currentWorld, float64(g.config.World.TileSize))
 		g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(startX, startY))
 		currentWorld.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-		g.registerBuildingFootprints()
+		g.registerMapStaticCollision()
 
 		g.UpdateSkyAndGroundColors()
 		if g.collisionSystem != nil {
@@ -1399,7 +1399,7 @@ func (ih *InputHandler) switchToMap(targetMapKey string) {
 		ih.game.maybeRespawnMapMonsters()
 		// Register new world monsters
 		ih.game.world.RegisterMonstersWithCollisionSystem(ih.game.collisionSystem)
-		ih.game.registerBuildingFootprints()
+		ih.game.registerMapStaticCollision()
 	}
 
 	// Update visual systems
@@ -2781,6 +2781,9 @@ func (ih *InputHandler) executeEncounterChoice() {
 	case "enter_map":
 		ih.enterEncounterMap(choice.Map)
 
+	case "open_door":
+		ih.game.openLockedDoor(ih.game.dialogNPC, choice.RuntimeOptionIndex)
+
 	case "start_arena_duel":
 		ih.startArenaDuel(choice)
 
@@ -2809,7 +2812,7 @@ func (ih *InputHandler) executeEncounterChoice() {
 		ih.handleBuyFood(choice)
 
 	case "summon_dragon":
-		ih.summonDragonFromStatue(npc, choice.SummonIndex)
+		ih.summonDragonFromStatue(npc, choice.RuntimeOptionIndex)
 
 	case "open_roster":
 		ih.game.dialogActive = false
@@ -3174,9 +3177,9 @@ func (ih *InputHandler) buildStatueChoices(npc *character.NPC) {
 			for _, it := range ih.game.party.Inventory {
 				if it.Name == s.Statuette {
 					choices = append(choices, &character.NPCDialogueChoice{
-						Text:        fmt.Sprintf("Offer the %s Dragon Statuette", s.Label),
-						Action:      "summon_dragon",
-						SummonIndex: i,
+						Text:               fmt.Sprintf("Offer the %s Dragon Statuette", s.Label),
+						Action:             "summon_dragon",
+						RuntimeOptionIndex: i,
 					})
 					break
 				}

@@ -166,7 +166,7 @@ func TestOrdinaryMeleeAndRangedMobsFightCardSummonsTB(t *testing.T) {
 }
 
 // Every YAML boss must retaliate against card summons once it is active. The
-// test derives the roster through isBoss, so new boss definitions cannot be
+// test derives the roster through the explicit YAML boss flag, so new boss definitions cannot be
 // omitted accidentally. Quest-sealed bosses are explicitly activated here:
 // their sealed, inert pre-quest state is intentional and covered elsewhere.
 func TestEveryActiveBossFightsCardSummonsTB(t *testing.T) {
@@ -188,8 +188,8 @@ func TestEveryActiveBossFightsCardSummonsTB(t *testing.T) {
 	}
 }
 
-// activeBossKeys derives the boss roster from CombatSystem.isBoss rather than a
-// copied content list. Any future YAML boss with a special-boss flag is covered
+// activeBossKeys derives the boss roster from the explicit YAML classification
+// rather than a copied content list. Any future YAML boss is covered
 // by both the TB and RT summon-aggression matrices below.
 func activeBossKeys(t *testing.T) []string {
 	t.Helper()
@@ -199,7 +199,7 @@ func activeBossKeys(t *testing.T) []string {
 	sort.Strings(keys)
 	bossKeys := make([]string, 0, len(keys))
 	for _, key := range keys {
-		if probe.combat.isBoss(monsterPkg.NewMonster3DFromConfig(0, 0, key, probe.config)) {
+		if monsterPkg.NewMonster3DFromConfig(0, 0, key, probe.config).IsBoss() {
 			bossKeys = append(bossKeys, key)
 		}
 	}

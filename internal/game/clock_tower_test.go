@@ -43,6 +43,9 @@ func TestValidateNPCCommerce(t *testing.T) {
 		{"x": {GridSpanTiles: 1}},
 		{"x": {GridSpanTiles: 2}}, // missing dir
 		{"x": {GridSpanTiles: 5, GridSpanDir: "e"}},
+		{"x": {GridSpanTiles: 2, GridSpanDir: "e", SizeTiles: 2}},
+		{"x": {GridSpanTiles: 2, GridSpanDir: "e", SizeClass: "large"}},
+		{"x": {GridSpanTiles: 2, GridSpanDir: "e", NoSpin: true}},
 	}
 	for i, m := range bad {
 		if err := ValidateNPCCommerce(m); err == nil {

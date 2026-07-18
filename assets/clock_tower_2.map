@@ -6,7 +6,7 @@ IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 I$..U$$$$$$$..............$$$U.$$$I  >[tile:boiler], [tile:boiler], [tile:gearcluster], [tile:pipevalve], [tile:gearcluster], [tile:pipevalve], [tile:gearcluster], [tile:pipevalve], [tile:gearpile], [tile:partscrate], [tile:gearpile], [tile:blueprint], [tile:gearcluster], [tile:gearcluster]
 I$@.U...g.............g..........$I  >[npc:chest_gearwood], [tile:pipevalve], [tile:gearcluster]
 I$bgU.........g..................$I  >[tile:pipevalve], [tile:gearcluster]
-IUU.U.@..........@....@...$$$U...$I  >[npc:chest_gearwood], [npc:chest_gearwood], [npc:chest_gearwood], [tile:gearpile], [tile:partscrate], [tile:gearpile], [tile:blueprint]
+IUU@U.@..........@....@...$$$U...$I  >[npc:reinforced_door], [npc:chest_gearwood], [npc:chest_gearwood], [npc:chest_gearwood], [tile:gearpile], [tile:partscrate], [tile:gearpile], [tile:blueprint]
 I$...UUUU.UUUUUUUUUUUUUUUUUUUU....I  >[tile:pipevalve]
 I$...U.......................U....I  >[tile:pipevalve]
 I$...U....................g..U....I  >[tile:pipevalve]
@@ -16,13 +16,13 @@ I....U....UUUUUUU.UUUUUUU....U....I
 I....U....U.............U....U...$I  >[tile:pipevalve]
 I.........U$....g.....$.U....U....I  >[tile:gearpile], [tile:gearpile]
 I...$U....U.............U....U....I  >[tile:blueprint]
-I....U....U...III.III...U....U.g..I
+I....U....U...III@III...U....U.g..I  >[npc:steel_door]
 I....U....U...I.$..$I...U....U....I  >[tile:pipevalve], [tile:pipevalve]
 I....U....U.g.I$....I...U....U....I  >[tile:pipevalve]
 I....U1111U...I..@.$I...U1111U....I  >[npc:clock_stairs_to_3], [tile:pipevalve]
-I....U....U........g....U....U....I
+I....U....U...@....g@...U....U....I  >[npc:steel_door], [npc:steel_door]
 I....U....U...I$..g@I...U....U....I  >[npc:chest_chrono], [tile:pipevalve]
-I....U........III.III...U....U....I
+I....U........III@III...U....U....I  >[npc:steel_door]
 I$..$U....U..........g..U....U$...I  >[tile:gearcluster], [tile:gearcluster], [tile:pipevalve]
 I$..$U.bk.U.$..........$U.........I  >[tile:gearcluster], [tile:gearcluster], [tile:partscrate], [tile:partscrate]
 I$..$U.bb.U.............U....U$...I  >[tile:gearcluster], [tile:gearcluster], [tile:pipevalve]
@@ -32,7 +32,7 @@ I.bb.U......bk...............U....I
 I.bk.U......b................U....I
 I....U.......................U$...I  >[tile:boiler]
 IU..UUUUUUUUUUUUUUUU.UUUU.UUUU$...I  >[tile:boiler]
-I$..$..............$....$.....UU.UI  >[tile:pipevalve], [tile:gearpile], [tile:pipevalve], [tile:pipevalve]
+I$..$..............$....$.....UU@UI  >[npc:reinforced_door], [tile:pipevalve], [tile:gearpile], [tile:pipevalve], [tile:pipevalve]
 I...........bb...+........bk..U...I
 I.........................b...U.@.I  >[npc:chest_gearwood]
 I$..$............@.....$$$....U...I  >[npc:clock_stairs_to_1], [tile:gearpile], [tile:gearpile], [tile:gearcluster], [tile:blueprint], [tile:gearcluster]

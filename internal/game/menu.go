@@ -532,6 +532,7 @@ func (g *MMGame) clearTransientCombatState() {
 	// switch or a quick reload bypass the 5s.
 	g.clearDoorState()
 	g.clearBuildingEntities()
+	g.clearLockedDoorEntities()
 	g.projectileMutex.Lock()
 	if g.collisionSystem != nil {
 		// applySave rebuilds the collision system anyway; switchToMap keeps it,
@@ -1356,7 +1357,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		restoreMonsters := func(w *world.World3D, monsters []MonsterSave) {
 			sealedSpawn := make(map[string][2]float64)
 			for _, fresh := range w.Monsters {
-				if fresh != nil && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
+				if fresh != nil && fresh.IsBoss() && fresh.PassiveUntilQuest != "" && fresh.EvadeRadiusTiles == 0 &&
 					!completedQuests[fresh.PassiveUntilQuest] {
 					sealedSpawn[fresh.Key] = [2]float64{fresh.X, fresh.Y}
 				}
@@ -1383,7 +1384,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				// player action on the first frame after load could damage a still-sealed
 				// boss before the flag is set. Uses the same completed-quest set as the
 				// throne snap-back above.
-				m.BossDormant = m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
+				m.BossDormant = m.IsBoss() && m.PassiveUntilQuest != "" && m.EvadeRadiusTiles == 0 &&
 					!completedQuests[m.PassiveUntilQuest]
 				m.HitPoints = ms.HitPoints
 				m.ChampionTier = ms.ChampionTier
@@ -1477,7 +1478,7 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			}
 			if liveIdols > 0 {
 				for _, mm := range w.Monsters {
-					if mm != nil && mm.WardedByIdols {
+					if mm != nil && mm.IsBoss() && mm.WardedByIdols {
 						mm.BossWarded = true
 					}
 				}
@@ -1525,7 +1526,6 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 			g.collisionSystem = collision.NewCollisionSystem(g.world, float64(g.config.World.TileSize))
 			g.collisionSystem.RegisterEntity(newPlayerCollisionEntity(g.camera.X, g.camera.Y))
 			g.world.RegisterMonstersWithCollisionSystem(g.collisionSystem)
-			g.registerBuildingFootprints()
 		}
 	}
 
@@ -1565,6 +1565,12 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 				}
 			}
 		}
+	}
+	// Static authored blocks must come after NPC Visited restoration: a saved
+	// open door should not register a collision entity for one frame (or until a
+	// later map switch) while its sprite is already invisible.
+	if g.world != nil {
+		g.registerMapStaticCollision()
 	}
 
 	// Restore mode

@@ -3460,17 +3460,17 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// backing-bias draw as walls so the slab ends aren't depth-rejected
 		// against the walls they touch. Falls through when mis-authored (no
 		// flanking wall pair).
-		// Grid-span building (clock tower): ONE grid-aligned facade slab that
+		// Grid-span building (clock tower, pyramid): ONE grid-aligned facade slab that
 		// owns its whole footprint - length forced to the span, pixel height
-		// from the walls' formula scaled by the art's aspect (2:1 art on a
-		// 2-tile span = exactly 1 tile tall), bottom on the floor line.
+		// from the walls' formula scaled by the art's aspect, bottom on the floor
+		// line. It is free-standing, so it must NOT borrow a wall's depth bias.
 		if s.npc.GridSpanTiles >= 2 {
 			if bx, by, byaw, ok := r.game.buildingPose(s.npc); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				span := float64(s.npc.GridSpanTiles) * float64(r.game.config.GetTileSize())
 				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
 				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, float64(s.npc.GridSpanTiles)*aspect)
-				r.drawWallStandee(screen, sprite, wkey, bx, by, byaw, s.depthPerp, bh, btop+bh, sb, span)
+				r.drawStandeeSprite(screen, sprite, wkey, bx, by, byaw, s.depthPerp, bh, btop+bh, sb, sb, sb, true, false, span)
 				return
 			}
 		}

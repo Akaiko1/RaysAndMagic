@@ -14,19 +14,22 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		def     MonsterDefinition
 		wantErr bool
 	}{
-		{"inferno chance without damage", MonsterDefinition{InfernoChance: 0.1}, true},
+		{"inferno chance without damage", MonsterDefinition{Boss: true, InfernoChance: 0.1}, true},
 		{"poison chance without duration", MonsterDefinition{PoisonChance: 0.2}, true},
 		{"poison fully configured", MonsterDefinition{PoisonChance: 0.2, PoisonDurationSec: 15}, false},
-		{"dormant boss (passive, no evade) is valid", MonsterDefinition{PassiveUntilQuest: "q"}, false},
-		{"evasive without cooldown", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
-		{"evasive fully configured", MonsterDefinition{PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
-		{"summon chance without monsters", MonsterDefinition{SummonChance: 0.2}, true},
-		{"summon configured", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
+		{"boss-only behavior needs boss flag", MonsterDefinition{SummonChance: 0.2, SummonMonsters: []string{"rat"}}, true},
+		{"bare boss is valid", MonsterDefinition{Boss: true}, false},
+		{"dormant boss (passive, no evade) is valid", MonsterDefinition{Boss: true, PassiveUntilQuest: "q"}, false},
+		{"evasive without cooldown", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3}, true},
+		{"evasive fully configured", MonsterDefinition{Boss: true, PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1}, false},
+		{"summon chance without monsters", MonsterDefinition{Boss: true, SummonChance: 0.2}, true},
+		{"summon configured", MonsterDefinition{Boss: true, SummonChance: 0.2, SummonMonsters: []string{"rat"}}, false},
 		{"dragon breath chance without damage type", MonsterDefinition{DragonBreathChance: 0.33}, true},
 		{"dragon breath configured", MonsterDefinition{DragonBreathChance: 0.33, DragonBreathType: "fire"}, false},
-		{"enrage without effect", MonsterDefinition{EnrageAtHP: 100}, true},
-		{"enrage with damage mult", MonsterDefinition{EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
+		{"enrage without effect", MonsterDefinition{Boss: true, EnrageAtHP: 100}, true},
+		{"enrage with damage mult", MonsterDefinition{Boss: true, EnrageAtHP: 100, EnrageDamageMult: 1.5}, false},
 		{"fully configured boss", MonsterDefinition{
+			Boss:          true,
 			InfernoChance: 0.1, InfernoDamage: 28,
 			PassiveUntilQuest: "q", EvadeRadiusTiles: 3, BossCooldownSecs: 1,
 			SummonChance: 0.1, SummonMonsters: []string{"rat"},
@@ -48,6 +51,14 @@ func TestValidateMonsterConfiguration_BossFlagPairs(t *testing.T) {
 		if !tc.wantErr && err != nil {
 			t.Errorf("%s: unexpected error: %v", tc.name, err)
 		}
+	}
+}
+
+func TestSetupMonsterFromConfig_CopiesBossClassification(t *testing.T) {
+	m := &Monster3D{Resistances: make(map[DamageType]int)}
+	m.SetupMonsterFromConfig(&MonsterDefinition{Name: "Boss", Boss: true})
+	if !m.IsBoss() {
+		t.Fatal("boss: true must be copied to the runtime monster")
 	}
 }
 

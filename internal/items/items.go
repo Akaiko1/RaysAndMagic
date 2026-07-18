@@ -334,6 +334,8 @@ type ItemDefinitionFromYAML struct {
 	Revive                    bool
 	FullHeal                  bool
 	CurePoison                bool
+	DoorKey                   int
+	MasterKey                 int
 	OpensMap                  bool
 	PromotesLich              bool
 	Discardable               bool
@@ -469,6 +471,12 @@ func TryCreateItemFromYAML(itemKey string) (Item, error) {
 	}
 	if def.CurePoison {
 		attrs["cure_poison"] = 1
+	}
+	if def.DoorKey != 0 {
+		attrs["door_key"] = def.DoorKey
+	}
+	if def.MasterKey != 0 {
+		attrs["master_key"] = def.MasterKey
 	}
 
 	// Prefer flavor text if provided, else use description
