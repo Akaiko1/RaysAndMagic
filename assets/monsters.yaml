@@ -1,6 +1,6 @@
 monsters:
   # All radius values are in TILES (1 tile = 64 pixels)
-  # alert_radius: detection/aggro range in tiles
+  # alert_radius: detection/aggro range in tiles (minimum 4 for active monsters)
   # attack_radius: attack reach in tiles (typically 1 for melee, 2+ for ranged/reach weapons)
 
   # Basic Monsters
@@ -13,7 +13,7 @@ monsters:
     experience: 15
     damage_min: 4
     damage_max: 8
-    alert_radius: 3
+    alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.5
     gold_min: 1
@@ -67,7 +67,7 @@ monsters:
     experience: 35
     damage_min: 6
     damage_max: 9
-    alert_radius: 3
+    alert_radius: 4
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 0
@@ -90,7 +90,7 @@ monsters:
     experience: 120
     damage_min: 10
     damage_max: 20
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 5
@@ -112,7 +112,7 @@ monsters:
     experience: 25
     damage_min: 3
     damage_max: 5
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.8
     gold_min: 0
@@ -136,7 +136,7 @@ monsters:
     experience: 45
     damage_min: 7
     damage_max: 12
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 1.2
     gold_min: 2
@@ -582,7 +582,7 @@ monsters:
     experience: 125
     damage_min: 7
     damage_max: 17
-    alert_radius: 3  # 3 tiles (keen senses)
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.5
     gold_min: 2
@@ -632,7 +632,7 @@ monsters:
     experience: 45
     damage_min: 4
     damage_max: 9
-    alert_radius: 2  # 2 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     speed: 2.0
     gold_min: 1
@@ -692,7 +692,7 @@ monsters:
     fireburst_chance: 0.33
     fireburst_damage_min: 6
     fireburst_damage_max: 18
-    alert_radius: 3  # 1 tile (timid, small detection range)
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 1  # 1 tile (melee range)
     projectile_spell: "firebolt"
     ranged_attack_range: 3
@@ -728,7 +728,7 @@ monsters:
     experience: 55
     damage_min: 7
     damage_max: 10
-    alert_radius: 3  # 3 tiles
+    alert_radius: 4  # Minimum aggro range
     attack_radius: 2  # 2 tiles (ranged knives)
     projectile_weapon: "throwing_knife"
     ranged_attack_range: 2

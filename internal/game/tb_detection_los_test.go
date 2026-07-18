@@ -124,8 +124,8 @@ func runSightAggroScenario(t *testing.T, scenario sightAggroScenario, turnBased 
 // future mode-local radius/LoS check cannot silently drift from Monster3D.
 func TestSightAggroMatchesRealTimeAndTurnBased(t *testing.T) {
 	cases := []sightAggroScenario{
-		{name: "goblin inside authored radius", monsterKey: "goblin", distanceTiles: 3, want: true},
-		{name: "goblin outside authored radius", monsterKey: "goblin", distanceTiles: 4, want: false},
+		{name: "goblin at authored radius", monsterKey: "goblin", distanceTiles: 4, want: true},
+		{name: "goblin outside authored radius", monsterKey: "goblin", distanceTiles: 5, want: false},
 		{name: "alarm at authored seven-tile radius", monsterKey: "alarm_clock", distanceTiles: 7, want: true},
 		{name: "alarm outside authored radius", monsterKey: "alarm_clock", distanceTiles: 8, want: false},
 		{name: "wall blocks normal sight", monsterKey: "goblin", distanceTiles: 3, blocked: true, want: false},
