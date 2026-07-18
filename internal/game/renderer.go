@@ -2549,6 +2549,12 @@ type UnifiedSpriteRenderData struct {
 	monsterRenderY float64
 	// NPC specific
 	npc *character.NPC
+	// buildingSegment indexes the footprint tile this entry draws for a
+	// grid-span facade. A long slab breaks the whole-sprite painter sort (a
+	// nearer dune behind the facade's center still stands in front of its far
+	// end), so the collector emits one entry PER footprint tile, each sorted at
+	// its own tile depth and drawn column-clipped to that tile.
+	buildingSegment int
 	// Ground container (loot bag / treasure chest) specific
 	groundContainer *GroundContainer
 }
@@ -2855,6 +2861,31 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 
 		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
 
+		// A grid-span facade enters the painter sort PER FOOTPRINT TILE (see
+		// UnifiedSpriteRenderData.buildingSegment): each segment carries its own
+		// tile depth and draws only its column slice of the shared slab. ONLY in
+		// standee mode - the billboard fallback draws the whole facade per entry,
+		// so segmenting there would stack N copies (draws + alpha).
+		if npc.GridSpanTiles >= 2 && r.game.config.Graphics.Standee.Enabled {
+			for i, c := range r.game.buildingFootprintTiles(npc) {
+				_, segDepth, okSeg := cullAndProject(c[0], c[1], camX, camY, camDirX, camDirY, 0, viewDistSq)
+				if !okSeg {
+					continue
+				}
+				sprites = append(sprites, UnifiedSpriteRenderData{
+					spriteType:      SpriteTypeNPC,
+					screenX:         screenX,
+					screenY:         screenY,
+					spriteSize:      spriteSize,
+					depthPerp:       segDepth,
+					sprite:          sprite,
+					npc:             npc,
+					buildingSegment: i,
+				})
+			}
+			continue
+		}
+
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeNPC,
 			screenX:    screenX,
@@ -3117,7 +3148,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
 				centeredBottom := r.game.config.GetScreenHeight()/2 + s.spriteSize/2
-				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b, 0) {
+				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b, 0, wallDecorDepthBiasTiles) {
 					return
 				}
 			}
@@ -3451,7 +3482,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, 0)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, 0, wallDecorDepthBiasTiles)
 				return
 			}
 		}
@@ -3467,10 +3498,55 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		if s.npc.GridSpanTiles >= 2 {
 			if bx, by, byaw, ok := r.game.buildingPose(s.npc); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
-				span := float64(s.npc.GridSpanTiles) * float64(r.game.config.GetTileSize())
+				ts := float64(r.game.config.GetTileSize())
+				span := float64(s.npc.GridSpanTiles) * ts
 				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
-				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, float64(s.npc.GridSpanTiles)*aspect)
-				r.drawStandeeSprite(screen, sprite, wkey, bx, by, byaw, s.depthPerp, bh, btop+bh, sb, sb, sb, true, false, span)
+				// The facade's geometry comes from the FOOTPRINT CENTER depth for
+				// every segment - a per-segment depth would step the height at
+				// each tile boundary. The entry's own depthPerp is the sort key.
+				_, centerDepth, okc := r.game.renderHelper.projectToScreenX(bx, by)
+				if !okc {
+					return
+				}
+				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, float64(s.npc.GridSpanTiles)*aspect)
+				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bh, btop+bh, sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
+				if okSlab {
+					// Column-clip the shared slab to THIS entry's footprint tile
+					// (the painter sort placed the segment at its own tile depth).
+					// A boundary behind the camera plane is CLAMPED to just in
+					// front of it along the segment edge - never widened to the
+					// whole facade, which would re-break the per-segment sort.
+					tiles := r.game.buildingFootprintTiles(s.npc)
+					if s.buildingSegment >= 0 && s.buildingSegment < len(tiles) {
+						c := tiles[s.buildingSegment]
+						dirX, dirY := math.Cos(byaw), math.Sin(byaw)
+						e1x, e1y := c[0]-dirX*ts/2, c[1]-dirY*ts/2
+						e2x, e2y := c[0]+dirX*ts/2, c[1]+dirY*ts/2
+						cam := r.game.camera
+						camDX, camDY := math.Cos(cam.Angle), math.Sin(cam.Angle)
+						depthOf := func(x, y float64) float64 { return (x-cam.X)*camDX + (y-cam.Y)*camDY }
+						const nearEps = 1.0 // world px in front of the camera plane
+						d1, d2 := depthOf(e1x, e1y), depthOf(e2x, e2y)
+						if d1 >= nearEps || d2 >= nearEps { // both behind = segment invisible
+							if d1 < nearEps {
+								t := (nearEps - d1) / (d2 - d1)
+								e1x, e1y = e1x+(e2x-e1x)*t, e1y+(e2y-e1y)*t
+							} else if d2 < nearEps {
+								t := (nearEps - d2) / (d1 - d2)
+								e2x, e2y = e2x+(e1x-e2x)*t, e2y+(e1y-e2y)*t
+							}
+							x1, _, ok1 := r.game.renderHelper.projectToScreenX(e1x, e1y)
+							x2, _, ok2 := r.game.renderHelper.projectToScreenX(e2x, e2y)
+							if ok1 && ok2 {
+								if x1 > x2 {
+									x1, x2 = x2, x1
+								}
+								r.drawStandeeSlabColumns(screen, slab, x1, x2)
+							}
+						}
+					}
+				}
+				r.standeeSurfaces = slab.surfaces[:0]
 				return
 			}
 		}
@@ -3484,7 +3560,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// no billboard rounding, no overscan, no art stretch.
 				doorSpan := float64(r.game.config.GetTileSize())
 				doorH, doorTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, 1.0)
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, doorH, doorTop+doorH, sb, doorSpan)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, doorH, doorTop+doorH, sb, doorSpan, doorDepthBiasTiles)
 				return
 			}
 		}

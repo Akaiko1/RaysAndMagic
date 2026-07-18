@@ -654,19 +654,31 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 }
 
 // drawWallStandee draws a token flush to a wall (pose from wallStickPose),
-// applying the backing-wall depth bias so the sprite-vs-wall test doesn't reject
-// it. bottomY sets the vertical anchor: floor-anchored for full NPC gates,
+// applying a backing-wall depth bias so the sprite-vs-wall test doesn't reject
+// it. depthBiasTiles is that allowance in TILES: how far behind a wall's front
+// face a column may sit and still draw. COPLANAR decor (pictures, levers - the
+// slab lies ON the wall face, and at corners a perpendicular wall sliver can
+// front-run it) needs a generous 0.6; a PERPENDICULAR door slab only meets its
+// flanking walls at the seam columns, so it takes a small epsilon - a larger
+// one lets the door's edge paint over the flanking wall at oblique angles.
+// bottomY sets the vertical anchor: floor-anchored for full NPC gates,
 // mid-wall for shrunk decoration tiles. worldLength > 0 forces the slab's world
 // span (doors must bridge their opening exactly - the projected billboard width
 // rounds short and leaves cracks against the flanking walls); 0 keeps the
 // projected width. Single source for both wall-mount draw sites (NPC +
 // wall_prop tile). Returns drawStandeeSprite's drawn flag.
-func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32, worldLength float64) bool {
-	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * 0.6
+func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32, worldLength, depthBiasTiles float64) bool {
+	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * depthBiasTiles
 	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength)
 	r.standeeDepthBias = 0
 	return drew
 }
+
+// Depth-bias tiers for drawWallStandee (see its doc).
+const (
+	wallDecorDepthBiasTiles = 0.6  // coplanar wall decor
+	doorDepthBiasTiles      = 0.08 // perpendicular door slab: seam epsilon only
+)
 
 // wallStickPose returns the render position + slab yaw for a wall-mounted standee:
 // it slides from the tile centre toward the nearest SOLID (wall) orthogonal
