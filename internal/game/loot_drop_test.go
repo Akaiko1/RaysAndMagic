@@ -19,7 +19,11 @@ func assertLootDrops(t *testing.T, monsterKey string, trials int) {
 	}
 	monsterPkg.MustLoadMonsterConfig("../../assets/monsters.yaml")
 
-	entries := config.GetLootTable(monsterKey)
+	def, err := monsterPkg.MonsterConfig.GetMonsterByKey(monsterKey)
+	if err != nil {
+		t.Fatalf("load monster %s: %v", monsterKey, err)
+	}
+	entries := config.GetLootTable(monsterKey, def.Boss)
 	if len(entries) == 0 {
 		t.Fatalf("expected %s loot entries", monsterKey)
 	}

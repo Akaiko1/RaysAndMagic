@@ -407,7 +407,7 @@ func buildMobInfo(key string, def monster.MonsterDefinition) []infoLine {
 	if def.GoldMax > 0 {
 		addc(mobStatGold, "Gold %d-%d", def.GoldMin, def.GoldMax)
 	}
-	entries := config.GetLootTable(key)
+	entries := config.GetLootTable(key, def.Boss)
 	if len(entries) == 0 {
 		addc(mobStatHeader, "(no item drops)")
 	}

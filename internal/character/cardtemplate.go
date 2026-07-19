@@ -592,13 +592,18 @@ func ItemCardSections(def *config.ItemDefinitionConfig) []CardSection {
 		effects.Add("%s", ln)
 	}
 
+	usage := CardSection{Title: "USAGE"}
+	for _, ln := range def.TooltipUsageLines() {
+		usage.Add("%s", ln)
+	}
+
 	rules := CardSection{Title: "RULES"}
 	if hasArmorSkill {
 		rules.Add("Requires: %s Skill", strings.Title(def.ArmorType))
 		rules.Add("Grandmaster: +%d%% Perfect Dodge while worn", ArmorGMDodgeBonus)
 	}
 
-	return []CardSection{defense, effects, rules}
+	return []CardSection{defense, effects, usage, rules}
 }
 
 func (s *CardSection) containsText(t string) bool {

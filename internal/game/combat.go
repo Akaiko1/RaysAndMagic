@@ -2211,7 +2211,7 @@ func (cs *CombatSystem) trySleightOfHand(attacker *character.MMCharacter, monste
 		fmt.Sprintf("%s tries to pick %s's pocket!", attacker.Name, monster.Name),
 		combatMessagePurple,
 	)
-	if stolen := cs.rollMonsterPilferLoot(monster); len(stolen) > 0 {
+	if stolen := cs.rollMonsterLoot(monster); len(stolen) > 0 {
 		for _, it := range stolen {
 			cs.game.party.AddItem(it)
 			cs.game.AddColoredCombatMessage(
@@ -4847,33 +4847,21 @@ func (cs *CombatSystem) armorMasteryBonus(char *character.MMCharacter, armor ite
 	return 0
 }
 
-// rollMonsterAuthoredLoot resolves only a monster's normal YAML loot table.
-// Sleight of Hand uses this path directly; the death path appends the separate
-// global boss reward table, so stealing can never roll a death-only reward.
-func (cs *CombatSystem) rollMonsterAuthoredLoot(monster *monsterPkg.Monster3D) []items.Item {
+// monsterLootEntries resolves the same normal table for every loot consumer.
+// The universal boss pool is part of this table, so it is neither death-only
+// nor a special exception to Sleight of Hand.
+func (cs *CombatSystem) monsterLootEntries(monster *monsterPkg.Monster3D) []config.LootEntry {
 	if monster == nil {
 		return nil
 	}
 	// Resolve loot by the monster's canonical YAML key (always set), NOT by
 	// name: several monsters can share a display Name (the four elemental
 	// dragons are all "Dragon"), so a name lookup would scramble their loot.
-	return rollLootEntries(config.GetLootTable(monster.Key))
+	return config.GetLootTable(monster.Key, monster.IsBoss())
 }
 
-// monsterDeathLootEntries adds the globally-authored boss-only rewards to a
-// monster's normal table. It stays separate from the pilfer path: a living
-// monster can be robbed of its own table, never of death-only rewards.
-func (cs *CombatSystem) monsterDeathLootEntries(monster *monsterPkg.Monster3D) []config.LootEntry {
-	if monster == nil {
-		return nil
-	}
-	entries := config.GetLootTable(monster.Key)
-	if !monster.IsBoss() {
-		return entries
-	}
-	allEntries := make([]config.LootEntry, 0, len(entries)+len(config.GetBossDeathLoot()))
-	allEntries = append(allEntries, entries...)
-	return append(allEntries, config.GetBossDeathLoot()...)
+func (cs *CombatSystem) rollMonsterLoot(monster *monsterPkg.Monster3D) []items.Item {
+	return rollLootEntries(cs.monsterLootEntries(monster))
 }
 
 // rollLootEntries resolves independent loot chances into items. Both normal
@@ -4893,15 +4881,9 @@ func rollLootEntries(entries []config.LootEntry) []items.Item {
 	return drops
 }
 
-// rollMonsterPilferLoot returns only authored inventory; death-only rewards
-// remain exclusive to awardExperienceAndGold's kill path.
-func (cs *CombatSystem) rollMonsterPilferLoot(monster *monsterPkg.Monster3D) []items.Item {
-	return cs.rollMonsterAuthoredLoot(monster)
-}
-
 // checkMonsterLootDrop handles loot drops when monsters are killed.
 func (cs *CombatSystem) checkMonsterLootDrop(monster *monsterPkg.Monster3D) []items.Item {
-	return rollLootEntries(cs.monsterDeathLootEntries(monster))
+	return cs.rollMonsterLoot(monster)
 }
 
 // randomLivingMember returns a uniformly-random alive+conscious party member

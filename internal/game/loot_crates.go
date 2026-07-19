@@ -9,6 +9,7 @@ import (
 	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 )
 
@@ -295,7 +296,13 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 	}
 	sort.Strings(keyList)
 	for _, key := range keyList {
-		for _, e := range config.GetLootTable(key) {
+		isBoss := false
+		if monsterPkg.MonsterConfig != nil {
+			if def, err := monsterPkg.MonsterConfig.GetMonsterByKey(key); err == nil {
+				isBoss = def.Boss
+			}
+		}
+		for _, e := range config.GetLootTable(key, isBoss) {
 			rarity := lootEntryRarity(e)
 			tier := rarityTier(rarity)
 			if exactRarity != "" && rarity != exactRarity {

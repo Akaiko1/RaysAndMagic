@@ -1554,6 +1554,11 @@ items:
     type: "trinket"
     description: "A plain iron key - fits the simple lock of a wooden door"
     flavor: "One turn, one door, and it never turns again."
+    tooltip_effects:
+      - "Opens wooden doors"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Consumed when it opens a door"
     rarity: "common"
     value: 30
     door_key: 1
@@ -1563,6 +1568,11 @@ items:
     type: "trinket"
     description: "A silver key set with a sapphire eye - bites reinforced and steel locks alike"
     flavor: "The gem is warm. The lock it seeks is warmer."
+    tooltip_effects:
+      - "Opens reinforced and steel doors"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Consumed when it opens a door"
     rarity: "rare"
     value: 180
     door_key: 1
@@ -1572,6 +1582,11 @@ items:
     type: "trinket"
     description: "A bone-wrought master key that opens any door in the land - and is never spent"
     flavor: "Every lock was cut from the same first key. This is that key."
+    tooltip_effects:
+      - "Opens any locked door"
+    tooltip_usage:
+      - "Choose at a locked door"
+      - "Never consumed"
     rarity: "legendary"
     value: 900
     master_key: 1

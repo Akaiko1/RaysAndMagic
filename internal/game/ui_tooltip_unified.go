@@ -667,7 +667,7 @@ func buildTrapTooltipUnified(key string, def *config.TrapDefinitionConfig, char 
 
 // -------------------------------------------------- misc item categories ----
 
-func buildSimpleItemTooltipUnified(item items.Item, title string, usage []string, full bool) string {
+func buildSimpleItemTooltipUnified(item items.Item, title string, defaultUsage []string, full bool) string {
 	def, _, ok := config.GetItemDefinitionByName(item.Name)
 	subtitle := itemKindLabel(item)
 	if ok && def != nil && def.Rarity != "" {
@@ -678,6 +678,10 @@ func buildSimpleItemTooltipUnified(item items.Item, title string, usage []string
 		for _, ln := range def.EffectLines() {
 			effect.Add("%s", ln)
 		}
+	}
+	usage := defaultUsage
+	if ok && def != nil && len(def.TooltipUsage) > 0 {
+		usage = def.TooltipUsageLines()
 	}
 	use := ttSection{Title: "USAGE"}
 	for _, u := range usage {

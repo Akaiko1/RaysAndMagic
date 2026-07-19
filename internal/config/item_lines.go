@@ -89,7 +89,7 @@ func (d *ItemDefinitionConfig) ResistLines() []string {
 }
 
 // EffectLines is the full character-independent mechanics list: armor values,
-// stat bonuses, resistances and consumable behavior.
+// stat bonuses, resistances, consumable behavior, and authored tooltip effects.
 func (d *ItemDefinitionConfig) EffectLines() []string {
 	var lines []string
 	if d.ArmorClassBase > 0 {
@@ -136,11 +136,18 @@ func (d *ItemDefinitionConfig) EffectLines() []string {
 	if d.PromotesLich {
 		lines = append(lines, "Offers a party member the path of the Lich")
 	}
+	lines = append(lines, d.TooltipEffects...)
 	if cl := d.CardEffectLines(); len(cl) > 0 {
 		lines = append(lines, "Collection: "+strings.Join(cl, ", "))
 	}
 	lines = append(lines, d.SetLines()...)
 	return lines
+}
+
+// TooltipUsageLines returns authored usage text for simple item cards. The
+// copy prevents a presentation caller from mutating the loaded YAML config.
+func (d *ItemDefinitionConfig) TooltipUsageLines() []string {
+	return append([]string(nil), d.TooltipUsage...)
 }
 
 // SetLines describes the armor set this piece belongs to and its completed-set

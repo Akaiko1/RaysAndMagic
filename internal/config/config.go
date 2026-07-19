@@ -1326,18 +1326,23 @@ func GetItemSet(key string) *ItemSetConfig {
 }
 
 type ItemDefinitionConfig struct {
-	Name         string `yaml:"name"`
-	Type         string `yaml:"type"` // armor|accessory|consumable|quest
-	ArmorType    string `yaml:"armor_category,omitempty"`
-	Description  string `yaml:"description"`          // Gameplay-neutral summary (optional)
-	Flavor       string `yaml:"flavor,omitempty"`     // Short artistic line for tooltip
-	EquipSlot    string `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
-	Value        int    `yaml:"value,omitempty"`      // Gold value
-	Rarity       string `yaml:"rarity,omitempty"`
-	OpensMap     bool   `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
-	PromotesLich bool   `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
-	Discardable  bool   `yaml:"discardable,omitempty"`   // quest item the player may still throw away
-	Set          string `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type"` // armor|accessory|consumable|quest
+	ArmorType   string `yaml:"armor_category,omitempty"`
+	Description string `yaml:"description"`      // Gameplay-neutral summary (optional)
+	Flavor      string `yaml:"flavor,omitempty"` // Short artistic line for tooltip
+	// TooltipEffects and TooltipUsage are authored player-facing mechanics.
+	// Keeping their text in YAML lets the game tooltip and map-editor card share
+	// the same wording without item-key-specific presentation code.
+	TooltipEffects []string `yaml:"tooltip_effects,omitempty"`
+	TooltipUsage   []string `yaml:"tooltip_usage,omitempty"`
+	EquipSlot      string   `yaml:"equip_slot,omitempty"` // Preferred equip slot (armor|helmet|boots|belt|amulet|ring)
+	Value          int      `yaml:"value,omitempty"`      // Gold value
+	Rarity         string   `yaml:"rarity,omitempty"`
+	OpensMap       bool     `yaml:"opens_map,omitempty"`     // Quest items that open the map overlay
+	PromotesLich   bool     `yaml:"promotes_lich,omitempty"` // using this item offers a member the Lich path
+	Discardable    bool     `yaml:"discardable,omitempty"`   // quest item the player may still throw away
+	Set            string   `yaml:"set,omitempty"`           // armor-set key (item_sets) this piece belongs to
 	// Optional numeric stats to un-hardcode item effects
 	ArmorClassBase            int `yaml:"armor_class_base,omitempty"`
 	EnduranceScalingDivisor   int `yaml:"endurance_scaling_divisor,omitempty"`
@@ -1524,9 +1529,10 @@ func GetItemDefinitionByName(name string) (*ItemDefinitionConfig, string, bool) 
 
 type LootTablesConfig struct {
 	Loots map[string][]LootEntry `yaml:"loots"`
-	// BossDeathLoot is appended only when a boss dies. It is separate from a
-	// monster's authored table so living monsters cannot yield it through theft.
-	BossDeathLoot []LootEntry `yaml:"boss_death_loot,omitempty"`
+	// BossLoot is appended to the normal loot table of every YAML-classified
+	// boss. This keeps universal boss drops data-driven without giving kills,
+	// theft, crates, and editor views divergent tables.
+	BossLoot []LootEntry `yaml:"boss_loot,omitempty"`
 	// Named weighted pools (distinct from the per-monster Loots lists above):
 	// one invocation yields `Rolls` weighted picks plus a gold range. Used by zone
 	// containers (sword racks) that grant a random ZONE item, never a unique -
@@ -1628,7 +1634,7 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	if err := validateWeightedLootTables(&loots); err != nil {
 		return nil, err // don't publish invalid data to the process global
 	}
-	if err := validateBossDeathLoot(&loots); err != nil {
+	if err := validateBossLoot(&loots); err != nil {
 		return nil, err
 	}
 	if err := validateCrates(&loots); err != nil {
@@ -1638,31 +1644,30 @@ func LoadLootTables(filename string) (*LootTablesConfig, error) {
 	return &loots, nil
 }
 
-// validateBossDeathLoot validates the one global death-only reward pool. It
-// uses the same entry contract as a normal monster table, but has no weighted
-// picks: each entry carries its own independent chance.
-func validateBossDeathLoot(lt *LootTablesConfig) error {
-	for i, e := range lt.BossDeathLoot {
+// validateBossLoot validates the global entries appended to every boss table.
+// They use the same independent-chance contract as normal monster loot.
+func validateBossLoot(lt *LootTablesConfig) error {
+	for i, e := range lt.BossLoot {
 		if e.Chance < 0 || e.Chance > 1 {
-			return fmt.Errorf("boss_death_loot[%d] %q: chance must be in [0,1]", i, e.Key)
+			return fmt.Errorf("boss_loot[%d] %q: chance must be in [0,1]", i, e.Key)
 		}
 		switch e.Type {
 		case "weapon":
 			if GlobalWeapons == nil {
-				return fmt.Errorf("boss_death_loot[%d] %q: weapons not loaded", i, e.Key)
+				return fmt.Errorf("boss_loot[%d] %q: weapons not loaded", i, e.Key)
 			}
 			if _, ok := GlobalWeapons.Weapons[e.Key]; !ok {
-				return fmt.Errorf("boss_death_loot[%d]: unknown weapon key %q", i, e.Key)
+				return fmt.Errorf("boss_loot[%d]: unknown weapon key %q", i, e.Key)
 			}
 		case "item":
 			if GlobalItems == nil {
-				return fmt.Errorf("boss_death_loot[%d] %q: items not loaded", i, e.Key)
+				return fmt.Errorf("boss_loot[%d] %q: items not loaded", i, e.Key)
 			}
 			if _, ok := GetItemDefinition(e.Key); !ok {
-				return fmt.Errorf("boss_death_loot[%d]: unknown item key %q", i, e.Key)
+				return fmt.Errorf("boss_loot[%d]: unknown item key %q", i, e.Key)
 			}
 		default:
-			return fmt.Errorf("boss_death_loot[%d] %q has bad type %q (want weapon|item)", i, e.Key, e.Type)
+			return fmt.Errorf("boss_loot[%d] %q has bad type %q (want weapon|item)", i, e.Key, e.Type)
 		}
 	}
 	return nil
@@ -1880,21 +1885,29 @@ func MustLoadLootTables(filename string) *LootTablesConfig {
 	return lt
 }
 
-func GetLootTable(monsterKey string) []LootEntry {
+// GetLootTable returns the complete ordinary loot table for one monster.
+// Boss classification is authored in monsters.yaml and passed by the caller so
+// the universal boss pool is resolved identically by every consumer.
+func GetLootTable(monsterKey string, isBoss bool) []LootEntry {
 	if GlobalLoots == nil {
 		return nil
 	}
-	return GlobalLoots.Loots[monsterKey]
+	authored := GlobalLoots.Loots[monsterKey]
+	if !isBoss || len(GlobalLoots.BossLoot) == 0 {
+		return authored
+	}
+	entries := make([]LootEntry, 0, len(authored)+len(GlobalLoots.BossLoot))
+	entries = append(entries, authored...)
+	return append(entries, GlobalLoots.BossLoot...)
 }
 
-// GetBossDeathLoot returns the global rewards added only after a recognized
-// boss dies. It is deliberately separate from GetLootTable, which is also used
-// by pickpocketing and map-loot container rolls.
-func GetBossDeathLoot() []LootEntry {
+// GetBossLoot returns the globally-authored entries appended to every boss's
+// normal loot table.
+func GetBossLoot() []LootEntry {
 	if GlobalLoots == nil {
 		return nil
 	}
-	return GlobalLoots.BossDeathLoot
+	return GlobalLoots.BossLoot
 }
 
 // Helper functions for easy access to commonly used values

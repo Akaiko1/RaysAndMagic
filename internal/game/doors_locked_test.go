@@ -1,6 +1,7 @@
 package game
 
 import (
+	"strings"
 	"testing"
 
 	"ugataima/internal/character"
@@ -44,6 +45,48 @@ func TestKeyItemsCarryDoorAttributes(t *testing.T) {
 	}
 	if !items.CreateItemFromYAML("skeleton_key").Stackable() {
 		t.Error("keys are trinkets and must stack")
+	}
+}
+
+func TestKeyTooltipsShareYAMLMechanicsWithEditor(t *testing.T) {
+	g := crateTestGame(t)
+	cases := []struct {
+		key     string
+		effects []string
+		usage   []string
+	}{
+		{"ordinary_key", []string{"Opens wooden doors"}, []string{"Choose at a locked door", "Consumed when it opens a door"}},
+		{"inlaid_key", []string{"Opens reinforced and steel doors"}, []string{"Choose at a locked door", "Consumed when it opens a door"}},
+		{"skeleton_key", []string{"Opens any locked door"}, []string{"Choose at a locked door", "Never consumed"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			def, ok := config.GetItemDefinition(tc.key)
+			if !ok || def == nil {
+				t.Fatalf("missing item definition for %q", tc.key)
+			}
+			if got, want := strings.Join(def.TooltipEffects, "\n"), strings.Join(tc.effects, "\n"); got != want {
+				t.Errorf("tooltip_effects = %q, want %q", got, want)
+			}
+			if got, want := strings.Join(def.TooltipUsage, "\n"), strings.Join(tc.usage, "\n"); got != want {
+				t.Errorf("tooltip_usage = %q, want %q", got, want)
+			}
+
+			tooltip := GetItemTooltip(items.CreateItemFromYAML(tc.key), nil, g.combat, false)
+			editorCard := strings.Join(character.RenderCardLines(character.ItemCardSections(def), true), "\n")
+			for _, line := range append(append([]string{}, def.TooltipEffects...), def.TooltipUsageLines()...) {
+				if !strings.Contains(tooltip, line) {
+					t.Errorf("game tooltip missing YAML line %q:\n%s", line, tooltip)
+				}
+				if !strings.Contains(editorCard, line) {
+					t.Errorf("editor card missing YAML line %q:\n%s", line, editorCard)
+				}
+			}
+			if strings.Contains(tooltip, "Collectible; sell to merchants") {
+				t.Errorf("key tooltip must not use generic trinket usage:\n%s", tooltip)
+			}
+		})
 	}
 }
 
@@ -200,19 +243,19 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 
 	wantOwners := map[string]map[string]bool{
 		"ordinary_key": {"bandit": true, "forest_orc": true, "thief_bug": true},
-		"inlaid_key":   {"ashigaru_firelock": true, "ronin_marksman": true, "possessed_tome": true, "alarm_clock": true, "grandfather_clock": true},
+		"inlaid_key": {
+			"ashigaru_firelock": true, "ronin_marksman": true, "possessed_tome": true, "alarm_clock": true, "grandfather_clock": true,
+			"elf_archer": true, "elf_swordsman": true, "archmage": true, "lich": true, "lich_king": true,
+		},
 	}
 	actualOwners := map[string]map[string]bool{"ordinary_key": {}, "inlaid_key": {}}
-	bossDeathLoot := config.GetBossDeathLoot()
-	if len(bossDeathLoot) != 1 || bossDeathLoot[0].Type != "item" || bossDeathLoot[0].Key != "skeleton_key" || bossDeathLoot[0].Chance != 0.05 {
-		t.Fatalf("boss_death_loot = %+v, want one 5%% Skeleton Key entry", bossDeathLoot)
+	bossLoot := config.GetBossLoot()
+	if len(bossLoot) != 1 || bossLoot[0].Type != "item" || bossLoot[0].Key != "skeleton_key" || bossLoot[0].Chance != 0.05 {
+		t.Fatalf("boss_loot = %+v, want one 5%% Skeleton Key entry", bossLoot)
 	}
 	for _, monsterKey := range monsterPkg.MonsterConfig.GetAllMonsterKeys() {
 		monster := monsterPkg.NewMonster3DFromConfig(0, 0, monsterKey, g.config)
-		for _, entry := range config.GetLootTable(monsterKey) {
-			if entry.Key == "skeleton_key" {
-				t.Fatalf("%s authors Skeleton Key in loots.yaml; it must be a boss death reward", monsterKey)
-			}
+		for _, entry := range cs.monsterLootEntries(monster) {
 			if owners, tracked := actualOwners[entry.Key]; tracked {
 				if monster.IsBoss() {
 					t.Errorf("boss %s authors %s; ordinary and inlaid keys belong only to normal mobs", monsterKey, entry.Key)
@@ -221,13 +264,13 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 			}
 		}
 		hasSkeletonKey := false
-		for _, entry := range cs.monsterDeathLootEntries(monster) {
+		for _, entry := range cs.monsterLootEntries(monster) {
 			if entry.Key == "skeleton_key" {
 				hasSkeletonKey = true
 			}
 		}
 		if hasSkeletonKey != monster.IsBoss() {
-			t.Errorf("boss death loot for %s includes Skeleton Key = %v, want %v", monsterKey, hasSkeletonKey, monster.IsBoss())
+			t.Errorf("normal loot for %s includes Skeleton Key = %v, want %v", monsterKey, hasSkeletonKey, monster.IsBoss())
 		}
 	}
 	for key, want := range wantOwners {
@@ -240,6 +283,46 @@ func TestDoorKeyLootAndSkeletonKeyPolicy(t *testing.T) {
 				t.Errorf("%s missing from normal monster %s", key, monsterKey)
 			}
 		}
+	}
+}
+
+func TestBossLootUsesTheSameTableForDeathAndSleightOfHand(t *testing.T) {
+	g, thief := newThiefTestGame(t)
+	previousLoots := config.GlobalLoots
+	t.Cleanup(func() { config.GlobalLoots = previousLoots })
+	if _, err := config.LoadLootTables("../../assets/loots.yaml"); err != nil {
+		t.Fatalf("load loots: %v", err)
+	}
+	// Force the table entry to land so this test exercises the two real loot
+	// paths rather than relying on a 5%% sample.
+	config.GlobalLoots.BossLoot = []config.LootEntry{{Type: "item", Key: "skeleton_key", Chance: 1}}
+
+	boss := monsterPkg.NewMonster3DFromConfig(g.camera.X+64, g.camera.Y, "golden_thief_bug", g.config)
+	if boss == nil || !boss.IsBoss() {
+		t.Fatal("golden_thief_bug must be a configured boss")
+	}
+
+	containsSkeletonKey := func(drops []items.Item) bool {
+		for _, drop := range drops {
+			if drop.Name == "Skeleton Key" {
+				return true
+			}
+		}
+		return false
+	}
+	if !containsSkeletonKey(g.combat.checkMonsterLootDrop(boss)) {
+		t.Fatal("boss death loot did not include Skeleton Key from the normal table")
+	}
+
+	thief.Skills[character.SkillSleightOfHand].Mastery = character.MasteryGrandMaster
+	for attempts := 0; attempts < 500 && !boss.Pilfered; attempts++ {
+		g.combat.trySleightOfHand(thief, boss)
+	}
+	if !boss.Pilfered {
+		t.Fatal("Sleight of Hand did not land in 500 attempts")
+	}
+	if !containsSkeletonKey(g.party.Inventory) {
+		t.Fatal("Sleight of Hand could not steal Skeleton Key from a boss")
 	}
 }
 

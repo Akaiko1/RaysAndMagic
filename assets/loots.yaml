@@ -291,6 +291,9 @@ loots:
       key: "soul_phylactery_gem"
       chance: 0.10
     - type: "item"
+      key: "inlaid_key"  # relic-vault key from the Lich Nexus court
+      chance: 0.03
+    - type: "item"
       key: "lich_king_card"
       chance: 0.01
 
@@ -314,6 +317,9 @@ loots:
       key: "accuracy_talisman"
       chance: 0.06
     - type: "item"
+      key: "inlaid_key"  # highland patrol key for the sealed elven halls
+      chance: 0.03
+    - type: "item"
       key: "elf_archer_card"
       chance: 0.01
 
@@ -324,6 +330,9 @@ loots:
     - type: "item"
       key: "golden_armor"
       chance: 0.05
+    - type: "item"
+      key: "inlaid_key"  # knight's key to the old elven wards
+      chance: 0.03
     - type: "item"
       key: "elf_swordsman_card"
       chance: 0.01
@@ -353,6 +362,9 @@ loots:
       key: "archmage_staff"
       chance: 0.06
     - type: "item"
+      key: "inlaid_key"  # arcane sanctum key
+      chance: 0.03
+    - type: "item"
       key: "archmage_card"
       chance: 0.03
 
@@ -363,6 +375,9 @@ loots:
     - type: "weapon"
       key: "book_of_darkness"
       chance: 0.06
+    - type: "item"
+      key: "inlaid_key"  # a crypt seal carried by the undead mage
+      chance: 0.03
     - type: "item"
       key: "lich_card"
       chance: 0.03
@@ -701,10 +716,10 @@ loots:
       key: "inlaid_key"  # even the tower's old custodians keep a belfry key
       chance: 0.03
 
-# Death-only boss rewards apply to every monsters.yaml entry authored with
-# boss: true. They are intentionally outside per-monster tables so stealing
-# never rolls them and a new boss inherits the policy automatically.
-boss_death_loot:
+# Boss loot is appended to the normal loot table of every monsters.yaml entry
+# authored with boss: true. Every ordinary loot consumer uses the same resolved
+# table, including kills, Sleight of Hand, map crates, and the map viewer.
+boss_loot:
   - type: "item"
     key: "skeleton_key"
     chance: 0.05
