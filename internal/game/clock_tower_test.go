@@ -293,21 +293,22 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 		speed               int
 		luck                int
 		stunDurationPct     int
+		baseAC              int
 	}{
 		{
 			name: "cogleather", set: "cogleather", category: "leather", skill: character.SkillLeather,
 			pieces:   []string{"cogleather_helm", "cogleather_jacket", "cogleather_pauldrons", "cogleather_gloves", "cogleather_boots"},
-			accuracy: 3, speed: 21, luck: 9,
+			accuracy: 3, speed: 17, luck: 7, baseAC: 18,
 		},
 		{
 			name: "chainwork", set: "chainwork", category: "chain", skill: character.SkillChain,
 			pieces: []string{"chainwork_helm", "chainwork_hauberk", "chainwork_pauldrons", "chainwork_gauntlets", "chainwork_greaves"},
-			might:  2, endurance: 13, accuracy: 17,
+			might:  2, endurance: 10, accuracy: 13, baseAC: 24,
 		},
 		{
 			name: "clockplate", set: "clockplate", category: "plate", skill: character.SkillPlate,
 			pieces: []string{"clockplate_helm", "clockplate_cuirass", "clockplate_pauldrons", "clockplate_gauntlets", "clockplate_greaves"},
-			might:  23, endurance: 3, stunDurationPct: -50,
+			might:  17, endurance: 3, stunDurationPct: -50, baseAC: 30,
 		},
 	}
 
@@ -351,9 +352,13 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 			if got := len(ch.Equipment); got != len(tc.pieces) {
 				t.Fatalf("equipped slots = %d, want %d; tower set has colliding slots", got, len(tc.pieces))
 			}
-			wantAC := 0
+			baseAC, wantAC := 0, 0
 			for _, piece := range ch.Equipment {
+				baseAC += piece.Attributes["armor_class_base"]
 				wantAC += cs.CalculateArmorClassContribution(piece, ch)
+			}
+			if baseAC != tc.baseAC {
+				t.Fatalf("base AC = %d, want %d", baseAC, tc.baseAC)
 			}
 			if got := cs.CalculateTotalArmorClass(ch); got != wantAC {
 				t.Fatalf("total AC = %d, want %d from all five equipped pieces", got, wantAC)
@@ -376,6 +381,41 @@ func TestClockTowerArmorSetsEquipAndActivate(t *testing.T) {
 			}
 			if got := ch.SetStunDurationPct(); got != tc.stunDurationPct {
 				t.Errorf("stun duration bonus = %d, want %d", got, tc.stunDurationPct)
+			}
+		})
+	}
+}
+
+// The Clockmaker stock is deliberately competitive without eclipsing its
+// arena counterparts. Keep its intended damage, cadence, and signature riders
+// together so a future content edit cannot quietly restore the old outliers.
+func TestClockTowerWeaponsBalanceProfile(t *testing.T) {
+	newTestCombatSystemWithConfig(t)
+	cases := []struct {
+		key                                  string
+		damage, armorPierce, armorShred      int
+		cooldown, stunChance, bonusVsStunned float64
+	}{
+		{key: "cogfang_blade", damage: 20, armorPierce: 20},
+		{key: "chime_maul", damage: 23, cooldown: 1.40, stunChance: 0.15},
+		{key: "minute_hand", damage: 16, cooldown: 0.65},
+		{key: "mainspring_pike", damage: 23, bonusVsStunned: 1.5},
+		{key: "escapement_mace", damage: 19, armorShred: 20},
+		{key: "clockwork_pistol", damage: 20, cooldown: 1.30},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			def, ok := config.GetWeaponDefinition(tc.key)
+			if !ok || def == nil {
+				t.Fatalf("weapon %q missing", tc.key)
+			}
+			if def.Damage != tc.damage || def.CooldownMultiplier != tc.cooldown ||
+				def.ArmorPiercePct != tc.armorPierce || def.StunChance != tc.stunChance ||
+				def.BonusVsStunned != tc.bonusVsStunned || def.ArmorShredPct != tc.armorShred {
+				t.Errorf("balance = damage %d, cooldown %.2f, pierce %d, stun %.2f, bonus vs stunned %.2f, shred %d; want damage %d, cooldown %.2f, pierce %d, stun %.2f, bonus vs stunned %.2f, shred %d",
+					def.Damage, def.CooldownMultiplier, def.ArmorPiercePct, def.StunChance, def.BonusVsStunned, def.ArmorShredPct,
+					tc.damage, tc.cooldown, tc.armorPierce, tc.stunChance, tc.bonusVsStunned, tc.armorShred)
 			}
 		})
 	}

@@ -134,6 +134,15 @@ func (ih *InputHandler) HandleInput() {
 		return
 	}
 
+	// A stack split picker (or its selected fragment) owns the next click. Keep
+	// menu/world keyboard input from changing its source while it is pending.
+	if ih.game.stackSplitInteractionActive() {
+		if ih.keys.Consume(ebiten.KeyEscape) {
+			ih.game.cancelStackSplitInteraction()
+		}
+		return
+	}
+
 	// Tavern roster screen: clicks handled inside its Draw; suppress gameplay.
 	// ESC closes the screen here (edge-tracked + consumed) so it can't leak to the
 	// menu-open handler below on the next frame.

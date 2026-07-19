@@ -1,6 +1,7 @@
-# Armor sets: items carrying the same `set:` key power a party-wide bonus once
-# pieces_required of them are equipped on ONE character. Bonuses use the same
-# attribute vocabulary as items (bonus_*) plus set-only effects.
+# Equipment sets: pieces carrying the same `set:` key power a wearer bonus once
+# pieces_required of them are equipped on ONE character. required_pieces names
+# exact item/weapon keys for a mixed set, so duplicate copies cannot substitute.
+# Bonuses use the same attribute vocabulary as items (bonus_*) plus set-only effects.
 item_sets:
   padded:
     name: "Pit Fighter's Quilt"
@@ -10,22 +11,27 @@ item_sets:
     name: "Coliseum Ringmail"
     pieces_required: 4
     bonus_endurance: 10
+  dragon_hoard:
+    name: "Dragon's Hoard"
+    pieces_required: 2
+    required_pieces: ["golden_armor", "gold_sword"]
+    bonus_crit_chance: 75
   # Clock tower sets (5 pieces each, sold by the Clockmaker for clock hands).
   # Each set has a distinct identity - the scout, the duelist, the juggernaut.
   cogleather:
     name: "Cogleather Rig"
     pieces_required: 5
-    bonus_speed: 12
-    bonus_luck: 6
+    bonus_speed: 8
+    bonus_luck: 4
   chainwork:
     name: "Chainwork Regalia"
     pieces_required: 5
-    bonus_accuracy: 10
-    bonus_endurance: 8
+    bonus_accuracy: 6
+    bonus_endurance: 5
   clockplate:
     name: "Clockplate Bulwark"
     pieces_required: 5
-    bonus_might: 12
+    bonus_might: 6
     stun_duration_pct: -50
 
 items:
@@ -532,6 +538,7 @@ items:
     name: "Golden Armor"
     type: "armor"
     armor_category: "plate"
+    set: "dragon_hoard"
     description: "Gilded plate fit for a dragon's hoard"
     flavor: "Heavy gold that turns blades and heads alike."
     equip_slot: "armor"
@@ -1613,7 +1620,7 @@ items:
     description: "Oiled straps and pocketed leather, cut for climbing gearwork"
     flavor: "It creaks in time with the pendulums."
     equip_slot: "armor"
-    armor_class_base: 8
+    armor_class_base: 6
     endurance_scaling_divisor: 10
     bonus_speed: 3
     rarity: "rare"
@@ -1627,7 +1634,7 @@ items:
     description: "Layered leather cog-guards for the off arm"
     flavor: "Luck is a mechanism like any other."
     equip_slot: "offhand"
-    armor_class_base: 4
+    armor_class_base: 3
     endurance_scaling_divisor: 10
     bonus_luck: 3
     rarity: "rare"
@@ -1641,7 +1648,7 @@ items:
     description: "Thin key-winder's gloves that never slip"
     flavor: "Made for fingers that count teeth."
     equip_slot: "gauntlets"
-    armor_class_base: 3
+    armor_class_base: 2
     endurance_scaling_divisor: 10
     bonus_accuracy: 3
     rarity: "rare"
@@ -1683,7 +1690,7 @@ items:
     description: "Interwoven chain driven by a ticking escapement"
     flavor: "It tightens where the blow lands."
     equip_slot: "armor"
-    armor_class_base: 10
+    armor_class_base: 8
     endurance_scaling_divisor: 7
     bonus_accuracy: 3
     rarity: "rare"
@@ -1697,7 +1704,7 @@ items:
     description: "Cog-guards of riveted chain for the off arm"
     flavor: "They ratchet a notch tighter each parry."
     equip_slot: "offhand"
-    armor_class_base: 6
+    armor_class_base: 5
     endurance_scaling_divisor: 7
     bonus_endurance: 3
     rarity: "rare"
@@ -1711,7 +1718,7 @@ items:
     description: "Chain-backed gauntlets with wind-up knuckles"
     flavor: "Turn the key. Count to three."
     equip_slot: "gauntlets"
-    armor_class_base: 4
+    armor_class_base: 3
     endurance_scaling_divisor: 7
     bonus_might: 2
     bonus_accuracy: 2
@@ -1726,7 +1733,7 @@ items:
     description: "Chain greaves with geared ankle joints"
     flavor: "The tower's stairs built these."
     equip_slot: "boots"
-    armor_class_base: 5
+    armor_class_base: 4
     endurance_scaling_divisor: 7
     bonus_endurance: 2
     rarity: "rare"
@@ -1740,7 +1747,7 @@ items:
     description: "A sealed brass helm, dials where the visor should be"
     flavor: "Through these lenses, everything is a mechanism."
     equip_slot: "helmet"
-    armor_class_base: 6
+    armor_class_base: 5
     endurance_scaling_divisor: 5
     bonus_might: 2
     rarity: "rare"
@@ -1754,7 +1761,7 @@ items:
     description: "Layered plates driven by a ticking escapement over the heart"
     flavor: "It winds itself on the wearer's heartbeat."
     equip_slot: "armor"
-    armor_class_base: 12
+    armor_class_base: 10
     endurance_scaling_divisor: 5
     bonus_might: 3
     rarity: "rare"
@@ -1768,7 +1775,7 @@ items:
     description: "Interlocking cog-plates that turn blows aside"
     flavor: "Every parry ratchets them one tooth tighter."
     equip_slot: "offhand"
-    armor_class_base: 8
+    armor_class_base: 6
     endurance_scaling_divisor: 5
     bonus_might: 2
     rarity: "rare"
@@ -1782,7 +1789,7 @@ items:
     description: "Key-driven fists with spring-steel snap"
     flavor: "Let go on three."
     equip_slot: "gauntlets"
-    armor_class_base: 6
+    armor_class_base: 4
     endurance_scaling_divisor: 5
     bonus_might: 4
     rarity: "rare"
@@ -1796,7 +1803,7 @@ items:
     description: "Motorized legplates that carry their own weight"
     flavor: "And some of yours."
     equip_slot: "boots"
-    armor_class_base: 7
+    armor_class_base: 5
     endurance_scaling_divisor: 5
     bonus_endurance: 3
     rarity: "rare"

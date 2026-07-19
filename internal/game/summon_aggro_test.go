@@ -23,7 +23,7 @@ func runRTFoeTicks(g *MMGame, ticks int) {
 			if m == nil || !m.IsAlive() {
 				continue
 			}
-			m.Update(g.collisionSystem, m.AITargetX, m.AITargetY)
+			m.UpdateWithTarget(g.collisionSystem, g.camera.X, g.camera.Y, m.AITargetX, m.AITargetY)
 			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
 			g.refreshMonsterCollisionSolidity(m)
 		}

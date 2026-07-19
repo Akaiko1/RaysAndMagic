@@ -107,6 +107,9 @@ func clearLootGuard(m *monster.Monster3D) {
 	m.LootGuardPatrolAlt = false
 	m.LootGuardMoveTileX, m.LootGuardMoveTileY = 0, 0
 	m.LootGuardPatrolUntil = 0
+	m.LootGuardPostAssigned = false
+	m.LootGuardPostMemberCount = 0
+	m.LootGuardPathBlocked = false
 	m.ResetPathfinding()
 	leaveBand(m)
 }
@@ -278,6 +281,22 @@ func (gl *GameLoop) lootGuardTileFits(members []*monster.Monster3D, tileX, tileY
 	return true
 }
 
+// lootGuardPostReachable is intentionally evaluated only while a guard post is
+// selected or replaced, never every frame. A free destination can still be in
+// a pocket cut off by walls; this uses the exact A* contract the RT mover will
+// use before reserving that post for a guard pair.
+func (gl *GameLoop) lootGuardPostReachable(members []*monster.Monster3D, tileX, tileY int) bool {
+	if gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return true
+	}
+	for _, m := range members {
+		if m == nil || !m.HasPathToTile(gl.game.collisionSystem, tileX, tileY) {
+			return false
+		}
+	}
+	return true
+}
+
 // lootGuardPatrolTile picks the next genuinely walkable post from the
 // radius-two route. The same post must fit every member: mixed guard pairs are
 // allowed, but are never snapped onto terrain or a solid prop only one of them
@@ -300,6 +319,9 @@ func (gl *GameLoop) lootGuardPatrolTileAvoiding(target lootGuardTarget, members 
 			continue
 		}
 		if !gl.lootGuardTileFits(members, tileX, tileY) {
+			continue
+		}
+		if !gl.lootGuardPostReachable(members, tileX, tileY) {
 			continue
 		}
 		nextSide, nextAlt = lootGuardPatrolRouteState(index)
@@ -402,6 +424,9 @@ func advanceLootGuardPatrolRoute(m *monster.Monster3D) {
 	next := lootGuardPatrolRouteIndex(m.LootGuardSide, m.LootGuardPatrolAlt) + 1
 	m.LootGuardSide, m.LootGuardPatrolAlt = lootGuardPatrolRouteState(next)
 	m.LootGuardPatrolUntil = 0
+	m.LootGuardPostAssigned = false
+	m.LootGuardPostMemberCount = 0
+	m.LootGuardPathBlocked = false
 }
 
 func lootGuardTargetReservations(targets map[lootGuardTargetID]lootGuardTarget) map[lootGuardPostID]lootGuardTargetID {
@@ -450,7 +475,7 @@ func (gl *GameLoop) syncLootGuardBand(target lootGuardTarget, members []*monster
 		}
 	}
 	leader = members[0]
-	moveX, moveY := 0, 0
+	moveX, moveY := leader.LootGuardMoveTileX, leader.LootGuardMoveTileY
 	selectPost := func() bool {
 		side, alt, tileX, tileY, ok := gl.lootGuardPatrolTileAvoiding(target, members, leader.LootGuardSide, leader.LootGuardPatrolAlt, reserved)
 		if !ok {
@@ -458,9 +483,30 @@ func (gl *GameLoop) syncLootGuardBand(target lootGuardTarget, members []*monster
 		}
 		leader.LootGuardSide, leader.LootGuardPatrolAlt = side, alt
 		moveX, moveY = tileX, tileY
+		leader.LootGuardPatrolUntil = 0
+		leader.LootGuardPostAssigned = true
+		leader.LootGuardPostMemberCount = len(members)
+		leader.LootGuardPathBlocked = false
 		return true
 	}
-	if !selectPost() {
+	currentPostValid := leader.LootGuardPostAssigned &&
+		leader.LootGuardPostMemberCount == len(members) &&
+		!leader.LootGuardPathBlocked
+	if currentPostValid {
+		if owner, taken := reserved[lootGuardPostID{tileX: moveX, tileY: moveY}]; taken && owner != target.id {
+			currentPostValid = false
+		}
+	}
+	if currentPostValid && !gl.lootGuardTileFits(members, moveX, moveY) {
+		currentPostValid = false
+	}
+	for _, m := range members {
+		if m == nil || !m.LootGuardPostAssigned || m.LootGuardPostMemberCount != len(members) || m.LootGuardPathBlocked {
+			currentPostValid = false
+			break
+		}
+	}
+	if !currentPostValid && !selectPost() {
 		gl.dissolveLootGuardBand(members)
 		return
 	}
@@ -487,6 +533,9 @@ func (gl *GameLoop) syncLootGuardBand(target lootGuardTarget, members []*monster
 		m.LootGuardPatrolAlt = leader.LootGuardPatrolAlt
 		m.LootGuardMoveTileX, m.LootGuardMoveTileY = moveX, moveY
 		m.LootGuardPatrolUntil = leader.LootGuardPatrolUntil
+		m.LootGuardPostAssigned = leader.LootGuardPostAssigned
+		m.LootGuardPostMemberCount = leader.LootGuardPostMemberCount
+		m.LootGuardPathBlocked = false
 	}
 	if reserved != nil {
 		reserved[lootGuardPostID{tileX: moveX, tileY: moveY}] = target.id
@@ -515,6 +564,9 @@ func (gl *GameLoop) assignLootGuard(m *monster.Monster3D, target lootGuardTarget
 	m.LootGuardSide = lootGuardSideSeed(m.ID, target.id)
 	m.LootGuardPatrolAlt = false
 	m.LootGuardPatrolUntil = 0
+	m.LootGuardPostAssigned = false
+	m.LootGuardPostMemberCount = 0
+	m.LootGuardPathBlocked = false
 	m.State = monster.StatePatrolling
 	m.StateTimer = 0
 	m.ResetPathfinding()

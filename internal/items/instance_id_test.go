@@ -67,3 +67,27 @@ func TestInstanceIDGenSwappable(t *testing.T) {
 		t.Errorf("swapped gen via EnsureInstanceID: got %d, want 2", it.InstanceID)
 	}
 }
+
+func TestSplitOffKeepsTransferredLineageAndRekeysRemainder(t *testing.T) {
+	old := instanceIDGen
+	defer func() { instanceIDGen = old }()
+	instanceIDGen = func() uint64 { return 99 }
+
+	stack := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 5, InstanceID: 42}
+	part, ok := stack.SplitOff(2)
+	if !ok {
+		t.Fatal("split stack failed")
+	}
+	if part.Count() != 2 || part.InstanceID != 42 {
+		t.Errorf("transferred fragment = %+v, want quantity 2 with original ID 42", part)
+	}
+	if stack.Count() != 3 || stack.InstanceID != 99 {
+		t.Errorf("remaining stack = %+v, want quantity 3 with fresh ID 99", stack)
+	}
+	if _, ok := stack.SplitOff(3); ok {
+		t.Error("SplitOff must reject a whole-stack move")
+	}
+	if _, ok := (&Item{Name: "Sword", Type: ItemWeapon, Quantity: 2}).SplitOff(1); ok {
+		t.Error("SplitOff must reject non-stackable gear")
+	}
+}

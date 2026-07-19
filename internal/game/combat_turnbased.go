@@ -206,6 +206,14 @@ func (gl *GameLoop) updateMonstersTurnBased() {
 			gl.game.refreshMonsterCollisionSolidity(m)
 			continue
 		}
+		// Evasive quest bosses still react through tickEvasiveBossesTB above, but
+		// never take a normal combat turn. Unlike dormant bosses they remain
+		// vulnerable and may patrol in RT; TB has no calm-patrol phase.
+		if behavior == monster.AIBehaviorEvasive {
+			m.EndPlayerEngagement()
+			gl.game.refreshMonsterCollisionSolidity(m)
+			continue
+		}
 		// Bound (Bind Undead): strikes an enemy in reach or steps toward the
 		// nearest one. Never acts against the party. Spends its whole turn here.
 		if behavior == monster.AIBehaviorBoundAlly {

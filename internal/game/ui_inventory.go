@@ -114,7 +114,8 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 			drawRectBorder(screen, x-2, y-2, w+4, h+4, 2, border)
 		}
 		// Hide the icon of the cell currently being dragged out of.
-		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory && ui.game.dragInvIndex == idx
+		dragging := ui.game.dragActive && ui.game.dragSrc == dragFromInventory &&
+			ui.game.dragInvIndex == idx && ui.game.dragSplitQuantity == 0
 		if !dragging {
 			ui.drawInventoryItemIcon(screen, item, x, y, w, h, 4, canEquip)
 		}
@@ -172,7 +173,7 @@ func (ui *UISystem) drawInventoryContent(screen *ebiten.Image, panelX, contentY,
 	ui.drawInventoryContextMenu(screen)
 
 	drawDebugText(screen, "Double-click inventory slots to equip/use, equipped slots to unequip", layout.instructions[0].x, layout.instructions[0].y)
-	drawDebugText(screen, "Right-click an inventory item to discard it. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
+	drawDebugText(screen, "Right-click an inventory item for actions. Use 1-4 to switch character.", layout.instructions[1].x, layout.instructions[1].y)
 }
 
 // drawInventoryPager draws the inventory grid's pager. It's a no-op when the
@@ -279,11 +280,20 @@ func scaleInventorySourceRect(dstX, dstY, dstW, dstH, srcW, srcH int, r inventor
 	return x, y, w, h
 }
 
-// inventoryInputBlocked reports whether a modal popup should swallow inventory
-// clicks. The revival picker holds an inventory index across frames, so any
-// click that mutates inventory (equip, use, discard) would invalidate it.
+// inventoryHardBlocked reports modal state that forbids even a picked-up split
+// fragment. inventoryInputBlocked additionally blocks ordinary inventory clicks
+// while that fragment is waiting for its destination.
+func (ui *UISystem) inventoryHardBlocked() bool {
+	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen ||
+		ui.game.currentLevelUpChoice() != nil || ui.stackSplitPicker.open
+}
+
+// inventoryInputBlocked reports whether a modal popup or picked-up fragment
+// should swallow ordinary inventory clicks. The revival picker holds an
+// inventory index across frames, so any click that mutates inventory (equip,
+// use, discard) would invalidate it.
 func (ui *UISystem) inventoryInputBlocked() bool {
-	return ui.game.revivalPickerOpen || ui.game.healPickerOpen || ui.game.statPopupOpen || ui.game.currentLevelUpChoice() != nil
+	return ui.inventoryHardBlocked() || ui.game.dragPickedUp
 }
 
 func (ui *UISystem) canSelectedCharacterEquipInventoryItem(item items.Item) bool {
@@ -349,14 +359,22 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 	}
 	menuW := 140
 	menuH := 24
+	idx := ui.inventoryContextIndex
+	canSplit := idx >= 0 && idx < len(ui.game.party.Inventory) &&
+		ui.game.party.Inventory[idx].Stackable() && ui.game.party.Inventory[idx].Count() > 1
+	if canSplit {
+		menuH *= 2
+	}
 	x := ui.inventoryContextX
 	y := ui.inventoryContextY
 	drawFilledRect(screen, x, y, menuW, menuH, color.RGBA{40, 40, 60, 230})
 	drawRectBorder(screen, x, y, menuW, menuH, 2, color.RGBA{120, 120, 160, 255})
-	drawCenteredDebugText(screen, "Discard", x, y, menuW, menuH)
+	drawCenteredDebugText(screen, "Discard", x, y, menuW, 24)
+	if canSplit {
+		drawCenteredDebugText(screen, "Split...", x, y+24, menuW, 24)
+	}
 
-	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+menuH) {
-		idx := ui.inventoryContextIndex
+	if ui.game.consumeLeftClickIn(x, y, x+menuW, y+24) {
 		if idx >= 0 && idx < len(ui.game.party.Inventory) {
 			item := ui.game.party.Inventory[idx]
 			if !itemDiscardable(item) {
@@ -367,6 +385,8 @@ func (ui *UISystem) drawInventoryContextMenu(screen *ebiten.Image) {
 			}
 		}
 		ui.inventoryContextOpen = false
+	} else if canSplit && ui.game.consumeLeftClickIn(x, y+24, x+menuW, y+48) {
+		ui.openStackSplitPicker(stackSplitPickerInventory, idx, ui.game.party.Inventory[idx])
 	} else if ui.game.consumeLeftClick() {
 		ui.inventoryContextOpen = false
 	}

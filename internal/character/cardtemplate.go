@@ -298,6 +298,7 @@ func WeaponCardSections(def *config.WeaponDefinitionConfig) []CardSection {
 	crit := CardSection{Title: "CRITICAL"}
 	crit.Add("Base Chance: %d%%", def.CritChance)
 	crit.Add("Luck / %d: adds to chance", LuckToCritDivisor)
+	crit.Add("Active cards and completed equipment sets: add to chance")
 	if hasWeaponSkill {
 		crit.Add("Grandmaster weapon: +%d%%", WeaponGMCritBonus)
 	}
@@ -399,12 +400,13 @@ func SpellCardSections(key string, def *config.SpellDefinitionConfig, sd spells.
 		heal.Add("Mastery: +%d per tier", MasterySpellEffectPerLevel)
 	}
 
-	// Damage projectiles crit on a Luck-based roll (no base crit for spells) for
-	// xCritDamageMultiplier - the in-game card shows the same block, so it must
-	// appear here too (character-independent form).
+	// Damage projectiles crit on the character's shared crit roll (no base crit)
+	// for xCritDamageMultiplier. Luck, active cards and completed equipment sets
+	// contribute; the in-game card shows the current values while this editor
+	// card remains character-independent.
 	crit := CardSection{Title: "CRITICAL"}
 	if sd.IsProjectile && !sd.DealsNoDamage {
-		crit.Add("Chance: Luck / %d", LuckToCritDivisor)
+		crit.Add("Chance: Luck / %d + active bonuses", LuckToCritDivisor)
 		crit.Add("Critical hits deal x%d damage", CritDamageMultiplier)
 	}
 

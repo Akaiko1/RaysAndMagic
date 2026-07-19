@@ -209,22 +209,28 @@ type MMGame struct {
 	// Quick-slot drag-and-drop (sampled in updateMouseState, resolved in Draw).
 	// A drag is only armed while the menu is open; the in-game bar is double-click
 	// only. dragSrc names what's being carried; see quickslots.go.
-	dragArmed     bool // left button down on a draggable; awaiting move/release
-	dragActive    bool // moved past threshold -> a real drag is in flight
-	dragDropAt    int  // 1 = a drop must be resolved this frame (release), else 0
-	dragStartX    int  // press position (for the move threshold + source hit-test)
-	dragStartY    int
-	dragCurX      int // live cursor position (drop target + carried-icon render)
-	dragCurY      int
-	dragSrc       dragSource // kind of source captured this drag
-	dragItem      items.Item // the carried item (copy, for rendering)
-	dragInvIndex  int        // source: party inventory index
-	dragQuickChar int        // source: quick-slot owner index
-	dragQuickSlot int        // source: quick-slot index
-	dragSpellID   spells.SpellID
-	dragTrapKey   string          // source: trap recipe key (trap book -> quick slot)
-	dragEquipSlot items.EquipSlot // source: paperdoll slot (equipped item -> inventory)
-	dragEquipChar int             // source: owner of the dragged equipped item (may differ from selectedChar after a 1-4 switch mid-drag)
+	dragArmed    bool // left button down on a draggable; awaiting move/release
+	dragActive   bool // moved past threshold -> a real drag is in flight
+	dragDropAt   int  // 1 = a drop must be resolved this frame (release), else 0
+	dragStartX   int  // press position (for the move threshold + source hit-test)
+	dragStartY   int
+	dragCurX     int // live cursor position (drop target + carried-icon render)
+	dragCurY     int
+	dragSrc      dragSource // kind of source captured this drag
+	dragItem     items.Item // the carried item (copy, for rendering)
+	dragInvIndex int        // source: party inventory index
+	// dragSplitQuantity is zero for a whole-entry move. A positive value carries
+	// only that many units from a stack; the source remains visible until a
+	// valid destination consumes the fragment. dragPickedUp is the same partial
+	// drag started by the exact-quantity picker rather than a held mouse button.
+	dragSplitQuantity int
+	dragPickedUp      bool
+	dragQuickChar     int // source: quick-slot owner index
+	dragQuickSlot     int // source: quick-slot index
+	dragSpellID       spells.SpellID
+	dragTrapKey       string          // source: trap recipe key (trap book -> quick slot)
+	dragEquipSlot     items.EquipSlot // source: paperdoll slot (equipped item -> inventory)
+	dragEquipChar     int             // source: owner of the dragged equipped item (may differ from selectedChar after a 1-4 switch mid-drag)
 	// Double-click support for the in-game quick-slot bar
 	lastQuickClickTime int64
 	lastQuickClickedCh int
@@ -540,20 +546,22 @@ type MMGame struct {
 	// Drag-and-drop state mirrors the quick-slot drag but is self-contained so it
 	// works while no tab/menu is open. stashDragFrom < 0 when nothing is carried;
 	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
-	stashScreenOpen bool
-	stash           *stash.Stash
-	loadNeedsResave bool // a load stamped legacy items with instance ids: re-save the slot once
-	stashDragArmed  bool
-	stashDragActive bool
-	stashDragFrom   int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
-	stashDragItem   items.Item // carried copy, for rendering
-	stashDragStartX int
-	stashDragStartY int
-	stashDragCurX   int
-	stashDragCurY   int
-	stashDragDrop   bool // a drop must be resolved this frame
-	stashInvPage    int
-	stashShowCards  bool // top storage tab: false = general chest, true = card vault
+	stashScreenOpen        bool
+	stash                  *stash.Stash
+	loadNeedsResave        bool // a load stamped legacy items with instance ids: re-save the slot once
+	stashDragArmed         bool
+	stashDragActive        bool
+	stashDragFrom          int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory
+	stashDragItem          items.Item // carried copy, for rendering
+	stashDragSplitQuantity int        // zero = whole move; positive = partial stack transfer
+	stashDragPickedUp      bool       // exact-quantity picker is awaiting one destination click
+	stashDragStartX        int
+	stashDragStartY        int
+	stashDragCurX          int
+	stashDragCurY          int
+	stashDragDrop          bool // a drop must be resolved this frame
+	stashInvPage           int
+	stashShowCards         bool // top storage tab: false = general chest, true = card vault
 
 	// Turn-based mode state
 	turnBasedMode bool // Whether game is in turn-based mode
@@ -1730,10 +1738,15 @@ func (g *MMGame) refreshMonsterAIState() {
 		// Without this hold an aggressive boss beelines across the whole map to the
 		// party at the landing the instant the map loads.
 		m.BossWarded = m.IsBoss() && m.WardedByIdols && liveIdols > 0
+		// Quest-gated evasive bosses remain ambient walkers, but cannot enter the
+		// generic combat state machine. The flag is the runtime bridge between the
+		// quest-aware CombatSystem predicate and Monster3D's mode-independent AI.
+		evasive := m.IsBoss() && g.combat.bossEvasive(m)
+		m.BossEvasive = evasive
 		// Sealed boss (passive-until-quest, no evade radius) -> freeze on its spawn
 		// until the quest unseals it. An evasive boss WITH an evade radius still
 		// skitters and blinks, so it is excluded.
-		m.BossDormant = m.IsBoss() && g.combat.bossEvasive(m) && m.EvadeRadiusTiles == 0
+		m.BossDormant = evasive && m.EvadeRadiusTiles == 0
 		if m.IsInertSetPiece() {
 			// Do not hand a scripted inactive actor a crossfire foe. The RT combat
 			// loop is separate from movement AI, so leaving this populated lets it
@@ -1749,7 +1762,7 @@ func (g *MMGame) refreshMonsterAIState() {
 		// has hit them (WasAttacked is sticky) - so they don't beeline across the
 		// whole map the instant they activate. AggroWholeMap is the UNIQUE opt-in
 		// (Golden Thief Bug) that DOES chase from anywhere on activation.
-		m.BossAggro = m.IsBoss() && !g.combat.bossEvasive(m) && !m.BossWarded &&
+		m.BossAggro = m.IsBoss() && !evasive && !m.BossWarded &&
 			(m.AggroWholeMap || m.IsEngagingPlayer || m.WasAttacked)
 	}
 	g.ejectPartyTargetingMonsters()
@@ -2514,9 +2527,11 @@ func (mw *MonsterWrapper) Update() {
 		targetX, targetY = playerX, playerY
 	}
 
-	// Use collision-aware update with the chosen AI target for tethering. Reads
-	// the frozen snapshot only - never the live, concurrently-mutating system.
-	mw.Monster.Update(mw.snapshot, targetX, targetY)
+	// Party sight and the movement target are deliberately separate: a redirect
+	// to a summon (or an evasive boss holding at self) must never make the AI
+	// interpret that target as the party's location. Reads the frozen snapshot
+	// only - never the live, concurrently-mutating system.
+	mw.Monster.UpdateWithTarget(mw.snapshot, playerX, playerY, targetX, targetY)
 
 	newX, newY := mw.Monster.X, mw.Monster.Y
 
@@ -2624,7 +2639,7 @@ func (g *MMGame) monsterAttackTarget(m *monster.Monster3D) (id string, x, y floa
 		return "", 0, 0, false
 	}
 	switch m.CurrentAIBehavior() {
-	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorFleeing:
+	case monster.AIBehaviorInert, monster.AIBehaviorPacified, monster.AIBehaviorEvasive, monster.AIBehaviorFleeing:
 		return "", 0, 0, false
 	}
 	// SNAPSHOT reads only: this runs inside the PARALLEL wrapper update, where

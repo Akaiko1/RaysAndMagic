@@ -276,6 +276,26 @@ func (p *Party) ConsumeOneAt(index int) bool {
 	return true
 }
 
+// TakeStackUnits removes quantity units from one stackable bag entry and
+// returns them as a separate item. A full take preserves the usual whole-entry
+// move; a partial take delegates the lineage split to items.Item.SplitOff so
+// stash reconciliation remains correct across old saves.
+func (p *Party) TakeStackUnits(index, quantity int) (items.Item, bool) {
+	if index < 0 || index >= len(p.Inventory) || quantity < 1 {
+		return items.Item{}, false
+	}
+	item := p.Inventory[index]
+	if !item.Stackable() || quantity > item.Count() {
+		return items.Item{}, false
+	}
+	if quantity == item.Count() {
+		p.RemoveItem(index)
+		return item, true
+	}
+	fragment, ok := p.Inventory[index].SplitOff(quantity)
+	return fragment, ok
+}
+
 // MergeStacks folds duplicate stackable entries into single stacks (first
 // entry keeps its place and InstanceID). Load-time migration for saves
 // written before stacking existed.

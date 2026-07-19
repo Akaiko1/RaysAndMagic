@@ -24,3 +24,17 @@ func TestItemSetsParsedAndLinesRender(t *testing.T) {
 		t.Fatalf("padded_cap SetLines = %v, want set name + bonus", lines)
 	}
 }
+
+func TestExactItemSetRejectsDuplicateRequiredPiece(t *testing.T) {
+	cfg := &ItemSystemConfig{
+		Items: map[string]*ItemDefinitionConfig{
+			"armor": {Name: "Armor", Set: "pair"},
+		},
+		Sets: map[string]*ItemSetConfig{
+			"pair": {Name: "Pair", PiecesRequired: 2, RequiredPieces: []string{"armor", "armor"}},
+		},
+	}
+	if err := validateEquipmentSetReferences(cfg, nil); err == nil {
+		t.Fatal("duplicate exact set piece must fail validation")
+	}
+}

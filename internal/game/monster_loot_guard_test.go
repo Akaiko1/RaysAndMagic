@@ -601,6 +601,33 @@ func TestLootGuardPatrolSkipsBlockedCellsWithinRadiusTwo(t *testing.T) {
 	}
 }
 
+func TestLootGuardPatrolSkipsWalkableButUnreachableCell(t *testing.T) {
+	game, loop, tile := newLootGuardTestGame(t, false)
+	target := addLootGuardTarget(game, "guarded_lectern", character.NPCTypeSpellLectern, 10, 10, tile)
+	guard := addLootGuardTestMonster(t, game, "guard", "goblin", 8, 10, tile)
+
+	// East outer (12,10) is itself free, but four walls make it an isolated
+	// pocket. The old selector accepted this cell because it only checked the
+	// destination; the actual A* mover then found no path forever.
+	for _, wall := range [][2]int{{11, 10}, {13, 10}, {12, 9}, {12, 11}} {
+		game.world.Tiles[wall[1]][wall[0]] = world.TileWall
+	}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+	_, _, moveX, moveY, ok := loop.lootGuardPatrolTile(lootGuardTarget{
+		id: lootGuardTargetID{key: target.Key, tileX: 10, tileY: 10}, npc: target,
+	}, []*monster.Monster3D{guard}, 0, true)
+	if !ok {
+		t.Fatal("guard found no reachable alternate patrol tile")
+	}
+	if moveX == 12 && moveY == 10 {
+		t.Fatal("guard selected an isolated but walkable patrol tile")
+	}
+	if !guard.HasPathToTile(game.collisionSystem, moveX, moveY) {
+		t.Fatalf("guard selected patrol tile (%d,%d) without an A* path", moveX, moveY)
+	}
+}
+
 func TestLootGuardTurnBasedStaysAtPostUntilItSeesParty(t *testing.T) {
 	setup := func(t *testing.T, distanceTiles float64) (*MMGame, *GameLoop, *monster.Monster3D, float64) {
 		t.Helper()

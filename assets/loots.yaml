@@ -398,6 +398,12 @@ loots:
     - type: "item"
       key: "emerald"
       chance: 0.15
+    - type: "item"
+      key: "golden_armor"
+      chance: 0.05
+    - type: "weapon"
+      key: "gold_sword"
+      chance: 0.05
     - type: "weapon"
       key: "bow_of_hellfire"
       chance: 0.01
@@ -411,6 +417,9 @@ loots:
       chance: 0.15
     - type: "item"
       key: "golden_armor"
+      chance: 0.06
+    - type: "weapon"
+      key: "gold_sword"
       chance: 0.06
     - type: "weapon"
       key: "bow_of_hellfire"

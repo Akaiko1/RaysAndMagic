@@ -136,6 +136,11 @@ func (ui *UISystem) quickInvSlotDragSource(invIndex, x, y, w, h int) {
 		g.dragSrc = dragFromInventory
 		g.dragInvIndex = invIndex
 		g.dragItem = g.party.Inventory[invIndex]
+		g.dragSplitQuantity = 0
+		if g.dragItem.Stackable() && g.dragItem.Count() > 1 && stackSplitModifierHeld() {
+			g.dragSplitQuantity = 1
+			g.dragItem.Quantity = 1
+		}
 	}
 }
 
@@ -247,6 +252,12 @@ func (ui *UISystem) equipSlotDragSource(charIdx int, slot items.EquipSlot, item 
 // equipSlotDropZone equips a dragged inventory item onto a paperdoll slot it fits.
 func (ui *UISystem) equipSlotDropZone(slot items.EquipSlot, x, y, w, h int) {
 	g := ui.game
+	// A picked-up split fragment has exactly one meaningful destination: a
+	// quick slot. Do not let an underlying paperdoll hit test mutate equipment
+	// before the drag cancels at the end of the frame.
+	if ui.inventoryInputBlocked() {
+		return
+	}
 	if !g.dragOver(x, y, w, h) {
 		return
 	}
@@ -278,6 +289,9 @@ func (ui *UISystem) inventoryCellDropZone(dstIndex, x, y, w, h int) {
 	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
 	}
+	if g.dragSplitQuantity > 0 {
+		return // bags stay canonical: partial stacks only move to another container
+	}
 	src := g.dragInvIndex
 	inv := g.party.Inventory
 	if src >= 0 && src < len(inv) && dstIndex >= 0 && dstIndex < len(inv) && src != dstIndex {
@@ -293,6 +307,9 @@ func (ui *UISystem) inventoryEmptyDropZone(x, y, w, h int) {
 	g := ui.game
 	if !g.dragOver(x, y, w, h) || g.dragSrc != dragFromInventory {
 		return
+	}
+	if g.dragSplitQuantity > 0 {
+		return // see inventoryCellDropZone
 	}
 	src := g.dragInvIndex
 	inv := g.party.Inventory
@@ -311,9 +328,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 	tch := g.party.Members[targetChar]
 	switch g.dragSrc {
 	case dragFromInventory:
-		if g.dragInvIndex >= 0 && g.dragInvIndex < len(g.party.Inventory) {
-			item := g.party.Inventory[g.dragInvIndex]
-			g.party.RemoveItem(g.dragInvIndex)
+		if item, ok := g.takeInventoryDragItem(); ok {
 			occ := tch.QuickSlots[targetSlot]
 			// Same-stack items pile up in the slot instead of displacing.
 			if occ != nil && items.SameStack(*occ, item) {
@@ -359,6 +374,21 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 	g.clearDrag()
 }
 
+// takeInventoryDragItem performs the model mutation only after a valid drop
+// target accepts the carried bag item. This keeps cancelled partial drags from
+// changing the stack at all.
+func (g *MMGame) takeInventoryDragItem() (items.Item, bool) {
+	if g.dragInvIndex < 0 || g.dragInvIndex >= len(g.party.Inventory) {
+		return items.Item{}, false
+	}
+	if g.dragSplitQuantity > 0 {
+		return g.party.TakeStackUnits(g.dragInvIndex, g.dragSplitQuantity)
+	}
+	item := g.party.Inventory[g.dragInvIndex]
+	g.party.RemoveItem(g.dragInvIndex)
+	return item, true
+}
+
 // decrementQuickSlot takes one unit off a quick-slot stack, emptying the slot
 // when the last unit goes.
 func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
@@ -391,13 +421,27 @@ func (g *MMGame) clearDrag() {
 	g.dragDropAt = 0
 	g.dragSrc = dragNone
 	g.dragItem = items.Item{}
+	g.dragSplitQuantity = 0
+	g.dragPickedUp = false
 }
 
 // updateQuickDrag samples the raw mouse each frame to drive the drag lifecycle.
 // Drag is only armed while a tab is open; rect-based source/drop resolution
 // happens during Draw (where layouts are known), per the project's input model.
-func (ui *UISystem) updateQuickDrag() {
+func (ui *UISystem) updateQuickDrag() bool {
 	g := ui.game
+	if g.dragPickedUp {
+		if !g.menuOpen || ui.inventoryHardBlocked() {
+			g.clearDrag()
+			return false
+		}
+		g.dragCurX, g.dragCurY = ebiten.CursorPosition()
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			g.dragDropAt = 1
+			return true // destination click is a drag drop, never an inventory click
+		}
+		return false
+	}
 	// Don't arm/process a drag while a modal owns the inventory: the revival
 	// picker stores an inventory index across frames, and a drag's RemoveItem/
 	// AddItem would shift it (wrong item revived). Mirrors inventoryInputBlocked,
@@ -406,7 +450,7 @@ func (ui *UISystem) updateQuickDrag() {
 		if g.dragArmed || g.dragActive {
 			g.clearDrag()
 		}
-		return
+		return false
 	}
 	x, y := ebiten.CursorPosition()
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -414,6 +458,7 @@ func (ui *UISystem) updateQuickDrag() {
 		g.dragActive = false
 		g.dragDropAt = 0
 		g.dragSrc = dragNone
+		g.dragSplitQuantity = 0
 		g.dragStartX, g.dragStartY = x, y
 		g.dragCurX, g.dragCurY = x, y
 		g.dragItem = items.Item{}
@@ -436,6 +481,7 @@ func (ui *UISystem) updateQuickDrag() {
 		}
 		g.dragArmed = false
 	}
+	return false
 }
 
 // drawDragCarried renders the carried icon under the cursor and cancels an

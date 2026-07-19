@@ -65,17 +65,17 @@ type Item struct {
 	Attributes  map[string]int
 	Description string
 	Rarity      string
-	// InstanceID uniquely identifies THIS physical item across save/load and the
-	// cross-save stash. Assigned once at creation (the factories) and carried for
-	// life. 0 means "untracked" (a pre-InstanceID save/stash item): it never
-	// triggers stash reconciliation and is stamped lazily on load. Lets the stash
-	// recognise "the copy I already hold" and strip it from a reloaded bag,
-	// closing the save-scum dupe.
+	// InstanceID identifies this item or stack lineage across save/load and the
+	// cross-save stash. A partial transfer keeps the original ID on the outgoing
+	// fragment and rekeys the remainder, so stale-save reconciliation can remove
+	// exactly the deposited units once. 0 means "untracked" (a pre-InstanceID
+	// save/stash item): it never triggers stash reconciliation and is stamped
+	// lazily on load.
 	InstanceID uint64 `json:"instance_id,omitempty"`
 	// Quantity is the stack size for stackable items (consumables, trinkets).
 	// 0 means 1 (items saved before stacking existed) - always read through
-	// Count(). A stack carries ONE InstanceID for the whole pile; stackables
-	// are cheap fungibles, so per-unit stash dedupe precision is not needed.
+	// Count(). A stack carries one lineage ID for its whole pile; SplitOff keeps
+	// that ID on the moved part and assigns the remaining part a fresh lineage.
 	Quantity int `json:"quantity,omitempty"`
 	// For armor
 	ArmorCategory string
@@ -101,6 +101,22 @@ func (it Item) Count() int {
 // (equip state), quest items are unique, cards live in the collection.
 func (it Item) Stackable() bool {
 	return it.Type == ItemConsumable || it.Type == ItemTrinket
+}
+
+// SplitOff removes quantity units from a stack and returns them as a separate
+// item. The returned fragment deliberately keeps the original InstanceID: a
+// stash deposit can therefore dedupe those units from an older save. The source
+// receives a new ID so the current save does not look like it still owns the
+// deposited fragment. Full-stack moves are handled by the owning container.
+func (it *Item) SplitOff(quantity int) (Item, bool) {
+	if it == nil || !it.Stackable() || quantity < 1 || quantity >= it.Count() {
+		return Item{}, false
+	}
+	fragment := *it
+	fragment.Quantity = quantity
+	it.Quantity = it.Count() - quantity
+	it.InstanceID = NewInstanceID()
+	return fragment, true
 }
 
 // SameStack is THE stack-identity rule: both stackable and the same item
@@ -241,6 +257,7 @@ func TryCreateWeaponFromYAML(weaponKey string) (Item, error) {
 		Type:        ItemWeapon,
 		Description: desc,
 		Rarity:      weaponDef.Rarity,
+		Set:         weaponDef.Set,
 		Attributes:  make(map[string]int),
 		InstanceID:  NewInstanceID(),
 	}
@@ -269,6 +286,7 @@ type WeaponDefinitionFromYAML struct {
 	Category    string
 	Rarity      string
 	Value       int
+	Set         string // equipment-set key this weapon piece belongs to
 	// EquipPersonalityMin: any character with this much effective Personality
 	// may wield the weapon without its category skill (Lanista's Scepter).
 	EquipPersonalityMin int

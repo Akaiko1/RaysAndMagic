@@ -21,8 +21,10 @@ import (
 	"testing"
 
 	"ugataima/internal/bridge"
+	"ugataima/internal/character"
 	"ugataima/internal/config"
 	"ugataima/internal/monster"
+	"ugataima/internal/quests"
 	"ugataima/internal/world"
 )
 
@@ -50,24 +52,47 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	if _, err := config.LoadItemConfig("assets/items.yaml"); err != nil {
 		t.Fatalf("items: %v", err)
 	}
+	if _, err := config.LoadLootTables("assets/loots.yaml"); err != nil {
+		t.Fatalf("loots: %v", err)
+	}
 	bridge.SetupWeaponBridge()
 	bridge.SetupItemBridge()
-	monster.MustLoadMonsterConfig("assets/monsters.yaml")
 
-	prevTM, prevWM := world.GlobalTileManager, world.GlobalWorldManager
-	defer func() { world.GlobalTileManager, world.GlobalWorldManager = prevTM, prevWM }()
+	prevTM, prevWM, prevQM := world.GlobalTileManager, world.GlobalWorldManager, quests.GlobalQuestManager
+	defer func() {
+		world.GlobalTileManager, world.GlobalWorldManager, quests.GlobalQuestManager = prevTM, prevWM, prevQM
+	}()
 	world.GlobalTileManager = world.NewTileManager()
 	if err := world.GlobalTileManager.LoadTileConfig("assets/tiles.yaml"); err != nil {
 		t.Fatalf("tiles: %v", err)
 	}
-	wm := world.NewWorldManager(cfg)
-	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
-		t.Fatalf("map configs: %v", err)
+	if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+		t.Fatalf("special tiles: %v", err)
 	}
-	if err := wm.LoadAllMaps(); err != nil {
-		t.Fatalf("load maps: %v", err)
+	if _, err := config.LoadTrapConfig("assets/traps.yaml"); err != nil {
+		t.Fatalf("traps: %v", err)
 	}
-	world.GlobalWorldManager = wm
+	monster.SetSizeClassHeights(cfg.Graphics.SizeClasses)
+	monster.MustLoadMonsterConfig("assets/monsters.yaml")
+	if err := character.LoadNPCConfig("assets/npcs.yaml"); err != nil {
+		t.Fatalf("npcs: %v", err)
+	}
+	if _, err := config.LoadChampionConfig("assets/champions.yaml"); err != nil {
+		t.Fatalf("champions: %v", err)
+	}
+	if err := PrimeChampions(cfg); err != nil {
+		t.Fatalf("prime champions: %v", err)
+	}
+	if _, err := config.LoadLevelUpConfig("assets/level_up.yaml"); err != nil {
+		t.Fatalf("level-up: %v", err)
+	}
+	monster.MustLoadHatesConfig("assets/hates.yaml")
+	questConfig, err := quests.LoadQuestConfig("assets/quests.yaml")
+	if err != nil {
+		t.Fatalf("quests: %v", err)
+	}
+	quests.GlobalQuestManager = quests.NewQuestManager(questConfig)
+	quests.GlobalQuestManager.InitializeStartingQuests()
 
 	raw, err := os.ReadFile(savePath)
 	if err != nil {
@@ -77,16 +102,29 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	if err := json.Unmarshal(raw, &save); err != nil {
 		t.Fatalf("parse save: %v", err)
 	}
+
+	wm := world.NewWorldManager(cfg)
+	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
+		t.Fatalf("map configs: %v", err)
+	}
+	if err := wm.LoadAllMaps(); err != nil {
+		t.Fatalf("load maps: %v", err)
+	}
 	if err := wm.SwitchToMap(save.MapKey); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
+	world.GlobalWorldManager = wm
 
-	g := newTestGame(cfg, wm.GetCurrentWorld())
-	g.combat = NewCombatSystem(g)
+	// NewMMGame builds the same collision system, static NPC blocks and threaded
+	// monster updater as the executable. We never call Draw, so this remains a
+	// headless simulation.
+	g := NewMMGame(cfg)
+	defer g.Shutdown()
+	g.appScreen = AppScreenInGame
 	if err := g.applySave(wm, &save); err != nil {
 		t.Fatalf("apply save: %v", err)
 	}
-	gl := &GameLoop{game: g}
+	gl := g.gameLoop
 	w := g.world
 	camX, camY := g.camera.X, g.camera.Y
 	tile := float64(cfg.World.TileSize)
@@ -94,7 +132,9 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	t.Logf("save %s: map=%s player=(%.0f,%.0f) tile(%d,%d) turnBased=%v, %d monsters",
 		savePath, save.MapKey, camX, camY, int(camX/tile), int(camY/tile), save.TurnBased, len(w.Monsters))
 
-	// Watch every living monster within 8 tiles of the party.
+	// Watch every living monster within 12 tiles of the party. Some reports are
+	// about a visibly stuck mob just beyond normal aggro range, so the old
+	// eight-tile window silently omitted the useful actor.
 	type watched struct {
 		m            *monster.Monster3D
 		startX, winX float64
@@ -102,7 +142,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	}
 	var watch []*watched
 	for _, m := range w.Monsters {
-		if m.IsAlive() && math.Hypot(m.X-camX, m.Y-camY) < tile*8 {
+		if m.IsAlive() && math.Hypot(m.X-camX, m.Y-camY) < tile*12 {
 			watch = append(watch, &watched{m: m, startX: m.X, startY: m.Y, winX: m.X, winY: m.Y})
 		}
 	}
@@ -132,16 +172,7 @@ func TestDebugSim_SaveFile(t *testing.T) {
 	window := 2 * tps
 	for tick := 0; tick < seconds*tps; tick++ {
 		g.frameCount++
-		for _, m := range w.Monsters {
-			if !m.IsAlive() {
-				continue
-			}
-			m.Update(g.collisionSystem, camX, camY)
-			g.collisionSystem.UpdateEntity(m.ID, m.X, m.Y)
-			g.refreshMonsterCollisionSolidity(m)
-		}
-		gl.separateOverlappingMonsters()
-		g.combat.HandleMonsterInteractions()
+		gl.updateExploration()
 
 		if (tick+1)%window == 0 {
 			for _, wt := range watch {

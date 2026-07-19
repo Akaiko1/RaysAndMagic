@@ -150,14 +150,29 @@ func (d *ItemDefinitionConfig) TooltipUsageLines() []string {
 	return append([]string(nil), d.TooltipUsage...)
 }
 
-// SetLines describes the armor set this piece belongs to and its completed-set
+// SetLines describes the equipment set this item belongs to and its completed
 // bonus - shared by the item tooltip and the map-editor card.
 func (d *ItemDefinitionConfig) SetLines() []string {
-	set := GetItemSet(d.Set)
+	return EquipmentSetLines(d.Set)
+}
+
+// SetLines describes the equipment set this weapon belongs to and its completed
+// bonus - shared by the weapon tooltip and the map-editor card.
+func (w *WeaponDefinitionConfig) SetLines() []string {
+	if w == nil {
+		return nil
+	}
+	return EquipmentSetLines(w.Set)
+}
+
+// EquipmentSetLines is the shared player-facing formatter for item and weapon
+// set membership. Set names and numerical bonuses remain authored in items.yaml.
+func EquipmentSetLines(setKey string) []string {
+	set := GetItemSet(setKey)
 	if set == nil {
 		return nil
 	}
-	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.PiecesRequired)}
+	lines := []string{fmt.Sprintf("Set: %s (%d pieces)", set.Name, set.RequiredPieceCount())}
 	var parts []string
 	for _, b := range []struct {
 		label string
@@ -172,6 +187,9 @@ func (d *ItemDefinitionConfig) SetLines() []string {
 	}
 	if set.StunDurationPct != 0 {
 		parts = append(parts, fmt.Sprintf("stuns suffered %d%% duration", 100+set.StunDurationPct))
+	}
+	if set.BonusCritChance != 0 {
+		parts = append(parts, fmt.Sprintf("critical chance %+d%%", set.BonusCritChance))
 	}
 	if len(parts) > 0 {
 		lines = append(lines, "Set bonus: "+strings.Join(parts, ", "))

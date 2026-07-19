@@ -103,6 +103,7 @@ func (w *WeaponDefinitionConfig) EffectLines() []string {
 	if w.EquipPersonalityMin > 0 {
 		lines = append(lines, fmt.Sprintf("Wieldable by anyone with Personality %d+ (no skill needed)", w.EquipPersonalityMin))
 	}
+	lines = append(lines, w.SetLines()...)
 	return lines
 }
 
@@ -1001,6 +1002,7 @@ type WeaponDefinitionConfig struct {
 	AoeRadiusTiles float64 `yaml:"aoe_radius_tiles,omitempty"`
 	Rarity         string  `yaml:"rarity"`
 	Value          int     `yaml:"value,omitempty"`
+	Set            string  `yaml:"set,omitempty"` // equipment-set key from items.yaml
 	// NoLoot excludes the weapon from every GENERATED rarity pool (chest
 	// catalog rolls, rarity-rack merchant stock) - for class-kit weapons like
 	// the Monk's fists that exist only pre-equipped. Authored loot tables and
@@ -1197,17 +1199,26 @@ func LoadWeaponConfig(filename string) (*WeaponSystemConfig, error) {
 	if err := validateWeaponConfig(&weaponConfig); err != nil {
 		return nil, err
 	}
-
-	// Set global weapon config for easy access
-	GlobalWeapons = &weaponConfig
+	if err := validateEquipmentSetReferences(GlobalItems, &weaponConfig); err != nil {
+		return nil, err
+	}
 
 	// Pre-compute display-name index so GetWeaponDefinitionByName is O(1).
-	weaponDefByName = make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
-	weaponKeyByName = make(map[string]string, len(weaponConfig.Weapons))
+	weaponDefsByName := make(map[string]*WeaponDefinitionConfig, len(weaponConfig.Weapons))
+	weaponKeysByName := make(map[string]string, len(weaponConfig.Weapons))
 	for key, def := range weaponConfig.Weapons {
-		weaponDefByName[def.Name] = def
-		weaponKeyByName[def.Name] = key
+		if prev, dup := weaponKeysByName[def.Name]; dup {
+			return nil, fmt.Errorf("weapons %q and %q share display name %q - display names must be unique", prev, key, def.Name)
+		}
+		weaponDefsByName[def.Name] = def
+		weaponKeysByName[def.Name] = key
 	}
+
+	// Publish the catalog and its indexes together only after all validation
+	// succeeds. Name lookup is load-bearing for saved weapon instances.
+	GlobalWeapons = &weaponConfig
+	weaponDefByName = weaponDefsByName
+	weaponKeyByName = weaponKeysByName
 
 	return &weaponConfig, nil
 }
@@ -1300,11 +1311,13 @@ type ItemSystemConfig struct {
 	Sets map[string]*ItemSetConfig `yaml:"item_sets,omitempty"`
 }
 
-// ItemSetConfig is one armor set: once PiecesRequired items carrying the set
-// key are equipped on a single character, the bonuses apply to that character.
+// ItemSetConfig is one equipment set. A count-based set activates once
+// PiecesRequired equipped pieces carry its set key. RequiredPieces, when set,
+// names the exact YAML keys needed for a mixed weapon-and-armor set.
 type ItemSetConfig struct {
-	Name           string `yaml:"name"`
-	PiecesRequired int    `yaml:"pieces_required"`
+	Name           string   `yaml:"name"`
+	PiecesRequired int      `yaml:"pieces_required"`
+	RequiredPieces []string `yaml:"required_pieces,omitempty"`
 	// StunDurationPct shifts stun durations suffered by the wearer (e.g. -50
 	// halves them - the padded set's quilting).
 	StunDurationPct  int `yaml:"stun_duration_pct,omitempty"`
@@ -1315,6 +1328,21 @@ type ItemSetConfig struct {
 	BonusAccuracy    int `yaml:"bonus_accuracy,omitempty"`
 	BonusSpeed       int `yaml:"bonus_speed,omitempty"`
 	BonusLuck        int `yaml:"bonus_luck,omitempty"`
+	// BonusCritChance adds flat percentage points to every critical-hit roll:
+	// weapon attacks and damage spells alike.
+	BonusCritChance int `yaml:"bonus_crit_chance,omitempty"`
+}
+
+// RequiredPieceCount is the player-facing size of a set. Exact-piece sets
+// derive it from their explicit list so their authored contract stays truthful.
+func (s *ItemSetConfig) RequiredPieceCount() int {
+	if s == nil {
+		return 0
+	}
+	if len(s.RequiredPieces) > 0 {
+		return len(s.RequiredPieces)
+	}
+	return s.PiecesRequired
 }
 
 // GetItemSet returns a set definition by key, or nil if unknown.
@@ -1431,23 +1459,29 @@ func LoadItemConfig(filename string) (*ItemSystemConfig, error) {
 	if err := validateItemConfig(&itemCfg); err != nil {
 		return nil, err
 	}
-	GlobalItems = &itemCfg
-
+	if err := validateEquipmentSetReferences(&itemCfg, GlobalWeapons); err != nil {
+		return nil, err
+	}
 	// Pre-compute display-name index so GetItemDefinitionByName is O(1) - it's
 	// called per-hit and per-frame via the card collection (cardCollectionKey),
 	// where a linear scan of every item showed up as a hot-path cost.
 	// Display names must be UNIQUE: they are load-bearing identity for stack
 	// merging (items.SameStack), item-backed merchant currency, and this very
 	// index (a duplicate would clobber map-order-nondeterministically).
-	itemDefByName = make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
-	itemKeyByName = make(map[string]string, len(itemCfg.Items))
+	itemDefsByName := make(map[string]*ItemDefinitionConfig, len(itemCfg.Items))
+	itemKeysByName := make(map[string]string, len(itemCfg.Items))
 	for key, def := range itemCfg.Items {
-		if prev, dup := itemKeyByName[def.Name]; dup {
+		if prev, dup := itemKeysByName[def.Name]; dup {
 			return nil, fmt.Errorf("items %q and %q share display name %q - display names must be unique", prev, key, def.Name)
 		}
-		itemDefByName[def.Name] = def
-		itemKeyByName[def.Name] = key
+		itemDefsByName[def.Name] = def
+		itemKeysByName[def.Name] = key
 	}
+
+	// Keep the catalog and lookup index in sync on every successful reload.
+	GlobalItems = &itemCfg
+	itemDefByName = itemDefsByName
+	itemKeyByName = itemKeysByName
 
 	return &itemCfg, nil
 }
@@ -1504,6 +1538,59 @@ func validateItemConfig(cfg *ItemSystemConfig) error {
 	for name, set := range cfg.Sets {
 		if set == nil || set.Name == "" || set.PiecesRequired <= 0 {
 			return fmt.Errorf("item set '%s': name and positive pieces_required are required", name)
+		}
+	}
+	return nil
+}
+
+// validateEquipmentSetReferences checks the cross-catalog links that cannot
+// live in either items.yaml or weapons.yaml alone. When weapons are not loaded
+// yet, weapon keys are deferred to the normal runtime load order (weapons first,
+// then items); item keys are still checked immediately.
+func validateEquipmentSetReferences(itemCfg *ItemSystemConfig, weaponCfg *WeaponSystemConfig) error {
+	if itemCfg == nil {
+		return nil
+	}
+	for setKey, set := range itemCfg.Sets {
+		if set == nil || len(set.RequiredPieces) == 0 {
+			continue
+		}
+		if len(set.RequiredPieces) != set.PiecesRequired {
+			return fmt.Errorf("item set %q required_pieces has %d entries, want pieces_required %d", setKey, len(set.RequiredPieces), set.PiecesRequired)
+		}
+		seen := make(map[string]bool, len(set.RequiredPieces))
+		for _, pieceKey := range set.RequiredPieces {
+			pieceKey = strings.TrimSpace(pieceKey)
+			if pieceKey == "" {
+				return fmt.Errorf("item set %q has an empty required_pieces entry", setKey)
+			}
+			if seen[pieceKey] {
+				return fmt.Errorf("item set %q names required piece %q more than once", setKey, pieceKey)
+			}
+			seen[pieceKey] = true
+			if def, ok := itemCfg.Items[pieceKey]; ok {
+				if def == nil || def.Set != setKey {
+					return fmt.Errorf("item set %q requires item %q, which does not declare set %q", setKey, pieceKey, setKey)
+				}
+				continue
+			}
+			if weaponCfg == nil {
+				continue // weapon key is checked once both catalogs are available
+			}
+			def, ok := weaponCfg.Weapons[pieceKey]
+			if !ok || def == nil {
+				return fmt.Errorf("item set %q references unknown required piece %q", setKey, pieceKey)
+			}
+			if def.Set != setKey {
+				return fmt.Errorf("item set %q requires weapon %q, which declares set %q", setKey, pieceKey, def.Set)
+			}
+		}
+	}
+	if weaponCfg != nil {
+		for weaponKey, def := range weaponCfg.Weapons {
+			if def != nil && def.Set != "" && itemCfg.Sets[def.Set] == nil {
+				return fmt.Errorf("weapon %q references unknown set %q", weaponKey, def.Set)
+			}
 		}
 	}
 	return nil

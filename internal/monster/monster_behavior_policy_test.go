@@ -29,6 +29,11 @@ func TestCurrentAIBehaviorPrecedence(t *testing.T) {
 			want: AIBehaviorPacified,
 		},
 		{
+			name: "evasive boss wins over stale combat targets",
+			mob:  Monster3D{HitPoints: 1, BossEvasive: true, AIFoe: foe, BossAggro: true, State: StateFleeing},
+			want: AIBehaviorEvasive,
+		},
+		{
 			name: "foe wins over relentless party pursuit",
 			mob:  Monster3D{HitPoints: 1, AIFoe: foe, BossAggro: true, State: StateFleeing},
 			want: AIBehaviorFightFoe,
@@ -81,6 +86,7 @@ func TestIsCalmForSocialBehavior(t *testing.T) {
 		{name: "passive idle", mob: Monster3D{HitPoints: 1, State: StateIdle, PassiveUntilAttacked: true}, want: true},
 		{name: "bound ally", mob: Monster3D{HitPoints: 1, State: StateIdle, Bound: true}, want: false},
 		{name: "pacified monster", mob: Monster3D{HitPoints: 1, State: StateIdle, Pacified: true}, want: false},
+		{name: "evasive boss", mob: Monster3D{HitPoints: 1, State: StatePatrolling, BossEvasive: true}, want: false},
 		{name: "redirected foe fight", mob: Monster3D{HitPoints: 1, State: StateIdle, AIFoe: foe}, want: false},
 		{name: "fleeing monster", mob: Monster3D{HitPoints: 1, State: StateFleeing}, want: false},
 		{name: "engaged monster", mob: Monster3D{HitPoints: 1, State: StateIdle, IsEngagingPlayer: true}, want: false},
@@ -112,6 +118,7 @@ func TestPartyTargetPolicy(t *testing.T) {
 		{name: "passive stale engagement", mob: Monster3D{HitPoints: 1, PassiveUntilAttacked: true, IsEngagingPlayer: true}, want: false},
 		{name: "bound ally", mob: Monster3D{HitPoints: 1, Bound: true, IsEngagingPlayer: true}, want: false},
 		{name: "pacified monster", mob: Monster3D{HitPoints: 1, Pacified: true, IsEngagingPlayer: true}, want: false},
+		{name: "evasive boss", mob: Monster3D{HitPoints: 1, BossEvasive: true, IsEngagingPlayer: true}, want: false},
 		{name: "redirected enemy", mob: Monster3D{HitPoints: 1, AIFoe: foe, IsEngagingPlayer: true}, want: false},
 		{name: "inert set piece", mob: Monster3D{HitPoints: 1, BossDormant: true, WasAttacked: true}, want: false},
 	}
@@ -139,6 +146,7 @@ func TestActiveCombatPolicy(t *testing.T) {
 		{name: "bound follower", mob: Monster3D{HitPoints: 1, Bound: true, State: StatePursuing}, want: false},
 		{name: "bound crossfire", mob: Monster3D{HitPoints: 1, Bound: true, AIFoe: foe, State: StatePursuing}, want: true},
 		{name: "pacified", mob: Monster3D{HitPoints: 1, Pacified: true, IsEngagingPlayer: true}, want: false},
+		{name: "evasive boss", mob: Monster3D{HitPoints: 1, BossEvasive: true, IsEngagingPlayer: true}, want: false},
 		{name: "fleeing", mob: Monster3D{HitPoints: 1, WasAttacked: true, State: StateFleeing}, want: false},
 		{name: "inert", mob: Monster3D{HitPoints: 1, BossDormant: true, WasAttacked: true}, want: false},
 	}

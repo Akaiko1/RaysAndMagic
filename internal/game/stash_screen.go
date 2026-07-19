@@ -67,6 +67,8 @@ func (g *MMGame) clearStashDrag() {
 	g.stashDragDrop = false
 	g.stashDragFrom = -1
 	g.stashDragItem = items.Item{}
+	g.stashDragSplitQuantity = 0
+	g.stashDragPickedUp = false
 }
 
 // commitStashTransfer persists a transfer that already mutated BOTH stores in
@@ -111,13 +113,28 @@ func (g *MMGame) stashSnapshot() func() {
 // updateStashDrag samples the raw mouse to drive the drag lifecycle while the
 // stash is open. Source capture and drop resolution happen in drawStashScreen
 // (where the cell rects are known), matching the quick-slot drag model.
-func (ui *UISystem) updateStashDrag() {
+func (ui *UISystem) updateStashDrag() bool {
 	g := ui.game
+	if g.stashDragPickedUp {
+		if !g.stashScreenOpen {
+			g.clearStashDrag()
+			return false
+		}
+		g.stashDragCurX, g.stashDragCurY = ebiten.CursorPosition()
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			g.stashDragDrop = true
+			return true // destination click is a drag drop, never a stash click
+		}
+		return false
+	}
+	if ui.stackSplitPicker.open {
+		return false
+	}
 	if !g.stashScreenOpen {
 		if g.stashDragArmed || g.stashDragActive {
 			g.clearStashDrag()
 		}
-		return
+		return false
 	}
 	x, y := ebiten.CursorPosition()
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -128,6 +145,7 @@ func (ui *UISystem) updateStashDrag() {
 		g.stashDragStartX, g.stashDragStartY = x, y
 		g.stashDragCurX, g.stashDragCurY = x, y
 		g.stashDragItem = items.Item{}
+		g.stashDragSplitQuantity = 0
 	}
 	if g.stashDragArmed && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		g.stashDragCurX, g.stashDragCurY = x, y
@@ -144,6 +162,7 @@ func (ui *UISystem) updateStashDrag() {
 		}
 		g.stashDragArmed = false
 	}
+	return false
 }
 
 // decodeStashFrom turns the encoded stashDragFrom into a slot address. The bag
@@ -191,6 +210,10 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 	if !ok || src == dst {
 		return
 	}
+	if g.stashDragSplitQuantity > 0 {
+		g.resolvePartialStashDrop(src, dst, g.stashDragSplitQuantity)
+		return
+	}
 	rollback := g.stashSnapshot()
 	switch {
 	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell (swap)
@@ -235,6 +258,55 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 		*sp = items.Item{}
 	default:
 		return // bag -> bag: no-op
+	}
+	g.commitStashTransfer(rollback)
+}
+
+// resolvePartialStashDrop transfers a fragment without ever creating two
+// arbitrary copies in the bag. A partial deposit needs an empty chest cell (or
+// one with the exact same lineage): folding different lineage IDs would make a
+// stale-save dedupe unable to identify the deposited units.
+func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
+	if quantity < 1 || src == dst || (src.kind == stashKindBag && dst.kind == stashKindBag) {
+		return
+	}
+	if dst.kind == stashKindCard {
+		return // cards never stack, so no partial transfer belongs in the vault
+	}
+	var dstCell *items.Item
+	if dst.kind != stashKindBag {
+		dstCell = g.stashCellPtr(dst)
+		if dstCell == nil {
+			return
+		}
+		if !stash.IsEmpty(*dstCell) && (!items.SameStack(*dstCell, g.stashDragItem) || dstCell.InstanceID != g.stashDragItem.InstanceID) {
+			g.AddCombatMessage("Partial stack transfer needs an empty stash cell.")
+			return
+		}
+	}
+
+	rollback := g.stashSnapshot()
+	var fragment items.Item
+	var ok bool
+	switch src.kind {
+	case stashKindBag:
+		fragment, ok = g.party.TakeStackUnits(src.idx, quantity)
+	case stashKindChest, stashKindCard:
+		source := g.stashCellPtr(src)
+		if source != nil {
+			fragment, ok = source.SplitOff(quantity)
+		}
+	}
+	if !ok {
+		return
+	}
+
+	if dst.kind == stashKindBag {
+		g.party.AddItem(fragment)
+	} else if stash.IsEmpty(*dstCell) {
+		*dstCell = fragment
+	} else {
+		dstCell.Quantity = dstCell.Count() + fragment.Count()
 	}
 	g.commitStashTransfer(rollback)
 }
@@ -351,11 +423,12 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 			it = g.stash.Slots[i]
 			ui.stashCellSource(i, r)
 		}
-		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from, cards)
+		ui.drawStashCell(screen, it, r, g.stashDragActive && g.stashDragFrom == from && g.stashDragSplitQuantity == 0, cards)
 		if ptInRect(mouseX, mouseY, r) {
 			drawRectBorder(screen, r.Min.X-2, r.Min.Y-2, r.Dx()+4, r.Dy()+4, 2, hoverBorder)
 		}
 		ui.stashCellTooltip(it, r, mouseX, mouseY)
+		ui.stashSplitPickerTrigger(from, it, r)
 		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, r) {
 			g.resolveStashDrop(stashAddr{kind, i})
 		}
@@ -385,23 +458,24 @@ func (ui *UISystem) drawStashScreen(screen *ebiten.Image) {
 			it = g.party.Inventory[idx]
 			ui.stashInvSource(idx, cell)
 		}
-		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx, false)
+		ui.drawStashCell(screen, it, cell, g.stashDragActive && g.stashDragFrom == stashDragInvBase+idx && g.stashDragSplitQuantity == 0, false)
 		if ptInRect(mouseX, mouseY, cell) {
 			drawRectBorder(screen, cell.Min.X-2, cell.Min.Y-2, cell.Dx()+4, cell.Dy()+4, 2, color.RGBA{120, 200, 120, 220})
 		}
 		ui.stashCellTooltip(it, cell, mouseX, mouseY)
+		ui.stashSplitPickerTrigger(stashDragInvBase+idx, it, cell)
 		// Dropping onto any bag cell returns a carried chest/card item to the bag.
 		if g.stashDragDrop && g.stashDragFrom >= 0 && ptInRect(g.stashDragCurX, g.stashDragCurY, cell) {
 			g.resolveStashDrop(stashAddr{stashKindBag, idx})
 		}
 	}
 	pagerY := L.pagerY
-	ui.drawPager(screen, centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, true)
+	ui.drawPager(screen, centerX-gridW/2, pagerY, gridW, &g.stashInvPage, invPages, !g.stashDragActive && !ui.stackSplitPicker.open)
 
 	// ESC is handled in the Update input loop (edge-tracked) so it closes the
 	// modal without leaking to the menu-open handler; here only the close button
 	// (click-inert while a drag is in flight).
-	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive) {
+	if ui.drawPopupCloseButton(screen, popupX+popupW-36, popupY+10, 24, !g.stashDragActive && !ui.stackSplitPicker.open) {
 		g.stashScreenOpen = false
 		g.clearStashDrag()
 	}
@@ -425,8 +499,7 @@ func (ui *UISystem) stashCellSource(i int, r image.Rectangle) {
 	if stash.IsEmpty(g.stash.Slots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = i
-	g.stashDragItem = g.stash.Slots[i]
+	ui.beginStashDrag(i, g.stash.Slots[i])
 }
 
 // stashInvSource captures a bag cell as a drag source.
@@ -438,8 +511,30 @@ func (ui *UISystem) stashInvSource(idx int, r image.Rectangle) {
 	if idx < 0 || idx >= len(g.party.Inventory) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = stashDragInvBase + idx
-	g.stashDragItem = g.party.Inventory[idx]
+	ui.beginStashDrag(stashDragInvBase+idx, g.party.Inventory[idx])
+}
+
+func (ui *UISystem) beginStashDrag(from int, item items.Item) {
+	g := ui.game
+	g.stashDragFrom = from
+	g.stashDragItem = item
+	g.stashDragSplitQuantity = 0
+	if item.Stackable() && item.Count() > 1 && stackSplitModifierHeld() {
+		g.stashDragSplitQuantity = 1
+		g.stashDragItem.Quantity = 1
+	}
+}
+
+// stashSplitPickerTrigger opens the exact quantity picker on right-click. The
+// regular Shift-drag one-unit shortcut remains available for rapid transfers.
+func (ui *UISystem) stashSplitPickerTrigger(from int, item items.Item, r image.Rectangle) {
+	g := ui.game
+	if g.stashDragActive || ui.stackSplitPicker.open || !item.Stackable() || item.Count() < 2 {
+		return
+	}
+	if g.consumeRightClickIn(r.Min.X, r.Min.Y, r.Max.X, r.Max.Y) {
+		ui.openStackSplitPicker(stackSplitPickerStash, from, item)
+	}
 }
 
 // drawStashCell draws one slot: the item icon when filled, an empty frame
@@ -477,7 +572,7 @@ func (ui *UISystem) drawStashTabToggle(screen *ebiten.Image, L stashLayout, mous
 	drawFilledRect(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), base)
 	drawRectBorder(screen, rt.Min.X, rt.Min.Y, rt.Dx(), rt.Dy(), 1, color.RGBA{170, 140, 200, 230})
 	drawCenteredDebugText(screen, label, rt.Min.X, rt.Min.Y+1, rt.Dx(), rt.Dy()-2)
-	if !g.stashDragActive && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
+	if !g.stashDragActive && !ui.stackSplitPicker.open && g.consumeLeftClickIn(rt.Min.X, rt.Min.Y, rt.Max.X, rt.Max.Y) {
 		g.stashShowCards = !g.stashShowCards
 		g.clearStashDrag()
 	}
@@ -516,6 +611,5 @@ func (ui *UISystem) stashCardSource(i int, r image.Rectangle) {
 	if stash.IsEmpty(g.stash.CardSlots[i]) || !ptInRect(g.stashDragStartX, g.stashDragStartY, r) {
 		return
 	}
-	g.stashDragFrom = stashCardDragBase + i
-	g.stashDragItem = g.stash.CardSlots[i]
+	ui.beginStashDrag(stashCardDragBase+i, g.stash.CardSlots[i])
 }

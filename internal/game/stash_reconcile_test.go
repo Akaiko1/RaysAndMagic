@@ -79,6 +79,40 @@ func TestReconcileAgainstStash_IgnoresZeroIDs(t *testing.T) {
 	}
 }
 
+func TestReconcileAgainstStash_PartialStackRekeysSurvivor(t *testing.T) {
+	g := &MMGame{
+		party: &character.Party{Inventory: []items.Item{{
+			Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 100,
+		}}},
+		stash: &stash.Stash{},
+	}
+	// This is an older save from before two of the five potions were moved into
+	// the stash. The chest owns those two units under the original lineage ID.
+	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
+
+	g.reconcilePartyAgainstStash()
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 3 {
+		t.Fatalf("partial dedupe left %+v, want three loose potions", g.party.Inventory)
+	}
+	if g.party.Inventory[0].InstanceID == 100 {
+		t.Fatal("surviving partial stack kept the stash-owned lineage ID")
+	}
+	if !g.loadNeedsResave {
+		t.Fatal("partial dedupe must request a migration save after rekeying")
+	}
+
+	// The rekey makes a later load idempotent: the same two chest units cannot
+	// be subtracted from the remaining three again.
+	g.loadNeedsResave = false
+	g.reconcilePartyAgainstStash()
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 3 {
+		t.Fatalf("second partial dedupe changed the survivor: %+v", g.party.Inventory)
+	}
+	if g.loadNeedsResave {
+		t.Fatal("already-rekeyed survivor must not request another migration save")
+	}
+}
+
 // Card-vault slots count as owned too (cards deposit into a separate vault).
 func TestReconcileAgainstStash_CardVaultOwns(t *testing.T) {
 	g := &MMGame{

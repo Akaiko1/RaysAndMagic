@@ -3939,25 +3939,45 @@ func (cs *CombatSystem) spellMasteryBonus(char *character.MMCharacter, spellID s
 	return 0
 }
 
-// CalculateCriticalChance calculates critical hit bonus from character stats
+// CriticalChanceBreakdown returns the universal crit components shared by
+// weapon and spell attacks. Weapon-specific mastery bonuses stay in
+// WeaponCritBreakdown.
+func (cs *CombatSystem) CriticalChanceBreakdown(char *character.MMCharacter) (luck, cards, setBonus int) {
+	if char != nil {
+		luck = char.GetEffectiveLuck() / LuckToCritDivisor
+		setBonus = char.SetCritChanceBonus()
+	}
+	if cs != nil && cs.game != nil {
+		cards = cs.game.cardCritBonusPct()
+	}
+	return luck, cards, setBonus
+}
+
+// CalculateCriticalChance calculates the universal critical hit bonus used by
+// spells and as one component of weapon critical chance.
 func (cs *CombatSystem) CalculateCriticalChance(char *character.MMCharacter) int {
-	// Use effective Luck so Bless/stat bonuses influence crit chance. Feeds both
-	// weapon crit (CalculateWeaponCritChance) and spell crit (RollCriticalChance),
-	// so the Ronin Marksman Card's bonus applies to both for free.
-	return char.GetEffectiveLuck()/LuckToCritDivisor + cs.game.cardCritBonusPct()
+	luck, cards, setBonus := cs.CriticalChanceBreakdown(char)
+	return luck + cards + setBonus
+}
+
+// totalCriticalChance is the one clamped total used for a real critical roll
+// and a spell tooltip. Keeping the clamp here prevents the display and roll
+// from diverging when several universal crit bonuses exceed 100%.
+func (cs *CombatSystem) totalCriticalChance(baseCrit int, char *character.MMCharacter) int {
+	total := baseCrit + cs.CalculateCriticalChance(char)
+	if total < 0 {
+		return 0
+	}
+	if total > 100 {
+		return 100
+	}
+	return total
 }
 
 // RollCriticalChance returns whether an attack critically hits and the total crit chance used.
 // totalCrit = baseCrit + Luck-derived bonus, clamped to [0,100].
 func (cs *CombatSystem) RollCriticalChance(baseCrit int, chr *character.MMCharacter) (bool, int) {
-	bonus := cs.CalculateCriticalChance(chr)
-	total := baseCrit + bonus
-	if total < 0 {
-		total = 0
-	}
-	if total > 100 {
-		total = 100
-	}
+	total := cs.totalCriticalChance(baseCrit, chr)
 	roll := rand.Intn(100)
 	return roll < total, total
 }
@@ -4405,7 +4425,7 @@ func (cs *CombatSystem) refreshMonsterAITarget(m *monsterPkg.Monster3D) {
 func (cs *CombatSystem) monsterAITargetPoint(m *monsterPkg.Monster3D) (float64, float64) {
 	behavior := m.CurrentAIBehavior()
 	switch behavior {
-	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified:
+	case monsterPkg.AIBehaviorInert, monsterPkg.AIBehaviorPacified, monsterPkg.AIBehaviorEvasive:
 		return m.X, m.Y // pacified: never chase the party - hold position
 	}
 	if cs.bossEvasive(m) {

@@ -123,7 +123,9 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 		return it.InstanceID != 0 && owned[it.InstanceID] > 0
 	}
 	// afterDedup returns the item minus the chest-owned units, and whether
-	// anything remains. Non-stackables keep the old all-or-nothing semantics.
+	// anything remains. When a stack survives a partial strip, it is rekeyed:
+	// otherwise the next load would subtract the same stash-owned units again.
+	// Non-stackables keep the old all-or-nothing semantics.
 	afterDedup := func(it items.Item) (items.Item, bool) {
 		units := owned[it.InstanceID]
 		if it.InstanceID == 0 || units == 0 {
@@ -133,6 +135,8 @@ func (g *MMGame) reconcilePartyAgainstStash() {
 			return it, false
 		}
 		it.Quantity = it.Count() - units
+		it.InstanceID = items.NewInstanceID()
+		g.loadNeedsResave = true
 		return it, true
 	}
 

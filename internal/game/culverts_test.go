@@ -102,6 +102,11 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 	if tx, ty := cs.monsterAITargetPoint(gtb); tx != gtb.X || ty != gtb.Y {
 		t.Errorf("evasive GTB must hold position, not chase the party")
 	}
+	g.refreshMonsterAIState()
+	if !gtb.BossEvasive || gtb.CurrentAIBehavior() != monster.AIBehaviorEvasive {
+		t.Errorf("evasive GTB must expose the shared evasive AI mode (flag=%v behavior=%v)",
+			gtb.BossEvasive, gtb.CurrentAIBehavior())
+	}
 	if !cs.updateBoss(gtb, true, true) {
 		t.Errorf("evasive GTB should be fully handled by updateBoss (no normal attack)")
 	}
@@ -114,13 +119,13 @@ func TestGoldenThiefBug_FlagsAndQuestGatedEvasion(t *testing.T) {
 	if cs.bossEvasive(gtb) {
 		t.Errorf("GTB should turn aggressive once the valve quest is complete")
 	}
+	g.refreshMonsterAIState()
 	if tx, ty := cs.monsterAITargetPoint(gtb); tx != g.camera.X || ty != g.camera.Y {
 		t.Errorf("aggressive GTB should chase the party")
 	}
 
 	// refreshMonsterAIState flags the now-aggressive boss for relentless pursuit;
 	// an evasive boss must NOT carry that flag (it only holds + blinks).
-	g.refreshMonsterAIState()
 	if !gtb.BossAggro {
 		t.Errorf("aggressive GTB should be flagged BossAggro (relentless chase)")
 	}

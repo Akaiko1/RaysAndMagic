@@ -76,6 +76,25 @@ func (m *MockCollisionChecker) CheckLineOfSight(x1, y1, x2, y2 float64) bool {
 	return true // Always clear for these tests
 }
 
+func TestHasPathToTileRejectsWalkablePocket(t *testing.T) {
+	checker := NewMockCollisionChecker(defaultTileSize)
+	for _, wall := range [][2]int{{3, 1}, {5, 1}, {4, 0}, {4, 2}} {
+		checker.BlockTile(wall[0], wall[1])
+	}
+	startX, startY := tileToWorldCenter(1, 1)
+	m := &Monster3D{ID: "m", X: startX, Y: startY, Speed: 1.5}
+	goalX, goalY := tileToWorldCenter(4, 1)
+	if !checker.CanMoveToWithHabitat(m.ID, goalX, goalY, nil, false) {
+		t.Fatal("setup: isolated goal must itself be walkable")
+	}
+	if m.HasPathToTile(checker, 4, 1) {
+		t.Fatal("walkable pocket behind walls was reported as reachable")
+	}
+	if !m.HasPathToTile(checker, 2, 1) {
+		t.Fatal("ordinary adjacent tile was reported as unreachable")
+	}
+}
+
 // TestNextPathStepTile_RoutesAroundBarrier guards the turn-based fix: a mob
 // separated from the party by a long barrier (a river) with a single gap (the
 // bridge/ford) must ROUTE through the gap, not oscillate at the bank. Stepping
@@ -719,6 +738,26 @@ func createTestMonster(x, y float64) *Monster3D {
 	}
 }
 
+// A pursuit redirect must not be reused as the party's position for vision.
+// Regression: MonsterWrapper passed an evasive boss's self-target through the
+// old Update(playerX, playerY) API, so a boss several tiles from the party saw
+// itself at distance zero and entered a permanent false combat loop.
+func TestUpdateWithTarget_UsesRealPartyPositionForVision(t *testing.T) {
+	m := createTestMonster(100, 100)
+	checker := NewMockCollisionChecker(defaultTileSize)
+
+	// The party is well outside this monster's two-tile sight radius. Its pursuit
+	// target is deliberately its own position, exactly like an evasive boss.
+	m.UpdateWithTarget(checker, 100+10*defaultTileSize, 100, m.X, m.Y)
+
+	if m.IsEngagingPlayer {
+		t.Fatal("self pursuit target must not be interpreted as the party for aggro")
+	}
+	if m.State == StateAlert || m.State == StatePursuing || m.State == StateAttacking {
+		t.Fatalf("far party with self target entered combat state %v", m.State)
+	}
+}
+
 func TestMonsterEngagesWhenHit(t *testing.T) {
 	m := createTestMonster(100.0, 100.0)
 
@@ -808,7 +847,7 @@ func TestMonsterStaysEngagedAfterBeingHit(t *testing.T) {
 
 	// Run several AI update cycles - monster should stay engaged
 	for i := 0; i < 60; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Monster should still be engaging because WasAttacked is true
@@ -835,7 +874,7 @@ func TestMonsterDisengagesNormallyWithoutBeingHit(t *testing.T) {
 	playerX, playerY := 500.0, 100.0
 
 	// Run AI update - monster should disengage since WasAttacked is false
-	m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+	m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 
 	// Monster should disengage when player is far and WasAttacked is false
 	if m.IsEngagingPlayer {
@@ -902,7 +941,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 
 	// Run some AI updates
 	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Second hit
@@ -910,7 +949,7 @@ func TestMultipleHitsKeepMonsterEngaged(t *testing.T) {
 
 	// Run more AI updates
 	for i := 0; i < 30; i++ {
-		m.updatePlayerEngagementWithVision(checker, playerX, playerY)
+		m.updatePlayerEngagementWithVision(checker, playerX, playerY, playerX, playerY)
 	}
 
 	// Should still be engaged
@@ -1045,7 +1084,7 @@ func TestEngagedMonsterLeavesPatrolState(t *testing.T) {
 			AttackRadius: 128, AlertRadius: 320, Speed: 3.75,
 			SpawnX: 64 * 4, SpawnY: 64 * 4, TetherRadius: 64 * 20,
 		}
-		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4) // player 2 tiles away
+		m.updatePlayerEngagementWithVision(checker, 64*6, 64*4, 64*6, 64*4) // player 2 tiles away
 		if m.State != StateAlert {
 			t.Errorf("engaged monster in %v should snap to StateAlert, got %v", start, m.State)
 		}

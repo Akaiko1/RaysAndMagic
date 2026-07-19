@@ -46,6 +46,7 @@ type UISystem struct {
 	inventoryContextX     int
 	inventoryContextY     int
 	inventoryContextIndex int
+	stackSplitPicker      stackSplitPickerState
 	inventoryPage         int    // current inventory grid page (0-based)
 	questPage             int    // current quest log page (0-based)
 	characterPage         int    // current character-info page (0-based)
@@ -187,6 +188,9 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	if ui.game.stashScreenOpen {
 		ui.drawStashScreen(screen)
 	}
+	if ui.stackSplitPicker.open {
+		ui.drawStackSplitPicker(screen)
+	}
 
 	// Draw level-up choice popup if pending
 	if ui.game.currentLevelUpChoice() != nil {
@@ -207,7 +211,7 @@ func (ui *UISystem) Draw(screen *ebiten.Image) {
 	// are no longer suppressed - the spell trader UI surfaces spell details on
 	// hover and that's the only path that queues a tooltip there. Other modal
 	// states (stat popup, revival picker, fullscreen map) still suppress.
-	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen {
+	if ui.tooltipLines != nil && !ui.game.statPopupOpen && !ui.game.revivalPickerOpen && !ui.game.healPickerOpen && !ui.game.mapOverlayOpen && !ui.game.combatLogOpen && !ui.stackSplitPicker.open {
 		screenW := screen.Bounds().Dx()
 		screenH := screen.Bounds().Dy()
 		hasIcon := ui.tooltipIcon != ""

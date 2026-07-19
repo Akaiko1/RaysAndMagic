@@ -1258,7 +1258,7 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 			luckBonus += bonus
 		}
 	}
-	// Armor-set bonuses: this loop is the only place that sees the whole
+	// Equipment-set bonuses: this loop is the only place that sees the whole
 	// equipped kit together, so completed sets add their bonuses here.
 	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
 		mightBonus += set.BonusMight
@@ -1272,8 +1272,10 @@ func (c *MMCharacter) calculateEquipmentBonuses() (mightBonus, intellectBonus, p
 	return mightBonus, intellectBonus, personalityBonus, enduranceBonus, accuracyBonus, speedBonus, luckBonus
 }
 
-// forEachCompletedSet visits every armor set whose pieces_required is met by
-// the equipped items. Zero allocations on purpose: this runs inside
+// forEachCompletedSet visits every equipment set completed by the equipped
+// items. Count-based sets use pieces_required; exact-piece sets use their
+// required_pieces list, so duplicate weapons cannot replace their armor. Zero
+// allocations on purpose: this runs inside
 // calculateEquipmentBonuses, i.e. inside EVERY effective-stat read. Each set
 // is visited once - counted at its lowest-slot piece (the "owner"); the inner
 // rescan is bounded by the handful of equipment slots.
@@ -1297,10 +1299,47 @@ func (c *MMCharacter) forEachCompletedSet(fn func(*config.ItemSetConfig)) {
 		if !owner {
 			continue
 		}
-		if set := config.GetItemSet(it.Set); set != nil && count >= set.PiecesRequired {
+		if set := config.GetItemSet(it.Set); set != nil && c.hasCompletedSet(it.Set, set, count) {
 			fn(set)
 		}
 	}
+}
+
+func (c *MMCharacter) hasCompletedSet(setKey string, set *config.ItemSetConfig, count int) bool {
+	if len(set.RequiredPieces) == 0 {
+		return count >= set.PiecesRequired
+	}
+	for _, requiredKey := range set.RequiredPieces {
+		found := false
+		for _, equipped := range c.Equipment {
+			if equipped.Set == setKey && setPieceKey(equipped) == requiredKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// setPieceKey resolves a saved equipped item to its data key. Exact-piece
+// sets need keys rather than names, because the YAML key is their stable
+// authored identity across item and weapon catalogs.
+func setPieceKey(item items.Item) string {
+	if item.Type == items.ItemWeapon {
+		_, key, ok := config.GetWeaponDefinitionByName(item.Name)
+		if ok {
+			return key
+		}
+		return ""
+	}
+	_, key, ok := config.GetItemDefinitionByName(item.Name)
+	if ok {
+		return key
+	}
+	return ""
 }
 
 // SetStunDurationPct sums stun-duration shifts from completed armor sets
@@ -1313,6 +1352,17 @@ func (c *MMCharacter) SetStunDurationPct() int {
 	if total < -90 {
 		total = -90
 	}
+	return total
+}
+
+// SetCritChanceBonus returns the flat critical-chance percentage points granted
+// by completed equipment sets. It applies to every player critical-hit roll,
+// including weapon attacks and damage spells.
+func (c *MMCharacter) SetCritChanceBonus() int {
+	total := 0
+	c.forEachCompletedSet(func(set *config.ItemSetConfig) {
+		total += set.BonusCritChance
+	})
 	return total
 }
 

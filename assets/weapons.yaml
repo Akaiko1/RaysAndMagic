@@ -294,6 +294,7 @@ weapons:
     name: "Gold Sword"
     description: "A magnificent sword forged from pure gold"
     category: "sword"
+    set: "dragon_hoard"
     damage: 12
     range: 1  # 1 tile reach
     bonus_stat: "Might"
@@ -1204,11 +1205,11 @@ weapons:
     name: "Cogfang Blade"
     description: "A gear-hilted sword whose teeth chew straight through plate"
     category: "sword"
-    damage: 30
+    damage: 20
     range: 1
     bonus_stat: "Might"
     crit_chance: 18
-    armor_pierce_pct: 25
+    armor_pierce_pct: 20
     rarity: "unique"
     no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
     value: 1500
@@ -1227,12 +1228,13 @@ weapons:
     name: "Chime Maul"
     description: "A clockfaced hammer that rings skulls like the noon bell"
     category: "mace"
-    damage: 34
+    damage: 23
     range: 1
     bonus_stat: "Might"
     crit_chance: 16
-    stun_chance: 0.18
+    stun_chance: 0.15
     stun_turns: 3
+    cooldown_multiplier: 1.40
     rarity: "unique"
     no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
     value: 1600
@@ -1251,7 +1253,7 @@ weapons:
     name: "Minute Hand"
     description: "A needle rapier ground from a tower clock's own hand"
     category: "dagger"
-    damage: 22
+    damage: 16
     range: 1
     bonus_stat: "Speed"
     bonus_stat_secondary: "Accuracy"
@@ -1275,7 +1277,7 @@ weapons:
     name: "Mainspring Pike"
     description: "A coiled-steel pike that strikes with unwound fury"
     category: "spear"
-    damage: 28
+    damage: 23
     range: 2
     bonus_stat: "Might"
     crit_chance: 16
@@ -1298,7 +1300,7 @@ weapons:
     name: "Escapement Mace"
     description: "A ratcheting cog-mace that strips armor tooth by tooth"
     category: "mace"
-    damage: 27
+    damage: 19
     range: 1
     bonus_stat: "Might"
     crit_chance: 18
@@ -1322,10 +1324,11 @@ weapons:
     name: "Clockwork Pistol"
     description: "A spring-driven pistol that never waits on powder"
     category: "blaster"
-    damage: 30
+    damage: 20
     range: 6
     bonus_stat: "Accuracy"
     crit_chance: 20
+    cooldown_multiplier: 1.30
     rarity: "unique"
     no_loot: true  # Clockmaker-only stock: never rolls as loot or joins rarity racks
     value: 1600

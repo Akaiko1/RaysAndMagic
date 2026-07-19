@@ -31,3 +31,29 @@ func TestItemNameIndexRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestWeaponNameIndexRoundTrip gives saved weapon instances the same identity
+// guarantee as items: their display name must deterministically resolve to the
+// YAML key used by exact-piece equipment sets and icon lookups.
+func TestWeaponNameIndexRoundTrip(t *testing.T) {
+	cfg, err := LoadWeaponConfig("../../assets/weapons.yaml")
+	if err != nil {
+		t.Fatalf("load weapons: %v", err)
+	}
+	if len(cfg.Weapons) == 0 {
+		t.Fatal("no weapons loaded")
+	}
+	for key, def := range cfg.Weapons {
+		gotDef, gotKey, ok := GetWeaponDefinitionByName(def.Name)
+		if !ok {
+			t.Errorf("weapon %q (name %q) is not resolvable by name", key, def.Name)
+			continue
+		}
+		if gotKey != key {
+			t.Errorf("weapon name %q resolved to key %q, want %q - duplicate weapon name?", def.Name, gotKey, key)
+		}
+		if gotDef != def {
+			t.Errorf("weapon name %q resolved to a different definition than its own", def.Name)
+		}
+	}
+}

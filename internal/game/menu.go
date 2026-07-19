@@ -787,12 +787,12 @@ func normalizeItemFromConfig(item *items.Item) {
 		item.Attributes[k] = v
 	}
 	item.ArmorCategory = template.ArmorCategory
-	// rarity/description are definitional too (items carry no per-instance
-	// override - nothing sets them outside YAML adoption), so adopt them
-	// wholesale like attributes: a rebalanced rarity/desc reaches old saves,
-	// matching the weapon branch above.
+	// Rarity, description, and set membership are definitional too (items carry
+	// no per-instance override), so adopt them from YAML. This lets newly added
+	// sets activate for equipment already present in an older save.
 	item.Description = template.Description
 	item.Rarity = template.Rarity
+	item.Set = template.Set
 }
 
 // restoreCharacterSave reconstructs one character (active or reserve) from a save.

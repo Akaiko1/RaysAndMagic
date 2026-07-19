@@ -42,6 +42,20 @@ func TestNormalizeWeaponFromConfigRefreshesSavedRarity(t *testing.T) {
 	}
 }
 
+func TestNormalizeItemFromConfigMigratesDragonHoardSetMembership(t *testing.T) {
+	loadTestConfig(t)
+
+	for _, saved := range []*items.Item{
+		{Name: "Gold Sword", Type: items.ItemWeapon, Set: ""},
+		{Name: "Golden Armor", Type: items.ItemArmor, Set: ""},
+	} {
+		normalizeItemFromConfig(saved)
+		if saved.Set != "dragon_hoard" {
+			t.Errorf("%s set after config migration = %q, want dragon_hoard", saved.Name, saved.Set)
+		}
+	}
+}
+
 func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	cfg := loadTestConfig(t)
 

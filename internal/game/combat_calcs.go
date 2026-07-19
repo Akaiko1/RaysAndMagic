@@ -56,10 +56,11 @@ func (cs *CombatSystem) CalculateSpellDamage(spellID spells.SpellID, char *chara
 	return baseDamage, intellectBonus, totalDamage
 }
 
-// rollSpellCritDamage rolls Luck-based spell crit (no base crit) and returns the
-// possibly-boosted damage plus whether it crit. No-damage spells (Disintegrate)
-// never crit - the ONE place that rule lives, shared by every cast path (player
-// projectile, champion cast, mortar) so none can drift.
+// rollSpellCritDamage rolls the universal player crit chance for a spell (no
+// spell base crit) and returns the possibly-boosted damage plus whether it
+// crit. No-damage spells (Disintegrate) never crit - the ONE place that rule
+// lives, shared by every cast path (player projectile, champion cast, mortar)
+// so none can drift.
 func (cs *CombatSystem) rollSpellCritDamage(spellID spells.SpellID, caster *character.MMCharacter, base int) (int, bool) {
 	if def, err := spells.GetSpellDefinitionByID(spellID); err == nil && def.DealsNoDamage {
 		return base, false
@@ -132,11 +133,11 @@ func (cs *CombatSystem) CalculateSpellStatBonus(spellID spells.SpellID, char *ch
 	return scaledSpellMasteryValue(def, char, def.StatBonus, def.StatBonusGrandmaster)
 }
 
-// CalculateWeaponCritChance returns total crit chance (weapon base + luck bonus), clamped to [0,100].
+// CalculateWeaponCritChance returns total weapon crit chance, clamped to [0,100].
 // WeaponCritBreakdown decomposes the weapon crit chance into its components -
 // the SAME pieces CalculateWeaponCritChance sums, so the tooltip's breakdown
 // can't drift from the rolled total.
-func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, gmWeapon, gmArms int) {
+func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.MMCharacter) (baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms int) {
 	if def, _, ok := config.GetWeaponDefinitionByName(weapon.Name); ok && def != nil {
 		baseCrit = def.CritChance
 		// Grandmaster in this weapon's category: extra crit with it.
@@ -149,12 +150,13 @@ func (cs *CombatSystem) WeaponCritBreakdown(weapon items.Item, char *character.M
 	if char != nil && char.SkillTier(character.SkillArmsMaster) >= int(character.MasteryGrandMaster) {
 		gmArms = ArmsMasterGMCritBonus
 	}
-	return baseCrit, cs.CalculateCriticalChance(char), gmWeapon, gmArms
+	luck, cardCrit, setCrit = cs.CriticalChanceBreakdown(char)
+	return baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms
 }
 
 func (cs *CombatSystem) CalculateWeaponCritChance(weapon items.Item, char *character.MMCharacter) int {
-	baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
-	total := baseCrit + luck + gmWeapon + gmArms
+	baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(weapon, char)
+	total := baseCrit + luck + cardCrit + setCrit + gmWeapon + gmArms
 	if total < 0 {
 		return 0
 	}

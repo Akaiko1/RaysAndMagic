@@ -50,6 +50,62 @@ func TestStashTransfer_DepositWithdraw(t *testing.T) {
 	}
 }
 
+func TestStashTransfer_PartialStackKeepsTransferredLineage(t *testing.T) {
+	g := stashTestGame(t)
+	g.party.Inventory = []items.Item{{
+		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 100,
+	}}
+	g.stashDragFrom = stashDragInvBase
+	g.stashDragSplitQuantity = 2
+	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
+	g.resolveStashDrop(stashAddr{stashKindChest, 0})
+
+	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 100 {
+		t.Fatalf("stash fragment = %+v, want two units with ID 100", got)
+	}
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 3 || g.party.Inventory[0].InstanceID == 100 {
+		t.Fatalf("bag remainder = %+v, want three rekeyed units", g.party.Inventory)
+	}
+}
+
+func TestStashTransfer_PartialStackDoesNotMergeDifferentLineages(t *testing.T) {
+	g := stashTestGame(t)
+	g.party.Inventory = []items.Item{{
+		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3, InstanceID: 100,
+	}}
+	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 200}
+	g.stashDragFrom = stashDragInvBase
+	g.stashDragSplitQuantity = 1
+	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
+	g.resolveStashDrop(stashAddr{stashKindChest, 0})
+
+	if got := g.stash.Slots[0]; got.Count() != 1 || got.InstanceID != 200 {
+		t.Fatalf("occupied stash cell changed to %+v", got)
+	}
+	if got := g.party.Inventory[0]; got.Count() != 3 || got.InstanceID != 100 {
+		t.Fatalf("bag source changed after refused partial transfer: %+v", got)
+	}
+}
+
+func TestStashTransfer_PartialStackMergesSameLineage(t *testing.T) {
+	g := stashTestGame(t)
+	g.party.Inventory = []items.Item{{
+		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 4, InstanceID: 100,
+	}}
+	g.stash.Slots[0] = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
+	g.stashDragFrom = stashDragInvBase
+	g.stashDragSplitQuantity = 2
+	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 2, InstanceID: 100}
+	g.resolveStashDrop(stashAddr{stashKindChest, 0})
+
+	if got := g.stash.Slots[0]; got.Count() != 3 || got.InstanceID != 100 {
+		t.Fatalf("same-lineage stash stack = %+v, want three units with ID 100", got)
+	}
+	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
+		t.Fatalf("bag remainder = %+v, want two rekeyed units", got)
+	}
+}
+
 // TestStashTransfer_DepositSwap covers dropping a bag item onto an OCCUPIED chest
 // cell: the new item takes the cell and the displaced item returns to the bag.
 func TestStashTransfer_DepositSwap(t *testing.T) {

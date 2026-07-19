@@ -25,6 +25,7 @@ const (
 	AIBehaviorInert AIBehaviorMode = iota
 	AIBehaviorBoundAlly
 	AIBehaviorPacified
+	AIBehaviorEvasive
 	AIBehaviorFightFoe
 	AIBehaviorRelentlessParty
 	AIBehaviorFleeing
@@ -98,6 +99,9 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.Pacified {
 		return AIBehaviorPacified
 	}
+	if m.BossEvasive {
+		return AIBehaviorEvasive
+	}
 	if m.AIFoe != nil {
 		return AIBehaviorFightFoe
 	}
@@ -130,7 +134,7 @@ func (m *Monster3D) TargetsParty() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorBoundAlly,
 		AIBehaviorFightFoe, AIBehaviorFleeing, AIBehaviorPassive:
 		return false
 	case AIBehaviorRelentlessParty:
@@ -149,7 +153,7 @@ func (m *Monster3D) IsInCombat() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorFleeing, AIBehaviorPassive:
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing, AIBehaviorPassive:
 		return false
 	case AIBehaviorBoundAlly:
 		return m.AIFoe != nil
@@ -170,7 +174,7 @@ func (m *Monster3D) IsCalmForSocialBehavior() bool {
 	}
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorBoundAlly,
-		AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
+		AIBehaviorEvasive, AIBehaviorFightFoe, AIBehaviorRelentlessParty, AIBehaviorFleeing:
 		return false
 	}
 	return m.State == StateIdle || m.State == StatePatrolling
@@ -293,15 +297,22 @@ type Monster3D struct {
 	LootGuarding bool
 	// LootGuardAlerted keeps the seven-tile guard radius through the active
 	// sight encounter after the game releases the calm guard reservation.
-	LootGuardAlerted         bool
-	LootGuardTargetKey       string
-	LootGuardTargetTileX     int
-	LootGuardTargetTileY     int
-	LootGuardSide            int
-	LootGuardPatrolAlt       bool
-	LootGuardMoveTileX       int
-	LootGuardMoveTileY       int
-	LootGuardPatrolUntil     int64
+	LootGuardAlerted     bool
+	LootGuardTargetKey   string
+	LootGuardTargetTileX int
+	LootGuardTargetTileY int
+	LootGuardSide        int
+	LootGuardPatrolAlt   bool
+	LootGuardMoveTileX   int
+	LootGuardMoveTileY   int
+	LootGuardPatrolUntil int64
+	// These are runtime-only coordination fields between the serial guard
+	// planner and the parallel RT AI. A post is reusable only after every
+	// current guard had an A* route to it; a failed route asks the serial pass
+	// to choose a different post on the next reconciliation.
+	LootGuardPostAssigned    bool
+	LootGuardPostMemberCount int
+	LootGuardPathBlocked     bool
 	Flying                   bool     // Whether the monster should be rendered above ground
 	RangedAttackRange        float64  // Optional ranged attack range override (pixels)
 	AttacksPerRound          int      // Turn-based melee attacks per monster round
@@ -367,6 +378,7 @@ type Monster3D struct {
 	BossCooldownSecs  float64 // RT cadence between evasive blinks (seconds)
 	BossCD            int     // RT cadence (frames) between boss special actions (evasive blink)
 	BossAggro         bool    // transient (per-frame): an aggressive boss that should relentlessly chase the party (set by refreshMonsterAIState)
+	BossEvasive       bool    // transient (per-frame): a quest-gated boss that keeps patrolling but only blinks away; never acquires a combat target (set by refreshMonsterAIState)
 	BossDormant       bool    // transient (per-frame): a sealed boss (passive-until-quest, no evade radius) that holds its spawn - no detection or wandering until its quest unseals it (set by refreshMonsterAIState)
 	// Idol-ward (deep-jungle warlord): while any of its plaza idols live the boss is
 	// invulnerable and HOLDS its plaza (frozen like a dormant boss); break every idol

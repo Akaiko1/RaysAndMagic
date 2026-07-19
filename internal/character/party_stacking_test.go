@@ -61,6 +61,30 @@ func TestConsumeOneAt(t *testing.T) {
 	}
 }
 
+func TestTakeStackUnits(t *testing.T) {
+	p := &Party{Inventory: []items.Item{{
+		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 42,
+	}}}
+	part, ok := p.TakeStackUnits(0, 2)
+	if !ok {
+		t.Fatal("partial stack take failed")
+	}
+	if part.Count() != 2 || part.InstanceID != 42 {
+		t.Errorf("taken fragment = %+v, want quantity 2 with ID 42", part)
+	}
+	if len(p.Inventory) != 1 || p.Inventory[0].Count() != 3 || p.Inventory[0].InstanceID == 42 {
+		t.Errorf("remaining bag = %+v, want three potions with a fresh ID", p.Inventory)
+	}
+
+	whole, ok := p.TakeStackUnits(0, 3)
+	if !ok || whole.Count() != 3 || len(p.Inventory) != 0 {
+		t.Errorf("whole take = %+v, bag=%+v; want all three units removed", whole, p.Inventory)
+	}
+	if _, ok := p.TakeStackUnits(0, 1); ok {
+		t.Error("taking from an empty bag must fail")
+	}
+}
+
 func TestItemCurrencyAcrossStacks(t *testing.T) {
 	p := &Party{}
 	p.AddItem(trinket(5))

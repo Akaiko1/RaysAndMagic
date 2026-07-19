@@ -145,12 +145,24 @@ func (ps *pathScratch) coord(idx int) TileCoord {
 	return TileCoord{X: x, Y: y}
 }
 
-// Update runs the monster AI with collision checking and player position for
-// engagement detection. AI-ONLY: it does not touch collision-entity metadata
-// (e.g. the engaged/solid distinction), so a real-time gameplay step must call
-// this through game.MonsterWrapper.Update, not on its own - tests that need RT
-// fidelity (not just AI/position behavior) should do the same.
-func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY float64) {
+// Update is the compatibility entry point for callers whose pursuit target is
+// the party. Game code with redirected targets (summons, charm, or scripted
+// bosses) must use UpdateWithTarget so a movement target never becomes the
+// source of truth for party sight and aggro.
+func (m *Monster3D) Update(collisionChecker CollisionChecker, partyX, partyY float64) {
+	m.UpdateWithTarget(collisionChecker, partyX, partyY, partyX, partyY)
+}
+
+// UpdateWithTarget runs one AI-only update. partyX/Y are used exclusively for
+// player LoS, first aggro, disengage, and fleeing; targetX/Y are used only for
+// pursuit, attack range, and facing. Keeping them separate matters whenever a
+// monster is redirected to a summon or told to hold its current position.
+//
+// It does not touch collision-entity metadata (e.g. the engaged/solid
+// distinction), so a real-time gameplay step must call this through
+// game.MonsterWrapper.Update, not on its own. Tests that need RT fidelity (not
+// just AI/position behavior) should do the same.
+func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
 	// Sealed/dormant boss: completely inert (no detection, no patrol) so it holds
 	// its throne until its quest unseals it. The RT attack loop already no-ops via
 	// updateBoss; without this the patrol state would still drift the boss off its
@@ -200,8 +212,9 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 		}
 	}
 
-	// Check for player detection and engagement with line-of-sight (trees reduce detection)
-	m.updatePlayerEngagementWithVision(collisionChecker, playerX, playerY)
+	// Party detection always uses the actual party position. The pursuit target
+	// may be a bound ally, a charmed monster's foe, or the monster itself.
+	m.updatePlayerEngagementWithVision(collisionChecker, partyX, partyY, targetX, targetY)
 
 	// Loot-guard movement is a calm override prepared by the game on the main
 	// thread. Detection above still uses the actual party position; once the
@@ -214,17 +227,17 @@ func (m *Monster3D) Update(collisionChecker CollisionChecker, playerX, playerY f
 
 	switch m.State {
 	case StateIdle:
-		m.updateIdle(playerX, playerY)
+		m.updateIdle(targetX, targetY)
 	case StatePatrolling:
 		m.updatePatrolling(collisionChecker)
 	case StatePursuing:
-		m.updatePursuing(collisionChecker, playerX, playerY)
+		m.updatePursuing(collisionChecker, targetX, targetY)
 	case StateAlert:
-		m.updateAlert(collisionChecker, playerX, playerY)
+		m.updateAlert(collisionChecker, targetX, targetY)
 	case StateAttacking:
-		m.updateAttacking(collisionChecker, playerX, playerY)
+		m.updateAttacking(collisionChecker, targetX, targetY)
 	case StateFleeing:
-		m.updateFleeing(collisionChecker, playerX, playerY)
+		m.updateFleeing(collisionChecker, partyX, partyY)
 	}
 }
 
@@ -273,9 +286,11 @@ func (m *Monster3D) pursueRelentlessly(checker CollisionChecker, targetX, target
 	}
 }
 
-// updatePlayerEngagementWithVision handles player detection with line-of-sight checks
-// Trees and other opaque obstacles reduce detection radius
-func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, playerX, playerY float64) {
+// updatePlayerEngagementWithVision handles party detection with line-of-sight
+// checks. partyX/Y remain the real party position even when targetX/Y redirects
+// combat movement to another monster. Trees and other opaque obstacles reduce
+// detection radius.
+func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionChecker, partyX, partyY, targetX, targetY float64) {
 	switch m.CurrentAIBehavior() {
 	case AIBehaviorInert:
 		return
@@ -293,11 +308,20 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 			m.StateTimer = 0
 		}
 		return
+	case AIBehaviorEvasive:
+		// Quest-gated evasive bosses keep their ordinary idle/patrol movement, but
+		// never acquire a combat target. Their quest behavior is owned by
+		// CombatSystem.updateBoss, which blinks them away on proximity or damage.
+		if m.IsEngagingPlayer || m.State == StateAlert || m.State == StatePursuing ||
+			m.State == StateAttacking || m.State == StateFleeing {
+			m.EndPlayerEngagement()
+		}
+		return
 	case AIBehaviorBoundAlly, AIBehaviorFightFoe, AIBehaviorRelentlessParty:
 		// Bound allies, redirected enemies, and map-wide hunters already have an
 		// active combat target. They keep pursuing it through cover and outside the
 		// normal first-sight radius; their target point was prepared by the game.
-		m.pursueRelentlessly(collisionChecker, playerX, playerY)
+		m.pursueRelentlessly(collisionChecker, targetX, targetY)
 		return
 	case AIBehaviorFleeing:
 		// Flee is the tail of an existing RT encounter. It suppresses all fresh
@@ -319,13 +343,13 @@ func (m *Monster3D) updatePlayerEngagementWithVision(collisionChecker CollisionC
 	}
 
 	if !m.IsEngagingPlayer {
-		if m.CanStartPlayerEngagement(collisionChecker, playerX, playerY) {
+		if m.CanStartPlayerEngagement(collisionChecker, partyX, partyY) {
 			m.BeginPlayerEngagement()
 		}
 		return
 	}
 
-	if m.ShouldDisengageFromPlayer(collisionChecker, playerX, playerY) {
+	if m.ShouldDisengageFromPlayer(collisionChecker, partyX, partyY) {
 		// Stop engaging player - return to idle (only if not recently attacked).
 		m.EndPlayerEngagement()
 	}
@@ -592,6 +616,7 @@ func (m *Monster3D) updateLootGuarding(collisionChecker CollisionChecker) {
 		return
 	}
 	if !m.followPathToTile(collisionChecker, m.LootGuardMoveTileX, m.LootGuardMoveTileY) {
+		m.LootGuardPathBlocked = true
 		m.ResetPathfinding()
 	}
 }
@@ -695,7 +720,7 @@ func (m *Monster3D) usesAttackPosts() bool {
 		return false
 	}
 	switch m.CurrentAIBehavior() {
-	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorFleeing:
+	case AIBehaviorInert, AIBehaviorPacified, AIBehaviorEvasive, AIBehaviorFleeing:
 		return false
 	case AIBehaviorBoundAlly:
 		return m.AIFoe != nil
@@ -865,12 +890,12 @@ func (m *Monster3D) pickPatrolTarget(collisionChecker CollisionChecker) (TileCoo
 		if distance(centerX, centerY, m.SpawnX, m.SpawnY) > m.TetherRadius {
 			continue
 		}
-		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+		if m.HasPathToTile(collisionChecker, tileX, tileY) {
 			return TileCoord{X: tileX, Y: tileY}, true
 		}
 	}
 
-	if collisionChecker.CanMoveToWithHabitat(m.ID, m.SpawnX, m.SpawnY, m.HabitatPrefs, m.Flying) {
+	if m.HasPathToTile(collisionChecker, spawnTileX, spawnTileY) {
 		return TileCoord{X: spawnTileX, Y: spawnTileY}, true
 	}
 
@@ -910,8 +935,7 @@ func (m *Monster3D) pickFleeTarget(collisionChecker CollisionChecker, playerX, p
 			// re-looped the picker forever (and skipped the flee timeout).
 			continue
 		}
-		centerX, centerY := m.tileToWorldCenter(tileX, tileY)
-		if collisionChecker.CanMoveToWithHabitat(m.ID, centerX, centerY, m.HabitatPrefs, m.Flying) {
+		if m.HasPathToTile(collisionChecker, tileX, tileY) {
 			return TileCoord{X: tileX, Y: tileY}, true
 		}
 	}
@@ -1186,6 +1210,20 @@ func (m *Monster3D) findPathToTile(collisionChecker CollisionChecker, targetTile
 	maxY := mathutil.IntMax(start.Y, goal.Y) + rangeTiles
 
 	return m.findPathAStar(collisionChecker, start, []TileCoord{goal}, minX, maxX, minY, maxY)
+}
+
+// HasPathToTile reports whether this monster can reach an exact tile using the
+// same bounded A* search as followPathToTile. It is for choosing a remote AI
+// objective: CanMoveTo only says the destination itself is open and cannot
+// distinguish a walkable pocket behind walls from a reachable one.
+func (m *Monster3D) HasPathToTile(collisionChecker CollisionChecker, targetTileX, targetTileY int) bool {
+	if m == nil || collisionChecker == nil {
+		return false
+	}
+	if m.isAtTile(targetTileX, targetTileY) {
+		return true
+	}
+	return len(m.findPathToTile(collisionChecker, targetTileX, targetTileY)) > 1
 }
 
 func (m *Monster3D) findPathAStar(collisionChecker CollisionChecker, start TileCoord, goals []TileCoord, minX, maxX, minY, maxY int) []TileCoord {

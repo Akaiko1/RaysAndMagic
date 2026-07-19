@@ -6,92 +6,170 @@ import (
 	"ugataima/internal/monster"
 )
 
+type inactiveBossCase struct {
+	name           string
+	bossKey        string
+	addWardIdol    bool
+	stationary     bool
+	assertInactive func(t *testing.T, game *MMGame, boss *monster.Monster3D)
+}
+
+var inactiveBossCases = []inactiveBossCase{
+	{
+		name:       "dormant_samurai",
+		bossKey:    "old_samurai",
+		stationary: true,
+		assertInactive: func(t *testing.T, _ *MMGame, boss *monster.Monster3D) {
+			t.Helper()
+			if !boss.BossDormant {
+				t.Fatal("unfinished castle quest must leave Samurai Warlord dormant")
+			}
+		},
+	},
+	{
+		name:    "evasive_golden_thief_bug",
+		bossKey: "golden_thief_bug",
+		assertInactive: func(t *testing.T, game *MMGame, boss *monster.Monster3D) {
+			t.Helper()
+			if !game.combat.bossEvasive(boss) || boss.BossDormant {
+				t.Fatal("unfinished valves quest must leave Golden Thief Bug evasive, not dormant")
+			}
+		},
+	},
+	{
+		name:        "idol_warded_orc_warlord",
+		bossKey:     "orc_hero_boss",
+		addWardIdol: true,
+		stationary:  true,
+		assertInactive: func(t *testing.T, _ *MMGame, boss *monster.Monster3D) {
+			t.Helper()
+			if !boss.BossWarded {
+				t.Fatal("living jungle idol must leave Orc Warlord warded")
+			}
+		},
+	},
+}
+
+func newInactiveBossScenario(t *testing.T, tc inactiveBossCase) (*MMGame, *monster.Monster3D, *monster.Monster3D) {
+	t.Helper()
+	cfg := loadTestConfig(t)
+	worldTest := newTestWorldSized(cfg, 12, 12)
+	game := newTestGame(cfg, worldTest)
+	game.combat = NewCombatSystem(game)
+	ts := float64(cfg.GetTileSize())
+
+	boss := monster.NewMonster3DFromConfig(8*ts+ts/2, 6*ts+ts/2, tc.bossKey, game.config)
+	ally := monster.NewMonster3DFromConfig(7*ts+ts/2, 6*ts+ts/2, "revenant", game.config)
+	if boss == nil || ally == nil {
+		t.Fatal("boss and revenant must load from monsters.yaml")
+	}
+	markCardAlly(ally)
+	game.world.Monsters = []*monster.Monster3D{boss, ally}
+	if tc.addWardIdol {
+		idol := monster.NewMonster3DFromConfig(6*ts+ts/2, 6*ts+ts/2, "jungle_idol", game.config)
+		if idol == nil {
+			t.Fatal("jungle idol must load from monsters.yaml")
+		}
+		game.world.Monsters = append(game.world.Monsters, idol)
+	}
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	placePlayerAtTile(game, 0, 0, ts)
+	return game, boss, ally
+}
+
+func assertInactiveBossTargeting(t *testing.T, tc inactiveBossCase, game *MMGame, boss, ally *monster.Monster3D) {
+	t.Helper()
+	game.refreshMonsterAIState()
+	tc.assertInactive(t, game, boss)
+	if boss.AIFoe != nil {
+		t.Fatalf("inactive boss acquired bound revenant: %v", boss.AIFoe)
+	}
+	if ally.AIFoe == boss {
+		t.Fatal("bound revenant selected inactive boss")
+	}
+}
+
 // Every inactive boss style must remain neutral to party-controlled monsters in
 // real time. These states use different mechanics: the Samurai is dormant, the
 // Golden Thief Bug evades, and the Orc Warlord is warded by an idol.
 func TestInactiveBossesIgnoreBoundAlliesRT(t *testing.T) {
-	cases := []struct {
-		name           string
-		bossKey        string
-		addWardIdol    bool
-		assertInactive func(t *testing.T, game *MMGame, boss *monster.Monster3D)
-	}{
-		{
-			name:    "dormant_samurai",
-			bossKey: "old_samurai",
-			assertInactive: func(t *testing.T, _ *MMGame, boss *monster.Monster3D) {
-				t.Helper()
-				if !boss.BossDormant {
-					t.Fatal("unfinished castle quest must leave Samurai Warlord dormant")
-				}
-			},
-		},
-		{
-			name:    "evasive_golden_thief_bug",
-			bossKey: "golden_thief_bug",
-			assertInactive: func(t *testing.T, game *MMGame, boss *monster.Monster3D) {
-				t.Helper()
-				if !game.combat.bossEvasive(boss) || boss.BossDormant {
-					t.Fatal("unfinished valves quest must leave Golden Thief Bug evasive, not dormant")
-				}
-			},
-		},
-		{
-			name:        "idol_warded_orc_warlord",
-			bossKey:     "orc_hero_boss",
-			addWardIdol: true,
-			assertInactive: func(t *testing.T, _ *MMGame, boss *monster.Monster3D) {
-				t.Helper()
-				if !boss.BossWarded {
-					t.Fatal("living jungle idol must leave Orc Warlord warded")
-				}
-			},
-		},
-	}
-
-	for _, tc := range cases {
+	for _, tc := range inactiveBossCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := loadTestConfig(t)
-			worldTest := newTestWorldSized(cfg, 12, 12)
-			game := newTestGame(cfg, worldTest)
-			game.combat = NewCombatSystem(game)
-			ts := float64(cfg.GetTileSize())
+			game, boss, ally := newInactiveBossScenario(t, tc)
+			assertInactiveBossTargeting(t, tc, game, boss, ally)
 
-			boss := monster.NewMonster3DFromConfig(8*ts+ts/2, 6*ts+ts/2, tc.bossKey, game.config)
-			ally := monster.NewMonster3DFromConfig(7*ts+ts/2, 6*ts+ts/2, "revenant", game.config)
-			if boss == nil || ally == nil {
-				t.Fatal("boss and revenant must load from monsters.yaml")
+			// Exercise the real two-phase RT worker path too. The self target used by
+			// an evasive boss must stay a movement-only value; neither it nor a truly
+			// stationary set piece may enter party/summon combat during Update.
+			startX, startY := boss.X, boss.Y
+			snapshot := game.collisionSystem.Snapshot()
+			wrappers := make([]*MonsterWrapper, 0, len(game.world.Monsters))
+			for _, m := range game.world.Monsters {
+				wrapper := &MonsterWrapper{Monster: m, collisionSystem: game.collisionSystem, snapshot: snapshot, game: game}
+				wrapper.Update()
+				wrappers = append(wrappers, wrapper)
 			}
-			markCardAlly(ally)
-			game.world.Monsters = []*monster.Monster3D{boss, ally}
-			if tc.addWardIdol {
-				idol := monster.NewMonster3DFromConfig(6*ts+ts/2, 6*ts+ts/2, "jungle_idol", game.config)
-				if idol == nil {
-					t.Fatal("jungle idol must load from monsters.yaml")
-				}
-				game.world.Monsters = append(game.world.Monsters, idol)
+			for _, wrapper := range wrappers {
+				wrapper.ApplyCollisionUpdate()
 			}
-			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-			placePlayerAtTile(game, 0, 0, ts)
-
-			game.refreshMonsterAIState()
-			tc.assertInactive(t, game, boss)
-			if boss.AIFoe != nil {
-				t.Fatalf("inactive boss acquired bound revenant: %v", boss.AIFoe)
+			if boss.IsEngagingPlayer || boss.State == monster.StateAlert ||
+				boss.State == monster.StatePursuing || boss.State == monster.StateAttacking {
+				t.Fatalf("inactive boss entered combat in RT update: state=%v engaged=%v", boss.State, boss.IsEngagingPlayer)
 			}
-			if ally.AIFoe == boss {
-				t.Fatal("bound revenant selected inactive boss")
+			if tc.stationary && (boss.X != startX || boss.Y != startY) {
+				t.Fatalf("stationary inactive boss moved in RT update: (%.0f,%.0f) -> (%.0f,%.0f)",
+					startX, startY, boss.X, boss.Y)
 			}
 
 			// Defend against a stale crossfire target surviving a state refresh.
 			boss.AIFoe = ally
-			hp := ally.HitPoints
+			allyHP, bossHP := ally.HitPoints, boss.HitPoints
 			game.combat.HandleMonsterInteractions()
-			if ally.HitPoints != hp {
-				t.Fatalf("inactive boss damaged bound revenant: hp=%d, want %d", ally.HitPoints, hp)
+			if ally.HitPoints != allyHP {
+				t.Fatalf("inactive boss damaged bound revenant: hp=%d, want %d", ally.HitPoints, allyHP)
+			}
+			if boss.HitPoints != bossHP {
+				t.Fatalf("bound revenant damaged inactive boss: hp=%d, want %d", boss.HitPoints, bossHP)
 			}
 			if boss.AttackAnimFrames != 0 {
 				t.Fatalf("inactive boss played an attack animation: %d", boss.AttackAnimFrames)
+			}
+		})
+	}
+}
+
+// The same inactivity contract applies to the turn scheduler. This test also
+// protects the Evasive branch: it must skip normal TB movement/combat without
+// suppressing the separate proximity/hurt blink handled before the scheduler.
+func TestInactiveBossesIgnoreBoundAlliesTB(t *testing.T) {
+	for _, tc := range inactiveBossCases {
+		t.Run(tc.name, func(t *testing.T) {
+			game, boss, ally := newInactiveBossScenario(t, tc)
+			game.turnBasedMode = true
+			assertInactiveBossTargeting(t, tc, game, boss, ally)
+
+			startX, startY := boss.X, boss.Y
+			boss.AIFoe = ally // stale target must not bypass the mode gate
+			allyHP, bossHP := ally.HitPoints, boss.HitPoints
+			game.combat.tickEvasiveBossesTB()
+			runOneMonsterTurn(game, &GameLoop{game: game})
+
+			if boss.IsEngagingPlayer || boss.State == monster.StateAlert ||
+				boss.State == monster.StatePursuing || boss.State == monster.StateAttacking {
+				t.Fatalf("inactive boss entered combat in TB update: state=%v engaged=%v", boss.State, boss.IsEngagingPlayer)
+			}
+			if tc.stationary && (boss.X != startX || boss.Y != startY) {
+				t.Fatalf("stationary inactive boss moved in TB update: (%.0f,%.0f) -> (%.0f,%.0f)",
+					startX, startY, boss.X, boss.Y)
+			}
+			if ally.HitPoints != allyHP {
+				t.Fatalf("inactive boss damaged bound revenant in TB: hp=%d, want %d", ally.HitPoints, allyHP)
+			}
+			if boss.HitPoints != bossHP {
+				t.Fatalf("bound revenant damaged inactive boss in TB: hp=%d, want %d", boss.HitPoints, bossHP)
+			}
+			if boss.AttackAnimFrames != 0 {
+				t.Fatalf("inactive boss played an attack animation in TB: %d", boss.AttackAnimFrames)
 			}
 		})
 	}

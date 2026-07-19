@@ -236,8 +236,14 @@ func buildWeaponTooltipUnified(item items.Item, char *character.MMCharacter, cs 
 	if totalCrit > 0 {
 		crit.Add("Chance: %d%%", totalCrit)
 		if char != nil {
-			baseCrit, luck, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
+			baseCrit, luck, cardCrit, setCrit, gmWeapon, gmArms := cs.WeaponCritBreakdown(item, char)
 			parts := []string{fmt.Sprintf("Base: %d%%", baseCrit), fmt.Sprintf("Luck: +%d%%", luck)}
+			if cardCrit > 0 {
+				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
+			}
+			if setCrit > 0 {
+				parts = append(parts, fmt.Sprintf("Set: +%d%%", setCrit))
+			}
 			if gmWeapon > 0 {
 				parts = append(parts, fmt.Sprintf("GM weapon: +%d%%", gmWeapon))
 			}
@@ -440,7 +446,7 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 			dmg.AddDetail("Active party buff: +%d", outBonus)
 		}
 		dmg.Add("Total Damage: %d", total+outBonus)
-		totalCrit = cs.CalculateCriticalChance(char)
+		totalCrit = cs.totalCriticalChance(0, char)
 		if totalCrit > 0 {
 			dmg.Add("Critical Damage: %d", total*CritDamageMultiplier+outBonus)
 		}
@@ -470,7 +476,17 @@ func buildSpellTooltipUnified(def spells.SpellDefinition, char *character.MMChar
 	crit := ttSection{Title: "CRITICAL"}
 	if totalCrit > 0 {
 		crit.Add("Chance: %d%%", totalCrit)
-		crit.AddDetail("Luck: +%d%%", totalCrit)
+		if char != nil && cs != nil {
+			luck, cardCrit, setCrit := cs.CriticalChanceBreakdown(char)
+			parts := []string{fmt.Sprintf("Luck: +%d%%", luck)}
+			if cardCrit > 0 {
+				parts = append(parts, fmt.Sprintf("Cards: +%d%%", cardCrit))
+			}
+			if setCrit > 0 {
+				parts = append(parts, fmt.Sprintf("Set: +%d%%", setCrit))
+			}
+			crit.AddDetail("%s", strings.Join(parts, " - "))
+		}
 	}
 
 	zone := ttSection{Title: "ZONE"}

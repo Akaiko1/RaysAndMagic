@@ -279,12 +279,17 @@ func (ui *UISystem) drawTabbedMenu(screen *ebiten.Image) {
 		drawCenteredDebugText(screen, tabInfo.label, tabRect.x, tabRect.y, tabRect.w, topHalf)
 		drawCenteredDebugText(screen, tabInfo.key, tabRect.x, tabRect.y+topHalf, tabRect.w, tabRect.h-topHalf)
 
-		// Handle mouse clicks on tabs
-		ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
+		// A quantity picker owns the click queue until it closes; tabs must not
+		// consume one of its buttons through the overlay.
+		if !ui.stackSplitPicker.open {
+			ui.handleTabClick(tabRect.x, tabRect.y, tabRect.w, tabRect.h, tabInfo.tab)
+		}
 	}
 
 	// Handle mouse clicks on close button
-	ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	if !ui.stackSplitPicker.open {
+		ui.handleCloseButtonClick(layout.close.x, layout.close.y, layout.close.w, layout.close.h)
+	}
 
 	// Draw close button background
 	mouseX, mouseY := ebiten.CursorPosition()
@@ -458,10 +463,10 @@ func (ui *UISystem) updateMouseState() {
 		ui.game.prevWorldClickAllowed = allowed
 	}
 	ui.game.pruneClickQueues(now)
-	ui.updateQuickDrag()
-	ui.updateStashDrag()
+	suppressLeftClick := ui.updateQuickDrag()
+	suppressLeftClick = ui.updateStashDrag() || suppressLeftClick
 
-	if leftJustPressed {
+	if leftJustPressed && !suppressLeftClick {
 		x, y := ebiten.CursorPosition()
 		ui.game.mouseLeftClicks = append(ui.game.mouseLeftClicks, queuedClick{x: x, y: y, at: now})
 		ui.game.mouseLeftClickX, ui.game.mouseLeftClickY = x, y
