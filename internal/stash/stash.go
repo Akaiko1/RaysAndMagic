@@ -21,6 +21,8 @@ const CardSlotCount = 8
 
 const fileName = "stash.json"
 
+const transferJournalFileName = "stash-transfer.json"
+
 // Stash is the shared chest. An empty slot is the zero Item (Name == "").
 // CardSlots are a separate bank restricted to monster cards (items.ItemCard);
 // older stash.json files without the field load them empty (backward-compatible).
@@ -30,6 +32,8 @@ type Stash struct {
 }
 
 func path() string { return storage.AppSavePath(fileName) }
+
+func transferJournalPath() string { return storage.AppSavePath(transferJournalFileName) }
 
 // IsEmpty reports whether a slot holds no item.
 func IsEmpty(it items.Item) bool { return it.Name == "" }
@@ -58,11 +62,62 @@ func Load() (*Stash, error) {
 // Save writes the stash to disk atomically (temp file + rename), so a crash or
 // interrupted write can't leave a half-written stash.json that Load would reject.
 func Save(s *Stash) error {
-	data, err := json.MarshalIndent(s, "", "  ")
+	return writeJSONAtomic(path(), s)
+}
+
+// TransferJournal makes a stash transfer recoverable across the independent
+// stash and game-save files. The game writes it before either side changes; on
+// the next stash access it chooses Before or After by checking a managed save's
+// transaction marker.
+type TransferJournal struct {
+	ID     string `json:"id"`
+	Before Stash  `json:"before"`
+	After  Stash  `json:"after"`
+}
+
+// LoadTransferJournal returns nil, nil when no transaction needs recovery.
+func LoadTransferJournal() (*TransferJournal, error) {
+	data, err := os.ReadFile(transferJournalPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var journal TransferJournal
+	if err := json.Unmarshal(data, &journal); err != nil {
+		return nil, err
+	}
+	if journal.ID == "" {
+		return nil, os.ErrInvalid
+	}
+	return &journal, nil
+}
+
+// SaveTransferJournal persists a prepared transfer before stash.json or the
+// party autosave changes. It uses the same atomic write contract as the stash.
+func SaveTransferJournal(journal *TransferJournal) error {
+	if journal == nil || journal.ID == "" {
+		return os.ErrInvalid
+	}
+	return writeJSONAtomic(transferJournalPath(), journal)
+}
+
+// ClearTransferJournal acknowledges a completed or recovered transaction.
+// A failed removal is safe: recovery will write the same selected state again.
+func ClearTransferJournal() error {
+	err := os.Remove(transferJournalPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func writeJSONAtomic(p string, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
-	p := path()
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return err
 	}

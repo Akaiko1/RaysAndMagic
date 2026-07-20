@@ -91,3 +91,54 @@ func TestSplitOffKeepsTransferredLineageAndRekeysRemainder(t *testing.T) {
 		t.Error("SplitOff must reject non-stackable gear")
 	}
 }
+
+func TestMergeStackPreservesEveryLineage(t *testing.T) {
+	left := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 3, InstanceID: 41}
+	right := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 2, InstanceID: 42}
+	if !left.MergeStack(right) {
+		t.Fatal("same consumables should merge")
+	}
+	if left.Count() != 5 {
+		t.Fatalf("merged count = %d, want 5", left.Count())
+	}
+	if got := left.StackLineageParts(); len(got) != 2 ||
+		got[0] != (StackLineage{ID: 41, Quantity: 3}) ||
+		got[1] != (StackLineage{ID: 42, Quantity: 2}) {
+		t.Fatalf("merged provenance = %+v, want #41x3 + #42x2", got)
+	}
+}
+
+func TestMergeStackStampsLegacyUnitBeforeCombining(t *testing.T) {
+	old := instanceIDGen
+	defer func() { instanceIDGen = old }()
+	instanceIDGen = func() uint64 { return 99 }
+
+	legacy := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 1}
+	tracked := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 2, InstanceID: 42}
+	if !legacy.MergeStack(tracked) {
+		t.Fatal("same consumables should merge")
+	}
+	if got := legacy.StackLineageParts(); len(got) != 2 ||
+		got[0] != (StackLineage{ID: 99, Quantity: 1}) ||
+		got[1] != (StackLineage{ID: 42, Quantity: 2}) {
+		t.Fatalf("legacy merge provenance = %+v, want fresh #99 + existing #42", got)
+	}
+}
+
+func TestSplitOffForStashWithdrawalKeepsChestLineage(t *testing.T) {
+	old := instanceIDGen
+	defer func() { instanceIDGen = old }()
+	instanceIDGen = func() uint64 { return 99 }
+
+	stack := Item{Name: "Health Potion", Type: ItemConsumable, Quantity: 5, InstanceID: 42}
+	part, ok := stack.SplitOffForStashWithdrawal(2)
+	if !ok {
+		t.Fatal("partial withdrawal split failed")
+	}
+	if part.Count() != 2 || part.InstanceID != 99 {
+		t.Fatalf("withdrawn fragment = %+v, want rekeyed #99x2", part)
+	}
+	if stack.Count() != 3 || stack.InstanceID != 42 {
+		t.Fatalf("stash remainder = %+v, want original #42x3", stack)
+	}
+}

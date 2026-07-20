@@ -546,9 +546,13 @@ type MMGame struct {
 	// Drag-and-drop state mirrors the quick-slot drag but is self-contained so it
 	// works while no tab/menu is open. stashDragFrom < 0 when nothing is carried;
 	// 0..SlotCount-1 = a stash cell, >= stashDragInvBase = an inventory index.
-	stashScreenOpen        bool
-	stash                  *stash.Stash
-	loadNeedsResave        bool // a load stamped legacy items with instance ids: re-save the slot once
+	stashScreenOpen bool
+	stash           *stash.Stash
+	loadNeedsResave bool // a load stamped legacy items with instance ids: re-save the slot once
+	// pendingStashTransferID is written into game saves (normally autosave) while
+	// a durable stash journal exists. It is transient and clears once both stores
+	// commit.
+	pendingStashTransferID string
 	stashDragArmed         bool
 	stashDragActive        bool
 	stashDragFrom          int        // -1 none; 0..7 stash cell; >=stashDragInvBase inventory

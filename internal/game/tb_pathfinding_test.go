@@ -8,6 +8,20 @@ import (
 	"ugataima/internal/world"
 )
 
+func chebyshevDistance(ax, ay, bx, by int) int {
+	dx, dy := ax-bx, ay-by
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	if dx > dy {
+		return dx
+	}
+	return dy
+}
+
 // TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord drives the REAL turn-based
 // movement path (monsterMoveTurnBased), not just the A* helper: a mob is cut off
 // from the party by an impassable barrier (a wall stands in for the river) with a
@@ -73,7 +87,7 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 	crossed := false
 	const maxSteps = 40
 	steps := 0
-	for ; steps < maxSteps && manhattan() > 1; steps++ {
+	for ; steps < maxSteps && chebyshevDistance(worldTile(mob.X), worldTile(mob.Y), ptx, pty) > 1; steps++ {
 		gl.monsterMoveTurnBased(mob)
 		tx, ty := worldTile(mob.X), worldTile(mob.Y)
 		if tx == wallCol && ty != fordRow {
@@ -84,8 +98,8 @@ func TestMonsterMoveTurnBased_RoutesAroundBarrierViaFord(t *testing.T) {
 		}
 	}
 
-	if manhattan() > 1 {
-		t.Fatalf("mob never reached the party (oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
+	if chebyshevDistance(worldTile(mob.X), worldTile(mob.Y), ptx, pty) > 1 {
+		t.Fatalf("mob never reached attack contact (oscillating at the bank); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	if !crossed {
 		t.Fatal("mob reached the party without ever crossing the barrier column - setup is wrong")
@@ -153,13 +167,95 @@ func TestMonsterMoveTurnBased_EscapesPocketAwayFromParty(t *testing.T) {
 
 	const maxSteps = 50
 	steps := 0
-	for ; steps < maxSteps && manhattan() > 1; steps++ {
+	for ; steps < maxSteps && chebyshevDistance(worldTile(mob.X), worldTile(mob.Y), ptx, pty) > 1; steps++ {
 		gl.monsterMoveTurnBased(mob)
 	}
-	if manhattan() > 1 {
-		t.Fatalf("mob never escaped the pocket / reached the party (greedy<->A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
+	if chebyshevDistance(worldTile(mob.X), worldTile(mob.Y), ptx, pty) > 1 {
+		t.Fatalf("mob never escaped the pocket / reached attack contact (greedy<->A* oscillation); final Manhattan=%d after %d steps", manhattan(), steps)
 	}
 	t.Logf("mob escaped the pocket and reached the party in %d turn-based steps", steps)
+}
+
+// A* is the only TB movement authority. When no route exists, a greedy fallback
+// must not step into the one open dead-end tile toward the party; that separate
+// rule was the source of visible wall jitter and could disagree with habitat
+// pathing. The monster waits for a later turn to replan instead.
+func TestMonsterMoveTurnBased_HoldsWhenNoPathExists(t *testing.T) {
+	cfg := loadTestConfig(t)
+	tile := float64(cfg.GetTileSize())
+
+	const W, H = 12, 12
+	w := world.NewWorld3D(cfg)
+	w.Width, w.Height = W, H
+	w.Tiles = make([][]world.TileType3D, H)
+	for y := 0; y < H; y++ {
+		w.Tiles[y] = make([]world.TileType3D, W)
+		for x := 0; x < W; x++ {
+			w.Tiles[y][x] = world.TileEmpty
+		}
+		w.Tiles[y][4] = world.TileWall // no gap: the party side is unreachable
+	}
+
+	g := newTestGame(cfg, w)
+	g.turnBasedMode = true
+	g.combat = NewCombatSystem(g)
+	center := func(tx, ty int) (float64, float64) {
+		return (float64(tx) + 0.5) * tile, (float64(ty) + 0.5) * tile
+	}
+	g.camera.X, g.camera.Y = center(9, 5)
+	mx, my := center(2, 5)
+	mob := &monsterPkg.Monster3D{
+		ID: "no_path_mob", Name: "Goblin", X: mx, Y: my,
+		HitPoints: 100, MaxHitPoints: 100, AlertRadius: 12 * tile,
+	}
+	w.Monsters = append(w.Monsters, mob)
+	g.collisionSystem.RegisterEntity(collision.NewEntity(mob.ID, mob.X, mob.Y, 32, 32, collision.CollisionTypeMonster, false))
+
+	(&GameLoop{game: g}).monsterMoveTurnBased(mob)
+	if mob.X != mx || mob.Y != my {
+		t.Fatalf("unreachable mob moved greedily to (%.0f, %.0f), want it to hold at (%.0f, %.0f)", mob.X, mob.Y, mx, my)
+	}
+}
+
+// When every adjacent attack post is occupied, the fallback still has to use
+// A*: a wall in the direct lane must make the monster route sideways toward the
+// free outer ring, rather than hold or take an unchecked greedy step.
+func TestMonsterMoveTurnBased_RoutesToOuterRingWhenAttackPostsAreBlocked(t *testing.T) {
+	cfg := loadTestConfig(t)
+	tile := float64(cfg.GetTileSize())
+	w := newTestWorldSized(cfg, 12, 12)
+	w.Tiles[2][5] = world.TileWall
+	g := newTestGame(cfg, w)
+	g.combat = NewCombatSystem(g)
+	g.camera.X, g.camera.Y = TileCenterFromTile(5, 5, tile)
+	g.collisionSystem.UpdateEntity("player", g.camera.X, g.camera.Y)
+
+	mx, my := TileCenterFromTile(5, 1, tile)
+	mob := monsterPkg.NewMonster3DFromConfig(mx, my, "goblin", cfg)
+	mob.ID = "blocked_posts_mob"
+	mob.WasAttacked, mob.IsEngagingPlayer = true, true
+	w.Monsters = []*monsterPkg.Monster3D{mob}
+	w.RegisterMonstersWithCollisionSystem(g.collisionSystem)
+
+	for _, c := range [8][2]int{
+		{6, 5}, {4, 5}, {5, 6}, {5, 4},
+		{6, 6}, {6, 4}, {4, 6}, {4, 4},
+	} {
+		x, y := TileCenterFromTile(c[0], c[1], tile)
+		g.collisionSystem.RegisterEntity(collision.NewEntity(
+			"blocked_attack_post_"+string(rune('a'+len(g.collisionSystem.GetAllEntities()))),
+			x, y, 32, 32, collision.CollisionTypeMonsterEngaged, true,
+		))
+	}
+
+	(&GameLoop{game: g}).monsterMoveTurnBased(mob)
+	end := [2]int{int(mob.X / tile), int(mob.Y / tile)}
+	if end == [2]int{5, 1} {
+		t.Fatal("mob held instead of routing to a reachable outer ring")
+	}
+	if end == [2]int{5, 2} {
+		t.Fatal("mob entered the wall in the blocked direct lane")
+	}
 }
 
 // TestMonsterMoveTurnBased_Save1DeepJungleGorillaWithSummons reproduces the

@@ -247,7 +247,7 @@ func (p *Party) AddItem(item items.Item) {
 	if item.Stackable() {
 		for i := range p.Inventory {
 			if items.SameStack(p.Inventory[i], item) {
-				p.Inventory[i].Quantity = p.Inventory[i].Count() + item.Count()
+				p.Inventory[i].MergeStack(item)
 				return
 			}
 		}
@@ -269,8 +269,7 @@ func (p *Party) ConsumeOneAt(index int) bool {
 		return false
 	}
 	if p.Inventory[index].Count() > 1 {
-		p.Inventory[index].Quantity = p.Inventory[index].Count() - 1
-		return true
+		return p.Inventory[index].ConsumeStackUnits(1)
 	}
 	p.RemoveItem(index)
 	return true
@@ -313,7 +312,7 @@ func (p *Party) MergeStacks() {
 		}
 		k := stackKey{it.Name, it.Type}
 		if i, ok := first[k]; ok {
-			kept[i].Quantity = kept[i].Count() + it.Count()
+			kept[i].MergeStack(it)
 			continue
 		}
 		first[k] = len(kept)
@@ -349,7 +348,11 @@ func (p *Party) RemoveItemsByName(name string, n int) bool {
 				n -= c
 				continue
 			}
-			it.Quantity = c - n
+			// Keep the provenance of a merged stack aligned with its remaining
+			// units. Currency can be stored in the shared stash just like any
+			// other trinket, so direct Quantity edits would make stale-save
+			// reconciliation count the wrong lineage after a partial payment.
+			it.ConsumeStackUnits(n)
 			n = 0
 		}
 		kept = append(kept, it)

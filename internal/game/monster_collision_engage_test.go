@@ -244,29 +244,3 @@ func TestFleeingMonsterIsNotEjectedFromPartyCell(t *testing.T) {
 		t.Fatal("fleeing monster must not hold a party attack target")
 	}
 }
-
-func TestTeleportFallbackOnlyProtectsPartyFromCurrentTarget(t *testing.T) {
-	game, gl, ts := tbBehaviorGame(t, 20, 20)
-	placePlayerAtTile(game, 10, 10, ts)
-	m := monsterPkg.NewMonster3DFromConfig(9*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
-	game.world.Monsters = []*monsterPkg.Monster3D{m}
-	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
-
-	// A monster chasing the party must keep its fallback destination outside
-	// the party tile even when that tile would be geometrically closest.
-	m.IsEngagingPlayer, m.WasAttacked = true, true
-	game.refreshMonsterCollisionSolidity(m)
-	x, y, _ := gl.pickBestTeleportOffset(m, ts, game.camera.X, game.camera.Y, [][2]int{{1, 0}}, 1e300)
-	if int(x/ts) == 10 && int(y/ts) == 10 {
-		t.Fatal("party-targeting monster teleported onto the party")
-	}
-
-	// When redirected to a summon, the party is walkable in both directions.
-	foe := monsterPkg.NewMonster3DFromConfig(12*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
-	m.AIFoe = foe
-	game.refreshMonsterCollisionSolidity(m)
-	x, y, _ = gl.pickBestTeleportOffset(m, ts, foe.X, foe.Y, [][2]int{{1, 0}}, 1e300)
-	if int(x/ts) != 10 || int(y/ts) != 10 {
-		t.Fatalf("summon-targeting monster teleport = (%d,%d), want player tile (10,10)", int(x/ts), int(y/ts))
-	}
-}

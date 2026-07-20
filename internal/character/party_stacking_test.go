@@ -111,6 +111,28 @@ func TestItemCurrencyAcrossStacks(t *testing.T) {
 	}
 }
 
+func TestItemCurrencyPaymentPreservesStackLineage(t *testing.T) {
+	p := &Party{Inventory: []items.Item{{
+		Name:       "Clock Hand",
+		Type:       items.ItemTrinket,
+		Quantity:   5,
+		InstanceID: 11,
+		Lineages: []items.StackLineage{
+			{ID: 11, Quantity: 3},
+			{ID: 22, Quantity: 2},
+		},
+	}}}
+	if !p.RemoveItemsByName("Clock Hand", 3) {
+		t.Fatal("currency payment failed")
+	}
+	if len(p.Inventory) != 1 || p.Inventory[0].Count() != 2 {
+		t.Fatalf("remaining currency = %+v, want two hands", p.Inventory)
+	}
+	if got := p.Inventory[0].StackLineageParts(); len(got) != 1 || got[0] != (items.StackLineage{ID: 22, Quantity: 2}) {
+		t.Fatalf("remaining currency provenance = %+v, want #22x2", got)
+	}
+}
+
 func TestMergeStacksMigratesOldSaves(t *testing.T) {
 	// A pre-stacking save: duplicates as separate entries, gear interleaved.
 	p := &Party{Inventory: []items.Item{

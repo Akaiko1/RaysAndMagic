@@ -3,6 +3,7 @@ package game
 import (
 	"image"
 	"image/color"
+	"strconv"
 	"strings"
 
 	"ugataima/internal/items"
@@ -71,43 +72,98 @@ func (g *MMGame) clearStashDrag() {
 	g.stashDragPickedUp = false
 }
 
-// commitStashTransfer persists a transfer that already mutated BOTH stores in
-// memory - the chest (stash.json) and the party bag (autosave) - atomically:
-// either both land on disk or neither does. The chest is written first; only if
-// that succeeds is the bag autosaved. If EITHER write fails the in-memory move is
-// rolled back (and the chest re-written to its pre-move state when the bag write
-// is the one that failed), so a later reload can't dupe or lose the item. Returns
-// false (and tells the player) on failure.
-func (g *MMGame) commitStashTransfer(rollback func()) bool {
+// commitStashTransfer commits a mutation that already changed the in-memory bag
+// and chest. A durable journal makes the independent stash and autosave files
+// recoverable as one transfer after a crash or write failure.
+func (g *MMGame) commitStashTransfer(snapshot stashTransferSnapshot) bool {
 	if g.stash == nil {
-		rollback()
+		snapshot.restore(g)
+		return false
+	}
+	before := snapshot.stash()
+	journal := &stash.TransferJournal{
+		ID:     strconv.FormatUint(items.NewInstanceID(), 10),
+		Before: before,
+		After:  *g.stash,
+	}
+	if err := stash.SaveTransferJournal(journal); err != nil {
+		snapshot.restore(g)
+		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
 	if err := stash.Save(g.stash); err != nil {
-		rollback() // chest never committed -> just undo the in-memory move
+		snapshot.restore(g) // chest never committed -> just undo the in-memory move
+		_ = stash.ClearTransferJournal()
 		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
 		return false
 	}
+	g.pendingStashTransferID = journal.ID
 	if err := g.autosaveErr(); err != nil {
-		rollback()              // bag write failed after the chest committed:
-		_ = stash.Save(g.stash) // re-commit the chest at its pre-move state too
-		g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		// Do not roll memory back until the old chest snapshot is safely back on
+		// disk. If that write also fails, memory stays on the committed state and
+		// the prepared journal repairs it on the next stash access.
+		if restoreErr := stash.Save(&before); restoreErr == nil {
+			snapshot.restore(g)
+			g.pendingStashTransferID = ""
+			_ = stash.ClearTransferJournal()
+			g.AddCombatMessage("Stash transfer failed - nothing was moved.")
+		} else {
+			g.AddCombatMessage("Stash saved, but autosave failed. Do not quit; save again.")
+		}
 		return false
+	}
+	// Keep the marker for later autosaves if journal cleanup itself fails. That
+	// lets recovery select the committed after snapshot instead of rolling back.
+	if err := stash.ClearTransferJournal(); err == nil {
+		g.pendingStashTransferID = ""
 	}
 	return true
 }
 
-// stashSnapshot captures both stores so a failed transfer can be rolled back
-// wholesale (the chest Slots is a value array; the bag is a slice we copy).
-func (g *MMGame) stashSnapshot() func() {
-	invSnap := append([]items.Item(nil), g.party.Inventory...)
-	slotsSnap := g.stash.Slots
-	cardsSnap := g.stash.CardSlots
-	return func() {
-		g.party.Inventory = invSnap
-		g.stash.Slots = slotsSnap
-		g.stash.CardSlots = cardsSnap
+// stashTransferSnapshot captures the pre-transfer in-memory state. The stack
+// API replaces lineage slices rather than mutating them in place, so these value
+// copies remain valid for rollback and durable journal recovery.
+type stashTransferSnapshot struct {
+	inventory []items.Item
+	slots     [stash.SlotCount]items.Item
+	cards     [stash.CardSlotCount]items.Item
+}
+
+func (g *MMGame) stashSnapshot() stashTransferSnapshot {
+	return stashTransferSnapshot{
+		inventory: append([]items.Item(nil), g.party.Inventory...),
+		slots:     g.stash.Slots,
+		cards:     g.stash.CardSlots,
 	}
+}
+
+func (snapshot stashTransferSnapshot) stash() stash.Stash {
+	return stash.Stash{Slots: snapshot.slots, CardSlots: snapshot.cards}
+}
+
+func (snapshot stashTransferSnapshot) restore(g *MMGame) {
+	g.party.Inventory = snapshot.inventory
+	g.stash.Slots = snapshot.slots
+	g.stash.CardSlots = snapshot.cards
+}
+
+// finishPendingStashTransfer retries the party-side autosave after the rare
+// case where the chest write succeeded but its compensating rollback failed.
+// New mutations must wait until that durable journal has a decision.
+func (g *MMGame) finishPendingStashTransfer() bool {
+	if g.pendingStashTransferID == "" {
+		return true
+	}
+	if err := g.autosaveErr(); err != nil {
+		g.AddCombatMessage("Stash autosave is still failing. Try again before moving more items.")
+		return false
+	}
+	if err := stash.ClearTransferJournal(); err != nil {
+		g.AddCombatMessage("Stash is waiting for journal cleanup. Try again before moving more items.")
+		return false
+	}
+	g.pendingStashTransferID = ""
+	return true
 }
 
 // updateStashDrag samples the raw mouse to drive the drag lifecycle while the
@@ -214,6 +270,9 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 		g.resolvePartialStashDrop(src, dst, g.stashDragSplitQuantity)
 		return
 	}
+	if !g.finishPendingStashTransfer() {
+		return
+	}
 	rollback := g.stashSnapshot()
 	switch {
 	case src.kind != stashKindBag && dst.kind != stashKindBag: // cell <-> cell (swap)
@@ -263,9 +322,8 @@ func (g *MMGame) resolveStashDrop(dst stashAddr) {
 }
 
 // resolvePartialStashDrop transfers a fragment without ever creating two
-// arbitrary copies in the bag. A partial deposit needs an empty chest cell (or
-// one with the exact same lineage): folding different lineage IDs would make a
-// stale-save dedupe unable to identify the deposited units.
+// arbitrary copies in the bag. Stack provenance lives on items.Item, so a
+// partial deposit may safely merge into an occupied matching chest cell.
 func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	if quantity < 1 || src == dst || (src.kind == stashKindBag && dst.kind == stashKindBag) {
 		return
@@ -279,12 +337,15 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 		if dstCell == nil {
 			return
 		}
-		if !stash.IsEmpty(*dstCell) && (!items.SameStack(*dstCell, g.stashDragItem) || dstCell.InstanceID != g.stashDragItem.InstanceID) {
-			g.AddCombatMessage("Partial stack transfer needs an empty stash cell.")
+		if !stash.IsEmpty(*dstCell) && !items.SameStack(*dstCell, g.stashDragItem) {
+			g.AddCombatMessage("Partial stack transfer needs a matching stash stack.")
 			return
 		}
 	}
 
+	if !g.finishPendingStashTransfer() {
+		return
+	}
 	rollback := g.stashSnapshot()
 	var fragment items.Item
 	var ok bool
@@ -294,7 +355,7 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	case stashKindChest, stashKindCard:
 		source := g.stashCellPtr(src)
 		if source != nil {
-			fragment, ok = source.SplitOff(quantity)
+			fragment, ok = source.SplitOffForStashWithdrawal(quantity)
 		}
 	}
 	if !ok {
@@ -306,7 +367,7 @@ func (g *MMGame) resolvePartialStashDrop(src, dst stashAddr, quantity int) {
 	} else if stash.IsEmpty(*dstCell) {
 		*dstCell = fragment
 	} else {
-		dstCell.Quantity = dstCell.Count() + fragment.Count()
+		dstCell.MergeStack(fragment)
 	}
 	g.commitStashTransfer(rollback)
 }

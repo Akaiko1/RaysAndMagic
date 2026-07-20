@@ -2,7 +2,6 @@ package game
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"ugataima/internal/character"
 	"ugataima/internal/mathutil"
@@ -559,22 +558,16 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 	// RT "within attack radius" goals: they can pick a dead-end bank tile across
 	// water as "close enough", then the monster turns around next move.
 	if !monster.HasRangedAttack() {
-		if goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY); len(goals) > 0 {
-			if nx, ny, ok := monster.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				if gl.commitMonsterMoveTB(monster, wx, wy) {
-					return
-				}
-			}
-			if nx, ny, ok := gl.nextPathStepToAnyIgnoringOwnSummonsTB(monster, goals); ok {
-				if gl.swapWithOwnSummonAtTileTB(monster, nx, ny, tileSize) {
-					return
-				}
-				wx, wy := TileCenterFromTile(nx, ny, tileSize)
-				if gl.commitMonsterMoveTB(monster, wx, wy) {
-					return
-				}
-			}
+		goals := gl.turnBasedMeleeGoalTiles(monster, targetX, targetY)
+		if len(goals) == 0 {
+			// All adjacent attack posts are currently unavailable. Route to the
+			// next free ring around the target instead of falling back to a greedy
+			// cardinal move; this is the normal movement after a failed pounce when
+			// allies temporarily surround its landing tiles.
+			goals = gl.turnBasedBlockedMeleeApproachGoalTiles(monster, targetX, targetY)
+		}
+		if gl.moveMonsterAlongTBGoals(monster, goals, tileSize) {
+			return
 		}
 	} else {
 		// Ranged hunting the party repositions onto a row/column firing lane;
@@ -597,38 +590,34 @@ func (gl *GameLoop) monsterMoveTurnBased(monster *monster.Monster3D) {
 		}
 	}
 
-	// Fallback (A* found no path / its next tile is transiently occupied): step one
-	// tile in the dominant cardinal direction towards the player.
-	stepX, stepY := 0, 0
-	if math.Abs(float64(dxTiles)) >= math.Abs(float64(dyTiles)) {
-		stepX = mathutil.IntSign(dxTiles)
-	} else {
-		stepY = mathutil.IntSign(dyTiles)
+	// A* has no legal route (or its next tile became occupied). Do not fall back
+	// to a separate greedy movement rule: it can enter a dead end that the path
+	// planner deliberately avoided, producing visible back-and-forth jitter.
+	// Holding this turn lets the next serial AI pass re-evaluate the same source
+	// of truth after moving actors have updated their positions.
+}
+
+// moveMonsterAlongTBGoals is the common serial TB A* commit path. It retries
+// only through its own summons, which preserves a boss's ability to swap past
+// its personal adds without letting any other entity bypass collision rules.
+func (gl *GameLoop) moveMonsterAlongTBGoals(m *monster.Monster3D, goals []monster.TileCoord, tileSize float64) bool {
+	if m == nil || len(goals) == 0 || tileSize <= 0 || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return false
 	}
-
-	newX := monster.X + float64(stepX)*tileSize
-	newY := monster.Y + float64(stepY)*tileSize
-
-	if gl.commitMonsterMoveTB(monster, newX, newY) {
-		return
-	}
-
-	// Try the other perpendicular direction if the preferred one is blocked
-	if stepX != 0 && dyTiles != 0 {
-		altY := monster.Y + float64(mathutil.IntSign(dyTiles))*tileSize
-		if gl.commitMonsterMoveTB(monster, monster.X, altY) {
-			return
-		}
-	} else if stepY != 0 && dxTiles != 0 {
-		altX := monster.X + float64(mathutil.IntSign(dxTiles))*tileSize
-		if gl.commitMonsterMoveTB(monster, altX, monster.Y) {
-			return
+	if nx, ny, ok := m.NextPathStepTileToAny(gl.game.collisionSystem, goals); ok {
+		wx, wy := TileCenterFromTile(nx, ny, tileSize)
+		if gl.commitMonsterMoveTB(m, wx, wy) {
+			return true
 		}
 	}
-
-	// Direct path blocked - in turn-based mode, teleport to closest valid tile towards player
-	// This prevents monsters wasting turns stuck behind obstacles
-	gl.teleportMonsterTowardsPlayer(monster, tileSize)
+	if nx, ny, ok := gl.nextPathStepToAnyIgnoringOwnSummonsTB(m, goals); ok {
+		if gl.swapWithOwnSummonAtTileTB(m, nx, ny, tileSize) {
+			return true
+		}
+		wx, wy := TileCenterFromTile(nx, ny, tileSize)
+		return gl.commitMonsterMoveTB(m, wx, wy)
+	}
+	return false
 }
 
 func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
@@ -662,22 +651,39 @@ func (gl *GameLoop) turnBasedMeleeGoalTiles(m *monster.Monster3D, targetX, targe
 		}
 	}
 
-	if m.CanPounce() {
-		pounceTiles := int(m.PounceRangePixels / tileSize)
-		for dy := -pounceTiles; dy <= pounceTiles; dy++ {
-			for dx := -pounceTiles; dx <= pounceTiles; dx++ {
-				manhattan := mathutil.IntAbs(dx) + mathutil.IntAbs(dy)
-				if manhattan < 2 || manhattan > pounceTiles {
-					continue
-				}
-				// Pounce itself does not require line-of-sight; it only needs a free
-				// landing tile adjacent to the target when it fires.
-				addGoal(targetTileX+dx, targetTileY+dy, false)
+	return uniqueTileGoals(goals)
+}
+
+// turnBasedBlockedMeleeApproachGoalTiles supplies a second A* goal ring only
+// when no adjacent attack post is currently free. These are never attack posts:
+// they let a pouncer advance after its landing ring is occupied without using a
+// separate greedy step that could disagree with terrain/habitat pathing.
+func (gl *GameLoop) turnBasedBlockedMeleeApproachGoalTiles(m *monster.Monster3D, targetX, targetY float64) []monster.TileCoord {
+	if m == nil || gl == nil || gl.game == nil || gl.game.collisionSystem == nil {
+		return nil
+	}
+	tileSize := float64(gl.game.config.GetTileSize())
+	if tileSize <= 0 {
+		return nil
+	}
+	targetTileX, targetTileY := int(targetX/tileSize), int(targetY/tileSize)
+	const approachRing = 2
+	goals := make([]monster.TileCoord, 0, approachRing*8)
+	for dy := -approachRing; dy <= approachRing; dy++ {
+		for dx := -approachRing; dx <= approachRing; dx++ {
+			if mathutil.IntAbs(dx) != approachRing && mathutil.IntAbs(dy) != approachRing {
+				continue
 			}
+			tileX, tileY := targetTileX+dx, targetTileY+dy
+			worldX, worldY := TileCenterFromTile(tileX, tileY, tileSize)
+			if gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, worldX, worldY) ||
+				!gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, worldX, worldY, m.HabitatPrefs, m.Flying) {
+				continue
+			}
+			goals = append(goals, monster.TileCoord{X: tileX, Y: tileY})
 		}
 	}
-
-	return uniqueTileGoals(goals)
+	return goals
 }
 
 // moveMonsterOffAttackTargetTileTB repairs an attacker that starts a turn on
@@ -781,34 +787,6 @@ func (gl *GameLoop) swapWithOwnSummonAtTileTB(m *monster.Monster3D, tileX, tileY
 	return false
 }
 
-// teleportMonsterTowardsPlayer finds the closest valid position towards the
-// monster's AI target (party, or a charmed monster's redirected target) and
-// teleports there.
-func (gl *GameLoop) teleportMonsterTowardsPlayer(m *monster.Monster3D, tileSize float64) {
-	playerX, playerY := gl.game.combat.monsterAITargetPoint(m)
-
-	// Check perpendicular adjacent tiles first, then diagonals as fallback
-	var bestX, bestY float64
-	bestDist := math.MaxFloat64
-
-	cardinalOffsets := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
-	diagOffsets := [][2]int{{1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
-
-	bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, cardinalOffsets, bestDist)
-	if bestDist == math.MaxFloat64 {
-		bestX, bestY, bestDist = gl.pickBestTeleportOffset(m, tileSize, playerX, playerY, diagOffsets, bestDist)
-	}
-
-	if bestDist < math.MaxFloat64 {
-		gl.game.releaseMonsterAttackPost(m)
-		m.X = bestX
-		m.Y = bestY
-		gl.game.collisionSystem.UpdateEntity(m.ID, bestX, bestY)
-		m.LastMoveTick = gl.game.frameCount
-	}
-	// If no valid position found, monster stays put (loses turn)
-}
-
 // turnBasedRangedGoalTiles lists a party-hunting ranged monster's turn-based
 // firing lanes: free tiles on the party's row or column, within range and with
 // line of sight. The generic monster A* uses circular attack reach, which is
@@ -849,30 +827,6 @@ func (gl *GameLoop) turnBasedRangedGoalTiles(m *monster.Monster3D) []monster.Til
 		addGoal(ptx, pty-d)
 	}
 	return goals
-}
-
-func (gl *GameLoop) pickBestTeleportOffset(m *monster.Monster3D, tileSize, playerX, playerY float64, offsets [][2]int, bestDist float64) (float64, float64, float64) {
-	bestX, bestY := m.X, m.Y
-	for _, offset := range offsets {
-		testX := m.X + float64(offset[0])*tileSize
-		testY := m.Y + float64(offset[1])*tileSize
-		// A combatant must not teleport onto its current target tile. A peaceful
-		// monster remains walkable in both directions, including this fallback.
-		if gl.game.monsterHasAttackTarget(m) && int(testX/tileSize) == int(playerX/tileSize) && int(testY/tileSize) == int(playerY/tileSize) {
-			continue
-		}
-		if gl.game.monsterHasAttackTarget(m) && gl.game.collisionSystem.IsMonsterAttackPostReserved(m.ID, testX, testY) {
-			continue
-		}
-		if gl.game.collisionSystem.CanMoveToWithHabitat(m.ID, testX, testY, m.HabitatPrefs, m.Flying) {
-			dist := (testX-playerX)*(testX-playerX) + (testY-playerY)*(testY-playerY)
-			if dist < bestDist {
-				bestDist = dist
-				bestX, bestY = testX, testY
-			}
-		}
-	}
-	return bestX, bestY, bestDist
 }
 
 // endMonsterTurn ends the monster turn and starts a fresh party turn. The

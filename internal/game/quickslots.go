@@ -332,7 +332,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			occ := tch.QuickSlots[targetSlot]
 			// Same-stack items pile up in the slot instead of displacing.
 			if occ != nil && items.SameStack(*occ, item) {
-				occ.Quantity = occ.Count() + item.Count()
+				occ.MergeStack(item)
 				break
 			}
 			cp := item
@@ -364,7 +364,7 @@ func (g *MMGame) resolveQuickSlotDrop(targetChar, targetSlot int) {
 			sch := g.party.Members[g.dragQuickChar]
 			src, dst := sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot]
 			if src != nil && dst != nil && items.SameStack(*src, *dst) {
-				dst.Quantity = dst.Count() + src.Count()
+				dst.MergeStack(*src)
 				sch.QuickSlots[g.dragQuickSlot] = nil
 			} else {
 				sch.QuickSlots[g.dragQuickSlot], tch.QuickSlots[targetSlot] = dst, src
@@ -397,7 +397,7 @@ func (g *MMGame) decrementQuickSlot(ch *character.MMCharacter, slotIdx int) {
 		return
 	}
 	if it.Count() > 1 {
-		it.Quantity = it.Count() - 1
+		it.ConsumeStackUnits(1)
 		return
 	}
 	ch.QuickSlots[slotIdx] = nil

@@ -4352,7 +4352,7 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 	best := maxDist
 	for _, other := range cs.game.world.Monsters {
 		if other == nil || other == m || !other.IsAlive() || other.IsPartyControlled() ||
-			other.BossDormant || other.BossWarded || cs.bossEvasive(other) {
+			other.BossDormant || other.BossWarded || other.IsPassiveUntilProvoked() || cs.bossEvasive(other) {
 			continue
 		}
 		if d := Distance(m.X, m.Y, other.X, other.Y); d <= best {
@@ -4369,7 +4369,7 @@ func (cs *CombatSystem) nearestEnemyMonster(m *monsterPkg.Monster3D, maxDist flo
 //   - normal monster: the nearest bound undead within its alert radius, if one is
 //     no farther than the party - so mobs turn on the bound undead in their midst.
 func (cs *CombatSystem) monsterAIFoeMonster(m *monsterPkg.Monster3D) *monsterPkg.Monster3D {
-	if m == nil || cs.bossEvasive(m) {
+	if m == nil || m.IsPassiveUntilProvoked() || cs.bossEvasive(m) {
 		return nil
 	}
 	switch m.CurrentAIBehavior() {

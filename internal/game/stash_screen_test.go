@@ -68,7 +68,7 @@ func TestStashTransfer_PartialStackKeepsTransferredLineage(t *testing.T) {
 	}
 }
 
-func TestStashTransfer_PartialStackDoesNotMergeDifferentLineages(t *testing.T) {
+func TestStashTransfer_PartialStackMergesDifferentLineages(t *testing.T) {
 	g := stashTestGame(t)
 	g.party.Inventory = []items.Item{{
 		Name: "Health Potion", Type: items.ItemConsumable, Quantity: 3, InstanceID: 100,
@@ -79,11 +79,15 @@ func TestStashTransfer_PartialStackDoesNotMergeDifferentLineages(t *testing.T) {
 	g.stashDragItem = items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 1, InstanceID: 100}
 	g.resolveStashDrop(stashAddr{stashKindChest, 0})
 
-	if got := g.stash.Slots[0]; got.Count() != 1 || got.InstanceID != 200 {
-		t.Fatalf("occupied stash cell changed to %+v", got)
+	if got := g.stash.Slots[0]; got.Count() != 2 || got.InstanceID != 200 {
+		t.Fatalf("occupied stash stack = %+v, want two potions", got)
+	} else if gotParts := got.StackLineageParts(); len(gotParts) != 2 ||
+		gotParts[0] != (items.StackLineage{ID: 200, Quantity: 1}) ||
+		gotParts[1] != (items.StackLineage{ID: 100, Quantity: 1}) {
+		t.Fatalf("merged stash provenance = %+v, want #200 + #100", gotParts)
 	}
-	if got := g.party.Inventory[0]; got.Count() != 3 || got.InstanceID != 100 {
-		t.Fatalf("bag source changed after refused partial transfer: %+v", got)
+	if got := g.party.Inventory[0]; got.Count() != 2 || got.InstanceID == 100 {
+		t.Fatalf("bag remainder = %+v, want two rekeyed potions", got)
 	}
 }
 

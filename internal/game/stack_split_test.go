@@ -91,10 +91,10 @@ func TestStackSplitPickerStartsExactStashFragment(t *testing.T) {
 	}
 
 	g.resolveStashDrop(stashAddr{stashKindBag, 0})
-	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 2 || g.party.Inventory[0].InstanceID != 42 {
-		t.Fatalf("bag fragment = %+v, want two original-lineage units", g.party.Inventory)
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 2 || g.party.Inventory[0].InstanceID == 42 {
+		t.Fatalf("bag fragment = %+v, want two rekeyed withdrawal units", g.party.Inventory)
 	}
-	if got := g.stash.Slots[0]; got.Count() != 3 || got.InstanceID == 42 {
-		t.Fatalf("stash remainder = %+v, want three rekeyed units", got)
+	if got := g.stash.Slots[0]; got.Count() != 3 || got.InstanceID != 42 {
+		t.Fatalf("stash remainder = %+v, want three original-lineage units", got)
 	}
 }

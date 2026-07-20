@@ -115,6 +115,58 @@ func TestMonsterPrefersCloserPartyOrSummon(t *testing.T) {
 	}
 }
 
+// Passive-until-attacked is bilateral: an unprovoked passive mob cannot choose
+// a party summon, and that summon cannot silently open the fight either. The
+// target cache feeds both RT workers and the TB scheduler, so exercise both
+// modes and then verify a real hit restores ordinary crossfire.
+func TestPassiveMonsterAndPartySummonIgnoreEachOtherUntilProvoked(t *testing.T) {
+	for _, turnBased := range []bool{false, true} {
+		mode := "RT"
+		if turnBased {
+			mode = "TB"
+		}
+		t.Run(mode, func(t *testing.T) {
+			game, gl, ts := tbBehaviorGame(t, 40, 40)
+			game.turnBasedMode = turnBased
+			placePlayerAtTile(game, 5, 10, ts)
+			passive := monsterPkg.NewMonster3DFromConfig(20*ts+ts/2, 10*ts+ts/2, "goblin", game.config)
+			passive.PassiveUntilAttacked = true
+			passive.MaxHitPoints, passive.HitPoints = 4000, 4000
+			ally := monsterPkg.NewMonster3DFromConfig(21*ts+ts/2, 10*ts+ts/2, "masked_huntress", game.config)
+			ally.MaxHitPoints, ally.HitPoints = 4000, 4000
+			markCardAlly(ally)
+			game.world.Monsters = []*monsterPkg.Monster3D{passive, ally}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+			passiveHP, allyHP := passive.HitPoints, ally.HitPoints
+			game.refreshMonsterAIState()
+			if passive.AIFoe != nil {
+				t.Fatalf("unprovoked passive mob targeted summon: %v", passive.AIFoe)
+			}
+			if ally.AIFoe != nil {
+				t.Fatalf("party summon targeted unprovoked passive mob: %v", ally.AIFoe)
+			}
+			if turnBased {
+				runOneMonsterTurn(game, gl)
+			} else {
+				runRTFoeTicks(game, game.config.GetTPS())
+			}
+			if passive.HitPoints != passiveHP || ally.HitPoints != allyHP {
+				t.Fatalf("passive/summon exchange dealt damage before a real hit: passive %d->%d ally %d->%d", passiveHP, passive.HitPoints, allyHP, ally.HitPoints)
+			}
+
+			passive.WasAttacked = true
+			game.refreshMonsterAIState()
+			if passive.AIFoe != ally {
+				t.Fatalf("provoked mob AIFoe = %v, want party summon", passive.AIFoe)
+			}
+			if ally.AIFoe != passive {
+				t.Fatalf("party summon AIFoe = %v, want provoked mob", ally.AIFoe)
+			}
+		})
+	}
+}
+
 // cardSummonDuelTB sets up the real TB scheduler scenario: a hostile monster
 // four tiles from a card ally, while the party is well out of the fight. It
 // returns the enemy and summon so callers can assert the kind of attack they

@@ -76,6 +76,13 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	game.monsterTurnResolved = true
 	game.turnBasedSpRegenCount = 4
 	game.turnBasedExtraMonsterAction = true
+	schedulerMob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
+	schedulerMob.ID = "saved_scheduler_mob"
+	worldSave.Monsters = []*monster.Monster3D{schedulerMob}
+	game.turnBasedMonsterPassesLeft = 1
+	game.turnBasedMonsterPassDelay = 3
+	game.turnBasedMonsterStatusTick = true
+	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{schedulerMob: true}
 
 	game.torchLightActive = true
 	game.torchLightDuration = 120
@@ -129,6 +136,16 @@ func TestSaveLoad_PersistsTurnBasedAndBuffs(t *testing.T) {
 	}
 	if loaded.turnBasedExtraMonsterAction != game.turnBasedExtraMonsterAction {
 		t.Fatalf("turnBasedExtraMonsterAction: got %v want %v", loaded.turnBasedExtraMonsterAction, game.turnBasedExtraMonsterAction)
+	}
+	if loaded.turnBasedMonsterPassesLeft != game.turnBasedMonsterPassesLeft ||
+		loaded.turnBasedMonsterPassDelay != game.turnBasedMonsterPassDelay ||
+		loaded.turnBasedMonsterStatusTick != game.turnBasedMonsterStatusTick {
+		t.Fatalf("mid-pass scheduler: got passes=%d delay=%d tick=%v, want %d/%d/%v",
+			loaded.turnBasedMonsterPassesLeft, loaded.turnBasedMonsterPassDelay, loaded.turnBasedMonsterStatusTick,
+			game.turnBasedMonsterPassesLeft, game.turnBasedMonsterPassDelay, game.turnBasedMonsterStatusTick)
+	}
+	if len(worldLoad.Monsters) != 1 || !loaded.turnBasedMonsterStunned[worldLoad.Monsters[0]] {
+		t.Fatalf("stunned monster was not restored into the mid-pass scheduler: monsters=%d stunned=%v", len(worldLoad.Monsters), loaded.turnBasedMonsterStunned)
 	}
 
 	if loaded.torchLightActive != game.torchLightActive || loaded.torchLightDuration != game.torchLightDuration {
@@ -772,6 +789,87 @@ func TestSaveLoad_RestoresMonsterHostility(t *testing.T) {
 	}
 	if m := byPos[[2]int{192, 192}]; m == nil || !m.WasAttacked || !m.IsEngagingPlayer {
 		t.Errorf("old-save lair dragon (QuestID, no was_attacked) must migrate to hostile")
+	}
+}
+
+func TestSaveLoad_PreservesTurnBasedSightEngagementOnly(t *testing.T) {
+	for _, turnBased := range []bool{false, true} {
+		mode := "RT"
+		if turnBased {
+			mode = "TB"
+		}
+		t.Run(mode, func(t *testing.T) {
+			cfg := loadTestConfig(t)
+			wmSave := world.NewWorldManager(cfg)
+			worldSave := newTestWorld(cfg)
+			wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+			wmSave.CurrentMapKey = "forest"
+			game := newTestGame(cfg, worldSave)
+			game.turnBasedMode = turnBased
+			sighted := monster.NewMonster3DFromConfig(64, 64, "bandit", cfg)
+			sighted.IsEngagingPlayer = true
+			worldSave.Monsters = []*monster.Monster3D{sighted}
+			save := game.buildSave(wmSave)
+			if got := save.MapMonsters["forest"][0].TurnBasedSightEngaged; got != turnBased {
+				t.Fatalf("serialized sight engagement = %v, want %v", got, turnBased)
+			}
+
+			wmLoad := world.NewWorldManager(cfg)
+			worldLoad := newTestWorld(cfg)
+			wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+			wmLoad.CurrentMapKey = "forest"
+			oldWorldManager := world.GlobalWorldManager
+			world.GlobalWorldManager = wmLoad
+			t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+			loaded := newTestGame(cfg, worldLoad)
+			if err := loaded.applySave(wmLoad, &save); err != nil {
+				t.Fatalf("apply save: %v", err)
+			}
+			if len(worldLoad.Monsters) != 1 || worldLoad.Monsters[0].IsEngagingPlayer != turnBased {
+				t.Fatalf("restored sight engagement = monsters:%d engaging:%v, want %v", len(worldLoad.Monsters), len(worldLoad.Monsters) == 1 && worldLoad.Monsters[0].IsEngagingPlayer, turnBased)
+			}
+		})
+	}
+}
+
+func TestSaveLoad_ResumesMidMonsterPassWithoutRestartingIt(t *testing.T) {
+	cfg := loadTestConfig(t)
+	wmSave := world.NewWorldManager(cfg)
+	worldSave := newTestWorld(cfg)
+	wmSave.LoadedMaps = map[string]*world.World3D{"forest": worldSave}
+	wmSave.CurrentMapKey = "forest"
+	game := newTestGame(cfg, worldSave)
+	game.turnBasedMode = true
+	game.currentTurn = 1
+	game.monsterTurnResolved = false
+	mob := monster.NewMonster3DFromConfig(96, 96, "goblin", cfg)
+	mob.ID = "mid-pass-mob"
+	worldSave.Monsters = []*monster.Monster3D{mob}
+	game.turnBasedMonsterPassesLeft = 1
+	game.turnBasedMonsterPassDelay = 2
+	game.turnBasedMonsterStatusTick = true
+	game.turnBasedMonsterStunned = map[*monster.Monster3D]bool{mob: true}
+	save := game.buildSave(wmSave)
+
+	wmLoad := world.NewWorldManager(cfg)
+	worldLoad := newTestWorld(cfg)
+	wmLoad.LoadedMaps = map[string]*world.World3D{"forest": worldLoad}
+	wmLoad.CurrentMapKey = "forest"
+	oldWorldManager := world.GlobalWorldManager
+	world.GlobalWorldManager = wmLoad
+	t.Cleanup(func() { world.GlobalWorldManager = oldWorldManager })
+	loaded := newTestGame(cfg, worldLoad)
+	loaded.combat = NewCombatSystem(loaded)
+	if err := loaded.applySave(wmLoad, &save); err != nil {
+		t.Fatalf("apply save: %v", err)
+	}
+
+	(&GameLoop{game: loaded}).updateMonstersTurnBased()
+	if loaded.turnBasedMonsterPassesLeft != 1 || loaded.turnBasedMonsterPassDelay != 1 {
+		t.Fatalf("resumed scheduler restarted instead of consuming delay: passes=%d delay=%d", loaded.turnBasedMonsterPassesLeft, loaded.turnBasedMonsterPassDelay)
+	}
+	if !loaded.turnBasedMonsterStatusTick || !loaded.turnBasedMonsterStunned[worldLoad.Monsters[0]] {
+		t.Fatal("resumed scheduler lost its already-ticked/stunned pass state")
 	}
 }
 

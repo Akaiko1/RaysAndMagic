@@ -1,6 +1,9 @@
 package game
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"ugataima/internal/character"
@@ -113,6 +116,44 @@ func TestReconcileAgainstStash_PartialStackRekeysSurvivor(t *testing.T) {
 	}
 }
 
+// A partial chest withdrawal must not hide the returned fragment's provenance
+// inside the current bag stack. Otherwise an older five-stack save would no
+// longer see the one unit still in the chest and could recreate all five.
+func TestReconcileAgainstStash_PartialWithdrawalStillClaimsOldSaveUnits(t *testing.T) {
+	original := items.Item{Name: "Health Potion", Type: items.ItemConsumable, Quantity: 5, InstanceID: 100}
+	bag := original
+	deposited, ok := bag.SplitOff(2)
+	if !ok {
+		t.Fatal("partial deposit split failed")
+	}
+	chest := deposited
+	withdrawn, ok := chest.SplitOffForStashWithdrawal(1)
+	if !ok {
+		t.Fatal("partial withdrawal split failed")
+	}
+	if !bag.MergeStack(withdrawn) {
+		t.Fatal("withdrawn potion did not merge into current bag stack")
+	}
+	if got := chest.StackLineageParts(); len(got) != 1 || got[0] != (items.StackLineage{ID: 100, Quantity: 1}) {
+		t.Fatalf("chest provenance = %+v, want one original unit", got)
+	}
+	if got := bag.StackLineageParts(); len(got) != 2 || got[0].ID == 100 || got[1].ID == 100 {
+		t.Fatalf("current bag kept chest-owned lineage after withdrawal: %+v", got)
+	}
+
+	// Load the stale pre-transfer save. The chest owns one original unit, so
+	// exactly one of its five must disappear; the other four remain legitimate.
+	g := &MMGame{
+		party: &character.Party{Inventory: []items.Item{original}},
+		stash: &stash.Stash{},
+	}
+	g.stash.Slots[0] = chest
+	g.reconcilePartyAgainstStash()
+	if len(g.party.Inventory) != 1 || g.party.Inventory[0].Count() != 4 {
+		t.Fatalf("stale save after partial withdrawal = %+v, want four potions", g.party.Inventory)
+	}
+}
+
 // Card-vault slots count as owned too (cards deposit into a separate vault).
 func TestReconcileAgainstStash_CardVaultOwns(t *testing.T) {
 	g := &MMGame{
@@ -174,5 +215,55 @@ func TestStampPartyInstanceIDs(t *testing.T) {
 	// Idempotent: a second pass finds nothing to stamp.
 	if g.stampPartyInstanceIDs() {
 		t.Error("second stamp pass should report no change")
+	}
+}
+
+func TestRecoverPendingStashTransferUsesAnySaveCommitMarker(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		markerRow int
+	}{
+		{name: "rollback", markerRow: -1},
+		{name: "autosave commit", markerRow: 0},
+		{name: "manual save commit", markerRow: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := stashTestGame(t)
+			g.stash = nil // force recovery through ensureStashLoaded
+			before := stash.Stash{}
+			before.Slots[0] = items.Item{Name: "Before", Type: items.ItemTrinket}
+			after := stash.Stash{}
+			after.Slots[0] = items.Item{Name: "After", Type: items.ItemTrinket}
+			if err := stash.SaveTransferJournal(&stash.TransferJournal{ID: "tx-1", Before: before, After: after}); err != nil {
+				t.Fatalf("write journal: %v", err)
+			}
+			if tc.markerRow >= 0 {
+				path := saveRowPath(tc.markerRow)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatalf("make autosave dir: %v", err)
+				}
+				data, err := json.Marshal(GameSave{StashTransferID: "tx-1"})
+				if err != nil {
+					t.Fatalf("encode autosave marker: %v", err)
+				}
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatalf("write autosave marker: %v", err)
+				}
+			}
+
+			if !g.ensureStashLoaded() {
+				t.Fatal("journal recovery prevented stash load")
+			}
+			want := "Before"
+			if tc.markerRow >= 0 {
+				want = "After"
+			}
+			if got := g.stash.Slots[0].Name; got != want {
+				t.Fatalf("recovered stash item = %q, want %q", got, want)
+			}
+			if journal, err := stash.LoadTransferJournal(); err != nil || journal != nil {
+				t.Fatalf("journal was not cleared after recovery: journal=%+v err=%v", journal, err)
+			}
+		})
 	}
 }

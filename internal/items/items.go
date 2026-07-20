@@ -65,18 +65,22 @@ type Item struct {
 	Attributes  map[string]int
 	Description string
 	Rarity      string
-	// InstanceID identifies this item or stack lineage across save/load and the
-	// cross-save stash. A partial transfer keeps the original ID on the outgoing
-	// fragment and rekeys the remainder, so stale-save reconciliation can remove
-	// exactly the deposited units once. 0 means "untracked" (a pre-InstanceID
-	// save/stash item): it never triggers stash reconciliation and is stamped
-	// lazily on load.
+	// InstanceID identifies this item across save/load and the cross-save stash.
+	// Stackable items retain it as the primary lineage ID for compatibility with
+	// older saves; Lineages carries the complete provenance after stacks merge.
+	// 0 means "untracked" (a pre-InstanceID save/stash item): it never triggers
+	// stash reconciliation and is stamped lazily on load.
 	InstanceID uint64 `json:"instance_id,omitempty"`
 	// Quantity is the stack size for stackable items (consumables, trinkets).
 	// 0 means 1 (items saved before stacking existed) - always read through
-	// Count(). A stack carries one lineage ID for its whole pile; SplitOff keeps
-	// that ID on the moved part and assigns the remaining part a fresh lineage.
+	// Count().
 	Quantity int `json:"quantity,omitempty"`
+	// Lineages records the source units that make up a merged stack. It is
+	// omitted for the common single-lineage case, which older saves represent by
+	// InstanceID alone. Keeping the components lets the shared stash remove only
+	// its own units from a stale save even after those units were merged with
+	// another stack.
+	Lineages []StackLineage `json:"stack_lineages,omitempty"`
 	// For armor
 	ArmorCategory string
 	// Set is the armor-set key (items.yaml item_sets) this piece belongs to.
@@ -85,6 +89,14 @@ type Item struct {
 	SpellSchool string // Will use string instead of character.MagicSchoolID to avoid cycles
 	SpellCost   int
 	SpellEffect SpellEffect
+}
+
+// StackLineage identifies quantity fungible units that came from the same
+// pre-stash stack. ID 0 is deliberately not persisted as a component: zero-ID
+// legacy items are untracked until the normal load migration stamps them.
+type StackLineage struct {
+	ID       uint64 `json:"id"`
+	Quantity int    `json:"quantity"`
 }
 
 // Count returns the stack size, treating the zero value as a single item so
@@ -103,20 +115,227 @@ func (it Item) Stackable() bool {
 	return it.Type == ItemConsumable || it.Type == ItemTrinket
 }
 
+// StackLineageParts returns a normalized copy of the stack's provenance. Old
+// single-lineage saves derive one component from InstanceID, so callers never
+// need a separate legacy branch.
+func (it Item) StackLineageParts() []StackLineage {
+	if !it.Stackable() || it.InstanceID == 0 {
+		return nil
+	}
+	return normalizeStackLineages(it.Lineages, it.InstanceID, it.Count())
+}
+
+// MergeStack adds another fungible stack using the one provenance-preserving
+// merge path. SameStack remains the product-identity check; lineage does not
+// prevent stack merging in the UI.
+func (it *Item) MergeStack(other Item) bool {
+	if it == nil || !SameStack(*it, other) {
+		return false
+	}
+	// A pre-ID stack can arrive from an old in-memory fixture or an extension
+	// path before the normal load migration. Stamp it at the mutation boundary
+	// so no untracked units are folded into another lineage.
+	EnsureInstanceID(it)
+	EnsureInstanceID(&other)
+	parts := append(it.StackLineageParts(), other.StackLineageParts()...)
+	it.Quantity = it.Count() + other.Count()
+	it.setStackLineageParts(parts)
+	return true
+}
+
+// ConsumeStackUnits removes units from a stack while preserving provenance for
+// the units that remain. Whole-entry removal stays the owning container's job.
+func (it *Item) ConsumeStackUnits(quantity int) bool {
+	if it == nil || !it.Stackable() || quantity < 1 || quantity >= it.Count() {
+		return false
+	}
+	parts := it.StackLineageParts()
+	if len(parts) == 0 {
+		it.Quantity = it.Count() - quantity
+		return true
+	}
+	remainingToConsume := quantity
+	kept := make([]StackLineage, 0, len(parts))
+	for _, part := range parts {
+		consumed := part.Quantity
+		if consumed > remainingToConsume {
+			consumed = remainingToConsume
+		}
+		part.Quantity -= consumed
+		remainingToConsume -= consumed
+		if part.Quantity > 0 {
+			kept = append(kept, part)
+		}
+	}
+	it.Quantity = it.Count() - quantity
+	it.setStackLineageParts(kept)
+	return true
+}
+
 // SplitOff removes quantity units from a stack and returns them as a separate
-// item. The returned fragment deliberately keeps the original InstanceID: a
-// stash deposit can therefore dedupe those units from an older save. The source
-// receives a new ID so the current save does not look like it still owns the
-// deposited fragment. Full-stack moves are handled by the owning container.
+// item. The moved fragment keeps its source lineage and only the residual units
+// from a split component are rekeyed. This is the direction used when a party
+// stack is partially deposited into the shared stash.
 func (it *Item) SplitOff(quantity int) (Item, bool) {
+	return it.splitOff(quantity, true)
+}
+
+// SplitOffForStashWithdrawal is the inverse partial-transfer direction. The
+// stash keeps the old lineage for units it still owns; only the withdrawn piece
+// of a split component is rekeyed. That prevents the live party save from
+// looking like it still owns the same units as the chest on a later reload.
+func (it *Item) SplitOffForStashWithdrawal(quantity int) (Item, bool) {
+	return it.splitOff(quantity, false)
+}
+
+func (it *Item) splitOff(quantity int, movedKeepsSplitLineage bool) (Item, bool) {
 	if it == nil || !it.Stackable() || quantity < 1 || quantity >= it.Count() {
 		return Item{}, false
 	}
+	EnsureInstanceID(it)
 	fragment := *it
+	parts := it.StackLineageParts()
+	if len(parts) == 0 {
+		fragment.Quantity = quantity
+		it.Quantity = it.Count() - quantity
+		if movedKeepsSplitLineage {
+			it.InstanceID = NewInstanceID()
+		} else {
+			fragment.InstanceID = NewInstanceID()
+		}
+		return fragment, true
+	}
+
+	remainingToMove := quantity
+	moved := make([]StackLineage, 0, len(parts))
+	kept := make([]StackLineage, 0, len(parts))
+	for _, part := range parts {
+		if remainingToMove == 0 {
+			kept = append(kept, part)
+			continue
+		}
+		movedQuantity := part.Quantity
+		if movedQuantity > remainingToMove {
+			movedQuantity = remainingToMove
+		}
+		remainingToMove -= movedQuantity
+		movedPart := StackLineage{ID: part.ID, Quantity: movedQuantity}
+		leftQuantity := part.Quantity - movedQuantity
+		if leftQuantity > 0 {
+			leftPart := StackLineage{ID: part.ID, Quantity: leftQuantity}
+			if movedKeepsSplitLineage {
+				leftPart.ID = NewInstanceID()
+			} else {
+				movedPart.ID = NewInstanceID()
+			}
+			kept = append(kept, leftPart)
+		}
+		moved = append(moved, movedPart)
+	}
+
 	fragment.Quantity = quantity
+	fragment.setStackLineageParts(moved)
 	it.Quantity = it.Count() - quantity
-	it.InstanceID = NewInstanceID()
+	it.setStackLineageParts(kept)
 	return fragment, true
+}
+
+// StripStashOwnedUnits removes only the lineage units currently owned by the
+// shared stash. claims is consumed globally by the caller, which matters when
+// a stale save carries the same original lineage in more than one location.
+// It returns whether the item survives and whether a surviving split component
+// had to be rekeyed for idempotent future loads.
+func (it *Item) StripStashOwnedUnits(claims map[uint64]int) (keep, rekeyed bool) {
+	if it == nil || it.Name == "" || it.InstanceID == 0 {
+		return true, false
+	}
+	if !it.Stackable() {
+		if claims[it.InstanceID] < 1 {
+			return true, false
+		}
+		claims[it.InstanceID]--
+		return false, false
+	}
+	parts := it.StackLineageParts()
+	if len(parts) == 0 {
+		return true, false
+	}
+	kept := make([]StackLineage, 0, len(parts))
+	remaining := 0
+	for _, part := range parts {
+		claimed := claims[part.ID]
+		removed := part.Quantity
+		if removed > claimed {
+			removed = claimed
+		}
+		claims[part.ID] -= removed
+		part.Quantity -= removed
+		if part.Quantity == 0 {
+			continue
+		}
+		if removed > 0 {
+			part.ID = NewInstanceID()
+			rekeyed = true
+		}
+		remaining += part.Quantity
+		kept = append(kept, part)
+	}
+	if remaining == 0 {
+		return false, false
+	}
+	it.Quantity = remaining
+	it.setStackLineageParts(kept)
+	return true, rekeyed
+}
+
+func (it *Item) setStackLineageParts(parts []StackLineage) {
+	if it == nil || !it.Stackable() {
+		return
+	}
+	parts = normalizeStackLineages(parts, it.InstanceID, it.Count())
+	if len(parts) == 0 {
+		it.Lineages = nil
+		return
+	}
+	it.InstanceID = parts[0].ID
+	if len(parts) == 1 && parts[0].Quantity == it.Count() {
+		it.Lineages = nil
+		return
+	}
+	it.Lineages = parts
+}
+
+func normalizeStackLineages(parts []StackLineage, fallbackID uint64, count int) []StackLineage {
+	if count < 1 {
+		return nil
+	}
+	remaining := count
+	normalized := make([]StackLineage, 0, len(parts)+1)
+	indexByID := make(map[uint64]int, len(parts)+1)
+	add := func(id uint64, quantity int) {
+		if id == 0 || quantity < 1 || remaining == 0 {
+			return
+		}
+		if quantity > remaining {
+			quantity = remaining
+		}
+		if i, ok := indexByID[id]; ok {
+			normalized[i].Quantity += quantity
+		} else {
+			indexByID[id] = len(normalized)
+			normalized = append(normalized, StackLineage{ID: id, Quantity: quantity})
+		}
+		remaining -= quantity
+	}
+	for _, part := range parts {
+		add(part.ID, part.Quantity)
+	}
+	// A malformed or older stack with missing component data remains owned by its
+	// legacy primary ID rather than silently dropping units from deduplication.
+	if fallbackID != 0 {
+		add(fallbackID, remaining)
+	}
+	return normalized
 }
 
 // SameStack is THE stack-identity rule: both stackable and the same item

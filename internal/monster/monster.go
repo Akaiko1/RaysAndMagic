@@ -85,6 +85,13 @@ func (m *Monster3D) HatesActiveTrait() bool {
 	return false
 }
 
+// IsPassiveUntilProvoked is the one policy gate for creatures that ignore all
+// combat targets until the party truly attacks them. Hated active traits are an
+// explicit authored exception: they provoke the monster on sight.
+func (m *Monster3D) IsPassiveUntilProvoked() bool {
+	return m != nil && m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait()
+}
+
 // CurrentAIBehavior is the single source of truth for the precedence between
 // scripted/inert, controlled, redirected, fleeing, passive, and ordinary
 // monster behavior. It intentionally does not decide whether a normal monster
@@ -103,6 +110,12 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 		return AIBehaviorEvasive
 	}
 	if m.AIFoe != nil {
+		// A stale crossfire target must not wake a passive creature. Normal
+		// selection clears it too, but keeping the policy here makes every AI
+		// consumer obey the same passive-until-hit contract.
+		if m.IsPassiveUntilProvoked() {
+			return AIBehaviorPassive
+		}
 		return AIBehaviorFightFoe
 	}
 	if m.relentlessHunter() {
@@ -111,7 +124,7 @@ func (m *Monster3D) CurrentAIBehavior() AIBehaviorMode {
 	if m.State == StateFleeing {
 		return AIBehaviorFleeing
 	}
-	if m.PassiveUntilAttacked && !m.WasAttacked && !m.HatesActiveTrait() {
+	if m.IsPassiveUntilProvoked() {
 		return AIBehaviorPassive
 	}
 	return AIBehaviorSeekParty
