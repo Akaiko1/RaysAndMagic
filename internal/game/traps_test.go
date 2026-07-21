@@ -270,6 +270,9 @@ func TestTrap_StasisStunsAndBearRootsTB(t *testing.T) {
 	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootTurns; rooted.RootTurnsRemaining != want {
 		t.Errorf("bear: want %d root turns, got %d", want, rooted.RootTurnsRemaining)
 	}
+	if want := config.GlobalTrapConfig.Traps["bear_trap"].RootSeconds * g.config.GetTPS(); rooted.RootFramesRemaining != want {
+		t.Errorf("bear: want %d root frames, got %d", want, rooted.RootFramesRemaining)
+	}
 
 	// Rooted: the root burns one charge per monster TURN (TickRootTurn) and
 	// pins movement for that whole turn - even if the monster only attacks.

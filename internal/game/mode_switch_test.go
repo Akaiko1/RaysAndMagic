@@ -5,6 +5,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/items"
+	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
 	"ugataima/internal/world"
 )
@@ -29,6 +30,44 @@ func TestModeSwitch_PreservesRTCooldowns(t *testing.T) {
 		t.Fatalf("RT -> TB = turnBased:%v suspended:%v, want true/false", game.turnBasedMode, game.turnBasedTurnSuspended)
 	}
 	assertModeSwitchCooldowns(t, game)
+}
+
+// Bear Trap must retain its root when Tab switches to RT. Traps and weapon
+// riders share the same dual-clock status: a champion cannot evade a trap just
+// because the party changed combat modes.
+func TestModeSwitch_BearTrapRootPinsMinotaurAndWeaponMasterInRT(t *testing.T) {
+	for _, monsterKey := range []string{"minotaur", "weapon_master"} {
+		t.Run(monsterKey, func(t *testing.T) {
+			game, _, tileSize := tbBehaviorGame(t, 8, 8)
+			placePlayerAtTile(game, 1, 1, tileSize)
+			if monsterKey == "weapon_master" {
+				primeTestChampions(t, game)
+			}
+
+			m := monsterPkg.NewMonster3DFromConfig(4*tileSize+tileSize/2, tileSize+tileSize/2, monsterKey, game.config)
+			if monsterKey == "weapon_master" && !m.IsChampion() {
+				t.Fatal("weapon_master must retain its champion marker")
+			}
+			m.WasAttacked = true
+			m.BeginPlayerEngagement()
+			m.State = monsterPkg.StatePursuing
+			m.AITargetX, m.AITargetY = game.camera.X, game.camera.Y
+			game.world.Monsters = []*monsterPkg.Monster3D{m}
+			game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+
+			game.combat.fireTrap(&PlacedTrap{Key: "bear_trap", X: m.X, Y: m.Y}, m)
+			if m.RootTurnsRemaining <= 0 || m.RootFramesRemaining <= 0 {
+				t.Fatalf("bear trap must arm both root clocks: turns=%d frames=%d", m.RootTurnsRemaining, m.RootFramesRemaining)
+			}
+
+			game.ToggleTurnBasedMode() // TB -> RT while the root is still active
+			startX, startY := m.X, m.Y
+			m.UpdateWithTarget(game.collisionSystem.Snapshot(), game.camera.X, game.camera.Y, game.camera.X, game.camera.Y)
+			if m.X != startX || m.Y != startY {
+				t.Fatalf("rooted %s moved after TB -> RT: (%.1f, %.1f) -> (%.1f, %.1f)", monsterKey, startX, startY, m.X, m.Y)
+			}
+		})
+	}
 }
 
 func assertModeSwitchCooldowns(t *testing.T, game *MMGame) {

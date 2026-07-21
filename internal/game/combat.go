@@ -3503,14 +3503,7 @@ func (cs *CombatSystem) tryApplyWeaponHitRiders(monster *monsterPkg.Monster3D, w
 	if weaponDef.RootChance > 0 && weaponDef.RootSeconds > 0 && rand.Float64() < weaponDef.RootChance {
 		frames := weaponDef.RootSeconds * framesPerTurn
 		turns := (weaponDef.RootSeconds + 1) / 2
-		// Refresh-never-shortens, like the trap root it mirrors.
-		if frames > monster.RootFramesRemaining {
-			monster.RootFramesRemaining = frames
-		}
-		if turns > monster.RootTurnsRemaining {
-			monster.RootTurnsRemaining = turns
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", monster.Name))
+		cs.applyMonsterRoot(monster, turns, frames)
 	}
 }
 
@@ -4257,6 +4250,23 @@ func (cs *CombatSystem) applyStunDR(m *monsterPkg.Monster3D, turns, frames int, 
 // turns, under diminishing returns (see applyStunDR).
 func (cs *CombatSystem) applyStun(m *monsterPkg.Monster3D, seconds, turns int) {
 	cs.applyStunDR(m, turns, seconds*cs.game.config.GetTPS(), true)
+}
+
+// applyMonsterRoot is the one entry point for roots from traps and weapon
+// riders. Root has parallel TB-turn and RT-frame clocks so a Tab mode switch
+// cannot release an otherwise active pin; each mode clears the counterpart
+// when its own clock expires.
+func (cs *CombatSystem) applyMonsterRoot(m *monsterPkg.Monster3D, turns, frames int) {
+	if cs == nil || cs.game == nil || m == nil || (turns <= 0 && frames <= 0) {
+		return
+	}
+	if turns > m.RootTurnsRemaining {
+		m.RootTurnsRemaining = turns
+	}
+	if frames > m.RootFramesRemaining {
+		m.RootFramesRemaining = frames
+	}
+	cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", m.Name))
 }
 
 // applyBindUndead (Bind Undead) takes control of an UNDEAD target - it hunts

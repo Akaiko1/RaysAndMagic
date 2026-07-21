@@ -197,7 +197,7 @@ func (m *Monster3D) UpdateWithTarget(collisionChecker CollisionChecker, partyX, 
 	// attack cadence - but any displacement it produced is undone, so the
 	// monster fights from where it stands without being stunned.
 	if m.RootFramesRemaining > 0 {
-		m.RootFramesRemaining--
+		status.TickFrame(&m.RootFramesRemaining, &m.RootTurnsRemaining)
 		px, py := m.X, m.Y
 		defer func() { m.X, m.Y = px, py }()
 	}

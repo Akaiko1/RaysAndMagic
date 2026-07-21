@@ -699,14 +699,13 @@ func (m *Monster3D) HasRangedAttack() bool {
 	return m.ProjectileSpell != "" || m.ProjectileWeapon != ""
 }
 
-// CanPounce reports whether the monster has the leap ability configured.
 // TickRootTurn consumes one TB turn of a root effect; the monster stays
 // pinned for the WHOLE turn it started rooted (RootHeld), so an adjacent
 // rooted monster that only attacks still burns its root down each turn.
 func (m *Monster3D) TickRootTurn() {
 	m.rootHeldThisTurn = m.RootTurnsRemaining > 0
 	if m.RootTurnsRemaining > 0 {
-		m.RootTurnsRemaining--
+		status.TickTurn(&m.RootTurnsRemaining, &m.RootFramesRemaining)
 	}
 }
 
@@ -757,6 +756,7 @@ func (m *Monster3D) TickArmorShredTurn() {
 	}
 }
 
+// CanPounce reports whether the monster has the leap ability configured.
 func (m *Monster3D) CanPounce() bool {
 	// A rooted monster is pinned to its tile - the leap is a movement.
 	// rootHeldThisTurn covers the LAST rooted TB turn: TickRootTurn has

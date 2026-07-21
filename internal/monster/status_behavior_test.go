@@ -85,6 +85,7 @@ func TestMonsterStunRTExpiryClearsTurns(t *testing.T) {
 func TestMonsterRootTurnHeldSemantics(t *testing.T) {
 	m := statusTestMonster()
 	m.RootTurnsRemaining = 2
+	m.RootFramesRemaining = 120
 
 	m.TickRootTurn()
 	if !m.RootHeld() || m.RootTurnsRemaining != 1 {
@@ -93,6 +94,9 @@ func TestMonsterRootTurnHeldSemantics(t *testing.T) {
 	m.TickRootTurn()
 	if !m.RootHeld() || m.RootTurnsRemaining != 0 {
 		t.Fatalf("LAST rooted turn must still be held: held=%v left=%d", m.RootHeld(), m.RootTurnsRemaining)
+	}
+	if m.RootFramesRemaining != 0 {
+		t.Fatalf("TB root expiry must clear RT frames, got %d", m.RootFramesRemaining)
 	}
 	m.TickRootTurn()
 	if m.RootHeld() {
@@ -105,6 +109,7 @@ func TestMonsterRootTurnHeldSemantics(t *testing.T) {
 func TestMonsterRootRTPinsPosition(t *testing.T) {
 	m := statusTestMonster()
 	m.RootFramesRemaining = 3
+	m.RootTurnsRemaining = 2
 	m.State = StatePatrolling
 	x, y := m.X, m.Y
 
@@ -114,8 +119,8 @@ func TestMonsterRootRTPinsPosition(t *testing.T) {
 	if m.X != x || m.Y != y {
 		t.Fatalf("rooted monster moved: (%.1f,%.1f)", m.X, m.Y)
 	}
-	if m.RootFramesRemaining != 0 {
-		t.Fatalf("root frames must burn down, left=%d", m.RootFramesRemaining)
+	if m.RootFramesRemaining != 0 || m.RootTurnsRemaining != 0 {
+		t.Fatalf("RT root expiry must clear both clocks: frames=%d turns=%d", m.RootFramesRemaining, m.RootTurnsRemaining)
 	}
 	if m.StateTimer == 0 {
 		t.Fatal("root pins position, not the state machine")

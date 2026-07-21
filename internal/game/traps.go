@@ -329,14 +329,7 @@ func (cs *CombatSystem) fireTrap(t *PlacedTrap, victim *monsterPkg.Monster3D) {
 
 	turnsRoot, secsRoot := trapControlDuration(def.RootTurns, def.RootSeconds, t.Owner)
 	if def.RootTurns > 0 {
-		if cs.game.turnBasedMode {
-			if turnsRoot > victim.RootTurnsRemaining {
-				victim.RootTurnsRemaining = turnsRoot
-			}
-		} else if frames := secsRoot * cs.game.config.GetTPS(); frames > victim.RootFramesRemaining {
-			victim.RootFramesRemaining = frames
-		}
-		cs.game.AddCombatMessage(fmt.Sprintf("%s is pinned in place!", victim.Name))
+		cs.applyMonsterRoot(victim, turnsRoot, secsRoot*cs.game.config.GetTPS())
 	}
 }
 
