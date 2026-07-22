@@ -33,7 +33,9 @@ func (g *MMGame) registerVisitedTownPortalDestination() {
 		return
 	}
 	for _, npc := range g.world.NPCs {
-		if npcOffersTavernRest(npc) {
+		// The unified world holds every merged map's NPCs - only a tavern
+		// standing in THIS region makes the region a destination.
+		if npcOffersTavernRest(npc) && g.npcOnMapRegion(npc, mapKey) {
 			if g.visitedTavernMaps == nil {
 				g.visitedTavernMaps = map[string]bool{}
 			}
@@ -71,15 +73,24 @@ func (g *MMGame) townPortalTeleport(mapKey string) {
 	// Every arrival must complete through finishMapArrival - it re-registers the
 	// player's collision entity and autosaves; a raw camera write would leave
 	// collisions/projectiles resolving against the previous map's position.
-	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination &&
-		g.world.StartX >= 0 && g.world.StartY >= 0 {
-		x, y := g.world.GetStartingPosition()
-		g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
-		g.AddCombatMessage("The portal closes behind the party.")
-		return
+	if mapConfig := world.GlobalWorldManager.MapConfigs[mapKey]; mapConfig != nil && mapConfig.TownPortalDestination {
+		// A merged region arrives at ITS '+', not the unified world's anchor.
+		if x, y, ok := world.GlobalWorldManager.OpenWorldRegionStart(mapKey); ok {
+			g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
+			g.AddCombatMessage("The portal closes behind the party.")
+			return
+		}
+		if g.world.StartX >= 0 && g.world.StartY >= 0 {
+			x, y := g.world.GetStartingPosition()
+			g.gameLoop.inputHandler.finishMapArrival(x, y, g.camera.Angle)
+			g.AddCombatMessage("The portal closes behind the party.")
+			return
+		}
 	}
 	for _, npc := range g.world.NPCs {
-		if !npcOffersTavernRest(npc) {
+		// Arrive at the TARGET map's tavern, not the first tavern of the
+		// unified world's combined NPC list.
+		if !npcOffersTavernRest(npc) || !g.npcOnMapRegion(npc, mapKey) {
 			continue
 		}
 		x, y, ok := g.nearestWalkableNeighbor(npc.X, npc.Y)

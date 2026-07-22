@@ -26,6 +26,12 @@ const (
 	standeeStaticYaw    = math.Pi / 4.0 // fixed diagonal for scenery and NPC tokens
 	standeeTurnDefault  = 270.0         // deg/sec token swivel when config omits it
 	containerSpinDegSec = 60.0          // deg/sec idle spin for loot-bag / chest tokens
+	standeeMaxMipLevel  = 6             // matches Ebitengine's own mipmap depth cap
+	// Blend only around the nearest-mip crossover. Outside this band one
+	// bilinearly sampled level is already stable, avoiding a second four-tap
+	// sample across most distant standee pixels.
+	standeeMipBlendStart = 0.35
+	standeeMipBlendEnd   = 0.65
 )
 
 var standeeWoodTone = [3]float64{0.62, 0.45, 0.27}
@@ -48,6 +54,28 @@ type standeeCoreKey struct {
 	name   string
 	bounds image.Rectangle
 	img    *ebiten.Image // only set when the caller's frame images are stable
+}
+
+type standeeMipLayer uint8
+
+const (
+	standeeMipSticker standeeMipLayer = iota
+	standeeMipCore
+)
+
+// standeeMipKey extends the existing stable frame identity with the physical
+// token layer: sticker art and its generated wooden core have different pixels
+// even though they share the same source-frame key.
+type standeeMipKey struct {
+	frame standeeCoreKey
+	layer standeeMipLayer
+}
+
+// standeeMipChain owns normalized immutable copies of one standee texture.
+// Ebitengine exposes no way to address its internal mip levels, so adjacent
+// levels must be explicit images for true trilinear filtering.
+type standeeMipChain struct {
+	levels []*ebiten.Image
 }
 
 // standeeCoreSilhouette returns (building and caching on first use) the sprite
@@ -134,11 +162,15 @@ func clampByte(v float64) byte {
 	return byte(v)
 }
 
-// standeeColumnHit intersects one screen column's ray (origin cam, direction R,
-// both in world space) with a surface segment P0 + u*(P1-P0), u in [0,1].
-// Returns the ray parameter t - which IS the perpendicular depth when R is
-// built as dir + plane*s with |dir| = 1 - and the segment fraction u.
-func standeeColumnHit(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float64, ok bool) {
+// standeeColumnIntersection intersects one screen ray (origin cam, direction
+// R, both in world space) with the infinite line P0 + u*(P1-P0). It preserves
+// u outside [0,1] so the rasterizer can map the two SCREEN-PIXEL BOUNDARIES to
+// two distinct texture coordinates at a segment edge. That non-zero source
+// footprint is what lets the standee minification shader filter the actual
+// texel area covered by this pixel instead of sampling a phase-dependent point.
+//
+// t is the perpendicular depth when R is built as dir + plane*s with |dir|=1.
+func standeeColumnIntersection(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float64, ok bool) {
 	det := dx*ry - dy*rx
 	if math.Abs(det) < 1e-9 {
 		return 0, 0, false // ray parallel to the token plane (edge-on)
@@ -147,10 +179,216 @@ func standeeColumnHit(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float6
 	ey := p0y - camY
 	t = (dx*ey - dy*ex) / det
 	u = (rx*ey - ry*ex) / det
-	if t < standeeMinDepth || u < 0 || u > 1 {
+	if t < standeeMinDepth {
 		return 0, 0, false
 	}
 	return t, u, true
+}
+
+// standeeColumnHit is standeeColumnIntersection clipped to the actual finite
+// surface segment. Use it for the pixel-centre visibility decision; the draw
+// path uses the unbounded helper only for that visible column's two edges.
+func standeeColumnHit(camX, camY, rx, ry, p0x, p0y, dx, dy float64) (t, u float64, ok bool) {
+	t, u, ok = standeeColumnIntersection(camX, camY, rx, ry, p0x, p0y, dx, dy)
+	if !ok || u < 0 || u > 1 {
+		return 0, 0, false
+	}
+	return t, u, true
+}
+
+// standeeRayAtScreenX returns the camera-plane ray through a screen coordinate.
+// Both the standee rasterizer and wall-mounted interaction occlusion use this
+// exact convention, so their backing-wall plane tests cannot diverge.
+func standeeRayAtScreenX(screenX float64, screenWidth int, dirX, dirY, planeX, planeY float64) (float64, float64) {
+	s := 2*screenX/float64(screenWidth) - 1
+	return dirX + planeX*s, dirY + planeY*s
+}
+
+// standeeUsesMinificationSampling selects filtered sampling as soon as
+// either source axis shrinks. Keeping nearest until half size made the 50%-100%
+// band temporally alias: moving a few pixels switched the sampled texel phase
+// between sharp and mushy.
+//
+// A standee can shrink in either direction: a face viewed almost edge-on is
+// horizontally minified even when it is still tall on screen.
+func standeeUsesMinificationSampling(projectedWidth, projectedHeight, textureWidth, textureHeight float64) bool {
+	return projectedWidth < textureWidth || projectedHeight < textureHeight
+}
+
+// standeeTextureFootprint is the source texel span covered by one destination
+// pixel along one axis. A value below one is clamped because it represents
+// magnification, not a mip level.
+func standeeTextureFootprint(sourceSpan, destinationSpan float32) float32 {
+	if math.Abs(float64(destinationSpan)) < 1e-6 {
+		return 1
+	}
+	footprint := float32(math.Abs(float64(sourceSpan / destinationSpan)))
+	if footprint < 1 {
+		return 1
+	}
+	return footprint
+}
+
+// standeeMipBlend selects the nearest mip level with a short trilinear crossover.
+// The crossover is continuous: its upper endpoint is exactly the next level,
+// which is also the pure image selected immediately after the band. Keeping the
+// blend narrower than the full octave avoids paying eight texture taps where a
+// single stable level is visually indistinguishable.
+func standeeMipBlend(footprint float32, maxLevel int) (level int, blend float32) {
+	if footprint <= 1 || maxLevel <= 0 || math.IsNaN(float64(footprint)) {
+		return 0, 0
+	}
+	lod := math.Log2(float64(footprint))
+	level = int(math.Floor(lod))
+	if level < 0 {
+		return 0, 0
+	}
+	if level >= maxLevel {
+		return maxLevel, 0
+	}
+	fraction := lod - float64(level)
+	if fraction <= standeeMipBlendStart {
+		return level, 0
+	}
+	if fraction >= standeeMipBlendEnd {
+		return level + 1, 0
+	}
+	return level, float32((fraction - standeeMipBlendStart) / (standeeMipBlendEnd - standeeMipBlendStart))
+}
+
+func standeeMipSizes(width, height int) []image.Point {
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+	sizes := make([]image.Point, 0, standeeMaxMipLevel+1)
+	for level := 0; level <= standeeMaxMipLevel; level++ {
+		sizes = append(sizes, image.Pt(width, height))
+		if width == 1 && height == 1 {
+			break
+		}
+		if width > 1 {
+			width /= 2
+		}
+		if height > 1 {
+			height /= 2
+		}
+	}
+	return sizes
+}
+
+// standeeMipChainFor builds each level by one 2x linear reduction, exactly the
+// strategy used by Ebitengine's internal mipmap package. Level 0 is normalized
+// to (0,0,w,h), which also gives recreated NPC SubImages a stable cached image.
+func (r *Renderer) standeeMipChainFor(key standeeMipKey, src *ebiten.Image) *standeeMipChain {
+	if chain := r.standeeMipCache[key]; chain != nil {
+		return chain
+	}
+	sizes := standeeMipSizes(src.Bounds().Dx(), src.Bounds().Dy())
+	if len(sizes) == 0 {
+		return nil
+	}
+	chain := &standeeMipChain{levels: make([]*ebiten.Image, 0, len(sizes))}
+	base := src
+	if src.Bounds().Min != (image.Point{}) {
+		// The shader's full-size coordinate reference is normalized. Most sprite
+		// images already start at (0,0) and can be reused directly; only sheet
+		// SubImages need this copy. Avoiding a duplicate level 0 cuts the mip
+		// cache's dominant allocation without changing immutable source pixels.
+		base = ebiten.NewImage(sizes[0].X, sizes[0].Y)
+		base.DrawImage(src, &ebiten.DrawImageOptions{Blend: ebiten.BlendCopy})
+	}
+	chain.levels = append(chain.levels, base)
+	previous := base
+	for _, size := range sizes[1:] {
+		level := ebiten.NewImage(size.X, size.Y)
+		previousSize := previous.Bounds().Size()
+		opts := &ebiten.DrawImageOptions{
+			Blend:          ebiten.BlendCopy,
+			Filter:         ebiten.FilterLinear,
+			DisableMipmaps: true,
+		}
+		opts.GeoM.Scale(float64(size.X)/float64(previousSize.X), float64(size.Y)/float64(previousSize.Y))
+		level.DrawImage(previous, opts)
+		chain.levels = append(chain.levels, level)
+		previous = level
+	}
+	if r.standeeMipCache == nil {
+		r.standeeMipCache = make(map[standeeMipKey]*standeeMipChain)
+	}
+	r.standeeMipCache[key] = chain
+	return chain
+}
+
+// Ebitengine chooses one integer mip level for an entire DrawTriangles call.
+// That is correct spatial filtering, but a moving token visibly jumps between
+// sharp and soft levels because the engine does not trilinearly blend them.
+// Images 1 and 2 are adjacent explicit levels; image 0 is the full-size
+// coordinate reference. In pixel mode Kage adjusts only atlas origins for
+// imageSrcNAt, so these helpers explicitly map full-size coordinates into each
+// level before performing bilinear sampling.
+const standeeTrilinearShaderSrc = `//kage:unit pixels
+
+package main
+
+func sampleLinear1(p vec2) vec4 {
+	origin0 := imageSrc0Origin()
+	size0 := imageSrc0Size()
+	size := imageSrc1Size()
+	scale := size / size0
+	// In pixel mode imageSrc1At preserves image-0 pixel coordinates and only
+	// adjusts the backing-atlas origin; it does not scale differently-sized
+	// source images. Work in level-local pixels, then pass those coordinates
+	// relative to image 0 so the built-in origin adjustment remains correct.
+	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
+	q0 := q - 0.5
+	q1 := q + 0.5
+	p0 := q0 + origin0
+	p1 := q1 + origin0
+	c0 := imageSrc1At(p0)
+	c1 := imageSrc1At(vec2(p1.x, p0.y))
+	c2 := imageSrc1At(vec2(p0.x, p1.y))
+	c3 := imageSrc1At(p1)
+	rate := fract(q1)
+	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
+}
+
+func sampleLinear2(p vec2) vec4 {
+	origin0 := imageSrc0Origin()
+	size0 := imageSrc0Size()
+	size := imageSrc2Size()
+	scale := size / size0
+	q := clamp((p-origin0)*scale, vec2(0.5), size-vec2(0.5))
+	q0 := q - 0.5
+	q1 := q + 0.5
+	p0 := q0 + origin0
+	p1 := q1 + origin0
+	c0 := imageSrc2At(p0)
+	c1 := imageSrc2At(vec2(p1.x, p0.y))
+	c2 := imageSrc2At(vec2(p0.x, p1.y))
+	c3 := imageSrc2At(p1)
+	rate := fract(q1)
+	return mix(mix(c0, c1, rate.x), mix(c2, c3, rate.x), rate.y)
+}
+
+func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
+	lo := sampleLinear1(srcPos)
+	if custom.x <= 0.0 {
+		return lo * color
+	}
+	return mix(lo, sampleLinear2(srcPos), clamp(custom.x, 0, 1)) * color
+}
+`
+
+func (r *Renderer) ensureStandeeTrilinearShader() (*ebiten.Shader, error) {
+	if r.standeeTrilinearShader != nil {
+		return r.standeeTrilinearShader, nil
+	}
+	shader, err := ebiten.NewShader([]byte(standeeTrilinearShaderSrc))
+	if err != nil {
+		return nil, err
+	}
+	r.standeeTrilinearShader = shader
+	return shader, nil
 }
 
 // clampYawFromEdgeOn keeps a token's long axis at least minRad away from the
@@ -195,8 +433,64 @@ func approachAngle(cur, target, maxStep float64) float64 {
 type standeeSurface struct {
 	p0x, p0y, dx, dy float64
 	img              *ebiten.Image
+	mipKey           standeeMipKey
 	mirrored         bool    // sample 1-u instead of u
 	shade            float32 // multiplied into the color scale
+}
+
+// standeeWallOcclusion describes the exceptional wall relationship for the
+// current standee draw. A mounted token may draw through precisely its backing
+// wall plane, not through every wall inside an arbitrary depth band.
+type standeeWallOcclusion struct {
+	depthAllowance                 float64
+	backingX, backingY, backingYaw float64
+	hasBackingWall                 bool
+}
+
+// matchesBackingWall reports whether wallDepth comes from the mounted token's
+// actual backing plane for this screen ray. Depth-buffer values are generated
+// from the same camera-plane ray at the shipped one-ray-per-pixel setting, so
+// a tiny numeric epsilon is enough; the small depthAllowance handles coarser
+// diagnostic ray widths.
+func (o standeeWallOcclusion) matchesBackingWall(camX, camY, rayX, rayY, wallDepth float64) bool {
+	if !o.hasBackingWall {
+		return false
+	}
+	normalX, normalY := -math.Sin(o.backingYaw), math.Cos(o.backingYaw)
+	denom := normalX*rayX + normalY*rayY
+	if math.Abs(denom) < 1e-9 {
+		return false
+	}
+	backingDepth := (normalX*(o.backingX-camX) + normalY*(o.backingY-camY)) / denom
+	return backingDepth >= standeeMinDepth && math.Abs(wallDepth-backingDepth) <= 0.01
+}
+
+// standeeSurfaceProjectedSize reports the surface's actual projected extent.
+// The texture filter must follow this geometry rather than the face-on
+// billboard size: a rotated scenery token can become only a few pixels wide
+// while remaining hundreds of pixels tall.
+func (r *Renderer) standeeSurfaceProjectedSize(sf standeeSurface, centerDepth, centerSize float64) (width, height float64) {
+	width, height = centerSize, centerSize
+	x0, d0, ok0 := r.game.renderHelper.projectToScreenXF(sf.p0x, sf.p0y)
+	x1, d1, ok1 := r.game.renderHelper.projectToScreenXF(sf.p0x+sf.dx, sf.p0y+sf.dy)
+	if !ok0 || !ok1 {
+		return width, height
+	}
+
+	width = math.Abs(x1 - x0)
+	if d0 > standeeMinDepth && d1 > standeeMinDepth {
+		h0 := centerSize * centerDepth / d0
+		h1 := centerSize * centerDepth / d1
+		height = math.Min(h0, h1)
+	}
+	return width, height
+}
+
+// standeeColumnOccluded applies the numeric wall-depth fallback shared by all
+// standees. Mounted tokens additionally recognize their exact backing plane;
+// any other foreground wall still has to beat only this small allowance.
+func standeeColumnOccluded(tokenDepth, wallDepth, wallAllowance float64) bool {
+	return tokenDepth-wallAllowance >= wallDepth
 }
 
 // standeeSlab is a prepared token slab: the surface stack plus the billboard
@@ -207,10 +501,13 @@ type standeeSlab struct {
 	surfaces     []standeeSurface
 	firstSurface int // draw from here (face-on fast path collapses to the near sticker)
 	minX, maxX   int // unclipped screen span
-	centerSize   int
-	centerDepth  float64
-	bottomY      int
-	rr, gg, bb   float32
+	// Float billboard metrics: the per-column scaling multiplies them by
+	// centerDepth/t, so any int quantization here would make the whole token
+	// hop a pixel at a time as the camera moves (visible at range).
+	centerSize  float64
+	centerDepth float64
+	bottomY     float64
+	rr, gg, bb  float32
 }
 
 // treeArm is one center->corner half of a crossed-tree diagonal standee: the
@@ -240,7 +537,7 @@ type treeArm struct {
 // worldLengthOverride (>0) forces the token's world footprint length instead of
 // deriving it from the billboard width. Crossed trees use it for their full-tile
 // footprint so their arms land on the tile edges.
-func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize int, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64) bool {
+func (r *Renderer) drawStandeeSprite(screen *ebiten.Image, sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw float64, centerDepth float64, centerSize float64, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64) bool {
 	if sprite == nil || centerDepth <= 0 || centerSize <= 0 {
 		return false
 	}
@@ -276,14 +573,14 @@ func standeeShellCount(halfThicknessWorld float64, screenW int, halfFovTan, cent
 // projects fully off-screen (nothing to draw). The returned slab's `surfaces`
 // aliases dst (grown), so the caller reclaims it after drawing. See
 // drawStandeeSprite's doc for the parameter meanings.
-func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY int, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
+func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreKey, entX, entY, yaw, centerDepth float64, centerSize, bottomY float64, rr, gg, bb float32, mirrorBySide, mirroredIn bool, worldLengthOverride float64, dst []standeeSurface) (standeeSlab, bool) {
 	screenW := r.game.config.GetScreenWidth()
 	cam := r.game.camera
 	halfFovTan := math.Tan(cam.FOV / 2)
 
 	// World length of the token chosen so that, seen face-on at the entity's
 	// current depth, it spans exactly the billboard's pixel width.
-	length := r.spriteFootprintWorld(float64(centerSize), centerDepth)
+	length := r.spriteFootprintWorld(centerSize, centerDepth)
 	if worldLengthOverride > 0 {
 		length = worldLengthOverride
 	}
@@ -308,13 +605,14 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 
 	core := r.standeeCoreSilhouette(coreKey, sprite)
 
-	surface := func(offset float64, img *ebiten.Image, shade float32) standeeSurface {
+	surface := func(offset float64, img *ebiten.Image, mipLayer standeeMipLayer, shade float32) standeeSurface {
 		ox := entX + nx*offset
 		oy := entY + ny*offset
 		return standeeSurface{
 			p0x: ox - sx*length/2, p0y: oy - sy*length/2,
 			dx: sx * length, dy: sy * length,
-			img: img, mirrored: mirrored, shade: shade,
+			img: img, mipKey: standeeMipKey{frame: coreKey, layer: mipLayer},
+			mirrored: mirrored, shade: shade,
 		}
 	}
 
@@ -324,15 +622,15 @@ func (r *Renderer) prepareStandeeSlab(sprite *ebiten.Image, coreKey standeeCoreK
 	shells := standeeShellCount(h, screenW, halfFovTan, centerDepth)
 	// Painter's order per column is fixed for parallel surfaces: build far -> near.
 	surfaces := dst[:0]
-	surfaces = append(surfaces, surface(-h*camSide, sprite, standeeCoreShadeFar)) // far sticker (its edge sliver)
+	surfaces = append(surfaces, surface(-h*camSide, sprite, standeeMipSticker, standeeCoreShadeFar)) // far sticker (its edge sliver)
 	for i := 1; i <= shells; i++ {
 		f := float64(i) / float64(shells+1)
 		off := camSide * (-h + 2*h*f)
 		// Wood darkens toward the slab's far edge - a cheap volumetric cue.
 		shade := standeeCoreShadeFar + (standeeCoreShade-standeeCoreShadeFar)*float32(f)
-		surfaces = append(surfaces, surface(off, core, shade))
+		surfaces = append(surfaces, surface(off, core, standeeMipCore, shade))
 	}
-	surfaces = append(surfaces, surface(+h*camSide, sprite, 1.0)) // near sticker
+	surfaces = append(surfaces, surface(+h*camSide, sprite, standeeMipSticker, 1.0)) // near sticker
 
 	// Screen span: union of the two outer faces' projected endpoints (the far
 	// face pokes out past the near one at viewing angles). The span is purely
@@ -428,12 +726,25 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 
 	depthBuf := r.game.depthBuffer
 	wallTopBuf := r.game.wallTopBuffer
+	occlusion := r.standeeWallOcclusion
 
 	centerSize := slab.centerSize
 	centerDepth := slab.centerDepth
 	bottomY := slab.bottomY
+	// All slab surfaces are parallel and separated only by its tiny physical
+	// thickness. Measure the outer faces once and use the smaller projection as
+	// the conservative mip footprint for every sticker/core layer; doing the
+	// same two projections for every wood shell would add work without changing
+	// the chosen sampling level.
+	projectedWidth, projectedHeight := r.standeeSurfaceProjectedSize(slab.surfaces[slab.firstSurface], centerDepth, centerSize)
+	if slab.firstSurface == 0 && len(slab.surfaces) > 1 {
+		otherWidth, otherHeight := r.standeeSurfaceProjectedSize(slab.surfaces[len(slab.surfaces)-1], centerDepth, centerSize)
+		projectedWidth = math.Min(projectedWidth, otherWidth)
+		projectedHeight = math.Min(projectedHeight, otherHeight)
+	}
 
-	for _, sf := range slab.surfaces[slab.firstSurface:] {
+	for surfaceIndex := slab.firstSurface; surfaceIndex < len(slab.surfaces); surfaceIndex++ {
+		sf := slab.surfaces[surfaceIndex]
 		if sf.img == nil {
 			continue
 		}
@@ -443,28 +754,136 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 		if texW <= 0 || texH <= 0 {
 			continue
 		}
+		filtered := standeeUsesMinificationSampling(projectedWidth, projectedHeight, texW, texH)
+		// Only the nearest sticker is a broad visible face. The far sticker and
+		// wood shells are almost entirely covered and expose only thin rim slivers;
+		// native mip filtering is sufficient there and avoids expensive two-level
+		// sampling through every overdrawn core layer.
+		trilinear := filtered && surfaceIndex == len(slab.surfaces)-1
+		var mipChain *standeeMipChain
+		if trilinear {
+			mipChain = r.standeeMipChainFor(sf.mipKey, sf.img)
+			if mipChain == nil {
+				trilinear = false
+			}
+		}
 		cr := slab.rr * sf.shade
 		cg := slab.gg * sf.shade
 		cb := slab.bb * sf.shade
 		verts := r.standeeVerts[:0]
 		idx := r.standeeIdx[:0]
+		runMipLevel := -1
+		drawRun := func() {
+			if len(idx) == 0 {
+				return
+			}
+			if trilinear {
+				if shader, err := r.ensureStandeeTrilinearShader(); err == nil {
+					nextLevel := runMipLevel + 1
+					if nextLevel >= len(mipChain.levels) {
+						nextLevel = runMipLevel
+					}
+					opts := &r.standeeTrilinearOpts
+					opts.Blend = ebiten.BlendSourceOver
+					// Image 0 defines SrcX/SrcY coordinates; the shader maps
+					// them into differently sized images 1 and 2.
+					opts.Images[0] = mipChain.levels[0]
+					opts.Images[1] = mipChain.levels[runMipLevel]
+					opts.Images[2] = mipChain.levels[nextLevel]
+					opts.Images[3] = nil
+					screen.DrawTrianglesShader(verts, idx, shader, opts)
+				} else {
+					// Tests compile the shader, but retain a valid built-in path
+					// if a backend unexpectedly rejects it at runtime.
+					screen.DrawTriangles(verts, idx, mipChain.levels[0], &ebiten.DrawTrianglesOptions{
+						Blend:  ebiten.BlendSourceOver,
+						Filter: ebiten.FilterLinear,
+					})
+				}
+			} else {
+				// Minified rim layers use Ebitengine's native mip path; 1:1 and
+				// magnified art retains the authored nearest-pixel look.
+				filter := ebiten.FilterNearest
+				if filtered {
+					filter = ebiten.FilterLinear
+				}
+				screen.DrawTriangles(verts, idx, sf.img, &ebiten.DrawTrianglesOptions{
+					Blend:  ebiten.BlendSourceOver,
+					Filter: filter,
+				})
+			}
+			r.statStandeeCalls++
+			verts = verts[:0]
+			idx = idx[:0]
+		}
+		rayAt := func(screenX float64) (float64, float64) {
+			return standeeRayAtScreenX(screenX, screenW, camDirX, camDirY, planeX, planeY)
+		}
+		geometryAt := func(t float64) (top, bottom, height float32) {
+			height = float32(centerSize * centerDepth / t)
+			bottom = float32(horizon + (bottomY-horizon)*centerDepth/t)
+			return bottom - height, bottom, height
+		}
+		textureX := func(u float64) float32 {
+			if u < 0 {
+				u = 0
+			} else if u > 1 {
+				u = 1
+			}
+			if sf.mirrored {
+				u = 1 - u
+			}
+			origin := float32(bounds.Min.X)
+			if trilinear {
+				origin = 0 // mip chains are normalized to (0,0,w,h)
+			}
+			return origin + float32(math.Min(u*texW, texW-1)) + 0.5
+		}
 		for x := minX; x <= maxX; x++ {
-			s := 2*(float64(x)+0.5)/float64(screenW) - 1
-			rx := camDirX + planeX*s
-			ry := camDirY + planeY*s
-			t, u, ok := standeeColumnHit(cam.X, cam.Y, rx, ry, sf.p0x, sf.p0y, sf.dx, sf.dy)
+			rcx, rcy := rayAt(float64(x) + 0.5)
+			t, u, ok := standeeColumnHit(cam.X, cam.Y, rcx, rcy, sf.p0x, sf.p0y, sf.dx, sf.dy)
 			if !ok {
 				continue
 			}
-			// Billboard metrics scale linearly in 1/depth: reuse the center
-			// anchor and size so the feet stay on the floor across the width.
-			colH := float32(float64(centerSize) * centerDepth / t)
-			bottom := float32(horizon + (float64(bottomY)-horizon)*centerDepth/t)
-			top := bottom - colH
-			srcY0 := float32(bounds.Min.Y)
-			srcY1 := float32(bounds.Min.Y) + float32(texH)
-			drawBottom, srcYbot := bottom, srcY1
-			if x < len(depthBuf) && t-r.standeeDepthBias >= depthBuf[x] {
+
+			top, bottom, height := geometryAt(t)
+			top0, bottom0, height0 := top, bottom, height
+			top1, bottom1, height1 := top, bottom, height
+			u0, u1 := u, u
+			if filtered {
+				// Use each pixel boundary's true line intersection instead of
+				// copying the centre texel to both vertices. The old zero-width
+				// source mapping hid the horizontal texel footprint from the
+				// mip filter, producing temporal shimmer at range.
+				r0x, r0y := rayAt(float64(x))
+				t0, edgeU0, ok0 := standeeColumnIntersection(cam.X, cam.Y, r0x, r0y, sf.p0x, sf.p0y, sf.dx, sf.dy)
+				if !ok0 {
+					t0, edgeU0 = t, u
+				}
+				r1x, r1y := rayAt(float64(x + 1))
+				t1, edgeU1, ok1 := standeeColumnIntersection(cam.X, cam.Y, r1x, r1y, sf.p0x, sf.p0y, sf.dx, sf.dy)
+				if !ok1 {
+					t1, edgeU1 = t, u
+				}
+				top0, bottom0, height0 = geometryAt(t0)
+				top1, bottom1, height1 = geometryAt(t1)
+				u0, u1 = edgeU0, edgeU1
+			}
+			// Source coordinates name texel centres, matching textureX. This
+			// keeps vertical filtering stable at the texture's top/bottom edges.
+			srcOriginY := float32(bounds.Min.Y)
+			if trilinear {
+				srcOriginY = 0
+			}
+			srcY0 := srcOriginY + 0.5
+			srcY1 := srcOriginY + float32(texH) - 0.5
+			drawBottom0, srcYbot0 := bottom0, srcY1
+			drawBottom1, srcYbot1 := bottom1, srcY1
+			occluded := x < len(depthBuf) && standeeColumnOccluded(t, depthBuf[x], occlusion.depthAllowance)
+			if occluded && occlusion.matchesBackingWall(cam.X, cam.Y, rcx, rcy, depthBuf[x]) {
+				occluded = false
+			}
+			if occluded {
 				// Behind a wall: only the slice rising ABOVE the wall's top edge is
 				// visible, so a short wall can't occlude a tall tree's canopy. Clip
 				// the column's bottom to the wall top (1D depth alone would cull the
@@ -473,43 +892,44 @@ func (r *Renderer) drawStandeeSlabColumns(screen *ebiten.Image, slab standeeSlab
 				if wt <= top {
 					continue // wall covers this entire slice
 				}
-				if wt < drawBottom {
-					srcYbot = srcY0 + (srcY1-srcY0)*((wt-top)/colH)
-					drawBottom = wt
+				clipBottom := func(top, bottom, height float32) (float32, float32) {
+					if wt <= top {
+						return top, srcY0
+					}
+					if wt < bottom {
+						return wt, srcY0 + (srcY1-srcY0)*((wt-top)/height)
+					}
+					return bottom, srcY1
 				}
+				drawBottom0, srcYbot0 = clipBottom(top0, bottom0, height0)
+				drawBottom1, srcYbot1 = clipBottom(top1, bottom1, height1)
 			}
-			texU := u
-			if sf.mirrored {
-				texU = 1 - u
-			}
-			srcX := float32(bounds.Min.X) + float32(math.Min(texU*texW, texW-1)) + 0.5
 			x0, x1 := float32(x), float32(x+1)
+			srcX0, srcX1 := textureX(u0), textureX(u1)
+			mipBlend := float32(0)
+			if trilinear {
+				// Match Ebitengine's conservative policy: the least-minified
+				// axis controls LOD, avoiding blur on an anisotropic edge-on face.
+				footprintX := standeeTextureFootprint(srcX1-srcX0, x1-x0)
+				footprintY0 := standeeTextureFootprint(srcYbot0-srcY0, drawBottom0-top0)
+				footprintY1 := standeeTextureFootprint(srcYbot1-srcY0, drawBottom1-top1)
+				footprint := min(footprintX, footprintY0, footprintY1)
+				mipLevel, blend := standeeMipBlend(footprint, len(mipChain.levels)-1)
+				if runMipLevel >= 0 && mipLevel != runMipLevel {
+					drawRun()
+				}
+				runMipLevel, mipBlend = mipLevel, blend
+			}
 			base := uint16(len(verts))
 			verts = append(verts,
-				ebiten.Vertex{DstX: x0, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x1, DstY: top, SrcX: srcX, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x0, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
-				ebiten.Vertex{DstX: x1, DstY: drawBottom, SrcX: srcX, SrcY: srcYbot, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1},
+				ebiten.Vertex{DstX: x0, DstY: top0, SrcX: srcX0, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend},
+				ebiten.Vertex{DstX: x1, DstY: top1, SrcX: srcX1, SrcY: srcY0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend},
+				ebiten.Vertex{DstX: x0, DstY: drawBottom0, SrcX: srcX0, SrcY: srcYbot0, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend},
+				ebiten.Vertex{DstX: x1, DstY: drawBottom1, SrcX: srcX1, SrcY: srcYbot1, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: 1, Custom0: mipBlend},
 			)
 			idx = append(idx, base, base+1, base+2, base+1, base+3, base+2)
 		}
-		if len(idx) > 0 {
-			// Filtering by actual scale, like the billboard path: linear
-			// (mipmapped) only when the token renders SMALLER than its texture -
-			// distant tokens dissolved into nearest-sample noise. Up close the
-			// columns are magnified and linear would smear the pixel art, so
-			// they stay nearest. Column slices sample texel centers, so level-0
-			// linear is bleed-free.
-			filter := ebiten.FilterNearest
-			if float64(centerSize) < texH*0.5 {
-				filter = ebiten.FilterLinear
-			}
-			screen.DrawTriangles(verts, idx, sf.img, &ebiten.DrawTrianglesOptions{
-				Blend:  ebiten.BlendSourceOver,
-				Filter: filter,
-			})
-			r.statStandeeCalls++
-		}
+		drawRun()
 		r.standeeVerts = verts[:0]
 		r.standeeIdx = idx[:0]
 	}
@@ -537,7 +957,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		}
 	}
 	sprite := r.game.sprites.GetSprite(spriteName)
-	if sprite == nil || s.spriteSize <= 0 || s.depthPerp <= 0 {
+	if sprite == nil || s.sizeF <= 0 || s.depthPerp <= 0 {
 		return
 	}
 	tileSize := float64(r.game.config.GetTileSize())
@@ -547,11 +967,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 
 	// HEIGHT scales by the sprite aspect (the platan, 1:2, is twice as tall as
 	// the square oak); floor anchor unchanged so feet stay grounded.
-	heightPx := s.spriteSize
+	heightF := s.sizeF
 	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
-		heightPx = int(float64(s.spriteSize) * float64(sprite.Bounds().Dy()) / texW)
+		heightF = s.sizeF * float64(sprite.Bounds().Dy()) / texW
 	}
-	bottomY := s.screenY + s.spriteSize
+	bottomF := s.bottomF
 	key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
 
 	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
@@ -559,7 +979,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// tile-diagonal footprint squeezed the art horizontally (square oak drew
 	// ~30% too thin once the square-projection FOV removed the old horizontal
 	// stretch that was masking it).
-	footprint := r.spriteFootprintWorld(float64(s.spriteSize), s.depthPerp)
+	footprint := r.spriteFootprintWorld(s.sizeF, s.depthPerp)
 
 	// Distance LOD (trees only): beyond the threshold the crossed pair's parallax
 	// is sub-pixel, so collapse to a SINGLE camera-facing plane - ~4x fewer draws,
@@ -567,11 +987,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 	// just present face-on to the camera this frame.
 	if treeIsBillboardLOD(distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
 		faceYaw := math.Atan2(r.game.camera.Y-worldY, r.game.camera.X-worldX) + math.Pi/2
-		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightPx, bottomY, b, b, b, true, false, footprint)
+		r.drawStandeeSprite(screen, sprite, key, worldX, worldY, faceYaw, s.depthPerp, heightF, bottomF, b, b, b, true, false, footprint)
 		return
 	}
 
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightPx, bottomY, b)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, yawA, yawB, footprint, s.depthPerp, heightF, bottomF, b)
 }
 
 // drawCrossedSlabs renders two perpendicular standee planes (yawA, yawB) crossing
@@ -590,11 +1010,11 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 // continuous and batched. Both arms of a plane share one slab, so each yaw's slab
 // is prepared ONCE and reused; the two slabs stay live together for the
 // interleaved draw, hence two reused buffers (A/B).
-func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightPx, bottomY int, b float32) {
+func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCoreKey, worldX, worldY, yawA, yawB, footprint, depthPerp float64, heightF, bottomF float64, b float32) {
 	slabs := [2]standeeSlab{}
 	slabOK := [2]bool{}
-	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, r.standeeSurfaces[:0])
-	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightPx, bottomY, b, b, b, true, false, footprint, r.standeeSurfacesB[:0])
+	slabs[0], slabOK[0] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawA, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfaces[:0])
+	slabs[1], slabOK[1] = r.prepareStandeeSlab(sprite, key, worldX, worldY, yawB, depthPerp, heightF, bottomF, b, b, b, true, false, footprint, r.standeeSurfacesB[:0])
 
 	cam := r.game.camera
 	screenW := r.game.config.GetScreenWidth()
@@ -654,31 +1074,47 @@ func (r *Renderer) drawCrossedSlabs(screen, sprite *ebiten.Image, key standeeCor
 }
 
 // drawWallStandee draws a token flush to a wall (pose from wallStickPose),
-// applying a backing-wall depth bias so the sprite-vs-wall test doesn't reject
-// it. depthBiasTiles is that allowance in TILES: how far behind a wall's front
-// face a column may sit and still draw. COPLANAR decor (pictures, levers - the
-// slab lies ON the wall face, and at corners a perpendicular wall sliver can
-// front-run it) needs a generous 0.6; a PERPENDICULAR door slab only meets its
-// flanking walls at the seam columns, so it takes a small epsilon - a larger
-// one lets the door's edge paint over the flanking wall at oblique angles.
+// applying a backing-wall depth allowance so the sprite-vs-wall test doesn't
+// reject it. When backingWall is true the renderer also recognizes the exact
+// backing plane per column; depthAllowance is only a coarse-ray fallback in
+// world pixels. Doors use no backing plane and their own seam allowance because
+// they meet flanking walls only at their ends.
 // bottomY sets the vertical anchor: floor-anchored for full NPC gates,
 // mid-wall for shrunk decoration tiles. worldLength > 0 forces the slab's world
 // span (doors must bridge their opening exactly - the projected billboard width
 // rounds short and leaves cracks against the flanking walls); 0 keeps the
 // projected width. Single source for both wall-mount draw sites (NPC +
 // wall_prop tile). Returns drawStandeeSprite's drawn flag.
-func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY int, br float32, worldLength, depthBiasTiles float64) bool {
-	r.standeeDepthBias = float64(r.game.config.GetTileSize()) * depthBiasTiles
+func (r *Renderer) drawWallStandee(screen *ebiten.Image, sprite *ebiten.Image, key standeeCoreKey, wx, wy, wyaw, depthPerp float64, spriteSize, bottomY float64, br float32, worldLength, depthAllowance float64, backingWall bool) bool {
+	r.standeeWallOcclusion = standeeWallOcclusion{depthAllowance: depthAllowance}
+	if backingWall {
+		r.standeeWallOcclusion.backingX = wx
+		r.standeeWallOcclusion.backingY = wy
+		r.standeeWallOcclusion.backingYaw = wyaw
+		r.standeeWallOcclusion.hasBackingWall = true
+	}
 	drew := r.drawStandeeSprite(screen, sprite, key, wx, wy, wyaw, depthPerp, spriteSize, bottomY, br, br, br, true, false, worldLength)
-	r.standeeDepthBias = 0
+	r.standeeWallOcclusion = standeeWallOcclusion{}
 	return drew
 }
 
-// Depth-bias tiers for drawWallStandee (see its doc).
+// wallMountedDepthAllowanceWorld is the small numeric fallback shared by
+// rendering and interaction hit testing. The exact backing-wall plane is
+// matched separately; the front sticker already sits half a slab thickness in
+// front of it, and two world pixels cover coarse ray-column jitter without
+// admitting an adjacent foreground wall.
 const (
-	wallDecorDepthBiasTiles = 0.6  // coplanar wall decor
-	doorDepthBiasTiles      = 0.08 // perpendicular door slab: seam epsilon only
+	wallMountedDepthJitterWorld = 2.0
+	doorDepthBiasTiles          = 0.08 // perpendicular door slab: seam epsilon only
 )
+
+func wallMountedDepthAllowanceWorld(tileSize, thicknessTiles float64) float64 {
+	return math.Max(0, thicknessTiles)*tileSize/2 + wallMountedDepthJitterWorld
+}
+
+func doorDepthAllowanceWorld(tileSize float64) float64 {
+	return tileSize * doorDepthBiasTiles
+}
 
 // wallStickPose returns the render position + slab yaw for a wall-mounted standee:
 // it slides from the tile centre toward the nearest SOLID (wall) orthogonal
@@ -732,17 +1168,17 @@ func (r *Renderer) spriteFootprintWorld(spriteSizePx, depthPerp float64) float64
 // as a 3D monument from any angle. spinYaw is the showcase yaw the caller already
 // computes (so it matches the single-standee spin); the second plane is spinYaw+90deg.
 // Height scales by sprite aspect (tall art -> tall monument), feet stay anchored.
-func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName string, worldX, worldY, spinYaw, depthPerp float64, spriteSize, screenY int, b float32) bool {
-	if sprite == nil || spriteSize <= 0 || depthPerp <= 0 {
+func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName string, worldX, worldY, spinYaw, depthPerp float64, sizeF, bottomF float64, b float32) bool {
+	if sprite == nil || sizeF <= 0 || depthPerp <= 0 {
 		return false
 	}
-	heightPx := spriteSize
+	heightF := sizeF
 	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
-		heightPx = int(float64(spriteSize) * float64(sprite.Bounds().Dy()) / texW)
+		heightF = sizeF * float64(sprite.Bounds().Dy()) / texW
 	}
 	key := standeeCoreKey{name: keyName, bounds: sprite.Bounds(), img: sprite}
-	footprint := r.spriteFootprintWorld(float64(spriteSize), depthPerp)
-	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightPx, screenY+spriteSize, b)
+	footprint := r.spriteFootprintWorld(sizeF, depthPerp)
+	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b)
 	return true
 }
 

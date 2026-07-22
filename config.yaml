@@ -18,6 +18,9 @@ world:
   tile_size: 64
   map_width: 50
   map_height: 50
+  # Unified open world: outdoor maps are stitched into one world with carved
+  # passages (rules in assets/open_world.yaml). false = classic split maps.
+  open_world: true
 
 # Movement settings
 movement:

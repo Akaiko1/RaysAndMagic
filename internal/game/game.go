@@ -1012,14 +1012,30 @@ func (g *MMGame) npcScreenHitTest(npc *character.NPC, ex, ey, distance float64, 
 	}
 	if screenX >= 0 && screenX < len(g.depthBuffer) {
 		if _, depth, ok := g.renderHelper.projectToScreenX(ex, ey); ok {
-			// Wall-mounted tokens sit flush ON the wall plane, so their depth ties
-			// with the backing wall's and the comparison flips with tiny angle
-			// changes. Bias toward the camera exactly like the renderer's
-			// standeeDepthBias does when drawing them.
+			// Use the renderer's exact wall relationship. A mounted token may be
+			// selected through its own backing wall plane, never through a
+			// foreground wall that merely happens to be nearby in depth.
+			occlusion := standeeWallOcclusion{}
 			if g.npcIsWall(npc) {
-				depth -= float64(g.config.GetTileSize()) * 0.6
+				occlusion.depthAllowance = wallMountedDepthAllowanceWorld(g.config.GetTileSize(), g.config.Graphics.Standee.ThicknessTiles)
+				if wx, wy, wyaw, found := g.wallStickPose(npc.X, npc.Y); found {
+					occlusion.backingX = wx
+					occlusion.backingY = wy
+					occlusion.backingYaw = wyaw
+					occlusion.hasBackingWall = true
+				}
 			}
-			if depth >= g.depthBuffer[screenX] {
+			occluded := standeeColumnOccluded(depth, g.depthBuffer[screenX], occlusion.depthAllowance)
+			if occluded && occlusion.hasBackingWall {
+				dirX, dirY := math.Cos(g.camera.Angle), math.Sin(g.camera.Angle)
+				halfFovTan := math.Tan(g.camera.FOV / 2)
+				planeX, planeY := -dirY*halfFovTan, dirX*halfFovTan
+				rayX, rayY := standeeRayAtScreenX(float64(screenX)+0.5, g.config.GetScreenWidth(), dirX, dirY, planeX, planeY)
+				if occlusion.matchesBackingWall(g.camera.X, g.camera.Y, rayX, rayY, g.depthBuffer[screenX]) {
+					occluded = false
+				}
+			}
+			if occluded {
 				return false // behind a wall
 			}
 		}
@@ -1115,6 +1131,41 @@ func (g *MMGame) findNearestWalkableTileWithMaxRadius(targetX, targetY float64, 
 	return -1, -1
 }
 
+// settleAshore moves the party to the nearest walkable tile - the rescue for
+// losing water protection over open water. One message per rescue; it cannot
+// repeat because the party ends up on dry land.
+func (g *MMGame) settleAshore(message string) {
+	sx, sy := g.FindNearestWalkableTileMustSucceed(g.camera.X, g.camera.Y)
+	g.camera.X, g.camera.Y = sx, sy
+	if g.collisionSystem != nil {
+		g.collisionSystem.UpdateEntity("player", sx, sy)
+	}
+	g.AddCombatMessage(message)
+}
+
+// settleAfterWalkOnWater grounds the party when Walk on Water lapses while
+// they stand on a water tile and no other effect keeps them out of it.
+// Checks tile type directly: buff expiry runs before the per-frame world-flag
+// sync, so the world's own water flags are still stale here.
+func (g *MMGame) settleAfterWalkOnWater() {
+	if g.flyActive || g.waterBreathingActive || g.hasCardWalkOnWater() {
+		return
+	}
+	w := g.GetCurrentWorld()
+	if w == nil {
+		return
+	}
+	ts := float64(g.config.GetTileSize())
+	tx, ty := int(g.camera.X/ts), int(g.camera.Y/ts)
+	if tx < 0 || ty < 0 || tx >= w.Width || ty >= w.Height {
+		return
+	}
+	if tile := w.Tiles[ty][tx]; tile != world.TileWater && tile != world.TileDeepWater {
+		return
+	}
+	g.settleAshore("Walk on Water fades - the party wades ashore.")
+}
+
 // UpdateSkyAndGroundColors updates the cached sky and ground images based on current map
 func (g *MMGame) UpdateSkyAndGroundColors() {
 	// Get current map configuration
@@ -1147,6 +1198,37 @@ func (g *MMGame) UpdateSkyAndGroundColors() {
 	g.updateSkyPanorama(g.skyTextureForPhase(skyTexture))
 
 	// Update ground image
+	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
+}
+
+// updateSkyAndGroundColorsFaded is UpdateSkyAndGroundColors for seamless
+// region crossings on the unified world: the panorama CROSSFADES like a
+// day/night flip instead of snapping (map switches through gates keep the
+// instant swap - there the screen context changes anyway).
+func (g *MMGame) updateSkyAndGroundColorsFaded() {
+	var mapConfig *config.MapConfig
+	if world.GlobalWorldManager != nil {
+		mapConfig = world.GlobalWorldManager.GetCurrentMapConfig()
+	}
+	if mapConfig == nil {
+		g.UpdateSkyAndGroundColors()
+		return
+	}
+	skyColor, groundColor := mapConfig.SkyColor, mapConfig.DefaultFloorColor
+	g.skyImg.Fill(color.RGBA{uint8(skyColor[0]), uint8(skyColor[1]), uint8(skyColor[2]), 255})
+	g.dayNightOutdoor = skyHasDayNightVariants(mapConfig.SkyTexture)
+	name := g.skyTextureForPhase(mapConfig.SkyTexture)
+	if name != g.currentSkyTexture {
+		prev := g.skyPanorama
+		g.updateSkyPanorama(name)
+		if prev != nil && g.skyPanorama != nil {
+			g.skyPanoramaPrev = prev
+			total := int(g.config.DayNight.PanoramaFadeSecondsOrDefault() * float64(g.config.GetTPS()))
+			g.skyFadeFrames, g.skyFadeTotal = total, total
+		} else {
+			g.cancelSkyFade()
+		}
+	}
 	g.groundImg.Fill(color.RGBA{uint8(groundColor[0]), uint8(groundColor[1]), uint8(groundColor[2]), 255})
 }
 

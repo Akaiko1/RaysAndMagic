@@ -77,8 +77,13 @@ type GroundContainerRenderInfo struct {
 	ScreenX    int
 	ScreenY    int
 	SpriteSize int
-	Distance   float64
-	Visible    bool
+	// Float metrics are the renderer's canonical projection. The integer
+	// values above preserve existing pixel-hit-test rounding.
+	ScreenXF float64
+	BottomF  float64
+	SizeF    float64
+	Distance float64
+	Visible  bool
 }
 
 // effectiveSprite returns the sprite name to draw / hit-test for this container.
@@ -170,7 +175,9 @@ func (g *MMGame) addTreasureChestFromReward(reward *monster.TreasureChestReward)
 			reward.ID, reward.TileX, reward.TileY, chestMap)
 	}
 	tileSize := float64(g.config.GetTileSize())
-	x, y := TileCenterFromTile(reward.TileX, reward.TileY, tileSize)
+	// Rewards are authored map-local; a merged region projects to unified coords.
+	chestTX, chestTY := projectTileToCurrentWorld(chestMap, reward.TileX, reward.TileY)
+	x, y := TileCenterFromTile(chestTX, chestTY, tileSize)
 
 	chestItems := randomWeaponRewards(reward.RandomWeaponCount)
 	chestItems = append(chestItems, fixedWeaponRewards(reward.Weapons)...)
@@ -347,14 +354,13 @@ func (g *MMGame) findGroundContainerIndex(maxDist float64, accept func(c *Ground
 	if len(g.groundContainers) == 0 {
 		return -1
 	}
-	currentMap := currentMapKey()
 	playerX, playerY := g.camera.X, g.camera.Y
 	maxDistSq := maxDist * maxDist
 	bestIdx := -1
 	bestDistSq := 0.0
 	for i := range g.groundContainers {
 		c := &g.groundContainers[i]
-		if c.MapKey != "" && c.MapKey != currentMap {
+		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
 			continue
 		}
 		dx := c.X - playerX
@@ -440,7 +446,10 @@ func (g *MMGame) groundContainerRenderInfo(c *GroundContainer, distance float64)
 		info.Distance = math.Hypot(c.X-g.camera.X, c.Y-g.camera.Y)
 	}
 	ox, oy := g.groundContainerRenderOffset(c)
-	info.ScreenX, info.ScreenY, info.SpriteSize, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetrics(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.ScreenXF, info.BottomF, info.SizeF, info.Visible = g.renderHelper.CalculateGroundContainerSpriteMetricsF(c.X+ox, c.Y+oy, info.Distance, g.containerRenderSizeTiles(c))
+	info.ScreenX = int(info.ScreenXF)
+	info.SpriteSize = int(info.SizeF)
+	info.ScreenY = int(info.BottomF) - info.SpriteSize
 	return info
 }
 
@@ -561,11 +570,12 @@ func groundContainerTileIsValid(mapKey string, tileX, tileY int) bool {
 	if world.GlobalWorldManager == nil {
 		return true
 	}
-	w, ok := world.GlobalWorldManager.LoadedMaps[mapKey]
-	if !ok || w == nil {
+	w := world.GlobalWorldManager.WorldByKey(mapKey)
+	if w == nil {
 		return true
 	}
-	return !w.IsTileBlocking(tileX, tileY)
+	tx, ty := projectTileToCurrentWorld(mapKey, tileX, tileY)
+	return !w.IsTileBlocking(tx, ty)
 }
 
 // spriteHitTest is a pixel-perfect hit test against an image-backed sprite.

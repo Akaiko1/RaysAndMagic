@@ -19,12 +19,11 @@ func (r *Renderer) drawTrapTileBorders(screen *ebiten.Image) {
 
 	ts := float64(r.game.config.GetTileSize())
 	maxDepth := float64(radius) * ts
-	mapKey := currentMapKey()
 	dirs := [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 	for i := range traps {
 		t := &traps[i]
-		if t.MapKey != mapKey {
+		if !mapKeyOnCurrentWorld(t.MapKey) {
 			continue
 		}
 		def, ok := config.GetTrapDefinition(t.Key)

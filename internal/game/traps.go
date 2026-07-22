@@ -37,23 +37,21 @@ type PlacedTrap struct {
 	swirlTick    int
 }
 
-// trapAt returns the index of the trap occupying a tile on the current map, or -1.
+// trapAt returns the index of the trap occupying a tile on the current world, or -1.
 func (g *MMGame) trapAt(tileX, tileY int) int {
-	mapKey := currentMapKey()
 	for i := range g.traps {
-		if g.traps[i].MapKey == mapKey && g.traps[i].TileX == tileX && g.traps[i].TileY == tileY {
+		if mapKeyOnCurrentWorld(g.traps[i].MapKey) && g.traps[i].TileX == tileX && g.traps[i].TileY == tileY {
 			return i
 		}
 	}
 	return -1
 }
 
-// ownerTrapCount counts the character's armed traps on the current map.
+// ownerTrapCount counts the character's armed traps on the current world.
 func (g *MMGame) ownerTrapCount(owner *character.MMCharacter) int {
-	mapKey := currentMapKey()
 	n := 0
 	for i := range g.traps {
-		if g.traps[i].MapKey == mapKey && g.traps[i].Owner == owner {
+		if mapKeyOnCurrentWorld(g.traps[i].MapKey) && g.traps[i].Owner == owner {
 			n++
 		}
 	}
@@ -275,11 +273,10 @@ func (cs *CombatSystem) sweepTrapTriggers() {
 	if len(cs.game.traps) == 0 {
 		return
 	}
-	mapKey := currentMapKey()
 	w := 0
 	for i := range cs.game.traps {
 		t := cs.game.traps[i]
-		if t.MapKey == mapKey {
+		if mapKeyOnCurrentWorld(t.MapKey) {
 			if victim := cs.monsterOnTile(t.TileX, t.TileY); victim != nil {
 				cs.fireTrap(&t, victim)
 				continue // one-shot: drop the trap
@@ -371,21 +368,20 @@ func (gl *GameLoop) updateTraps() {
 	if len(g.traps) == 0 {
 		return
 	}
-	mapKey := currentMapKey()
 	w := 0
 	for i := range g.traps {
 		t := g.traps[i]
 		// Lifetime ticks on every map (armed steel doesn't care where you are).
 		t.FramesLeft--
 		if t.FramesLeft <= 0 {
-			if t.MapKey == mapKey {
+			if mapKeyOnCurrentWorld(t.MapKey) {
 				if def, ok := config.GetTrapDefinition(t.Key); ok {
 					g.spawnTrapSwirl(t.X, t.Y, def.Element) // fizzle puff
 				}
 			}
 			continue // expired: drop
 		}
-		if t.MapKey == mapKey {
+		if mapKeyOnCurrentWorld(t.MapKey) {
 			t.swirlTick++
 			if t.swirlTick >= trapSwirlPeriodTicks {
 				t.swirlTick = 0

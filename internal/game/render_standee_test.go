@@ -1,7 +1,9 @@
 package game
 
 import (
+	"image"
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -37,6 +39,121 @@ func TestStandeeColumnHit(t *testing.T) {
 	// Token behind the camera -> rejected by the near clip.
 	if _, _, ok = standeeColumnHit(200, 0, 1, 0, p0x, p0y, dx, dy); ok {
 		t.Errorf("token behind the camera should be rejected")
+	}
+}
+
+func TestStandeeColumnIntersectionKeepsOffSegmentBoundary(t *testing.T) {
+	// A visible edge pixel has a centre ray that hits the segment, while one
+	// pixel boundary can intersect its infinite line just outside the segment.
+	// The renderer needs that unbounded u to give the quad a non-zero horizontal
+	// texture footprint, allowing Ebiten to select a minified mip level.
+	p0x, p0y, dx, dy := 100.0, -10.0, 0.0, 20.0
+	tt, u, ok := standeeColumnIntersection(0, 0, 1, 0.11, p0x, p0y, dx, dy)
+	if !ok || math.Abs(tt-100) > 1e-9 || u <= 1 {
+		t.Fatalf("unbounded edge: got t=%.3f u=%.3f ok=%v; want t=100 and u>1", tt, u, ok)
+	}
+	if _, _, ok := standeeColumnHit(0, 0, 1, 0.11, p0x, p0y, dx, dy); ok {
+		t.Fatal("finite segment hit must reject the off-segment boundary")
+	}
+}
+
+func TestStandeeUsesMinificationSampling(t *testing.T) {
+	if standeeUsesMinificationSampling(512, 512, 512, 512) {
+		t.Fatal("1:1 standee must retain the crisp path")
+	}
+	if !standeeUsesMinificationSampling(512, 511.9, 512, 512) {
+		t.Fatal("any vertical shrink must use stable linear sampling")
+	}
+	if !standeeUsesMinificationSampling(511.9, 512, 512, 512) {
+		t.Fatal("any horizontal shrink must use stable linear sampling")
+	}
+}
+
+func TestStandeeTextureFootprint(t *testing.T) {
+	if got := standeeTextureFootprint(0.5, 1); got != 1 {
+		t.Fatalf("magnified source footprint = %.2f, want 1", got)
+	}
+	if got := standeeTextureFootprint(2, -1); got != 2 {
+		t.Fatalf("reversed source footprint = %.2f, want 2", got)
+	}
+	if got := standeeTextureFootprint(2, 1e-7); got != 1 {
+		t.Fatalf("degenerate destination footprint = %.2f, want 1", got)
+	}
+	if got := standeeTextureFootprint(1, 1); got != 1 {
+		t.Fatalf("1:1 source footprint = %.2f, want 1", got)
+	}
+	if got := standeeTextureFootprint(2, 1); got != 2 {
+		t.Fatalf("2:1 source footprint = %.2f, want 2", got)
+	}
+	if got := standeeTextureFootprint(8, 2); got != 4 {
+		t.Fatalf("4:1 source footprint = %.2f, want 4", got)
+	}
+}
+
+func TestStandeeMipBlendIsContinuousAcrossLevels(t *testing.T) {
+	tests := []struct {
+		name      string
+		footprint float32
+		wantLevel int
+		wantBlend float32
+	}{
+		{name: "magnified", footprint: 0.5, wantLevel: 0, wantBlend: 0},
+		{name: "one to one", footprint: 1, wantLevel: 0, wantBlend: 0},
+		{name: "pure lower mip", footprint: float32(math.Pow(2, 0.25)), wantLevel: 0, wantBlend: 0},
+		{name: "halfway to level one", footprint: float32(math.Sqrt2), wantLevel: 0, wantBlend: 0.5},
+		{name: "pure upper mip", footprint: float32(math.Pow(2, 0.75)), wantLevel: 1, wantBlend: 0},
+		{name: "level one", footprint: 2, wantLevel: 1, wantBlend: 0},
+		{name: "halfway to level two", footprint: float32(2 * math.Sqrt2), wantLevel: 1, wantBlend: 0.5},
+		{name: "clamped", footprint: 256, wantLevel: standeeMaxMipLevel, wantBlend: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			level, blend := standeeMipBlend(tt.footprint, standeeMaxMipLevel)
+			if level != tt.wantLevel || math.Abs(float64(blend-tt.wantBlend)) > 1e-5 {
+				t.Fatalf("standeeMipBlend(%g) = (%d, %.4f), want (%d, %.4f)", tt.footprint, level, blend, tt.wantLevel, tt.wantBlend)
+			}
+		})
+	}
+}
+
+func TestStandeeMipSizesMatchEngineDepthCap(t *testing.T) {
+	got := standeeMipSizes(128, 64)
+	want := []image.Point{
+		image.Pt(128, 64), image.Pt(64, 32), image.Pt(32, 16),
+		image.Pt(16, 8), image.Pt(8, 4), image.Pt(4, 2), image.Pt(2, 1),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("standeeMipSizes(128, 64) = %v, want %v", got, want)
+	}
+}
+
+func TestWallMountedDepthAllowanceOnlyCoversBackingWall(t *testing.T) {
+	allowance := wallMountedDepthAllowanceWorld(64, 0.02)
+	if got, want := allowance, 2.64; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("wall-mounted allowance = %.2f, want %.2f", got, want)
+	}
+	if standeeColumnOccluded(100, 100, allowance) {
+		t.Fatal("the backing wall must not occlude its own mounted standee")
+	}
+	if !standeeColumnOccluded(100, 95, allowance) {
+		t.Fatal("a foreground wall 5px closer must occlude the mounted standee")
+	}
+}
+
+func TestWallMountedBackingWallMatchIsPlaneSpecific(t *testing.T) {
+	// A north-south backing wall at X=100: its standee runs along Y, so the
+	// wall-stick yaw is pi/2. The centre ray sees that plane at depth 100.
+	occlusion := standeeWallOcclusion{
+		backingX:       100,
+		backingY:       0,
+		backingYaw:     math.Pi / 2,
+		hasBackingWall: true,
+	}
+	if !occlusion.matchesBackingWall(0, 0, 1, 0, 100) {
+		t.Fatal("the exact backing wall plane must be recognized")
+	}
+	if occlusion.matchesBackingWall(0, 0, 1, 0, 95) {
+		t.Fatal("a different foreground wall plane must not inherit backing-wall immunity")
 	}
 }
 

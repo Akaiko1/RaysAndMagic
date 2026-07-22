@@ -3743,7 +3743,7 @@ func (cs *CombatSystem) updateQuestProgress(monster *monsterPkg.Monster3D) {
 		}
 	}
 
-	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType, currentMapKey())
+	completedQuests := cs.game.questManager.OnMonsterKilled(monsterType, cs.game.questKillMapKey(monster))
 	cs.game.syncExterminationQuestProgressForTarget(monsterType)
 
 	// Notify player of quest completions
@@ -4061,9 +4061,14 @@ func (cs *CombatSystem) tryCastInferno(def spells.SpellDefinition) bool {
 	cs.game.AddCombatMessage(fmt.Sprintf("%s erupts around the party!", def.Name))
 
 	// Monsters in range. A sealed (dormant) boss is invulnerable and inert -
-	// skip it so the nova neither damages nor wakes it.
+	// skip it so the nova neither damages nor wakes it. On the unified world
+	// "the map" is the party's REGION - MapWide must not burn the other four.
+	regionScoped := def.MapWide && cs.game.openWorldActive()
 	for _, m := range cs.game.world.Monsters {
 		if m == nil || !m.IsAlive() || bossInvulnerable(m) || Distance(cx, cy, m.X, m.Y) > radius {
+			continue
+		}
+		if regionScoped && cs.game.questKillMapKey(m) != currentMapKey() {
 			continue
 		}
 		reduced := applyMonsterArmor(monsterDmg, damageTypeStr, m.EffectiveArmorClass(), false)

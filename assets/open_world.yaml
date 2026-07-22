@@ -1,0 +1,77 @@
+# Open-world stitching rules. When world.open_world is on in config.yaml, the
+# maps placed below are merged into ONE unified world at load time; the .map
+# files themselves stay untouched (the editor keeps working on separate maps).
+#
+# placements: each map's origin in unified tile coordinates, with an optional
+#   orient (none|rot90|rot180|rot270|mirror_x|mirror_y, rotations clockwise).
+#   A map's LOCAL coordinates stay canonical everywhere (saves, quests,
+#   encounters) - the projection layer applies the transform both ways.
+# connections: carved passages. `edge`/`at` are authored in the map's OWN
+#   (untransformed) terms; the stitcher maps them through the placement
+#   orientation. Opposing placed edges with aligned spans get a straight
+#   corridor (gap == corridor.length); anything else is auto-routed as an
+#   L/Z canyon through the void (fail-fast if it would cross a map).
+# removals: split-world travel devices replaced by the passages.
+#
+# Passage placement rule (user-set, keep it): the forest sides sit exactly at
+# the split-world gates (east alcove, stream end); every OTHER side arrives
+# tight at its map's design anchor - the '+' start tile / tavern - and the
+# highlands->cliffs opening sits on the old violet teleporter wall.
+#
+# Current layout (unified grid 206x97, every corridor a straight 2 tiles):
+#   dragon_cliffs (17,0, rot270 - its village west gate turns down to meet
+#     the highlands teleporter wall)
+#   highlands (0,47, rot270 - its south wall, 8 tiles from the '+', turns to
+#     face the forest; its old-teleporter east wall turns up toward the cliffs)
+#   forest (52,36)   desert (104,32)   deep_jungle (156,31)
+
+void_tile: oob_cliff
+corridor:
+  length: 2
+  floor_tile: empty
+
+placements:
+  dragon_cliffs: { x: 17,  y: 0, orient: rot270 }
+  highlands:     { x: 0,   y: 47, orient: rot270 }
+  forest:        { x: 52,  y: 36 }
+  desert:        { x: 104, y: 32 }
+  deep_jungle:   { x: 156, y: 31 }
+
+connections:
+  # Forest east gate alcove (old door + red teleporter) -> desert west edge
+  # as close to the central oasis as clear terrain allows (rows 23..29 are
+  # the merchant services strip).
+  - from: { map: forest, edge: east, at: 14 }
+    to:   { map: desert, edge: west, at: 18 }
+    width: 5
+  # End of the forest stream -> highlands SOUTH wall (local terms) directly
+  # below the '+' (24,40): with the rot270 placement this is a plain 2-tile
+  # pass, and the party steps out 8 tiles from the start meadow.
+  - from: { map: forest, edge: west, at: 36 }
+    to:   { map: highlands, edge: south, at: 24 }
+    width: 1
+  # Highlands east wall ON the old violet teleporter rows (47,43) -> dragon
+  # cliffs WEST village gate (pierced through the pine ring, depth 2): a
+  # straight 2-tile pass into the ranger village, past the tavern (15,26)
+  # to the '+' (22,30); dragons stay across the chasm.
+  - from: { map: highlands, edge: east, at: 42 }
+    to:   { map: dragon_cliffs, edge: west, at: 25, depth: 2 }
+    width: 3
+  # Desert south-east dunes (away from the arena entrance and the pyramid)
+  # -> deep jungle west edge AT the riverboat landing: tavern (2,45) and
+  # '+' (5,47) are right at the opening.
+  - from: { map: desert, edge: east, at: 43 }
+    to:   { map: deep_jungle, edge: west, at: 44 }
+    width: 2
+
+removals:
+  forest:
+    special_tiles: [rteleporter]
+    npcs: [portal_gate_highlands]
+  desert:
+    special_tiles: [rteleporter]
+  highlands:
+    special_tiles: [vteleporter]
+    npcs: [portal_gate_forest]
+  dragon_cliffs:
+    special_tiles: [vteleporter]

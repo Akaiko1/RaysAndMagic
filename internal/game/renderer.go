@@ -72,6 +72,7 @@ type Renderer struct {
 	floorTexCount        int
 	floorTexTileW        int
 	floorTexTileH        int
+	floorTexMaxMip       int    // deepest mip level packed into floorTexAtlas
 	floorTexturesKey     string // biome the floor textures were loaded for (cache key)
 	canopyShadeFactors   []float64
 	canopyShadeW         int
@@ -90,6 +91,12 @@ type Renderer struct {
 	ambientLight float64
 	// Wood-silhouette cache for standee token cores, keyed per sprite frame.
 	standeeCoreCache map[standeeCoreKey]*ebiten.Image
+	// Standee mip chains are immutable, normalized copies of immutable sprite
+	// frames. Adjacent levels are blended by the trilinear shader so Ebitengine's
+	// integer mip selection cannot make a whole token flash sharp/soft at range.
+	standeeMipCache        map[standeeMipKey]*standeeMipChain
+	standeeTrilinearShader *ebiten.Shader
+	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
@@ -120,11 +127,10 @@ type Renderer struct {
 	// Same for animated NPC tokens (people turn to face the party; static
 	// objects keep the showcase spin instead). NPC pointers are stable.
 	standeeNPCYaw map[*character.NPC]standeeEnvYawState
-	// standeeDepthBias (px) is subtracted from a standee column's depth in the
-	// wall-occlusion test for the current draw - wall-mounted tokens set it so
-	// their own backing wall (flush behind them) can't clip them, while real walls
-	// farther in front still occlude. 0 for every normal standee.
-	standeeDepthBias float64
+	// standeeWallOcclusion is scoped to the current standee draw. Wall-mounted
+	// tokens identify their exact backing wall plane, while doors use only a
+	// small seam allowance. Normal standees keep its zero value.
+	standeeWallOcclusion standeeWallOcclusion
 	// Transparent environment sprite cache for performance
 	transparentSpritesCache []TransparentSpriteData // Cached list of transparent sprites
 	// treeTilesCache lists every tree tile (one entry per tile) for the
@@ -138,6 +144,11 @@ type Renderer struct {
 	// Precomputed ray direction cache for performance
 	rayDirectionsX []float64 // Cached cos values for rays
 	rayDirectionsY []float64 // Cached sin values for rays
+	// Camera-plane basis used to build ray-boundary directions for minified
+	// textured walls. Set alongside rayDirections every frame; keeping it here
+	// avoids recalculating sin/cos/tan once per rendered wall column.
+	rayDirX, rayDirY     float64
+	rayPlaneX, rayPlaneY float64
 	// Per-ray RaycastHit buffer, pre-allocated to avoid per-frame slice
 	// allocations during raycasting. Each ray writes into its own index,
 	// so disjoint cells are safe across parallel workers. Capacity grows
@@ -147,10 +158,23 @@ type Renderer struct {
 	// avoids a per-frame fmt.Sprintf allocation that showed up in the hot draw
 	// path (one call per visible transparent sprite per frame).
 	processedSpriteCache map[processedSpriteKey]*ebiten.Image
-	// Per-sprite 1px column SubImages for sprite-textured wall slices - SubImage
-	// allocates a new *ebiten.Image per call (one per wall column per frame).
-	// Sprites come from the SpriteManager and live for the whole game.
+	// Per-sprite 1px column SubImages for near sprite-textured wall slices -
+	// SubImage allocates a new *ebiten.Image per call (one per wall column per
+	// frame). Sprites come from the SpriteManager and live for the whole game.
 	wallSliceColumns map[*ebiten.Image][]*ebiten.Image
+	// Tileable source copies for the minified wall path. Ebiten builds mipmaps
+	// before address-repeat is applied, so the source itself must contain the
+	// neighbouring tiles to keep a seam-free mip chain.
+	wallTextureRepeats map[*ebiten.Image]*ebiten.Image
+	wallSliceVerts     [4]ebiten.Vertex
+	wallSliceTriOpts   ebiten.DrawTrianglesOptions
+	// Minified opaque wall slices are independent screen columns, so slices
+	// sharing a source can be submitted in one draw. This preserves the exact
+	// per-column rectangle geometry while avoiding one DrawTriangles call per
+	// ray on long distant walls.
+	wallMipBatchSource  *ebiten.Image
+	wallMipBatchVerts   []ebiten.Vertex
+	wallMipBatchIndices []uint16
 	// Per-sprite animation-frame SubImages (see selectAnimatedSpriteFrame),
 	// same per-frame SubImage churn for animated NPC sheets.
 	animFrameCache map[*ebiten.Image][]*ebiten.Image
@@ -378,6 +402,8 @@ func (r *Renderer) precomputeRayDirections() {
 	planeScale := math.Tan(fov / 2)
 	planeX := -dirY * planeScale
 	planeY := dirX * planeScale
+	r.rayDirX, r.rayDirY = dirX, dirY
+	r.rayPlaneX, r.rayPlaneY = planeX, planeY
 
 	for i := 0; i < numRays; i++ {
 		// Use the camera plane for ray directions so walls/floor/sprites align.
@@ -634,6 +660,16 @@ func (r *Renderer) precomputeFloorColorCache() {
 	}
 
 	defaultMapFloor := color.RGBA{uint8(defaultFloorColor[0]), uint8(defaultFloorColor[1]), uint8(defaultFloorColor[2]), 255}
+	// The unified world blends several maps: each tile's default floor color
+	// comes from ITS region's config, not the party's current one.
+	defaultFloorAt := func(tx, ty int) color.RGBA {
+		if r.game.openWorldActive() {
+			if mc := world.GlobalWorldManager.MapConfigAtTile(tx, ty); mc != nil {
+				return color.RGBA{uint8(mc.DefaultFloorColor[0]), uint8(mc.DefaultFloorColor[1]), uint8(mc.DefaultFloorColor[2]), 255}
+			}
+		}
+		return defaultMapFloor
+	}
 	defaultDarkGreen := color.RGBA{20, 90, 20, 255} // Keep dark green for tree effects
 	cache := make(map[[2]int]color.RGBA)
 
@@ -670,7 +706,7 @@ func (r *Renderer) precomputeFloorColorCache() {
 			checkY := float64(tileY)*float64(r.game.config.GetTileSize()) + float64(r.game.config.GetTileSize())/2
 			currentTile := r.game.GetCurrentWorld().GetTileAt(checkX, checkY)
 
-			baseColor := defaultMapFloor
+			baseColor := defaultFloorAt(tileX, tileY)
 			var tileData *config.TileData
 			if world.GlobalTileManager != nil {
 				tileData = world.GlobalTileManager.GetTileData(currentTile)
@@ -788,7 +824,7 @@ func (r *Renderer) buildFloorColorMap(worldWidth, worldHeight int) {
 
 func (r *Renderer) floorTextureIndexForTile(tileX, tileY int, tileType world.TileType3D) (int, bool) {
 	groupName := r.floorTextureGroupForTile(tileX, tileY, tileType)
-	group, ok := r.floorTexGroups[groupName]
+	group, ok := r.floorTexGroups[r.floorGroupLookupKey(tileX, tileY, groupName)]
 	if !ok || group.count <= 0 {
 		return 0, false
 	}
@@ -837,7 +873,7 @@ func (r *Renderer) floorTextureGroupForTile(tileX, tileY int, tileType world.Til
 	// bare empty tiles. Only when the current biome actually defines a
 	// "beach" group (forest/desert), so city/church floors are unaffected.
 	if group == defaultFloorTextureGroup && r.tileBordersWater(tileX, tileY) {
-		if _, ok := r.floorTexGroups["beach"]; ok {
+		if _, ok := r.floorTexGroups[r.floorGroupLookupKey(tileX, tileY, "beach")]; ok {
 			return "beach"
 		}
 	}
@@ -917,14 +953,21 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 		return
 	}
 	// Floor textures are biome-driven: every map of a biome shares the same
-	// groups, so the atlas is cached per biome rather than per map file.
+	// groups, so the atlas is cached per biome rather than per map file. The
+	// unified world spans several biomes at once - its atlas combines them all
+	// under "biome/group" keys (see floorGroupLookupKey).
+	cacheKey := mapConfig.Biome
 	groupSources := world.GlobalWorldManager.GetCurrentBiomeFloorTextureGroups()
+	if r.game.openWorldActive() {
+		cacheKey = world.OpenWorldKey
+		groupSources = openWorldFloorTextureGroups()
+	}
 	if len(groupSources) == 0 {
 		r.clearFloorAtlas()
 		return
 	}
-	if mapConfig.Biome == r.floorTexturesKey && r.floorTexAtlas != nil {
-		return // same biome, atlas already built
+	if cacheKey == r.floorTexturesKey && r.floorTexAtlas != nil {
+		return // same biome (or same combined set), atlas already built
 	}
 	groupNames := floorTextureGroupLoadOrder(groupSources)
 	rawGroups := make(map[string][]floorTexture, len(groupNames))
@@ -979,7 +1022,46 @@ func (r *Renderer) loadCurrentMapFloorTextures() {
 
 	r.buildFloorTexAtlas(textures)
 	r.floorTexGroups = groups
-	r.floorTexturesKey = mapConfig.Biome
+	r.floorTexturesKey = cacheKey
+}
+
+// openWorldFloorTextureGroups combines every merged region's biome floor
+// groups under namespaced "biome/group" keys for the unified world's atlas.
+func openWorldFloorTextureGroups() map[string][]string {
+	wm := world.GlobalWorldManager
+	out := make(map[string][]string)
+	seen := make(map[string]bool)
+	for _, region := range wm.OpenWorldRegions {
+		mc, ok := wm.MapConfigs[region.MapKey]
+		if !ok || seen[mc.Biome] {
+			continue
+		}
+		seen[mc.Biome] = true
+		biome, ok := wm.Biomes[mc.Biome]
+		if !ok {
+			continue
+		}
+		for group, texs := range biome.FloorTextureGroups {
+			out[mc.Biome+"/"+group] = texs
+		}
+	}
+	return out
+}
+
+// floorGroupLookupKey namespaces a floor group with the tile's region biome
+// on the unified world; identity for split maps (single-biome atlas).
+func (r *Renderer) floorGroupLookupKey(tileX, tileY int, group string) string {
+	if group == "" || !r.game.openWorldActive() {
+		return group
+	}
+	wm := world.GlobalWorldManager
+	biome := wm.BiomeAtTile(tileX, tileY)
+	if biome == "" {
+		if mc := wm.GetCurrentMapConfig(); mc != nil {
+			biome = mc.Biome
+		}
+	}
+	return biome + "/" + group
 }
 
 func (r *Renderer) clearFloorAtlas() {
@@ -988,6 +1070,7 @@ func (r *Renderer) clearFloorAtlas() {
 	r.floorTexCount = 0
 	r.floorTexTileW = 0
 	r.floorTexTileH = 0
+	r.floorTexMaxMip = 0
 	r.floorTexturesKey = ""
 }
 
@@ -1003,11 +1086,20 @@ func floorTextureGroupLoadOrder(groups map[string][]string) []string {
 	return names
 }
 
+// maxFloorMipLevels caps the floor atlas mip chain; level 6 turns a 64px tile
+// into 1px, far past where the per-pixel footprint stops growing usefully.
+const maxFloorMipLevels = 6
+
 // buildFloorTexAtlas packs the given source textures into a horizontal strip
-// (tex[0] occupies x in [0, tileW), tex[1] in [tileW, 2*tileW), ...). All
-// textures must share dimensions - the caller pre-validates this so we never
-// leave black slots in the atlas. The source slice is consumed here and not
-// retained; the pixel data lives on the GPU once the atlas is built.
+// (tex[0] occupies x in [0, tileW), tex[1] in [tileW, 2*tileW), ...) plus a
+// manual mip chain stacked below it: level k sits at y = tileH*2*(1-0.5^k)
+// with tileW>>k wide cells. Kage samples nearest-only with no automatic mip
+// selection, so minified floor rows shimmer while the camera moves unless the
+// shader can blend pre-averaged levels chosen from the pixel's texel
+// footprint. All textures must share dimensions - the caller pre-validates
+// this so we never leave black slots in the atlas. The source slice is
+// consumed here and not retained; the pixel data lives on the GPU once the
+// atlas is built.
 func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 	if len(textures) == 0 {
 		r.clearFloorAtlas()
@@ -1015,18 +1107,62 @@ func (r *Renderer) buildFloorTexAtlas(textures []floorTexture) {
 	}
 	tileW := textures[0].width
 	tileH := textures[0].height
-	atlas := image.NewRGBA(image.Rect(0, 0, tileW*len(textures), tileH))
+	// Levels halve cleanly only while both dimensions stay even.
+	maxMip := 0
+	for w, h := tileW, tileH; w%2 == 0 && h%2 == 0 && maxMip < maxFloorMipLevels; w, h = w/2, h/2 {
+		maxMip++
+	}
+	atlasH := tileH
+	if maxMip > 0 {
+		atlasH = tileH * 2
+	}
+	atlas := image.NewRGBA(image.Rect(0, 0, tileW*len(textures), atlasH))
 	for i, tex := range textures {
 		for y := 0; y < tileH; y++ {
 			srcRow := tex.pixels[y*tileW*4 : (y+1)*tileW*4]
 			dstStart := y*atlas.Stride + i*tileW*4
 			copy(atlas.Pix[dstStart:dstStart+tileW*4], srcRow)
 		}
+		prev, pw, ph := tex.pixels, tileW, tileH
+		yOff := tileH
+		for level := 1; level <= maxMip; level++ {
+			cur, cw, ch := boxHalve(prev, pw, ph)
+			for y := 0; y < ch; y++ {
+				srcRow := cur[y*cw*4 : (y+1)*cw*4]
+				dstStart := (yOff+y)*atlas.Stride + i*cw*4
+				copy(atlas.Pix[dstStart:dstStart+cw*4], srcRow)
+			}
+			prev, pw, ph = cur, cw, ch
+			yOff += ch
+		}
 	}
 	r.floorTexAtlas = ebiten.NewImageFromImage(atlas)
 	r.floorTexCount = len(textures)
 	r.floorTexTileW = tileW
 	r.floorTexTileH = tileH
+	r.floorTexMaxMip = maxMip
+}
+
+// boxHalve downsamples an RGBA buffer to half size by averaging each 2x2
+// block - one mip level step. Averaging stays inside the tile, so every level
+// tiles as seamlessly as the source.
+func boxHalve(pix []byte, w, h int) ([]byte, int, int) {
+	hw, hh := w/2, h/2
+	out := make([]byte, hw*hh*4)
+	for y := 0; y < hh; y++ {
+		r0 := (y * 2) * w * 4
+		r1 := (y*2 + 1) * w * 4
+		for x := 0; x < hw; x++ {
+			c0 := r0 + x*8
+			c1 := r1 + x*8
+			o := (y*hw + x) * 4
+			for ch := 0; ch < 4; ch++ {
+				sum := int(pix[c0+ch]) + int(pix[c0+4+ch]) + int(pix[c1+ch]) + int(pix[c1+4+ch])
+				out[o+ch] = byte((sum + 2) / 4)
+			}
+		}
+	}
+	return out, hw, hh
 }
 
 func loadFloorTexture(name string) (floorTexture, error) {
@@ -1150,11 +1286,91 @@ func (r *Renderer) renderFirstPerson3D(screen *ebiten.Image) {
 // RaycastHit contains the result of a DDA raycast operation.
 // This follows the Digital Differential Analysis algorithm for efficient grid traversal.
 type RaycastHit struct {
-	Distance      float64          // Perpendicular distance to the wall (prevents fisheye effect)
-	TileType      world.TileType3D // Type of tile that was hit
-	WallSide      int              // 0 for north-south walls, 1 for east-west walls (used for shading)
-	TextureCoord  float64          // Wall hit position for texture mapping (0.0 to 1.0)
-	IsTransparent bool             // Whether this hit should be rendered transparently
+	Distance        float64          // Perpendicular distance to the wall (prevents fisheye effect)
+	TileType        world.TileType3D // Type of tile that was hit
+	WallSide        int              // 0 for north-south walls, 1 for east-west walls (used for shading)
+	TextureCoord    float64          // Wall hit position for texture mapping (0.0 to 1.0)
+	WallGridLine    float64          // X (side 0) or Y (side 1) grid line of the hit plane
+	HasWallGridLine bool             // False only for synthetic/legacy hits without a DDA plane
+	IsTransparent   bool             // Whether this hit should be rendered transparently
+}
+
+// wallRaySurfaceHitAtGridLine is the single wall-plane intersection used by
+// DDA and by the distant wall rasterizer. surfaceCoord is deliberately NOT
+// wrapped: pixel-boundary sampling needs its continuous texture interval, not
+// two unrelated fractional coordinates at a tile seam. Coordinates are in
+// tile/grid units, not world pixels.
+func wallRaySurfaceHitAtGridLine(cameraX, cameraY, rayX, rayY float64, wallSide int, wallGridLine float64) (distance, surfaceCoord float64, mirrored, ok bool) {
+	const epsilon = 1e-9
+	switch wallSide {
+	case 0:
+		if math.Abs(rayX) < epsilon {
+			return 0, 0, false, false
+		}
+		distance = (wallGridLine - cameraX) / rayX
+		surfaceCoord = cameraY + distance*rayY
+		mirrored = rayX > 0
+	case 1:
+		if math.Abs(rayY) < epsilon {
+			return 0, 0, false, false
+		}
+		distance = (wallGridLine - cameraY) / rayY
+		surfaceCoord = cameraX + distance*rayX
+		mirrored = rayY < 0
+	default:
+		return 0, 0, false, false
+	}
+	if distance <= epsilon {
+		return 0, 0, false, false
+	}
+	return distance, surfaceCoord, mirrored, true
+}
+
+// wallTextureCoordFromSurface reproduces the legacy facing/mirroring rule for
+// a single centre ray. It is separate from the continuous helper below so
+// regular DDA hits preserve their existing source-column choice exactly.
+func wallTextureCoordFromSurface(surfaceCoord float64, mirrored bool) float64 {
+	textureCoord := surfaceCoord - math.Floor(surfaceCoord)
+	if mirrored {
+		textureCoord = 1 - textureCoord
+	}
+	// The old integer-column path clamped an exact 1 to its final texel. Keep
+	// that convention while making a seam-safe mesh coordinate for the far path.
+	if textureCoord >= 1 {
+		textureCoord = math.Nextafter(1, 0)
+	}
+	return textureCoord
+}
+
+// wallRayHitAtGridLine returns the legacy wrapped U used by DDA hits.
+func wallRayHitAtGridLine(cameraX, cameraY, rayX, rayY float64, wallSide int, wallGridLine float64) (distance, textureCoord float64, ok bool) {
+	distance, surfaceCoord, mirrored, ok := wallRaySurfaceHitAtGridLine(cameraX, cameraY, rayX, rayY, wallSide, wallGridLine)
+	if !ok {
+		return 0, 0, false
+	}
+	return distance, wallTextureCoordFromSurface(surfaceCoord, mirrored), true
+}
+
+// wallTextureIntervalFromSurface keeps a ray column's source U continuous
+// relative to its left edge. Unlike a shortest-distance seam heuristic, this
+// also remains correct when an oblique one-pixel column truly spans a large
+// section of the wall texture.
+func wallTextureIntervalFromSurface(left, right float64, mirrored bool) (float64, float64) {
+	if mirrored {
+		left, right = -left, -right
+	}
+	base := math.Floor(left)
+	return left - base, right - base
+}
+
+// wallTextureUsesMipmappedSlice leaves close pixel art on the legacy nearest
+// path. Once either source axis is minified, a quad with true source bounds
+// lets Ebiten select a mip level instead of hopping between full-res columns.
+func wallTextureUsesMipmappedSlice(textureWidth, textureHeight, screenWidth int, leftU, rightU, wallHeight float64) bool {
+	if screenWidth <= 0 {
+		screenWidth = 1
+	}
+	return math.Abs(rightU-leftU)*float64(textureWidth) > float64(screenWidth) || wallHeight < float64(textureHeight)*0.5
 }
 
 // MultiRaycastHit contains multiple hits for a single ray (for transparency support)
@@ -1324,34 +1540,30 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 			continue
 		}
 
-		// Calculate distance
-		var perpendicularDistance float64
+		// The DDA tells us the exact grid line we crossed. Preserve it in the
+		// hit so the renderer can reconstruct the two pixel-boundary rays from
+		// this same plane for mipmapped wall texture sampling.
+		wallGridLine := float64(currentTileX)
 		if wallSide == 0 {
-			perpendicularDistance = (float64(currentTileX) - startWorldX/tileSize + (1-float64(stepDirectionX))/2) / rayDirectionX
+			if stepDirectionX < 0 {
+				wallGridLine++
+			}
 		} else {
-			perpendicularDistance = (float64(currentTileY) - startWorldY/tileSize + (1-float64(stepDirectionY))/2) / rayDirectionY
+			wallGridLine = float64(currentTileY)
+			if stepDirectionY < 0 {
+				wallGridLine++
+			}
+		}
+		perpendicularDistance, textureCoordinate, ok := wallRayHitAtGridLine(
+			startWorldX/tileSize, startWorldY/tileSize,
+			rayDirectionX, rayDirectionY, wallSide, wallGridLine)
+		if !ok {
+			continue
 		}
 
 		// If distance is too far, stop here.
 		if perpendicularDistance*tileSize > r.game.camera.ViewDist {
 			return MultiRaycastHit{Hits: hits}
-		}
-
-		// Calculate texture coordinate
-		var textureCoordinate float64
-		if wallSide == 0 {
-			textureCoordinate = startWorldY/tileSize + perpendicularDistance*rayDirectionY
-		} else {
-			textureCoordinate = startWorldX/tileSize + perpendicularDistance*rayDirectionX
-		}
-		textureCoordinate -= math.Floor(textureCoordinate)
-
-		// Fix texture mirroring on wall faces based on ray direction
-		if wallSide == 0 && rayDirectionX > 0 {
-			textureCoordinate = 1 - textureCoordinate
-		}
-		if wallSide == 1 && rayDirectionY < 0 {
-			textureCoordinate = 1 - textureCoordinate
 		}
 
 		// Check what type of tile this is and use tile manager for properties
@@ -1371,20 +1583,24 @@ func (r *Renderer) performMultiHitRaycastWithDirection(rayDirectionX, rayDirecti
 			}
 			// Transparent tiles: add as transparent hit but continue ray
 			hits = append(hits, RaycastHit{
-				Distance:      perpendicularDistance * tileSize,
-				TileType:      tileType,
-				WallSide:      wallSide,
-				TextureCoord:  textureCoordinate,
-				IsTransparent: true,
+				Distance:        perpendicularDistance * tileSize,
+				TileType:        tileType,
+				WallSide:        wallSide,
+				TextureCoord:    textureCoordinate,
+				WallGridLine:    wallGridLine,
+				HasWallGridLine: true,
+				IsTransparent:   true,
 			})
 		} else {
 			// Solid tile: add hit and stop ray
 			hits = append(hits, RaycastHit{
-				Distance:      perpendicularDistance * tileSize,
-				TileType:      tileType,
-				WallSide:      wallSide,
-				TextureCoord:  textureCoordinate,
-				IsTransparent: false,
+				Distance:        perpendicularDistance * tileSize,
+				TileType:        tileType,
+				WallSide:        wallSide,
+				TextureCoord:    textureCoordinate,
+				WallGridLine:    wallGridLine,
+				HasWallGridLine: true,
+				IsTransparent:   false,
 			})
 			return MultiRaycastHit{Hits: hits}
 		}
@@ -1423,6 +1639,9 @@ func (r *Renderer) writeWallColumns(screenX, width int, distance float64, tileTy
 func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []rendering.RaycastResult) {
 	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
 	screenWidth := r.game.config.GetScreenWidth()
+	r.wallMipBatchSource = nil
+	r.wallMipBatchVerts = r.wallMipBatchVerts[:0]
+	r.wallMipBatchIndices = r.wallMipBatchIndices[:0]
 
 	for columnIndex, rayResult := range results {
 		screenX := columnIndex * rayWidth
@@ -1487,6 +1706,7 @@ func (r *Renderer) renderRaycastResults(screen *ebiten.Image, results []renderin
 			r.renderSingleHit(screen, screenX, hitInfo, currentRayWidth)
 		}
 	}
+	r.flushMipmappedWallBatch(screen)
 }
 
 // renderSingleHit renders a single raycast hit
@@ -1503,6 +1723,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 		renderType := world.GlobalTileManager.GetRenderType(tileType)
 		switch renderType {
 		case "tree_sprite":
+			r.flushMipmappedWallBatch(screen)
 			r.drawTreeSprite(screen, screenX, hit.Distance, tileType)
 		case "environment_sprite", "landmark":
 			// Skip transparent environment sprites in raycasting - they'll be rendered in sprite phase
@@ -1510,10 +1731,11 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 			if hit.IsTransparent {
 				return // Skip transparent environment sprites - rendered in unified sprite pass
 			}
+			r.flushMipmappedWallBatch(screen)
 			r.drawEnvironmentSpriteOnce(screen, screenX, hit.Distance, tileType)
 		case "textured_wall":
 			r.drawTexturedWallSlice(screen, screenX, hit.Distance, tileType, rayWidth,
-				hit.WallSide, hit.TextureCoord)
+				hit.WallSide, hit.TextureCoord, hit.WallGridLine, hit.HasWallGridLine, !hit.IsTransparent)
 		case "floor_only":
 			// Floor-only tiles don't render anything here, just floor
 			// These should be transparent so rays continue through them
@@ -1522,7 +1744,7 @@ func (r *Renderer) renderSingleHit(screen *ebiten.Image, screenX int, hit Raycas
 	} else {
 		// If tile manager not available, render as textured wall by default
 		r.drawTexturedWallSlice(screen, screenX, hit.Distance, tileType, rayWidth,
-			hit.WallSide, hit.TextureCoord)
+			hit.WallSide, hit.TextureCoord, hit.WallGridLine, hit.HasWallGridLine, !hit.IsTransparent)
 	}
 }
 
@@ -1632,6 +1854,7 @@ func (r *Renderer) drawSimpleFloorCeiling(screen *ebiten.Image) {
 	uniforms["Ambient"] = float32(ambient)
 	uniforms["ViewerAmbient"] = float32(r.viewerAmbient())
 	uniforms["TexCount"] = float32(r.floorTexCount)
+	uniforms["MaxMip"] = float32(r.floorTexMaxMip)
 	uniforms["LightCount"] = float32(lightCount)
 	uniforms["Lights"] = lights
 
@@ -1925,10 +2148,8 @@ func (r *Renderer) drawEnvironmentSpriteOnce(screen *ebiten.Image, x int, distan
 
 // drawTexturedWallSlice renders a single vertical wall slice with texturing and proper shading.
 // This is optimized with caching to avoid recreating similar wall slices every frame.
-func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, distance float64, tileType world.TileType3D, width, wallSide int, textureCoord float64) {
-	// Calculate wall dimensions based on distance and tile-specific height
+func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, distance float64, tileType world.TileType3D, width, wallSide int, textureCoord, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
 	heightMultiplier := world.GetTileHeight(tileType)
-	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
 
 	// Sprite-textured walls bypass the WallSliceCache: every ray has its own
 	// continuous textureCoord (float), so cache keys never collide and caching
@@ -1937,7 +2158,8 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 		if spriteName := world.GlobalTileManager.GetSprite(tileType); spriteName != "" {
 			sprite := r.game.sprites.GetSprite(spriteName)
 			if sprite != nil {
-				r.drawSpriteTexturedWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
+				r.drawSpriteTexturedWallSlice(screen, sprite, screenX, width, wallSide, textureCoord,
+					distance, heightMultiplier, wallGridLine, hasWallGridLine, queueMipmapped)
 				return
 			}
 		}
@@ -1945,6 +2167,7 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 
 	// Cached path for procedural / color-only walls. Discrete TileType + integer
 	// width/height/side/wallX make cache hits useful here.
+	wallHeight, wallTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(distance, heightMultiplier)
 	cacheKey := rendering.WallSliceKey{
 		Height:   wallHeight,
 		Width:    width,
@@ -1970,21 +2193,90 @@ func (r *Renderer) drawTexturedWallSlice(screen *ebiten.Image, screenX int, dist
 	brightness := r.wallPointBrightness(screenX, distance)
 	drawOptions.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 
+	r.flushMipmappedWallBatch(screen)
 	screen.DrawImage(wallSliceImage, drawOptions)
 }
 
-// drawSpriteTexturedWallSlice draws a single ray's slice of a sprite-textured
-// wall straight to the screen. The textureCoord is continuous per ray, so this
-// deliberately skips the WallSliceCache (which keys on it as a float and would
-// just churn one entry per ray).
-//
-// Classic raycasting: one ray corresponds to ONE column of the wall texture,
-// stretched across `width` screen pixels (rayWidth). Sampling rayWidth source
-// columns per ray instead of one used to make the texture shimmer as the camera
-// panned - adjacent rays' integer-truncated textureX values jumped 1..N source
-// pixels at a time and showed disjoint strips. Stick with a single column and
-// let the horizontal stretch handle the screen width.
-func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, wallTop, wallHeight, width, wallSide int, textureCoord, distance float64) {
+// drawSpriteTexturedWallSlice keeps close pixel-art walls on the original
+// one-source-column path. At range, one screen column covers several texture
+// texels: then it instead maps the two ray boundaries to a mesh quad, exposing
+// the source footprint required for linear mipmap filtering.
+func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, textureCoord, distance, heightMultiplier, wallGridLine float64, hasWallGridLine, queueMipmapped bool) {
+	spriteBounds := sprite.Bounds()
+	spriteWidth := spriteBounds.Dx()
+	spriteHeight := spriteBounds.Dy()
+	if spriteWidth <= 0 || spriteHeight <= 0 || width <= 0 {
+		return
+	}
+	wallHeightF, floorBottomF := r.game.renderHelper.CalculateWallDimensionsWithHeightF(distance, heightMultiplier)
+	if wallHeightF <= 0 {
+		return
+	}
+
+	if hasWallGridLine {
+		leftU, rightU, ok := r.wallTextureCoordsAtSliceBoundaries(screenX, wallSide, wallGridLine)
+		if ok {
+			if wallTextureUsesMipmappedSlice(spriteWidth, spriteHeight, width, leftU, rightU, wallHeightF) {
+				if queueMipmapped && r.queueMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
+					floorBottomF-wallHeightF, wallHeightF, leftU, rightU) {
+					return
+				}
+				r.flushMipmappedWallBatch(screen)
+				r.drawMipmappedSpriteWallSlice(screen, sprite, screenX, width, wallSide, distance,
+					floorBottomF-wallHeightF, wallHeightF, leftU, rightU)
+				return
+			}
+		}
+	}
+
+	// Close walls deliberately retain the former nearest-column behavior: it
+	// keeps their authored pixel art sharp and avoids changing their look.
+	wallHeight := int(wallHeightF)
+	wallTop := int(floorBottomF) - wallHeight
+	r.flushMipmappedWallBatch(screen)
+	r.drawNearestSpriteWallSlice(screen, sprite, screenX, wallTop, wallHeight, width, wallSide, textureCoord, distance)
+}
+
+// wallTextureCoordsAtSliceBoundaries reconstructs the two ray directions for
+// the logical ray column at screenX. The final physical screen slice can be
+// narrower after a resize, but its ray still spans one full logical interval.
+func (r *Renderer) wallTextureCoordsAtSliceBoundaries(screenX, wallSide int, wallGridLine float64) (leftU, rightU float64, ok bool) {
+	if r.game == nil || r.game.camera == nil {
+		return 0, 0, false
+	}
+	rayWidth := r.game.config.Graphics.RaysPerScreenWidth
+	if rayWidth <= 0 {
+		rayWidth = 1
+	}
+	numRays := len(r.rayDirectionsX)
+	if numRays <= 0 {
+		numRays = r.computeNumRays()
+	}
+	if numRays <= 0 {
+		return 0, 0, false
+	}
+	rayIndex := screenX / rayWidth
+	rayAtEdge := func(edge float64) (float64, float64) {
+		cameraX := 2*edge/float64(numRays) - 1
+		return r.rayDirX + r.rayPlaneX*cameraX, r.rayDirY + r.rayPlaneY*cameraX
+	}
+	tileSize := r.game.config.GetTileSize()
+	camX := r.game.camera.X / tileSize
+	camY := r.game.camera.Y / tileSize
+	leftX, leftY := rayAtEdge(float64(rayIndex))
+	rightX, rightY := rayAtEdge(float64(rayIndex + 1))
+	_, leftSurface, leftMirrored, leftOK := wallRaySurfaceHitAtGridLine(camX, camY, leftX, leftY, wallSide, wallGridLine)
+	_, rightSurface, rightMirrored, rightOK := wallRaySurfaceHitAtGridLine(camX, camY, rightX, rightY, wallSide, wallGridLine)
+	if !leftOK || !rightOK || leftMirrored != rightMirrored {
+		return 0, 0, false
+	}
+	leftU, rightU = wallTextureIntervalFromSurface(leftSurface, rightSurface, leftMirrored)
+	return leftU, rightU, true
+}
+
+// drawNearestSpriteWallSlice is the original close-range path: one source
+// column per ray, stretched across that ray's logical screen width.
+func (r *Renderer) drawNearestSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, wallTop, wallHeight, width, wallSide int, textureCoord, distance float64) {
 	spriteBounds := sprite.Bounds()
 	spriteWidth := spriteBounds.Dx()
 	spriteHeight := spriteBounds.Dy()
@@ -2014,6 +2306,124 @@ func (r *Renderer) drawSpriteTexturedWallSlice(screen *ebiten.Image, sprite *ebi
 	opts.GeoM.Translate(float64(screenX), float64(wallTop))
 	opts.ColorScale.Scale(float32(brightness), float32(brightness), float32(brightness), 1.0)
 	screen.DrawImage(src, opts)
+}
+
+// drawMipmappedSpriteWallSlice is the direct fallback for a transparent wall:
+// those hits must remain in the ray's back-to-front order. Opaque minified
+// walls use queueMipmappedSpriteWallSlice instead.
+func (r *Renderer) drawMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) {
+	repeated, texW, texH, ok := r.mipmappedWallTexture(sprite)
+	if !ok {
+		return
+	}
+	brightness := r.wallPointBrightness(screenX, distance)
+	if wallSide == 1 {
+		brightness *= 0.7
+	}
+	vertices := appendMipmappedWallSliceVertices(r.wallSliceVerts[:0], texW, texH, screenX, width, wallTop, wallHeight, leftU, rightU, brightness)
+	r.drawMipmappedWallTriangles(screen, vertices, wallSliceTriangleIndices[:], repeated)
+}
+
+var wallSliceTriangleIndices = [...]uint16{0, 1, 2, 1, 3, 2}
+
+const wallMipBatchVertexLimit = 1 << 16
+
+// queueMipmappedSpriteWallSlice gathers independent opaque ray slices that
+// share the same repeated source. Each rectangle retains its original four
+// vertices, so batching changes submission cost only, not wall geometry.
+func (r *Renderer) queueMipmappedSpriteWallSlice(screen *ebiten.Image, sprite *ebiten.Image, screenX, width, wallSide int, distance, wallTop, wallHeight, leftU, rightU float64) bool {
+	repeated, texW, texH, ok := r.mipmappedWallTexture(sprite)
+	if !ok {
+		return false
+	}
+	if r.wallMipBatchSource != nil && (r.wallMipBatchSource != repeated || len(r.wallMipBatchVerts)+4 > wallMipBatchVertexLimit) {
+		r.flushMipmappedWallBatch(screen)
+	}
+	if r.wallMipBatchSource == nil {
+		r.wallMipBatchSource = repeated
+	}
+	brightness := r.wallPointBrightness(screenX, distance)
+	if wallSide == 1 {
+		brightness *= 0.7
+	}
+	base := uint16(len(r.wallMipBatchVerts))
+	r.wallMipBatchVerts = appendMipmappedWallSliceVertices(r.wallMipBatchVerts, texW, texH, screenX, width, wallTop, wallHeight, leftU, rightU, brightness)
+	r.wallMipBatchIndices = append(r.wallMipBatchIndices, base, base+1, base+2, base+1, base+3, base+2)
+	return true
+}
+
+func (r *Renderer) flushMipmappedWallBatch(screen *ebiten.Image) {
+	if len(r.wallMipBatchVerts) == 0 {
+		r.wallMipBatchSource = nil
+		return
+	}
+	r.drawMipmappedWallTriangles(screen, r.wallMipBatchVerts, r.wallMipBatchIndices, r.wallMipBatchSource)
+	r.wallMipBatchSource = nil
+	r.wallMipBatchVerts = r.wallMipBatchVerts[:0]
+	r.wallMipBatchIndices = r.wallMipBatchIndices[:0]
+}
+
+// mipmappedWallTexture returns a tileable source and its original tile bounds.
+// Mipmaps are built from the repeated source, while U coordinates remain in
+// original-tile units so every wall slice uses the same projection contract.
+func (r *Renderer) mipmappedWallTexture(sprite *ebiten.Image) (repeated *ebiten.Image, textureWidth, textureHeight float64, ok bool) {
+	repeated = r.repeatedWallTexture(sprite)
+	if repeated == nil {
+		return nil, 0, 0, false
+	}
+	bounds := sprite.Bounds()
+	textureWidth = float64(bounds.Dx())
+	textureHeight = float64(bounds.Dy())
+	if textureWidth <= 0 || textureHeight <= 0 {
+		return nil, 0, 0, false
+	}
+	return repeated, textureWidth, textureHeight, true
+}
+
+// appendMipmappedWallSliceVertices emits the same axis-aligned source-mapped
+// rectangle used by the direct path. Keeping this shared makes batch and
+// direct rendering pixel-equivalent.
+func appendMipmappedWallSliceVertices(vertices []ebiten.Vertex, textureWidth, textureHeight float64, screenX, width int, wallTop, wallHeight, leftU, rightU, brightness float64) []ebiten.Vertex {
+	leftSourceX := float32(textureWidth + leftU*textureWidth + 0.5)
+	rightSourceX := float32(textureWidth + rightU*textureWidth + 0.5)
+	bottomSourceY := float32(textureHeight - 0.5)
+	color := float32(brightness)
+	return append(vertices,
+		ebiten.Vertex{DstX: float32(screenX), DstY: float32(wallTop), SrcX: leftSourceX, SrcY: 0.5, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
+		ebiten.Vertex{DstX: float32(screenX + width), DstY: float32(wallTop), SrcX: rightSourceX, SrcY: 0.5, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
+		ebiten.Vertex{DstX: float32(screenX), DstY: float32(wallTop + wallHeight), SrcX: leftSourceX, SrcY: bottomSourceY, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
+		ebiten.Vertex{DstX: float32(screenX + width), DstY: float32(wallTop + wallHeight), SrcX: rightSourceX, SrcY: bottomSourceY, ColorR: color, ColorG: color, ColorB: color, ColorA: 1},
+	)
+}
+
+func (r *Renderer) drawMipmappedWallTriangles(screen *ebiten.Image, vertices []ebiten.Vertex, indices []uint16, source *ebiten.Image) {
+	r.wallSliceTriOpts = ebiten.DrawTrianglesOptions{
+		Blend:  ebiten.BlendSourceOver,
+		Filter: ebiten.FilterLinear,
+	}
+	screen.DrawTriangles(vertices, indices, source, &r.wallSliceTriOpts)
+}
+
+func (r *Renderer) repeatedWallTexture(sprite *ebiten.Image) *ebiten.Image {
+	if cached := r.wallTextureRepeats[sprite]; cached != nil {
+		return cached
+	}
+	bounds := sprite.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+	repeated := ebiten.NewImage(width*3, height)
+	for copyIndex := 0; copyIndex < 3; copyIndex++ {
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Translate(float64(copyIndex*width), 0)
+		repeated.DrawImage(sprite, opts)
+	}
+	if r.wallTextureRepeats == nil {
+		r.wallTextureRepeats = make(map[*ebiten.Image]*ebiten.Image)
+	}
+	r.wallTextureRepeats[sprite] = repeated
+	return repeated
 }
 
 // spriteColumn returns the cached 1px-wide column SubImage of a wall sprite.
@@ -2535,9 +2945,17 @@ type UnifiedSpriteRenderData struct {
 	screenX    int
 	screenY    int
 	spriteSize int
-	depthPerp  float64 // Camera-space perpendicular depth (for z-buffer comparison)
-	distance   float64
-	sprite     *ebiten.Image
+	// Float-precision metrics (screen-X center, size, floor-anchor BOTTOM).
+	// Draw paths use these so distant sprites move subpixel-smoothly; the
+	// truncated ints above remain for hit spans and the depth-buffer test
+	// (independently truncated edges hop +/-1px out of phase - a visible
+	// shake on 40-tile open-world sightlines).
+	screenXF  float64
+	sizeF     float64
+	bottomF   float64
+	depthPerp float64 // Camera-space perpendicular depth (for z-buffer comparison)
+	distance  float64
+	sprite    *ebiten.Image
 	// Environment/Tree specific
 	tileX    int
 	tileY    int
@@ -2701,7 +3119,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				continue
 			}
 
-			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(ex, ey, distance, spriteData.tileType, 1.0)
+			screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetricsF(ex, ey, distance, spriteData.tileType, 1.0)
 			if !visible {
 				continue
 			}
@@ -2714,11 +3132,15 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 				}
 			}
 
+			spriteSize := int(sizeF)
 			sprites = append(sprites, UnifiedSpriteRenderData{
 				spriteType: SpriteTypeEnvironment,
-				screenX:    screenX,
-				screenY:    screenY,
+				screenX:    int(screenXf),
+				screenY:    int(bottomF) - spriteSize,
 				spriteSize: spriteSize,
+				screenXF:   screenXf,
+				sizeF:      sizeF,
+				bottomF:    bottomF,
 				depthPerp:  depthPerp,
 				sprite:     sprite,
 				tileX:      spriteData.tileX,
@@ -2773,15 +3195,19 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			if !ok {
 				continue
 			}
-			screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetrics(td.worldX, td.worldY, distance, td.tileType, 1.0)
+			screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetricsF(td.worldX, td.worldY, distance, td.tileType, 1.0)
 			if !visible {
 				continue
 			}
+			spriteSize := int(sizeF)
 			sprites = append(sprites, UnifiedSpriteRenderData{
 				spriteType: SpriteTypeTree,
-				screenX:    screenX,
-				screenY:    screenY,
+				screenX:    int(screenXf),
+				screenY:    int(bottomF) - spriteSize,
 				spriteSize: spriteSize,
+				screenXF:   screenXf,
+				sizeF:      sizeF,
+				bottomF:    bottomF,
 				depthPerp:  depthPerp,
 				tileX:      td.tileX,
 				tileY:      td.tileY,
@@ -2804,21 +3230,26 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		}
 
 		sizeTiles := mon.GetSizeGameMultiplier()
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.CalculateMonsterSpriteMetrics(renderX, renderY, distance, sizeTiles)
-		if visible && mon.Flying {
-			screenY = r.game.config.GetScreenHeight()/2 - spriteSize/2
-		}
+		screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateMonsterSpriteMetricsF(renderX, renderY, distance, sizeTiles)
 		if !visible {
 			continue
+		}
+		if mon.Flying {
+			// Centered on the horizon: bottom = mid-screen + half height.
+			bottomF = float64(r.game.config.GetScreenHeight())/2 + sizeF/2
 		}
 
 		sprite, flip := r.getMonsterSprite(mon)
 
+		spriteSize := int(sizeF)
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType:     SpriteTypeMonster,
-			screenX:        screenX,
-			screenY:        screenY,
+			screenX:        int(screenXf),
+			screenY:        int(bottomF) - spriteSize,
 			spriteSize:     spriteSize,
+			screenXF:       screenXf,
+			sizeF:          sizeF,
+			bottomF:        bottomF,
 			depthPerp:      depthPerp,
 			sprite:         sprite,
 			monster:        mon,
@@ -2854,10 +3285,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			continue
 		}
 
-		screenX, screenY, spriteSize, visible := r.game.renderHelper.NPCSpriteMetrics(npc, ex, ey, distance)
+		screenXf, bottomF, sizeF, visible := r.game.renderHelper.NPCSpriteMetricsF(npc, ex, ey, distance)
 		if !visible {
 			continue
 		}
+		screenX, spriteSize := int(screenXf), int(sizeF)
+		screenY := int(bottomF) - spriteSize
 
 		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
 
@@ -2877,6 +3310,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 					screenX:         screenX,
 					screenY:         screenY,
 					spriteSize:      spriteSize,
+					screenXF:        screenXf,
+					sizeF:           sizeF,
+					bottomF:         bottomF,
 					depthPerp:       segDepth,
 					sprite:          sprite,
 					npc:             npc,
@@ -2891,6 +3327,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			screenX:    screenX,
 			screenY:    screenY,
 			spriteSize: spriteSize,
+			screenXF:   screenXf,
+			sizeF:      sizeF,
+			bottomF:    bottomF,
 			depthPerp:  depthPerp,
 			sprite:     sprite,
 			npc:        npc,
@@ -2898,10 +3337,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	}
 
 	// 5. Collect ground containers (loot bags + treasure chests)
-	activeMapKey := currentMapKey()
 	for i := range r.game.groundContainers {
 		c := &r.game.groundContainers[i]
-		if c.MapKey != "" && c.MapKey != activeMapKey {
+		if c.MapKey != "" && !mapKeyOnCurrentWorld(c.MapKey) {
 			continue
 		}
 		// Loot containers are interactable, so they do NOT use the one-tile
@@ -2923,6 +3361,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			screenX:         info.ScreenX,
 			screenY:         info.ScreenY,
 			spriteSize:      info.SpriteSize,
+			screenXF:        info.ScreenXF,
+			sizeF:           info.SizeF,
+			bottomF:         info.BottomF,
 			depthPerp:       depthPerp,
 			distance:        info.Distance,
 			sprite:          sprite,
@@ -2946,10 +3387,25 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
-	// Sort all sprites by depth (back to front). slices.SortFunc: no reflect
-	// swaps and no closure alloc, unlike sort.Slice - this runs every frame.
-	slices.SortFunc(sprites, func(a, b UnifiedSpriteRenderData) int {
-		return cmp.Compare(b.depthPerp, a.depthPerp)
+	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
+	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
+	// frame. Depth ties are REAL and common: a row of trees seen head-on at
+	// range collapses to identical depthPerp (the per-tile difference
+	// underflows float64), and an unstable order there reshuffles every
+	// frame - overlapping crossed standees flicker and a distant treeline
+	// visibly shudders as silhouettes alternate. Tie-break by stable identity,
+	// with the stable sort covering identity-less entries (monsters, NPCs).
+	slices.SortStableFunc(sprites, func(a, b UnifiedSpriteRenderData) int {
+		if c := cmp.Compare(b.depthPerp, a.depthPerp); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.tileY, b.tileY); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.tileX, b.tileX); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.screenX, b.screenX)
 	})
 
 	// Update buffer for next frame
@@ -2985,8 +3441,12 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 // least one pixel where the sprite is in front of the wall depth buffer.
 // Shared by all the floor-anchored sprite drawers (env / loot bag / chest).
 func (r *Renderer) spriteDepthBufferVisible(s UnifiedSpriteRenderData) bool {
-	left := s.screenX - s.spriteSize/2
-	right := s.screenX + s.spriteSize/2
+	screenXF, sizeF := s.screenXF, s.sizeF
+	if sizeF <= 0 {
+		screenXF, sizeF = float64(s.screenX), float64(s.spriteSize)
+	}
+	left := int(math.Floor(screenXF - sizeF/2))
+	right := int(math.Ceil(screenXF + sizeF/2))
 	if left < 0 {
 		left = 0
 	}
@@ -3016,13 +3476,20 @@ func (r *Renderer) scaledWorldSpriteOpts(scaleX, scaleY float64) *ebiten.DrawIma
 // with the given RGBA tint applied via ColorScale. Used for both the
 // brightness pass and the hover-highlight overlay.
 func (r *Renderer) drawTintedSprite(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize int, tintR, tintG, tintB, tintA float32) {
-	if sprite == nil {
+	r.drawTintedSpriteF(screen, sprite, float64(drawLeft), float64(screenY), float64(spriteSize), tintR, tintG, tintB, tintA)
+}
+
+// drawTintedSpriteF is drawTintedSprite with float metrics: the GPU rasterizes
+// the float rect, so a distant sprite glides subpixel-smoothly instead of
+// hopping whole pixels.
+func (r *Renderer) drawTintedSpriteF(screen *ebiten.Image, sprite *ebiten.Image, drawLeft, screenY, spriteSize float64, tintR, tintG, tintB, tintA float32) {
+	if sprite == nil || spriteSize <= 0 {
 		return
 	}
-	scaleX := float64(spriteSize) / float64(sprite.Bounds().Dx())
-	scaleY := float64(spriteSize) / float64(sprite.Bounds().Dy())
+	scaleX := spriteSize / float64(sprite.Bounds().Dx())
+	scaleY := spriteSize / float64(sprite.Bounds().Dy())
 	opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-	opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+	opts.GeoM.Translate(drawLeft, screenY)
 	opts.ColorScale.Scale(tintR, tintG, tintB, tintA)
 	opts.Blend = ebiten.BlendSourceOver
 	screen.DrawImage(sprite, opts)
@@ -3081,16 +3548,17 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 		key := standeeCoreKey{name: "container:" + c.effectiveSprite(), bounds: s.sprite.Bounds()}
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return
 		}
 	}
 
 	// Billboard fallback (standee off or off-screen).
-	drawLeft := s.screenX - s.spriteSize/2
-	r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
+	drawLeftF := s.screenXF - s.sizeF/2
+	drawTopF := s.bottomF - s.sizeF
+	r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF, b, b, b, 1.0)
 	if hovered {
-		r.drawTintedSprite(screen, s.sprite, drawLeft, s.screenY, s.spriteSize,
+		r.drawTintedSpriteF(screen, s.sprite, drawLeftF, drawTopF, s.sizeF,
 			hoverHighlightTint[0], hoverHighlightTint[1], hoverHighlightTint[2], hoverHighlightTint[3])
 	}
 }
@@ -3112,14 +3580,13 @@ func (r *Renderer) smoothYaw(st standeeEnvYawState, seen bool, target, speed flo
 
 // drawUnifiedEnvironmentSprite draws an environment sprite from unified data
 func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedSpriteRenderData) {
-	if !r.spriteDepthBufferVisible(s) {
-		return
-	}
-
 	tileSize := float64(r.game.config.GetTileSize())
 	worldX, worldY := TileCenterFromTile(s.tileX, s.tileY, tileSize)
 	distance := Distance(worldX, worldY, r.game.camera.X, r.game.camera.Y)
 	if isFireflySwarmTile(s.tileType) {
+		if !r.spriteDepthBufferVisible(s) {
+			return
+		}
 		r.drawFireflySwarmEffect(screen, s, distance)
 		return
 	}
@@ -3147,11 +3614,18 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				wkey := standeeCoreKey{name: "wallprop:" + name, bounds: frame.Bounds()}
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
-				centeredBottom := r.game.config.GetScreenHeight()/2 + s.spriteSize/2
-				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, centeredBottom, b, 0, wallDecorDepthBiasTiles) {
+				centeredBottom := float64(r.game.config.GetScreenHeight())/2 + s.sizeF/2
+				if r.drawWallStandee(screen, frame, wkey, wx, wy, wyaw, s.depthPerp, s.sizeF, centeredBottom, b, 0, wallMountedDepthAllowanceWorld(r.game.config.GetTileSize(), r.game.config.Graphics.Standee.ThicknessTiles), true) {
 					return
 				}
 			}
+		}
+		// Normal props use the cheap span prefilter. Wall-mounted props must
+		// bypass it just like wall-mounted NPCs: their anchor is coplanar with
+		// the backing wall, so only drawWallStandee's per-column test can
+		// distinguish that wall from a true foreground occluder.
+		if !r.spriteDepthBufferVisible(s) {
+			return
 		}
 		yaw := standeeStaticYaw
 		// Landmark tiles (e.g. the city fountain) render as a TALL crossed standee
@@ -3163,7 +3637,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 				phase := auraHash(s.tileX, s.tileY, 0, 0) * 2 * math.Pi
 				yaw += phase + spin*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
 			}
-			if r.drawLandmarkStandee(screen, frame, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.spriteSize, s.screenY, b) {
+			if r.drawLandmarkStandee(screen, frame, "landmark:"+name, worldX, worldY, yaw, s.depthPerp, s.sizeF, s.bottomF, b) {
 				return
 			}
 		}
@@ -3184,13 +3658,15 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// (short grass tuft wearing the tall variant's silhouette).
 		key := standeeCoreKey{name: "tile:" + name, bounds: frame.Bounds()}
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, b, b, b, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0) {
 			return
 		}
 	}
+	if !r.spriteDepthBufferVisible(s) {
+		return
+	}
 
-	drawLeft := s.screenX - s.spriteSize/2
-	r.drawTintedSprite(screen, frame, drawLeft, s.screenY, s.spriteSize, b, b, b, 1.0)
+	r.drawTintedSpriteF(screen, frame, s.screenXF-s.sizeF/2, s.bottomF-s.sizeF, s.sizeF, b, b, b, 1.0)
 }
 
 // drawUnifiedMonsterSprite draws a monster sprite from unified data
@@ -3201,7 +3677,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	// drawAllSpritesSorted always stamps the visual position (true or pulled).
 	renderX, renderY := s.monsterRenderX, s.monsterRenderY
 
-	drawLeft := s.screenX - s.spriteSize/2
+	drawLeftF := s.screenXF - s.sizeF/2
 	// Hit shake: while the red flash timer runs, rattle the sprite left-right in
 	// place (amplitude decays with the timer). Reads as a struck shudder without
 	// moving the monster's actual position - replaces the old knockback.
@@ -3214,18 +3690,19 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		if s.monster.HitTintFrames%2 == 0 {
 			dir = -1.0
 		}
-		drawLeft += int(dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize))
+		drawLeftF += dir * f * MonsterHitShakeAmplitudeFrac * monsterHitShakeSizePx(s.spriteSize)
 	}
 	// Keep mobs above the party HUD bar: a big sprite at point-blank range would
 	// otherwise sink its lower body behind the bar. If its feet would cross the
 	// bar's top edge, raise the whole sprite so its bottom rests on the bar.
-	screenY := s.screenY
+	screenYF := s.bottomF - s.sizeF
 	if r.game.showPartyStats {
-		barTop := r.game.config.GetScreenHeight() - r.game.config.UI.PartyPortraitHeight
-		if screenY+s.spriteSize > barTop {
-			screenY = barTop - s.spriteSize
+		barTop := float64(r.game.config.GetScreenHeight() - r.game.config.UI.PartyPortraitHeight)
+		if screenYF+s.sizeF > barTop {
+			screenYF = barTop - s.sizeF
 		}
 	}
+	screenY := int(screenYF)
 
 	distance := Distance(renderX, renderY, r.game.camera.X, r.game.camera.Y)
 	brightness := r.calculateBrightnessWithTorchLight(renderX, renderY, distance)
@@ -3323,7 +3800,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the pointer (stable for them) is what tells frames apart in the cache.
 		key := standeeCoreKey{name: "mob:" + m.Key, bounds: sprite.Bounds(), img: sprite}
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
-			s.depthPerp, s.spriteSize, screenY+s.spriteSize, rr, gg, bb, false, m.StandeeMirror, 0) {
+			s.depthPerp, s.sizeF, screenYF+s.sizeF, rr, gg, bb, false, m.StandeeMirror, 0) {
 			r.drawMonsterStatusFX(screen, s, screenY)
 			return
 		}
@@ -3334,17 +3811,17 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	// the fallback when standee is turned off; not a maintained visual target -
 	// new per-monster overlays belong in drawMonsterStatusFX, called from BOTH
 	// paths, not appended here alone.
-	scaleX := float64(s.spriteSize) / float64(s.sprite.Bounds().Dx())
-	scaleY := float64(s.spriteSize) / float64(s.sprite.Bounds().Dy())
+	scaleX := s.sizeF / float64(s.sprite.Bounds().Dx())
+	scaleY := s.sizeF / float64(s.sprite.Bounds().Dy())
 	if s.monsterFlip {
 		opts := r.scaledWorldSpriteOpts(-scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft+s.spriteSize), float64(screenY))
+		opts.GeoM.Translate(drawLeftF+s.sizeF, screenYF)
 		opts.ColorScale.Scale(rr, gg, bb, 1.0)
 		opts.Blend = ebiten.BlendSourceOver
 		screen.DrawImage(s.sprite, opts)
 	} else {
 		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
-		opts.GeoM.Translate(float64(drawLeft), float64(screenY))
+		opts.GeoM.Translate(drawLeftF, screenYF)
 		opts.ColorScale.Scale(rr, gg, bb, 1.0)
 		opts.Blend = ebiten.BlendSourceOver
 		screen.DrawImage(s.sprite, opts)
@@ -3482,7 +3959,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
 				wkey := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, 0, wallDecorDepthBiasTiles)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.sizeF, s.bottomF, sb, 0, wallMountedDepthAllowanceWorld(r.game.config.GetTileSize(), r.game.config.Graphics.Standee.ThicknessTiles), true)
 				return
 			}
 		}
@@ -3509,7 +3986,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 					return
 				}
 				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, float64(s.npc.GridSpanTiles)*aspect)
-				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, bh, btop+bh, sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
+				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, float64(bh), float64(btop+bh), sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
 				if okSlab {
 					// Column-clip the shared slab to THIS entry's footprint tile
 					// (the painter sort placed the segment at its own tile depth).
@@ -3560,7 +4037,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// no billboard rounding, no overscan, no art stretch.
 				doorSpan := float64(r.game.config.GetTileSize())
 				doorH, doorTop := r.game.renderHelper.CalculateWallDimensionsWithHeight(s.depthPerp, 1.0)
-				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, doorH, doorTop+doorH, sb, doorSpan, doorDepthBiasTiles)
+				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, float64(doorH), float64(doorTop+doorH), sb, doorSpan, doorDepthAllowanceWorld(r.game.config.GetTileSize()), false)
 				return
 			}
 		}
@@ -3590,13 +4067,13 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// TALL crossed standee spinning with the same showcase yaw - a 3D monument
 		// instead of a flat token.
 		if cat == catLandmark {
-			if r.drawLandmarkStandee(screen, sprite, "landmark:"+npcSpriteName(s.npc), s.npc.X, s.npc.Y, yaw, s.depthPerp, s.spriteSize, s.screenY, sb) {
+			if r.drawLandmarkStandee(screen, sprite, "landmark:"+npcSpriteName(s.npc), s.npc.X, s.npc.Y, yaw, s.depthPerp, s.sizeF, s.bottomF, sb) {
 				return
 			}
 		}
 		key := standeeCoreKey{name: "npc:" + npcSpriteName(s.npc), bounds: sprite.Bounds()}
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
-			s.depthPerp, s.spriteSize, s.screenY+s.spriteSize, sb, sb, sb, true, false, 0) {
+			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return
 		}
 	}

@@ -1308,8 +1308,9 @@ func (ih *InputHandler) checkTeleporter() {
 	}
 
 	// Cross-map teleport: switch, then land north-facing + autosave (same arrival
-	// path as enter_map portals).
-	if targetMapKey != "" && world.GlobalWorldManager != nil && targetMapKey != world.GlobalWorldManager.CurrentMapKey {
+	// path as enter_map portals). Two merged regions share one world - that's a
+	// same-world jump, not a map switch.
+	if targetMapKey != "" && world.GlobalWorldManager != nil && !world.GlobalWorldManager.SameWorldKey(targetMapKey, world.GlobalWorldManager.CurrentMapKey) {
 		ih.switchToMap(targetMapKey)
 		ih.finishMapArrival(newX, newY, AngleNorth)
 		return
@@ -1348,7 +1349,16 @@ func (ih *InputHandler) tryTeleportation() (string, float64, float64, bool) {
 		return "", x, y, false
 	}
 	reg := world.GlobalWorldManager.GlobalTeleporterRegistry
-	source, ok := reg.FindTeleporter(world.GlobalWorldManager.CurrentMapKey, tx, ty)
+	// Unified world: teleporters register under their REGION key at unified
+	// coordinates - resolve the key from the tile, not the party's current key
+	// (the party may stand in a neighbouring region's corridor mouth).
+	lookupKey := world.GlobalWorldManager.CurrentMapKey
+	if ih.game.openWorldActive() {
+		if r := world.GlobalWorldManager.OpenWorldRegionAtTile(tx, ty); r != nil {
+			lookupKey = r.MapKey
+		}
+	}
+	source, ok := reg.FindTeleporter(lookupKey, tx, ty)
 	if !ok || !source.AutoActivate {
 		return "", x, y, false
 	}
@@ -1467,6 +1477,13 @@ func (ih *InputHandler) checkDeepWater() {
 		return
 	}
 
+	// Fly and Walk on Water keep the party ABOVE the surface - deep water is
+	// scenery to them, not a hazard. (A per-step warning here used to spam the
+	// log on every flight across a lake.)
+	if ih.game.flyActive || ih.game.walkOnWaterActive || ih.game.hasCardWalkOnWater() {
+		return
+	}
+
 	// If Water Breathing is active, teleport to underwater map center
 	if ih.game.waterBreathingActive {
 		// Find safe return position before going underwater - MUST succeed for safety
@@ -1489,9 +1506,10 @@ func (ih *InputHandler) checkDeepWater() {
 
 		fmt.Println("Entered underwater realm with Water Breathing active!")
 	} else {
-		// No Water Breathing - player drowns or takes damage
-		fmt.Println("You cannot survive in deep water without Water Breathing!")
-		// TODO: Add drowning damage or teleport back to safe position
+		// No protection at all - normal movement can't step in here, so this
+		// is a transient state (a buff lapsed mid-lake). Wade ashore once
+		// instead of nagging every step while stuck in the water.
+		ih.game.settleAshore("You cannot survive in deep water without Water Breathing!")
 	}
 }
 
@@ -2867,12 +2885,30 @@ func (g *MMGame) countLivingQuestTargets(target, targetMap string) int {
 		return scan(g.world)
 	}
 	if targetMap != "" {
+		// A merged region scopes the census to its rect of the unified world -
+		// same-typed monsters in neighbouring regions must not count.
+		if r := wm.OpenWorldRegionByKey(targetMap); r != nil {
+			ts := g.config.GetTileSize()
+			count := 0
+			for _, m := range wm.OpenWorld.Monsters {
+				if m == nil || m.HitPoints <= 0 || m.QuestProgressIgnored {
+					continue
+				}
+				if wm.OpenWorldRegionAtTile(int(m.X/ts), int(m.Y/ts)) != r {
+					continue
+				}
+				if strings.ToLower(strings.ReplaceAll(m.Name, " ", "_")) == target {
+					count++
+				}
+			}
+			return count
+		}
 		return scan(wm.LoadedMaps[targetMap])
 	}
 	total := 0
-	for _, w := range wm.LoadedMaps {
+	wm.EachWorld(func(_ string, w *world.World3D) {
 		total += scan(w)
-	}
+	})
 	return total
 }
 
@@ -3275,6 +3311,10 @@ func (ih *InputHandler) enterEncounterMap(targetMapKey string) {
 	var x, y, angle float64
 	if pose, ok := ih.game.mapReturnPoses[targetMapKey]; ok {
 		x, y, angle = pose.X, pose.Y, pose.Angle
+	} else if rx, ry, ok := world.GlobalWorldManager.OpenWorldRegionStart(targetMapKey); ok {
+		// Merged region: the unified world's own spawn is the starting map's -
+		// arrive at THIS region's '+' instead.
+		x, y, angle = rx, ry, AngleNorth
 	} else {
 		// First arrival: drop the party on the centre of the spawn tile facing
 		// north, so every fresh location entry is consistent and predictable.

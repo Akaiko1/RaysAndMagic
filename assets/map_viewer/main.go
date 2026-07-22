@@ -35,14 +35,15 @@ const (
 
 // Top-level pages within the viewer window.
 const (
-	pageMaps   = 0
-	pageItems  = 1 // weapons + items
-	pageSpells = 2 // spells grouped by school
-	pageChars  = 3 // playable characters with starting loadout
-	pageSkills = 4 // all skills with detailed descriptions
-	pageFX     = 5 // live preview of the game's special effects (fx_page.go)
-	pageMobs   = 6 // monster stat sheets + live animated preview (mobs_page.go)
-	pageSaves  = 7 // save-slot browser + shared stash + archive (saves_page.go)
+	pageMaps      = 0
+	pageItems     = 1 // weapons + items
+	pageSpells    = 2 // spells grouped by school
+	pageChars     = 3 // playable characters with starting loadout
+	pageSkills    = 4 // all skills with detailed descriptions
+	pageFX        = 5 // live preview of the game's special effects (fx_page.go)
+	pageMobs      = 6 // monster stat sheets + live animated preview (mobs_page.go)
+	pageSaves     = 7 // save-slot browser + shared stash + archive (saves_page.go)
+	pageOpenWorld = 8 // unified-world layout editor (open_world_page.go)
 )
 
 // pageTabDefs drives both the top tab bar and the F1..F5 hotkeys.
@@ -59,6 +60,7 @@ var pageTabDefs = []struct {
 	{pageFX, "FX", "F6"},
 	{pageMobs, "Mobs", "F7"},
 	{pageSaves, "Save Stashes", "F8"},
+	{pageOpenWorld, "Open World", "F9"},
 }
 
 type mapInfo struct {
@@ -72,6 +74,8 @@ type mapInfo struct {
 
 type viewer struct {
 	page           int
+	cfg            *config.Config
+	owc            *config.OpenWorldConfig // open-world rules (nil when absent)
 	maps           []mapInfo
 	mapIndex       int
 	legendLines    []legendEntry
@@ -213,8 +217,15 @@ func main() {
 		log.Printf("Warning: %v", err)
 	}
 
+	owc, owErr := config.LoadOpenWorldConfig("assets/open_world.yaml")
+	if owErr != nil {
+		log.Printf("Warning: open world config: %v", owErr)
+	}
+
 	v := &viewer{
 		page:          pageMaps,
+		cfg:           cfg,
+		owc:           owc,
 		maps:          maps,
 		mapIndex:      0,
 		sidebarTab:    tabInfo,
@@ -285,6 +296,11 @@ func (v *viewer) Update() error {
 
 	if v.page == pageMobs {
 		v.updateMobsPage()
+		return nil
+	}
+
+	if v.page == pageOpenWorld {
+		v.updateOpenWorldPage()
 		return nil
 	}
 
@@ -443,6 +459,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 		v.drawSavesPage(screen)
 		return
 	}
+	if v.page == pageOpenWorld {
+		v.drawOpenWorldPage(screen)
+		return
+	}
 	if v.page == pageChars {
 		v.drawCharactersPage(screen)
 		return
@@ -471,6 +491,7 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 	lay := v.computeLayout(m)
 
 	drawMapPanel(screen, m, lay, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
+	v.drawOpenWorldHighlights(screen, m, lay)
 	drawToolbar(screen, lay, v.brush)
 	drawSidebar(screen, m, lay.sidebarX, lay.sidebarY, sidebarWidth, lay.mapAreaH+lay.toolbarH+16, v.sidebarTab, v.legendLines, v.legendScroll, v.brush, v.tileManager, v.tileDataByKey, v.tileSpriteThumbnail)
 

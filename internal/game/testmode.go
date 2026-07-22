@@ -269,16 +269,25 @@ func (g *MMGame) grantChestConfig(c *config.MapTreasureChestRewardConfig) {
 // so a clear yields a believable haul. Dead monsters on the active map are
 // unregistered from collision; other maps don't have theirs registered yet.
 func (g *MMGame) clearMapAndTally(mapKey string) (perMemberXP, gold int) {
-	if world.GlobalWorldManager == nil {
+	wm := world.GlobalWorldManager
+	if wm == nil {
 		return 0, 0
 	}
-	w, ok := world.GlobalWorldManager.LoadedMaps[mapKey]
-	if !ok || w == nil {
+	w := wm.WorldByKey(mapKey)
+	if w == nil {
 		return 0, 0
 	}
-	isCurrent := world.GlobalWorldManager.CurrentMapKey == mapKey
+	// A merged region clears only its rect of the unified world.
+	region := wm.OpenWorldRegionByKey(mapKey)
+	tileSize := g.config.GetTileSize()
+	isCurrent := wm.SameWorldKey(wm.CurrentMapKey, mapKey)
+	kept := w.Monsters[:0]
 	for _, mon := range w.Monsters {
 		if mon == nil {
+			continue
+		}
+		if region != nil && wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize)) != region {
+			kept = append(kept, mon)
 			continue
 		}
 		xp, gp := g.tallyMonsterKill(mon)
@@ -288,7 +297,7 @@ func (g *MMGame) clearMapAndTally(mapKey string) (perMemberXP, gold int) {
 			g.collisionSystem.UnregisterEntity(mon.ID)
 		}
 	}
-	w.Monsters = w.Monsters[:0]
+	w.Monsters = kept
 	return perMemberXP, gold
 }
 

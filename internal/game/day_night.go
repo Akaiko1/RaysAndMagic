@@ -345,14 +345,20 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 		return
 	}
 	for _, pack := range g.config.DayNight.Packs {
-		w := wm.LoadedMaps[pack.Map]
+		w := wm.WorldByKey(pack.Map)
 		if w == nil {
 			continue
+		}
+		// A merged region scopes its pack to its rect of the unified world -
+		// forest wolves must not scatter into the desert.
+		bx, by, bw, bh := 0, 0, w.Width, w.Height
+		if r := wm.OpenWorldRegionByKey(pack.Map); r != nil && w == wm.OpenWorld {
+			bx, by, bw, bh = r.OffsetX, r.OffsetY, r.Width, r.Height
 		}
 		// Evaluate the clear gate before removing the previous phase's pack: a
 		// surviving pack member is still a living monster and must prevent a
 		// fresh pack from replacing it at the next phase refresh.
-		spawnAllowed := !pack.RequireMapClear || !worldHasLivingMonsters(w)
+		spawnAllowed := !pack.RequireMapClear || !worldHasLivingMonstersInRect(w, bx, by, bw, bh, g.config.GetTileSize())
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, !night))
 		g.despawnPackMonsters(w, dayNightPackTag(pack.Map, night)) // no double-stacking on odd flows (load edge cases)
 		if !spawnAllowed {
@@ -365,7 +371,7 @@ func (g *MMGame) syncDayNightPacks(night bool) {
 			if mem.Monster == "" || mem.Count <= 0 {
 				continue
 			}
-			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, pack.MinPlayerDistTilesOrDefault())
+			g.spawnPackMonsters(w, tag, mem.Monster, mem.Count, pack.MinPlayerDistTilesOrDefault(), bx, by, bw, bh)
 		}
 	}
 }
@@ -376,6 +382,24 @@ func worldHasLivingMonsters(w *world.World3D) bool {
 	}
 	for _, m := range w.Monsters {
 		if m != nil && m.IsAlive() {
+			return true
+		}
+	}
+	return false
+}
+
+// worldHasLivingMonstersInRect reports a living monster inside the tile rect
+// (the whole world for split maps, one region's rect on the unified world).
+func worldHasLivingMonstersInRect(w *world.World3D, bx, by, bw, bh int, tileSize float64) bool {
+	if w == nil {
+		return false
+	}
+	for _, m := range w.Monsters {
+		if m == nil || !m.IsAlive() {
+			continue
+		}
+		tx, ty := int(m.X/tileSize), int(m.Y/tileSize)
+		if tx >= bx && tx < bx+bw && ty >= by && ty < by+bh {
 			return true
 		}
 	}
@@ -406,12 +430,13 @@ func (g *MMGame) despawnPackMonsters(w *world.World3D, tag string) {
 	w.Monsters = kept
 }
 
-// spawnPackMonsters scatters count monsters over random walkable tiles. On the
-// current map spawns keep min_player_dist_tiles away from the party and
-// register collision immediately; on other loaded maps collision registers in
-// bulk on map arrival (RegisterMonstersWithCollisionSystem).
-func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, minPlayerDistTiles float64) {
-	if world.GlobalTileManager == nil || w.Width <= 0 || w.Height <= 0 {
+// spawnPackMonsters scatters count monsters over random walkable tiles within
+// the (bx,by,bw,bh) tile rect. On the current map spawns keep
+// min_player_dist_tiles away from the party and register collision
+// immediately; on other loaded maps collision registers in bulk on map
+// arrival (RegisterMonstersWithCollisionSystem).
+func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, count int, minPlayerDistTiles float64, bx, by, bw, bh int) {
+	if world.GlobalTileManager == nil || bw <= 0 || bh <= 0 {
 		return
 	}
 	if monster.MonsterConfig == nil {
@@ -426,7 +451,7 @@ func (g *MMGame) spawnPackMonsters(w *world.World3D, tag, monsterKey string, cou
 	current := w == g.world
 	spawned := 0
 	for attempts := 0; spawned < count && attempts < count*60; attempts++ {
-		tx, ty := rand.Intn(w.Width), rand.Intn(w.Height)
+		tx, ty := bx+rand.Intn(bw), by+rand.Intn(bh)
 		if ty >= len(w.Tiles) || tx >= len(w.Tiles[ty]) {
 			continue
 		}

@@ -11,7 +11,7 @@ func (g *MMGame) refreshScheduledMerchantStocks() {
 	if g.calendarWeek <= 1 || world.GlobalWorldManager == nil || character.NPCConfigInstance == nil {
 		return
 	}
-	for _, w := range world.GlobalWorldManager.LoadedMaps {
+	world.GlobalWorldManager.EachWorld(func(_ string, w *world.World3D) {
 		for _, npc := range w.NPCs {
 			if npc == nil || npc.Key == "" {
 				continue
@@ -28,5 +28,5 @@ func (g *MMGame) refreshScheduledMerchantStocks() {
 				npc.MerchantStock = fresh.MerchantStock
 			}
 		}
-	}
+	})
 }

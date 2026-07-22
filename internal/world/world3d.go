@@ -61,6 +61,10 @@ type World3D struct {
 	// backdrop). Set per-biome at load (BiomeConfig.OutOfBoundsTile); defaults
 	// to "oob_cliff".
 	OutOfBoundsKey string
+	// flyBoundary marks tiles Fly may never cross even though they are not on
+	// the world's outer ring. The unified world sets it to its void filler so
+	// the party cannot fly out of a region except through a carved passage.
+	flyBoundary func(tileX, tileY int) bool
 	// Starting position from map file
 	StartX int
 	StartY int
@@ -350,11 +354,16 @@ func (w *World3D) IsTileBlocking(tileX, tileY int) bool {
 		return true // Treat out-of-bounds as blocking
 	}
 	// Fly: the party passes through ANYTHING except the map's border ring -
-	// the edge stays solid so the party can never leave the map. MOVEMENT
-	// only: projectiles keep real terrain collision (isTileBlockingTerrain),
-	// or every bolt would sail through walls while the party flies.
+	// the edge stays solid so the party can never leave the map. The unified
+	// world adds its void filler (flyBoundary) so flight cannot leave a
+	// region except through a carved passage. MOVEMENT only: projectiles keep
+	// real terrain collision (isTileBlockingTerrain), or every bolt would
+	// sail through walls while the party flies.
 	if w.flyActive {
 		if tileX == 0 || tileY == 0 || tileX == w.Width-1 || tileY == w.Height-1 {
+			return true
+		}
+		if w.flyBoundary != nil && w.flyBoundary(tileX, tileY) {
 			return true
 		}
 		return false

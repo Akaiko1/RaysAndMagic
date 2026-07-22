@@ -27,10 +27,13 @@ func (g *MMGame) ensureQuestTileOriginals() {
 	for _, def := range g.questManager.Definitions() {
 		for _, tc := range def.OnCompleteTiles {
 			w := g.worldByKey(tc.Map)
-			if w == nil || tc.Y < 0 || tc.Y >= len(w.Tiles) || tc.X < 0 || tc.X >= len(w.Tiles[tc.Y]) {
+			// Quest tiles are authored map-local; a merged region projects into
+			// the unified grid. The originals map stays keyed by LOCAL coords.
+			tx, ty := projectTileToCurrentWorld(tc.Map, tc.X, tc.Y)
+			if w == nil || ty < 0 || ty >= len(w.Tiles) || tx < 0 || tx >= len(w.Tiles[ty]) {
 				continue
 			}
-			g.questTileOriginals[questTileKey(tc)] = w.Tiles[tc.Y][tc.X]
+			g.questTileOriginals[questTileKey(tc)] = w.Tiles[ty][tx]
 		}
 	}
 }
@@ -74,11 +77,12 @@ func (g *MMGame) syncQuestTiles() {
 				target = t
 			}
 			w := g.worldByKey(tc.Map)
-			if w == nil || tc.Y < 0 || tc.Y >= len(w.Tiles) || tc.X < 0 || tc.X >= len(w.Tiles[tc.Y]) {
+			tx, ty := projectTileToCurrentWorld(tc.Map, tc.X, tc.Y)
+			if w == nil || ty < 0 || ty >= len(w.Tiles) || tx < 0 || tx >= len(w.Tiles[ty]) {
 				continue
 			}
-			if w.Tiles[tc.Y][tc.X] != target {
-				w.Tiles[tc.Y][tc.X] = target
+			if w.Tiles[ty][tx] != target {
+				w.Tiles[ty][tx] = target
 				if w == g.world {
 					changedCurrent = true
 				}
@@ -105,11 +109,12 @@ func (g *MMGame) syncQuestTiles() {
 // call sites read naturally at quest-completion triggers.
 func (g *MMGame) applyCompletedQuestTiles() { g.syncQuestTiles() }
 
-// worldByKey resolves a map key against the loaded maps, falling back to the
-// current world when no world manager exists (minimal test setups).
+// worldByKey resolves a map key against the loaded maps (merged region keys
+// resolve to the unified world), falling back to the current world when no
+// world manager exists (minimal test setups).
 func (g *MMGame) worldByKey(mapKey string) *world.World3D {
 	if wm := world.GlobalWorldManager; wm != nil {
-		return wm.LoadedMaps[mapKey]
+		return wm.WorldByKey(mapKey)
 	}
 	return g.world
 }
@@ -151,7 +156,7 @@ func validateQuestTileChanges(qm *quests.QuestManager) error {
 			if !world.GlobalTileManager.HasTileKey(tc.Tile) {
 				return fmt.Errorf("quest %q on_complete_tiles: unknown tile key %q", id, tc.Tile)
 			}
-			if wm != nil && wm.LoadedMaps[tc.Map] == nil {
+			if wm != nil && wm.WorldByKey(tc.Map) == nil {
 				return fmt.Errorf("quest %q on_complete_tiles: unknown map %q", id, tc.Map)
 			}
 		}

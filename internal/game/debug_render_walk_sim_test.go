@@ -164,6 +164,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if os.Getenv("RAM_DEBUG_SIM") == "" {
 		t.Skip("debug module; run with RAM_DEBUG_SIM=1")
 	}
+	fast := os.Getenv("RAM_WALK_FAST") != ""
 	t.Chdir("../..")
 
 	cfg, err := config.LoadConfig("config.yaml")
@@ -221,7 +222,9 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	h := &walkHarness{
 		g: g, r: g.gameLoop.renderer, w: w,
 		screen: ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
-		reps:   3,
+		// Fast mode limits the route, not samples per pose: the first sample
+		// warms Ebitengine's lazy GPU resources and is intentionally discarded.
+		reps: 3,
 	}
 	tileSize := float64(cfg.GetTileSize())
 	t.Logf("render target %dx%d, reps=%d (min taken), %d monsters, %d NPCs, %d env sprites, %d tree tiles",
@@ -251,9 +254,13 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 		}
 		return riverTiles[i][0] < riverTiles[j][0]
 	})
+	allRiverTiles := riverTiles
+	if fast && len(riverTiles) > 2 {
+		riverTiles = riverTiles[:2]
+	}
 	chebyshevToRiver := func(tx, ty int) int {
 		best := 1 << 30
-		for _, rt := range riverTiles {
+		for _, rt := range allRiverTiles {
 			d := absInt(rt[0] - tx)
 			if dy := absInt(rt[1] - ty); dy > d {
 				d = dy
@@ -349,9 +356,14 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 			}
 		}
 	}
+	if fast && len(farRoute) > 2 {
+		farRoute = farRoute[:2]
+	}
 	farFrames := sweep(farRoute, 1)
 	report("A far from river   ", farFrames)
-	attribution("A river", riverFrames, 8)
+	if !fast {
+		attribution("A river", riverFrames, 8)
+	}
 
 	// --- Phase B: the aftermath state from the FPS reports - every monster
 	// dead, a REAL loot bag at each corpse (the exact path monster kills use).
@@ -369,5 +381,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	report("B river, aftermath ", riverFramesB)
 	farFramesB := sweep(farRoute, 1)
 	report("B far, aftermath   ", farFramesB)
-	attribution("B river", riverFramesB, 8)
+	if !fast {
+		attribution("B river", riverFramesB, 8)
+	}
 }

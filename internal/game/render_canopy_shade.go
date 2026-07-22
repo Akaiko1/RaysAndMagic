@@ -3,6 +3,7 @@ package game
 import (
 	"math"
 
+	"ugataima/internal/config"
 	"ugataima/internal/world"
 )
 
@@ -52,22 +53,24 @@ func (r *Renderer) buildCanopyShadeCache() {
 	}
 
 	if world.GlobalTileManager != nil && world.GlobalWorldManager != nil {
-		if mc := world.GlobalWorldManager.GetCurrentMapConfig(); mc != nil && mc.CanopyShade != nil {
-			shadeCfg := mc.CanopyShade
-			minAmbient := shadeCfg.MinAmbient
-			radiusTiles := shadeCfg.RadiusTiles
-			if radiusTiles <= 0 {
-				radiusTiles = defaultCanopyShadeRadiusTiles
+		wm := world.GlobalWorldManager
+		if r.game.openWorldActive() {
+			// The unified world blends several maps: each region applies ITS
+			// OWN canopy config to its rect only (a shadeless desert must not
+			// inherit the forest's canopy, and vice versa).
+			for i := range wm.OpenWorldRegions {
+				region := &wm.OpenWorldRegions[i]
+				mc := wm.MapConfigs[region.MapKey]
+				if mc == nil || mc.CanopyShade == nil {
+					continue
+				}
+				minAmbient, radiusTiles, startDensity, fullDensity := canopyShadeParams(mc.CanopyShade)
+				r.applyCanopyShadeFactors(w, factors, minAmbient, radiusTiles, startDensity, fullDensity,
+					region.OffsetX, region.OffsetY, region.OffsetX+region.Width, region.OffsetY+region.Height)
 			}
-			startDensity := shadeCfg.StartDensity
-			if startDensity <= 0 {
-				startDensity = defaultCanopyShadeStartDensity
-			}
-			fullDensity := shadeCfg.FullDensity
-			if fullDensity <= 0 {
-				fullDensity = defaultCanopyShadeFullDensity
-			}
-			r.applyCanopyShadeFactors(w, factors, minAmbient, radiusTiles, startDensity, fullDensity)
+		} else if mc := wm.GetCurrentMapConfig(); mc != nil && mc.CanopyShade != nil {
+			minAmbient, radiusTiles, startDensity, fullDensity := canopyShadeParams(mc.CanopyShade)
+			r.applyCanopyShadeFactors(w, factors, minAmbient, radiusTiles, startDensity, fullDensity, 0, 0, width, height)
 		}
 	}
 
@@ -77,7 +80,27 @@ func (r *Renderer) buildCanopyShadeCache() {
 	r.canopyViewerReady = false
 }
 
-func (r *Renderer) applyCanopyShadeFactors(w *world.World3D, factors []float64, minAmbient, radiusTiles float64, startDensity, fullDensity int) {
+func canopyShadeParams(shadeCfg *config.MapCanopyShadeConfig) (minAmbient, radiusTiles float64, startDensity, fullDensity int) {
+	minAmbient = shadeCfg.MinAmbient
+	radiusTiles = shadeCfg.RadiusTiles
+	if radiusTiles <= 0 {
+		radiusTiles = defaultCanopyShadeRadiusTiles
+	}
+	startDensity = shadeCfg.StartDensity
+	if startDensity <= 0 {
+		startDensity = defaultCanopyShadeStartDensity
+	}
+	fullDensity = shadeCfg.FullDensity
+	if fullDensity <= 0 {
+		fullDensity = defaultCanopyShadeFullDensity
+	}
+	return
+}
+
+// applyCanopyShadeFactors fills factors inside the [x0,x1)x[y0,y1) tile rect
+// (a region on the unified world, the whole map otherwise). Tree density
+// still counts neighbours beyond the rect so seams shade smoothly.
+func (r *Renderer) applyCanopyShadeFactors(w *world.World3D, factors []float64, minAmbient, radiusTiles float64, startDensity, fullDensity, x0, y0, x1, y1 int) {
 	if minAmbient <= 0 || minAmbient >= 1 || radiusTiles <= 0 {
 		return
 	}
@@ -96,10 +119,12 @@ func (r *Renderer) applyCanopyShadeFactors(w *world.World3D, factors []float64, 
 		}
 	}
 
+	x0, y0 = max(0, x0), max(0, y0)
+	x1, y1 = min(width, x1), min(height, y1)
 	radius := int(math.Ceil(radiusTiles))
 	radiusSq := radiusTiles * radiusTiles
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
 			density := 0
 			for yy := max(0, y-radius); yy <= min(height-1, y+radius); yy++ {
 				for xx := max(0, x-radius); xx <= min(width-1, x+radius); xx++ {

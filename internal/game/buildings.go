@@ -26,12 +26,18 @@ func (g *MMGame) buildingPose(npc *character.NPC) (x, y, yaw float64, ok bool) {
 	ts := float64(g.config.GetTileSize())
 	cx := (math.Floor(npc.X/ts) + 0.5) * ts
 	cy := (math.Floor(npc.Y/ts) + 0.5) * ts
+	// w|n appear only at runtime, when the open-world stitcher rotates a
+	// placed map's authored e|s span (authoring stays e|s, see validation).
 	half := float64(npc.GridSpanTiles-1) / 2 * ts
 	switch npc.GridSpanDir {
 	case "e":
 		return cx + half, cy, 0, true
+	case "w":
+		return cx - half, cy, 0, true
 	case "s":
 		return cx, cy + half, math.Pi / 2, true
+	case "n":
+		return cx, cy - half, math.Pi / 2, true
 	}
 	return 0, 0, 0, false
 }
@@ -46,8 +52,12 @@ func (g *MMGame) buildingFootprintTiles(npc *character.NPC) [][2]float64 {
 		switch npc.GridSpanDir {
 		case "e":
 			out = append(out, [2]float64{cx + float64(i)*ts, cy})
+		case "w":
+			out = append(out, [2]float64{cx - float64(i)*ts, cy})
 		case "s":
 			out = append(out, [2]float64{cx, cy + float64(i)*ts})
+		case "n":
+			out = append(out, [2]float64{cx, cy - float64(i)*ts})
 		}
 	}
 	return out

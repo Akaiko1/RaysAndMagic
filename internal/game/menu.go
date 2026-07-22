@@ -987,12 +987,21 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	if len(g.groundContainers) > 0 {
 		groundContainerSaves = make([]GroundContainerSave, len(g.groundContainers))
 		for i, c := range g.groundContainers {
+			// Local canon: unified-world containers persist as (region key +
+			// map-local coords), resolved by POSITION (a bag can drop across a
+			// region seam from the key it was tagged with).
+			cMapKey, cX, cY := c.MapKey, c.X, c.Y
+			if wm != nil && wm.IsOpenWorldRegion(cMapKey) {
+				if key, lx, ly, ok := wm.LocalizeWorldPos(cX, cY); ok {
+					cMapKey, cX, cY = key, lx, ly
+				}
+			}
 			entry := GroundContainerSave{
 				Kind:      int(c.Kind),
 				ID:        c.ID,
-				MapKey:    c.MapKey,
-				X:         c.X,
-				Y:         c.Y,
+				MapKey:    cMapKey,
+				X:         cX,
+				Y:         cY,
 				Gold:      c.Gold,
 				Sprite:    c.Sprite,
 				SizeTiles: c.SizeTiles,
@@ -1105,6 +1114,38 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				ms = monsters
 			}
 		}
+		// Unified world: bucket its monsters into their REGIONS with map-local
+		// coordinates. The save format never learns about the merge, so the
+		// same save loads in split mode (and vice versa). Loot-guard target
+		// tiles localize with the monster's bucket region.
+		if wm.OpenWorld != nil {
+			saves := buildMonsterSaves(wm.OpenWorld)
+			// Every region gets a bucket even when empty: a missing key means
+			// "legacy save, keep fresh roster" to the loader, and a fully
+			// cleared region must NOT read as that - its kills are permanent.
+			for i := range wm.OpenWorldRegions {
+				key := wm.OpenWorldRegions[i].MapKey
+				if _, ok := mapMonsters[key]; !ok {
+					mapMonsters[key] = []MonsterSave{}
+				}
+			}
+			for i, mon := range wm.OpenWorld.Monsters {
+				key, lx, ly, ok := wm.LocalizeWorldPos(mon.X, mon.Y)
+				if !ok {
+					continue
+				}
+				entry := saves[i]
+				entry.X, entry.Y = lx, ly
+				if entry.LootGuardTargetTileX != 0 || entry.LootGuardTargetTileY != 0 {
+					entry.LootGuardTargetTileX, entry.LootGuardTargetTileY =
+						wm.LocalizeTile(key, entry.LootGuardTargetTileX, entry.LootGuardTargetTileY)
+				}
+				mapMonsters[key] = append(mapMonsters[key], entry)
+			}
+			if regionMonsters, ok := mapMonsters[wm.CurrentMapKey]; ok && g.openWorldActive() {
+				ms = regionMonsters
+			}
+		}
 	} else if g.world != nil {
 		ms = buildMonsterSaves(g.world)
 	}
@@ -1112,9 +1153,15 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	// NPC states across all loaded maps
 	var nstates []NPCSave
 	if wm != nil {
-		for mapKey, w := range wm.LoadedMaps {
-			for _, npc := range w.NPCs {
-				ns := NPCSave{MapKey: mapKey, Name: npc.Name, X: npc.X, Y: npc.Y, Visited: npc.Visited}
+		appendNPCStates := func(mapKey string, npcs []*character.NPC, localize bool) {
+			for _, npc := range npcs {
+				key, x, y := mapKey, npc.X, npc.Y
+				if localize {
+					if k, lx, ly, ok := wm.LocalizeWorldPos(npc.X, npc.Y); ok {
+						key, x, y = k, lx, ly
+					}
+				}
+				ns := NPCSave{MapKey: key, Name: npc.Name, X: x, Y: y, Visited: npc.Visited}
 				if len(npc.MerchantStock) > 0 {
 					ns.Stock = make([]NPCStockSave, len(npc.MerchantStock))
 					for i, entry := range npc.MerchantStock {
@@ -1123,6 +1170,12 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 				}
 				nstates = append(nstates, ns)
 			}
+		}
+		for mapKey, w := range wm.LoadedMaps {
+			appendNPCStates(mapKey, w.NPCs, false)
+		}
+		if wm.OpenWorld != nil {
+			appendNPCStates("", wm.OpenWorld.NPCs, true)
 		}
 	}
 
@@ -1161,11 +1214,64 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 	}
 	sort.Strings(turnBasedMonsterStunned)
 
+	// Local canon: every unified-world position persists as (region key +
+	// map-local coords). The save format never records the merged grid, so
+	// saves survive layout changes, new maps, and flag flips in both
+	// directions. Corridor positions snap to the nearest region interior.
+	saveMapKey, savePX, savePY, saveAngle := wm.CurrentMapKey, g.camera.X, g.camera.Y, g.camera.Angle
+	if g.openWorldActive() {
+		if key, lx, ly, ok := wm.LocalizeWorldPos(savePX, savePY); ok {
+			saveMapKey, savePX, savePY = key, lx, ly
+			saveAngle = wm.LocalizeAngle(key, saveAngle)
+		}
+	}
+	steamZoneSaves := buildSteamZoneSaves(g.steamZones)
+	trapSaves := buildTrapSaves(g.traps)
+	returnPoses := g.mapReturnPoses
+	uwX, uwY := g.underwaterReturnX, g.underwaterReturnY
+	if wm != nil && wm.OpenWorld != nil {
+		tileSize := g.config.GetTileSize()
+		for i := range steamZoneSaves {
+			z := &steamZoneSaves[i]
+			if wm.IsOpenWorldRegion(z.MapKey) {
+				if key, lx, ly, ok := wm.LocalizeWorldPos(z.X, z.Y); ok {
+					z.MapKey, z.X, z.Y = key, lx, ly
+				}
+			}
+		}
+		for i := range trapSaves {
+			t := &trapSaves[i]
+			if wm.IsOpenWorldRegion(t.MapKey) {
+				if key, lx, ly, ok := wm.LocalizeWorldPos(t.X, t.Y); ok {
+					t.MapKey, t.X, t.Y = key, lx, ly
+					t.TileX, t.TileY = int(lx/tileSize), int(ly/tileSize)
+				}
+			}
+		}
+		if len(g.mapReturnPoses) > 0 {
+			returnPoses = make(map[string]MapPose, len(g.mapReturnPoses))
+			for key, pose := range g.mapReturnPoses {
+				if wm.IsOpenWorldRegion(key) {
+					if _, lx, ly, ok := wm.LocalizeWorldPos(pose.X, pose.Y); ok {
+						pose.X, pose.Y = lx, ly
+						pose.Angle = wm.LocalizeAngle(key, pose.Angle)
+					}
+				}
+				returnPoses[key] = pose
+			}
+		}
+		if wm.IsOpenWorldRegion(g.underwaterReturnMap) {
+			if _, lx, ly, ok := wm.LocalizeWorldPos(uwX, uwY); ok {
+				uwX, uwY = lx, ly
+			}
+		}
+	}
+
 	return GameSave{
-		MapKey:                     wm.CurrentMapKey,
-		PlayerX:                    g.camera.X,
-		PlayerY:                    g.camera.Y,
-		PlayerAngle:                g.camera.Angle,
+		MapKey:                     saveMapKey,
+		PlayerX:                    savePX,
+		PlayerY:                    savePY,
+		PlayerAngle:                saveAngle,
 		TurnBased:                  g.turnBasedMode,
 		SavedAt:                    time.Now().Format(time.RFC3339),
 		Party:                      ps,
@@ -1221,15 +1327,15 @@ func (g *MMGame) buildSave(wm *world.WorldManager) GameSave {
 		// aggregate from stat_buffs and never reads this back.
 		StatBonus:              g.statBonuses.Might,
 		CombatBuffs:            buildCombatBuffSaves(g.combatBuffs),
-		SteamZones:             buildSteamZoneSaves(g.steamZones),
-		Traps:                  buildTrapSaves(g.traps),
+		SteamZones:             steamZoneSaves,
+		Traps:                  trapSaves,
 		WaterBreathingActive:   g.waterBreathingActive,
 		WaterBreathingDuration: g.waterBreathingDuration,
-		UnderwaterReturnX:      g.underwaterReturnX,
-		UnderwaterReturnY:      g.underwaterReturnY,
+		UnderwaterReturnX:      uwX,
+		UnderwaterReturnY:      uwY,
 		UnderwaterReturnMap:    g.underwaterReturnMap,
 
-		MapReturnPoses: g.mapReturnPoses,
+		MapReturnPoses: returnPoses,
 	}
 }
 
@@ -1277,11 +1383,14 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.gameLoop.renderer.buildTransparentSpriteCache()
 	}
 
-	// Restore player
-	g.camera.X = save.PlayerX
-	g.camera.Y = save.PlayerY
-	g.snapFacing(save.PlayerAngle)
-	g.collisionSystem.UpdateEntity("player", save.PlayerX, save.PlayerY)
+	// Restore player. Saves hold map-local coordinates and heading (local
+	// canon): a merged region key projects into the unified grid via the
+	// current layout and placement orientation.
+	playerX, playerY := wm.ProjectWorldPos(save.MapKey, save.PlayerX, save.PlayerY)
+	g.camera.X = playerX
+	g.camera.Y = playerY
+	g.snapFacing(wm.ProjectAngle(save.MapKey, save.PlayerAngle))
+	g.collisionSystem.UpdateEntity("player", playerX, playerY)
 
 	// Restore party
 	g.party = &character.Party{Members: make([]*character.MMCharacter, 0, len(save.Party.Members)), Gold: save.Party.Gold, Food: save.Party.Food, ArenaPoints: save.Party.ArenaPoints, Inventory: save.Party.Inventory}
@@ -1550,8 +1659,76 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 					migratedPyramidReliquaries = g.migrateLegacyPyramidSanctumEncounter(w)
 				}
 			}
+			// Unified world: gather every merged region's saved roster (projected
+			// to unified coordinates) into ONE restore pass - restoreMonsters
+			// resets the world's slice, so per-region calls would erase each
+			// other. Regions absent from the save keep their fresh authored
+			// monsters, same as split maps missing from MapMonsters.
+			if wm.OpenWorld != nil {
+				var combined []MonsterSave
+				restoredRegions := make(map[string]bool)
+				for _, region := range wm.OpenWorldRegions {
+					monsters, ok := save.MapMonsters[region.MapKey]
+					if !ok {
+						continue
+					}
+					restoredRegions[region.MapKey] = true
+					for _, msave := range monsters {
+						msave.X, msave.Y = wm.ProjectWorldPos(region.MapKey, msave.X, msave.Y)
+						if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
+							msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
+								wm.ProjectTile(region.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
+						}
+						combined = append(combined, msave)
+					}
+				}
+				if len(restoredRegions) > 0 {
+					var keepFresh []*monster.Monster3D
+					tileSize := g.config.GetTileSize()
+					for _, mon := range wm.OpenWorld.Monsters {
+						if mon == nil {
+							continue
+						}
+						r := wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize))
+						if r != nil && !restoredRegions[r.MapKey] {
+							keepFresh = append(keepFresh, mon)
+						}
+					}
+					restoreMonsters(wm.OpenWorld, combined)
+					wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
+				}
+			}
 		} else if g.world != nil {
-			restoreMonsters(g.world, save.Monsters)
+			if wm != nil && wm.OpenWorld != nil && g.world == wm.OpenWorld {
+				// Legacy save (pre-MapMonsters): its roster covers the ACTIVE
+				// map only, in that map's local coordinates. Restore it into
+				// the save's region; every other region keeps its fresh
+				// authored monsters instead of being wiped.
+				projected := make([]MonsterSave, 0, len(save.Monsters))
+				for _, msave := range save.Monsters {
+					msave.X, msave.Y = wm.ProjectWorldPos(save.MapKey, msave.X, msave.Y)
+					if msave.LootGuardTargetTileX != 0 || msave.LootGuardTargetTileY != 0 {
+						msave.LootGuardTargetTileX, msave.LootGuardTargetTileY =
+							wm.ProjectTile(save.MapKey, msave.LootGuardTargetTileX, msave.LootGuardTargetTileY)
+					}
+					projected = append(projected, msave)
+				}
+				var keepFresh []*monster.Monster3D
+				tileSize := g.config.GetTileSize()
+				saveRegion := wm.OpenWorldRegionByKey(save.MapKey)
+				for _, mon := range wm.OpenWorld.Monsters {
+					if mon == nil {
+						continue
+					}
+					if r := wm.OpenWorldRegionAtTile(int(mon.X/tileSize), int(mon.Y/tileSize)); r != nil && r != saveRegion {
+						keepFresh = append(keepFresh, mon)
+					}
+				}
+				restoreMonsters(wm.OpenWorld, projected)
+				wm.OpenWorld.Monsters = append(wm.OpenWorld.Monsters, keepFresh...)
+			} else {
+				restoreMonsters(g.world, save.Monsters)
+			}
 		}
 		for mapKey, day := range save.MapRespawnDay {
 			if w := wm.LoadedMaps[mapKey]; w != nil {
@@ -1571,14 +1748,20 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 	if wm != nil {
 		for _, ns := range save.NPCStates {
 			w, ok := wm.LoadedMaps[ns.MapKey]
+			nsX, nsY := ns.X, ns.Y
 			if !ok {
-				continue
+				if w = wm.WorldByKey(ns.MapKey); w == nil || w != wm.OpenWorld {
+					continue
+				}
+				// Merged region: saved coords are map-local, live NPCs sit at
+				// unified coordinates.
+				nsX, nsY = wm.ProjectWorldPos(ns.MapKey, ns.X, ns.Y)
 			}
 			for _, npc := range w.NPCs {
 				// Coordinate match when the save has them; legacy saves
 				// (X==Y==0) fall back to the old name match.
 				if ns.X != 0 || ns.Y != 0 {
-					if npc.X != ns.X || npc.Y != ns.Y || npc.Name != ns.Name {
+					if npc.X != nsX || npc.Y != nsY || npc.Name != ns.Name {
 						continue
 					}
 				} else if npc.Name != ns.Name {
@@ -1759,6 +1942,40 @@ func (g *MMGame) applySave(wm *world.WorldManager, save *GameSave) error {
 		g.groundContainers = append(g.groundContainers, restored)
 	}
 	g.invalidateContainerFanCache()
+	// Unified world: saved state is map-local (local canon) - project every
+	// region-tagged coordinate into the stitched grid.
+	if wm != nil && wm.OpenWorld != nil {
+		tileSize := g.config.GetTileSize()
+		for i := range g.groundContainers {
+			c := &g.groundContainers[i]
+			if wm.IsOpenWorldRegion(c.MapKey) {
+				c.X, c.Y = wm.ProjectWorldPos(c.MapKey, c.X, c.Y)
+			}
+		}
+		for i := range g.steamZones {
+			z := &g.steamZones[i]
+			if wm.IsOpenWorldRegion(z.MapKey) {
+				z.X, z.Y = wm.ProjectWorldPos(z.MapKey, z.X, z.Y)
+			}
+		}
+		for i := range g.traps {
+			t := &g.traps[i]
+			if wm.IsOpenWorldRegion(t.MapKey) {
+				t.X, t.Y = wm.ProjectWorldPos(t.MapKey, t.X, t.Y)
+				t.TileX, t.TileY = int(t.X/tileSize), int(t.Y/tileSize)
+			}
+		}
+		for key, pose := range g.mapReturnPoses {
+			if wm.IsOpenWorldRegion(key) {
+				pose.X, pose.Y = wm.ProjectWorldPos(key, pose.X, pose.Y)
+				pose.Angle = wm.ProjectAngle(key, pose.Angle)
+				g.mapReturnPoses[key] = pose
+			}
+		}
+		if wm.IsOpenWorldRegion(g.underwaterReturnMap) {
+			g.underwaterReturnX, g.underwaterReturnY = wm.ProjectWorldPos(g.underwaterReturnMap, g.underwaterReturnX, g.underwaterReturnY)
+		}
+	}
 	// A pre-fix pyramid save bound the reliquaries to every static mob on the
 	// map. Ground containers restore first so their IDs can suppress duplicates;
 	// then a fully cleared dais receives the reliquaries it was already owed.

@@ -827,14 +827,6 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 	ui.compassCacheTileX = playerTileX
 	ui.compassCacheTileY = playerTileY
 
-	// Get floor color from map config
-	floorColor := color.RGBA{60, 110, 60, 180}
-	if world.GlobalWorldManager != nil {
-		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil {
-			floorColor = color.RGBA{uint8(mapCfg.DefaultFloorColor[0]), uint8(mapCfg.DefaultFloorColor[1]), uint8(mapCfg.DefaultFloorColor[2]), 180}
-		}
-	}
-
 	center := float32(radius)
 	for dy := -viewRange; dy <= viewRange; dy++ {
 		for dx := -viewRange; dx <= viewRange; dx++ {
@@ -851,7 +843,10 @@ func (ui *UISystem) rebuildCompassTileLayer(playerTileX, playerTileY, viewRange 
 				continue
 			}
 
-			// Get tile color based on type
+			// Get tile color based on type; the floor color follows the
+			// tile's own region on the unified world.
+			fc := ui.game.floorColorForTile(tileX, tileY, [3]int{60, 110, 60})
+			floorColor := color.RGBA{uint8(fc[0]), uint8(fc[1]), uint8(fc[2]), 180}
 			tile := ui.game.world.Tiles[tileY][tileX]
 			tileColor := ui.getMinimapTileColor(tile, floorColor)
 

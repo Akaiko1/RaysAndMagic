@@ -25,10 +25,9 @@ func (r *Renderer) drawSteamZoneBubbles(screen *ebiten.Image) {
 	}
 	ts := float64(r.game.config.GetTileSize())
 
-	mapKey := currentMapKey()
 	for zi := range r.game.steamZones {
 		z := &r.game.steamZones[zi]
-		if z.MapKey != "" && z.MapKey != mapKey {
+		if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 			continue
 		}
 		// Whole zone beyond view distance -> nothing of it can render.

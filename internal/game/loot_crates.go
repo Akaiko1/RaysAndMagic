@@ -11,6 +11,7 @@ import (
 	"ugataima/internal/items"
 	monsterPkg "ugataima/internal/monster"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 // npcIsWalkUpProp: interactables the party walks right up to (chests,
@@ -279,14 +280,22 @@ func (g *MMGame) rollMapLootEntry(exactRarity, minRarity, maxRarity string) (ite
 	var pool []poolEntry
 	minTier := rarityTier(minRarity)
 	maxTier := rarityTier(maxRarity)
-	keys := g.world.InitialMonsterKeys
-	if len(keys) == 0 {
-		// Small programmatic worlds in unit tests predate the initial-map snapshot.
-		// Their live mob list is the closest available definition of the map pool.
-		keys = make(map[string]struct{})
-		for _, m := range g.world.Monsters {
-			if m != nil {
-				keys[m.Key] = struct{}{}
+	var keys map[string]struct{}
+	if g.openWorldActive() {
+		// Unified world: the chest rolls its REGION's authored kinds - a forest
+		// chest must roll from the forest's pool, not the desert's. The merged
+		// world carries no flattened pool; a broken region invariant panics here.
+		keys = world.GlobalWorldManager.OpenWorldRegionByKey(currentMapKey()).InitialMonsterKeys
+	} else {
+		keys = g.world.InitialMonsterKeys
+		if len(keys) == 0 {
+			// Small programmatic worlds in unit tests predate the initial-map snapshot.
+			// Their live mob list is the closest available definition of the map pool.
+			keys = make(map[string]struct{})
+			for _, m := range g.world.Monsters {
+				if m != nil {
+					keys[m.Key] = struct{}{}
+				}
 			}
 		}
 	}

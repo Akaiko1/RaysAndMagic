@@ -1431,16 +1431,13 @@ func (ui *UISystem) drawMapOverlay(screen *ebiten.Image) {
 	originX := mapX + (mapW-worldW*tileSize)/2
 	originY := mapY + (mapH-worldH*tileSize)/2
 
-	floorColor := color.RGBA{60, 110, 60, 255}
-	if world.GlobalWorldManager != nil {
-		if mapCfg := world.GlobalWorldManager.GetCurrentMapConfig(); mapCfg != nil {
-			floorColor = color.RGBA{uint8(mapCfg.DefaultFloorColor[0]), uint8(mapCfg.DefaultFloorColor[1]), uint8(mapCfg.DefaultFloorColor[2]), 255}
-		}
-	}
-
 	defaultWallColor := color.RGBA{40, 40, 50, 255}
 	for y := 0; y < worldH; y++ {
 		for x := 0; x < worldW; x++ {
+			// Per-tile floor color: on the unified world each tile keeps ITS
+			// region's biome color regardless of where the party stands.
+			fc := ui.game.floorColorForTile(x, y, [3]int{60, 110, 60})
+			floorColor := color.RGBA{uint8(fc[0]), uint8(fc[1]), uint8(fc[2]), 255}
 			tile := ui.game.world.Tiles[y][x]
 			cellColor := floorColor
 			matched := true

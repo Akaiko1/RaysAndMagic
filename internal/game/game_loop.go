@@ -114,6 +114,10 @@ func (gl *GameLoop) updateExploration() {
 		return
 	}
 
+	// Track the party's region on the unified open world BEFORE anything below
+	// reads the current map key (sky, packs, quest scoping).
+	gl.game.syncOpenWorldRegion()
+
 	// Handle party updates (pass turn-based mode to disable timer-based regeneration)
 	gl.game.party.UpdateWithMode(gl.game.turnBasedMode)
 	gl.game.combat.knockOutLethalDoTVictims()
@@ -803,7 +807,11 @@ func (g *MMGame) buildTimedBuffs() []timedBuff {
 	return []timedBuff{
 		{"torch_light", &g.torchLightActive, &g.torchLightDuration, nil},
 		{"wizard_eye", &g.wizardEyeActive, &g.wizardEyeDuration, nil},
-		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, nil},
+		{"walk_on_water", &g.walkOnWaterActive, &g.walkOnWaterDuration, func() {
+			// Lapsing mid-lake strands the party on a blocking water tile;
+			// wade ashore unless another effect still handles the water.
+			g.settleAfterWalkOnWater()
+		}},
 		{"fly", &g.flyActive, &g.flyDuration, func() {
 			// Fly let the party pass through walls; if it lapses while they hover
 			// inside solid terrain, surface them or movement stays wall-locked.

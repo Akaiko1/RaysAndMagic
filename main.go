@@ -50,6 +50,9 @@ func main() {
 	if err := world.GlobalWorldManager.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		log.Fatalf("Failed to load map configs: %v", err)
 	}
+	if cfg.OpenWorldEnabled() {
+		world.GlobalWorldManager.SetOpenWorldConfig(config.MustLoadOpenWorldConfig("assets/open_world.yaml"))
+	}
 	if err := world.GlobalWorldManager.LoadAllMaps(); err != nil {
 		log.Fatalf("Failed to load maps: %v", err)
 	}

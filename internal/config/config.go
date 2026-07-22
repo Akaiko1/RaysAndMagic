@@ -256,6 +256,15 @@ type WorldConfig struct {
 	TileSize  int `yaml:"tile_size"`
 	MapWidth  int `yaml:"map_width"`
 	MapHeight int `yaml:"map_height"`
+	// OpenWorld merges the outdoor maps into one unified world at load time
+	// (rules in assets/open_world.yaml). Pointer so an absent key defaults ON.
+	OpenWorld *bool `yaml:"open_world"`
+}
+
+// OpenWorldEnabled reports whether the unified open world is on (default true;
+// set world.open_world: false in config.yaml for the classic split maps).
+func (c *Config) OpenWorldEnabled() bool {
+	return c.World.OpenWorld == nil || *c.World.OpenWorld
 }
 
 type MovementConfig struct {

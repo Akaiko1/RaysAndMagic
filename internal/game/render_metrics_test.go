@@ -25,12 +25,19 @@ func TestBillboardSizingSingleFormula(t *testing.T) {
 	near := Distance(game.camera.X, game.camera.Y, nx, ny)
 	_, _, personSize, pv := game.renderHelper.NPCSpriteMetrics(person, nx, ny, near)
 	_, _, propSize, sv := game.renderHelper.NPCSpriteMetrics(prop, nx, ny, near)
-	_, _, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetrics(nx, ny, near, 1)
+	containerX, containerY, contSize, cv := game.renderHelper.CalculateGroundContainerSpriteMetrics(nx, ny, near, 1)
 	if !pv || !sv || !cv {
 		t.Fatal("close-range billboards must be visible")
 	}
 	if personSize != propSize || personSize != contSize {
 		t.Fatalf("close-range sizes diverged: person=%d prop=%d container=%d - the single formula split", personSize, propSize, contSize)
+	}
+	containerXF, containerBottomF, containerSizeF, containerFloatVisible := game.renderHelper.CalculateGroundContainerSpriteMetricsF(nx, ny, near, 1)
+	if !containerFloatVisible {
+		t.Fatal("close-range float container metrics must be visible")
+	}
+	if gotX, gotY, gotSize := int(containerXF), int(containerBottomF)-int(containerSizeF), int(containerSizeF); gotX != containerX || gotY != containerY || gotSize != contSize {
+		t.Fatalf("container float/int projections diverged: float=(%d,%d,%d) int=(%d,%d,%d)", gotX, gotY, gotSize, containerX, containerY, contSize)
 	}
 
 	// Far: only the per-category minimum pixel floor may differ.

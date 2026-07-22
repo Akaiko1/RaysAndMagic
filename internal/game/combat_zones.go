@@ -5,6 +5,7 @@ import (
 
 	"ugataima/internal/character"
 	"ugataima/internal/spells"
+	"ugataima/internal/world"
 )
 
 // SteamZone is a fixed-position persistent damage field (Hot Steam). It is
@@ -52,13 +53,21 @@ func (cs *CombatSystem) tryCastSteamZone(spellID spells.SpellID, def spells.Spel
 	}
 
 	// Separate zones are allowed, but overlapping copies of the same spell
-	// replace one another so a single area cannot multiply its damage.
+	// replace one another so a single area cannot multiply its damage. Zones
+	// compare by WORLD, not raw key: on the unified world two region keys
+	// share one map, and an overlap across a seam must still replace.
+	sameWorldZone := func(a, b string) bool {
+		if wm := world.GlobalWorldManager; wm != nil {
+			return wm.SameWorldKey(a, b)
+		}
+		return a == b
+	}
 	zones := cs.game.steamZones
 	w := 0
 	for i := range zones {
 		z := zones[i]
 		sameArea := z.SpellID == newZone.SpellID &&
-			z.MapKey == newZone.MapKey &&
+			sameWorldZone(z.MapKey, newZone.MapKey) &&
 			Distance(z.X, z.Y, newZone.X, newZone.Y) < z.Radius+newZone.Radius
 		if sameArea {
 			continue
@@ -80,7 +89,7 @@ func (cs *CombatSystem) damageSteamZoneOnce(z *SteamZone) {
 	}
 	// A zone lives on the map it was cast on: same coordinates on another map
 	// would scald that map's monsters out of thin air.
-	if z.MapKey != "" && z.MapKey != currentMapKey() {
+	if z.MapKey != "" && !mapKeyOnCurrentWorld(z.MapKey) {
 		return
 	}
 	damageTypeStr := "water"
