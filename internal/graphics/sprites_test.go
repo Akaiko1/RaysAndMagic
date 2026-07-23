@@ -74,6 +74,22 @@ func TestGetSpriteVariants(t *testing.T) {
 	}
 }
 
+func TestSpriteNamesWithPrefixUsesIndexedAssetsInStableOrder(t *testing.T) {
+	sm := NewSpriteManager()
+	sm.spritePaths = map[string]string{
+		"chest_wooden": "/unused/wooden.png",
+		"bag_rare":     "/unused/rare.png",
+		"bag":          "/unused/bag.png",
+		"bag_common":   "/unused/common.png",
+		"baggage":      "/unused/baggage.png",
+	}
+	got := sm.SpriteNamesWithPrefix("bag")
+	want := []string{"bag", "bag_common", "bag_rare", "baggage"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("prefix names = %v, want %v", got, want)
+	}
+}
+
 func TestSpriteOpaqueAtUsesColorKeyedCPUMask(t *testing.T) {
 	tempDir := t.TempDir()
 	spriteDir := filepath.Join(tempDir, "assets", "sprites", "environment")

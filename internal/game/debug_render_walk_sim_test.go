@@ -24,9 +24,13 @@ package game
 // fireflies / other env sprites / monsters / NPCs / loot bags) and subtract -
 // real timings, no formulas.
 //
-// Run with:  RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_RenderWalk -v
+// Run with: RAM_DEBUG_SIM=1 go test -tags debug ./internal/game \
+// -run TestDebugSim_RenderWalk -v
 // One-pose profile: RAM_DEBUG_SIM=1 RAM_WALK_POSE=13,36,45
 // RAM_WALK_MAP=deep_jungle selects another map for a one-pose profile.
+// RAM_WALK_OPEN_WORLD=1 uses the stitched physical world.
+// RAM_WALK_PREWARM_REGIONS=desert,deep_jungle simulates region residency.
+// RAM_WALK_GC_AFTER_PREWARM=1 logs live memory and standee texture footprint.
 // RAM_WALK_OFFSET_PX=0,30 moves that pose within the selected tile.
 // RAM_WALK_SCREENSHOT=/tmp/river.png saves the final rendered frame.
 // RAM_WALK_TREES_ONLY=1 removes every other unified-sprite category.
@@ -42,7 +46,9 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"sort"
+	"strings"
 	"testing"
 
 	"ugataima/internal/bridge"
@@ -76,6 +82,64 @@ type walkHarness struct {
 	screen    *ebiten.Image
 	reps      int
 	fullFrame bool
+}
+
+func logRenderWalkMemory(t *testing.T, label string, r *Renderer) {
+	t.Helper()
+	runtime.GC()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	images := make(map[*ebiten.Image]struct{})
+	groupImages := make(map[string]map[*ebiten.Image]struct{})
+	var pixels int64
+	addImage := func(group string, img *ebiten.Image) {
+		if img == nil {
+			return
+		}
+		if groupImages[group] == nil {
+			groupImages[group] = make(map[*ebiten.Image]struct{})
+		}
+		groupImages[group][img] = struct{}{}
+		if _, seen := images[img]; seen {
+			return
+		}
+		images[img] = struct{}{}
+		b := img.Bounds()
+		pixels += int64(b.Dx()) * int64(b.Dy())
+	}
+	groupForName := func(name string) string {
+		if group, _, ok := strings.Cut(name, ":"); ok {
+			return group
+		}
+		return "other"
+	}
+	for key, img := range r.standeeCoreCache {
+		addImage(groupForName(key.name), img)
+	}
+	for key, chain := range r.standeeMipCache {
+		if chain == nil {
+			continue
+		}
+		for _, img := range chain.levels {
+			addImage(groupForName(key.frame.name), img)
+		}
+	}
+	t.Logf("%s live heap=%dMB sys=%dMB standee_images=%d pixel_bytes=%dMB",
+		label, ms.HeapAlloc/(1<<20), ms.Sys/(1<<20), len(images), pixels*4/(1<<20))
+	groups := make([]string, 0, len(groupImages))
+	for group := range groupImages {
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
+	for _, group := range groups {
+		var groupPixels int64
+		for img := range groupImages[group] {
+			b := img.Bounds()
+			groupPixels += int64(b.Dx()) * int64(b.Dy())
+		}
+		t.Logf("%s standee group %s: images=%d pixel_bytes=%dMB",
+			label, group, len(groupImages[group]), groupPixels*4/(1<<20))
+	}
 }
 
 // measure renders the pose reps times - each render inside its OWN live Draw
@@ -215,6 +279,17 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if err := wm.LoadMapConfigs("assets/map_configs.yaml"); err != nil {
 		t.Fatalf("map configs: %v", err)
 	}
+	openWorld := os.Getenv("RAM_WALK_OPEN_WORLD") != ""
+	if openWorld {
+		if err := world.GlobalTileManager.LoadSpecialTileConfig("assets/special_tiles.yaml"); err != nil {
+			t.Fatalf("special tiles: %v", err)
+		}
+		owc, err := config.LoadOpenWorldConfig("assets/open_world.yaml")
+		if err != nil {
+			t.Fatalf("open world config: %v", err)
+		}
+		wm.SetOpenWorldConfig(owc)
+	}
 	if err := wm.LoadAllMaps(); err != nil {
 		t.Fatalf("load maps: %v", err)
 	}
@@ -224,6 +299,9 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	}
 	if mapKey != "forest" && os.Getenv("RAM_WALK_POSE") == "" {
 		t.Fatal("RAM_WALK_MAP is only supported with RAM_WALK_POSE")
+	}
+	if openWorld && os.Getenv("RAM_WALK_POSE") == "" {
+		t.Fatal("RAM_WALK_OPEN_WORLD requires RAM_WALK_POSE")
 	}
 	if err := wm.SwitchToMap(mapKey); err != nil {
 		t.Fatalf("switch: %v", err)
@@ -260,19 +338,38 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	g.appScreen = AppScreenInGame
 	if poseSet {
 		g.camera.X, g.camera.Y = TileCenterFromTile(poseTileX, poseTileY, float64(cfg.GetTileSize()))
+		if openWorld {
+			g.camera.X, g.camera.Y = wm.ProjectWorldPos(mapKey, g.camera.X, g.camera.Y)
+			g.camera.Angle = wm.ProjectAngle(mapKey, poseAngleDeg*math.Pi/180)
+		}
 		g.camera.X += poseOffsetX
 		g.camera.Y += poseOffsetY
-		g.camera.Angle = poseAngleDeg * math.Pi / 180
+		if !openWorld {
+			g.camera.Angle = poseAngleDeg * math.Pi / 180
+		}
 	}
 	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
-	if os.Getenv("RAM_SKIP_TREE_PREWARM") == "" {
-		g.gameLoop.renderer.prewarmPendingTreeStandeeResources()
-		if g.gameLoop.renderer.treeStandeeResourcePrewarmPending {
-			t.Fatal("tree standee resource prewarm remained pending")
+	if os.Getenv("RAM_SKIP_MAP_PREWARM") == "" && os.Getenv("RAM_SKIP_TREE_PREWARM") == "" {
+		var prewarmStats mapRenderPrewarmStats
+		runOnDrawFrame(func(_ *ebiten.Image) {
+			prewarmStats = g.gameLoop.renderer.prewarmPendingMapRenderResources()
+		})
+		if g.gameLoop.renderer.mapRenderResourcePrewarmPending {
+			t.Fatal("map render resource prewarm remained pending")
 		}
+		if prewarmStats.spriteFiles == 0 || prewarmStats.uploadImages == 0 {
+			t.Fatalf("map prewarm did no work: %+v", prewarmStats)
+		}
+		t.Logf("map prewarm: sprites=%d animations=%d standees=%d walls=%d uploads=%d",
+			prewarmStats.spriteFiles, prewarmStats.animationSheets, prewarmStats.standeeFrames,
+			prewarmStats.wallTextures, prewarmStats.uploadImages)
+		prewarmScope := g.gameLoop.renderer.mapRenderPrewarmScope(currentMapKey())
 		seenTreeSprites := make(map[string]struct{})
 		for i := range g.gameLoop.renderer.treeTilesCache {
 			td := &g.gameLoop.renderer.treeTilesCache[i]
+			if !prewarmScope.containsTile(td.tileX, td.tileY) {
+				continue
+			}
 			spriteName := td.spriteName
 			if spriteName == "" {
 				spriteName = treeStandeeSpriteName(td.tileType)
@@ -282,7 +379,7 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 			}
 			seenTreeSprites[spriteName] = struct{}{}
 			sprite := g.sprites.GetSprite(spriteName)
-			key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
+			key := makeStandeeCoreKey("tree:"+spriteName, sprite, true)
 			if g.gameLoop.renderer.standeeCoreCache[key] == nil {
 				t.Fatalf("tree %q has no prewarmed standee core", spriteName)
 			}
@@ -292,6 +389,44 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 				}
 			}
 		}
+	}
+	if raw := os.Getenv("RAM_WALK_PREWARM_REGIONS"); raw != "" {
+		for _, mapKey := range strings.Split(raw, ",") {
+			mapKey = strings.TrimSpace(mapKey)
+			if mapKey == "" {
+				continue
+			}
+			if openWorld {
+				x, y, ok := wm.OpenWorldRegionStart(mapKey)
+				if !ok {
+					region := wm.OpenWorldRegionByKey(mapKey)
+					if region == nil {
+						t.Fatalf("unknown open-world region %q", mapKey)
+					}
+					x, y = TileCenterFromTile(
+						region.OffsetX+region.Width/2,
+						region.OffsetY+region.Height/2,
+						float64(cfg.GetTileSize()),
+					)
+				}
+				wm.CurrentMapKey = mapKey
+				g.camera.X, g.camera.Y = x, y
+			}
+			g.gameLoop.renderer.scheduleMapRenderResourcePrewarm(mapKey)
+			var stats mapRenderPrewarmStats
+			runOnDrawFrame(func(_ *ebiten.Image) {
+				stats = g.gameLoop.renderer.prewarmPendingMapRenderResources()
+			})
+			t.Logf("region prewarm %s: sprites=%d animations=%d standees=%d walls=%d uploads=%d residents=%v",
+				mapKey, stats.spriteFiles, stats.animationSheets, stats.standeeFrames,
+				stats.wallTextures, stats.uploadImages, g.gameLoop.renderer.mapRenderResidentMapKeys)
+			if os.Getenv("RAM_WALK_GC_AFTER_PREWARM") != "" {
+				logRenderWalkMemory(t, "after "+mapKey, g.gameLoop.renderer)
+			}
+		}
+	}
+	if os.Getenv("RAM_WALK_GC_AFTER_PREWARM") != "" {
+		logRenderWalkMemory(t, "pre-render", g.gameLoop.renderer)
 	}
 	h := &walkHarness{
 		g: g, r: g.gameLoop.renderer, w: w,
@@ -330,7 +465,28 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 				t.Fatalf("RAM_WALK_POSE_REPS must be a positive integer")
 			}
 		}
+		var profileFile *os.File
+		if path := os.Getenv("RAM_WALK_CPU_PROFILE_RENDER"); path != "" {
+			var err error
+			profileFile, err = os.Create(path)
+			if err != nil {
+				t.Fatalf("create render CPU profile: %v", err)
+			}
+			if err := pprof.StartCPUProfile(profileFile); err != nil {
+				profileFile.Close()
+				t.Fatalf("start render CPU profile: %v", err)
+			}
+		}
 		got := h.measure(g.camera.X, g.camera.Y, g.camera.Angle)
+		if profileFile != nil {
+			pprof.StopCPUProfile()
+			if err := profileFile.Close(); err != nil {
+				t.Fatalf("close render CPU profile: %v", err)
+			}
+		}
+		if os.Getenv("RAM_WALK_GC_AFTER_PREWARM") != "" {
+			logRenderWalkMemory(t, "post-render", h.r)
+		}
 		if path := os.Getenv("RAM_WALK_SCREENSHOT"); path != "" {
 			f, err := os.Create(path)
 			if err != nil {

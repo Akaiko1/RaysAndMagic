@@ -31,6 +31,12 @@ func (g *MMGame) syncOpenWorldRegion() {
 		return
 	}
 	wm.CurrentMapKey = r.MapKey
+	if g.gameLoop != nil && g.gameLoop.renderer != nil {
+		// The stitched world does not rebuild renderer caches at a seamless
+		// boundary. Warm the new logical map explicitly; renderer residency
+		// retains the previous region as well so both sides of the seam render.
+		g.gameLoop.renderer.scheduleMapRenderResourcePrewarm(r.MapKey)
+	}
 	// A region cross IS a map departure: bound undead crumble (XP granted),
 	// card allies vanish - same rules as a split-map switch. Charmed monsters
 	// are Pacified, not Bound, so they stay put untouched.

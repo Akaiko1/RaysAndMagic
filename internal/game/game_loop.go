@@ -62,7 +62,7 @@ func (gl *GameLoop) Update() error {
 	}()
 	defer func() {
 		if gl.renderer != nil {
-			gl.renderer.prewarmPendingTreeStandeeResources()
+			gl.renderer.prewarmPendingMapRenderResources()
 		}
 	}()
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()

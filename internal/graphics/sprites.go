@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -439,6 +440,25 @@ func (sm *SpriteManager) GetSpriteVariants(baseName string) []string {
 		}
 	}
 	return variants
+}
+
+// SpriteNamesWithPrefix returns every indexed sprite basename beginning with
+// prefix in stable order. Resource prewarmers use the index itself as the
+// source of truth for families such as bag_* and chest_*; adding an asset does
+// not require a parallel hardcoded list.
+func (sm *SpriteManager) SpriteNamesWithPrefix(prefix string) []string {
+	if sm == nil || prefix == "" {
+		return nil
+	}
+	sm.ensureIndex()
+	names := make([]string, 0)
+	for name := range sm.spritePaths {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (sm *SpriteManager) spriteExists(name string) bool {

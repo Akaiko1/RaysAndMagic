@@ -150,8 +150,17 @@ type Renderer struct {
 	// treeTilesCache lists every tree tile (one entry per tile) for the
 	// crossed-standee billboard mode (config.Graphics.TreesAsBillboards). Built
 	// alongside transparentSpritesCache; unused in the per-column tree mode.
-	treeTilesCache                    []TransparentSpriteData
-	treeStandeeResourcePrewarmPending bool
+	treeTilesCache []TransparentSpriteData
+	// mapRenderTileTypes is the unique authored tile inventory discovered by the
+	// same map scan that builds the sprite caches. The map-resource prewarmer uses
+	// it instead of rescanning the world or maintaining a parallel asset list.
+	mapRenderTileTypes              []world.TileType3D
+	mapRenderResourcePrewarmPending bool
+	mapRenderResourcePrewarmMapKey  string
+	mapRenderResidentMapKeys        []string
+	mapRenderStandeeKeysByMap       map[string]map[standeeCoreKey]struct{}
+	mapRenderSharedResourcesReady   bool
+	mapRenderSharedStandeeKeys      map[standeeCoreKey]struct{}
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -280,12 +289,18 @@ func (r *Renderer) handleResize(screenWidth, screenHeight int) {
 
 // buildTransparentSpriteCache scans the world once to cache all transparent environment sprites
 func (r *Renderer) buildTransparentSpriteCache() {
+	// A physical world switch is a real render-resource boundary. Generated
+	// standee cores/mips from the old world cannot become visible again until a
+	// later map load, so release that residency before inventorying the new map.
+	r.resetMapRenderResourceResidency()
 	r.processedSpriteCache = make(map[processedSpriteKey]*ebiten.Image)
 
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
 		r.treeTilesCache = nil
-		r.treeStandeeResourcePrewarmPending = false
+		r.mapRenderTileTypes = nil
+		r.mapRenderResourcePrewarmPending = false
+		r.mapRenderResourcePrewarmMapKey = ""
 		r.tileLightCache = nil
 		r.clearCanopyShadeCache()
 		return
@@ -294,6 +309,8 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	var cache []TransparentSpriteData
 	var treeCache []TransparentSpriteData
 	var lights []LightSource
+	tileTypes := make([]world.TileType3D, 0, 32)
+	seenTileTypes := make(map[world.TileType3D]struct{}, 32)
 	worldWidth := r.game.GetCurrentWorld().Width
 	worldHeight := r.game.GetCurrentWorld().Height
 	tileSize := float64(r.game.config.GetTileSize())
@@ -306,6 +323,10 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 			// Get tile type at this position
 			tileType := r.game.GetCurrentWorld().GetTileAt(worldX, worldY)
+			if _, seen := seenTileTypes[tileType]; !seen {
+				seenTileTypes[tileType] = struct{}{}
+				tileTypes = append(tileTypes, tileType)
+			}
 
 			if tileData := world.GlobalTileManager.GetTileData(tileType); tileData != nil && tileData.Light != nil && tileData.Light.Enabled {
 				radius := tileData.Light.RadiusTiles * tileSize
@@ -360,8 +381,11 @@ func (r *Renderer) buildTransparentSpriteCache() {
 
 	r.transparentSpritesCache = cache
 	r.treeTilesCache = treeCache
+	r.mapRenderTileTypes = tileTypes
 	r.tileLightCache = lights
-	r.treeStandeeResourcePrewarmPending = len(treeCache) > 0
+	// Defer heavyweight PNG decode/mip/upload work until the game has actually
+	// entered play. GameLoop.Update consumes this once after map load/switch.
+	r.scheduleMapRenderResourcePrewarm(currentMapKey())
 	r.buildCanopyShadeCache()
 	r.buildWallTorches()
 	r.reserveUnifiedSpriteCapacity()
@@ -3064,10 +3088,14 @@ type UnifiedSpriteRenderData struct {
 	treeArmHi       int
 	treeCenterDepth float64
 	// Monster specific
-	monster        *monster.Monster3D
-	monsterFlip    bool
-	monsterRenderX float64
-	monsterRenderY float64
+	monster     *monster.Monster3D
+	monsterFlip bool // billboard fallback: mirror the chosen directional sheet
+	// Standee art has one deterministic authored facing; world heading supplies
+	// the runtime mirror. Keeping it beside the selected frame prevents collect
+	// and draw from resolving two different animation sheets.
+	monsterArtFacesLeft bool
+	monsterRenderX      float64
+	monsterRenderY      float64
 	// NPC specific
 	npc *character.NPC
 	// buildingSegment indexes the footprint tile this entry draws for a
@@ -3484,23 +3512,30 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 			bottomF = float64(r.game.config.GetScreenHeight())/2 + sizeF/2
 		}
 
-		sprite, flip := r.getMonsterSprite(mon)
+		var sprite *ebiten.Image
+		var flip, artFacesLeft bool
+		if r.game.config.Graphics.Standee.Enabled {
+			sprite, artFacesLeft = r.getMonsterStandeeSprite(mon)
+		} else {
+			sprite, flip = r.getMonsterSprite(mon)
+		}
 
 		spriteSize := int(sizeF)
 		sprites = append(sprites, UnifiedSpriteRenderData{
-			spriteType:     SpriteTypeMonster,
-			screenX:        int(screenXf),
-			screenY:        int(bottomF) - spriteSize,
-			spriteSize:     spriteSize,
-			screenXF:       screenXf,
-			sizeF:          sizeF,
-			bottomF:        bottomF,
-			depthPerp:      depthPerp,
-			sprite:         sprite,
-			monster:        mon,
-			monsterFlip:    flip,
-			monsterRenderX: renderX,
-			monsterRenderY: renderY,
+			spriteType:          SpriteTypeMonster,
+			screenX:             int(screenXf),
+			screenY:             int(bottomF) - spriteSize,
+			spriteSize:          spriteSize,
+			screenXF:            screenXf,
+			sizeF:               sizeF,
+			bottomF:             bottomF,
+			depthPerp:           depthPerp,
+			sprite:              sprite,
+			monster:             mon,
+			monsterFlip:         flip,
+			monsterArtFacesLeft: artFacesLeft,
+			monsterRenderX:      renderX,
+			monsterRenderY:      renderY,
 		})
 	}
 
@@ -3814,7 +3849,7 @@ func (r *Renderer) drawUnifiedGroundContainerSprite(screen *ebiten.Image, s Unif
 		ox, oy := r.game.groundContainerRenderOffset(c)
 		phase := auraHash(int(c.X), int(c.Y), 0, 0) * 2 * math.Pi
 		yaw := standeeStaticYaw + phase + containerSpinDegSec*math.Pi/180*float64(r.game.frameCount)/float64(r.game.config.GetTPS())
-		key := standeeCoreKey{name: r.prefixedStandeeKeyName("container", spriteName), bounds: s.sprite.Bounds()}
+		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("container", spriteName), s.sprite, false)
 		if r.drawStandeeSprite(screen, s.sprite, key, c.X+ox, c.Y+oy, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return
@@ -3882,7 +3917,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// through to a centred standee when no wall is adjacent.
 		if world.GlobalTileManager != nil && world.GlobalTileManager.IsWallMounted(s.tileType) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(worldX, worldY); ok {
-				wkey := standeeCoreKey{name: r.prefixedStandeeKeyName("wallprop", name), bounds: frame.Bounds()}
+				wkey := makeStandeeCoreKey(r.prefixedStandeeKeyName("wallprop", name), frame, false)
 				// Centre on the wall, not floor-anchored: bottom = horizon + half
 				// height puts the sprite centre on the horizon (the wall's mid-line).
 				centeredBottom := float64(r.game.config.GetScreenHeight())/2 + s.sizeF/2
@@ -3927,7 +3962,7 @@ func (r *Renderer) drawUnifiedEnvironmentSprite(screen *ebiten.Image, s UnifiedS
 		// not the base name: variants share dimensions, and a base-name key let
 		// whichever variant rendered first stamp its wood slab onto all of them
 		// (short grass tuft wearing the tall variant's silhouette).
-		key := standeeCoreKey{name: r.prefixedStandeeKeyName("tile", name), bounds: frame.Bounds()}
+		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tile", name), frame, false)
 		if r.drawStandeeSprite(screen, frame, key, worldX, worldY, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, b, b, b, true, false, 0) {
 			return
@@ -4041,9 +4076,9 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 		// the token's on-screen U direction with the heading's on-screen
 		// direction; held while the heading points at/away from the camera
 		// (|dDot| small) so it can't flicker mid-charge.
-		sprite, artFacesLeft := r.getMonsterStandeeSprite(m)
+		sprite, artFacesLeft := s.sprite, s.monsterArtFacesLeft
 		if sprite == nil {
-			sprite = s.sprite
+			return
 		}
 		if mirror, decisive := standeeMirrorFor(r.game.camera.Angle, m.StandeeYaw, m.Direction, artFacesLeft); decisive {
 			m.StandeeMirror = mirror
@@ -4069,7 +4104,7 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 
 		// Monster animation frames are load-time images with identical bounds;
 		// the pointer (stable for them) is what tells frames apart in the cache.
-		key := standeeCoreKey{name: r.prefixedStandeeKeyName("mob", m.Key), bounds: sprite.Bounds(), img: sprite}
+		key := makeStandeeCoreKey(r.prefixedStandeeKeyName("mob", m.Key), sprite, true)
 		if r.drawStandeeSprite(screen, sprite, key, entX, entY, m.StandeeYaw,
 			s.depthPerp, s.sizeF, screenYF+s.sizeF, rr, gg, bb, false, m.StandeeMirror, 0) {
 			r.drawMonsterStatusFX(screen, s, screenY)
@@ -4082,20 +4117,29 @@ func (r *Renderer) drawUnifiedMonsterSprite(screen *ebiten.Image, s UnifiedSprit
 	// the fallback when standee is turned off; not a maintained visual target -
 	// new per-monster overlays belong in drawMonsterStatusFX, called from BOTH
 	// paths, not appended here alone.
-	scaleX := s.sizeF / float64(s.sprite.Bounds().Dx())
-	scaleY := s.sizeF / float64(s.sprite.Bounds().Dy())
-	if s.monsterFlip {
+	billboardSprite, billboardFlip := s.sprite, s.monsterFlip
+	if r.game.config.Graphics.Standee.Enabled {
+		// Resolve the billboard-specific directional sheet only when standee
+		// geometry genuinely rejected the token and this fallback will draw.
+		billboardSprite, billboardFlip = r.getMonsterSprite(s.monster)
+	}
+	if billboardSprite == nil {
+		return
+	}
+	scaleX := s.sizeF / float64(billboardSprite.Bounds().Dx())
+	scaleY := s.sizeF / float64(billboardSprite.Bounds().Dy())
+	if billboardFlip {
 		opts := r.scaledWorldSpriteOpts(-scaleX, scaleY)
 		opts.GeoM.Translate(drawLeftF+s.sizeF, screenYF)
 		opts.ColorScale.Scale(rr, gg, bb, 1.0)
 		opts.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(s.sprite, opts)
+		screen.DrawImage(billboardSprite, opts)
 	} else {
 		opts := r.scaledWorldSpriteOpts(scaleX, scaleY)
 		opts.GeoM.Translate(drawLeftF, screenYF)
 		opts.ColorScale.Scale(rr, gg, bb, 1.0)
 		opts.Blend = ebiten.BlendSourceOver
-		screen.DrawImage(s.sprite, opts)
+		screen.DrawImage(billboardSprite, opts)
 	}
 	r.drawMonsterStatusFX(screen, s, screenY)
 }
@@ -4230,7 +4274,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// wall bias.
 		if r.game.npcIsWall(s.npc) {
 			if wx, wy, wyaw, ok := r.game.wallStickPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
+				wkey := makeStandeeCoreKey(npcKeyName, sprite, false)
 				// Full NPC gates stay floor-anchored (bottom at the tile's floor).
 				r.drawWallStandee(screen, sprite, wkey, wx, wy, wyaw, s.depthPerp, s.sizeF, s.bottomF, sb, 0, wallMountedDepthAllowanceWorld(r.game.config.GetTileSize(), r.game.config.Graphics.Standee.ThicknessTiles), true)
 				return
@@ -4247,7 +4291,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		// line. It is free-standing, so it must NOT borrow a wall's depth bias.
 		if s.npc.GridSpanTiles >= 2 {
 			if bx, by, byaw, ok := r.game.buildingPose(s.npc); ok {
-				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
+				wkey := makeStandeeCoreKey(npcKeyName, sprite, false)
 				ts := float64(r.game.config.GetTileSize())
 				span := float64(s.npc.GridSpanTiles) * ts
 				aspect := float64(sprite.Bounds().Dy()) / math.Max(1, float64(sprite.Bounds().Dx()))
@@ -4311,7 +4355,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 		}
 		if cat == catDoor {
 			if wx, wy, wyaw, ok := r.game.doorPose(s.npc.X, s.npc.Y); ok {
-				wkey := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
+				wkey := makeStandeeCoreKey(npcKeyName, sprite, false)
 				// The gate art is square and the doorway is exactly one tile:
 				// force the slab to 1 tile of world span and measure its pixel
 				// height with the WALLS' own formula at the same depth, so the
@@ -4353,7 +4397,7 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				return
 			}
 		}
-		key := standeeCoreKey{name: npcKeyName, bounds: sprite.Bounds()}
+		key := makeStandeeCoreKey(npcKeyName, sprite, false)
 		if r.drawStandeeSprite(screen, sprite, key, s.npc.X, s.npc.Y, yaw,
 			s.depthPerp, s.sizeF, s.bottomF, sb, sb, sb, true, false, 0) {
 			return

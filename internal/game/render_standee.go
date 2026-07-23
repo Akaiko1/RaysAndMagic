@@ -58,6 +58,17 @@ type standeeCoreKey struct {
 	img    *ebiten.Image // only set when the caller's frame images are stable
 }
 
+func makeStandeeCoreKey(name string, img *ebiten.Image, stableImage bool) standeeCoreKey {
+	if img == nil {
+		return standeeCoreKey{name: name}
+	}
+	key := standeeCoreKey{name: name, bounds: img.Bounds()}
+	if stableImage {
+		key.img = img
+	}
+	return key
+}
+
 type standeeMipLayer uint8
 
 const (
@@ -78,6 +89,9 @@ type standeeMipKey struct {
 // levels must be explicit images for true trilinear filtering.
 type standeeMipChain struct {
 	levels []*ebiten.Image
+	// owned lists only images generated for this chain. Level 0 often aliases
+	// immutable SpriteManager art and must survive region-cache eviction.
+	owned []*ebiten.Image
 }
 
 // standeeCoreSilhouette returns (building and caching on first use) the sprite
@@ -85,6 +99,7 @@ type standeeMipChain struct {
 // blend plus faint horizontal grain, so the token core follows the die-cut art.
 func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) *ebiten.Image {
 	if img, ok := r.standeeCoreCache[key]; ok {
+		r.trackResidentStandeeKey(key)
 		return img
 	}
 	b := src.Bounds()
@@ -161,6 +176,7 @@ func (r *Renderer) standeeCoreSilhouette(key standeeCoreKey, src *ebiten.Image) 
 	}
 	r.cacheStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipSticker}, src, stickerPixels)
 	r.cacheStandeeMipChain(standeeMipKey{frame: key, layer: standeeMipCore}, img, out)
+	r.trackResidentStandeeKey(key)
 	return img
 }
 
@@ -369,11 +385,14 @@ func (r *Renderer) cacheStandeeMipChain(key standeeMipKey, src *ebiten.Image, cp
 		// SubImages need this managed-source copy. Avoiding a duplicate level 0
 		// for standalone images cuts the mip cache's dominant allocation.
 		base = ebiten.NewImageFromImage(cpuLevel)
+		chain.owned = append(chain.owned, base)
 	}
 	chain.levels = append(chain.levels, base)
 	for _, size := range sizes[1:] {
 		cpuLevel = downsampleStandeeMip(cpuLevel, size)
-		chain.levels = append(chain.levels, ebiten.NewImageFromImage(cpuLevel))
+		level := ebiten.NewImageFromImage(cpuLevel)
+		chain.levels = append(chain.levels, level)
+		chain.owned = append(chain.owned, level)
 	}
 	if r.standeeMipCache == nil {
 		r.standeeMipCache = make(map[standeeMipKey]*standeeMipChain)
@@ -1441,67 +1460,9 @@ func treeStandeeSpriteName(tileType world.TileType3D) string {
 	return "tree"
 }
 
-// prewarmTreeStandeeResources moves map-specific PNG decoding, core generation,
-// mip construction, and shader compilation out of the first gameplay frame in
-// which each tree type becomes visible. The cache scan already knows every tree
-// on the current map, so it is the single place where this resource set can be
-// prepared without guessing what a later camera pose may reveal.
-func (r *Renderer) prewarmTreeStandeeResources() {
-	if r == nil || r.game == nil || r.game.sprites == nil ||
-		!r.game.config.Graphics.TreesAsBillboards || len(r.treeTilesCache) == 0 {
-		return
-	}
-
-	seen := make(map[string]struct{})
-	newImages := make(map[*ebiten.Image]struct{})
-	var shaderStickerMips, shaderCoreMips *standeeMipChain
-	for i := range r.treeTilesCache {
-		spriteName := r.treeTilesCache[i].spriteName
-		if spriteName == "" {
-			spriteName = treeStandeeSpriteName(r.treeTilesCache[i].tileType)
-		}
-		if _, ok := seen[spriteName]; ok {
-			continue
-		}
-		seen[spriteName] = struct{}{}
-
-		sprite := r.game.sprites.GetSprite(spriteName)
-		if sprite == nil {
-			continue
-		}
-		key := standeeCoreKey{name: r.prefixedStandeeKeyName("tree", spriteName), bounds: sprite.Bounds(), img: sprite}
-		_, alreadyCached := r.standeeCoreCache[key]
-		r.standeeCoreSilhouette(key, sprite)
-		if alreadyCached {
-			continue
-		}
-		for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
-			chain := r.standeeMipCache[standeeMipKey{frame: key, layer: layer}]
-			if chain == nil {
-				continue
-			}
-			if layer == standeeMipSticker && shaderStickerMips == nil {
-				shaderStickerMips = chain
-			}
-			if layer == standeeMipCore && shaderCoreMips == nil {
-				shaderCoreMips = chain
-			}
-			for _, img := range chain.levels {
-				if img != nil {
-					newImages[img] = struct{}{}
-				}
-			}
-		}
-	}
-
-	// Both paths remain reachable as shell count and viewing angle change.
-	_, _ = r.ensureStandeeTrilinearShader()
-	_, _ = r.ensureStandeeVolumeShader()
-	r.flushStandeeImageUploads(newImages, shaderStickerMips, shaderCoreMips)
-
-	// Below the volume-shader threshold the fallback submits every virtual
-	// surface. Reserve its worst full-screen case once at map load instead of
-	// repeatedly growing these buffers as the party approaches a tree.
+// reserveStandeeBuffers allocates the worst normal fallback geometry once at
+// map load instead of repeatedly growing it as the party approaches a token.
+func (r *Renderer) reserveStandeeBuffers() {
 	screenW := r.game.config.GetScreenWidth()
 	maxFallbackSurfaces := standeeVolumeMinShells + 1
 	vertexCapacity := 4 * screenW * maxFallbackSurfaces
@@ -1521,11 +1482,11 @@ func (r *Renderer) prewarmTreeStandeeResources() {
 	}
 }
 
-// flushStandeeImageUploads submits every newly built managed mip as a source
-// before gameplay. Reading the tiny destination synchronizes their buffered
-// WritePixels uploads while leaving the sources themselves atlas-friendly;
-// calling ReadPixels on a source image would isolate it and destroy batching.
-func (r *Renderer) flushStandeeImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *standeeMipChain) {
+// flushPrewarmedImageUploads submits every map image and generated mip as a
+// source before gameplay. Reading the tiny destination synchronizes buffered
+// uploads while leaving the sources themselves atlas-friendly; calling
+// ReadPixels on each source would isolate it and destroy batching.
+func (r *Renderer) flushPrewarmedImageUploads(images map[*ebiten.Image]struct{}, stickerMips, coreMips *standeeMipChain) {
 	if len(images) == 0 {
 		return
 	}
@@ -1587,14 +1548,6 @@ func (r *Renderer) flushStandeeImageUploads(images map[*ebiten.Image]struct{}, s
 	target.ReadPixels(make([]byte, 4*(len(images)+2)))
 }
 
-func (r *Renderer) prewarmPendingTreeStandeeResources() {
-	if r == nil || !r.treeStandeeResourcePrewarmPending {
-		return
-	}
-	r.treeStandeeResourcePrewarmPending = false
-	r.prewarmTreeStandeeResources()
-}
-
 func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSpriteRenderData) {
 	spriteName := s.spriteName
 	if spriteName == "" {
@@ -1616,7 +1569,7 @@ func (r *Renderer) drawCrossedTreeStandees(screen *ebiten.Image, s UnifiedSprite
 		heightF = s.sizeF * float64(sprite.Bounds().Dy()) / texW
 	}
 	bottomF := s.bottomF
-	key := standeeCoreKey{name: r.prefixedStandeeKeyName("tree", spriteName), bounds: sprite.Bounds(), img: sprite}
+	key := makeStandeeCoreKey(r.prefixedStandeeKeyName("tree", spriteName), sprite, true)
 
 	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
 	centerDepth := s.depthPerp
@@ -1816,7 +1769,7 @@ func (r *Renderer) drawLandmarkStandee(screen, sprite *ebiten.Image, keyName str
 	if texW := float64(sprite.Bounds().Dx()); texW > 0 {
 		heightF = sizeF * float64(sprite.Bounds().Dy()) / texW
 	}
-	key := standeeCoreKey{name: keyName, bounds: sprite.Bounds(), img: sprite}
+	key := makeStandeeCoreKey(keyName, sprite, true)
 	footprint := r.spriteFootprintWorld(sizeF, depthPerp)
 	r.drawCrossedSlabs(screen, sprite, key, worldX, worldY, spinYaw, spinYaw+math.Pi/2, footprint, depthPerp, heightF, bottomF, b, false)
 	return true
