@@ -97,14 +97,19 @@ type Renderer struct {
 	standeeMipCache        map[standeeMipKey]*standeeMipChain
 	standeeTrilinearShader *ebiten.Shader
 	standeeTrilinearOpts   ebiten.DrawTrianglesShaderOptions
+	standeeVolumeShader    *ebiten.Shader
+	standeeVolumeOpts      ebiten.DrawTrianglesShaderOptions
 	// Reusable vertex/index buffers for batched standee surface draws.
 	standeeVerts []ebiten.Vertex
 	standeeIdx   []uint16
+	// Thick standee slabs can exceed uint16 when a close full-screen face has
+	// many core shells. The material shader batches the whole slab with 32-bit
+	// indices instead of splitting every surface into a separate draw command.
+	standeeMaterialIdx []uint32
 	// Reusable slab-surface buffers (A/B keep both crossed-tree slabs live for
-	// the interleaved arm draw) and the crossed-tree arm scratch list.
+	// the interleaved arm draw).
 	standeeSurfaces  []standeeSurface
 	standeeSurfacesB []standeeSurface
-	treeArms         []treeArm
 
 	// Per-frame draw counters surfaced in the FPS overlay (perf diagnostics).
 	statTreesDrawn   int
@@ -136,7 +141,8 @@ type Renderer struct {
 	// treeTilesCache lists every tree tile (one entry per tile) for the
 	// crossed-standee billboard mode (config.Graphics.TreesAsBillboards). Built
 	// alongside transparentSpritesCache; unused in the per-column tree mode.
-	treeTilesCache []TransparentSpriteData
+	treeTilesCache                    []TransparentSpriteData
+	treeStandeeResourcePrewarmPending bool
 	// Cached tile light sources (world-space)
 	tileLightCache []LightSource
 	// Active light sources for current frame (world-space)
@@ -267,6 +273,7 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	if world.GlobalTileManager == nil || r.game.GetCurrentWorld() == nil {
 		r.transparentSpritesCache = nil
 		r.treeTilesCache = nil
+		r.treeStandeeResourcePrewarmPending = false
 		r.tileLightCache = nil
 		r.clearCanopyShadeCache()
 		return
@@ -341,8 +348,40 @@ func (r *Renderer) buildTransparentSpriteCache() {
 	r.transparentSpritesCache = cache
 	r.treeTilesCache = treeCache
 	r.tileLightCache = lights
+	r.treeStandeeResourcePrewarmPending = len(treeCache) > 0
 	r.buildCanopyShadeCache()
 	r.buildWallTorches()
+	r.reserveUnifiedSpriteCapacity()
+}
+
+// reserveUnifiedSpriteCapacity sizes the per-frame collector from the current
+// map's authored/runtime population. Without this, the first walk into a dense
+// tree corridor repeatedly grows the slice while later passes reuse it.
+func (r *Renderer) reserveUnifiedSpriteCapacity() {
+	currentWorld := r.game.GetCurrentWorld()
+	if currentWorld == nil {
+		r.unifiedSprites = nil
+		return
+	}
+	// A crossed tree normally contributes one entry. Near another standee it
+	// can expand to four arm entries so painter order can interleave them.
+	needed := len(r.transparentSpritesCache) + 4*len(r.treeTilesCache) +
+		len(currentWorld.Monsters) + len(r.game.groundContainers) + len(r.wallTorches)
+	for _, npc := range currentWorld.NPCs {
+		if npc == nil {
+			continue
+		}
+		if npc.GridSpanTiles >= 2 && r.game.config.Graphics.Standee.Enabled {
+			needed += npc.GridSpanTiles
+		} else {
+			needed++
+		}
+	}
+	if cap(r.unifiedSprites) < needed {
+		r.unifiedSprites = make([]UnifiedSpriteRenderData, 0, needed)
+		return
+	}
+	r.unifiedSprites = r.unifiedSprites[:0]
 }
 
 func (r *Renderer) selectEnvironmentSpriteName(tileType world.TileType3D, tileX, tileY int) string {
@@ -2960,6 +2999,17 @@ type UnifiedSpriteRenderData struct {
 	tileX    int
 	tileY    int
 	tileType world.TileType3D
+	// A crossed tree is normally one unified entry. If another nearby standee
+	// overlaps its depth interval, it expands into four arm entries so the
+	// global painter pass can place that standee between the far/near arms.
+	// treeCenterDepth remains the projection depth used to build every arm;
+	// depthPerp becomes only that arm's global sort key.
+	treeArmOnly     bool
+	treeArmIndex    int
+	treeArmSlab     int
+	treeArmLo       int
+	treeArmHi       int
+	treeCenterDepth float64
 	// Monster specific
 	monster        *monster.Monster3D
 	monsterFlip    bool
@@ -3058,6 +3108,161 @@ func cullAndProject(x, y, camX, camY, camDirX, camDirY, minDistSq, viewDistSq fl
 		return 0, 0, false
 	}
 	return math.Sqrt(distanceSq), depthPerp, true
+}
+
+// crossedTreeRenderData is the shared visibility/projection path for both the
+// real unified-sprite collector and the one-time map-load standee warmup. The
+// camera basis is supplied by the caller so a frame computes sin/cos only once.
+func (r *Renderer) crossedTreeRenderData(td *TransparentSpriteData, camX, camY, camDirX, camDirY, viewDistSq float64) (UnifiedSpriteRenderData, bool) {
+	if td == nil || r.game == nil {
+		return UnifiedSpriteRenderData{}, false
+	}
+	distance, depthPerp, ok := cullAndProject(
+		td.worldX, td.worldY,
+		camX, camY, camDirX, camDirY,
+		0, viewDistSq,
+	)
+	if !ok {
+		return UnifiedSpriteRenderData{}, false
+	}
+	screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetricsF(
+		td.worldX, td.worldY, distance, td.tileType, 1.0,
+	)
+	if !visible {
+		return UnifiedSpriteRenderData{}, false
+	}
+	return UnifiedSpriteRenderData{
+		spriteType: SpriteTypeTree,
+		screenX:    int(screenXf),
+		screenY:    int(bottomF) - int(sizeF),
+		spriteSize: int(sizeF),
+		screenXF:   screenXf,
+		sizeF:      sizeF,
+		bottomF:    bottomF,
+		depthPerp:  depthPerp,
+		distance:   distance,
+		tileX:      td.tileX,
+		tileY:      td.tileY,
+		tileType:   td.tileType,
+	}, true
+}
+
+func unifiedSpriteHorizontalSpan(s UnifiedSpriteRenderData) (left, right float64, ok bool) {
+	size := s.sizeF
+	center := s.screenXF
+	if size <= 0 {
+		size = float64(s.spriteSize)
+		center = float64(s.screenX)
+	}
+	if size <= 0 {
+		return 0, 0, false
+	}
+	return center - size/2, center + size/2, true
+}
+
+// crossedTreeNeedsArmSort keeps the usual one-entry/two-preparation fast path
+// unless a non-tree standee actually overlaps the cross in both screen space
+// and depth. Dense forests therefore retain their established cost; only a
+// local tree/dune beside an NPC, monster, or container expands to four painter
+// entries.
+func (r *Renderer) crossedTreeNeedsArmSort(tree UnifiedSpriteRenderData, arms [4]treeArm, sprites []UnifiedSpriteRenderData) bool {
+	minArmDepth, maxArmDepth := arms[0].depth, arms[0].depth
+	treeLeft, treeRight := float64(arms[0].lo), float64(arms[0].hi)
+	for _, arm := range arms[1:] {
+		minArmDepth = math.Min(minArmDepth, arm.depth)
+		maxArmDepth = math.Max(maxArmDepth, arm.depth)
+		treeLeft = math.Min(treeLeft, float64(arm.lo))
+		treeRight = math.Max(treeRight, float64(arm.hi))
+	}
+	// Midpoint keys cover half of each arm's depth excursion. Extend the
+	// interval by the other half so an object near a corner still triggers the
+	// precise arm path.
+	depthMargin := math.Max(
+		math.Abs(tree.depthPerp-minArmDepth),
+		math.Abs(maxArmDepth-tree.depthPerp),
+	)
+	minTreeDepth := minArmDepth - depthMargin
+	maxTreeDepth := maxArmDepth + depthMargin
+
+	for _, candidate := range sprites {
+		if candidate.spriteType == SpriteTypeTree || candidate.depthPerp <= 0 {
+			continue
+		}
+		left, right, ok := unifiedSpriteHorizontalSpan(candidate)
+		if !ok || right < treeLeft || left > treeRight {
+			continue
+		}
+		// A rotating standee's exact yaw is draw-state, so use its projected
+		// footprint as a conservative depth radius. This can expand one extra
+		// nearby dune, but cannot miss the tavern-at-the-side case.
+		halfDepth := r.spriteFootprintWorld(candidate.sizeF, candidate.depthPerp) / 2
+		if candidate.depthPerp+halfDepth < minTreeDepth ||
+			candidate.depthPerp-halfDepth > maxTreeDepth {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (r *Renderer) splitCrossedTreesForPainterOrder(sprites []UnifiedSpriteRenderData, start, end int) []UnifiedSpriteRenderData {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(sprites) {
+		end = len(sprites)
+	}
+	if start >= end {
+		return sprites
+	}
+
+	const yawA, yawB = math.Pi / 4, 3 * math.Pi / 4
+	tileSize := float64(r.game.config.GetTileSize())
+	for i := start; i < end; i++ {
+		tree := sprites[i]
+		if tree.spriteType != SpriteTypeTree ||
+			treeIsBillboardLOD(tree.distance, tileSize, r.game.config.Graphics.TreeStandeeLODTiles) {
+			continue
+		}
+		worldX, worldY := TileCenterFromTile(tree.tileX, tree.tileY, tileSize)
+		footprint := r.spriteFootprintWorld(tree.sizeF, tree.depthPerp)
+		arms, ok := r.crossedStandeeArms(worldX, worldY, yawA, yawB, footprint)
+		if !ok || !r.crossedTreeNeedsArmSort(tree, arms, sprites) {
+			continue
+		}
+
+		tree.treeCenterDepth = tree.depthPerp
+		for armIndex, arm := range arms {
+			part := tree
+			part.treeArmOnly = true
+			part.treeArmIndex = armIndex
+			part.treeArmSlab = arm.slabIdx
+			part.treeArmLo, part.treeArmHi = arm.lo, arm.hi
+			part.depthPerp = arm.depth
+			if armIndex == 0 {
+				sprites[i] = part
+			} else {
+				sprites = append(sprites, part)
+			}
+		}
+	}
+	return sprites
+}
+
+func compareUnifiedSprites(a, b UnifiedSpriteRenderData) int {
+	if c := cmp.Compare(b.depthPerp, a.depthPerp); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.tileY, b.tileY); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.tileX, b.tileX); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(a.screenX, b.screenX); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.treeArmIndex, b.treeArmIndex)
 }
 
 // drawAllSpritesSorted collects all visible sprites (trees, ferns, monsters, NPCs)
@@ -3185,36 +3390,21 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// 2b. Crossed-standee trees (one entry per tree TILE). In this mode the DDA
 	// skipped tree tiles, so treeHits is empty; trees are drawn as two crossed
 	// standees, depth-sorted with everything else.
+	crossedTreeStart := len(sprites)
 	if r.game.config.Graphics.TreesAsBillboards {
 		for i := range r.treeTilesCache {
 			td := &r.treeTilesCache[i]
 			// No NEAR cull (unlike other standees): a tree must stay visible when
 			// the player walks right up to it. Only the far view-distance cull
 			// applies; depthPerp<=0 drops trees behind the camera.
-			distance, depthPerp, ok := cullAndProject(td.worldX, td.worldY, camX, camY, camDirX, camDirY, 0, viewDistSq)
+			tree, ok := r.crossedTreeRenderData(td, camX, camY, camDirX, camDirY, viewDistSq)
 			if !ok {
 				continue
 			}
-			screenXf, bottomF, sizeF, visible := r.game.renderHelper.CalculateEnvironmentSpriteMetricsF(td.worldX, td.worldY, distance, td.tileType, 1.0)
-			if !visible {
-				continue
-			}
-			spriteSize := int(sizeF)
-			sprites = append(sprites, UnifiedSpriteRenderData{
-				spriteType: SpriteTypeTree,
-				screenX:    int(screenXf),
-				screenY:    int(bottomF) - spriteSize,
-				spriteSize: spriteSize,
-				screenXF:   screenXf,
-				sizeF:      sizeF,
-				bottomF:    bottomF,
-				depthPerp:  depthPerp,
-				tileX:      td.tileX,
-				tileY:      td.tileY,
-				tileType:   td.tileType,
-			})
+			sprites = append(sprites, tree)
 		}
 	}
+	crossedTreeEnd := len(sprites)
 
 	// 3. Collect monsters
 	for _, mon := range r.game.GetCurrentWorld().Monsters {
@@ -3276,6 +3466,60 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		if r.game.npcDoorOpen(npc) {
 			continue
 		}
+		// A grid-span facade (clock tower, pyramid) enters the painter sort PER
+		// FOOTPRINT TILE (see UnifiedSpriteRenderData.buildingSegment) and is
+		// NEVER gated on its anchor: standing on the footprint and turning the
+		// anchor out of view must not vanish the building - like walls, it
+		// culls per segment. A segment stays while ANY part of its slice lies
+		// in front of the camera plane; its tile CENTER can sit at zero depth
+		// with half the slice still visible, so the gate tests the slice's two
+		// EDGE points. ONLY in standee mode - the billboard fallback draws the
+		// whole facade per entry, so segmenting there would stack N copies.
+		if npc.GridSpanTiles >= 2 && r.game.config.Graphics.Standee.Enabled {
+			if _, _, byaw, okPose := r.game.buildingPose(npc); okPose {
+				// Anchor-projected fields feed only sort tie-breaks; zero is
+				// fine when the anchor sits behind the camera.
+				var screenXf, bottomF, sizeF float64
+				var screenX, screenY, spriteSize int
+				ex, ey := r.game.npcEffectivePos(npc)
+				if distance, _, okA := cullAndProject(ex, ey, camX, camY, camDirX, camDirY, 0, viewDistSq); okA {
+					if sxf, bf, szf, vis := r.game.renderHelper.NPCSpriteMetricsF(npc, ex, ey, distance); vis {
+						screenXf, bottomF, sizeF = sxf, bf, szf
+						screenX, spriteSize = int(sxf), int(szf)
+						screenY = int(bf) - spriteSize
+					}
+				}
+				sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
+				ts := float64(r.game.config.GetTileSize())
+				dirX, dirY := math.Cos(byaw), math.Sin(byaw)
+				for i, c := range r.game.buildingFootprintTiles(npc) {
+					ddx, ddy := c[0]-camX, c[1]-camY
+					if ddx*ddx+ddy*ddy > viewDistSq {
+						continue
+					}
+					d1 := (ddx-dirX*ts/2)*camDirX + (ddy-dirY*ts/2)*camDirY
+					d2 := (ddx+dirX*ts/2)*camDirX + (ddy+dirY*ts/2)*camDirY
+					if d1 < 1.0 && d2 < 1.0 {
+						continue // whole slice behind the camera plane
+					}
+					sprites = append(sprites, UnifiedSpriteRenderData{
+						spriteType:      SpriteTypeNPC,
+						screenX:         screenX,
+						screenY:         screenY,
+						spriteSize:      spriteSize,
+						screenXF:        screenXf,
+						sizeF:           sizeF,
+						bottomF:         bottomF,
+						depthPerp:       math.Max(1.0, ddx*camDirX+ddy*camDirY),
+						sprite:          sprite,
+						npc:             npc,
+						buildingSegment: i,
+					})
+				}
+				continue
+			}
+		}
+
 		// Cull/project from where the NPC is drawn (wall face for wall tokens).
 		// NPCs never use a near-cull: like loot containers, they must remain
 		// visible when the party walks into their tile.
@@ -3293,34 +3537,6 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		screenY := int(bottomF) - spriteSize
 
 		sprite := r.game.sprites.GetSprite(npcSpriteName(npc))
-
-		// A grid-span facade enters the painter sort PER FOOTPRINT TILE (see
-		// UnifiedSpriteRenderData.buildingSegment): each segment carries its own
-		// tile depth and draws only its column slice of the shared slab. ONLY in
-		// standee mode - the billboard fallback draws the whole facade per entry,
-		// so segmenting there would stack N copies (draws + alpha).
-		if npc.GridSpanTiles >= 2 && r.game.config.Graphics.Standee.Enabled {
-			for i, c := range r.game.buildingFootprintTiles(npc) {
-				_, segDepth, okSeg := cullAndProject(c[0], c[1], camX, camY, camDirX, camDirY, 0, viewDistSq)
-				if !okSeg {
-					continue
-				}
-				sprites = append(sprites, UnifiedSpriteRenderData{
-					spriteType:      SpriteTypeNPC,
-					screenX:         screenX,
-					screenY:         screenY,
-					spriteSize:      spriteSize,
-					screenXF:        screenXf,
-					sizeF:           sizeF,
-					bottomF:         bottomF,
-					depthPerp:       segDepth,
-					sprite:          sprite,
-					npc:             npc,
-					buildingSegment: i,
-				})
-			}
-			continue
-		}
 
 		sprites = append(sprites, UnifiedSpriteRenderData{
 			spriteType: SpriteTypeNPC,
@@ -3387,6 +3603,11 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		})
 	}
 
+	// A crossed dune/tree normally stays one painter entry. Expand only those
+	// whose depth volume overlaps another visible standee, allowing the global
+	// sort to interleave that object between the cross's individual arms.
+	sprites = r.splitCrossedTreesForPainterOrder(sprites, crossedTreeStart, crossedTreeEnd)
+
 	// Sort all sprites by depth (back to front). slices.SortStableFunc: no
 	// reflect swaps and no closure alloc, unlike sort.Slice - this runs every
 	// frame. Depth ties are REAL and common: a row of trees seen head-on at
@@ -3395,18 +3616,7 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 	// frame - overlapping crossed standees flicker and a distant treeline
 	// visibly shudders as silhouettes alternate. Tie-break by stable identity,
 	// with the stable sort covering identity-less entries (monsters, NPCs).
-	slices.SortStableFunc(sprites, func(a, b UnifiedSpriteRenderData) int {
-		if c := cmp.Compare(b.depthPerp, a.depthPerp); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(a.tileY, b.tileY); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(a.tileX, b.tileX); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.screenX, b.screenX)
-	})
+	slices.SortStableFunc(sprites, compareUnifiedSprites)
 
 	// Update buffer for next frame
 	r.unifiedSprites = sprites
@@ -3417,7 +3627,9 @@ func (r *Renderer) drawAllSpritesSorted(screen *ebiten.Image) {
 		case SpriteTypeEnvironment:
 			r.drawUnifiedEnvironmentSprite(screen, s)
 		case SpriteTypeTree:
-			r.statTreesDrawn++
+			if !s.treeArmOnly || s.treeArmIndex == 0 {
+				r.statTreesDrawn++
+			}
 			if r.game.config.Graphics.TreesAsBillboards {
 				r.drawCrossedTreeStandees(screen, s)
 			} else {
@@ -3981,9 +4193,20 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 				// The facade's geometry comes from the FOOTPRINT CENTER depth for
 				// every segment - a per-segment depth would step the height at
 				// each tile boundary. The entry's own depthPerp is the sort key.
-				_, centerDepth, okc := r.game.renderHelper.projectToScreenX(bx, by)
-				if !okc {
-					return
+				// Camera-plane depth directly: a projection would FAIL with the
+				// center behind the camera (standing on the footprint, looking
+				// away from it) and drop still-visible segments. The clamp is
+				// safe - the column formula uses only the size*depth product,
+				// which is depth-invariant - but its floor must clear the
+				// height-sanity cap in CalculateWallDimensionsWithHeight: below
+				// ~span*aspect world units the capped height squashes the whole
+				// facade by that factor. One tile is comfortably above it (and
+				// keeps the volumetric shell count sane).
+				cam := r.game.camera
+				camDX, camDY := math.Cos(cam.Angle), math.Sin(cam.Angle)
+				centerDepth := (bx-cam.X)*camDX + (by-cam.Y)*camDY
+				if centerDepth < ts {
+					centerDepth = ts
 				}
 				bh, btop := r.game.renderHelper.CalculateWallDimensionsWithHeight(centerDepth, float64(s.npc.GridSpanTiles)*aspect)
 				slab, okSlab := r.prepareStandeeSlab(sprite, wkey, bx, by, byaw, centerDepth, float64(bh), float64(btop+bh), sb, sb, sb, true, false, span, r.standeeSurfaces[:0])
@@ -3999,8 +4222,6 @@ func (r *Renderer) drawUnifiedNPCSprite(screen *ebiten.Image, s UnifiedSpriteRen
 						dirX, dirY := math.Cos(byaw), math.Sin(byaw)
 						e1x, e1y := c[0]-dirX*ts/2, c[1]-dirY*ts/2
 						e2x, e2y := c[0]+dirX*ts/2, c[1]+dirY*ts/2
-						cam := r.game.camera
-						camDX, camDY := math.Cos(cam.Angle), math.Sin(cam.Angle)
 						depthOf := func(x, y float64) float64 { return (x-cam.X)*camDX + (y-cam.Y)*camDY }
 						const nearEps = 1.0 // world px in front of the camera plane
 						d1, d2 := depthOf(e1x, e1y), depthOf(e2x, e2y)

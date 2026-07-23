@@ -484,6 +484,42 @@ func TestStackedLootGuardPairScattersWhenBothAlertInSameTick(t *testing.T) {
 	}
 }
 
+func TestLootGuardSpidersDoNotReformBandWhilePursuing(t *testing.T) {
+	game, loop, tile := newLootGuardTestGame(t, false)
+	_ = addLootGuardTarget(game, "barrel_red", character.NPCTypeLootCrate, 10, 10, tile)
+	first := addLootGuardTestMonster(t, game, "spider-a", "spider", 7, 10, tile)
+	second := addLootGuardTestMonster(t, game, "spider-b", "spider", 7, 11, tile)
+	game.world.RegisterMonstersWithCollisionSystem(game.collisionSystem)
+	prepareLootGuardsForTest(game, loop)
+
+	postX, postY := first.LootGuardMoveTileX, first.LootGuardMoveTileY
+	for _, guard := range []*monster.Monster3D{first, second} {
+		guard.X, guard.Y = TileCenterFromTile(postX, postY, tile)
+		game.collisionSystem.UpdateEntity(guard.ID, guard.X, guard.Y)
+	}
+	loop.reconcileLootPropGuardBands()
+	if !lootGuardBandIsStacked([]*monster.Monster3D{first, second}) {
+		t.Fatal("setup: spiders did not form a stacked barrel guard")
+	}
+
+	placePlayerAtTile(game, postX-6, postY, tile)
+	for frame := 0; frame < 30; frame++ {
+		prepareLootGuardsForTest(game, loop)
+		runLootGuardRealTimeStep(game, loop)
+		loop.updateMonsterBands()
+		loop.updateCombatTransitVisualStacks()
+		for _, guard := range []*monster.Monster3D{first, second} {
+			if guard.LootGuarding || guard.BandID != 0 || guard.LootGuardTargetKey != "" {
+				t.Fatalf("frame %d: %s re-formed its guard band while pursuing: guarding=%v band=%d target=%q",
+					frame, guard.ID, guard.LootGuarding, guard.BandID, guard.LootGuardTargetKey)
+			}
+			if !guard.IsEngagingPlayer {
+				t.Fatalf("frame %d: %s dropped the active guard encounter while still inside seven tiles", frame, guard.ID)
+			}
+		}
+	}
+}
+
 func TestLootGuardUsesSevenTileSightInRealTime(t *testing.T) {
 	game, loop, tile := newLootGuardTestGame(t, false)
 	_ = addLootGuardTarget(game, "guarded_crate", character.NPCTypeLootCrate, 10, 10, tile)

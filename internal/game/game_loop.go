@@ -60,6 +60,11 @@ func (gl *GameLoop) Update() error {
 	defer func() {
 		gl.lastUpdateDuration = time.Since(updateStart)
 	}()
+	defer func() {
+		if gl.renderer != nil {
+			gl.renderer.prewarmPendingTreeStandeeResources()
+		}
+	}()
 	frameTimer := gl.game.threading.PerformanceMonitor.StartFrame()
 	defer frameTimer.EndFrame()
 

@@ -14,20 +14,29 @@ package game
 // context - see TestMain in main_test.go (RAM_DEBUG_SIM=1 wraps the run in
 // ebiten.RunGame).
 //
-// The walk: every river tile along both forest streams, smoothly (half-tile
-// steps), spinning through 8 angles at each stop; plus a far-from-river
-// control sweep. Each is measured TWICE: on the freshly loaded map, and in
-// the "aftermath" state the FPS reports actually came from - every monster
-// dead, a real loot bag dropped at each corpse (the real addLootBagDrop
-// path). At each stop's worst angle the sprite-pass cost is attributed by
+// The walk: every tile along both map-grid sections of the forest river,
+// smoothly (half-tile steps), spinning through 8 angles at each stop; plus a
+// far-from-river control sweep. Each is measured TWICE: on the freshly loaded
+// map, and in the "aftermath" state the FPS reports actually came from - every
+// monster dead, a real loot bag dropped at each corpse (the real
+// addLootBagDrop path). At each stop's worst angle the sprite-pass cost is attributed by
 // ABLATION: re-render the same pose with one category hidden (trees /
 // fireflies / other env sprites / monsters / NPCs / loot bags) and subtract -
 // real timings, no formulas.
 //
 // Run with:  RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_RenderWalk -v
+// One-pose profile: RAM_DEBUG_SIM=1 RAM_WALK_POSE=13,36,45
+// RAM_WALK_MAP=deep_jungle selects another map for a one-pose profile.
+// RAM_WALK_OFFSET_PX=0,30 moves that pose within the selected tile.
+// RAM_WALK_SCREENSHOT=/tmp/river.png saves the final rendered frame.
+// RAM_WALK_TREES_ONLY=1 removes every other unified-sprite category.
+// RAM_WALK_REPS=1 exposes cold per-pose costs instead of taking a warm minimum.
+// RAM_WALK_POSE_REPS=300 go test -tags debug ./internal/game \
+// -run TestDebugSim_RenderWalk -cpuprofile /tmp/river.pprof
 
 import (
 	"fmt"
+	"image/png"
 	"math"
 	"os"
 	"runtime"
@@ -202,7 +211,14 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 	if err := wm.LoadAllMaps(); err != nil {
 		t.Fatalf("load maps: %v", err)
 	}
-	if err := wm.SwitchToMap("forest"); err != nil {
+	mapKey := os.Getenv("RAM_WALK_MAP")
+	if mapKey == "" {
+		mapKey = "forest"
+	}
+	if mapKey != "forest" && os.Getenv("RAM_WALK_POSE") == "" {
+		t.Fatal("RAM_WALK_MAP is only supported with RAM_WALK_POSE")
+	}
+	if err := wm.SwitchToMap(mapKey); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
 	world.GlobalWorldManager = wm
@@ -218,13 +234,110 @@ func TestDebugSim_RenderWalk(t *testing.T) {
 		}
 	}
 
+	var poseSet bool
+	var poseTileX, poseTileY int
+	var poseAngleDeg, poseOffsetX, poseOffsetY float64
+	if pose := os.Getenv("RAM_WALK_POSE"); pose != "" {
+		poseSet = true
+		if _, err := fmt.Sscanf(pose, "%d,%d,%f", &poseTileX, &poseTileY, &poseAngleDeg); err != nil {
+			t.Fatalf("RAM_WALK_POSE must be tileX,tileY,angleDeg: %v", err)
+		}
+		if offset := os.Getenv("RAM_WALK_OFFSET_PX"); offset != "" {
+			if _, err := fmt.Sscanf(offset, "%f,%f", &poseOffsetX, &poseOffsetY); err != nil {
+				t.Fatalf("RAM_WALK_OFFSET_PX must be x,y: %v", err)
+			}
+		}
+	}
+
 	g := NewMMGame(cfg)
+	if poseSet {
+		g.camera.X, g.camera.Y = TileCenterFromTile(poseTileX, poseTileY, float64(cfg.GetTileSize()))
+		g.camera.X += poseOffsetX
+		g.camera.Y += poseOffsetY
+		g.camera.Angle = poseAngleDeg * math.Pi / 180
+	}
+	screen := ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight())
+	if os.Getenv("RAM_SKIP_TREE_PREWARM") == "" {
+		g.gameLoop.renderer.prewarmPendingTreeStandeeResources()
+		if g.gameLoop.renderer.treeStandeeResourcePrewarmPending {
+			t.Fatal("tree standee resource prewarm remained pending")
+		}
+		seenTreeSprites := make(map[string]struct{})
+		for i := range g.gameLoop.renderer.treeTilesCache {
+			td := &g.gameLoop.renderer.treeTilesCache[i]
+			spriteName := td.spriteName
+			if spriteName == "" {
+				spriteName = treeStandeeSpriteName(td.tileType)
+			}
+			if _, seen := seenTreeSprites[spriteName]; seen {
+				continue
+			}
+			seenTreeSprites[spriteName] = struct{}{}
+			sprite := g.sprites.GetSprite(spriteName)
+			key := standeeCoreKey{name: "tree:" + spriteName, bounds: sprite.Bounds(), img: sprite}
+			if g.gameLoop.renderer.standeeCoreCache[key] == nil {
+				t.Fatalf("tree %q has no prewarmed standee core", spriteName)
+			}
+			for _, layer := range []standeeMipLayer{standeeMipSticker, standeeMipCore} {
+				if chain := g.gameLoop.renderer.standeeMipCache[standeeMipKey{frame: key, layer: layer}]; chain == nil || len(chain.levels) == 0 {
+					t.Fatalf("tree %q layer %d has no prewarmed mip chain", spriteName, layer)
+				}
+			}
+		}
+	}
 	h := &walkHarness{
 		g: g, r: g.gameLoop.renderer, w: w,
-		screen: ebiten.NewImage(cfg.GetScreenWidth(), cfg.GetScreenHeight()),
+		screen: screen,
 		// Fast mode limits the route, not samples per pose: the first sample
 		// warms Ebitengine's lazy GPU resources and is intentionally discarded.
 		reps: 3,
+	}
+	if reps := os.Getenv("RAM_WALK_REPS"); reps != "" {
+		if _, err := fmt.Sscanf(reps, "%d", &h.reps); err != nil || h.reps <= 0 {
+			t.Fatalf("RAM_WALK_REPS must be a positive integer")
+		}
+	}
+	if os.Getenv("RAM_WALK_TREES_ONLY") != "" {
+		h.r.transparentSpritesCache = nil
+		h.r.wallTorches = nil
+		h.w.Monsters = nil
+		h.w.NPCs = nil
+		h.g.groundContainers = nil
+		trees := h.r.treeTilesCache
+		h.r.treeTilesCache = nil
+		h.measure(h.g.camera.X, h.g.camera.Y, h.g.camera.Angle)
+		h.r.treeTilesCache = trees
+	} else {
+		// The live game screen has already been allocated and submitted before a
+		// player can reach the river. Warm only this diagnostic's fresh offscreen
+		// destination so its first atlas allocation is not misattributed to sprites.
+		runOnDrawFrame(func(_ *ebiten.Image) {
+			h.screen.Clear()
+		})
+	}
+	if poseSet {
+		if reps := os.Getenv("RAM_WALK_POSE_REPS"); reps != "" {
+			if _, err := fmt.Sscanf(reps, "%d", &h.reps); err != nil || h.reps <= 0 {
+				t.Fatalf("RAM_WALK_POSE_REPS must be a positive integer")
+			}
+		}
+		got := h.measure(g.camera.X, g.camera.Y, g.camera.Angle)
+		if path := os.Getenv("RAM_WALK_SCREENSHOT"); path != "" {
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatalf("create screenshot: %v", err)
+			}
+			if err := png.Encode(f, h.screen); err != nil {
+				f.Close()
+				t.Fatalf("encode screenshot: %v", err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatalf("close screenshot: %v", err)
+			}
+		}
+		t.Logf("single pose tile=(%d,%d) world=(%.1f,%.1f) angle=%.1f reps=%d: sprites=%.2fms floor=%.2fms walls=%.2fms trees=%d standeeDC=%d",
+			poseTileX, poseTileY, g.camera.X, g.camera.Y, poseAngleDeg, h.reps, got.spritesMs, got.floorMs, got.wallsMs, got.trees, got.standeeDC)
+		return
 	}
 	tileSize := float64(cfg.GetTileSize())
 	t.Logf("render target %dx%d, reps=%d (min taken), %d monsters, %d NPCs, %d env sprites, %d tree tiles",

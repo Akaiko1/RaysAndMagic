@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"sort"
 
 	"ugataima/internal/monster"
@@ -155,14 +156,51 @@ func (gl *GameLoop) updateCombatTransitVisualStacks() {
 			last++
 		}
 		if count := last - first; count > 1 {
+			var centerX, centerY float64
+			for _, m := range stacks[first:last] {
+				centerX += m.X
+				centerY += m.Y
+			}
+			centerX /= float64(count)
+			centerY /= float64(count)
 			for index, m := range stacks[first:last] {
 				m.TransitStackIndex = index
 				m.TransitStackCount = count
+				fanX, fanY := bandFanOffset(index, count, tileSize)
+				gl.easeTransitStackOffset(m, centerX+fanX-m.X, centerY+fanY-m.Y)
 			}
 		}
 		first = last
 	}
+	for _, m := range gl.game.world.Monsters {
+		if m != nil && m.TransitStackCount <= 1 {
+			gl.easeTransitStackOffset(m, 0, 0)
+		}
+	}
 	gl.combatTransitStackBuf = stacks
+}
+
+// easeTransitStackOffset smooths only the render anchor. At 120 TPS the
+// response settles in roughly 0.15s, fast enough to read as one temporary
+// stack but slow enough that crossing a tile edge cannot jump a sprite by the
+// full fan radius in one frame.
+func (gl *GameLoop) easeTransitStackOffset(m *monster.Monster3D, targetX, targetY float64) {
+	if m == nil {
+		return
+	}
+	tps := 60
+	if gl != nil && gl.game != nil && gl.game.config != nil && gl.game.config.GetTPS() > 0 {
+		tps = gl.game.config.GetTPS()
+	}
+	blend := 1 - math.Exp(-20/float64(tps))
+	m.TransitStackOffsetX += (targetX - m.TransitStackOffsetX) * blend
+	m.TransitStackOffsetY += (targetY - m.TransitStackOffsetY) * blend
+	if math.Abs(targetX-m.TransitStackOffsetX) < 0.01 {
+		m.TransitStackOffsetX = targetX
+	}
+	if math.Abs(targetY-m.TransitStackOffsetY) < 0.01 {
+		m.TransitStackOffsetY = targetY
+	}
 }
 
 // monsterStackFanOffset returns the one render offset used for a normal calm
@@ -173,10 +211,11 @@ func monsterStackFanOffset(m *monster.Monster3D, tileSize float64) (float64, flo
 		return 0, 0
 	}
 	if m.TransitStackCount > 1 {
-		return bandFanOffset(m.TransitStackIndex, m.TransitStackCount, tileSize)
+		return m.TransitStackOffsetX, m.TransitStackOffsetY
 	}
 	if m.BandStackCount > 1 {
 		return bandFanOffset(m.BandStackIndex, m.BandStackCount, tileSize)
 	}
-	return 0, 0
+	// Let a dissolved transit stack ease back to the monster's real position.
+	return m.TransitStackOffsetX, m.TransitStackOffsetY
 }

@@ -5,11 +5,10 @@ package game
 
 // Pure-math standee cost proxy for TREES only - a DEBUG MODULE, not a
 // regression test. It touches no textures and needs no render context: it just
-// evaluates the SAME geometry the renderer pays per tree (shell count via
-// standeeShellCount, crossed-pair vs single-plane via treeIsBillboardLOD) across
-// a distance sweep, so the tree-standee draw budget can be reasoned about
-// without profiling a live frame. The heavier full-frame timing lives in
-// debug_render_walk_sim_test.go (real renderer, real map).
+// evaluates the SAME geometry the renderer pays per tree (shell count plus
+// crossed-pair vs distant single-plane LOD) across a distance sweep, so the
+// tree-standee draw budget can be reasoned about without profiling a live
+// frame. The heavier full-frame timing lives in debug_render_walk_sim_test.go.
 //
 // Run with:  RAM_DEBUG_SIM=1 go test ./internal/game/ -run TestDebugSim_StandeeCost -v
 
@@ -36,15 +35,14 @@ func TestDebugSim_StandeeCost(t *testing.T) {
 	screenW := cfg.GetScreenWidth()
 	halfFovTan := math.Tan(cfg.GetCameraFOV() / 2)
 	lodTiles := cfg.Graphics.TreeStandeeLODTiles
-	// Slab half-thickness for a tree = config thickness (drawCrossedTreeStandees
-	// passes halfThicknessOverride = -1, so both crossed slabs use this).
+	// Both crossed slabs use the shared standee thickness from config.
 	h := cfg.Graphics.Standee.ThicknessTiles * tileSize / 2
 
-	t.Logf("tile=%.0f screenW=%d fov/2 tan=%.3f LOD=%.1ftiles thickness=%.3ftiles(h=%.1fpx)",
+	t.Logf("tile=%.0f screenW=%d fov/2 tan=%.3f LOD=%.1ft thickness=%.3ftiles(h=%.1fpx)",
 		tileSize, screenW, halfFovTan, lodTiles, cfg.Graphics.Standee.ThicknessTiles, h)
 
-	// treeShellCost = shell layers x planes (crossed pair = 2 slabs, billboard
-	// LOD = 1) - the per-tree slab-build count the renderer pays at `distance`.
+	// Cost is rendered slab surfaces: each slab has far sticker, core shells,
+	// and near sticker; the distant LOD halves the crossed pair to one slab.
 	treeCost := func(distance float64) (shells, planes, cost int, lod bool) {
 		shells = standeeShellCount(h, screenW, halfFovTan, distance)
 		planes = 2
@@ -52,7 +50,7 @@ func TestDebugSim_StandeeCost(t *testing.T) {
 		if lod {
 			planes = 1
 		}
-		return shells, planes, shells * planes, lod
+		return shells, planes, (shells + 2) * planes, lod
 	}
 
 	lodCutReported := false
@@ -63,13 +61,13 @@ func TestDebugSim_StandeeCost(t *testing.T) {
 			t.Logf("--- billboard-LOD kicks in at %d tiles ---", tiles)
 			lodCutReported = true
 		}
-		if tiles <= 12 || tiles%8 == 0 || (lod && !lodCutReported) {
+		if tiles <= 12 || tiles%8 == 0 {
 			t.Logf("dist=%2dt: shells=%2d planes=%d cost=%2d lod=%v", tiles, shells, planes, cost, lod)
 		}
 	}
 
-	// Sanity: cost is monotonic non-increasing with distance (shells shrink,
-	// then the LOD halves the plane count) - a tree never costs MORE farther away.
+	// Shell cost is monotonic non-increasing with distance; the distant LOD
+	// halves the number of slabs.
 	prev := math.MaxInt32
 	for tiles := 1; tiles <= 48; tiles++ {
 		_, _, cost, _ := treeCost(float64(tiles) * tileSize)

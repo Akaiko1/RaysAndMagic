@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -69,24 +70,123 @@ func TestStandeeUsesMinificationSampling(t *testing.T) {
 	}
 }
 
-func TestStandeeTextureFootprint(t *testing.T) {
-	if got := standeeTextureFootprint(0.5, 1); got != 1 {
-		t.Fatalf("magnified source footprint = %.2f, want 1", got)
+func TestStandeeProjectedFootprintUsesLeastMinifiedAxis(t *testing.T) {
+	if got := standeeProjectedFootprint(128, 64, 256, 256); got != 2 {
+		t.Fatalf("anisotropic footprint = %.2f, want 2", got)
 	}
-	if got := standeeTextureFootprint(2, -1); got != 2 {
-		t.Fatalf("reversed source footprint = %.2f, want 2", got)
+	if got := standeeProjectedFootprint(512, 512, 256, 256); got != 1 {
+		t.Fatalf("magnified footprint = %.2f, want 1", got)
 	}
-	if got := standeeTextureFootprint(2, 1e-7); got != 1 {
-		t.Fatalf("degenerate destination footprint = %.2f, want 1", got)
+}
+
+func TestTreeIsBillboardLOD(t *testing.T) {
+	const tileSize = 64.0
+	if treeIsBillboardLOD(25*tileSize, tileSize, 25) {
+		t.Fatal("tree at the boundary must retain crossed slabs")
 	}
-	if got := standeeTextureFootprint(1, 1); got != 1 {
-		t.Fatalf("1:1 source footprint = %.2f, want 1", got)
+	if !treeIsBillboardLOD(25.01*tileSize, tileSize, 25) {
+		t.Fatal("tree beyond the boundary must use the distant single-plane LOD")
 	}
-	if got := standeeTextureFootprint(2, 1); got != 2 {
-		t.Fatalf("2:1 source footprint = %.2f, want 2", got)
+	if treeIsBillboardLOD(tileSize, tileSize, 0) {
+		t.Fatal("zero threshold must disable the distant LOD")
 	}
-	if got := standeeTextureFootprint(8, 2); got != 4 {
-		t.Fatalf("4:1 source footprint = %.2f, want 4", got)
+}
+
+func TestCrossedTreeArmsInterleaveWithAdjacentStandee(t *testing.T) {
+	cfg := loadTestConfig(t)
+	game := newTestGame(cfg, newTestWorldSized(cfg, 20, 20))
+	game.camera.FOV = cfg.GetCameraFOV()
+	game.camera.ViewDist = cfg.GetViewDistance()
+	game.camera.Angle = 0
+	tileSize := float64(cfg.GetTileSize())
+	game.camera.X, game.camera.Y = tileSize/2, 10.5*tileSize
+	game.renderHelper = NewRenderingHelper(game)
+	r := &Renderer{game: game}
+
+	const treeTileX, treeTileY = 5, 10
+	treeX, treeY := TileCenterFromTile(treeTileX, treeTileY, tileSize)
+	treeDepth := treeX - game.camera.X
+	footprint := 1.5 * tileSize
+	halfFOVTan := math.Tan(game.camera.FOV / 2)
+	treeSize := footprint * float64(cfg.GetScreenWidth()) / (2 * halfFOVTan * treeDepth)
+	treeScreenX, _, ok := game.renderHelper.projectToScreenX(treeX, treeY)
+	if !ok {
+		t.Fatal("setup: crossed dune center is not visible")
+	}
+	tree := UnifiedSpriteRenderData{
+		spriteType: SpriteTypeTree,
+		screenX:    treeScreenX,
+		screenXF:   float64(treeScreenX),
+		sizeF:      treeSize,
+		depthPerp:  treeDepth,
+		distance:   treeDepth,
+		tileX:      treeTileX,
+		tileY:      treeTileY,
+	}
+
+	// Same camera depth, slightly to the screen-right: the standee overlaps the
+	// cross in projection but not at its center. A whole-tree depth key cannot
+	// represent this; two arms are farther and two are nearer.
+	npcX, npcY := treeX, treeY+0.75*tileSize
+	npcScreenX, _, ok := game.renderHelper.projectToScreenX(npcX, npcY)
+	if !ok {
+		t.Fatal("setup: adjacent standee is not visible")
+	}
+	npcSize := tileSize * float64(cfg.GetScreenWidth()) / (2 * halfFOVTan * treeDepth)
+	npc := UnifiedSpriteRenderData{
+		spriteType: SpriteTypeNPC,
+		screenX:    npcScreenX,
+		screenXF:   float64(npcScreenX),
+		sizeF:      npcSize,
+		depthPerp:  treeDepth,
+	}
+
+	sprites := r.splitCrossedTreesForPainterOrder(
+		[]UnifiedSpriteRenderData{tree, npc}, 0, 1,
+	)
+	if len(sprites) != 5 {
+		t.Fatalf("adjacent standee produced %d painter entries, want four dune arms + standee", len(sprites))
+	}
+	slices.SortStableFunc(sprites, compareUnifiedSprites)
+
+	npcIndex := -1
+	armsBefore, armsAfter := 0, 0
+	for i, s := range sprites {
+		if s.spriteType == SpriteTypeNPC {
+			npcIndex = i
+			continue
+		}
+		if !s.treeArmOnly {
+			t.Fatal("overlapping crossed dune remained a whole-tree painter entry")
+		}
+		if math.Abs(s.treeCenterDepth-treeDepth) > 1e-9 {
+			t.Fatalf("arm projection depth = %.2f, want shared dune-center depth %.2f", s.treeCenterDepth, treeDepth)
+		}
+	}
+	if npcIndex < 0 {
+		t.Fatal("adjacent standee disappeared from painter entries")
+	}
+	for i, s := range sprites {
+		if !s.treeArmOnly {
+			continue
+		}
+		if i < npcIndex {
+			armsBefore++
+		} else {
+			armsAfter++
+		}
+	}
+	if armsBefore == 0 || armsAfter == 0 {
+		t.Fatalf("standee was not interleaved through dune arms: before=%d after=%d", armsBefore, armsAfter)
+	}
+
+	farNPC := npc
+	farNPC.depthPerp += 4 * tileSize
+	fastPath := r.splitCrossedTreesForPainterOrder(
+		[]UnifiedSpriteRenderData{tree, farNPC}, 0, 1,
+	)
+	if len(fastPath) != 2 || fastPath[0].treeArmOnly {
+		t.Fatal("depth-separated standee expanded the dune instead of retaining the one-entry fast path")
 	}
 }
 
@@ -124,6 +224,40 @@ func TestStandeeMipSizesMatchEngineDepthCap(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("standeeMipSizes(128, 64) = %v, want %v", got, want)
+	}
+}
+
+func TestDownsampleStandeeMipAveragesPremultipliedPixels(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	src.Pix = []byte{
+		0, 20, 40, 60, 40, 60, 80, 100,
+		80, 100, 120, 140, 120, 140, 160, 180,
+	}
+	got := downsampleStandeeMip(src, image.Pt(1, 1))
+	if got == nil {
+		t.Fatal("downsampleStandeeMip returned nil")
+	}
+	want := []byte{60, 80, 100, 120}
+	if !reflect.DeepEqual(got.Pix, want) {
+		t.Fatalf("downsampled pixel = %v, want %v", got.Pix, want)
+	}
+}
+
+func TestDownsampleStandeeMipCoversOddSourceEdge(t *testing.T) {
+	src := image.NewRGBA(image.Rect(4, 7, 7, 10))
+	for y := src.Rect.Min.Y; y < src.Rect.Max.Y; y++ {
+		for x := src.Rect.Min.X; x < src.Rect.Max.X; x++ {
+			off := src.PixOffset(x, y)
+			src.Pix[off] = byte((y-src.Rect.Min.Y)*3 + x - src.Rect.Min.X + 1)
+			src.Pix[off+3] = 255
+		}
+	}
+	got := downsampleStandeeMip(src, image.Pt(1, 1))
+	if got == nil {
+		t.Fatal("downsampleStandeeMip returned nil")
+	}
+	if got.Pix[0] != 5 || got.Pix[3] != 255 {
+		t.Fatalf("odd 3x3 average = %v, want [5 _ _ 255]", got.Pix)
 	}
 }
 

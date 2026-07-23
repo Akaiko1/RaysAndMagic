@@ -17,6 +17,7 @@ func TestKageShadersCompile(t *testing.T) {
 		"floor":            floorShaderSrc,
 		"sky":              skyShaderSrc,
 		"standeeTrilinear": standeeTrilinearShaderSrc,
+		"standeeVolume":    standeeVolumeShaderSrc,
 		"turnBlur":         turnBlurShaderSrc,
 	} {
 		if _, err := ebiten.NewShader([]byte(src)); err != nil {
@@ -109,20 +110,23 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 	level0 := ebiten.NewImage(8, 8)
 	level1 := ebiten.NewImage(4, 4)
 	level2 := ebiten.NewImage(2, 2)
+	coreLevel := ebiten.NewImage(4, 4)
 	level1.Fill(color.RGBA{R: 0xff, A: 0xff})
 	level2.Fill(color.RGBA{B: 0xff, A: 0xff})
+	coreLevel.Fill(color.RGBA{G: 0xff, A: 0xff})
 
 	vertices := []ebiten.Vertex{
-		{DstX: 0, DstY: 0, SrcX: 0.5, SrcY: 0.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5},
-		{DstX: 8, DstY: 0, SrcX: 7.5, SrcY: 0.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5},
-		{DstX: 0, DstY: 8, SrcX: 0.5, SrcY: 7.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5},
-		{DstX: 8, DstY: 8, SrcX: 7.5, SrcY: 7.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5},
+		{DstX: 0, DstY: 0, SrcX: 0.5, SrcY: 0.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5, Custom2: 1},
+		{DstX: 8, DstY: 0, SrcX: 7.5, SrcY: 0.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5, Custom2: 1},
+		{DstX: 0, DstY: 8, SrcX: 0.5, SrcY: 7.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5, Custom2: 1},
+		{DstX: 8, DstY: 8, SrcX: 7.5, SrcY: 7.5, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1, Custom0: 0.5, Custom2: 1},
 	}
 	dst := ebiten.NewImage(8, 8)
 	opts := &ebiten.DrawTrianglesShaderOptions{}
 	opts.Images[0] = level0
 	opts.Images[1] = level1
 	opts.Images[2] = level2
+	opts.Images[3] = coreLevel
 	dst.DrawTrianglesShader(vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
 
 	for y := 0; y < 8; y++ {
@@ -130,6 +134,56 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
 			if got.A < 250 || got.R < 125 || got.R > 130 || got.B < 125 || got.B > 130 {
 				t.Fatalf("pixel (%d,%d) = %#v; mip blend must fill the opaque 8x8 quad", x, y, got)
+			}
+		}
+	}
+
+	// Core shells use one tap from their prefiltered mip. Exercise its
+	// differently-sized coordinate mapping across the complete destination too.
+	for i := range vertices {
+		vertices[i].Custom1 = 1
+	}
+	dst.Clear()
+	dst.DrawTrianglesShader(vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
+			if got != (color.RGBA{G: 0xff, A: 0xff}) {
+				t.Fatalf("core pixel (%d,%d) = %#v; selected mip must fill the opaque 8x8 quad", x, y, got)
+			}
+		}
+	}
+
+	// The far sticker uses the same selected sticker mip with a single tap.
+	// Its level-space mapping must also cover the complete destination.
+	for i := range vertices {
+		vertices[i].Custom1 = 2
+	}
+	dst.Clear()
+	dst.DrawTrianglesShader(vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
+			if got != (color.RGBA{R: 0xff, A: 0xff}) {
+				t.Fatalf("far-sticker pixel (%d,%d) = %#v; selected mip must fill the opaque 8x8 quad", x, y, got)
+			}
+		}
+	}
+
+	// At 1:1 or magnification the visible sticker bypasses mip sampling and
+	// retains the authored base pixels.
+	level0.Fill(color.RGBA{R: 0xff, G: 0xff, A: 0xff})
+	for i := range vertices {
+		vertices[i].Custom1 = 0
+		vertices[i].Custom2 = 0
+	}
+	dst.Clear()
+	dst.DrawTrianglesShader(vertices, []uint16{0, 1, 2, 1, 3, 2}, shader, opts)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			got := color.RGBAModel.Convert(dst.At(x, y)).(color.RGBA)
+			if got != (color.RGBA{R: 0xff, G: 0xff, A: 0xff}) {
+				t.Fatalf("base pixel (%d,%d) = %#v; level 0 must fill the opaque 8x8 quad", x, y, got)
 			}
 		}
 	}
@@ -147,5 +201,85 @@ func TestStandeeTrilinearShaderFillsOriginalQuad(t *testing.T) {
 		if got != (color.RGBA{G: 0xff, A: 0xff}) {
 			t.Fatalf("normalized SubImage mip at %v = %#v; want opaque green", point, got)
 		}
+	}
+}
+
+func TestStandeeVolumeShaderPreservesLayersAndWallClip(t *testing.T) {
+	if os.Getenv("RAM_DEBUG_SIM") == "" {
+		t.Skip("GPU readback requires the live Ebitengine debug-sim loop")
+	}
+	shader, err := ebiten.NewShader([]byte(standeeVolumeShaderSrc))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sticker := ebiten.NewImage(8, 8)
+	stickerMip := ebiten.NewImage(8, 8)
+	stickerNextMip := ebiten.NewImage(8, 8)
+	core := ebiten.NewImage(8, 8)
+	sticker.Fill(color.RGBA{R: 0xff, A: 0xff})
+	stickerMip.Fill(color.RGBA{R: 0xff, A: 0xff})
+	stickerNextMip.Fill(color.RGBA{R: 0xff, A: 0xff})
+	core.Fill(color.RGBA{G: 0xff, A: 0xff})
+
+	// At near depth 8 these invariants produce a face from y=0 through y=8.
+	// Far depth 10 is slightly smaller, just like a real thick slab.
+	const heightScale = 64
+	const bottomScale = 32
+	vertices := []ebiten.Vertex{
+		{DstX: 0, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 0, Custom3: 0},
+		{DstX: 8, DstY: 0, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 1, Custom3: 1},
+		{DstX: 0, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 0, Custom3: 0},
+		{DstX: 8, DstY: 8, SrcX: heightScale, SrcY: bottomScale, ColorR: 1, ColorG: 100, ColorB: 0, ColorA: 6, Custom0: 10, Custom1: 8, Custom2: 1, Custom3: 1},
+	}
+	indices := []uint16{0, 1, 2, 1, 3, 2}
+	opts := &ebiten.DrawTrianglesShaderOptions{}
+	opts.Images[0] = sticker
+	opts.Images[1] = stickerMip
+	opts.Images[2] = stickerNextMip
+	opts.Images[3] = core
+	dst := ebiten.NewImage(8, 8)
+
+	draw := func() []byte {
+		dst.Clear()
+		dst.DrawTrianglesShader(vertices, indices, shader, opts)
+		pixels := make([]byte, 8*8*4)
+		dst.ReadPixels(pixels)
+		return pixels
+	}
+	pixel := func(pixels []byte, x, y int) color.RGBA {
+		i := (y*8 + x) * 4
+		return color.RGBA{R: pixels[i], G: pixels[i+1], B: pixels[i+2], A: pixels[i+3]}
+	}
+
+	pixels := draw()
+	if got := pixel(pixels, 4, 4); got.R < 250 || got.G != 0 || got.A < 250 {
+		t.Fatalf("near sticker = %#v, want opaque red front face", got)
+	}
+
+	// A transparent sticker must reveal the virtual wooden shell stack rather
+	// than flattening the standee to a single face.
+	sticker.Clear()
+	stickerMip.Clear()
+	stickerNextMip.Clear()
+	pixels = draw()
+	if got := pixel(pixels, 4, 4); got.G < 150 || got.R != 0 || got.A < 250 {
+		t.Fatalf("core shell = %#v, want visible opaque green volume", got)
+	}
+
+	// A wall at depth 7 is in front of every slab layer. Its top at y=4 keeps
+	// the canopy visible above it and clips the lower half, matching the general
+	// per-surface standee path.
+	sticker.Fill(color.RGBA{R: 0xff, A: 0xff})
+	for i := range vertices {
+		vertices[i].ColorG = 7
+		vertices[i].ColorB = 4
+	}
+	pixels = draw()
+	if got := pixel(pixels, 4, 2); got.R < 250 || got.A < 250 {
+		t.Fatalf("canopy above wall = %#v, want visible sticker", got)
+	}
+	if got := pixel(pixels, 4, 6); got.A != 0 {
+		t.Fatalf("slab below wall top = %#v, want transparent clipped pixel", got)
 	}
 }

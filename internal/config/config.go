@@ -647,9 +647,8 @@ type GraphicsConfig struct {
 	TreesAsBillboards bool `yaml:"trees_as_billboards"`
 
 	// TreeStandeeLODTiles is the distance (in tiles) beyond which a crossed-tree
-	// standee degrades to a single (non-crossed) standee plane - ~4x fewer draws
-	// for distant trees whose cross is sub-pixel anyway. <=0 disables the LOD
-	// (always full crossed standee). Trees only; other standees are unaffected.
+	// standee degrades to a single (non-crossed) standee plane. <=0 disables the
+	// distant LOD. Close trees always retain the full slab.
 	TreeStandeeLODTiles float64 `yaml:"tree_standee_lod_tiles"`
 }
 
@@ -1103,7 +1102,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Defaults applied before unmarshal so an absent key keeps the default while a
 	// present key overrides it (bool can't otherwise distinguish unset from false).
 	config.Graphics.TreesAsBillboards = true // crossed-standee trees on by default
-	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to a single plane
+	config.Graphics.TreeStandeeLODTiles = 12 // far trees degrade to one plane
 	config.Graphics.Standee.CoreTint = 1.0   // sprite-average standee core by default
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {

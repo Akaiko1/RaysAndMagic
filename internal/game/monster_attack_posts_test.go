@@ -1,6 +1,7 @@
 package game
 
 import (
+	"math"
 	"testing"
 
 	"ugataima/internal/collision"
@@ -147,6 +148,49 @@ func TestCombatAttackTransitIsWalkableSkipsArcAndTakesAoe(t *testing.T) {
 	game.combat.applyAoeSplash(holder, 40, "fire", monster.DamageFire, "test", 1, 0)
 	if transit.HitPoints >= transit.MaxHitPoints {
 		t.Fatal("AoE must still damage a transit mob sharing the post")
+	}
+}
+
+func TestCombatTransitVisualStackEasesAcrossTileBoundary(t *testing.T) {
+	game, gl, tileSize := tbBehaviorGame(t, 30, 30)
+	game.turnBasedMode = false
+	placePlayerAtTile(game, 14, 14, tileSize)
+
+	first := hostileMonsterAt(game, 16, 14, tileSize)
+	second := hostileMonsterAt(game, 16, 14, tileSize)
+	first.State = monster.StatePursuing
+	second.State = monster.StatePursuing
+	game.world.Monsters = []*monster.Monster3D{first, second}
+
+	gl.updateCombatTransitVisualStacks()
+	var follower *monster.Monster3D
+	for _, m := range game.world.Monsters {
+		if m.TransitStackIndex == 1 {
+			follower = m
+			break
+		}
+	}
+	if follower == nil || follower.TransitStackCount != 2 {
+		t.Fatal("setup: co-located pursuers did not form a visual transit stack")
+	}
+	fullX, fullY := bandFanOffset(1, 2, tileSize)
+	fullDistance := math.Hypot(fullX, fullY)
+	firstDistance := math.Hypot(follower.TransitStackOffsetX, follower.TransitStackOffsetY)
+	if firstDistance <= 0 || firstDistance >= fullDistance {
+		t.Fatalf("first transit fan step = %.2f, want an eased value between 0 and %.2f", firstDistance, fullDistance)
+	}
+
+	// Crossing one integer-tile boundary used to clear the complete fan offset
+	// in a single tick, producing the repeated snap/un-snap seen while two
+	// same-speed guards followed the same route.
+	follower.X += tileSize
+	gl.updateCombatTransitVisualStacks()
+	secondDistance := math.Hypot(follower.TransitStackOffsetX, follower.TransitStackOffsetY)
+	if follower.TransitStackCount != 0 {
+		t.Fatalf("separated pursuer still has transit stack count %d", follower.TransitStackCount)
+	}
+	if secondDistance <= 0 || secondDistance >= firstDistance {
+		t.Fatalf("released fan offset = %.2f, want a smooth decay from %.2f rather than an instant clear", secondDistance, firstDistance)
 	}
 }
 

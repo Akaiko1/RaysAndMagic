@@ -68,6 +68,11 @@ func TestDebugSim_OpenWorldJitter(t *testing.T) {
 			if s.spriteType != SpriteTypeEnvironment && s.spriteType != SpriteTypeTree {
 				continue
 			}
+			// A cross near another standee can contribute four globally sorted
+			// arm entries. Sample one stable representative per tree/frame.
+			if s.treeArmOnly && s.treeArmIndex != 0 {
+				continue
+			}
 			k := key{s.spriteType, s.tileX, s.tileY}
 			series[k] = append(series[k], sample{s.screenY, s.spriteSize, s.bottomF - s.sizeF, s.depthPerp, s.screenX})
 			order[k] = rank
